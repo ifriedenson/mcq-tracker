@@ -1623,6 +1623,8 @@ class PracticeView extends ItemView {
     else if (this.state === "result") this.renderResult(root);
     else if (this.state === "chat") this.renderChat(root);
     else this.renderIdle(root);
+    // two-pane screens scroll inside their panes, not the whole view
+    el.toggleClass("qt-no-scroll", root.hasClass("qt-wide"));
     this.tick();
   }
 

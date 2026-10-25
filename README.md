@@ -121,6 +121,7 @@ Question folder, review intervals, mistake types, confidence labels, whether the
 ## Privacy
 
 - No telemetry, analytics or ads.
+- To find your questions, the plugin lists the notes in your vault and checks each one's properties through Obsidian's metadata cache. It reads and writes only notes that have a `question_id`, and only inside your vault.
 - The plugin reads and writes notes inside your vault. The only things it touches outside your vault are the optional OpenCode folders described above.
 - The running timer is stored on your device (vault-scoped local storage), not in your notes.
 - The only network requests are the optional AI and download requests described above, and only if you enable them.

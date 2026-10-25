@@ -1,7 +1,8 @@
 name: Release
 
 # Push a tag like 1.0.0 (it must equal "version" in manifest.json) and this
-# publishes a GitHub release with the three files Obsidian installs from.
+# publishes a GitHub release with the three files Obsidian installs from,
+# plus signed build-provenance attestations for them.
 on:
   push:
     tags:
@@ -9,6 +10,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -23,6 +26,14 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match manifest version $V"
             exit 1
           fi
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
 
       - name: Create the release
         env:
