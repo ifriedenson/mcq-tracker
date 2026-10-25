@@ -1,0 +1,5 @@
+# Never commit your own settings: data.json can contain an API key.
+data.json
+node_modules/
+.DS_Store
+Thumbs.db

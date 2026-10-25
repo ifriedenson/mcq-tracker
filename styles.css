@@ -1,0 +1,835 @@
+/* Question Tracker - mobile-first (iPhone SE ~375px wide), scales up on desktop */
+
+.qt-root {
+  padding: 0;
+}
+
+.qt-wrap {
+  padding: 12px 14px 24px;
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.qt-wrap button,
+.qt-wrap select {
+  min-height: 44px; /* comfortable tap target */
+}
+
+.qt-wrap button {
+  height: auto;
+  white-space: normal;
+}
+
+.qt-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.qt-small-row button {
+  flex: 1;
+  min-height: 40px;
+  font-size: var(--font-ui-small);
+}
+
+.qt-grow {
+  flex: 1;
+}
+
+.qt-select {
+  width: 100%;
+}
+
+.qt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.qt-field label,
+.qt-label {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.qt-hint,
+.qt-count,
+.qt-empty,
+.qt-paused {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.qt-paused {
+  padding: 28px 8px;
+  text-align: center;
+  font-size: var(--font-ui-medium);
+}
+
+.qt-filters {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 8px 12px;
+}
+
+.qt-filters summary {
+  cursor: pointer;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  font-weight: var(--font-semibold);
+}
+
+.qt-primary {
+  width: 100%;
+  min-height: 48px !important;
+  font-size: var(--font-ui-medium);
+  margin-top: 6px;
+}
+
+/* question screen */
+
+.qt-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.qt-meta {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qt-timer-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.qt-timer {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+}
+
+.qt-timer.is-over {
+  color: var(--text-error);
+}
+
+.qt-icon-btn {
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qt-stem {
+  line-height: 1.5;
+}
+
+.qt-stem p:first-child {
+  margin-top: 0;
+}
+
+.qt-stem p:last-child {
+  margin-bottom: 0;
+}
+
+.qt-answers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.qt-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  justify-content: flex-start;
+  padding: 10px 12px;
+  min-height: 48px;
+}
+
+.qt-choice-text p {
+  margin: 0;
+}
+
+.qt-letter {
+  font-weight: var(--font-bold);
+  min-width: 1.4em;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.qt-choice.is-selected,
+.qt-conf.is-selected,
+.qt-chip.is-selected,
+.qt-fchip.is-selected {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.qt-choice.is-selected .qt-letter {
+  color: var(--text-on-accent);
+}
+
+.qt-spr {
+  width: 100%;
+  min-height: 44px;
+  font-size: 16px; /* stops iOS zooming into the field */
+}
+
+.qt-footer {
+  margin-top: 6px;
+}
+
+/* result screen */
+
+.qt-banner {
+  border-radius: var(--radius-m);
+  padding: 14px;
+  text-align: center;
+}
+
+.qt-banner.is-correct {
+  background: rgba(var(--color-green-rgb), 0.18);
+}
+
+.qt-banner.is-wrong {
+  background: rgba(var(--color-red-rgb), 0.18);
+}
+
+.qt-banner-title {
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-bold);
+}
+
+.qt-banner-sub {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.qt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-chip {
+  min-height: 40px !important;
+  border-radius: 20px;
+  padding: 0 14px;
+}
+
+.qt-rationale {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 8px 12px;
+}
+
+.qt-rationale summary {
+  cursor: pointer;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  font-weight: var(--font-semibold);
+}
+
+.qt-notes {
+  width: 100%;
+  font-size: 16px;
+  resize: vertical;
+}
+
+.qt-modal-input {
+  width: 100%;
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+
+.qt-modal-btn {
+  width: 100%;
+}
+
+@media (min-width: 700px) {
+  .qt-wrap {
+    padding: 18px 24px 32px;
+  }
+}
+
+/* read-only choices shown when a note has no answer key */
+.qt-choice-static {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  cursor: default;
+}
+
+.qt-readonly-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---- AI chat (OpenCode) ---- */
+
+.qt-ai {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 8px 12px;
+}
+
+.qt-ai summary {
+  cursor: pointer;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  font-weight: var(--font-semibold);
+}
+
+.qt-ai > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.qt-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.qt-msg {
+  border-radius: var(--radius-m);
+  padding: 8px 12px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.qt-msg.is-user {
+  background: var(--background-modifier-hover);
+  align-self: flex-end;
+}
+
+.qt-msg.is-assistant {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.qt-msg-text p:first-child {
+  margin-top: 0;
+}
+
+.qt-msg-text p:last-child {
+  margin-bottom: 0;
+}
+
+.qt-tool {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.qt-save-note {
+  margin-top: 6px;
+  min-height: 36px !important;
+  font-size: var(--font-ui-small);
+}
+
+.qt-error {
+  color: var(--text-error);
+  font-size: var(--font-ui-small);
+}
+
+.qt-chat-input {
+  flex: 1;
+  font-size: 16px;
+  resize: vertical;
+}
+
+/* ---- passage / stimulus ---- */
+
+.qt-stimulus {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 8px 14px;
+  margin-bottom: 12px;
+  max-height: 45vh;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+.qt-stimulus blockquote {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.qt-stimulus p:first-child {
+  margin-top: 0;
+}
+
+.qt-stimulus p:last-child {
+  margin-bottom: 0;
+}
+
+/* ================= exam layout (passage left, question right) ================= */
+
+.qt-wrap {
+  container-type: inline-size;
+}
+
+.qt-root:has(.qt-wide) {
+  overflow: hidden;
+}
+
+.qt-wrap.qt-wide {
+  max-width: none;
+  height: 100%;
+  padding: 0;
+  gap: 0;
+  margin: 0;
+}
+
+.qt-exam-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 6px 16px;
+  background: var(--background-secondary);
+  border-bottom: 2px dashed var(--background-modifier-border-hover);
+}
+
+.qt-exam-bar .qt-meta {
+  font-size: var(--font-ui-small);
+}
+
+.qt-exam-bar .qt-timer {
+  font-size: var(--font-ui-larger);
+}
+
+.qt-exam-bar .qt-icon-btn {
+  min-height: 36px;
+  box-shadow: none;
+  background: transparent;
+}
+
+.qt-exam-tools {
+  justify-self: end;
+  display: flex;
+  gap: 4px;
+}
+
+.qt-split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.qt-split.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.qt-pane {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.qt-pane-left {
+  border-right: 3px solid var(--background-modifier-border-hover);
+}
+
+.qt-split.is-single .qt-pane-right {
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+.qt-pane-left .qt-stimulus {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  max-height: none;
+  overflow: visible;
+}
+
+.qt-exam .qt-stimulus,
+.qt-exam .qt-stem,
+.qt-exam .qt-choice-text {
+  font-family: Georgia, "Times New Roman", Times, serif;
+}
+
+.qt-exam .qt-stimulus,
+.qt-exam .qt-stem {
+  font-size: 1.08em;
+  line-height: 1.6;
+}
+
+/* question header: number badge + flag */
+
+.qt-qhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--background-secondary);
+  border-bottom: 2px dashed var(--background-modifier-border-hover);
+  padding: 4px 8px 4px 0;
+}
+
+.qt-qnum {
+  background: var(--text-normal);
+  color: var(--background-primary);
+  font-weight: var(--font-bold);
+  padding: 6px 14px;
+  min-width: 36px;
+  text-align: center;
+}
+
+.qt-wrap .qt-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+
+.qt-flag-ic {
+  display: inline-flex;
+}
+
+.qt-wrap .qt-flag.is-on {
+  color: var(--interactive-accent);
+}
+
+/* answer choices */
+
+.qt-exam .qt-answers {
+  margin-top: 4px;
+  gap: 12px;
+}
+
+.qt-exam .qt-choice {
+  border: 2px solid var(--background-modifier-border-hover);
+  border-radius: 10px;
+  background: var(--background-primary);
+  box-shadow: none;
+  padding: 12px 16px;
+  min-height: 52px;
+}
+
+.qt-exam .qt-choice:not(.qt-choice-static):hover {
+  border-color: var(--text-faint);
+}
+
+.qt-exam .qt-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.qt-exam .qt-choice.is-selected {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
+  color: var(--text-normal);
+}
+
+.qt-exam .qt-choice.is-selected .qt-letter {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+/* controls under the choices: confidence, submit, skip/end */
+
+.qt-ctl {
+  position: sticky;
+  bottom: -28px;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0 28px;
+  background: var(--background-primary);
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.qt-foot-left {
+  display: flex;
+  gap: 8px;
+}
+
+.qt-foot-left button {
+  flex: 1;
+  min-height: 38px;
+  font-size: var(--font-ui-small);
+}
+
+.qt-foot-center {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qt-foot-right {
+  display: flex;
+}
+
+.qt-foot-label {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.qt-conf-row {
+  display: flex;
+  gap: 8px;
+}
+
+.qt-conf-row .qt-conf {
+  flex: 1;
+  min-height: 42px;
+  border-radius: 999px;
+}
+
+.qt-ctl .qt-submit {
+  flex: 1;
+  border-radius: 999px;
+  min-height: 46px;
+  font-weight: var(--font-semibold);
+}
+
+/* narrow views (phone, sidebar): stack the passage above the question */
+
+@container (max-width: 700px) {
+  .qt-split {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 38%) minmax(0, 1fr);
+  }
+
+  .qt-split.is-single {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .qt-pane {
+    padding: 12px 14px 20px;
+  }
+
+  .qt-pane-left {
+    border-right: none;
+    border-bottom: 3px solid var(--background-modifier-border-hover);
+  }
+}
+
+/* ---- result review ---- */
+
+.qt-hidden {
+  display: none !important;
+}
+
+.qt-review {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.qt-review .qt-answers {
+  margin-top: 0;
+  gap: 8px;
+}
+
+.qt-exam .qt-choice-static,
+.qt-review .qt-choice-static {
+  cursor: default;
+}
+
+.qt-choice.is-key {
+  border-color: var(--color-green);
+  background: color-mix(in srgb, var(--color-green) 12%, var(--background-primary));
+}
+
+.qt-choice.is-miss {
+  border-color: var(--color-red);
+  background: color-mix(in srgb, var(--color-red) 12%, var(--background-primary));
+}
+
+.qt-exam .qt-choice.is-key .qt-letter {
+  background: var(--color-green);
+  border-color: var(--color-green);
+  color: #fff;
+}
+
+.qt-exam .qt-choice.is-miss .qt-letter {
+  background: var(--color-red);
+  border-color: var(--color-red);
+  color: #fff;
+}
+
+.qt-tag {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.qt-wrap .qt-exp-btn {
+  min-height: 40px;
+}
+
+.qt-explanation {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 8px 14px;
+}
+
+.qt-explanation .qt-stem {
+  line-height: 1.55;
+}
+
+/* ---- result top bar and layout ---- */
+
+.qt-banner.qt-resbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  text-align: left;
+  padding: 10px 14px;
+}
+
+.qt-res-left {
+  min-width: 0;
+}
+
+.qt-res-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.qt-res-actions button {
+  min-height: 38px;
+}
+
+.qt-wrap .qt-res-flag.is-on {
+  color: var(--interactive-accent);
+}
+
+.qt-notes-big {
+  min-height: 160px;
+  line-height: 1.5;
+}
+
+.qt-pair {
+  gap: 8px;
+}
+
+.qt-pair .qt-exp-btn.is-selected {
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
+}
+
+.qt-wrap .qt-done {
+  min-height: 36px;
+  font-size: var(--font-ui-small);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+
+/* ---- multi-select filters ---- */
+
+.qt-fset {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 8px 10px;
+  margin-top: 8px;
+}
+
+.qt-fset-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: var(--font-semibold);
+  margin-bottom: 4px;
+}
+
+.qt-or {
+  text-align: center;
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-bold);
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  margin-top: 8px;
+}
+
+.qt-field-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.qt-wrap .qt-link {
+  min-height: 28px;
+  height: auto;
+  padding: 0 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-accent);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-fchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qt-wrap .qt-fchip {
+  min-height: 34px;
+  border-radius: 17px;
+  padding: 0 12px;
+  font-size: var(--font-ui-small);
+}
+
+.qt-wrap .qt-add-set {
+  width: 100%;
+  margin-top: 10px;
+  min-height: 38px;
+}
