@@ -6,8 +6,24 @@
  * and the running timer.
  */
 const obsidian = require("obsidian");
-const { Plugin, ItemView, PluginSettingTab, Setting, Modal, Notice, MarkdownRenderer, Platform, TFile, setIcon, requestUrl } =
-  obsidian;
+const {
+  Plugin,
+  ItemView,
+  PluginSettingTab,
+  Setting,
+  Modal,
+  Notice,
+  MarkdownRenderer,
+  Platform,
+  TFile,
+  setIcon,
+  requestUrl,
+  loadPdfJs,
+  stringifyYaml,
+  parseYaml,
+  normalizePath,
+  AbstractInputSuggest,
+} = obsidian;
 
 const VIEW_TYPE = "question-tracker-view";
 
@@ -40,6 +56,7 @@ const DEFAULT_SETTINGS = {
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
     managed: true, // plugin starts and stops OpenCode itself (it never downloads anything unless you press the button)
+    preStart: false, // start OpenCode in the background when Obsidian opens, so the first chat doesn't wait
     binaryPath: "", // optional: use this opencode program instead
     managedBinary: "",
     installedVersion: "",
@@ -54,6 +71,9 @@ const DEFAULT_SETTINGS = {
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", keys: {} },
   },
   presets: [],
+  importFolder: "",
+  importDefaults: {},
+  importOptions: { capture: true, pagePics: false },
   filters: {},
   moreSets: [], // extra filter sets, OR'd with `filters`
   mode: "smart",
@@ -212,7 +232,7 @@ function tidyStimulus(text) {
   const paras = [];
   let last = "";
   for (const t of texts) {
-    const ended = /[.!?:;"”’)\]*_]$/.test(last);
+    const ended = /[.!?:;"”’)\]*_]$/.test(last) || /^!\[\[/.test(last) || /^!\[\[/.test(t);
     const lastShort = last.length < maxLen * 0.75; // a wrapped line runs close to full width; a paragraph's last line falls short
     if (paras.length && !(ended && lastShort)) paras[paras.length - 1] += " " + t;
     else paras.push(t);
@@ -917,7 +937,7 @@ class OpenCodeManager {
       if (!bin) throw new Error("The download didn't contain an opencode program.");
       if (process.platform !== "win32") fs.chmodSync(bin, 0o755);
 
-      progress("Checking that it runs...");
+      progress("Checking that it runs (the first run can take a minute while antivirus checks it)...");
       let v = await this.version(bin);
       if (!v && process.platform === "darwin") {
         try {
@@ -1021,7 +1041,8 @@ class OpenCodeManager {
     this.conn = { url: `http://127.0.0.1:${port}`, username: "opencode", password };
 
     const client = new OpenCodeClient(this.conn);
-    for (let i = 0; i < 80; i++) {
+    const t0 = Date.now();
+    for (let i = 0; i < 180; i++) {
       if (!this.isRunning()) {
         const out = this.tail.replace(/\x1b\[[0-9;]*m/g, "").replace(/\[[0-9;]*m/g, "").trim();
         if (!retried && /Database is not empty|no session table/i.test(out) && this.quarantineDb()) {
@@ -1034,11 +1055,15 @@ class OpenCodeManager {
         await client.health();
         return;
       } catch (e) {
+        if (i % 2 === 1) {
+          const secs = Math.round((Date.now() - t0) / 1000);
+          progress(secs > 10 ? `Starting OpenCode... ${secs}s (the first start is slow while antivirus checks the program)` : `Starting OpenCode... ${secs}s`);
+        }
         await sleep(500);
       }
     }
     this.stop();
-    throw new Error(`OpenCode didn't become ready within 40 seconds. ${this.tail.trim().slice(-300)}`);
+    throw new Error(`OpenCode didn't become ready within 90 seconds. ${this.tail.trim().slice(-300)}`);
   }
 
   stop() {
@@ -1139,7 +1164,7 @@ class ApiClient {
       model: str(a.model).trim(),
     };
   }
-  async chat(system, messages) {
+  async chat(system, messages, opts) {
     const { preset, base, key, model } = this.cfg();
     if (!base) throw new Error("Add a base URL in the plugin settings.");
     if (!model) throw new Error("Add a model name in the plugin settings.");
@@ -1151,7 +1176,7 @@ class ApiClient {
     if (preset.kind === "anthropic") {
       url = `${base}/v1/messages`;
       headers = { "x-api-key": key, "anthropic-version": "2023-06-01" };
-      body = { model, max_tokens: 1500, system, messages: msgs };
+      body = { model, max_tokens: (opts && opts.maxTokens) || 1500, system, messages: msgs };
     } else {
       url = `${base}/chat/completions`;
       headers = key ? { Authorization: `Bearer ${key}` } : {};
@@ -1358,7 +1383,7 @@ class ChatPanel {
     } catch (e) {
       this.error = friendlyError(e, plugin.openCode().base());
     } finally {
-      if (timer) window.clearInterval(timer);
+      if (timer) activeWindow.clearInterval(timer);
       this.setBusy(false);
       if (sid) await this.refresh(sid);
       else this.draw();
@@ -1444,6 +1469,1182 @@ class ChatPanel {
 }
 
 /* ------------------------------------------------------------------- view */
+
+/* ------------------------------------------------------------ PDF import (AI) */
+
+function parsePageRange(spec, total) {
+  const s = str(spec).trim();
+  if (!s) return Array.from({ length: total }, (_, i) => i + 1);
+  const set = new Set();
+  for (const part of s.split(",")) {
+    const m = part.trim().match(/^(\d+)(?:\s*-\s*(\d+))?$/);
+    if (!m) throw new Error(`I couldn't read the page range "${s}". Use something like 1-10 or 2,4,6-8.`);
+    const a = Number(m[1]);
+    const b = m[2] ? Number(m[2]) : a;
+    for (let p = Math.min(a, b); p <= Math.max(a, b); p++) if (p >= 1 && p <= total) set.add(p);
+  }
+  const out = [...set].sort((x, y) => x - y);
+  if (!out.length) throw new Error(`That page range has no pages (the PDF has ${total}).`);
+  return out;
+}
+
+/** 2D matrix product, the same one pdf.js uses for [a b c d e f] transforms. */
+function matMul(a, b) {
+  return [
+    a[0] * b[0] + a[2] * b[1],
+    a[1] * b[0] + a[3] * b[1],
+    a[0] * b[2] + a[2] * b[3],
+    a[1] * b[2] + a[3] * b[3],
+    a[0] * b[4] + a[2] * b[5] + a[4],
+    a[1] * b[4] + a[3] * b[5] + a[5],
+  ];
+}
+
+/** Text lines with their vertical position (in the page picture's pixels), in reading order. */
+function itemsToLines(items, viewport) {
+  const lines = [];
+  let cur = null;
+  for (const it of items) {
+    if (!it || typeof it.str !== "string") continue;
+    const y = it.transform && viewport ? matMul(viewport.transform, it.transform)[5] : null;
+    if (!cur || (y !== null && cur.y !== null && Math.abs(y - cur.y) > 3)) {
+      cur = { text: "", y };
+      lines.push(cur);
+    }
+    cur.text += it.str;
+    if (it.hasEOL) cur = null;
+  }
+  return lines.map((l) => ({ text: l.text.replace(/[ \t]+$/, ""), y: l.y })).filter((l) => l.text.trim());
+}
+
+/** Where each piece of text sits on the page picture, so figures can be told apart from text. */
+function textBoxes(items, viewport) {
+  const out = [];
+  for (const it of items) {
+    if (!it || typeof it.str !== "string" || !it.str.trim() || !it.transform) continue;
+    const t = matMul(viewport.transform, it.transform);
+    const w = (it.width || 0) * viewport.scale;
+    const h = (it.height || 0) * viewport.scale;
+    out.push({ x0: t[4], x1: t[4] + w, y0: t[5] - h, y1: t[5] + h * 0.25, s: it.str.trim() });
+  }
+  return out;
+}
+
+function figMarker(f) {
+  return `[FIGURE page ${f.page}: ![[${f.path}]]${f.pagePath ? ` (the whole page: ![[${f.pagePath}]])` : ""}]`;
+}
+
+/** The page's text with a marker line where each figure sits. */
+function pageText(lines, figs) {
+  const out = [];
+  const pending = [...figs].sort((a, b) => a.y0 - b.y0);
+  for (const l of lines) {
+    while (pending.length && l.y !== null && l.y >= pending[0].y0) out.push(figMarker(pending.shift()));
+    out.push(l.text);
+  }
+  for (const f of pending) out.push(figMarker(f));
+  return out.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+/**
+ * Finds pictures, charts and diagrams on a rendered page: anything that is ink but not text.
+ * data is RGBA pixels (W x H). boxes are the text boxes in the same pixel units. Returns pixel boxes.
+ */
+function detectFigures(data, W, H, boxes, scale) {
+  const cell = Math.max(4, Math.round(3 * scale));
+  const gw = Math.ceil(W / cell);
+  const gh = Math.ceil(H / cell);
+  const mask = new Uint8Array(W * H);
+  for (const b of boxes) {
+    const x0 = Math.max(0, Math.floor(b.x0 - 1));
+    const x1 = Math.min(W, Math.ceil(b.x1 + 1));
+    const y0 = Math.max(0, Math.floor(b.y0 - 1));
+    const y1 = Math.min(H, Math.ceil(b.y1 + 1));
+    for (let y = y0; y < y1; y++) mask.fill(1, y * W + x0, y * W + x1);
+  }
+  const ink = new Uint8Array(gw * gh);
+  for (let y = 0; y < H; y++) {
+    const gy = (y / cell) | 0;
+    for (let x = 0; x < W; x++) {
+      if (mask[y * W + x]) continue;
+      const i = (y * W + x) * 4;
+      if (data[i + 3] < 20) continue;
+      if ((data[i] + data[i + 1] + data[i + 2]) / 3 < 235) ink[gy * gw + ((x / cell) | 0)] = 1;
+    }
+  }
+
+  // group nearby ink into blobs
+  const r = Math.max(2, Math.ceil((8 * scale) / cell));
+  const seen = new Uint8Array(gw * gh);
+  const comps = [];
+  for (let s = 0; s < ink.length; s++) {
+    if (!ink[s] || seen[s]) continue;
+    const stack = [s];
+    seen[s] = 1;
+    let minx = 1e9, maxx = -1, miny = 1e9, maxy = -1, n = 0;
+    while (stack.length) {
+      const c = stack.pop();
+      const cx = c % gw;
+      const cy = (c / gw) | 0;
+      n++;
+      if (cx < minx) minx = cx;
+      if (cx > maxx) maxx = cx;
+      if (cy < miny) miny = cy;
+      if (cy > maxy) maxy = cy;
+      for (let dy = -r; dy <= r; dy++) {
+        const ny = cy + dy;
+        if (ny < 0 || ny >= gh) continue;
+        for (let dx = -r; dx <= r; dx++) {
+          const nx = cx + dx;
+          if (nx < 0 || nx >= gw) continue;
+          const k = ny * gw + nx;
+          if (ink[k] && !seen[k]) {
+            seen[k] = 1;
+            stack.push(k);
+          }
+        }
+      }
+    }
+    comps.push({ x0: minx * cell, y0: miny * cell, x1: (maxx + 1) * cell, y1: (maxy + 1) * cell, n });
+  }
+
+  const minSide = 28 * scale;
+  let figs = [];
+  for (const c of comps) {
+    const w = c.x1 - c.x0;
+    const h = c.y1 - c.y0;
+    if (w < minSide || h < minSide) continue; // specks, bullets, icons
+    if ((w > 0.5 * W && h < 12 * scale) || (h > 0.5 * H && w < 12 * scale)) continue; // rules and borders
+    if (c.y1 < 0.07 * H || c.y0 > 0.93 * H) continue; // logos in the header and footer
+    if (w * h > 0.85 * W * H) continue; // a page frame
+    if ((c.n * cell * cell) / (w * h) < 0.01) continue; // almost nothing in it
+    let tArea = 0;
+    for (const b of boxes) {
+      const ox = Math.min(c.x1, b.x1) - Math.max(c.x0, b.x0);
+      const oy = Math.min(c.y1, b.y1) - Math.max(c.y0, b.y0);
+      if (ox > 0 && oy > 0) tArea += ox * oy;
+    }
+    if (tArea / (w * h) > 0.35) continue; // a shaded box that is mostly text
+    figs.push({ x0: c.x0, y0: c.y0, x1: c.x1, y1: c.y1 });
+  }
+
+  // take in axis labels and captions that sit on or right next to the figure
+  const pad = 6 * scale;
+  const reach = 20 * scale;
+  for (const f of figs) {
+    const g = { x0: f.x0 - pad, y0: f.y0 - pad, x1: f.x1 + pad, y1: f.y1 + pad };
+    const near = { x0: f.x0 - reach, y0: f.y0 - reach, x1: f.x1 + reach, y1: f.y1 + reach };
+    for (const b of boxes) {
+      const area = (b.x1 - b.x0) * (b.y1 - b.y0);
+      if (area <= 0) continue;
+      const label = typeof b.s === "string" && b.s.length <= 24 && b.x1 - b.x0 < 0.3 * W; // a tick, a label, a legend entry
+      const g2 = label ? near : g;
+      const ox = Math.min(g2.x1, b.x1) - Math.max(g2.x0, b.x0);
+      const oy = Math.min(g2.y1, b.y1) - Math.max(g2.y0, b.y0);
+      if (ox > 0 && oy > 0 && (ox * oy) / area >= (label ? 0.5 : 0.6)) {
+        f.x0 = Math.min(f.x0, b.x0);
+        f.y0 = Math.min(f.y0, b.y0);
+        f.x1 = Math.max(f.x1, b.x1);
+        f.y1 = Math.max(f.y1, b.y1);
+      }
+    }
+    const m = 4 * scale;
+    f.x0 = Math.max(0, f.x0 - m);
+    f.y0 = Math.max(0, f.y0 - m);
+    f.x1 = Math.min(W, f.x1 + m);
+    f.y1 = Math.min(H, f.y1 + m);
+  }
+
+  // merge boxes that overlap
+  let merged = true;
+  while (merged) {
+    merged = false;
+    outer: for (let i = 0; i < figs.length; i++) {
+      for (let j = i + 1; j < figs.length; j++) {
+        const a = figs[i];
+        const b = figs[j];
+        if (a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1) {
+          figs[i] = { x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) };
+          figs.splice(j, 1);
+          merged = true;
+          break outer;
+        }
+      }
+    }
+  }
+  return figs.sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0).slice(0, 8);
+}
+
+async function renderPage(page, scale) {
+  const viewport = page.getViewport({ scale });
+  const canvas = activeDocument.createElement("canvas");
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport, canvas }).promise;
+  return { canvas, ctx, viewport };
+}
+
+function canvasToPng(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(async (blob) => {
+      if (!blob) return reject(new Error("The picture couldn't be created."));
+      resolve(await blob.arrayBuffer());
+    }, "image/png");
+  });
+}
+
+function cropToPng(canvas, box) {
+  const w = Math.max(1, Math.ceil(box.x1 - box.x0));
+  const h = Math.max(1, Math.ceil(box.y1 - box.y0));
+  const c = activeDocument.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  c.getContext("2d").drawImage(canvas, box.x0, box.y0, w, h, 0, 0, w, h);
+  return canvasToPng(c).finally(() => {
+    c.width = 0;
+  });
+}
+
+/**
+ * Reads the chosen pages. When `cap` is given, every page is also drawn so pictures can be cut out
+ * and saved: cap = { prefix, scale, pages, save(name, arrayBuffer) -> vault path }.
+ */
+async function readPdfPages(buf, spec, progress, cap) {
+  if (typeof loadPdfJs !== "function") throw new Error("This version of Obsidian can't read PDFs from plugins.");
+  const pdfjs = await loadPdfJs();
+  let doc;
+  try {
+    doc = await pdfjs.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+  } catch (e) {
+    throw new Error("I couldn't open that PDF. It may be damaged or password protected.");
+  }
+  try {
+    const wanted = parsePageRange(spec, doc.numPages);
+    const pages = [];
+    const warnings = [];
+    let figCount = 0;
+    for (let i = 0; i < wanted.length; i++) {
+      const n = wanted[i];
+      progress(`Reading page ${n} (${i + 1} of ${wanted.length})...`);
+      const page = await doc.getPage(n);
+      const tc = await page.getTextContent();
+      const pad2 = String(n).padStart(2, "0");
+      let figs = [];
+      let vp = page.getViewport({ scale: 1 });
+      if (cap) {
+        try {
+          const { canvas, ctx, viewport } = await renderPage(page, cap.scale || 2);
+          vp = viewport;
+          const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const found = detectFigures(img.data, canvas.width, canvas.height, textBoxes(tc.items, viewport), viewport.scale);
+          let pagePath = "";
+          if (cap.pages) pagePath = await cap.save(`${cap.prefix}-p${pad2}.png`, await canvasToPng(canvas));
+          let k = 0;
+          for (const f of found) {
+            k++;
+            const path = await cap.save(`${cap.prefix}-p${pad2}-fig${k}.png`, await cropToPng(canvas, f));
+            figs.push({ page: n, y0: f.y0, path, pagePath });
+            figCount++;
+          }
+          canvas.width = 0;
+        } catch (e) {
+          warnings.push(`Page ${n}: couldn't capture pictures (${e && e.message ? e.message : e}).`);
+        }
+      }
+      pages.push({ n, text: pageText(itemsToLines(tc.items, vp), figs), figs: figs.length });
+    }
+    return { pages, total: doc.numPages, warnings, figCount };
+  } finally {
+    try {
+      await doc.destroy();
+    } catch (e) {
+      /* ignore */
+    }
+  }
+}
+
+/** Groups pages into batches; the last page of a batch is repeated at the start of the next so a split question is seen whole. */
+function chunkPages(pages, maxChars, maxPages) {
+  const real = pages.filter((p) => p.text.trim().length > 20);
+  const chunks = [];
+  let i = 0;
+  while (i < real.length) {
+    let chars = 0;
+    let j = i;
+    while (j < real.length && j - i < maxPages && (j === i || chars + real[j].text.length <= maxChars)) {
+      chars += real[j].text.length;
+      j++;
+    }
+    chunks.push(real.slice(i, j));
+    if (j >= real.length) break;
+    i = j > i + 1 ? j - 1 : j;
+  }
+  return chunks;
+}
+
+function chunkText(chunk) {
+  return chunk.map((p) => `--- Page ${p.n} ---\n${p.text.trim()}`).join("\n\n");
+}
+
+function slugId(s) {
+  return str(s).toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "Q";
+}
+
+async function ensureFolder(app, folder) {
+  const clean = normalizePath(str(folder).trim() || "/");
+  if (clean === "/" || clean === "") return "";
+  let cur = "";
+  for (const part of clean.split("/").filter(Boolean)) {
+    cur = cur ? `${cur}/${part}` : part;
+    if (!app.vault.getAbstractFileByPath(cur)) await app.vault.createFolder(cur);
+  }
+  return cur;
+}
+
+class FolderSuggest extends AbstractInputSuggest {
+  constructor(app, inputEl) {
+    super(app, inputEl);
+    this.inputEl = inputEl;
+  }
+  getSuggestions(query) {
+    const q = str(query).toLowerCase();
+    return this.app.vault
+      .getAllFolders(false)
+      .filter((f) => f.path.toLowerCase().includes(q))
+      .slice(0, 20);
+  }
+  renderSuggestion(f, el) {
+    el.setText(f.path);
+  }
+  selectSuggestion(f) {
+    this.inputEl.value = f.path;
+    this.inputEl.dispatchEvent(new Event("input"));
+    this.close();
+  }
+}
+
+/* ---- note format, rules and prompts shared by both import methods */
+
+const IMPORT_FORMAT = `---
+question_id: PREFIX-Q01
+number: 1
+question_type: mcq
+choices: 4
+answer: B
+answer_source: pdf
+explanation_source: pdf
+stimulus_id: PREFIX-S01
+---
+
+## Stimulus
+> The passage, table or data the question depends on. Every line starts with "> ".
+
+## Question
+The question text.
+
+## Answer Choices
+- A. First choice
+- B. Second choice
+- C. Third choice
+- D. Fourth choice
+
+## Answer
+> [!answer]- Reveal answer
+> **Correct Answer: B**
+>
+> The explanation.
+
+## My Notes
+`;
+
+const IMPORT_RULES = `Rules:
+- Make one note per question. Copy the question, passage and choices exactly as written. Only remove page numbers, running headers and footers, and line-break hyphenation. Never paraphrase, shorten or "fix" them.
+- Passage: one passage (stimulus) can have several questions, and those questions can be on later pages than the passage, even on the next page or after other pages. Work out which passage each question belongs to from its wording ("Text 1", "the passage", "the graph", "the table above" and so on) and from the order of the pages. Put the full passage under "## Stimulus" in EVERY question that uses it, repeated word for word, and give those questions the same stimulus_id. If a question has no passage, leave out the "## Stimulus" section and the stimulus_id line. Use markdown tables for tables and $...$ for math.
+- Pictures: lines like [FIGURE page 3: ![[path/to/picture.png]]] in the text mark a picture, chart, diagram, photo or table image in the PDF at that spot. If a question or its passage depends on it, copy the exact ![[path]] part to where it belongs: on its own "> " line inside the Stimulus when it is part of the passage or data, inside the question text when it is shown with the question, or inside an answer choice (- A. ![[path]]) when the choice is a picture. Use the paths exactly as given and never invent one. If a "whole page" picture is also listed, use it only when the cropped figure is clearly cut off. If the text says a figure is needed and no marker is there, write "> [Figure not captured]" in the Stimulus and carry on.
+- question_type is "mcq" when the question has answer choices (list them under "## Answer Choices" as "- A. text") and "choices" is how many there are. For a question with no answer choices, use "spr", leave out "## Answer Choices", and put the answer value in "answer".
+- Answer: if the PDF shows the correct answer anywhere (for example an answer key at the end), use it and set answer_source: pdf. If the PDF does NOT show it, work the question out carefully yourself, give your best answer, and set answer_source: ai. For a multiple-choice answer use just the letter.
+- Explanation: if the PDF gives one, copy it and set explanation_source: pdf. Otherwise write a short, correct explanation of why the answer is right (and why the others are wrong) and set explanation_source: ai.
+- Do not write any "AI-generated" notice yourself. The plugin adds it.
+- Never put a line starting with # inside the question, passage, choices or explanation.
+- Do not add any properties other than those in the example, plus "skill" only if the PDF labels it.
+- Leave out anything that is not a question (directions, ads, blank pages).`;
+
+function agentPrompt(o) {
+  const meta = [["test", o.meta.test], ["course", o.meta.course], ["section", o.meta.section], ["domain", o.meta.domain], ["unit", o.meta.unit], ["difficulty", o.meta.difficulty], ["skill", o.meta.skill]]
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n");
+  return [
+    `Import every question from the PDF "${o.name}" into notes.`,
+    "",
+    "Files (paths are relative to the folder you are working in):",
+    `- The PDF's text, with page markers: ${o.textPath}`,
+    `- The PDF itself: ${o.pdfPath}`,
+    `- Pictures cut from the PDF are in ${o.imagesDir}. Their paths appear in the text as [FIGURE ...] markers, so you don't need to open them.`,
+    "",
+    `Create the notes in this folder, which already exists: ${o.folder}`,
+    `Use one file per question, named ${o.prefix}-Q01.md, ${o.prefix}-Q02.md and so on. If the PDF's own question numbers are all unique, use them (padded to two digits) instead. Use the prefix "${o.prefix}" for question_id and stimulus_id values too, and make question_id match the file name.`,
+    meta ? `\nAdd these properties to every note exactly as written:\n${meta}` : "",
+    "",
+    "Use exactly this format for every note:",
+    "```",
+    IMPORT_FORMAT.replace(/PREFIX/g, o.prefix),
+    "```",
+    "",
+    IMPORT_RULES,
+    "",
+    "Work through the whole PDF. Remember that a passage can be on an earlier page than its questions, so read the whole text before deciding which passage a question belongs to. Do not create, change or delete any file outside that folder, and do not delete anything. When you are done, reply with one short line: how many notes you created, and how many contain an answer or explanation you wrote yourself.",
+  ]
+    .filter((l) => l !== undefined)
+    .join("\n");
+}
+
+const AGENT_SYSTEM = "You are importing practice-test questions from a PDF into an Obsidian vault. Work only inside the folder you are told to use. Be accurate and complete: every question in the PDF must become exactly one note.";
+
+const API_SYSTEM = `You turn pages of a practice-test PDF into Obsidian notes.
+Reply with the notes only. Start each note with a line containing exactly =====NOTE===== and then the complete note, starting with the --- line. No other text and no code fences.
+
+Use exactly this format for every note (leave question_id as PREFIX-Q01; it is replaced later):
+
+${IMPORT_FORMAT}
+${IMPORT_RULES}
+- If a question is cut off at the start or end of the pages you are given so that it is incomplete, leave it out. It is included in the next batch.
+- If a block called ANSWER KEY FROM ELSEWHERE IN THE PDF is given, use it for answers and explanations (answer_source: pdf, explanation_source: pdf).
+- If a block called PASSAGES CARRIED OVER FROM EARLIER PAGES is given, those passages are on pages before the ones you were sent. Questions at the start of your pages that need a passage which isn't in your pages belong to one of them. Copy that passage exactly into those notes.`;
+
+function localDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function parseNote(text) {
+  const t = str(text).replace(/\r\n/g, "\n");
+  const m = t.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  let fm = {};
+  let body = t;
+  if (m) {
+    try {
+      fm = parseYaml(m[1]) || {};
+    } catch (e) {
+      fm = {};
+    }
+    body = m[2];
+  }
+  if (!fm || typeof fm !== "object" || Array.isArray(fm)) fm = {};
+  return { fm, body, sec: parseSections(body) };
+}
+
+/** Splits an AI reply into notes. */
+function splitNotes(reply) {
+  const t = str(reply).replace(/```(?:markdown|md|yaml)?\s*\n/gi, "").replace(/\n```\s*(?=\n|$)/g, "\n");
+  return t
+    .split(/^=====NOTE=====\s*$/m)
+    .map((b) => b.trim())
+    .filter((b) => /^---\s*\n/.test(b));
+}
+
+/** Pages that look like an answer key or rationale section, so every batch can see them. */
+function answerKeyText(pages) {
+  const hits = pages.filter((p) => {
+    const t = p.text;
+    if (/answer\s*key|answers?\s*(and|&)\s*(explanations|rationales)|answer\s*explanations/i.test(t)) return true;
+    return (t.match(/(?:^|\s)\d{1,3}\s*[.)\-:]\s*[A-Da-d](?=\s|$)/g) || []).length >= 8;
+  });
+  return hits.map((p) => `--- Page ${p.n} ---\n${p.text.trim()}`).join("\n\n").slice(0, 7000);
+}
+
+async function extractNotesChunk(client, chunk, keyText, carry) {
+  const inChunk = new Set(chunk.map((p) => p.n));
+  const key = keyText && !chunk.some((p) => keyText.includes(`--- Page ${p.n} ---`) && inChunk.has(p.n)) ? keyText : "";
+  const user =
+    `Pages ${chunk[0].n}-${chunk[chunk.length - 1].n} of the PDF:\n\n${chunkText(chunk)}` +
+    (key ? `\n\nANSWER KEY FROM ELSEWHERE IN THE PDF:\n${key}` : "") +
+    (carry && carry.length ? `\n\nPASSAGES CARRIED OVER FROM EARLIER PAGES:\n${carry.map((c, i) => `[Passage ${i + 1}]\n${c}`).join("\n\n")}` : "");
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const reply = await client.chat(API_SYSTEM, [{ role: "user", content: user }], { maxTokens: 8000 });
+      return splitNotes(reply);
+    } catch (e) {
+      lastErr = e;
+      if (attempt === 0) await sleep(1500);
+    }
+  }
+  throw lastErr;
+}
+
+function noteSig(parsed) {
+  const norm = (t, n) => str(t).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, n);
+  const s = parsed.sec;
+  const num = str(parsed.fm.number).trim();
+  // a question seen twice (overlapping batches) may have a passage in one copy and not the other, so the passage only counts when there is no question number
+  return [num, norm(s.question, 80), num ? "" : norm(s.stimulus, 40), norm(s.choices[0] ? s.choices[0].text : "", 30)].join("|");
+}
+
+/** The passages of the last few notes, so the next batch can attach questions to a passage from the page before. */
+function carryPassages(blocks) {
+  const seen = new Set();
+  const out = [];
+  for (const text of [...blocks].reverse()) {
+    const st = str(parseNote(text).sec.stimulus).trim();
+    const key = st.toLowerCase().replace(/\s+/g, " ");
+    if (!st || seen.has(key)) continue;
+    seen.add(key);
+    out.push(st.slice(0, 4000));
+    if (out.length >= 2) break;
+  }
+  return out.reverse();
+}
+
+/** Keeps the longest copy of each question (a question seen in two overlapping batches). */
+function mergeNotes(blocks) {
+  const all = [];
+  for (const text of blocks) {
+    const parsed = parseNote(text);
+    if (!str(parsed.sec.question).trim()) continue;
+    const item = { text, ...parsed, include: true, sig: noteSig(parsed), size: text.length };
+    const i = all.findIndex((x) => x.sig === item.sig);
+    if (i < 0) all.push(item);
+    else if (item.size > all[i].size) all[i] = item;
+  }
+  return all;
+}
+
+function aiFlags(fm, sec) {
+  const ans = str(fm.answer).trim();
+  const rat = extractRationale(str(sec.answer))
+    .replace(/\*\*\s*Correct Answer[^*\n]*\*\*/i, "")
+    .trim();
+  return {
+    hasAnswer: !!ans,
+    hasExp: !!rat,
+    aiAnswer: !!ans && str(fm.answer_source).toLowerCase() !== "pdf",
+    aiExp: !!rat && str(fm.explanation_source).toLowerCase() !== "pdf",
+  };
+}
+
+/**
+ * Turns the AI's note into the final note: tidy properties, tracking fields, and, when the AI wrote
+ * the answer or explanation, a notice at the top naming the model and the date.
+ */
+function finalizeNote(text, meta, qid, stamp) {
+  const { fm: src, body, sec } = parseNote(text);
+  const fm = { question_id: qid };
+  const num = src.number === null || src.number === undefined || src.number === "" ? NaN : Number(src.number);
+  if (Number.isFinite(num)) fm.number = num;
+  for (const k of ["test", "course", "section", "domain"]) {
+    const v = meta[k] || src[k];
+    if (v) fm[k] = v;
+  }
+  const skill = meta.skill || src.skill;
+  if (skill) fm.skill = skill;
+  const unit = meta.unit || src.unit;
+  if (unit !== undefined && unit !== null && unit !== "") fm.unit = /^\d+$/.test(str(unit)) ? Number(unit) : unit;
+  const diff = meta.difficulty || src.difficulty;
+  if (diff) fm.difficulty = diff;
+  if (meta.source) fm.source = meta.source;
+  const stimId = stamp.stimId !== undefined ? stamp.stimId : src.stimulus_id;
+  if (stimId && str(sec.stimulus).trim()) fm.stimulus_id = str(stimId);
+
+  const type = sec.choices.length ? "mcq" : "spr";
+  fm.question_type = type;
+  if (type === "mcq") fm.choices = sec.choices.length;
+  let ans = str(src.answer).trim();
+  if (type === "mcq") {
+    const m = ans.match(/^\(?([A-Ha-h])(?![A-Za-z])/);
+    ans = m ? m[1].toUpperCase() : "";
+  }
+  if (ans) fm.answer = ans;
+  const f = aiFlags({ ...src, answer: ans }, sec);
+  if (f.hasAnswer) fm.answer_source = f.aiAnswer ? "ai" : "pdf";
+  if (f.hasExp) fm.explanation_source = f.aiExp ? "ai" : "pdf";
+  const ai = f.aiAnswer || f.aiExp;
+  if (ai) {
+    fm.ai_model = stamp.model;
+    fm.ai_generated = stamp.date;
+  }
+  fillDefaults(fm);
+
+  let cleaned = body.replace(/^\s*> \[!warning\] AI-generated[^\n]*(?:\n>[^\n]*)*\n+/i, "").trim();
+  let notice = "";
+  if (ai) {
+    const what = f.aiAnswer && f.aiExp ? "answer and explanation" : f.aiAnswer ? "answer" : "explanation";
+    notice =
+      `> [!warning] AI-generated ${what}\n` +
+      `> Written by ${stamp.model} on ${stamp.date}${f.aiAnswer ? ", because the PDF did not show the answer" : ""}. Check it before you rely on it.\n\n`;
+  }
+  return `---\n${stringifyYaml(fm).trimEnd()}\n---\n\n${notice}${cleaned}\n`;
+}
+
+async function ensureProviders(oc) {
+  let n = null;
+  try {
+    const cp = await oc.providers();
+    if (cp && Array.isArray(cp.providers)) n = cp.providers.length;
+  } catch (e) {
+    return;
+  }
+  if (n === 0) {
+    throw new Error("OpenCode has no AI provider connected yet. Open Settings > MCQ Tracker > AI assistant, choose a provider and paste an API key.");
+  }
+}
+
+function modelFromMessages(msgs) {
+  for (const m of [...(Array.isArray(msgs) ? msgs : [])].reverse()) {
+    const i = m && m.info;
+    if (i && i.role !== "user") {
+      const id = i.modelID || (i.model && i.model.modelID);
+      const prov = i.providerID || (i.model && i.model.providerID);
+      if (id) return prov ? `${prov}/${id}` : id;
+    }
+  }
+  return "";
+}
+
+class PdfImportModal extends Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+    this.file = null; // a File chosen from the device
+    this.vaultPdf = ""; // or a PDF path inside the vault
+    this.stop = false;
+    this.closed = false;
+    this.items = [];
+    this.warnings = [];
+    this.folderTouched = false;
+    const st = plugin.settings;
+    this.meta = Object.assign(
+      { test: "", course: "", section: "", domain: "", skill: "", unit: "", difficulty: "", prefix: "", start: "1", pages: "" },
+      st.importDefaults || {}
+    );
+    this.opts = Object.assign({ capture: true, pagePics: false }, st.importOptions || {});
+    this.parent = st.importFolder || st.questionFolder || "Questions";
+    this.folder = "";
+    this.method = this.agentAvailable() ? "agent" : "api";
+  }
+
+  agentAvailable() {
+    return Platform.isDesktopApp && this.plugin.backend() === "opencode";
+  }
+
+  onOpen() {
+    this.modalEl.addClass("qt-import-modal");
+    this.showSetup();
+  }
+
+  onClose() {
+    this.closed = true;
+    this.contentEl.empty();
+  }
+
+  status(msg) {
+    if (this.statusEl) this.statusEl.setText(msg);
+  }
+
+  modelLabel() {
+    const api = this.plugin.settings.ai.api || {};
+    return `${api.model || "your AI model"}${api.provider ? ` (${api.provider})` : ""}`;
+  }
+
+  autoFolder(name) {
+    return normalizePath(`${this.parent}/${name}`);
+  }
+
+  showSetup() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Import questions from a PDF" });
+
+    const pdfs = this.app.vault.getFiles().filter((f) => f.extension.toLowerCase() === "pdf");
+    const picked = new Setting(el).setName("PDF file").setDesc("No file chosen");
+    const setName = (name) => {
+      if (!this.folderTouched) {
+        this.folder = this.autoFolder(name);
+        if (this.folderText) this.folderText.setValue(this.folder);
+      }
+    };
+    const input = createEl("input", { type: "file", attr: { accept: "application/pdf,.pdf" } });
+    input.hidden = true;
+    input.addEventListener("change", () => {
+      this.file = input.files && input.files[0] ? input.files[0] : null;
+      if (this.file) {
+        this.vaultPdf = "";
+        picked.setDesc(this.file.name);
+        setName(this.file.name.replace(/\.pdf$/i, ""));
+      }
+    });
+    picked.addButton((b) => b.setButtonText("Choose file...").onClick(() => input.click()));
+    if (pdfs.length) {
+      new Setting(el).setName("...or a PDF in your vault").addDropdown((d) => {
+        d.addOption("", "Choose...");
+        for (const f of pdfs) d.addOption(f.path, f.path);
+        d.setValue(this.vaultPdf).onChange((v) => {
+          this.vaultPdf = v;
+          if (v) {
+            this.file = null;
+            picked.setDesc("No file chosen");
+            setName(v.replace(/^.*\//, "").replace(/\.pdf$/i, ""));
+          }
+        });
+      });
+    }
+
+    new Setting(el)
+      .setName("Create the notes in a new folder")
+      .setDesc("It must not exist yet, or be empty. It's created for you.")
+      .addText((t) => {
+        this.folderText = t;
+        new FolderSuggest(this.app, t.inputEl);
+        t.setPlaceholder("Example: Questions/SAT Practice Test 1").setValue(this.folder).onChange((v) => {
+          this.folder = v;
+          this.folderTouched = true;
+        });
+      });
+
+    const agentOk = this.agentAvailable();
+    new Setting(el)
+      .setName("Who writes the notes")
+      .setDesc(
+        agentOk
+          ? "The OpenCode agent reads the PDF and writes the note files itself. Direct AI sends the text to your provider and the plugin writes the files after you review them."
+          : "Direct AI sends the PDF's text to your provider, and the plugin writes the files after you review them. To let the OpenCode agent write the files itself, switch the AI backend to OpenCode in settings (desktop only)."
+      )
+      .addDropdown((d) => {
+        if (agentOk) d.addOption("agent", "OpenCode agent (writes the files itself)");
+        d.addOption("api", "Direct AI (you review first)");
+        d.setValue(this.method).onChange((v) => (this.method = v));
+      });
+
+    new Setting(el)
+      .setName("Capture figures and pictures")
+      .setDesc("Draws each page, cuts out charts, diagrams and images, saves them in an images folder next to the notes, and shows them in the questions that use them.")
+      .addToggle((t) => t.setValue(this.opts.capture).onChange((v) => (this.opts.capture = v)));
+    new Setting(el)
+      .setName("Also save a picture of every page")
+      .setDesc("A backup for when a figure isn't cut out cleanly. Uses more space.")
+      .addToggle((t) => t.setValue(this.opts.pagePics).onChange((v) => (this.opts.pagePics = v)));
+
+    const fields = [
+      ["test", "Test", "Example: SAT, AP World History"],
+      ["course", "Course", ""],
+      ["section", "Section", ""],
+      ["domain", "Domain", ""],
+      ["unit", "Unit", "Example: 3"],
+      ["difficulty", "Difficulty", "easy, medium or hard"],
+      ["skill", "Skill (optional)", "Blank lets the PDF's own labels through"],
+    ];
+    el.createEl("h4", { text: "Properties added to every note (all optional)" });
+    for (const [key, label, ph] of fields) {
+      new Setting(el).setName(label).addText((t) => t.setPlaceholder(ph).setValue(this.meta[key]).onChange((v) => (this.meta[key] = v.trim())));
+    }
+    new Setting(el)
+      .setName("Question id prefix")
+      .setDesc("Ids look like PREFIX-Q01. Blank uses the PDF's name.")
+      .addText((t) => t.setValue(this.meta.prefix).onChange((v) => (this.meta.prefix = v.trim())));
+    new Setting(el)
+      .setName("Pages (optional)")
+      .setDesc("Blank means all pages. Example: 1-12 or 2,4,6-8. Try a few pages first to check the result and the cost.")
+      .addText((t) => t.setValue(this.meta.pages).onChange((v) => (this.meta.pages = v.trim())));
+
+    el.createEl("p", {
+      cls: "qt-hint",
+      text:
+        "Where the PDF doesn't show an answer or explanation, the AI writes one and says so at the top of that note, with the model name and today's date. AI answers can be wrong, so check them. " +
+        "The PDF's text is sent to your AI provider, which may charge for long PDFs. A copy of the PDF is saved in the new folder with the notes.",
+    });
+
+    const row = el.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
+    row.createEl("button", { text: "Start import", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.start());
+  }
+
+  async readSource() {
+    if (this.file) return { buf: await this.file.arrayBuffer(), name: this.file.name.replace(/\.pdf$/i, ""), device: true };
+    if (this.vaultPdf) {
+      const f = this.app.vault.getAbstractFileByPath(this.vaultPdf);
+      if (!(f instanceof TFile)) throw new Error("I couldn't find that PDF in your vault.");
+      return { buf: await this.app.vault.readBinary(f), name: f.basename, device: false, path: f.path };
+    }
+    throw new Error("Choose a PDF first.");
+  }
+
+  async start() {
+    const p = this.plugin;
+    if (!p.settings.ai.enabled) {
+      new Notice("Turn on AI features in the plugin settings first.");
+      return;
+    }
+    if (!this.file && !this.vaultPdf) {
+      new Notice("Choose a PDF first.");
+      return;
+    }
+    const folderPath = normalizePath(str(this.folder).trim());
+    if (!folderPath || folderPath === "/") {
+      new Notice("Type a name for the new folder.");
+      return;
+    }
+    const existing = this.app.vault.getFolderByPath(folderPath);
+    if (existing && existing.children.length) {
+      new Notice("That folder already has files in it. Choose a new folder name.");
+      return;
+    }
+    this.target = folderPath;
+    p.settings.importFolder = folderPath.includes("/") ? folderPath.slice(0, folderPath.lastIndexOf("/")) : "";
+    p.settings.importDefaults = Object.assign({}, this.meta, { prefix: "", pages: "" });
+    p.settings.importOptions = Object.assign({}, this.opts);
+    await p.save();
+
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Importing" });
+    this.statusEl = el.createDiv({ cls: "qt-hint", text: "Starting..." });
+    this.activityEl = el.createDiv({ cls: "qt-tool" });
+    this.stopBtn = el.createEl("button", { text: "Stop", cls: "qt-modal-btn" });
+    this.stopBtn.addEventListener("click", () => {
+      this.stop = true;
+      this.stopBtn.disabled = true;
+      this.status("Stopping...");
+      if (this.sid) p.openCode().abort(this.sid).catch(() => {});
+    });
+    this.stop = false;
+    this.sid = "";
+    this.warnings = [];
+    try {
+      const src = await this.readSource();
+      this.source = src.name;
+      const vault = this.app.vault;
+      const folder = await ensureFolder(this.app, this.target);
+      const prefix = slugId(this.meta.prefix || src.name);
+      // keep a copy of the PDF with the notes (before pdf.js reads it)
+      this.status("Copying the PDF into the folder...");
+      const pdfPath = normalizePath(`${folder}/${src.name.replace(/[\\/:*?"<>|]/g, "-")}.pdf`);
+      await vault.createBinary(pdfPath, src.buf);
+      const imagesDir = `${folder}/images`;
+      const cap = this.opts.capture
+        ? {
+            prefix,
+            scale: 2,
+            pages: this.opts.pagePics,
+            save: async (name, data) => {
+              await ensureFolder(this.app, imagesDir);
+              const path = normalizePath(`${imagesDir}/${name}`);
+              await vault.createBinary(path, data);
+              return path;
+            },
+          }
+        : null;
+      const read = await readPdfPages(src.buf, this.meta.pages, (m) => !this.closed && this.status(m), cap);
+      const pages = read.pages;
+      this.warnings.push(...read.warnings.slice(0, 5));
+      const chars = pages.reduce((n, pg) => n + pg.text.trim().length, 0);
+      if (chars < 40 * pages.length) {
+        throw new Error("This PDF has almost no readable text, so it is probably scanned images. Scanned PDFs aren't supported yet. Run it through text recognition (OCR) first, for example by opening it in Google Drive or Adobe, then try again.");
+      }
+      this.ctx = { folder, prefix, pdfPath, imagesDir, pdfName: src.name, figCount: read.figCount };
+      if (this.method === "agent") await this.runAgent(pages);
+      else await this.runApi(pages);
+    } catch (e) {
+      if (this.closed) return;
+      this.showError(e && e.message ? e.message : String(e));
+    }
+  }
+
+  /* ---- method 1: the OpenCode agent writes the files itself */
+
+  async runAgent(pages) {
+    const p = this.plugin;
+    const vault = this.app.vault;
+    const { folder, prefix, pdfPath, imagesDir, pdfName } = this.ctx;
+    const textPath = `${folder}/_pdf-text.txt`;
+    await vault.create(textPath, pages.map((pg) => `--- Page ${pg.n} ---\n${pg.text.trim()}`).join("\n\n"));
+
+    this.status("Starting OpenCode...");
+    await p.ensureOpenCode((m) => !this.closed && this.status(m));
+    const oc = p.openCode();
+    await ensureProviders(oc);
+    const s = await oc.createSession(`Import ${pdfName}`);
+    this.sid = s && s.id;
+    if (!this.sid) throw new Error("OpenCode did not return a session id.");
+    const ai = p.settings.ai;
+    const body = {
+      parts: [{ type: "text", text: agentPrompt({ name: pdfName, textPath, pdfPath, imagesDir, folder, prefix, meta: this.meta }) }],
+      system: AGENT_SYSTEM,
+    };
+    const model = modelFromString(ai.model);
+    if (model) body.model = model;
+    if (str(ai.agent).trim()) body.agent = ai.agent.trim();
+
+    const mySid = this.sid;
+    const timer = activeWindow.setInterval(() => this.pollAgent(mySid, folder), 1500);
+    let msgs = null;
+    try {
+      await oc.send(mySid, body);
+    } catch (e) {
+      if (!this.stop) throw new Error(friendlyError(e, oc.base()));
+    } finally {
+      activeWindow.clearInterval(timer);
+    }
+    try {
+      msgs = await oc.messages(mySid);
+    } catch (e) {
+      /* the model name is only for the label */
+    }
+    this.status("Checking the notes...");
+    await sleep(1500);
+    const model2 = str(ai.model).trim() || modelFromMessages(msgs) || "the AI model set up in OpenCode";
+    const result = await this.finishAgentNotes(folder, pdfName, { model: model2, date: localDate() });
+    try {
+      await this.app.vault.adapter.remove(textPath);
+    } catch (e) {
+      /* leave it */
+    }
+    await this.pruneImages(folder, result);
+    if (!this.closed) this.showAgentDone(result, folder);
+  }
+
+  /** Removes cut-out pictures that no note uses, so the images folder only holds what's needed. */
+  async pruneImages(folder, result) {
+    const adapter = this.app.vault.adapter;
+    let listing;
+    try {
+      listing = await adapter.list(`${folder}/images`);
+    } catch (e) {
+      return;
+    }
+    const files = (listing && listing.files) || [];
+    if (!files.length) return;
+    let all = "";
+    for (const n of await this.listNotes(folder)) all += await adapter.read(n);
+    let kept = 0;
+    for (const f of files) {
+      const base = f.replace(/^.*\//, "");
+      const isPage = /-p\d+\.png$/i.test(base);
+      if ((isPage && this.opts.pagePics) || all.includes(base)) {
+        kept++;
+        continue;
+      }
+      try {
+        await adapter.remove(f);
+      } catch (e) {
+        /* leave it */
+      }
+    }
+    result.images = kept;
+  }
+
+  async listNotes(folder) {
+    const listing = await this.app.vault.adapter.list(folder);
+    return (listing.files || []).filter((f) => /\.md$/i.test(f) && !/\/_[^/]*$/.test(f)).sort();
+  }
+
+  async pollAgent(sid, folder) {
+    if (this.closed) return;
+    try {
+      const msgs = await this.plugin.openCode().messages(sid);
+      const lines = partsToTurns(msgs).flatMap((t) => t.tools).slice(-6);
+      const n = (await this.listNotes(folder)).length;
+      this.status(`The agent is working... ${n} note${n === 1 ? "" : "s"} written so far.`);
+      if (this.activityEl) this.activityEl.setText(lines.join("\n"));
+    } catch (e) {
+      /* keep waiting */
+    }
+  }
+
+  async finishAgentNotes(folder, source, stamp) {
+    const files = await this.listNotes(folder);
+    const meta = Object.assign({}, this.meta, { source });
+    const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0 };
+    for (const path of files) {
+      const text = await this.app.vault.adapter.read(path);
+      const parsed = parseNote(text);
+      const base = path.replace(/^.*\//, "").replace(/\.md$/i, "");
+      if (!str(parsed.sec.question).trim()) {
+        result.skipped.push(`${base}: no "## Question" section`);
+        continue;
+      }
+      const out = finalizeNote(text, meta, base, stamp);
+      const f = this.app.vault.getAbstractFileByPath(path);
+      if (f instanceof TFile) await this.app.vault.modify(f, out);
+      else await this.app.vault.adapter.write(path, out);
+      const fl = aiFlags(parseNote(out).fm, parseNote(out).sec);
+      if (fl.aiAnswer || fl.aiExp) result.ai++;
+      if (!fl.hasAnswer) result.noAnswer++;
+      result.made++;
+    }
+    return result;
+  }
+
+  showAgentDone(r, folder) {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: r.made ? `Created ${r.made} note${r.made === 1 ? "" : "s"}` : "No notes were created" });
+    el.createEl("p", { text: `Saved in ${folder}, together with a copy of the PDF${r.images ? ` and ${r.images} picture${r.images === 1 ? "" : "s"} cut from it (in the images folder)` : ""}.` });
+    if (r.ai) {
+      el.createEl("p", {
+        cls: "qt-hint",
+        text: `${r.ai} ${r.ai === 1 ? "has" : "have"} an answer or explanation written by the AI. ${r.ai === 1 ? "It's" : "They're"} marked at the top of the note with the model and date. Please check ${r.ai === 1 ? "it" : "them"}.`,
+      });
+    }
+    if (r.noAnswer) el.createEl("p", { cls: "qt-hint", text: `${r.noAnswer} ${r.noAnswer === 1 ? "has" : "have"} no answer, so you'll grade ${r.noAnswer === 1 ? "it" : "those"} yourself.` });
+    for (const s of r.skipped) el.createDiv({ cls: "qt-error", text: `Skipped ${s}` });
+    if (!r.made) {
+      el.createEl("p", {
+        cls: "qt-hint",
+        text: "If the agent was waiting to be allowed to create files, allow file edits for this vault in your OpenCode permissions and try again.",
+      });
+    }
+    this.doneButtons(el);
+  }
+
+  /* ---- method 2: the AI returns the notes and you review them first */
+
+  async runApi(pages) {
+    const p = this.plugin;
+    const chunks = chunkPages(pages, 9000, 5);
+    const keyText = answerKeyText(pages);
+    const client = new ApiClient(p.settings.ai);
+    const blocks = [];
+    let carry = [];
+    let failures = 0;
+    for (let i = 0; i < chunks.length && !this.stop && !this.closed; i++) {
+      const ch = chunks[i];
+      this.status(`Asking the AI to read pages ${ch[0].n}-${ch[ch.length - 1].n} (batch ${i + 1} of ${chunks.length}). ${mergeNotes(blocks).length} questions found so far.`);
+      try {
+        blocks.push(...(await extractNotesChunk(client, ch, keyText, carry)));
+        carry = carryPassages(blocks);
+        failures = 0;
+      } catch (e) {
+        this.warnings.push(`Pages ${ch[0].n}-${ch[ch.length - 1].n}: ${friendlyApiError(e)}`);
+        if (++failures >= 2) break;
+      }
+    }
+    if (this.closed) return;
+    this.items = mergeNotes(blocks);
+    this.showReview();
+  }
+
+  showError(msg) {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Couldn't import" });
+    el.createDiv({ cls: "qt-error", text: msg });
+    const row = el.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => this.showSetup());
+    row.createEl("button", { text: "Close", cls: "qt-grow" }).addEventListener("click", () => this.close());
+  }
+
+  showReview() {
+    const el = this.contentEl;
+    el.empty();
+    const items = this.items;
+    el.createEl("h3", { text: items.length ? `Found ${items.length} question${items.length === 1 ? "" : "s"}` : "No questions found" });
+    for (const w of this.warnings) el.createDiv({ cls: "qt-error", text: w });
+    if (!items.length) {
+      el.createEl("p", { cls: "qt-hint", text: "Try a smaller page range, or check that the PDF contains questions with readable text." });
+      el.createEl("button", { text: "Back", cls: "qt-modal-btn" }).addEventListener("click", () => this.showSetup());
+      return;
+    }
+    el.createEl("p", {
+      cls: "qt-hint",
+      text: "Check these against your PDF. Answers the AI wrote itself are marked, and will be labelled at the top of the note. Untick anything you don't want.",
+    });
+    const tools = el.createDiv({ cls: "qt-row qt-small-row" });
+    const list = el.createDiv({ cls: "qt-imp-list" });
+    const create = el.createEl("button", { cls: "mod-cta qt-modal-btn" });
+    const checks = [];
+    const count = () => {
+      const n = items.filter((q) => q.include).length;
+      create.setText(`Create ${n} note${n === 1 ? "" : "s"}`);
+      create.disabled = n === 0;
+    };
+    items.forEach((q) => {
+      const row = list.createDiv({ cls: "qt-imp-row" });
+      const cb = row.createEl("input", { type: "checkbox" });
+      cb.checked = q.include;
+      cb.addEventListener("change", () => {
+        q.include = cb.checked;
+        count();
+      });
+      checks.push(cb);
+      const body = row.createDiv({ cls: "qt-imp-body" });
+      const text = str(q.sec.question).replace(/\s+/g, " ");
+      const num = q.fm.number !== undefined && q.fm.number !== null && q.fm.number !== "" ? `${q.fm.number}. ` : "";
+      body.createDiv({ cls: "qt-imp-title", text: `${num}${text.length > 130 ? text.slice(0, 130) + "..." : text}` });
+      const f = aiFlags(q.fm, q.sec);
+      const tags = [q.sec.choices.length ? `${q.sec.choices.length} choices` : "no answer choices"];
+      tags.push(!f.hasAnswer ? "no answer" : f.aiAnswer ? `answer ${str(q.fm.answer)} (written by AI)` : `answer ${str(q.fm.answer)} (from PDF)`);
+      if (f.aiExp) tags.push("explanation written by AI");
+      if (str(q.sec.stimulus).trim()) tags.push("has passage");
+      if (/!\[\[/.test(q.text)) tags.push("has picture");
+      if (/\[Figure not captured\]/i.test(q.sec.stimulus)) tags.push("figure missing");
+      body.createDiv({ cls: "qt-imp-tags", text: tags.join(" · ") });
+    });
+    const setAll = (v) => {
+      items.forEach((q) => (q.include = v));
+      checks.forEach((c) => (c.checked = v));
+      count();
+    };
+    tools.createEl("button", { text: "Select all" }).addEventListener("click", () => setAll(true));
+    tools.createEl("button", { text: "Select none" }).addEventListener("click", () => setAll(false));
+    tools.createEl("button", { text: "Back" }).addEventListener("click", () => this.showSetup());
+    count();
+    create.addEventListener("click", () => this.createNotes());
+  }
+
+  async createNotes() {
+    const el = this.contentEl;
+    const chosen = this.items.filter((q) => q.include);
+    el.empty();
+    el.createEl("h3", { text: "Creating notes" });
+    this.statusEl = el.createDiv({ cls: "qt-hint", text: "Working..." });
+    try {
+      const { folder, prefix } = this.ctx;
+      const nums = chosen.map((q) => q.fm.number);
+      const useNums = nums.every((n) => Number.isFinite(Number(n)) && n !== null && n !== "" && n !== undefined) && new Set(nums.map(Number)).size === nums.length;
+      const stimIds = new Map();
+      const meta = Object.assign({}, this.meta, { source: this.source });
+      const stamp = { model: this.modelLabel(), date: localDate() };
+      const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0 };
+      for (let i = 0; i < chosen.length; i++) {
+        const q = chosen[i];
+        const n = useNums ? Number(q.fm.number) : (parseInt(this.meta.start, 10) || 1) + i;
+        const qid = `${prefix}-Q${String(n).padStart(2, "0")}`;
+        let stimId = "";
+        const stim = str(q.sec.stimulus).trim();
+        if (stim) {
+          const key = stim.toLowerCase().replace(/\s+/g, " ");
+          if (!stimIds.has(key)) stimIds.set(key, `${prefix}-S${String(stimIds.size + 1).padStart(2, "0")}`);
+          stimId = stimIds.get(key);
+        }
+        let path = normalizePath(`${folder}/${qid}.md`);
+        for (let k = 2; this.app.vault.getAbstractFileByPath(path); k++) path = normalizePath(`${folder}/${qid}-${k}.md`);
+        const out = finalizeNote(q.text, meta, qid, { ...stamp, stimId });
+        await this.app.vault.create(path, out);
+        const fl = aiFlags(parseNote(out).fm, parseNote(out).sec);
+        if (fl.aiAnswer || fl.aiExp) result.ai++;
+        if (!fl.hasAnswer) result.noAnswer++;
+        result.made++;
+        this.status(`Created ${result.made} of ${chosen.length}...`);
+      }
+      await this.pruneImages(folder, result);
+      this.showAgentDone(result, folder);
+    } catch (e) {
+      this.showError(`Some notes may have been created before this stopped. ${e && e.message ? e.message : e}`);
+    }
+  }
+
+  doneButtons(el) {
+    const row = el.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Close", cls: "qt-grow" }).addEventListener("click", () => this.close());
+    row.createEl("button", { text: "Practice now", cls: "mod-cta qt-grow" }).addEventListener("click", () => {
+      this.close();
+      this.plugin.activateView();
+    });
+  }
+}
 
 class PracticeView extends ItemView {
   constructor(leaf, plugin) {
@@ -1775,6 +2976,8 @@ class PracticeView extends ItemView {
     start.addEventListener("click", () => this.next());
 
     if (st.ai.enabled) {
+      const ib = root.createEl("button", { text: "Import questions from PDF" });
+      ib.addEventListener("click", () => p.openPdfImport());
       const ab = root.createEl("button", { text: "AI assistant" });
       ab.addEventListener("click", () => {
         this.state = "chat";
@@ -2167,11 +3370,18 @@ class QuestionTrackerPlugin extends Plugin {
     }
 
     this.manager = new OpenCodeManager(this);
+    this.app.workspace.onLayoutReady(() => {
+      const ai = this.settings.ai;
+      if (Platform.isDesktopApp && ai.enabled && ai.managed && ai.preStart && this.backend() === "opencode") {
+        this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
+      }
+    });
     this.registerDomEvent(window, "beforeunload", () => this.manager.stop());
     this.registerView(VIEW_TYPE, (leaf) => new PracticeView(leaf, this));
     this.addRibbonIcon("graduation-cap", "Open practice view", () => this.activateView());
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
+    this.addCommand({ id: "import-pdf", name: "Import questions from a PDF", callback: () => this.openPdfImport() });
     this.addCommand({
       id: "open-ai-assistant",
       name: "Open AI assistant (OpenCode)",
@@ -2304,6 +3514,14 @@ class QuestionTrackerPlugin extends Plugin {
     } finally {
       note.hide();
     }
+  }
+
+  openPdfImport() {
+    if (!this.settings.ai.enabled) {
+      new Notice("Turn on AI features in the plugin settings to import from a PDF.");
+      return;
+    }
+    new PdfImportModal(this.app, this).open();
   }
 
   onunload() {
@@ -2686,6 +3904,15 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     if (ai.managed) {
+      new Setting(containerEl)
+        .setName("Start OpenCode when Obsidian opens")
+        .setDesc("Starts it quietly in the background so your first AI message doesn't wait. It stops when Obsidian closes. Off by default.")
+        .addToggle((t) =>
+          t.setValue(!!ai.preStart).onChange(async (v) => {
+            ai.preStart = v;
+            await this.plugin.save();
+          })
+        );
       const mgr = this.plugin.manager;
       const status = new Setting(containerEl).setName("Status").setDesc("Checking...");
       const refreshStatus = () =>

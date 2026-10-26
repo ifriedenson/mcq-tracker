@@ -833,3 +833,53 @@
   margin-top: 10px;
   min-height: 38px;
 }
+
+/* ---- PDF import ---- */
+
+.qt-import-modal {
+  width: min(760px, 94vw);
+}
+
+.qt-imp-list {
+  max-height: 46vh;
+  overflow-y: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 8px 0 12px;
+}
+
+.qt-imp-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.qt-imp-row:last-child {
+  border-bottom: none;
+}
+
+.qt-imp-body {
+  min-width: 0;
+}
+
+.qt-imp-title {
+  line-height: 1.35;
+}
+
+.qt-imp-tags {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ---- pictures cut from imported PDFs ---- */
+
+.qt-stimulus img,
+.qt-stem img,
+.qt-choice-text img,
+.qt-explanation img {
+  max-width: 100%;
+  height: auto;
+}
