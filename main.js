@@ -671,13 +671,49 @@ function mergeAuth(existingText, providerId, key) {
   return JSON.stringify(obj, null, 2) + "\n";
 }
 
+function killTree(child) {
+  try {
+    if (process.platform === "win32" && child.pid) {
+      nodeReq("child_process").execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
+    } else {
+      child.kill("SIGKILL");
+    }
+  } catch (e) {
+    /* already gone */
+  }
+  try {
+    if (child.stdout) child.stdout.destroy();
+    if (child.stderr) child.stderr.destroy();
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+/** Runs a program and always finishes: if it hasn't answered within opts.timeout ms it is killed and this rejects. */
 function runCmd(cmd, args, opts) {
   const { execFile } = nodeReq("child_process");
+  const o = Object.assign({ windowsHide: true, maxBuffer: 1 << 24 }, opts || {});
+  const limit = o.timeout || 0;
+  delete o.timeout;
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, Object.assign({ windowsHide: true, maxBuffer: 1 << 24 }, opts || {}), (err, stdout, stderr) => {
-      if (err) reject(new Error(str(stderr || err.message).slice(0, 400)));
-      else resolve(str(stdout));
+    let done = false;
+    let timer = null;
+    const finish = (fn, v) => {
+      if (done) return;
+      done = true;
+      if (timer) activeWindow.clearTimeout(timer);
+      fn(v);
+    };
+    const child = execFile(cmd, args, o, (err, stdout, stderr) => {
+      if (err) finish(reject, new Error(str(stderr || err.message).slice(0, 400)));
+      else finish(resolve, str(stdout));
     });
+    if (limit) {
+      timer = activeWindow.setTimeout(() => {
+        killTree(child);
+        finish(reject, new Error(`Timed out after ${Math.round(limit / 1000)} seconds.`));
+      }, limit);
+    }
   });
 }
 
@@ -724,14 +760,17 @@ async function extractArchive(archive, destDir) {
   fs.mkdirSync(destDir, { recursive: true });
   try {
     // bsdtar (Windows 10+, macOS) reads .zip too; GNU tar reads the Linux .tar.gz
-    await runCmd("tar", ["-xf", archive, "-C", destDir]);
+    await runCmd("tar", ["-xf", archive, "-C", destDir], { timeout: 8 * 60 * 1000 });
     return;
   } catch (first) {
+    if (/Timed out/.test(first.message)) {
+      throw new Error("Unpacking took too long. Antivirus software is probably scanning the large file. Download it yourself from the GitHub releases page, unzip it, and choose opencode.exe under \"OpenCode program\" in settings.");
+    }
     if (process.platform === "win32") {
       const q = (s) => s.replace(/'/g, "''");
-      await runCmd("powershell", ["-NoProfile", "-Command", `Expand-Archive -LiteralPath '${q(archive)}' -DestinationPath '${q(destDir)}' -Force`]);
+      await runCmd("powershell", ["-NoProfile", "-Command", `Expand-Archive -LiteralPath '${q(archive)}' -DestinationPath '${q(destDir)}' -Force`], { timeout: 10 * 60 * 1000 });
     } else if (/\.zip$/i.test(archive)) {
-      await runCmd("unzip", ["-o", archive, "-d", destDir]);
+      await runCmd("unzip", ["-o", archive, "-d", destDir], { timeout: 8 * 60 * 1000 });
     } else {
       throw first;
     }
@@ -830,9 +869,9 @@ class OpenCodeManager {
     return !!(this.proc && this.proc.exitCode === null && !this.proc.killed && this.conn);
   }
 
-  async version(bin, viaPath) {
+  async version(bin, viaPath, ms) {
     try {
-      const out = await runCmd(bin, ["--version"], { timeout: 20000, shell: !!viaPath && process.platform === "win32" });
+      const out = await runCmd(bin, ["--version"], { timeout: ms || 10000, shell: !!viaPath && process.platform === "win32" });
       return out.trim().split(/\s+/).pop() || "unknown";
     } catch (e) {
       return "";
@@ -846,20 +885,39 @@ class OpenCodeManager {
     const os = nodeReq("os");
     const exe = process.platform === "win32" ? "opencode.exe" : "opencode";
     const tries = [this.ai.binaryPath, this.ai.managedBinary, path.join(os.homedir(), ".opencode", "bin", exe)].filter(Boolean);
+    this.stalled = "";
     for (const p of tries) {
-      if (fs.existsSync(p) && (await this.version(p))) return p;
+      if (!fs.existsSync(p)) continue;
+      const v = await this.version(p);
+      if (v) {
+        this.lastVersion = v;
+        return p;
+      }
+      if (!this.stalled) this.stalled = p;
     }
-    if (await this.version("opencode", true)) return "opencode";
+    const v = await this.version("opencode", true);
+    if (v) {
+      this.lastVersion = v;
+      return "opencode";
+    }
     return null;
   }
 
   async describe() {
     if (!Platform.isDesktopApp) return "Auto-setup needs the desktop app.";
     if (this.isRunning()) return `Running on ${this.conn.url}${this.ai.installedVersion ? ` (v${this.ai.installedVersion})` : ""}.`;
-    const bin = await this.findBinary();
-    if (!bin) return "Not installed. Press Download and install, or choose a copy you already have.";
-    const v = await this.version(bin, bin === "opencode");
-    return `Installed (v${v}) at ${bin}. Not running; it starts when you use the AI chat.`;
+    const work = (async () => {
+      const bin = await this.findBinary();
+      if (!bin && this.stalled) {
+        return `Found a program at ${this.stalled}, but it didn't answer in time. Antivirus may be scanning it, so wait a minute and press Check again. If it keeps failing, choose a different copy under "OpenCode program".`;
+      }
+      if (!bin) return "Not installed. Press Download and install, or choose a copy you already have.";
+      return `Installed (v${this.lastVersion || "?"}) at ${bin}. Not running; it starts when you use the AI chat.`;
+    })();
+    const slow = sleep(30000).then(
+      () => "Couldn't check in time. The program may be slow to start (antivirus often scans it the first time). Press Check again in a minute, or choose a different program below."
+    );
+    return Promise.race([work, slow]);
   }
 
   async plan() {
@@ -938,16 +996,16 @@ class OpenCodeManager {
       if (process.platform !== "win32") fs.chmodSync(bin, 0o755);
 
       progress("Checking that it runs (the first run can take a minute while antivirus checks it)...");
-      let v = await this.version(bin);
+      let v = await this.version(bin, false, 120000);
       if (!v && process.platform === "darwin") {
         try {
           await runCmd("codesign", ["--force", "--sign", "-", bin]);
         } catch (e) {
           /* best effort */
         }
-        v = await this.version(bin);
+        v = await this.version(bin, false, 120000);
       }
-      if (!v) throw new Error("The downloaded OpenCode didn't start on this computer.");
+      if (!v) throw new Error("The downloaded OpenCode didn't answer within two minutes. Antivirus may still be scanning it, so wait a minute and press Check again. If it keeps failing, download it yourself from the GitHub releases page and choose it under \"OpenCode program\".");
 
       this.ai.managedBinary = bin;
       this.ai.installedVersion = v;
@@ -3915,6 +3973,12 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         );
       const mgr = this.plugin.manager;
       const status = new Setting(containerEl).setName("Status").setDesc("Checking...");
+      status.addButton((b) =>
+        b.setButtonText("Check again").onClick(() => {
+          status.setDesc("Checking...");
+          refreshStatus();
+        })
+      );
       const refreshStatus = () =>
         mgr
           .describe()
@@ -3950,6 +4014,10 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             })
           )
         );
+      containerEl.createEl("p", {
+        cls: "setting-item-description",
+        text: `Download slow or stuck? You can skip it: download the Windows zip yourself from github.com/${OPENCODE_REPO}/releases (your browser is usually faster), unzip it, and enter the path to opencode.exe under "OpenCode program" below. Or use the Direct API backend, which needs no download at all.`,
+      });
 
       let providerId = PROVIDERS[0][0];
       let apiKey = "";
