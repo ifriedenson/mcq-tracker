@@ -1,0 +1,91 @@
+"use strict";
+const { requestUrl } = require("obsidian");
+const { str } = require("./util");
+
+/* ---------------------------------------------- Direct API chat (works on phones) */
+
+const API_PRESETS = {
+  anthropic: { label: "Anthropic (Claude)", kind: "anthropic", base: "https://api.anthropic.com", defaultModel: "claude-sonnet-5-5" },
+  openai: { label: "OpenAI", kind: "openai", base: "https://api.openai.com/v1", defaultModel: "" },
+  openrouter: { label: "OpenRouter", kind: "openai", base: "https://openrouter.ai/api/v1", defaultModel: "" },
+  google: { label: "Google Gemini", kind: "openai", base: "https://generativelanguage.googleapis.com/v1beta/openai", defaultModel: "" },
+  ollama: { label: "Ollama (same computer only)", kind: "openai", base: "http://localhost:11434/v1", defaultModel: "", noKey: true },
+  custom: { label: "Other OpenAI-compatible", kind: "openai", base: "", defaultModel: "" },
+};
+
+function friendlyApiError(e) {
+  const m = str(e && e.message ? e.message : e);
+  if (/HTTP 401|HTTP 403/.test(m)) return `The provider rejected the API key, or the key can't use this model. ${m}`;
+  if (/HTTP 429/.test(m)) return `The provider says you're rate limited or out of credit. ${m}`;
+  if (/ENOTFOUND|ECONNREFUSED|Failed to fetch|net::|ETIMEDOUT/i.test(m)) {
+    return "Couldn't reach the provider. Check your internet connection and the base URL in settings.";
+  }
+  return m;
+}
+
+function apiTurns(history) {
+  return (history || []).map((m) => ({ role: m.role === "user" ? "user" : "assistant", texts: [m.content], tools: [] }));
+}
+
+/** Plain chat against Anthropic or any OpenAI-compatible endpoint. One request, no streaming. */
+class ApiClient {
+  constructor(ai) {
+    this.ai = ai;
+  }
+  cfg() {
+    const a = this.ai.api || {};
+    const preset = API_PRESETS[a.provider] || API_PRESETS.custom;
+    return {
+      preset,
+      base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, ""),
+      key: str((a.keys || {})[a.provider]).trim(),
+      model: str(a.model).trim(),
+    };
+  }
+  async chat(system, messages, opts) {
+    const { preset, base, key, model } = this.cfg();
+    if (!base) throw new Error("Add a base URL in the plugin settings.");
+    if (!model) throw new Error("Add a model name in the plugin settings.");
+    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    const msgs = messages.slice(-20);
+    while (msgs.length && msgs[0].role !== "user") msgs.shift(); // providers require a user turn first
+
+    let url, headers, body;
+    if (preset.kind === "anthropic") {
+      url = `${base}/v1/messages`;
+      headers = { "x-api-key": key, "anthropic-version": "2023-06-01" };
+      body = { model, max_tokens: (opts && opts.maxTokens) || 1500, system, messages: msgs };
+    } else {
+      url = `${base}/chat/completions`;
+      headers = key ? { Authorization: `Bearer ${key}` } : {};
+      body = { model, messages: [{ role: "system", content: system }, ...msgs] };
+    }
+    const r = await requestUrl({ url, method: "POST", headers, contentType: "application/json", body: JSON.stringify(body), throw: false });
+    let data = null;
+    try {
+      data = r.json;
+    } catch (e) {
+      /* not JSON */
+    }
+    if (r.status >= 400) {
+      const em = data && data.error ? data.error.message || data.error : r.text;
+      throw new Error(`HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`);
+    }
+    let text = "";
+    if (preset.kind === "anthropic") {
+      text = ((data && data.content) || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+    } else {
+      const c = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      text = Array.isArray(c) ? c.map((x) => x.text || "").join("") : str(c);
+    }
+    if (!text.trim()) throw new Error("The provider returned an empty reply.");
+    return text;
+  }
+}
+
+module.exports = {
+  API_PRESETS,
+  friendlyApiError,
+  apiTurns,
+  ApiClient,
+};

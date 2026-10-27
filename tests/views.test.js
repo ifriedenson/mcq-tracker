@@ -1,0 +1,245 @@
+"use strict";
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { load, obsidian } = require("./helpers/load");
+const { makeApp, makeDom } = require("./helpers/fake");
+const { T, Plugin: QT } = load();
+
+const day = "2026-10-20T10:00";
+const NOTES = [
+  { path: "Questions/sat/Q1.md", fm: { skill: "grammar", domain: "Conventions", difficulty: "hard", attempts: 6, correct_count: 2, time_spent_total: 300, result: "incorrect", last_error_type: "careless", "date attempted": day, history: ["d|incorrect|50|A|1|careless"], answer: "B" } },
+  { path: "Questions/sat/sub/Q2.md", fm: { skill: "vocab", domain: "Words", difficulty: "medium", attempts: 4, correct_count: 4, time_spent_total: 120, result: "correct", answer: "C" } },
+  { path: "Questions/other/Q3.md", fm: { skill: "grammar", domain: "Conventions", difficulty: "easy", answer: "D" } },
+  { path: "Questions/other/Q4.md", fm: { skill: "logic", domain: "Words", difficulty: "easy", answer: "A", result: "incorrect", "date attempted": day } },
+];
+
+async function setup() {
+  const app = makeApp(NOTES);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.calls = [];
+  plugin.practiceWith = async (f, m) => plugin.calls.push([f, m]);
+  plugin.activateView = async () => ({});
+  plugin.activateInsights = async () => {};
+  plugin.activateTest = async () => {};
+  const dom = makeDom();
+  return { app, plugin, dom };
+}
+function makeView(Cls, plugin, app, dom) {
+  const v = new Cls({ app }, plugin);
+  v.app = app;
+  v.contentEl = dom.root;
+  return v;
+}
+
+test("weak spots: shows the weakest skill and starts practising it", async () => {
+  const { app, plugin, dom } = await setup();
+  const v = makeView(T.InsightsView, plugin, app, dom);
+  v.render();
+  assert.ok(dom.texts().includes("Practice my weakest skill: grammar"));
+  await dom.click("Practice my weakest skill: grammar");
+  assert.deepEqual(plugin.calls.at(-1), [{ skill: ["grammar"] }, "smart"]);
+  for (const field of ["Domain", "Difficulty", "Folder", "Skill"]) {
+    await dom.click(field);
+    v.render();
+  }
+  await dom.click("Practice");
+  assert.equal(plugin.calls.at(-1)[1], "smart");
+});
+
+test("error log: groups misses and starts practising a group", async () => {
+  const { app, plugin, dom } = await setup();
+  const v = makeView(T.InsightsView, plugin, app, dom);
+  v.tab = "errors";
+  v.render();
+  assert.ok(dom.texts().includes("careless"));
+  assert.ok(dom.texts().includes("No reason picked"));
+  await dom.click("Practice these (1)");
+  assert.deepEqual(plugin.calls.at(-1), [{ last_error_type: ["careless"] }, "missed"]);
+  await dom.click("Practice all missed");
+  assert.deepEqual(plugin.calls.at(-1), [{}, "missed"]);
+});
+
+test("weak spots and error log have friendly empty states", async () => {
+  const app = makeApp([{ path: "Q/a.md", fm: {} }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const dom = makeDom();
+  const v = makeView(T.InsightsView, plugin, app, dom);
+  v.render();
+  assert.ok(dom.texts().some((t) => /none attempted yet/.test(t)));
+  v.tab = "errors";
+  v.render();
+  assert.ok(dom.texts().some((t) => /No missed questions yet/.test(t)));
+});
+
+test("timed test: builds a test, scores it, logs only the answered questions, and reviews", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.recorded = [];
+  plugin.recordAttempt = async (file, a) => plugin.recorded.push([file.basename, a.correct, a.chosen, a.conf]);
+  plugin.setErrorType = async (file, type) => plugin.recorded.push(["error", file.basename, type]);
+  const v = makeView(T.TestView, plugin, app, dom);
+  v.render(); // setup screen
+  await v.begin(3, 5, "random");
+  assert.equal(v.phase, "test");
+  assert.equal(v.items.length, 3);
+  assert.equal(v.allowedSeconds, 300);
+  v.render();
+  v.go(1);
+  v.go(2);
+  // answer two of the three: first correct, second wrong
+  const keyOf = (it) => it.key;
+  v.items[0].sel = keyOf(v.items[0]);
+  v.items[1].sel = keyOf(v.items[1]) === "A" ? "B" : "A";
+  v.items[0].flagged = true;
+  let asked = 0;
+  plugin.askConfirm = async () => (asked++, true);
+  await v.tryFinish();
+  assert.equal(asked, 1); // one blank question
+  assert.equal(v.phase, "review");
+  assert.equal(v.result.total, 3);
+  assert.equal(v.result.answered, 2);
+  assert.equal(v.result.correct, 1);
+  assert.equal(plugin.recorded.length, 2);
+  assert.ok(plugin.recorded.every((r) => r[3] === 0)); // no confidence rating in a test
+  assert.equal(v.items[2].correct, null);
+  // review in every filter, with the details open
+  for (const label of ["All", "Missed", "Marked", "Blank"]) {
+    await dom.click(label);
+    v.items.forEach((_x, i) => v.open.add(i));
+    v.render();
+  }
+  v.filter = "all";
+  v.render();
+  const missed = v.items.findIndex((it) => it.answered && !it.correct);
+  assert.ok(missed >= 0);
+  await dom.click("careless");
+  assert.deepEqual(plugin.recorded.at(-1), ["error", v.items[missed].file.basename, "careless"]);
+});
+
+test("timed test: cancelling the 'finish with blanks' question keeps the test going", async () => {
+  const { app, plugin, dom } = await setup();
+  const v = makeView(T.TestView, plugin, app, dom);
+  await v.begin(2, 3, "random");
+  plugin.askConfirm = async () => false;
+  await v.tryFinish();
+  assert.equal(v.phase, "test");
+});
+
+test("timed test: the clock running out ends the test", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.recordAttempt = async () => {};
+  const v = makeView(T.TestView, plugin, app, dom);
+  await v.begin(2, 3, "random");
+  v.deadline = Date.now() - 1000;
+  v.tick();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(v.phase, "review");
+  assert.equal(v.result.timeUp, true);
+});
+
+test("timed test: with nothing matching, it stays on the setup screen", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.settings.filters = { skill: ["does-not-exist"] };
+  const v = makeView(T.TestView, plugin, app, dom);
+  obsidian.notices.length = 0;
+  await v.begin(2, 3, "random");
+  assert.equal(v.phase, "setup");
+  assert.match(obsidian.notices.at(-1), /No questions with an answer key/);
+});
+
+test("practice view: filters show counts, and the folder filter can switch to a search box", async () => {
+  const { app, plugin, dom } = await setup();
+  const v = makeView(T.PracticeView, plugin, app, dom);
+  v.state = "idle";
+  v.render();
+  const texts = dom.texts();
+  assert.ok(texts.includes("Folder"));
+  assert.ok(texts.includes("Questions/sat") || texts.includes("sat")); // relative or full path
+  assert.ok(texts.includes("Search")); // switch to the search box
+  assert.ok(texts.includes("Timed test"));
+  assert.ok(texts.includes("Weak spots & errors"));
+  await dom.click("Search");
+  assert.equal(plugin.settings.folderFilterStyle, "search");
+  v.render();
+  assert.ok(dom.texts().includes("Show buttons"));
+  await dom.click("Show buttons");
+  assert.equal(plugin.settings.folderFilterStyle, "buttons");
+});
+
+test("practice view: a folder filter that no longer holds notes is marked", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.settings.filters = { folder: ["Old/renamed"] };
+  const v = makeView(T.PracticeView, plugin, app, dom);
+  v.render();
+  assert.ok(dom.all.some((o) => o.meta && o.meta.cls === "qt-fchip" && o.meta.tag === "button"));
+});
+
+test("folder search suggestions match any part of the path and exclude chosen ones", async () => {
+  const { app } = await setup();
+  const picked = [];
+  const input = { value: "typed" };
+  const opts = [{ value: "Questions/sat", count: 2 }, { value: "Questions/other", count: 2 }, { value: "/", count: 1 }];
+  const s = new T.FolderFilterSuggest(app, input, () => opts, (v) => picked.push(v), "Questions");
+  assert.deepEqual(s.getSuggestions("SAT").map((o) => o.value), ["Questions/sat"]);
+  assert.equal(s.getSuggestions("").length, 3);
+  s.close = () => {};
+  s.selectSuggestion(opts[1]);
+  assert.deepEqual(picked, ["Questions/other"]);
+  assert.equal(input.value, "");
+});
+
+test("find by ID lists official ids and opens the chosen note", async () => {
+  const { app, plugin } = await setup();
+  app.files[0].fm.official_question_id = "37e5c794";
+  const m = new T.FindQuestionModal(app, plugin);
+  m.app = app;
+  const items = m.getItems();
+  assert.equal(items.length, 4);
+  assert.match(m.getItemText(items[0]), /37e5c794/);
+  m.onChooseItem(items[0]);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(app.opened, ["Questions/sat/Q1.md"]);
+});
+
+test("practice a folder: the picker lists folders with note counts", async () => {
+  const { app, plugin } = await setup();
+  const picked = [];
+  const m = new T.QuestionFolderModal(app, plugin, (f) => picked.push(f));
+  const items = m.getItems();
+  assert.ok(items.some((o) => o.value === "Questions/sat" && o.count === 2));
+  assert.match(m.getItemText(items.find((o) => o.value === "Questions/sat")), /\(2\)/);
+  m.onChooseItem(items[0]);
+  assert.equal(picked.length, 1);
+});
+
+test("import done screen: duplicates can be trashed, and problem notes are listed", async () => {
+  const { app, plugin, dom } = await setup();
+  const modal = Object.create(T.PdfImportModal.prototype);
+  modal.app = app;
+  modal.plugin = plugin;
+  modal.contentEl = dom.root;
+  modal.close = () => {};
+  const r = {
+    made: 2,
+    ai: 0,
+    noAnswer: 0,
+    skipped: [],
+    images: 0,
+    ids: [],
+    dupes: [{ path: "Questions/other/Q3.md", id: "zzz", other: "Questions/sat/Q1.md" }, { path: "", id: "skip1", other: "Questions/sat/Q1.md", skipped: true }],
+    issues: [{ path: "Questions/other/Q4.md", problems: ["No answer", "Missing figure"] }],
+  };
+  modal.showAgentDone(r, "Questions/other");
+  const t = dom.texts();
+  assert.ok(t.includes("Created 2 notes"));
+  assert.ok(t.some((x) => /Skipped 1 already in your vault/.test(x)));
+  assert.ok(t.some((x) => /repeats a question you already have/.test(x)));
+  assert.ok(t.some((x) => /Needs a look \(1 note\)/.test(x)));
+  assert.ok(t.includes("No answer (1)"));
+  assert.ok(t.includes("Practice all 2 notes in this folder"));
+  await dom.click(/Move the 1 repeat to the trash/);
+  assert.deepEqual(app.trashed, ["Questions/other/Q3.md"]);
+  assert.equal(r.made, 1);
+  assert.equal(r.dupes.length, 1);
+});

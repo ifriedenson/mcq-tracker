@@ -1,0 +1,96 @@
+"use strict";
+
+const VIEW_TYPE = "question-tracker-view";
+
+const FILTER_FIELDS = [
+  ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
+  ["course", "Course"],
+  ["test", "Test"],
+  ["section", "Section"],
+  ["domain", "Domain"],
+  ["skill", "Skill"],
+  ["unit", "Unit"],
+  ["difficulty", "Difficulty"],
+  ["last_error_type", "Error type"],
+];
+
+const MODES = [
+  ["smart", "Smart mix (weighted)"],
+  ["due", "Due for review"],
+  ["unseen", "Never attempted"],
+  ["missed", "Missed last time"],
+  ["flagged", "Flagged"],
+  ["random", "Pure random"],
+];
+
+const DEFAULT_SETTINGS = {
+  questionFolder: "",
+  intervals: [1, 3, 7, 21, 60],
+  errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed"],
+  confidenceLabels: ["Guessing", "Unsure", "Confident"],
+  autoPauseOnMobile: true,
+  explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
+  ai: {
+    enabled: false, // nothing is ever sent anywhere until you turn this on
+    managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)
+    preStart: false, // start OpenCode in the background when Obsidian opens, so the first chat doesn't wait
+    binaryPath: "", // optional: use this opencode program instead
+    managedBinary: "",
+    installedVersion: "",
+    url: "http://127.0.0.1:4096", // only used when managed is off
+    username: "opencode",
+    password: "",
+    model: "",
+    agent: "",
+    mode: "tutor",
+    sessionId: "",
+    autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
+    backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
+    api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", keys: {} },
+  },
+  presets: [],
+  importFolder: "",
+  importDefaults: {},
+  importOptions: { capture: true, pagePics: false },
+  filters: {},
+  moreSets: [], // extra filter sets, OR'd with `filters`
+  mode: "smart",
+  activePreset: "",
+  folderFilterStyle: "auto", // "auto" (search box when there are many folders) | "buttons" | "search"
+  testDefaults: { count: 10, minutes: 12 },
+};
+
+// Tracking properties every question note should have.
+const TRACKING_DEFAULTS = {
+  result: "unknown",
+  "date attempted": "",
+  first_attempted: "",
+  attempts: 0,
+  correct_count: 0,
+  streak: 0,
+  time_spent_total: 0,
+  last_time_spent: 0,
+  last_answer: "",
+  last_confidence: "",
+  last_error_type: "",
+  flagged: false,
+  next_review: "",
+  history: [],
+};
+const FOLDER_AUTO_MAX = 8; // "auto" folder filter: buttons up to this many folders, a search box beyond
+const STAT_FIELDS = [
+  ["skill", "Skill"],
+  ["domain", "Domain"],
+  ["difficulty", "Difficulty"],
+  ["folder", "Folder"],
+];
+
+module.exports = {
+  VIEW_TYPE,
+  FILTER_FIELDS,
+  MODES,
+  DEFAULT_SETTINGS,
+  TRACKING_DEFAULTS,
+  FOLDER_AUTO_MAX,
+  STAT_FIELDS,
+};

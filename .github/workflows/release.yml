@@ -1,8 +1,9 @@
 name: Release
 
 # Push a tag like 1.0.0 (it must equal "version" in manifest.json) and this
-# publishes a GitHub release with the three files Obsidian installs from,
-# plus signed build-provenance attestations for them.
+# publishes a GitHub release with the three files Obsidian installs from (the
+# community-directory build, without the OpenCode agent) and a zip of the full
+# version, plus signed build-provenance attestations for them.
 on:
   push:
     tags:
@@ -27,18 +28,35 @@ jobs:
             exit 1
           fi
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run the tests on both builds (this also checks main.js is the build of src/)
+        run: |
+          npm test
+          npm run test:directory
+
+      - name: Package the full version (with the OpenCode agent)
+        run: |
+          mkdir -p dist/full/mcq-tracker
+          cp main.js manifest.json styles.css dist/full/mcq-tracker/
+          (cd dist/full && zip -r ../mcq-tracker-full.zip mcq-tracker)
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
-            main.js
-            manifest.json
-            styles.css
+            dist/directory/main.js
+            dist/directory/manifest.json
+            dist/directory/styles.css
+            dist/mcq-tracker-full.zip
 
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css \
+          gh release create "$GITHUB_REF_NAME" \
+            dist/directory/main.js dist/directory/manifest.json dist/directory/styles.css dist/mcq-tracker-full.zip \
             --title "$GITHUB_REF_NAME" \
-            --notes "Release $GITHUB_REF_NAME. See the README for usage."
+            --notes "Release $GITHUB_REF_NAME. main.js is the community-directory build (no OpenCode agent). mcq-tracker-full.zip is the full version with the OpenCode agent for desktop. See the README."

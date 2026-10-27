@@ -10,17 +10,27 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Review after answering.** See the question and choices again with your pick and the correct answer marked, plus an explanation you can show or hide (the default is a setting).
 - **Spaced review.** Correct answers come back after 1, 3, 7, 21, then 60 days (editable). Misses come back tomorrow.
 - **Mistake tracking.** After a miss, tag why (careless, content gap, misread, ran out of time, guessed, or your own labels).
-- **Flexible filters.** Filter by course, test, section, domain, skill, unit and difficulty. You can pick several values in one field (OR), and add extra filter sets that are combined with OR. Save any combination as a **preset**.
+- **Flexible filters.** Filter by folder (including all its sub folders), course, test, section, domain, skill, unit and difficulty, for example folder + skill + difficulty together. You can pick several values in one field (OR), and add extra filter sets that are combined with OR. Save any combination as a **preset**.
+- **Counts and folder search.** Every filter button shows how many notes it holds. The Folder filter switches to a type-ahead search box when you have many folders (or whenever you choose), and the choice is a setting.
+- **Weak spots.** Accuracy and average time by skill, domain, difficulty and folder, with a **Practice my weakest skill** button and a Practice button on every row.
+- **Error log.** Questions you missed, grouped by the reason you gave, with a button to practice each group.
+- **Timed test.** Pick a number of questions and minutes, answer with a countdown and no explanations, then see your score, a by-skill breakdown, and a full review.
+- **Practice from your files.** Right-click any folder that holds questions and choose **Practice this folder**, or use the commands. Find any question by its official ID.
 - **Pick modes:** smart weighted mix, due for review, never attempted, missed, flagged, or pure random.
 - **Notes box** on the result screen, saved into the note.
 - **Import questions from a PDF:** an AI agent (or your own AI key) turns a PDF into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from a PDF](#import-questions-from-a-pdf)).
-- **Optional AI tutor** through your own API key or a local OpenCode agent (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
+- **Optional AI tutor** through your own API key, or (full version only) a local OpenCode agent (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
 
 ## Install
 
 **From the community directory:** open Settings, Community plugins, Browse, search for "MCQ Tracker", then Install and Enable.
 
 **Manually:** download `main.js`, `manifest.json` and `styles.css` from the latest release and copy them into `<your vault>/.obsidian/plugins/mcq-tracker/`. Then enable the plugin under Settings, Community plugins.
+
+### Two versions
+
+- **Standard version** (the community directory and the release's `main.js`). Practice, filters, stats, timed tests, and PDF import and AI chat through the **Direct API** with your own key. It runs on desktop and phones, and it doesn't use any Node.js features, download anything, or start any program.
+- **Full version** (`mcq-tracker-full.zip` on the release page). Everything above plus the **OpenCode agent** on desktop: the plugin can download and run OpenCode on your computer, so the agent can create question notes from a PDF by itself. Unzip it into `<your vault>/.obsidian/plugins/mcq-tracker/`, replacing the standard files. Everything about OpenCode in this README applies to the full version only.
 
 ## What counts as a question
 
@@ -71,8 +81,8 @@ Run the command **Add missing tracking properties to all question notes** to add
 ## Using it
 
 1. Open the practice view from the ribbon (graduation cap icon) or with the command **Open practice view**.
-2. Pick a preset or set filters. Tap several values to allow any of them. Tap **+ Add another set (OR)** to combine groups, for example "Unit 3 or 4 of a history course" OR "SAT, Reading and Writing, Inferences".
-3. Choose how to pick questions and press **Start**.
+2. Pick a preset or set filters. The **Folder** filter lists every folder that holds questions; picking a folder also includes its sub folders. Tap several values to allow any of them. Tap **+ Add another set (OR)** to combine groups, for example "Unit 3 or 4 of a history course" OR "SAT, Reading and Writing, Inferences".
+3. Choose how to pick questions and press **Start**. Or press **Timed test** or **Weak spots & errors** on the same screen.
 4. Choose an answer, say how sure you are, and **Submit**.
 5. On the result screen you can review the question, show or hide the explanation, tag why you missed it, write notes, flag the question, open the note, or ask the AI. Press **Next question** to continue.
 
@@ -89,6 +99,14 @@ Each `history` entry is stored as `date|result|seconds|answer|confidence|error_t
 - Toggle flag on this question
 - Add missing tracking properties to this note
 - Add missing tracking properties to all question notes
+- Practice a folder...
+- Practice the folder of this note
+- Start a timed test
+- Show weak spots
+- Show error log
+- Find a question by ID
+- Import questions from a PDF
+- Rename old source_question_id properties to official_question_id (one-time clean-up for notes imported before the rename)
 
 ## Import questions from a PDF
 
@@ -103,6 +121,10 @@ Point the plugin at a PDF of practice questions and it creates one note per ques
 
 - **OpenCode agent (desktop).** The agent reads the PDF and writes the note files itself, straight into the folder, the way you'd ask an AI agent to do it in a chat. Choose OpenCode as the AI backend in settings first. If the agent has to wait for permission to create files, allow file edits for your vault in OpenCode's permissions.
 - **Direct AI (any device).** The plugin sends the PDF's text to your provider a few pages at a time. The AI replies with finished notes, you review the list, untick anything you don't want, and the plugin creates the files.
+
+**Properties from the PDF.** The import reads the labels the PDF prints for each question and saves them as note properties: the question's own ID (as `official_question_id`, kept separate from the plugin's own `question_id`, for example the `Question ID: 37e5c794` on SAT Question Bank pages), plus test, section, domain, skill and difficulty. In an SAT-style table, "Assessment" becomes `test` and the table's "Test" column becomes `section`. Difficulty is saved in lower case (easy, medium, hard). Any other labelled value (for example a score band) is kept as an extra property. Anything you type in the import window's property boxes is used for every note instead of what the PDF says, so leave a box blank to take it from the PDF. Properties the PDF doesn't show are left out, never guessed.
+
+**Duplicates and a check of the result.** If a new note has the same official question ID as a note you already have, the review method skips it, and the agent method lists the repeats so you can move them to the trash in one click. When an import finishes, the plugin lists notes that need a look: no answer, no answer choices, or a missing figure. You can save that list as a note in the new folder.
 
 **Passages that span pages.** One passage can have several questions, and those questions can be on the next page or several pages later. The agent reads the whole PDF, so it matches each question to its passage. With Direct AI, each batch also receives the passages from the batches before it, so questions at the top of a page still get the right passage. Either way, the full passage is copied into every note that uses it, and those notes share one `stimulus_id`.
 
@@ -133,19 +155,19 @@ The result screen can show an **Ask AI** panel that explains a question, tells y
 
 The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRouter, Google Gemini, a local Ollama server, or any OpenAI-compatible address you enter (for example LM Studio).
 
-### Option 2: OpenCode agent (desktop only)
+### Option 2: OpenCode agent (desktop only, full version only)
 
 [OpenCode](https://opencode.ai) is a separate, free, open-source coding agent. The plugin can talk to a copy of it running on your own computer, which also lets the AI help with your notes (for example, drafting question notes). This works like the agent setup in other AI plugins, and you stay in control at each step:
 
 - **Your own copy:** install OpenCode yourself and enter its path under **OpenCode program** (or leave it blank to use the one on your PATH).
-- **Download from inside the plugin:** pressing **Download and install** shows a confirmation that names the source, version, size and folder. Only after you confirm does the plugin download the release from `github.com/anomalyco/opencode`, check its SHA-256 checksum (it refuses to install if no checksum is published or it doesn't match), and unpack it into `~/.question-tracker/opencode`, which is outside your vault. The plugin never downloads anything on its own and never updates it by itself.
+- **Download from inside the plugin:** pressing **Download and install** (or the automatic first-time setup) shows a confirmation that names the source, version, size and folder. Only after you confirm does the plugin download the release from `github.com/anomalyco/opencode`, check its SHA-256 checksum (it refuses to install if no checksum is published or it doesn't match), and unpack it into `~/.question-tracker/opencode`, which is outside your vault. The first time you turn on the OpenCode backend, the plugin starts this setup for you automatically (unless it finds an OpenCode you already have), and you still see the confirmation before anything is downloaded. It never updates OpenCode by itself.
 - **If the download is slow or stuck:** every step has a time limit now, and **Check again** in settings re-runs the status check. You can skip the plugin's download completely: get the zip from the OpenCode releases page in your browser, unzip it, and enter the path to `opencode.exe` under **OpenCode program**. Antivirus software often scans a large new program the first time it runs, which can add a minute or more.
 - **Running it:** when you use the AI chat, the plugin starts `opencode serve` on `127.0.0.1` with a random port and a random password, so only your computer can reach it. It is stopped when Obsidian closes. Its own data (including any provider key you save here) lives in `~/.question-tracker/opencode-data`.
 - **Tutor mode (default)** switches off OpenCode's file-editing and shell tools. **Agent mode** leaves them on, so OpenCode can read and edit files in your vault. Keep your vault backed up before using Agent mode. The plugin asks it not to touch tracking properties, but that is an instruction, not a lock.
 
 ### What is disclosed and sent
 
-- **Network use:** requests to your chosen AI provider; requests to `api.github.com` and `github.com` only when you press **Download and install**; and local requests to the OpenCode server on your own computer.
+- **Network use:** requests to your chosen AI provider; requests to `api.github.com` and `github.com` only to set up OpenCode, which happens the first time you choose the OpenCode backend (the plugin shows what it will download, from where, and where it will go, and asks you to confirm first; if you say no it won't ask again) or when you press **Download and install**; and local requests to the OpenCode server on your own computer.
 - **PDF import:** the text of the pages you choose is sent to your AI provider (Direct AI), or to your local OpenCode agent, which sends it to the provider you set up in OpenCode. Nothing is sent until you press **Start import**. The agent can create files in the new folder only if you allow it in OpenCode, and the plugin writes a temporary text copy of the PDF into that folder that it deletes when done. The PDF you choose is copied into that folder, and cut-out pictures are saved in an `images` folder inside it.
 - **What a chat request contains:** the question text, any passage, the answer choices, your answer, the correct answer, the explanation, your notes for that question, and your past mistake types for it. In the general assistant or Agent mode, OpenCode may also read other files in your vault if you ask it to.
 - **Files outside your vault:** only the OpenCode install folder and data folder named above, and only if you use Option 2.
@@ -154,7 +176,7 @@ The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRo
 
 ## Settings
 
-Question folder, review intervals, mistake types, confidence labels, whether the explanation starts shown or hidden, timer pause on mobile, the AI settings (backend, provider, OpenCode program and mode), and saved presets (rename or delete them).
+Question folder, how the Folder filter is shown (auto, buttons or a search box), review intervals, mistake types, confidence labels, whether the explanation starts shown or hidden, timer pause on mobile, the AI settings (backend, provider, OpenCode program and mode), and saved presets (rename or delete them).
 
 ## Privacy
 
@@ -163,6 +185,21 @@ Question folder, review intervals, mistake types, confidence labels, whether the
 - The plugin reads and writes notes inside your vault. The only things it touches outside your vault are the optional OpenCode folders described above.
 - The running timer is stored on your device (vault-scoped local storage), not in your notes.
 - The only network requests are the optional AI and download requests described above, and only if you enable them.
+
+## Development
+
+The plugin is written as small modules in `src/` and bundled into the single `main.js` that Obsidian loads, by a script with no dependencies.
+
+```
+npm run build              # write main.js (the full version) from src/
+npm run build:directory    # write dist/directory/ (the standard version, from src/ plus src-lite/)
+npm test                   # run the tests on the full build (includes a check that main.js is up to date)
+npm run test:directory     # build the standard version and run the same tests on it
+```
+
+Files in `src-lite/` replace the same-named modules in `src/` for the standard version; that is how the OpenCode manager, and every use of Node.js, is left out of it.
+
+Edit files in `src/`, run `npm run build`, and commit both. The tests run on plain Node with a stand-in for the `obsidian` module (see `tests/helpers`), and cover filters, folders, statistics, the error log, the import rules and checks, grading and scheduling, and smoke tests that run the plugin's views and commands. GitHub Actions runs them on every push and before each release.
 
 ## Support and issues
 

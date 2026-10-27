@@ -1,0 +1,19 @@
+name: CI
+
+# Runs the tests on every push and pull request. They include a check that the
+# committed main.js is the up-to-date build of the modules in src/.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm test
+      - run: npm run test:directory
