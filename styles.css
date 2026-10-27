@@ -689,13 +689,13 @@
 .qt-exam .qt-choice.is-key .qt-letter {
   background: var(--color-green);
   border-color: var(--color-green);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .qt-exam .qt-choice.is-miss .qt-letter {
   background: var(--color-red);
   border-color: var(--color-red);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .qt-tag {
@@ -882,4 +882,199 @@
 .qt-explanation img {
   max-width: 100%;
   height: auto;
+}
+
+/* ---- filter counts and folder search ---- */
+
+.qt-fcount {
+  margin-left: 6px;
+  font-size: var(--font-ui-smaller);
+  opacity: 0.65;
+}
+
+.qt-fx {
+  margin-left: 6px;
+  opacity: 0.8;
+}
+
+.qt-wrap .qt-fchip.is-empty {
+  border-style: dashed;
+  opacity: 0.7;
+}
+
+.qt-wrap .qt-fsearch {
+  width: 100%;
+  margin: 4px 0 6px;
+}
+
+/* ---- weak spots and error log ---- */
+
+.qt-ins-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qt-ins-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 8px 10px;
+}
+
+.qt-ins-name {
+  font-weight: var(--font-semibold);
+  overflow-wrap: anywhere;
+}
+
+.qt-ins-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.qt-meter-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+
+.qt-meter-fill {
+  height: 100%;
+  width: var(--qt-pct, 0%);
+  background: var(--text-muted);
+}
+
+.qt-hidden {
+  display: none;
+}
+
+.qt-meter-fill.is-low {
+  background: var(--text-error);
+}
+
+.qt-meter-fill.is-mid {
+  background: var(--text-warning, var(--color-orange));
+}
+
+.qt-meter-fill.is-high {
+  background: var(--text-success, var(--color-green));
+}
+
+.qt-ins-pct {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.qt-ins-group {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qt-ins-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+
+.qt-link {
+  cursor: pointer;
+}
+
+@media (max-width: 480px) {
+  .qt-ins-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .qt-ins-meter {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}
+
+/* ---- timed test ---- */
+
+.qt-tnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 8px;
+}
+
+.qt-wrap .qt-tnav-btn {
+  min-height: 34px;
+  min-width: 34px;
+  padding: 0 8px;
+  border-radius: var(--radius-s);
+}
+
+.qt-wrap .qt-tnav-btn.is-answered {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.qt-wrap .qt-tnav-btn.is-flagged {
+  box-shadow: inset 0 0 0 2px var(--text-warning, var(--color-orange));
+}
+
+.qt-wrap .qt-tnav-btn.is-current {
+  outline: 2px solid var(--text-normal);
+  outline-offset: 1px;
+}
+
+.qt-trow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.qt-trow .qt-ins-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.qt-tmark {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: var(--font-bold);
+  background: var(--background-modifier-border);
+}
+
+.qt-tmark.is-right {
+  background: var(--text-success, var(--color-green));
+  color: var(--background-primary);
+}
+
+.qt-tmark.is-wrong {
+  background: var(--text-error);
+  color: var(--background-primary);
+}
+
+.qt-detail {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---- import: duplicates and notes that need a look ---- */
+
+.qt-issue,
+.qt-issue-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 2px 0 6px;
 }
