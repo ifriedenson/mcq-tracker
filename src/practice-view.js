@@ -8,6 +8,7 @@ const { extractRationale, gradeAnswer } = require("./notes");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
 const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
+const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 
 class PracticeView extends ItemView {
   constructor(leaf, plugin) {
@@ -25,6 +26,7 @@ class PracticeView extends ItemView {
     this.filtersOpen = !plugin.settings.activePreset;
     this.generalHistory = [];
     this.timerEl = null;
+    this.quickSession = null;
   }
 
   getViewType() {
@@ -46,6 +48,12 @@ class PracticeView extends ItemView {
 
   async onClose() {
     await this.flushNotes();
+    if (this.quickSession) {
+      pauseQuickSession(this.quickSession);
+      this.plugin.pauseSession();
+      this.plugin.settings.quickSession = packQuickSession(this.quickSession);
+      await this.plugin.save();
+    }
   }
 
   /* ---- helpers */
@@ -56,13 +64,38 @@ class PracticeView extends ItemView {
 
   tick() {
     if (!this.timerEl || this.state !== "question") return;
-    const s = Math.floor(this.plugin.elapsedMs() / 1000);
+    const s = this.quickSession && this.quickSession.kind === "time"
+      ? this.quickSession.value * 60 - quickRemainingSeconds(this.quickSession)
+      : Math.floor(this.plugin.elapsedMs() / 1000);
     this.timerEl.setText(fmtClock(s));
     const target = Number(this.current && this.current.fm.target_seconds) || 0;
     this.timerEl.toggleClass("is-over", !!target && s > target);
+    if (this.quickSession && this.quickSession.kind === "time" && quickRemainingSeconds(this.quickSession) <= 0) {
+      this.finishQuick("Quick Practice time is up.");
+    }
   }
 
   async restoreSession() {
+    const savedQuick = unpackQuickSession(this.plugin.settings.quickSession, Date.now());
+    if (savedQuick) {
+      if (savedQuick.expired) {
+        this.plugin.settings.quickSession = null;
+        await this.plugin.save();
+        new Notice("Your Quick Practice time ran out while Obsidian was closed.", 5000);
+      } else {
+        const q = this.plugin.getQuestions().find((x) => x.file.path === savedQuick.paths[savedQuick.index]);
+        if (q) {
+          this.quickSession = savedQuick;
+          resumeQuickSession(this.quickSession);
+          await this.loadQuestion(q, false);
+          this.plugin.startSession(q.file.path);
+          new Notice("Picked Quick Practice back up.", 4000);
+          return;
+        }
+        this.plugin.settings.quickSession = null;
+        await this.plugin.save();
+      }
+    }
     const s = this.plugin.session;
     if (!s) return;
     const file = this.app.vault.getAbstractFileByPath(s.path);
@@ -94,6 +127,7 @@ class PracticeView extends ItemView {
   }
 
   async next() {
+    if (this.quickSession) return this.nextQuick();
     await this.flushNotes();
     const st = this.plugin.settings;
     const pool = this.plugin.filtered(this.plugin.getQuestions());
@@ -107,6 +141,64 @@ class PracticeView extends ItemView {
     }
     await this.loadQuestion(pick, true);
     this.render();
+  }
+
+  startQuickSetup() {
+    this.state = "quick-setup";
+    this.render();
+  }
+
+  async startQuick(kind, value) {
+    const p = this.plugin;
+    const pool = p.filtered(p.getQuestions());
+    const queue = buildQuickQueue(pool, p.settings.mode, fmtDate(new Date()), kind === "time" ? Math.max(1, pool.length) : value);
+    if (!queue.length) {
+      new Notice("No questions match your current filters.");
+      return;
+    }
+    if (kind === "count" && queue.length < value) {
+      new Notice(`Only ${queue.length} question${queue.length === 1 ? "" : "s"} matched, so Quick Practice will use what is available.`, 5000);
+    }
+    const session = createQuickSession(queue, { kind, value, mode: p.settings.mode });
+    this.quickSession = session;
+    p.settings.quickSession = packQuickSession(session);
+    await p.save();
+    await this.loadQuestion(queue[0], true);
+    this.render();
+  }
+
+  async nextQuick() {
+    await this.flushNotes();
+    const session = this.quickSession;
+    if (!session) return this.next();
+    if (session.kind === "time" && quickRemainingSeconds(session) <= 0) return this.finishQuick("Quick Practice time is up.");
+    const nextIndex = session.index + 1;
+    if (nextIndex >= session.paths.length) return this.finishQuick("Quick Practice complete.");
+    session.index = nextIndex;
+    this.plugin.settings.quickSession = packQuickSession(session);
+    await this.plugin.save();
+    const q = this.plugin.getQuestions().find((x) => x.file.path === session.paths[nextIndex]);
+    if (!q) return this.finishQuick("A question in this session is no longer available.");
+    await this.loadQuestion(q, true);
+    this.render();
+  }
+
+  async finishQuick(message) {
+    this.plugin.clearSession();
+    this.plugin.settings.quickSession = null;
+    await this.plugin.save();
+    this.quickSession = null;
+    this.state = "idle";
+    new Notice(message, 5000);
+    this.render();
+  }
+
+  pauseQuick() {
+    if (!this.quickSession) return;
+    pauseQuickSession(this.quickSession);
+    this.plugin.pauseSession();
+    this.plugin.settings.quickSession = packQuickSession(this.quickSession);
+    this.plugin.save();
   }
 
   async submit() {
@@ -163,6 +255,7 @@ class PracticeView extends ItemView {
     if (this.state === "question") this.renderQuestion(root);
     else if (this.state === "result") this.renderResult(root);
     else if (this.state === "chat") this.renderChat(root);
+    else if (this.state === "quick-setup") this.renderQuickSetup(root);
     else this.renderIdle(root);
     // two-pane screens scroll inside their panes, not the whole view
     el.toggleClass("qt-no-scroll", root.hasClass("qt-wide"));
@@ -342,6 +435,7 @@ class PracticeView extends ItemView {
     start.addEventListener("click", () => this.next());
 
     const tools = root.createDiv({ cls: "qt-row qt-small-row" });
+    tools.createEl("button", { text: "Quick Practice" }).addEventListener("click", () => this.startQuickSetup());
     tools.createEl("button", { text: "Timed test" }).addEventListener("click", () => p.activateTest());
     tools.createEl("button", { text: "Weak spots & errors" }).addEventListener("click", () => p.activateInsights("weak"));
 
@@ -358,6 +452,46 @@ class PracticeView extends ItemView {
     if (this.tally.n) {
       root.createDiv({ cls: "qt-hint", text: `This session: ${this.tally.correct}/${this.tally.n} correct` });
     }
+  }
+
+  renderQuickSetup(root) {
+    const p = this.plugin;
+    const pool = p.filtered(p.getQuestions());
+    const today = fmtDate(new Date());
+    const mode = p.settings.mode;
+    const inMode = pool.filter((q) => (MODE_PRED[mode] || MODE_PRED.smart)(q.fm, today)).length;
+    root.createEl("h3", { text: "Quick Practice" });
+    root.createDiv({ cls: "qt-hint", text: "A short, one-handed session using your current filters and pick mode. Your progress is saved if Obsidian closes." });
+    root.createDiv({ cls: "qt-count", text: `${inMode} question${inMode === 1 ? "" : "s"} available in ${mode === "smart" ? "Smart mix" : mode}.` });
+    root.createDiv({ cls: "qt-label", text: "Session length" });
+    const kind = root.createEl("select", { cls: "qt-select" });
+    kind.createEl("option", { value: "time", text: "By time" });
+    kind.createEl("option", { value: "count", text: "By question count" });
+    kind.value = "time";
+    const value = root.createEl("select", { cls: "qt-select" });
+    const fill = () => {
+      value.empty();
+      const options = kind.value === "time" ? QUICK_TIME_OPTIONS : QUICK_COUNT_OPTIONS;
+      options.forEach((n) => value.createEl("option", { value: String(n), text: kind.value === "time" ? `${n} minutes` : `${n} questions` }));
+      const preferred = kind.value === "time" ? p.settings.quickDefaults.minutes : p.settings.quickDefaults.count;
+      value.value = String(options.includes(preferred) ? preferred : options[0]);
+    };
+    fill();
+    kind.addEventListener("change", fill);
+    const start = root.createEl("button", { text: "Start Quick Practice", cls: "mod-cta qt-primary" });
+    start.disabled = !inMode;
+    start.addEventListener("click", () => {
+      const selected = Number(value.value);
+      if (kind.value === "time") p.settings.quickDefaults.minutes = selected;
+      else p.settings.quickDefaults.count = selected;
+      p.save();
+      this.startQuick(kind.value, selected);
+    });
+    const back = root.createEl("button", { text: "Back" });
+    back.addEventListener("click", () => {
+      this.state = "idle";
+      this.render();
+    });
   }
 
   renderQuestion(root) {
@@ -380,8 +514,17 @@ class PracticeView extends ItemView {
     const pb = tw.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": paused ? "Resume" : "Pause" } });
     setIcon(pb, paused ? "play" : "pause");
     pb.addEventListener("click", () => {
-      if (paused) p.resumeSession();
-      else p.pauseSession();
+      if (paused) {
+        p.resumeSession();
+        if (this.quickSession) resumeQuickSession(this.quickSession);
+      } else {
+        p.pauseSession();
+        if (this.quickSession) pauseQuickSession(this.quickSession);
+      }
+      if (this.quickSession) {
+        p.settings.quickSession = packQuickSession(this.quickSession);
+        p.save();
+      }
       this.render();
     });
     const tools = bar.createDiv({ cls: "qt-exam-tools" });
@@ -404,9 +547,12 @@ class PracticeView extends ItemView {
     skip.addEventListener("click", () => this.next());
     const end = fl.createEl("button", { text: "End" });
     end.addEventListener("click", () => {
-      this.plugin.clearSession();
-      this.state = "idle";
-      this.render();
+      if (this.quickSession) this.finishQuick("Quick Practice ended.");
+      else {
+        this.plugin.clearSession();
+        this.state = "idle";
+        this.render();
+      }
     });
 
     if (paused) {
@@ -592,6 +738,7 @@ class PracticeView extends ItemView {
       paintFlag();
     });
     const topNext = acts.createEl("button", { text: "Next question", cls: "mod-cta" });
+    if (this.quickSession) topNext.setText("Next quick question");
     topNext.addEventListener("click", () => this.next());
 
     root.createDiv({

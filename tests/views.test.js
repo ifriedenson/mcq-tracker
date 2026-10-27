@@ -167,6 +167,34 @@ test("practice view: filters show counts, and the folder filter can switch to a 
   assert.equal(plugin.settings.folderFilterStyle, "buttons");
 });
 
+test("quick practice: offers a setup screen and starts a time-limited session", async () => {
+  const { app, plugin, dom } = await setup();
+  const v = makeView(T.PracticeView, plugin, app, dom);
+  v.startQuickSetup();
+  assert.ok(dom.texts().includes("Quick Practice"));
+  await dom.click("Start Quick Practice");
+  assert.equal(v.state, "question");
+  assert.equal(v.quickSession.kind, "time");
+  assert.equal(v.quickSession.paths.length, 4);
+  assert.equal(plugin.settings.quickSession.index, 0);
+});
+
+test("quick practice: serializes, resumes, and pauses a session without spending paused time", () => {
+  const { buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, unpackQuickSession, resumeQuickSession } = T;
+  const items = [{ file: { path: "Q/a.md" } }, { file: { path: "Q/b.md" } }];
+  const session = createQuickSession(items, { kind: "time", value: 2, mode: "smart" }, 100000);
+  assert.deepEqual(session.paths, ["Q/a.md", "Q/b.md"]);
+  assert.equal(quickRemainingSeconds(session, 100000), 120);
+  pauseQuickSession(session, 110000);
+  assert.equal(quickRemainingSeconds(session, 200000), 110);
+  const saved = packQuickSession(session);
+  const restored = unpackQuickSession(saved, 200000);
+  assert.equal(restored.runningSince, 0);
+  resumeQuickSession(restored, 200000);
+  assert.equal(quickRemainingSeconds(restored, 200000), 110);
+  assert.equal(buildQuickQueue(items, "random", "2026-10-27", 5).length, 2);
+});
+
 test("practice view: a folder filter that no longer holds notes is marked", async () => {
   const { app, plugin, dom } = await setup();
   plugin.settings.filters = { folder: ["Old/renamed"] };

@@ -446,6 +446,8 @@ const DEFAULT_SETTINGS = {
   folderFilterStyle: "auto", // "auto" (search box when there are many folders) | "buttons" | "search"
   testDefaults: { count: 10, minutes: 12 },
   testSession: null, // a timed test in progress, so it survives closing Obsidian
+  quickDefaults: { count: 5, minutes: 5 },
+  quickSession: null, // a Quick Practice queue in progress, so it survives closing Obsidian
 };
 
 // Tracking properties every question note should have.
@@ -1219,6 +1221,377 @@ module.exports = {
 };
 };
 
+/* ---- src/importer.js ---- */
+__defs["importer"] = function (module, exports, require) {
+const { parseYaml, stringifyYaml } = require("obsidian");
+const { sleep, str } = require("./util");
+const { TRACKING_DEFAULTS } = require("./constants");
+const { extractRationale, fillDefaults, parseSections } = require("./notes");
+const { chunkText } = require("./pdf");
+const { officialIdOf } = require("./filters");
+
+/* ---- checking imported notes */
+
+/** What looks wrong with one imported note: no answer, no answer choices, a missing figure. `exists(link)` says whether an embedded file is there. */
+async function noteIssues(text, exists) {
+  const { fm, body, sec } = parseNote(text);
+  const out = [];
+  const ans = str(fm.answer).trim();
+  if (!ans) out.push("No answer");
+  if (!sec.choices.length && (!ans || /^[A-Ha-h]$/.test(ans))) out.push("No answer choices");
+  let missing = /\[Figure not captured\]/i.test(body);
+  for (const m of body.matchAll(/!\[\[([^\]|#]+)/g)) {
+    if (!(await exists(m[1].trim()))) missing = true;
+  }
+  if (missing) out.push("Missing figure");
+  return out;
+}
+
+/** { problem: [path, ...] } from [{path, problems}] */
+function groupIssues(issues) {
+  const out = {};
+  for (const it of issues) for (const p of it.problems) (out[p] = out[p] || []).push(it.path);
+  return out;
+}
+
+function buildReportMarkdown(folder, issues, dupes, date) {
+  const lines = [`# Import report`, "", `Folder: ${folder}`, `Date: ${date}`, ""];
+  const groups = groupIssues(issues);
+  const link = (p) => `- [[${p.replace(/\.md$/i, "")}|${p.replace(/^.*\//, "").replace(/\.md$/i, "")}]]`;
+  for (const [problem, paths] of Object.entries(groups)) {
+    lines.push(`## ${problem} (${paths.length})`, "", ...paths.map(link), "");
+  }
+  if (dupes && dupes.length) {
+    lines.push(`## Same question ID as another note (${dupes.length})`, "");
+    for (const d of dupes) lines.push(`${link(d.path)} (ID ${d.id}, also in [[${str(d.other).replace(/\.md$/i, "")}]])`);
+    lines.push("");
+  }
+  if (lines.length <= 5) lines.push("Nothing needs a look.");
+  return lines.join("\n").trimEnd() + "\n";
+}
+
+/* ---- note format, rules and prompts shared by both import methods */
+
+const KNOWN_PROPS = new Set([
+  "question_id", "official_question_id", "source_question_id", "pdf_question_id", "original_id", "number", "test", "course", "section", "domain", "skill", "unit", "difficulty", "source",
+  "stimulus_id", "question_type", "choices", "answer", "answer_source", "explanation_source", "ai_model", "ai_generated",
+  ...Object.keys(TRACKING_DEFAULTS),
+]);
+
+const IMPORT_FORMAT = `---
+question_id: PREFIX-Q01
+number: 1
+question_type: mcq
+choices: 4
+answer: B
+answer_source: pdf
+explanation_source: pdf
+stimulus_id: PREFIX-S01
+---
+
+## Stimulus
+> The passage, table or data the question depends on. Every line starts with "> ".
+
+## Question
+The question text.
+
+## Answer Choices
+- A. First choice
+- B. Second choice
+- C. Third choice
+- D. Fourth choice
+
+## Answer
+> [!answer]- Reveal answer
+> **Correct Answer: B**
+>
+> The explanation.
+
+## My Notes
+`;
+
+const IMPORT_RULES = `Rules:
+- Make one note per question. Copy the question, passage and choices exactly as written. Only remove page numbers, running headers and footers, and line-break hyphenation. Never paraphrase, shorten or "fix" them.
+- Passage: one passage (stimulus) can have several questions, and those questions can be on later pages than the passage, even on the next page or after other pages. Work out which passage each question belongs to from its wording ("Text 1", "the passage", "the graph", "the table above" and so on) and from the order of the pages. Put the full passage under "## Stimulus" in EVERY question that uses it, repeated word for word, and give those questions the same stimulus_id. If a question has no passage, leave out the "## Stimulus" section and the stimulus_id line. Use markdown tables for tables and $...$ for math.
+- Pictures: lines like [FIGURE page 3: ![[path/to/picture.png]]] in the text mark a picture, chart, diagram, photo or table image in the PDF at that spot. If a question or its passage depends on it, copy the exact ![[path]] part to where it belongs: on its own "> " line inside the Stimulus when it is part of the passage or data, inside the question text when it is shown with the question, or inside an answer choice (- A. ![[path]]) when the choice is a picture. Use the paths exactly as given and never invent one. If a "whole page" picture is also listed, use it only when the cropped figure is clearly cut off. If the text says a figure is needed and no marker is there, write "> [Figure not captured]" in the Stimulus and carry on.
+- question_type is "mcq" when the question has answer choices (list them under "## Answer Choices" as "- A. text") and "choices" is how many there are. For a question with no answer choices, use "spr", leave out "## Answer Choices", and put the answer value in "answer".
+- Layout of question-bank PDFs: a question often starts with a line like "Question ID: 37e5c794", then a small table of labels, then "Question" followed by the question text, then the choices (sometimes under a heading called "Answer"), then "Correct Answer: D", then "Rationale". Everything from the start of the question text up to the first choice is the question: keep both the sentence with the blank (leave the blank as written, for example ______) and the instruction sentence after it ("Which choice completes the text..."). The choices go under "## Answer Choices", the correct letter goes in "answer", and the "Rationale" or "Explanation" text is the explanation.
+- Answer: if the PDF shows the correct answer anywhere (for example an answer key at the end), use it and set answer_source: pdf. If the PDF does NOT show it, work the question out carefully yourself, give your best answer, and set answer_source: ai. For a multiple-choice answer use just the letter.
+- Explanation: if the PDF gives one, copy it and set explanation_source: pdf. Otherwise write a short, correct explanation of why the answer is right (and why the others are wrong) and set explanation_source: ai.
+- Do not write any "AI-generated" notice yourself. The plugin adds it.
+- Never put a line starting with # inside the question, passage, choices or explanation.
+- Properties from the PDF: besides the ones in the example, add a line for every piece of information the PDF shows for that question, or for the whole document (a title page or running header that names the test, for example). Leave a line out when the PDF does not show it, and never guess a value. Copy values exactly as written, except difficulty, which you write in lower case (easy, medium or hard):
+  - official_question_id: the question's official ID printed in the PDF, such as the part after "Question ID:". It is a separate property from question_id, which you build from the prefix and which must not be changed. Copy it exactly, and add it whenever the PDF gives one.
+  - test: the exam or assessment (for example SAT, AP, ACT). A label called "Assessment" or "Exam" gives this.
+  - section: the part of the exam (for example Reading and Writing, Math). When the PDF has both an "Assessment" label and a separate "Test" label, the "Test" label is the section.
+  - domain, skill, difficulty, course, unit: whenever the PDF labels them.
+  - Anything else the PDF labels for the question (for example Score Band, Topic or Year): add it as its own property with a short lower-case name using underscores and a one-line value.
+  These labels are often shown as a small table: a header row (Assessment, Test, Domain, Skill, Difficulty) and a row of values underneath. Match each value to the label above it. A bar or icon graphic drawn next to the difficulty is decoration, not a picture: use the word and ignore the graphic.
+- Leave out anything that is not a question (directions, ads, blank pages).`;
+
+function agentPrompt(o) {
+  const meta = [["test", o.meta.test], ["course", o.meta.course], ["section", o.meta.section], ["domain", o.meta.domain], ["unit", o.meta.unit], ["difficulty", o.meta.difficulty], ["skill", o.meta.skill]]
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n");
+  return [
+    `Import every question from the PDF "${o.name}" into notes.`,
+    "",
+    "Files (paths are relative to the folder you are working in):",
+    `- The PDF's text, with page markers: ${o.textPath}`,
+    `- The PDF itself: ${o.pdfPath}`,
+    `- Pictures cut from the PDF are in ${o.imagesDir}. Their paths appear in the text as [FIGURE ...] markers, so you don't need to open them.`,
+    "",
+    `Create the notes in this folder, which already exists: ${o.folder}`,
+    `Use one file per question, named ${o.prefix}-Q01.md, ${o.prefix}-Q02.md and so on. If the PDF's own question numbers are all unique, use them (padded to two digits) instead. Use the prefix "${o.prefix}" for question_id and stimulus_id values too, and make question_id match the file name.`,
+    meta ? `\nAdd these properties to every note exactly as written:\n${meta}\nFor every other property (including official_question_id), take the value the PDF shows for that question.` : "\nThe user did not fill in any properties, so take every property (test, section, domain, skill, difficulty, official_question_id and so on) from what the PDF shows for each question.",
+    "",
+    "Use exactly this format for every note:",
+    "```",
+    IMPORT_FORMAT.replace(/PREFIX/g, o.prefix),
+    "```",
+    "",
+    IMPORT_RULES,
+    "",
+    "Work through the whole PDF. Remember that a passage can be on an earlier page than its questions, so read the whole text before deciding which passage a question belongs to. Do not create, change or delete any file outside that folder, and do not delete anything. When you are done, reply with one short line: how many notes you created, and how many contain an answer or explanation you wrote yourself.",
+  ]
+    .filter((l) => l !== undefined)
+    .join("\n");
+}
+
+const AGENT_SYSTEM = "You are importing practice-test questions from a PDF into an Obsidian vault. Work only inside the folder you are told to use. Be accurate and complete: every question in the PDF must become exactly one note.";
+
+const API_SYSTEM = `You turn pages of a practice-test PDF into Obsidian notes.
+Reply with the notes only. Start each note with a line containing exactly =====NOTE===== and then the complete note, starting with the --- line. No other text and no code fences.
+
+Use exactly this format for every note (leave question_id as PREFIX-Q01; it is replaced later):
+
+${IMPORT_FORMAT}
+${IMPORT_RULES}
+- If a question is cut off at the start or end of the pages you are given so that it is incomplete, leave it out. It is included in the next batch.
+- If a block called ANSWER KEY FROM ELSEWHERE IN THE PDF is given, use it for answers and explanations (answer_source: pdf, explanation_source: pdf).
+- If a block called PASSAGES CARRIED OVER FROM EARLIER PAGES is given, those passages are on pages before the ones you were sent. Questions at the start of your pages that need a passage which isn't in your pages belong to one of them. Copy that passage exactly into those notes.`;
+
+function parseNote(text) {
+  const t = str(text).replace(/\r\n/g, "\n");
+  const m = t.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  let fm = {};
+  let body = t;
+  if (m) {
+    try {
+      fm = parseYaml(m[1]) || {};
+    } catch (e) {
+      fm = {};
+    }
+    body = m[2];
+  }
+  if (!fm || typeof fm !== "object" || Array.isArray(fm)) fm = {};
+  return { fm, body, sec: parseSections(body) };
+}
+
+/** Splits an AI reply into notes. */
+function splitNotes(reply) {
+  const t = str(reply).replace(/```(?:markdown|md|yaml)?\s*\n/gi, "").replace(/\n```\s*(?=\n|$)/g, "\n");
+  return t
+    .split(/^=====NOTE=====\s*$/m)
+    .map((b) => b.trim())
+    .filter((b) => /^---\s*\n/.test(b));
+}
+
+/** Pages that look like an answer key or rationale section, so every batch can see them. */
+function answerKeyText(pages) {
+  const hits = pages.filter((p) => {
+    const t = p.text;
+    if (/answer\s*key|answers?\s*(and|&)\s*(explanations|rationales)|answer\s*explanations/i.test(t)) return true;
+    return (t.match(/(?:^|\s)\d{1,3}\s*[.)\-:]\s*[A-Da-d](?=\s|$)/g) || []).length >= 8;
+  });
+  return hits.map((p) => `--- Page ${p.n} ---\n${p.text.trim()}`).join("\n\n").slice(0, 7000);
+}
+
+async function extractNotesChunk(client, chunk, keyText, carry) {
+  const inChunk = new Set(chunk.map((p) => p.n));
+  const key = keyText && !chunk.some((p) => keyText.includes(`--- Page ${p.n} ---`) && inChunk.has(p.n)) ? keyText : "";
+  const user =
+    `Pages ${chunk[0].n}-${chunk[chunk.length - 1].n} of the PDF:\n\n${chunkText(chunk)}` +
+    (key ? `\n\nANSWER KEY FROM ELSEWHERE IN THE PDF:\n${key}` : "") +
+    (carry && carry.length ? `\n\nPASSAGES CARRIED OVER FROM EARLIER PAGES:\n${carry.map((c, i) => `[Passage ${i + 1}]\n${c}`).join("\n\n")}` : "");
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const reply = await client.chat(API_SYSTEM, [{ role: "user", content: user }], { maxTokens: 8000 });
+      return splitNotes(reply);
+    } catch (e) {
+      lastErr = e;
+      if (attempt === 0) await sleep(1500);
+    }
+  }
+  throw lastErr;
+}
+
+function noteSig(parsed) {
+  const norm = (t, n) => str(t).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, n);
+  const s = parsed.sec;
+  const num = str(parsed.fm.number).trim();
+  // a question seen twice (overlapping batches) may have a passage in one copy and not the other, so the passage only counts when there is no question number
+  return [num, norm(s.question, 80), num ? "" : norm(s.stimulus, 40), norm(s.choices[0] ? s.choices[0].text : "", 30)].join("|");
+}
+
+/** The passages of the last few notes, so the next batch can attach questions to a passage from the page before. */
+function carryPassages(blocks) {
+  const seen = new Set();
+  const out = [];
+  for (const text of [...blocks].reverse()) {
+    const st = str(parseNote(text).sec.stimulus).trim();
+    const key = st.toLowerCase().replace(/\s+/g, " ");
+    if (!st || seen.has(key)) continue;
+    seen.add(key);
+    out.push(st.slice(0, 4000));
+    if (out.length >= 2) break;
+  }
+  return out.reverse();
+}
+
+/** Keeps the longest copy of each question (a question seen in two overlapping batches). */
+function mergeNotes(blocks) {
+  const all = [];
+  for (const text of blocks) {
+    const parsed = parseNote(text);
+    if (!str(parsed.sec.question).trim()) continue;
+    const item = { text, ...parsed, include: true, sig: noteSig(parsed), size: text.length };
+    const i = all.findIndex((x) => x.sig === item.sig);
+    if (i < 0) all.push(item);
+    else if (item.size > all[i].size) all[i] = item;
+  }
+  return all;
+}
+
+function aiFlags(fm, sec) {
+  const ans = str(fm.answer).trim();
+  const rat = extractRationale(str(sec.answer))
+    .replace(/\*\*\s*Correct Answer[^*\n]*\*\*/i, "")
+    .trim();
+  return {
+    hasAnswer: !!ans,
+    hasExp: !!rat,
+    aiAnswer: !!ans && str(fm.answer_source).toLowerCase() !== "pdf",
+    aiExp: !!rat && str(fm.explanation_source).toLowerCase() !== "pdf",
+  };
+}
+
+/**
+ * Turns the AI's note into the final note: tidy properties, tracking fields, and, when the AI wrote
+ * the answer or explanation, a notice at the top naming the model and the date.
+ */
+function finalizeNote(text, meta, qid, stamp) {
+  const { fm: src, body, sec } = parseNote(text);
+  const fm = { question_id: qid };
+  const srcId = officialIdOf(src);
+  if (srcId) fm.official_question_id = srcId;
+  const num = src.number === null || src.number === undefined || src.number === "" ? NaN : Number(src.number);
+  if (Number.isFinite(num)) fm.number = num;
+  for (const k of ["test", "course", "section", "domain"]) {
+    const v = meta[k] || src[k];
+    if (v) fm[k] = v;
+  }
+  const skill = meta.skill || src.skill;
+  if (skill) fm.skill = skill;
+  const unit = meta.unit || src.unit;
+  if (unit !== undefined && unit !== null && unit !== "") fm.unit = /^\d+$/.test(str(unit)) ? Number(unit) : unit;
+  const diff = meta.difficulty || src.difficulty;
+  if (diff) fm.difficulty = /^(easy|medium|hard)$/i.test(str(diff).trim()) ? str(diff).trim().toLowerCase() : diff;
+  if (meta.source) fm.source = meta.source;
+  // any other labelled information the PDF showed (single-line values only; never the plugin's own tracking fields)
+  let extra = 0;
+  for (const [k, v] of Object.entries(src)) {
+    if (extra >= 12 || KNOWN_PROPS.has(k) || k in fm || !/^[a-z][a-z0-9_]{0,40}$/.test(k)) continue;
+    if (!["string", "number", "boolean"].includes(typeof v)) continue;
+    const sv = typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, 200) : v;
+    if (sv === "") continue;
+    fm[k] = sv;
+    extra++;
+  }
+  const stimId = stamp.stimId !== undefined ? stamp.stimId : src.stimulus_id;
+  if (stimId && str(sec.stimulus).trim()) fm.stimulus_id = str(stimId);
+
+  const type = sec.choices.length ? "mcq" : "spr";
+  fm.question_type = type;
+  if (type === "mcq") fm.choices = sec.choices.length;
+  let ans = str(src.answer).trim();
+  if (type === "mcq") {
+    const m = ans.match(/^\(?([A-Ha-h])(?![A-Za-z])/);
+    ans = m ? m[1].toUpperCase() : "";
+  }
+  if (ans) fm.answer = ans;
+  const f = aiFlags({ ...src, answer: ans }, sec);
+  if (f.hasAnswer) fm.answer_source = f.aiAnswer ? "ai" : "pdf";
+  if (f.hasExp) fm.explanation_source = f.aiExp ? "ai" : "pdf";
+  const ai = f.aiAnswer || f.aiExp;
+  if (ai) {
+    fm.ai_model = stamp.model;
+    fm.ai_generated = stamp.date;
+  }
+  fillDefaults(fm);
+
+  let cleaned = body.replace(/^\s*> \[!warning\] AI-generated[^\n]*(?:\n>[^\n]*)*\n+/i, "").trim();
+  let notice = "";
+  if (ai) {
+    const what = f.aiAnswer && f.aiExp ? "answer and explanation" : f.aiAnswer ? "answer" : "explanation";
+    notice =
+      `> [!warning] AI-generated ${what}\n` +
+      `> Written by ${stamp.model} on ${stamp.date}${f.aiAnswer ? ", because the PDF did not show the answer" : ""}. Check it before you rely on it.\n\n`;
+  }
+  return `---\n${stringifyYaml(fm).trimEnd()}\n---\n\n${notice}${cleaned}\n`;
+}
+
+async function ensureProviders(oc) {
+  let n = null;
+  try {
+    const cp = await oc.providers();
+    if (cp && Array.isArray(cp.providers)) n = cp.providers.length;
+  } catch (e) {
+    return;
+  }
+  if (n === 0) {
+    throw new Error("OpenCode has no AI provider connected yet. Open Settings > MCQ Tracker > AI assistant, choose a provider and paste an API key.");
+  }
+}
+
+function modelFromMessages(msgs) {
+  for (const m of [...(Array.isArray(msgs) ? msgs : [])].reverse()) {
+    const i = m && m.info;
+    if (i && i.role !== "user") {
+      const id = i.modelID || (i.model && i.model.modelID);
+      const prov = i.providerID || (i.model && i.model.providerID);
+      if (id) return prov ? `${prov}/${id}` : id;
+    }
+  }
+  return "";
+}
+
+module.exports = {
+  noteIssues,
+  groupIssues,
+  buildReportMarkdown,
+  KNOWN_PROPS,
+  IMPORT_FORMAT,
+  IMPORT_RULES,
+  agentPrompt,
+  AGENT_SYSTEM,
+  API_SYSTEM,
+  parseNote,
+  splitNotes,
+  answerKeyText,
+  extractNotesChunk,
+  noteSig,
+  carryPassages,
+  mergeNotes,
+  aiFlags,
+  finalizeNote,
+  ensureProviders,
+  modelFromMessages,
+};
+};
+
 /* ---- src/import-modal.js ---- */
 __defs["import-modal"] = function (module, exports, require) {
 const { Modal, Notice, Platform, Setting, TFile, normalizePath } = require("obsidian");
@@ -1920,377 +2293,6 @@ class PdfImportModal extends Modal {
 
 module.exports = {
   PdfImportModal,
-};
-};
-
-/* ---- src/importer.js ---- */
-__defs["importer"] = function (module, exports, require) {
-const { parseYaml, stringifyYaml } = require("obsidian");
-const { sleep, str } = require("./util");
-const { TRACKING_DEFAULTS } = require("./constants");
-const { extractRationale, fillDefaults, parseSections } = require("./notes");
-const { chunkText } = require("./pdf");
-const { officialIdOf } = require("./filters");
-
-/* ---- checking imported notes */
-
-/** What looks wrong with one imported note: no answer, no answer choices, a missing figure. `exists(link)` says whether an embedded file is there. */
-async function noteIssues(text, exists) {
-  const { fm, body, sec } = parseNote(text);
-  const out = [];
-  const ans = str(fm.answer).trim();
-  if (!ans) out.push("No answer");
-  if (!sec.choices.length && (!ans || /^[A-Ha-h]$/.test(ans))) out.push("No answer choices");
-  let missing = /\[Figure not captured\]/i.test(body);
-  for (const m of body.matchAll(/!\[\[([^\]|#]+)/g)) {
-    if (!(await exists(m[1].trim()))) missing = true;
-  }
-  if (missing) out.push("Missing figure");
-  return out;
-}
-
-/** { problem: [path, ...] } from [{path, problems}] */
-function groupIssues(issues) {
-  const out = {};
-  for (const it of issues) for (const p of it.problems) (out[p] = out[p] || []).push(it.path);
-  return out;
-}
-
-function buildReportMarkdown(folder, issues, dupes, date) {
-  const lines = [`# Import report`, "", `Folder: ${folder}`, `Date: ${date}`, ""];
-  const groups = groupIssues(issues);
-  const link = (p) => `- [[${p.replace(/\.md$/i, "")}|${p.replace(/^.*\//, "").replace(/\.md$/i, "")}]]`;
-  for (const [problem, paths] of Object.entries(groups)) {
-    lines.push(`## ${problem} (${paths.length})`, "", ...paths.map(link), "");
-  }
-  if (dupes && dupes.length) {
-    lines.push(`## Same question ID as another note (${dupes.length})`, "");
-    for (const d of dupes) lines.push(`${link(d.path)} (ID ${d.id}, also in [[${str(d.other).replace(/\.md$/i, "")}]])`);
-    lines.push("");
-  }
-  if (lines.length <= 5) lines.push("Nothing needs a look.");
-  return lines.join("\n").trimEnd() + "\n";
-}
-
-/* ---- note format, rules and prompts shared by both import methods */
-
-const KNOWN_PROPS = new Set([
-  "question_id", "official_question_id", "source_question_id", "pdf_question_id", "original_id", "number", "test", "course", "section", "domain", "skill", "unit", "difficulty", "source",
-  "stimulus_id", "question_type", "choices", "answer", "answer_source", "explanation_source", "ai_model", "ai_generated",
-  ...Object.keys(TRACKING_DEFAULTS),
-]);
-
-const IMPORT_FORMAT = `---
-question_id: PREFIX-Q01
-number: 1
-question_type: mcq
-choices: 4
-answer: B
-answer_source: pdf
-explanation_source: pdf
-stimulus_id: PREFIX-S01
----
-
-## Stimulus
-> The passage, table or data the question depends on. Every line starts with "> ".
-
-## Question
-The question text.
-
-## Answer Choices
-- A. First choice
-- B. Second choice
-- C. Third choice
-- D. Fourth choice
-
-## Answer
-> [!answer]- Reveal answer
-> **Correct Answer: B**
->
-> The explanation.
-
-## My Notes
-`;
-
-const IMPORT_RULES = `Rules:
-- Make one note per question. Copy the question, passage and choices exactly as written. Only remove page numbers, running headers and footers, and line-break hyphenation. Never paraphrase, shorten or "fix" them.
-- Passage: one passage (stimulus) can have several questions, and those questions can be on later pages than the passage, even on the next page or after other pages. Work out which passage each question belongs to from its wording ("Text 1", "the passage", "the graph", "the table above" and so on) and from the order of the pages. Put the full passage under "## Stimulus" in EVERY question that uses it, repeated word for word, and give those questions the same stimulus_id. If a question has no passage, leave out the "## Stimulus" section and the stimulus_id line. Use markdown tables for tables and $...$ for math.
-- Pictures: lines like [FIGURE page 3: ![[path/to/picture.png]]] in the text mark a picture, chart, diagram, photo or table image in the PDF at that spot. If a question or its passage depends on it, copy the exact ![[path]] part to where it belongs: on its own "> " line inside the Stimulus when it is part of the passage or data, inside the question text when it is shown with the question, or inside an answer choice (- A. ![[path]]) when the choice is a picture. Use the paths exactly as given and never invent one. If a "whole page" picture is also listed, use it only when the cropped figure is clearly cut off. If the text says a figure is needed and no marker is there, write "> [Figure not captured]" in the Stimulus and carry on.
-- question_type is "mcq" when the question has answer choices (list them under "## Answer Choices" as "- A. text") and "choices" is how many there are. For a question with no answer choices, use "spr", leave out "## Answer Choices", and put the answer value in "answer".
-- Layout of question-bank PDFs: a question often starts with a line like "Question ID: 37e5c794", then a small table of labels, then "Question" followed by the question text, then the choices (sometimes under a heading called "Answer"), then "Correct Answer: D", then "Rationale". Everything from the start of the question text up to the first choice is the question: keep both the sentence with the blank (leave the blank as written, for example ______) and the instruction sentence after it ("Which choice completes the text..."). The choices go under "## Answer Choices", the correct letter goes in "answer", and the "Rationale" or "Explanation" text is the explanation.
-- Answer: if the PDF shows the correct answer anywhere (for example an answer key at the end), use it and set answer_source: pdf. If the PDF does NOT show it, work the question out carefully yourself, give your best answer, and set answer_source: ai. For a multiple-choice answer use just the letter.
-- Explanation: if the PDF gives one, copy it and set explanation_source: pdf. Otherwise write a short, correct explanation of why the answer is right (and why the others are wrong) and set explanation_source: ai.
-- Do not write any "AI-generated" notice yourself. The plugin adds it.
-- Never put a line starting with # inside the question, passage, choices or explanation.
-- Properties from the PDF: besides the ones in the example, add a line for every piece of information the PDF shows for that question, or for the whole document (a title page or running header that names the test, for example). Leave a line out when the PDF does not show it, and never guess a value. Copy values exactly as written, except difficulty, which you write in lower case (easy, medium or hard):
-  - official_question_id: the question's official ID printed in the PDF, such as the part after "Question ID:". It is a separate property from question_id, which you build from the prefix and which must not be changed. Copy it exactly, and add it whenever the PDF gives one.
-  - test: the exam or assessment (for example SAT, AP, ACT). A label called "Assessment" or "Exam" gives this.
-  - section: the part of the exam (for example Reading and Writing, Math). When the PDF has both an "Assessment" label and a separate "Test" label, the "Test" label is the section.
-  - domain, skill, difficulty, course, unit: whenever the PDF labels them.
-  - Anything else the PDF labels for the question (for example Score Band, Topic or Year): add it as its own property with a short lower-case name using underscores and a one-line value.
-  These labels are often shown as a small table: a header row (Assessment, Test, Domain, Skill, Difficulty) and a row of values underneath. Match each value to the label above it. A bar or icon graphic drawn next to the difficulty is decoration, not a picture: use the word and ignore the graphic.
-- Leave out anything that is not a question (directions, ads, blank pages).`;
-
-function agentPrompt(o) {
-  const meta = [["test", o.meta.test], ["course", o.meta.course], ["section", o.meta.section], ["domain", o.meta.domain], ["unit", o.meta.unit], ["difficulty", o.meta.difficulty], ["skill", o.meta.skill]]
-    .filter(([, v]) => v)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join("\n");
-  return [
-    `Import every question from the PDF "${o.name}" into notes.`,
-    "",
-    "Files (paths are relative to the folder you are working in):",
-    `- The PDF's text, with page markers: ${o.textPath}`,
-    `- The PDF itself: ${o.pdfPath}`,
-    `- Pictures cut from the PDF are in ${o.imagesDir}. Their paths appear in the text as [FIGURE ...] markers, so you don't need to open them.`,
-    "",
-    `Create the notes in this folder, which already exists: ${o.folder}`,
-    `Use one file per question, named ${o.prefix}-Q01.md, ${o.prefix}-Q02.md and so on. If the PDF's own question numbers are all unique, use them (padded to two digits) instead. Use the prefix "${o.prefix}" for question_id and stimulus_id values too, and make question_id match the file name.`,
-    meta ? `\nAdd these properties to every note exactly as written:\n${meta}\nFor every other property (including official_question_id), take the value the PDF shows for that question.` : "\nThe user did not fill in any properties, so take every property (test, section, domain, skill, difficulty, official_question_id and so on) from what the PDF shows for each question.",
-    "",
-    "Use exactly this format for every note:",
-    "```",
-    IMPORT_FORMAT.replace(/PREFIX/g, o.prefix),
-    "```",
-    "",
-    IMPORT_RULES,
-    "",
-    "Work through the whole PDF. Remember that a passage can be on an earlier page than its questions, so read the whole text before deciding which passage a question belongs to. Do not create, change or delete any file outside that folder, and do not delete anything. When you are done, reply with one short line: how many notes you created, and how many contain an answer or explanation you wrote yourself.",
-  ]
-    .filter((l) => l !== undefined)
-    .join("\n");
-}
-
-const AGENT_SYSTEM = "You are importing practice-test questions from a PDF into an Obsidian vault. Work only inside the folder you are told to use. Be accurate and complete: every question in the PDF must become exactly one note.";
-
-const API_SYSTEM = `You turn pages of a practice-test PDF into Obsidian notes.
-Reply with the notes only. Start each note with a line containing exactly =====NOTE===== and then the complete note, starting with the --- line. No other text and no code fences.
-
-Use exactly this format for every note (leave question_id as PREFIX-Q01; it is replaced later):
-
-${IMPORT_FORMAT}
-${IMPORT_RULES}
-- If a question is cut off at the start or end of the pages you are given so that it is incomplete, leave it out. It is included in the next batch.
-- If a block called ANSWER KEY FROM ELSEWHERE IN THE PDF is given, use it for answers and explanations (answer_source: pdf, explanation_source: pdf).
-- If a block called PASSAGES CARRIED OVER FROM EARLIER PAGES is given, those passages are on pages before the ones you were sent. Questions at the start of your pages that need a passage which isn't in your pages belong to one of them. Copy that passage exactly into those notes.`;
-
-function parseNote(text) {
-  const t = str(text).replace(/\r\n/g, "\n");
-  const m = t.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  let fm = {};
-  let body = t;
-  if (m) {
-    try {
-      fm = parseYaml(m[1]) || {};
-    } catch (e) {
-      fm = {};
-    }
-    body = m[2];
-  }
-  if (!fm || typeof fm !== "object" || Array.isArray(fm)) fm = {};
-  return { fm, body, sec: parseSections(body) };
-}
-
-/** Splits an AI reply into notes. */
-function splitNotes(reply) {
-  const t = str(reply).replace(/```(?:markdown|md|yaml)?\s*\n/gi, "").replace(/\n```\s*(?=\n|$)/g, "\n");
-  return t
-    .split(/^=====NOTE=====\s*$/m)
-    .map((b) => b.trim())
-    .filter((b) => /^---\s*\n/.test(b));
-}
-
-/** Pages that look like an answer key or rationale section, so every batch can see them. */
-function answerKeyText(pages) {
-  const hits = pages.filter((p) => {
-    const t = p.text;
-    if (/answer\s*key|answers?\s*(and|&)\s*(explanations|rationales)|answer\s*explanations/i.test(t)) return true;
-    return (t.match(/(?:^|\s)\d{1,3}\s*[.)\-:]\s*[A-Da-d](?=\s|$)/g) || []).length >= 8;
-  });
-  return hits.map((p) => `--- Page ${p.n} ---\n${p.text.trim()}`).join("\n\n").slice(0, 7000);
-}
-
-async function extractNotesChunk(client, chunk, keyText, carry) {
-  const inChunk = new Set(chunk.map((p) => p.n));
-  const key = keyText && !chunk.some((p) => keyText.includes(`--- Page ${p.n} ---`) && inChunk.has(p.n)) ? keyText : "";
-  const user =
-    `Pages ${chunk[0].n}-${chunk[chunk.length - 1].n} of the PDF:\n\n${chunkText(chunk)}` +
-    (key ? `\n\nANSWER KEY FROM ELSEWHERE IN THE PDF:\n${key}` : "") +
-    (carry && carry.length ? `\n\nPASSAGES CARRIED OVER FROM EARLIER PAGES:\n${carry.map((c, i) => `[Passage ${i + 1}]\n${c}`).join("\n\n")}` : "");
-  let lastErr;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const reply = await client.chat(API_SYSTEM, [{ role: "user", content: user }], { maxTokens: 8000 });
-      return splitNotes(reply);
-    } catch (e) {
-      lastErr = e;
-      if (attempt === 0) await sleep(1500);
-    }
-  }
-  throw lastErr;
-}
-
-function noteSig(parsed) {
-  const norm = (t, n) => str(t).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, n);
-  const s = parsed.sec;
-  const num = str(parsed.fm.number).trim();
-  // a question seen twice (overlapping batches) may have a passage in one copy and not the other, so the passage only counts when there is no question number
-  return [num, norm(s.question, 80), num ? "" : norm(s.stimulus, 40), norm(s.choices[0] ? s.choices[0].text : "", 30)].join("|");
-}
-
-/** The passages of the last few notes, so the next batch can attach questions to a passage from the page before. */
-function carryPassages(blocks) {
-  const seen = new Set();
-  const out = [];
-  for (const text of [...blocks].reverse()) {
-    const st = str(parseNote(text).sec.stimulus).trim();
-    const key = st.toLowerCase().replace(/\s+/g, " ");
-    if (!st || seen.has(key)) continue;
-    seen.add(key);
-    out.push(st.slice(0, 4000));
-    if (out.length >= 2) break;
-  }
-  return out.reverse();
-}
-
-/** Keeps the longest copy of each question (a question seen in two overlapping batches). */
-function mergeNotes(blocks) {
-  const all = [];
-  for (const text of blocks) {
-    const parsed = parseNote(text);
-    if (!str(parsed.sec.question).trim()) continue;
-    const item = { text, ...parsed, include: true, sig: noteSig(parsed), size: text.length };
-    const i = all.findIndex((x) => x.sig === item.sig);
-    if (i < 0) all.push(item);
-    else if (item.size > all[i].size) all[i] = item;
-  }
-  return all;
-}
-
-function aiFlags(fm, sec) {
-  const ans = str(fm.answer).trim();
-  const rat = extractRationale(str(sec.answer))
-    .replace(/\*\*\s*Correct Answer[^*\n]*\*\*/i, "")
-    .trim();
-  return {
-    hasAnswer: !!ans,
-    hasExp: !!rat,
-    aiAnswer: !!ans && str(fm.answer_source).toLowerCase() !== "pdf",
-    aiExp: !!rat && str(fm.explanation_source).toLowerCase() !== "pdf",
-  };
-}
-
-/**
- * Turns the AI's note into the final note: tidy properties, tracking fields, and, when the AI wrote
- * the answer or explanation, a notice at the top naming the model and the date.
- */
-function finalizeNote(text, meta, qid, stamp) {
-  const { fm: src, body, sec } = parseNote(text);
-  const fm = { question_id: qid };
-  const srcId = officialIdOf(src);
-  if (srcId) fm.official_question_id = srcId;
-  const num = src.number === null || src.number === undefined || src.number === "" ? NaN : Number(src.number);
-  if (Number.isFinite(num)) fm.number = num;
-  for (const k of ["test", "course", "section", "domain"]) {
-    const v = meta[k] || src[k];
-    if (v) fm[k] = v;
-  }
-  const skill = meta.skill || src.skill;
-  if (skill) fm.skill = skill;
-  const unit = meta.unit || src.unit;
-  if (unit !== undefined && unit !== null && unit !== "") fm.unit = /^\d+$/.test(str(unit)) ? Number(unit) : unit;
-  const diff = meta.difficulty || src.difficulty;
-  if (diff) fm.difficulty = /^(easy|medium|hard)$/i.test(str(diff).trim()) ? str(diff).trim().toLowerCase() : diff;
-  if (meta.source) fm.source = meta.source;
-  // any other labelled information the PDF showed (single-line values only; never the plugin's own tracking fields)
-  let extra = 0;
-  for (const [k, v] of Object.entries(src)) {
-    if (extra >= 12 || KNOWN_PROPS.has(k) || k in fm || !/^[a-z][a-z0-9_]{0,40}$/.test(k)) continue;
-    if (!["string", "number", "boolean"].includes(typeof v)) continue;
-    const sv = typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, 200) : v;
-    if (sv === "") continue;
-    fm[k] = sv;
-    extra++;
-  }
-  const stimId = stamp.stimId !== undefined ? stamp.stimId : src.stimulus_id;
-  if (stimId && str(sec.stimulus).trim()) fm.stimulus_id = str(stimId);
-
-  const type = sec.choices.length ? "mcq" : "spr";
-  fm.question_type = type;
-  if (type === "mcq") fm.choices = sec.choices.length;
-  let ans = str(src.answer).trim();
-  if (type === "mcq") {
-    const m = ans.match(/^\(?([A-Ha-h])(?![A-Za-z])/);
-    ans = m ? m[1].toUpperCase() : "";
-  }
-  if (ans) fm.answer = ans;
-  const f = aiFlags({ ...src, answer: ans }, sec);
-  if (f.hasAnswer) fm.answer_source = f.aiAnswer ? "ai" : "pdf";
-  if (f.hasExp) fm.explanation_source = f.aiExp ? "ai" : "pdf";
-  const ai = f.aiAnswer || f.aiExp;
-  if (ai) {
-    fm.ai_model = stamp.model;
-    fm.ai_generated = stamp.date;
-  }
-  fillDefaults(fm);
-
-  let cleaned = body.replace(/^\s*> \[!warning\] AI-generated[^\n]*(?:\n>[^\n]*)*\n+/i, "").trim();
-  let notice = "";
-  if (ai) {
-    const what = f.aiAnswer && f.aiExp ? "answer and explanation" : f.aiAnswer ? "answer" : "explanation";
-    notice =
-      `> [!warning] AI-generated ${what}\n` +
-      `> Written by ${stamp.model} on ${stamp.date}${f.aiAnswer ? ", because the PDF did not show the answer" : ""}. Check it before you rely on it.\n\n`;
-  }
-  return `---\n${stringifyYaml(fm).trimEnd()}\n---\n\n${notice}${cleaned}\n`;
-}
-
-async function ensureProviders(oc) {
-  let n = null;
-  try {
-    const cp = await oc.providers();
-    if (cp && Array.isArray(cp.providers)) n = cp.providers.length;
-  } catch (e) {
-    return;
-  }
-  if (n === 0) {
-    throw new Error("OpenCode has no AI provider connected yet. Open Settings > MCQ Tracker > AI assistant, choose a provider and paste an API key.");
-  }
-}
-
-function modelFromMessages(msgs) {
-  for (const m of [...(Array.isArray(msgs) ? msgs : [])].reverse()) {
-    const i = m && m.info;
-    if (i && i.role !== "user") {
-      const id = i.modelID || (i.model && i.model.modelID);
-      const prov = i.providerID || (i.model && i.model.providerID);
-      if (id) return prov ? `${prov}/${id}` : id;
-    }
-  }
-  return "";
-}
-
-module.exports = {
-  noteIssues,
-  groupIssues,
-  buildReportMarkdown,
-  KNOWN_PROPS,
-  IMPORT_FORMAT,
-  IMPORT_RULES,
-  agentPrompt,
-  AGENT_SYSTEM,
-  API_SYSTEM,
-  parseNote,
-  splitNotes,
-  answerKeyText,
-  extractNotesChunk,
-  noteSig,
-  carryPassages,
-  mergeNotes,
-  aiFlags,
-  finalizeNote,
-  ensureProviders,
-  modelFromMessages,
 };
 };
 
@@ -4100,6 +4102,7 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "timed-test", name: "Start a timed test", callback: () => this.activateTest() });
+    this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
     this.addCommand({ id: "weak-spots", name: "Show weak spots", callback: () => this.activateInsights("weak") });
     this.addCommand({ id: "error-log", name: "Show error log", callback: () => this.activateInsights("errors") });
     this.addCommand({ id: "find-question", name: "Find a question by ID", callback: () => new FindQuestionModal(this.app, this).open() });
@@ -4192,6 +4195,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerDomEvent(activeDocument, "visibilitychange", () => {
       if (activeDocument.hidden && Platform.isMobile && this.settings.autoPauseOnMobile && this.isRunning()) {
         this.pauseSession();
+        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+          if (leaf.view && leaf.view.pauseQuick) leaf.view.pauseQuick();
+        }
         this.refreshViews();
       }
     });
@@ -4216,6 +4222,8 @@ class QuestionTrackerPlugin extends Plugin {
     delete this.settings.showRationale;
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
+    this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
+    this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     if (!["auto", "buttons", "search"].includes(this.settings.folderFilterStyle)) this.settings.folderFilterStyle = "auto";
     for (const k of ["intervals", "errorTypes", "confidenceLabels"]) {
       if (!Array.isArray(this.settings[k]) || !this.settings[k].length) this.settings[k] = DEFAULT_SETTINGS[k].slice();
@@ -4328,6 +4336,12 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
     await ws.revealLeaf(leaf);
+  }
+
+  async activateQuickPractice() {
+    const view = await this.activateView();
+    if (view && view.startQuickSetup) view.startQuickSetup();
+    return view;
   }
 
   /** One-time: notes imported before the rename have source_question_id. */
@@ -4556,6 +4570,7 @@ const { extractRationale, gradeAnswer } = require("./notes");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
 const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
+const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 
 class PracticeView extends ItemView {
   constructor(leaf, plugin) {
@@ -4573,6 +4588,7 @@ class PracticeView extends ItemView {
     this.filtersOpen = !plugin.settings.activePreset;
     this.generalHistory = [];
     this.timerEl = null;
+    this.quickSession = null;
   }
 
   getViewType() {
@@ -4594,6 +4610,12 @@ class PracticeView extends ItemView {
 
   async onClose() {
     await this.flushNotes();
+    if (this.quickSession) {
+      pauseQuickSession(this.quickSession);
+      this.plugin.pauseSession();
+      this.plugin.settings.quickSession = packQuickSession(this.quickSession);
+      await this.plugin.save();
+    }
   }
 
   /* ---- helpers */
@@ -4604,13 +4626,38 @@ class PracticeView extends ItemView {
 
   tick() {
     if (!this.timerEl || this.state !== "question") return;
-    const s = Math.floor(this.plugin.elapsedMs() / 1000);
+    const s = this.quickSession && this.quickSession.kind === "time"
+      ? this.quickSession.value * 60 - quickRemainingSeconds(this.quickSession)
+      : Math.floor(this.plugin.elapsedMs() / 1000);
     this.timerEl.setText(fmtClock(s));
     const target = Number(this.current && this.current.fm.target_seconds) || 0;
     this.timerEl.toggleClass("is-over", !!target && s > target);
+    if (this.quickSession && this.quickSession.kind === "time" && quickRemainingSeconds(this.quickSession) <= 0) {
+      this.finishQuick("Quick Practice time is up.");
+    }
   }
 
   async restoreSession() {
+    const savedQuick = unpackQuickSession(this.plugin.settings.quickSession, Date.now());
+    if (savedQuick) {
+      if (savedQuick.expired) {
+        this.plugin.settings.quickSession = null;
+        await this.plugin.save();
+        new Notice("Your Quick Practice time ran out while Obsidian was closed.", 5000);
+      } else {
+        const q = this.plugin.getQuestions().find((x) => x.file.path === savedQuick.paths[savedQuick.index]);
+        if (q) {
+          this.quickSession = savedQuick;
+          resumeQuickSession(this.quickSession);
+          await this.loadQuestion(q, false);
+          this.plugin.startSession(q.file.path);
+          new Notice("Picked Quick Practice back up.", 4000);
+          return;
+        }
+        this.plugin.settings.quickSession = null;
+        await this.plugin.save();
+      }
+    }
     const s = this.plugin.session;
     if (!s) return;
     const file = this.app.vault.getAbstractFileByPath(s.path);
@@ -4642,6 +4689,7 @@ class PracticeView extends ItemView {
   }
 
   async next() {
+    if (this.quickSession) return this.nextQuick();
     await this.flushNotes();
     const st = this.plugin.settings;
     const pool = this.plugin.filtered(this.plugin.getQuestions());
@@ -4655,6 +4703,64 @@ class PracticeView extends ItemView {
     }
     await this.loadQuestion(pick, true);
     this.render();
+  }
+
+  startQuickSetup() {
+    this.state = "quick-setup";
+    this.render();
+  }
+
+  async startQuick(kind, value) {
+    const p = this.plugin;
+    const pool = p.filtered(p.getQuestions());
+    const queue = buildQuickQueue(pool, p.settings.mode, fmtDate(new Date()), kind === "time" ? Math.max(1, pool.length) : value);
+    if (!queue.length) {
+      new Notice("No questions match your current filters.");
+      return;
+    }
+    if (kind === "count" && queue.length < value) {
+      new Notice(`Only ${queue.length} question${queue.length === 1 ? "" : "s"} matched, so Quick Practice will use what is available.`, 5000);
+    }
+    const session = createQuickSession(queue, { kind, value, mode: p.settings.mode });
+    this.quickSession = session;
+    p.settings.quickSession = packQuickSession(session);
+    await p.save();
+    await this.loadQuestion(queue[0], true);
+    this.render();
+  }
+
+  async nextQuick() {
+    await this.flushNotes();
+    const session = this.quickSession;
+    if (!session) return this.next();
+    if (session.kind === "time" && quickRemainingSeconds(session) <= 0) return this.finishQuick("Quick Practice time is up.");
+    const nextIndex = session.index + 1;
+    if (nextIndex >= session.paths.length) return this.finishQuick("Quick Practice complete.");
+    session.index = nextIndex;
+    this.plugin.settings.quickSession = packQuickSession(session);
+    await this.plugin.save();
+    const q = this.plugin.getQuestions().find((x) => x.file.path === session.paths[nextIndex]);
+    if (!q) return this.finishQuick("A question in this session is no longer available.");
+    await this.loadQuestion(q, true);
+    this.render();
+  }
+
+  async finishQuick(message) {
+    this.plugin.clearSession();
+    this.plugin.settings.quickSession = null;
+    await this.plugin.save();
+    this.quickSession = null;
+    this.state = "idle";
+    new Notice(message, 5000);
+    this.render();
+  }
+
+  pauseQuick() {
+    if (!this.quickSession) return;
+    pauseQuickSession(this.quickSession);
+    this.plugin.pauseSession();
+    this.plugin.settings.quickSession = packQuickSession(this.quickSession);
+    this.plugin.save();
   }
 
   async submit() {
@@ -4711,6 +4817,7 @@ class PracticeView extends ItemView {
     if (this.state === "question") this.renderQuestion(root);
     else if (this.state === "result") this.renderResult(root);
     else if (this.state === "chat") this.renderChat(root);
+    else if (this.state === "quick-setup") this.renderQuickSetup(root);
     else this.renderIdle(root);
     // two-pane screens scroll inside their panes, not the whole view
     el.toggleClass("qt-no-scroll", root.hasClass("qt-wide"));
@@ -4890,6 +4997,7 @@ class PracticeView extends ItemView {
     start.addEventListener("click", () => this.next());
 
     const tools = root.createDiv({ cls: "qt-row qt-small-row" });
+    tools.createEl("button", { text: "Quick Practice" }).addEventListener("click", () => this.startQuickSetup());
     tools.createEl("button", { text: "Timed test" }).addEventListener("click", () => p.activateTest());
     tools.createEl("button", { text: "Weak spots & errors" }).addEventListener("click", () => p.activateInsights("weak"));
 
@@ -4906,6 +5014,46 @@ class PracticeView extends ItemView {
     if (this.tally.n) {
       root.createDiv({ cls: "qt-hint", text: `This session: ${this.tally.correct}/${this.tally.n} correct` });
     }
+  }
+
+  renderQuickSetup(root) {
+    const p = this.plugin;
+    const pool = p.filtered(p.getQuestions());
+    const today = fmtDate(new Date());
+    const mode = p.settings.mode;
+    const inMode = pool.filter((q) => (MODE_PRED[mode] || MODE_PRED.smart)(q.fm, today)).length;
+    root.createEl("h3", { text: "Quick Practice" });
+    root.createDiv({ cls: "qt-hint", text: "A short, one-handed session using your current filters and pick mode. Your progress is saved if Obsidian closes." });
+    root.createDiv({ cls: "qt-count", text: `${inMode} question${inMode === 1 ? "" : "s"} available in ${mode === "smart" ? "Smart mix" : mode}.` });
+    root.createDiv({ cls: "qt-label", text: "Session length" });
+    const kind = root.createEl("select", { cls: "qt-select" });
+    kind.createEl("option", { value: "time", text: "By time" });
+    kind.createEl("option", { value: "count", text: "By question count" });
+    kind.value = "time";
+    const value = root.createEl("select", { cls: "qt-select" });
+    const fill = () => {
+      value.empty();
+      const options = kind.value === "time" ? QUICK_TIME_OPTIONS : QUICK_COUNT_OPTIONS;
+      options.forEach((n) => value.createEl("option", { value: String(n), text: kind.value === "time" ? `${n} minutes` : `${n} questions` }));
+      const preferred = kind.value === "time" ? p.settings.quickDefaults.minutes : p.settings.quickDefaults.count;
+      value.value = String(options.includes(preferred) ? preferred : options[0]);
+    };
+    fill();
+    kind.addEventListener("change", fill);
+    const start = root.createEl("button", { text: "Start Quick Practice", cls: "mod-cta qt-primary" });
+    start.disabled = !inMode;
+    start.addEventListener("click", () => {
+      const selected = Number(value.value);
+      if (kind.value === "time") p.settings.quickDefaults.minutes = selected;
+      else p.settings.quickDefaults.count = selected;
+      p.save();
+      this.startQuick(kind.value, selected);
+    });
+    const back = root.createEl("button", { text: "Back" });
+    back.addEventListener("click", () => {
+      this.state = "idle";
+      this.render();
+    });
   }
 
   renderQuestion(root) {
@@ -4928,8 +5076,17 @@ class PracticeView extends ItemView {
     const pb = tw.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": paused ? "Resume" : "Pause" } });
     setIcon(pb, paused ? "play" : "pause");
     pb.addEventListener("click", () => {
-      if (paused) p.resumeSession();
-      else p.pauseSession();
+      if (paused) {
+        p.resumeSession();
+        if (this.quickSession) resumeQuickSession(this.quickSession);
+      } else {
+        p.pauseSession();
+        if (this.quickSession) pauseQuickSession(this.quickSession);
+      }
+      if (this.quickSession) {
+        p.settings.quickSession = packQuickSession(this.quickSession);
+        p.save();
+      }
       this.render();
     });
     const tools = bar.createDiv({ cls: "qt-exam-tools" });
@@ -4952,9 +5109,12 @@ class PracticeView extends ItemView {
     skip.addEventListener("click", () => this.next());
     const end = fl.createEl("button", { text: "End" });
     end.addEventListener("click", () => {
-      this.plugin.clearSession();
-      this.state = "idle";
-      this.render();
+      if (this.quickSession) this.finishQuick("Quick Practice ended.");
+      else {
+        this.plugin.clearSession();
+        this.state = "idle";
+        this.render();
+      }
     });
 
     if (paused) {
@@ -5140,6 +5300,7 @@ class PracticeView extends ItemView {
       paintFlag();
     });
     const topNext = acts.createEl("button", { text: "Next question", cls: "mod-cta" });
+    if (this.quickSession) topNext.setText("Next quick question");
     topNext.addEventListener("click", () => this.next());
 
     root.createDiv({
@@ -5273,6 +5434,109 @@ class PracticeView extends ItemView {
 
 module.exports = {
   PracticeView,
+};
+};
+
+/* ---- src/quick-practice.js ---- */
+__defs["quick-practice"] = function (module, exports, require) {
+
+const { pickQuestion } = require("./filters");
+const { str } = require("./util");
+
+const QUICK_TIME_OPTIONS = [2, 5, 10];
+const QUICK_COUNT_OPTIONS = [5, 10, 20];
+
+/**
+ * Selects distinct questions without mutating the caller's pool. The queue is
+ * persisted by path so it can be resumed after Obsidian restarts.
+ */
+function buildQuickQueue(pool, mode, today, limit) {
+  const rest = pool.slice();
+  const out = [];
+  while (out.length < limit && rest.length) {
+    const pick = pickQuestion(rest, mode, today, []);
+    if (!pick) break;
+    out.push(pick);
+    rest.splice(rest.indexOf(pick), 1);
+  }
+  return out;
+}
+
+function createQuickSession(items, options, now) {
+  const startedAt = Number.isFinite(now) ? now : Date.now();
+  const kind = options && options.kind === "time" ? "time" : "count";
+  const value = Math.max(1, Math.round(Number(options && options.value) || 1));
+  return {
+    v: 1,
+    paths: items.map((q) => q.file.path),
+    index: 0,
+    mode: str(options && options.mode) || "smart",
+    kind,
+    value,
+    startedAt,
+    remainingSeconds: kind === "time" ? value * 60 : 0,
+    runningSince: kind === "time" ? startedAt : 0,
+  };
+}
+
+function packQuickSession(session) {
+  if (!session) return null;
+  return {
+    v: 1,
+    paths: Array.isArray(session.paths) ? session.paths.slice() : [],
+    index: Math.max(0, Math.floor(Number(session.index) || 0)),
+    mode: str(session.mode) || "smart",
+    kind: session.kind === "time" ? "time" : "count",
+    value: Math.max(1, Math.round(Number(session.value) || 1)),
+    startedAt: Number(session.startedAt) || 0,
+    deadline: Number(session.deadline) || 0,
+    remainingSeconds: Number.isFinite(session.remainingSeconds) ? Math.max(0, session.remainingSeconds) : 0,
+    runningSince: Number(session.runningSince) || 0,
+  };
+}
+
+function unpackQuickSession(saved, now) {
+  if (!saved || saved.v !== 1 || !Array.isArray(saved.paths) || !saved.paths.length) return null;
+  if (!saved.paths.every((p) => typeof p === "string" && p)) return null;
+  const session = packQuickSession(saved);
+  if (!session.startedAt || session.index >= session.paths.length) return null;
+  if (session.kind === "time" && quickRemainingSeconds(session, now) <= 0) {
+    return { ...session, expired: true };
+  }
+  return session;
+}
+
+function quickRemainingSeconds(session, now) {
+  if (!session || session.kind !== "time") return null;
+  const current = now || Date.now();
+  const base = Number.isFinite(session.remainingSeconds) && session.remainingSeconds
+    ? session.remainingSeconds
+    : Math.max(0, (session.deadline - session.startedAt) / 1000);
+  const spent = session.runningSince ? Math.max(0, (current - session.runningSince) / 1000) : 0;
+  return Math.max(0, Math.ceil(base - spent));
+}
+
+function pauseQuickSession(session, now) {
+  if (!session || session.kind !== "time" || !session.runningSince) return;
+  session.remainingSeconds = quickRemainingSeconds(session, now);
+  session.runningSince = 0;
+}
+
+function resumeQuickSession(session, now) {
+  if (!session || session.kind !== "time" || session.runningSince || quickRemainingSeconds(session, now) <= 0) return;
+  session.runningSince = now || Date.now();
+}
+
+module.exports = {
+  QUICK_TIME_OPTIONS,
+  QUICK_COUNT_OPTIONS,
+  buildQuickQueue,
+  createQuickSession,
+  packQuickSession,
+  unpackQuickSession,
+  quickRemainingSeconds,
+  pauseQuickSession,
+  resumeQuickSession,
 };
 };
 
@@ -6122,6 +6386,7 @@ const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
 const { loadQuestionData } = require("./view-helpers");
+const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
@@ -6199,6 +6464,15 @@ QuestionTrackerPlugin.__test = {
   trendDelta,
   packTestSession,
   unpackTestSession,
+  QUICK_TIME_OPTIONS,
+  QUICK_COUNT_OPTIONS,
+  buildQuickQueue,
+  createQuickSession,
+  packQuickSession,
+  pauseQuickSession,
+  unpackQuickSession,
+  quickRemainingSeconds,
+  resumeQuickSession,
 };
 };
 

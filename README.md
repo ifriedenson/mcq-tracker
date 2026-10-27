@@ -17,6 +17,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Timed test.** Pick a number of questions and minutes, answer with a countdown and no explanations, then see your score, a by-skill breakdown, and a full review. If you close Obsidian mid-test, it picks the test back up when you reopen it (and marks it if the time ran out meanwhile).
 - **Practice from your files.** Right-click any folder that holds questions and choose **Practice this folder**, or use the commands. Find any question by its official ID.
 - **Pick modes:** smart weighted mix, due for review, never attempted, missed, flagged, or pure random.
+- **Quick Practice:** start a 2, 5, or 10 minute session, or a 5, 10, or 20 question session, using your current filters. It saves the queue so you can resume after closing Obsidian.
 - **Notes box** on the result screen, saved into the note.
 - **Import questions from a PDF:** an AI agent (or your own AI key) turns a PDF into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from a PDF](#import-questions-from-a-pdf)).
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
@@ -99,6 +100,7 @@ Each `history` entry is stored as `date|result|seconds|answer|confidence|error_t
 - Practice a folder...
 - Practice the folder of this note
 - Start a timed test
+- Quick Practice
 - Show weak spots
 - Show error log
 - Find a question by ID

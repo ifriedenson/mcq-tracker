@@ -25,6 +25,7 @@ const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
 const { loadQuestionData } = require("./view-helpers");
+const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
@@ -102,4 +103,13 @@ QuestionTrackerPlugin.__test = {
   trendDelta,
   packTestSession,
   unpackTestSession,
+  QUICK_TIME_OPTIONS,
+  QUICK_COUNT_OPTIONS,
+  buildQuickQueue,
+  createQuickSession,
+  packQuickSession,
+  pauseQuickSession,
+  unpackQuickSession,
+  quickRemainingSeconds,
+  resumeQuickSession,
 };
