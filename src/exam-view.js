@@ -39,7 +39,19 @@ class TestView extends ItemView {
   async onOpen() {
     this.contentEl.addClass("qt-root");
     this.registerInterval(activeWindow.setInterval(() => this.tick(), 500));
-    await this.restore();
+    try {
+      await this.restore();
+    } catch (e) {
+      console.error("MCQ Tracker: couldn't restore the saved timed test", e);
+      this.items = [];
+      this.phase = "setup";
+      this.plugin.settings.testSession = null; // a broken saved test must not block the view
+      try {
+        await this.plugin.save();
+      } catch (e2) {
+        /* ignore */
+      }
+    }
     this.render();
   }
 
@@ -110,10 +122,27 @@ class TestView extends ItemView {
     el.empty();
     this.timerEl = null;
     const root = el.createDiv({ cls: "qt-wrap" });
-    if (this.phase === "test") this.renderTest(root);
-    else if (this.phase === "review") this.renderReview(root);
-    else if (this.phase === "setup") this.renderSetup(root);
-    else root.createDiv({ cls: "qt-hint", text: this.phase === "saving" ? "Saving your results..." : "Getting your questions ready..." });
+    try {
+      if (this.phase === "test") this.renderTest(root);
+      else if (this.phase === "review") this.renderReview(root);
+      else if (this.phase === "setup") this.renderSetup(root);
+      else root.createDiv({ cls: "qt-hint", text: this.phase === "saving" ? "Saving your results..." : "Getting your questions ready..." });
+    } catch (e) {
+      // Never leave a blank tab: show what went wrong and a way back to the start screen.
+      console.error("MCQ Tracker: the timed test view failed to draw", e);
+      root.empty();
+      root.removeClass("qt-wide");
+      root.createEl("h3", { text: "Timed test" });
+      root.createDiv({ cls: "qt-hint", text: `Something went wrong drawing this screen: ${e && e.message ? e.message : e}` });
+      const reset = root.createEl("button", { text: "Start over", cls: "mod-cta qt-primary" });
+      reset.addEventListener("click", async () => {
+        this.items = [];
+        this.phase = "setup";
+        this.plugin.settings.testSession = null;
+        await this.plugin.save();
+        this.render();
+      });
+    }
     el.toggleClass("qt-no-scroll", root.hasClass("qt-wide"));
     this.tick();
   }
@@ -196,8 +225,8 @@ class TestView extends ItemView {
     this.deadline = this.startedAt + this.allowedSeconds * 1000;
     this.shownAt = Date.now();
     this.phase = "test";
-    await this.persist();
     this.render();
+    await this.persist();
   }
 
   /* ---- taking the test */
