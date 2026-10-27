@@ -1078,3 +1078,41 @@
   gap: 4px 12px;
   margin: 2px 0 6px;
 }
+
+/* ---- accuracy by week ---- */
+
+.qt-trend {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  height: 90px;
+  margin: 4px 0;
+}
+
+.qt-trend-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  height: 100%;
+}
+
+.qt-trend-bar {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+}
+
+.qt-trend-bar .qt-meter-fill {
+  width: 100%;
+  height: var(--qt-pct, 0%);
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+}
+
+.qt-trend-lab {
+  text-align: center;
+  min-height: 1.2em;
+}

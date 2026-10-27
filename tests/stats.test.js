@@ -101,3 +101,66 @@ test("buildTestSet picks distinct questions, never more than asked or available"
   assert.equal(T.suggestMinutes(27), 32);
   assert.equal(T.suggestMinutes(0), 1);
 });
+
+/* ---- trends */
+
+const withHistory = (path, skill, lines) => q(path, { skill, history: lines });
+
+test("weeklyAccuracy buckets every attempt by week, oldest first, and ignores older ones", () => {
+  const today = new Date(2026, 9, 27); // Tuesday 27 Oct 2026; its week starts Monday 26 Oct
+  const list = [
+    withHistory("Q/1.md", "a", [
+      "2026-10-26T09:00|correct|10|A|3|",
+      "2026-10-27T09:00|incorrect|10|A|3|x",
+      "2026-10-19T09:00|correct|10|A|3|", // the week before
+      "2026-08-01T09:00|correct|10|A|3|", // far outside the last 4 weeks
+    ]),
+  ];
+  const weeks = T.weeklyAccuracy(list, today, 4);
+  assert.equal(weeks.length, 4);
+  assert.deepEqual(weeks.map((w) => w.start), ["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"]);
+  assert.deepEqual(weeks.map((w) => w.attempts), [0, 0, 1, 2]);
+  assert.equal(weeks[3].accuracy, 0.5);
+  assert.equal(weeks[2].accuracy, 1);
+  assert.equal(weeks[0].accuracy, null);
+  assert.equal(T.weekStart(new Date(2026, 9, 25)).getDate(), 19); // a Sunday belongs to the week that began the Monday before
+});
+
+test("trendBy and trendDelta compare the last two weeks with what came before", () => {
+  const today = new Date(2026, 9, 27);
+  const rows = (...r) => r.map((x, i) => `2026-10-${String(x[0]).padStart(2, "0")}T09:00|${x[1]}|5|A|3|`);
+  const list = [
+    withHistory("Q/1.md", "a", rows([1, "incorrect"], [2, "incorrect"], [3, "incorrect"], [4, "correct"], [24, "correct"], [25, "correct"], [26, "correct"])),
+    withHistory("Q/2.md", "b", rows([25, "correct"])),
+  ];
+  const t = T.trendBy(list, "skill", today, 14);
+  assert.deepEqual(t.get("a"), { recent: { n: 3, c: 3 }, earlier: { n: 4, c: 1 } });
+  assert.equal(T.trendDelta(t.get("a")), 75); // 100% now versus 25% before
+  assert.equal(T.trendDelta(t.get("b")), null); // not enough on either side to say
+  assert.equal(T.trendDelta(undefined), null);
+});
+
+/* ---- a saved timed test */
+
+test("a timed test is packed small and unpacked safely", () => {
+  const items = [
+    { file: { path: "Q/a.md" }, sel: "B", seconds: 12.6, flagged: true },
+    { file: { path: "Q/b.md" }, sel: "", seconds: 0, flagged: false },
+  ];
+  const s = T.packTestSession(items, { idx: 1, startedAt: 1000, deadline: 61000, allowedSeconds: 60 });
+  assert.deepEqual(s.items[0], { path: "Q/a.md", sel: "B", seconds: 13, flagged: true });
+  const live = T.unpackTestSession(JSON.parse(JSON.stringify(s)), 30000);
+  assert.equal(live.expired, false);
+  assert.equal(live.idx, 1);
+  assert.equal(live.items.length, 2);
+  const over = T.unpackTestSession(s, 61000 + 60000);
+  assert.equal(over.expired, true);
+  // days later it is dropped rather than graded
+  assert.equal(T.unpackTestSession(s, 61000 + 13 * 3600 * 1000), null);
+  // junk is dropped
+  assert.equal(T.unpackTestSession(null, 0), null);
+  assert.equal(T.unpackTestSession({ v: 2 }, 0), null);
+  assert.equal(T.unpackTestSession({ v: 1, items: [], deadline: 1, startedAt: 1, allowedSeconds: 1 }, 0), null);
+  assert.equal(T.unpackTestSession({ v: 1, items: [{ path: "x" }], deadline: "soon", startedAt: 1, allowedSeconds: 1 }, 0), null);
+  assert.equal(T.unpackTestSession({ ...s, idx: 99 }, 30000).idx, 1); // out-of-range position is clamped
+});

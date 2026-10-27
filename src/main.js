@@ -18,7 +18,7 @@ const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { ChatPanel } = require("./chat-panel");
 const { OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, platformTriple } = require("./opencode-manager");
-const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, parseHistory, statVals, suggestMinutes, weakestRow } = require("./stats");
+const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
@@ -96,4 +96,10 @@ QuestionTrackerPlugin.__test = {
   FindQuestionModal,
   PdfImportModal,
   loadQuestionData,
+  weekStart,
+  weeklyAccuracy,
+  trendBy,
+  trendDelta,
+  packTestSession,
+  unpackTestSession,
 };

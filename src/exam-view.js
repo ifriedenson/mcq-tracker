@@ -1,7 +1,7 @@
 "use strict";
 const { ItemView, Notice, setIcon } = require("obsidian");
 const { fmtClock, fmtDate, str } = require("./util");
-const { fmtPct, suggestMinutes } = require("./stats");
+const { fmtPct, packTestSession, suggestMinutes, unpackTestSession } = require("./stats");
 const { MODES } = require("./constants");
 const { pickQuestion } = require("./filters");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
@@ -39,7 +39,60 @@ class TestView extends ItemView {
   async onOpen() {
     this.contentEl.addClass("qt-root");
     this.registerInterval(activeWindow.setInterval(() => this.tick(), 500));
+    await this.restore();
     this.render();
+  }
+
+  async onClose() {
+    if (this.phase === "test") await this.persist();
+  }
+
+  /** Saves the test in progress (or clears it) so closing Obsidian doesn't lose it. */
+  async persist() {
+    const st = this.plugin.settings;
+    if (this.phase === "test") {
+      this.leave();
+      st.testSession = packTestSession(this.items, { idx: this.idx, startedAt: this.startedAt, deadline: this.deadline, allowedSeconds: this.allowedSeconds });
+    } else st.testSession = null;
+    await this.plugin.save();
+  }
+
+  /** Picks up a test that was in progress when Obsidian closed. If its time ran out meanwhile, it is marked now. */
+  async restore() {
+    const st = this.plugin.settings;
+    if (!st.testSession || this.phase !== "setup") return;
+    const plan = unpackTestSession(st.testSession, Date.now());
+    if (!plan) {
+      st.testSession = null;
+      await this.plugin.save();
+      return;
+    }
+    const byPath = new Map(this.plugin.getQuestions().map((q) => [q.file.path, q]));
+    const items = [];
+    for (const row of plan.items) {
+      const q = byPath.get(row.path);
+      if (!q) continue; // the note was deleted or moved
+      const data = await loadQuestionData(this.plugin, q);
+      items.push({ ...data, sel: row.sel, seconds: row.seconds, flagged: row.flagged });
+    }
+    if (!items.length) {
+      st.testSession = null;
+      await this.plugin.save();
+      return;
+    }
+    this.items = items;
+    this.idx = Math.min(plan.idx, items.length - 1);
+    this.startedAt = plan.startedAt;
+    this.deadline = plan.deadline;
+    this.allowedSeconds = plan.allowedSeconds;
+    this.shownAt = Date.now();
+    this.open = new Set();
+    this.filter = "all";
+    this.phase = "test";
+    if (plan.expired) {
+      new Notice("Your test's time ran out while Obsidian was closed. Here are your results.", 6000);
+      await this.finish(true);
+    } else new Notice("Picked your timed test back up.", 4000);
   }
 
   tick() {
@@ -143,6 +196,7 @@ class TestView extends ItemView {
     this.deadline = this.startedAt + this.allowedSeconds * 1000;
     this.shownAt = Date.now();
     this.phase = "test";
+    await this.persist();
     this.render();
   }
 
@@ -158,6 +212,7 @@ class TestView extends ItemView {
     if (i < 0 || i >= this.items.length || i === this.idx) return;
     this.leave();
     this.idx = i;
+    this.persist();
     this.render();
   }
 
@@ -202,6 +257,7 @@ class TestView extends ItemView {
       it.flagged = !it.flagged;
       paintFlag();
       this.paintNav();
+      this.persist();
     });
 
     renderMarkdownInto(this.app, it.sections.question || "*No `## Question` section found in this note.*", right.createDiv({ cls: "qt-stem" }), path, this);
@@ -220,6 +276,7 @@ class TestView extends ItemView {
           it.sel = it.sel === L ? "" : L; // tap again to clear
           btns.forEach((x, i) => x.toggleClass("is-selected", "ABCDEFGH"[i] === it.sel));
           this.paintNav();
+          this.persist();
         });
         btns.push(b);
       }
@@ -230,6 +287,7 @@ class TestView extends ItemView {
         it.sel = input.value.trim();
         this.paintNav();
       });
+      input.addEventListener("change", () => this.persist());
     }
 
     const nav = right.createDiv({ cls: "qt-tnav" });
@@ -290,6 +348,7 @@ class TestView extends ItemView {
       timeUp: !!timeUp,
     };
     this.phase = "review";
+    await this.persist(); // clears the saved test
     this.render();
   }
 

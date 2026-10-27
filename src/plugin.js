@@ -1,6 +1,5 @@
 "use strict";
 const { Notice, Platform, Plugin, TFolder } = require("obsidian");
-const { FEATURES } = require("./features");
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE } = require("./constants");
 const { PracticeView } = require("./practice-view");
@@ -188,7 +187,7 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Phones always use the direct API (OpenCode can't run there); desktop follows the setting. */
   backend() {
-    return !FEATURES.OPENCODE || Platform.isMobile || this.settings.ai.backend === "api" ? "api" : "opencode";
+    return Platform.isMobile || this.settings.ai.backend === "api" ? "api" : "opencode";
   }
 
   /** Connection details: the managed local server if running, otherwise the manual settings. */

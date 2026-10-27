@@ -445,6 +445,7 @@ const DEFAULT_SETTINGS = {
   activePreset: "",
   folderFilterStyle: "auto", // "auto" (search box when there are many folders) | "buttons" | "search"
   testDefaults: { count: 10, minutes: 12 },
+  testSession: null, // a timed test in progress, so it survives closing Obsidian
 };
 
 // Tracking properties every question note should have.
@@ -487,7 +488,7 @@ module.exports = {
 __defs["exam-view"] = function (module, exports, require) {
 const { ItemView, Notice, setIcon } = require("obsidian");
 const { fmtClock, fmtDate, str } = require("./util");
-const { fmtPct, suggestMinutes } = require("./stats");
+const { fmtPct, packTestSession, suggestMinutes, unpackTestSession } = require("./stats");
 const { MODES } = require("./constants");
 const { pickQuestion } = require("./filters");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
@@ -525,7 +526,60 @@ class TestView extends ItemView {
   async onOpen() {
     this.contentEl.addClass("qt-root");
     this.registerInterval(activeWindow.setInterval(() => this.tick(), 500));
+    await this.restore();
     this.render();
+  }
+
+  async onClose() {
+    if (this.phase === "test") await this.persist();
+  }
+
+  /** Saves the test in progress (or clears it) so closing Obsidian doesn't lose it. */
+  async persist() {
+    const st = this.plugin.settings;
+    if (this.phase === "test") {
+      this.leave();
+      st.testSession = packTestSession(this.items, { idx: this.idx, startedAt: this.startedAt, deadline: this.deadline, allowedSeconds: this.allowedSeconds });
+    } else st.testSession = null;
+    await this.plugin.save();
+  }
+
+  /** Picks up a test that was in progress when Obsidian closed. If its time ran out meanwhile, it is marked now. */
+  async restore() {
+    const st = this.plugin.settings;
+    if (!st.testSession || this.phase !== "setup") return;
+    const plan = unpackTestSession(st.testSession, Date.now());
+    if (!plan) {
+      st.testSession = null;
+      await this.plugin.save();
+      return;
+    }
+    const byPath = new Map(this.plugin.getQuestions().map((q) => [q.file.path, q]));
+    const items = [];
+    for (const row of plan.items) {
+      const q = byPath.get(row.path);
+      if (!q) continue; // the note was deleted or moved
+      const data = await loadQuestionData(this.plugin, q);
+      items.push({ ...data, sel: row.sel, seconds: row.seconds, flagged: row.flagged });
+    }
+    if (!items.length) {
+      st.testSession = null;
+      await this.plugin.save();
+      return;
+    }
+    this.items = items;
+    this.idx = Math.min(plan.idx, items.length - 1);
+    this.startedAt = plan.startedAt;
+    this.deadline = plan.deadline;
+    this.allowedSeconds = plan.allowedSeconds;
+    this.shownAt = Date.now();
+    this.open = new Set();
+    this.filter = "all";
+    this.phase = "test";
+    if (plan.expired) {
+      new Notice("Your test's time ran out while Obsidian was closed. Here are your results.", 6000);
+      await this.finish(true);
+    } else new Notice("Picked your timed test back up.", 4000);
   }
 
   tick() {
@@ -629,6 +683,7 @@ class TestView extends ItemView {
     this.deadline = this.startedAt + this.allowedSeconds * 1000;
     this.shownAt = Date.now();
     this.phase = "test";
+    await this.persist();
     this.render();
   }
 
@@ -644,6 +699,7 @@ class TestView extends ItemView {
     if (i < 0 || i >= this.items.length || i === this.idx) return;
     this.leave();
     this.idx = i;
+    this.persist();
     this.render();
   }
 
@@ -688,6 +744,7 @@ class TestView extends ItemView {
       it.flagged = !it.flagged;
       paintFlag();
       this.paintNav();
+      this.persist();
     });
 
     renderMarkdownInto(this.app, it.sections.question || "*No `## Question` section found in this note.*", right.createDiv({ cls: "qt-stem" }), path, this);
@@ -706,6 +763,7 @@ class TestView extends ItemView {
           it.sel = it.sel === L ? "" : L; // tap again to clear
           btns.forEach((x, i) => x.toggleClass("is-selected", "ABCDEFGH"[i] === it.sel));
           this.paintNav();
+          this.persist();
         });
         btns.push(b);
       }
@@ -716,6 +774,7 @@ class TestView extends ItemView {
         it.sel = input.value.trim();
         this.paintNav();
       });
+      input.addEventListener("change", () => this.persist());
     }
 
     const nav = right.createDiv({ cls: "qt-tnav" });
@@ -776,6 +835,7 @@ class TestView extends ItemView {
       timeUp: !!timeUp,
     };
     this.phase = "review";
+    await this.persist(); // clears the saved test
     this.render();
   }
 
@@ -908,16 +968,6 @@ class TestView extends ItemView {
 module.exports = {
   VIEW_TYPE_TEST,
   TestView,
-};
-};
-
-/* ---- src/features.js ---- */
-__defs["features"] = function (module, exports, require) {
-// Switches that the directory build turns off. The full build has everything on.
-module.exports = {
-  FEATURES: {
-    OPENCODE: true, // the OpenCode agent: downloads and runs a local program (needs Node.js APIs, desktop only)
-  },
 };
 };
 
@@ -2218,7 +2268,7 @@ module.exports = {
 /* ---- src/insights-view.js ---- */
 __defs["insights-view"] = function (module, exports, require) {
 const { ItemView } = require("obsidian");
-const { WEAK_MIN_ATTEMPTS, computeStats, errorLog, fmtPct, overallStats, weakestRow } = require("./stats");
+const { WEAK_MIN_ATTEMPTS, computeStats, errorLog, fmtPct, overallStats, trendBy, trendDelta, weakestRow, weeklyAccuracy } = require("./stats");
 const { fmtClock, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
@@ -2297,6 +2347,8 @@ class InsightsView extends ItemView {
         : `${o.notes} questions, none attempted yet.`,
     });
 
+    this.renderWeekly(root, questions);
+
     const weak = weakestRow(computeStats(questions, "skill"));
     if (weak && weak.accuracy < 1) {
       const b = root.createEl("button", { cls: "mod-cta qt-primary", text: `Practice my weakest skill: ${weak.value}` });
@@ -2329,15 +2381,18 @@ class InsightsView extends ItemView {
       root.createDiv({ cls: "qt-hint", text: "None of your notes have a value for this yet." });
       return;
     }
+    const trends = trendBy(questions, this.field, new Date());
     const list = root.createDiv({ cls: "qt-ins-list" });
     for (const r of rows) {
       const row = list.createDiv({ cls: "qt-ins-row" });
       const main = row.createDiv({ cls: "qt-ins-main" });
       main.createDiv({ cls: "qt-ins-name", text: this.field === "folder" ? folderLabel(r.value, st.questionFolder) : r.value });
+      const delta = trendDelta(trends.get(r.value));
+      const trendText = delta === null ? "" : delta === 0 ? " · steady lately" : ` · ${delta > 0 ? "up" : "down"} ${Math.abs(delta)} points in the last 2 weeks`;
       main.createDiv({
         cls: "qt-hint",
         text: r.attempts
-          ? `${r.notes} note${r.notes === 1 ? "" : "s"} · ${r.seen} tried · ${fmtClock(Math.round(r.avgSeconds))} on average`
+          ? `${r.notes} note${r.notes === 1 ? "" : "s"} · ${r.seen} tried · ${fmtClock(Math.round(r.avgSeconds))} on average${trendText}`
           : `${r.notes} note${r.notes === 1 ? "" : "s"} · not tried yet`,
       });
       const meter = row.createDiv({ cls: "qt-ins-meter" });
@@ -2348,6 +2403,23 @@ class InsightsView extends ItemView {
       const go = row.createEl("button", { text: "Practice" });
       go.addEventListener("click", () => p.practiceWith({ [this.field]: [r.value] }, "smart"));
     }
+  }
+
+  /** Accuracy for each of the last 8 weeks, as a small bar chart. */
+  renderWeekly(root, questions) {
+    const weeks = weeklyAccuracy(questions, new Date(), 8);
+    if (weeks.filter((w) => w.attempts).length < 2) return; // one week isn't a trend
+    root.createDiv({ cls: "qt-label", text: "Accuracy by week" });
+    const chart = root.createDiv({ cls: "qt-trend" });
+    for (const w of weeks) {
+      const col = chart.createDiv({ cls: "qt-trend-col" });
+      col.setAttr("title", w.attempts ? `Week of ${w.start}: ${fmtPct(w.accuracy)} of ${w.attempts} attempts` : `Week of ${w.start}: no attempts`);
+      const bar = col.createDiv({ cls: "qt-trend-bar" });
+      const band = w.accuracy === null ? "" : w.accuracy < 0.6 ? "is-low" : w.accuracy < 0.8 ? "is-mid" : "is-high";
+      bar.createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((w.accuracy || 0) * 100)}%` });
+      col.createDiv({ cls: "qt-hint qt-trend-lab", text: w.accuracy === null ? "" : fmtPct(w.accuracy) });
+    }
+    root.createDiv({ cls: "qt-hint", text: "Each bar is one week, oldest on the left." });
   }
 
   renderErrors(root, questions) {
@@ -3940,7 +4012,6 @@ module.exports = {
 /* ---- src/plugin.js ---- */
 __defs["plugin"] = function (module, exports, require) {
 const { Notice, Platform, Plugin, TFolder } = require("obsidian");
-const { FEATURES } = require("./features");
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE } = require("./constants");
 const { PracticeView } = require("./practice-view");
@@ -4128,7 +4199,7 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Phones always use the direct API (OpenCode can't run there); desktop follows the setting. */
   backend() {
-    return !FEATURES.OPENCODE || Platform.isMobile || this.settings.ai.backend === "api" ? "api" : "opencode";
+    return Platform.isMobile || this.settings.ai.backend === "api" ? "api" : "opencode";
   }
 
   /** Connection details: the managed local server if running, otherwise the manual settings. */
@@ -5182,7 +5253,6 @@ const { Notice, Platform, PluginSettingTab, Setting } = require("obsidian");
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
-const { FEATURES } = require("./features");
 const { OPENCODE_REPO, PROVIDERS } = require("./opencode-manager");
 const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
@@ -5301,7 +5371,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.plugin.refreshViews();
         })
       );
-    if (Platform.isDesktopApp && FEATURES.OPENCODE) {
+    if (Platform.isDesktopApp) {
       new Setting(containerEl)
         .setName("AI backend")
         .setDesc("OpenCode can edit your notes and runs on this computer. Direct API is a plain chat that also works on your phone (your phone always uses it).")
@@ -5772,6 +5842,110 @@ function buildTestSet(pool, mode, n, today, rnd) {
 
 const suggestMinutes = (n) => Math.max(1, Math.round(n * 1.2));
 
+/* ---- trends: how accuracy is moving */
+
+const dayOf = (when) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(str(when));
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+};
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Monday of the week a date falls in. */
+function weekStart(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return x;
+}
+
+/** Accuracy for each of the last `weeks` weeks (oldest first), from every attempt in the notes' history. */
+function weeklyAccuracy(questions, today, weeks) {
+  const n = weeks || 8;
+  const first = weekStart(today);
+  first.setDate(first.getDate() - 7 * (n - 1));
+  const rows = Array.from({ length: n }, (_v, i) => {
+    const d = new Date(first.getTime());
+    d.setDate(d.getDate() + 7 * i);
+    return { start: isoDay(d), attempts: 0, correct: 0, accuracy: null };
+  });
+  for (const q of questions) {
+    for (const e of parseHistory(q.fm.history)) {
+      const day = dayOf(e.when);
+      if (!day || day < first) continue;
+      const row = rows[Math.round((weekStart(day) - first) / (7 * 86400000))]; // rounds away daylight-saving shifts
+      if (!row) continue;
+      row.attempts++;
+      if (e.result === "correct") row.correct++;
+    }
+  }
+  for (const r of rows) r.accuracy = r.attempts ? r.correct / r.attempts : null;
+  return rows;
+}
+
+/** Recent versus earlier accuracy per value: { value -> { recent: {n, c}, earlier: {n, c} } }. "Recent" is the last `days` days. */
+function trendBy(questions, field, today, days) {
+  const span = days || 14;
+  const cut = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  cut.setDate(cut.getDate() - span);
+  const out = new Map();
+  for (const q of questions) {
+    const entries = parseHistory(q.fm.history);
+    if (!entries.length) continue;
+    for (const v of statVals(q, field)) {
+      let t = out.get(v);
+      if (!t) out.set(v, (t = { recent: { n: 0, c: 0 }, earlier: { n: 0, c: 0 } }));
+      for (const e of entries) {
+        const day = dayOf(e.when);
+        if (!day) continue;
+        const b = day >= cut ? t.recent : t.earlier;
+        b.n++;
+        if (e.result === "correct") b.c++;
+      }
+    }
+  }
+  return out;
+}
+
+/** Change in accuracy, in percentage points, or null when there isn't enough on both sides to say. */
+function trendDelta(t, minEach) {
+  const min = minEach === undefined ? 3 : minEach;
+  if (!t || t.recent.n < min || t.earlier.n < min) return null;
+  return Math.round((t.recent.c / t.recent.n - t.earlier.c / t.earlier.n) * 100);
+}
+
+/* ---- a timed test that survives closing Obsidian */
+
+const TEST_SESSION_GRACE_MS = 12 * 3600 * 1000; // a test left this long after its time ran out is dropped, not graded
+
+function packTestSession(items, meta) {
+  return {
+    v: 1,
+    idx: meta.idx,
+    startedAt: meta.startedAt,
+    deadline: meta.deadline,
+    allowedSeconds: meta.allowedSeconds,
+    items: items.map((it) => ({ path: it.file.path, sel: str(it.sel), seconds: Math.round(it.seconds || 0), flagged: !!it.flagged })),
+  };
+}
+
+/** What to do with a saved test: null to drop it, otherwise the rows to reload and whether the time already ran out. */
+function unpackTestSession(s, now) {
+  if (!s || s.v !== 1 || !Array.isArray(s.items)) return null;
+  if (![s.deadline, s.startedAt, s.allowedSeconds].every((x) => Number.isFinite(x))) return null;
+  if (now - s.deadline > TEST_SESSION_GRACE_MS) return null;
+  const items = s.items
+    .filter((r) => r && typeof r.path === "string")
+    .map((r) => ({ path: r.path, sel: str(r.sel), seconds: Number(r.seconds) || 0, flagged: !!r.flagged }));
+  if (!items.length) return null;
+  return {
+    items,
+    idx: Math.min(items.length - 1, Math.max(0, Number(s.idx) || 0)),
+    startedAt: s.startedAt,
+    deadline: s.deadline,
+    allowedSeconds: s.allowedSeconds,
+    expired: now >= s.deadline,
+  };
+}
+
 module.exports = {
   WEAK_MIN_ATTEMPTS,
   statVals,
@@ -5783,6 +5957,12 @@ module.exports = {
   errorLog,
   buildTestSet,
   suggestMinutes,
+  weekStart,
+  weeklyAccuracy,
+  trendBy,
+  trendDelta,
+  packTestSession,
+  unpackTestSession,
 };
 };
 
@@ -5906,7 +6086,7 @@ const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { ChatPanel } = require("./chat-panel");
 const { OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, platformTriple } = require("./opencode-manager");
-const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, parseHistory, statVals, suggestMinutes, weakestRow } = require("./stats");
+const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
@@ -5984,6 +6164,12 @@ QuestionTrackerPlugin.__test = {
   FindQuestionModal,
   PdfImportModal,
   loadQuestionData,
+  weekStart,
+  weeklyAccuracy,
+  trendBy,
+  trendDelta,
+  packTestSession,
+  unpackTestSession,
 };
 };
 

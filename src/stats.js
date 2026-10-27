@@ -122,6 +122,110 @@ function buildTestSet(pool, mode, n, today, rnd) {
 
 const suggestMinutes = (n) => Math.max(1, Math.round(n * 1.2));
 
+/* ---- trends: how accuracy is moving */
+
+const dayOf = (when) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(str(when));
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+};
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Monday of the week a date falls in. */
+function weekStart(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return x;
+}
+
+/** Accuracy for each of the last `weeks` weeks (oldest first), from every attempt in the notes' history. */
+function weeklyAccuracy(questions, today, weeks) {
+  const n = weeks || 8;
+  const first = weekStart(today);
+  first.setDate(first.getDate() - 7 * (n - 1));
+  const rows = Array.from({ length: n }, (_v, i) => {
+    const d = new Date(first.getTime());
+    d.setDate(d.getDate() + 7 * i);
+    return { start: isoDay(d), attempts: 0, correct: 0, accuracy: null };
+  });
+  for (const q of questions) {
+    for (const e of parseHistory(q.fm.history)) {
+      const day = dayOf(e.when);
+      if (!day || day < first) continue;
+      const row = rows[Math.round((weekStart(day) - first) / (7 * 86400000))]; // rounds away daylight-saving shifts
+      if (!row) continue;
+      row.attempts++;
+      if (e.result === "correct") row.correct++;
+    }
+  }
+  for (const r of rows) r.accuracy = r.attempts ? r.correct / r.attempts : null;
+  return rows;
+}
+
+/** Recent versus earlier accuracy per value: { value -> { recent: {n, c}, earlier: {n, c} } }. "Recent" is the last `days` days. */
+function trendBy(questions, field, today, days) {
+  const span = days || 14;
+  const cut = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  cut.setDate(cut.getDate() - span);
+  const out = new Map();
+  for (const q of questions) {
+    const entries = parseHistory(q.fm.history);
+    if (!entries.length) continue;
+    for (const v of statVals(q, field)) {
+      let t = out.get(v);
+      if (!t) out.set(v, (t = { recent: { n: 0, c: 0 }, earlier: { n: 0, c: 0 } }));
+      for (const e of entries) {
+        const day = dayOf(e.when);
+        if (!day) continue;
+        const b = day >= cut ? t.recent : t.earlier;
+        b.n++;
+        if (e.result === "correct") b.c++;
+      }
+    }
+  }
+  return out;
+}
+
+/** Change in accuracy, in percentage points, or null when there isn't enough on both sides to say. */
+function trendDelta(t, minEach) {
+  const min = minEach === undefined ? 3 : minEach;
+  if (!t || t.recent.n < min || t.earlier.n < min) return null;
+  return Math.round((t.recent.c / t.recent.n - t.earlier.c / t.earlier.n) * 100);
+}
+
+/* ---- a timed test that survives closing Obsidian */
+
+const TEST_SESSION_GRACE_MS = 12 * 3600 * 1000; // a test left this long after its time ran out is dropped, not graded
+
+function packTestSession(items, meta) {
+  return {
+    v: 1,
+    idx: meta.idx,
+    startedAt: meta.startedAt,
+    deadline: meta.deadline,
+    allowedSeconds: meta.allowedSeconds,
+    items: items.map((it) => ({ path: it.file.path, sel: str(it.sel), seconds: Math.round(it.seconds || 0), flagged: !!it.flagged })),
+  };
+}
+
+/** What to do with a saved test: null to drop it, otherwise the rows to reload and whether the time already ran out. */
+function unpackTestSession(s, now) {
+  if (!s || s.v !== 1 || !Array.isArray(s.items)) return null;
+  if (![s.deadline, s.startedAt, s.allowedSeconds].every((x) => Number.isFinite(x))) return null;
+  if (now - s.deadline > TEST_SESSION_GRACE_MS) return null;
+  const items = s.items
+    .filter((r) => r && typeof r.path === "string")
+    .map((r) => ({ path: r.path, sel: str(r.sel), seconds: Number(r.seconds) || 0, flagged: !!r.flagged }));
+  if (!items.length) return null;
+  return {
+    items,
+    idx: Math.min(items.length - 1, Math.max(0, Number(s.idx) || 0)),
+    startedAt: s.startedAt,
+    deadline: s.deadline,
+    allowedSeconds: s.allowedSeconds,
+    expired: now >= s.deadline,
+  };
+}
+
 module.exports = {
   WEAK_MIN_ATTEMPTS,
   statVals,
@@ -133,4 +237,10 @@ module.exports = {
   errorLog,
   buildTestSet,
   suggestMinutes,
+  weekStart,
+  weeklyAccuracy,
+  trendBy,
+  trendDelta,
+  packTestSession,
+  unpackTestSession,
 };

@@ -120,7 +120,7 @@ const obsidian = {
 };
 
 let cached = null;
-/** Loads the plugin bundle (the default one is cached). Pass a file path to load another bundle, e.g. the directory build. */
+/** Loads the plugin bundle (the default one is cached). Pass a file path to load a different bundle. */
 function load(fileOverride) {
   if (!fileOverride && cached) return cached;
   const orig = Module._load;
@@ -154,7 +154,4 @@ function q(filePath, fm) {
   return { file: { path: filePath, basename: filePath.replace(/^.*\//, "").replace(/\.md$/, "") }, fm: Object.assign({ question_id: "X" }, fm) };
 }
 
-/** True when the tests run against the directory build, which has no OpenCode agent. */
-const LITE = !!process.env.MCQ_LITE;
-
-module.exports = { load, q, obsidian, TFile, TFolder, LITE };
+module.exports = { load, q, obsidian, TFile, TFolder };

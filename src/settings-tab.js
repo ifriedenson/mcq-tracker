@@ -3,7 +3,6 @@ const { Notice, Platform, PluginSettingTab, Setting } = require("obsidian");
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
-const { FEATURES } = require("./features");
 const { OPENCODE_REPO, PROVIDERS } = require("./opencode-manager");
 const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
@@ -122,7 +121,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.plugin.refreshViews();
         })
       );
-    if (Platform.isDesktopApp && FEATURES.OPENCODE) {
+    if (Platform.isDesktopApp) {
       new Setting(containerEl)
         .setName("AI backend")
         .setDesc("OpenCode can edit your notes and runs on this computer. Direct API is a plain chat that also works on your phone (your phone always uses it).")

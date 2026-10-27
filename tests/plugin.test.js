@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { load, obsidian, TFolder, LITE } = require("./helpers/load");
+const { load, obsidian, TFolder } = require("./helpers/load");
 const { makeApp } = require("./helpers/fake");
 const { Plugin: QT } = load();
 
@@ -129,7 +129,7 @@ test("the one-time command renames source_question_id and leaves other notes alo
   assert.match(obsidian.notices.at(-1), /No notes use source_question_id/);
 });
 
-test("saying no to the automatic OpenCode download is remembered", { skip: LITE }, async () => {
+test("saying no to the automatic OpenCode download is remembered", async () => {
   const { plugin } = await start();
   const mgr = plugin.manager;
   mgr.install = async () => {
@@ -144,7 +144,7 @@ test("saying no to the automatic OpenCode download is remembered", { skip: LITE 
   assert.equal(mgr.setupError, "");
 });
 
-test("a failed automatic download shows the error and doesn't set the declined flag", { skip: LITE }, async () => {
+test("a failed automatic download shows the error and doesn't set the declined flag", async () => {
   const { plugin } = await start();
   const mgr = plugin.manager;
   mgr.install = async () => {
@@ -156,7 +156,7 @@ test("a failed automatic download shows the error and doesn't set the declined f
   assert.match(mgr.setupError, /network down/);
 });
 
-test("an OpenCode that is already on the computer is used instead of downloading", { skip: LITE }, async () => {
+test("an OpenCode that is already on the computer is used instead of downloading", async () => {
   const { plugin } = await start();
   const mgr = plugin.manager;
   let downloaded = false;

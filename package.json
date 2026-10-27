@@ -4,10 +4,8 @@
   "description": "Obsidian plugin: practice multiple-choice questions kept as notes, with spaced review.",
   "scripts": {
     "build": "node scripts/build.js",
-    "build:directory": "node scripts/build.js --directory",
     "check": "node scripts/build.js --check",
-    "test": "node --test",
-    "test:directory": "node scripts/build.js --directory && node scripts/run-directory-tests.js"
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"

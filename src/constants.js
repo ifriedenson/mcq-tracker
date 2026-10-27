@@ -58,6 +58,7 @@ const DEFAULT_SETTINGS = {
   activePreset: "",
   folderFilterStyle: "auto", // "auto" (search box when there are many folders) | "buttons" | "search"
   testDefaults: { count: 10, minutes: 12 },
+  testSession: null, // a timed test in progress, so it survives closing Obsidian
 };
 
 // Tracking properties every question note should have.

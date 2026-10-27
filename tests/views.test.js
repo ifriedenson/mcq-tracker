@@ -243,3 +243,86 @@ test("import done screen: duplicates can be trashed, and problem notes are liste
   assert.equal(r.made, 1);
   assert.equal(r.dupes.length, 1);
 });
+
+test("timed test: closing Obsidian mid-test saves it, and reopening picks it up", async () => {
+  const { app, plugin, dom } = await setup();
+  const v = makeView(T.TestView, plugin, app, dom);
+  await v.begin(3, 10, "random");
+  v.items[0].sel = "A";
+  v.items[1].flagged = true;
+  v.go(1);
+  assert.ok(plugin.saved.testSession, "the test in progress is saved");
+  assert.equal(plugin.saved.testSession.items.length, 3);
+  assert.equal(plugin.saved.testSession.items[0].sel, "A");
+  assert.equal(plugin.saved.testSession.idx, 1);
+  const saved = JSON.parse(JSON.stringify(plugin.saved.testSession));
+  await v.onClose();
+
+  // a fresh window, as after restarting Obsidian
+  const dom2 = makeDom();
+  const v2 = makeView(T.TestView, plugin, app, dom2);
+  plugin.settings.testSession = saved;
+  obsidian.notices.length = 0;
+  await v2.onOpen();
+  assert.equal(v2.phase, "test");
+  assert.equal(v2.items.length, 3);
+  assert.equal(v2.items[0].sel, "A");
+  assert.equal(v2.items[1].flagged, true);
+  assert.equal(v2.idx, 1);
+  assert.equal(v2.deadline, saved.deadline);
+  assert.match(obsidian.notices.at(-1), /Picked your timed test back up/);
+});
+
+test("timed test: a test whose time ran out while Obsidian was closed is marked on reopening", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.recorded = [];
+  plugin.recordAttempt = async (file, a) => plugin.recorded.push([file.basename, a.chosen]);
+  const v = makeView(T.TestView, plugin, app, dom);
+  await v.begin(2, 5, "random");
+  v.items[0].sel = "A";
+  await v.persist();
+  plugin.settings.testSession.deadline = Date.now() - 60000; // ran out a minute ago
+  const v2 = makeView(T.TestView, plugin, app, makeDom());
+  await v2.onOpen();
+  assert.equal(v2.phase, "review");
+  assert.equal(v2.result.timeUp, true);
+  assert.equal(plugin.recorded.length, 1);
+  assert.equal(plugin.settings.testSession, null);
+});
+
+test("timed test: finishing clears the saved test, and a stale or broken one is ignored", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.recordAttempt = async () => {};
+  const v = makeView(T.TestView, plugin, app, dom);
+  await v.begin(2, 5, "random");
+  assert.ok(plugin.settings.testSession);
+  v.items[0].sel = "A";
+  v.items[1].sel = "B";
+  await v.finish(false);
+  assert.equal(plugin.settings.testSession, null);
+  assert.equal(plugin.saved.testSession, null);
+
+  plugin.settings.testSession = { v: 1, items: [{ path: "Gone/note.md", sel: "A" }], deadline: Date.now() + 60000, startedAt: Date.now(), allowedSeconds: 60 };
+  const v2 = makeView(T.TestView, plugin, app, makeDom());
+  await v2.onOpen();
+  assert.equal(v2.phase, "setup", "a test whose notes are all gone isn't resumed");
+  assert.equal(plugin.settings.testSession, null);
+});
+
+test("weak spots: shows the weekly chart and trend text once there is history", async () => {
+  const daysAgo = (n) => {
+    const d = new Date();
+    d.setDate(d.getDate() - n);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T09:00`;
+  };
+  const history = [...[20, 21, 22, 23].map((n) => `${daysAgo(n)}|incorrect|5|A|3|`), ...[1, 2, 3].map((n) => `${daysAgo(n)}|correct|5|A|3|`)];
+  const app = makeApp([{ path: "Q/a.md", fm: { skill: "grammar", attempts: 7, correct_count: 3, time_spent_total: 70, history } }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const dom = makeDom();
+  const v = makeView(T.InsightsView, plugin, app, dom);
+  v.render();
+  const t = dom.texts();
+  assert.ok(t.includes("Accuracy by week"));
+  assert.ok(t.some((x) => /up 100 points in the last 2 weeks/.test(x)), t.join(" | "));
+});

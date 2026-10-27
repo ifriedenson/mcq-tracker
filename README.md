@@ -12,25 +12,22 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Mistake tracking.** After a miss, tag why (careless, content gap, misread, ran out of time, guessed, or your own labels).
 - **Flexible filters.** Filter by folder (including all its sub folders), course, test, section, domain, skill, unit and difficulty, for example folder + skill + difficulty together. You can pick several values in one field (OR), and add extra filter sets that are combined with OR. Save any combination as a **preset**.
 - **Counts and folder search.** Every filter button shows how many notes it holds. The Folder filter switches to a type-ahead search box when you have many folders (or whenever you choose), and the choice is a setting.
-- **Weak spots.** Accuracy and average time by skill, domain, difficulty and folder, with a **Practice my weakest skill** button and a Practice button on every row.
+- **Weak spots.** Accuracy and average time by skill, domain, difficulty and folder, a bar chart of your accuracy by week, an up or down note on each row when your last two weeks differ from before, and a **Practice my weakest skill** button plus a Practice button on every row.
 - **Error log.** Questions you missed, grouped by the reason you gave, with a button to practice each group.
-- **Timed test.** Pick a number of questions and minutes, answer with a countdown and no explanations, then see your score, a by-skill breakdown, and a full review.
+- **Timed test.** Pick a number of questions and minutes, answer with a countdown and no explanations, then see your score, a by-skill breakdown, and a full review. If you close Obsidian mid-test, it picks the test back up when you reopen it (and marks it if the time ran out meanwhile).
 - **Practice from your files.** Right-click any folder that holds questions and choose **Practice this folder**, or use the commands. Find any question by its official ID.
 - **Pick modes:** smart weighted mix, due for review, never attempted, missed, flagged, or pure random.
 - **Notes box** on the result screen, saved into the note.
 - **Import questions from a PDF:** an AI agent (or your own AI key) turns a PDF into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from a PDF](#import-questions-from-a-pdf)).
-- **Optional AI tutor** through your own API key, or (full version only) a local OpenCode agent (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
+- **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
 
 ## Install
 
-**From the community directory:** open Settings, Community plugins, Browse, search for "MCQ Tracker", then Install and Enable.
+**With BRAT:** install the BRAT plugin, choose Add beta plugin, and enter `ifriedenson/mcq-tracker`. BRAT installs the latest release and keeps it updated.
+
+**From the community directory** (once the plugin is listed): open Settings, Community plugins, Browse, search for "MCQ Tracker", then Install and Enable.
 
 **Manually:** download `main.js`, `manifest.json` and `styles.css` from the latest release and copy them into `<your vault>/.obsidian/plugins/mcq-tracker/`. Then enable the plugin under Settings, Community plugins.
-
-### Two versions
-
-- **Standard version** (the community directory and the release's `main.js`). Practice, filters, stats, timed tests, and PDF import and AI chat through the **Direct API** with your own key. It runs on desktop and phones, and it doesn't use any Node.js features, download anything, or start any program.
-- **Full version** (`mcq-tracker-full.zip` on the release page). Everything above plus the **OpenCode agent** on desktop: the plugin can download and run OpenCode on your computer, so the agent can create question notes from a PDF by itself. Unzip it into `<your vault>/.obsidian/plugins/mcq-tracker/`, replacing the standard files. Everything about OpenCode in this README applies to the full version only.
 
 ## What counts as a question
 
@@ -155,7 +152,7 @@ The result screen can show an **Ask AI** panel that explains a question, tells y
 
 The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRouter, Google Gemini, a local Ollama server, or any OpenAI-compatible address you enter (for example LM Studio).
 
-### Option 2: OpenCode agent (desktop only, full version only)
+### Option 2: OpenCode agent (desktop only)
 
 [OpenCode](https://opencode.ai) is a separate, free, open-source coding agent. The plugin can talk to a copy of it running on your own computer, which also lets the AI help with your notes (for example, drafting question notes). This works like the agent setup in other AI plugins, and you stay in control at each step:
 
@@ -191,13 +188,10 @@ Question folder, how the Folder filter is shown (auto, buttons or a search box),
 The plugin is written as small modules in `src/` and bundled into the single `main.js` that Obsidian loads, by a script with no dependencies.
 
 ```
-npm run build              # write main.js (the full version) from src/
-npm run build:directory    # write dist/directory/ (the standard version, from src/ plus src-lite/)
-npm test                   # run the tests on the full build (includes a check that main.js is up to date)
-npm run test:directory     # build the standard version and run the same tests on it
+npm run build   # write main.js from src/
+npm test        # run the tests (they include a check that main.js is up to date)
 ```
 
-Files in `src-lite/` replace the same-named modules in `src/` for the standard version; that is how the OpenCode manager, and every use of Node.js, is left out of it.
 
 Edit files in `src/`, run `npm run build`, and commit both. The tests run on plain Node with a stand-in for the `obsidian` module (see `tests/helpers`), and cover filters, folders, statistics, the error log, the import rules and checks, grading and scheduling, and smoke tests that run the plugin's views and commands. GitHub Actions runs them on every push and before each release.
 
