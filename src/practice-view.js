@@ -480,12 +480,12 @@ class PracticeView extends ItemView {
     kind.addEventListener("change", fill);
     const start = root.createEl("button", { text: "Start Quick Practice", cls: "mod-cta qt-primary" });
     start.disabled = !inMode;
-    start.addEventListener("click", () => {
+    start.addEventListener("click", async () => {
       const selected = Number(value.value);
       if (kind.value === "time") p.settings.quickDefaults.minutes = selected;
       else p.settings.quickDefaults.count = selected;
-      p.save();
-      this.startQuick(kind.value, selected);
+      await p.save();
+      await this.startQuick(kind.value, selected);
     });
     const back = root.createEl("button", { text: "Back" });
     back.addEventListener("click", () => {
