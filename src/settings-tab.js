@@ -8,6 +8,19 @@ const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
+const { openExternal, renderSettingsTabs } = require("./settings-ui");
+
+const SETTINGS_MODULES = [
+  { id: "mcq", label: "MCQ Tracker", icon: "list-checks" },
+  { id: "calendar", label: "Calendar", icon: "graduation-cap" },
+];
+
+const MCQ_TABS = [
+  { id: "practice", label: "Practice", icon: "play" },
+  { id: "review", label: "Review", icon: "repeat" },
+  { id: "ai", label: "AI", icon: "sparkles" },
+  { id: "about", label: "About", icon: "info" },
+];
 
 /* --------------------------------------------------------------- settings */
 
@@ -15,12 +28,40 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
+    this.activeModule = "mcq";
+    this.activeMcqTab = "practice";
+    this.activeCalendarTab = "about";
   }
 
   display() {
-    const { containerEl } = this;
+    const rootEl = this.containerEl;
     const st = this.plugin.settings;
-    containerEl.empty();
+    rootEl.empty();
+
+    this.renderModuleNav(rootEl);
+    const containerEl = rootEl.createDiv({ cls: "qt-settings-body" });
+
+    if (this.activeModule === "calendar") {
+      renderCalendarSettings(
+        containerEl,
+        this.plugin,
+        () => this.display(),
+        this.activeCalendarTab,
+        (id) => {
+          this.activeCalendarTab = id;
+          this.display();
+        }
+      );
+      return;
+    }
+
+    this.renderMcqTabs(containerEl);
+    if (this.activeMcqTab === "about") {
+      this.renderAbout(containerEl);
+      return;
+    }
+
+    if (this.activeMcqTab === "practice") {
 
     new Setting(containerEl)
       .setName("Question folder")
@@ -45,7 +86,9 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             this.plugin.refreshViews();
           })
       );
+    }
 
+    if (this.activeMcqTab === "review") {
     new Setting(containerEl)
       .setName("Review intervals (days)")
       .setDesc("Days until review after 1st, 2nd, 3rd... correct answer in a row. A miss always returns in 1 day.")
@@ -84,7 +127,9 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           }
         })
       );
+    }
 
+    if (this.activeMcqTab === "practice") {
     new Setting(containerEl)
       .setName("Explanation after answering")
       .setDesc("Whether the explanation starts open or closed on the result screen. You can always show or hide it with the button.")
@@ -109,7 +154,9 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           await this.plugin.save();
         })
       );
+    }
 
+    if (this.activeMcqTab === "ai") {
     new Setting(containerEl).setName("OpenCode (AI)").setHeading();
     const ai = st.ai;
     new Setting(containerEl)
@@ -419,9 +466,9 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 
     if (this.plugin.backend() === "api") renderApi();
     else renderOpenCode();
+    }
 
-    renderCalendarSettings(containerEl, this.plugin, () => this.display());
-
+    if (this.activeMcqTab === "practice") {
     new Setting(containerEl).setName("Presets").setHeading();
     if (!st.presets.length) {
       containerEl.createEl("p", {
@@ -462,9 +509,57 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           })
         );
     }
+    }
+  }
+
+  renderModuleNav(rootEl) {
+    renderSettingsTabs(
+      rootEl,
+      SETTINGS_MODULES,
+      this.activeModule,
+      (id) => {
+        this.activeModule = id;
+        this.display();
+      },
+      { className: "qt-settings-modules", tabClass: "qt-settings-module" }
+    );
+  }
+
+  renderMcqTabs(containerEl) {
+    renderSettingsTabs(
+      containerEl,
+      MCQ_TABS,
+      this.activeMcqTab,
+      (id) => {
+        this.activeMcqTab = id;
+        this.display();
+      },
+      { className: "qt-settings-tabs", tabClass: "qt-settings-tab" }
+    );
+  }
+
+  renderAbout(containerEl) {
+    const version = (this.plugin.manifest && this.plugin.manifest.version) || "";
+    const card = containerEl.createDiv({ cls: "qt-settings-card" });
+    card.createEl("h3", { text: "MCQ Tracker" });
+    card.createEl("p", {
+      cls: "setting-item-description",
+      text: "Serve practice questions from your notes, grade answers, and track time, confidence and spaced review in note properties.",
+    });
+    new Setting(containerEl)
+      .setName("Practice view")
+      .setDesc("Open the practice view to start a session, choose filters, or continue where you left off.")
+      .addButton((b) => b.setButtonText("Open practice").onClick(() => this.plugin.activateView()));
+    new Setting(containerEl)
+      .setName("About the project")
+      .setDesc(version ? `Version ${version}.` : "Source code and issue tracker.")
+      .addButton((b) => b.setButtonText("GitHub repository").onClick(() => openExternal("https://github.com/ifriedenson/mcq-tracker")))
+      .addButton((b) => b.setButtonText("Report bug").onClick(() => openExternal("https://github.com/ifriedenson/mcq-tracker/issues")));
   }
 }
 
 module.exports = {
+  MCQ_TABS,
   QuestionTrackerSettingTab,
+  SETTINGS_MODULES,
 };

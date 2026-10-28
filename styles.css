@@ -4,6 +4,95 @@
   padding: 0;
 }
 
+/* Settings module and sub-tab navigation. Keep these global: they sit outside the
+   calendar container, just like the plugin's other settings controls. */
+.qt-settings-modules,
+.qt-settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qt-settings-modules {
+  margin: 2px 0 10px;
+}
+
+.qt-settings-tabs {
+  margin: 0 0 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.qt-settings-module,
+.qt-settings-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-weight: 600;
+  padding: 6px 10px;
+}
+
+.qt-settings-module {
+  min-height: 36px;
+  font-size: 0.9rem;
+}
+
+.qt-settings-tab {
+  min-height: 32px;
+  font-size: 0.82rem;
+}
+
+.qt-settings-module:hover,
+.qt-settings-tab:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.qt-settings-module.is-active,
+.qt-settings-tab.is-active {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.qt-settings-tab-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.qt-settings-tab-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.qt-settings-card {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 10px 0;
+  padding: 12px 14px;
+}
+
+.qt-settings-card h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+.qt-settings-card ol,
+.qt-settings-card ul {
+  margin: 6px 0 0 18px;
+}
+
+.qt-settings-card li {
+  color: var(--text-muted);
+  margin: 4px 0;
+}
+
 .qt-wrap {
   padding: 12px 14px 24px;
   max-width: 720px;

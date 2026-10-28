@@ -21,7 +21,9 @@ const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease,
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
-const { QuestionTrackerSettingTab } = require("./settings-tab");
+const { MCQ_TABS, QuestionTrackerSettingTab, SETTINGS_MODULES } = require("./settings-tab");
+const { CALENDAR_TABS } = require("./calendar-settings");
+const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
@@ -102,6 +104,10 @@ QuestionTrackerPlugin.__test = {
   InsightsView,
   TestView,
   QuestionTrackerSettingTab,
+  SETTINGS_MODULES,
+  MCQ_TABS,
+  CALENDAR_TABS,
+  renderSettingsTabs,
   FolderFilterSuggest,
   QuestionFolderModal,
   FindQuestionModal,

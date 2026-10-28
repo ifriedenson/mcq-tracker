@@ -12,7 +12,7 @@ const { OpenCodeClient } = require("./opencode-client");
 const { sleep, hashString, localDate } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
-const { CalendarImportModal, CalendarView, StudySlotModal, parseScheduleBlock, renderDaySection } = require("./calendar-view");
+const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, mergeCalendarSettings, nextClassStatus, subjectKey, visibleEvents } = require("./calendar-model");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
@@ -636,6 +636,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const { dateKey: key } = parseScheduleBlock(source, new Date());
     const box = el.createDiv({ cls: "uni-schedule-embed" });
+    applyCalendarWidth(box, this.calendarSettings());
     renderDaySection(this, box, key);
   }
 

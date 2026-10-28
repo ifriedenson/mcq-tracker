@@ -35,6 +35,15 @@ function detailsOf(event) {
   return event.details;
 }
 
+/** Applies the user's maximum calendar width to the view or an embed. */
+function applyCalendarWidth(el, settings) {
+  if (!el || !el.style) return;
+  const width = Math.max(0, Math.min(1600, Math.round(Number(settings && settings.calendarMaxWidth) || 0)));
+  el.style.maxWidth = width ? `${width}px` : "";
+  el.style.marginLeft = width ? "auto" : "";
+  el.style.marginRight = width ? "auto" : "";
+}
+
 function classesCount(count) {
   if (!count) return "No classes";
   return count === 1 ? "1 class" : `${count} classes`;
@@ -362,6 +371,7 @@ class CalendarView extends ItemView {
     this.liveNodes = [];
     el.empty();
     el.addClass("uni-calendar-container");
+    applyCalendarWidth(el, this.plugin.calendarSettings());
 
     if (!this.plugin.calendarEnabled()) {
       renderEmptyState(
@@ -876,6 +886,7 @@ module.exports = {
   CalendarView,
   CalendarImportModal,
   StudySlotModal,
+  applyCalendarWidth,
   parseScheduleBlock,
   renderDaySection,
 };

@@ -332,6 +332,37 @@ test("free time: unbooked minutes between the first and last timed class", () =>
   assert.equal(model.mergeCalendarSettings({ studySlotBufferMinutes: 99 }).studySlotBufferMinutes, 5);
 });
 
+test("calendar settings: maximum width is bounded and 0 means the full pane", () => {
+  assert.equal(model.mergeCalendarSettings({}).calendarMaxWidth, 0);
+  assert.equal(model.mergeCalendarSettings({ calendarMaxWidth: 640 }).calendarMaxWidth, 640);
+  assert.equal(model.mergeCalendarSettings({ calendarMaxWidth: 9999 }).calendarMaxWidth, 1600);
+  assert.equal(model.mergeCalendarSettings({ calendarMaxWidth: -5 }).calendarMaxWidth, 0);
+  assert.equal(model.mergeCalendarSettings({ calendarMaxWidth: "nope" }).calendarMaxWidth, 0);
+});
+
+test("settings: module and calendar navigation groups expose the requested tabs", () => {
+  assert.deepEqual(T.SETTINGS_MODULES.map((m) => m.id), ["mcq", "calendar"]);
+  assert.deepEqual(T.MCQ_TABS.map((t) => t.id), ["practice", "review", "ai", "about"]);
+  assert.deepEqual(T.CALENDAR_TABS.map((t) => t.label), [
+    "About",
+    "Schedules & Sync",
+    "Notes & Templates",
+    "Exclusions",
+    "Appearance & Colors",
+    "Language & Region",
+  ]);
+
+  const dom = makeDom();
+  let picked = "";
+  T.renderSettingsTabs(dom.root, T.CALENDAR_TABS, "notes", (id) => (picked = id));
+  const buttons = dom.all.filter((o) => o.meta && o.meta.tag === "button");
+  assert.equal(buttons.length, T.CALENDAR_TABS.length);
+  const active = buttons.find((o) => o.meta.cls && o.meta.cls.includes("is-active"));
+  assert.ok(active, "the current tab is marked active");
+  active.handlers.find((h) => h.ev === "click").fn();
+  assert.equal(picked, "notes", "clicking a tab reports its id");
+});
+
 test("countdowns: a running class is reported before the next one", () => {
   const events = [
     { summary: "Calculus", dtstart: new Date(2026, 9, 5, 9, 0), dtend: new Date(2026, 9, 5, 10, 30), allDay: false },
@@ -680,6 +711,24 @@ test("plugin: source edits invalidate the cache and the range follows the viewed
   plugin.settings.calendar.sources[0].content = wrap(event({ uid: "far", summary: "Far class", start: stamp(far), end: stamp(farEnd) }));
   assert.equal(plugin.calendarEvents().length, 0, "the current window does not see eight months ahead");
   assert.equal(plugin.calendarEvents(far).length, 1, "asking for the viewed month expands the range");
+});
+
+test("view: a maximum calendar width centers the calendar container", async () => {
+  const { app, plugin } = await pluginWith(TODAY_EVENT());
+  plugin.settings.calendar.calendarMaxWidth = 640;
+  const dom = makeDom();
+  const view = new T.CalendarView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  assert.equal(dom.root.style.maxWidth, "640px");
+  assert.equal(dom.root.style.marginLeft, "auto");
+  assert.equal(dom.root.style.marginRight, "auto");
+
+  plugin.settings.calendar.calendarMaxWidth = 0;
+  view.render();
+  assert.equal(dom.root.style.maxWidth, "", "0 returns the calendar to full width");
 });
 
 test("view: the day header shows free time beside the class count", async () => {

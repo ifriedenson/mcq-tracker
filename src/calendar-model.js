@@ -88,6 +88,7 @@ const DEFAULT_CALENDAR_SETTINGS = {
   subjectColors: {},
   classNames: {},
   autoSync: false, // URL feeds are refreshed on startup only when this is on
+  calendarMaxWidth: 0, // 0 fills the pane; a positive value centers a narrower calendar
   studySlotBufferMinutes: 5, // kept free before the next class in a study slot
   timelineGaps: {
     enabled: false, // breaks are opt-in, like the original calendar
@@ -128,6 +129,8 @@ function mergeCalendarSettings(saved) {
   out.classNames = plainObject(out.classNames);
   const buffer = Math.round(Number(out.studySlotBufferMinutes));
   out.studySlotBufferMinutes = Number.isFinite(buffer) && buffer >= 0 && buffer <= 60 ? buffer : 5;
+  const maxWidth = Math.round(Number(out.calendarMaxWidth));
+  out.calendarMaxWidth = Number.isFinite(maxWidth) ? Math.max(0, Math.min(1600, maxWidth)) : 0;
   const gaps = out.timelineGaps && typeof out.timelineGaps === "object" ? out.timelineGaps : {};
   const gapMin = Math.round(Number(gaps.minMinutes));
   const gapMax = Math.round(Number(gaps.maxMinutes));
