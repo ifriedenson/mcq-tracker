@@ -316,6 +316,17 @@ class QuestionTrackerPlugin extends Plugin {
     new Notice(n ? `Renamed the property on ${n} note${n === 1 ? "" : "s"}.` : "No notes use source_question_id.");
   }
 
+  /** Opens this plugin's page in Obsidian's settings (the settings window has no public API, so this is best effort). */
+  openSettings() {
+    const setting = this.app.setting;
+    if (setting && setting.open) {
+      setting.open();
+      if (setting.openTabById) setting.openTabById(this.manifest.id);
+    } else {
+      new Notice("Open Settings, then MCQ Tracker, to continue.");
+    }
+  }
+
   openPdfImport() {
     if (!this.settings.ai.enabled) {
       new Notice("Turn on AI features in the plugin settings to import from a PDF.");
@@ -345,6 +356,13 @@ class QuestionTrackerPlugin extends Plugin {
   refreshViews() {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
+    }
+  }
+
+  /** Re-draws only the practice views that are showing the first-run screen (an import just finished). */
+  refreshEmptyViews() {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+      if (leaf.view && leaf.view.emptyShown && leaf.view.render) leaf.view.render();
     }
   }
 

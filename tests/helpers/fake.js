@@ -30,8 +30,10 @@ function makeApp(notes) {
     f.basename = n.path.replace(/^.*\//, "").replace(/\.md$/, "");
     f.extension = "md";
     f.parent = { path: n.path.includes("/") ? n.path.replace(/\/[^/]*$/, "") : "/" };
-    f.fm = Object.assign({ question_id: f.basename }, n.fm);
+    f.fm = n.noFm ? {} : Object.assign({ question_id: f.basename }, n.fm);
     f.text = n.text || NOTE_TEXT(f.basename, (n.fm && n.fm.answer) || "B");
+    // like Obsidian's cache: headings come from the note's text unless a test says otherwise
+    f.headings = n.headings || [...f.text.matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gm)].map((m) => ({ heading: m[1] }));
     return f;
   });
   const handlers = {};
@@ -49,7 +51,7 @@ function makeApp(notes) {
       adapter: { exists: async () => false, list: async () => ({ files: [], folders: [] }) },
     },
     metadataCache: {
-      getFileCache: (f) => ({ frontmatter: f.fm }),
+      getFileCache: (f) => ({ frontmatter: f.fm, headings: f.headings }),
       getFirstLinkpathDest: () => null,
       on: (name, cb) => ((handlers["cache:" + name] = cb), name),
     },
