@@ -18,7 +18,6 @@ function __require(name) {
 
 /* ---- src/api-client.js ---- */
 __defs["api-client"] = function (module, exports, require) {
-"use strict";
 const { requestUrl } = require("obsidian");
 const { str } = require("./util");
 
@@ -113,7 +112,6 @@ module.exports = {
 
 /* ---- src/chat-panel.js ---- */
 __defs["chat-panel"] = function (module, exports, require) {
-"use strict";
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
@@ -388,7 +386,6 @@ module.exports = {
 
 /* ---- src/constants.js ---- */
 __defs["constants"] = function (module, exports, require) {
-"use strict";
 
 const VIEW_TYPE = "question-tracker-view";
 
@@ -492,7 +489,6 @@ module.exports = {
 
 /* ---- src/exam-view.js ---- */
 __defs["exam-view"] = function (module, exports, require) {
-"use strict";
 const { ItemView, Notice, setIcon } = require("obsidian");
 const { fmtClock, fmtDate, str } = require("./util");
 const { fmtPct, packTestSession, suggestMinutes, unpackTestSession } = require("./stats");
@@ -1009,7 +1005,6 @@ module.exports = {
 
 /* ---- src/filters.js ---- */
 __defs["filters"] = function (module, exports, require) {
-"use strict";
 const { str } = require("./util");
 const { FILTER_FIELDS } = require("./constants");
 
@@ -1259,7 +1254,6 @@ module.exports = {
 
 /* ---- src/import-modal.js ---- */
 __defs["import-modal"] = function (module, exports, require) {
-"use strict";
 const { Modal, Notice, Platform, Setting, TFile, normalizePath } = require("obsidian");
 const { FolderSuggest } = require("./modals");
 const { ensureFolder, localDate, sleep, str } = require("./util");
@@ -1964,7 +1958,6 @@ module.exports = {
 
 /* ---- src/importer.js ---- */
 __defs["importer"] = function (module, exports, require) {
-"use strict";
 const { parseYaml, stringifyYaml } = require("obsidian");
 const { sleep, str } = require("./util");
 const { TRACKING_DEFAULTS } = require("./constants");
@@ -2336,7 +2329,6 @@ module.exports = {
 
 /* ---- src/insights-view.js ---- */
 __defs["insights-view"] = function (module, exports, require) {
-"use strict";
 const { ItemView } = require("obsidian");
 const { WEAK_MIN_ATTEMPTS, computeStats, errorLog, fmtPct, overallStats, trendBy, trendDelta, weakestRow, weeklyAccuracy } = require("./stats");
 const { fmtClock, str } = require("./util");
@@ -2541,7 +2533,6 @@ module.exports = {
 
 /* ---- src/modals.js ---- */
 __defs["modals"] = function (module, exports, require) {
-"use strict";
 const { AbstractInputSuggest, FuzzySuggestModal, Modal } = require("obsidian");
 const { str } = require("./util");
 const { filterOptionCounts, folderLabel, officialIdOf } = require("./filters");
@@ -2704,7 +2695,6 @@ module.exports = {
 
 /* ---- src/notes.js ---- */
 __defs["notes"] = function (module, exports, require) {
-"use strict";
 const { addDays, fmtDate, fmtDateTime, str } = require("./util");
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 
@@ -2927,7 +2917,6 @@ module.exports = {
 
 /* ---- src/opencode-client.js ---- */
 __defs["opencode-client"] = function (module, exports, require) {
-"use strict";
 const { requestUrl } = require("obsidian");
 const { str } = require("./util");
 const { extractRationale } = require("./notes");
@@ -3110,7 +3099,6 @@ module.exports = {
 
 /* ---- src/opencode-manager.js ---- */
 __defs["opencode-manager"] = function (module, exports, require) {
-"use strict";
 const { Platform, requestUrl } = require("obsidian");
 const { fmtMB, sleep, str } = require("./util");
 const { OpenCodeClient } = require("./opencode-client");
@@ -3737,7 +3725,6 @@ module.exports = {
 
 /* ---- src/pdf.js ---- */
 __defs["pdf"] = function (module, exports, require) {
-"use strict";
 const { loadPdfJs } = require("obsidian");
 const { pad, str } = require("./util");
 
@@ -4086,7 +4073,6 @@ module.exports = {
 
 /* ---- src/plugin.js ---- */
 __defs["plugin"] = function (module, exports, require) {
-"use strict";
 const { Notice, Platform, Plugin, TFolder } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE } = require("./constants");
@@ -4606,7 +4592,6 @@ module.exports = {
 
 /* ---- src/practice-view.js ---- */
 __defs["practice-view"] = function (module, exports, require) {
-"use strict";
 const { ItemView, Notice, TFile, setIcon } = require("obsidian");
 const { FILTER_FIELDS, MODES, VIEW_TYPE } = require("./constants");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
@@ -5485,7 +5470,6 @@ module.exports = {
 
 /* ---- src/quick-practice.js ---- */
 __defs["quick-practice"] = function (module, exports, require) {
-"use strict";
 
 const { pickQuestion } = require("./filters");
 const { str } = require("./util");
@@ -5589,7 +5573,6 @@ module.exports = {
 
 /* ---- src/settings-tab.js ---- */
 __defs["settings-tab"] = function (module, exports, require) {
-"use strict";
 const { Notice, Platform, PluginSettingTab, Setting } = require("obsidian");
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
@@ -6060,7 +6043,6 @@ module.exports = {
 
 /* ---- src/stats.js ---- */
 __defs["stats"] = function (module, exports, require) {
-"use strict";
 const { folderChain, noteVals, pickQuestion } = require("./filters");
 const { str } = require("./util");
 
@@ -6310,7 +6292,6 @@ module.exports = {
 
 /* ---- src/util.js ---- */
 __defs["util"] = function (module, exports, require) {
-"use strict";
 const { normalizePath } = require("obsidian");
 
 /* ------------------------------------------------------------ pure helpers */
@@ -6361,7 +6342,6 @@ module.exports = {
 
 /* ---- src/view-helpers.js ---- */
 __defs["view-helpers"] = function (module, exports, require) {
-"use strict";
 const { MarkdownRenderer } = require("obsidian");
 const { findAnswerKey, inferMode, parseSections } = require("./notes");
 const { str } = require("./util");
@@ -6411,7 +6391,6 @@ module.exports = {
 
 /* ---- src/main.js ---- */
 __defs["main"] = function (module, exports, require) {
-"use strict";
 /*
  * MCQ Tracker - Obsidian plugin (plain JS, desktop + mobile).
  * Works on notes that have a `question_id` property. All data lives in each
