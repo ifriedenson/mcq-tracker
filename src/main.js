@@ -11,7 +11,7 @@
 const { QuestionTrackerPlugin } = require("./plugin");
 const { buildReportMarkdown, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
 const { fmtDate, fmtDateTime } = require("./util");
-const { cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
+const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
 const { answerFromSection, applyAttempt, extractRationale, fillDefaults, gradeAnswer, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
@@ -35,6 +35,8 @@ QuestionTrackerPlugin.__test = {
   fmtDateTime,
   isDue,
   weightOf,
+  adaptiveWeight,
+  adaptiveTargetRank,
   matchFilters,
   filterOptions,
   matchSets,

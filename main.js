@@ -18,6 +18,7 @@ function __require(name) {
 
 /* ---- src/api-client.js ---- */
 __defs["api-client"] = function (module, exports, require) {
+"use strict";
 const { requestUrl } = require("obsidian");
 const { str } = require("./util");
 
@@ -112,6 +113,7 @@ module.exports = {
 
 /* ---- src/chat-panel.js ---- */
 __defs["chat-panel"] = function (module, exports, require) {
+"use strict";
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
@@ -386,6 +388,7 @@ module.exports = {
 
 /* ---- src/constants.js ---- */
 __defs["constants"] = function (module, exports, require) {
+"use strict";
 
 const VIEW_TYPE = "question-tracker-view";
 
@@ -489,6 +492,7 @@ module.exports = {
 
 /* ---- src/exam-view.js ---- */
 __defs["exam-view"] = function (module, exports, require) {
+"use strict";
 const { ItemView, Notice, setIcon } = require("obsidian");
 const { fmtClock, fmtDate, str } = require("./util");
 const { fmtPct, packTestSession, suggestMinutes, unpackTestSession } = require("./stats");
@@ -1005,6 +1009,7 @@ module.exports = {
 
 /* ---- src/filters.js ---- */
 __defs["filters"] = function (module, exports, require) {
+"use strict";
 const { str } = require("./util");
 const { FILTER_FIELDS } = require("./constants");
 
@@ -1029,28 +1034,6 @@ function weightOf(fm, today) {
   else if (fm.result === "incorrect") w = 3;
   if (fm.flagged === true) w *= 2;
   return w;
-}
-
-function adaptiveWeight(fm, targetRank) {
-  const rank = { easy: 0, medium: 1, hard: 2 }[str(fm && fm.difficulty).toLowerCase()];
-  if (rank === undefined) return 1;
-  const distance = Math.abs(rank - targetRank);
-  return distance === 0 ? 5 : distance === 1 ? 2 : 1;
-}
-
-function adaptiveTargetRank(items) {
-  const attempted = items.filter((q) => Number(q.fm && q.fm.attempts) > 0);
-  if (!attempted.length) return 1;
-  const accuracy =
-    attempted.reduce((sum, q) => {
-      const attempts = Number(q.fm.attempts) || 0;
-      const correct = Number(q.fm.correct_count);
-      return sum + (Number.isFinite(correct) ? correct / attempts : q.fm.result === "correct" ? 1 : 0);
-    }, 0) / attempted.length;
-  const streak = attempted.reduce((sum, q) => sum + (Number(q.fm.streak) || 0), 0) / attempted.length;
-  if (accuracy >= 0.85 && streak >= 2) return 2;
-  if (accuracy < 0.65) return 0;
-  return 1;
 }
 
 /** A filter holds a list of accepted values per field (older versions stored a single string). */
@@ -1201,6 +1184,28 @@ function findDuplicateIds(items, existing) {
   return dupes;
 }
 
+function adaptiveWeight(fm, targetRank) {
+  const rank = { easy: 0, medium: 1, hard: 2 }[str(fm && fm.difficulty).toLowerCase()];
+  if (rank === undefined) return 1;
+  const distance = Math.abs(rank - targetRank);
+  return distance === 0 ? 5 : distance === 1 ? 2 : 1;
+}
+
+function adaptiveTargetRank(items) {
+  const attempted = items.filter((q) => Number(q.fm && q.fm.attempts) > 0);
+  if (!attempted.length) return 1;
+  const accuracy =
+    attempted.reduce((sum, q) => {
+      const attempts = Number(q.fm.attempts) || 0;
+      const correct = Number(q.fm.correct_count);
+      return sum + (Number.isFinite(correct) ? correct / attempts : q.fm.result === "correct" ? 1 : 0);
+    }, 0) / attempted.length;
+  const streak = attempted.reduce((sum, q) => sum + (Number(q.fm.streak) || 0), 0) / attempted.length;
+  if (accuracy >= 0.85 && streak >= 2) return 2;
+  if (accuracy < 0.65) return 0;
+  return 1;
+}
+
 function pickQuestion(pool, mode, today, recent, rnd) {
   rnd = rnd || Math.random;
   let items = pool.filter((q) => (MODE_PRED[mode] || MODE_PRED.smart)(q.fm, today));
@@ -1254,6 +1259,7 @@ module.exports = {
 
 /* ---- src/import-modal.js ---- */
 __defs["import-modal"] = function (module, exports, require) {
+"use strict";
 const { Modal, Notice, Platform, Setting, TFile, normalizePath } = require("obsidian");
 const { FolderSuggest } = require("./modals");
 const { ensureFolder, localDate, sleep, str } = require("./util");
@@ -1958,6 +1964,7 @@ module.exports = {
 
 /* ---- src/importer.js ---- */
 __defs["importer"] = function (module, exports, require) {
+"use strict";
 const { parseYaml, stringifyYaml } = require("obsidian");
 const { sleep, str } = require("./util");
 const { TRACKING_DEFAULTS } = require("./constants");
@@ -2329,6 +2336,7 @@ module.exports = {
 
 /* ---- src/insights-view.js ---- */
 __defs["insights-view"] = function (module, exports, require) {
+"use strict";
 const { ItemView } = require("obsidian");
 const { WEAK_MIN_ATTEMPTS, computeStats, errorLog, fmtPct, overallStats, trendBy, trendDelta, weakestRow, weeklyAccuracy } = require("./stats");
 const { fmtClock, str } = require("./util");
@@ -2533,6 +2541,7 @@ module.exports = {
 
 /* ---- src/modals.js ---- */
 __defs["modals"] = function (module, exports, require) {
+"use strict";
 const { AbstractInputSuggest, FuzzySuggestModal, Modal } = require("obsidian");
 const { str } = require("./util");
 const { filterOptionCounts, folderLabel, officialIdOf } = require("./filters");
@@ -2695,6 +2704,7 @@ module.exports = {
 
 /* ---- src/notes.js ---- */
 __defs["notes"] = function (module, exports, require) {
+"use strict";
 const { addDays, fmtDate, fmtDateTime, str } = require("./util");
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 
@@ -2917,6 +2927,7 @@ module.exports = {
 
 /* ---- src/opencode-client.js ---- */
 __defs["opencode-client"] = function (module, exports, require) {
+"use strict";
 const { requestUrl } = require("obsidian");
 const { str } = require("./util");
 const { extractRationale } = require("./notes");
@@ -3099,6 +3110,7 @@ module.exports = {
 
 /* ---- src/opencode-manager.js ---- */
 __defs["opencode-manager"] = function (module, exports, require) {
+"use strict";
 const { Platform, requestUrl } = require("obsidian");
 const { fmtMB, sleep, str } = require("./util");
 const { OpenCodeClient } = require("./opencode-client");
@@ -3725,6 +3737,7 @@ module.exports = {
 
 /* ---- src/pdf.js ---- */
 __defs["pdf"] = function (module, exports, require) {
+"use strict";
 const { loadPdfJs } = require("obsidian");
 const { pad, str } = require("./util");
 
@@ -4073,6 +4086,7 @@ module.exports = {
 
 /* ---- src/plugin.js ---- */
 __defs["plugin"] = function (module, exports, require) {
+"use strict";
 const { Notice, Platform, Plugin, TFolder } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE } = require("./constants");
@@ -4592,6 +4606,7 @@ module.exports = {
 
 /* ---- src/practice-view.js ---- */
 __defs["practice-view"] = function (module, exports, require) {
+"use strict";
 const { ItemView, Notice, TFile, setIcon } = require("obsidian");
 const { FILTER_FIELDS, MODES, VIEW_TYPE } = require("./constants");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
@@ -5470,6 +5485,7 @@ module.exports = {
 
 /* ---- src/quick-practice.js ---- */
 __defs["quick-practice"] = function (module, exports, require) {
+"use strict";
 
 const { pickQuestion } = require("./filters");
 const { str } = require("./util");
@@ -5573,6 +5589,7 @@ module.exports = {
 
 /* ---- src/settings-tab.js ---- */
 __defs["settings-tab"] = function (module, exports, require) {
+"use strict";
 const { Notice, Platform, PluginSettingTab, Setting } = require("obsidian");
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
@@ -6043,6 +6060,7 @@ module.exports = {
 
 /* ---- src/stats.js ---- */
 __defs["stats"] = function (module, exports, require) {
+"use strict";
 const { folderChain, noteVals, pickQuestion } = require("./filters");
 const { str } = require("./util");
 
@@ -6292,6 +6310,7 @@ module.exports = {
 
 /* ---- src/util.js ---- */
 __defs["util"] = function (module, exports, require) {
+"use strict";
 const { normalizePath } = require("obsidian");
 
 /* ------------------------------------------------------------ pure helpers */
@@ -6342,6 +6361,7 @@ module.exports = {
 
 /* ---- src/view-helpers.js ---- */
 __defs["view-helpers"] = function (module, exports, require) {
+"use strict";
 const { MarkdownRenderer } = require("obsidian");
 const { findAnswerKey, inferMode, parseSections } = require("./notes");
 const { str } = require("./util");
@@ -6391,6 +6411,7 @@ module.exports = {
 
 /* ---- src/main.js ---- */
 __defs["main"] = function (module, exports, require) {
+"use strict";
 /*
  * MCQ Tracker - Obsidian plugin (plain JS, desktop + mobile).
  * Works on notes that have a `question_id` property. All data lives in each
@@ -6403,7 +6424,7 @@ __defs["main"] = function (module, exports, require) {
 const { QuestionTrackerPlugin } = require("./plugin");
 const { buildReportMarkdown, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
 const { fmtDate, fmtDateTime } = require("./util");
-const { cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
+const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
 const { answerFromSection, applyAttempt, extractRationale, fillDefaults, gradeAnswer, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
@@ -6427,6 +6448,8 @@ QuestionTrackerPlugin.__test = {
   fmtDateTime,
   isDue,
   weightOf,
+  adaptiveWeight,
+  adaptiveTargetRank,
   matchFilters,
   filterOptions,
   matchSets,
