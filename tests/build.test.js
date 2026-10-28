@@ -10,6 +10,13 @@ test("main.js is the up-to-date build of src/ (run `npm run build` if this fails
   assert.equal(built, build());
 });
 
+test("build output orders non-entry modules deterministically", () => {
+  const modules = [...build().matchAll(/__defs\["([^"]+)"\] = function/g)].map((m) => m[1]);
+  const nonEntry = modules.slice(0, -1);
+  assert.equal(modules.at(-1), "main");
+  assert.deepEqual(nonEntry, [...nonEntry].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
+});
+
 test("every module in src/ is reachable from the entry, and none requires a missing module", () => {
   const dir = path.join(__dirname, "..", "src");
   const ids = fs.readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => f.replace(/\.js$/, ""));
