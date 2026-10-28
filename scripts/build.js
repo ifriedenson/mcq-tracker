@@ -18,7 +18,11 @@ const jsFiles = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
 
 function build() {
   const files = new Map(jsFiles(srcDir).map((f) => [f.replace(/\.js$/, ""), path.join(srcDir, f)]));
-  const ids = [...files.keys()].sort((a, b) => (a === ENTRY ? 1 : b === ENTRY ? -1 : a.localeCompare(b)));
+  const ids = [...files.keys()].sort((a, b) => {
+    if (a === ENTRY) return 1;
+    if (b === ENTRY) return -1;
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
   let out = `"use strict";
 /*
  * MCQ Tracker - Obsidian plugin.
