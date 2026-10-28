@@ -2512,3 +2512,32 @@ Turn **MCQ Tracker** from a basic question-tracking tool into a complete, active
 - Forum: SMILES in Obsidian: https://forum.obsidian.md/t/smiles-in-obsidian/35974
 - Forum: Obsidian for Chemistry (mhchem usage): https://forum.obsidian.md/t/obsidian-for-chemistry/33491
 - Forum: ChemDraw Plugin (mhchem integrated, chemfig not supported): https://forum.obsidian.md/t/chemdraw-plugin/61241
+---
+
+## Appendix: Calendar module absorption record (Oct 28, 2026, v1.6.0)
+
+The calendar module (§5.8) is built on absorbed University Schedule and Calendar code (MIT,
+Cesemess), pinned at upstream commit `35778e473a1d7ad7827c83c065b0f61dcbefdbc5` (v1.2.0). The
+audit gate passed: `LICENSE` confirmed MIT, no dependencies, plain JavaScript, no upstream
+tests. Attribution and the exact modifications are recorded in `NOTICES.md`.
+
+Shipped behind the module switch (off by default):
+
+- `.ics` import from a vault file or a public feed URL, including Google `?cid=`/`?src=` links and
+  `webcal://`; URL feeds sync on demand, and on startup only when that setting is on.
+- Month grid, day timeline, live "class in progress" countdown, Upcoming list, exam countdowns.
+- Class details (room, lecturer, category, exam detection), excluded subjects and keywords,
+  category colors, first day of week, 12/24-hour and date formats.
+- Per-class notes from an editable template (`{subject}`, `{date}`, `{time}`, `{time_start}`,
+  `{time_end}`, `{room}`, `{lecturer}`, `{type}`, `{course}`), with the subject-to-folder mapping
+  remembered on first use.
+- `uni-schedule` / `uni-calendar` embeds with `date: today|tomorrow|YYYY-MM-DD`, plus
+  `mcq-schedule`. The `uni-*` names are skipped when University Schedule and Calendar is enabled,
+  so both plugins never render the same block (resolves §11 item 19).
+- Filtered `.ics` export that respects hidden sources and exclusions.
+- English-only labels and an editable text template: no visual template builder and no regional
+  guides (the current answer to §11 item 20).
+
+Not done yet: the full course registry (semester, credit weight), exam-aware scheduler caps
+(§4.3), suggested study blocks in free gaps, reading events written by other calendar plugins,
+and testing on real iOS and Android devices.

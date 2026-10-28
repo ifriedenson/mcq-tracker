@@ -1,7 +1,7 @@
 "use strict";
-const { Notice, Platform, Plugin, TFolder } = require("obsidian");
+const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_CALENDAR } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -12,6 +12,10 @@ const { OpenCodeClient } = require("./opencode-client");
 const { sleep } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
+const { CalendarImportModal, CalendarView, parseScheduleBlock, renderDayTimeline } = require("./calendar-view");
+const { mergeCalendarSettings, nextClassStatus, visibleEvents } = require("./calendar-model");
+const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
+const { openOrCreateClassNote } = require("./calendar-notes");
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
@@ -38,7 +42,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE, (leaf) => new PracticeView(leaf, this));
     this.registerView(VIEW_TYPE_INSIGHTS, (leaf) => new InsightsView(leaf, this));
     this.registerView(VIEW_TYPE_TEST, (leaf) => new TestView(leaf, this));
+    this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this));
     this.addRibbonIcon("graduation-cap", "Open practice view", () => this.activateView());
+    this.setupCalendarRibbon();
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a PDF", callback: () => this.openPdfImport() });
@@ -60,6 +66,24 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "timed-test", name: "Start a timed test", callback: () => this.activateTest() });
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
+    this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => this.activateCalendar() });
+    this.addCommand({ id: "calendar-add-schedule", name: "Calendar: add an .ics schedule", callback: () => this.openCalendarImport() });
+    this.addCommand({
+      id: "calendar-note-next-class",
+      name: "Calendar: create or open the note for the next class",
+      callback: () => this.openNextClassNote(),
+    });
+    this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
+
+    // Embeds: `uni-schedule` and `uni-calendar` are the block names existing University
+    // Schedule and Calendar notes use, so those keep working. If that plugin is enabled
+    // it owns those names, and our own `mcq-schedule` block is always available.
+    const renderBlock = (source, el) => this.renderScheduleBlock(source, el);
+    if (!this.otherCalendarPluginActive()) {
+      this.registerMarkdownCodeBlockProcessor("uni-schedule", renderBlock);
+      this.registerMarkdownCodeBlockProcessor("uni-calendar", renderBlock);
+    }
+    this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.addCommand({ id: "weak-spots", name: "Show weak spots", callback: () => this.activateInsights("weak") });
     this.addCommand({ id: "error-log", name: "Show error log", callback: () => this.activateInsights("errors") });
     this.addCommand({ id: "find-question", name: "Find a question by ID", callback: () => new FindQuestionModal(this.app, this).open() });
@@ -181,6 +205,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
+    this.settings.calendar = mergeCalendarSettings(saved.calendar);
     if (!["auto", "buttons", "search"].includes(this.settings.folderFilterStyle)) this.settings.folderFilterStyle = "auto";
     for (const k of ["intervals", "errorTypes", "confidenceLabels"]) {
       if (!Array.isArray(this.settings[k]) || !this.settings[k].length) this.settings[k] = DEFAULT_SETTINGS[k].slice();
@@ -364,6 +389,256 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
       if (leaf.view && leaf.view.emptyShown && leaf.view.render) leaf.view.render();
     }
+  }
+
+  /* ---- calendar (off by default) */
+
+  calendarEnabled() {
+    return !!(this.settings.calendar && this.settings.calendar.enabled);
+  }
+
+  calendarSettings() {
+    return this.settings.calendar;
+  }
+
+  calendarSources() {
+    return (this.settings.calendar.sources || []).slice();
+  }
+
+  /** University Schedule and Calendar owns the `uni-schedule` block when it is enabled. */
+  otherCalendarPluginActive() {
+    try {
+      const plugins = this.app.plugins;
+      if (!plugins) return false;
+      if (plugins.enabledPlugins && typeof plugins.enabledPlugins.has === "function") return plugins.enabledPlugins.has("university-calendar");
+      return !!(plugins.plugins && plugins.plugins["university-calendar"]);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  setupCalendarRibbon() {
+    if (!this.calendarEnabled() || this.calendarRibbonAdded) return;
+    this.calendarRibbonAdded = true;
+    this.addRibbonIcon("calendar-days", "Open calendar", () => this.activateCalendar());
+  }
+
+  async onCalendarToggled() {
+    this.invalidateCalendar();
+    if (!this.calendarEnabled()) return;
+    this.setupCalendarRibbon();
+    await this.refreshCalendarFileSources();
+    this.refreshCalendarViews();
+  }
+
+  /** One month back, six months forward: enough for a semester and a month grid. */
+  calendarWindow(now) {
+    const at = now || new Date();
+    return { start: new Date(at.getFullYear(), at.getMonth() - 1, 1), end: new Date(at.getFullYear(), at.getMonth() + 6, 0, 23, 59, 59) };
+  }
+
+  invalidateCalendar() {
+    this._calendarCache = null;
+  }
+
+  /** Parses every shown source. Cached by source content so redraws stay cheap. */
+  calendarEvents(now) {
+    const range = this.calendarWindow(now);
+    const sources = this.calendarSources().filter((s) => !s.hidden && s.content);
+    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${sources.map((s) => `${s.id}:${s.content.length}:${s.content.slice(0, 40)}`).join("|")}`;
+    if (this._calendarCache && this._calendarCache.signature === signature) return this._calendarCache.events;
+    const all = [];
+    const errors = [];
+    for (const source of sources) {
+      try {
+        const expanded = expandIcs(parseIcs(source.content), range.start, range.end);
+        for (const event of expanded) all.push(Object.assign(event, { sourceId: source.id, sourceName: source.name }));
+      } catch (e) {
+        errors.push(`${source.name}: ${e.message}`);
+      }
+    }
+    const events = visibleEvents(this.calendarSettings(), all);
+    this._calendarCache = { signature, events };
+    this._calendarErrors = errors;
+    return events;
+  }
+
+  /** Re-reads .ics files from the vault so edits and re-downloads show up. */
+  async refreshCalendarFileSources() {
+    let changed = false;
+    for (const source of this.settings.calendar.sources || []) {
+      if (source.type !== "file" || !source.path) continue;
+      const file = this.app.vault.getAbstractFileByPath(source.path);
+      if (!file) continue;
+      try {
+        const text = await this.app.vault.cachedRead(file);
+        if (text !== source.content) {
+          source.content = text;
+          changed = true;
+        }
+      } catch (e) {
+        /* keep the cached copy */
+      }
+    }
+    if (changed) await this.save();
+    return changed;
+  }
+
+  async addCalendarFileSource(path) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) throw new Error("That file is not in the vault.");
+    const text = await this.app.vault.cachedRead(file);
+    if (!icsLooksValid(text)) throw new Error("That file is not an iCalendar (.ics) file.");
+    const cal = this.settings.calendar;
+    const name = file.name || file.basename || path;
+    const existing = cal.sources.find((s) => s.type === "file" && s.path === path);
+    if (existing) {
+      existing.content = text;
+      existing.lastSync = Date.now();
+    } else {
+      cal.sources.push({ id: `f${Date.now().toString(36)}`, name, type: "file", path, url: "", content: text, hidden: false, lastSync: Date.now() });
+    }
+    this.invalidateCalendar();
+    await this.save();
+    this.refreshCalendarViews();
+    new Notice(`Added ${name}.`);
+  }
+
+  async addCalendarUrlSource(rawUrl) {
+    const url = normalizeCalendarUrl(rawUrl);
+    if (!/^https?:\/\//i.test(url)) throw new Error("Enter an https:// or webcal:// calendar link.");
+    const response = await requestUrl({ url, method: "GET" });
+    const text = response && response.text;
+    if (!icsLooksValid(text)) throw new Error("That address did not return an iCalendar feed.");
+    const cal = this.settings.calendar;
+    const name = deriveSourceLabel(url, text);
+    const existing = cal.sources.find((s) => s.type === "url" && s.url === url);
+    if (existing) {
+      existing.content = text;
+      existing.name = name;
+      existing.lastSync = Date.now();
+    } else {
+      cal.sources.push({ id: `u${Date.now().toString(36)}`, name, type: "url", path: "", url, content: text, hidden: false, lastSync: Date.now() });
+    }
+    this.invalidateCalendar();
+    await this.save();
+    this.refreshCalendarViews();
+    new Notice(`Added ${name}.`);
+  }
+
+  async syncCalendarSource(id) {
+    const source = (this.settings.calendar.sources || []).find((s) => s.id === id);
+    if (!source) return;
+    if (source.type === "file") {
+      await this.refreshCalendarFileSources();
+      this.refreshCalendarViews();
+      return;
+    }
+    const response = await requestUrl({ url: source.url, method: "GET" });
+    if (!icsLooksValid(response && response.text)) throw new Error("That calendar did not return an iCalendar feed.");
+    source.content = response.text;
+    source.lastSync = Date.now();
+    this.invalidateCalendar();
+    await this.save();
+    this.refreshCalendarViews();
+  }
+
+  async removeCalendarSource(id) {
+    this.settings.calendar.sources = (this.settings.calendar.sources || []).filter((s) => s.id !== id);
+    this.invalidateCalendar();
+    await this.save();
+    this.refreshCalendarViews();
+  }
+
+  refreshCalendarViews() {
+    this.invalidateCalendar();
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_CALENDAR)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
+  }
+
+  async activateCalendar() {
+    if (!this.calendarEnabled()) {
+      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
+      this.openSettings();
+      return null;
+    }
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_CALENDAR)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_CALENDAR, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
+  openCalendarImport() {
+    if (!this.calendarEnabled()) {
+      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
+      this.openSettings();
+      return;
+    }
+    new CalendarImportModal(this.app, this, () => this.refreshCalendarViews()).open();
+  }
+
+  /** `uni-schedule` / `mcq-schedule` block: the classes of one day. */
+  renderScheduleBlock(source, el) {
+    el.empty();
+    if (!this.calendarEnabled()) {
+      el.createDiv({ cls: "qt-cal-empty", text: "Calendar is off. Turn it on in Settings, Calendar." });
+      return;
+    }
+    const { dateKey: key } = parseScheduleBlock(source, new Date());
+    const box = el.createDiv({ cls: "qt-cal-embed" });
+    box.createDiv({ cls: "qt-cal-section-title", text: key });
+    renderDayTimeline(this, box, key);
+  }
+
+  async openNextClassNote() {
+    if (!this.calendarEnabled()) {
+      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
+      return;
+    }
+    const status = nextClassStatus(this.calendarEvents(), new Date());
+    if (!status.event) {
+      new Notice("No class found in the calendar.");
+      return;
+    }
+    await this.openClassNote(status.event, status.event.dateKey);
+  }
+
+  async openClassNote(event, key) {
+    const result = await openOrCreateClassNote(this.app, this.calendarSettings(), event, key || event.dateKey);
+    if (result.created) {
+      const folder = result.path.includes("/") ? result.path.slice(0, result.path.lastIndexOf("/")) : "";
+      if (folder && event.summary) {
+        this.settings.calendar.subjectFolders[event.summary] = folder;
+        await this.save();
+      }
+      new Notice(`Created ${result.path}.`);
+    }
+    return result;
+  }
+
+  async exportCalendarIcs() {
+    if (!this.calendarEnabled()) {
+      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
+      return;
+    }
+    const events = this.calendarEvents();
+    if (!events.length) {
+      new Notice("There are no visible classes or exams to export.");
+      return;
+    }
+    const target = "schedule-export.ics";
+    const text = exportIcs(events, { calendarName: "MCQ Tracker calendar", now: new Date() });
+    const existing = this.app.vault.getAbstractFileByPath(target);
+    if (existing instanceof TFile) await this.app.vault.modify(existing, text);
+    else await this.app.vault.create(target, text);
+    new Notice(`Exported ${events.length} events to ${target}.`);
   }
 
   /* ---- questions */

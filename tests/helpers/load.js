@@ -66,6 +66,10 @@ class Plugin extends Base {
   registerView(type, fn) {
     this.views[type] = fn;
   }
+  registerMarkdownCodeBlockProcessor(name, fn) {
+    this.codeBlocks = this.codeBlocks || {};
+    this.codeBlocks[name] = fn;
+  }
   registerEvent(e) {
     this.events.push(e);
   }

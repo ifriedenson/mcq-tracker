@@ -110,6 +110,1461 @@ module.exports = {
 };
 };
 
+/* ---- src/calendar-ics.js ---- */
+__defs["calendar-ics"] = function (module, exports, require) {
+/*
+ * iCalendar (.ics) parsing, recurrence expansion and export for the calendar module.
+ *
+ * Ported and modified from University Schedule and Calendar
+ * (https://github.com/Cesemess/obsidian-uni-calendar, MIT, Copyright (c) 2026 Cesemess),
+ * baseline commit 35778e473a1d7ad7827c83c065b0f61dcbefdbc5 (v1.2.0). Changes from the
+ * original: every recurrence loop is bounded, COUNT/UNTIL/INTERVAL/EXDATE/RECURRENCE-ID
+ * share one occurrence iterator, DURATION/RDATE are supported, and expansion stays in
+ * local wall-clock time so a daylight-saving change does not move class times. See
+ * NOTICES.md for the license notice.
+ */
+
+const MS_DAY = 24 * 60 * 60 * 1000;
+const MAX_INSTANCES = 5000; // hard bound: a broken rule can never hang Obsidian
+
+const pad2 = (n) => String(n).padStart(2, "0");
+
+/** Local calendar day key, YYYY-MM-DD. */
+function dateKey(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/** Parses YYYY-MM-DD into a local midnight Date (null when malformed). */
+function parseDateKey(key) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || "").trim());
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+}
+
+const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+/** A date with no time of day, used to match all-day EXDATE/RECURRENCE-ID values. */
+const isMidnight = (d) => d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0;
+
+/** iCalendar dates are either YYYYMMDD (all day) or YYYYMMDDTHHMMSS[Z]. */
+function parseIcsDate(value, params) {
+  const clean = String(value || "").trim();
+  const paramsMap = params || {};
+  const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?)?(Z)?$/.exec(clean);
+  if (!m) return null;
+  const allDay = String(paramsMap.VALUE || "").toUpperCase() === "DATE" || m[4] === undefined;
+  const year = Number(m[1]);
+  const month = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  const hours = Number(m[4] || 0);
+  const minutes = Number(m[5] || 0);
+  const seconds = Number(m[6] || 0);
+  // A trailing Z is a UTC instant; everything else is wall-clock time. TZID values are
+  // treated as wall-clock too: Obsidian has no IANA database, and a class at 10:00 in
+  // Europe/Warsaw is shown at 10:00 local, which is what a timetable reader expects.
+  const date = m[7] ? new Date(Date.UTC(year, month, day, hours, minutes, seconds)) : new Date(year, month, day, hours, minutes, seconds);
+  if (Number.isNaN(date.getTime())) return null;
+  return { date, allDay, tzid: String(paramsMap.TZID || "") };
+}
+
+/** DURATION values: P1D, PT90M, P1W, ... Returns milliseconds or null. */
+function parseDuration(text) {
+  const m = /^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/i.exec(String(text || "").trim());
+  if (!m) return null;
+  const ms = ((Number(m[2]) || 0) * 7 + (Number(m[3]) || 0)) * MS_DAY + ((Number(m[4]) || 0) * 3600 + (Number(m[5]) || 0) * 60 + (Number(m[6]) || 0)) * 1000;
+  return m[1] === "-" ? -ms : ms;
+}
+
+/** RFC 5545 text unescaping, in one pass so a literal backslash survives. */
+function unescapeIcs(value) {
+  return String(value || "").replace(/\\([\\;,nN])/g, (_, ch) => (ch === "n" || ch === "N" ? "\n" : ch)).trim();
+}
+
+function escapeIcs(value) {
+  return String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\r?\n/g, "\\n");
+}
+
+/** RFC 5545 line folding: a newline followed by a space or tab continues the previous line. */
+function unfoldIcs(text) {
+  return String(text || "").replace(/\r\n[ \t]|\r[ \t]|\n[ \t]/g, "").split(/\r\n|\r|\n/);
+}
+
+function splitProperty(line) {
+  const idx = line.indexOf(":");
+  if (idx === -1) return null;
+  const head = line.slice(0, idx);
+  const value = line.slice(idx + 1);
+  const tokens = head.split(";");
+  const params = {};
+  for (const token of tokens.slice(1)) {
+    const eq = token.indexOf("=");
+    if (eq === -1) continue;
+    params[token.slice(0, eq).toUpperCase()] = token.slice(eq + 1).replace(/^"|"$/g, "");
+  }
+  return { name: tokens[0].toUpperCase(), params, value };
+}
+
+/**
+ * Parses VEVENT blocks into raw events. Recurrence is expanded separately by expandIcs,
+ * so a cancelled instance can suppress its parent occurrence.
+ */
+function parseIcs(text) {
+  if (!text || !String(text).includes("BEGIN:VEVENT")) return [];
+  const lines = unfoldIcs(text);
+  const out = [];
+  let cur = null;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.toUpperCase() === "BEGIN:VEVENT") {
+      cur = { exdates: [], rdates: [] };
+      continue;
+    }
+    if (line.toUpperCase() === "END:VEVENT") {
+      if (cur && cur.dtstart) out.push(cur);
+      cur = null;
+      continue;
+    }
+    if (!cur) continue;
+    const prop = splitProperty(line);
+    if (!prop) continue;
+    const { name, params, value } = prop;
+    if (name === "SUMMARY") cur.summary = unescapeIcs(value);
+    else if (name === "DESCRIPTION") cur.description = unescapeIcs(value);
+    else if (name === "LOCATION") cur.location = unescapeIcs(value);
+    else if (name === "STATUS") cur.status = String(value).trim().toUpperCase();
+    else if (name === "UID") cur.uid = String(value).trim();
+    else if (name === "RRULE") cur.rrule = String(value).trim();
+    else if (name === "DURATION") cur.durationMs = parseDuration(value);
+    else if (name === "DTSTART") {
+      const parsed = parseIcsDate(value, params);
+      if (parsed) {
+        cur.dtstart = parsed.date;
+        cur.allDay = Boolean(cur.allDay || parsed.allDay);
+        if (parsed.tzid) cur.tzid = parsed.tzid;
+      }
+    } else if (name === "DTEND") {
+      const parsed = parseIcsDate(value, params);
+      if (parsed) {
+        cur.dtend = parsed.date;
+        cur.allDay = Boolean(cur.allDay || parsed.allDay);
+      }
+    } else if (name === "RECURRENCE-ID") {
+      const parsed = parseIcsDate(value, params);
+      if (parsed) {
+        cur.recurrenceId = parsed.date;
+        cur.recurrenceAllDay = parsed.allDay;
+      }
+    } else if (name === "EXDATE") {
+      for (const part of String(value).split(",")) {
+        const parsed = parseIcsDate(part, params);
+        if (parsed) cur.exdates.push(parsed.date);
+      }
+    } else if (name === "RDATE") {
+      for (const part of String(value).split(",")) {
+        const parsed = parseIcsDate(part, params);
+        if (parsed) cur.rdates.push(parsed.date);
+      }
+    }
+  }
+  for (const ev of out) {
+    if (ev.dtend === undefined && ev.dtstart) {
+      const ms = Number.isFinite(ev.durationMs) ? ev.durationMs : (ev.allDay ? MS_DAY : 90 * 60 * 1000);
+      ev.dtend = new Date(ev.dtstart.getTime() + ms);
+    }
+  }
+  return out;
+}
+
+const DAY_CODES = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+
+/** RRULE string into a plain object. Unknown parts are ignored, never fatal. */
+function parseRrule(text) {
+  const parts = {};
+  for (const chunk of String(text || "").split(";")) {
+    const eq = chunk.indexOf("=");
+    if (eq === -1) continue;
+    parts[chunk.slice(0, eq).toUpperCase()] = chunk.slice(eq + 1);
+  }
+  const byDay = [];
+  for (const token of String(parts.BYDAY || "").split(",")) {
+    const m = /^([+-]?\d+)?([A-Z]{2})$/.exec(token.trim().toUpperCase());
+    if (!m) continue;
+    const weekday = DAY_CODES[m[2]];
+    if (weekday === undefined) continue;
+    byDay.push({ weekday, ordinal: m[1] ? Number(m[1]) : 0 });
+  }
+  const byMonthDay = String(parts.BYMONTHDAY || "")
+    .split(",")
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n) && n !== 0);
+  const untilParsed = parts.UNTIL ? parseIcsDate(parts.UNTIL, {}) : null;
+  return {
+    freq: String(parts.FREQ || "WEEKLY").toUpperCase(),
+    interval: Math.max(1, Number(parts.INTERVAL) || 1),
+    count: Number(parts.COUNT) > 0 ? Number(parts.COUNT) : 0,
+    until: untilParsed ? untilParsed.date : null,
+    byDay,
+    byMonthDay,
+  };
+}
+
+function withTimeOf(date, like) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), like.getHours(), like.getMinutes(), like.getSeconds());
+}
+
+function clampDay(year, month, day, like) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const actual = Math.min(Math.max(1, day), daysInMonth);
+  return new Date(year, month, actual, like.getHours(), like.getMinutes(), like.getSeconds());
+}
+
+function nthWeekdayOfMonth(year, month, weekday, ordinal, like) {
+  if (ordinal > 0) {
+    const first = new Date(year, month, 1, like.getHours(), like.getMinutes(), like.getSeconds());
+    const offset = (weekday - first.getDay() + 7) % 7;
+    const d = new Date(year, month, 1 + offset + (ordinal - 1) * 7, like.getHours(), like.getMinutes(), like.getSeconds());
+    return d.getMonth() === month ? d : null;
+  }
+  const last = new Date(year, month + 1, 0, like.getHours(), like.getMinutes(), like.getSeconds());
+  const offset = (last.getDay() - weekday + 7) % 7;
+  const d = new Date(year, month, last.getDate() - offset + (ordinal + 1) * 7, like.getHours(), like.getMinutes(), like.getSeconds());
+  return d.getMonth() === month ? d : null;
+}
+
+/**
+ * Every start date the rule generates between DTSTART and `limit`, honouring COUNT.
+ * Weekly rules are anchored to the Monday of DTSTART's week so INTERVAL=2 works.
+ */
+function rruleOccurrences(ev, rule, limit) {
+  const starts = [];
+  const start = ev.dtstart;
+  if (!start) return starts;
+  const cap = rule.until && rule.until < limit ? rule.until : limit;
+  const add = (d) => {
+    if (starts.length >= MAX_INSTANCES) return false;
+    starts.push(d);
+    return true;
+  };
+  const reachedCount = () => rule.count > 0 && starts.length >= rule.count;
+
+  if (rule.freq === "DAILY") {
+    for (let i = 0; i < MAX_INSTANCES && !reachedCount(); i++) {
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i * rule.interval, start.getHours(), start.getMinutes(), start.getSeconds());
+      if (d > cap) break;
+      if (!add(d)) break;
+    }
+  } else if (rule.freq === "WEEKLY") {
+    const weekdays = rule.byDay.length ? rule.byDay.map((b) => b.weekday) : [start.getDay()];
+    const weekdaysSorted = [...new Set(weekdays)].sort((a, b) => a - b);
+    const weekAnchor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    weekAnchor.setDate(weekAnchor.getDate() - ((start.getDay() + 6) % 7)); // Monday of that week
+    for (let week = 0; week < 520 && !reachedCount(); week++) {
+      const weekStart = new Date(weekAnchor.getFullYear(), weekAnchor.getMonth(), weekAnchor.getDate() + week * 7 * rule.interval);
+      if (weekStart > cap) break;
+      for (const weekday of weekdaysSorted) {
+        const d = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + ((weekday + 6) % 7), start.getHours(), start.getMinutes(), start.getSeconds());
+        if (d < start || d > cap) continue;
+        if (!add(d)) break;
+        if (reachedCount()) break;
+      }
+    }
+  } else if (rule.freq === "MONTHLY") {
+    for (let i = 0; i < 240 && !reachedCount(); i++) {
+      const monthDate = new Date(start.getFullYear(), start.getMonth() + i * rule.interval, 1);
+      if (monthDate > cap) break;
+      const year = monthDate.getFullYear();
+      const month = monthDate.getMonth();
+      const candidates = [];
+      if (rule.byMonthDay.length) {
+        for (const day of rule.byMonthDay) candidates.push(clampDay(year, month, day, start));
+      } else if (rule.byDay.some((b) => b.ordinal)) {
+        for (const spec of rule.byDay) {
+          const d = nthWeekdayOfMonth(year, month, spec.weekday, spec.ordinal || 1, start);
+          if (d) candidates.push(d);
+        }
+      } else {
+        candidates.push(clampDay(year, month, start.getDate(), start));
+      }
+      candidates.sort((a, b) => a - b);
+      for (const d of candidates) {
+        if (d < start || d > cap) continue;
+        if (!add(d)) break;
+        if (reachedCount()) break;
+      }
+    }
+  } else if (rule.freq === "YEARLY") {
+    for (let i = 0; i < 200 && !reachedCount(); i++) {
+      const year = start.getFullYear() + i * rule.interval;
+      const d = clampDay(year, start.getMonth(), start.getDate(), start);
+      if (d > cap) break;
+      if (!add(d)) break;
+    }
+  } else {
+    add(start); // sub-daily rules are not used by timetables; show the first occurrence
+  }
+  for (const extra of ev.rdates || []) add(extra);
+  return starts;
+}
+
+function endOfDay(d) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59);
+}
+
+/** True when a date is excluded by EXDATE (same instant, or same day for all-day values). */
+function isExcludedDate(ev, date) {
+  return (ev.exdates || []).some((ex) => Math.abs(ex.getTime() - date.getTime()) < 60000 || (sameDay(ex, date) && (isMidnight(ex) || ev.allDay)));
+}
+
+/** The override (moved or cancelled) instance for a given original occurrence, if any. */
+function findOverride(overrides, uid, date) {
+  if (!uid) return null;
+  return (overrides.get(uid) || []).find((ov) => {
+    if (!ov.recurrenceId) return false;
+    if (Math.abs(ov.recurrenceId.getTime() - date.getTime()) < 60000) return true;
+    return sameDay(ov.recurrenceId, date) && (isMidnight(ov.recurrenceId) || ov.recurrenceAllDay === true);
+  }) || null;
+}
+
+/**
+ * Expands parsed events into concrete instances that overlap [windowStart, windowEnd].
+ * Recurring events keep the event's wall-clock time. Multi-day all-day events produce
+ * one instance per day, which is what a month grid and a daily timeline need.
+ */
+function expandIcs(baseEvents, windowStart, windowEnd) {
+  const out = [];
+  const overrides = new Map();
+  const parents = new Map();
+  for (const ev of baseEvents) {
+    if (ev.uid && ev.recurrenceId) {
+      const list = overrides.get(ev.uid) || [];
+      list.push(ev);
+      overrides.set(ev.uid, list);
+    } else if (ev.uid && ev.rrule && !parents.has(ev.uid)) {
+      parents.set(ev.uid, ev);
+    }
+  }
+  // An override often carries only the changed fields; borrow the rest from the series.
+  for (const list of overrides.values()) {
+    for (const ov of list) {
+      const parent = parents.get(ov.uid);
+      if (!parent) continue;
+      if (!ov.summary && parent.summary) ov.summary = parent.summary;
+      if (!ov.location && parent.location) ov.location = parent.location;
+      if (!ov.description && parent.description) ov.description = parent.description;
+    }
+  }
+
+  const push = (ev, start, end, extra) => {
+    if (end < windowStart || start > windowEnd) return;
+    out.push(Object.assign({}, ev, { dateKey: dateKey(start), dtstart: start, dtend: end }, extra));
+  };
+
+  for (const ev of baseEvents) {
+    if (ev.status === "CANCELLED") continue; // cancelled instances only suppress their parent
+    if (!ev.dtstart) continue;
+    const durationMs = ev.dtend ? Math.max(0, ev.dtend.getTime() - ev.dtstart.getTime()) : (ev.allDay ? MS_DAY : 90 * 60 * 1000);
+
+    if (ev.recurrenceId) {
+      push(ev, ev.dtstart, ev.dtend || new Date(ev.dtstart.getTime() + durationMs), { isRecurringInstance: true });
+      continue;
+    }
+
+    if (!ev.rrule) {
+      if (ev.allDay) {
+        const end = ev.dtend ? new Date(ev.dtend.getFullYear(), ev.dtend.getMonth(), ev.dtend.getDate()) : new Date(ev.dtstart.getFullYear(), ev.dtstart.getMonth(), ev.dtstart.getDate() + 1);
+        const cursor = new Date(ev.dtstart.getFullYear(), ev.dtstart.getMonth(), ev.dtstart.getDate());
+        let guard = 0;
+        while (cursor < end && guard++ < 400) {
+          push(ev, new Date(cursor), endOfDay(cursor), { allDay: true });
+          cursor.setDate(cursor.getDate() + 1);
+        }
+      } else {
+        push(ev, ev.dtstart, ev.dtend || new Date(ev.dtstart.getTime() + durationMs), {});
+      }
+      continue;
+    }
+
+    const rule = parseRrule(ev.rrule);
+    for (const start of rruleOccurrences(ev, rule, windowEnd)) {
+      if (isExcludedDate(ev, start)) continue;
+      if (findOverride(overrides, ev.uid, start)) continue; // the moved/replaced instance is added on its own
+      const end = ev.allDay ? endOfDay(start) : new Date(start.getTime() + durationMs);
+      push(ev, start, end, { isRecurringInstance: true });
+    }
+  }
+
+  out.sort((a, b) => a.dtstart.getTime() - b.dtstart.getTime() || String(a.summary || "").localeCompare(String(b.summary || "")));
+  return out;
+}
+
+function utcStamp(d) {
+  return `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}T${pad2(d.getUTCHours())}${pad2(d.getUTCMinutes())}${pad2(d.getUTCSeconds())}Z`;
+}
+
+function isoDate(d) {
+  return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`;
+}
+
+/** Exports instances as a plain calendar. Timed events are UTC, all-day events are dates. */
+function exportIcs(events, options) {
+  const opts = options || {};
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//MCQ Tracker//Calendar//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"];
+  if (opts.calendarName) lines.push(`X-WR-CALNAME:${escapeIcs(opts.calendarName)}`);
+  const stamp = utcStamp(opts.now || new Date());
+  events.forEach((ev, index) => {
+    const start = ev.dtstart;
+    if (!start) return;
+    lines.push("BEGIN:VEVENT");
+    lines.push(`DTSTAMP:${stamp}`);
+    lines.push(`UID:${escapeIcs(ev.uid || `mcq-${ev.dateKey}-${index}`)}@mcq-tracker`);
+    lines.push(`SUMMARY:${escapeIcs(ev.summary || "Class")}`);
+    if (ev.allDay) {
+      lines.push(`DTSTART;VALUE=DATE:${isoDate(start)}`);
+      if (ev.dtend) {
+        const end = new Date(ev.dtend.getFullYear(), ev.dtend.getMonth(), ev.dtend.getDate());
+        if (ev.dtend.getHours() >= 20) end.setDate(end.getDate() + 1);
+        lines.push(`DTEND;VALUE=DATE:${isoDate(end)}`);
+      }
+    } else {
+      lines.push(`DTSTART:${utcStamp(start)}`);
+      if (ev.dtend) lines.push(`DTEND:${utcStamp(ev.dtend)}`);
+    }
+    if (ev.location) lines.push(`LOCATION:${escapeIcs(ev.location)}`);
+    if (ev.description) lines.push(`DESCRIPTION:${escapeIcs(ev.description)}`);
+    lines.push("END:VEVENT");
+  });
+  lines.push("END:VCALENDAR");
+  return `${lines.join("\r\n")}\r\n`;
+}
+
+/* ------------------------------------------------------------ feed helpers */
+
+function extractQueryParam(url, name) {
+  const m = new RegExp(`[?&]${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([^&#]*)`, "i").exec(String(url || ""));
+  return m ? m[1] : "";
+}
+
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/** Minimal base64 decoder so this works on mobile without Buffer or atob shims. */
+function decodeBase64Ascii(input) {
+  let str = String(input || "").replace(/[^A-Za-z0-9+/=]/g, "");
+  let out = "";
+  for (let i = 0; i < str.length; i += 4) {
+    const chunk = str.slice(i, i + 4);
+    if (chunk.length < 2) break;
+    const n = [0, 1, 2, 3].map((k) => (chunk[k] ? B64.indexOf(chunk[k]) : 0));
+    out += String.fromCharCode((n[0] << 2) | (n[1] >> 4));
+    if (chunk[2] !== undefined && chunk[2] !== "=") out += String.fromCharCode(((n[1] & 15) << 4) | (n[2] >> 2));
+    if (chunk[3] !== undefined && chunk[3] !== "=") out += String.fromCharCode(((n[2] & 3) << 6) | n[3]);
+  }
+  return out;
+}
+
+/** Google Calendar share links (`?cid=...`, `?src=...`) become their public .ics feed. */
+function normalizeCalendarUrl(raw) {
+  if (!raw) return "";
+  const url = String(raw).trim().replace(/^webcal:\/\//i, "https://");
+  if (!/calendar\.google\.com/i.test(url)) return url;
+  const isIcal = /\/calendar\/ical\//i.test(url);
+  if (!isIcal) {
+    const cid = extractQueryParam(url, "cid");
+    if (cid) {
+      const decoded = decodeBase64Ascii(decodeURIComponent(cid)).trim();
+      if (decoded) return `https://calendar.google.com/calendar/ical/${encodeURIComponent(decoded)}/public/basic.ics`;
+    }
+    const src = extractQueryParam(url, "src");
+    if (src) return `https://calendar.google.com/calendar/ical/${encodeURIComponent(decodeURIComponent(src).trim())}/public/basic.ics`;
+  }
+  if (isIcal && /\/full(\.ics)?(\?.*)?$/i.test(url)) return url.replace(/\/full(\.ics)?(\?.*)?$/i, "/basic.ics");
+  return url;
+}
+
+function extractCalendarName(icsText) {
+  const m = /^X-WR-CALNAME(?:;[^:]*)?:(.+)$/im.exec(String(icsText || ""));
+  return m ? unescapeIcs(m[1]) : "";
+}
+
+function deriveSourceLabel(url, icsText) {
+  const name = extractCalendarName(icsText);
+  const clean = String(url || "").trim().replace(/^webcal:\/\//i, "https://");
+  const m = /^https?:\/\/([^/?#]+)(\/[^?#]*)?/i.exec(clean);
+  if (!m) return name || clean.slice(0, 45) || "Calendar";
+  const host = m[1];
+  if (name) return `${name} (${host})`;
+  const last = (m[2] || "").split("/").filter(Boolean).pop();
+  if (last) {
+    try {
+      return `${host} (${decodeURIComponent(last)})`;
+    } catch (e) {
+      return `${host} (${last})`;
+    }
+  }
+  return host;
+}
+
+function icsLooksValid(text) {
+  return typeof text === "string" && text.includes("BEGIN:VCALENDAR") && text.includes("BEGIN:VEVENT");
+}
+
+module.exports = {
+  MAX_INSTANCES,
+  dateKey,
+  parseDateKey,
+  parseIcsDate,
+  parseDuration,
+  unescapeIcs,
+  escapeIcs,
+  unfoldIcs,
+  parseIcs,
+  parseRrule,
+  rruleOccurrences,
+  expandIcs,
+  exportIcs,
+  normalizeCalendarUrl,
+  extractCalendarName,
+  deriveSourceLabel,
+  decodeBase64Ascii,
+  icsLooksValid,
+};
+};
+
+/* ---- src/calendar-model.js ---- */
+__defs["calendar-model"] = function (module, exports, require) {
+/*
+ * Calendar domain model: class details, colors, visibility filters, date grids,
+ * note templates and subject-to-folder mapping.
+ *
+ * Class-detail parsing, category detection and subject cleaning are ported and
+ * modified from University Schedule and Calendar
+ * (https://github.com/Cesemess/obsidian-uni-calendar, MIT, Copyright (c) 2026 Cesemess),
+ * baseline commit 35778e473a1d7ad7827c83c065b0f61dcbefdbc5. Labels are English-first;
+ * see NOTICES.md.
+ */
+const { dateKey, parseDateKey } = require("./calendar-ics");
+
+const pad2 = (n) => String(n).padStart(2, "0");
+
+const DEFAULT_NOTE_TEMPLATE = `---
+subject: "{subject}"
+course: "{subject}"
+date: {date}
+time: "{time}"
+room: "{room}"
+lecturer: "{lecturer}"
+type: "{type}"
+tags:
+  - university
+  - lecture-notes
+---
+
+# {subject}
+
+> 📍 **Room:** {room} | 👤 **Lecturer:** {lecturer} | ⏰ **Time:** {time}
+
+## Lecture Notes
+
+
+## Questions to practice
+- [ ]
+`;
+
+const CLASS_CATEGORIES = [
+  { id: "wyklad", label: "Lecture", color: "#3b82f6" },
+  { id: "cwiczenia", label: "Exercises", color: "#10b981" },
+  { id: "laboratorium", label: "Lab", color: "#8b5cf6" },
+  { id: "lektorat", label: "Language", color: "#06b6d4" },
+  { id: "projekt", label: "Project", color: "#f59e0b" },
+  { id: "seminarium", label: "Seminar", color: "#ec4899" },
+  { id: "egzamin", label: "Exam", color: "#ef4444" },
+  { id: "inne", label: "Other", color: "#6b7280" },
+];
+
+const CATEGORY_BY_ID = Object.fromEntries(CLASS_CATEGORIES.map((c) => [c.id, c]));
+
+const DEFAULT_CALENDAR_SETTINGS = {
+  enabled: false, // calendar module is off by default
+  sources: [], // { id, name, type: "file"|"url", path, url, content, hidden, lastSync }
+  noteFolder: "",
+  noteNameFormat: "{date} - {subject}",
+  noteTemplate: DEFAULT_NOTE_TEMPLATE,
+  cleanSubjectNames: true,
+  firstDayOfWeek: "monday",
+  timeFormat: "24h",
+  dateFormat: "YYYY-MM-DD",
+  excludedSubjects: [],
+  excludedKeywords: [],
+  subjectFolders: {},
+  classColors: {},
+  subjectColors: {},
+  classNames: {},
+  autoSync: false, // URL feeds are refreshed on startup only when this is on
+};
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEKDAYS = { monday: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], sunday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] };
+
+const str = (v) => (v === undefined || v === null ? "" : String(v));
+const subjectKey = (s) => str(s).trim().toLowerCase().replace(/\s+/g, " ");
+const normalizeFolder = (p) => str(p).trim().replace(/^\/+|\/+$/g, "");
+
+/** Merges saved settings into defaults without dropping new fields. */
+function mergeCalendarSettings(saved) {
+  const out = Object.assign({}, DEFAULT_CALENDAR_SETTINGS, saved && typeof saved === "object" ? saved : {});
+  out.sources = (Array.isArray(out.sources) ? out.sources : [])
+    .filter((s) => s && (s.type === "url" ? s.url : s.content))
+    .map((s, i) => ({
+      id: str(s.id) || `src${i}`,
+      name: str(s.name) || (s.type === "url" ? "Calendar feed" : "Schedule file"),
+      type: s.type === "url" ? "url" : "file",
+      path: normalizeFolder(s.path),
+      url: str(s.url),
+      content: str(s.content),
+      hidden: s.hidden === true,
+      lastSync: Number(s.lastSync) || 0,
+    }));
+  out.excludedSubjects = (Array.isArray(out.excludedSubjects) ? out.excludedSubjects : []).map(str).filter(Boolean);
+  out.excludedKeywords = (Array.isArray(out.excludedKeywords) ? out.excludedKeywords : []).map(str).filter(Boolean);
+  out.subjectFolders = plainObject(out.subjectFolders);
+  out.classColors = plainObject(out.classColors);
+  out.subjectColors = plainObject(out.subjectColors);
+  out.classNames = plainObject(out.classNames);
+  if (!WEEKDAYS[out.firstDayOfWeek]) out.firstDayOfWeek = "monday";
+  if (!["24h", "12h"].includes(out.timeFormat)) out.timeFormat = "24h";
+  if (!["YYYY-MM-DD", "DD.MM.YYYY", "DD/MM/YYYY", "MM/DD/YYYY"].includes(out.dateFormat)) out.dateFormat = "YYYY-MM-DD";
+  if (!out.noteNameFormat.trim()) out.noteNameFormat = DEFAULT_CALENDAR_SETTINGS.noteNameFormat;
+  if (!out.noteTemplate.trim()) out.noteTemplate = DEFAULT_NOTE_TEMPLATE;
+  return out;
+}
+
+function plainObject(v) {
+  const out = {};
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    for (const [k, val] of Object.entries(v)) if (str(val).trim()) out[k] = str(val).trim();
+  }
+  return out;
+}
+
+/** Values placed into a note template; `{course}` is the same as `{subject}`. */
+function noteVariables(settings, event, key) {
+  const details = event.details || parseClassDetails(event.summary, event.description, event.location);
+  const rawSubject = str(event.summary) || "Class";
+  const subject = settings.cleanSubjectNames ? cleanSubjectTitle(rawSubject) : rawSubject;
+  const allDay = event.allDay === true;
+  const start = event.dtstart ? formatTime(settings, event.dtstart) : "";
+  const end = event.dtend ? formatTime(settings, event.dtend) : "";
+  return {
+    subject,
+    course: subject,
+    date: formatDateValue(settings.dateFormat, key),
+    iso_date: key,
+    time: allDay ? "All day" : end ? `${start}–${end}` : start,
+    time_start: allDay ? "" : start,
+    time_end: allDay ? "" : end,
+    room: str(details.room),
+    lecturer: str(details.lecturer),
+    type: classTypeLabel(settings, details.category),
+    description: str(event.description),
+    event_id: str(event.uid),
+  };
+}
+
+/** Replaces `{token}` placeholders. Values lose newlines and double quotes so YAML stays valid. */
+function renderNoteTemplate(template, vars) {
+  return str(template).replace(/\{(\w+)\}/g, (match, token) => {
+    const key = token.toLowerCase();
+    if (!Object.prototype.hasOwnProperty.call(vars, key)) return match;
+    return str(vars[key]).replace(/\r?\n/g, " ").replace(/"/g, "'");
+  });
+}
+
+function noteFileName(settings, event, key) {
+  const vars = noteVariables(settings, event, key);
+  const safe = { ...vars };
+  for (const k of Object.keys(safe)) safe[k] = sanitizeFileName(safe[k], "");
+  const name = sanitizeFileName(renderNoteTemplate(settings.noteNameFormat || "{date} - {subject}", safe), `${key} - ${vars.subject}`);
+  return `${name || key}.md`;
+}
+
+function noteContent(settings, event, key) {
+  const text = renderNoteTemplate(settings.noteTemplate || DEFAULT_NOTE_TEMPLATE, noteVariables(settings, event, key));
+  return text.endsWith("\n") ? text : `${text}\n`;
+}
+
+/** Strips characters Obsidian (and Windows) reject in a file name. */
+function sanitizeFileName(name, fallback) {
+  const clean = str(name)
+    .replace(/[\\/:*?"<>|#^[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 120)
+    .trim();
+  return clean || str(fallback);
+}
+
+function formatDateValue(format, key) {
+  const d = parseDateKey(key) || new Date();
+  const y = d.getFullYear();
+  const m = pad2(d.getMonth() + 1);
+  const day = pad2(d.getDate());
+  if (format === "DD.MM.YYYY") return `${day}.${m}.${y}`;
+  if (format === "DD/MM/YYYY") return `${day}/${m}/${y}`;
+  if (format === "MM/DD/YYYY") return `${m}/${day}/${y}`;
+  return `${y}-${m}-${day}`;
+}
+
+function formatTime(settings, date) {
+  if (!date) return "";
+  const minutes = pad2(date.getMinutes());
+  if (settings.timeFormat === "12h") {
+    const hours = date.getHours();
+    return `${hours % 12 || 12}:${minutes} ${hours < 12 ? "AM" : "PM"}`;
+  }
+  return `${pad2(date.getHours())}:${minutes}`;
+}
+
+function classTypeLabel(settings, category) {
+  const id = str(category) || "inne";
+  const custom = (settings.classNames || {})[id];
+  if (str(custom).trim()) return str(custom).trim();
+  if (id.endsWith("_egzamin")) {
+    const base = CATEGORY_BY_ID[id.replace(/_egzamin$/, "")];
+    return `${base ? base.label : "Other"} (exam)`;
+  }
+  return (CATEGORY_BY_ID[id] || CATEGORY_BY_ID.inne).label;
+}
+
+/* --------------------------------------------------------- class details */
+
+const LECTURER_LABELS = ["Lecturer", "Instructor", "Professor", "Teacher", "Dozent", "Lehrende", "Enseignant", "Docente", "Преподаватель", "Лектор", "教师", "老师", "讲师", "担当教員", "講師", "교수", "강사", "Prowadzący", "Wykładowca"];
+const ROOM_LABELS = ["Room", "Location", "Hall", "Building", "Venue", "Raum", "Gebäude", "Hörsaal", "Salle", "Bâtiment", "Amphi", "Aula", "Edificio", "Lugar", "Аудитория", "Корпус", "Кабинет", "教室", "地点", "教学楼", "講義室", "場所", "강의실", "장소", "Sala", "Miejsce", "Budynek"];
+const REMARK_LABELS = ["Remarks", "Notes", "Info", "Hinweise", "Anmerkungen", "Remarques", "Informations", "Notas", "Observaciones", "Note", "Примечания", "备注", "说明", "備考", "비고", "Uwagi", "Notatki"];
+const GROUP_LABELS = ["Group", "Groups", "Section", "Gruppe", "Groupe", "Grupo", "Gruppo", "Группа", "组", "班级", "グループ", "분반", "그룹", "Grupa", "Grupy"];
+
+/** Reads `Lecturer: A. Smith` / `Room - 204` style lines from an event description. */
+function extractLabelValue(text, labels) {
+  const lines = str(text).split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    for (const label of labels) {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`^${escaped}(?:[:\\s–—-]+|$)`, "i");
+      if (re.test(line)) {
+        const value = line.replace(re, "").trim();
+        if (value) return value;
+      }
+    }
+  }
+  return "";
+}
+
+const hasAny = (text, needles) => needles.some((n) => text.includes(n));
+
+function detectCategory(group, text) {
+  if (hasAny(group, ["lekt", "lang", "sprach"]) || hasAny(text, ["lektorat", "language course", "foreign language", "sprachkurs", "cours de langue", "curso de idiomas", "lingua straniera", "иностранный язык", "外语", "語学", "어학"])) return "lektorat";
+  if (hasAny(group, ["wyk", "lec", "vorl"]) || hasAny(text, ["wykład", "lecture", "vorlesung", "cours magistral", "clase magistral", "lezione", "лекция", "讲座", "理论课", "講義", "강의"])) return "wyklad";
+  if (hasAny(group, ["lab", "prac", "prak"]) || /\blab\b/.test(text) || hasAny(text, ["laboratorium", "laboratory", "praktikum", "laboratorio", "лабораторная", "实验", "実習", "실습"])) return "laboratorium";
+  if (hasAny(group, ["ćw", "cw", "ex", "tut", "üb"]) || hasAny(text, ["ćwiczenia", "exercises", "tutorial", "übung", "travaux dirigés", "prácticas", "esercitazione", "практика", "习题", "演習", "연습"])) return "cwiczenia";
+  if (hasAny(group, ["sem"]) || hasAny(text, ["seminarium", "seminar", "séminaire", "seminario", "研讨", "ゼミ", "세미나"])) return "seminarium";
+  if (hasAny(group, ["proj"]) || hasAny(text, ["projekt", "project", "projet", "proyecto", "progetto", "проект", "项目", "プロジェクト", "프로젝트"])) return "projekt";
+  return "inne";
+}
+
+const EXAM_WORDS = ["egzamin", "kolokwium", "zaliczenie", "exam", "midterm", "final", "klausur", "prüfung", "examen", "partiel", "esame", "prova", "экзамен", "зачет", "сессия", "考试", "期末", "期中", "試験", "テスト", "시험", "중간고사", "기말고사"];
+
+function detectExam(text) {
+  if (hasAny(text, EXAM_WORDS)) return true;
+  return /\btest\b/.test(text);
+}
+
+/**
+ * Class details from an event: who teaches it, where, which kind of class it is and
+ * whether it is an exam. The category ids match the upstream plugin so colors and
+ * custom labels keep the same meaning.
+ */
+function parseClassDetails(summary, description, location) {
+  const desc = str(description);
+  const text = `${str(summary)} ${desc}`.toLowerCase();
+  const group = extractLabelValue(desc, GROUP_LABELS).toLowerCase();
+  const lecturer = extractLabelValue(desc, LECTURER_LABELS);
+  let room = str(location).trim();
+  if (!room) room = extractLabelValue(desc, ROOM_LABELS);
+  const remarks = extractLabelValue(desc, REMARK_LABELS);
+  if (!room && remarks) room = remarks;
+  let category = detectCategory(group, text);
+  const isExam = detectExam(`${text} ${remarks.toLowerCase()}`);
+  if (isExam) {
+    if (category === "lektorat") category = "lektorat_egzamin";
+    else if (category === "inne") category = "egzamin";
+    else if (category !== "egzamin") category = `${category}_egzamin`;
+  }
+  return { lecturer, room, group, remarks, category, isExam };
+}
+
+const CLEAN_SUBJECT_PATTERNS = [
+  /^(egzamin(\s+poprawkowy)?|kolokwium|zaliczenie|exam|retake\s+exam|klausur|prüfung|examen|partiel|test)\s*[:\-–—]\s*/gi,
+  /\s*-\s*(I|II|III|1|2|3)\s*(termin|term|prüfungstermin)$/gi,
+  /\s*\((wyk(ład)?|lec(ture)?|vorlesung|vl|cm)\)/gi,
+  /\s*\((lab(oratorium|oratory)?|praktikum|pr|tp)\)/gi,
+  /\s*\((ćw(iczenia)?|cw(iczenia)?|ex(ercises)?|tut(orial)?|übung|ue|üb|td)\)/gi,
+  /\s*\((lekt(orat)?|lang(uage)?|sprachkurs)\)/gi,
+  /\s*\((proj(ekt|ect)?|projet)\)/gi,
+  /\s*\((sem(inarium|inar)?|séminaire)\)/gi,
+  /\s*\[[WwLlCcPpSsEe]\]/g,
+  /\s*-\s*(wykład|ćwiczenia|laboratorium|projekt|seminarium|lektorat|egzamin|kolokwium|zaliczenie|lecture|laboratory|exercises|tutorial|seminar|project|exam|vorlesung|übung|praktikum|klausur|cours|travaux\s+dirigés|travaux\s+pratiques|examen)/gi,
+];
+
+/** "Matematyka (WYK)" -> "Matematyka"; falls back to the raw title when nothing is left. */
+function cleanSubjectTitle(rawTitle) {
+  const raw = str(rawTitle).trim();
+  if (!raw) return "";
+  let cleaned = raw;
+  for (const re of CLEAN_SUBJECT_PATTERNS) cleaned = cleaned.replace(re, "");
+  cleaned = cleaned.replace(/\s{2,}/g, " ").trim();
+  return cleaned || raw;
+}
+
+function classColor(settings, details, subject) {
+  const category = str(details && details.category) || "inne";
+  const byCategory = (settings.classColors || {})[category];
+  if (byCategory) return byCategory;
+  const base = category.replace(/_egzamin$/, "");
+  if ((settings.classColors || {})[base]) return settings.classColors[base];
+  const bySubject = (settings.subjectColors || {})[subjectKey(subject)];
+  if (bySubject) return bySubject;
+  return (CATEGORY_BY_ID[base] || CATEGORY_BY_ID.inne).color;
+}
+
+function isExamEvent(event) {
+  if (event.isExam === true) return true;
+  const details = event.details || parseClassDetails(event.summary, event.description, event.location);
+  return details.isExam;
+}
+
+/* -------------------------------------------------------------- filtering */
+
+/** Removes excluded subjects and keyword-matching events. Hidden sources are removed earlier. */
+function visibleEvents(settings, events) {
+  const excluded = new Set((settings.excludedSubjects || []).map(subjectKey).filter(Boolean));
+  const words = (settings.excludedKeywords || []).map((k) => str(k).toLowerCase().trim()).filter(Boolean);
+  return (events || []).filter((ev) => {
+    const subject = str(ev.summary);
+    if (excluded.has(subjectKey(subject)) || excluded.has(subjectKey(cleanSubjectTitle(subject)))) return false;
+    if (!words.length) return true;
+    const haystack = `${subject} ${str(ev.description)} ${str(ev.location)}`.toLowerCase();
+    return !words.some((w) => haystack.includes(w));
+  });
+}
+
+function eventsOnDay(events, key) {
+  return (events || []).filter((ev) => ev.dateKey === key).sort((a, b) => a.dtstart - b.dtstart);
+}
+
+/* ----------------------------------------------------------- month layout */
+
+/** Six weeks of cells; `firstDay` is "monday" or "sunday". */
+function monthGrid(year, month, firstDay, today) {
+  const start = new Date(year, month, 1);
+  const offset = firstDay === "sunday" ? start.getDay() : (start.getDay() + 6) % 7;
+  const todayKey = dateKey(today || new Date());
+  const cells = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(year, month, 1 - offset + i);
+    const key = dateKey(d);
+    cells.push({ date: d, key, day: d.getDate(), inMonth: d.getMonth() === month, isToday: key === todayKey });
+  }
+  return cells;
+}
+
+function weekdayLabels(firstDay) {
+  return (WEEKDAYS[firstDay] || WEEKDAYS.monday).slice();
+}
+
+function monthLabel(year, month) {
+  return `${MONTHS[month]} ${year}`;
+}
+
+/* ------------------------------------------------------------- countdowns */
+
+function byStart(a, b) {
+  return a.dtstart - b.dtstart;
+}
+
+/**
+ * What the calendar should show at the top of the view: the class happening now,
+ * otherwise the next one.
+ */
+function nextClassStatus(events, now) {
+  const at = now || new Date();
+  const timed = (events || []).filter((ev) => !ev.allDay && ev.dtstart && ev.dtend).sort(byStart);
+  const ongoing = timed.find((ev) => ev.dtstart <= at && at < ev.dtend);
+  if (ongoing) return { state: "ongoing", event: ongoing, startsInMs: 0, endsInMs: ongoing.dtend - at };
+  const next = timed.find((ev) => ev.dtstart > at);
+  if (!next) return { state: "none", event: null, startsInMs: 0, endsInMs: 0 };
+  return { state: "next", event: next, startsInMs: next.dtstart - at, endsInMs: 0 };
+}
+
+/** "1 h 05 m", "12 min", "now". */
+function humanizeDuration(ms) {
+  const minutes = Math.max(0, Math.round(ms / 60000));
+  if (minutes < 1) return "less than a minute";
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${pad2(minutes % 60)} m`;
+}
+
+function examCountdown(event, now) {
+  const at = now || new Date();
+  const startOfToday = new Date(at.getFullYear(), at.getMonth(), at.getDate());
+  const examDay = new Date(event.dtstart.getFullYear(), event.dtstart.getMonth(), event.dtstart.getDate());
+  const days = Math.round((examDay - startOfToday) / (24 * 60 * 60 * 1000));
+  if (days < 0) return "past";
+  if (days === 0) return "today";
+  if (days === 1) return "tomorrow";
+  return `in ${days} days`;
+}
+
+/** Future exams, soonest first, without duplicates from recurring feeds. */
+function upcomingExams(events, now, limit) {
+  const at = now || new Date();
+  const start = new Date(at.getFullYear(), at.getMonth(), at.getDate());
+  const seen = new Set();
+  const out = [];
+  for (const ev of (events || []).slice().sort(byStart)) {
+    if (!ev.dtstart || ev.dtstart < start || !isExamEvent(ev)) continue;
+    const key = `${subjectKey(ev.summary)}|${ev.dateKey}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(ev);
+    if (limit && out.length >= limit) break;
+  }
+  return out;
+}
+
+/* ---------------------------------------------------- folder + note paths */
+
+/**
+ * Explicit subject mapping first, then a folder whose name matches the cleaned
+ * subject (exact beats partial). Falls back to the configured note folder.
+ */
+function resolveSubjectFolder(settings, subject, folders, event) {
+  const list = (folders || []).map(normalizeFolder).filter(Boolean);
+  const key = subjectKey(subject);
+  const clean = subjectKey(cleanSubjectTitle(subject));
+  for (const [mapped, folder] of Object.entries(settings.subjectFolders || {})) {
+    if (subjectKey(mapped) === key || subjectKey(mapped) === clean) {
+      const target = normalizeFolder(folder);
+      if (target) return target; // the folder is created when the first note is written
+    }
+  }
+  const base = normalizeFolder(settings.noteFolder);
+  const scoped = base ? list.filter((f) => f === base || f.startsWith(`${base}/`)) : list;
+  const pool = scoped.length ? scoped : list;
+  let best = "";
+  let bestScore = 0;
+  for (const folder of pool) {
+    const name = subjectKey(folder.split("/").pop());
+    if (!name) continue;
+    if (name === key || name === clean) return folder;
+    if (clean.length >= 3 && name.length >= 3 && (name.includes(clean) || clean.includes(name))) {
+      const score = Math.min(name.length, clean.length);
+      if (score > bestScore) {
+        bestScore = score;
+        best = folder;
+      }
+    }
+  }
+  if (best) return best;
+  return base;
+}
+
+module.exports = {
+  DEFAULT_NOTE_TEMPLATE,
+  DEFAULT_CALENDAR_SETTINGS,
+  CLASS_CATEGORIES,
+  MONTHS,
+  subjectKey,
+  normalizeFolder,
+  mergeCalendarSettings,
+  noteVariables,
+  renderNoteTemplate,
+  noteFileName,
+  noteContent,
+  sanitizeFileName,
+  formatDateValue,
+  formatTime,
+  classTypeLabel,
+  extractLabelValue,
+  parseClassDetails,
+  cleanSubjectTitle,
+  classColor,
+  isExamEvent,
+  visibleEvents,
+  eventsOnDay,
+  monthGrid,
+  weekdayLabels,
+  monthLabel,
+  nextClassStatus,
+  humanizeDuration,
+  examCountdown,
+  upcomingExams,
+  resolveSubjectFolder,
+};
+};
+
+/* ---- src/calendar-notes.js ---- */
+__defs["calendar-notes"] = function (module, exports, require) {
+/*
+ * Creates and opens the note for one class, from the calendar module's template.
+ * Note creation is always one click and never overwrites an existing note: a class
+ * that already has a note opens that note.
+ */
+const { TFile, TFolder } = require("obsidian");
+const { ensureFolder } = require("./util");
+const { noteContent, noteFileName, resolveSubjectFolder } = require("./calendar-model");
+
+/** Every folder path in the vault, from loaded files (works without a vault-wide scan). */
+function vaultFolders(app) {
+  const out = new Set();
+  const files = typeof app.vault.getAllLoadedFiles === "function" ? app.vault.getAllLoadedFiles() : app.vault.getMarkdownFiles();
+  for (const file of files || []) {
+    if (file instanceof TFolder) out.add(file.path);
+    else if (file && file.parent && typeof file.parent.path === "string") out.add(file.parent.path);
+  }
+  return [...out].filter((p) => p && p !== "/");
+}
+
+/** Path of the note for this class, whether or not it exists yet. */
+function notePathFor(app, settings, event, dateKeyValue) {
+  const folders = vaultFolders(app);
+  const folder = resolveSubjectFolder(settings, event.summary || "", folders, event);
+  const name = noteFileName(settings, event, dateKeyValue);
+  return folder ? `${folder}/${name}` : name;
+}
+
+async function openFile(app, file) {
+  const leaf = app.workspace.getLeaf(false);
+  if (leaf && leaf.openFile) await leaf.openFile(file);
+}
+
+/**
+ * Opens the class note, creating it from the template when missing.
+ * Returns { path, created } so callers can tell the learner what happened.
+ */
+async function openOrCreateClassNote(app, settings, event, dateKeyValue) {
+  const path = notePathFor(app, settings, event, dateKeyValue);
+  const existing = app.vault.getAbstractFileByPath(path);
+  if (existing instanceof TFile) {
+    await openFile(app, existing);
+    return { path, created: false };
+  }
+  const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+  if (dir) await ensureFolder(app, dir);
+  const file = await app.vault.create(path, noteContent(settings, event, dateKeyValue));
+  await openFile(app, file);
+  return { path, created: true };
+}
+
+module.exports = {
+  vaultFolders,
+  notePathFor,
+  openOrCreateClassNote,
+};
+};
+
+/* ---- src/calendar-view.js ---- */
+__defs["calendar-view"] = function (module, exports, require) {
+/*
+ * Calendar view, the `uni-schedule` embed and the "add schedule" dialog.
+ *
+ * The month grid, day timeline, live countdown and per-class note button are adapted
+ * from University Schedule and Calendar (MIT, Copyright (c) 2026 Cesemess),
+ * https://github.com/Cesemess/obsidian-uni-calendar @ 35778e4. The rendering was
+ * rewritten against this plugin's `qt-` styles and item view conventions; see NOTICES.md.
+ */
+const { ItemView, Modal, Notice, Setting } = require("obsidian");
+const { VIEW_TYPE_CALENDAR } = require("./constants");
+const { addDays, str } = require("./util");
+const { dateKey } = require("./calendar-ics");
+const {
+  classColor,
+  classTypeLabel,
+  eventsOnDay,
+  examCountdown,
+  formatDateValue,
+  formatTime,
+  humanizeDuration,
+  monthGrid,
+  monthLabel,
+  nextClassStatus,
+  parseClassDetails,
+  upcomingExams,
+  weekdayLabels,
+} = require("./calendar-model");
+
+function detailsOf(event) {
+  if (!event.details) event.details = parseClassDetails(event.summary, event.description, event.location);
+  return event.details;
+}
+
+/** Status line content: the running class or the next one, with a live countdown. */
+function statusText(plugin, now) {
+  const settings = plugin.calendarSettings();
+  const status = nextClassStatus(plugin.calendarEvents(), now || new Date());
+  if (status.state === "none") return { text: "No upcoming classes.", live: false };
+  const details = detailsOf(status.event);
+  const time = status.event.allDay ? "all day" : formatTime(settings, status.event.dtstart);
+  if (status.state === "ongoing") {
+    return {
+      text: `${status.event.summary} is in progress · ${humanizeDuration(status.endsInMs)} left (until ${formatTime(settings, status.event.dtend)})`,
+      live: true,
+      event: status.event,
+      details,
+    };
+  }
+  const ifExam = details.isExam ? ` · ${examCountdown(status.event, now || new Date())}` : "";
+  return { text: `Next: ${status.event.summary} · ${humanizeDuration(status.startsInMs)} (${time})${ifExam}`, live: false, event: status.event, details };
+}
+
+function eventRow(plugin, container, event, settings) {
+  const details = detailsOf(event);
+  const row = container.createDiv({ cls: "qt-cal-event" });
+  if (details.isExam) row.addClass("is-exam");
+  const time = row.createDiv({ cls: "qt-cal-event-time" });
+  time.createDiv({ text: event.allDay ? "All day" : formatTime(settings, event.dtstart) });
+  if (!event.allDay && event.dtend) time.createDiv({ cls: "qt-cal-event-end", text: formatTime(settings, event.dtend) });
+  const bar = row.createDiv({ cls: "qt-cal-event-bar" });
+  bar.style.background = classColor(settings, details, event.summary);
+  const body = row.createDiv({ cls: "qt-cal-event-body" });
+  const titleRow = body.createDiv({ cls: "qt-cal-event-title-row" });
+  titleRow.createSpan({ cls: "qt-cal-event-title", text: str(event.summary) || "Class" });
+  if (details.isExam) titleRow.createSpan({ cls: "qt-cal-badge", text: `Exam · ${examCountdown(event, new Date())}` });
+  const meta = [details.room, details.lecturer, classTypeLabel(settings, details.category)].filter(Boolean).join(" · ");
+  if (meta) body.createDiv({ cls: "qt-cal-event-meta", text: meta });
+  const actions = body.createDiv({ cls: "qt-cal-event-actions" });
+  const noteBtn = actions.createEl("button", { cls: "qt-cal-note-btn", text: "Open note" });
+  noteBtn.addEventListener("click", () => {
+    plugin.openClassNote(event, event.dateKey).catch((e) => new Notice(str(e && e.message) || "Could not create the note."));
+  });
+  return row;
+}
+
+/** Daily timeline reused by the sidebar view and the code block. */
+function renderDayTimeline(plugin, container, key, options) {
+  const opts = options || {};
+  const settings = plugin.calendarSettings();
+  const events = eventsOnDay(plugin.calendarEvents(), key);
+  if (!events.length) {
+    container.createDiv({ cls: "qt-cal-empty", text: opts.emptyText || "No classes on this day." });
+    return;
+  }
+  const list = container.createDiv({ cls: "qt-cal-timeline" });
+  for (const event of events) eventRow(plugin, list, event, settings);
+}
+
+/** Reads `date: today|tomorrow|YYYY-MM-DD` from a `uni-schedule` block. */
+function parseScheduleBlock(source, now) {
+  const at = now || new Date();
+  let key = dateKey(at);
+  for (const line of str(source).split(/\r?\n/)) {
+    const m = /^\s*date\s*:\s*(\S+)/i.exec(line);
+    if (!m) continue;
+    const value = m[1].toLowerCase();
+    if (value === "today" || value === "dzisiaj") key = dateKey(at);
+    else if (value === "tomorrow" || value === "jutro") key = dateKey(addDays(at, 1));
+    else if (/^\d{4}-\d{2}-\d{2}$/.test(value)) key = value;
+  }
+  return { dateKey: key };
+}
+
+function dayLabel(key, settings) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!m) return key;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  return `${names[d.getDay()]}, ${formatDateValue(settings.dateFormat, key)}`;
+}
+
+/* ------------------------------------------------------------------- view */
+
+class CalendarView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this.cursor = new Date();
+    this.mode = "month"; // month | day | upcoming
+    this.selectedKey = dateKey(new Date());
+    this.statusEl = null;
+  }
+
+  getViewType() {
+    return VIEW_TYPE_CALENDAR;
+  }
+  getDisplayText() {
+    return "Calendar";
+  }
+  getIcon() {
+    return "calendar-days";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-root");
+    // Re-read only when a schedule file itself changes, not on every note edit.
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (!file || !/\.ics$/i.test(file.path || "")) return;
+        this.plugin.refreshCalendarFileSources().then(() => this.render());
+      })
+    );
+    this.registerInterval(
+      activeWindow.setInterval(() => {
+        if (this.statusEl && this.statusEl.isConnected) this.renderStatus();
+      }, 30000)
+    );
+    this.render();
+  }
+
+  async onClose() {}
+
+  renderStatus() {
+    if (!this.statusEl) return;
+    this.statusEl.empty();
+    const plugin = this.plugin;
+    if (!plugin.calendarEnabled()) return;
+    const info = statusText(plugin);
+    const line = this.statusEl.createDiv({ cls: info.live ? "qt-cal-status is-live" : "qt-cal-status", text: info.text });
+    if (info.live) line.addClass("is-live");
+  }
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    const plugin = this.plugin;
+    const root = el.createDiv({ cls: "qt-wrap qt-cal" });
+    const head = root.createDiv({ cls: "qt-cal-head" });
+    head.createDiv({ cls: "qt-cal-heading", text: "Calendar" });
+    const actions = head.createDiv({ cls: "qt-cal-head-actions" });
+    const addBtn = actions.createEl("button", { cls: "qt-cal-add", text: "Add schedule" });
+    addBtn.addEventListener("click", () => plugin.openCalendarImport());
+    if (!plugin.calendarEnabled()) {
+      root.createDiv({ cls: "qt-cal-empty", text: "The calendar module is off. Turn it on in Settings, Calendar, to import a class schedule." });
+      const onBtn = root.createEl("button", { cls: "mod-cta", text: "Open settings" });
+      onBtn.addEventListener("click", () => plugin.openSettings());
+      return;
+    }
+    this.statusEl = root.createDiv({ cls: "qt-cal-status-line" });
+    this.renderStatus();
+
+    if (!plugin.calendarSources().some((s) => !s.hidden)) {
+      const empty = root.createDiv({ cls: "qt-cal-empty-state" });
+      empty.createDiv({ cls: "qt-cal-empty", text: "No schedule yet. Add an .ics file to your vault, or a public calendar feed, to see your classes and exams here." });
+      const btn = empty.createEl("button", { cls: "mod-cta", text: "Add a schedule" });
+      btn.addEventListener("click", () => plugin.openCalendarImport());
+      return;
+    }
+
+    const modes = root.createDiv({ cls: "qt-row qt-cal-modes" });
+    for (const [id, label] of [["month", "Month"], ["day", "Day"], ["upcoming", "Upcoming"]]) {
+      const b = modes.createEl("button", { text: label });
+      if (this.mode === id) b.addClass("mod-cta");
+      b.addEventListener("click", () => {
+        this.mode = id;
+        this.render();
+      });
+    }
+
+    if (this.mode === "month") this.renderMonth(root);
+    else if (this.mode === "day") this.renderDay(root);
+    else this.renderUpcoming(root);
+  }
+
+  renderMonth(root) {
+    const plugin = this.plugin;
+    const settings = plugin.calendarSettings();
+    const events = plugin.calendarEvents();
+    const nav = root.createDiv({ cls: "qt-cal-nav" });
+    const prev = nav.createEl("button", { text: "‹" });
+    prev.addEventListener("click", () => this.shiftMonth(-1));
+    nav.createDiv({ cls: "qt-cal-month", text: monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()) });
+    const next = nav.createEl("button", { text: "›" });
+    next.addEventListener("click", () => this.shiftMonth(1));
+    const todayBtn = nav.createEl("button", { cls: "qt-cal-today", text: "Today" });
+    todayBtn.addEventListener("click", () => {
+      this.cursor = new Date();
+      this.selectedKey = dateKey(new Date());
+      this.render();
+    });
+
+    const grid = root.createDiv({ cls: "qt-cal-grid" });
+    for (const label of weekdayLabels(settings.firstDayOfWeek)) grid.createDiv({ cls: "qt-cal-wd", text: label });
+    for (const cell of monthGrid(this.cursor.getFullYear(), this.cursor.getMonth(), settings.firstDayOfWeek)) {
+      const btn = grid.createEl("button", { cls: "qt-cal-cell" });
+      if (!cell.inMonth) btn.addClass("is-outside");
+      if (cell.isToday) btn.addClass("is-today");
+      if (cell.key === this.selectedKey) btn.addClass("is-selected");
+      btn.createDiv({ cls: "qt-cal-daynum", text: String(cell.day) });
+      const dayEvents = eventsOnDay(events, cell.key);
+      const dots = btn.createDiv({ cls: "qt-cal-dots" });
+      for (const ev of dayEvents.slice(0, 3)) {
+        const details = detailsOf(ev);
+        const dot = dots.createDiv({ cls: "qt-cal-dot" });
+        dot.style.background = classColor(settings, details, ev.summary);
+        if (details.isExam) dot.addClass("is-exam");
+      }
+      if (dayEvents.length > 3) dots.createDiv({ cls: "qt-cal-more", text: `+${dayEvents.length - 3}` });
+      btn.addEventListener("click", () => {
+        this.selectedKey = cell.key;
+        this.mode = "day";
+        this.render();
+      });
+    }
+
+    root.createDiv({ cls: "qt-cal-section-title", text: dayLabel(this.selectedKey, settings) });
+    renderDayTimeline(this.plugin, root, this.selectedKey);
+    this.renderExams(root);
+  }
+
+  renderDay(root) {
+    const settings = this.plugin.calendarSettings();
+    const nav = root.createDiv({ cls: "qt-cal-nav" });
+    const prev = nav.createEl("button", { text: "‹" });
+    prev.addEventListener("click", () => this.shiftDay(-1));
+    nav.createDiv({ cls: "qt-cal-month", text: dayLabel(this.selectedKey, settings) });
+    const next = nav.createEl("button", { text: "›" });
+    next.addEventListener("click", () => this.shiftDay(1));
+    const todayBtn = nav.createEl("button", { cls: "qt-cal-today", text: "Today" });
+    todayBtn.addEventListener("click", () => {
+      this.selectedKey = dateKey(new Date());
+      this.render();
+    });
+    renderDayTimeline(this.plugin, root, this.selectedKey);
+    this.renderExams(root);
+  }
+
+  renderUpcoming(root) {
+    const plugin = this.plugin;
+    const settings = plugin.calendarSettings();
+    const events = plugin.calendarEvents();
+    const now = new Date();
+    let shown = 0;
+    for (let i = 0; i < 14; i++) {
+      const key = dateKey(addDays(now, i));
+      const dayEvents = eventsOnDay(events, key);
+      if (!dayEvents.length) continue;
+      shown++;
+      root.createDiv({ cls: "qt-cal-section-title", text: dayLabel(key, settings) });
+      const list = root.createDiv({ cls: "qt-cal-timeline" });
+      for (const event of dayEvents) eventRow(plugin, list, event, settings);
+    }
+    if (!shown) root.createDiv({ cls: "qt-cal-empty", text: "Nothing scheduled in the next two weeks." });
+    this.renderExams(root);
+  }
+
+  renderExams(root) {
+    const exams = upcomingExams(this.plugin.calendarEvents(), new Date(), 5);
+    if (!exams.length) return;
+    const box = root.createDiv({ cls: "qt-cal-exams" });
+    box.createDiv({ cls: "qt-cal-section-title", text: "Upcoming exams" });
+    for (const exam of exams) {
+      const row = box.createDiv({ cls: "qt-cal-exam" });
+      row.createDiv({ cls: "qt-cal-exam-name", text: str(exam.summary) || "Exam" });
+      row.createDiv({ cls: "qt-cal-exam-when", text: `${formatDateValue(this.plugin.calendarSettings().dateFormat, exam.dateKey)} · ${examCountdown(exam, new Date())}` });
+    }
+  }
+
+  shiftMonth(delta) {
+    this.cursor = new Date(this.cursor.getFullYear(), this.cursor.getMonth() + delta, 1);
+    this.render();
+  }
+
+  shiftDay(delta) {
+    const d = new Date(`${this.selectedKey}T12:00:00`);
+    const base = Number.isNaN(d.getTime()) ? new Date() : d;
+    this.selectedKey = dateKey(addDays(base, delta));
+    this.render();
+  }
+}
+
+/* -------------------------------------------------------------- add dialog */
+
+class CalendarImportModal extends Modal {
+  constructor(app, plugin, onDone) {
+    super(app);
+    this.plugin = plugin;
+    this.onDone = onDone || (() => {});
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createDiv({ cls: "qt-cal-heading", text: "Add a schedule" });
+    contentEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Import a .ics file that is already in your vault, or paste a public calendar feed. For a Google Calendar, use Settings, Integrate calendar, Secret address in iCal format (private), or the public calendar address.",
+    });
+
+    const vault = this.app.vault;
+    const icsFiles = (typeof vault.getFiles === "function" ? vault.getFiles() : []).filter((f) => /\.ics$/i.test(f.path || f.name || ""));
+    let pick = icsFiles.length ? icsFiles[0].path : "";
+    const fileSetting = new Setting(contentEl).setName("Schedule file").setDesc(icsFiles.length ? "Choose an .ics file from your vault." : "No .ics files in the vault yet. Drop one into any folder first.");
+    if (icsFiles.length) {
+      fileSetting.addDropdown((d) => {
+        for (const f of icsFiles) d.addOption(f.path, f.path);
+        d.setValue(pick).onChange((v) => (pick = v));
+      });
+    }
+    fileSetting.addButton((b) =>
+      b.setButtonText("Add file").onClick(async () => {
+        if (!pick) return new Notice("Add an .ics file to your vault first.");
+        try {
+          await this.plugin.addCalendarFileSource(pick);
+          this.close();
+          this.onDone();
+        } catch (e) {
+          new Notice(str(e && e.message) || "Could not read that file.");
+        }
+      })
+    );
+
+    let url = "";
+    new Setting(contentEl)
+      .setName("Calendar feed URL")
+      .setDesc("A public https:// or webcal:// link that returns an .ics file. Google share links are converted for you.")
+      .addText((t) => t.setPlaceholder("https://.../basic.ics").onChange((v) => (url = v)))
+      .addButton((b) =>
+        b.setButtonText("Add feed").onClick(async () => {
+          if (!url.trim()) return new Notice("Paste a calendar URL first.");
+          try {
+            await this.plugin.addCalendarUrlSource(url);
+            this.close();
+            this.onDone();
+          } catch (e) {
+            new Notice(str(e && e.message) || "Could not download that calendar.");
+          }
+        })
+      );
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = {
+  VIEW_TYPE_CALENDAR,
+  CalendarView,
+  CalendarImportModal,
+  parseScheduleBlock,
+  renderDayTimeline,
+  statusText,
+};
+};
+
 /* ---- src/chat-panel.js ---- */
 __defs["chat-panel"] = function (module, exports, require) {
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
@@ -388,6 +1843,7 @@ module.exports = {
 __defs["constants"] = function (module, exports, require) {
 
 const VIEW_TYPE = "question-tracker-view";
+const VIEW_TYPE_CALENDAR = "question-tracker-calendar";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -478,6 +1934,7 @@ const STAT_FIELDS = [
 
 module.exports = {
   VIEW_TYPE,
+  VIEW_TYPE_CALENDAR,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,
@@ -4214,9 +5671,9 @@ module.exports = {
 
 /* ---- src/plugin.js ---- */
 __defs["plugin"] = function (module, exports, require) {
-const { Notice, Platform, Plugin, TFolder } = require("obsidian");
+const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_CALENDAR } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -4227,6 +5684,10 @@ const { OpenCodeClient } = require("./opencode-client");
 const { sleep } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
+const { CalendarImportModal, CalendarView, parseScheduleBlock, renderDayTimeline } = require("./calendar-view");
+const { mergeCalendarSettings, nextClassStatus, visibleEvents } = require("./calendar-model");
+const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
+const { openOrCreateClassNote } = require("./calendar-notes");
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
@@ -4253,7 +5714,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE, (leaf) => new PracticeView(leaf, this));
     this.registerView(VIEW_TYPE_INSIGHTS, (leaf) => new InsightsView(leaf, this));
     this.registerView(VIEW_TYPE_TEST, (leaf) => new TestView(leaf, this));
+    this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this));
     this.addRibbonIcon("graduation-cap", "Open practice view", () => this.activateView());
+    this.setupCalendarRibbon();
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a PDF", callback: () => this.openPdfImport() });
@@ -4275,6 +5738,24 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "timed-test", name: "Start a timed test", callback: () => this.activateTest() });
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
+    this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => this.activateCalendar() });
+    this.addCommand({ id: "calendar-add-schedule", name: "Calendar: add an .ics schedule", callback: () => this.openCalendarImport() });
+    this.addCommand({
+      id: "calendar-note-next-class",
+      name: "Calendar: create or open the note for the next class",
+      callback: () => this.openNextClassNote(),
+    });
+    this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
+
+    // Embeds: `uni-schedule` and `uni-calendar` are the block names existing University
+    // Schedule and Calendar notes use, so those keep working. If that plugin is enabled
+    // it owns those names, and our own `mcq-schedule` block is always available.
+    const renderBlock = (source, el) => this.renderScheduleBlock(source, el);
+    if (!this.otherCalendarPluginActive()) {
+      this.registerMarkdownCodeBlockProcessor("uni-schedule", renderBlock);
+      this.registerMarkdownCodeBlockProcessor("uni-calendar", renderBlock);
+    }
+    this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.addCommand({ id: "weak-spots", name: "Show weak spots", callback: () => this.activateInsights("weak") });
     this.addCommand({ id: "error-log", name: "Show error log", callback: () => this.activateInsights("errors") });
     this.addCommand({ id: "find-question", name: "Find a question by ID", callback: () => new FindQuestionModal(this.app, this).open() });
@@ -4396,6 +5877,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
+    this.settings.calendar = mergeCalendarSettings(saved.calendar);
     if (!["auto", "buttons", "search"].includes(this.settings.folderFilterStyle)) this.settings.folderFilterStyle = "auto";
     for (const k of ["intervals", "errorTypes", "confidenceLabels"]) {
       if (!Array.isArray(this.settings[k]) || !this.settings[k].length) this.settings[k] = DEFAULT_SETTINGS[k].slice();
@@ -4579,6 +6061,256 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
       if (leaf.view && leaf.view.emptyShown && leaf.view.render) leaf.view.render();
     }
+  }
+
+  /* ---- calendar (off by default) */
+
+  calendarEnabled() {
+    return !!(this.settings.calendar && this.settings.calendar.enabled);
+  }
+
+  calendarSettings() {
+    return this.settings.calendar;
+  }
+
+  calendarSources() {
+    return (this.settings.calendar.sources || []).slice();
+  }
+
+  /** University Schedule and Calendar owns the `uni-schedule` block when it is enabled. */
+  otherCalendarPluginActive() {
+    try {
+      const plugins = this.app.plugins;
+      if (!plugins) return false;
+      if (plugins.enabledPlugins && typeof plugins.enabledPlugins.has === "function") return plugins.enabledPlugins.has("university-calendar");
+      return !!(plugins.plugins && plugins.plugins["university-calendar"]);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  setupCalendarRibbon() {
+    if (!this.calendarEnabled() || this.calendarRibbonAdded) return;
+    this.calendarRibbonAdded = true;
+    this.addRibbonIcon("calendar-days", "Open calendar", () => this.activateCalendar());
+  }
+
+  async onCalendarToggled() {
+    this.invalidateCalendar();
+    if (!this.calendarEnabled()) return;
+    this.setupCalendarRibbon();
+    await this.refreshCalendarFileSources();
+    this.refreshCalendarViews();
+  }
+
+  /** One month back, six months forward: enough for a semester and a month grid. */
+  calendarWindow(now) {
+    const at = now || new Date();
+    return { start: new Date(at.getFullYear(), at.getMonth() - 1, 1), end: new Date(at.getFullYear(), at.getMonth() + 6, 0, 23, 59, 59) };
+  }
+
+  invalidateCalendar() {
+    this._calendarCache = null;
+  }
+
+  /** Parses every shown source. Cached by source content so redraws stay cheap. */
+  calendarEvents(now) {
+    const range = this.calendarWindow(now);
+    const sources = this.calendarSources().filter((s) => !s.hidden && s.content);
+    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${sources.map((s) => `${s.id}:${s.content.length}:${s.content.slice(0, 40)}`).join("|")}`;
+    if (this._calendarCache && this._calendarCache.signature === signature) return this._calendarCache.events;
+    const all = [];
+    const errors = [];
+    for (const source of sources) {
+      try {
+        const expanded = expandIcs(parseIcs(source.content), range.start, range.end);
+        for (const event of expanded) all.push(Object.assign(event, { sourceId: source.id, sourceName: source.name }));
+      } catch (e) {
+        errors.push(`${source.name}: ${e.message}`);
+      }
+    }
+    const events = visibleEvents(this.calendarSettings(), all);
+    this._calendarCache = { signature, events };
+    this._calendarErrors = errors;
+    return events;
+  }
+
+  /** Re-reads .ics files from the vault so edits and re-downloads show up. */
+  async refreshCalendarFileSources() {
+    let changed = false;
+    for (const source of this.settings.calendar.sources || []) {
+      if (source.type !== "file" || !source.path) continue;
+      const file = this.app.vault.getAbstractFileByPath(source.path);
+      if (!file) continue;
+      try {
+        const text = await this.app.vault.cachedRead(file);
+        if (text !== source.content) {
+          source.content = text;
+          changed = true;
+        }
+      } catch (e) {
+        /* keep the cached copy */
+      }
+    }
+    if (changed) await this.save();
+    return changed;
+  }
+
+  async addCalendarFileSource(path) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) throw new Error("That file is not in the vault.");
+    const text = await this.app.vault.cachedRead(file);
+    if (!icsLooksValid(text)) throw new Error("That file is not an iCalendar (.ics) file.");
+    const cal = this.settings.calendar;
+    const name = file.name || file.basename || path;
+    const existing = cal.sources.find((s) => s.type === "file" && s.path === path);
+    if (existing) {
+      existing.content = text;
+      existing.lastSync = Date.now();
+    } else {
+      cal.sources.push({ id: `f${Date.now().toString(36)}`, name, type: "file", path, url: "", content: text, hidden: false, lastSync: Date.now() });
+    }
+    this.invalidateCalendar();
+    await this.save();
+    this.refreshCalendarViews();
+    new Notice(`Added ${name}.`);
+  }
+
+  async addCalendarUrlSource(rawUrl) {
+    const url = normalizeCalendarUrl(rawUrl);
+    if (!/^https?:\/\//i.test(url)) throw new Error("Enter an https:// or webcal:// calendar link.");
+    const response = await requestUrl({ url, method: "GET" });
+    const text = response && response.text;
+    if (!icsLooksValid(text)) throw new Error("That address did not return an iCalendar feed.");
+    const cal = this.settings.calendar;
+    const name = deriveSourceLabel(url, text);
+    const existing = cal.sources.find((s) => s.type === "url" && s.url === url);
+    if (existing) {
+      existing.content = text;
+      existing.name = name;
+      existing.lastSync = Date.now();
+    } else {
+      cal.sources.push({ id: `u${Date.now().toString(36)}`, name, type: "url", path: "", url, content: text, hidden: false, lastSync: Date.now() });
+    }
+    this.invalidateCalendar();
+    await this.save();
+    this.refreshCalendarViews();
+    new Notice(`Added ${name}.`);
+  }
+
+  async syncCalendarSource(id) {
+    const source = (this.settings.calendar.sources || []).find((s) => s.id === id);
+    if (!source) return;
+    if (source.type === "file") {
+      await this.refreshCalendarFileSources();
+      this.refreshCalendarViews();
+      return;
+    }
+    const response = await requestUrl({ url: source.url, method: "GET" });
+    if (!icsLooksValid(response && response.text)) throw new Error("That calendar did not return an iCalendar feed.");
+    source.content = response.text;
+    source.lastSync = Date.now();
+    this.invalidateCalendar();
+    await this.save();
+    this.refreshCalendarViews();
+  }
+
+  async removeCalendarSource(id) {
+    this.settings.calendar.sources = (this.settings.calendar.sources || []).filter((s) => s.id !== id);
+    this.invalidateCalendar();
+    await this.save();
+    this.refreshCalendarViews();
+  }
+
+  refreshCalendarViews() {
+    this.invalidateCalendar();
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_CALENDAR)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
+  }
+
+  async activateCalendar() {
+    if (!this.calendarEnabled()) {
+      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
+      this.openSettings();
+      return null;
+    }
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_CALENDAR)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_CALENDAR, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
+  openCalendarImport() {
+    if (!this.calendarEnabled()) {
+      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
+      this.openSettings();
+      return;
+    }
+    new CalendarImportModal(this.app, this, () => this.refreshCalendarViews()).open();
+  }
+
+  /** `uni-schedule` / `mcq-schedule` block: the classes of one day. */
+  renderScheduleBlock(source, el) {
+    el.empty();
+    if (!this.calendarEnabled()) {
+      el.createDiv({ cls: "qt-cal-empty", text: "Calendar is off. Turn it on in Settings, Calendar." });
+      return;
+    }
+    const { dateKey: key } = parseScheduleBlock(source, new Date());
+    const box = el.createDiv({ cls: "qt-cal-embed" });
+    box.createDiv({ cls: "qt-cal-section-title", text: key });
+    renderDayTimeline(this, box, key);
+  }
+
+  async openNextClassNote() {
+    if (!this.calendarEnabled()) {
+      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
+      return;
+    }
+    const status = nextClassStatus(this.calendarEvents(), new Date());
+    if (!status.event) {
+      new Notice("No class found in the calendar.");
+      return;
+    }
+    await this.openClassNote(status.event, status.event.dateKey);
+  }
+
+  async openClassNote(event, key) {
+    const result = await openOrCreateClassNote(this.app, this.calendarSettings(), event, key || event.dateKey);
+    if (result.created) {
+      const folder = result.path.includes("/") ? result.path.slice(0, result.path.lastIndexOf("/")) : "";
+      if (folder && event.summary) {
+        this.settings.calendar.subjectFolders[event.summary] = folder;
+        await this.save();
+      }
+      new Notice(`Created ${result.path}.`);
+    }
+    return result;
+  }
+
+  async exportCalendarIcs() {
+    if (!this.calendarEnabled()) {
+      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
+      return;
+    }
+    const events = this.calendarEvents();
+    if (!events.length) {
+      new Notice("There are no visible classes or exams to export.");
+      return;
+    }
+    const target = "schedule-export.ics";
+    const text = exportIcs(events, { calendarName: "MCQ Tracker calendar", now: new Date() });
+    const existing = this.app.vault.getAbstractFileByPath(target);
+    if (existing instanceof TFile) await this.app.vault.modify(existing, text);
+    else await this.app.vault.create(target, text);
+    new Notice(`Exported ${events.length} events to ${target}.`);
   }
 
   /* ---- questions */
@@ -5905,6 +7637,7 @@ const { OPENCODE_REPO, PROVIDERS } = require("./opencode-manager");
 const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
+const { CLASS_CATEGORIES } = require("./calendar-model");
 
 /* --------------------------------------------------------------- settings */
 
@@ -6316,6 +8049,198 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 
     if (this.plugin.backend() === "api") renderApi();
     else renderOpenCode();
+
+    new Setting(containerEl).setName("Calendar").setHeading();
+    const cal = st.calendar;
+    new Setting(containerEl)
+      .setName("Enable the calendar module")
+      .setDesc("Adds a class and exam calendar: import an .ics schedule, open a note for a class in one click, see exam countdowns, and embed a day's classes in a note. Off by default.")
+      .addToggle((t) =>
+        t.setValue(!!cal.enabled).onChange(async (v) => {
+          cal.enabled = v;
+          await this.plugin.save();
+          await this.plugin.onCalendarToggled();
+          this.display();
+        })
+      );
+
+    if (cal.enabled) {
+      new Setting(containerEl).setName("Schedules").setHeading();
+      if (!cal.sources.length) {
+        containerEl.createEl("p", { cls: "setting-item-description", text: "No schedules yet. Add an .ics file from your vault, or a public feed URL." });
+      }
+      for (const src of cal.sources) {
+        new Setting(containerEl)
+          .setName(src.name)
+          .setDesc(`${src.type === "url" ? src.url : src.path}${src.lastSync ? ` · last synced ${new Date(src.lastSync).toLocaleDateString()}` : ""}`)
+          .addToggle((t) =>
+            t.setValue(!src.hidden).onChange(async (v) => {
+              src.hidden = !v;
+              this.plugin.invalidateCalendar();
+              await this.plugin.save();
+              this.plugin.refreshCalendarViews();
+            })
+          )
+          .addButton((b) =>
+            b.setButtonText("Sync").onClick(async () => {
+              try {
+                await this.plugin.syncCalendarSource(src.id);
+                new Notice("Schedule updated.");
+              } catch (e) {
+                new Notice(str(e.message));
+              }
+              this.display();
+            })
+          )
+          .addButton((b) =>
+            b.setButtonText("Remove").setWarning().onClick(async () => {
+              await this.plugin.removeCalendarSource(src.id);
+              this.display();
+            })
+          );
+      }
+      new Setting(containerEl)
+        .setName("Add a schedule")
+        .setDesc("Import an .ics file from the vault, or paste a public calendar feed. Google share links are converted to their .ics address.")
+        .addButton((b) => b.setButtonText("Add").onClick(() => this.plugin.openCalendarImport()));
+
+      new Setting(containerEl).setName("Class notes").setHeading();
+      new Setting(containerEl)
+        .setName("Note folder")
+        .setDesc("Where class notes go when no subject folder matches. Leave empty for the vault root.")
+        .addText((t) =>
+          t.setPlaceholder("e.g. University").setValue(cal.noteFolder).onChange(async (v) => {
+            cal.noteFolder = v.trim();
+            await this.plugin.save();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Note name format")
+        .setDesc("Variables: {date}, {subject}, {time}, {time_start}, {time_end}, {room}, {lecturer}, {type}.")
+        .addText((t) =>
+          t.setValue(cal.noteNameFormat).onChange(async (v) => {
+            cal.noteNameFormat = v;
+            await this.plugin.save();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Note template")
+        .setDesc("Used for new class notes. {course} is the cleaned subject name, so questions filed in the same folder can be tagged with it.")
+        .addTextArea((t) => {
+          t.inputEl.rows = 10;
+          t.setValue(cal.noteTemplate).onChange(async (v) => {
+            cal.noteTemplate = v;
+            await this.plugin.save();
+          });
+        });
+
+      new Setting(containerEl)
+        .setName("Subject folders")
+        .setDesc("Filled in when you create a class note: a subject always maps to the folder where its notes live.")
+        .setHeading();
+      const mappings = Object.entries(cal.subjectFolders);
+      if (!mappings.length) containerEl.createEl("p", { cls: "setting-item-description", text: "No mappings yet. Create a note for a class and its folder is remembered here." });
+      for (const [subject, folder] of mappings) {
+        new Setting(containerEl)
+          .setName(subject)
+          .addText((t) =>
+            t.setValue(folder).onChange(async (v) => {
+              cal.subjectFolders[subject] = v.trim();
+              await this.plugin.save();
+            })
+          )
+          .addButton((b) =>
+            b.setButtonText("Remove").onClick(async () => {
+              delete cal.subjectFolders[subject];
+              await this.plugin.save();
+              this.display();
+            })
+          );
+      }
+
+      new Setting(containerEl).setName("Visibility").setHeading();
+      new Setting(containerEl)
+        .setName("Excluded subjects")
+        .setDesc("Comma-separated. These never appear on the calendar, in countdowns, or in exports.")
+        .addText((t) =>
+          t.setValue(cal.excludedSubjects.join(", ")).onChange(async (v) => {
+            cal.excludedSubjects = v.split(",").map((x) => x.trim()).filter(Boolean);
+            this.plugin.invalidateCalendar();
+            await this.plugin.save();
+            this.plugin.refreshCalendarViews();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Excluded keywords")
+        .setDesc("Comma-separated. Any event whose title, room or description contains one of these is hidden.")
+        .addText((t) =>
+          t.setValue(cal.excludedKeywords.join(", ")).onChange(async (v) => {
+            cal.excludedKeywords = v.split(",").map((x) => x.trim()).filter(Boolean);
+            this.plugin.invalidateCalendar();
+            await this.plugin.save();
+            this.plugin.refreshCalendarViews();
+          })
+        );
+
+      new Setting(containerEl).setName("Display").setHeading();
+      new Setting(containerEl)
+        .setName("First day of the week")
+        .addDropdown((d) =>
+          d
+            .addOptions({ monday: "Monday", sunday: "Sunday" })
+            .setValue(cal.firstDayOfWeek)
+            .onChange(async (v) => {
+              cal.firstDayOfWeek = v;
+              await this.plugin.save();
+              this.plugin.refreshCalendarViews();
+            })
+        );
+      new Setting(containerEl)
+        .setName("Time format")
+        .addDropdown((d) =>
+          d
+            .addOptions({ "24h": "24-hour", "12h": "12-hour" })
+            .setValue(cal.timeFormat)
+            .onChange(async (v) => {
+              cal.timeFormat = v;
+              await this.plugin.save();
+              this.plugin.refreshCalendarViews();
+            })
+        );
+      new Setting(containerEl)
+        .setName("Date format")
+        .addDropdown((d) =>
+          d
+            .addOptions({ "YYYY-MM-DD": "2026-10-05", "DD.MM.YYYY": "05.10.2026", "DD/MM/YYYY": "05/10/2026", "MM/DD/YYYY": "10/05/2026" })
+            .setValue(cal.dateFormat)
+            .onChange(async (v) => {
+              cal.dateFormat = v;
+              await this.plugin.save();
+              this.plugin.refreshCalendarViews();
+            })
+        );
+
+      new Setting(containerEl).setName("Class colors").setHeading();
+      for (const category of CLASS_CATEGORIES) {
+        new Setting(containerEl).setName(category.label).addColorPicker((c) =>
+          c.setValue(cal.classColors[category.id] || category.color).onChange(async (v) => {
+            cal.classColors[category.id] = v;
+            await this.plugin.save();
+            this.plugin.refreshCalendarViews();
+          })
+        );
+      }
+
+      new Setting(containerEl).setName("Actions").setHeading();
+      new Setting(containerEl)
+        .setName("Create or open the note for the next class")
+        .setDesc("Uses the note template above and the subject's folder.")
+        .addButton((b) => b.setButtonText("Open note").onClick(() => this.plugin.openNextClassNote()));
+      new Setting(containerEl)
+        .setName("Export the visible schedule")
+        .setDesc("Writes schedule-export.ics to the vault root, with hidden sources and excluded subjects left out.")
+        .addButton((b) => b.setButtonText("Export .ics").onClick(() => this.plugin.exportCalendarIcs()));
+    }
 
     new Setting(containerEl).setName("Presets").setHeading();
     if (!st.presets.length) {
@@ -6742,6 +8667,10 @@ const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require(
 const { PdfImportModal } = require("./import-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
 const { loadQuestionData } = require("./view-helpers");
+const calendarIcs = require("./calendar-ics");
+const calendarModel = require("./calendar-model");
+const calendarNotes = require("./calendar-notes");
+const { CalendarView, parseScheduleBlock } = require("./calendar-view");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 
 module.exports = QuestionTrackerPlugin;
@@ -6839,6 +8768,12 @@ QuestionTrackerPlugin.__test = {
   unpackQuickSession,
   quickRemainingSeconds,
   resumeQuickSession,
+  // calendar module
+  calendarIcs,
+  calendarModel,
+  calendarNotes,
+  CalendarView,
+  parseScheduleBlock,
 };
 };
 

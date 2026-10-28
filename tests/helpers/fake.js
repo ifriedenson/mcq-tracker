@@ -44,9 +44,32 @@ function makeApp(notes) {
     trashed: [],
     vault: {
       getMarkdownFiles: () => files,
+      getFiles: () => files,
+      getAllLoadedFiles: () => files,
       cachedRead: async (f) => f.text,
       read: async (f) => f.text,
       getAbstractFileByPath: (p) => files.find((f) => f.path === p) || null,
+      create: async (p, text) => {
+        const f = new obsidian.TFile();
+        f.path = p;
+        f.basename = p.replace(/^.*\//, "").replace(/\.md$/, "");
+        f.extension = p.replace(/^.*\./, "");
+        f.parent = { path: p.includes("/") ? p.replace(/\/[^/]*$/, "") : "/" };
+        f.text = text;
+        files.push(f);
+        app.created = app.created || [];
+        app.created.push({ path: p, text });
+        return f;
+      },
+      modify: async (f, text) => {
+        f.text = text;
+        app.modified = app.modified || [];
+        app.modified.push({ path: f.path, text });
+      },
+      createFolder: async (p) => {
+        app.folders = app.folders || [];
+        app.folders.push(p);
+      },
       on: (name, cb) => ((handlers["vault:" + name] = cb), name),
       adapter: { exists: async () => false, list: async () => ({ files: [], folders: [] }) },
     },

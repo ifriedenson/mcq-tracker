@@ -21,6 +21,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Notes box** on the result screen, saved into the note.
 - **Import questions from a PDF:** an AI agent (or your own AI key) turns a PDF into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from a PDF](#import-questions-from-a-pdf)).
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
+- **Calendar (optional module, off by default).** Import an `.ics` schedule from a file or a public feed, see classes and exams in a month grid, day timeline and live countdown, and create a note for a class in one click (see [Calendar](#calendar-optional-module-off-by-default)).
 
 ## Quick start
 
@@ -108,11 +109,36 @@ Each `history` entry is stored as `date|result|seconds|answer|confidence|error_t
 - Practice the folder of this note
 - Start a timed test
 - Quick Practice
+- Open calendar
+- Calendar: add an .ics schedule
+- Calendar: create or open the note for the next class
+- Calendar: export the visible schedule to .ics
 - Show weak spots
 - Show error log
 - Find a question by ID
 - Import questions from a PDF
 - Rename old source_question_id properties to official_question_id (one-time clean-up for notes imported before the rename)
+
+## Calendar (optional module, off by default)
+
+Turn on **Enable the calendar module** in Settings, Calendar, to add a class and exam calendar. Everything is parsed on your device from `.ics` files; nothing is fetched until you add a feed.
+
+- **Add a schedule.** Use **Calendar: add an .ics schedule**, or the **Add schedule** button in the calendar view. Pick an `.ics` file from your vault, or paste a public calendar address. Google Calendar share links (`?cid=...`), embed links (`?src=...`) and `webcal://` addresses are converted to the calendar's `.ics` address automatically. For a private Google Calendar use Settings, Integrate calendar, **Secret address in iCal format**. Canvas, Outlook and most university systems export `.ics` too.
+- **What you see.** A month grid with a color dot per class, the selected day's timeline, a live countdown while a class is in progress, an Upcoming list, and exam countdowns. Classes are colored by type (lecture, exercises, lab, seminar, project, language, exam), and every color is a setting.
+- **One click to a note.** Each class row has **Open note**. It creates the note from the template (subject, course, date, time, room, lecturer, type, tags) in the subject's folder, or opens the note that already exists. The subject-to-folder mapping is remembered the first time and is editable in settings.
+- **Embed a day.** Put this in any note:
+
+  ````markdown
+  ```uni-schedule
+  date: today
+  ```
+  ````
+
+  `date:` accepts `today`, `tomorrow`, or `YYYY-MM-DD`. `uni-calendar` works the same way, and `mcq-schedule` is always available. If University Schedule and Calendar is enabled, the `uni-*` names stay with that plugin, so the same block is never rendered twice.
+- **Hide what you don't attend.** Excluded subjects and keywords are settings. Hidden schedules, excluded subjects and keyword matches also stay out of exports.
+- **Export.** **Calendar: export the visible schedule to .ics** writes `schedule-export.ics` in the vault root.
+
+The class-detail parsing, the `.ics` parser and the calendar presentation are adapted from [University Schedule and Calendar](https://github.com/Cesemess/obsidian-uni-calendar) (MIT, Cesemess); see [NOTICES.md](NOTICES.md) for the pinned version and the list of changes. Labels are English-only for now, and the note template is plain text rather than a visual builder.
 
 ## Import questions from a PDF
 
@@ -182,7 +208,7 @@ The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRo
 
 ## Settings
 
-Question folder, how the Folder filter is shown (auto, buttons or a search box), review intervals, mistake types, confidence labels, whether the explanation starts shown or hidden, timer pause on mobile, the AI settings (backend, provider, OpenCode program and mode), and saved presets (rename or delete them).
+Question folder, how the Folder filter is shown (auto, buttons or a search box), review intervals, mistake types, confidence labels, whether the explanation starts shown or hidden, timer pause on mobile, the AI settings (backend, provider, OpenCode program and mode), saved presets (rename or delete them), and the calendar module (schedules, note folder, name and template, subject folders, exclusions, colors, first day of the week, time and date formats).
 
 ## Privacy
 
@@ -191,6 +217,7 @@ Question folder, how the Folder filter is shown (auto, buttons or a search box),
 - The plugin reads and writes notes inside your vault. The only things it touches outside your vault are the optional OpenCode folders described above.
 - The running timer is stored on your device (vault-scoped local storage), not in your notes.
 - The only network requests are the optional AI and download requests described above, and only if you enable them.
+- If you add a calendar feed URL, the plugin requests that URL (and only that URL) to download the `.ics`. Local `.ics` files are read from your vault. Calendar content is never sent anywhere.
 
 ## Development
 
@@ -202,7 +229,7 @@ npm test        # run the tests (they include a check that main.js is up to date
 ```
 
 
-Edit files in `src/`, run `npm run build`, and commit both. The tests run on plain Node with a stand-in for the `obsidian` module (see `tests/helpers`), and cover filters, folders, statistics, the error log, the import rules and checks, grading and scheduling, and smoke tests that run the plugin's views and commands. GitHub Actions runs them on every push and before each release.
+Edit files in `src/`, run `npm run build`, and commit both. The tests run on plain Node with a stand-in for the `obsidian` module (see `tests/helpers`), and cover filters, folders, statistics, the error log, the import rules and checks, grading and scheduling, calendar parsing, recurrence, filtering, note templates and export, and smoke tests that run the plugin's views and commands. GitHub Actions runs them on every push and before each release.
 
 ## Support and issues
 
@@ -210,4 +237,4 @@ Please report bugs and ideas on the GitHub issues page for this repository.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The calendar module contains code adapted from University Schedule and Calendar (MIT, Cesemess); see [NOTICES.md](NOTICES.md).

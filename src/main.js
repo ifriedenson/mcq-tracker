@@ -26,6 +26,10 @@ const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require(
 const { PdfImportModal } = require("./import-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
 const { loadQuestionData } = require("./view-helpers");
+const calendarIcs = require("./calendar-ics");
+const calendarModel = require("./calendar-model");
+const calendarNotes = require("./calendar-notes");
+const { CalendarView, parseScheduleBlock } = require("./calendar-view");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 
 module.exports = QuestionTrackerPlugin;
@@ -123,4 +127,10 @@ QuestionTrackerPlugin.__test = {
   unpackQuickSession,
   quickRemainingSeconds,
   resumeQuickSession,
+  // calendar module
+  calendarIcs,
+  calendarModel,
+  calendarNotes,
+  CalendarView,
+  parseScheduleBlock,
 };

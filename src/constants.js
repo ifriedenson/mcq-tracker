@@ -1,6 +1,7 @@
 "use strict";
 
 const VIEW_TYPE = "question-tracker-view";
+const VIEW_TYPE_CALENDAR = "question-tracker-calendar";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -91,6 +92,7 @@ const STAT_FIELDS = [
 
 module.exports = {
   VIEW_TYPE,
+  VIEW_TYPE_CALENDAR,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,

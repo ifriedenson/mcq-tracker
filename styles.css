@@ -57,6 +57,269 @@
   margin-top: 4px;
 }
 
+/* Calendar module (off by default). Mobile first: the day timeline is the primary view. */
+
+.qt-cal {
+  gap: 12px;
+}
+
+.qt-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.qt-cal-heading {
+  font-size: var(--font-ui-large);
+  font-weight: 600;
+}
+
+.qt-cal-head-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.qt-cal-status-line {
+  min-height: 20px;
+}
+
+.qt-cal-status {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border-left: 4px solid var(--interactive-accent);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-small);
+}
+
+.qt-cal-status.is-live {
+  border-left-color: var(--color-green);
+  background: var(--background-modifier-success);
+}
+
+.qt-cal-empty {
+  padding: 10px 2px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.qt-cal-empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.qt-cal-modes button {
+  flex: 1;
+}
+
+.qt-cal-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qt-cal-nav button {
+  min-height: 40px;
+}
+
+.qt-cal-month {
+  flex: 1;
+  text-align: center;
+  font-weight: 600;
+}
+
+.qt-cal-today {
+  font-size: var(--font-ui-small);
+}
+
+.qt-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.qt-cal-wd {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-cal-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 52px;
+  padding: 4px 2px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+}
+
+.qt-cal-cell.is-outside {
+  opacity: 0.45;
+}
+
+.qt-cal-cell.is-today {
+  border-color: var(--interactive-accent);
+}
+
+.qt-cal-cell.is-selected {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+.qt-cal-daynum {
+  font-size: var(--font-ui-small);
+}
+
+.qt-cal-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  justify-content: center;
+}
+
+.qt-cal-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.qt-cal-dot.is-exam {
+  outline: 2px solid var(--text-error);
+}
+
+.qt-cal-more {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.qt-cal-section-title {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+}
+
+.qt-cal-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qt-cal-event {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+.qt-cal-event.is-exam {
+  border: 1px solid var(--text-error);
+}
+
+.qt-cal-event-time {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 56px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-cal-event-end {
+  opacity: 0.7;
+}
+
+.qt-cal-event-bar {
+  flex: none;
+  width: 4px;
+  border-radius: 2px;
+}
+
+.qt-cal-event-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.qt-cal-event-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.qt-cal-event-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.qt-cal-badge {
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--background-modifier-error);
+  color: var(--text-on-accent);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-cal-event-meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  overflow-wrap: anywhere;
+}
+
+.qt-cal-event-actions {
+  margin-top: 4px;
+}
+
+.qt-cal-note-btn {
+  min-height: 32px;
+  padding: 2px 10px;
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-cal-exams {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qt-cal-exam {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  font-size: var(--font-ui-small);
+}
+
+.qt-cal-exam-when {
+  color: var(--text-muted);
+}
+
+.qt-cal-embed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 400px) {
+  .qt-cal-event-time {
+    width: 44px;
+  }
+  .qt-cal-cell {
+    min-height: 46px;
+  }
+}
+
 .qt-hint,
 .qt-count,
 .qt-empty,
