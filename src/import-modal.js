@@ -42,6 +42,7 @@ class PdfImportModal extends Modal {
   onClose() {
     this.closed = true;
     this.contentEl.empty();
+    this.plugin.refreshEmptyViews(); // the first-run screen goes away once the new notes are indexed
   }
 
   status(msg) {

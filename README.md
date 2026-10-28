@@ -22,6 +22,13 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Import questions from a PDF:** an AI agent (or your own AI key) turns a PDF into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from a PDF](#import-questions-from-a-pdf)).
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
 
+## Quick start
+
+1. Install the plugin and enable it (see below).
+2. Open the practice view from the ribbon (graduation cap icon). With no questions in your vault yet, it offers **Import PDFs**.
+3. Press **Import PDFs**. The first time, you'll choose how to connect an AI model (your own API key, or OpenCode on desktop), then pick a PDF and a new folder name. See [Import questions from a PDF](#import-questions-from-a-pdf).
+4. When the import finishes, press **Practice all** to start. Already have question notes? Add a `question_id` property to each (see [What counts as a question](#what-counts-as-a-question)) and the practice view finds them.
+
 ## Install
 
 **With BRAT:** install the BRAT plugin, choose Add beta plugin, and enter `ifriedenson/mcq-tracker`. BRAT installs the latest release and keeps it updated.

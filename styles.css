@@ -1116,3 +1116,69 @@
   text-align: center;
   min-height: 1.2em;
 }
+
+/* ---- first-run screen: no questions yet (theme variables only, so light and dark both work) */
+.qt-wrap.qt-onboard {
+  display: flex;
+  justify-content: center;
+  padding-top: 8vh;
+}
+.qt-onboard-card {
+  width: 100%;
+  max-width: 28rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-align: center;
+}
+.qt-onboard-card h3 {
+  margin: 0;
+}
+.qt-onboard-text {
+  color: var(--text-muted);
+}
+.qt-onboard-card button {
+  min-height: 2.75rem; /* easy to tap */
+  width: 100%;
+}
+.qt-onboard-link {
+  align-self: center;
+  padding: 0.5rem;
+  font-size: var(--font-ui-small);
+}
+.qt-onboard-warn {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  text-align: left;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid var(--text-warning, var(--text-accent));
+  border-radius: var(--radius-m);
+}
+.qt-onboard-details summary {
+  margin-top: 0.5rem;
+  padding: 0.25rem 0;
+  cursor: pointer;
+  color: var(--text-accent);
+}
+.qt-onboard-problem {
+  margin-top: 0.5rem;
+  font-weight: var(--font-semibold);
+}
+.qt-onboard-note {
+  display: block;
+  padding: 0.35rem 0;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.qt-onboard-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  text-align: left;
+}
+.qt-onboard-form input,
+.qt-onboard-form select {
+  width: 100%;
+}

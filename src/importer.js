@@ -2,7 +2,7 @@
 const { parseYaml, stringifyYaml } = require("obsidian");
 const { sleep, str } = require("./util");
 const { TRACKING_DEFAULTS } = require("./constants");
-const { extractRationale, fillDefaults, parseSections } = require("./notes");
+const { HEAD_ALIASES, extractRationale, fillDefaults, parseSections } = require("./notes");
 const { chunkText } = require("./pdf");
 const { officialIdOf } = require("./filters");
 
@@ -21,6 +21,38 @@ async function noteIssues(text, exists) {
   }
   if (missing) out.push("Missing figure");
   return out;
+}
+
+const ANSWER_PROPS = ["answer", "correct_answer", "correct", "answer_key", "key"]; // same names findAnswerKey reads
+const headName = (h) => str(h && h.heading).toLowerCase().replace(/[*_`]/g, "").trim();
+
+/**
+ * The same checks as noteIssues, but from Obsidian's metadata cache (properties + headings) so no
+ * note is read. The cache can't see a note's text, so an answer section or an Answer Choices
+ * heading counts as present; a note whose section is empty is only caught when it is opened.
+ */
+function cacheIssues(fm, headings) {
+  fm = fm || {};
+  const heads = new Set((headings || []).map(headName));
+  const has = (names) => names.some((n) => heads.has(n));
+  const out = [];
+  if (!str(fm.question_id).trim()) out.push("No question ID");
+  const prop = ANSWER_PROPS.map((k) => str(fm[k]).trim()).find(Boolean) || "";
+  const answered = !!prop || has(HEAD_ALIASES.answer);
+  if (!answered) out.push("No answer");
+  const hasChoices = Number(fm.choices) > 0 || has(HEAD_ALIASES.choices);
+  if (!hasChoices && (!answered || /^[A-Ha-h]$/.test(prop))) out.push("No answer choices");
+  return out;
+}
+
+/** Whether a note (properties + headings from the cache) is meant to be a question, whether or not it passes. */
+function looksLikeQuestion(fm, headings) {
+  fm = fm || {};
+  if ("question_id" in fm) return true;
+  if (/mcq|multiple/i.test(str(fm.question_type))) return true;
+  if (fm.choices !== undefined && fm.answer !== undefined) return true;
+  const heads = new Set((headings || []).map(headName));
+  return HEAD_ALIASES.question.some((n) => heads.has(n)) && HEAD_ALIASES.choices.some((n) => heads.has(n));
 }
 
 /** { problem: [path, ...] } from [{path, problems}] */
@@ -345,6 +377,8 @@ function modelFromMessages(msgs) {
 }
 
 module.exports = {
+  cacheIssues,
+  looksLikeQuestion,
   noteIssues,
   groupIssues,
   buildReportMarkdown,
