@@ -111,7 +111,7 @@ const obsidian = {
   TFile,
   TFolder,
   setIcon() {},
-  requestUrl: async () => ({}),
+  requestUrl: (...a) => (obsidian.requestImpl ? obsidian.requestImpl(...a) : Promise.resolve({})), // tests can set obsidian.requestImpl
   loadPdfJs: async () => ({}),
   stringifyYaml,
   parseYaml,

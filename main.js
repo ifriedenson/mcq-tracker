@@ -3157,7 +3157,10 @@ class OpenCodeClient {
       throw: false,
     });
     if (r.status === 401) throw new Error("401 unauthorized");
-    if (r.status >= 400) throw new Error(`OpenCode returned ${r.status}: ${str(r.text).slice(0, 300)}`);
+    if (r.status >= 400) {
+      const hint = r.status === 404 || r.status === 405 ? " This usually means the OpenCode version doesn't match the plugin (it works with OpenCode 1.x). In the plugin settings press Download and install, or switch AI backend to Direct API." : "";
+      throw new Error(`OpenCode returned ${r.status} for ${method} ${path}${str(r.text).trim() ? `: ${str(r.text).slice(0, 300)}` : "."}${hint}`);
+    }
     try {
       return r.json;
     } catch (e) {
@@ -3216,6 +3219,15 @@ function nodeReq(name) {
 
 const OPENCODE_REPO = "anomalyco/opencode";
 
+/** The newest OpenCode major version this plugin can talk to. OpenCode 2.x removed the 1.x server routes (POST /session now answers 405), so 2.x isn't supported yet. */
+const MAX_OPENCODE_MAJOR = 1;
+
+/** 2 from "2.2.0" or "v2.2.0"; 0 when the text has no version number. */
+function opencodeMajor(v) {
+  const m = /(\d+)\.\d+/.exec(str(v));
+  return m ? Number(m[1]) : 0;
+}
+
 const PROVIDERS = [
   ["anthropic", "Anthropic (Claude)"],
   ["openai", "OpenAI"],
@@ -3241,10 +3253,11 @@ function candidateAssetNames(tr) {
   return names;
 }
 
-/** First stable release that has a matching asset. Returns assets in preference order. */
-function chooseRelease(releases, names) {
+/** First stable release that has a matching asset and isn't newer than `maxMajor`. Returns assets in preference order. */
+function chooseRelease(releases, names, maxMajor) {
   for (const rel of Array.isArray(releases) ? releases : []) {
     if (!rel || rel.draft || rel.prerelease) continue;
+    if (maxMajor && opencodeMajor(rel.tag_name) > maxMajor) continue;
     const found = names.map((n) => (rel.assets || []).find((a) => a.name === n)).filter(Boolean);
     if (found.length) return { tag: rel.tag_name, assets: found };
   }
@@ -3450,10 +3463,15 @@ class OpenCodeManager {
     const exe = process.platform === "win32" ? "opencode.exe" : "opencode";
     const tries = [this.ai.binaryPath, this.ai.managedBinary, path.join(os.homedir(), ".opencode", "bin", exe)].filter(Boolean);
     this.stalled = "";
+    this.tooNew = null; // an OpenCode that runs but is a version this plugin can't use yet
     for (const p of tries) {
       if (!fs.existsSync(p)) continue;
       const v = await this.version(p);
       if (v) {
+        if (opencodeMajor(v) > MAX_OPENCODE_MAJOR) {
+          if (!this.tooNew) this.tooNew = { path: p, version: v };
+          continue;
+        }
         this.lastVersion = v;
         return p;
       }
@@ -3461,10 +3479,21 @@ class OpenCodeManager {
     }
     const v = await this.version("opencode", true);
     if (v) {
+      if (opencodeMajor(v) > MAX_OPENCODE_MAJOR) {
+        if (!this.tooNew) this.tooNew = { path: "opencode", version: v };
+        return null;
+      }
       this.lastVersion = v;
       return "opencode";
     }
     return null;
+  }
+
+  /** What to tell the user when the only OpenCode on the computer is a version this plugin can't use. */
+  tooNewMessage() {
+    const t = this.tooNew;
+    const v = str(t && t.version).replace(/^v/i, "");
+    return `Found OpenCode ${v}, but this plugin works with OpenCode ${MAX_OPENCODE_MAJOR}.x (version ${opencodeMajor(v)} changed how apps talk to it). Press Download and install to get a compatible version, or switch AI backend to Direct API.`;
   }
 
   async describe() {
@@ -3475,6 +3504,7 @@ class OpenCodeManager {
       if (!bin && this.stalled) {
         return `Found a program at ${this.stalled}, but it didn't answer in time. Antivirus may be scanning it, so wait a minute and press Check again. If it keeps failing, choose a different copy under "OpenCode program".`;
       }
+      if (!bin && this.tooNew) return this.tooNewMessage();
       if (!bin) return "Not installed. Press Download and install, or choose a copy you already have.";
       return `Installed (v${this.lastVersion || "?"}) at ${bin}. Not running; it starts when you use the AI chat.`;
     })();
@@ -3545,14 +3575,19 @@ class OpenCodeManager {
     const fs = nodeReq("fs");
     const tr = platformTriple(process.platform, process.arch, process.platform === "linux" && fs.existsSync("/etc/alpine-release"));
     if (!tr) throw new Error(`Auto-install isn't available for ${process.platform}/${process.arch}. Install OpenCode yourself (npm i -g opencode-ai) and it will be found automatically.`);
-    const r = await requestUrl({
-      url: `https://api.github.com/repos/${OPENCODE_REPO}/releases?per_page=20`,
-      headers: { Accept: "application/vnd.github+json" },
-      throw: false,
-    });
-    if (r.status !== 200) throw new Error(`Couldn't look up OpenCode releases (GitHub returned ${r.status}). Try again later, or install OpenCode yourself (npm i -g opencode-ai).`);
-    const pick = chooseRelease(r.json, candidateAssetNames(tr));
-    if (!pick) throw new Error(`No OpenCode download matches ${tr.os}/${tr.arch}. Install OpenCode yourself (npm i -g opencode-ai) and it will be found automatically.`);
+    // newest first; page on until a release this plugin supports turns up (the latest ones may all be a newer major version)
+    let pick = null;
+    for (let page = 1; page <= 5 && !pick; page++) {
+      const r = await requestUrl({
+        url: `https://api.github.com/repos/${OPENCODE_REPO}/releases?per_page=100&page=${page}`,
+        headers: { Accept: "application/vnd.github+json" },
+        throw: false,
+      });
+      if (r.status !== 200) throw new Error(`Couldn't look up OpenCode releases (GitHub returned ${r.status}). Try again later, or install OpenCode yourself (npm i -g opencode-ai@${MAX_OPENCODE_MAJOR}).`);
+      if (!Array.isArray(r.json) || !r.json.length) break;
+      pick = chooseRelease(r.json, candidateAssetNames(tr), MAX_OPENCODE_MAJOR);
+    }
+    if (!pick) throw new Error(`No OpenCode ${MAX_OPENCODE_MAJOR}.x download matches ${tr.os}/${tr.arch}. Install OpenCode ${MAX_OPENCODE_MAJOR}.x yourself (npm i -g opencode-ai@${MAX_OPENCODE_MAJOR}) and it will be found automatically, or use the Direct API backend.`);
     return { tag: pick.tag, assets: pick.assets, size: pick.assets[0].size || 0 };
   }
 
@@ -3776,6 +3811,7 @@ class OpenCodeManager {
       if (this.isRunning()) return;
       if (!Platform.isDesktopApp) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
       if (!(await this.findBinary())) {
+        if (this.tooNew) throw new Error(this.tooNewMessage());
         throw new Error("OpenCode isn't set up yet. Open Settings > MCQ Tracker > AI assistant and press Download and install, or choose a copy you already have.");
       }
       await this.start(progress);
@@ -3809,6 +3845,8 @@ class OpenCodeManager {
 module.exports = {
   nodeReq,
   OPENCODE_REPO,
+  MAX_OPENCODE_MAJOR,
+  opencodeMajor,
   PROVIDERS,
   platformTriple,
   candidateAssetNames,
@@ -6693,7 +6731,7 @@ const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, m
 const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { ChatPanel } = require("./chat-panel");
-const { OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, platformTriple } = require("./opencode-manager");
+const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
@@ -6735,6 +6773,8 @@ QuestionTrackerPlugin.__test = {
   apiTurns,
   ChatPanel,
   OpenCodeManager,
+  MAX_OPENCODE_MAJOR,
+  opencodeMajor,
   platformTriple,
   candidateAssetNames,
   chooseRelease,

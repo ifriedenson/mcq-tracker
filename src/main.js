@@ -17,7 +17,7 @@ const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, m
 const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { ChatPanel } = require("./chat-panel");
-const { OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, platformTriple } = require("./opencode-manager");
+const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
@@ -59,6 +59,8 @@ QuestionTrackerPlugin.__test = {
   apiTurns,
   ChatPanel,
   OpenCodeManager,
+  MAX_OPENCODE_MAJOR,
+  opencodeMajor,
   platformTriple,
   candidateAssetNames,
   chooseRelease,
