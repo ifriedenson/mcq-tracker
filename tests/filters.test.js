@@ -62,6 +62,30 @@ test("error type is a filter field", () => {
   assert.equal(T.matchSets(list[1].fm, [{ last_error_type: ["careless"] }], "A/2.md"), false);
 });
 
+test("adaptive mode starts at medium difficulty for unseen questions", () => {
+  const pool = [
+    q("easy.md", { difficulty: "easy" }),
+    q("medium.md", { difficulty: "medium" }),
+    q("hard.md", { difficulty: "hard" }),
+  ];
+  assert.equal(T.adaptiveTargetRank(pool), 1);
+  assert.equal(T.adaptiveWeight(pool[1].fm, 1), 5);
+  assert.equal(T.adaptiveWeight(pool[0].fm, 1), 2);
+});
+
+test("adaptive mode steps down for weak performance and up for strong performance", () => {
+  const weak = [
+    q("weak-1.md", { difficulty: "easy", attempts: 2, correct_count: 1, streak: 0 }),
+    q("weak-2.md", { difficulty: "medium", attempts: 2, correct_count: 1, streak: 0 }),
+  ];
+  const strong = [
+    q("strong-1.md", { difficulty: "medium", attempts: 4, correct_count: 4, streak: 3 }),
+    q("strong-2.md", { difficulty: "hard", attempts: 4, correct_count: 4, streak: 3 }),
+  ];
+  assert.equal(T.adaptiveTargetRank(weak), 0);
+  assert.equal(T.adaptiveTargetRank(strong), 2);
+});
+
 test("renameFolderPath only touches the folder and what is inside it", () => {
   assert.equal(T.renameFolderPath("A", "A", "B"), "B");
   assert.equal(T.renameFolderPath("A/x/y", "A", "B"), "B/x/y");

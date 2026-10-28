@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Planning only (no code)
+**Status:** Implementation in progress
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), growth plan (§10b), and agent-driven quality gates (§8.5). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -752,7 +752,7 @@ Names are proposals; keep existing ones unchanged.
 
 - [ ] Quick Practice entry and Today screen (§5.19)
 - [ ] FSRS scheduler option + fluency signals; migration from existing `history` (§5.1)
-- [ ] Adaptive difficulty pick mode (§5.2)
+- [x] Adaptive difficulty pick mode (§5.2)
 - [ ] Offline-tolerant sessions
 
 ### Phase 2: Flashcards and vocab (priority)
@@ -2087,7 +2087,7 @@ Names are proposals; keep existing ones unchanged.
 
 - [ ] Quick Practice entry and Today screen (§5.19)
 - [ ] FSRS scheduler option + fluency signals; migration from existing `history` (§5.1)
-- [ ] Adaptive difficulty pick mode (§5.2)
+- [x] Adaptive difficulty pick mode (§5.2)
 - [ ] Offline-tolerant sessions
 
 ### Phase 2: Flashcards and vocab (priority)

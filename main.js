@@ -403,6 +403,7 @@ const FILTER_FIELDS = [
 
 const MODES = [
   ["smart", "Smart mix (weighted)"],
+  ["adaptive", "Adaptive difficulty"],
   ["due", "Due for review"],
   ["unseen", "Never attempted"],
   ["missed", "Missed last time"],
@@ -1013,6 +1014,7 @@ function isDue(fm, today) {
 
 const MODE_PRED = {
   smart: () => true,
+  adaptive: () => true,
   random: () => true,
   due: (fm, today) => isDue(fm, today),
   unseen: (fm) => !Number(fm.attempts),
@@ -1027,6 +1029,28 @@ function weightOf(fm, today) {
   else if (fm.result === "incorrect") w = 3;
   if (fm.flagged === true) w *= 2;
   return w;
+}
+
+function adaptiveWeight(fm, targetRank) {
+  const rank = { easy: 0, medium: 1, hard: 2 }[str(fm && fm.difficulty).toLowerCase()];
+  if (rank === undefined) return 1;
+  const distance = Math.abs(rank - targetRank);
+  return distance === 0 ? 5 : distance === 1 ? 2 : 1;
+}
+
+function adaptiveTargetRank(items) {
+  const attempted = items.filter((q) => Number(q.fm && q.fm.attempts) > 0);
+  if (!attempted.length) return 1;
+  const accuracy =
+    attempted.reduce((sum, q) => {
+      const attempts = Number(q.fm.attempts) || 0;
+      const correct = Number(q.fm.correct_count);
+      return sum + (Number.isFinite(correct) ? correct / attempts : q.fm.result === "correct" ? 1 : 0);
+    }, 0) / attempted.length;
+  const streak = attempted.reduce((sum, q) => sum + (Number(q.fm.streak) || 0), 0) / attempted.length;
+  if (accuracy >= 0.85 && streak >= 2) return 2;
+  if (accuracy < 0.65) return 0;
+  return 1;
 }
 
 /** A filter holds a list of accepted values per field (older versions stored a single string). */
@@ -1189,7 +1213,12 @@ function pickQuestion(pool, mode, today, recent, rnd) {
       break;
     }
   }
-  const w = items.map((q) => (mode === "smart" ? weightOf(q.fm, today) : 1));
+  const targetRank = mode === "adaptive" ? adaptiveTargetRank(items) : 0;
+  const w = items.map((q) => {
+    if (mode === "smart") return weightOf(q.fm, today);
+    if (mode === "adaptive") return adaptiveWeight(q.fm, targetRank);
+    return 1;
+  });
   let r = rnd() * w.reduce((a, b) => a + b, 0);
   for (let i = 0; i < items.length; i++) {
     r -= w[i];
@@ -1202,6 +1231,8 @@ module.exports = {
   isDue,
   MODE_PRED,
   weightOf,
+  adaptiveWeight,
+  adaptiveTargetRank,
   fvals,
   folderChain,
   folderLabel,
