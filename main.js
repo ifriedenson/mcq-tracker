@@ -487,6 +487,72 @@ module.exports = {
 };
 };
 
+/* ---- src/empty-state.js ---- */
+__defs["empty-state"] = function (module, exports, require) {
+const { API_PRESETS } = require("./api-client");
+const { cacheIssues, looksLikeQuestion } = require("./importer");
+const { str } = require("./util");
+
+/* First-run screen: what to show when the practice view finds no usable questions. */
+
+const QUICK_START_URL = "https://github.com/ifriedenson/mcq-tracker#quick-start";
+
+const inFolder = (path, folder) => !folder || path === folder || path.startsWith(folder + "/");
+const cleanFolder = (f) => str(f).trim().replace(/^\/+|\/+$/g, "");
+
+/** Visits every note in the question folder, reading only the metadata cache. Calls fn(file, fm, headings). Stops when fn returns true. */
+function eachNote(app, folder, fn) {
+  const dir = cleanFolder(folder);
+  for (const file of app.vault.getMarkdownFiles()) {
+    if (!inFolder(file.path, dir)) continue;
+    const cache = app.metadataCache.getFileCache(file);
+    if (fn(file, (cache && cache.frontmatter) || {}, cache && cache.headings) === true) return;
+  }
+}
+
+/** True as soon as one note passes. Cheap: stops at the first hit. */
+function hasValidQuestion(app, folder) {
+  let found = false;
+  eachNote(app, folder, (_f, fm, headings) => {
+    if (looksLikeQuestion(fm, headings) && !cacheIssues(fm, headings).length) found = true;
+    return found;
+  });
+  return found;
+}
+
+/** { valid, broken: [{path, problems}] }: every note that looks like a question, sorted into passing and failing. */
+function scanQuestionNotes(app, folder) {
+  let valid = 0;
+  const broken = [];
+  eachNote(app, folder, (file, fm, headings) => {
+    if (!looksLikeQuestion(fm, headings)) return;
+    const problems = cacheIssues(fm, headings);
+    if (problems.length) broken.push({ path: file.path, problems });
+    else valid++;
+  });
+  return { valid, broken };
+}
+
+/** The first-run state: null when at least one valid question exists, otherwise { broken: [...] }. */
+function emptyState(app, folder) {
+  if (hasValidQuestion(app, folder)) return null;
+  return { broken: scanQuestionNotes(app, folder).broken };
+}
+
+/** Whether PDF import can run without more setup. */
+function aiReady(plugin) {
+  const ai = plugin.settings.ai || {};
+  if (!ai.enabled) return false;
+  if (plugin.backend() === "opencode") return true; // OpenCode keeps its own provider login and says so if it has none
+  const api = ai.api || {};
+  const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
+  if (!str(api.model).trim()) return false;
+  return !!preset.noKey || !!str((api.keys || {})[api.provider]).trim();
+}
+
+module.exports = { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes };
+};
+
 /* ---- src/exam-view.js ---- */
 __defs["exam-view"] = function (module, exports, require) {
 const { ItemView, Notice, setIcon } = require("obsidian");
@@ -1297,6 +1363,7 @@ class PdfImportModal extends Modal {
   onClose() {
     this.closed = true;
     this.contentEl.empty();
+    this.plugin.refreshEmptyViews(); // the first-run screen goes away once the new notes are indexed
   }
 
   status(msg) {
@@ -1961,7 +2028,7 @@ __defs["importer"] = function (module, exports, require) {
 const { parseYaml, stringifyYaml } = require("obsidian");
 const { sleep, str } = require("./util");
 const { TRACKING_DEFAULTS } = require("./constants");
-const { extractRationale, fillDefaults, parseSections } = require("./notes");
+const { HEAD_ALIASES, extractRationale, fillDefaults, parseSections } = require("./notes");
 const { chunkText } = require("./pdf");
 const { officialIdOf } = require("./filters");
 
@@ -1980,6 +2047,38 @@ async function noteIssues(text, exists) {
   }
   if (missing) out.push("Missing figure");
   return out;
+}
+
+const ANSWER_PROPS = ["answer", "correct_answer", "correct", "answer_key", "key"]; // same names findAnswerKey reads
+const headName = (h) => str(h && h.heading).toLowerCase().replace(/[*_`]/g, "").trim();
+
+/**
+ * The same checks as noteIssues, but from Obsidian's metadata cache (properties + headings) so no
+ * note is read. The cache can't see a note's text, so an answer section or an Answer Choices
+ * heading counts as present; a note whose section is empty is only caught when it is opened.
+ */
+function cacheIssues(fm, headings) {
+  fm = fm || {};
+  const heads = new Set((headings || []).map(headName));
+  const has = (names) => names.some((n) => heads.has(n));
+  const out = [];
+  if (!str(fm.question_id).trim()) out.push("No question ID");
+  const prop = ANSWER_PROPS.map((k) => str(fm[k]).trim()).find(Boolean) || "";
+  const answered = !!prop || has(HEAD_ALIASES.answer);
+  if (!answered) out.push("No answer");
+  const hasChoices = Number(fm.choices) > 0 || has(HEAD_ALIASES.choices);
+  if (!hasChoices && (!answered || /^[A-Ha-h]$/.test(prop))) out.push("No answer choices");
+  return out;
+}
+
+/** Whether a note (properties + headings from the cache) is meant to be a question, whether or not it passes. */
+function looksLikeQuestion(fm, headings) {
+  fm = fm || {};
+  if ("question_id" in fm) return true;
+  if (/mcq|multiple/i.test(str(fm.question_type))) return true;
+  if (fm.choices !== undefined && fm.answer !== undefined) return true;
+  const heads = new Set((headings || []).map(headName));
+  return HEAD_ALIASES.question.some((n) => heads.has(n)) && HEAD_ALIASES.choices.some((n) => heads.has(n));
 }
 
 /** { problem: [path, ...] } from [{path, problems}] */
@@ -2304,6 +2403,8 @@ function modelFromMessages(msgs) {
 }
 
 module.exports = {
+  cacheIssues,
+  looksLikeQuestion,
   noteIssues,
   groupIssues,
   buildReportMarkdown,
@@ -4390,6 +4491,17 @@ class QuestionTrackerPlugin extends Plugin {
     new Notice(n ? `Renamed the property on ${n} note${n === 1 ? "" : "s"}.` : "No notes use source_question_id.");
   }
 
+  /** Opens this plugin's page in Obsidian's settings (the settings window has no public API, so this is best effort). */
+  openSettings() {
+    const setting = this.app.setting;
+    if (setting && setting.open) {
+      setting.open();
+      if (setting.openTabById) setting.openTabById(this.manifest.id);
+    } else {
+      new Notice("Open Settings, then MCQ Tracker, to continue.");
+    }
+  }
+
   openPdfImport() {
     if (!this.settings.ai.enabled) {
       new Notice("Turn on AI features in the plugin settings to import from a PDF.");
@@ -4419,6 +4531,13 @@ class QuestionTrackerPlugin extends Plugin {
   refreshViews() {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
+    }
+  }
+
+  /** Re-draws only the practice views that are showing the first-run screen (an import just finished). */
+  refreshEmptyViews() {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+      if (leaf.view && leaf.view.emptyShown && leaf.view.render) leaf.view.render();
     }
   }
 
@@ -4592,7 +4711,7 @@ module.exports = {
 
 /* ---- src/practice-view.js ---- */
 __defs["practice-view"] = function (module, exports, require) {
-const { ItemView, Notice, TFile, setIcon } = require("obsidian");
+const { ItemView, Notice, Platform, TFile, setIcon } = require("obsidian");
 const { FILTER_FIELDS, MODES, VIEW_TYPE } = require("./constants");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
 const { fmtClock, fmtDate, str } = require("./util");
@@ -4600,6 +4719,9 @@ const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pi
 const { extractRationale, gradeAnswer } = require("./notes");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
+const { API_PRESETS } = require("./api-client");
+const { QUICK_START_URL, aiReady, emptyState } = require("./empty-state");
+const { groupIssues } = require("./importer");
 const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 
@@ -4636,6 +4758,16 @@ class PracticeView extends ItemView {
     this.contentEl.addClass("qt-root");
     this.registerInterval(activeWindow.setInterval(() => this.tick(), 500));
     await this.restoreSession();
+    // While the first-run screen is up, follow the vault: an import, a fixed note or a deleted one changes what it says.
+    // Obsidian indexes new notes a moment after they're written, so wait for the changes to settle.
+    let timer = null;
+    const refresh = () => {
+      if (!this.emptyShown) return;
+      activeWindow.clearTimeout(timer);
+      timer = activeWindow.setTimeout(() => this.emptyShown && this.render(), 400);
+    };
+    this.registerEvent(this.app.metadataCache.on("changed", refresh));
+    this.registerEvent(this.app.metadataCache.on("deleted", refresh));
     this.render();
   }
 
@@ -4845,10 +4977,12 @@ class PracticeView extends ItemView {
     el.empty();
     this.timerEl = null;
     const root = el.createDiv({ cls: "qt-wrap" });
+    this.emptyShown = false;
     if (this.state === "question") this.renderQuestion(root);
     else if (this.state === "result") this.renderResult(root);
     else if (this.state === "chat") this.renderChat(root);
     else if (this.state === "quick-setup") this.renderQuickSetup(root);
+    else if (this.state === "ai-setup") this.renderAiSetup(root);
     else this.renderIdle(root);
     // two-pane screens scroll inside their panes, not the whole view
     el.toggleClass("qt-no-scroll", root.hasClass("qt-wide"));
@@ -4860,13 +4994,9 @@ class PracticeView extends ItemView {
     const st = p.settings;
     const questions = p.getQuestions();
 
-    if (!questions.length) {
-      root.createDiv({
-        cls: "qt-empty",
-        text:
-          "No question notes found. A note counts as a question when it has a question_id property" +
-          (st.questionFolder ? ` and lives in "${st.questionFolder}".` : "."),
-      });
+    const empty = emptyState(this.app, st.questionFolder);
+    if (empty) {
+      this.renderEmpty(root, empty);
       return;
     }
 
@@ -5045,6 +5175,160 @@ class PracticeView extends ItemView {
     if (this.tally.n) {
       root.createDiv({ cls: "qt-hint", text: `This session: ${this.tally.correct}/${this.tally.n} correct` });
     }
+  }
+
+  /* ---- first run: no usable questions yet */
+
+  renderEmpty(root, empty) {
+    this.emptyShown = true;
+    root.addClass("qt-onboard");
+    const card = root.createDiv({ cls: "qt-onboard-card" });
+    card.createEl("h3", { text: "No questions yet" });
+    card.createDiv({ cls: "qt-onboard-text", text: "Extract multiple-choice questions from your PDFs. Each one becomes a note you can practice." });
+    card.createEl("button", { text: "Import PDFs", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.startImport());
+    card.createEl("a", { text: "Quick-start guide", cls: "qt-onboard-link external-link", href: QUICK_START_URL, attr: { target: "_blank", rel: "noopener" } });
+    if (empty.broken.length) this.renderBroken(card, empty.broken);
+  }
+
+  renderBroken(card, broken) {
+    const n = broken.length;
+    const box = card.createDiv({ cls: "qt-onboard-warn" });
+    box.createDiv({ text: n === 1 ? "1 note in your vault looks like a question but can't be used yet." : `${n} notes in your vault look like questions but can't be used yet.` });
+    const det = box.createEl("details", { cls: "qt-onboard-details" });
+    det.createEl("summary", { text: "See what's wrong" });
+    const SHOW = 5;
+    for (const [problem, paths] of Object.entries(groupIssues(broken))) {
+      det.createDiv({ cls: "qt-onboard-problem", text: `${problem} (${paths.length})` });
+      for (const path of paths.slice(0, SHOW)) {
+        const a = det.createEl("a", { text: path.replace(/^.*\//, "").replace(/\.md$/i, ""), cls: "qt-onboard-note", attr: { title: path } });
+        a.addEventListener("click", () => {
+          const f = this.app.vault.getAbstractFileByPath(path);
+          if (f instanceof TFile) this.app.workspace.getLeaf("tab").openFile(f);
+        });
+      }
+      if (paths.length > SHOW) det.createDiv({ cls: "qt-hint", text: `and ${paths.length - SHOW} more` });
+    }
+  }
+
+  /** The Import PDFs button: set up AI first when it isn't, then the usual import window. */
+  startImport() {
+    if (aiReady(this.plugin)) {
+      this.plugin.openPdfImport();
+      return;
+    }
+    this.state = "ai-setup";
+    this.render();
+  }
+
+  renderAiSetup(root) {
+    const p = this.plugin;
+    const ai = p.settings.ai;
+    const api = ai.api;
+    const back = () => {
+      this.state = "idle";
+      this.render();
+    };
+    const finish = async () => {
+      await p.save();
+      this.state = "idle";
+      this.render();
+      p.openPdfImport();
+    };
+    root.addClass("qt-onboard");
+    const card = root.createDiv({ cls: "qt-onboard-card" });
+    card.createEl("h3", { text: "Set up AI to import PDFs" });
+    card.createDiv({
+      cls: "qt-onboard-text",
+      text: "Importing uses an AI model to read your PDF. The PDF's text is sent to the provider you choose. Nothing is sent until you start an import.",
+    });
+
+    let useApi = true;
+    const body = card.createDiv({ cls: "qt-onboard-form" });
+    const draw = () => {
+      body.empty();
+      if (Platform.isDesktopApp) {
+        body.createDiv({ cls: "qt-label", text: "How do you want to connect?" });
+        const how = body.createEl("select", { cls: "qt-select" });
+        how.createEl("option", { value: "api", text: "My own API key" });
+        how.createEl("option", { value: "opencode", text: "OpenCode (runs on this computer)" });
+        how.value = useApi ? "api" : "opencode";
+        how.addEventListener("change", () => {
+          useApi = how.value === "api";
+          draw();
+        });
+      }
+      if (useApi) drawApi();
+      else drawOpenCode();
+    };
+    const drawApi = () => {
+      body.createDiv({ cls: "qt-label", text: "Provider" });
+      const prov = body.createEl("select", { cls: "qt-select" });
+      for (const [id, pr] of Object.entries(API_PRESETS)) prov.createEl("option", { value: id, text: pr.label });
+      prov.value = api.provider;
+      prov.addEventListener("change", () => {
+        api.provider = prov.value;
+        api.baseUrl = "";
+        api.model = API_PRESETS[prov.value].defaultModel;
+        draw();
+      });
+      const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
+      if (preset.kind === "openai" && !preset.base) {
+        body.createDiv({ cls: "qt-label", text: "Base URL" });
+        const url = body.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: "https://.../v1" } });
+        url.value = api.baseUrl || "";
+        url.addEventListener("input", () => (api.baseUrl = url.value.trim()));
+      }
+      let keyEl = null;
+      if (!preset.noKey) {
+        body.createDiv({ cls: "qt-label", text: "API key" });
+        keyEl = body.createEl("input", { type: "password", cls: "qt-fsearch", attr: { placeholder: "Paste your key" } });
+        keyEl.value = (api.keys || {})[api.provider] || "";
+        body.createDiv({ cls: "qt-hint", text: "Saved as plain text in this plugin's data.json, which syncs with your vault." });
+      }
+      body.createDiv({ cls: "qt-label", text: "Model" });
+      const model = body.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: "model name" } });
+      model.value = api.model || "";
+      const go = body.createEl("button", { text: "Save and continue", cls: "mod-cta qt-primary" });
+      go.addEventListener("click", async () => {
+        const key = keyEl ? str(keyEl.value).trim() : "";
+        const name = str(model.value).trim();
+        if (keyEl && !key) return new Notice("Paste your API key first.");
+        if (!name) return new Notice("Enter the model name your provider lists.");
+        if (keyEl) {
+          api.keys = api.keys || {};
+          api.keys[api.provider] = key;
+        }
+        api.model = name;
+        ai.backend = "api";
+        ai.enabled = true;
+        await finish();
+      });
+    };
+    let openedSettings = false;
+    const drawOpenCode = () => {
+      body.createDiv({
+        cls: "qt-hint",
+        text: "OpenCode needs an AI provider and key of its own. Open the plugin settings to connect one (the first time, you'll be asked to confirm a download), then come back here.",
+      });
+      const open = body.createEl("button", { text: "Open AI settings", cls: openedSettings ? "" : "mod-cta qt-primary" });
+      open.addEventListener("click", async () => {
+        ai.backend = "opencode";
+        ai.autoDeclined = false;
+        await p.save();
+        p.openSettings();
+        openedSettings = true;
+        draw();
+      });
+      if (!openedSettings) return;
+      const go = body.createEl("button", { text: "Continue to import", cls: "mod-cta qt-primary" });
+      go.addEventListener("click", async () => {
+        ai.backend = "opencode";
+        ai.enabled = true;
+        await finish();
+      });
+    };
+    draw();
+    card.createEl("button", { text: "Back" }).addEventListener("click", back);
   }
 
   renderQuickSetup(root) {
@@ -6401,7 +6685,7 @@ __defs["main"] = function (module, exports, require) {
  * bundled into the single main.js that Obsidian loads by scripts/build.js.
  */
 const { QuestionTrackerPlugin } = require("./plugin");
-const { buildReportMarkdown, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
+const { buildReportMarkdown, cacheIssues, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
 const { fmtDate, fmtDateTime } = require("./util");
 const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
 const { answerFromSection, applyAttempt, extractRationale, fillDefaults, gradeAnswer, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
@@ -6416,6 +6700,7 @@ const { TestView } = require("./exam-view");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
+const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
 const { loadQuestionData } = require("./view-helpers");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 
@@ -6478,6 +6763,7 @@ QuestionTrackerPlugin.__test = {
   buildTestSet,
   suggestMinutes,
   noteIssues,
+  cacheIssues,
   groupIssues,
   buildReportMarkdown,
   fmtPct,
@@ -6490,6 +6776,11 @@ QuestionTrackerPlugin.__test = {
   QuestionFolderModal,
   FindQuestionModal,
   PdfImportModal,
+  QUICK_START_URL,
+  aiReady,
+  emptyState,
+  hasValidQuestion,
+  scanQuestionNotes,
   loadQuestionData,
   weekStart,
   weeklyAccuracy,

@@ -9,7 +9,7 @@
  * bundled into the single main.js that Obsidian loads by scripts/build.js.
  */
 const { QuestionTrackerPlugin } = require("./plugin");
-const { buildReportMarkdown, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
+const { buildReportMarkdown, cacheIssues, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
 const { fmtDate, fmtDateTime } = require("./util");
 const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
 const { answerFromSection, applyAttempt, extractRationale, fillDefaults, gradeAnswer, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
@@ -24,6 +24,7 @@ const { TestView } = require("./exam-view");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
+const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
 const { loadQuestionData } = require("./view-helpers");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 
@@ -86,6 +87,7 @@ QuestionTrackerPlugin.__test = {
   buildTestSet,
   suggestMinutes,
   noteIssues,
+  cacheIssues,
   groupIssues,
   buildReportMarkdown,
   fmtPct,
@@ -98,6 +100,11 @@ QuestionTrackerPlugin.__test = {
   QuestionFolderModal,
   FindQuestionModal,
   PdfImportModal,
+  QUICK_START_URL,
+  aiReady,
+  emptyState,
+  hasValidQuestion,
+  scanQuestionNotes,
   loadQuestionData,
   weekStart,
   weeklyAccuracy,
