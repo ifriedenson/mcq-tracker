@@ -91,6 +91,14 @@ const obsidian = {
     }
     registerEvent() {}
     registerInterval() {}
+    // Like Obsidian's real View: the workspace calls open() to load a tab, and open() runs onOpen().
+    // A view that shadows this (e.g. `this.open = ...`) never draws and the tab is blank.
+    async open(_parent) {
+      if (this.onOpen) await this.onOpen();
+    }
+    async close() {
+      if (this.onClose) await this.onClose();
+    }
   },
   PluginSettingTab: class extends Base {},
   Setting: class extends Base {},

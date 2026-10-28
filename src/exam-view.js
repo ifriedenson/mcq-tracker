@@ -24,7 +24,9 @@ class TestView extends ItemView {
     this.navBtns = [];
     this.result = null;
     this.filter = "all";
-    this.open = new Set();
+    // NOTE: never call this `open`. Obsidian's View class has its own open() that the workspace calls
+    // to load the tab; shadowing it leaves the tab blank (onOpen never runs).
+    this.expanded = new Set();
     this.minTouched = false;
   }
   getViewType() {
@@ -98,7 +100,7 @@ class TestView extends ItemView {
     this.deadline = plan.deadline;
     this.allowedSeconds = plan.allowedSeconds;
     this.shownAt = Date.now();
-    this.open = new Set();
+    this.expanded = new Set();
     this.filter = "all";
     this.phase = "test";
     if (plan.expired) {
@@ -218,7 +220,7 @@ class TestView extends ItemView {
     if (noKey) new Notice(`${noKey} question${noKey === 1 ? " was" : "s were"} left out because ${noKey === 1 ? "it has" : "they have"} no answer key.`, 6000);
     this.items = items;
     this.idx = 0;
-    this.open = new Set();
+    this.expanded = new Set();
     this.filter = "all";
     this.allowedSeconds = minutes * 60;
     this.startedAt = Date.now();
@@ -452,13 +454,13 @@ class TestView extends ItemView {
         it.flagged ? "marked" : "",
       ].filter(Boolean);
       info.createDiv({ cls: "qt-hint", text: bits.join(" · ") });
-      const tg = head.createEl("button", { text: this.open.has(i) ? "Hide" : "Review" });
+      const tg = head.createEl("button", { text: this.expanded.has(i) ? "Hide" : "Review" });
       tg.addEventListener("click", () => {
-        if (this.open.has(i)) this.open.delete(i);
-        else this.open.add(i);
+        if (this.expanded.has(i)) this.expanded.delete(i);
+        else this.expanded.add(i);
         this.render();
       });
-      if (this.open.has(i)) this.renderDetail(box, it);
+      if (this.expanded.has(i)) this.renderDetail(box, it);
     });
   }
 

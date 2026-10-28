@@ -106,7 +106,7 @@ test("timed test: builds a test, scores it, logs only the answered questions, an
   // review in every filter, with the details open
   for (const label of ["All", "Missed", "Marked", "Blank"]) {
     await dom.click(label);
-    v.items.forEach((_x, i) => v.open.add(i));
+    v.items.forEach((_x, i) => v.expanded.add(i));
     v.render();
   }
   v.filter = "all";
@@ -353,4 +353,28 @@ test("weak spots: shows the weekly chart and trend text once there is history", 
   const t = dom.texts();
   assert.ok(t.includes("Accuracy by week"));
   assert.ok(t.some((x) => /up 100 points in the last 2 weeks/.test(x)), t.join(" | "));
+});
+
+test("timed test: opens the way Obsidian opens a tab (view.open) and shows the setup screen, not a blank tab", async () => {
+  const { app, plugin, dom } = await setup();
+  const v = makeView(T.TestView, plugin, app, dom);
+  assert.equal(typeof v.open, "function", "TestView must not shadow View.open()");
+  await v.open(dom.root);
+  assert.ok(dom.texts().includes("Timed test"), "the setup screen should be drawn");
+  assert.ok(dom.texts().includes("Start the test"));
+  await v.close();
+});
+
+test("views never shadow Obsidian's built-in View methods (a shadowed open() leaves a blank tab)", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const reserved = ["open", "close", "load", "unload", "onload", "onunload", "onOpen", "onClose", "getViewType", "getDisplayText", "getIcon", "getState", "setState", "addChild", "removeChild", "addAction", "scope", "navigation", "containerEl", "contentEl", "titleEl", "headerEl", "actionsEl", "leaf", "app"];
+  const dir = path.join(__dirname, "..", "src");
+  for (const f of ["exam-view.js", "practice-view.js", "insights-view.js"]) {
+    const src = fs.readFileSync(path.join(dir, f), "utf8");
+    for (const name of reserved) {
+      const re = new RegExp(`this\\.${name}\\s*=(?!=)`);
+      if (f !== "x" && re.test(src) && !["leaf", "app", "contentEl"].includes(name)) assert.fail(`${f} assigns this.${name}, which shadows Obsidian's View.${name}`);
+    }
+  }
 });
