@@ -210,7 +210,7 @@ The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRo
 
 ## Settings
 
-Question folder, how the Folder filter is shown (auto, buttons or a search box), review intervals, mistake types, confidence labels, whether the explanation starts shown or hidden, timer pause on mobile, the AI settings (backend, provider, OpenCode program and mode), saved presets (rename or delete them), and the calendar module (schedules, note folder, name and template, subject folders, exclusions, colors, first day of the week, time and date formats, breaks and the study-slot buffer).
+Settings are grouped by module, then by tab. **MCQ Tracker** has Practice, Review, AI and About; **Calendar** has About, Schedules & Sync, Notes & Templates, Exclusions, Appearance & Colors, and Language & Region. The calendar's Appearance tab includes a maximum width setting (`0` fills the pane), class colors, break markers, and the study-slot buffer. The MCQ settings cover the question folder, folder-filter style, review intervals, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
 
 ## Privacy
 
