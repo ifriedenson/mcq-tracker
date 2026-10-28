@@ -2,89 +2,302 @@
 /*
  * Calendar view, the `uni-schedule` embed and the "add schedule" dialog.
  *
- * The month grid, day timeline, live countdown and per-class note button are adapted
+ * The month card, day cells, timeline, event cards and note badges are adapted
  * from University Schedule and Calendar (MIT, Copyright (c) 2026 Cesemess),
- * https://github.com/Cesemess/obsidian-uni-calendar @ 35778e4. The rendering was
- * rewritten against this plugin's `qt-` styles and item view conventions; see NOTICES.md.
+ * https://github.com/Cesemess/obsidian-uni-calendar @ 35778e4. The markup and
+ * class names follow that plugin so the calendar looks the same; see NOTICES.md.
  */
-const { ItemView, Modal, Notice, Setting } = require("obsidian");
+const { ItemView, Modal, Notice, Setting, setIcon } = require("obsidian");
 const { VIEW_TYPE_CALENDAR } = require("./constants");
 const { addDays, str } = require("./util");
 const { dateKey } = require("./calendar-ics");
 const {
   classColor,
   classTypeLabel,
+  dayFreeMinutes,
+  dayHeading,
   eventsOnDay,
   examCountdown,
   formatDateValue,
   formatTime,
-  humanizeDuration,
-  monthGrid,
+  freeSlots,
+  gapLabel,
   monthLabel,
-  nextClassStatus,
-  parseClassDetails,
+  timelineEntries,
   upcomingExams,
+  parseClassDetails,
   weekdayLabels,
 } = require("./calendar-model");
+
 
 function detailsOf(event) {
   if (!event.details) event.details = parseClassDetails(event.summary, event.description, event.location);
   return event.details;
 }
 
-/** Status line content: the running class or the next one, with a live countdown. */
-function statusText(plugin, now) {
-  const settings = plugin.calendarSettings();
-  const status = nextClassStatus(plugin.calendarEvents(), now || new Date());
-  if (status.state === "none") return { text: "No upcoming classes.", live: false };
-  const details = detailsOf(status.event);
-  const time = status.event.allDay ? "all day" : formatTime(settings, status.event.dtstart);
-  if (status.state === "ongoing") {
-    return {
-      text: `${status.event.summary} is in progress · ${humanizeDuration(status.endsInMs)} left (until ${formatTime(settings, status.event.dtend)})`,
-      live: true,
-      event: status.event,
-      details,
-    };
-  }
-  const ifExam = details.isExam ? ` · ${examCountdown(status.event, now || new Date())}` : "";
-  return { text: `Next: ${status.event.summary} · ${humanizeDuration(status.startsInMs)} (${time})${ifExam}`, live: false, event: status.event, details };
+function classesCount(count) {
+  if (!count) return "No classes";
+  return count === 1 ? "1 class" : `${count} classes`;
 }
 
-function eventRow(plugin, container, event, settings) {
-  const details = detailsOf(event);
-  const row = container.createDiv({ cls: "qt-cal-event" });
-  if (details.isExam) row.addClass("is-exam");
-  const time = row.createDiv({ cls: "qt-cal-event-time" });
-  time.createDiv({ text: event.allDay ? "All day" : formatTime(settings, event.dtstart) });
-  if (!event.allDay && event.dtend) time.createDiv({ cls: "qt-cal-event-end", text: formatTime(settings, event.dtend) });
-  const bar = row.createDiv({ cls: "qt-cal-event-bar" });
-  bar.style.background = classColor(settings, details, event.summary);
-  const body = row.createDiv({ cls: "qt-cal-event-body" });
-  const titleRow = body.createDiv({ cls: "qt-cal-event-title-row" });
-  titleRow.createSpan({ cls: "qt-cal-event-title", text: str(event.summary) || "Class" });
-  if (details.isExam) titleRow.createSpan({ cls: "qt-cal-badge", text: `Exam · ${examCountdown(event, new Date())}` });
-  const meta = [details.room, details.lecturer, classTypeLabel(settings, details.category)].filter(Boolean).join(" · ");
-  if (meta) body.createDiv({ cls: "qt-cal-event-meta", text: meta });
-  const actions = body.createDiv({ cls: "qt-cal-event-actions" });
-  const noteBtn = actions.createEl("button", { cls: "qt-cal-note-btn", text: "Open note" });
-  noteBtn.addEventListener("click", () => {
-    plugin.openClassNote(event, event.dateKey).catch((e) => new Notice(str(e && e.message) || "Could not create the note."));
-  });
-  return row;
+const BREAK_ICONS = {
+  coffee: "coffee",
+  food: "utensils",
+  pause: "pause",
+  hourglass: "hourglass",
+  walk: "footprints",
+  book: "book-open",
+  music: "music",
+  sun: "sun",
+  moon: "moon",
+  spark: "zap",
+  battery: "battery-charging",
+  clock: "clock",
+  leaf: "leaf",
+  smile: "smile",
+};
+
+function renderBreakIcon(container, icon) {
+  const span = container.createSpan({ cls: "uni-timeline-gap-icon" });
+  setIcon(span, BREAK_ICONS[icon] || "coffee");
 }
 
-/** Daily timeline reused by the sidebar view and the code block. */
-function renderDayTimeline(plugin, container, key, options) {
-  const opts = options || {};
-  const settings = plugin.calendarSettings();
-  const events = eventsOnDay(plugin.calendarEvents(), key);
-  if (!events.length) {
-    container.createDiv({ cls: "qt-cal-empty", text: opts.emptyText || "No classes on this day." });
+/** One free-period marker between two classes, in the configured style. */
+function renderGapMarker(timeline, gap, settings, onStudy) {
+  const gaps = settings.timelineGaps || {};
+  const style = gaps.style || "pill";
+  const icon = gaps.icon || "coffee";
+  const label = gapLabel(gap.minutes);
+  const timeRange = `${formatTime(settings, gap.start)} – ${formatTime(settings, gap.end)}`;
+
+  const activate = (el, title) => {
+    el.setAttr("title", title);
+    if (!onStudy) return;
+    el.setAttr("role", "button");
+    el.setAttr("tabindex", "0");
+    el.setAttr("aria-label", `Study during the free period, ${timeRange}`);
+    el.addEventListener("click", () => onStudy(gap));
+    el.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onStudy(gap);
+    });
+  };
+
+  if (style === "card") {
+    const item = timeline.createDiv({ cls: "uni-timeline-item uni-timeline-break-item" });
+    activate(item, `Free period: ${timeRange}. Click to study.`);
+    const node = item.createDiv({ cls: "uni-timeline-node uni-timeline-break-node" });
+    renderBreakIcon(node, icon);
+    const card = item.createDiv({ cls: "uni-event-card uni-break-event-card" });
+    const header = card.createDiv({ cls: "uni-event-header" });
+    header.createSpan({ cls: "uni-event-time", text: timeRange });
+    header.createSpan({ cls: "uni-break-card-duration-badge", text: label });
+    const titleRow = card.createDiv({ cls: "uni-event-title-row uni-break-event-title-row" });
+    titleRow.createSpan({ cls: "uni-event-title uni-break-event-title", text: "Free period / Break" });
     return;
   }
-  const list = container.createDiv({ cls: "qt-cal-timeline" });
-  for (const event of events) eventRow(plugin, list, event, settings);
+
+  if (style === "line") {
+    const item = timeline.createDiv({ cls: "uni-timeline-item uni-timeline-break-line-item" });
+    activate(item, `Free period: ${timeRange}. Click to study.`);
+    const node = item.createDiv({ cls: "uni-timeline-node uni-timeline-break-line-node" });
+    renderBreakIcon(node, icon);
+    const labelRow = item.createDiv({ cls: "uni-timeline-break-line-label" });
+    labelRow.createSpan({ cls: "uni-timeline-break-line-text", text: label });
+    return;
+  }
+
+  const gapRow = timeline.createDiv({ cls: `uni-timeline-gap style-${style === "text" ? "text" : "pill"}` });
+  activate(gapRow, `Free period: ${timeRange}. Click to study.`);
+  const pill = gapRow.createSpan({ cls: "uni-timeline-gap-pill" });
+  renderBreakIcon(pill, icon);
+  pill.createSpan({ text: ` ${label}` });
+}
+
+/**
+ * The original calendar shows only the weeks the month needs, not a fixed six.
+ * This mirrors its leading/trailing day maths while leaving `monthGrid` alone.
+ */
+function compactMonthCells(year, month, firstDayOfWeek, now) {
+  const first = new Date(year, month, 1);
+  const start = firstDayOfWeek === "sunday" ? first.getDay() : (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrev = new Date(year, month, 0).getDate();
+  const todayKey = dateKey(now || new Date());
+  const cells = [];
+  const push = (date, inMonth) => {
+    const key = dateKey(date);
+    cells.push({ key, day: date.getDate(), inMonth, isToday: key === todayKey });
+  };
+  for (let i = start; i > 0; i--) push(new Date(year, month - 1, daysInPrev - i + 1), false);
+  for (let day = 1; day <= daysInMonth; day++) push(new Date(year, month, day), true);
+  const remaining = cells.length % 7 === 0 ? 0 : 7 - (cells.length % 7);
+  for (let day = 1; day <= remaining; day++) push(new Date(year, month + 1, day), false);
+  return cells;
+}
+
+function noteExists(plugin, event, key) {
+  try {
+    return !!plugin.findCalendarNote(event, key);
+  } catch (e) {
+    return false;
+  }
+}
+
+/** Free periods with the subject of the next class, used by the study-slot chooser. */
+function studySlotsFor(events) {
+  const timed = (events || [])
+    .filter((ev) => !ev.allDay && ev.dtstart && ev.dtend)
+    .sort((a, b) => a.dtstart - b.dtstart);
+  return freeSlots(events).map((slot) => ({
+    start: slot.start,
+    end: slot.end,
+    minutes: slot.minutes,
+    subject: (timed.find((ev) => ev.dtstart >= slot.end) || {}).summary || "",
+  }));
+}
+
+/** One event card, with the original plugin's header, meta line and note badge. */
+function renderEventCard(plugin, timeline, event, key, options) {
+  const opts = options || {};
+  const settings = plugin.calendarSettings();
+  const details = detailsOf(event);
+  const color = classColor(settings, details, event.summary);
+
+  const item = timeline.createDiv({ cls: "uni-timeline-item" });
+  const node = item.createDiv({ cls: "uni-timeline-node" });
+  node.style.backgroundColor = color;
+
+  const card = item.createDiv({ cls: "uni-event-card" });
+  card.style.setProperty("--event-color", color);
+  card.setAttr("role", "button");
+  card.setAttr("tabindex", "0");
+
+  const now = new Date();
+  const ongoing =
+    key === dateKey(now) && !event.allDay && event.dtstart && event.dtend && now >= event.dtstart && now < event.dtend;
+  if (ongoing) card.addClass("is-ongoing");
+
+  const header = card.createDiv({ cls: "uni-event-header" });
+  const time = event.allDay
+    ? "All day"
+    : event.dtend
+      ? `${formatTime(settings, event.dtstart)} – ${formatTime(settings, event.dtend)}`
+      : formatTime(settings, event.dtstart);
+  header.createDiv({ cls: "uni-event-time", text: time });
+
+  if (ongoing) {
+    const countdown = header.createDiv({ cls: "uni-event-countdown" });
+    setIcon(countdown, "clock");
+    const text = countdown.createSpan({ text: `${Math.max(1, Math.round((event.dtend - now) / 60000))} min left` });
+    if (opts.liveNodes) opts.liveNodes.push({ node: text, event });
+  }
+
+  header.createDiv({ cls: "uni-event-type-badge", text: classTypeLabel(settings, details.category) });
+  card.createDiv({ cls: "uni-event-title", text: str(event.summary) || "Class" });
+
+  const meta = card.createDiv({ cls: "uni-event-meta" });
+  if (details.room) {
+    const room = meta.createSpan({ cls: "uni-event-meta-item" });
+    setIcon(room, "map-pin");
+    room.createSpan({ text: details.room });
+  }
+  if (details.lecturer) {
+    const lecturer = meta.createSpan({ cls: "uni-event-meta-item" });
+    setIcon(lecturer, "user");
+    lecturer.createSpan({ text: details.lecturer });
+  }
+
+  const status = card.createDiv({ cls: "uni-note-status" });
+  const left = status.createDiv({ cls: "uni-note-status-left" });
+  status.createDiv({ cls: "uni-note-status-right" });
+
+  const exists = noteExists(plugin, event, key);
+  const badge = left.createDiv({ cls: `uni-note-status-badge is-clickable ${exists ? "has-note" : "missing-note"}` });
+  badge.setAttr("title", exists ? "Open note" : "Click to create note");
+  setIcon(badge, exists ? "file-text" : "plus");
+  badge.createSpan({ text: exists ? "Note exists" : "Missing note" });
+
+  const label = str(event.summary) || "this class";
+  card.setAttr("aria-label", `${exists ? "Open" : "Create"} note for ${label}`);
+
+  const open = (e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (e && e.preventDefault) e.preventDefault();
+    plugin
+      .openClassNote(event, key)
+      .then(() => plugin.refreshCalendarViews())
+      .catch((err) => new Notice(str(err && err.message) || "Could not open the note."));
+  };
+  const onKey = (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    open(e);
+  };
+  badge.addEventListener("click", open);
+  card.addEventListener("click", open);
+  card.addEventListener("keydown", (e) => {
+    if (e.target && e.target !== card) return;
+    onKey(e);
+  });
+  return card;
+}
+
+/** The original `renderScheduleTimeline`: section header, empty state, timeline. */
+function renderDaySection(plugin, container, key, options) {
+  const opts = options || {};
+  const settings = plugin.calendarSettings();
+  const events = eventsOnDay(opts.events || plugin.calendarEvents(opts.now), key);
+  const section = container.createDiv({ cls: "uni-schedule-section" });
+  const header = section.createDiv({ cls: "uni-schedule-header" });
+  if (opts.title !== false) header.createDiv({ cls: "uni-schedule-date-title", text: dayHeading(key) });
+  const badges = header.createDiv({ cls: "uni-schedule-badges" });
+  badges.createDiv({ cls: "uni-schedule-badge-count", text: classesCount(events.length) });
+  const freeMinutes = dayFreeMinutes(events);
+  const slots = studySlotsFor(events);
+  if (freeMinutes > 0) {
+    const free = badges.createEl("button", { cls: "uni-schedule-badge-free", text: `${gapLabel(freeMinutes)} free` });
+    free.setAttr("type", "button");
+    free.setAttr("title", "Free time between the first and last class. Click to study.");
+    free.addEventListener("click", () => plugin.openStudySlot(slots));
+  }
+
+  if (!events.length) {
+    const empty = section.createDiv({ cls: "uni-empty-schedule" });
+    empty.createDiv({ cls: "uni-empty-schedule-icon", text: "🎓" });
+    empty.createDiv({
+      cls: "uni-empty-schedule-title uni-empty-schedule-text",
+      text: opts.emptyTitle || "No classes scheduled for this day.",
+    });
+    empty.createDiv({ cls: "uni-empty-schedule-subtext", text: "Enjoy your free time or review your notes!" });
+    return section;
+  }
+
+  const timeline = section.createDiv({ cls: "uni-timeline" });
+  for (const entry of timelineEntries(events, settings)) {
+    if (entry.kind === "gap") {
+      renderGapMarker(timeline, entry, settings, (gap) =>
+        plugin.openStudySlot([
+          { start: gap.start, end: gap.end, minutes: gap.minutes, subject: (gap.nextEvent && gap.nextEvent.summary) || "" },
+        ])
+      );
+    } else {
+      renderEventCard(plugin, timeline, entry.event, key, { liveNodes: opts.liveNodes });
+    }
+  }
+  return section;
+}
+
+function renderEmptyState(container, title, description, buttonText, onClick) {
+  const empty = container.createDiv({ cls: "uni-empty-schedule" });
+  empty.createDiv({ cls: "uni-empty-schedule-icon", text: "📅" });
+  empty.createDiv({ cls: "uni-empty-schedule-title", text: title });
+  empty.createDiv({ cls: "uni-empty-schedule-desc", text: description });
+  if (buttonText && onClick) {
+    const button = empty.createEl("button", { cls: "uni-keyword-btn uni-action-btn uni-empty-add-btn", text: buttonText });
+    button.addEventListener("click", onClick);
+  }
 }
 
 /** Reads `date: today|tomorrow|YYYY-MM-DD` from a `uni-schedule` block. */
@@ -102,14 +315,6 @@ function parseScheduleBlock(source, now) {
   return { dateKey: key };
 }
 
-function dayLabel(key, settings) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
-  if (!m) return key;
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  return `${names[d.getDay()]}, ${formatDateValue(settings.dateFormat, key)}`;
-}
-
 /* ------------------------------------------------------------------- view */
 
 class CalendarView extends ItemView {
@@ -119,17 +324,20 @@ class CalendarView extends ItemView {
     this.cursor = new Date();
     this.mode = "month"; // month | day | upcoming
     this.selectedKey = dateKey(new Date());
-    this.statusEl = null;
+    this.liveNodes = [];
+    this.liveSignature = "";
+    this.range = null;
+    this._focusKey = "";
   }
 
   getViewType() {
     return VIEW_TYPE_CALENDAR;
   }
   getDisplayText() {
-    return "Calendar";
+    return "Schedule & Calendar";
   }
   getIcon() {
-    return "calendar-days";
+    return "graduation-cap";
   }
 
   async onOpen() {
@@ -141,172 +349,460 @@ class CalendarView extends ItemView {
         this.plugin.refreshCalendarFileSources().then(() => this.render());
       })
     );
-    this.registerInterval(
-      activeWindow.setInterval(() => {
-        if (this.statusEl && this.statusEl.isConnected) this.renderStatus();
-      }, 30000)
-    );
+    // Keep a running class countdown honest without rebuilding the whole view.
+    this.registerInterval(activeWindow.setInterval(() => this.refreshLive(), 30000));
     this.render();
   }
 
   async onClose() {}
 
-  renderStatus() {
-    if (!this.statusEl) return;
-    this.statusEl.empty();
-    const plugin = this.plugin;
-    if (!plugin.calendarEnabled()) return;
-    const info = statusText(plugin);
-    const line = this.statusEl.createDiv({ cls: info.live ? "qt-cal-status is-live" : "qt-cal-status", text: info.text });
-    if (info.live) line.addClass("is-live");
-  }
-
   render() {
     const el = this.contentEl;
+    const top = el.scrollTop || 0;
+    this.liveNodes = [];
     el.empty();
-    const plugin = this.plugin;
-    const root = el.createDiv({ cls: "qt-wrap qt-cal" });
-    const head = root.createDiv({ cls: "qt-cal-head" });
-    head.createDiv({ cls: "qt-cal-heading", text: "Calendar" });
-    const actions = head.createDiv({ cls: "qt-cal-head-actions" });
-    const addBtn = actions.createEl("button", { cls: "qt-cal-add", text: "Add schedule" });
-    addBtn.addEventListener("click", () => plugin.openCalendarImport());
-    if (!plugin.calendarEnabled()) {
-      root.createDiv({ cls: "qt-cal-empty", text: "The calendar module is off. Turn it on in Settings, Calendar, to import a class schedule." });
-      const onBtn = root.createEl("button", { cls: "mod-cta", text: "Open settings" });
-      onBtn.addEventListener("click", () => plugin.openSettings());
-      return;
-    }
-    this.statusEl = root.createDiv({ cls: "qt-cal-status-line" });
-    this.renderStatus();
+    el.addClass("uni-calendar-container");
 
-    if (!plugin.calendarSources().some((s) => !s.hidden)) {
-      const empty = root.createDiv({ cls: "qt-cal-empty-state" });
-      empty.createDiv({ cls: "qt-cal-empty", text: "No schedule yet. Add an .ics file to your vault, or a public calendar feed, to see your classes and exams here." });
-      const btn = empty.createEl("button", { cls: "mod-cta", text: "Add a schedule" });
-      btn.addEventListener("click", () => plugin.openCalendarImport());
+    if (!this.plugin.calendarEnabled()) {
+      renderEmptyState(
+        el,
+        "Calendar is off",
+        "Turn on the calendar module in Settings, Calendar, to import a class schedule.",
+        "Open settings",
+        () => this.plugin.openSettings()
+      );
+      el.scrollTop = top;
       return;
     }
 
-    const modes = root.createDiv({ cls: "qt-row qt-cal-modes" });
+    if (!this.plugin.calendarSources().some((source) => !source.hidden)) {
+      const card = el.createDiv({ cls: "uni-month-card" });
+      this.renderMonthHeader(card, monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()), "month");
+      renderEmptyState(
+        el,
+        "No university schedule added yet",
+        "Add an .ics file to your vault, or a public calendar feed, to see your classes and exams here.",
+        "Add a schedule",
+        () => this.plugin.openCalendarImport()
+      );
+      el.scrollTop = top;
+      return;
+    }
+
+    // The cache window follows the month being viewed, not just today. Upcoming is
+    // always relative to today and therefore uses the current window.
+    const range = this.mode === "upcoming" ? new Date() : this.cursor;
+    this.range = range;
+    const events = this.plugin.calendarEvents(range);
+    this.renderModes(el);
+    if (this.mode === "month") {
+      this.renderMonthCard(el, events);
+      renderDaySection(this.plugin, el, this.selectedKey, { title: true, events, now: range, liveNodes: this.liveNodes });
+      // Exams are always "from today", even while browsing another month.
+      this.renderExamPanel(el, this.plugin.calendarEvents());
+    } else if (this.mode === "day") {
+      const card = el.createDiv({ cls: "uni-month-card" });
+      this.renderMonthHeader(card, dayHeading(this.selectedKey), "day");
+      renderDaySection(this.plugin, el, this.selectedKey, { title: false, events, now: range, liveNodes: this.liveNodes });
+      this.renderExamPanel(el, this.plugin.calendarEvents());
+    } else {
+      const card = el.createDiv({ cls: "uni-month-card" });
+      this.renderMonthHeader(card, "Upcoming", "upcoming");
+      this.renderUpcoming(el, events);
+      this.renderExamPanel(el, this.plugin.calendarEvents());
+    }
+    this.liveSignature = this.ongoingSignature(events);
+    if (this._focusKey) {
+      const key = this._focusKey;
+      this._focusKey = "";
+      this.focusDay(key);
+    }
+    el.scrollTop = top;
+  }
+
+  renderModes(container) {
+    const modes = container.createDiv({ cls: "uni-calendar-modes" });
     for (const [id, label] of [["month", "Month"], ["day", "Day"], ["upcoming", "Upcoming"]]) {
-      const b = modes.createEl("button", { text: label });
-      if (this.mode === id) b.addClass("mod-cta");
-      b.addEventListener("click", () => {
+      const button = modes.createEl("button", { cls: "uni-filter-btn", text: label });
+      if (this.mode === id) button.addClass("is-active");
+      button.addEventListener("click", () => {
         this.mode = id;
         this.render();
       });
     }
-
-    if (this.mode === "month") this.renderMonth(root);
-    else if (this.mode === "day") this.renderDay(root);
-    else this.renderUpcoming(root);
   }
 
-  renderMonth(root) {
-    const plugin = this.plugin;
-    const settings = plugin.calendarSettings();
-    const events = plugin.calendarEvents();
-    const nav = root.createDiv({ cls: "qt-cal-nav" });
-    const prev = nav.createEl("button", { text: "‹" });
-    prev.addEventListener("click", () => this.shiftMonth(-1));
-    nav.createDiv({ cls: "qt-cal-month", text: monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()) });
-    const next = nav.createEl("button", { text: "›" });
-    next.addEventListener("click", () => this.shiftMonth(1));
-    const todayBtn = nav.createEl("button", { cls: "qt-cal-today", text: "Today" });
-    todayBtn.addEventListener("click", () => {
-      this.cursor = new Date();
-      this.selectedKey = dateKey(new Date());
-      this.render();
-    });
+  renderMonthCard(container, events) {
+    const settings = this.plugin.calendarSettings();
+    const card = container.createDiv({ cls: "uni-month-card" });
+    this.renderMonthHeader(card, monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()), "month");
 
-    const grid = root.createDiv({ cls: "qt-cal-grid" });
-    for (const label of weekdayLabels(settings.firstDayOfWeek)) grid.createDiv({ cls: "qt-cal-wd", text: label });
-    for (const cell of monthGrid(this.cursor.getFullYear(), this.cursor.getMonth(), settings.firstDayOfWeek)) {
-      const btn = grid.createEl("button", { cls: "qt-cal-cell" });
-      if (!cell.inMonth) btn.addClass("is-outside");
-      if (cell.isToday) btn.addClass("is-today");
-      if (cell.key === this.selectedKey) btn.addClass("is-selected");
-      btn.createDiv({ cls: "qt-cal-daynum", text: String(cell.day) });
-      const dayEvents = eventsOnDay(events, cell.key);
-      const dots = btn.createDiv({ cls: "qt-cal-dots" });
-      for (const ev of dayEvents.slice(0, 3)) {
-        const details = detailsOf(ev);
-        const dot = dots.createDiv({ cls: "qt-cal-dot" });
-        dot.style.background = classColor(settings, details, ev.summary);
-        if (details.isExam) dot.addClass("is-exam");
-      }
-      if (dayEvents.length > 3) dots.createDiv({ cls: "qt-cal-more", text: `+${dayEvents.length - 3}` });
-      btn.addEventListener("click", () => {
-        this.selectedKey = cell.key;
-        this.mode = "day";
-        this.render();
-      });
+    const weekdays = card.createDiv({ cls: "uni-weekdays-row" });
+    for (const label of weekdayLabels(settings.firstDayOfWeek)) {
+      weekdays.createDiv({ text: str(label).slice(0, 2) });
     }
 
-    root.createDiv({ cls: "qt-cal-section-title", text: dayLabel(this.selectedKey, settings) });
-    renderDayTimeline(this.plugin, root, this.selectedKey);
-    this.renderExams(root);
+    const grid = card.createDiv({ cls: "uni-days-grid" });
+    grid.setAttr("role", "grid");
+    grid.setAttr("aria-label", monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()));
+    for (const cell of compactMonthCells(this.cursor.getFullYear(), this.cursor.getMonth(), settings.firstDayOfWeek)) {
+      const day = grid.createDiv({ cls: "uni-day-cell" });
+      if (!cell.inMonth) day.addClass("is-other-month");
+      if (cell.isToday) day.addClass("is-today");
+      if (cell.key === this.selectedKey) day.addClass("is-selected");
+      day.setAttr("data-date", cell.key);
+      day.setAttr("role", "gridcell");
+      day.setAttr("tabindex", "0");
+      day.setAttr("aria-selected", cell.key === this.selectedKey ? "true" : "false");
+      day.createSpan({ text: String(cell.day) });
+
+      const dayEvents = eventsOnDay(events, cell.key);
+      day.setAttr("aria-label", `${dayHeading(cell.key)}${dayEvents.length ? `, ${classesCount(dayEvents.length)}` : ""}`);
+      if (dayEvents.length) {
+        const dots = day.createDiv({ cls: "uni-event-dots-container" });
+        for (const event of dayEvents.slice(0, 3)) {
+          const dot = dots.createDiv({ cls: "uni-event-dot" });
+          dot.style.backgroundColor = classColor(settings, detailsOf(event), event.summary);
+        }
+      }
+
+      day.addEventListener("click", () => this.selectDay(cell));
+      day.addEventListener("keydown", (e) => this.onDayKey(e, cell));
+    }
   }
 
-  renderDay(root) {
-    const settings = this.plugin.calendarSettings();
-    const nav = root.createDiv({ cls: "qt-cal-nav" });
-    const prev = nav.createEl("button", { text: "‹" });
-    prev.addEventListener("click", () => this.shiftDay(-1));
-    nav.createDiv({ cls: "qt-cal-month", text: dayLabel(this.selectedKey, settings) });
-    const next = nav.createEl("button", { text: "›" });
-    next.addEventListener("click", () => this.shiftDay(1));
-    const todayBtn = nav.createEl("button", { cls: "qt-cal-today", text: "Today" });
-    todayBtn.addEventListener("click", () => {
-      this.selectedKey = dateKey(new Date());
-      this.render();
-    });
-    renderDayTimeline(this.plugin, root, this.selectedKey);
-    this.renderExams(root);
+  /** Arrow keys move the selected day; Enter/Space opens that day's schedule. */
+  onDayKey(event, cell) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      this.selectDay(cell, true);
+      return;
+    }
+    const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    const target = new Date(`${cell.key}T12:00:00`);
+    if (Number.isNaN(target.getTime())) return;
+    target.setDate(target.getDate() + delta);
+    const key = dateKey(target);
+    this.selectDay(
+      { key, inMonth: target.getFullYear() === this.cursor.getFullYear() && target.getMonth() === this.cursor.getMonth() },
+      true
+    );
   }
 
-  renderUpcoming(root) {
-    const plugin = this.plugin;
-    const settings = plugin.calendarSettings();
-    const events = plugin.calendarEvents();
+  focusDay(key) {
+    const node = this.contentEl.querySelector && this.contentEl.querySelector(`[data-date="${key}"]`);
+    if (node && node.focus) node.focus();
+  }
+
+  /** Re-render only when a class starts or ends; otherwise just update the countdown text. */
+  refreshLive() {
+    if (this.selectedKey !== dateKey(new Date())) return;
     const now = new Date();
+    const events = this.plugin.calendarEvents(this.range || this.cursor);
+    if (this.ongoingSignature(events) !== this.liveSignature) {
+      this.render();
+      return;
+    }
+    for (const live of this.liveNodes) {
+      if (!live.node || !live.event || !live.event.dtend) continue;
+      live.node.setText(`${Math.max(1, Math.round((live.event.dtend - now) / 60000))} min left`);
+    }
+  }
+
+  ongoingSignature(events) {
+    const now = new Date();
+    return (events || [])
+      .filter((ev) => ev.dateKey === this.selectedKey && !ev.allDay && ev.dtstart && ev.dtend && now >= ev.dtstart && now < ev.dtend)
+      .map((ev) => `${ev.uid || ev.summary}|${ev.dtstart.getTime()}`)
+      .join("|");
+  }
+
+  /** Restored from the pre-UI-port view: the next exams and their countdowns. */
+  renderExamPanel(container, events) {
+    const exams = upcomingExams(events, new Date(), 5);
+    if (!exams.length) return;
+    const settings = this.plugin.calendarSettings();
+    const panel = container.createDiv({ cls: "uni-exam-panel" });
+    panel.createDiv({ cls: "uni-exam-panel-title", text: "Upcoming exams" });
+    for (const exam of exams) {
+      const row = panel.createEl("button", { cls: "uni-exam-row" });
+      const name = str(exam.summary) || "Exam";
+      row.setAttr("aria-label", `Open note for ${name}`);
+      row.createDiv({ cls: "uni-exam-name", text: name });
+      row.createDiv({
+        cls: "uni-exam-when",
+        text: `${formatDateValue(settings.dateFormat, exam.dateKey)} · ${examCountdown(exam, new Date())}`,
+      });
+      row.addEventListener("click", () => {
+        this.plugin
+          .openClassNote(exam, exam.dateKey)
+          .then(() => this.plugin.refreshCalendarViews())
+          .catch((err) => new Notice(str(err && err.message) || "Could not open the note."));
+      });
+    }
+  }
+
+  renderMonthHeader(card, title, mode) {
+    const header = card.createDiv({ cls: "uni-month-header" });
+    header.createDiv({ cls: "uni-month-title", text: title });
+    const controls = header.createDiv({ cls: "uni-header-controls" });
+
+    if (mode === "month") {
+      this.headerButton(controls, "chevron-left", "Previous month", () => this.shiftMonth(-1));
+      this.todayButton(controls);
+      this.headerButton(controls, "chevron-right", "Next month", () => this.shiftMonth(1));
+    } else if (mode === "day") {
+      this.headerButton(controls, "chevron-left", "Previous day", () => this.shiftDay(-1));
+      this.todayButton(controls);
+      this.headerButton(controls, "chevron-right", "Next day", () => this.shiftDay(1));
+    } else {
+      this.todayButton(controls);
+    }
+
+    this.breakButton(controls);
+    this.headerButton(controls, "refresh-cw", "Refresh schedule", (button) => this.sync(button), "uni-sync-btn");
+    this.headerButton(controls, "settings", "Calendar settings", () => this.plugin.openSettings(), "uni-settings-btn");
+    return header;
+  }
+
+  headerButton(controls, icon, label, onClick, extraClass) {
+    const button = controls.createEl("button", { cls: `uni-nav-btn ${extraClass || ""}`.trim() });
+    button.setAttr("aria-label", label);
+    button.setAttr("title", label);
+    setIcon(button, icon);
+    button.addEventListener("click", () => onClick(button));
+    return button;
+  }
+
+  todayButton(controls) {
+    const button = controls.createEl("button", { cls: "uni-nav-btn uni-today-btn", text: "Today" });
+    button.setAttr("title", "Today");
+    button.addEventListener("click", () => this.goToday());
+    return button;
+  }
+
+  /** Quick on/off for the break markers, without opening settings. */
+  breakButton(controls) {
+    const gaps = (this.plugin.settings.calendar && this.plugin.settings.calendar.timelineGaps) || {};
+    const enabled = gaps.enabled === true;
+    const label = enabled ? "Hide breaks between classes" : "Show breaks between classes";
+    const button = controls.createEl("button", { cls: `uni-nav-btn${enabled ? " is-active" : ""}` });
+    button.setAttr("aria-label", label);
+    button.setAttr("title", label);
+    button.setAttr("aria-pressed", enabled ? "true" : "false");
+    setIcon(button, BREAK_ICONS[gaps.icon] || "coffee");
+    button.addEventListener("click", async () => {
+      await this.toggleBreaks();
+    });
+    return button;
+  }
+
+  async toggleBreaks() {
+    const calendar = this.plugin.settings.calendar || (this.plugin.settings.calendar = {});
+    if (!calendar.timelineGaps) calendar.timelineGaps = {};
+    calendar.timelineGaps.enabled = !calendar.timelineGaps.enabled;
+    await this.plugin.save();
+    this.render();
+    this.plugin.refreshCalendarViews();
+  }
+
+  async sync(button) {
+    if (button) button.addClass("is-syncing");
+    try {
+      for (const source of this.plugin.calendarSources()) {
+        if (!source.hidden) await this.plugin.syncCalendarSource(source.id);
+      }
+      this.plugin.invalidateCalendar();
+      new Notice("Schedule updated.");
+      this.render();
+    } catch (e) {
+      new Notice(str(e && e.message) || "Could not refresh the schedule.");
+    } finally {
+      if (button) button.removeClass("is-syncing");
+    }
+  }
+
+  selectDay(cell, focus) {
+    this.selectedKey = cell.key;
+    if (!cell.inMonth) {
+      this.cursor = new Date(Number(cell.key.slice(0, 4)), Number(cell.key.slice(5, 7)) - 1, 1);
+    }
+    this._focusKey = focus ? cell.key : "";
+    // Stay in the month view: the date's schedule is redrawn beneath the grid.
+    const top = this.contentEl.scrollTop || 0;
+    this.render();
+    this.contentEl.scrollTop = top;
+  }
+
+  renderUpcoming(container, events) {
+    const now = new Date();
+    const source = events || this.plugin.calendarEvents(now);
     let shown = 0;
     for (let i = 0; i < 14; i++) {
       const key = dateKey(addDays(now, i));
-      const dayEvents = eventsOnDay(events, key);
-      if (!dayEvents.length) continue;
+      if (!eventsOnDay(source, key).length) continue;
       shown++;
-      root.createDiv({ cls: "qt-cal-section-title", text: dayLabel(key, settings) });
-      const list = root.createDiv({ cls: "qt-cal-timeline" });
-      for (const event of dayEvents) eventRow(plugin, list, event, settings);
+      renderDaySection(this.plugin, container, key, { title: true, events: source, now, liveNodes: this.liveNodes });
     }
-    if (!shown) root.createDiv({ cls: "qt-cal-empty", text: "Nothing scheduled in the next two weeks." });
-    this.renderExams(root);
+    if (!shown) renderEmptyState(container, "Nothing scheduled", "No classes in the next two weeks.", "", null);
   }
 
-  renderExams(root) {
-    const exams = upcomingExams(this.plugin.calendarEvents(), new Date(), 5);
-    if (!exams.length) return;
-    const box = root.createDiv({ cls: "qt-cal-exams" });
-    box.createDiv({ cls: "qt-cal-section-title", text: "Upcoming exams" });
-    for (const exam of exams) {
-      const row = box.createDiv({ cls: "qt-cal-exam" });
-      row.createDiv({ cls: "qt-cal-exam-name", text: str(exam.summary) || "Exam" });
-      row.createDiv({ cls: "qt-cal-exam-when", text: `${formatDateValue(this.plugin.calendarSettings().dateFormat, exam.dateKey)} · ${examCountdown(exam, new Date())}` });
-    }
+  goToday() {
+    const now = new Date();
+    this.cursor = new Date(now.getFullYear(), now.getMonth(), 1);
+    this.selectedKey = dateKey(now);
+    this.render();
   }
 
   shiftMonth(delta) {
     this.cursor = new Date(this.cursor.getFullYear(), this.cursor.getMonth() + delta, 1);
+    const today = new Date();
+    this.selectedKey =
+      this.cursor.getFullYear() === today.getFullYear() && this.cursor.getMonth() === today.getMonth()
+        ? dateKey(today)
+        : dateKey(this.cursor);
     this.render();
   }
 
   shiftDay(delta) {
-    const d = new Date(`${this.selectedKey}T12:00:00`);
-    const base = Number.isNaN(d.getTime()) ? new Date() : d;
-    this.selectedKey = dateKey(addDays(base, delta));
+    const current = new Date(`${this.selectedKey}T12:00:00`);
+    const base = Number.isNaN(current.getTime()) ? new Date() : current;
+    const next = addDays(base, delta);
+    this.selectedKey = dateKey(next);
+    this.cursor = new Date(next.getFullYear(), next.getMonth(), 1);
     this.render();
+  }
+}
+
+/* ----------------------------------------------------------- study slots */
+
+class StudySlotModal extends Modal {
+  constructor(app, plugin, slots) {
+    super(app);
+    this.plugin = plugin;
+    this.slots = slots || [];
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { cls: "uni-modal-title", text: "Study in your free time" });
+    const settings = this.plugin.calendarSettings();
+    const buffer = Math.max(0, Math.min(60, Math.round(Number(settings.studySlotBufferMinutes) || 0)));
+    const slots = this.slots
+      .map((slot) => ({ ...slot, usable: slot.minutes - buffer }))
+      .filter((slot) => slot.usable >= 5);
+
+    if (!slots.length) {
+      contentEl.createEl("p", {
+        cls: "setting-item-description",
+        text: `No free period has at least 5 minutes after the ${buffer}-minute buffer before the next class.`,
+      });
+      contentEl.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
+      return;
+    }
+
+    contentEl.createEl("p", {
+      cls: "setting-item-description",
+      text: `Short sessions use your current question filters. ${buffer} minute${buffer === 1 ? "" : "s"} before the next class stay free.`,
+    });
+    const body = contentEl.createDiv({ cls: "uni-study-slot" });
+    let slot = slots[0];
+
+    const draw = () => {
+      body.empty();
+      if (slots.length > 1) {
+        body.createDiv({ cls: "uni-study-slot-label", text: "Free period" });
+        const pick = body.createEl("select", { cls: "dropdown" });
+        slots.forEach((candidate, index) => {
+          pick.createEl("option", {
+            value: String(index),
+            text: `${formatTime(settings, candidate.start)} – ${formatTime(settings, candidate.end)} · ${gapLabel(candidate.usable)} usable`,
+          });
+        });
+        pick.value = String(slots.indexOf(slot));
+        pick.addEventListener("change", () => {
+          slot = slots[Number(pick.value)] || slots[0];
+          draw();
+        });
+      } else {
+        body.createDiv({
+          cls: "uni-study-slot-window",
+          text: `${formatTime(settings, slot.start)} – ${formatTime(settings, slot.end)} · ${gapLabel(slot.usable)} usable`,
+        });
+      }
+
+      body.createDiv({ cls: "uni-study-slot-label", text: "Session length" });
+      const durations = [5, 10, 20].filter((minutes) => minutes <= slot.usable);
+      if (!durations.length) {
+        body.createDiv({ cls: "uni-study-slot-empty", text: "This free period is too short for a 5-minute session after the buffer." });
+        return;
+      }
+      const quickDefaults = this.plugin.settings.quickDefaults || { minutes: 5 };
+      let minutes = durations.includes(quickDefaults.minutes) ? quickDefaults.minutes : durations[0];
+      const durationRow = body.createDiv({ cls: "uni-study-slot-durations" });
+      const buttons = [];
+      for (const value of durations) {
+        const button = durationRow.createEl("button", { text: `${value} min`, cls: value === minutes ? "is-selected" : "" });
+        button.addEventListener("click", () => {
+          minutes = value;
+          for (const b of buttons) b.toggleClass("is-selected", b === button);
+          start.setText(`Start ${minutes} minutes`);
+        });
+        buttons.push(button);
+      }
+
+      body.createDiv({ cls: "uni-study-slot-label", text: "Questions" });
+      const choices = [
+        { id: "current", label: "My current filters" },
+        { id: "due", label: "Due for review" },
+      ];
+      if (slot.subject) choices.push({ id: "course", label: `Next class: ${slot.subject}` });
+      let filter = "current";
+      const select = body.createEl("select", { cls: "dropdown" });
+      for (const choice of choices) {
+        const count = this.plugin.quickPracticePool(choice.id, slot.subject).length;
+        select.createEl("option", { value: choice.id, text: `${choice.label} (${count})` });
+      }
+      select.value = filter;
+
+      let pool = this.plugin.quickPracticePool(filter, slot.subject);
+      const hint = body.createDiv({ cls: "uni-study-slot-count", text: `${pool.length} question${pool.length === 1 ? "" : "s"} available` });
+      const start = body.createEl("button", { text: `Start ${minutes} minutes`, cls: "mod-cta" });
+      const refresh = () => {
+        pool = this.plugin.quickPracticePool(filter, slot.subject);
+        hint.setText(`${pool.length} question${pool.length === 1 ? "" : "s"} available`);
+        start.disabled = !pool.length;
+      };
+      select.addEventListener("change", () => {
+        filter = select.value;
+        refresh();
+      });
+      start.disabled = !pool.length;
+      start.addEventListener("click", async () => {
+        if (!pool.length) {
+          new Notice("No questions match this filter.");
+          return;
+        }
+        this.close();
+        await this.plugin.startQuickPractice({
+          minutes,
+          pool,
+          mode: filter === "due" ? "due" : undefined,
+          label: filter === "course" ? slot.subject : filter === "due" ? "due review" : "your filters",
+        });
+      });
+      const cancel = body.createEl("button", { text: "Cancel" });
+      cancel.addEventListener("click", () => this.close());
+    };
+
+    draw();
+  }
+
+  onClose() {
+    this.contentEl.empty();
   }
 }
 
@@ -322,7 +818,7 @@ class CalendarImportModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createDiv({ cls: "qt-cal-heading", text: "Add a schedule" });
+    contentEl.createEl("h2", { cls: "uni-modal-title", text: "Add a schedule" });
     contentEl.createEl("p", {
       cls: "setting-item-description",
       text: "Import a .ics file that is already in your vault, or paste a public calendar feed. For a Google Calendar, use Settings, Integrate calendar, Secret address in iCal format (private), or the public calendar address.",
@@ -379,7 +875,7 @@ module.exports = {
   VIEW_TYPE_CALENDAR,
   CalendarView,
   CalendarImportModal,
+  StudySlotModal,
   parseScheduleBlock,
-  renderDayTimeline,
-  statusText,
+  renderDaySection,
 };

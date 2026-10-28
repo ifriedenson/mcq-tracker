@@ -6,20 +6,30 @@ const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
 const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./modals");
-const { cloneFilters, fvals, hasFilters, matchSets, renameFolderInSettings } = require("./filters");
+const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { OpenCodeClient } = require("./opencode-client");
-const { sleep } = require("./util");
+const { sleep, hashString, localDate } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
-const { CalendarImportModal, CalendarView, parseScheduleBlock, renderDayTimeline } = require("./calendar-view");
-const { mergeCalendarSettings, nextClassStatus, visibleEvents } = require("./calendar-model");
+const { CalendarImportModal, CalendarView, StudySlotModal, parseScheduleBlock, renderDaySection } = require("./calendar-view");
+const { cleanSubjectTitle, mergeCalendarSettings, nextClassStatus, subjectKey, visibleEvents } = require("./calendar-model");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
-const { openOrCreateClassNote } = require("./calendar-notes");
+const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
+    this._calendarNoteIndex = null;
+    this._calendarFolders = null;
+    this._calendarCache = null;
+    // Calendar notes are resolved by their durable UID/date properties, so any
+    // create/delete/rename (or frontmatter edit) invalidates the shared index.
+    const invalidateNotes = () => this.invalidateCalendarNotes();
+    this.registerEvent(this.app.vault.on("create", invalidateNotes));
+    this.registerEvent(this.app.vault.on("delete", invalidateNotes));
+    this.registerEvent(this.app.vault.on("rename", invalidateNotes));
+    this.registerEvent(this.app.metadataCache.on("changed", invalidateNotes));
 
     // The timer is kept per device (not in the synced settings). One that was running when the
     // app closed becomes paused, counting only up to the last heartbeat (time away isn't counted).
@@ -441,11 +451,40 @@ class QuestionTrackerPlugin extends Plugin {
     this._calendarCache = null;
   }
 
-  /** Parses every shown source. Cached by source content so redraws stay cheap. */
+  /** Cached index of class notes by `calendar_uid|calendar_date`. */
+  calendarNoteIndex() {
+    if (!this._calendarNoteIndex) this._calendarNoteIndex = classNoteIndex(this.app);
+    return this._calendarNoteIndex;
+  }
+
+  /** Cached folder list for resolving class-note paths without scanning on every card. */
+  calendarFolders() {
+    if (!this._calendarFolders) this._calendarFolders = vaultFolders(this.app);
+    return this._calendarFolders;
+  }
+
+  invalidateCalendarNotes() {
+    this._calendarNoteIndex = null;
+    this._calendarFolders = null;
+  }
+
+  /** Finds the existing note for a class occurrence, if there is one. */
+  findCalendarNote(event, key) {
+    return findClassNote(
+      this.app,
+      this.calendarSettings(),
+      event,
+      key || event.dateKey,
+      this.calendarNoteIndex(),
+      this.calendarFolders()
+    );
+  }
+
+  /** Parses every shown source. Cached by a content hash so any edit invalidates it. */
   calendarEvents(now) {
     const range = this.calendarWindow(now);
     const sources = this.calendarSources().filter((s) => !s.hidden && s.content);
-    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${sources.map((s) => `${s.id}:${s.content.length}:${s.content.slice(0, 40)}`).join("|")}`;
+    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
     if (this._calendarCache && this._calendarCache.signature === signature) return this._calendarCache.events;
     const all = [];
     const errors = [];
@@ -480,7 +519,10 @@ class QuestionTrackerPlugin extends Plugin {
         /* keep the cached copy */
       }
     }
-    if (changed) await this.save();
+    if (changed) {
+      this.invalidateCalendar();
+      await this.save();
+    }
     return changed;
   }
 
@@ -588,13 +630,13 @@ class QuestionTrackerPlugin extends Plugin {
   renderScheduleBlock(source, el) {
     el.empty();
     if (!this.calendarEnabled()) {
-      el.createDiv({ cls: "qt-cal-empty", text: "Calendar is off. Turn it on in Settings, Calendar." });
+      const empty = el.createDiv({ cls: "uni-empty-schedule" });
+      empty.createDiv({ cls: "uni-empty-schedule-desc", text: "Calendar is off. Turn it on in Settings, Calendar." });
       return;
     }
     const { dateKey: key } = parseScheduleBlock(source, new Date());
-    const box = el.createDiv({ cls: "qt-cal-embed" });
-    box.createDiv({ cls: "qt-cal-section-title", text: key });
-    renderDayTimeline(this, box, key);
+    const box = el.createDiv({ cls: "uni-schedule-embed" });
+    renderDaySection(this, box, key);
   }
 
   async openNextClassNote() {
@@ -611,16 +653,62 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async openClassNote(event, key) {
-    const result = await openOrCreateClassNote(this.app, this.calendarSettings(), event, key || event.dateKey);
-    if (result.created) {
-      const folder = result.path.includes("/") ? result.path.slice(0, result.path.lastIndexOf("/")) : "";
-      if (folder && event.summary) {
-        this.settings.calendar.subjectFolders[event.summary] = folder;
-        await this.save();
-      }
-      new Notice(`Created ${result.path}.`);
+    const result = await openOrCreateClassNote(
+      this.app,
+      this.calendarSettings(),
+      event,
+      key || event.dateKey,
+      this.calendarNoteIndex(),
+      this.calendarFolders()
+    );
+    this.invalidateCalendarNotes();
+    const folder = result.path.includes("/") ? result.path.slice(0, result.path.lastIndexOf("/")) : "";
+    if (folder && event.summary && this.settings.calendar.subjectFolders[event.summary] !== folder) {
+      this.settings.calendar.subjectFolders[event.summary] = folder;
+      await this.save();
     }
+    if (result.created) new Notice(`Created ${result.path}.`);
     return result;
+  }
+
+  /** A free period from the calendar becomes a one-tap Quick Practice session. */
+  openStudySlot(slots) {
+    if (!this.calendarEnabled()) {
+      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
+      return;
+    }
+    const list = (Array.isArray(slots) ? slots : []).filter((slot) => slot && slot.minutes > 0);
+    if (!list.length) {
+      new Notice("There is no free period long enough for a study session.");
+      return;
+    }
+    new StudySlotModal(this.app, this, list).open();
+  }
+
+  /** Pool for the study-slot chooser; filters are applied without changing saved settings. */
+  quickPracticePool(filter, course) {
+    const questions = this.getQuestions();
+    if (filter === "due") return questions.filter((q) => isDue(q.fm, localDate()));
+    if (filter === "course" && course) {
+      const key = subjectKey(cleanSubjectTitle(course));
+      return questions.filter((q) => {
+        const values = [q.fm.course, q.fm.test].map((v) => subjectKey(cleanSubjectTitle(v)));
+        return values.includes(key);
+      });
+    }
+    return this.filtered(questions);
+  }
+
+  async startQuickPractice(options) {
+    const opts = options || {};
+    const view = await this.activateView();
+    if (!view || !view.startQuick) {
+      new Notice("Could not open the practice view.");
+      return null;
+    }
+    const minutes = Math.max(1, Math.round(Number(opts.minutes) || 5));
+    await view.startQuick("time", minutes, { pool: opts.pool, mode: opts.mode, label: opts.label });
+    return view;
   }
 
   async exportCalendarIcs() {

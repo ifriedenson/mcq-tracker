@@ -12,15 +12,19 @@ the work.
 - **Author:** Cesemess
 - **License:** MIT, Copyright (c) 2026 Cesemess (verified in the repository's `LICENSE` on October 28, 2026)
 - **Baseline:** commit `35778e473a1d7ad7827c83c065b0f61dcbefdbc5` ("release: v1.2.0", October 24, 2026)
-- **What was absorbed:** the calendar parser and expander (`parseICS`, `parseICSDate`, `expandRecurringEvents`), calendar URL normalization (Google `?cid=`/`?src=` and `webcal://`), class-detail parsing (`parseUniDetails`), subject cleaning (`cleanSubjectTitle`), note naming and note templates, the `.ics` export format, and the month-grid, daily-timeline and live-countdown presentation.
+- **What was absorbed:** the calendar parser and expander (`parseICS`, `parseICSDate`, `expandRecurringEvents`), calendar URL normalization (Google `?cid=`/`?src=` and `webcal://`), class-detail parsing (`parseUniDetails`), subject cleaning (`cleanSubjectTitle`), note naming and note templates, the `.ics` export format, and the month-grid, daily-timeline, event-card, break-gap and live-countdown presentation, including its DOM markup and calendar stylesheet rules.
 - **Files in this repository that contain adapted work:**
   - `src/calendar-ics.js` — parser, recurrence expander and exporter
   - `src/calendar-model.js` — class details, subject cleaning, note variables, templates, folder mapping
   - `src/calendar-notes.js` — class-note creation built on those helpers
   - `src/calendar-view.js` — month grid, day timeline, countdown and `uni-schedule` embed
-- **Marked as modified.** These are not verbatim copies: every file was rewritten for this
-  plugin's plain-JavaScript module layout, its `qt-` styles and its settings model. Documented
-  changes:
+  - `styles.css` — the calendar view rules, kept under the original `uni-` class names
+- **Marked as modified.** These are not verbatim copies: the logic was rewritten for this
+  plugin's plain-JavaScript module layout and its settings and data model. The calendar view
+  keeps the original's `uni-` markup and stylesheet rules on purpose so the two calendars look
+  the same. Documented changes:
+  - the month card, day cells, timeline, event cards and note badges follow the original's DOM and CSS; the Month / Day / Upcoming switcher, exam panel, note identity and study-slot launcher are local to this plugin;
+  - the ported calendar stylesheet rules are scoped beneath `.uni-calendar-container` and `.uni-schedule-embed`, so they cannot override the original plugin when both are enabled;
   - all recurrence loops are bounded (`MAX_INSTANCES`), where the original could loop indefinitely on a malformed rule;
   - COUNT, UNTIL, INTERVAL, EXDATE, RECURRENCE-ID, DURATION and RDATE share one occurrence iterator;
   - expansion keeps wall-clock time, so a class does not move when daylight saving changes;

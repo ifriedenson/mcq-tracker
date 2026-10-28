@@ -29,7 +29,7 @@ const { loadQuestionData } = require("./view-helpers");
 const calendarIcs = require("./calendar-ics");
 const calendarModel = require("./calendar-model");
 const calendarNotes = require("./calendar-notes");
-const { CalendarView, parseScheduleBlock } = require("./calendar-view");
+const { CalendarView, StudySlotModal, parseScheduleBlock } = require("./calendar-view");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 
 module.exports = QuestionTrackerPlugin;
@@ -132,5 +132,6 @@ QuestionTrackerPlugin.__test = {
   calendarModel,
   calendarNotes,
   CalendarView,
+  StudySlotModal,
   parseScheduleBlock,
 };

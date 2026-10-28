@@ -21,6 +21,8 @@ time: "{time}"
 room: "{room}"
 lecturer: "{lecturer}"
 type: "{type}"
+calendar_uid: {event_id}
+calendar_date: {iso_date}
 tags:
   - university
   - lecture-notes
@@ -50,6 +52,25 @@ const CLASS_CATEGORIES = [
 
 const CATEGORY_BY_ID = Object.fromEntries(CLASS_CATEGORIES.map((c) => [c.id, c]));
 
+const BREAK_ICON_OPTIONS = [
+  ["coffee", "☕ Coffee cup"],
+  ["food", "🍔 Food / lunch"],
+  ["pause", "⏸️ Pause"],
+  ["hourglass", "⏳ Hourglass"],
+  ["walk", "🚶 Walking"],
+  ["book", "📖 Reading / book"],
+  ["music", "🎵 Music"],
+  ["sun", "☀️ Sun"],
+  ["moon", "🌙 Moon"],
+  ["spark", "✨ Sparkles"],
+  ["battery", "🔋 Recharging"],
+  ["clock", "⏰ Clock"],
+  ["leaf", "🍃 Leaf"],
+  ["smile", "😊 Relax"],
+];
+const BREAK_ICON_IDS = BREAK_ICON_OPTIONS.map(([id]) => id);
+const BREAK_STYLES = ["pill", "line", "card", "text"];
+
 const DEFAULT_CALENDAR_SETTINGS = {
   enabled: false, // calendar module is off by default
   sources: [], // { id, name, type: "file"|"url", path, url, content, hidden, lastSync }
@@ -67,6 +88,14 @@ const DEFAULT_CALENDAR_SETTINGS = {
   subjectColors: {},
   classNames: {},
   autoSync: false, // URL feeds are refreshed on startup only when this is on
+  studySlotBufferMinutes: 5, // kept free before the next class in a study slot
+  timelineGaps: {
+    enabled: false, // breaks are opt-in, like the original calendar
+    style: "pill", // pill | line | card | text
+    icon: "coffee",
+    minMinutes: 15,
+    maxMinutes: 0, // 0 = no upper limit
+  },
 };
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -97,6 +126,18 @@ function mergeCalendarSettings(saved) {
   out.classColors = plainObject(out.classColors);
   out.subjectColors = plainObject(out.subjectColors);
   out.classNames = plainObject(out.classNames);
+  const buffer = Math.round(Number(out.studySlotBufferMinutes));
+  out.studySlotBufferMinutes = Number.isFinite(buffer) && buffer >= 0 && buffer <= 60 ? buffer : 5;
+  const gaps = out.timelineGaps && typeof out.timelineGaps === "object" ? out.timelineGaps : {};
+  const gapMin = Math.round(Number(gaps.minMinutes));
+  const gapMax = Math.round(Number(gaps.maxMinutes));
+  out.timelineGaps = {
+    enabled: gaps.enabled === true,
+    style: BREAK_STYLES.includes(gaps.style) ? gaps.style : "pill",
+    icon: BREAK_ICON_IDS.includes(gaps.icon) ? gaps.icon : "coffee",
+    minMinutes: Number.isFinite(gapMin) && gapMin >= 1 ? gapMin : 15,
+    maxMinutes: Number.isFinite(gapMax) && gapMax >= 0 ? gapMax : 0,
+  };
   if (!WEEKDAYS[out.firstDayOfWeek]) out.firstDayOfWeek = "monday";
   if (!["24h", "12h"].includes(out.timeFormat)) out.timeFormat = "24h";
   if (!["YYYY-MM-DD", "DD.MM.YYYY", "DD/MM/YYYY", "MM/DD/YYYY"].includes(out.dateFormat)) out.dateFormat = "YYYY-MM-DD";
@@ -354,6 +395,97 @@ function monthLabel(year, month) {
   return `${MONTHS[month]} ${year}`;
 }
 
+/** `Wednesday, October 23, 2026`, the date heading the original calendar uses. */
+function dayHeading(key) {
+  const d = parseDateKey(key);
+  if (!d) return key;
+  const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  return `${names[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+/** `1h 30m`, `1h` or `45m`, the label the original break marker uses. */
+function gapLabel(minutes) {
+  const total = Math.max(0, Math.round(Number(minutes) || 0));
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  if (hours > 0) return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
+  return `${rest}m`;
+}
+
+/**
+ * Free periods between timed classes, from the end of one class to the start of the
+ * next. Overlapping classes are merged so their shared time is not counted twice;
+ * all-day events and days with fewer than two timed classes have no free periods.
+ * `minMinutes` and `maxMinutes` only filter the returned slots (0 means no limit).
+ */
+function freeSlots(events, options) {
+  const opts = options || {};
+  const minMinutes = Math.max(0, Math.round(Number(opts.minMinutes) || 0));
+  const maxMinutes = Math.max(0, Math.round(Number(opts.maxMinutes) || 0));
+  const timed = (Array.isArray(events) ? events : [])
+    .filter((ev) => !ev.allDay && ev.dtstart && ev.dtend && typeof ev.dtstart.getTime === "function" && typeof ev.dtend.getTime === "function")
+    .map((ev) => [ev.dtstart.getTime(), ev.dtend.getTime()])
+    .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start)
+    .sort((a, b) => a[0] - b[0]);
+  if (timed.length < 2) return [];
+
+  const slots = [];
+  let currentEnd = timed[0][1];
+  for (let i = 1; i < timed.length; i++) {
+    const [start, end] = timed[i];
+    if (start <= currentEnd) {
+      currentEnd = Math.max(currentEnd, end);
+      continue;
+    }
+    const minutes = Math.round((start - currentEnd) / 60000);
+    if (minutes > 0 && minutes >= minMinutes && (maxMinutes === 0 || minutes <= maxMinutes)) {
+      slots.push({ start: new Date(currentEnd), end: new Date(start), minutes });
+    }
+    currentEnd = end;
+  }
+  return slots;
+}
+
+/** Total unbooked minutes between the first and last timed class of the day. */
+function dayFreeMinutes(events) {
+  return freeSlots(events).reduce((total, slot) => total + slot.minutes, 0);
+}
+
+/**
+ * Interleaves break entries with events for one day. The free periods come from the
+ * same `freeSlots` engine as the header total; the settings only decide which of
+ * those periods are drawn as markers.
+ */
+function timelineEntries(events, settings) {
+  const list = (Array.isArray(events) ? events.slice() : []).sort((a, b) => {
+    if (a.allDay && !b.allDay) return -1;
+    if (!a.allDay && b.allDay) return 1;
+    const at = a.dtstart && typeof a.dtstart.getTime === "function" ? a.dtstart.getTime() : 0;
+    const bt = b.dtstart && typeof b.dtstart.getTime === "function" ? b.dtstart.getTime() : 0;
+    return at - bt;
+  });
+  const gaps = (settings && settings.timelineGaps) || {};
+  const enabled = gaps.enabled === true;
+  const minMinutes = Math.max(1, Math.round(Number(gaps.minMinutes) || 15));
+  const maxMinutes = Math.max(0, Math.round(Number(gaps.maxMinutes) || 0));
+  const slots = enabled ? freeSlots(list, { minMinutes, maxMinutes }) : [];
+  const slotByEnd = new Map(slots.map((slot) => [slot.end.getTime(), slot]));
+  const entries = [];
+
+  for (const event of list) {
+    const start = event.dtstart && typeof event.dtstart.getTime === "function" ? event.dtstart : null;
+    if (!event.allDay && start) {
+      const slot = slotByEnd.get(start.getTime());
+      if (slot) {
+        slotByEnd.delete(start.getTime());
+        entries.push({ kind: "gap", start: slot.start, end: slot.end, minutes: slot.minutes, nextEvent: event });
+      }
+    }
+    entries.push({ kind: "event", event });
+  }
+  return entries;
+}
+
 /* ------------------------------------------------------------- countdowns */
 
 function byStart(a, b) {
@@ -451,6 +583,7 @@ module.exports = {
   DEFAULT_NOTE_TEMPLATE,
   DEFAULT_CALENDAR_SETTINGS,
   CLASS_CATEGORIES,
+  BREAK_ICON_OPTIONS,
   MONTHS,
   subjectKey,
   normalizeFolder,
@@ -473,6 +606,11 @@ module.exports = {
   monthGrid,
   weekdayLabels,
   monthLabel,
+  dayHeading,
+  gapLabel,
+  freeSlots,
+  dayFreeMinutes,
+  timelineEntries,
   nextClassStatus,
   humanizeDuration,
   examCountdown,

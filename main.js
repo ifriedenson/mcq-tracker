@@ -657,6 +657,8 @@ time: "{time}"
 room: "{room}"
 lecturer: "{lecturer}"
 type: "{type}"
+calendar_uid: {event_id}
+calendar_date: {iso_date}
 tags:
   - university
   - lecture-notes
@@ -686,6 +688,25 @@ const CLASS_CATEGORIES = [
 
 const CATEGORY_BY_ID = Object.fromEntries(CLASS_CATEGORIES.map((c) => [c.id, c]));
 
+const BREAK_ICON_OPTIONS = [
+  ["coffee", "☕ Coffee cup"],
+  ["food", "🍔 Food / lunch"],
+  ["pause", "⏸️ Pause"],
+  ["hourglass", "⏳ Hourglass"],
+  ["walk", "🚶 Walking"],
+  ["book", "📖 Reading / book"],
+  ["music", "🎵 Music"],
+  ["sun", "☀️ Sun"],
+  ["moon", "🌙 Moon"],
+  ["spark", "✨ Sparkles"],
+  ["battery", "🔋 Recharging"],
+  ["clock", "⏰ Clock"],
+  ["leaf", "🍃 Leaf"],
+  ["smile", "😊 Relax"],
+];
+const BREAK_ICON_IDS = BREAK_ICON_OPTIONS.map(([id]) => id);
+const BREAK_STYLES = ["pill", "line", "card", "text"];
+
 const DEFAULT_CALENDAR_SETTINGS = {
   enabled: false, // calendar module is off by default
   sources: [], // { id, name, type: "file"|"url", path, url, content, hidden, lastSync }
@@ -703,6 +724,14 @@ const DEFAULT_CALENDAR_SETTINGS = {
   subjectColors: {},
   classNames: {},
   autoSync: false, // URL feeds are refreshed on startup only when this is on
+  studySlotBufferMinutes: 5, // kept free before the next class in a study slot
+  timelineGaps: {
+    enabled: false, // breaks are opt-in, like the original calendar
+    style: "pill", // pill | line | card | text
+    icon: "coffee",
+    minMinutes: 15,
+    maxMinutes: 0, // 0 = no upper limit
+  },
 };
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -733,6 +762,18 @@ function mergeCalendarSettings(saved) {
   out.classColors = plainObject(out.classColors);
   out.subjectColors = plainObject(out.subjectColors);
   out.classNames = plainObject(out.classNames);
+  const buffer = Math.round(Number(out.studySlotBufferMinutes));
+  out.studySlotBufferMinutes = Number.isFinite(buffer) && buffer >= 0 && buffer <= 60 ? buffer : 5;
+  const gaps = out.timelineGaps && typeof out.timelineGaps === "object" ? out.timelineGaps : {};
+  const gapMin = Math.round(Number(gaps.minMinutes));
+  const gapMax = Math.round(Number(gaps.maxMinutes));
+  out.timelineGaps = {
+    enabled: gaps.enabled === true,
+    style: BREAK_STYLES.includes(gaps.style) ? gaps.style : "pill",
+    icon: BREAK_ICON_IDS.includes(gaps.icon) ? gaps.icon : "coffee",
+    minMinutes: Number.isFinite(gapMin) && gapMin >= 1 ? gapMin : 15,
+    maxMinutes: Number.isFinite(gapMax) && gapMax >= 0 ? gapMax : 0,
+  };
   if (!WEEKDAYS[out.firstDayOfWeek]) out.firstDayOfWeek = "monday";
   if (!["24h", "12h"].includes(out.timeFormat)) out.timeFormat = "24h";
   if (!["YYYY-MM-DD", "DD.MM.YYYY", "DD/MM/YYYY", "MM/DD/YYYY"].includes(out.dateFormat)) out.dateFormat = "YYYY-MM-DD";
@@ -990,6 +1031,97 @@ function monthLabel(year, month) {
   return `${MONTHS[month]} ${year}`;
 }
 
+/** `Wednesday, October 23, 2026`, the date heading the original calendar uses. */
+function dayHeading(key) {
+  const d = parseDateKey(key);
+  if (!d) return key;
+  const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  return `${names[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+/** `1h 30m`, `1h` or `45m`, the label the original break marker uses. */
+function gapLabel(minutes) {
+  const total = Math.max(0, Math.round(Number(minutes) || 0));
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  if (hours > 0) return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
+  return `${rest}m`;
+}
+
+/**
+ * Free periods between timed classes, from the end of one class to the start of the
+ * next. Overlapping classes are merged so their shared time is not counted twice;
+ * all-day events and days with fewer than two timed classes have no free periods.
+ * `minMinutes` and `maxMinutes` only filter the returned slots (0 means no limit).
+ */
+function freeSlots(events, options) {
+  const opts = options || {};
+  const minMinutes = Math.max(0, Math.round(Number(opts.minMinutes) || 0));
+  const maxMinutes = Math.max(0, Math.round(Number(opts.maxMinutes) || 0));
+  const timed = (Array.isArray(events) ? events : [])
+    .filter((ev) => !ev.allDay && ev.dtstart && ev.dtend && typeof ev.dtstart.getTime === "function" && typeof ev.dtend.getTime === "function")
+    .map((ev) => [ev.dtstart.getTime(), ev.dtend.getTime()])
+    .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > start)
+    .sort((a, b) => a[0] - b[0]);
+  if (timed.length < 2) return [];
+
+  const slots = [];
+  let currentEnd = timed[0][1];
+  for (let i = 1; i < timed.length; i++) {
+    const [start, end] = timed[i];
+    if (start <= currentEnd) {
+      currentEnd = Math.max(currentEnd, end);
+      continue;
+    }
+    const minutes = Math.round((start - currentEnd) / 60000);
+    if (minutes > 0 && minutes >= minMinutes && (maxMinutes === 0 || minutes <= maxMinutes)) {
+      slots.push({ start: new Date(currentEnd), end: new Date(start), minutes });
+    }
+    currentEnd = end;
+  }
+  return slots;
+}
+
+/** Total unbooked minutes between the first and last timed class of the day. */
+function dayFreeMinutes(events) {
+  return freeSlots(events).reduce((total, slot) => total + slot.minutes, 0);
+}
+
+/**
+ * Interleaves break entries with events for one day. The free periods come from the
+ * same `freeSlots` engine as the header total; the settings only decide which of
+ * those periods are drawn as markers.
+ */
+function timelineEntries(events, settings) {
+  const list = (Array.isArray(events) ? events.slice() : []).sort((a, b) => {
+    if (a.allDay && !b.allDay) return -1;
+    if (!a.allDay && b.allDay) return 1;
+    const at = a.dtstart && typeof a.dtstart.getTime === "function" ? a.dtstart.getTime() : 0;
+    const bt = b.dtstart && typeof b.dtstart.getTime === "function" ? b.dtstart.getTime() : 0;
+    return at - bt;
+  });
+  const gaps = (settings && settings.timelineGaps) || {};
+  const enabled = gaps.enabled === true;
+  const minMinutes = Math.max(1, Math.round(Number(gaps.minMinutes) || 15));
+  const maxMinutes = Math.max(0, Math.round(Number(gaps.maxMinutes) || 0));
+  const slots = enabled ? freeSlots(list, { minMinutes, maxMinutes }) : [];
+  const slotByEnd = new Map(slots.map((slot) => [slot.end.getTime(), slot]));
+  const entries = [];
+
+  for (const event of list) {
+    const start = event.dtstart && typeof event.dtstart.getTime === "function" ? event.dtstart : null;
+    if (!event.allDay && start) {
+      const slot = slotByEnd.get(start.getTime());
+      if (slot) {
+        slotByEnd.delete(start.getTime());
+        entries.push({ kind: "gap", start: slot.start, end: slot.end, minutes: slot.minutes, nextEvent: event });
+      }
+    }
+    entries.push({ kind: "event", event });
+  }
+  return entries;
+}
+
 /* ------------------------------------------------------------- countdowns */
 
 function byStart(a, b) {
@@ -1087,6 +1219,7 @@ module.exports = {
   DEFAULT_NOTE_TEMPLATE,
   DEFAULT_CALENDAR_SETTINGS,
   CLASS_CATEGORIES,
+  BREAK_ICON_OPTIONS,
   MONTHS,
   subjectKey,
   normalizeFolder,
@@ -1109,6 +1242,11 @@ module.exports = {
   monthGrid,
   weekdayLabels,
   monthLabel,
+  dayHeading,
+  gapLabel,
+  freeSlots,
+  dayFreeMinutes,
+  timelineEntries,
   nextClassStatus,
   humanizeDuration,
   examCountdown,
@@ -1122,11 +1260,13 @@ __defs["calendar-notes"] = function (module, exports, require) {
 /*
  * Creates and opens the note for one class, from the calendar module's template.
  * Note creation is always one click and never overwrites an existing note: a class
- * that already has a note opens that note.
+ * that already has a note opens that note. Notes are linked back to their event by
+ * `calendar_uid` + `calendar_date`, so renaming or moving a note does not make the
+ * calendar create a duplicate.
  */
 const { TFile, TFolder } = require("obsidian");
 const { ensureFolder } = require("./util");
-const { noteContent, noteFileName, resolveSubjectFolder } = require("./calendar-model");
+const { noteContent, noteFileName, noteVariables, resolveSubjectFolder } = require("./calendar-model");
 
 /** Every folder path in the vault, from loaded files (works without a vault-wide scan). */
 function vaultFolders(app) {
@@ -1139,12 +1279,59 @@ function vaultFolders(app) {
   return [...out].filter((p) => p && p !== "/");
 }
 
-/** Path of the note for this class, whether or not it exists yet. */
-function notePathFor(app, settings, event, dateKeyValue) {
-  const folders = vaultFolders(app);
-  const folder = resolveSubjectFolder(settings, event.summary || "", folders, event);
+/** Path of the note for this class, whether or not it exists yet. `folders` can be a shared cache. */
+function notePathFor(app, settings, event, dateKeyValue, folders) {
+  const available = folders || vaultFolders(app);
+  const folder = resolveSubjectFolder(settings, event.summary || "", available, event);
   const name = noteFileName(settings, event, dateKeyValue);
   return folder ? `${folder}/${name}` : name;
+}
+
+/** Stable key for one occurrence; recurring events share a UID but not a date. */
+function noteKey(event, dateKeyValue) {
+  const uid = String((event && event.uid) || "").trim();
+  return uid && dateKeyValue ? `${uid}|${dateKeyValue}` : "";
+}
+
+/** Index of class notes by `calendar_uid|calendar_date`, read through the metadata cache. */
+function classNoteIndex(app) {
+  const out = new Map();
+  const files = typeof app.vault.getMarkdownFiles === "function" ? app.vault.getMarkdownFiles() : [];
+  for (const file of files || []) {
+    const fm = app.metadataCache.getFileCache(file)?.frontmatter;
+    if (!fm) continue;
+    const uid = String(fm.calendar_uid || "").trim();
+    const date = String(fm.calendar_date || "").trim().slice(0, 10);
+    if (uid && date) out.set(`${uid}|${date}`, file);
+  }
+  return out;
+}
+
+/**
+ * Finds the existing class note: the path the template would create first, then the
+ * durable UID/date index. `index` can be a shared index built once per refresh.
+ */
+function findClassNote(app, settings, event, dateKeyValue, index, folders) {
+  const path = notePathFor(app, settings, event, dateKeyValue, folders);
+  const direct = app.vault.getAbstractFileByPath(path);
+  if (direct instanceof TFile) return { file: direct, path };
+  const key = noteKey(event, dateKeyValue);
+  if (!key) return null;
+  const found = (index || classNoteIndex(app)).get(key);
+  return found instanceof TFile ? { file: found, path: found.path } : null;
+}
+
+/** Adds the calendar identity to older notes the first time they are touched. */
+async function stampClassNote(app, settings, event, dateKeyValue, file) {
+  const fm = app.metadataCache.getFileCache(file)?.frontmatter || {};
+  const uid = String((event && event.uid) || "").trim();
+  const subject = noteVariables(settings, event, dateKeyValue).subject;
+  if ((!uid || fm.calendar_uid === uid) && fm.calendar_date === dateKeyValue && fm.course) return;
+  await app.fileManager.processFrontMatter(file, (next) => {
+    if (uid && !next.calendar_uid) next.calendar_uid = uid;
+    if (!next.calendar_date) next.calendar_date = dateKeyValue;
+    if (!next.course) next.course = subject;
+  });
 }
 
 async function openFile(app, file) {
@@ -1154,27 +1341,329 @@ async function openFile(app, file) {
 
 /**
  * Opens the class note, creating it from the template when missing.
- * Returns { path, created } so callers can tell the learner what happened.
+ * Returns { path, created, file } so callers can tell the learner what happened.
  */
-async function openOrCreateClassNote(app, settings, event, dateKeyValue) {
-  const path = notePathFor(app, settings, event, dateKeyValue);
-  const existing = app.vault.getAbstractFileByPath(path);
-  if (existing instanceof TFile) {
-    await openFile(app, existing);
-    return { path, created: false };
+async function openOrCreateClassNote(app, settings, event, dateKeyValue, index, folders) {
+  const found = findClassNote(app, settings, event, dateKeyValue, index, folders);
+  if (found) {
+    await stampClassNote(app, settings, event, dateKeyValue, found.file);
+    await openFile(app, found.file);
+    return { path: found.path, created: false, file: found.file };
   }
+
+  const path = notePathFor(app, settings, event, dateKeyValue, folders);
   const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
   if (dir) await ensureFolder(app, dir);
   const file = await app.vault.create(path, noteContent(settings, event, dateKeyValue));
+  await stampClassNote(app, settings, event, dateKeyValue, file);
   await openFile(app, file);
-  return { path, created: true };
+  return { path, created: true, file };
 }
 
 module.exports = {
   vaultFolders,
   notePathFor,
+  noteKey,
+  classNoteIndex,
+  findClassNote,
+  stampClassNote,
   openOrCreateClassNote,
 };
+};
+
+/* ---- src/calendar-settings.js ---- */
+__defs["calendar-settings"] = function (module, exports, require) {
+/*
+ * Calendar settings live in their own module so the main settings page stays small
+ * as the calendar grows. Everything here mutates the plugin's calendar settings and
+ * saves immediately, like the rest of the settings page.
+ */
+const { Notice, Setting } = require("obsidian");
+const { str } = require("./util");
+const { BREAK_ICON_OPTIONS, CLASS_CATEGORIES } = require("./calendar-model");
+
+function renderCalendarSettings(containerEl, plugin, redisplay) {
+    new Setting(containerEl).setName("Calendar").setHeading();
+    const cal = plugin.settings.calendar;
+    new Setting(containerEl)
+      .setName("Enable the calendar module")
+      .setDesc("Adds a class and exam calendar: import an .ics schedule, open a note for a class in one click, see exam countdowns, and embed a day's classes in a note. Off by default.")
+      .addToggle((t) =>
+        t.setValue(!!cal.enabled).onChange(async (v) => {
+          cal.enabled = v;
+          await plugin.save();
+          await plugin.onCalendarToggled();
+          redisplay();
+        })
+      );
+
+    if (cal.enabled) {
+      new Setting(containerEl).setName("Schedules").setHeading();
+      if (!cal.sources.length) {
+        containerEl.createEl("p", { cls: "setting-item-description", text: "No schedules yet. Add an .ics file from your vault, or a public feed URL." });
+      }
+      for (const src of cal.sources) {
+        new Setting(containerEl)
+          .setName(src.name)
+          .setDesc(`${src.type === "url" ? src.url : src.path}${src.lastSync ? ` · last synced ${new Date(src.lastSync).toLocaleDateString()}` : ""}`)
+          .addToggle((t) =>
+            t.setValue(!src.hidden).onChange(async (v) => {
+              src.hidden = !v;
+              plugin.invalidateCalendar();
+              await plugin.save();
+              plugin.refreshCalendarViews();
+            })
+          )
+          .addButton((b) =>
+            b.setButtonText("Sync").onClick(async () => {
+              try {
+                await plugin.syncCalendarSource(src.id);
+                new Notice("Schedule updated.");
+              } catch (e) {
+                new Notice(str(e.message));
+              }
+              redisplay();
+            })
+          )
+          .addButton((b) =>
+            b.setButtonText("Remove").setWarning().onClick(async () => {
+              await plugin.removeCalendarSource(src.id);
+              redisplay();
+            })
+          );
+      }
+      new Setting(containerEl)
+        .setName("Add a schedule")
+        .setDesc("Import an .ics file from the vault, or paste a public calendar feed. Google share links are converted to their .ics address.")
+        .addButton((b) => b.setButtonText("Add").onClick(() => plugin.openCalendarImport()));
+
+      new Setting(containerEl).setName("Class notes").setHeading();
+      new Setting(containerEl)
+        .setName("Note folder")
+        .setDesc("Where class notes go when no subject folder matches. Leave empty for the vault root.")
+        .addText((t) =>
+          t.setPlaceholder("e.g. University").setValue(cal.noteFolder).onChange(async (v) => {
+            cal.noteFolder = v.trim();
+            await plugin.save();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Note name format")
+        .setDesc("Variables: {date}, {subject}, {time}, {time_start}, {time_end}, {room}, {lecturer}, {type}.")
+        .addText((t) =>
+          t.setValue(cal.noteNameFormat).onChange(async (v) => {
+            cal.noteNameFormat = v;
+            await plugin.save();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Note template")
+        .setDesc("Used for new class notes. {course} is the cleaned subject name, so questions filed in the same folder can be tagged with it.")
+        .addTextArea((t) => {
+          t.inputEl.rows = 10;
+          t.setValue(cal.noteTemplate).onChange(async (v) => {
+            cal.noteTemplate = v;
+            await plugin.save();
+          });
+        });
+
+      new Setting(containerEl)
+        .setName("Subject folders")
+        .setDesc("Filled in when you create a class note: a subject always maps to the folder where its notes live.")
+        .setHeading();
+      const mappings = Object.entries(cal.subjectFolders);
+      if (!mappings.length) containerEl.createEl("p", { cls: "setting-item-description", text: "No mappings yet. Create a note for a class and its folder is remembered here." });
+      for (const [subject, folder] of mappings) {
+        new Setting(containerEl)
+          .setName(subject)
+          .addText((t) =>
+            t.setValue(folder).onChange(async (v) => {
+              cal.subjectFolders[subject] = v.trim();
+              await plugin.save();
+            })
+          )
+          .addButton((b) =>
+            b.setButtonText("Remove").onClick(async () => {
+              delete cal.subjectFolders[subject];
+              await plugin.save();
+              redisplay();
+            })
+          );
+      }
+
+      new Setting(containerEl).setName("Visibility").setHeading();
+      new Setting(containerEl)
+        .setName("Excluded subjects")
+        .setDesc("Comma-separated. These never appear on the calendar, in countdowns, or in exports.")
+        .addText((t) =>
+          t.setValue(cal.excludedSubjects.join(", ")).onChange(async (v) => {
+            cal.excludedSubjects = v.split(",").map((x) => x.trim()).filter(Boolean);
+            plugin.invalidateCalendar();
+            await plugin.save();
+            plugin.refreshCalendarViews();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Excluded keywords")
+        .setDesc("Comma-separated. Any event whose title, room or description contains one of these is hidden.")
+        .addText((t) =>
+          t.setValue(cal.excludedKeywords.join(", ")).onChange(async (v) => {
+            cal.excludedKeywords = v.split(",").map((x) => x.trim()).filter(Boolean);
+            plugin.invalidateCalendar();
+            await plugin.save();
+            plugin.refreshCalendarViews();
+          })
+        );
+
+      new Setting(containerEl).setName("Display").setHeading();
+      new Setting(containerEl)
+        .setName("First day of the week")
+        .addDropdown((d) =>
+          d
+            .addOptions({ monday: "Monday", sunday: "Sunday" })
+            .setValue(cal.firstDayOfWeek)
+            .onChange(async (v) => {
+              cal.firstDayOfWeek = v;
+              await plugin.save();
+              plugin.refreshCalendarViews();
+            })
+        );
+      new Setting(containerEl)
+        .setName("Time format")
+        .addDropdown((d) =>
+          d
+            .addOptions({ "24h": "24-hour", "12h": "12-hour" })
+            .setValue(cal.timeFormat)
+            .onChange(async (v) => {
+              cal.timeFormat = v;
+              await plugin.save();
+              plugin.refreshCalendarViews();
+            })
+        );
+      new Setting(containerEl)
+        .setName("Date format")
+        .addDropdown((d) =>
+          d
+            .addOptions({ "YYYY-MM-DD": "2026-10-05", "DD.MM.YYYY": "05.10.2026", "DD/MM/YYYY": "05/10/2026", "MM/DD/YYYY": "10/05/2026" })
+            .setValue(cal.dateFormat)
+            .onChange(async (v) => {
+              cal.dateFormat = v;
+              await plugin.save();
+              plugin.refreshCalendarViews();
+            })
+        );
+
+      new Setting(containerEl).setName("Breaks between classes").setHeading();
+      if (!cal.timelineGaps) cal.timelineGaps = {};
+      const gaps = cal.timelineGaps;
+      let gapDetails = null;
+      new Setting(containerEl)
+        .setName("Show breaks between classes")
+        .setDesc("Marks free periods between consecutive classes on the day timeline. Off by default.")
+        .addToggle((t) =>
+          t.setValue(!!gaps.enabled).onChange(async (v) => {
+            gaps.enabled = v;
+            if (gapDetails) gapDetails.style.display = v ? "" : "none";
+            await plugin.save();
+            plugin.refreshCalendarViews();
+          })
+        );
+      gapDetails = containerEl.createDiv();
+      gapDetails.style.display = gaps.enabled ? "" : "none";
+      new Setting(gapDetails)
+        .setName("Break style")
+        .addDropdown((d) =>
+          d
+            .addOptions({ pill: "Pill badge", line: "Dashed line", card: "Timeline card", text: "Plain text" })
+            .setValue(gaps.style || "pill")
+            .onChange(async (v) => {
+              gaps.style = v;
+              await plugin.save();
+              plugin.refreshCalendarViews();
+            })
+        );
+      new Setting(gapDetails)
+        .setName("Break icon")
+        .addDropdown((d) =>
+          d
+            .addOptions(Object.fromEntries(BREAK_ICON_OPTIONS))
+            .setValue(gaps.icon || "coffee")
+            .onChange(async (v) => {
+              gaps.icon = v;
+              await plugin.save();
+              plugin.refreshCalendarViews();
+            })
+        );
+      new Setting(gapDetails)
+        .setName("Minimum break length (minutes)")
+        .setDesc("Free periods shorter than this are not shown.")
+        .addText((t) => {
+          t.inputEl.type = "number";
+          t.inputEl.min = "1";
+          t.inputEl.step = "5";
+          t.setValue(String(gaps.minMinutes || 15)).onChange(async (v) => {
+            const n = parseInt(v, 10);
+            gaps.minMinutes = Number.isFinite(n) && n >= 1 ? n : 15;
+            await plugin.save();
+            plugin.refreshCalendarViews();
+          });
+        });
+      new Setting(gapDetails)
+        .setName("Maximum break length (minutes)")
+        .setDesc("0 means no upper limit.")
+        .addText((t) => {
+          t.inputEl.type = "number";
+          t.inputEl.min = "0";
+          t.inputEl.step = "5";
+          t.setValue(gaps.maxMinutes ? String(gaps.maxMinutes) : "").onChange(async (v) => {
+            const n = parseInt(v, 10);
+            gaps.maxMinutes = Number.isFinite(n) && n >= 0 ? n : 0;
+            await plugin.save();
+            plugin.refreshCalendarViews();
+          });
+        });
+
+      new Setting(containerEl).setName("Study from free time").setHeading();
+      new Setting(containerEl)
+        .setName("Keep free before the next class (minutes)")
+        .setDesc("When you start Quick Practice from a free period, stop this many minutes before the next class. 0 turns the buffer off.")
+        .addText((t) => {
+          t.inputEl.type = "number";
+          t.inputEl.min = "0";
+          t.inputEl.max = "60";
+          t.inputEl.step = "5";
+          t.setValue(String(cal.studySlotBufferMinutes)).onChange(async (v) => {
+            const n = parseInt(v, 10);
+            cal.studySlotBufferMinutes = Number.isFinite(n) && n >= 0 && n <= 60 ? n : 5;
+            await plugin.save();
+          });
+        });
+
+      new Setting(containerEl).setName("Class colors").setHeading();
+      for (const category of CLASS_CATEGORIES) {
+        new Setting(containerEl).setName(category.label).addColorPicker((c) =>
+          c.setValue(cal.classColors[category.id] || category.color).onChange(async (v) => {
+            cal.classColors[category.id] = v;
+            await plugin.save();
+            plugin.refreshCalendarViews();
+          })
+        );
+      }
+
+      new Setting(containerEl).setName("Actions").setHeading();
+      new Setting(containerEl)
+        .setName("Create or open the note for the next class")
+        .setDesc("Uses the note template above and the subject's folder.")
+        .addButton((b) => b.setButtonText("Open note").onClick(() => plugin.openNextClassNote()));
+      new Setting(containerEl)
+        .setName("Export the visible schedule")
+        .setDesc("Writes schedule-export.ics to the vault root, with hidden sources and excluded subjects left out.")
+        .addButton((b) => b.setButtonText("Export .ics").onClick(() => plugin.exportCalendarIcs()));
+    }
+
+}
+
+module.exports = { renderCalendarSettings };
 };
 
 /* ---- src/calendar-view.js ---- */
@@ -1182,89 +1671,302 @@ __defs["calendar-view"] = function (module, exports, require) {
 /*
  * Calendar view, the `uni-schedule` embed and the "add schedule" dialog.
  *
- * The month grid, day timeline, live countdown and per-class note button are adapted
+ * The month card, day cells, timeline, event cards and note badges are adapted
  * from University Schedule and Calendar (MIT, Copyright (c) 2026 Cesemess),
- * https://github.com/Cesemess/obsidian-uni-calendar @ 35778e4. The rendering was
- * rewritten against this plugin's `qt-` styles and item view conventions; see NOTICES.md.
+ * https://github.com/Cesemess/obsidian-uni-calendar @ 35778e4. The markup and
+ * class names follow that plugin so the calendar looks the same; see NOTICES.md.
  */
-const { ItemView, Modal, Notice, Setting } = require("obsidian");
+const { ItemView, Modal, Notice, Setting, setIcon } = require("obsidian");
 const { VIEW_TYPE_CALENDAR } = require("./constants");
 const { addDays, str } = require("./util");
 const { dateKey } = require("./calendar-ics");
 const {
   classColor,
   classTypeLabel,
+  dayFreeMinutes,
+  dayHeading,
   eventsOnDay,
   examCountdown,
   formatDateValue,
   formatTime,
-  humanizeDuration,
-  monthGrid,
+  freeSlots,
+  gapLabel,
   monthLabel,
-  nextClassStatus,
-  parseClassDetails,
+  timelineEntries,
   upcomingExams,
+  parseClassDetails,
   weekdayLabels,
 } = require("./calendar-model");
+
 
 function detailsOf(event) {
   if (!event.details) event.details = parseClassDetails(event.summary, event.description, event.location);
   return event.details;
 }
 
-/** Status line content: the running class or the next one, with a live countdown. */
-function statusText(plugin, now) {
-  const settings = plugin.calendarSettings();
-  const status = nextClassStatus(plugin.calendarEvents(), now || new Date());
-  if (status.state === "none") return { text: "No upcoming classes.", live: false };
-  const details = detailsOf(status.event);
-  const time = status.event.allDay ? "all day" : formatTime(settings, status.event.dtstart);
-  if (status.state === "ongoing") {
-    return {
-      text: `${status.event.summary} is in progress · ${humanizeDuration(status.endsInMs)} left (until ${formatTime(settings, status.event.dtend)})`,
-      live: true,
-      event: status.event,
-      details,
-    };
-  }
-  const ifExam = details.isExam ? ` · ${examCountdown(status.event, now || new Date())}` : "";
-  return { text: `Next: ${status.event.summary} · ${humanizeDuration(status.startsInMs)} (${time})${ifExam}`, live: false, event: status.event, details };
+function classesCount(count) {
+  if (!count) return "No classes";
+  return count === 1 ? "1 class" : `${count} classes`;
 }
 
-function eventRow(plugin, container, event, settings) {
-  const details = detailsOf(event);
-  const row = container.createDiv({ cls: "qt-cal-event" });
-  if (details.isExam) row.addClass("is-exam");
-  const time = row.createDiv({ cls: "qt-cal-event-time" });
-  time.createDiv({ text: event.allDay ? "All day" : formatTime(settings, event.dtstart) });
-  if (!event.allDay && event.dtend) time.createDiv({ cls: "qt-cal-event-end", text: formatTime(settings, event.dtend) });
-  const bar = row.createDiv({ cls: "qt-cal-event-bar" });
-  bar.style.background = classColor(settings, details, event.summary);
-  const body = row.createDiv({ cls: "qt-cal-event-body" });
-  const titleRow = body.createDiv({ cls: "qt-cal-event-title-row" });
-  titleRow.createSpan({ cls: "qt-cal-event-title", text: str(event.summary) || "Class" });
-  if (details.isExam) titleRow.createSpan({ cls: "qt-cal-badge", text: `Exam · ${examCountdown(event, new Date())}` });
-  const meta = [details.room, details.lecturer, classTypeLabel(settings, details.category)].filter(Boolean).join(" · ");
-  if (meta) body.createDiv({ cls: "qt-cal-event-meta", text: meta });
-  const actions = body.createDiv({ cls: "qt-cal-event-actions" });
-  const noteBtn = actions.createEl("button", { cls: "qt-cal-note-btn", text: "Open note" });
-  noteBtn.addEventListener("click", () => {
-    plugin.openClassNote(event, event.dateKey).catch((e) => new Notice(str(e && e.message) || "Could not create the note."));
-  });
-  return row;
+const BREAK_ICONS = {
+  coffee: "coffee",
+  food: "utensils",
+  pause: "pause",
+  hourglass: "hourglass",
+  walk: "footprints",
+  book: "book-open",
+  music: "music",
+  sun: "sun",
+  moon: "moon",
+  spark: "zap",
+  battery: "battery-charging",
+  clock: "clock",
+  leaf: "leaf",
+  smile: "smile",
+};
+
+function renderBreakIcon(container, icon) {
+  const span = container.createSpan({ cls: "uni-timeline-gap-icon" });
+  setIcon(span, BREAK_ICONS[icon] || "coffee");
 }
 
-/** Daily timeline reused by the sidebar view and the code block. */
-function renderDayTimeline(plugin, container, key, options) {
-  const opts = options || {};
-  const settings = plugin.calendarSettings();
-  const events = eventsOnDay(plugin.calendarEvents(), key);
-  if (!events.length) {
-    container.createDiv({ cls: "qt-cal-empty", text: opts.emptyText || "No classes on this day." });
+/** One free-period marker between two classes, in the configured style. */
+function renderGapMarker(timeline, gap, settings, onStudy) {
+  const gaps = settings.timelineGaps || {};
+  const style = gaps.style || "pill";
+  const icon = gaps.icon || "coffee";
+  const label = gapLabel(gap.minutes);
+  const timeRange = `${formatTime(settings, gap.start)} – ${formatTime(settings, gap.end)}`;
+
+  const activate = (el, title) => {
+    el.setAttr("title", title);
+    if (!onStudy) return;
+    el.setAttr("role", "button");
+    el.setAttr("tabindex", "0");
+    el.setAttr("aria-label", `Study during the free period, ${timeRange}`);
+    el.addEventListener("click", () => onStudy(gap));
+    el.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onStudy(gap);
+    });
+  };
+
+  if (style === "card") {
+    const item = timeline.createDiv({ cls: "uni-timeline-item uni-timeline-break-item" });
+    activate(item, `Free period: ${timeRange}. Click to study.`);
+    const node = item.createDiv({ cls: "uni-timeline-node uni-timeline-break-node" });
+    renderBreakIcon(node, icon);
+    const card = item.createDiv({ cls: "uni-event-card uni-break-event-card" });
+    const header = card.createDiv({ cls: "uni-event-header" });
+    header.createSpan({ cls: "uni-event-time", text: timeRange });
+    header.createSpan({ cls: "uni-break-card-duration-badge", text: label });
+    const titleRow = card.createDiv({ cls: "uni-event-title-row uni-break-event-title-row" });
+    titleRow.createSpan({ cls: "uni-event-title uni-break-event-title", text: "Free period / Break" });
     return;
   }
-  const list = container.createDiv({ cls: "qt-cal-timeline" });
-  for (const event of events) eventRow(plugin, list, event, settings);
+
+  if (style === "line") {
+    const item = timeline.createDiv({ cls: "uni-timeline-item uni-timeline-break-line-item" });
+    activate(item, `Free period: ${timeRange}. Click to study.`);
+    const node = item.createDiv({ cls: "uni-timeline-node uni-timeline-break-line-node" });
+    renderBreakIcon(node, icon);
+    const labelRow = item.createDiv({ cls: "uni-timeline-break-line-label" });
+    labelRow.createSpan({ cls: "uni-timeline-break-line-text", text: label });
+    return;
+  }
+
+  const gapRow = timeline.createDiv({ cls: `uni-timeline-gap style-${style === "text" ? "text" : "pill"}` });
+  activate(gapRow, `Free period: ${timeRange}. Click to study.`);
+  const pill = gapRow.createSpan({ cls: "uni-timeline-gap-pill" });
+  renderBreakIcon(pill, icon);
+  pill.createSpan({ text: ` ${label}` });
+}
+
+/**
+ * The original calendar shows only the weeks the month needs, not a fixed six.
+ * This mirrors its leading/trailing day maths while leaving `monthGrid` alone.
+ */
+function compactMonthCells(year, month, firstDayOfWeek, now) {
+  const first = new Date(year, month, 1);
+  const start = firstDayOfWeek === "sunday" ? first.getDay() : (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrev = new Date(year, month, 0).getDate();
+  const todayKey = dateKey(now || new Date());
+  const cells = [];
+  const push = (date, inMonth) => {
+    const key = dateKey(date);
+    cells.push({ key, day: date.getDate(), inMonth, isToday: key === todayKey });
+  };
+  for (let i = start; i > 0; i--) push(new Date(year, month - 1, daysInPrev - i + 1), false);
+  for (let day = 1; day <= daysInMonth; day++) push(new Date(year, month, day), true);
+  const remaining = cells.length % 7 === 0 ? 0 : 7 - (cells.length % 7);
+  for (let day = 1; day <= remaining; day++) push(new Date(year, month + 1, day), false);
+  return cells;
+}
+
+function noteExists(plugin, event, key) {
+  try {
+    return !!plugin.findCalendarNote(event, key);
+  } catch (e) {
+    return false;
+  }
+}
+
+/** Free periods with the subject of the next class, used by the study-slot chooser. */
+function studySlotsFor(events) {
+  const timed = (events || [])
+    .filter((ev) => !ev.allDay && ev.dtstart && ev.dtend)
+    .sort((a, b) => a.dtstart - b.dtstart);
+  return freeSlots(events).map((slot) => ({
+    start: slot.start,
+    end: slot.end,
+    minutes: slot.minutes,
+    subject: (timed.find((ev) => ev.dtstart >= slot.end) || {}).summary || "",
+  }));
+}
+
+/** One event card, with the original plugin's header, meta line and note badge. */
+function renderEventCard(plugin, timeline, event, key, options) {
+  const opts = options || {};
+  const settings = plugin.calendarSettings();
+  const details = detailsOf(event);
+  const color = classColor(settings, details, event.summary);
+
+  const item = timeline.createDiv({ cls: "uni-timeline-item" });
+  const node = item.createDiv({ cls: "uni-timeline-node" });
+  node.style.backgroundColor = color;
+
+  const card = item.createDiv({ cls: "uni-event-card" });
+  card.style.setProperty("--event-color", color);
+  card.setAttr("role", "button");
+  card.setAttr("tabindex", "0");
+
+  const now = new Date();
+  const ongoing =
+    key === dateKey(now) && !event.allDay && event.dtstart && event.dtend && now >= event.dtstart && now < event.dtend;
+  if (ongoing) card.addClass("is-ongoing");
+
+  const header = card.createDiv({ cls: "uni-event-header" });
+  const time = event.allDay
+    ? "All day"
+    : event.dtend
+      ? `${formatTime(settings, event.dtstart)} – ${formatTime(settings, event.dtend)}`
+      : formatTime(settings, event.dtstart);
+  header.createDiv({ cls: "uni-event-time", text: time });
+
+  if (ongoing) {
+    const countdown = header.createDiv({ cls: "uni-event-countdown" });
+    setIcon(countdown, "clock");
+    const text = countdown.createSpan({ text: `${Math.max(1, Math.round((event.dtend - now) / 60000))} min left` });
+    if (opts.liveNodes) opts.liveNodes.push({ node: text, event });
+  }
+
+  header.createDiv({ cls: "uni-event-type-badge", text: classTypeLabel(settings, details.category) });
+  card.createDiv({ cls: "uni-event-title", text: str(event.summary) || "Class" });
+
+  const meta = card.createDiv({ cls: "uni-event-meta" });
+  if (details.room) {
+    const room = meta.createSpan({ cls: "uni-event-meta-item" });
+    setIcon(room, "map-pin");
+    room.createSpan({ text: details.room });
+  }
+  if (details.lecturer) {
+    const lecturer = meta.createSpan({ cls: "uni-event-meta-item" });
+    setIcon(lecturer, "user");
+    lecturer.createSpan({ text: details.lecturer });
+  }
+
+  const status = card.createDiv({ cls: "uni-note-status" });
+  const left = status.createDiv({ cls: "uni-note-status-left" });
+  status.createDiv({ cls: "uni-note-status-right" });
+
+  const exists = noteExists(plugin, event, key);
+  const badge = left.createDiv({ cls: `uni-note-status-badge is-clickable ${exists ? "has-note" : "missing-note"}` });
+  badge.setAttr("title", exists ? "Open note" : "Click to create note");
+  setIcon(badge, exists ? "file-text" : "plus");
+  badge.createSpan({ text: exists ? "Note exists" : "Missing note" });
+
+  const label = str(event.summary) || "this class";
+  card.setAttr("aria-label", `${exists ? "Open" : "Create"} note for ${label}`);
+
+  const open = (e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (e && e.preventDefault) e.preventDefault();
+    plugin
+      .openClassNote(event, key)
+      .then(() => plugin.refreshCalendarViews())
+      .catch((err) => new Notice(str(err && err.message) || "Could not open the note."));
+  };
+  const onKey = (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    open(e);
+  };
+  badge.addEventListener("click", open);
+  card.addEventListener("click", open);
+  card.addEventListener("keydown", (e) => {
+    if (e.target && e.target !== card) return;
+    onKey(e);
+  });
+  return card;
+}
+
+/** The original `renderScheduleTimeline`: section header, empty state, timeline. */
+function renderDaySection(plugin, container, key, options) {
+  const opts = options || {};
+  const settings = plugin.calendarSettings();
+  const events = eventsOnDay(opts.events || plugin.calendarEvents(opts.now), key);
+  const section = container.createDiv({ cls: "uni-schedule-section" });
+  const header = section.createDiv({ cls: "uni-schedule-header" });
+  if (opts.title !== false) header.createDiv({ cls: "uni-schedule-date-title", text: dayHeading(key) });
+  const badges = header.createDiv({ cls: "uni-schedule-badges" });
+  badges.createDiv({ cls: "uni-schedule-badge-count", text: classesCount(events.length) });
+  const freeMinutes = dayFreeMinutes(events);
+  const slots = studySlotsFor(events);
+  if (freeMinutes > 0) {
+    const free = badges.createEl("button", { cls: "uni-schedule-badge-free", text: `${gapLabel(freeMinutes)} free` });
+    free.setAttr("type", "button");
+    free.setAttr("title", "Free time between the first and last class. Click to study.");
+    free.addEventListener("click", () => plugin.openStudySlot(slots));
+  }
+
+  if (!events.length) {
+    const empty = section.createDiv({ cls: "uni-empty-schedule" });
+    empty.createDiv({ cls: "uni-empty-schedule-icon", text: "🎓" });
+    empty.createDiv({
+      cls: "uni-empty-schedule-title uni-empty-schedule-text",
+      text: opts.emptyTitle || "No classes scheduled for this day.",
+    });
+    empty.createDiv({ cls: "uni-empty-schedule-subtext", text: "Enjoy your free time or review your notes!" });
+    return section;
+  }
+
+  const timeline = section.createDiv({ cls: "uni-timeline" });
+  for (const entry of timelineEntries(events, settings)) {
+    if (entry.kind === "gap") {
+      renderGapMarker(timeline, entry, settings, (gap) =>
+        plugin.openStudySlot([
+          { start: gap.start, end: gap.end, minutes: gap.minutes, subject: (gap.nextEvent && gap.nextEvent.summary) || "" },
+        ])
+      );
+    } else {
+      renderEventCard(plugin, timeline, entry.event, key, { liveNodes: opts.liveNodes });
+    }
+  }
+  return section;
+}
+
+function renderEmptyState(container, title, description, buttonText, onClick) {
+  const empty = container.createDiv({ cls: "uni-empty-schedule" });
+  empty.createDiv({ cls: "uni-empty-schedule-icon", text: "📅" });
+  empty.createDiv({ cls: "uni-empty-schedule-title", text: title });
+  empty.createDiv({ cls: "uni-empty-schedule-desc", text: description });
+  if (buttonText && onClick) {
+    const button = empty.createEl("button", { cls: "uni-keyword-btn uni-action-btn uni-empty-add-btn", text: buttonText });
+    button.addEventListener("click", onClick);
+  }
 }
 
 /** Reads `date: today|tomorrow|YYYY-MM-DD` from a `uni-schedule` block. */
@@ -1282,14 +1984,6 @@ function parseScheduleBlock(source, now) {
   return { dateKey: key };
 }
 
-function dayLabel(key, settings) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
-  if (!m) return key;
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  return `${names[d.getDay()]}, ${formatDateValue(settings.dateFormat, key)}`;
-}
-
 /* ------------------------------------------------------------------- view */
 
 class CalendarView extends ItemView {
@@ -1299,17 +1993,20 @@ class CalendarView extends ItemView {
     this.cursor = new Date();
     this.mode = "month"; // month | day | upcoming
     this.selectedKey = dateKey(new Date());
-    this.statusEl = null;
+    this.liveNodes = [];
+    this.liveSignature = "";
+    this.range = null;
+    this._focusKey = "";
   }
 
   getViewType() {
     return VIEW_TYPE_CALENDAR;
   }
   getDisplayText() {
-    return "Calendar";
+    return "Schedule & Calendar";
   }
   getIcon() {
-    return "calendar-days";
+    return "graduation-cap";
   }
 
   async onOpen() {
@@ -1321,172 +2018,460 @@ class CalendarView extends ItemView {
         this.plugin.refreshCalendarFileSources().then(() => this.render());
       })
     );
-    this.registerInterval(
-      activeWindow.setInterval(() => {
-        if (this.statusEl && this.statusEl.isConnected) this.renderStatus();
-      }, 30000)
-    );
+    // Keep a running class countdown honest without rebuilding the whole view.
+    this.registerInterval(activeWindow.setInterval(() => this.refreshLive(), 30000));
     this.render();
   }
 
   async onClose() {}
 
-  renderStatus() {
-    if (!this.statusEl) return;
-    this.statusEl.empty();
-    const plugin = this.plugin;
-    if (!plugin.calendarEnabled()) return;
-    const info = statusText(plugin);
-    const line = this.statusEl.createDiv({ cls: info.live ? "qt-cal-status is-live" : "qt-cal-status", text: info.text });
-    if (info.live) line.addClass("is-live");
-  }
-
   render() {
     const el = this.contentEl;
+    const top = el.scrollTop || 0;
+    this.liveNodes = [];
     el.empty();
-    const plugin = this.plugin;
-    const root = el.createDiv({ cls: "qt-wrap qt-cal" });
-    const head = root.createDiv({ cls: "qt-cal-head" });
-    head.createDiv({ cls: "qt-cal-heading", text: "Calendar" });
-    const actions = head.createDiv({ cls: "qt-cal-head-actions" });
-    const addBtn = actions.createEl("button", { cls: "qt-cal-add", text: "Add schedule" });
-    addBtn.addEventListener("click", () => plugin.openCalendarImport());
-    if (!plugin.calendarEnabled()) {
-      root.createDiv({ cls: "qt-cal-empty", text: "The calendar module is off. Turn it on in Settings, Calendar, to import a class schedule." });
-      const onBtn = root.createEl("button", { cls: "mod-cta", text: "Open settings" });
-      onBtn.addEventListener("click", () => plugin.openSettings());
-      return;
-    }
-    this.statusEl = root.createDiv({ cls: "qt-cal-status-line" });
-    this.renderStatus();
+    el.addClass("uni-calendar-container");
 
-    if (!plugin.calendarSources().some((s) => !s.hidden)) {
-      const empty = root.createDiv({ cls: "qt-cal-empty-state" });
-      empty.createDiv({ cls: "qt-cal-empty", text: "No schedule yet. Add an .ics file to your vault, or a public calendar feed, to see your classes and exams here." });
-      const btn = empty.createEl("button", { cls: "mod-cta", text: "Add a schedule" });
-      btn.addEventListener("click", () => plugin.openCalendarImport());
+    if (!this.plugin.calendarEnabled()) {
+      renderEmptyState(
+        el,
+        "Calendar is off",
+        "Turn on the calendar module in Settings, Calendar, to import a class schedule.",
+        "Open settings",
+        () => this.plugin.openSettings()
+      );
+      el.scrollTop = top;
       return;
     }
 
-    const modes = root.createDiv({ cls: "qt-row qt-cal-modes" });
+    if (!this.plugin.calendarSources().some((source) => !source.hidden)) {
+      const card = el.createDiv({ cls: "uni-month-card" });
+      this.renderMonthHeader(card, monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()), "month");
+      renderEmptyState(
+        el,
+        "No university schedule added yet",
+        "Add an .ics file to your vault, or a public calendar feed, to see your classes and exams here.",
+        "Add a schedule",
+        () => this.plugin.openCalendarImport()
+      );
+      el.scrollTop = top;
+      return;
+    }
+
+    // The cache window follows the month being viewed, not just today. Upcoming is
+    // always relative to today and therefore uses the current window.
+    const range = this.mode === "upcoming" ? new Date() : this.cursor;
+    this.range = range;
+    const events = this.plugin.calendarEvents(range);
+    this.renderModes(el);
+    if (this.mode === "month") {
+      this.renderMonthCard(el, events);
+      renderDaySection(this.plugin, el, this.selectedKey, { title: true, events, now: range, liveNodes: this.liveNodes });
+      // Exams are always "from today", even while browsing another month.
+      this.renderExamPanel(el, this.plugin.calendarEvents());
+    } else if (this.mode === "day") {
+      const card = el.createDiv({ cls: "uni-month-card" });
+      this.renderMonthHeader(card, dayHeading(this.selectedKey), "day");
+      renderDaySection(this.plugin, el, this.selectedKey, { title: false, events, now: range, liveNodes: this.liveNodes });
+      this.renderExamPanel(el, this.plugin.calendarEvents());
+    } else {
+      const card = el.createDiv({ cls: "uni-month-card" });
+      this.renderMonthHeader(card, "Upcoming", "upcoming");
+      this.renderUpcoming(el, events);
+      this.renderExamPanel(el, this.plugin.calendarEvents());
+    }
+    this.liveSignature = this.ongoingSignature(events);
+    if (this._focusKey) {
+      const key = this._focusKey;
+      this._focusKey = "";
+      this.focusDay(key);
+    }
+    el.scrollTop = top;
+  }
+
+  renderModes(container) {
+    const modes = container.createDiv({ cls: "uni-calendar-modes" });
     for (const [id, label] of [["month", "Month"], ["day", "Day"], ["upcoming", "Upcoming"]]) {
-      const b = modes.createEl("button", { text: label });
-      if (this.mode === id) b.addClass("mod-cta");
-      b.addEventListener("click", () => {
+      const button = modes.createEl("button", { cls: "uni-filter-btn", text: label });
+      if (this.mode === id) button.addClass("is-active");
+      button.addEventListener("click", () => {
         this.mode = id;
         this.render();
       });
     }
-
-    if (this.mode === "month") this.renderMonth(root);
-    else if (this.mode === "day") this.renderDay(root);
-    else this.renderUpcoming(root);
   }
 
-  renderMonth(root) {
-    const plugin = this.plugin;
-    const settings = plugin.calendarSettings();
-    const events = plugin.calendarEvents();
-    const nav = root.createDiv({ cls: "qt-cal-nav" });
-    const prev = nav.createEl("button", { text: "‹" });
-    prev.addEventListener("click", () => this.shiftMonth(-1));
-    nav.createDiv({ cls: "qt-cal-month", text: monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()) });
-    const next = nav.createEl("button", { text: "›" });
-    next.addEventListener("click", () => this.shiftMonth(1));
-    const todayBtn = nav.createEl("button", { cls: "qt-cal-today", text: "Today" });
-    todayBtn.addEventListener("click", () => {
-      this.cursor = new Date();
-      this.selectedKey = dateKey(new Date());
-      this.render();
-    });
+  renderMonthCard(container, events) {
+    const settings = this.plugin.calendarSettings();
+    const card = container.createDiv({ cls: "uni-month-card" });
+    this.renderMonthHeader(card, monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()), "month");
 
-    const grid = root.createDiv({ cls: "qt-cal-grid" });
-    for (const label of weekdayLabels(settings.firstDayOfWeek)) grid.createDiv({ cls: "qt-cal-wd", text: label });
-    for (const cell of monthGrid(this.cursor.getFullYear(), this.cursor.getMonth(), settings.firstDayOfWeek)) {
-      const btn = grid.createEl("button", { cls: "qt-cal-cell" });
-      if (!cell.inMonth) btn.addClass("is-outside");
-      if (cell.isToday) btn.addClass("is-today");
-      if (cell.key === this.selectedKey) btn.addClass("is-selected");
-      btn.createDiv({ cls: "qt-cal-daynum", text: String(cell.day) });
-      const dayEvents = eventsOnDay(events, cell.key);
-      const dots = btn.createDiv({ cls: "qt-cal-dots" });
-      for (const ev of dayEvents.slice(0, 3)) {
-        const details = detailsOf(ev);
-        const dot = dots.createDiv({ cls: "qt-cal-dot" });
-        dot.style.background = classColor(settings, details, ev.summary);
-        if (details.isExam) dot.addClass("is-exam");
-      }
-      if (dayEvents.length > 3) dots.createDiv({ cls: "qt-cal-more", text: `+${dayEvents.length - 3}` });
-      btn.addEventListener("click", () => {
-        this.selectedKey = cell.key;
-        this.mode = "day";
-        this.render();
-      });
+    const weekdays = card.createDiv({ cls: "uni-weekdays-row" });
+    for (const label of weekdayLabels(settings.firstDayOfWeek)) {
+      weekdays.createDiv({ text: str(label).slice(0, 2) });
     }
 
-    root.createDiv({ cls: "qt-cal-section-title", text: dayLabel(this.selectedKey, settings) });
-    renderDayTimeline(this.plugin, root, this.selectedKey);
-    this.renderExams(root);
+    const grid = card.createDiv({ cls: "uni-days-grid" });
+    grid.setAttr("role", "grid");
+    grid.setAttr("aria-label", monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()));
+    for (const cell of compactMonthCells(this.cursor.getFullYear(), this.cursor.getMonth(), settings.firstDayOfWeek)) {
+      const day = grid.createDiv({ cls: "uni-day-cell" });
+      if (!cell.inMonth) day.addClass("is-other-month");
+      if (cell.isToday) day.addClass("is-today");
+      if (cell.key === this.selectedKey) day.addClass("is-selected");
+      day.setAttr("data-date", cell.key);
+      day.setAttr("role", "gridcell");
+      day.setAttr("tabindex", "0");
+      day.setAttr("aria-selected", cell.key === this.selectedKey ? "true" : "false");
+      day.createSpan({ text: String(cell.day) });
+
+      const dayEvents = eventsOnDay(events, cell.key);
+      day.setAttr("aria-label", `${dayHeading(cell.key)}${dayEvents.length ? `, ${classesCount(dayEvents.length)}` : ""}`);
+      if (dayEvents.length) {
+        const dots = day.createDiv({ cls: "uni-event-dots-container" });
+        for (const event of dayEvents.slice(0, 3)) {
+          const dot = dots.createDiv({ cls: "uni-event-dot" });
+          dot.style.backgroundColor = classColor(settings, detailsOf(event), event.summary);
+        }
+      }
+
+      day.addEventListener("click", () => this.selectDay(cell));
+      day.addEventListener("keydown", (e) => this.onDayKey(e, cell));
+    }
   }
 
-  renderDay(root) {
-    const settings = this.plugin.calendarSettings();
-    const nav = root.createDiv({ cls: "qt-cal-nav" });
-    const prev = nav.createEl("button", { text: "‹" });
-    prev.addEventListener("click", () => this.shiftDay(-1));
-    nav.createDiv({ cls: "qt-cal-month", text: dayLabel(this.selectedKey, settings) });
-    const next = nav.createEl("button", { text: "›" });
-    next.addEventListener("click", () => this.shiftDay(1));
-    const todayBtn = nav.createEl("button", { cls: "qt-cal-today", text: "Today" });
-    todayBtn.addEventListener("click", () => {
-      this.selectedKey = dateKey(new Date());
-      this.render();
-    });
-    renderDayTimeline(this.plugin, root, this.selectedKey);
-    this.renderExams(root);
+  /** Arrow keys move the selected day; Enter/Space opens that day's schedule. */
+  onDayKey(event, cell) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      this.selectDay(cell, true);
+      return;
+    }
+    const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    const target = new Date(`${cell.key}T12:00:00`);
+    if (Number.isNaN(target.getTime())) return;
+    target.setDate(target.getDate() + delta);
+    const key = dateKey(target);
+    this.selectDay(
+      { key, inMonth: target.getFullYear() === this.cursor.getFullYear() && target.getMonth() === this.cursor.getMonth() },
+      true
+    );
   }
 
-  renderUpcoming(root) {
-    const plugin = this.plugin;
-    const settings = plugin.calendarSettings();
-    const events = plugin.calendarEvents();
+  focusDay(key) {
+    const node = this.contentEl.querySelector && this.contentEl.querySelector(`[data-date="${key}"]`);
+    if (node && node.focus) node.focus();
+  }
+
+  /** Re-render only when a class starts or ends; otherwise just update the countdown text. */
+  refreshLive() {
+    if (this.selectedKey !== dateKey(new Date())) return;
     const now = new Date();
+    const events = this.plugin.calendarEvents(this.range || this.cursor);
+    if (this.ongoingSignature(events) !== this.liveSignature) {
+      this.render();
+      return;
+    }
+    for (const live of this.liveNodes) {
+      if (!live.node || !live.event || !live.event.dtend) continue;
+      live.node.setText(`${Math.max(1, Math.round((live.event.dtend - now) / 60000))} min left`);
+    }
+  }
+
+  ongoingSignature(events) {
+    const now = new Date();
+    return (events || [])
+      .filter((ev) => ev.dateKey === this.selectedKey && !ev.allDay && ev.dtstart && ev.dtend && now >= ev.dtstart && now < ev.dtend)
+      .map((ev) => `${ev.uid || ev.summary}|${ev.dtstart.getTime()}`)
+      .join("|");
+  }
+
+  /** Restored from the pre-UI-port view: the next exams and their countdowns. */
+  renderExamPanel(container, events) {
+    const exams = upcomingExams(events, new Date(), 5);
+    if (!exams.length) return;
+    const settings = this.plugin.calendarSettings();
+    const panel = container.createDiv({ cls: "uni-exam-panel" });
+    panel.createDiv({ cls: "uni-exam-panel-title", text: "Upcoming exams" });
+    for (const exam of exams) {
+      const row = panel.createEl("button", { cls: "uni-exam-row" });
+      const name = str(exam.summary) || "Exam";
+      row.setAttr("aria-label", `Open note for ${name}`);
+      row.createDiv({ cls: "uni-exam-name", text: name });
+      row.createDiv({
+        cls: "uni-exam-when",
+        text: `${formatDateValue(settings.dateFormat, exam.dateKey)} · ${examCountdown(exam, new Date())}`,
+      });
+      row.addEventListener("click", () => {
+        this.plugin
+          .openClassNote(exam, exam.dateKey)
+          .then(() => this.plugin.refreshCalendarViews())
+          .catch((err) => new Notice(str(err && err.message) || "Could not open the note."));
+      });
+    }
+  }
+
+  renderMonthHeader(card, title, mode) {
+    const header = card.createDiv({ cls: "uni-month-header" });
+    header.createDiv({ cls: "uni-month-title", text: title });
+    const controls = header.createDiv({ cls: "uni-header-controls" });
+
+    if (mode === "month") {
+      this.headerButton(controls, "chevron-left", "Previous month", () => this.shiftMonth(-1));
+      this.todayButton(controls);
+      this.headerButton(controls, "chevron-right", "Next month", () => this.shiftMonth(1));
+    } else if (mode === "day") {
+      this.headerButton(controls, "chevron-left", "Previous day", () => this.shiftDay(-1));
+      this.todayButton(controls);
+      this.headerButton(controls, "chevron-right", "Next day", () => this.shiftDay(1));
+    } else {
+      this.todayButton(controls);
+    }
+
+    this.breakButton(controls);
+    this.headerButton(controls, "refresh-cw", "Refresh schedule", (button) => this.sync(button), "uni-sync-btn");
+    this.headerButton(controls, "settings", "Calendar settings", () => this.plugin.openSettings(), "uni-settings-btn");
+    return header;
+  }
+
+  headerButton(controls, icon, label, onClick, extraClass) {
+    const button = controls.createEl("button", { cls: `uni-nav-btn ${extraClass || ""}`.trim() });
+    button.setAttr("aria-label", label);
+    button.setAttr("title", label);
+    setIcon(button, icon);
+    button.addEventListener("click", () => onClick(button));
+    return button;
+  }
+
+  todayButton(controls) {
+    const button = controls.createEl("button", { cls: "uni-nav-btn uni-today-btn", text: "Today" });
+    button.setAttr("title", "Today");
+    button.addEventListener("click", () => this.goToday());
+    return button;
+  }
+
+  /** Quick on/off for the break markers, without opening settings. */
+  breakButton(controls) {
+    const gaps = (this.plugin.settings.calendar && this.plugin.settings.calendar.timelineGaps) || {};
+    const enabled = gaps.enabled === true;
+    const label = enabled ? "Hide breaks between classes" : "Show breaks between classes";
+    const button = controls.createEl("button", { cls: `uni-nav-btn${enabled ? " is-active" : ""}` });
+    button.setAttr("aria-label", label);
+    button.setAttr("title", label);
+    button.setAttr("aria-pressed", enabled ? "true" : "false");
+    setIcon(button, BREAK_ICONS[gaps.icon] || "coffee");
+    button.addEventListener("click", async () => {
+      await this.toggleBreaks();
+    });
+    return button;
+  }
+
+  async toggleBreaks() {
+    const calendar = this.plugin.settings.calendar || (this.plugin.settings.calendar = {});
+    if (!calendar.timelineGaps) calendar.timelineGaps = {};
+    calendar.timelineGaps.enabled = !calendar.timelineGaps.enabled;
+    await this.plugin.save();
+    this.render();
+    this.plugin.refreshCalendarViews();
+  }
+
+  async sync(button) {
+    if (button) button.addClass("is-syncing");
+    try {
+      for (const source of this.plugin.calendarSources()) {
+        if (!source.hidden) await this.plugin.syncCalendarSource(source.id);
+      }
+      this.plugin.invalidateCalendar();
+      new Notice("Schedule updated.");
+      this.render();
+    } catch (e) {
+      new Notice(str(e && e.message) || "Could not refresh the schedule.");
+    } finally {
+      if (button) button.removeClass("is-syncing");
+    }
+  }
+
+  selectDay(cell, focus) {
+    this.selectedKey = cell.key;
+    if (!cell.inMonth) {
+      this.cursor = new Date(Number(cell.key.slice(0, 4)), Number(cell.key.slice(5, 7)) - 1, 1);
+    }
+    this._focusKey = focus ? cell.key : "";
+    // Stay in the month view: the date's schedule is redrawn beneath the grid.
+    const top = this.contentEl.scrollTop || 0;
+    this.render();
+    this.contentEl.scrollTop = top;
+  }
+
+  renderUpcoming(container, events) {
+    const now = new Date();
+    const source = events || this.plugin.calendarEvents(now);
     let shown = 0;
     for (let i = 0; i < 14; i++) {
       const key = dateKey(addDays(now, i));
-      const dayEvents = eventsOnDay(events, key);
-      if (!dayEvents.length) continue;
+      if (!eventsOnDay(source, key).length) continue;
       shown++;
-      root.createDiv({ cls: "qt-cal-section-title", text: dayLabel(key, settings) });
-      const list = root.createDiv({ cls: "qt-cal-timeline" });
-      for (const event of dayEvents) eventRow(plugin, list, event, settings);
+      renderDaySection(this.plugin, container, key, { title: true, events: source, now, liveNodes: this.liveNodes });
     }
-    if (!shown) root.createDiv({ cls: "qt-cal-empty", text: "Nothing scheduled in the next two weeks." });
-    this.renderExams(root);
+    if (!shown) renderEmptyState(container, "Nothing scheduled", "No classes in the next two weeks.", "", null);
   }
 
-  renderExams(root) {
-    const exams = upcomingExams(this.plugin.calendarEvents(), new Date(), 5);
-    if (!exams.length) return;
-    const box = root.createDiv({ cls: "qt-cal-exams" });
-    box.createDiv({ cls: "qt-cal-section-title", text: "Upcoming exams" });
-    for (const exam of exams) {
-      const row = box.createDiv({ cls: "qt-cal-exam" });
-      row.createDiv({ cls: "qt-cal-exam-name", text: str(exam.summary) || "Exam" });
-      row.createDiv({ cls: "qt-cal-exam-when", text: `${formatDateValue(this.plugin.calendarSettings().dateFormat, exam.dateKey)} · ${examCountdown(exam, new Date())}` });
-    }
+  goToday() {
+    const now = new Date();
+    this.cursor = new Date(now.getFullYear(), now.getMonth(), 1);
+    this.selectedKey = dateKey(now);
+    this.render();
   }
 
   shiftMonth(delta) {
     this.cursor = new Date(this.cursor.getFullYear(), this.cursor.getMonth() + delta, 1);
+    const today = new Date();
+    this.selectedKey =
+      this.cursor.getFullYear() === today.getFullYear() && this.cursor.getMonth() === today.getMonth()
+        ? dateKey(today)
+        : dateKey(this.cursor);
     this.render();
   }
 
   shiftDay(delta) {
-    const d = new Date(`${this.selectedKey}T12:00:00`);
-    const base = Number.isNaN(d.getTime()) ? new Date() : d;
-    this.selectedKey = dateKey(addDays(base, delta));
+    const current = new Date(`${this.selectedKey}T12:00:00`);
+    const base = Number.isNaN(current.getTime()) ? new Date() : current;
+    const next = addDays(base, delta);
+    this.selectedKey = dateKey(next);
+    this.cursor = new Date(next.getFullYear(), next.getMonth(), 1);
     this.render();
+  }
+}
+
+/* ----------------------------------------------------------- study slots */
+
+class StudySlotModal extends Modal {
+  constructor(app, plugin, slots) {
+    super(app);
+    this.plugin = plugin;
+    this.slots = slots || [];
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { cls: "uni-modal-title", text: "Study in your free time" });
+    const settings = this.plugin.calendarSettings();
+    const buffer = Math.max(0, Math.min(60, Math.round(Number(settings.studySlotBufferMinutes) || 0)));
+    const slots = this.slots
+      .map((slot) => ({ ...slot, usable: slot.minutes - buffer }))
+      .filter((slot) => slot.usable >= 5);
+
+    if (!slots.length) {
+      contentEl.createEl("p", {
+        cls: "setting-item-description",
+        text: `No free period has at least 5 minutes after the ${buffer}-minute buffer before the next class.`,
+      });
+      contentEl.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
+      return;
+    }
+
+    contentEl.createEl("p", {
+      cls: "setting-item-description",
+      text: `Short sessions use your current question filters. ${buffer} minute${buffer === 1 ? "" : "s"} before the next class stay free.`,
+    });
+    const body = contentEl.createDiv({ cls: "uni-study-slot" });
+    let slot = slots[0];
+
+    const draw = () => {
+      body.empty();
+      if (slots.length > 1) {
+        body.createDiv({ cls: "uni-study-slot-label", text: "Free period" });
+        const pick = body.createEl("select", { cls: "dropdown" });
+        slots.forEach((candidate, index) => {
+          pick.createEl("option", {
+            value: String(index),
+            text: `${formatTime(settings, candidate.start)} – ${formatTime(settings, candidate.end)} · ${gapLabel(candidate.usable)} usable`,
+          });
+        });
+        pick.value = String(slots.indexOf(slot));
+        pick.addEventListener("change", () => {
+          slot = slots[Number(pick.value)] || slots[0];
+          draw();
+        });
+      } else {
+        body.createDiv({
+          cls: "uni-study-slot-window",
+          text: `${formatTime(settings, slot.start)} – ${formatTime(settings, slot.end)} · ${gapLabel(slot.usable)} usable`,
+        });
+      }
+
+      body.createDiv({ cls: "uni-study-slot-label", text: "Session length" });
+      const durations = [5, 10, 20].filter((minutes) => minutes <= slot.usable);
+      if (!durations.length) {
+        body.createDiv({ cls: "uni-study-slot-empty", text: "This free period is too short for a 5-minute session after the buffer." });
+        return;
+      }
+      const quickDefaults = this.plugin.settings.quickDefaults || { minutes: 5 };
+      let minutes = durations.includes(quickDefaults.minutes) ? quickDefaults.minutes : durations[0];
+      const durationRow = body.createDiv({ cls: "uni-study-slot-durations" });
+      const buttons = [];
+      for (const value of durations) {
+        const button = durationRow.createEl("button", { text: `${value} min`, cls: value === minutes ? "is-selected" : "" });
+        button.addEventListener("click", () => {
+          minutes = value;
+          for (const b of buttons) b.toggleClass("is-selected", b === button);
+          start.setText(`Start ${minutes} minutes`);
+        });
+        buttons.push(button);
+      }
+
+      body.createDiv({ cls: "uni-study-slot-label", text: "Questions" });
+      const choices = [
+        { id: "current", label: "My current filters" },
+        { id: "due", label: "Due for review" },
+      ];
+      if (slot.subject) choices.push({ id: "course", label: `Next class: ${slot.subject}` });
+      let filter = "current";
+      const select = body.createEl("select", { cls: "dropdown" });
+      for (const choice of choices) {
+        const count = this.plugin.quickPracticePool(choice.id, slot.subject).length;
+        select.createEl("option", { value: choice.id, text: `${choice.label} (${count})` });
+      }
+      select.value = filter;
+
+      let pool = this.plugin.quickPracticePool(filter, slot.subject);
+      const hint = body.createDiv({ cls: "uni-study-slot-count", text: `${pool.length} question${pool.length === 1 ? "" : "s"} available` });
+      const start = body.createEl("button", { text: `Start ${minutes} minutes`, cls: "mod-cta" });
+      const refresh = () => {
+        pool = this.plugin.quickPracticePool(filter, slot.subject);
+        hint.setText(`${pool.length} question${pool.length === 1 ? "" : "s"} available`);
+        start.disabled = !pool.length;
+      };
+      select.addEventListener("change", () => {
+        filter = select.value;
+        refresh();
+      });
+      start.disabled = !pool.length;
+      start.addEventListener("click", async () => {
+        if (!pool.length) {
+          new Notice("No questions match this filter.");
+          return;
+        }
+        this.close();
+        await this.plugin.startQuickPractice({
+          minutes,
+          pool,
+          mode: filter === "due" ? "due" : undefined,
+          label: filter === "course" ? slot.subject : filter === "due" ? "due review" : "your filters",
+        });
+      });
+      const cancel = body.createEl("button", { text: "Cancel" });
+      cancel.addEventListener("click", () => this.close());
+    };
+
+    draw();
+  }
+
+  onClose() {
+    this.contentEl.empty();
   }
 }
 
@@ -1502,7 +2487,7 @@ class CalendarImportModal extends Modal {
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.createDiv({ cls: "qt-cal-heading", text: "Add a schedule" });
+    contentEl.createEl("h2", { cls: "uni-modal-title", text: "Add a schedule" });
     contentEl.createEl("p", {
       cls: "setting-item-description",
       text: "Import a .ics file that is already in your vault, or paste a public calendar feed. For a Google Calendar, use Settings, Integrate calendar, Secret address in iCal format (private), or the public calendar address.",
@@ -1559,9 +2544,9 @@ module.exports = {
   VIEW_TYPE_CALENDAR,
   CalendarView,
   CalendarImportModal,
+  StudySlotModal,
   parseScheduleBlock,
-  renderDayTimeline,
-  statusText,
+  renderDaySection,
 };
 };
 
@@ -5678,20 +6663,30 @@ const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
 const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./modals");
-const { cloneFilters, fvals, hasFilters, matchSets, renameFolderInSettings } = require("./filters");
+const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { OpenCodeClient } = require("./opencode-client");
-const { sleep } = require("./util");
+const { sleep, hashString, localDate } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
-const { CalendarImportModal, CalendarView, parseScheduleBlock, renderDayTimeline } = require("./calendar-view");
-const { mergeCalendarSettings, nextClassStatus, visibleEvents } = require("./calendar-model");
+const { CalendarImportModal, CalendarView, StudySlotModal, parseScheduleBlock, renderDaySection } = require("./calendar-view");
+const { cleanSubjectTitle, mergeCalendarSettings, nextClassStatus, subjectKey, visibleEvents } = require("./calendar-model");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
-const { openOrCreateClassNote } = require("./calendar-notes");
+const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
+    this._calendarNoteIndex = null;
+    this._calendarFolders = null;
+    this._calendarCache = null;
+    // Calendar notes are resolved by their durable UID/date properties, so any
+    // create/delete/rename (or frontmatter edit) invalidates the shared index.
+    const invalidateNotes = () => this.invalidateCalendarNotes();
+    this.registerEvent(this.app.vault.on("create", invalidateNotes));
+    this.registerEvent(this.app.vault.on("delete", invalidateNotes));
+    this.registerEvent(this.app.vault.on("rename", invalidateNotes));
+    this.registerEvent(this.app.metadataCache.on("changed", invalidateNotes));
 
     // The timer is kept per device (not in the synced settings). One that was running when the
     // app closed becomes paused, counting only up to the last heartbeat (time away isn't counted).
@@ -6113,11 +7108,40 @@ class QuestionTrackerPlugin extends Plugin {
     this._calendarCache = null;
   }
 
-  /** Parses every shown source. Cached by source content so redraws stay cheap. */
+  /** Cached index of class notes by `calendar_uid|calendar_date`. */
+  calendarNoteIndex() {
+    if (!this._calendarNoteIndex) this._calendarNoteIndex = classNoteIndex(this.app);
+    return this._calendarNoteIndex;
+  }
+
+  /** Cached folder list for resolving class-note paths without scanning on every card. */
+  calendarFolders() {
+    if (!this._calendarFolders) this._calendarFolders = vaultFolders(this.app);
+    return this._calendarFolders;
+  }
+
+  invalidateCalendarNotes() {
+    this._calendarNoteIndex = null;
+    this._calendarFolders = null;
+  }
+
+  /** Finds the existing note for a class occurrence, if there is one. */
+  findCalendarNote(event, key) {
+    return findClassNote(
+      this.app,
+      this.calendarSettings(),
+      event,
+      key || event.dateKey,
+      this.calendarNoteIndex(),
+      this.calendarFolders()
+    );
+  }
+
+  /** Parses every shown source. Cached by a content hash so any edit invalidates it. */
   calendarEvents(now) {
     const range = this.calendarWindow(now);
     const sources = this.calendarSources().filter((s) => !s.hidden && s.content);
-    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${sources.map((s) => `${s.id}:${s.content.length}:${s.content.slice(0, 40)}`).join("|")}`;
+    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
     if (this._calendarCache && this._calendarCache.signature === signature) return this._calendarCache.events;
     const all = [];
     const errors = [];
@@ -6152,7 +7176,10 @@ class QuestionTrackerPlugin extends Plugin {
         /* keep the cached copy */
       }
     }
-    if (changed) await this.save();
+    if (changed) {
+      this.invalidateCalendar();
+      await this.save();
+    }
     return changed;
   }
 
@@ -6260,13 +7287,13 @@ class QuestionTrackerPlugin extends Plugin {
   renderScheduleBlock(source, el) {
     el.empty();
     if (!this.calendarEnabled()) {
-      el.createDiv({ cls: "qt-cal-empty", text: "Calendar is off. Turn it on in Settings, Calendar." });
+      const empty = el.createDiv({ cls: "uni-empty-schedule" });
+      empty.createDiv({ cls: "uni-empty-schedule-desc", text: "Calendar is off. Turn it on in Settings, Calendar." });
       return;
     }
     const { dateKey: key } = parseScheduleBlock(source, new Date());
-    const box = el.createDiv({ cls: "qt-cal-embed" });
-    box.createDiv({ cls: "qt-cal-section-title", text: key });
-    renderDayTimeline(this, box, key);
+    const box = el.createDiv({ cls: "uni-schedule-embed" });
+    renderDaySection(this, box, key);
   }
 
   async openNextClassNote() {
@@ -6283,16 +7310,62 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async openClassNote(event, key) {
-    const result = await openOrCreateClassNote(this.app, this.calendarSettings(), event, key || event.dateKey);
-    if (result.created) {
-      const folder = result.path.includes("/") ? result.path.slice(0, result.path.lastIndexOf("/")) : "";
-      if (folder && event.summary) {
-        this.settings.calendar.subjectFolders[event.summary] = folder;
-        await this.save();
-      }
-      new Notice(`Created ${result.path}.`);
+    const result = await openOrCreateClassNote(
+      this.app,
+      this.calendarSettings(),
+      event,
+      key || event.dateKey,
+      this.calendarNoteIndex(),
+      this.calendarFolders()
+    );
+    this.invalidateCalendarNotes();
+    const folder = result.path.includes("/") ? result.path.slice(0, result.path.lastIndexOf("/")) : "";
+    if (folder && event.summary && this.settings.calendar.subjectFolders[event.summary] !== folder) {
+      this.settings.calendar.subjectFolders[event.summary] = folder;
+      await this.save();
     }
+    if (result.created) new Notice(`Created ${result.path}.`);
     return result;
+  }
+
+  /** A free period from the calendar becomes a one-tap Quick Practice session. */
+  openStudySlot(slots) {
+    if (!this.calendarEnabled()) {
+      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
+      return;
+    }
+    const list = (Array.isArray(slots) ? slots : []).filter((slot) => slot && slot.minutes > 0);
+    if (!list.length) {
+      new Notice("There is no free period long enough for a study session.");
+      return;
+    }
+    new StudySlotModal(this.app, this, list).open();
+  }
+
+  /** Pool for the study-slot chooser; filters are applied without changing saved settings. */
+  quickPracticePool(filter, course) {
+    const questions = this.getQuestions();
+    if (filter === "due") return questions.filter((q) => isDue(q.fm, localDate()));
+    if (filter === "course" && course) {
+      const key = subjectKey(cleanSubjectTitle(course));
+      return questions.filter((q) => {
+        const values = [q.fm.course, q.fm.test].map((v) => subjectKey(cleanSubjectTitle(v)));
+        return values.includes(key);
+      });
+    }
+    return this.filtered(questions);
+  }
+
+  async startQuickPractice(options) {
+    const opts = options || {};
+    const view = await this.activateView();
+    if (!view || !view.startQuick) {
+      new Notice("Could not open the practice view.");
+      return null;
+    }
+    const minutes = Math.max(1, Math.round(Number(opts.minutes) || 5));
+    await view.startQuick("time", minutes, { pool: opts.pool, mode: opts.mode, label: opts.label });
+    return view;
   }
 
   async exportCalendarIcs() {
@@ -6645,18 +7718,20 @@ class PracticeView extends ItemView {
     this.render();
   }
 
-  async startQuick(kind, value) {
+  async startQuick(kind, value, options) {
     const p = this.plugin;
-    const pool = p.filtered(p.getQuestions());
-    const queue = buildQuickQueue(pool, p.settings.mode, fmtDate(new Date()), kind === "time" ? Math.max(1, pool.length) : value);
+    const opts = options || {};
+    const pool = Array.isArray(opts.pool) ? opts.pool : p.filtered(p.getQuestions());
+    const mode = opts.mode || p.settings.mode;
+    const queue = buildQuickQueue(pool, mode, fmtDate(new Date()), kind === "time" ? Math.max(1, pool.length) : value);
     if (!queue.length) {
-      new Notice("No questions match your current filters.");
+      new Notice(opts.label ? `No questions match ${opts.label}.` : "No questions match your current filters.");
       return;
     }
     if (kind === "count" && queue.length < value) {
       new Notice(`Only ${queue.length} question${queue.length === 1 ? "" : "s"} matched, so Quick Practice will use what is available.`, 5000);
     }
-    const session = createQuickSession(queue, { kind, value, mode: p.settings.mode });
+    const session = createQuickSession(queue, { kind, value, mode: { due: "due" }[mode] || mode });
     this.quickSession = session;
     p.settings.quickSession = packQuickSession(session);
     await p.save();
@@ -7637,7 +8712,7 @@ const { OPENCODE_REPO, PROVIDERS } = require("./opencode-manager");
 const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
-const { CLASS_CATEGORIES } = require("./calendar-model");
+const { renderCalendarSettings } = require("./calendar-settings");
 
 /* --------------------------------------------------------------- settings */
 
@@ -8050,197 +9125,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     if (this.plugin.backend() === "api") renderApi();
     else renderOpenCode();
 
-    new Setting(containerEl).setName("Calendar").setHeading();
-    const cal = st.calendar;
-    new Setting(containerEl)
-      .setName("Enable the calendar module")
-      .setDesc("Adds a class and exam calendar: import an .ics schedule, open a note for a class in one click, see exam countdowns, and embed a day's classes in a note. Off by default.")
-      .addToggle((t) =>
-        t.setValue(!!cal.enabled).onChange(async (v) => {
-          cal.enabled = v;
-          await this.plugin.save();
-          await this.plugin.onCalendarToggled();
-          this.display();
-        })
-      );
-
-    if (cal.enabled) {
-      new Setting(containerEl).setName("Schedules").setHeading();
-      if (!cal.sources.length) {
-        containerEl.createEl("p", { cls: "setting-item-description", text: "No schedules yet. Add an .ics file from your vault, or a public feed URL." });
-      }
-      for (const src of cal.sources) {
-        new Setting(containerEl)
-          .setName(src.name)
-          .setDesc(`${src.type === "url" ? src.url : src.path}${src.lastSync ? ` · last synced ${new Date(src.lastSync).toLocaleDateString()}` : ""}`)
-          .addToggle((t) =>
-            t.setValue(!src.hidden).onChange(async (v) => {
-              src.hidden = !v;
-              this.plugin.invalidateCalendar();
-              await this.plugin.save();
-              this.plugin.refreshCalendarViews();
-            })
-          )
-          .addButton((b) =>
-            b.setButtonText("Sync").onClick(async () => {
-              try {
-                await this.plugin.syncCalendarSource(src.id);
-                new Notice("Schedule updated.");
-              } catch (e) {
-                new Notice(str(e.message));
-              }
-              this.display();
-            })
-          )
-          .addButton((b) =>
-            b.setButtonText("Remove").setWarning().onClick(async () => {
-              await this.plugin.removeCalendarSource(src.id);
-              this.display();
-            })
-          );
-      }
-      new Setting(containerEl)
-        .setName("Add a schedule")
-        .setDesc("Import an .ics file from the vault, or paste a public calendar feed. Google share links are converted to their .ics address.")
-        .addButton((b) => b.setButtonText("Add").onClick(() => this.plugin.openCalendarImport()));
-
-      new Setting(containerEl).setName("Class notes").setHeading();
-      new Setting(containerEl)
-        .setName("Note folder")
-        .setDesc("Where class notes go when no subject folder matches. Leave empty for the vault root.")
-        .addText((t) =>
-          t.setPlaceholder("e.g. University").setValue(cal.noteFolder).onChange(async (v) => {
-            cal.noteFolder = v.trim();
-            await this.plugin.save();
-          })
-        );
-      new Setting(containerEl)
-        .setName("Note name format")
-        .setDesc("Variables: {date}, {subject}, {time}, {time_start}, {time_end}, {room}, {lecturer}, {type}.")
-        .addText((t) =>
-          t.setValue(cal.noteNameFormat).onChange(async (v) => {
-            cal.noteNameFormat = v;
-            await this.plugin.save();
-          })
-        );
-      new Setting(containerEl)
-        .setName("Note template")
-        .setDesc("Used for new class notes. {course} is the cleaned subject name, so questions filed in the same folder can be tagged with it.")
-        .addTextArea((t) => {
-          t.inputEl.rows = 10;
-          t.setValue(cal.noteTemplate).onChange(async (v) => {
-            cal.noteTemplate = v;
-            await this.plugin.save();
-          });
-        });
-
-      new Setting(containerEl)
-        .setName("Subject folders")
-        .setDesc("Filled in when you create a class note: a subject always maps to the folder where its notes live.")
-        .setHeading();
-      const mappings = Object.entries(cal.subjectFolders);
-      if (!mappings.length) containerEl.createEl("p", { cls: "setting-item-description", text: "No mappings yet. Create a note for a class and its folder is remembered here." });
-      for (const [subject, folder] of mappings) {
-        new Setting(containerEl)
-          .setName(subject)
-          .addText((t) =>
-            t.setValue(folder).onChange(async (v) => {
-              cal.subjectFolders[subject] = v.trim();
-              await this.plugin.save();
-            })
-          )
-          .addButton((b) =>
-            b.setButtonText("Remove").onClick(async () => {
-              delete cal.subjectFolders[subject];
-              await this.plugin.save();
-              this.display();
-            })
-          );
-      }
-
-      new Setting(containerEl).setName("Visibility").setHeading();
-      new Setting(containerEl)
-        .setName("Excluded subjects")
-        .setDesc("Comma-separated. These never appear on the calendar, in countdowns, or in exports.")
-        .addText((t) =>
-          t.setValue(cal.excludedSubjects.join(", ")).onChange(async (v) => {
-            cal.excludedSubjects = v.split(",").map((x) => x.trim()).filter(Boolean);
-            this.plugin.invalidateCalendar();
-            await this.plugin.save();
-            this.plugin.refreshCalendarViews();
-          })
-        );
-      new Setting(containerEl)
-        .setName("Excluded keywords")
-        .setDesc("Comma-separated. Any event whose title, room or description contains one of these is hidden.")
-        .addText((t) =>
-          t.setValue(cal.excludedKeywords.join(", ")).onChange(async (v) => {
-            cal.excludedKeywords = v.split(",").map((x) => x.trim()).filter(Boolean);
-            this.plugin.invalidateCalendar();
-            await this.plugin.save();
-            this.plugin.refreshCalendarViews();
-          })
-        );
-
-      new Setting(containerEl).setName("Display").setHeading();
-      new Setting(containerEl)
-        .setName("First day of the week")
-        .addDropdown((d) =>
-          d
-            .addOptions({ monday: "Monday", sunday: "Sunday" })
-            .setValue(cal.firstDayOfWeek)
-            .onChange(async (v) => {
-              cal.firstDayOfWeek = v;
-              await this.plugin.save();
-              this.plugin.refreshCalendarViews();
-            })
-        );
-      new Setting(containerEl)
-        .setName("Time format")
-        .addDropdown((d) =>
-          d
-            .addOptions({ "24h": "24-hour", "12h": "12-hour" })
-            .setValue(cal.timeFormat)
-            .onChange(async (v) => {
-              cal.timeFormat = v;
-              await this.plugin.save();
-              this.plugin.refreshCalendarViews();
-            })
-        );
-      new Setting(containerEl)
-        .setName("Date format")
-        .addDropdown((d) =>
-          d
-            .addOptions({ "YYYY-MM-DD": "2026-10-05", "DD.MM.YYYY": "05.10.2026", "DD/MM/YYYY": "05/10/2026", "MM/DD/YYYY": "10/05/2026" })
-            .setValue(cal.dateFormat)
-            .onChange(async (v) => {
-              cal.dateFormat = v;
-              await this.plugin.save();
-              this.plugin.refreshCalendarViews();
-            })
-        );
-
-      new Setting(containerEl).setName("Class colors").setHeading();
-      for (const category of CLASS_CATEGORIES) {
-        new Setting(containerEl).setName(category.label).addColorPicker((c) =>
-          c.setValue(cal.classColors[category.id] || category.color).onChange(async (v) => {
-            cal.classColors[category.id] = v;
-            await this.plugin.save();
-            this.plugin.refreshCalendarViews();
-          })
-        );
-      }
-
-      new Setting(containerEl).setName("Actions").setHeading();
-      new Setting(containerEl)
-        .setName("Create or open the note for the next class")
-        .setDesc("Uses the note template above and the subject's folder.")
-        .addButton((b) => b.setButtonText("Open note").onClick(() => this.plugin.openNextClassNote()));
-      new Setting(containerEl)
-        .setName("Export the visible schedule")
-        .setDesc("Writes schedule-export.ics to the vault root, with hidden sources and excluded subjects left out.")
-        .addButton((b) => b.setButtonText("Export .ics").onClick(() => this.plugin.exportCalendarIcs()));
-    }
+    renderCalendarSettings(containerEl, this.plugin, () => this.display());
 
     new Setting(containerEl).setName("Presets").setHeading();
     if (!st.presets.length) {
@@ -8559,6 +9444,17 @@ const str = (v) => (v === undefined || v === null ? "" : String(v));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fmtMB = (n) => `${Math.round(n / 1048576)} MB`;
 
+/** Small, stable content hash for cache signatures. */
+function hashString(text) {
+  let h = 2166136261;
+  const s = String(text || "");
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
 async function ensureFolder(app, folder) {
   const clean = normalizePath(str(folder).trim() || "/");
   if (clean === "/" || clean === "") return "";
@@ -8584,6 +9480,7 @@ module.exports = {
   str,
   sleep,
   fmtMB,
+  hashString,
   ensureFolder,
   localDate,
 };
@@ -8670,7 +9567,7 @@ const { loadQuestionData } = require("./view-helpers");
 const calendarIcs = require("./calendar-ics");
 const calendarModel = require("./calendar-model");
 const calendarNotes = require("./calendar-notes");
-const { CalendarView, parseScheduleBlock } = require("./calendar-view");
+const { CalendarView, StudySlotModal, parseScheduleBlock } = require("./calendar-view");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 
 module.exports = QuestionTrackerPlugin;
@@ -8773,6 +9670,7 @@ QuestionTrackerPlugin.__test = {
   calendarModel,
   calendarNotes,
   CalendarView,
+  StudySlotModal,
   parseScheduleBlock,
 };
 };

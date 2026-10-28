@@ -161,18 +161,20 @@ class PracticeView extends ItemView {
     this.render();
   }
 
-  async startQuick(kind, value) {
+  async startQuick(kind, value, options) {
     const p = this.plugin;
-    const pool = p.filtered(p.getQuestions());
-    const queue = buildQuickQueue(pool, p.settings.mode, fmtDate(new Date()), kind === "time" ? Math.max(1, pool.length) : value);
+    const opts = options || {};
+    const pool = Array.isArray(opts.pool) ? opts.pool : p.filtered(p.getQuestions());
+    const mode = opts.mode || p.settings.mode;
+    const queue = buildQuickQueue(pool, mode, fmtDate(new Date()), kind === "time" ? Math.max(1, pool.length) : value);
     if (!queue.length) {
-      new Notice("No questions match your current filters.");
+      new Notice(opts.label ? `No questions match ${opts.label}.` : "No questions match your current filters.");
       return;
     }
     if (kind === "count" && queue.length < value) {
       new Notice(`Only ${queue.length} question${queue.length === 1 ? "" : "s"} matched, so Quick Practice will use what is available.`, 5000);
     }
-    const session = createQuickSession(queue, { kind, value, mode: p.settings.mode });
+    const session = createQuickSession(queue, { kind, value, mode: { due: "due" }[mode] || mode });
     this.quickSession = session;
     p.settings.quickSession = packQuickSession(session);
     await p.save();

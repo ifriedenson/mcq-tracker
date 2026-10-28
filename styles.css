@@ -57,266 +57,1082 @@
   margin-top: 4px;
 }
 
-/* Calendar module (off by default). Mobile first: the day timeline is the primary view. */
+/* Calendar view: markup and styles are ported from University Schedule and Calendar
+   (MIT, Copyright (c) 2026 Cesemess), commit 35778e4, so the two calendars look the
+   same. See NOTICES.md. The mode switcher is the only local addition. */
 
-.qt-cal {
-  gap: 12px;
+.uni-calendar-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 10px 8px;
+  gap: 16px;
+  overflow-y: auto;
+  font-family: var(--font-interface);
+  color: var(--text-normal);
 }
 
-.qt-cal-head {
+/* --------------------------------------------------------------------------
+   Header & Action Bar
+   -------------------------------------------------------------------------- */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-month-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
+  padding: 4px 6px;
+  margin-bottom: 6px;
 }
 
-.qt-cal-heading {
-  font-size: var(--font-ui-large);
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-month-title {
   font-weight: 600;
+  font-size: 1.02rem;
+  color: var(--text-normal);
+  text-transform: capitalize;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.qt-cal-head-actions {
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-header-controls {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
 }
 
-.qt-cal-status-line {
-  min-height: 20px;
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-nav-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
 }
 
-.qt-cal-status {
-  padding: 10px 12px;
-  border-radius: 8px;
-  border-left: 4px solid var(--interactive-accent);
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-nav-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-nav-btn.is-active {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-nav-btn.uni-today-btn {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 8px;
   background: var(--background-secondary);
-  font-size: var(--font-ui-small);
-}
-
-.qt-cal-status.is-live {
-  border-left-color: var(--color-green);
-  background: var(--background-modifier-success);
-}
-
-.qt-cal-empty {
-  padding: 10px 2px;
-  color: var(--text-muted);
-  font-size: var(--font-ui-small);
-}
-
-.qt-cal-empty-state {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.qt-cal-modes button {
-  flex: 1;
-}
-
-.qt-cal-nav {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.qt-cal-nav button {
-  min-height: 40px;
-}
-
-.qt-cal-month {
-  flex: 1;
-  text-align: center;
-  font-weight: 600;
-}
-
-.qt-cal-today {
-  font-size: var(--font-ui-small);
-}
-
-.qt-cal-grid {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 4px;
-}
-
-.qt-cal-wd {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-}
-
-.qt-cal-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  min-height: 52px;
-  padding: 4px 2px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-primary);
+  color: var(--text-accent);
 }
 
-.qt-cal-cell.is-outside {
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-nav-btn.uni-today-btn:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-sync-btn svg,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-btn-refresh-source svg,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-source-row .btn-refresh-source svg {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-sync-btn:hover:not(.is-syncing) svg,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-btn-refresh-source:hover:not(:disabled) svg,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-source-row .btn-refresh-source:hover:not(:disabled) svg {
+  transform: rotate(180deg);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-sync-btn.is-syncing svg {
+  animation: uni-spin 1s linear infinite;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-settings-btn svg {
+  transition: transform 0.25s ease;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-settings-btn:hover svg {
+  transform: rotate(45deg);
+}
+
+@keyframes uni-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* --------------------------------------------------------------------------
+   Month Grid View
+   -------------------------------------------------------------------------- */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-month-card {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-weekdays-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-days-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  font-size: 0.85rem;
+  user-select: none;
+  transition: all 0.15s ease;
+  background: transparent;
+  color: var(--text-normal);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell:hover {
+  background: var(--background-modifier-hover);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell.is-other-month {
+  color: var(--text-faint);
   opacity: 0.45;
 }
 
-.qt-cal-cell.is-today {
-  border-color: var(--interactive-accent);
+/* Dzisiejszy dzień wyróżniony na inny kolor */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell.is-today {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: 700;
+  box-shadow: 0 0 8px rgba(var(--interactive-accent-rgb, 120, 80, 220), 0.45);
 }
 
-.qt-cal-cell.is-selected {
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell.is-today .uni-event-dot {
+  background-color: var(--text-on-accent);
+}
+
+/* Wybrany dzień */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell.is-selected:not(.is-today) {
+  border: 2px solid var(--interactive-accent);
   background: var(--background-modifier-hover);
-  border-color: var(--interactive-accent);
-}
-
-.qt-cal-daynum {
-  font-size: var(--font-ui-small);
-}
-
-.qt-cal-dots {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  justify-content: center;
-}
-
-.qt-cal-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-
-.qt-cal-dot.is-exam {
-  outline: 2px solid var(--text-error);
-}
-
-.qt-cal-more {
-  color: var(--text-muted);
-  font-size: 9px;
-}
-
-.qt-cal-section-title {
-  margin-top: 6px;
-  color: var(--text-muted);
-  font-size: var(--font-ui-small);
   font-weight: 600;
 }
 
-.qt-cal-timeline {
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell.is-selected.is-today {
+  outline: 2px solid var(--text-normal);
+  outline-offset: 1px;
+}
+
+/* Kropki oznaczające obecność zajęć */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-dots-container {
+  display: flex;
+  gap: 2px;
+  position: absolute;
+  bottom: 3px;
+  height: 4px;
+  align-items: center;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: var(--text-accent);
+  transition: transform 0.15s ease;
+}
+
+/* --------------------------------------------------------------------------
+   Timeline / Daily Schedule Section
+   -------------------------------------------------------------------------- */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-section {
   display: flex;
   flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 8px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-date-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-badge-count {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-badge-free {
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  white-space: nowrap;
+  min-height: 0;
+  cursor: pointer;
+  appearance: none;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-badge-free:hover {
+  border-color: var(--interactive-accent);
+  color: var(--text-accent);
+}
+
+/* Empty state */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-empty-schedule {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 16px;
+  text-align: center;
+  background: var(--background-secondary);
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  color: var(--text-muted);
   gap: 8px;
 }
 
-.qt-cal-event {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--background-secondary);
-}
-
-.qt-cal-event.is-exam {
-  border: 1px solid var(--text-error);
-}
-
-.qt-cal-event-time {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  width: 56px;
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-}
-
-.qt-cal-event-end {
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-empty-schedule-icon {
+  font-size: 2rem;
   opacity: 0.7;
 }
 
-.qt-cal-event-bar {
-  flex: none;
-  width: 4px;
-  border-radius: 2px;
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-empty-schedule-text {
+  font-size: 0.85rem;
+  line-height: 1.4;
 }
 
-.qt-cal-event-body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.qt-cal-event-title-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.qt-cal-event-title {
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-empty-schedule-title {
+  font-size: 0.95rem;
   font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.qt-cal-badge {
-  padding: 1px 6px;
-  border-radius: 10px;
-  background: var(--background-modifier-error);
-  color: var(--text-on-accent);
-  font-size: var(--font-ui-smaller);
-}
-
-.qt-cal-event-meta {
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  overflow-wrap: anywhere;
-}
-
-.qt-cal-event-actions {
+  color: var(--text-normal);
   margin-top: 4px;
 }
 
-.qt-cal-note-btn {
-  min-height: 32px;
-  padding: 2px 10px;
-  font-size: var(--font-ui-smaller);
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-empty-schedule-desc,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-empty-schedule-subtext {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  max-width: 290px;
 }
 
-.qt-cal-exams {
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-empty-add-btn {
+  margin-top: 10px;
+  cursor: pointer;
+}
+
+/* Timeline Layout */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-left: 18px;
+  margin-top: 4px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: var(--background-modifier-border);
+  border-radius: 1px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-node {
+  position: absolute;
+  left: -18px;
+  top: 12px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  border: 2px solid var(--background-primary);
+  box-shadow: 0 0 0 1px var(--background-modifier-border);
+  z-index: 2;
+}
+
+/* Event Card */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  position: relative;
+  overflow: hidden;
 }
 
-.qt-cal-exam {
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card:hover {
+  border-color: var(--event-color, var(--interactive-accent));
+  background: var(--background-modifier-hover);
+  transform: translateX(2px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card.is-read-only {
+  cursor: default;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card.is-read-only:hover {
+  transform: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  background: var(--background-secondary);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--event-color, var(--interactive-accent));
+  opacity: 0.95;
+  border-radius: 4px 0 0 4px;
+}
+
+/* Ongoing class highlight & countdown */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card.is-ongoing {
+  border-color: var(--event-color, var(--interactive-accent));
+  background: var(--background-modifier-hover);
+  box-shadow: 0 0 12px rgba(var(--interactive-accent-rgb, 120, 80, 220), 0.28);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-countdown {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--interactive-accent);
+  background: rgba(var(--interactive-accent-rgb, 120, 80, 220), 0.14);
+  padding: 2px 7px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(var(--interactive-accent-rgb, 120, 80, 220), 0.3);
+  animation: uni-pulse-badge 2.4s infinite ease-in-out;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-countdown svg {
+  width: 11px;
+  height: 11px;
+}
+
+@keyframes uni-pulse-badge {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.02); }
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: var(--background-secondary);
-  font-size: var(--font-ui-small);
+  flex-wrap: wrap;
 }
 
-.qt-cal-exam-when {
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-time {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-accent);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-type-badge {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--event-color, var(--text-muted));
+  border: 1px solid var(--event-color, var(--background-modifier-border));
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-normal);
+  line-height: 1.3;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 
-.qt-cal-embed {
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-meta-item svg {
+  width: 12px;
+  height: 12px;
+  opacity: 0.75;
+}
+
+/* Status Notatki */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-note-status {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--background-modifier-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.75rem;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-note-status.is-cal-only {
+  justify-content: flex-end;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-note-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 500;
+  border-radius: 4px;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-note-status-badge.has-note {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-note-status-badge.missing-note {
+  color: var(--text-accent);
+  background: rgba(var(--interactive-accent-rgb, 120, 80, 220), 0.12);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-note-status-badge.unmapped-new {
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+  border: 1px dashed var(--background-modifier-border);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-note-status-badge.unmapped-new:hover {
+  color: var(--text-accent);
+  border-color: var(--interactive-accent);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-note-action-hint {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-calendar-source-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+  border: 1px solid var(--background-modifier-border);
+  padding: 2px 8px;
+  border-radius: 6px;
+  margin-left: auto;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-calendar-source-label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-calendar-source-label svg {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  color: var(--text-accent);
+}
+
+/* Event Card Footer Layout */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-note-status-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-note-status-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-note-status-badge.is-clickable {
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-note-status-badge.is-clickable:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+/* Break-gap markers, from the same upstream timeline. */
+/* Timeline Gap / Break Indicator - Super Compact Spacing */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin: -4px 0 -4px 0;
+  padding: 0 16px;
+  height: 16px;
+  line-height: 1;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 50%;
+  border-top: 1px dashed var(--background-modifier-border);
+  z-index: 1;
+  opacity: 0.7;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap-pill {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  line-height: 1;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap.style-badge .uni-timeline-gap-pill {
+  border-radius: 4px;
+  background: var(--background-modifier-form-field);
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap.style-text .uni-timeline-gap-pill {
+  background: var(--background-primary);
+  border: none;
+  box-shadow: none;
+  font-weight: 500;
+  color: var(--text-faint);
+  padding: 0 6px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap-icon svg {
+  width: 11px;
+  height: 11px;
+  color: var(--text-muted);
+}
+
+/* Break on Timeline Line (Style 2: Icon on timeline line with minutes) */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-line-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 20px;
+  margin: -2px 0;
+  cursor: default;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-line-node {
+  position: absolute;
+  left: -19px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--background-primary);
+  border: 1.5px solid var(--background-modifier-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2.5px var(--background-primary);
+  z-index: 2;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-line-node svg {
+  width: 9px;
+  height: 9px;
+  color: var(--text-muted);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-line-label {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  margin-right: auto;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-line-text {
+  font-size: 0.72rem;
+  font-weight: 550;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 1px 6px;
+  line-height: 1.25;
+  letter-spacing: 0.15px;
+  user-select: none;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-line-item:hover .uni-timeline-break-line-node {
+  border-color: var(--text-muted);
+  transform: translateY(-50%) scale(1.08);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-line-item:hover .uni-timeline-break-line-node svg {
+  color: var(--text-normal);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-line-item:hover .uni-timeline-break-line-text {
+  color: var(--text-normal);
+  border-color: var(--background-modifier-border-focus, var(--text-muted));
+  background: var(--background-modifier-hover);
+}
+
+/* Break Event Card on Timeline (Style 3: Event Card) */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-item {
+  position: relative;
+  margin: -2px 0;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-node {
+  background: var(--background-secondary);
+  border: 1.5px dashed var(--text-muted);
+  border-radius: 50%;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  left: -19px;
+  top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  box-shadow: none;
+  z-index: 2;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-node svg {
+  width: 9px;
+  height: 9px;
+  color: var(--text-muted);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-break-event-card {
+  background: var(--background-secondary);
+  border: 1px dashed var(--background-modifier-border-focus, var(--text-muted));
+  border-radius: var(--radius-m);
+  box-shadow: none;
+  padding: 8px 12px;
+  opacity: 0.88;
+  cursor: default;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-break-event-card::before {
+  display: none;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-break-event-card:hover {
+  opacity: 1;
+  border-color: var(--text-muted);
+  transform: none;
+  box-shadow: none;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-break-event-title-row {
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-break-event-title {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.86rem;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-break-card-duration-badge {
+  font-size: 0.70rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 1px 6px;
+  line-height: 1.3;
+}
+
+/* Month / Day / Upcoming switcher (not part of the original view). */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-calendar-modes {
+  display: inline-flex;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 2px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+
+.uni-modal-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-normal);
+  line-height: 1.3;
+}
+
+.uni-modal-filter-pills {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--background-secondary);
+  padding: 2px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-filter-btn {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-s);
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-filter-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-filter-btn:not(.is-active):hover {
+  color: var(--text-normal);
+}
+
+.uni-schedule-embed {
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.uni-schedule-embed .uni-schedule-header {
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.uni-schedule-embed .uni-timeline {
+  padding-left: 18px;
+  margin-top: 6px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn {
+  border-radius: var(--radius-s);
+  padding: 5px 8px;
+  font-size: 0.76rem;
+  box-shadow: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn:not(.mod-cta) {
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn.mod-cta {
+  background: var(--interactive-accent);
+  border: 1px solid var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: 600;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn.mod-cta:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn.uni-action-btn {
+  padding: 7px 14px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-normal);
+  background: var(--background-primary);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn svg {
+  transition: transform 0.25s ease;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn:not(.mod-cta):hover,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn.uni-action-btn:hover,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn.btn-rename-source:hover,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn.btn-calname-inactive:hover,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn.btn-unlock-source:hover,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn.btn-hide-source:hover,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn.btn-edit-keyword:hover,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-keyword-btn.btn-refresh-source:not(.is-disabled-locked):hover {
+  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+  color: var(--text-accent);
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+  transform: translateY(-1px);
+}
+
+/* Exams restored from the pre-port view. */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-panel-title {
+  padding: 2px 6px 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-left: 3px solid var(--color-red);
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-normal);
+  text-align: left;
+  cursor: pointer;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-when {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Study-slot chooser (it lives in a modal, outside the calendar container). */
+.uni-study-slot {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-top: 10px;
 }
 
-@media (max-width: 400px) {
-  .qt-cal-event-time {
-    width: 44px;
+.uni-study-slot-label {
+  margin-top: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.uni-study-slot-window,
+
+
+.uni-study-slot-count,
+
+
+.uni-study-slot-empty {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.uni-study-slot-durations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.uni-study-slot-durations button {
+  min-height: 36px;
+  padding: 4px 12px;
+}
+
+.uni-study-slot-durations button.is-selected {
+  border-color: var(--interactive-accent);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.uni-study-slot .dropdown {
+  width: 100%;
+}
+
+.uni-study-slot > button {
+  align-self: flex-start;
+}
+
+/* Keyboard focus without changing the ported visual style. */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell:focus-visible,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card:focus-visible,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap:focus-visible,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-item:focus-visible,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-row:focus-visible,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-badge-free:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-gap,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-timeline-break-item {
+  cursor: pointer;
+}
+
+@media (max-width: 600px) {
+  .uni-calendar-container {
+    padding: 6px 4px;
+    gap: 12px;
   }
-  .qt-cal-cell {
-    min-height: 46px;
+
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  :is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-when {
+    white-space: normal;
   }
 }
 

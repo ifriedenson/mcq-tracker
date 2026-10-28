@@ -235,6 +235,7 @@ test("visibility: excluded subjects and keywords hide events", () => {
 test("notes: template variables fill the file name and the note body", () => {
   const settings = model.mergeCalendarSettings({ noteFolder: "University" });
   const ev = {
+    uid: "e1",
     summary: "Linear Algebra (WYK)",
     description: "Lecturer: Dr Chen\nRoom: 204",
     location: "Hall B",
@@ -249,6 +250,8 @@ test("notes: template variables fill the file name and the note body", () => {
   assert.match(body, /date: 2026-10-05/);
   assert.match(body, /room: "Hall B"/);
   assert.match(body, /lecturer: "Dr Chen"/);
+  assert.match(body, /calendar_uid: e1/);
+  assert.match(body, /calendar_date: 2026-10-05/);
   assert.match(body, /10:00–11:30/);
   assert.match(body, /\[ \]/);
   assert.equal(model.renderNoteTemplate("{subject} {unknown}", { subject: "Math" }), "Math {unknown}");
@@ -273,6 +276,60 @@ test("calendar grid: six weeks, Monday or Sunday start, today marked", () => {
   const sunday = model.monthGrid(2026, 9, "sunday", new Date(2026, 9, 5));
   assert.equal(sunday[0].key, "2026-09-27");
   assert.deepEqual(model.weekdayLabels("sunday")[0], "Sun");
+});
+
+test("breaks: gaps between classes respect the minimum and maximum and skip all-day events", () => {
+  const settings = model.mergeCalendarSettings({ timelineGaps: { enabled: true, minMinutes: 15, maxMinutes: 120 } });
+  const at = (h, m) => new Date(2026, 9, 5, h, m || 0);
+  const events = [
+    { summary: "Reading day", allDay: true, dtstart: new Date(2026, 9, 5), dtend: new Date(2026, 9, 6) },
+    { summary: "A", allDay: false, dtstart: at(9), dtend: at(10) },
+    { summary: "B", allDay: false, dtstart: at(10, 10), dtend: at(11) },
+    { summary: "C", allDay: false, dtstart: at(12), dtend: at(13) },
+    { summary: "D", allDay: false, dtstart: at(15), dtend: at(16) },
+  ];
+  const entries = model.timelineEntries(events, settings);
+  assert.deepEqual(entries.filter((e) => e.kind === "gap").map((e) => e.minutes), [60, 120]);
+  assert.equal(entries[0].event.summary, "Reading day", "all-day events stay first");
+
+  settings.timelineGaps.maxMinutes = 30;
+  assert.deepEqual(model.timelineEntries(events, settings).filter((e) => e.kind === "gap"), []);
+  settings.timelineGaps.maxMinutes = 0;
+  settings.timelineGaps.enabled = false;
+  assert.equal(model.timelineEntries(events, settings).filter((e) => e.kind === "gap").length, 0);
+
+  assert.equal(model.gapLabel(90), "1h 30m");
+  assert.equal(model.gapLabel(60), "1h");
+  assert.equal(model.gapLabel(15), "15m");
+
+  const fallback = model.mergeCalendarSettings({ timelineGaps: { style: "nope", icon: "nope", minMinutes: 0, maxMinutes: -2 } });
+  assert.deepEqual(fallback.timelineGaps, { enabled: false, style: "pill", icon: "coffee", minMinutes: 15, maxMinutes: 0 });
+  assert.equal(model.mergeCalendarSettings({ timelineGaps: { enabled: true } }).timelineGaps.enabled, true);
+});
+
+test("free time: unbooked minutes between the first and last timed class", () => {
+  const at = (h, m) => new Date(2026, 9, 5, h, m || 0);
+  const cls = (summary, sh, sm, eh, em) => ({ summary, allDay: false, dtstart: at(sh, sm), dtend: at(eh, em) });
+  const allDay = { summary: "Reading day", allDay: true, dtstart: new Date(2026, 9, 5), dtend: new Date(2026, 9, 6) };
+  const events = [allDay, cls("A", 9, 0, 10, 0), cls("B", 10, 30, 11, 30), cls("C", 12, 0, 13, 0)];
+
+  assert.equal(model.dayFreeMinutes(events), 60, "30 minutes before B and 30 before C");
+  assert.equal(model.dayFreeMinutes([...events, cls("D", 9, 30, 12, 30)]), 0, "classes can cover the whole span");
+  assert.equal(model.dayFreeMinutes([events[1]]), 0, "one class has no free time to measure");
+  assert.equal(model.dayFreeMinutes([]), 0);
+  assert.equal(
+    model.dayFreeMinutes([cls("A", 9, 0, 11, 0), cls("B", 10, 0, 10, 30), cls("C", 12, 0, 13, 0)]),
+    60,
+    "the shared hour is not counted twice"
+  );
+
+  const slots = model.freeSlots(events);
+  assert.deepEqual(slots.map((s) => s.minutes), [30, 30]);
+  assert.equal(model.freeSlots(events, { minMinutes: 31 }).length, 0, "the same engine can filter short breaks");
+  const entries = model.timelineEntries(events, model.mergeCalendarSettings({ timelineGaps: { enabled: true, minMinutes: 15 } }));
+  assert.equal(entries.find((e) => e.kind === "gap").nextEvent.summary, "B", "a marker knows the class after the break");
+  assert.equal(model.mergeCalendarSettings({ studySlotBufferMinutes: 0 }).studySlotBufferMinutes, 0);
+  assert.equal(model.mergeCalendarSettings({ studySlotBufferMinutes: 99 }).studySlotBufferMinutes, 5);
 });
 
 test("countdowns: a running class is reported before the next one", () => {
@@ -369,13 +426,37 @@ test("plugin: creating a class note uses the template and remembers the subject 
   const result = await plugin.openClassNote(ev, ev.dateKey);
   assert.equal(result.created, true);
   const file = app.created.find((f) => f.path === result.path);
+  const actual = app.files.find((f) => f.path === result.path);
   assert.ok(file, "the note is written");
+  assert.ok(actual, "the note is in the vault");
   assert.ok(result.path.startsWith("University/Linear Algebra/"), result.path);
   assert.match(file.text, /course: "Linear Algebra"/);
   assert.match(file.text, /Room 204/);
   assert.deepEqual(app.opened, [result.path], "the new note opens");
   assert.equal(notes.notePathFor(app, plugin.calendarSettings(), ev, ev.dateKey), result.path);
   assert.equal(plugin.settings.calendar.subjectFolders["Linear Algebra"], "University/Linear Algebra");
+  assert.equal(actual.fm.calendar_uid, "today");
+  assert.equal(actual.fm.calendar_date, ev.dateKey);
+
+  // Moving or renaming the note must not make the calendar create a duplicate.
+  actual.path = "Moved/Linear Algebra.md";
+  actual.parent = { path: "Moved" };
+  let folderScans = 0;
+  const loadedFiles = app.vault.getAllLoadedFiles;
+  app.vault.getAllLoadedFiles = () => {
+    folderScans++;
+    return loadedFiles();
+  };
+  plugin.invalidateCalendarNotes();
+  assert.equal(plugin.findCalendarNote(ev, ev.dateKey).path, "Moved/Linear Algebra.md");
+  const scansAfterFirst = folderScans;
+  plugin.findCalendarNote(ev, ev.dateKey);
+  plugin.findCalendarNote(ev, ev.dateKey);
+  assert.equal(folderScans, scansAfterFirst, "the folder list is reused between cards");
+  const again = await plugin.openClassNote(ev, ev.dateKey);
+  assert.equal(again.created, false);
+  assert.equal(again.path, "Moved/Linear Algebra.md");
+  assert.equal(app.created.filter((f) => f.path.endsWith("Linear Algebra.md")).length, 1);
 });
 
 test("view: shows the module hint while off and a month grid once a schedule exists", async () => {
@@ -385,7 +466,7 @@ test("view: shows the module hint while off and a month grid once a schedule exi
   view.app = app;
   view.contentEl = dom.root;
   view.render();
-  assert.ok(dom.texts().some((t) => /calendar module is off/i.test(t)));
+  assert.ok(dom.texts().some((t) => /calendar is off/i.test(t)));
 
   await plugin.addCalendarFileSource("schedule.ics");
   plugin.settings.calendar.enabled = true;
@@ -393,8 +474,274 @@ test("view: shows the module hint while off and a month grid once a schedule exi
   view.contentEl = dom2.root;
   view.render();
   const texts = dom2.texts();
-  assert.ok(texts.includes("Calendar"));
   assert.ok(texts.includes("Month"));
   assert.ok(texts.includes(model.monthLabel(new Date().getFullYear(), new Date().getMonth())));
   assert.ok(texts.includes("Linear Algebra"), "the day panel lists the class");
+});
+
+test("view: clicking a different day keeps the month grid and redraws the schedule below it", async () => {
+  const today = new Date();
+  const other = new Date(today.getFullYear(), today.getMonth(), today.getDate() === 1 ? 2 : 1);
+  const offset = other.getDate() - today.getDate();
+  const icsText = wrap(
+    event({ uid: "today", start: stamp(at(0, 10)), end: stamp(at(0, 11)) }),
+    event({ uid: "other", summary: "Physics", start: stamp(at(offset, 10)), end: stamp(at(offset, 11)) })
+  );
+  const { app, plugin } = await pluginWith(icsText);
+  await plugin.addCalendarFileSource("schedule.ics");
+  plugin.settings.calendar.enabled = true;
+  const dom = makeDom();
+  const view = new T.CalendarView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  const key = ics.dateKey(other);
+  const cell = dom.all.find((o) => o.meta && o.meta.attrs && o.meta.attrs["data-date"] === key);
+  assert.ok(cell, "the month grid has a cell for the other day");
+  for (const handler of cell.handlers.filter((h) => h.ev === "click")) await handler.fn({});
+
+  assert.equal(view.mode, "month", "selecting a day must not switch to the day view");
+  assert.equal(view.selectedKey, key, "the clicked day becomes the selected day");
+  const texts = dom.texts();
+  assert.ok(texts.includes(model.monthLabel(new Date().getFullYear(), new Date().getMonth())), "the month grid is still there");
+  assert.ok(texts.includes(model.dayHeading(key)), "the panel names the selected day");
+  assert.ok(texts.includes("Physics"), "the panel lists the selected day's class");
+});
+
+test("view: the Day tab is a standalone day without the month grid", async () => {
+  const { app, plugin } = await pluginWith(TODAY_EVENT());
+  await plugin.addCalendarFileSource("schedule.ics");
+  plugin.settings.calendar.enabled = true;
+  const dom = makeDom();
+  const view = new T.CalendarView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+  await dom.click("Day");
+  assert.equal(view.mode, "day");
+
+  const dayDom = makeDom();
+  view.contentEl = dayDom.root;
+  view.render();
+  const texts = dayDom.texts();
+  assert.ok(texts.includes(model.dayHeading(ics.dateKey(new Date()))));
+  assert.ok(!texts.includes(model.monthLabel(new Date().getFullYear(), new Date().getMonth())));
+  assert.ok(!dayDom.all.some((o) => o.meta && o.meta.cls === "uni-days-grid"), "the month grid is gone");
+});
+
+test("view: break markers appear between classes and follow the style setting", async () => {
+  const icsText = wrap(
+    event({ uid: "a", start: stamp(at(0, 9)), end: stamp(at(0, 10)) }),
+    event({ uid: "b", summary: "Physics", start: stamp(at(0, 11, 30)), end: stamp(at(0, 12, 30)) })
+  );
+  const { app, plugin } = await pluginWith(icsText);
+  await plugin.addCalendarFileSource("schedule.ics");
+  plugin.settings.calendar.enabled = true;
+  const dom = makeDom();
+  const view = new T.CalendarView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  const toggle = dom.all.find((o) => o.meta && o.meta.attrs && /Show breaks between classes/i.test(o.meta.attrs["aria-label"] || ""));
+  assert.ok(toggle, "the header has a break toggle");
+  for (const handler of toggle.handlers.filter((h) => h.ev === "click")) await handler.fn({});
+  assert.equal(plugin.settings.calendar.timelineGaps.enabled, true);
+  assert.ok(
+    dom.all.some((o) => o.meta && /uni-timeline-gap/.test(String(o.meta.cls || ""))),
+    "the free period has a break marker"
+  );
+  assert.ok(dom.texts().some((t) => t.includes("1h 30m")), "the free period is labelled");
+
+  plugin.settings.calendar.timelineGaps.style = "card";
+  const cardDom = makeDom();
+  view.contentEl = cardDom.root;
+  view.render();
+  assert.ok(cardDom.texts().includes("Free period / Break"), "the card style is used");
+
+  const offToggle = cardDom.all.find((o) => o.meta && o.meta.attrs && /Hide breaks between classes/i.test(o.meta.attrs["aria-label"] || ""));
+  assert.ok(offToggle, "the header toggle reflects the on state");
+  for (const handler of offToggle.handlers.filter((h) => h.ev === "click")) await handler.fn({});
+  assert.equal(plugin.settings.calendar.timelineGaps.enabled, false);
+
+  const offDom = makeDom();
+  view.contentEl = offDom.root;
+  view.render();
+  assert.ok(
+    !offDom.all.some((o) => o.meta && /uni-timeline-(gap|break)/.test(String(o.meta.cls || ""))),
+    "turning breaks off removes the marker"
+  );
+});
+
+test("view: upcoming exams are restored with countdowns", async () => {
+  const icsText = wrap(event({ uid: "final", summary: "Calculus - Final Exam", start: stamp(at(7, 9)), end: stamp(at(7, 11)) }));
+  const { app, plugin } = await pluginWith(icsText);
+  await plugin.addCalendarFileSource("schedule.ics");
+  plugin.settings.calendar.enabled = true;
+  const dom = makeDom();
+  const view = new T.CalendarView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  assert.ok(dom.texts().includes("Upcoming exams"), "the exam panel is back");
+  assert.ok(dom.texts().includes("Calculus - Final Exam"));
+  assert.ok(dom.texts().some((text) => /in 7 days/.test(text)), "the exam countdown is shown");
+  const row = dom.all.find((o) => o.meta && o.meta.cls === "uni-exam-row");
+  assert.ok(row && row.meta.tag === "button", "exam rows are real buttons");
+});
+
+test("view: free time opens a study-slot chooser with durations and a buffer", async () => {
+  const icsText = wrap(
+    event({ uid: "a", start: stamp(at(0, 9)), end: stamp(at(0, 10)) }),
+    event({ uid: "b", summary: "Physics", start: stamp(at(0, 12)), end: stamp(at(0, 13)) })
+  );
+  const app = makeApp([
+    { path: "schedule.ics", text: icsText, noFm: true },
+    { path: "questions/q1.md", fm: { question_id: "q1", course: "Linear Algebra", attempts: 1, next_review: "2020-01-01" } },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  await plugin.addCalendarFileSource("schedule.ics");
+  plugin.settings.calendar.enabled = true;
+
+  const modal = new T.StudySlotModal(app, plugin, [
+    { start: at(0, 10), end: at(0, 12), minutes: 120, subject: "Linear Algebra" },
+  ]);
+  const dom = makeDom();
+  modal.contentEl = dom.root;
+  modal.onOpen();
+  const texts = dom.texts();
+  assert.ok(texts.includes("Study in your free time"));
+  assert.ok(texts.some((t) => /1h 55m usable/.test(t)), "the 5-minute buffer is deducted");
+  assert.ok(texts.includes("Start 5 minutes"), "the default Quick Practice length is offered");
+  assert.ok(texts.some((t) => /Next class: Linear Algebra \(1\)/.test(t)), "the next class filter has a count");
+
+  let captured = null;
+  plugin.activateView = async () => ({ startQuick: async (...args) => (captured = args) });
+  modal.close = () => {};
+  const select = dom.all.find((o) => o.meta && o.meta.tag === "select");
+  select.value = "course";
+  for (const handler of select.handlers.filter((h) => h.ev === "change")) await handler.fn({});
+  const start = dom.find("Start 5 minutes")[0];
+  assert.ok(start, "the start button is present");
+  for (const handler of start.handlers.filter((h) => h.ev === "click")) await handler.fn({});
+  assert.equal(captured[0], "time");
+  assert.equal(captured[1], 5);
+  assert.equal(captured[2].pool.length, 1, "the next-class pool is passed to Quick Practice");
+  assert.match(captured[2].label, /Linear Algebra/);
+});
+
+test("view: day cells and class cards are keyboard operable", async () => {
+  const { app, plugin } = await pluginWith(TODAY_EVENT());
+  await plugin.addCalendarFileSource("schedule.ics");
+  plugin.settings.calendar.enabled = true;
+  const dom = makeDom();
+  const view = new T.CalendarView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  const todayKey = ics.dateKey(new Date());
+  const cell = dom.all.find((o) => o.meta && o.meta.attrs && o.meta.attrs["data-date"] === todayKey);
+  assert.ok(cell);
+  assert.equal(cell.meta.attrs.role, "gridcell");
+  assert.equal(cell.meta.attrs.tabindex, "0");
+  const card = dom.all.find((o) => o.meta && String(o.meta.cls || "") === "uni-event-card");
+  assert.ok(card);
+  assert.equal(card.meta.attrs.role, "button");
+  assert.equal(card.meta.attrs.tabindex, "0");
+
+  const keydown = cell.handlers.find((h) => h.ev === "keydown");
+  assert.ok(keydown, "a day cell listens for keys");
+  await keydown.fn({ key: "ArrowRight", preventDefault() {}, stopPropagation() {} });
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  assert.equal(view.selectedKey, ics.dateKey(tomorrow));
+});
+
+test("plugin: source edits invalidate the cache and the range follows the viewed month", async () => {
+  const base = wrap(event({ uid: "a", start: stamp(at(0, 9)), end: stamp(at(0, 10)) }));
+  const { plugin } = await pluginWith(base);
+  await plugin.addCalendarFileSource("schedule.ics");
+  plugin.settings.calendar.enabled = true;
+
+  const edited = base.replace("T090000", "T110000").replace("T100000", "T120000");
+  assert.equal(edited.length, base.length);
+  assert.equal(edited.slice(0, 40), base.slice(0, 40));
+  plugin.settings.calendar.sources[0].content = edited;
+  assert.equal(plugin.calendarEvents()[0].dtstart.getHours(), 11, "a same-length edit is not lost in the cache");
+
+  const far = new Date();
+  far.setMonth(far.getMonth() + 8);
+  far.setHours(9, 0, 0, 0);
+  const farEnd = new Date(far.getTime() + 60 * 60 * 1000);
+  plugin.settings.calendar.sources[0].content = wrap(event({ uid: "far", summary: "Far class", start: stamp(far), end: stamp(farEnd) }));
+  assert.equal(plugin.calendarEvents().length, 0, "the current window does not see eight months ahead");
+  assert.equal(plugin.calendarEvents(far).length, 1, "asking for the viewed month expands the range");
+});
+
+test("view: the day header shows free time beside the class count", async () => {
+  const icsText = wrap(
+    event({ uid: "a", start: stamp(at(0, 9)), end: stamp(at(0, 10)) }),
+    event({ uid: "b", summary: "Physics", start: stamp(at(0, 12)), end: stamp(at(0, 13)) })
+  );
+  const { app, plugin } = await pluginWith(icsText);
+  await plugin.addCalendarFileSource("schedule.ics");
+  plugin.settings.calendar.enabled = true;
+  const dom = makeDom();
+  const view = new T.CalendarView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  assert.ok(dom.texts().includes("2 classes"));
+  const badge = dom.find("2h free")[0];
+  assert.ok(badge, "the day's free time is shown in the header");
+  assert.equal(badge.meta.cls, "uni-schedule-badge-free");
+  assert.match(badge.meta.attrs.title, /first and last class/);
+
+  const single = await pluginWith(wrap(event({ uid: "a", start: stamp(at(0, 9)), end: stamp(at(0, 10)) })));
+  await single.plugin.addCalendarFileSource("schedule.ics");
+  single.plugin.settings.calendar.enabled = true;
+  const singleDom = makeDom();
+  const singleView = new T.CalendarView({ app: single.app }, single.plugin);
+  singleView.app = single.app;
+  singleView.contentEl = singleDom.root;
+  singleView.render();
+  assert.ok(!singleDom.texts().some((t) => / free$/.test(t)), "a single class has no free-time badge");
+});
+
+test("stylesheet: ported calendar selectors stay scoped to the calendar or its modal", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const css = fs
+    .readFileSync(path.join(__dirname, "..", "styles.css"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  const roots = [":is(.uni-calendar-container, .uni-schedule-embed)", ".uni-calendar-container", ".uni-schedule-embed"];
+  const isRoot = (s) => roots.some((root) => s === root || s.startsWith(root + " ") || s.startsWith(root + ".") || s.startsWith(root + ":"));
+  const isModal = (s) => /^\.uni-(modal-title|modal-filter-pills|study-slot)(?:\b|$)/.test(s);
+  const splitSelectors = (text) => {
+    const out = [];
+    let buf = "";
+    let depth = 0;
+    for (const ch of text) {
+      if (ch === "(") depth++;
+      else if (ch === ")") depth = Math.max(0, depth - 1);
+      if (ch === "," && depth === 0) {
+        if (buf.trim()) out.push(buf.trim());
+        buf = "";
+      } else buf += ch;
+    }
+    if (buf.trim()) out.push(buf.trim());
+    return out;
+  };
+  const unscoped = [];
+  for (const match of css.matchAll(/([^{}]+)\{/g)) {
+    for (const selector of splitSelectors(match[1])) {
+      if (selector.includes(".uni-") && !isRoot(selector) && !isModal(selector)) unscoped.push(selector);
+    }
+  }
+  assert.deepEqual(unscoped, [], `global calendar selectors: ${unscoped.join(" | ")}`);
 });

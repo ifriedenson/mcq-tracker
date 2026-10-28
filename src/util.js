@@ -17,6 +17,17 @@ const str = (v) => (v === undefined || v === null ? "" : String(v));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const fmtMB = (n) => `${Math.round(n / 1048576)} MB`;
 
+/** Small, stable content hash for cache signatures. */
+function hashString(text) {
+  let h = 2166136261;
+  const s = String(text || "");
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
 async function ensureFolder(app, folder) {
   const clean = normalizePath(str(folder).trim() || "/");
   if (clean === "/" || clean === "") return "";
@@ -42,6 +53,7 @@ module.exports = {
   str,
   sleep,
   fmtMB,
+  hashString,
   ensureFolder,
   localDate,
 };

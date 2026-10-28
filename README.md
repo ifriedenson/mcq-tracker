@@ -21,7 +21,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Notes box** on the result screen, saved into the note.
 - **Import questions from a PDF:** an AI agent (or your own AI key) turns a PDF into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from a PDF](#import-questions-from-a-pdf)).
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
-- **Calendar (optional module, off by default).** Import an `.ics` schedule from a file or a public feed, see classes and exams in a month grid, day timeline and live countdown, and create a note for a class in one click (see [Calendar](#calendar-optional-module-off-by-default)).
+- **Calendar (optional module, off by default).** Import an `.ics` schedule from a file or a public feed, see classes and exams in a month grid, day timeline, live countdown and upcoming-exam countdowns, and create a note for a class in one click. Free periods can start a short Quick Practice session (see [Calendar](#calendar-optional-module-off-by-default)).
 
 ## Quick start
 
@@ -123,9 +123,11 @@ Each `history` entry is stored as `date|result|seconds|answer|confidence|error_t
 
 Turn on **Enable the calendar module** in Settings, Calendar, to add a class and exam calendar. Everything is parsed on your device from `.ics` files; nothing is fetched until you add a feed.
 
-- **Add a schedule.** Use **Calendar: add an .ics schedule**, or the **Add schedule** button in the calendar view. Pick an `.ics` file from your vault, or paste a public calendar address. Google Calendar share links (`?cid=...`), embed links (`?src=...`) and `webcal://` addresses are converted to the calendar's `.ics` address automatically. For a private Google Calendar use Settings, Integrate calendar, **Secret address in iCal format**. Canvas, Outlook and most university systems export `.ics` too.
-- **What you see.** A month grid with a color dot per class, the selected day's timeline, a live countdown while a class is in progress, an Upcoming list, and exam countdowns. Classes are colored by type (lecture, exercises, lab, seminar, project, language, exam), and every color is a setting.
-- **One click to a note.** Each class row has **Open note**. It creates the note from the template (subject, course, date, time, room, lecturer, type, tags) in the subject's folder, or opens the note that already exists. The subject-to-folder mapping is remembered the first time and is editable in settings.
+- **Add a schedule.** Use **Calendar: add an .ics schedule**, or **Add a schedule** in an empty calendar view. Pick an `.ics` file from your vault, or paste a public calendar address. Google Calendar share links (`?cid=...`), embed links (`?src=...`) and `webcal://` addresses are converted to the calendar's `.ics` address automatically. For a private Google Calendar use Settings, Integrate calendar, **Secret address in iCal format**. Canvas, Outlook and most university systems export `.ics` too.
+- **What you see.** The original University Schedule and Calendar layout: a month card with a color dot per class, then the selected day's timeline underneath. Clicking a day keeps the month grid on screen and updates that timeline; **Day** opens the standalone day view. A live countdown marks the class in progress, **Upcoming exams** shows the next five exams with a countdown, and **Upcoming** lists the next two weeks. Classes are colored by type (lecture, exercises, lab, seminar, project, language, exam), and every color is a setting.
+- **Breaks between classes.** Optional markers show the free periods between consecutive classes on the day timeline. Choose a pill, dashed line, timeline card or plain text, pick a coffee/food/pause icon, and set a minimum and maximum gap length. Off by default; turn it on under Settings, Calendar, Display → **Breaks between classes**, or use the coffee button in the calendar header.
+- **Study from free time.** Click the **2h free** badge or any break marker to start a Quick Practice session in that period. Choose 5, 10 or 20 minutes that fit, then use your current filters, questions due for review, or questions for the next class. A configurable buffer (5 minutes by default) stays free before the next class: Settings, Calendar → **Study from free time**.
+- **One click to a note.** Each class card has a **Note exists** or **Missing note** badge, and clicking the card opens or creates the note. It creates the note from the template (subject, course, date, time, room, lecturer, type, tags, calendar UID and date) in the subject's folder, or opens the note that already exists. The calendar UID and date keep the link after you rename or move the note, so it does not create a duplicate. The subject-to-folder mapping is remembered the first time and is editable in settings.
 - **Embed a day.** Put this in any note:
 
   ````markdown
@@ -138,7 +140,7 @@ Turn on **Enable the calendar module** in Settings, Calendar, to add a class and
 - **Hide what you don't attend.** Excluded subjects and keywords are settings. Hidden schedules, excluded subjects and keyword matches also stay out of exports.
 - **Export.** **Calendar: export the visible schedule to .ics** writes `schedule-export.ics` in the vault root.
 
-The class-detail parsing, the `.ics` parser and the calendar presentation are adapted from [University Schedule and Calendar](https://github.com/Cesemess/obsidian-uni-calendar) (MIT, Cesemess); see [NOTICES.md](NOTICES.md) for the pinned version and the list of changes. Labels are English-only for now, and the note template is plain text rather than a visual builder.
+The class-detail parsing, the `.ics` parser and the calendar presentation are adapted from [University Schedule and Calendar](https://github.com/Cesemess/obsidian-uni-calendar) (MIT, Cesemess). The month card, timeline and event cards keep that plugin's markup and stylesheet rules so the two calendars look the same; see [NOTICES.md](NOTICES.md) for the pinned version and the list of changes. Labels are English-only for now, and the note template is plain text rather than a visual builder.
 
 ## Import questions from a PDF
 
@@ -208,7 +210,7 @@ The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRo
 
 ## Settings
 
-Question folder, how the Folder filter is shown (auto, buttons or a search box), review intervals, mistake types, confidence labels, whether the explanation starts shown or hidden, timer pause on mobile, the AI settings (backend, provider, OpenCode program and mode), saved presets (rename or delete them), and the calendar module (schedules, note folder, name and template, subject folders, exclusions, colors, first day of the week, time and date formats).
+Question folder, how the Folder filter is shown (auto, buttons or a search box), review intervals, mistake types, confidence labels, whether the explanation starts shown or hidden, timer pause on mobile, the AI settings (backend, provider, OpenCode program and mode), saved presets (rename or delete them), and the calendar module (schedules, note folder, name and template, subject folders, exclusions, colors, first day of the week, time and date formats, breaks and the study-slot buffer).
 
 ## Privacy
 

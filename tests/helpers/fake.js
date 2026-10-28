@@ -56,6 +56,8 @@ function makeApp(notes) {
         f.extension = p.replace(/^.*\./, "");
         f.parent = { path: p.includes("/") ? p.replace(/\/[^/]*$/, "") : "/" };
         f.text = text;
+        f.fm = {};
+        f.headings = [];
         files.push(f);
         app.created = app.created || [];
         app.created.push({ path: p, text });
@@ -105,12 +107,20 @@ function makeDom() {
       get(_t, k) {
         if (k === Symbol.toPrimitive) return () => "";
         if (k === "then") return undefined;
-        if (k === "style") return {};
+        if (k === "style") {
+          if (!own.style) own.style = { setProperty(name, value) { this[name] = value; } };
+          return own.style;
+        }
         if (k === "value") return own.value === undefined ? "" : own.value;
         if (k === "hasClass") return () => false;
         if (k === "isConnected") return true;
         if (k === "scrollTop") return 0;
         if (k === "addEventListener") return (ev, fn) => own.handlers.push({ ev, fn });
+        if (k === "setAttr") return (name, value) => {
+          own.meta.attrs = own.meta.attrs || {};
+          own.meta.attrs[name] = value;
+        };
+        if (k === "getAttr") return (name) => (own.meta.attrs || {})[name];
         if (k === "createEl" || k === "createDiv" || k === "createSpan") {
           return (a, b) => make(k === "createEl" ? Object.assign({ tag: a }, b || {}) : Object.assign({ tag: k === "createDiv" ? "div" : "span" }, a || {}));
         }
