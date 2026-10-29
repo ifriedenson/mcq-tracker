@@ -5,6 +5,7 @@ const { fmtClock, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
+const { conceptMasteryRows } = require("./concept-mastery");
 const { renderBreakdown, renderCalibration, renderGrade, renderRetention, renderSkips } = require("./analytics-embed");
 
 /* ------------------------------------------- weak spots and error log */
@@ -57,7 +58,7 @@ class InsightsView extends ItemView {
       return;
     }
     const tabs = root.createDiv({ cls: "qt-row qt-small-row" });
-    for (const [id, label] of [["overview", "Overview"], ["weak", "Weak spots"], ["errors", "Error log"]]) {
+    for (const [id, label] of [["overview", "Overview"], ["weak", "Weak spots"], ["concepts", "Concepts"], ["errors", "Error log"]]) {
       const b = tabs.createEl("button", { text: label });
       if (this.tab === id) b.addClass("mod-cta");
       b.addEventListener("click", () => {
@@ -75,6 +76,11 @@ class InsightsView extends ItemView {
       if (questions.length) this.renderWeak(root, questions);
       else root.createDiv({ cls: "qt-empty", text: "No question notes found yet." });
       this.renderFrqWeak(root);
+      el.scrollTop = top;
+      return;
+    }
+    if (this.tab === "concepts") {
+      this.renderConcepts(root, questions);
       el.scrollTop = top;
       return;
     }
@@ -254,6 +260,45 @@ class InsightsView extends ItemView {
       const go = row.createEl("button", { text: "Practice" });
       go.addEventListener("click", () => p.practiceWith({ [this.field]: [r.value] }, "smart"));
     }
+  }
+
+  /** Mastery per source note, weakest first. A local list, not an upload. */
+  renderConcepts(root, questions) {
+    const rows = conceptMasteryRows(questions);
+    root.createEl("h3", { cls: "qt-today-section", text: "Concept mastery" });
+    root.createDiv({
+      cls: "qt-hint",
+      text: "One row per note that generated practice items, weakest first. The meter is practice accuracy on that note's linked questions; open a note to reread it.",
+    });
+    if (!rows.length) {
+      root.createDiv({
+        cls: "qt-empty",
+        text: "No linked practice yet. Generate practice from a course note, or write questions with source_note, and they are grouped here.",
+      });
+      return;
+    }
+    const list = root.createDiv({ cls: "qt-ins-list qt-concept-list" });
+    for (const row of rows) {
+      const line = list.createDiv({ cls: `qt-ins-row qt-concept is-${row.band}` });
+      const main = line.createDiv({ cls: "qt-ins-main" });
+      const link = main.createEl("a", { text: row.label, cls: `qt-link qt-concept-link is-${row.band}` });
+      link.addEventListener("click", () => {
+        const file = this.app.vault.getAbstractFileByPath(row.path) || (this.app.metadataCache.getFirstLinkpathDest ? this.app.metadataCache.getFirstLinkpathDest(row.path, "") : null);
+        if (file) this.app.workspace.getLeaf("tab").openFile(file);
+        else root.createDiv({ cls: "qt-hint", text: `That source note is no longer in the vault: ${row.path}` });
+      });
+      main.createDiv({
+        cls: "qt-hint",
+        text: row.attempts
+          ? `${row.questions} question${row.questions === 1 ? "" : "s"} · ${fmtPct(row.accuracy)} correct over ${row.attempts} attempt${row.attempts === 1 ? "" : "s"}`
+          : `${row.questions} question${row.questions === 1 ? "" : "s"} · not tried yet`,
+      });
+      const meter = line.createDiv({ cls: "qt-ins-meter" });
+      const band = row.band === "weak" ? "is-low" : row.band === "developing" ? "is-mid" : row.band === "strong" ? "is-high" : "";
+      meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((row.accuracy || 0) * 100)}%` });
+      meter.createSpan({ cls: "qt-ins-pct", text: row.accuracy === null ? "—" : fmtPct(row.accuracy) });
+    }
+    root.createDiv({ cls: "qt-hint", text: "Mastery is practice accuracy, not a grade. A note with no attempts stays visible but sits at the end." });
   }
 
   /** Accuracy for each of the last 8 weeks, as a small bar chart. */

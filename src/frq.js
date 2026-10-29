@@ -698,6 +698,7 @@ function buildFrqAttemptNote(note, attempt, date) {
   if (!note || !attempt || !Number.isFinite(Number(attempt.earned)) || !Number.isFinite(Number(attempt.max)) || Number(attempt.max) <= 0) return null;
   const takenOn = normalizeDate(date) || localDate();
   const answerSource = str(attempt.answerSource).trim().toLowerCase() === "photo" ? "photo" : "typed";
+  const answerPages = Math.max(0, Math.round(Number(attempt.answerPages) || 0));
   const fm = {
     type: FRQ_ATTEMPT_TYPE,
     ap_course: note.courseId,
@@ -718,6 +719,7 @@ function buildFrqAttemptNote(note, attempt, date) {
     model: str(attempt.model).trim(),
     answer_source: answerSource,
   };
+  if (answerSource === "photo" && answerPages) fm.answer_pages = answerPages;
   const lines = ["---"];
   for (const [key, value] of Object.entries(fm)) {
     if (value === null) continue;
@@ -734,7 +736,8 @@ function buildFrqAttemptNote(note, attempt, date) {
   lines.push(`- **Score:** ${round1(fm.earned)} / ${round1(fm.max_points)} (${round1(fm.percent)}%)`);
   lines.push(`- **Graded by:** ${fm.graded_by}`);
   if (answerSource === "photo") {
-    lines.push(`- **Answer source:** photo of handwritten work, read by ${str(attempt.answerModel).trim() || "the configured vision model"}. Check the transcript against the page.`);
+    const pages = answerPages > 1 ? `${answerPages} photos` : "photo";
+    lines.push(`- **Answer source:** ${pages} of handwritten work, read by ${str(attempt.answerModel).trim() || "the configured vision model"}. Check the transcript against the ${answerPages > 1 ? "pages" : "page"}.`);
   }
   lines.push(`- **Prompt note:** [[${note.path.replace(/\.md$/i, "")}]]`);
   lines.push("");

@@ -76,6 +76,7 @@ const { PdfImportModal } = require("./import-modal");
 const courseNotes = require("./course-notes");
 const paperScanner = require("./paper-scanner");
 const documentClassify = require("./document-classify");
+const conceptMastery = require("./concept-mastery");
 const { DocumentReviewModal } = require("./document-review-modal");
 const ocr = require("./ocr");
 const { OcrModal } = require("./ocr-modal");
@@ -309,6 +310,7 @@ QuestionTrackerPlugin.__test = {
   courseNotes,
   paperScanner,
   documentClassify,
+  conceptMastery,
   DocumentReviewModal,
   ocr,
   OcrModal,

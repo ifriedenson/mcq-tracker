@@ -132,7 +132,88 @@ test("FRQ: the grader offers the photo action and says what is sent", async () =
   modal.loading = false;
   modal.result = modal.computeResult();
   modal.draw();
-  assert.ok(dom.texts().includes("Read a photo of handwritten work..."));
-  assert.ok(dom.texts().some((text) => text.includes("The photo is not stored in the vault")));
+  assert.ok(dom.texts().includes("Read photos of handwritten work..."));
+  assert.ok(dom.texts().some((text) => text.includes("The photos are not stored in the vault")));
   assert.ok(dom.texts().some((text) => text.includes("Turn on AI features to read a photo")));
+});
+
+async function photoModal() {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const created = await plugin.createFrqNote({
+    courseId: "ap-chemistry",
+    title: "Thermo",
+    prompt: "Explain entropy.",
+    rubric: [{ label: "Claim", points: 2 }],
+  });
+  const modal = new T.FrqGraderModal({ app }, plugin);
+  modal.contentEl = makeDom().root;
+  modal.note = created.note;
+  modal.loading = false;
+  modal.result = modal.computeResult();
+  return { plugin, modal };
+}
+
+test("FRQ: several photos are read in order and appended to the answer box", async () => {
+  const { plugin, modal } = await photoModal();
+  modal.answer = "Opening line.";
+  const seen = [];
+  plugin.transcribeHandwritingPhoto = async (image) => {
+    seen.push(image.name);
+    return { text: `page ${seen.length}`, model: "vision-1" };
+  };
+  await modal.readPhotos([fileOf("p1.png", "image/png"), fileOf("p2.png", "image/png")]);
+  assert.deepEqual(seen, ["p1.png", "p2.png"]);
+  assert.equal(modal.answer, "Opening line.\n\npage 1\n\npage 2");
+  assert.equal(modal.photoPages, 2);
+  assert.equal(modal.answerSource, "photo");
+  assert.match(modal.message, /2 photos read in order/);
+});
+
+test("FRQ: a later photo failure keeps the pages already read", async () => {
+  const { plugin, modal } = await photoModal();
+  plugin.transcribeHandwritingPhoto = async (image) => {
+    if (image.name === "p2.png") throw new Error("model offline");
+    return { text: "page one", model: "vision-1" };
+  };
+  await modal.readPhotos([fileOf("p1.png", "image/png"), fileOf("p2.png", "image/png")]);
+  assert.equal(modal.answer, "page one");
+  assert.equal(modal.photoPages, 1);
+  assert.match(modal.message, /Photo 2 of 2 failed: model offline/);
+  assert.match(modal.message, /1 page already read/);
+});
+
+test("FRQ: one answer reads at most eight photos and says so", async () => {
+  const { plugin, modal } = await photoModal();
+  let calls = 0;
+  plugin.transcribeHandwritingPhoto = async () => {
+    calls++;
+    return { text: `page ${calls}`, model: "vision-1" };
+  };
+  const files = Array.from({ length: 10 }, (_, i) => fileOf(`p${i}.png`, "image/png"));
+  await modal.readPhotos(files);
+  assert.equal(calls, 8);
+  assert.equal(modal.photoPages, 8);
+  assert.match(modal.message, /Only the first 8 photos were read/);
+});
+
+test("FRQ: an attempt records how many photo pages were read", () => {
+  const note = {
+    path: "AP FRQs/AP Chemistry/Buffers.md",
+    courseId: "ap-chemistry",
+    course: "AP Chemistry",
+    title: "Buffers",
+    rubricSource: "user",
+    rubric: [{ id: "c1", label: "Claim", points: 2 }],
+  };
+  const attempt = frq.scoreAttempt({ rubric: note.rubric, scores: { c1: 2 }, gradedBy: "self" });
+  const out = frq.buildFrqAttemptNote(
+    note,
+    { ...attempt, answer: "Read from paper.", answerSource: "photo", answerModel: "vision-1", answerPages: 3 },
+    "2026-10-29"
+  );
+  assert.equal(out.frontmatter.answer_source, "photo");
+  assert.equal(out.frontmatter.answer_pages, 3);
+  assert.match(out.text, /3 photos of handwritten work, read by vision-1/);
 });

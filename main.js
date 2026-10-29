@@ -14204,6 +14204,79 @@ module.exports = {
 };
 };
 
+/* ---- src/concept-mastery.js ---- */
+__defs["concept-mastery"] = function (module, exports, require) {
+const { str } = require("./util");
+
+/* Mastery per source note. Questions and cards written from a note carry
+ * `source_note`, so practice accuracy can be grouped back to the note that
+ * taught the idea. Nothing leaves the vault and no note content is read. */
+
+const MASTERY_BANDS = [
+  { id: "weak", label: "Needs work" },
+  { id: "developing", label: "Developing" },
+  { id: "strong", label: "Strong" },
+];
+
+function masteryBand(accuracy) {
+  if (accuracy === null || accuracy === undefined || !Number.isFinite(Number(accuracy))) return "untried";
+  const value = Number(accuracy);
+  if (value < 0.6) return "weak";
+  if (value < 0.8) return "developing";
+  return "strong";
+}
+
+function sourceLabel(path) {
+  const clean = str(path).trim();
+  const base = clean.split("/").pop() || clean;
+  return base.replace(/\.md$/i, "") || "Untitled note";
+}
+
+/**
+ * One row per note that generated practice items, weakest first. Accuracy uses
+ * the note's own `attempts` and `correct_count`, the same counters as the rest
+ * of Insights, so a question is never counted twice. Notes with no attempts are
+ * kept but sorted last.
+ */
+function conceptMasteryRows(questions) {
+  const rows = new Map();
+  for (const q of Array.isArray(questions) ? questions : []) {
+    const path = str(q && q.fm && q.fm.source_note).trim();
+    if (!path) continue;
+    let row = rows.get(path);
+    if (!row) {
+      rows.set(
+        path,
+        (row = { path, label: sourceLabel(path), questions: 0, attempts: 0, correct: 0, accuracy: null, band: "untried" })
+      );
+    }
+    const attempts = Math.max(0, Number(q.fm.attempts) || 0);
+    const correct = Math.min(Math.max(0, Number(q.fm.correct_count) || 0), attempts);
+    row.questions++;
+    row.attempts += attempts;
+    row.correct += correct;
+  }
+
+  const out = [...rows.values()].map((row) => {
+    const accuracy = row.attempts ? row.correct / row.attempts : null;
+    return { ...row, accuracy, band: masteryBand(accuracy) };
+  });
+  out.sort((a, b) => {
+    if ((a.accuracy === null) !== (b.accuracy === null)) return a.accuracy === null ? 1 : -1;
+    if (a.accuracy !== b.accuracy) return a.accuracy - b.accuracy;
+    return b.attempts - a.attempts || a.path.localeCompare(b.path, undefined, { numeric: true });
+  });
+  return out;
+}
+
+module.exports = {
+  MASTERY_BANDS,
+  conceptMasteryRows,
+  masteryBand,
+  sourceLabel,
+};
+};
+
 /* ---- src/constants.js ---- */
 __defs["constants"] = function (module, exports, require) {
 const { DEFAULT_REFERENCE_SETTINGS } = require("./reference-data");
@@ -18420,6 +18493,7 @@ function buildFrqAttemptNote(note, attempt, date) {
   if (!note || !attempt || !Number.isFinite(Number(attempt.earned)) || !Number.isFinite(Number(attempt.max)) || Number(attempt.max) <= 0) return null;
   const takenOn = normalizeDate(date) || localDate();
   const answerSource = str(attempt.answerSource).trim().toLowerCase() === "photo" ? "photo" : "typed";
+  const answerPages = Math.max(0, Math.round(Number(attempt.answerPages) || 0));
   const fm = {
     type: FRQ_ATTEMPT_TYPE,
     ap_course: note.courseId,
@@ -18440,6 +18514,7 @@ function buildFrqAttemptNote(note, attempt, date) {
     model: str(attempt.model).trim(),
     answer_source: answerSource,
   };
+  if (answerSource === "photo" && answerPages) fm.answer_pages = answerPages;
   const lines = ["---"];
   for (const [key, value] of Object.entries(fm)) {
     if (value === null) continue;
@@ -18456,7 +18531,8 @@ function buildFrqAttemptNote(note, attempt, date) {
   lines.push(`- **Score:** ${round1(fm.earned)} / ${round1(fm.max_points)} (${round1(fm.percent)}%)`);
   lines.push(`- **Graded by:** ${fm.graded_by}`);
   if (answerSource === "photo") {
-    lines.push(`- **Answer source:** photo of handwritten work, read by ${str(attempt.answerModel).trim() || "the configured vision model"}. Check the transcript against the page.`);
+    const pages = answerPages > 1 ? `${answerPages} photos` : "photo";
+    lines.push(`- **Answer source:** ${pages} of handwritten work, read by ${str(attempt.answerModel).trim() || "the configured vision model"}. Check the transcript against the ${answerPages > 1 ? "pages" : "page"}.`);
   }
   lines.push(`- **Prompt note:** [[${note.path.replace(/\.md$/i, "")}]]`);
   lines.push("");
@@ -18694,6 +18770,8 @@ const { FRQ_COURSES, courseById, compareFrqPasses, parseRubric, presetFor, prese
 const { readImageFile } = require("./handwriting");
 const { str } = require("./util");
 
+const MAX_PHOTOS = 8;
+
 function presetText(courseId, kind) {
   const preset = presetFor(courseId, kind);
   return preset.criteria.map((criterion) => `- [${criterion.points}] ${criterion.label}: ${criterion.description}`).join("\n");
@@ -18735,9 +18813,9 @@ class FrqGraderModal extends Modal {
     this.saving = false;
     this.resultEl = null;
     this.transcribing = false;
-    this.photoName = "";
-    this.photoModel = "";
-    this.answerSource = "typed";
+    this.photoNames = [];
+    this.photoPages = 0;
+    this.photoProgress = "";
   }
 
   onOpen() {
@@ -18896,26 +18974,26 @@ class FrqGraderModal extends Modal {
     });
 
     const photoRow = root.createDiv({ cls: "qt-row qt-frq-photo" });
-    const photoInput = photoRow.createEl("input", { type: "file", attr: { accept: "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif" } });
+    const photoInput = photoRow.createEl("input", { type: "file", attr: { multiple: "true", accept: "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif" } });
     photoInput.hidden = true;
     const support = this.plugin.handwritingPhotoSupport ? this.plugin.handwritingPhotoSupport() : { ok: false, reason: "" };
     const readPhoto = photoRow.createEl("button", {
-      text: this.transcribing ? "Reading photo..." : "Read a photo of handwritten work...",
+      text: this.transcribing ? this.photoProgress || "Reading photos..." : "Read photos of handwritten work...",
       cls: "qt-grow",
-      attr: { title: "Sends this one photo to your configured vision model and puts the transcript in the answer box." },
+      attr: { title: `Sends each chosen photo to your configured vision model, one at a time, and appends its transcript to the answer box. Up to ${MAX_PHOTOS} pages.` },
     });
     readPhoto.disabled = this.transcribing || !support.ok;
     readPhoto.addEventListener("click", () => photoInput.click());
     photoInput.addEventListener("change", () => {
-      const file = photoInput.files && photoInput.files[0] ? photoInput.files[0] : null;
-      if (file) this.readPhoto(file);
+      const files = photoInput.files ? Array.from(photoInput.files) : [];
+      if (files.length) this.readPhotos(files);
     });
     root.createDiv({
       cls: "qt-hint",
-      text: "Reading a photo is opt-in and sends only that one image, only when you press the button, to your Direct AI vision model. The photo is not stored in the vault; check the transcript before grading.",
+      text: `Reading photos is opt-in and sends only the images you choose, one at a time in the order you selected them, only when you press the button, to your Direct AI vision model. Up to ${MAX_PHOTOS} pages per answer. The photos are not stored in the vault; check the transcript before grading.`,
     });
     if (!support.ok && support.reason) root.createDiv({ cls: "qt-hint", text: support.reason });
-    if (this.photoName) root.createDiv({ cls: "qt-hint", text: `Answer read from ${this.photoName}. Fix anything the model misread before grading or saving.` });
+    if (this.photoName) root.createDiv({ cls: "qt-hint", text: `Answer read from ${this.photoNames.length > 1 ? `${this.photoNames.length} photos` : this.photoName}. Fix anything the model misread before grading or saving.` });
 
     root.createEl("h4", { text: "Rubric" });
     root.createDiv({
@@ -19013,24 +19091,58 @@ class FrqGraderModal extends Modal {
     }
   }
 
-  /** Reads one chosen photo into the answer box. Nothing is graded or written here. */
-  async readPhoto(file) {
+  /**
+   * Reads the chosen photos in the order given and appends each transcript to
+   * the answer box, so a multi-page worked solution stays in order. Pages that
+   * were already read stay put if a later one fails. Nothing is graded or
+   * written here, and no image is stored.
+   */
+  async readPhotos(files) {
     if (this.transcribing || !this.note) return;
+    const all = Array.from(files || []);
+    const chosen = all.slice(0, MAX_PHOTOS);
+    if (!chosen.length) return;
     this.transcribing = true;
     this.message = "";
+    this.photoPages = 0;
+    this.photoNames = [];
+    const models = [];
+    let failure = "";
     this.draw();
-    try {
-      const image = await readImageFile(file);
-      const out = await this.plugin.transcribeHandwritingPhoto(image, { course: this.note.course, title: this.note.title });
-      this.answer = out.text;
-      this.answerSource = "photo";
-      this.photoName = image.name;
-      this.photoModel = out.model || "";
-      this.message = "Photo read. The transcript is your answer now: correct it, then self-grade or AI grade as usual.";
-    } catch (error) {
-      this.message = str(error && error.message ? error.message : error);
+    for (let i = 0; i < chosen.length; i++) {
+      this.photoProgress = `Reading photo ${i + 1} of ${chosen.length}...`;
+      this.draw();
+      try {
+        const image = await readImageFile(chosen[i]);
+        const out = await this.plugin.transcribeHandwritingPhoto(image, { course: this.note.course, title: this.note.title });
+        const text = str(out.text).trim();
+        if (!text) throw new Error(`${image.name} produced no text.`);
+        this.answer = str(this.answer).trim() ? `${str(this.answer).trim()}\n\n${text}` : text;
+        this.answerSource = "photo";
+        this.photoPages++;
+        this.photoNames.push(image.name);
+        if (out.model) models.push(str(out.model));
+      } catch (error) {
+        failure = `Photo ${i + 1} of ${chosen.length} failed: ${str(error && error.message ? error.message : error)}`;
+        break;
+      }
     }
     this.transcribing = false;
+    this.photoProgress = "";
+    this.photoName = this.photoNames.join(", ");
+    this.photoModel = [...new Set(models)].join(", ");
+    if (failure) {
+      this.message = this.photoPages
+        ? `${failure} The ${this.photoPages} page${this.photoPages === 1 ? "" : "s"} already read stay in the answer box, in order.`
+        : failure;
+    } else if (this.photoPages) {
+      this.message = this.photoPages === 1
+        ? "Photo read. The transcript is your answer now: correct it, then self-grade or AI grade as usual."
+        : `${this.photoPages} photos read in order and appended to the answer box. Correct anything the model misread, then grade.`;
+    }
+    if (!failure && all.length > MAX_PHOTOS) {
+      this.message += ` Only the first ${MAX_PHOTOS} photos were read; add the rest in a second pass.`;
+    }
     this.draw();
   }
 
@@ -19161,6 +19273,7 @@ class FrqGraderModal extends Modal {
         answer: this.answer,
         answerSource: this.answerSource,
         answerModel: this.photoModel,
+        answerPages: this.answerSource === "photo" ? this.photoPages : 0,
         model: this.aiResult ? this.plugin.aiModelLabel("frqGrading") : "",
         secondPass: !!this.secondResult,
         disagreed: this.comparison ? this.comparison.disagreements.map((item) => item.label) : [],
@@ -23069,6 +23182,7 @@ const { fmtClock, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
+const { conceptMasteryRows } = require("./concept-mastery");
 const { renderBreakdown, renderCalibration, renderGrade, renderRetention, renderSkips } = require("./analytics-embed");
 
 /* ------------------------------------------- weak spots and error log */
@@ -23121,7 +23235,7 @@ class InsightsView extends ItemView {
       return;
     }
     const tabs = root.createDiv({ cls: "qt-row qt-small-row" });
-    for (const [id, label] of [["overview", "Overview"], ["weak", "Weak spots"], ["errors", "Error log"]]) {
+    for (const [id, label] of [["overview", "Overview"], ["weak", "Weak spots"], ["concepts", "Concepts"], ["errors", "Error log"]]) {
       const b = tabs.createEl("button", { text: label });
       if (this.tab === id) b.addClass("mod-cta");
       b.addEventListener("click", () => {
@@ -23139,6 +23253,11 @@ class InsightsView extends ItemView {
       if (questions.length) this.renderWeak(root, questions);
       else root.createDiv({ cls: "qt-empty", text: "No question notes found yet." });
       this.renderFrqWeak(root);
+      el.scrollTop = top;
+      return;
+    }
+    if (this.tab === "concepts") {
+      this.renderConcepts(root, questions);
       el.scrollTop = top;
       return;
     }
@@ -23318,6 +23437,45 @@ class InsightsView extends ItemView {
       const go = row.createEl("button", { text: "Practice" });
       go.addEventListener("click", () => p.practiceWith({ [this.field]: [r.value] }, "smart"));
     }
+  }
+
+  /** Mastery per source note, weakest first. A local list, not an upload. */
+  renderConcepts(root, questions) {
+    const rows = conceptMasteryRows(questions);
+    root.createEl("h3", { cls: "qt-today-section", text: "Concept mastery" });
+    root.createDiv({
+      cls: "qt-hint",
+      text: "One row per note that generated practice items, weakest first. The meter is practice accuracy on that note's linked questions; open a note to reread it.",
+    });
+    if (!rows.length) {
+      root.createDiv({
+        cls: "qt-empty",
+        text: "No linked practice yet. Generate practice from a course note, or write questions with source_note, and they are grouped here.",
+      });
+      return;
+    }
+    const list = root.createDiv({ cls: "qt-ins-list qt-concept-list" });
+    for (const row of rows) {
+      const line = list.createDiv({ cls: `qt-ins-row qt-concept is-${row.band}` });
+      const main = line.createDiv({ cls: "qt-ins-main" });
+      const link = main.createEl("a", { text: row.label, cls: `qt-link qt-concept-link is-${row.band}` });
+      link.addEventListener("click", () => {
+        const file = this.app.vault.getAbstractFileByPath(row.path) || (this.app.metadataCache.getFirstLinkpathDest ? this.app.metadataCache.getFirstLinkpathDest(row.path, "") : null);
+        if (file) this.app.workspace.getLeaf("tab").openFile(file);
+        else root.createDiv({ cls: "qt-hint", text: `That source note is no longer in the vault: ${row.path}` });
+      });
+      main.createDiv({
+        cls: "qt-hint",
+        text: row.attempts
+          ? `${row.questions} question${row.questions === 1 ? "" : "s"} · ${fmtPct(row.accuracy)} correct over ${row.attempts} attempt${row.attempts === 1 ? "" : "s"}`
+          : `${row.questions} question${row.questions === 1 ? "" : "s"} · not tried yet`,
+      });
+      const meter = line.createDiv({ cls: "qt-ins-meter" });
+      const band = row.band === "weak" ? "is-low" : row.band === "developing" ? "is-mid" : row.band === "strong" ? "is-high" : "";
+      meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((row.accuracy || 0) * 100)}%` });
+      meter.createSpan({ cls: "qt-ins-pct", text: row.accuracy === null ? "—" : fmtPct(row.accuracy) });
+    }
+    root.createDiv({ cls: "qt-hint", text: "Mastery is practice accuracy, not a grade. A note with no attempts stays visible but sits at the end." });
   }
 
   /** Accuracy for each of the last 8 weeks, as a small bar chart. */
@@ -43831,6 +43989,7 @@ const { PdfImportModal } = require("./import-modal");
 const courseNotes = require("./course-notes");
 const paperScanner = require("./paper-scanner");
 const documentClassify = require("./document-classify");
+const conceptMastery = require("./concept-mastery");
 const { DocumentReviewModal } = require("./document-review-modal");
 const ocr = require("./ocr");
 const { OcrModal } = require("./ocr-modal");
@@ -44064,6 +44223,7 @@ QuestionTrackerPlugin.__test = {
   courseNotes,
   paperScanner,
   documentClassify,
+  conceptMastery,
   DocumentReviewModal,
   ocr,
   OcrModal,
