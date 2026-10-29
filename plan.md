@@ -24,7 +24,7 @@
 
 **Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0, visual text boxes in 1.53.0 and highlight regions in 1.54.0; form filling and a fuller PDF editor remain future work. The unofficial AP score calculator shipped in 1.56.0, the link-only AP resource hub in 1.57.0 and saved practice-exam history with trends in 1.58.0, AP resource notes with course/unit tags and stale-link checks in 1.59.0, a next-exam resource recommendation on Today in 1.60.0, and exam-specific resource attachments in 1.61.0, the calendar exam panel showing attached resources with a detach action on Today in 1.62.0, study-block resource attachment in 1.63.0, the class-note resource link in 1.64.0, binding management in Reference in 1.65.0, a read-only study context for the AI assistant in 1.66.0, an undo journal for AI-generated practice notes in 1.67.0, undo for AI course-note summaries in 1.68.0, weak-spot practice generation in 1.69.0, and blind answer verification in 1.70.0. The AP FRQ grader remains behind the owner pilot gate (four-course pilot, human-scored fixtures and rights review). A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated.
 
-**Recently completed (1.70.0):** blind answer verification now checks AI-written multiple-choice answers against a second independent solve, marks or drops disagreements, and writes `verified`, `verified_by`, `verified_on` and a visible warning. Previous release 1.69.0 added preview-first weak-spot generation; 1.68.0 made AI course-note summaries removable.
+**Recently completed (1.71.0):** the general assistant has per-chat **Include current note** and **Include selection** switches, both off by default, with frontmatter removed, input caps, an untrusted-data warning and no reads while they are off. It also gained the **Plan my week** and **Turn mistakes into a study guide** actions. Previous release 1.70.0 added blind answer verification; 1.69.0 added preview-first weak-spot generation.
 
 ---
 
@@ -1198,8 +1198,9 @@ These are **research and specification items**, not implementation work. The AP 
 
 ### Phase 4: AI assistant and generation
 
-- [ ] Study-aware assistant: tutor mode, quick actions, context toggles (§5.18)
+- [x] Study-aware assistant: tutor mode, quick actions, context toggles (§5.18) — shipped across 1.66.0–1.71.0
   - [x] Read-only aggregate study context behind three default-off toggles, with no note text (§5.18) — shipped in 1.66.0
+  - [x] Per-chat current-note and selection context, both default off, plus the study quick actions (plan my week, mistakes study guide) and the tutor command menu (§5.18) — shipped in 1.71.0
 - [ ] Enforced write protections, diff-and-confirm, undo, prompt-injection defenses
   - [x] Device-local undo journal for confirmed AI-generated notes, with a command to remove the last batch (§5.3, §5.18) — shipped in 1.67.0
   - [x] Marked AI course-note summaries that undo can remove without deleting the extracted page text (§5.13) — shipped in 1.68.0

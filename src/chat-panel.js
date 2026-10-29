@@ -3,6 +3,7 @@ const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
+const { buildCurrentNoteContext } = require("./note-context");
 
 class ChatPanel {
   /**
@@ -17,6 +18,9 @@ class ChatPanel {
     this.pending = "";
     this.error = "";
     this.sig = "";
+    this.includeNote = false;
+    this.includeSelection = false;
+    this.currentNoteContext = "";
     this.build();
     if (this.view.plugin.backend() === "api") {
       this.turns = apiTurns(this.apiHistory());
@@ -73,10 +77,15 @@ class ChatPanel {
       this.pending = "";
       this.error = "";
       this.sig = "";
+      this.includeNote = false;
+      this.includeSelection = false;
+      this.currentNoteContext = "";
+      this.paintContext();
       this.draw();
     });
     this.hint = root.createDiv({ cls: "qt-hint" });
     this.updateHint();
+    this.renderContextToggles(root);
 
     if (this.opts.quick && this.opts.quick.length) {
       const chips = root.createDiv({ cls: "qt-chips" });
@@ -153,6 +162,57 @@ class ChatPanel {
     );
   }
 
+  /** Per-chat context switches. Nothing is read or sent while both are off. */
+  renderContextToggles(root) {
+    if (!this.opts.readNoteContext) return;
+    const wrap = root.createDiv({ cls: "qt-chips qt-chat-context" });
+    this.noteChip = wrap.createEl("button", { cls: "qt-chip", text: "Include current note" });
+    this.selectionChip = wrap.createEl("button", { cls: "qt-chip", text: "Include selection" });
+    this.noteChip.addEventListener("click", () => {
+      this.includeNote = !this.includeNote;
+      this.currentNoteContext = "";
+      this.paintContext();
+    });
+    this.selectionChip.addEventListener("click", () => {
+      this.includeSelection = !this.includeSelection;
+      this.currentNoteContext = "";
+      this.paintContext();
+    });
+    root.createDiv({
+      cls: "qt-hint",
+      text: "Off by default. Note text and selected text are sent only while their switch is on, and notes are treated as untrusted data.",
+    });
+    this.paintContext();
+  }
+
+  paintContext() {
+    if (this.noteChip) this.noteChip.toggleClass("is-selected", this.includeNote);
+    if (this.selectionChip) this.selectionChip.toggleClass("is-selected", this.includeSelection);
+  }
+
+  async prepareContext() {
+    if (!this.opts.readNoteContext || (!this.includeNote && !this.includeSelection)) {
+      this.currentNoteContext = "";
+      return "";
+    }
+    let raw = null;
+    try {
+      raw = await this.opts.readNoteContext();
+    } catch (e) {
+      this.currentNoteContext = "";
+      if (this.status) this.status.setText("Could not read the current note.");
+      return "";
+    }
+    this.currentNoteContext = buildCurrentNoteContext(raw, {
+      note: this.includeNote,
+      selection: this.includeSelection,
+    });
+    if (!this.currentNoteContext && this.status) {
+      this.status.setText(this.includeSelection && !this.includeNote ? "Select some text in a note first." : "Open a note first.");
+    }
+    return this.currentNoteContext;
+  }
+
   setBusy(b) {
     this.busy = b;
     if (!this.sendBtn) return;
@@ -164,7 +224,8 @@ class ChatPanel {
   async send(text) {
     text = str(text).trim();
     if (!text || this.busy || !this.ai.enabled) return;
-    if (this.view.plugin.backend() === "api") return this.sendApi(text);
+    const currentNote = await this.prepareContext();
+    if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote);
     const plugin = this.view.plugin;
     const ai = this.ai;
     this.error = "";
@@ -197,7 +258,7 @@ class ChatPanel {
       this.status.setText("OpenCode is working...");
       const body = {
         parts: [{ type: "text", text }],
-        system: this.opts.buildContext(ai.mode),
+        system: this.opts.buildContext(ai.mode, currentNote),
       };
       const model = modelFromString(ai.model);
       if (model) body.model = model;
@@ -217,7 +278,7 @@ class ChatPanel {
     }
   }
 
-  async sendApi(text) {
+  async sendApi(text, currentNote) {
     this.error = "";
     this.input.value = "";
     this.pending = text;
@@ -225,7 +286,10 @@ class ChatPanel {
     this.draw();
     const hist = this.apiHistory();
     try {
-      const reply = await new ApiClient(this.ai).chat(this.opts.buildContext("tutor"), hist.concat([{ role: "user", content: text }]));
+      const reply = await new ApiClient(this.ai).chat(
+        this.opts.buildContext("tutor", currentNote),
+        hist.concat([{ role: "user", content: text }])
+      );
       hist.push({ role: "user", content: text }, { role: "assistant", content: reply });
       this.pending = "";
     } catch (e) {
