@@ -2218,6 +2218,25 @@
 
 /* ---- analytics dashboard ---- */
 
+.qt-dash-embed {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 12px;
+  background: var(--background-primary);
+}
+
+.qt-dash-embed-title {
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-semibold);
+  margin-bottom: 8px;
+}
+
+.qt-dash-embed-footer {
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
 .qt-dash-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));

@@ -58,6 +58,7 @@ const welcome = require("./welcome");
 const focus = require("./focus");
 const studyPlan = require("./study-plan");
 const analytics = require("./analytics");
+const analyticsEmbed = require("./analytics-embed");
 const { FocusLogModal } = require("./focus-modal");
 const { WelcomeModal } = require("./welcome-modal");
 const referenceElements = require("./reference-elements");
@@ -158,6 +159,9 @@ QuestionTrackerPlugin.__test = {
   buildDashboard: analytics.buildDashboard,
   buildHeatmap: analytics.buildHeatmap,
   activityLevel: analytics.activityLevel,
+  analyticsEmbed,
+  parseDashboardBlock: analyticsEmbed.parseDashboardBlock,
+  renderDashboardEmbed: analyticsEmbed.renderDashboardEmbed,
   FocusLogModal,
   referenceElements,
   referenceGraph,

@@ -23,6 +23,8 @@ const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
+const { buildDashboard, courseMatches } = require("./analytics");
+const { parseDashboardBlock, renderDashboardEmbed } = require("./analytics-embed");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
@@ -219,6 +221,7 @@ class QuestionTrackerPlugin extends Plugin {
       this.registerMarkdownCodeBlockProcessor("uni-calendar", renderBlock);
     }
     this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
+    this.registerMarkdownCodeBlockProcessor("mcq-dashboard", (source, el) => this.renderDashboardBlock(source, el));
     this.addCommand({ id: "weak-spots", name: "Show weak spots", callback: () => this.activateInsights("weak") });
     this.addCommand({ id: "error-log", name: "Show error log", callback: () => this.activateInsights("errors") });
     this.addCommand({ id: "find-question", name: "Find a question by ID", callback: () => new FindQuestionModal(this.app, this).open() });
@@ -1202,6 +1205,38 @@ class QuestionTrackerPlugin extends Plugin {
     const box = el.createDiv({ cls: "uni-schedule-embed" });
     applyCalendarWidth(box, this.calendarSettings());
     renderDaySection(this, box, key);
+  }
+
+  /** A local-only dashboard that can be placed inside any note. */
+  renderDashboardBlock(source, el) {
+    el.empty();
+    if (this.moduleOff("mcq")) {
+      el.createDiv({ cls: "qt-hint", text: "The MCQ Tracker module is off. Turn it on in Settings, Global." });
+      return;
+    }
+    const opts = parseDashboardBlock(source);
+    const draw = () => {
+      el.empty();
+      const box = el.createDiv({ cls: "qt-wrap qt-dash-embed" });
+      const data = buildDashboard({
+        questions: this.getQuestions(),
+        cards: this.getCards ? this.getCards() : [],
+        studyLog: this.settings.studyLog,
+        today: new Date(),
+        course: opts.course,
+        weeks: opts.weeks,
+      });
+      const plan = this.studyPlan ? this.studyPlan() : null;
+      data.plan = plan && (!opts.course || courseMatches(plan.course, opts.course)) ? plan : null;
+      renderDashboardEmbed(box, data, opts, {
+        onPractice: (skill) => this.practiceWith({ skill: [skill] }, "smart"),
+      });
+      const footer = box.createDiv({ cls: "qt-row qt-small-row qt-dash-embed-footer" });
+      footer.createSpan({ cls: "qt-hint", text: "Calculated locally." });
+      footer.createEl("button", { text: "Refresh" }).addEventListener("click", draw);
+      if (opts.course) footer.createSpan({ cls: "qt-hint", text: `Course: ${opts.course}` });
+    };
+    draw();
   }
 
   async openNextClassNote() {

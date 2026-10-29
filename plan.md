@@ -495,7 +495,9 @@ Build on the existing timed test.
 
 **Shipped in 1.31.0:** the Insights **Overview** tab combines attempts and accuracy, a 12-week study heatmap (session minutes plus question attempts), study time by course, the weakest skills with one-tap practice, due/new card counts, and the next exam plan with its readiness evidence. All of it is computed locally from note properties and the study log.
 
-**Still open for §5.12:** embeddable code-block widgets, confidence calibration, the retention trend line, a grade snapshot, and extra per-domain/per-difficulty breakdown controls.
+**Shipped in 1.32.0:** the `mcq-dashboard` block embeds the overview or one section (`stats`, `heatmap`, `weak`, `courses`, `exam`) in any note, with optional course scoping, a week count and a custom title. It reuses the same local model as Insights and has a Refresh button.
+
+**Still open for §5.12:** confidence calibration, the retention trend line, a grade snapshot, and extra per-domain/per-difficulty breakdown controls.
 
 ### 5.13 Source ingestion  — **M–L**
 
@@ -1195,7 +1197,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Study plan and cram mode (§5.11) — first exam-scoped slice shipped in 1.30.0
 - [x] Focus timer and study-time logging (§5.10) — shipped in 1.29.0
 - [x] Analytics dashboard (§5.12) — shipped in 1.31.0
-- [ ] Embeddable analytics widgets (§5.12)
+- [x] Embeddable analytics widgets (§5.12) — shipped in 1.32.0
 - [ ] Assignments, tasks, and grades (§5.9)
 
 ### Phase 7: Ingestion, interop, polish
@@ -2223,7 +2225,9 @@ Build on the existing timed test.
 
 **Shipped in 1.31.0:** the Insights **Overview** tab combines attempts and accuracy, a 12-week study heatmap (session minutes plus question attempts), study time by course, the weakest skills with one-tap practice, due/new card counts, and the next exam plan with its readiness evidence. All of it is computed locally from note properties and the study log.
 
-**Still open for §5.12:** embeddable code-block widgets, confidence calibration, the retention trend line, a grade snapshot, and extra per-domain/per-difficulty breakdown controls.
+**Shipped in 1.32.0:** the `mcq-dashboard` block embeds the overview or one section (`stats`, `heatmap`, `weak`, `courses`, `exam`) in any note, with optional course scoping, a week count and a custom title. It reuses the same local model as Insights and has a Refresh button.
+
+**Still open for §5.12:** confidence calibration, the retention trend line, a grade snapshot, and extra per-domain/per-difficulty breakdown controls.
 
 ### 5.13 Source ingestion  — **M–L**
 
@@ -2551,7 +2555,7 @@ Names are proposals; keep existing ones unchanged.
 - [ ] Study plan and cram mode (§5.11)
 - [ ] Focus timer and study-time logging (§5.10)
 - [x] Analytics dashboard (§5.12) — shipped in 1.31.0
-- [ ] Embeddable analytics widgets (§5.12)
+- [x] Embeddable analytics widgets (§5.12) — shipped in 1.32.0
 - [ ] Assignments, tasks, and grades (§5.9)
 
 ### Phase 7: Ingestion, interop, polish

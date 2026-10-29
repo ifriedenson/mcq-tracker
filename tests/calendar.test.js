@@ -422,7 +422,7 @@ test("plugin: the calendar module is off by default and its embeds register safe
   const { plugin } = await pluginWith(TODAY_EVENT());
   assert.equal(plugin.calendarEnabled(), false);
   assert.ok(plugin.views["question-tracker-calendar"], "the view is registered even while off");
-  assert.deepEqual(Object.keys(plugin.codeBlocks).sort(), ["mcq-schedule", "uni-calendar", "uni-schedule"]);
+  assert.deepEqual(Object.keys(plugin.codeBlocks).sort(), ["mcq-dashboard", "mcq-schedule", "uni-calendar", "uni-schedule"]);
   const dom = makeDom();
   plugin.codeBlocks["uni-schedule"]("date: today", dom.root);
   assert.ok(dom.texts().some((t) => /Calendar is off/.test(t)), "the embed explains why it is empty");

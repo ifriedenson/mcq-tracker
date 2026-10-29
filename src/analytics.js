@@ -11,6 +11,18 @@ function dayKey(value) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+function courseKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function courseMatches(value, course) {
+  const a = courseKey(value);
+  const b = courseKey(course);
+  return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
+}
+
 function normalizeDay(value) {
   if (value instanceof Date) return dayKey(value);
   const text = String(value || "").slice(0, 10);
@@ -85,25 +97,34 @@ function buildHeatmap(sessions, questions, today, weeks) {
 function buildDashboard(options) {
   const opts = options || {};
   const today = normalizeDay(opts.today);
+  const course = String(opts.course || "").trim();
   const questions = Array.isArray(opts.questions) ? opts.questions : [];
   const cards = Array.isArray(opts.cards) ? opts.cards : [];
   const studyLog = opts.studyLog || { sessions: [], dailyGoalMinutes: 60 };
-  const stats = computeStats(questions, "skill");
-  const overall = overallStats(questions);
-  const study = studySummary(studyLog, today);
+  const scopedQuestions = course
+    ? questions.filter((q) => [q.fm && q.fm.course, q.fm && q.fm.test].some((v) => courseMatches(v, course)))
+    : questions;
+  const scopedCards = course ? cards.filter((c) => [c.course, c.fm && c.fm.course].some((v) => courseMatches(v, course))) : cards;
+  const scopedLog = course
+    ? { ...studyLog, sessions: (studyLog.sessions || []).filter((session) => courseMatches(session.course, course)) }
+    : studyLog;
+  const stats = computeStats(scopedQuestions, "skill");
+  const overall = overallStats(scopedQuestions);
+  const study = studySummary(scopedLog, today);
   const cardStats = {
-    total: cards.length,
-    due: cards.filter((c) => isStudyable(c.fm, today) && isDue(c.fm, today)).length,
-    fresh: cards.filter((c) => isStudyable(c.fm, today) && !Number(c.fm.attempts)).length,
+    total: scopedCards.length,
+    due: scopedCards.filter((c) => isStudyable(c.fm, today) && isDue(c.fm, today)).length,
+    fresh: scopedCards.filter((c) => isStudyable(c.fm, today) && !Number(c.fm.attempts)).length,
   };
   return {
     today,
+    course,
     overall,
     study,
     cardStats,
     weak: weakestRow(stats),
     skills: stats.slice(0, 8),
-    heatmap: buildHeatmap(studyLog.sessions, questions, today, opts.weeks || 12),
+    heatmap: buildHeatmap(scopedLog.sessions, scopedQuestions, today, opts.weeks || 12),
     byCourse: Object.entries(study.byCourse).sort((a, b) => b[1] - a[1]).slice(0, 6),
     exams: Array.isArray(opts.exams) ? opts.exams : [],
   };
@@ -114,6 +135,8 @@ module.exports = {
   activityLevel,
   buildDashboard,
   buildHeatmap,
+  courseKey,
+  courseMatches,
   dayKey,
   mondayOf,
   normalizeDay,
