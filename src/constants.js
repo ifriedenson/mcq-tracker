@@ -82,6 +82,7 @@ const DEFAULT_SETTINGS = {
   folderFilterStyle: "auto", // "auto" (search box when there are many folders) | "buttons" | "search"
   testDefaults: { count: 10, minutes: 12, from: 1, to: 0 }, // from/to are optional 1-based question ranges
   testSession: null, // a timed test in progress, so it survives closing Obsidian
+  testBlueprints: [], // saved timed-test recipes: { name, count, minutes, from, to, mode, sections }
   quickDefaults: { count: 5, minutes: 5 },
   quickSession: null, // a Quick Practice queue in progress, so it survives closing Obsidian
   studyLog: { sessions: [], dailyGoalMinutes: 60, lastCourse: "" }, // focus sessions and manual study time

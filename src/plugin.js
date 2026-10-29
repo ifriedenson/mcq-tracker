@@ -74,6 +74,7 @@ const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./result
 const { normalizeSupport } = require("./support");
 const { migrateApiKeys } = require("./secret-keys");
 const { hasAttemptId, repairHistoryCounters } = require("./history");
+const { normalizeBlueprint } = require("./exam-sections");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -473,6 +474,10 @@ class QuestionTrackerPlugin extends Plugin {
     delete this.settings.showRationale;
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
+    this.settings.testBlueprints = (Array.isArray(saved.testBlueprints) ? saved.testBlueprints : [])
+      .map(normalizeBlueprint)
+      .filter(Boolean)
+      .slice(0, 20);
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
     this.settings.dailyQuiz = normalizeDailyQuiz(saved.dailyQuiz);
     this.settings.practicePath = str(this.settings.practicePath).trim();

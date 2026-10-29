@@ -153,6 +153,22 @@ test("a timed test is packed small and unpacked safely", () => {
   assert.equal(live.expired, false);
   assert.equal(live.idx, 1);
   assert.equal(live.items.length, 2);
+  const withSections = T.packTestSession(items, {
+    idx: 0,
+    startedAt: 1000,
+    deadline: 121000,
+    allowedSeconds: 120,
+    sectionIdx: 1,
+    sections: [
+      { name: "Reading", count: 1, minutes: 1, endAt: 61000 },
+      { name: "Writing", count: 1, minutes: 1, endAt: 121000 },
+    ],
+  });
+  const sectionPlan = T.unpackTestSession(JSON.parse(JSON.stringify(withSections)), 30000);
+  assert.equal(sectionPlan.sections.length, 2);
+  assert.equal(sectionPlan.sections[1].name, "Writing");
+  assert.equal(sectionPlan.sections[1].endAt, 121000);
+  assert.equal(sectionPlan.sectionIdx, 1);
   const over = T.unpackTestSession(s, 61000 + 60000);
   assert.equal(over.expired, true);
   // days later it is dropped rather than graded

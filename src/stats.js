@@ -207,13 +207,27 @@ function trendDelta(t, minEach) {
 const TEST_SESSION_GRACE_MS = 12 * 3600 * 1000; // a test left this long after its time ran out is dropped, not graded
 
 function packTestSession(items, meta) {
+  const sections = (Array.isArray(meta.sections) ? meta.sections : []).map((s) => ({
+    name: str(s.name),
+    count: Number(s.count) || 0,
+    minutes: Number(s.minutes) || 0,
+    endAt: Number(s.endAt) || 0,
+  }));
   return {
     v: 1,
     idx: meta.idx,
     startedAt: meta.startedAt,
     deadline: meta.deadline,
     allowedSeconds: meta.allowedSeconds,
-    items: items.map((it) => ({ path: it.file.path, sel: str(it.sel), seconds: Math.round(it.seconds || 0), flagged: !!it.flagged })),
+    sectionIdx: Number(meta.sectionIdx) || 0,
+    sections,
+    items: items.map((it) => ({
+      path: it.file.path,
+      ...(sections.length ? { section: Number(it.section) || 0 } : {}),
+      sel: str(it.sel),
+      seconds: Math.round(it.seconds || 0),
+      flagged: !!it.flagged,
+    })),
   };
 }
 
@@ -224,11 +238,27 @@ function unpackTestSession(s, now) {
   if (now - s.deadline > TEST_SESSION_GRACE_MS) return null;
   const items = s.items
     .filter((r) => r && typeof r.path === "string")
-    .map((r) => ({ path: r.path, sel: str(r.sel), seconds: Number(r.seconds) || 0, flagged: !!r.flagged }));
+    .map((r) => ({
+      path: r.path,
+      section: Math.max(0, Number(r.section) || 0),
+      sel: str(r.sel),
+      seconds: Number(r.seconds) || 0,
+      flagged: !!r.flagged,
+    }));
   if (!items.length) return null;
+  const sections = (Array.isArray(s.sections) ? s.sections : [])
+    .map((section) => ({
+      name: str(section && section.name).trim(),
+      count: Math.max(0, Number(section && section.count) || 0),
+      minutes: Math.max(0, Number(section && section.minutes) || 0),
+      endAt: Number(section && section.endAt) || 0,
+    }))
+    .filter((section) => section.count > 0 && section.minutes > 0);
   return {
     items,
     idx: Math.min(items.length - 1, Math.max(0, Number(s.idx) || 0)),
+    sectionIdx: sections.length ? Math.min(sections.length - 1, Math.max(0, Number(s.sectionIdx) || 0)) : 0,
+    sections,
     startedAt: s.startedAt,
     deadline: s.deadline,
     allowedSeconds: s.allowedSeconds,

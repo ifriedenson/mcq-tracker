@@ -172,6 +172,8 @@ test("timed test: builds a test, scores it, logs only the answered questions, an
   assert.equal(v.result.total, 3);
   assert.equal(v.result.answered, 2);
   assert.equal(v.result.correct, 1);
+  assert.equal(v.result.sections.length, 1);
+  assert.deepEqual([v.result.sections[0].correct, v.result.sections[0].total], [1, 3]);
   assert.equal(plugin.recorded.length, 2);
   assert.ok(plugin.recorded.every((r) => r[3] === 0)); // no confidence rating in a test
   assert.equal(v.items[2].correct, null);
@@ -187,6 +189,51 @@ test("timed test: builds a test, scores it, logs only the answered questions, an
   assert.ok(missed >= 0);
   await dom.click("careless");
   assert.deepEqual(plugin.recorded.at(-1), ["error", v.items[missed].file.basename, "careless"]);
+});
+
+test("timed test: sections split the questions and run their own timers", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.recordAttempt = async () => {};
+  const v = makeView(T.TestView, plugin, app, dom);
+  await v.begin(4, 10, "random", { from: 1, to: 4, sections: [
+    { name: "Reading", count: 2, minutes: 4 },
+    { name: "Writing", count: 2, minutes: 6 },
+  ] });
+  assert.equal(v.phase, "test");
+  assert.deepEqual(v.sections.map((s) => [s.name, s.count, s.start, s.end]), [
+    ["Reading", 2, 0, 2],
+    ["Writing", 2, 2, 4],
+  ]);
+  assert.deepEqual(v.items.map((it) => it.section), [0, 0, 1, 1]);
+  assert.equal(v.allowedSeconds, 600);
+  v.render();
+  assert.equal(v.navBtns.length, 2, "only the current section is in the number bar");
+  assert.ok(v.timerEl, "the section timer is on screen");
+  v.sections[0].endAt = Date.now() - 1000;
+  v.tick();
+  assert.equal(v.sectionIdx, 1);
+  assert.equal(v.idx, 2);
+  assert.equal(v.phase, "test");
+  v.items[0].sel = v.items[0].key;
+  v.items[2].sel = v.items[2].key;
+  await v.finish(false);
+  assert.deepEqual(v.result.sections.map((s) => [s.name, s.correct, s.total]), [
+    ["Reading", 1, 2],
+    ["Writing", 1, 2],
+  ]);
+  assert.ok(dom.texts().includes("By section"));
+});
+
+test("timed test: the setup screen can add sections and saves blueprints", async () => {
+  const { app, plugin, dom } = await setup();
+  const v = makeView(T.TestView, plugin, app, dom);
+  v.render();
+  assert.ok(dom.texts().includes("Sections"));
+  assert.ok(dom.texts().includes("Add section"));
+  assert.ok(dom.texts().includes("Save blueprint"));
+  await dom.click("Add section");
+  assert.equal(v.sectionsDraft.length, 2);
+  assert.equal(v.sectionsDraft.reduce((sum, section) => sum + section.count, 0), 20);
 });
 
 test("timed test: cancelling the 'finish with blanks' question keeps the test going", async () => {

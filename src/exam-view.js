@@ -1,11 +1,13 @@
 "use strict";
 const { ItemView, Notice, setIcon } = require("obsidian");
 const { fmtClock, fmtDate, str } = require("./util");
-const { fmtPct, packTestSession, sliceQuestionRange, suggestMinutes, unpackTestSession } = require("./stats");
+const { fmtPct, packTestSession, sliceQuestionRange, unpackTestSession } = require("./stats");
 const { MODES } = require("./constants");
 const { pickQuestion } = require("./filters");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
 const { extractRationale, gradeAnswer } = require("./notes");
+const { NameModal } = require("./modals");
+const { buildSections, normalizeSections } = require("./exam-sections");
 
 /* ------------------------------------------------------- timed test */
 
@@ -28,6 +30,9 @@ class TestView extends ItemView {
     // to load the tab; shadowing it leaves the tab blank (onOpen never runs).
     this.expanded = new Set();
     this.minTouched = false;
+    this.sections = [];
+    this.sectionIdx = 0;
+    this.sectionsDraft = null;
   }
   getViewType() {
     return VIEW_TYPE_TEST;
@@ -66,7 +71,7 @@ class TestView extends ItemView {
     const st = this.plugin.settings;
     if (this.phase === "test") {
       this.leave();
-      st.testSession = packTestSession(this.items, { idx: this.idx, startedAt: this.startedAt, deadline: this.deadline, allowedSeconds: this.allowedSeconds });
+      st.testSession = packTestSession(this.items, { idx: this.idx, startedAt: this.startedAt, deadline: this.deadline, allowedSeconds: this.allowedSeconds, sections: this.sections, sectionIdx: this.sectionIdx });
     } else st.testSession = null;
     await this.plugin.save();
   }
@@ -95,7 +100,17 @@ class TestView extends ItemView {
       return;
     }
     this.items = items;
+    const fallbackMinutes = Math.max(1, Math.round(plan.allowedSeconds / 60));
+    const specs = plan.sections.length ? plan.sections : [{ name: "Section 1", count: items.length, minutes: fallbackMinutes }];
+    this.sections = buildSections(items, specs, plan.startedAt);
+    plan.sections.forEach((saved, i) => {
+      if (this.sections[i] && saved.endAt > 0) this.sections[i].endAt = saved.endAt;
+    });
+    if (!plan.sections.length && this.sections.length) this.sections[this.sections.length - 1].endAt = plan.deadline;
+    this.sectionIdx = Math.min(plan.sectionIdx || 0, Math.max(0, this.sections.length - 1));
     this.idx = Math.min(plan.idx, items.length - 1);
+    const restoredSection = this.sections[this.sectionIdx];
+    if (restoredSection && (this.idx < restoredSection.start || this.idx >= restoredSection.end)) this.idx = restoredSection.start;
     this.startedAt = plan.startedAt;
     this.deadline = plan.deadline;
     this.allowedSeconds = plan.allowedSeconds;
@@ -111,12 +126,46 @@ class TestView extends ItemView {
 
   tick() {
     if (this.phase !== "test") return;
-    const left = Math.max(0, Math.round((this.deadline - Date.now()) / 1000));
+    if (Date.now() >= this.deadline) {
+      this.finish(true);
+      return;
+    }
+    const section = this.sections[this.sectionIdx];
+    const endAt = section ? section.endAt : this.deadline;
+    const left = Math.max(0, Math.round((endAt - Date.now()) / 1000));
     if (this.timerEl) {
-      this.timerEl.setText(fmtClock(left));
+      const label = this.sections.length > 1 ? `${fmtClock(left)} · ${this.sectionIdx + 1}/${this.sections.length}` : fmtClock(left);
+      this.timerEl.setText(label);
       this.timerEl.toggleClass("is-over", left <= 300);
     }
-    if (left <= 0) this.finish(true);
+    if (left <= 0) this.advanceSection(false);
+  }
+
+  /** Move to the next module at its boundary, or start it early from the Next button. */
+  advanceSection(manual) {
+    if (this.phase !== "test" || !this.sections.length) return;
+    const now = Date.now();
+    const current = this.sections[this.sectionIdx];
+    if (manual && current && now < current.endAt) {
+      const remaining = current.endAt - now;
+      for (let i = this.sectionIdx + 1; i < this.sections.length; i++) this.sections[i].endAt += remaining;
+      this.deadline += remaining;
+      this.allowedSeconds = Math.max(1, Math.round((this.deadline - this.startedAt) / 1000));
+    }
+    let next = manual ? this.sectionIdx + 1 : this.sectionIdx;
+    while (next < this.sections.length && now >= this.sections[next].endAt) next++;
+    if (next >= this.sections.length) {
+      this.finish(true);
+      return;
+    }
+    if (next === this.sectionIdx) return;
+    this.sectionIdx = next;
+    this.idx = this.sections[next].start;
+    this.shownAt = now;
+    this.deadline = this.sections[this.sections.length - 1].endAt;
+    this.allowedSeconds = Math.max(1, Math.round((this.deadline - this.startedAt) / 1000));
+    this.persist();
+    this.render();
   }
 
   render() {
@@ -171,15 +220,53 @@ class TestView extends ItemView {
       text: "Explanations stay hidden until you finish. You can move between questions and change answers. Questions you answer are logged like normal attempts; ones you leave blank are not.",
     });
 
-    root.createDiv({ cls: "qt-label", text: "Number of questions" });
-    const nIn = root.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "200" } });
-    nIn.value = String(d.count);
-    root.createDiv({ cls: "qt-label", text: "Minutes" });
-    const mIn = root.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "300" } });
-    mIn.value = String(d.minutes);
-    mIn.addEventListener("input", () => (this.minTouched = true));
-    nIn.addEventListener("change", () => {
-      if (!this.minTouched) mIn.value = String(suggestMinutes(Math.max(1, parseInt(nIn.value, 10) || 1)));
+    if (!Array.isArray(this.sectionsDraft) || !this.sectionsDraft.length) {
+      this.sectionsDraft = [{ name: "Section 1", count: d.count, minutes: d.minutes }];
+    }
+    const draft = this.sectionsDraft;
+    root.createDiv({ cls: "qt-label", text: "Sections" });
+    root.createDiv({ cls: "qt-hint", text: "Each section has its own timer. Questions are picked once for the whole test, then split in this order." });
+    const sectionRows = root.createDiv({ cls: "qt-sections" });
+    const totalLine = root.createDiv({ cls: "qt-hint" });
+    const refreshTotal = () => {
+      const n = draft.reduce((sum, s) => sum + Math.max(1, parseInt(s.count, 10) || 1), 0);
+      const mins = draft.reduce((sum, s) => sum + Math.max(1, parseInt(s.minutes, 10) || 1), 0);
+      totalLine.setText(`Total: ${n} question${n === 1 ? "" : "s"} · ${mins} minute${mins === 1 ? "" : "s"}`);
+    };
+    const paintSections = () => {
+      sectionRows.empty();
+      draft.forEach((section, i) => {
+        const row = sectionRows.createDiv({ cls: "qt-row qt-section-row" });
+        const name = row.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: `Section ${i + 1}` } });
+        name.value = section.name || `Section ${i + 1}`;
+        name.addEventListener("input", () => (section.name = name.value));
+        const count = row.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "200" } });
+        count.value = String(section.count || 1);
+        count.addEventListener("input", () => {
+          section.count = Math.max(1, parseInt(count.value, 10) || 1);
+          refreshTotal();
+        });
+        const mins = row.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", max: "300" } });
+        mins.value = String(section.minutes || 1);
+        mins.addEventListener("input", () => {
+          section.minutes = Math.max(1, parseInt(mins.value, 10) || 1);
+          refreshTotal();
+        });
+        const del = row.createEl("button", { text: "Remove" });
+        del.disabled = draft.length === 1;
+        del.addEventListener("click", () => {
+          if (draft.length === 1) return;
+          draft.splice(i, 1);
+          this.render();
+        });
+      });
+      refreshTotal();
+    };
+    paintSections();
+    const addSection = root.createEl("button", { text: "Add section" });
+    addSection.addEventListener("click", () => {
+      draft.push({ name: `Section ${draft.length + 1}`, count: 10, minutes: 12 });
+      this.render();
     });
 
     root.createDiv({ cls: "qt-label", text: "Question range (optional)" });
@@ -194,26 +281,74 @@ class TestView extends ItemView {
     for (const [v, t] of MODES) sel.createEl("option", { value: v, text: t });
     sel.value = st.mode;
 
+    if (st.testBlueprints.length) {
+      root.createDiv({ cls: "qt-label", text: "Saved blueprint" });
+      const bpSel = root.createEl("select", { cls: "qt-select" });
+      bpSel.createEl("option", { value: "", text: "Choose a blueprint" });
+      st.testBlueprints.forEach((bp, i) => bpSel.createEl("option", { value: String(i), text: `${bp.name} (${bp.count} questions · ${bp.minutes} min)` }));
+      bpSel.addEventListener("change", () => {
+        const bp = st.testBlueprints[Number(bpSel.value)];
+        if (!bp) return;
+        this.sectionsDraft = bp.sections.map((section) => ({ ...section }));
+        fromIn.value = String(bp.from);
+        toIn.value = bp.to ? String(bp.to) : "";
+        sel.value = bp.mode;
+        this.render();
+      });
+    }
+    const bpRow = root.createDiv({ cls: "qt-row" });
+    const saveBp = bpRow.createEl("button", { text: "Save blueprint", cls: "qt-grow" });
+    saveBp.addEventListener("click", () => {
+      new NameModal(this.app, "Save test blueprint", "", async (name) => {
+        const sections = draft.map((section, i) => ({
+          name: str(section.name).trim() || `Section ${i + 1}`,
+          count: Math.max(1, parseInt(section.count, 10) || 1),
+          minutes: Math.max(1, parseInt(section.minutes, 10) || 1),
+        }));
+        const from = Math.max(1, parseInt(fromIn.value, 10) || 1);
+        const to = Math.max(0, parseInt(toIn.value, 10) || 0);
+        const recipe = {
+          name,
+          count: sections.reduce((sum, section) => sum + section.count, 0),
+          minutes: sections.reduce((sum, section) => sum + section.minutes, 0),
+          from,
+          to,
+          mode: sel.value,
+          sections,
+        };
+        st.testBlueprints = st.testBlueprints.filter((bp) => bp.name.toLowerCase() !== name.toLowerCase());
+        st.testBlueprints = [...st.testBlueprints, recipe].slice(-20);
+        await p.save();
+        this.render();
+      }).open();
+    });
+
     const go = root.createEl("button", { text: "Start the test", cls: "mod-cta qt-primary" });
     go.disabled = !pool.length;
     go.addEventListener("click", () => {
-      const n = Math.min(200, Math.max(1, parseInt(nIn.value, 10) || 1));
-      const minutes = Math.min(300, Math.max(1, parseInt(mIn.value, 10) || 1));
+      const sections = draft.map((section, i) => ({
+        name: str(section.name).trim() || `Section ${i + 1}`,
+        count: Math.max(1, parseInt(section.count, 10) || 1),
+        minutes: Math.max(1, parseInt(section.minutes, 10) || 1),
+      }));
+      const n = Math.min(200, sections.reduce((sum, section) => sum + section.count, 0));
+      const minutes = Math.min(300, sections.reduce((sum, section) => sum + section.minutes, 0));
       const from = Math.max(1, parseInt(fromIn.value, 10) || 1);
       const to = Math.max(0, parseInt(toIn.value, 10) || 0);
       st.testDefaults = { count: n, minutes, from, to };
       p.save();
-      this.begin(n, minutes, sel.value, { from, to });
+      this.begin(n, minutes, sel.value, { from, to }, sections);
     });
   }
 
-  async begin(n, minutes, mode, range) {
+  async begin(n, minutes, mode, range, sectionSpecs) {
     const p = this.plugin;
     this.phase = "loading";
     this.render();
     const all = p.filtered(p.getQuestions());
     const rest = sliceQuestionRange(all, range && range.from, range && range.to);
     const today = fmtDate(new Date());
+    const specs = normalizeSections(sectionSpecs || (range && range.sections), n, minutes);
     const items = [];
     let noKey = 0;
     while (items.length < n && rest.length) {
@@ -230,17 +365,20 @@ class TestView extends ItemView {
     if (!items.length) {
       new Notice("No questions with an answer key matched. Check your filters and the mode.");
       this.phase = "setup";
+      this.sections = [];
       this.render();
       return;
     }
     if (noKey) new Notice(`${noKey} question${noKey === 1 ? " was" : "s were"} left out because ${noKey === 1 ? "it has" : "they have"} no answer key.`, 6000);
     this.items = items;
-    this.idx = 0;
+    this.startedAt = Date.now();
+    this.sections = buildSections(items, specs, this.startedAt);
+    this.sectionIdx = 0;
+    this.idx = this.sections.length ? this.sections[0].start : 0;
     this.expanded = new Set();
     this.filter = "all";
-    this.allowedSeconds = minutes * 60;
-    this.startedAt = Date.now();
-    this.deadline = this.startedAt + this.allowedSeconds * 1000;
+    this.deadline = this.sections.length ? this.sections[this.sections.length - 1].endAt : this.startedAt + minutes * 60000;
+    this.allowedSeconds = Math.max(1, Math.round((this.deadline - this.startedAt) / 1000));
     this.shownAt = Date.now();
     this.phase = "test";
     this.render();
@@ -256,7 +394,9 @@ class TestView extends ItemView {
   }
 
   go(i) {
+    const section = this.sections[this.sectionIdx];
     if (i < 0 || i >= this.items.length || i === this.idx) return;
+    if (section && (i < section.start || i >= section.end)) return;
     this.leave();
     this.idx = i;
     this.persist();
@@ -264,10 +404,10 @@ class TestView extends ItemView {
   }
 
   paintNav() {
-    this.navBtns.forEach((b, i) => {
-      b.toggleClass("is-current", i === this.idx);
-      b.toggleClass("is-answered", !!str(this.items[i].sel).trim());
-      b.toggleClass("is-flagged", !!this.items[i].flagged);
+    this.navBtns.forEach(({ btn, i }) => {
+      btn.toggleClass("is-current", i === this.idx);
+      btn.toggleClass("is-answered", !!str(this.items[i].sel).trim());
+      btn.toggleClass("is-flagged", !!this.items[i].flagged);
     });
   }
 
@@ -278,8 +418,12 @@ class TestView extends ItemView {
     root.addClass("qt-exam");
     root.addClass("qt-wide");
 
+    const section = this.sections[this.sectionIdx];
     const bar = root.createDiv({ cls: "qt-bar qt-exam-bar" });
-    bar.createDiv({ cls: "qt-meta", text: `Question ${this.idx + 1} of ${this.items.length}` });
+    const metaText = section && this.sections.length > 1
+      ? `${section.name} · Question ${this.idx - section.start + 1} of ${section.count}`
+      : `Question ${this.idx + 1} of ${this.items.length}`;
+    bar.createDiv({ cls: "qt-meta", text: metaText });
     this.timerEl = bar.createDiv({ cls: "qt-timer-wrap" }).createSpan({ cls: "qt-timer" });
     const fin = bar.createDiv({ cls: "qt-exam-tools" }).createEl("button", { text: "Finish test" });
     fin.addEventListener("click", () => this.tryFinish());
@@ -338,19 +482,28 @@ class TestView extends ItemView {
     }
 
     const nav = right.createDiv({ cls: "qt-tnav" });
-    this.navBtns = this.items.map((_x, i) => {
+    const navStart = section ? section.start : 0;
+    const navEnd = section ? section.end : this.items.length;
+    this.navBtns = [];
+    for (let i = navStart; i < navEnd; i++) {
       const b = nav.createEl("button", { text: String(i + 1), cls: "qt-tnav-btn" });
       b.addEventListener("click", () => this.go(i));
-      return b;
-    });
+      this.navBtns.push({ btn: b, i });
+    }
     this.paintNav();
     const row = right.createDiv({ cls: "qt-row" });
     const prev = row.createEl("button", { text: "Previous", cls: "qt-grow" });
-    prev.disabled = this.idx === 0;
+    prev.disabled = this.idx === navStart;
     prev.addEventListener("click", () => this.go(this.idx - 1));
-    const last = this.idx === this.items.length - 1;
-    const next = row.createEl("button", { text: last ? "Finish test" : "Next", cls: `qt-grow ${last ? "mod-cta" : ""}` });
-    next.addEventListener("click", () => (last ? this.tryFinish() : this.go(this.idx + 1)));
+    const last = this.idx === navEnd - 1;
+    const moreSections = this.sectionIdx < this.sections.length - 1;
+    const nextLabel = last ? (moreSections ? "Next section" : "Finish test") : "Next";
+    const next = row.createEl("button", { text: nextLabel, cls: `qt-grow ${last && !moreSections ? "mod-cta" : ""}` });
+    next.addEventListener("click", () => {
+      if (!last) return this.go(this.idx + 1);
+      if (moreSections) return this.advanceSection(true);
+      this.tryFinish();
+    });
   }
 
   async tryFinish() {
@@ -386,6 +539,16 @@ class TestView extends ItemView {
         new Notice(`Couldn't save the result for ${it.file.basename}.`);
       }
     }
+    const sections = this.sections.map((section) => {
+      const slice = this.items.slice(section.start, section.end);
+      return {
+        name: section.name,
+        total: slice.length,
+        answered: slice.filter((it) => it.answered).length,
+        correct: slice.filter((it) => it.answered && it.correct).length,
+        seconds: Math.round(slice.reduce((sum, it) => sum + (Number(it.seconds) || 0), 0)),
+      };
+    });
     this.result = {
       correct,
       answered,
@@ -393,6 +556,7 @@ class TestView extends ItemView {
       usedSeconds: Math.min(this.allowedSeconds, Math.round((Date.now() - this.startedAt) / 1000)),
       allowed: this.allowedSeconds,
       timeUp: !!timeUp,
+      sections,
     };
     this.phase = "review";
     await this.persist(); // clears the saved test
@@ -412,6 +576,17 @@ class TestView extends ItemView {
       cls: "qt-banner-sub",
       text: `Answered ${r.answered} · ${fmtClock(r.usedSeconds)} used of ${fmtClock(r.allowed)}`,
     });
+
+    if (r.sections && r.sections.length > 1) {
+      root.createDiv({ cls: "qt-label", text: "By section" });
+      const sectionChips = root.createDiv({ cls: "qt-chips" });
+      for (const section of r.sections) {
+        sectionChips.createSpan({
+          cls: "qt-chip",
+          text: `${section.name}: ${section.correct}/${section.total} · ${fmtClock(section.seconds)}`,
+        });
+      }
+    }
 
     // by skill
     const bySkill = new Map();

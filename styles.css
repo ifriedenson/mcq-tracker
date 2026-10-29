@@ -2621,6 +2621,16 @@
 
 /* ---- timed test ---- */
 
+.qt-section-row {
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.qt-section-row input[type="text"] {
+  flex: 1 1 150px;
+}
+
 .qt-tnav {
   display: flex;
   flex-wrap: wrap;
