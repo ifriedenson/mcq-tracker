@@ -750,7 +750,7 @@ Names are proposals; keep existing ones unchanged.
 
 ### Phase 1: Quick Practice and smarter scheduling
 
-- [ ] Quick Practice entry and Today screen (§5.19)
+- [x] Quick Practice entry and Today screen (§5.19)
 - [ ] FSRS scheduler option + fluency signals; migration from existing `history` (§5.1)
 - [x] Adaptive difficulty pick mode (§5.2)
 - [ ] Offline-tolerant sessions
@@ -2085,7 +2085,7 @@ Names are proposals; keep existing ones unchanged.
 
 ### Phase 1: Quick Practice and smarter scheduling
 
-- [ ] Quick Practice entry and Today screen (§5.19)
+- [x] Quick Practice entry and Today screen (§5.19)
 - [ ] FSRS scheduler option + fluency signals; migration from existing `history` (§5.1)
 - [x] Adaptive difficulty pick mode (§5.2)
 - [ ] Offline-tolerant sessions

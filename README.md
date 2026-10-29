@@ -18,6 +18,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Practice from your files.** Right-click any folder that holds questions and choose **Practice this folder**, or use the commands. Find any question by its official ID.
 - **Pick modes:** smart weighted mix, adaptive difficulty, due for review, never attempted, missed, flagged, or pure random. Adaptive difficulty favors questions near the learner's current level based on past accuracy and streaks.
 - **Quick Practice:** start a 2, 5, or 10 minute session, or a 5, 10, or 20 question session, using your current filters. It saves the queue so you can resume after closing Obsidian.
+- **Today:** a phone-sized start screen with due and new counts, the next class or exam, and one **Start 5 minutes** button that opens Quick Practice.
 - **Notes box** on the result screen, saved into the note.
 - **Import questions from a PDF:** an AI agent (or your own AI key) turns a PDF into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from a PDF](#import-questions-from-a-pdf)).
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
@@ -110,6 +111,7 @@ Each `history` entry is stored as `date|result|seconds|answer|confidence|error_t
 - Practice the folder of this note
 - Start a timed test
 - Quick Practice
+- Open Today
 - Open calendar
 - Calendar: add an .ics schedule
 - Calendar: create or open the note for the next class

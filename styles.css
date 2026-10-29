@@ -2350,3 +2350,93 @@
 .qt-onboard-form select {
   width: 100%;
 }
+
+
+/* Today: a phone-first launch card. Scoped under .qt-today so it never changes
+   the exam-style practice screen. */
+.qt-today {
+  max-width: 560px;
+  gap: 14px;
+}
+
+.qt-today-date {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.qt-today h2 {
+  margin: 0;
+  font-size: 1.8rem;
+}
+
+.qt-today-count {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  padding: 10px 12px;
+}
+
+.qt-today-start {
+  font-size: 1.05rem;
+  font-weight: 700;
+  min-height: 56px;
+}
+
+.qt-today-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-today-section {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  margin: 8px 0 0;
+  text-transform: uppercase;
+}
+
+.qt-today-card {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 12px 14px;
+}
+
+.qt-today-kicker {
+  color: var(--interactive-accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.qt-today-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.qt-today-meta {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  margin-top: 4px;
+}
+
+@media (max-width: 480px) {
+  .qt-today {
+    padding: 16px 14px 24px;
+  }
+
+  .qt-today h2 {
+    font-size: 1.55rem;
+  }
+
+  .qt-today-start {
+    min-height: 60px;
+  }
+}

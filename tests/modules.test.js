@@ -83,7 +83,7 @@ test("modules: turning a module off closes its tabs, and on brings them back", a
   detached.length = 0;
   plugin.settings.mcqEnabled = false;
   await plugin.onMcqToggled();
-  assert.equal(detached.length, 3, "practice, weak spots and timed test tabs");
+  assert.equal(detached.length, 4, "today, practice, weak spots and timed test tabs");
   assert.ok(!detached.includes("question-tracker-calendar"), "the calendar is untouched");
 
   detached.length = 0;

@@ -1,6 +1,7 @@
 "use strict";
 
 const VIEW_TYPE = "question-tracker-view";
+const VIEW_TYPE_TODAY = "question-tracker-today";
 const VIEW_TYPE_CALENDAR = "question-tracker-calendar";
 
 const FILTER_FIELDS = [
@@ -95,6 +96,7 @@ const STAT_FIELDS = [
 
 module.exports = {
   VIEW_TYPE,
+  VIEW_TYPE_TODAY,
   VIEW_TYPE_CALENDAR,
   FILTER_FIELDS,
   MODES,

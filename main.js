@@ -2965,6 +2965,7 @@ module.exports = {
 __defs["constants"] = function (module, exports, require) {
 
 const VIEW_TYPE = "question-tracker-view";
+const VIEW_TYPE_TODAY = "question-tracker-today";
 const VIEW_TYPE_CALENDAR = "question-tracker-calendar";
 
 const FILTER_FIELDS = [
@@ -3059,6 +3060,7 @@ const STAT_FIELDS = [
 
 module.exports = {
   VIEW_TYPE,
+  VIEW_TYPE_TODAY,
   VIEW_TYPE_CALENDAR,
   FILTER_FIELDS,
   MODES,
@@ -6806,10 +6808,11 @@ module.exports = {
 __defs["plugin"] = function (module, exports, require) {
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_CALENDAR } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
+const { TodayView } = require("./today-view");
 const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./modals");
 const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
@@ -6856,6 +6859,7 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.registerDomEvent(window, "beforeunload", () => this.manager.stop());
     this.registerView(VIEW_TYPE, (leaf) => new PracticeView(leaf, this));
+    this.registerView(VIEW_TYPE_TODAY, (leaf) => new TodayView(leaf, this));
     this.registerView(VIEW_TYPE_INSIGHTS, (leaf) => new InsightsView(leaf, this));
     this.registerView(VIEW_TYPE_TEST, (leaf) => new TestView(leaf, this));
     this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this));
@@ -6882,6 +6886,7 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "timed-test", name: "Start a timed test", callback: () => this.activateTest() });
+    this.addCommand({ id: "open-today", name: "Open Today", callback: () => this.activateToday() });
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
     this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => this.activateCalendar() });
     this.addCommand({ id: "calendar-add-schedule", name: "Calendar: add an .ics schedule", callback: () => this.openCalendarImport() });
@@ -7203,8 +7208,25 @@ class QuestionTrackerPlugin extends Plugin {
     return leaf.view;
   }
 
+  async activateToday() {
+    if (this.moduleOff("mcq")) return null;
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_TODAY)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_TODAY, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
   refreshViews() {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TODAY)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
   }
@@ -7267,8 +7289,13 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Shows exactly the ribbon buttons the modules that are on call for. */
   refreshRibbon() {
-    if (this.mcqEnabled()) this.addModuleRibbon("mcq", "graduation-cap", "Open practice view", () => this.activateView());
-    else this.removeModuleRibbon("mcq");
+    if (this.mcqEnabled()) {
+      this.addModuleRibbon("today", "sun", "Open today", () => this.activateToday());
+      this.addModuleRibbon("mcq", "graduation-cap", "Open practice view", () => this.activateView());
+    } else {
+      this.removeModuleRibbon("today");
+      this.removeModuleRibbon("mcq");
+    }
     if (this.calendarEnabled()) this.addModuleRibbon("calendar", "calendar-days", "Open calendar", () => this.activateCalendar());
     else this.removeModuleRibbon("calendar");
   }
@@ -7299,7 +7326,7 @@ class QuestionTrackerPlugin extends Plugin {
   async onMcqToggled() {
     this.refreshRibbon();
     if (!this.mcqEnabled()) {
-      this.detachModuleLeaves([VIEW_TYPE, VIEW_TYPE_INSIGHTS, VIEW_TYPE_TEST]);
+      this.detachModuleLeaves([VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_INSIGHTS, VIEW_TYPE_TEST]);
       this.pauseSession();
       return;
     }
@@ -8214,6 +8241,7 @@ class PracticeView extends ItemView {
     start.addEventListener("click", () => this.next());
 
     const tools = root.createDiv({ cls: "qt-row qt-small-row" });
+    tools.createEl("button", { text: "Today" }).addEventListener("click", () => p.activateToday());
     tools.createEl("button", { text: "Quick Practice" }).addEventListener("click", () => this.startQuickSetup());
     tools.createEl("button", { text: "Timed test" }).addEventListener("click", () => p.activateTest());
     tools.createEl("button", { text: "Weak spots & errors" }).addEventListener("click", () => p.activateInsights("weak"));
@@ -9928,6 +9956,121 @@ module.exports = {
 };
 };
 
+/* ---- src/today-view.js ---- */
+__defs["today-view"] = function (module, exports, require) {
+const { ItemView } = require("obsidian");
+const { VIEW_TYPE_TODAY } = require("./constants");
+const { fmtDate } = require("./util");
+const { isDue } = require("./filters");
+const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
+
+/*
+ * The phone-sized entry point: what is due, what is next, and one large
+ * Start 5 minutes button. It deliberately does not own a review UI; Quick
+ * Practice and the practice view already do that.
+ */
+class TodayView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+  }
+
+  getViewType() {
+    return VIEW_TYPE_TODAY;
+  }
+  getDisplayText() {
+    return "Today";
+  }
+  getIcon() {
+    return "sun";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-root");
+    this.render();
+    // Counts and the next event move while the tab stays open.
+    this.registerInterval(activeWindow.setInterval(() => this.render(), 60000));
+  }
+
+  render() {
+    const p = this.plugin;
+    const el = this.contentEl;
+    el.empty();
+    const root = el.createDiv({ cls: "qt-wrap qt-today" });
+
+    if (p.mcqEnabled && !p.mcqEnabled()) {
+      const card = root.createDiv({ cls: "qt-today-card" });
+      card.createEl("h3", { text: "MCQ Tracker is off" });
+      card.createDiv({ cls: "qt-today-meta", text: "Turn the MCQ Tracker module back on under Settings, Global, Modules to use Today." });
+      card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.openSettings());
+      return;
+    }
+
+    const now = new Date();
+    root.createDiv({ cls: "qt-today-date", text: now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) });
+    root.createEl("h2", { text: "Today" });
+
+    const questions = p.getQuestions();
+    const today = fmtDate(now);
+    const due = questions.filter((q) => isDue(q.fm, today));
+    const fresh = questions.filter((q) => !Number(q.fm.attempts));
+    root.createDiv({ cls: "qt-today-count", text: `${due.length} due · ${fresh.length} new · ${questions.length} question${questions.length === 1 ? "" : "s"}` });
+
+    if (questions.length) {
+      const pool = due.length ? due : questions;
+      const mode = due.length ? "due" : "smart";
+      const label = due.length ? "questions due today" : "available questions";
+      const start = root.createEl("button", { text: "Start 5 minutes", cls: "mod-cta qt-primary qt-today-start" });
+      start.addEventListener("click", () => p.startQuickPractice({ minutes: 5, pool, mode, label }));
+      const more = root.createDiv({ cls: "qt-today-actions" });
+      more.createEl("button", { text: "More Quick Practice options" }).addEventListener("click", () => p.activateQuickPractice());
+      more.createEl("button", { text: "Open practice view" }).addEventListener("click", () => p.activateView());
+    } else {
+      const card = root.createDiv({ cls: "qt-today-card" });
+      card.createEl("h3", { text: "No questions yet" });
+      card.createDiv({ cls: "qt-today-meta", text: "Add notes with a question_id property, or import questions from a PDF." });
+      card.createEl("button", { text: "Open practice view", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.activateView());
+    }
+
+    this.renderNext(root, now);
+  }
+
+  renderNext(root, now) {
+    const p = this.plugin;
+    if (!p.calendarEnabled || !p.calendarEnabled()) return;
+    const events = p.calendarEvents() || [];
+    const settings = p.calendarSettings();
+    const classStatus = nextClassStatus(events.filter((ev) => !isExamEvent(ev)), now);
+    const exam = upcomingExams(events, now, 1)[0];
+    if (!classStatus.event && !exam) return;
+
+    root.createEl("h3", { cls: "qt-today-section", text: "Next up" });
+    if (classStatus.event) {
+      const event = classStatus.event;
+      const details = event.details || parseClassDetails(event.summary, event.description, event.location);
+      const card = root.createDiv({ cls: "qt-today-card" });
+      card.createDiv({ cls: "qt-today-kicker", text: classStatus.state === "ongoing" ? "In class now" : "Next class" });
+      card.createDiv({ cls: "qt-today-title", text: cleanSubjectTitle(event.summary) || event.summary || "Class" });
+      const when = classStatus.state === "ongoing"
+        ? `Until ${formatTime(settings, event.dtend)}`
+        : `${formatTime(settings, event.dtstart)}–${formatTime(settings, event.dtend)} · ${humanizeDuration(classStatus.startsInMs)}`;
+      card.createDiv({ cls: "qt-today-meta", text: [when, details.room].filter(Boolean).join(" · ") });
+    }
+    if (exam) {
+      const card = root.createDiv({ cls: "qt-today-card" });
+      card.createDiv({ cls: "qt-today-kicker", text: "Next exam" });
+      card.createDiv({ cls: "qt-today-title", text: cleanSubjectTitle(exam.summary) || exam.summary || "Exam" });
+      card.createDiv({ cls: "qt-today-meta", text: `${formatDateValue(settings.dateFormat, exam.dateKey)} · ${examCountdown(exam, now)}` });
+    }
+  }
+}
+
+module.exports = {
+  VIEW_TYPE_TODAY,
+  TodayView,
+};
+};
+
 /* ---- src/util.js ---- */
 __defs["util"] = function (module, exports, require) {
 const { normalizePath } = require("obsidian");
@@ -10063,6 +10206,7 @@ const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease,
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
+const { TodayView } = require("./today-view");
 const { GLOBAL_TABS, MCQ_TABS, QuestionTrackerSettingTab, SETTINGS_MODULES } = require("./settings-tab");
 const { CALENDAR_TABS } = require("./calendar-settings");
 const { renderSettingsTabs } = require("./settings-ui");
@@ -10145,6 +10289,7 @@ QuestionTrackerPlugin.__test = {
   hasFilters,
   InsightsView,
   TestView,
+  TodayView,
   QuestionTrackerSettingTab,
   SETTINGS_MODULES,
   GLOBAL_TABS,

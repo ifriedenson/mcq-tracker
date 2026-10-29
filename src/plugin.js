@@ -1,10 +1,11 @@
 "use strict";
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_CALENDAR } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
+const { TodayView } = require("./today-view");
 const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./modals");
 const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
@@ -51,6 +52,7 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.registerDomEvent(window, "beforeunload", () => this.manager.stop());
     this.registerView(VIEW_TYPE, (leaf) => new PracticeView(leaf, this));
+    this.registerView(VIEW_TYPE_TODAY, (leaf) => new TodayView(leaf, this));
     this.registerView(VIEW_TYPE_INSIGHTS, (leaf) => new InsightsView(leaf, this));
     this.registerView(VIEW_TYPE_TEST, (leaf) => new TestView(leaf, this));
     this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this));
@@ -77,6 +79,7 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "timed-test", name: "Start a timed test", callback: () => this.activateTest() });
+    this.addCommand({ id: "open-today", name: "Open Today", callback: () => this.activateToday() });
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
     this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => this.activateCalendar() });
     this.addCommand({ id: "calendar-add-schedule", name: "Calendar: add an .ics schedule", callback: () => this.openCalendarImport() });
@@ -398,8 +401,25 @@ class QuestionTrackerPlugin extends Plugin {
     return leaf.view;
   }
 
+  async activateToday() {
+    if (this.moduleOff("mcq")) return null;
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_TODAY)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_TODAY, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
   refreshViews() {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TODAY)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
   }
@@ -462,8 +482,13 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Shows exactly the ribbon buttons the modules that are on call for. */
   refreshRibbon() {
-    if (this.mcqEnabled()) this.addModuleRibbon("mcq", "graduation-cap", "Open practice view", () => this.activateView());
-    else this.removeModuleRibbon("mcq");
+    if (this.mcqEnabled()) {
+      this.addModuleRibbon("today", "sun", "Open today", () => this.activateToday());
+      this.addModuleRibbon("mcq", "graduation-cap", "Open practice view", () => this.activateView());
+    } else {
+      this.removeModuleRibbon("today");
+      this.removeModuleRibbon("mcq");
+    }
     if (this.calendarEnabled()) this.addModuleRibbon("calendar", "calendar-days", "Open calendar", () => this.activateCalendar());
     else this.removeModuleRibbon("calendar");
   }
@@ -494,7 +519,7 @@ class QuestionTrackerPlugin extends Plugin {
   async onMcqToggled() {
     this.refreshRibbon();
     if (!this.mcqEnabled()) {
-      this.detachModuleLeaves([VIEW_TYPE, VIEW_TYPE_INSIGHTS, VIEW_TYPE_TEST]);
+      this.detachModuleLeaves([VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_INSIGHTS, VIEW_TYPE_TEST]);
       this.pauseSession();
       return;
     }

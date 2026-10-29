@@ -449,6 +449,7 @@ class PracticeView extends ItemView {
     start.addEventListener("click", () => this.next());
 
     const tools = root.createDiv({ cls: "qt-row qt-small-row" });
+    tools.createEl("button", { text: "Today" }).addEventListener("click", () => p.activateToday());
     tools.createEl("button", { text: "Quick Practice" }).addEventListener("click", () => this.startQuickSetup());
     tools.createEl("button", { text: "Timed test" }).addEventListener("click", () => p.activateTest());
     tools.createEl("button", { text: "Weak spots & errors" }).addEventListener("click", () => p.activateInsights("weak"));
