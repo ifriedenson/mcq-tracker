@@ -333,6 +333,7 @@ function finalizeNote(text, meta, qid, stamp) {
   const heading = str(src.source_heading || src.source_heading_text || "").trim();
   if (sourcePath) {
     if (stamp.sourceKind === "pdf" || /\.pdf$/i.test(sourcePath)) fm.source_pdf = sourcePath;
+    else if (stamp.sourceKind === "note" || /\.md$/i.test(sourcePath)) fm.source_note = sourcePath;
     else fm.source_document = sourcePath;
     if (page) fm.source_page = page;
     if (heading) fm.source_heading = heading;

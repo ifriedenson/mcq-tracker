@@ -5425,6 +5425,8 @@ function cardNote(input, now) {
   if (data.sourcePage) lines.push(`source_page: ${yamlString(data.sourcePage)}`);
   if (data.sourceHeading) lines.push(`source_heading: ${yamlString(data.sourceHeading)}`);
   if (data.sourceLink) lines.push(`source_link: ${yamlString(data.sourceLink)}`);
+  if (data.aiGenerated) lines.push(`ai_generated: ${yamlString(data.aiGenerated)}`);
+  if (data.aiModel) lines.push(`ai_model: ${yamlString(data.aiModel)}`);
   if (data.questionSet) lines.push(`question_set: ${yamlString(data.questionSet)}`);
   const choices = Array.isArray(data.choices) ? data.choices : [];
   for (let i = 0; i < choices.length; i++) {
@@ -14310,6 +14312,7 @@ function finalizeNote(text, meta, qid, stamp) {
   const heading = str(src.source_heading || src.source_heading_text || "").trim();
   if (sourcePath) {
     if (stamp.sourceKind === "pdf" || /\.pdf$/i.test(sourcePath)) fm.source_pdf = sourcePath;
+    else if (stamp.sourceKind === "note" || /\.md$/i.test(sourcePath)) fm.source_note = sourcePath;
     else fm.source_document = sourcePath;
     if (page) fm.source_page = page;
     if (heading) fm.source_heading = heading;
@@ -16919,6 +16922,8 @@ const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, 
 const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { normalizeTutorRole } = require("./tutor-presets");
 const { findSourceFile, sourceOf } = require("./provenance");
+const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
+const { TranscriptPracticeModal } = require("./transcript-modal");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -17072,6 +17077,21 @@ class QuestionTrackerPlugin extends Plugin {
         return true;
       },
     });
+    this.addCommand({
+      id: "lecture-practice",
+      name: "Generate practice from this lecture",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !/\.md$/i.test(file.path)) return false;
+        const cache = this.app.metadataCache.getFileCache(file);
+        const fm = cache?.frontmatter || {};
+        if (isCardNote(fm) || (fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "")) return false;
+        const headings = (cache?.headings || []).map((h) => h.heading);
+        if (!isTranscriptNote(fm, file.path, "", headings)) return false;
+        if (!checking) this.openTranscriptPractice(file.path);
+        return true;
+      },
+    });
     this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
     this.addCommand({
       id: "cards-grade-pending",
@@ -17142,6 +17162,20 @@ class QuestionTrackerPlugin extends Plugin {
               .setTitle("Extract cards from this note")
               .setIcon("layers")
               .onClick(() => this.openCardExtract(file.path))
+          );
+        }
+        const headings = (this.app.metadataCache.getFileCache(file)?.headings || []).map((h) => h.heading);
+        if (
+          fm &&
+          fm.question_id === undefined &&
+          !isCardNote(fm) &&
+          isTranscriptNote(fm, file.path, "", headings)
+        ) {
+          menu.addItem((item) =>
+            item
+              .setTitle("Generate practice from this lecture")
+              .setIcon("graduation-cap")
+              .onClick(() => this.openTranscriptPractice(file.path))
           );
         }
       })
@@ -18171,6 +18205,143 @@ class QuestionTrackerPlugin extends Plugin {
       this.refreshViews();
       if (onDone) onDone(result);
     }).open();
+  }
+
+  openTranscriptPractice(path) {
+    if (this.moduleOff("mcq") && this.moduleOff("cards")) {
+      new Notice("Turn on MCQ Tracker or Cards before generating practice.");
+      return;
+    }
+    const target = path && path.path ? path.path : str(path).trim();
+    if (!target) {
+      new Notice("Open a lecture note first.");
+      return;
+    }
+    new TranscriptPracticeModal(this.app, this, { path: target }, () => this.refreshViews()).open();
+  }
+
+  /** Read one note and describe whether it is a transcript. */
+  async inspectTranscript(path) {
+    const target = path && path.path ? path.path : str(path).trim();
+    const file = this.app.vault.getAbstractFileByPath(target);
+    if (!(file instanceof TFile)) throw new Error("That note is not in the vault.");
+    if (!/\.md$/i.test(file.path)) throw new Error("Choose a Markdown note.");
+    const text = await this.app.vault.cachedRead(file);
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    return { ...transcriptInfo(file, fm, text), file, fm };
+  }
+
+  aiModelLabel() {
+    const ai = this.settings.ai;
+    return (
+      str(ai.backend === "opencode" ? ai.model : ai.api && ai.api.model).trim() ||
+      str(ai.api && ai.api.provider).trim() ||
+      "AI"
+    );
+  }
+
+  /** Draft cards or questions from a transcript. This method writes nothing. */
+  async generateTranscriptPractice(path, options) {
+    const opts = options || {};
+    const info = await this.inspectTranscript(path);
+    if (!info.isTranscript && !opts.force) {
+      throw new Error("This note does not look like a lecture transcript. Add `transcript: true` or open it from the lecture-practice command to use it anyway.");
+    }
+    const kind = opts.kind === "questions" ? "questions" : "cards";
+    if (kind === "questions" && this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
+    if (kind === "cards" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    const count = Math.min(30, Math.max(1, Math.round(Number(opts.count) || (kind === "questions" ? 5 : 8))));
+    const course = str(opts.course).trim() || info.course || courseForFolder(this.settings, info.path) || "";
+    const base = { kind, sourcePath: info.path, title: info.title, course, items: [], errors: [], ai: false, model: "" };
+
+    if (kind === "cards" && opts.local) {
+      const preview = await this.previewNoteCards(info.path, {
+        deck: str(opts.deck).trim() || this.settings.cards.defaultDeck,
+        course,
+      });
+      if (preview.blocked) return { ...base, errors: [preview.reason] };
+      return { ...base, items: preview.cards || [], errors: preview.warnings || [] };
+    }
+
+    if (!this.settings.ai.enabled) {
+      throw new Error("Turn on AI features under Settings, Global, Modules. Without AI, use the heading-based card option.");
+    }
+    const prompt =
+      kind === "questions"
+        ? buildTranscriptQuestionPrompt({ title: info.title, course, text: info.text, count })
+        : buildTranscriptCardPrompt({ title: info.title, course, text: info.text, count });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: kind === "questions" ? 4000 : 3000 });
+    const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
+    return {
+      ...base,
+      ai: true,
+      model: this.aiModelLabel(),
+      items: kind === "questions" ? parsed.questions : parsed.cards,
+    };
+  }
+
+  /** Write an already-previewed transcript draft. */
+  async writeTranscriptPractice(generated, options) {
+    const g = generated || {};
+    const opts = options || {};
+    const items = Array.isArray(g.items) ? g.items : [];
+    if (!items.length) return { created: 0, paths: [], errors: ["There are no items to write."] };
+    if (g.kind === "questions" && this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
+    if (g.kind !== "questions" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+
+    if (g.kind !== "questions") {
+      const deck = str(opts.deck).trim() || this.settings.cards.defaultDeck || "Lecture";
+      const cards = items.map((card) => ({
+        ...card,
+        deck,
+        course: str(g.course).trim(),
+        sourceNote: g.sourcePath,
+        importSource: g.sourcePath,
+        importFormat: g.ai ? "transcript-ai" : "outline",
+        importedOn: localDate(),
+        aiGenerated: g.ai ? g.model : "",
+        aiModel: g.ai ? g.model : "",
+        importKey: `transcript:${hashString(`${g.sourcePath}|${card.front}|${card.back}`)}`,
+      }));
+      const result = await this.importParsedCards(cards, {
+        deck,
+        course: str(g.course).trim(),
+        errors: Array.isArray(g.errors) ? g.errors.slice() : [],
+        duplicateMode: opts.duplicateMode || "skip",
+      });
+      if (result.created || result.updated) this.refreshViews();
+      return result;
+    }
+
+    const folder = str(opts.folder).trim() || str(this.settings.questionFolder).trim() || "Questions";
+    await ensureFolder(this.app, folder);
+    const paths = [];
+    const errors = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const title = safeFileName(item.question || `${g.title} question ${i + 1}`);
+      let path = `${folder ? folder + "/" : ""}${title}.md`;
+      let n = 2;
+      while (this.app.vault.getAbstractFileByPath(path)) {
+        path = `${folder ? folder + "/" : ""}${title} ${n}.md`;
+        n++;
+      }
+      const qid = path.replace(/^.*\//, "").replace(/\.md$/i, "");
+      try {
+        const note = questionNote(
+          item,
+          { course: g.course, source: g.title },
+          qid,
+          { model: g.model || this.aiModelLabel(), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note" }
+        );
+        await this.app.vault.create(path, note);
+        paths.push(path);
+      } catch (e) {
+        errors.push(`${title}: ${str(e && e.message ? e.message : e)}`);
+      }
+    }
+    if (paths.length) this.refreshViews();
+    return { created: paths.length, paths, errors };
   }
 
   /** Read and map one note without writing anything, so the preview can be reviewed. */
@@ -24888,6 +25059,565 @@ module.exports = {
 };
 };
 
+/* ---- src/transcript.js ---- */
+__defs["transcript"] = function (module, exports, require) {
+/*
+ * Lecture and transcript ingestion.
+ *
+ * This module does not transcribe audio. It recognizes notes that already hold
+ * a transcript (Whisper, Audio to Text, Local Whisper, Lecture Transcriber and
+ * similar export shapes), then turns the text into previewable cards or
+ * questions. Nothing is written here; the plugin writes after a preview.
+ */
+const { str } = require("./util");
+const { finalizeNote } = require("./importer");
+
+const TRANSCRIPT_FLAGS = [
+  "transcript",
+  "is_transcript",
+  "transcription",
+  "audio_transcript",
+  "lecture_transcript",
+  "transcript_source",
+  "transcript_text",
+];
+
+const TRANSCRIPT_TYPES = ["transcript", "transcription", "lecture transcript", "audio transcript"];
+
+function lower(value) {
+  return str(value).trim().toLowerCase();
+}
+
+function basename(path) {
+  return str(path).replace(/^.*\//, "").replace(/\.[a-z0-9]+$/i, "");
+}
+
+function truthyFlag(value) {
+  if (value === true || value === 1) return true;
+  return ["true", "yes", "on", "1", "y"].includes(lower(value));
+}
+
+function falseFlag(value) {
+  if (value === false || value === 0) return true;
+  return ["false", "no", "off", "0", "n"].includes(lower(value));
+}
+
+function stripFrontmatter(text) {
+  return str(text).replace(/\r\n/g, "\n").replace(/^---\n[\s\S]*?\n---\n?/, "");
+}
+
+/** Removes the timestamps and speaker labels transcription tools add, not the words. */
+function cleanTranscript(text) {
+  return stripFrontmatter(text)
+    .replace(/^\s*\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s*/gm, "")
+    .replace(/^\s*(?:speaker|host|interviewer|participant|lecturer|teacher)\s*\d*\s*[:：]\s*/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function headingList(text) {
+  return [...str(text).matchAll(/^#{1,6}\s+(.+?)\s*#*\s*$/gm)].map((m) => lower(m[1]));
+}
+
+/**
+ * Whether a Markdown note looks like a transcript. `headings` can come from
+ * Obsidian's metadata cache so the command can decide without reading the note.
+ */
+function isTranscriptNote(fm, path, text, headings) {
+  const f = fm || {};
+  for (const key of TRANSCRIPT_FLAGS) {
+    if (f[key] === undefined || f[key] === null || f[key] === "") continue;
+    if (falseFlag(f[key])) return false;
+    if (truthyFlag(f[key]) || lower(f[key]).includes("transcript")) return true;
+  }
+  const type = lower(f.type || f.note_type || f.source_type || f.item_type);
+  if (TRANSCRIPT_TYPES.some((t) => type === t || type.includes(t))) return true;
+  const source = lower(f.source || f.transcript_source || f.audio_source);
+  if (/whisper|transcription|transcript/.test(source)) return true;
+
+  const name = basename(path);
+  const body = str(text);
+  const heads = Array.isArray(headings) && headings.length ? headings.map(lower) : headingList(body);
+  const hasHeading = heads.some((h) => /^(transcript|transcription|lecture transcript|audio transcript)$/.test(h));
+  if (hasHeading) return true;
+  if (/\b(transcript|transcription)\b/i.test(name)) return true;
+
+  const timed = /(?:^|\n)\s*\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s+/m.test(body);
+  if (timed && /\b(lecture|recording|class|seminar|lesson|week|audio)\b/i.test(name)) return true;
+  return false;
+}
+
+/** Everything the modal and prompts need about one source note. */
+function transcriptInfo(file, fm, text) {
+  const f = fm || {};
+  const path = file && file.path ? file.path : str(file);
+  const body = cleanTranscript(text);
+  const headings = headingList(text);
+  return {
+    path,
+    title: str(f.title).trim() || basename(path),
+    course: str(f.course).trim(),
+    isTranscript: isTranscriptNote(f, path, text, headings),
+    headings,
+    chars: body.length,
+    text: body,
+  };
+}
+
+function promptText(text) {
+  return str(text).trim().slice(0, 18000);
+}
+
+function buildTranscriptCardPrompt(options) {
+  const o = options || {};
+  const count = Math.max(1, Math.min(30, Math.round(Number(o.count) || 8)));
+  const system =
+    "You write accurate study flashcards from lecture material. Use only facts stated in the transcript. " +
+    "Do not invent definitions, dates or examples. If the transcript is too short or unclear, return fewer cards.";
+  const user = [
+    `Make ${count} flashcards from this lecture transcript.`,
+    o.title ? `Lecture: ${o.title}` : "",
+    o.course ? `Course: ${o.course}` : "",
+    "Return only a JSON object in this exact shape:",
+    '{"cards":[{"front":"a specific question or cue","back":"the answer in one or two sentences"}]}',
+    "Fronts must be answerable from the transcript. Keep each answer under 400 characters. Do not use cloze marks.",
+    "",
+    "TRANSCRIPT:",
+    promptText(o.text),
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+  return { system, user };
+}
+
+function buildTranscriptQuestionPrompt(options) {
+  const o = options || {};
+  const count = Math.max(1, Math.min(30, Math.round(Number(o.count) || 5)));
+  const system =
+    "You write fair multiple-choice practice questions from lecture material. Every correct answer and explanation must be supported by the transcript. " +
+    "Distractors must be plausible but clearly wrong. Never invent facts.";
+  const user = [
+    `Write ${count} multiple-choice questions from this lecture transcript.`,
+    o.title ? `Lecture: ${o.title}` : "",
+    o.course ? `Course: ${o.course}` : "",
+    "Return only a JSON object in this exact shape:",
+    '{"questions":[{"question":"the question","choices":["choice A","choice B","choice C","choice D"],"answer":"B","explanation":"why B is right and the others are wrong"}]}',
+    "Use exactly four choices and a single letter answer from A to D. Keep the explanation under 500 characters.",
+    "",
+    "TRANSCRIPT:",
+    promptText(o.text),
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+  return { system, user };
+}
+
+/** Finds the first JSON array/object in a reply, tolerating code fences and a short preface. */
+function jsonValue(reply, key) {
+  const text = str(reply)
+    .replace(/```(?:json|javascript|js)?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  const candidates = [text];
+  const objStart = text.indexOf("{");
+  const objEnd = text.lastIndexOf("}");
+  if (objStart >= 0 && objEnd > objStart) candidates.push(text.slice(objStart, objEnd + 1));
+  const arrStart = text.indexOf("[");
+  const arrEnd = text.lastIndexOf("]");
+  if (arrStart >= 0 && arrEnd > arrStart) candidates.push(text.slice(arrStart, arrEnd + 1));
+  for (const candidate of candidates) {
+    let value;
+    try {
+      value = JSON.parse(candidate);
+    } catch (e) {
+      continue;
+    }
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === "object") {
+      if (Array.isArray(value[key])) return value[key];
+      if (Array.isArray(value.items)) return value.items;
+      if (value[key] && typeof value[key] === "object") return [value[key]];
+      if (value.front || value.question || value.prompt) return [value];
+    }
+  }
+  return null;
+}
+
+function cleanLine(value) {
+  return str(value)
+    .replace(/^\s*[-*+]\s+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cardLinePairs(reply) {
+  const out = [];
+  for (const block of str(reply).split(/\n\s*\n/)) {
+    const lines = block.split("\n");
+    let front = "";
+    let back = "";
+    for (const line of lines) {
+      const q = line.match(/^\s*(?:Q|Question|Front|Term)\s*[:：-]\s*(.+)$/i);
+      const a = line.match(/^\s*(?:A|Answer|Back|Definition)\s*[:：-]\s*(.+)$/i);
+      if (q && !front) front = q[1];
+      if (a && !back) back = a[1];
+    }
+    if (front && back) out.push({ front, back });
+  }
+  return out;
+}
+
+function parseAiCards(reply, max) {
+  const limit = Math.max(1, Math.min(50, Math.round(Number(max) || 20)));
+  const raw = jsonValue(reply, "cards");
+  const list = Array.isArray(raw) && raw.length ? raw : cardLinePairs(reply);
+  const cards = [];
+  const seen = new Set();
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const front = cleanLine(item.front || item.question || item.term || item.prompt);
+    const back = cleanLine(item.back || item.answer || item.definition || item.explanation);
+    if (!front || !back || front.length < 2 || back.length < 2) continue;
+    if (front.length > 500 || back.length > 2000) continue;
+    const key = `${front.toLowerCase()}\u0000${back.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const clue = `${front} ${back}`;
+    cards.push({
+      front,
+      back,
+      cardType: /==|\{\{c?\d*::/.test(clue) ? "cloze" : "basic",
+    });
+    if (cards.length >= limit) break;
+  }
+  return { cards, count: cards.length };
+}
+
+function choiceList(value) {
+  let list = value;
+  if (typeof list === "string") list = list.split(/\n|\||;/);
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((choice) => cleanLine(choice).replace(/^[A-Ha-h][.)]\s*/, "").trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function answerLetter(value, choices) {
+  const s = str(value).trim();
+  const direct = s.match(/^\(?([A-Ha-h])\)?(?:[.)\s]|$)/);
+  if (direct) return direct[1].toUpperCase();
+  const n = Number(s);
+  if (Number.isInteger(n) && n >= 1 && n <= choices.length) return "ABCDEFGH"[n - 1];
+  const wanted = lower(s);
+  const index = choices.findIndex((choice) => lower(choice) === wanted);
+  return index >= 0 ? "ABCDEFGH"[index] : "";
+}
+
+function parseAiQuestions(reply, max) {
+  const limit = Math.max(1, Math.min(50, Math.round(Number(max) || 10)));
+  const raw = jsonValue(reply, "questions");
+  const list = Array.isArray(raw) ? raw : [];
+  const questions = [];
+  const seen = new Set();
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const question = cleanLine(item.question || item.front || item.prompt);
+    const choices = choiceList(item.choices || item.options || item.answers);
+    const answer = answerLetter(item.answer || item.correct || item.key, choices);
+    if (!question || choices.length < 2 || !answer) continue;
+    const letterIndex = "ABCDEFGH".indexOf(answer);
+    if (letterIndex < 0 || letterIndex >= choices.length) continue;
+    const key = question.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    questions.push({
+      question,
+      choices,
+      answer,
+      explanation: cleanLine(item.explanation || item.rationale || item.reason),
+      stimulus: str(item.stimulus || item.passage || "").trim(),
+    });
+    if (questions.length >= limit) break;
+  }
+  return { questions, count: questions.length };
+}
+
+/** Builds a normal question note and lets the existing importer finalize tracking properties. */
+function questionNote(item, meta, qid, stamp) {
+  const data = item || {};
+  const m = meta || {};
+  const choices = Array.isArray(data.choices) ? data.choices.slice(0, 8) : [];
+  const letters = "ABCDEFGH";
+  const answer = answerLetter(data.answer, choices) || "A";
+  const explanation = str(data.explanation).trim();
+  const lines = [
+    "---",
+    `question_id: ${qid}`,
+    `question_type: mcq`,
+    `choices: ${choices.length}`,
+    `answer: ${answer}`,
+    "answer_source: ai",
+    "explanation_source: ai",
+    "---",
+    "",
+  ];
+  if (str(data.stimulus).trim()) {
+    lines.push("## Stimulus", "");
+    for (const line of str(data.stimulus).split("\n")) lines.push(`> ${line}`);
+    lines.push("");
+  }
+  lines.push("## Question", "", str(data.question).trim(), "", "## Answer Choices", "");
+  choices.forEach((choice, index) => lines.push(`- ${letters[index]}. ${str(choice).trim()}`));
+  lines.push("", "## Answer", "", "> [!answer]- Reveal answer", `> **Correct Answer: ${answer}**`, ">");
+  for (const line of explanation.split("\n")) lines.push(`> ${line}`);
+  lines.push("", "## My Notes", "");
+  return finalizeNote(lines.join("\n"), m, qid, {
+    ...(stamp || {}),
+    sourcePath: stamp && stamp.sourcePath,
+    sourceKind: "note",
+  });
+}
+
+function safeFileName(value) {
+  return (
+    str(value)
+      .replace(/[\\/:*?"<>|#^[\]]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80) || "Lecture"
+  );
+}
+
+module.exports = {
+  TRANSCRIPT_FLAGS,
+  cleanTranscript,
+  isTranscriptNote,
+  transcriptInfo,
+  buildTranscriptCardPrompt,
+  buildTranscriptQuestionPrompt,
+  parseAiCards,
+  parseAiQuestions,
+  questionNote,
+  safeFileName,
+};
+};
+
+/* ---- src/transcript-modal.js ---- */
+__defs["transcript-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { str } = require("./util");
+
+/**
+ * Preview before writing: detects a transcript note, generates cards or
+ * questions with the configured AI (or extracts cards from headings locally),
+ * then writes only what the learner confirms.
+ */
+class TranscriptPracticeModal extends Modal {
+  constructor(app, plugin, options, onDone) {
+    super(app);
+    this.plugin = plugin;
+    this.options = options || {};
+    this.onDone = onDone || (() => {});
+    this.path = str(this.options.path).trim();
+    this.info = null;
+    this.error = "";
+    this.generated = null;
+    this.busy = false;
+    this.mode = "cards";
+    this.count = 8;
+    this.deck = "";
+    this.folder = "";
+  }
+
+  async onOpen() {
+    this.modalEl.addClass("qt-transcript-modal");
+    await this.load();
+  }
+
+  async load() {
+    try {
+      this.info = await this.plugin.inspectTranscript(this.path);
+      this.deck = str(this.info.course).trim() || str(this.info.title).trim() || this.plugin.settings.cards.defaultDeck || "Lecture";
+      this.folder = str(this.plugin.settings.questionFolder).trim() || "Questions";
+      this.mode = this.plugin.settings.ai.enabled ? "cards" : "local";
+      this.count = this.mode === "questions" ? 5 : 8;
+    } catch (e) {
+      this.error = str(e && e.message ? e.message : e) || "Could not read this note.";
+    }
+    this.render();
+  }
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Practice from this lecture" });
+    if (this.error) {
+      el.createEl("p", { cls: "qt-error", text: this.error });
+      if (!this.info) {
+        el.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
+        return;
+      }
+    }
+    if (!this.info) {
+      el.createEl("p", { cls: "qt-hint", text: "Reading the note..." });
+      return;
+    }
+    if (!this.info.isTranscript) {
+      el.createEl("p", {
+        cls: "qt-hint",
+        text: "This note has no transcript markers. You can still use it if it holds a lecture recording or a long talk.",
+      });
+    }
+    const meta = el.createDiv({ cls: "qt-transcript-meta" });
+    meta.createDiv({ cls: "qt-transcript-title", text: this.info.title });
+    meta.createDiv({
+      cls: "qt-hint",
+      text: [this.info.course, `${this.info.chars.toLocaleString()} characters`].filter(Boolean).join(" · "),
+    });
+
+    if (this.generated && this.generated.items.length) return this.renderPreview(el);
+    if (this.busy) {
+      el.createEl("p", { cls: "qt-hint", text: "Reading the transcript and drafting study items..." });
+      return;
+    }
+
+    const ai = !!this.plugin.settings.ai.enabled;
+    const canQuestions = ai && !this.plugin.moduleOff("mcq");
+    const canCards = !this.plugin.moduleOff("cards");
+    const modeWrap = el.createDiv({ cls: "qt-field" });
+    modeWrap.createEl("label", { text: "What should it make?" });
+    const mode = modeWrap.createEl("select", { cls: "qt-select" });
+    mode.createEl("option", { value: "cards", text: ai ? "Flashcards (AI)" : "Flashcards from headings (no AI)" });
+    mode.createEl("option", {
+      value: "questions",
+      text: canQuestions ? "Multiple-choice questions (AI)" : "Multiple-choice questions (AI and MCQ Tracker are required)",
+    });
+    mode.createEl("option", { value: "local", text: "Flashcards from headings (no AI)" });
+    mode.value = this.mode;
+    mode.addEventListener("change", () => {
+      this.mode = mode.value;
+      if (this.mode === "questions") this.count = 5;
+      this.render();
+    });
+
+    const countWrap = el.createDiv({ cls: "qt-field" });
+    countWrap.createEl("label", { text: "How many?" });
+    const count = countWrap.createEl("select", { cls: "qt-select" });
+    for (const n of [5, 8, 10, 12, 15, 20]) count.createEl("option", { value: String(n), text: `${n} items` });
+    count.value = String(this.count);
+    count.addEventListener("change", () => (this.count = Number(count.value)));
+
+    if (this.mode === "cards" || this.mode === "local") {
+      const deckWrap = el.createDiv({ cls: "qt-field" });
+      deckWrap.createEl("label", { text: "Deck" });
+      const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology" } });
+      deck.value = this.deck;
+      deck.addEventListener("input", () => (this.deck = deck.value));
+    } else {
+      const folderWrap = el.createDiv({ cls: "qt-field" });
+      folderWrap.createEl("label", { text: "Question folder" });
+      const folder = folderWrap.createEl("input", { type: "text", attr: { placeholder: "Questions" } });
+      folder.value = this.folder;
+      folder.addEventListener("input", () => (this.folder = folder.value));
+    }
+
+    el.createDiv({
+      cls: "qt-hint",
+      text:
+        this.mode === "local"
+          ? "This reads headings, definition lines, tables and cloze marks already in the note. It sends nothing anywhere."
+          : "This sends the transcript text to your configured AI provider. Review the draft before anything is written.",
+    });
+    el.createDiv({
+      cls: "qt-hint",
+      text: "Generated items keep a source_note link back to this note. AI-written answers are marked as AI-generated.",
+    });
+
+    const row = el.createDiv({ cls: "qt-row" });
+    const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
+    cancel.addEventListener("click", () => this.close());
+    const go = row.createEl("button", {
+      text: this.mode === "questions" ? "Draft questions" : "Draft cards",
+      cls: "mod-cta qt-grow",
+    });
+    go.disabled = (this.mode === "questions" && !canQuestions) || (this.mode !== "questions" && !canCards);
+    go.addEventListener("click", () => this.generate());
+  }
+
+  renderPreview(el) {
+    const g = this.generated;
+    el.createEl("h4", { text: `Ready to write ${g.items.length} ${g.kind === "questions" ? "question" : "card"}${g.items.length === 1 ? "" : "s"}` });
+    if (g.errors && g.errors.length) el.createEl("p", { cls: "qt-error", text: g.errors[0] });
+    const list = el.createEl("ul", { cls: "qt-extract-preview" });
+    for (const item of g.items.slice(0, 20)) {
+      list.createEl("li", {
+        text: g.kind === "questions" ? `${item.question} (answer ${item.answer})` : `${item.front} → ${item.back}`,
+      });
+    }
+    if (g.items.length > 20) el.createEl("p", { cls: "qt-hint", text: `…and ${g.items.length - 20} more.` });
+    const row = el.createDiv({ cls: "qt-row" });
+    const back = row.createEl("button", { text: "Back", cls: "qt-grow" });
+    back.addEventListener("click", () => {
+      this.generated = null;
+      this.render();
+    });
+    const write = row.createEl("button", { text: "Create these", cls: "mod-cta qt-grow" });
+    write.addEventListener("click", () => this.write());
+  }
+
+  async generate() {
+    if (this.busy) return;
+    this.busy = true;
+    this.error = "";
+    this.render();
+    try {
+      const kind = this.mode === "questions" ? "questions" : "cards";
+      const result = await this.plugin.generateTranscriptPractice(this.path, {
+        kind,
+        count: this.count,
+        local: this.mode === "local",
+        force: !this.info.isTranscript,
+      });
+      this.generated = result;
+      if (!result.items.length) {
+        this.error = result.errors && result.errors.length ? result.errors[0] : "No usable study items were found in this note.";
+      }
+    } catch (e) {
+      this.error = str(e && e.message ? e.message : e) || "Could not generate practice items.";
+    }
+    this.busy = false;
+    this.render();
+  }
+
+  async write() {
+    if (this.busy || !this.generated) return;
+    this.busy = true;
+    this.render();
+    try {
+      const result = await this.plugin.writeTranscriptPractice(this.generated, {
+        deck: this.deck,
+        folder: this.folder,
+      });
+      const made = result.created || 0;
+      new Notice(made ? `Created ${made} ${this.generated.kind === "questions" ? "question" : "card"}${made === 1 ? "" : "s"}.` : "Nothing new was written.", 6000);
+      this.close();
+      this.onDone(result);
+    } catch (e) {
+      this.error = str(e && e.message ? e.message : e) || "Could not write the generated items.";
+      this.busy = false;
+      this.render();
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = { TranscriptPracticeModal };
+};
+
 /* ---- src/tutor-presets.js ---- */
 __defs["tutor-presets"] = function (module, exports, require) {
 const { str } = require("./util");
@@ -25497,6 +26227,8 @@ const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-setting
 const dailyQuiz = require("./daily-quiz");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const provenance = require("./provenance");
+const transcript = require("./transcript");
+const { TranscriptPracticeModal } = require("./transcript-modal");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
@@ -25603,6 +26335,8 @@ QuestionTrackerPlugin.__test = {
   ReferenceView,
   assignments,
   provenance,
+  transcript,
+  TranscriptPracticeModal,
   AssignmentsView,
   AssignmentModal,
   renderAssignmentsSettings,

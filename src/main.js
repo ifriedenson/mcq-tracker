@@ -72,6 +72,8 @@ const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-setting
 const dailyQuiz = require("./daily-quiz");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const provenance = require("./provenance");
+const transcript = require("./transcript");
+const { TranscriptPracticeModal } = require("./transcript-modal");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
@@ -178,6 +180,8 @@ QuestionTrackerPlugin.__test = {
   ReferenceView,
   assignments,
   provenance,
+  transcript,
+  TranscriptPracticeModal,
   AssignmentsView,
   AssignmentModal,
   renderAssignmentsSettings,

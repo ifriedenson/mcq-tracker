@@ -406,6 +406,8 @@ function cardNote(input, now) {
   if (data.sourcePage) lines.push(`source_page: ${yamlString(data.sourcePage)}`);
   if (data.sourceHeading) lines.push(`source_heading: ${yamlString(data.sourceHeading)}`);
   if (data.sourceLink) lines.push(`source_link: ${yamlString(data.sourceLink)}`);
+  if (data.aiGenerated) lines.push(`ai_generated: ${yamlString(data.aiGenerated)}`);
+  if (data.aiModel) lines.push(`ai_model: ${yamlString(data.aiModel)}`);
   if (data.questionSet) lines.push(`question_set: ${yamlString(data.questionSet)}`);
   const choices = Array.isArray(data.choices) ? data.choices : [];
   for (let i = 0; i < choices.length; i++) {

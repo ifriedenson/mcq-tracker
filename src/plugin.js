@@ -49,6 +49,8 @@ const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, 
 const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { normalizeTutorRole } = require("./tutor-presets");
 const { findSourceFile, sourceOf } = require("./provenance");
+const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
+const { TranscriptPracticeModal } = require("./transcript-modal");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -202,6 +204,21 @@ class QuestionTrackerPlugin extends Plugin {
         return true;
       },
     });
+    this.addCommand({
+      id: "lecture-practice",
+      name: "Generate practice from this lecture",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !/\.md$/i.test(file.path)) return false;
+        const cache = this.app.metadataCache.getFileCache(file);
+        const fm = cache?.frontmatter || {};
+        if (isCardNote(fm) || (fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "")) return false;
+        const headings = (cache?.headings || []).map((h) => h.heading);
+        if (!isTranscriptNote(fm, file.path, "", headings)) return false;
+        if (!checking) this.openTranscriptPractice(file.path);
+        return true;
+      },
+    });
     this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
     this.addCommand({
       id: "cards-grade-pending",
@@ -272,6 +289,20 @@ class QuestionTrackerPlugin extends Plugin {
               .setTitle("Extract cards from this note")
               .setIcon("layers")
               .onClick(() => this.openCardExtract(file.path))
+          );
+        }
+        const headings = (this.app.metadataCache.getFileCache(file)?.headings || []).map((h) => h.heading);
+        if (
+          fm &&
+          fm.question_id === undefined &&
+          !isCardNote(fm) &&
+          isTranscriptNote(fm, file.path, "", headings)
+        ) {
+          menu.addItem((item) =>
+            item
+              .setTitle("Generate practice from this lecture")
+              .setIcon("graduation-cap")
+              .onClick(() => this.openTranscriptPractice(file.path))
           );
         }
       })
@@ -1301,6 +1332,143 @@ class QuestionTrackerPlugin extends Plugin {
       this.refreshViews();
       if (onDone) onDone(result);
     }).open();
+  }
+
+  openTranscriptPractice(path) {
+    if (this.moduleOff("mcq") && this.moduleOff("cards")) {
+      new Notice("Turn on MCQ Tracker or Cards before generating practice.");
+      return;
+    }
+    const target = path && path.path ? path.path : str(path).trim();
+    if (!target) {
+      new Notice("Open a lecture note first.");
+      return;
+    }
+    new TranscriptPracticeModal(this.app, this, { path: target }, () => this.refreshViews()).open();
+  }
+
+  /** Read one note and describe whether it is a transcript. */
+  async inspectTranscript(path) {
+    const target = path && path.path ? path.path : str(path).trim();
+    const file = this.app.vault.getAbstractFileByPath(target);
+    if (!(file instanceof TFile)) throw new Error("That note is not in the vault.");
+    if (!/\.md$/i.test(file.path)) throw new Error("Choose a Markdown note.");
+    const text = await this.app.vault.cachedRead(file);
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    return { ...transcriptInfo(file, fm, text), file, fm };
+  }
+
+  aiModelLabel() {
+    const ai = this.settings.ai;
+    return (
+      str(ai.backend === "opencode" ? ai.model : ai.api && ai.api.model).trim() ||
+      str(ai.api && ai.api.provider).trim() ||
+      "AI"
+    );
+  }
+
+  /** Draft cards or questions from a transcript. This method writes nothing. */
+  async generateTranscriptPractice(path, options) {
+    const opts = options || {};
+    const info = await this.inspectTranscript(path);
+    if (!info.isTranscript && !opts.force) {
+      throw new Error("This note does not look like a lecture transcript. Add `transcript: true` or open it from the lecture-practice command to use it anyway.");
+    }
+    const kind = opts.kind === "questions" ? "questions" : "cards";
+    if (kind === "questions" && this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
+    if (kind === "cards" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    const count = Math.min(30, Math.max(1, Math.round(Number(opts.count) || (kind === "questions" ? 5 : 8))));
+    const course = str(opts.course).trim() || info.course || courseForFolder(this.settings, info.path) || "";
+    const base = { kind, sourcePath: info.path, title: info.title, course, items: [], errors: [], ai: false, model: "" };
+
+    if (kind === "cards" && opts.local) {
+      const preview = await this.previewNoteCards(info.path, {
+        deck: str(opts.deck).trim() || this.settings.cards.defaultDeck,
+        course,
+      });
+      if (preview.blocked) return { ...base, errors: [preview.reason] };
+      return { ...base, items: preview.cards || [], errors: preview.warnings || [] };
+    }
+
+    if (!this.settings.ai.enabled) {
+      throw new Error("Turn on AI features under Settings, Global, Modules. Without AI, use the heading-based card option.");
+    }
+    const prompt =
+      kind === "questions"
+        ? buildTranscriptQuestionPrompt({ title: info.title, course, text: info.text, count })
+        : buildTranscriptCardPrompt({ title: info.title, course, text: info.text, count });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: kind === "questions" ? 4000 : 3000 });
+    const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
+    return {
+      ...base,
+      ai: true,
+      model: this.aiModelLabel(),
+      items: kind === "questions" ? parsed.questions : parsed.cards,
+    };
+  }
+
+  /** Write an already-previewed transcript draft. */
+  async writeTranscriptPractice(generated, options) {
+    const g = generated || {};
+    const opts = options || {};
+    const items = Array.isArray(g.items) ? g.items : [];
+    if (!items.length) return { created: 0, paths: [], errors: ["There are no items to write."] };
+    if (g.kind === "questions" && this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
+    if (g.kind !== "questions" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+
+    if (g.kind !== "questions") {
+      const deck = str(opts.deck).trim() || this.settings.cards.defaultDeck || "Lecture";
+      const cards = items.map((card) => ({
+        ...card,
+        deck,
+        course: str(g.course).trim(),
+        sourceNote: g.sourcePath,
+        importSource: g.sourcePath,
+        importFormat: g.ai ? "transcript-ai" : "outline",
+        importedOn: localDate(),
+        aiGenerated: g.ai ? g.model : "",
+        aiModel: g.ai ? g.model : "",
+        importKey: `transcript:${hashString(`${g.sourcePath}|${card.front}|${card.back}`)}`,
+      }));
+      const result = await this.importParsedCards(cards, {
+        deck,
+        course: str(g.course).trim(),
+        errors: Array.isArray(g.errors) ? g.errors.slice() : [],
+        duplicateMode: opts.duplicateMode || "skip",
+      });
+      if (result.created || result.updated) this.refreshViews();
+      return result;
+    }
+
+    const folder = str(opts.folder).trim() || str(this.settings.questionFolder).trim() || "Questions";
+    await ensureFolder(this.app, folder);
+    const paths = [];
+    const errors = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const title = safeFileName(item.question || `${g.title} question ${i + 1}`);
+      let path = `${folder ? folder + "/" : ""}${title}.md`;
+      let n = 2;
+      while (this.app.vault.getAbstractFileByPath(path)) {
+        path = `${folder ? folder + "/" : ""}${title} ${n}.md`;
+        n++;
+      }
+      const qid = path.replace(/^.*\//, "").replace(/\.md$/i, "");
+      try {
+        const note = questionNote(
+          item,
+          { course: g.course, source: g.title },
+          qid,
+          { model: g.model || this.aiModelLabel(), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note" }
+        );
+        await this.app.vault.create(path, note);
+        paths.push(path);
+      } catch (e) {
+        errors.push(`${title}: ${str(e && e.message ? e.message : e)}`);
+      }
+    }
+    if (paths.length) this.refreshViews();
+    return { created: paths.length, paths, errors };
   }
 
   /** Read and map one note without writing anything, so the preview can be reviewed. */
