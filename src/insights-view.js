@@ -4,6 +4,7 @@ const { WEAK_MIN_ATTEMPTS, computeStats, errorLog, fmtPct, overallStats, trendBy
 const { fmtClock, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
+const { buildDashboard } = require("./analytics");
 
 /* ------------------------------------------- weak spots and error log */
 
@@ -13,7 +14,7 @@ class InsightsView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
-    this.tab = "weak"; // weak | errors
+    this.tab = "weak"; // weak | errors | overview
     this.field = "skill";
     this.showAll = {};
     this.timer = null;
@@ -22,7 +23,7 @@ class InsightsView extends ItemView {
     return VIEW_TYPE_INSIGHTS;
   }
   getDisplayText() {
-    return "Weak spots";
+    return "Insights";
   }
   getIcon() {
     return "bar-chart-2";
@@ -54,7 +55,7 @@ class InsightsView extends ItemView {
       return;
     }
     const tabs = root.createDiv({ cls: "qt-row qt-small-row" });
-    for (const [id, label] of [["weak", "Weak spots"], ["errors", "Error log"]]) {
+    for (const [id, label] of [["overview", "Overview"], ["weak", "Weak spots"], ["errors", "Error log"]]) {
       const b = tabs.createEl("button", { text: label });
       if (this.tab === id) b.addClass("mod-cta");
       b.addEventListener("click", () => {
@@ -63,6 +64,11 @@ class InsightsView extends ItemView {
       });
     }
     const questions = this.plugin.getQuestions();
+    if (this.tab === "overview") {
+      this.renderOverview(root, questions);
+      el.scrollTop = top;
+      return;
+    }
     if (!questions.length) {
       root.createDiv({ cls: "qt-empty", text: "No question notes found yet." });
       return;
@@ -70,6 +76,105 @@ class InsightsView extends ItemView {
     if (this.tab === "weak") this.renderWeak(root, questions);
     else this.renderErrors(root, questions);
     el.scrollTop = top;
+  }
+
+  /** One local dashboard: attempts, study heatmap, course time, weak skills and the next exam. */
+  renderOverview(root, questions) {
+    const p = this.plugin;
+    const cards = p.getCards ? p.getCards() : [];
+    const data = buildDashboard({
+      questions,
+      cards,
+      studyLog: p.settings.studyLog,
+      today: new Date(),
+    });
+    const o = data.overall;
+    const activeDays = data.heatmap.reduce((n, week) => n + week.days.filter((d) => !d.future && (d.minutes || d.attempts)).length, 0);
+    const studyMinutes = data.heatmap.reduce((n, week) => n + week.days.reduce((m, d) => m + d.minutes, 0), 0);
+
+    if (!o.notes && !data.cardStats.total && !studyMinutes) {
+      root.createDiv({
+        cls: "qt-empty",
+        text: "No study activity yet. Answer a question or start a focus session and this dashboard fills in.",
+      });
+      return;
+    }
+
+    const tiles = root.createDiv({ cls: "qt-dash-stats" });
+    const tile = (label, value, hint) => {
+      const box = tiles.createDiv({ cls: "qt-dash-stat" });
+      box.createDiv({ cls: "qt-dash-value", text: value });
+      box.createDiv({ cls: "qt-dash-label", text: label });
+      if (hint) box.createDiv({ cls: "qt-hint", text: hint });
+    };
+    tile("Attempts", String(o.attempts), `${o.seen} of ${o.notes} questions tried`);
+    tile("Accuracy", fmtPct(o.accuracy), o.attempts ? `${fmtClock(Math.round(o.avgSeconds))} per question` : "No attempts yet");
+    tile("Study today", `${data.study.todayMinutes} min`, `${data.study.streak} day streak`);
+    tile("Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
+
+    root.createEl("h3", { cls: "qt-today-section", text: "Study heatmap" });
+    root.createDiv({
+      cls: "qt-hint",
+      text: `Last 12 weeks · ${activeDays} active day${activeDays === 1 ? "" : "s"} · ${studyMinutes} logged minute${studyMinutes === 1 ? "" : "s"}`,
+    });
+    const heat = root.createDiv({ cls: "qt-dash-heat" });
+    for (const week of data.heatmap) {
+      const col = heat.createDiv({ cls: "qt-dash-week" });
+      for (const day of week.days) {
+        const cell = col.createDiv({ cls: `qt-dash-day is-level-${day.level}${day.future ? " is-future" : ""}` });
+        cell.setAttr("title", `${day.date}: ${day.minutes} study min · ${day.attempts} attempt${day.attempts === 1 ? "" : "s"}`);
+        cell.setAttr("aria-label", `${day.date}: ${day.minutes} study minutes, ${day.attempts} attempts`);
+      }
+    }
+    const legend = root.createDiv({ cls: "qt-dash-legend" });
+    legend.createSpan({ cls: "qt-hint", text: "Less" });
+    for (let i = 0; i < 5; i++) legend.createSpan({ cls: `qt-dash-day is-level-${i}` });
+    legend.createSpan({ cls: "qt-hint", text: "More" });
+
+    root.createEl("h3", { cls: "qt-today-section", text: "Weak spots" });
+    const tried = data.skills.filter((r) => r.accuracy !== null).slice(0, 5);
+    if (tried.length) {
+      const list = root.createDiv({ cls: "qt-ins-list" });
+      for (const r of tried) {
+        const row = list.createDiv({ cls: "qt-ins-row" });
+        const main = row.createDiv({ cls: "qt-ins-main" });
+        main.createDiv({ cls: "qt-ins-name", text: r.value });
+        main.createDiv({ cls: "qt-hint", text: `${r.attempts} attempt${r.attempts === 1 ? "" : "s"} · ${r.notes} note${r.notes === 1 ? "" : "s"}` });
+        const meter = row.createDiv({ cls: "qt-ins-meter" });
+        const band = r.accuracy < 0.6 ? "is-low" : r.accuracy < 0.8 ? "is-mid" : "is-high";
+        meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round(r.accuracy * 100)}%` });
+        meter.createSpan({ cls: "qt-ins-pct", text: fmtPct(r.accuracy) });
+        row.createEl("button", { text: "Practice" }).addEventListener("click", () => p.practiceWith({ skill: [r.value] }, "smart"));
+      }
+    } else {
+      root.createDiv({ cls: "qt-hint", text: "Answer a few questions to see where you are losing marks." });
+    }
+
+    if (data.byCourse.length) {
+      root.createEl("h3", { cls: "qt-today-section", text: "Study time by course" });
+      const list = root.createDiv({ cls: "qt-ins-list" });
+      const max = Math.max(...data.byCourse.map(([, minutes]) => minutes), 1);
+      for (const [course, minutes] of data.byCourse) {
+        const row = list.createDiv({ cls: "qt-ins-row qt-dash-course" });
+        const main = row.createDiv({ cls: "qt-ins-main" });
+        main.createDiv({ cls: "qt-ins-name", text: course });
+        main.createDiv({ cls: "qt-hint", text: `${minutes} minute${minutes === 1 ? "" : "s"}` });
+        const meter = row.createDiv({ cls: "qt-ins-meter" });
+        meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: "qt-meter-fill is-high" }).setCssProps({ "--qt-pct": `${Math.round((minutes / max) * 100)}%` });
+      }
+    }
+
+    const plan = p.studyPlan ? p.studyPlan() : null;
+    if (plan) {
+      root.createEl("h3", { cls: "qt-today-section", text: "Next exam" });
+      const box = root.createDiv({ cls: "qt-dash-exam" });
+      box.createDiv({ cls: "qt-today-kicker", text: plan.daysLeft === 0 ? "Exam today" : `${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"} away` });
+      box.createDiv({ cls: "qt-today-title", text: plan.course });
+      box.createDiv({ cls: "qt-today-meta", text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards` });
+      box.createEl("button", { text: "Start 10 min", cls: "mod-cta" }).addEventListener("click", () => p.startStudyPlan(plan, false));
+    }
+
+    root.createDiv({ cls: "qt-hint qt-dash-privacy", text: "Everything on this dashboard is calculated locally; nothing is uploaded." });
   }
 
   renderWeak(root, questions) {

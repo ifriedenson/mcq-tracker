@@ -57,6 +57,7 @@ const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const welcome = require("./welcome");
 const focus = require("./focus");
 const studyPlan = require("./study-plan");
+const analytics = require("./analytics");
 const { FocusLogModal } = require("./focus-modal");
 const { WelcomeModal } = require("./welcome-modal");
 const referenceElements = require("./reference-elements");
@@ -153,6 +154,10 @@ QuestionTrackerPlugin.__test = {
   WelcomeModal,
   focus,
   studyPlan,
+  analytics,
+  buildDashboard: analytics.buildDashboard,
+  buildHeatmap: analytics.buildHeatmap,
+  activityLevel: analytics.activityLevel,
   FocusLogModal,
   referenceElements,
   referenceGraph,

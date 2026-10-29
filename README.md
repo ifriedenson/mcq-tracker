@@ -18,6 +18,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Counts and folder search.** Every filter button shows how many notes it holds. The Folder filter switches to a type-ahead search box when you have many folders (or whenever you choose), and the choice is a setting.
 - **Weak spots.** Accuracy and average time by skill, domain, difficulty and folder, a bar chart of your accuracy by week, an up or down note on each row when your last two weeks differ from before, and a **Practice my weakest skill** button plus a Practice button on every row.
 - **Error log.** Questions you missed, grouped by the reason you gave, with a button to practice each group.
+- **Analytics dashboard.** Insights → Overview collects attempts and accuracy, a 12-week study heatmap, study time by course, your weakest skills with one-tap practice, cards due, and the next exam plan. All of it is calculated locally.
 - **Timed test.** Pick a number of questions and minutes, optionally restrict the bank to a question range such as 1–20, answer with a countdown and no explanations, then see your score, a by-skill breakdown, and a full review. If you close Obsidian mid-test, it picks the test back up when you reopen it (and marks it if the time ran out meanwhile).
 - **Practice from your files.** Right-click any folder that holds questions and choose **Practice this folder**, or use the commands. Find any question by its official ID.
 - **Pick modes:** smart weighted mix, adaptive difficulty, due for review, never attempted, missed, flagged, or pure random. Adaptive difficulty favors questions near the learner's current level based on past accuracy and streaks.
@@ -49,6 +50,18 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 The **Study plan** card appears in Today when the calendar is on and an upcoming exam matches question or card courses. It shows the exam countdown, readiness score, due and new questions, cards due, practice coverage, accuracy and weakest skill. **Start 10 min** opens Quick Practice with the exam-scoped pool; **Cram 10 min** orders the most-missed and due items first and omits long-interval reviews that have not been missed.
 
 The plan is recalculated every time Today renders, so a missed day does not leave a stale checklist. It uses the existing scheduler and queue; there is no second review system.
+
+## Analytics dashboard
+
+Open **Insights** and choose **Overview** (or run the **Open analytics dashboard** command). The dashboard combines:
+
+- attempts, questions tried and accuracy, with average time per question;
+- a 12-week heatmap where a day grows with focus-session minutes and question attempts;
+- today's study minutes, the current streak, and total logged study time by course;
+- the five weakest skills, each with a **Practice** button;
+- cards due and new, plus the next exam plan and its readiness evidence when the calendar module is on.
+
+The heatmap and totals come from note properties and your local study log. No analytics service, chart library or network request is involved.
 
 ## Focus timer and study log
 

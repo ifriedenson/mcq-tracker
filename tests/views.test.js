@@ -70,6 +70,30 @@ test("error log: groups misses and starts practising a group", async () => {
   assert.deepEqual(plugin.calls.at(-1), [{}, "missed"]);
 });
 
+test("insights overview: shows the study heatmap, course time and weak skills", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.settings.studyLog = {
+    sessions: [
+      { date: "2026-10-27", minutes: 40, course: "sat" },
+      { date: "2026-10-28", minutes: 25, course: "sat" },
+    ],
+    dailyGoalMinutes: 60,
+  };
+  const v = makeView(T.InsightsView, plugin, app, dom);
+  v.tab = "overview";
+  v.render();
+  const texts = dom.texts();
+  assert.ok(texts.includes("Overview"));
+  assert.ok(texts.includes("Study heatmap"));
+  assert.ok(texts.includes("Study time by course"));
+  assert.ok(texts.includes("Weak spots"));
+  assert.ok(texts.includes("Study today"));
+  assert.ok(texts.some((t) => /65 logged minutes/.test(t)));
+  assert.ok(texts.some((t) => /sat/.test(t)));
+  await dom.click("Weak spots");
+  assert.equal(v.tab, "weak");
+});
+
 test("weak spots and error log have friendly empty states", async () => {
   const app = makeApp([{ path: "Q/a.md", fm: {} }]);
   const plugin = new QT(app);
