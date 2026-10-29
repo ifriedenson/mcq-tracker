@@ -162,15 +162,16 @@ function uniquePath(vault, folder, name, extension) {
 }
 
 class CourseNotesModal extends Modal {
-  constructor(app, plugin, onDone) {
+  constructor(app, plugin, onDone, options) {
     super(app);
     this.plugin = plugin;
     this.onDone = onDone || (() => {});
-    this.file = null;
-    this.vaultDoc = "";
+    const init = options || {};
+    this.file = init.file || null;
+    this.vaultDoc = init.vaultDoc || "";
     this.folder = DEFAULT_COURSE_NOTES_FOLDER;
-    this.title = "";
-    this.course = "";
+    this.title = init.title || "";
+    this.course = init.course || "";
     this.pages = "";
     this.capture = true;
     this.summary = false;
@@ -188,7 +189,7 @@ class CourseNotesModal extends Modal {
     });
 
     const docs = this.app.vault.getFiles().filter((f) => documentKind(f.path || f.name));
-    const picked = new Setting(el).setName("File").setDesc("No file chosen");
+    const picked = new Setting(el).setName("File").setDesc(this.file ? this.file.name : this.vaultDoc || "No file chosen");
     const setName = (name) => {
       if (!this.title && name) this.title = documentBaseName(name);
     };

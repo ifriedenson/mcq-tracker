@@ -9605,15 +9605,16 @@ function uniquePath(vault, folder, name, extension) {
 }
 
 class CourseNotesModal extends Modal {
-  constructor(app, plugin, onDone) {
+  constructor(app, plugin, onDone, options) {
     super(app);
     this.plugin = plugin;
     this.onDone = onDone || (() => {});
-    this.file = null;
-    this.vaultDoc = "";
+    const init = options || {};
+    this.file = init.file || null;
+    this.vaultDoc = init.vaultDoc || "";
     this.folder = DEFAULT_COURSE_NOTES_FOLDER;
-    this.title = "";
-    this.course = "";
+    this.title = init.title || "";
+    this.course = init.course || "";
     this.pages = "";
     this.capture = true;
     this.summary = false;
@@ -9631,7 +9632,7 @@ class CourseNotesModal extends Modal {
     });
 
     const docs = this.app.vault.getFiles().filter((f) => documentKind(f.path || f.name));
-    const picked = new Setting(el).setName("File").setDesc("No file chosen");
+    const picked = new Setting(el).setName("File").setDesc(this.file ? this.file.name : this.vaultDoc || "No file chosen");
     const setName = (name) => {
       if (!this.title && name) this.title = documentBaseName(name);
     };
@@ -10140,6 +10141,371 @@ function renderDailySettings(containerEl, plugin, redisplay) {
 module.exports = {
   renderDailySettings,
 };
+};
+
+/* ---- src/document-classify.js ---- */
+__defs["document-classify"] = function (module, exports, require) {
+/*
+ * Local document classification. This reads extracted text only: no AI call,
+ * no OCR, and no writes. The result is a suggestion with evidence; callers
+ * must show it and let the user override the type before routing the document.
+ */
+const { str } = require("./util");
+
+const DOCUMENT_TYPES = ["mcq", "frq", "cards", "notes", "mixed"];
+const DOCUMENT_TYPE_LABELS = {
+  mcq: "Multiple choice",
+  frq: "Free response",
+  cards: "Flashcards or vocabulary",
+  notes: "Course notes",
+  mixed: "Mixed packet",
+};
+
+function count(text, re) {
+  return (str(text).match(re) || []).length;
+}
+
+function pageSignals(text) {
+  const source = str(text).replace(/\r\n?/g, "\n");
+  const lines = source
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const numbered = lines.filter((line) => /^(?:\d{1,3}|Q\d+|[A-Z]\d+)[).:]\s+\S/.test(line));
+  const questionLines = numbered.filter((line) => line.length >= 20 || /\?\s*$/.test(line)).length;
+  const choiceLines = lines.filter((line) => /^(?:[-*]\s*)?[A-H][).:]\s+\S/.test(line)).length;
+  const cardLines = lines.filter((line) => /^[^:]{1,80}\s*[:—–-]\s*[^:]{1,120}$/.test(line)).length;
+  return {
+    chars: source.trim().length,
+    lines: lines.length,
+    numberedLines: numbered.length,
+    questionLines,
+    choiceLines,
+    cardLines,
+    headings: lines.filter((line) => /^#{1,4}\s+\S/.test(line)).length,
+    answerKey: /(?:^|\n)\s*(?:answer key|correct answers?|answers?)\s*[:：]/i.test(source),
+    frqSignals: count(source, /\b(?:free[- ]response|free response questions?|FRQ|scoring guidelines?|scoring rubric|rubric|show your work|points? possible)\b/gi),
+    questionId: /(?:^|\n)\s*question[_ ]id\s*[:：]/i.test(source),
+  };
+}
+
+function classifyText(text) {
+  const s = pageSignals(text);
+  const mcqStrong = s.choiceLines >= 4 && (s.questionLines >= 2 || s.answerKey || s.questionId);
+  const frqStrong = s.frqSignals >= 2 || /\bfree[- ]response\b/i.test(str(text));
+  const cardStrong = s.cardLines >= 5 && s.choiceLines < 3 && s.questionLines < 3 && s.chars <= 6000;
+  const reasons = [];
+  if (s.choiceLines) reasons.push(`${s.choiceLines} answer-choice line${s.choiceLines === 1 ? "" : "s"}`);
+  if (s.questionLines) reasons.push(`${s.questionLines} numbered question${s.questionLines === 1 ? "" : "s"}`);
+  if (s.answerKey) reasons.push("an answer key");
+  if (s.questionId) reasons.push("Question ID labels");
+  if (s.frqSignals) reasons.push(`${s.frqSignals} free-response or rubric signal${s.frqSignals === 1 ? "" : "s"}`);
+  if (s.cardLines) reasons.push(`${s.cardLines} term/definition line${s.cardLines === 1 ? "" : "s"}`);
+  if (s.headings) reasons.push(`${s.headings} heading${s.headings === 1 ? "" : "s"}`);
+
+  let kind = "notes";
+  let confidence = s.chars < 80 ? "low" : "medium";
+  if (mcqStrong && frqStrong) {
+    kind = "mixed";
+    confidence = "high";
+    reasons.unshift("both answer choices and free-response language");
+  } else if (mcqStrong) {
+    kind = "mcq";
+    confidence = s.choiceLines >= 8 && s.questionLines >= 3 ? "high" : "medium";
+  } else if (frqStrong && s.choiceLines < 3) {
+    kind = "frq";
+    confidence = s.frqSignals >= 3 ? "high" : "medium";
+  } else if (cardStrong) {
+    kind = "cards";
+    confidence = s.cardLines >= 8 ? "high" : "medium";
+  } else if (s.chars >= 800 && (s.headings || s.lines >= 8)) {
+    reasons.push("long-form text without strong question markers");
+    confidence = "medium";
+  } else {
+    reasons.push("no strong question or card markers");
+  }
+  return {
+    kind,
+    label: DOCUMENT_TYPE_LABELS[kind],
+    confidence,
+    reasons: reasons.slice(0, 5),
+    counts: {
+      chars: s.chars,
+      lines: s.lines,
+      questions: s.questionLines,
+      choices: s.choiceLines,
+      cardLines: s.cardLines,
+      frqSignals: s.frqSignals,
+    },
+  };
+}
+
+/**
+ * Classify every page independently, then combine the page labels. A packet
+ * with a clear MCQ section and a clear FRQ section is reported as mixed even
+ * when the combined text would look like only one of them.
+ */
+function classifyDocument(pages) {
+  const list = (Array.isArray(pages) ? pages : []).filter((page) => page && str(page.text).trim());
+  const pageResults = list.map((page, index) => {
+    const result = classifyText(page.text);
+    return { n: page.n || index + 1, kind: result.kind, confidence: result.confidence, chars: result.counts.chars };
+  });
+  const combined = classifyText(list.map((page) => str(page.text)).join("\n\n"));
+  const strong = new Set(pageResults.filter((page) => page.kind !== "notes").map((page) => page.kind));
+  let kind = combined.kind;
+  if (strong.has("mcq") && strong.has("frq")) kind = "mixed";
+  else if (strong.size === 1) kind = [...strong][0];
+  const pagesWithType = pageResults.filter((page) => page.kind !== "notes").length;
+  const confidence =
+    kind === "mixed" || (kind !== "notes" && pagesWithType >= 2)
+      ? "high"
+      : combined.confidence;
+  return {
+    kind,
+    label: DOCUMENT_TYPE_LABELS[kind],
+    confidence,
+    reasons: combined.reasons,
+    counts: {
+      pages: list.length,
+      chars: combined.counts.chars,
+      questions: combined.counts.questions,
+      choices: combined.counts.choices,
+      cardLines: combined.counts.cardLines,
+      frqSignals: combined.counts.frqSignals,
+    },
+    pageResults,
+  };
+}
+
+module.exports = {
+  DOCUMENT_TYPES,
+  DOCUMENT_TYPE_LABELS,
+  pageSignals,
+  classifyText,
+  classifyDocument,
+};
+};
+
+/* ---- src/document-review-modal.js ---- */
+__defs["document-review-modal"] = function (module, exports, require) {
+/*
+ * Classify a text document locally, show the evidence, and route the same file
+ * into the existing course-notes or question importer after the user confirms.
+ * This modal never writes notes itself.
+ */
+const { Modal, Setting, TFile } = require("obsidian");
+const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, extensionOf, readDocumentPages } = require("./documents");
+const { readPdfPages } = require("./pdf");
+const { DOCUMENT_TYPE_LABELS, DOCUMENT_TYPES, classifyDocument } = require("./document-classify");
+const { str } = require("./util");
+
+class DocumentReviewModal extends Modal {
+  constructor(app, plugin, options) {
+    super(app);
+    this.plugin = plugin;
+    this.file = (options && options.file) || null;
+    this.vaultDoc = (options && options.vaultDoc) || "";
+    this.source = null;
+    this.pages = [];
+    this.result = null;
+    this.choice = "auto";
+  }
+
+  onOpen() {
+    this.modalEl.addClass("qt-import-modal");
+    this.renderSetup();
+  }
+
+  renderSetup() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Review a document" });
+    el.createEl("p", {
+      cls: "setting-item-description",
+      text: "Reads the document's text locally, suggests whether it is multiple choice, free response, flashcards or course notes, and shows why. Nothing is sent anywhere and nothing is written until you choose an importer.",
+    });
+    const docs = this.app.vault.getFiles().filter((f) => documentKind(f.path || f.name));
+    const picked = new Setting(el).setName("File").setDesc(this.file ? this.file.name : this.vaultDoc || "No file chosen");
+    const input = createEl("input", { type: "file", attr: { accept: DOCUMENT_EXTENSIONS.map((e) => `.${e}`).join(",") } });
+    input.hidden = true;
+    input.addEventListener("change", () => {
+      this.file = input.files && input.files[0] ? input.files[0] : null;
+      if (this.file) {
+        this.vaultDoc = "";
+        picked.setDesc(this.file.name);
+      }
+    });
+    picked.addButton((b) => b.setButtonText("Choose file...").onClick(() => input.click()));
+    if (docs.length) {
+      new Setting(el).setName("...or a file in your vault").addDropdown((d) => {
+        d.addOption("", "Choose...");
+        for (const f of docs) d.addOption(f.path, f.path);
+        d.setValue(this.vaultDoc).onChange((v) => {
+          this.vaultDoc = v;
+          if (v) {
+            this.file = null;
+            picked.setDesc(v);
+          }
+        });
+      });
+    }
+    el.createEl("p", {
+      cls: "qt-hint",
+      text: "Image-only scans need OCR before this step. If the PDF has no text layer, this will stop and say so instead of guessing.",
+    });
+    const row = el.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
+    row.createEl("button", { text: "Analyze", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.analyze());
+  }
+
+  async readSource() {
+    if (this.file) {
+      const name = this.file.name;
+      return {
+        buf: await this.file.arrayBuffer(),
+        name: documentBaseName(name),
+        ext: extensionOf(name),
+        kind: documentKind(name),
+        device: true,
+        path: "",
+        file: this.file,
+      };
+    }
+    if (this.vaultDoc) {
+      const file = this.app.vault.getAbstractFileByPath(this.vaultDoc);
+      if (!(file instanceof TFile)) throw new Error("I couldn't find that file in your vault.");
+      return {
+        buf: await this.app.vault.readBinary(file),
+        name: file.basename,
+        ext: extensionOf(file.path),
+        kind: documentKind(file.path),
+        device: false,
+        path: file.path,
+        file: null,
+      };
+    }
+    throw new Error("Choose a file first.");
+  }
+
+  async analyze() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Reading the document..." });
+    const status = el.createDiv({ cls: "qt-hint", text: "Starting..." });
+    try {
+      const src = await this.readSource();
+      if (!src.kind) throw new Error(`This plugin can't read .${src.ext || "that"} files.`);
+      status.setText(`Reading ${documentLabel(`${src.name}.${src.ext}`)}...`);
+      const read = src.kind === "pdf"
+        ? await readPdfPages(src.buf, "", (message) => status.setText(message))
+        : await readDocumentPages(src.buf, `${src.name}.${src.ext}`, "", (message) => status.setText(message));
+      const pages = (read.pages || []).filter((page) => str(page.text).trim());
+      if (!pages.length) throw new Error("No readable text was found. Scanned pages need OCR first; this review will not guess from images.");
+      this.source = src;
+      this.pages = pages;
+      this.result = classifyDocument(pages);
+      this.choice = "auto";
+      this.renderResult();
+    } catch (e) {
+      el.empty();
+      el.createEl("h3", { text: "This document was not classified" });
+      el.createEl("p", { cls: "qt-error", text: str(e && e.message) || "The document could not be read." });
+      const row = el.createDiv({ cls: "qt-row" });
+      row.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => this.renderSetup());
+      row.createEl("button", { text: "Close", cls: "qt-grow" }).addEventListener("click", () => this.close());
+    }
+  }
+
+  renderResult() {
+    const el = this.contentEl;
+    const result = this.result;
+    const source = this.source;
+    const kind = this.choice === "auto" ? result.kind : this.choice;
+    const label = DOCUMENT_TYPE_LABELS[kind] || result.label;
+    el.empty();
+    el.createEl("h3", { text: source.name });
+    const badge = el.createDiv({ cls: "qt-doc-badge" });
+    badge.createSpan({ cls: `qt-doc-kind qt-doc-kind-${kind}`, text: label });
+    badge.createSpan({ cls: "qt-hint", text: `${result.confidence} confidence · ${this.choice === "auto" ? "auto-detected" : "chosen by you"}` });
+    el.createEl("p", {
+      text: `${result.counts.pages} page${result.counts.pages === 1 ? "" : "s"} · ${result.counts.chars.toLocaleString()} characters · ${result.counts.choices} choice lines · ${result.counts.questions} numbered questions`,
+    });
+    if (result.reasons.length) {
+      el.createEl("p", { cls: "qt-hint", text: "Why:" });
+      const list = el.createEl("ul", { cls: "qt-doc-reasons" });
+      for (const reason of result.reasons) list.createEl("li", { text: reason });
+    }
+    if (result.pageResults && result.pageResults.length > 1) {
+      const table = el.createEl("table", { cls: "qt-doc-pages" });
+      const head = table.createEl("tr");
+      head.createEl("th", { text: "Page" });
+      head.createEl("th", { text: "Looks like" });
+      for (const page of result.pageResults) {
+        const row = table.createEl("tr");
+        row.createEl("td", { text: String(page.n) });
+        row.createEl("td", { text: DOCUMENT_TYPE_LABELS[page.kind] || page.kind });
+      }
+    }
+
+    new Setting(el)
+      .setName("Use this type")
+      .setDesc("Auto-detect is shown first, but the final choice is yours.")
+      .addDropdown((d) => {
+        d.addOption("auto", `Auto-detect (${result.label})`);
+        for (const type of DOCUMENT_TYPES) d.addOption(type, DOCUMENT_TYPE_LABELS[type]);
+        d.setValue(this.choice).onChange((value) => {
+          this.choice = value;
+          this.renderResult();
+        });
+      });
+
+    const aiReady = this.plugin.settings.ai.enabled;
+    const canImportQuestions = !this.plugin.moduleOff("mcq") && aiReady;
+    if (kind === "mcq" || kind === "mixed") {
+      if (!aiReady) {
+        el.createEl("p", { cls: "qt-hint", text: "Question import needs AI features turned on. You can still make course notes from this file." });
+      } else if (this.plugin.moduleOff("mcq")) {
+        el.createEl("p", { cls: "qt-hint", text: "MCQ Tracker is off. Turn it on under Settings, Global, Modules to import questions." });
+      }
+    }
+    if (kind === "frq") {
+      el.createEl("p", { cls: "qt-hint", text: "FRQ question notes are still planned. For now this can become a course note with the prompt and rubric text." });
+    }
+    if (kind === "cards") {
+      el.createEl("p", { cls: "qt-hint", text: "Direct card extraction from a document is not wired yet. Make a course note, then use Cards: extract cards from this note." });
+    }
+
+    const actions = el.createDiv({ cls: "qt-row qt-doc-actions" });
+    actions.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => this.renderSetup());
+    if (kind === "mcq" || kind === "mixed") {
+      const q = actions.createEl("button", { text: "Import questions", cls: "qt-grow" });
+      q.disabled = !canImportQuestions;
+      q.addEventListener("click", () => this.route("questions"));
+    }
+    const notes = actions.createEl("button", { text: "Import course notes", cls: "mod-cta qt-grow" });
+    notes.addEventListener("click", () => this.route("notes"));
+  }
+
+  route(kind) {
+    const source = this.source;
+    if (!source) return;
+    const options = {
+      file: source.device ? source.file : null,
+      vaultDoc: source.device ? "" : source.path,
+      title: source.name,
+    };
+    this.close();
+    if (kind === "questions") this.plugin.openPdfImport(options);
+    else this.plugin.openCourseNotesImport(null, options);
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = { DocumentReviewModal };
 };
 
 /* ---- src/documents.js ---- */
@@ -14034,11 +14400,12 @@ const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters"
 const { ApiClient, friendlyApiError } = require("./api-client");
 
 class PdfImportModal extends Modal {
-  constructor(app, plugin) {
+  constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
-    this.file = null; // a File chosen from the device
-    this.vaultDoc = ""; // or a supported document path inside the vault
+    const init = options || {};
+    this.file = init.file || null; // a File chosen from the device
+    this.vaultDoc = init.vaultDoc || ""; // or a supported document path inside the vault
     this.stop = false;
     this.closed = false;
     this.items = [];
@@ -14089,7 +14456,7 @@ class PdfImportModal extends Modal {
     el.createEl("h3", { text: "Import questions from a file" });
 
     const docs = this.app.vault.getFiles().filter((f) => documentKind(f.path || f.name));
-    const picked = new Setting(el).setName("File").setDesc("No file chosen");
+    const picked = new Setting(el).setName("File").setDesc(this.file ? this.file.name : this.vaultDoc || "No file chosen");
     const setName = (name) => {
       if (!this.folderTouched) {
         this.folder = this.autoFolder(documentBaseName(name));
@@ -14133,6 +14500,11 @@ class PdfImportModal extends Modal {
           this.folderTouched = true;
         });
       });
+    if (!this.folderTouched && (this.file || this.vaultDoc)) {
+      const sourceName = this.file ? this.file.name : this.vaultDoc;
+      this.folder = this.autoFolder(documentBaseName(sourceName));
+      if (this.folderText) this.folderText.setValue(this.folder);
+    }
 
     const agentOk = this.agentAvailable();
     new Setting(el)
@@ -18152,6 +18524,7 @@ const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { CourseNotesModal } = require("./course-notes");
+const { DocumentReviewModal } = require("./document-review-modal");
 const { PaperScannerModal } = require("./paper-scanner");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const { sidecarPathFor } = require("./pdf-annotations");
@@ -18277,6 +18650,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
     this.addCommand({ id: "paper-scanner", name: "Paper scanner: photos to PDF", callback: () => this.openPaperScanner() });
+    this.addCommand({ id: "document-review", name: "Review a document for import", callback: () => this.openDocumentReview() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
     this.addCommand({
@@ -18809,17 +19183,21 @@ class QuestionTrackerPlugin extends Plugin {
     return preset;
   }
 
-  openPdfImport() {
+  openPdfImport(options) {
     if (this.moduleOff("mcq")) return;
     if (!this.settings.ai.enabled) {
       new Notice("Turn on AI features in the plugin settings to import from a file.");
       return;
     }
-    new PdfImportModal(this.app, this).open();
+    new PdfImportModal(this.app, this, options).open();
   }
 
-  openCourseNotesImport(onDone) {
-    new CourseNotesModal(this.app, this, onDone).open();
+  openCourseNotesImport(onDone, options) {
+    new CourseNotesModal(this.app, this, onDone, options).open();
+  }
+
+  openDocumentReview(options) {
+    new DocumentReviewModal(this.app, this, options).open();
   }
 
   openPaperScanner(onDone) {
@@ -27875,6 +28253,8 @@ const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require(
 const { PdfImportModal } = require("./import-modal");
 const courseNotes = require("./course-notes");
 const paperScanner = require("./paper-scanner");
+const documentClassify = require("./document-classify");
+const { DocumentReviewModal } = require("./document-review-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
 const { loadQuestionData } = require("./view-helpers");
 const offline = require("./offline");
@@ -28041,6 +28421,8 @@ QuestionTrackerPlugin.__test = {
   PdfImportModal,
   courseNotes,
   paperScanner,
+  documentClassify,
+  DocumentReviewModal,
   documents,
   QUICK_START_URL,
   aiReady,

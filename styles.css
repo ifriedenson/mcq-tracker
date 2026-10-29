@@ -2155,6 +2155,61 @@
   pointer-events: none;
 }
 
+.qt-doc-badge {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 4px 0 10px;
+}
+
+.qt-doc-kind {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+}
+
+.qt-doc-kind-mcq {
+  color: var(--text-accent);
+}
+
+.qt-doc-kind-frq,
+.qt-doc-kind-mixed {
+  color: var(--text-warning);
+}
+
+.qt-doc-kind-cards {
+  color: var(--text-success);
+}
+
+.qt-doc-reasons {
+  margin: 4px 0 12px;
+  padding-left: 22px;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.qt-doc-pages {
+  width: 100%;
+  margin: 8px 0 12px;
+  border-collapse: collapse;
+  font-size: var(--font-ui-small);
+}
+
+.qt-doc-pages th,
+.qt-doc-pages td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  text-align: left;
+}
+
+.qt-doc-actions {
+  margin-top: 10px;
+}
+
 .qt-imp-list {
   max-height: 46vh;
   overflow-y: auto;

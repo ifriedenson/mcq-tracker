@@ -10,11 +10,12 @@ const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters"
 const { ApiClient, friendlyApiError } = require("./api-client");
 
 class PdfImportModal extends Modal {
-  constructor(app, plugin) {
+  constructor(app, plugin, options) {
     super(app);
     this.plugin = plugin;
-    this.file = null; // a File chosen from the device
-    this.vaultDoc = ""; // or a supported document path inside the vault
+    const init = options || {};
+    this.file = init.file || null; // a File chosen from the device
+    this.vaultDoc = init.vaultDoc || ""; // or a supported document path inside the vault
     this.stop = false;
     this.closed = false;
     this.items = [];
@@ -65,7 +66,7 @@ class PdfImportModal extends Modal {
     el.createEl("h3", { text: "Import questions from a file" });
 
     const docs = this.app.vault.getFiles().filter((f) => documentKind(f.path || f.name));
-    const picked = new Setting(el).setName("File").setDesc("No file chosen");
+    const picked = new Setting(el).setName("File").setDesc(this.file ? this.file.name : this.vaultDoc || "No file chosen");
     const setName = (name) => {
       if (!this.folderTouched) {
         this.folder = this.autoFolder(documentBaseName(name));
@@ -109,6 +110,11 @@ class PdfImportModal extends Modal {
           this.folderTouched = true;
         });
       });
+    if (!this.folderTouched && (this.file || this.vaultDoc)) {
+      const sourceName = this.file ? this.file.name : this.vaultDoc;
+      this.folder = this.autoFolder(documentBaseName(sourceName));
+      if (this.folderText) this.folderText.setValue(this.folder);
+    }
 
     const agentOk = this.agentAvailable();
     new Setting(el)

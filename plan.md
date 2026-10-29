@@ -1212,7 +1212,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Optional AI summary and key-terms section for course notes, marked with the model and preserved when the summary fails (§5.13) — shipped in 1.44.0; OCR and auto-classification remain
 - [x] Paper scanner: camera or photos → crop, rotate, reorder → one PDF saved in the vault (§5.13.1) — shipped in 1.46.0; OCR and automatic item classification remain
 - [ ] OCR for image-only scans, with a local option and an opt-in BYOK vision/OCR option; show confidence and let the user correct text (§5.13.1)
-- [ ] Auto-classify a scanned document as MCQ, FRQ, mixed, cards or notes, then route it through the existing importers (§5.13.1)
+- [x] Auto-classify a text document as MCQ, FRQ, mixed, cards or notes, then route it through the existing importers (§5.13.1) — shipped in 1.47.0; OCR for image-only scans remains
 - [x] Provenance links from generated items back to the source PDF page (§5.13.1) — shared with 1.36.0
 - [x] First-run welcome screen with presets, module toggles and a short how-to guide (§5.21) — shipped in 1.28.0
 - [x] Reopen the welcome from a command and settings, and remember dismissal per device (§5.21) — shipped in 1.28.0

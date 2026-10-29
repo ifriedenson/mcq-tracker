@@ -17,6 +17,7 @@ const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { CourseNotesModal } = require("./course-notes");
+const { DocumentReviewModal } = require("./document-review-modal");
 const { PaperScannerModal } = require("./paper-scanner");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const { sidecarPathFor } = require("./pdf-annotations");
@@ -142,6 +143,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
     this.addCommand({ id: "paper-scanner", name: "Paper scanner: photos to PDF", callback: () => this.openPaperScanner() });
+    this.addCommand({ id: "document-review", name: "Review a document for import", callback: () => this.openDocumentReview() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
     this.addCommand({
@@ -674,17 +676,21 @@ class QuestionTrackerPlugin extends Plugin {
     return preset;
   }
 
-  openPdfImport() {
+  openPdfImport(options) {
     if (this.moduleOff("mcq")) return;
     if (!this.settings.ai.enabled) {
       new Notice("Turn on AI features in the plugin settings to import from a file.");
       return;
     }
-    new PdfImportModal(this.app, this).open();
+    new PdfImportModal(this.app, this, options).open();
   }
 
-  openCourseNotesImport(onDone) {
-    new CourseNotesModal(this.app, this, onDone).open();
+  openCourseNotesImport(onDone, options) {
+    new CourseNotesModal(this.app, this, onDone, options).open();
+  }
+
+  openDocumentReview(options) {
+    new DocumentReviewModal(this.app, this, options).open();
   }
 
   openPaperScanner(onDone) {
