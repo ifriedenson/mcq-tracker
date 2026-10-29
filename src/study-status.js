@@ -58,7 +58,50 @@ function dateKey(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
 }
 
-/** The effective status today. An expired Known item becomes active again. */
+/** Normalize a saved course -> days map. Unknown or invalid entries are dropped, never guessed. */
+function normalizeCourseDays(input) {
+  const out = {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return out;
+  for (const [rawCourse, rawDays] of Object.entries(input)) {
+    const course = str(rawCourse).trim().slice(0, 120);
+    const days = Number(rawDays);
+    if (!course || !Number.isFinite(days) || days <= 0) continue;
+    out[course] = normalizeDays(days, DEFAULT_KNOWN_DAYS);
+  }
+  return out;
+}
+
+const courseKey = (value) => str(value).trim().toLowerCase().replace(/\s+/g, " ");
+
+/** Resolve a course-specific snooze, falling back to the global setting. */
+function knownDaysForCourse(map, course, fallback) {
+  const wanted = courseKey(course);
+  if (wanted) {
+    for (const [name, days] of Object.entries(normalizeCourseDays(map))) {
+      if (courseKey(name) === wanted) return days;
+    }
+  }
+  return normalizeDays(fallback, DEFAULT_KNOWN_DAYS);
+}
+
+/** Read "BIO 101=7, CHEM 201=21" (also newlines or semicolons) for the settings field. */
+function parseCourseDays(text) {
+  const out = {};
+  for (const part of str(text).split(/[\n,;]+/)) {
+    const match = part.match(/^\s*(.+?)\s*[=:]\s*(\d+)\s*$/);
+    if (match) out[match[1].trim()] = normalizeDays(match[2], DEFAULT_KNOWN_DAYS);
+  }
+  return out;
+}
+
+function formatCourseDays(map) {
+  return Object.entries(normalizeCourseDays(map))
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
+    .map(([course, days]) => `${course}=${days}`)
+    .join(", ");
+}
+
+/** The effective status today. An expired Known or Bury entry becomes active again. */
 function statusOf(fm, today) {
   const raw = normalizeStatus(fm && fm.study_status);
   const day = dateKey(today) || localDate();
@@ -179,6 +222,10 @@ module.exports = {
   restoreStudyStatus,
   normalizeStatus,
   normalizeDays,
+  normalizeCourseDays,
+  knownDaysForCourse,
+  parseCourseDays,
+  formatCourseDays,
   dateKey,
   statusOf,
   isStudyable,

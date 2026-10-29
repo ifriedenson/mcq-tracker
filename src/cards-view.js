@@ -642,7 +642,7 @@ class CardView extends ItemView {
       b.addEventListener("click", () => this.rate(grade));
     }
     const manage = root.createDiv({ cls: "qt-row qt-cards-manage" });
-    const known = manage.createEl("button", { text: `Known ${this.plugin.settings.knownDays || 14}d`, cls: "qt-link" });
+    const known = manage.createEl("button", { text: `Known ${this.plugin.knownDaysForFile(this.current.file)}d`, cls: "qt-link" });
     known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
     const bury = manage.createEl("button", { text: "Bury", cls: "qt-link" });
     bury.addEventListener("click", () => this.setCurrentStudyStatus("buried"));

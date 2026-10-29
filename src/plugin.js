@@ -59,7 +59,7 @@ const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSumma
 const { cardUpdateDiff } = require("./card-write-diff");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { MixedReviewModal, buildMixedQueue } = require("./mixed-review");
-const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
+const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf, normalizeCourseDays, knownDaysForCourse } = require("./study-status");
 const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./study-skin");
 const { StudyStatusModal } = require("./study-status-modal");
 const { gradeWithAi } = require("./card-grading-ai");
@@ -536,6 +536,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
+    this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.testBlueprints = (Array.isArray(saved.testBlueprints) ? saved.testBlueprints : [])
       .map(normalizeBlueprint)
@@ -4171,16 +4172,24 @@ class QuestionTrackerPlugin extends Plugin {
   /** Mark a question or card Known for a snooze, Exclude it, or restore it. */
   async setStudyStatus(file, status, options) {
     const opts = options || {};
+    const fm = file && this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const days = opts.days === undefined ? knownDaysForCourse(this.settings.knownDaysByCourse, fm && fm.course, this.settings.knownDays) : opts.days;
     let summary;
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      summary = updateStudyStatus(fm, status, {
+    await this.app.fileManager.processFrontMatter(file, (next) => {
+      summary = updateStudyStatus(next, status, {
         now: opts.now || new Date(),
-        days: opts.days === undefined ? this.settings.knownDays : opts.days,
+        days,
         reason: opts.reason,
       });
     });
     this.refreshViews();
     return summary;
+  }
+
+  /** The snooze a Known action will use for this note, after a course override. */
+  knownDaysForFile(file) {
+    const fm = file && this.app.metadataCache.getFileCache(file)?.frontmatter;
+    return knownDaysForCourse(this.settings.knownDaysByCourse, fm && fm.course, this.settings.knownDays);
   }
 
   studyStatusNotice(summary) {

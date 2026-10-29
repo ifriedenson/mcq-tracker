@@ -46,6 +46,7 @@ const DEFAULT_SETTINGS = {
   errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed"],
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
   knownDays: 14, // default snooze length for the Known button
+  knownDaysByCourse: {}, // optional course-specific snooze overrides
   autoPauseOnMobile: true,
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   ai: {

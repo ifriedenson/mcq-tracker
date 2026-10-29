@@ -1125,7 +1125,7 @@ class PracticeView extends ItemView {
         this.busy = false;
       }
     });
-    const known = fl.createEl("button", { text: `Known ${p.settings.knownDays || 14}d`, cls: "qt-status-btn" });
+    const known = fl.createEl("button", { text: `Known ${p.knownDaysForFile(q.file)}d`, cls: "qt-status-btn" });
     known.setAttr("title", "Hide this question for a while, then return it as due.");
     known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
     const bury = fl.createEl("button", { text: "Bury", cls: "qt-status-btn" });
@@ -1349,7 +1349,7 @@ class PracticeView extends ItemView {
       r.flagged = await p.toggleFlag(r.file);
       paintFlag();
     });
-    const known = acts.createEl("button", { text: `Known ${p.settings.knownDays || 14}d` });
+    const known = acts.createEl("button", { text: `Known ${p.knownDaysForFile(r.file)}d` });
     known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
     const exclude = acts.createEl("button", { text: "Exclude" });
     exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));

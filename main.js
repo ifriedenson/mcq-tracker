@@ -12631,7 +12631,7 @@ class CardView extends ItemView {
       b.addEventListener("click", () => this.rate(grade));
     }
     const manage = root.createDiv({ cls: "qt-row qt-cards-manage" });
-    const known = manage.createEl("button", { text: `Known ${this.plugin.settings.knownDays || 14}d`, cls: "qt-link" });
+    const known = manage.createEl("button", { text: `Known ${this.plugin.knownDaysForFile(this.current.file)}d`, cls: "qt-link" });
     known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
     const bury = manage.createEl("button", { text: "Bury", cls: "qt-link" });
     bury.addEventListener("click", () => this.setCurrentStudyStatus("buried"));
@@ -13303,6 +13303,7 @@ const DEFAULT_SETTINGS = {
   errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed"],
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
   knownDays: 14, // default snooze length for the Known button
+  knownDaysByCourse: {}, // optional course-specific snooze overrides
   autoPauseOnMobile: true,
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   ai: {
@@ -26561,7 +26562,7 @@ const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSumma
 const { cardUpdateDiff } = require("./card-write-diff");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { MixedReviewModal, buildMixedQueue } = require("./mixed-review");
-const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
+const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf, normalizeCourseDays, knownDaysForCourse } = require("./study-status");
 const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./study-skin");
 const { StudyStatusModal } = require("./study-status-modal");
 const { gradeWithAi } = require("./card-grading-ai");
@@ -27038,6 +27039,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
+    this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.testBlueprints = (Array.isArray(saved.testBlueprints) ? saved.testBlueprints : [])
       .map(normalizeBlueprint)
@@ -30673,16 +30675,24 @@ class QuestionTrackerPlugin extends Plugin {
   /** Mark a question or card Known for a snooze, Exclude it, or restore it. */
   async setStudyStatus(file, status, options) {
     const opts = options || {};
+    const fm = file && this.app.metadataCache.getFileCache(file)?.frontmatter;
+    const days = opts.days === undefined ? knownDaysForCourse(this.settings.knownDaysByCourse, fm && fm.course, this.settings.knownDays) : opts.days;
     let summary;
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      summary = updateStudyStatus(fm, status, {
+    await this.app.fileManager.processFrontMatter(file, (next) => {
+      summary = updateStudyStatus(next, status, {
         now: opts.now || new Date(),
-        days: opts.days === undefined ? this.settings.knownDays : opts.days,
+        days,
         reason: opts.reason,
       });
     });
     this.refreshViews();
     return summary;
+  }
+
+  /** The snooze a Known action will use for this note, after a course override. */
+  knownDaysForFile(file) {
+    const fm = file && this.app.metadataCache.getFileCache(file)?.frontmatter;
+    return knownDaysForCourse(this.settings.knownDaysByCourse, fm && fm.course, this.settings.knownDays);
   }
 
   studyStatusNotice(summary) {
@@ -32011,7 +32021,7 @@ class PracticeView extends ItemView {
         this.busy = false;
       }
     });
-    const known = fl.createEl("button", { text: `Known ${p.settings.knownDays || 14}d`, cls: "qt-status-btn" });
+    const known = fl.createEl("button", { text: `Known ${p.knownDaysForFile(q.file)}d`, cls: "qt-status-btn" });
     known.setAttr("title", "Hide this question for a while, then return it as due.");
     known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
     const bury = fl.createEl("button", { text: "Bury", cls: "qt-status-btn" });
@@ -32235,7 +32245,7 @@ class PracticeView extends ItemView {
       r.flagged = await p.toggleFlag(r.file);
       paintFlag();
     });
-    const known = acts.createEl("button", { text: `Known ${p.settings.knownDays || 14}d` });
+    const known = acts.createEl("button", { text: `Known ${p.knownDaysForFile(r.file)}d` });
     known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
     const exclude = acts.createEl("button", { text: "Exclude" });
     exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));
@@ -35739,6 +35749,7 @@ const { renderCalendarSettings } = require("./calendar-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { normalizeQuickAdaptive } = require("./adaptive-session");
+const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
@@ -35933,7 +35944,21 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Known and excluded items")
+      .setName("Per-course Known snooze")
+      .setDesc("Course=days pairs such as BIO 101=7, CHEM 201=21. A matching course overrides the global snooze; unmatched items use the value above.")
+      .addText((t) =>
+        t
+          .setPlaceholder("BIO 101=7, CHEM 201=21")
+          .setValue(formatCourseDays(st.knownDaysByCourse))
+          .onChange(async (v) => {
+            st.knownDaysByCourse = parseCourseDays(v);
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Hidden study items")
       .setDesc("Review and restore questions or cards that are hidden from practice.")
       .addButton((b) => b.setButtonText("Manage").onClick(() => this.plugin.openStudyStatusManager()));
 
@@ -37657,7 +37682,50 @@ function dateKey(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
 }
 
-/** The effective status today. An expired Known item becomes active again. */
+/** Normalize a saved course -> days map. Unknown or invalid entries are dropped, never guessed. */
+function normalizeCourseDays(input) {
+  const out = {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return out;
+  for (const [rawCourse, rawDays] of Object.entries(input)) {
+    const course = str(rawCourse).trim().slice(0, 120);
+    const days = Number(rawDays);
+    if (!course || !Number.isFinite(days) || days <= 0) continue;
+    out[course] = normalizeDays(days, DEFAULT_KNOWN_DAYS);
+  }
+  return out;
+}
+
+const courseKey = (value) => str(value).trim().toLowerCase().replace(/\s+/g, " ");
+
+/** Resolve a course-specific snooze, falling back to the global setting. */
+function knownDaysForCourse(map, course, fallback) {
+  const wanted = courseKey(course);
+  if (wanted) {
+    for (const [name, days] of Object.entries(normalizeCourseDays(map))) {
+      if (courseKey(name) === wanted) return days;
+    }
+  }
+  return normalizeDays(fallback, DEFAULT_KNOWN_DAYS);
+}
+
+/** Read "BIO 101=7, CHEM 201=21" (also newlines or semicolons) for the settings field. */
+function parseCourseDays(text) {
+  const out = {};
+  for (const part of str(text).split(/[\n,;]+/)) {
+    const match = part.match(/^\s*(.+?)\s*[=:]\s*(\d+)\s*$/);
+    if (match) out[match[1].trim()] = normalizeDays(match[2], DEFAULT_KNOWN_DAYS);
+  }
+  return out;
+}
+
+function formatCourseDays(map) {
+  return Object.entries(normalizeCourseDays(map))
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
+    .map(([course, days]) => `${course}=${days}`)
+    .join(", ");
+}
+
+/** The effective status today. An expired Known or Bury entry becomes active again. */
 function statusOf(fm, today) {
   const raw = normalizeStatus(fm && fm.study_status);
   const day = dateKey(today) || localDate();
@@ -37778,6 +37846,10 @@ module.exports = {
   restoreStudyStatus,
   normalizeStatus,
   normalizeDays,
+  normalizeCourseDays,
+  knownDaysForCourse,
+  parseCourseDays,
+  formatCourseDays,
   dateKey,
   statusOf,
   isStudyable,

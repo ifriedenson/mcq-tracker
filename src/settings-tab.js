@@ -11,6 +11,7 @@ const { renderCalendarSettings } = require("./calendar-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { normalizeQuickAdaptive } = require("./adaptive-session");
+const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
@@ -205,7 +206,21 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Known and excluded items")
+      .setName("Per-course Known snooze")
+      .setDesc("Course=days pairs such as BIO 101=7, CHEM 201=21. A matching course overrides the global snooze; unmatched items use the value above.")
+      .addText((t) =>
+        t
+          .setPlaceholder("BIO 101=7, CHEM 201=21")
+          .setValue(formatCourseDays(st.knownDaysByCourse))
+          .onChange(async (v) => {
+            st.knownDaysByCourse = parseCourseDays(v);
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Hidden study items")
       .setDesc("Review and restore questions or cards that are hidden from practice.")
       .addButton((b) => b.setButtonText("Manage").onClick(() => this.plugin.openStudyStatusManager()));
 

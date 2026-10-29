@@ -230,7 +230,7 @@ Each `history` entry is stored as `date|result|seconds|answer|confidence|error_t
 
 Every practice and card review screen has **Known**, **Bury**, **Suspend** and **Exclude** actions. They hide an item without deleting its note or changing its review history:
 
-- **Known** hides the item for **Known snooze (days)** (14 by default; Settings → MCQ Tracker → Review). It returns to the due queue on that date. The note keeps `study_status: known`, `known_days` and `known_until`.
+- **Known** hides the item for **Known snooze (days)** (14 by default; Settings → MCQ Tracker → Review). A per-course override such as `BIO 101=7, CHEM 201=21` takes precedence for matching `course` values, and the Known button shows the number that will apply. It returns to the due queue on that date. The note keeps `study_status: known`, `known_days` and `known_until`.
 - **Bury** hides the item for the rest of today and returns it tomorrow. The note keeps `study_status: buried` and `buried_until`.
 - **Suspend** hides the item indefinitely until you restore it. The note keeps `study_status: suspended` and `suspended_on`.
 - **Exclude** removes the item from practice, Quick Practice, timed tests, card reviews and the merged due queue until you restore it. The note keeps `study_status: excluded`, `excluded_on` and `excluded_reason`.
@@ -579,7 +579,7 @@ Settings are grouped by module, then by tab. **Global** has Modules and General;
 
 - **Global → Modules** is one switch per module: **MCQ Tracker** (on by default), **Cards and vocabulary** (off by default), **Calendar** (off by default) and **AI features** (off by default). Turning a module off keeps its settings and your notes. It closes that module's open tabs and hides its ribbon button; using one of its commands anyway shows a notice that points back here.
 - **Global → General** holds the plugin-wide options: whether the plugin shows its ribbon icons, and whether the practice view opens when Obsidian starts.
-- **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, the Known snooze length and manager, the optional study-cards skin, the daily quiz count and folders, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, per-feature models, daily and per-run request caps, and saved presets.
+- **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, the global and per-course Known snooze lengths and manager, the optional study-cards skin, the daily quiz count and folders, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, per-feature models, daily and per-run request caps, and saved presets.
 - **Cards** covers the default deck, the new-card folder, deck folders and course tags, cards per review session, answer mode, grading strictness, the optional AI fallback for typed answers, and whether to review due-and-new or all cards.
 - The calendar's **Appearance & Colors** tab includes a maximum width setting (`0` fills the pane), class colors, break markers, and the study-slot buffer.
 

@@ -83,6 +83,16 @@ test("study status: suspended and buried items leave every queue", () => {
   assert.deepEqual(T.cards.cardQueue([activeCard, buriedCard, suspendedCard], { today: "2026-10-30", order: "all" }).map((c) => c.fm.card_id).sort(), ["a", "b"]);
 });
 
+test("study status: per-course Known days parse and override the global default", () => {
+  const map = S.parseCourseDays("BIO 101=7, CHEM 201:21\nBROKEN\nNEG=-2");
+  assert.deepEqual(map, { "BIO 101": 7, "CHEM 201": 21 });
+  assert.equal(S.formatCourseDays(map), "BIO 101=7, CHEM 201=21");
+  assert.equal(S.knownDaysForCourse(map, "bio 101", 14), 7);
+  assert.equal(S.knownDaysForCourse(map, "  CHEM   201 ", 14), 21);
+  assert.equal(S.knownDaysForCourse(map, "PHYS 101", 14), 14);
+  assert.deepEqual(S.normalizeCourseDays({ BIO: 4, BAD: 0, NOPE: "x" }), { BIO: 4 });
+});
+
 test("study status: missing and malformed dates fall back safely", () => {
   assert.equal(S.statusOf({}, TODAY), "active");
   assert.equal(S.statusOf({ study_status: "known" }, TODAY), "active", "a Known status without a date does not hide forever");
@@ -149,7 +159,7 @@ test("study status: isDue, pickQuestion, cardQueue and the due queue all agree",
 });
 
 const NOTES = [
-  { path: "Questions/active.md", fm: { attempts: 2, next_review: "2020-01-01", answer: "B" } },
+  { path: "Questions/active.md", fm: { attempts: 2, next_review: "2020-01-01", answer: "B", course: "BIOL 201" } },
   {
     path: "Questions/known.md",
     fm: { attempts: 2, next_review: "2020-01-01", answer: "B", study_status: "known", known_until: "2999-01-01" },
@@ -199,6 +209,20 @@ test("plugin: hidden items leave practice, cards and the merged queue but stay i
 
   const hidden = plugin.studyStatusItems();
   assert.deepEqual(hidden.map((item) => item.file.path).sort(), ["Cards/known.md", "Questions/excluded.md", "Questions/known.md"]);
+});
+
+test("plugin: a course-specific Known snooze is used only for that course", async () => {
+  const { plugin } = await setup();
+  plugin.settings.knownDays = 14;
+  plugin.settings.knownDaysByCourse = { "BIOL 201": 9 };
+  const active = plugin.getQuestions().find((q) => q.file.path === "Questions/active.md");
+  const other = plugin.getQuestions().find((q) => q.file.path === "Questions/known.md");
+  assert.equal(plugin.knownDaysForFile(active.file), 9);
+  assert.equal(plugin.knownDaysForFile(other.file), 14);
+  const summary = await plugin.setStudyStatus(active.file, "known", { now: NOW });
+  assert.equal(summary.days, 9);
+  assert.equal(summary.until, "2026-11-07");
+  assert.equal(active.fm.known_days, 9);
 });
 
 test("plugin: setting and restoring a status writes readable properties and refreshes the queues", async () => {
