@@ -37,6 +37,15 @@ test("settings load with safe defaults, and a bad folder style falls back to aut
   assert.equal(plugin.settings.folderFilterStyle, "auto");
   assert.deepEqual(plugin.settings.testDefaults, { count: 5, minutes: 12, from: 1, to: 0 });
   assert.equal(plugin.settings.ai.autoDeclined, false);
+  assert.equal(plugin.settings.ai.tutorRole, "private");
+});
+
+test("an unknown saved tutor role safely falls back to private", async () => {
+  const app = makeApp(NOTES);
+  const plugin = new QT(app);
+  plugin.saved = { ai: { tutorRole: "wizard" } };
+  await plugin.loadSettings();
+  assert.equal(plugin.settings.ai.tutorRole, "private");
 });
 
 test("the folder filter shows a search box only when there are many folders (or when asked)", async () => {

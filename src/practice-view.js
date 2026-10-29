@@ -1170,7 +1170,12 @@ class PracticeView extends ItemView {
         p.save();
       },
       getApiHistory: () => this.generalHistory,
-      buildContext: (mode) => buildGeneralContext(this.app, mode),
+      getRole: () => p.settings.ai.tutorRole,
+      setRole: (id) => {
+        p.settings.ai.tutorRole = id;
+        p.save();
+      },
+      buildContext: (mode) => buildGeneralContext(this.app, mode, p.settings.ai.tutorRole),
       quick: p.backend() === "api" ? [] : [
         { label: "Notes missing answers", prompt: "List the question notes whose answer property is empty or missing." },
         { label: "Weakest skills", prompt: "Look at my question notes' attempts and correct_count and tell me which skills I am weakest at." },
@@ -1320,7 +1325,12 @@ class PracticeView extends ItemView {
       getSessionId: () => r.aiSession,
       setSessionId: (id) => (r.aiSession = id),
       getApiHistory: () => r.aiHistory,
-      buildContext: (mode) => buildTutorContext(r, this.notesText, p.settings.confidenceLabels, mode),
+      getRole: () => p.settings.ai.tutorRole,
+      setRole: (id) => {
+        p.settings.ai.tutorRole = id;
+        p.save();
+      },
+      buildContext: (mode) => buildTutorContext(r, this.notesText, p.settings.confidenceLabels, mode, p.settings.ai.tutorRole),
       quick: [
         r.correct
           ? { label: "Why is the answer right?", prompt: "Explain why the correct answer is right and why the other choices are wrong." }

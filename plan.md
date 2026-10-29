@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — image occlusion cards shipped in 1.19.0; next unblocked backlog items are tutor role presets and audio-only commute mode (§5.22.4), followed by §5.22.3 import breadth. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — tutor role presets and commands shipped in 1.20.0; next unblocked backlog item is audio-only commute mode (§5.22.4) once TTS returns, followed by §5.22.3 import breadth. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), and the October 28 idea backlog (§5.22). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,19 +11,20 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Completed: image occlusion cards (§5.7, §5.22.4).** One diagram can produce one card per mask, with each mask positioned as a percentage of the image and every card sharing the same deck, course, prompt and scheduler.
+**Completed: tutor role presets and commands (§5.18, §5.22.4).** One role layer now drives both the review chat and the general assistant, with either AI backend.
 
 **What shipped**
 
-- **Image occlusion card type** with `image`, `mask_x`, `mask_y`, `mask_w`, `mask_h` and `mask_label` properties. One card note represents one mask; no second deck or scheduler.
-- **Multi-mask creation** from the Cards view or the **Cards: create image occlusion cards** command: choose a vault image, a prompt, and one `x, y, width, height, label` row per mask. Coordinates are percentages, so masks scale with the image.
-- **Review** renders the diagram with a positioned cover; revealing lifts the mask and shows the label. These cards always use flip review because the task is visual, even when the global answer mode is typed.
-- **Portable notes** include a readable `## Image` embed alongside the mask properties. Deletion, renaming and deck/course tagging behave like every other card.
-- **Coverage:** mask parsing and edge clamping, per-mask note creation, image/mask round-tripping, forced flip mode, and the reveal flow.
+- **Three roles:** Private Tutor (patient explanation and worked examples), Socratic Tutor (one guiding question at a time) and Language Partner (target-language conversation with gentle corrections).
+- **Seven commands:** `/guide`, `/quiz`, `/confuse`, `/gap`, `/predict`, `/feynman` and `/mock`. They are shared prompt definitions, not a second assistant, and work in the review panel and the general chat.
+- **One place to choose:** the role is stored in settings, available under **Settings → MCQ Tracker → AI → Tutor role**, and can be changed from the role menu inside a chat. The command menu inserts a command into the message box.
+- **Both backends:** Direct API and OpenCode receive the same role and command instructions, so phone chat and desktop agent chat behave consistently.
+- **Coverage:** role normalization with a safe fallback, all seven command definitions, unknown-command rejection, and role text reaching both system prompts.
+- **No third-party code was added.** The plugin remains MIT.
 
-**Next:** The remaining §5.22.4 items are tutor role presets and audio-only commute mode. The rest of the §5.22.3 import formats and the full import report are also queued. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred.
+**Next:** Audio-only commute mode remains queued until TTS provider and mobile support are validated; it is explicitly deferred in Phase 2. The rest of the §5.22.3 import formats and the full import report are also queued. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review).
 
-**Recently completed (1.19.0):** Image occlusion cards. Previous release 1.18.0 added the daily quiz with its own streak and optional exam question ranges.
+**Recently completed (1.20.0):** Tutor role presets and commands. Previous release 1.19.0 added image occlusion cards.
 
 ---
 
@@ -970,7 +971,7 @@ The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced R
 
 #### 5.22.4 Smaller study-flow ideas — **partly implemented in 1.17.0 and 1.18.0**
 
-**Implemented in 1.17.0:** rule-based extraction from headings, definitions, sentences, two-column tables, highlights and cloze marks; the `flashcards: true|false` per-note opt-in with preview; and **Practice this note only**. **Implemented in 1.18.0:** the opt-in daily quiz with its own streak, and optional exam question ranges in timed tests. **Implemented in 1.19.0:** image occlusion cards with one card per mask. Tutor role presets and audio-only commute mode remain queued.
+**Implemented in 1.17.0:** rule-based extraction from headings, definitions, sentences, two-column tables, highlights and cloze marks; the `flashcards: true|false` per-note opt-in with preview; and **Practice this note only**. **Implemented in 1.18.0:** the opt-in daily quiz with its own streak, and optional exam question ranges in timed tests. **Implemented in 1.19.0:** image occlusion cards with one card per mask. **Implemented in 1.20.0:** Private Tutor, Socratic Tutor and Language Partner roles plus `/guide`, `/quiz`, `/confuse`, `/gap`, `/predict`, `/feynman` and `/mock` across both chat backends. Audio-only commute mode remains queued because TTS is deferred.
 
 - **Rule-based card extraction (no AI).** Build Q/A pairs from headings, "X means…" sentences, colon and bullet definitions, two-column tables, highlights and existing cloze marks. AI can improve or expand the result, but the rule-based path must work with AI off. *(Source: FlashCard plugin.)*
 - **Per-note auto-card opt in/out.** A `flashcards: true|false` property so a lecture note is never scraped into cards by surprise. Pair it with a preview before writing.
@@ -1129,6 +1130,7 @@ Names are proposals; keep existing ones unchanged.
 
 - [x] Card and vocab item types, deck organization, course tagging (§5.7) — shipped in 1.12.0
 - [x] Image occlusion cards, one card per mask (§5.7, §5.22.4) — shipped in 1.19.0
+- [x] Tutor role presets and slash commands (§5.18, §5.22.4) — shipped in 1.20.0
 - [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — .apkg, AnkiConnect and LearnKit formats remain
 - [x] Answer modes: flip, type and speak via OS dictation, with the deterministic cheap-first grading pipeline (§5.17)
 - [x] AI fallback for typed answers that the local grader cannot settle, using the shared AI layer and a validated structured verdict (§5.17)

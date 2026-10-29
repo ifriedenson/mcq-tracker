@@ -53,6 +53,7 @@ const DEFAULT_SETTINGS = {
     model: "",
     agent: "",
     mode: "tutor",
+    tutorRole: "private", // "private" | "socratic" | "language"
     sessionId: "",
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".

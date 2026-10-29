@@ -2,10 +2,11 @@
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
+const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
 
 class ChatPanel {
   /**
-   * opts: { title, sourcePath, getSessionId, setSessionId, buildContext(mode), quick: [{label,prompt}], onSaveNote(text) }
+   * opts: { title, sourcePath, getSessionId, setSessionId, getRole, setRole, buildContext(mode), quick: [{label,prompt}], onSaveNote(text) }
    */
   constructor(view, root, opts) {
     this.view = view;
@@ -59,6 +60,10 @@ class ChatPanel {
         this.updateHint();
       });
     }
+    const role = top.createEl("select", { cls: "qt-select", attr: { "aria-label": "Tutor role", title: "Tutor role" } });
+    for (const item of TUTOR_ROLES) role.createEl("option", { value: item.id, text: item.label });
+    role.value = this.currentRole();
+    role.addEventListener("change", () => this.setRole(role.value));
     const nc = top.createEl("button", { text: "New chat" });
     nc.addEventListener("click", () => {
       if (this.busy) return;
@@ -108,19 +113,43 @@ class ChatPanel {
         /* ignore */
       }
     });
+    const commandRow = root.createDiv({ cls: "qt-row qt-small-row qt-tutor-commands" });
+    const command = commandRow.createEl("select", { cls: "qt-select", attr: { "aria-label": "Insert a tutor command", title: "Insert a tutor command" } });
+    command.createEl("option", { value: "", text: "Tutor commands..." });
+    for (const item of TUTOR_COMMANDS) command.createEl("option", { value: item.id, text: `/${item.id} — ${item.label}` });
+    command.addEventListener("change", () => {
+      const chosen = TUTOR_COMMANDS.find((item) => item.id === command.value);
+      if (chosen) {
+        this.input.value = `/${chosen.id} `;
+        this.input.focus();
+      }
+      command.value = "";
+    });
     this.draw();
+  }
+
+  currentRole() {
+    return normalizeTutorRole(this.opts.getRole ? this.opts.getRole() : "private");
+  }
+
+  setRole(id) {
+    const next = normalizeTutorRole(id);
+    if (this.opts.setRole) this.opts.setRole(next);
+    this.updateHint();
   }
 
   updateHint() {
     if (!this.hint) return;
+    const role = tutorRole(this.currentRole());
+    const suffix = ` Role: ${role.label}. Commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}.`;
     if (this.view.plugin.backend() === "api") {
-      this.hint.setText("Direct API chat: it can see this question, but has no access to your files.");
+      this.hint.setText("Direct API chat: it can see this question, but has no access to your files." + suffix);
       return;
     }
     this.hint.setText(
-      this.ai.mode === "agent"
+      (this.ai.mode === "agent"
         ? "Agent mode: OpenCode may read and edit files in its working folder. Edits that need approval in your OpenCode permissions will wait until you press Stop."
-        : "Tutor mode: file-editing tools are switched off for this chat."
+        : "Tutor mode: file-editing tools are switched off for this chat.") + suffix
     );
   }
 

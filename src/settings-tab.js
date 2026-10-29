@@ -13,6 +13,7 @@ const { renderDailySettings } = require("./daily-quiz-settings");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
+const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -298,6 +299,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.plugin.refreshViews();
         })
       );
+    new Setting(containerEl)
+      .setName("Tutor role")
+      .setDesc("The default voice for Ask AI and the assistant chat. You can also change it in a chat.")
+      .addDropdown((d) => {
+        for (const role of TUTOR_ROLES) d.addOption(role.id, role.label);
+        d.setValue(normalizeTutorRole(ai.tutorRole)).onChange(async (v) => {
+          ai.tutorRole = normalizeTutorRole(v);
+          await this.plugin.save();
+        });
+      });
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: `Tutor commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}. Type one at the start of a chat message to steer the next reply.`,
+    });
     if (Platform.isDesktopApp) {
       new Setting(containerEl)
         .setName("AI backend")

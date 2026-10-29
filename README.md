@@ -294,6 +294,12 @@ The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRo
 - **Running it:** when you use the AI chat, the plugin starts `opencode serve` on `127.0.0.1` with a random port and a random password, so only your computer can reach it. It is stopped when Obsidian closes. Its own data (including any provider key you save here) lives in `~/.question-tracker/opencode-data`.
 - **Tutor mode (default)** switches off OpenCode's file-editing and shell tools. **Agent mode** leaves them on, so OpenCode can read and edit files in your vault. Keep your vault backed up before using Agent mode. The plugin asks it not to touch tracking properties, but that is an instruction, not a lock.
 
+### Tutor roles and commands
+
+Choose **Private tutor**, **Socratic tutor**, or **Language partner** under **Settings → MCQ Tracker → AI → Tutor role**, or from the role menu in a chat. The same role is used by the review panel and the general assistant, with either AI backend.
+
+Type a command at the start of a message to steer the next reply: `/guide`, `/quiz`, `/confuse`, `/gap`, `/predict`, `/feynman`, or `/mock`. The **Tutor commands** menu inserts one for you. They are prompts to the same assistant, not a separate feature: `/feynman`, for example, asks you to teach the idea back before the assistant points out the gaps.
+
 ### What is disclosed and sent
 
 - **Network use:** requests to your chosen AI provider; requests to `api.github.com` and `github.com` only to set up OpenCode, which happens the first time you choose the OpenCode backend (the plugin shows what it will download, from where, and where it will go, and asks you to confirm first; if you say no it won't ask again) or when you press **Download and install**; and local requests to the OpenCode server on your own computer.

@@ -2,6 +2,7 @@
 const { requestUrl } = require("obsidian");
 const { str } = require("./util");
 const { extractRationale } = require("./notes");
+const { roleInstruction, commandReference } = require("./tutor-presets");
 
 /* ------------------------------------------------------------ OpenCode (AI) */
 
@@ -47,7 +48,7 @@ function partsToTurns(messages) {
   return turns;
 }
 
-function buildTutorContext(r, notesText, confLabels, mode) {
+function buildTutorContext(r, notesText, confLabels, mode, tutorRole) {
   const fm = r.fm || {};
   const sec = r.sections || {};
   const meta = ["test", "course", "section", "domain", "skill", "unit", "difficulty"]
@@ -61,7 +62,9 @@ function buildTutorContext(r, notesText, confLabels, mode) {
   }
   const errLine = Object.entries(errs).map(([k, v]) => `${k} x${v}`).join(", ");
   const lines = [
-    "You are a patient tutor helping a student review a practice question they just answered. " +
+    roleInstruction(tutorRole),
+    "",
+    "You are helping a student review a practice question they just answered. " +
       "Be concise and concrete. Rely on the information below and do not invent details about the passage. Use Markdown.",
     "",
     meta,
@@ -89,10 +92,11 @@ function buildTutorContext(r, notesText, confLabels, mode) {
         "tracking properties (result, attempts, correct_count, streak, history, next_review, last_attempt_id, srs, scheduler, time_spent_total, and similar) unless explicitly told to."
     );
   }
+  lines.push("", commandReference());
   return lines.join("\n");
 }
 
-function buildGeneralContext(app, mode) {
+function buildGeneralContext(app, mode, tutorRole) {
   let base = "";
   try {
     base = (app.vault.adapter && app.vault.adapter.basePath) || "";
@@ -100,6 +104,8 @@ function buildGeneralContext(app, mode) {
     /* mobile */
   }
   return [
+    roleInstruction(tutorRole),
+    "",
     "You are helping maintain an Obsidian vault of practice-question notes (SAT, PSAT and AP).",
     "Each question note has YAML properties: static ones (question_id, test, subject, course, section, domain, skill, difficulty, unit, " +
       "question_type, choices, answer, source, target_seconds, tags) and tracking ones written by a plugin " +
@@ -110,6 +116,8 @@ function buildGeneralContext(app, mode) {
     "Never change the tracking properties unless explicitly told to. Keep the format above when creating or editing notes.",
     base ? `The vault folder on disk is: ${base}` : "",
     mode === "tutor" ? "File editing is disabled in this chat; answer from the conversation only." : "You may read and edit files in the vault when asked.",
+    "",
+    commandReference(),
   ].filter(Boolean).join("\n");
 }
 

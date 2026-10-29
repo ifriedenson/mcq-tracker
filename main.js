@@ -6430,10 +6430,11 @@ __defs["chat-panel"] = function (module, exports, require) {
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
+const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
 
 class ChatPanel {
   /**
-   * opts: { title, sourcePath, getSessionId, setSessionId, buildContext(mode), quick: [{label,prompt}], onSaveNote(text) }
+   * opts: { title, sourcePath, getSessionId, setSessionId, getRole, setRole, buildContext(mode), quick: [{label,prompt}], onSaveNote(text) }
    */
   constructor(view, root, opts) {
     this.view = view;
@@ -6487,6 +6488,10 @@ class ChatPanel {
         this.updateHint();
       });
     }
+    const role = top.createEl("select", { cls: "qt-select", attr: { "aria-label": "Tutor role", title: "Tutor role" } });
+    for (const item of TUTOR_ROLES) role.createEl("option", { value: item.id, text: item.label });
+    role.value = this.currentRole();
+    role.addEventListener("change", () => this.setRole(role.value));
     const nc = top.createEl("button", { text: "New chat" });
     nc.addEventListener("click", () => {
       if (this.busy) return;
@@ -6536,19 +6541,43 @@ class ChatPanel {
         /* ignore */
       }
     });
+    const commandRow = root.createDiv({ cls: "qt-row qt-small-row qt-tutor-commands" });
+    const command = commandRow.createEl("select", { cls: "qt-select", attr: { "aria-label": "Insert a tutor command", title: "Insert a tutor command" } });
+    command.createEl("option", { value: "", text: "Tutor commands..." });
+    for (const item of TUTOR_COMMANDS) command.createEl("option", { value: item.id, text: `/${item.id} — ${item.label}` });
+    command.addEventListener("change", () => {
+      const chosen = TUTOR_COMMANDS.find((item) => item.id === command.value);
+      if (chosen) {
+        this.input.value = `/${chosen.id} `;
+        this.input.focus();
+      }
+      command.value = "";
+    });
     this.draw();
+  }
+
+  currentRole() {
+    return normalizeTutorRole(this.opts.getRole ? this.opts.getRole() : "private");
+  }
+
+  setRole(id) {
+    const next = normalizeTutorRole(id);
+    if (this.opts.setRole) this.opts.setRole(next);
+    this.updateHint();
   }
 
   updateHint() {
     if (!this.hint) return;
+    const role = tutorRole(this.currentRole());
+    const suffix = ` Role: ${role.label}. Commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}.`;
     if (this.view.plugin.backend() === "api") {
-      this.hint.setText("Direct API chat: it can see this question, but has no access to your files.");
+      this.hint.setText("Direct API chat: it can see this question, but has no access to your files." + suffix);
       return;
     }
     this.hint.setText(
-      this.ai.mode === "agent"
+      (this.ai.mode === "agent"
         ? "Agent mode: OpenCode may read and edit files in its working folder. Edits that need approval in your OpenCode permissions will wait until you press Stop."
-        : "Tutor mode: file-editing tools are switched off for this chat."
+        : "Tutor mode: file-editing tools are switched off for this chat.") + suffix
     );
   }
 
@@ -6755,6 +6784,7 @@ const DEFAULT_SETTINGS = {
     model: "",
     agent: "",
     mode: "tutor",
+    tutorRole: "private", // "private" | "socratic" | "language"
     sessionId: "",
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
@@ -12685,6 +12715,7 @@ __defs["opencode-client"] = function (module, exports, require) {
 const { requestUrl } = require("obsidian");
 const { str } = require("./util");
 const { extractRationale } = require("./notes");
+const { roleInstruction, commandReference } = require("./tutor-presets");
 
 /* ------------------------------------------------------------ OpenCode (AI) */
 
@@ -12730,7 +12761,7 @@ function partsToTurns(messages) {
   return turns;
 }
 
-function buildTutorContext(r, notesText, confLabels, mode) {
+function buildTutorContext(r, notesText, confLabels, mode, tutorRole) {
   const fm = r.fm || {};
   const sec = r.sections || {};
   const meta = ["test", "course", "section", "domain", "skill", "unit", "difficulty"]
@@ -12744,7 +12775,9 @@ function buildTutorContext(r, notesText, confLabels, mode) {
   }
   const errLine = Object.entries(errs).map(([k, v]) => `${k} x${v}`).join(", ");
   const lines = [
-    "You are a patient tutor helping a student review a practice question they just answered. " +
+    roleInstruction(tutorRole),
+    "",
+    "You are helping a student review a practice question they just answered. " +
       "Be concise and concrete. Rely on the information below and do not invent details about the passage. Use Markdown.",
     "",
     meta,
@@ -12772,10 +12805,11 @@ function buildTutorContext(r, notesText, confLabels, mode) {
         "tracking properties (result, attempts, correct_count, streak, history, next_review, last_attempt_id, srs, scheduler, time_spent_total, and similar) unless explicitly told to."
     );
   }
+  lines.push("", commandReference());
   return lines.join("\n");
 }
 
-function buildGeneralContext(app, mode) {
+function buildGeneralContext(app, mode, tutorRole) {
   let base = "";
   try {
     base = (app.vault.adapter && app.vault.adapter.basePath) || "";
@@ -12783,6 +12817,8 @@ function buildGeneralContext(app, mode) {
     /* mobile */
   }
   return [
+    roleInstruction(tutorRole),
+    "",
     "You are helping maintain an Obsidian vault of practice-question notes (SAT, PSAT and AP).",
     "Each question note has YAML properties: static ones (question_id, test, subject, course, section, domain, skill, difficulty, unit, " +
       "question_type, choices, answer, source, target_seconds, tags) and tracking ones written by a plugin " +
@@ -12793,6 +12829,8 @@ function buildGeneralContext(app, mode) {
     "Never change the tracking properties unless explicitly told to. Keep the format above when creating or editing notes.",
     base ? `The vault folder on disk is: ${base}` : "",
     mode === "tutor" ? "File editing is disabled in this chat; answer from the conversation only." : "You may read and edit files in the vault when asked.",
+    "",
+    commandReference(),
   ].filter(Boolean).join("\n");
 }
 
@@ -13909,6 +13947,7 @@ const { StudyStatusModal } = require("./study-status-modal");
 const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
 const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
+const { normalizeTutorRole } = require("./tutor-presets");
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
@@ -14197,6 +14236,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai = Object.assign({}, DEFAULT_SETTINGS.ai, saved.ai || {});
     const sa = (saved.ai && saved.ai.api) || {};
     this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys) });
+    this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
     // 0.2.0 saved settings had no `managed` flag: move those users to the automatic setup.
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
@@ -17017,7 +17057,12 @@ class PracticeView extends ItemView {
         p.save();
       },
       getApiHistory: () => this.generalHistory,
-      buildContext: (mode) => buildGeneralContext(this.app, mode),
+      getRole: () => p.settings.ai.tutorRole,
+      setRole: (id) => {
+        p.settings.ai.tutorRole = id;
+        p.save();
+      },
+      buildContext: (mode) => buildGeneralContext(this.app, mode, p.settings.ai.tutorRole),
       quick: p.backend() === "api" ? [] : [
         { label: "Notes missing answers", prompt: "List the question notes whose answer property is empty or missing." },
         { label: "Weakest skills", prompt: "Look at my question notes' attempts and correct_count and tell me which skills I am weakest at." },
@@ -17167,7 +17212,12 @@ class PracticeView extends ItemView {
       getSessionId: () => r.aiSession,
       setSessionId: (id) => (r.aiSession = id),
       getApiHistory: () => r.aiHistory,
-      buildContext: (mode) => buildTutorContext(r, this.notesText, p.settings.confidenceLabels, mode),
+      getRole: () => p.settings.ai.tutorRole,
+      setRole: (id) => {
+        p.settings.ai.tutorRole = id;
+        p.save();
+      },
+      buildContext: (mode) => buildTutorContext(r, this.notesText, p.settings.confidenceLabels, mode, p.settings.ai.tutorRole),
       quick: [
         r.correct
           ? { label: "Why is the answer right?", prompt: "Explain why the correct answer is right and why the other choices are wrong." }
@@ -17476,6 +17526,7 @@ const { renderDailySettings } = require("./daily-quiz-settings");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
+const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -17761,6 +17812,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.plugin.refreshViews();
         })
       );
+    new Setting(containerEl)
+      .setName("Tutor role")
+      .setDesc("The default voice for Ask AI and the assistant chat. You can also change it in a chat.")
+      .addDropdown((d) => {
+        for (const role of TUTOR_ROLES) d.addOption(role.id, role.label);
+        d.setValue(normalizeTutorRole(ai.tutorRole)).onChange(async (v) => {
+          ai.tutorRole = normalizeTutorRole(v);
+          await this.plugin.save();
+        });
+      });
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: `Tutor commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}. Type one at the start of a chat message to steer the next reply.`,
+    });
     if (Platform.isDesktopApp) {
       new Setting(containerEl)
         .setName("AI backend")
@@ -19083,6 +19148,136 @@ module.exports = {
 };
 };
 
+/* ---- src/tutor-presets.js ---- */
+__defs["tutor-presets"] = function (module, exports, require) {
+const { str } = require("./util");
+
+/*
+ * Tutor roles and commands are shared by the review chat, the general assistant,
+ * the Direct API backend and the OpenCode backend. Keeping the wording here means
+ * a role behaves the same everywhere instead of drifting between two chat panels.
+ */
+const TUTOR_ROLES = [
+  {
+    id: "private",
+    label: "Private tutor",
+    description: "Patient explanations, worked examples and check-ins.",
+    prompt:
+      "You are a patient private tutor working one-to-one with the student. Explain the reasoning, use a worked example when it helps, " +
+      "and check that the student can repeat the idea before moving on. Be encouraging but honest about what is missing.",
+  },
+  {
+    id: "socratic",
+    label: "Socratic tutor",
+    description: "Guides with questions instead of handing over the answer.",
+    prompt:
+      "You are a Socratic tutor. Do not give the answer immediately. Ask one focused question at a time, respond to the student's reasoning, " +
+      "and give a hint only when they are stuck. Lead them to explain the answer in their own words.",
+  },
+  {
+    id: "language",
+    label: "Language partner",
+    description: "Conversation practice with gentle corrections.",
+    prompt:
+      "You are a friendly language partner. Use the language the student is practising, keep sentences at their level, and correct mistakes gently " +
+      "with a short explanation. If they have not named a language, ask which one they want to practise.",
+  },
+];
+
+const TUTOR_COMMANDS = [
+  {
+    id: "guide",
+    label: "Guide",
+    description: "Walk me through it one step at a time.",
+    prompt: "Guide me with one question at a time. Do not reveal the final answer until I have worked through the reasoning.",
+  },
+  {
+    id: "quiz",
+    label: "Quiz me",
+    description: "One short question at a time.",
+    prompt: "Quiz me one short question at a time. Wait for my answer, then explain briefly and adjust the difficulty.",
+  },
+  {
+    id: "confuse",
+    label: "Confuse me",
+    description: "Show a plausible misconception and ask me to fix it.",
+    prompt: "Give me a plausible wrong answer or common misconception for this topic, then ask me to explain why it is wrong.",
+  },
+  {
+    id: "gap",
+    label: "Find my gap",
+    description: "Name the smallest missing idea behind my mistake.",
+    prompt: "Find the smallest knowledge gap that would cause my mistake, explain it in two sentences, then ask one check question.",
+  },
+  {
+    id: "predict",
+    label: "Predict my mistake",
+    description: "Predict the next error I am likely to make.",
+    prompt: "Predict the next mistake I am likely to make on this topic and give me one concrete way to avoid it.",
+  },
+  {
+    id: "feynman",
+    label: "Feynman",
+    description: "Make me teach it back in plain language.",
+    prompt: "Ask me to explain this topic in plain language as if teaching a beginner, then point out what I left vague or wrong.",
+  },
+  {
+    id: "mock",
+    label: "Mock exam",
+    description: "Run a short exam-style sequence.",
+    prompt: "Run a short mock exam. Ask one exam-style question at a time, wait for my answer, then mark it and move on.",
+  },
+];
+
+function normalizeTutorRole(value) {
+  const id = str(value).trim().toLowerCase();
+  return TUTOR_ROLES.some((role) => role.id === id) ? id : "private";
+}
+
+function tutorRole(value) {
+  const id = normalizeTutorRole(value);
+  return TUTOR_ROLES.find((role) => role.id === id) || TUTOR_ROLES[0];
+}
+
+function roleInstruction(value) {
+  return tutorRole(value).prompt;
+}
+
+function commandReference() {
+  return [
+    "TUTOR COMMANDS: When a student message starts with one of these, follow it until they change direction.",
+    ...TUTOR_COMMANDS.map((command) => `- /${command.id}: ${command.prompt}`),
+  ].join("\n");
+}
+
+/** Parse `/guide`, `/quiz fractions`, and similar commands without executing anything. */
+function parseTutorCommand(text) {
+  const raw = str(text).trim();
+  const match = /^\/([a-z][a-z-]*)\b(?:\s+([\s\S]*))?$/i.exec(raw);
+  if (!match) return null;
+  const id = match[1].toLowerCase();
+  const command = TUTOR_COMMANDS.find((item) => item.id === id);
+  if (!command) return null;
+  return {
+    id,
+    command: `/${id}`,
+    label: command.label,
+    prompt: command.prompt,
+    rest: str(match[2]).trim(),
+  };
+}
+
+module.exports = {
+  TUTOR_ROLES,
+  TUTOR_COMMANDS,
+  normalizeTutorRole,
+  tutorRole,
+  roleInstruction,
+  commandReference,
+  parseTutorCommand,
+};
+};
+
 /* ---- src/util.js ---- */
 __defs["util"] = function (module, exports, require) {
 const { normalizePath } = require("obsidian");
@@ -19215,6 +19410,7 @@ const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, m
 const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { ChatPanel } = require("./chat-panel");
+const tutorPresets = require("./tutor-presets");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
@@ -19280,6 +19476,7 @@ QuestionTrackerPlugin.__test = {
   friendlyApiError,
   apiTurns,
   ChatPanel,
+  tutorPresets,
   OpenCodeManager,
   MAX_OPENCODE_MAJOR,
   opencodeMajor,
