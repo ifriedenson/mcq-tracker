@@ -1,6 +1,6 @@
 # AP free-response practice and grading
 
-This guide covers the FRQ pilot shipped in 1.97.0, with rubric categories and a local math preview added in 1.101.0. It is practice feedback, not a College Board score, and the plugin bundles no AP prompts, rubrics or sample responses.
+This guide covers the FRQ pilot shipped in 1.97.0, with rubric categories and a local math preview added in 1.101.0 and photo-of-handwritten-work reading added in 1.104.0. It is practice feedback, not a College Board score, and the plugin bundles no AP prompts, rubrics or sample responses.
 
 ## Supported courses
 
@@ -66,6 +66,7 @@ max_points: 10
 Open **AP: open free-response practice and grader**, pick the prompt, and type the answer. Then choose one route:
 
 - **Self-grade** works offline and needs no AI. Set the points for each criterion; each input is capped at that criterion's maximum. The answer box has a collapsible **Math preview** that renders `$...$`, `$$...$$` and `\ce{...}` locally as you type. Nothing about the preview is sent anywhere.
+- **Photo of handwritten work.** If the answer is on paper, press **Read a photo of handwritten work...** and choose one image (PNG, JPEG, WebP, GIF or HEIC, under 8 MB). Reading and grading are separate steps: only that one image is sent, only when you press the button, to the `handwriting` feature on the Direct AI backend, and the transcript lands in the answer box so you can correct it before self-grading or AI grading. The photo is not written to the vault, and OpenCode cannot receive images.
 - **AI grade** uses the Direct AI or OpenCode backend configured under Settings, AI. It sends the prompt, rubric, optional sample answer and your typed answer under the `frqGrading` feature. The reply must cover every rubric criterion, must quote the words that earned each point and cannot exceed a maximum. A low-confidence criterion, or a point awarded without a quote, flags the attempt for review. **Second pass** runs another independent pass and lists every criterion where the two passes disagree; it never averages them. Resolve the score you trust before saving.
 - **Rubric source** records whether the rubric is yours or a pasted official/teacher-supplied rubric (`rubric_source: official | user`). The plugin still bundles no AP rubric.
 - **Save attempt** writes a note under `AP FRQ attempts/` and updates the prompt note with `frq_last_score`, `frq_last_max`, `frq_last_percent`, `frq_criteria_missed`, `frq_graded_by`, `frq_graded_on`, `frq_attempts`, `frq_review_interval` and `frq_next_review`. The modal lists recent attempts for the selected prompt.
@@ -83,6 +84,5 @@ Self-grading makes no network request. AI grading is off until AI features are e
 ## What is not implemented yet
 
 - Human-scored agreement against released sample responses, the human-human baseline and the go/no-go thresholds in [ap-frq-grader-spec.md](ap-frq-grader-spec.md). There is no claim of reader-level accuracy.
-- Photo-of-handwriting grading.
 - Per-course review of rubric fidelity beyond the editable presets.
 - World-language writing, AP Seminar/Research performance tasks and AP courses outside the six pilot subjects.

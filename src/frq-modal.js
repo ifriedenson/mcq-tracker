@@ -2,6 +2,7 @@
 const { Modal, Notice } = require("obsidian");
 const { renderMarkdownInto } = require("./view-helpers");
 const { FRQ_COURSES, courseById, compareFrqPasses, parseRubric, presetFor, presetsForCourse, rubricCategoryLabel, scoreAttempt } = require("./frq");
+const { readImageFile } = require("./handwriting");
 const { str } = require("./util");
 
 function presetText(courseId, kind) {
@@ -29,6 +30,9 @@ class FrqGraderModal extends Modal {
     this.answer = this.initialAnswer;
     this.answerLoaded = false;
     this.scores = {};
+    this.answerSource = "typed";
+    this.photoName = "";
+    this.photoModel = "";
     this.aiResult = null;
     this.aiScores = {};
     this.secondResult = null;
@@ -41,6 +45,10 @@ class FrqGraderModal extends Modal {
     this.secondGrading = false;
     this.saving = false;
     this.resultEl = null;
+    this.transcribing = false;
+    this.photoName = "";
+    this.photoModel = "";
+    this.answerSource = "typed";
   }
 
   onOpen() {
@@ -62,6 +70,9 @@ class FrqGraderModal extends Modal {
     this.answer = this.answerLoaded ? "" : this.initialAnswer;
     this.answerLoaded = true;
     this.scores = {};
+    this.answerSource = "typed";
+    this.photoName = "";
+    this.photoModel = "";
     this.aiResult = null;
     this.aiScores = {};
     this.secondResult = null;
@@ -87,6 +98,9 @@ class FrqGraderModal extends Modal {
     this.note = next;
     this.answer = "";
     this.scores = {};
+    this.answerSource = "typed";
+    this.photoName = "";
+    this.photoModel = "";
     this.aiResult = null;
     this.aiScores = {};
     this.secondResult = null;
@@ -189,8 +203,30 @@ class FrqGraderModal extends Modal {
     this.paintMathPreview();
     root.createDiv({
       cls: "qt-hint",
-      text: "Math preview updates as you type: use $...$, $$...$$ or \\ce{...}. Photo-of-handwriting grading is not part of this release; type the answer or dictate it with your operating system.",
+      text: "Math preview updates as you type: use $...$, $$...$$ or \\ce{...}. You can type the answer, dictate it with your operating system, or read a photo of handwritten work below.",
     });
+
+    const photoRow = root.createDiv({ cls: "qt-row qt-frq-photo" });
+    const photoInput = photoRow.createEl("input", { type: "file", attr: { accept: "image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif" } });
+    photoInput.hidden = true;
+    const support = this.plugin.handwritingPhotoSupport ? this.plugin.handwritingPhotoSupport() : { ok: false, reason: "" };
+    const readPhoto = photoRow.createEl("button", {
+      text: this.transcribing ? "Reading photo..." : "Read a photo of handwritten work...",
+      cls: "qt-grow",
+      attr: { title: "Sends this one photo to your configured vision model and puts the transcript in the answer box." },
+    });
+    readPhoto.disabled = this.transcribing || !support.ok;
+    readPhoto.addEventListener("click", () => photoInput.click());
+    photoInput.addEventListener("change", () => {
+      const file = photoInput.files && photoInput.files[0] ? photoInput.files[0] : null;
+      if (file) this.readPhoto(file);
+    });
+    root.createDiv({
+      cls: "qt-hint",
+      text: "Reading a photo is opt-in and sends only that one image, only when you press the button, to your Direct AI vision model. The photo is not stored in the vault; check the transcript before grading.",
+    });
+    if (!support.ok && support.reason) root.createDiv({ cls: "qt-hint", text: support.reason });
+    if (this.photoName) root.createDiv({ cls: "qt-hint", text: `Answer read from ${this.photoName}. Fix anything the model misread before grading or saving.` });
 
     root.createEl("h4", { text: "Rubric" });
     root.createDiv({
@@ -259,6 +295,9 @@ class FrqGraderModal extends Modal {
     noteActions.createEl("button", { text: "Start over", cls: "qt-link" }).addEventListener("click", () => {
       this.answer = "";
       this.scores = {};
+      this.answerSource = "typed";
+      this.photoName = "";
+      this.photoModel = "";
       this.aiResult = null;
       this.aiScores = {};
       this.secondResult = null;
@@ -283,6 +322,27 @@ class FrqGraderModal extends Modal {
       row.createSpan({ cls: "qt-hint", text: `${entry.takenOn || "undated"} · ${entry.gradedBy || "self"}` });
       if (entry.missed && entry.missed.length) row.createSpan({ cls: "qt-hint", text: `Missed: ${entry.missed.join(", ")}` });
     }
+  }
+
+  /** Reads one chosen photo into the answer box. Nothing is graded or written here. */
+  async readPhoto(file) {
+    if (this.transcribing || !this.note) return;
+    this.transcribing = true;
+    this.message = "";
+    this.draw();
+    try {
+      const image = await readImageFile(file);
+      const out = await this.plugin.transcribeHandwritingPhoto(image, { course: this.note.course, title: this.note.title });
+      this.answer = out.text;
+      this.answerSource = "photo";
+      this.photoName = image.name;
+      this.photoModel = out.model || "";
+      this.message = "Photo read. The transcript is your answer now: correct it, then self-grade or AI grade as usual.";
+    } catch (error) {
+      this.message = str(error && error.message ? error.message : error);
+    }
+    this.transcribing = false;
+    this.draw();
   }
 
   paintMathPreview() {
@@ -410,6 +470,8 @@ class FrqGraderModal extends Modal {
       const saved = await this.plugin.saveFrqAttempt(this.note, {
         ...this.result,
         answer: this.answer,
+        answerSource: this.answerSource,
+        answerModel: this.photoModel,
         model: this.aiResult ? this.plugin.aiModelLabel("frqGrading") : "",
         secondPass: !!this.secondResult,
         disagreed: this.comparison ? this.comparison.disagreements.map((item) => item.label) : [],

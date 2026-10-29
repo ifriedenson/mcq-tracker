@@ -49,6 +49,7 @@ const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
 const { attachFrontmatter, attachStudySlotFrontmatter, buildApResourceNote, detachFrontmatter, detachStudySlotFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
+const { HANDWRITING_SYSTEM, cleanHandwritingText, handwritingPrompt } = require("./handwriting");
 const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, frqCriterionWeakSpots, frqReviewEntry, frqReviewQueue, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { CardModal } = require("./card-modal");
@@ -1682,6 +1683,26 @@ class QuestionTrackerPlugin extends Plugin {
     return gradeFrqWithAi(client, note, answer);
   }
 
+  /** Whether a photo of handwritten work can be read right now. */
+  handwritingPhotoSupport() {
+    if (!this.settings.ai.enabled) return { ok: false, reason: "Turn on AI features to read a photo of handwritten work." };
+    return this.aiCanSpend("handwriting");
+  }
+
+  /**
+   * Reads one chosen photo into editable text. This method never grades, never
+   * writes a note and never stores the image; grading stays a separate press.
+   */
+  async transcribeHandwritingPhoto(image, meta) {
+    const support = this.handwritingPhotoSupport();
+    if (!support.ok) throw new Error(support.reason);
+    if (!image || !str(image.data)) throw new Error("Choose a photo of your handwritten answer first.");
+    const reply = await this.aiVision(HANDWRITING_SYSTEM, handwritingPrompt(meta), [image], { feature: "handwriting", maxTokens: 2000 });
+    const text = cleanHandwritingText(reply);
+    if (!text) throw new Error("The model returned no readable answer. Try a sharper, well-lit photo.");
+    return { text, model: this.aiModelLabel("handwriting"), name: str(image.name) };
+  }
+
   async openReferenceTab(tab, offMessage) {
     const view = await this.activateReference();
     if (!view) {
@@ -3311,18 +3332,20 @@ class QuestionTrackerPlugin extends Plugin {
     return this.aiChat(system, [{ role: "user", content: user }], opts);
   }
 
-  /** Opt-in image request for OCR. Only Direct AI can receive page images. */
+  /** Opt-in image request for vision work. Only Direct AI can receive images. */
   async aiVision(system, prompt, images, opts) {
     const o = opts || {};
+    const feature = aiService.normalizeFeatureId(o.feature || "ocr");
+    const { feature: _ignored, ...rest } = o;
     const ai = this.settings.ai;
     if (!ai.enabled) throw new Error("Turn on AI features in the plugin settings first.");
-    const support = aiService.featureSupport("ocr", this.backend());
+    const support = aiService.featureSupport(feature, this.backend());
     if (!support.ok) throw new Error(support.reason);
-    const can = this.aiCanSpend("ocr");
+    const can = this.aiCanSpend(feature);
     if (!can.ok) throw new Error(can.reason);
-    const maxTokens = aiService.clampMaxTokens(ai, o.maxTokens);
-    this.spendAiRequest("ocr", aiService.estimateRequestTokens(system, [{ content: prompt }], images));
-    return new ApiClient(ai, this.app, { model: this.aiModelFor("ocr") }).vision(system, prompt, images, { ...o, maxTokens });
+    const maxTokens = aiService.clampMaxTokens(ai, rest.maxTokens);
+    this.spendAiRequest(feature, aiService.estimateRequestTokens(system, [{ content: prompt }], images));
+    return new ApiClient(ai, this.app, { model: this.aiModelFor(feature) }).vision(system, prompt, images, { ...rest, maxTokens });
   }
 
   gradeCardWithAi(card, typed, strictness) {

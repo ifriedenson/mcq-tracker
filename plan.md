@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — 1.103.0 adds a device file picker for Quizlet PDF import, on top of 1.102.0's local Quizlet PDF/test-bank import, 1.101.0's full course registry, FRQ math preview and rubric categories, 1.100.0's mixed MCQ/SPR/FRQ timed tests, 1.99.0's score-based FRQ review schedule, 1.98.0's optional second grading pass and official/teacher rubric marker and 1.97.0's six-course AP FRQ pilot. Remaining blocked items: the real-Obsidian visual/screenshot pass, a real-device mobile audit, TTS provider/mobile validation, and PDF form filling/full editor. Human-scored FRQ calibration remains a quality gate, not an implementation gate.
+**Status:** Implementation in progress — 1.104.0 adds opt-in photo-of-handwritten-work reading to the FRQ grader, on top of 1.103.0's device file picker for Quizlet PDF import, 1.102.0's local Quizlet PDF/test-bank import, 1.101.0's full course registry, FRQ math preview and rubric categories, 1.100.0's mixed MCQ/SPR/FRQ timed tests, 1.99.0's score-based FRQ review schedule, 1.98.0's optional second grading pass and official/teacher rubric marker and 1.97.0's six-course AP FRQ pilot. Remaining blocked items: the real-Obsidian visual/screenshot pass, a real-device mobile audit, TTS provider/mobile validation, and PDF form filling/full editor. Human-scored FRQ calibration remains a quality gate, not an implementation gate.
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), the October 28 idea backlog (§5.22), and the Adaptive Practice parity audit (§5.23, Oct 29, 2026). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,7 +11,9 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Latest completed (1.103.0):** the Quizlet PDF importer now has a **Choose PDF from device...** action in the Cards import dialog. The learner can pick a PDF from outside the vault; the file is read locally, never uploaded, and no copy is written into the vault. Preview, duplicate handling, import keys and card writing are identical to the vault-file path. The vault-file picker remains available, and switching back uses **Use a vault file**.
+**Latest completed (1.104.0):** the FRQ grader can read a photo of handwritten work. **Read a photo of handwritten work...** accepts one PNG, JPEG, WebP, GIF or HEIC image from the device, sends only that image, only when the button is pressed, to the `handwriting` feature on the Direct AI vision model, and puts the transcript in the answer box. Reading and grading stay separate: the transcript is editable, self-grading still needs no AI, and a saved attempt records `answer_source: photo`. The photo itself is never written to the vault. OpenCode cannot receive images, so it shows a clear message instead of failing silently.
+
+**Previously (1.103.0):** the Quizlet PDF importer now has a **Choose PDF from device...** action in the Cards import dialog. The learner can pick a PDF from outside the vault; the file is read locally, never uploaded, and no copy is written into the vault. Preview, duplicate handling, import keys and card writing are identical to the vault-file path. The vault-file picker remains available, and switching back uses **Use a vault file**.
 
 **Previously (1.102.0):** Quizlet **text exports or PDF test banks** can be imported into the Cards module. The PDF path reads the text layer locally through the plugin's existing PDF reader, drops Quizlet page furniture and repeated print headers, keeps column gaps as term/definition separators, and recognises either printed flashcard rows or numbered test questions with choices and an answer key. It shows the first extracted cards in the preview, then writes normal flashcard notes with `import_format: quizlet-pdf`, `source_page` and the usual duplicate handling. Scanned PDFs stop with an OCR hint instead of guessing. No new dependency or third-party code was added.
 
@@ -57,8 +59,9 @@
 | Quizlet PDF / test-bank import (§5.22.3) | **Done in 1.102.0; device picker in 1.103.0** | The Cards importer reads a text-layer PDF printed from Quizlet, from the vault or directly from the device, extracts flashcard pairs or numbered questions with choices and an answer key, previews the cards, and writes normal flashcard notes. Device files are read locally and never copied into the vault. Scanned PDFs get an OCR hint. |
 | Direct AI agent with allow-listed tools (§5.18) | **Done** | `create_question`, `create_card` and one safe `update_section` proposal; review window, existing write roots and protected properties enforced. |
 | SMILES structure rendering (§5.16.2) | **Done in 1.91.0** | Local, original SVG renderer for a documented teaching subset; `smiles` code blocks in notes and a Structures tab in Reference. Invalid syntax reports an error rather than guessing. |
-| AP FRQ grader | **Done in 1.97.0 (pilot)** | Six owner-approved courses, user-supplied prompts and rubrics, self-grade plus optional AI grade, per-criterion feedback, quotes, override, attempt history and docs in `docs/ap-frq-practice.md`; 1.98.0 added the second pass and official-rubric marker; 1.99.0 added prompt-level review scheduling and Today/study-plan routing. |
-| FRQ scheduler and study-plan feed | **Done in 1.99.0** | Saving an attempt writes `frq_review_interval` and `frq_next_review`; weak attempts and missed criteria return in 1–3 days, stronger attempts in 7–14. Today lists due prompts, the next exam's study plan includes the course's FRQ prompts with a **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed. Handwriting photos remain a separate gap. |
+| AP FRQ grader | **Done in 1.97.0 (pilot)** | Six owner-approved courses, user-supplied prompts and rubrics, self-grade plus optional AI grade, per-criterion feedback, quotes, override, attempt history and docs in `docs/ap-frq-practice.md`; 1.98.0 added the second pass and official-rubric marker; 1.99.0 added prompt-level review scheduling and Today/study-plan routing; 1.104.0 added an opt-in photo-of-handwritten-work transcript that stays editable before grading. |
+| FRQ scheduler and study-plan feed | **Done in 1.99.0** | Saving an attempt writes `frq_review_interval` and `frq_next_review`; weak attempts and missed criteria return in 1–3 days, stronger attempts in 7–14. Today lists due prompts, the next exam's study plan includes the course's FRQ prompts with a **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed. Photo answers are read into editable text in 1.104.0. |
+| Handwritten answer photos (§5.5, §5.20) | **Done in 1.104.0** | One photo is read into editable text by the Direct AI vision model before grading; self-grading still needs no AI, `answer_source: photo` marks the attempt, and the image is never stored. 8 MB limit; PNG, JPEG, WebP, GIF or HEIC. |
 | Mixed MCQ/SPR/FRQ timed tests (§5.6) | **Done in 1.100.0** | A timed test takes an optional FRQ count included in the section totals, writes responses in the test, restores them with the saved session, and offers **Grade this response** after the test with the answer prefilled in the existing grader. Objective score, confidence and skill breakdown count only MCQ/SPR items; written responses are reported separately. |
 | Course registry (§5.8) | **Done in 1.101.0** | Settings, Calendar, Courses stores name, code, folder, color, semester, instructor and credit weight. A match drives class-note folders and calendar colors; credits feed the GPA when Assignments has no explicit course credit. |
 | FRQ math preview and rubric categories (§5.16.6, §5.20.1) | **Done in 1.101.0** | The answer box has a local **Math preview** for math and chemistry notation. Rubric rows accept an optional category tag, infer one from the label when omitted, show it in the grader, and preserve it in generated notes and the AI payload. |
@@ -68,7 +71,9 @@
 | PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; true AcroForm filling needs an audited MIT PDF library and is not safe to approximate. |
 | README, screenshots, sample vault, license confirmation | **Partial — screenshots blocked** | README, NOTICES, `docs/license-audit.md` and `samples/sample-vault` exist. Screenshots still need a real Obsidian window. |
 
-**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.103.0, including the course registry, FRQ rubric categories and Quizlet PDF import with a device picker. The items that remain `[~]` are explicitly gated: the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation; PDF form filling needs an audited MIT library. Human-scored FRQ calibration remains a quality gate, not an implementation gate. The duplicate roadmap later in this file is historical and has now been reconciled with this table; it does not override the table.
+**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.104.0, including the course registry, FRQ rubric categories and Quizlet PDF import with a device picker. The items that remain `[~]` are explicitly gated: the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation; PDF form filling needs an audited MIT library. Human-scored FRQ calibration remains a quality gate, not an implementation gate. The duplicate roadmap later in this file is historical and has now been reconciled with this table; it does not override the table.
+
+**Partial review (Oct 29, 2026, 1.104.0).** Every partial marker was re-read after the handwriting work. Closed in this release: photo-of-handwritten-work grading. Still gated with a concrete reason: the real-Obsidian visual/screenshot pass (no Obsidian window here), the mobile audit (no real device), TTS/audio commute (no provider or mobile speech validation), PDF form filling (no audited MIT form-filling library; approximating it would corrupt files), pronunciation feedback (needs audio capture plus mobile validation), and human-scored FRQ calibration (a quality gate, not code). `.apkg` export stays open because it needs a tested SQLite writer; reading `.apkg` already works.
 
 **Adaptive Practice parity audit (Oct 29, 2026):** compared with Adaptive Practice 0.7.2. MCQ Tracker already has the broader study system; the meaningful gaps are generation from any note, per-note subtopic memory, a logged skip/fluency signal, adaptive session size and an optional local reminder. The Whetstone engine (AGPL) and the persistent vault index are non-goals. Full matrix and acceptance criteria: §5.23.
 
@@ -428,7 +433,7 @@ Effort key: **S** (days), **M** (1–3 weeks), **L** (1+ months). Estimates assu
 **Scope**
 - New `question_type: frq`. Note sections: `## Prompt`, optional `## Stimulus`, `## Rubric`, `## Sample Answer`.
 - Rubric format: checklist of criteria with points, e.g. `- [2] States the correct claim`.
-- Student answer box (typed). Optional later: photo of handwriting, which needs vision-capable models.
+- Student answer box: typed or dictated. **Shipped in 1.104.0:** a photo of handwritten work is read by a vision model into editable text first, so grading and saving still run on text.
 - **Grading:** AI scores each rubric line, returns per-criterion justification, total points.
 - **Safeguards:**
   - Score criterion by criterion, not holistically.
@@ -439,7 +444,7 @@ Effort key: **S** (days), **M** (1–3 weeks), **L** (1+ months). Estimates assu
 - **Official rubrics:** allow pasting official scoring guidelines and mark `rubric_source: official | ai`.
 - Uses the attempt percentage to set the next review date and records which rubric criteria were missed.
 
-**Implemented in 1.97.0–1.99.0 (AP pilot).** A user-supplied note can use `type: ap_frq`, `## Question`, optional `## Stimulus`, `## Rubric` and optional `## Sample Answer`. The grader scores one criterion at a time with quotes, confidence and `awarded / max`; the learner can override every line; an optional second pass flags criterion-level disagreement instead of averaging it; and `rubric_source: official | user` records a pasted official or teacher rubric. Attempt notes keep `graded_by`, `graded_on`, `criteria_missed`, `second_pass` and `criteria_disagreed`. Since 1.99.0 the prompt note also gets `frq_review_interval` and `frq_next_review`: below 60% returns in one day, 60–79% in three, 80–89% in seven and 90%+ in fourteen, with any missed criterion capped at three days. Today shows due prompts, the next exam's study plan includes the course's FRQ prompts and a **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed. Still open: photo-of-handwriting grading. Mixed MCQ/SPR/FRQ timed tests shipped in 1.100.0.
+**Implemented in 1.97.0–1.99.0 (AP pilot).** A user-supplied note can use `type: ap_frq`, `## Question`, optional `## Stimulus`, `## Rubric` and optional `## Sample Answer`. The grader scores one criterion at a time with quotes, confidence and `awarded / max`; the learner can override every line; an optional second pass flags criterion-level disagreement instead of averaging it; and `rubric_source: official | user` records a pasted official or teacher rubric. Attempt notes keep `graded_by`, `graded_on`, `criteria_missed`, `second_pass` and `criteria_disagreed`. Since 1.99.0 the prompt note also gets `frq_review_interval` and `frq_next_review`: below 60% returns in one day, 60–79% in three, 80–89% in seven and 90%+ in fourteen, with any missed criterion capped at three days. Today shows due prompts, the next exam's study plan includes the course's FRQ prompts and a **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed. Photo-of-handwriting reading shipped in 1.104.0 and mixed MCQ/SPR/FRQ timed tests in 1.100.0. Human-scored calibration remains the quality gate.
 
 **Privacy:** the student's writing is sent to the provider. Off by default and disclosed.
 
@@ -668,7 +673,7 @@ Build on the existing timed test.
 - Math-friendly answer box with live LaTeX preview.
 - Compatibility with Latex Suite shortcuts for users who have it, without requiring it.
 - Rubric lines for **method steps** and **final answer** separately, so a right method with an arithmetic slip earns partial credit.
-- Later: photo of handwritten work, graded by a vision-capable model. Off by default, with a clear privacy note.
+- **Shipped in 1.104.0:** a photo of handwritten work is read into editable text by a vision-capable model before grading. Off by default, Direct AI only, with a clear privacy note; the image never enters the vault.
 
 **Shipped in 1.101.0:** the FRQ answer box has a collapsible **Math preview** that renders the typed answer locally through Obsidian's Markdown renderer. `$...$`, `$$...$$` and `\\ce{...}` update as the learner types; nothing is sent anywhere. Rubric criteria can also carry a category; see §5.20.1.
 
@@ -887,7 +892,7 @@ Reuse the general FRQ model in §5.5 and add AP-specific structure.
 
 - **Item format:** prompt, optional stimulus/source set, rubric, sample answer, and a course/exam link. Support `question_type: frq` notes that can live beside existing MCQ notes.
 - **Rubric editor:** each criterion has points, a short description, and an optional category (thesis/claim, evidence, reasoning, calculation, units/significant figures, notation, communication). Allow pasted official or teacher rubrics; store `rubric_source: official | user | ai`.
-- **Practice flow:** timed or untimed; typed answer first, with OS voice dictation where available. Photo-of-handwriting grading is a later, opt-in vision feature, not part of the first release.
+- **Practice flow:** timed or untimed; typed answer first, with OS voice dictation where available. **Since 1.104.0** a photo of handwritten work can be read into editable text first: opt-in, Direct AI only, and the image is not stored.
 - **Grading:** score criterion by criterion, never as one holistic number. The grader must quote the part of the student answer that earned or missed each criterion, return `awarded / max` per line, and explain the decision in one or two sentences.
 - **Trust and control:** show a confidence value, flag low-confidence criteria, support a second independent grading pass, and let the learner override any criterion. Keep a **self-grade** mode that needs no AI at all.
 - **Scheduling:** map the rubric percentage to the existing scheduler bands; store `max_points`, `last_score`, `criteria_missed`, `graded_by`, and `graded_on`; feed missed criteria into weak spots and the study plan.
@@ -898,7 +903,7 @@ Reuse the general FRQ model in §5.5 and add AP-specific structure.
 
 Shipped: `type: ap_frq` notes with `## Question`, optional `## Stimulus`, `## Rubric` and optional `## Sample Answer`; a **New FRQ note** creator with editable rubric presets for history DBQ/LEQ/SAQ, chemistry long/short, calculus and statistics; a grader that scores criterion by criterion, clamps every score to its maximum, shows `awarded / max`, flags low confidence and any point awarded without a quote, supports an optional second independent pass that reports per-criterion disagreement without averaging it away, lets the learner mark a pasted official or teacher-supplied rubric, and lets the learner override every line; self-grade mode with no network request; optional AI grading through the shared `frqGrading` feature and request limits; and saved attempts under `AP FRQ attempts/` plus `frq_last_*` properties on the prompt note.
 
-Still open: a human-scored agreement study and go/no-go evaluation, and photo-of-handwriting grading. 1.101.0 shipped the rubric category taxonomy (`[thesis]`, `[evidence]`, `[reasoning]`, `[calculation]`, `[units]`, `[notation]`, `[communication]`), shown in the grader and preserved in generated notes. Since 1.99.0, missed criteria drive the prompt's review date, appear in Today and the next exam's study plan, and link from Insights. No claim of reader-level accuracy is made.
+Still open: a human-scored agreement study and go/no-go evaluation. 1.104.0 shipped photo-of-handwritten-work reading, and 1.101.0 shipped the rubric category taxonomy (`[thesis]`, `[evidence]`, `[reasoning]`, `[calculation]`, `[units]`, `[notation]`, `[communication]`), shown in the grader and preserved in generated notes. Since 1.99.0, missed criteria drive the prompt's review date, appear in Today and the next exam's study plan, and link from Insights. No claim of reader-level accuracy is made.
 
 #### 5.20.2 AP score calculator
 
@@ -1291,7 +1296,7 @@ Names are proposals; keep existing ones unchanged.
 
 These are **research and specification items**, not implementation work. The AP FRQ grader is the owner's requested next idea after card import; the score calculator and resource hub are its natural companions.
 
-- [x] **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, score history, second pass, official-rubric marker, rubric categories and a scheduler/study-plan feed shipped in 1.97.0–1.101.0 for six courses (§5.20); human-scored calibration remains a quality gate
+- [x] **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, score history, second pass, official-rubric marker, rubric categories and a scheduler/study-plan feed shipped in 1.97.0–1.101.0 for six courses (§5.20); photo-of-handwritten-work reading shipped in 1.104.0; human-scored calibration remains a quality gate
 - [x] **AP score calculator** — four 2027 profiles, weighted section and part inputs, editable practice cutoffs, incomplete estimates, a likely band and a reverse "what do I need?" calculation (§5.20) — shipped in 1.56.0
 - [x] **Saved AP practice-exam history** — save a complete result as an ordinary note, list attempts newest first, show the average and change from the previous attempt (§5.20.2) — shipped in 1.58.0; per-question FRQ history shipped in 1.95.0 and per-section trends in 1.96.0
 - [x] **AP resource hub** — one place for official AP Central/AP Classroom links, course and exam descriptions, released FRQs and scoring guidelines, AP Videos, and exam dates (§5.20) — link-only version shipped in 1.57.0; resource notes, course/unit tags and stale-link checks shipped in 1.59.0; calendar/Today integration shipped in 1.60.0–1.62.0
@@ -1382,7 +1387,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Optional `.apkg` import through a local ZIP/SQLite reader, with scheduling metadata (§5.15) — shipped in 1.50.0
 - [x] Bidirectional AnkiConnect sync with note-ID mapping, content hashes and conflict handling (§5.15) — shipped in 1.51.0
 - [~] **Open (optional)** Pronunciation feedback for language learners
-- [~] **Open (optional)** Handwritten-work photo grading
+- [x] Handwritten-work photo reading — shipped in 1.104.0 as an opt-in vision transcript; grading still runs on text
 
 **Unscheduled backlog.** The October 28 ideas in §5.22 are intentionally not assigned to a phase. Promote them individually after the owner ranks them; §5.22.9 is an advisory order, not a commitment.
 
@@ -1512,7 +1517,7 @@ Packaging, audience, calendar and flashcard priority, BYOK + OpenCode, mobile qu
 3. **Voice input:** Is OS keyboard dictation enough for v1, or is in-plugin recording and transcription a must-have? (Recording support on Obsidian mobile needs verification.)
 4. **Agent on mobile:** Is read-only tutor mode on phones enough, with full agent mode desktop-only through OpenCode?
 5. **FRQ on mobile:** Voice-dictated FRQs only, or skip FRQs on phones in v1?
-6. **Handwritten work:** Is photo-of-handwriting grading in scope for the first year?
+6. **Handwritten work:** Resolved — photo-of-handwriting reading shipped in 1.104.0 as an opt-in vision transcript; grading still runs on text.
 7. **Monetization:** Will the plugin stay fully free (BYOK means users pay their provider)? Sponsorship links are fine, but decide early.
 8. **Compatibility promise:** How long will you keep supporting existing MCQ Tracker note formats? (Recommended: indefinitely, with migrations.)
 9. **Beta channel:** Will you maintain a BRAT beta track for risky features such as the agent and scheduler changes?
@@ -2284,7 +2289,7 @@ Effort key: **S** (days), **M** (1–3 weeks), **L** (1+ months). Estimates assu
 **Scope**
 - New `question_type: frq`. Note sections: `## Prompt`, optional `## Stimulus`, `## Rubric`, `## Sample Answer`.
 - Rubric format: checklist of criteria with points, e.g. `- [2] States the correct claim`.
-- Student answer box (typed). Optional later: photo of handwriting, which needs vision-capable models.
+- Student answer box: typed or dictated. **Shipped in 1.104.0:** a photo of handwritten work is read by a vision model into editable text first, so grading and saving still run on text.
 - **Grading:** AI scores each rubric line, returns per-criterion justification, total points.
 - **Safeguards:**
   - Score criterion by criterion, not holistically.
@@ -2488,7 +2493,7 @@ Build on the existing timed test.
 - Math-friendly answer box with live LaTeX preview.
 - Compatibility with Latex Suite shortcuts for users who have it, without requiring it.
 - Rubric lines for **method steps** and **final answer** separately, so a right method with an arithmetic slip earns partial credit.
-- Later: photo of handwritten work, graded by a vision-capable model. Off by default, with a clear privacy note.
+- **Shipped in 1.104.0:** a photo of handwritten work is read into editable text by a vision-capable model before grading. Off by default, Direct AI only, with a clear privacy note; the image never enters the vault.
 
 **5.16.7 Figures and graphs**
 - Embed Function Plot graphs or Excalidraw diagrams in stimuli (works because they are normal Obsidian embeds).
@@ -2787,7 +2792,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Optional AnkiConnect push to a running Anki desktop, with duplicate reporting (§5.15) — shipped in 1.40.0
 - [x] Optional `.apkg` import and bidirectional AnkiConnect sync (§5.15) — shipped in 1.50.0 and 1.51.0
 - [~] **Open (optional)** Pronunciation feedback for language learners
-- [~] **Open (optional)** Handwritten-work photo grading
+- [x] Handwritten-work photo reading — shipped in 1.104.0 as an opt-in vision transcript; grading still runs on text
 - [ ] Long-term standalone mobile product discovery (§10c); do not split the
       confirmed Obsidian plugin before validating demand and maintenance cost
 
@@ -2964,7 +2969,7 @@ Packaging, audience, calendar and flashcard priority, BYOK + OpenCode, mobile qu
 3. **Voice input:** Is OS keyboard dictation enough for v1, or is in-plugin recording and transcription a must-have? (Recording support on Obsidian mobile needs verification.)
 4. **Agent on mobile:** Is read-only tutor mode on phones enough, with full agent mode desktop-only through OpenCode?
 5. **FRQ on mobile:** Voice-dictated FRQs only, or skip FRQs on phones in v1?
-6. **Handwritten work:** Is photo-of-handwriting grading in scope for the first year?
+6. **Handwritten work:** Resolved — photo-of-handwriting reading shipped in 1.104.0 as an opt-in vision transcript; grading still runs on text.
 7. **Monetization:** Will the plugin stay fully free (BYOK means users pay their provider)? Sponsorship links are fine, but decide early.
 8. **Compatibility promise:** How long will you keep supporting existing MCQ Tracker note formats? (Recommended: indefinitely, with migrations.)
 9. **Beta channel:** Will you maintain a BRAT beta track for risky features such as the agent and scheduler changes?

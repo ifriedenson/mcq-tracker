@@ -697,6 +697,7 @@ function uniqueNotePath(note, exists) {
 function buildFrqAttemptNote(note, attempt, date) {
   if (!note || !attempt || !Number.isFinite(Number(attempt.earned)) || !Number.isFinite(Number(attempt.max)) || Number(attempt.max) <= 0) return null;
   const takenOn = normalizeDate(date) || localDate();
+  const answerSource = str(attempt.answerSource).trim().toLowerCase() === "photo" ? "photo" : "typed";
   const fm = {
     type: FRQ_ATTEMPT_TYPE,
     ap_course: note.courseId,
@@ -715,6 +716,7 @@ function buildFrqAttemptNote(note, attempt, date) {
     second_pass: attempt.secondPass === true,
     criteria_disagreed: Array.isArray(attempt.disagreed) ? attempt.disagreed : [],
     model: str(attempt.model).trim(),
+    answer_source: answerSource,
   };
   const lines = ["---"];
   for (const [key, value] of Object.entries(fm)) {
@@ -731,6 +733,9 @@ function buildFrqAttemptNote(note, attempt, date) {
   lines.push(`- **Date:** ${takenOn}`);
   lines.push(`- **Score:** ${round1(fm.earned)} / ${round1(fm.max_points)} (${round1(fm.percent)}%)`);
   lines.push(`- **Graded by:** ${fm.graded_by}`);
+  if (answerSource === "photo") {
+    lines.push(`- **Answer source:** photo of handwritten work, read by ${str(attempt.answerModel).trim() || "the configured vision model"}. Check the transcript against the page.`);
+  }
   lines.push(`- **Prompt note:** [[${note.path.replace(/\.md$/i, "")}]]`);
   lines.push("");
   lines.push("## Rubric result", "");

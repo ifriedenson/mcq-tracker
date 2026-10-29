@@ -139,6 +139,7 @@ update the existing note instead of creating a duplicate.
 | `anki_due`, `anki_interval`, `anki_reps`, `anki_lapses` | number | Anki's scheduling fields at import or sync time; kept as metadata rather than translated into a different scheduler. |
 | `anki_synced_hash`, `anki_remote_hash` | string | Content hashes from the last successful sync; they let a later sync tell a local edit from an Anki edit. |
 | `anki_last_sync` | string | ISO timestamp of the last successful AnkiConnect exchange. |
+| `answer_source` | string | On an FRQ attempt: `typed`, or `photo` when the answer began as a vision transcript of handwritten work. |
 
 ## Dataview examples
 

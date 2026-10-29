@@ -107,6 +107,7 @@ const apScore = require("./ap-score");
 const apResources = require("./ap-resources");
 const apExamHistory = require("./ap-exam-history");
 const frq = require("./frq");
+const handwriting = require("./handwriting");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const apResourceNotes = require("./ap-resource-notes");
 const apExamResources = require("./ap-exam-resources");
@@ -238,6 +239,7 @@ QuestionTrackerPlugin.__test = {
   apResources,
   apExamHistory,
   frq,
+  handwriting,
   FrqGraderModal,
   NewFrqNoteModal,
   apResourceNotes,

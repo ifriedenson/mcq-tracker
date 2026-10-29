@@ -41,6 +41,12 @@ const AI_FEATURES = [
     requires: "vision",
     sends: "The page images you choose.",
   },
+  {
+    id: "handwriting",
+    label: "Read handwritten answers",
+    requires: "vision",
+    sends: "The one answer photo you choose, only when you press the button.",
+  },
 ];
 
 const FEATURE_IDS = AI_FEATURES.map((feature) => feature.id);
