@@ -37,6 +37,14 @@ function cleanPageLines(text) {
     .filter((line, index, all) => line.trim() || (index > 0 && all[index - 1].trim()));
 }
 
+function formatFigureMarkers(text) {
+  return str(text).replace(
+    /\[FIGURE page (\d+): !\[\[([^\]]+)\]\](?: \(the whole page: !\[\[([^\]]+)\]\]\))?\]/g,
+    (_match, page, figure, whole) =>
+      `![[${figure}]]\n\n*Figure from page ${page}${whole ? `; page image: ![[${whole}]]` : ""}*`
+  );
+}
+
 function pageHeading(page, label) {
   const lines = cleanPageLines(page && page.text);
   const first = str(lines[0]).trim();
@@ -76,13 +84,13 @@ function buildCourseNote(pages, meta) {
   if (str(m.sourceLink).trim()) {
     lines.push("> [!info] Source", `> ${str(m.sourceLink).trim()}${str(m.sourceName).trim() ? ` · ${str(m.sourceName).trim()}` : ""}`, "");
   }
-  lines.push("_Text-only study notes. Figures and handwritten marks are not copied._", "");
+  lines.push("_Text-only study notes. Figures can be copied from PDFs; handwritten marks are not interpreted._", "");
   if (!list.length) lines.push("_No readable text was found in the selected pages._", "");
   for (const page of list) {
     const heading = pageHeading(page, label);
     lines.push(`## ${heading.title}`, "");
     if (str(m.sourceLink).trim()) lines.push(`*Source: ${str(m.sourceLink).trim()} · ${label.toLowerCase()} ${Number(page.n) || ""}*`, "");
-    const body = cleanPageLines(heading.body.join("\n"));
+    const body = cleanPageLines(formatFigureMarkers(heading.body.join("\n")));
     if (body.length) {
       lines.push(...body);
     } else {
@@ -115,6 +123,7 @@ class CourseNotesModal extends Modal {
     this.title = "";
     this.course = "";
     this.pages = "";
+    this.capture = true;
   }
 
   onOpen() {
@@ -178,10 +187,14 @@ class CourseNotesModal extends Modal {
       .setName("Pages or slides")
       .setDesc("Blank means all. Example: 1-12 or 2,4,6-8.")
       .addText((t) => t.setPlaceholder("All").setValue(this.pages).onChange((v) => (this.pages = v)));
+    new Setting(el)
+      .setName("Copy figures from PDF pages")
+      .setDesc("Saves diagrams and pictures beside the note and embeds them where they appeared. Only PDFs are rendered; other formats stay text-only.")
+      .addToggle((t) => t.setValue(this.capture).onChange((v) => (this.capture = v)));
 
     el.createEl("p", {
       cls: "qt-hint",
-      text: "Scanned PDFs need text recognition (OCR) first. This importer keeps the text and page boundaries; it does not copy figures or write an AI summary.",
+      text: "Scanned PDFs need text recognition (OCR) first. This importer keeps the text and page boundaries; it can copy figures from PDFs, but does not write an AI summary.",
     });
     const row = el.createDiv({ cls: "qt-row" });
     row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
@@ -228,13 +241,29 @@ class CourseNotesModal extends Modal {
     try {
       const src = await this.readSource();
       if (!src.kind) throw new Error(`This plugin can't read .${src.ext || "that"} files.`);
+      await ensureFolder(this.app, folder);
+      const imagesFolder = `${folder}/images`;
+      const figurePrefix = `${safeName(src.name, "course")}-${Date.now().toString(36)}`;
+      const capture = src.kind === "pdf" && this.capture
+        ? {
+            prefix: figurePrefix,
+            scale: 2,
+            pages: false,
+            save: async (name, data) => {
+              await ensureFolder(this.app, imagesFolder);
+              const path = uniquePath(this.app.vault, imagesFolder, name.replace(/\.png$/i, ""), "png");
+              await this.app.vault.createBinary(path, data);
+              return path;
+            },
+          }
+        : null;
       status.setText(`Reading ${documentLabel(`${src.name}.${src.ext}`)}...`);
       const read = src.kind === "pdf"
-        ? await readPdfPages(src.buf, this.pages, (m) => status.setText(m))
+        ? await readPdfPages(src.buf, this.pages, (m) => status.setText(m), capture)
         : await readDocumentPages(src.buf, `${src.name}.${src.ext}`, this.pages, (m) => status.setText(m));
       const pages = (read.pages || []).filter((page) => str(page.text).trim());
       if (!pages.length) throw new Error("No readable text was found in that file. Scanned pages need OCR first.");
-      await ensureFolder(this.app, folder);
+      if (capture && read.figCount) status.setText(`Copied ${read.figCount} figure${read.figCount === 1 ? "" : "s"}.`);
       let sourcePath = src.path;
       if (src.device) {
         const sourceFolder = `${folder}/sources`;
@@ -290,6 +319,7 @@ module.exports = {
   DEFAULT_COURSE_NOTES_FOLDER,
   safeName,
   cleanPageLines,
+  formatFigureMarkers,
   pageHeading,
   buildCourseNote,
   uniquePath,

@@ -45,6 +45,16 @@ test("course notes: falls back to a page label and keeps text-only note wording"
   assert.equal(note.title, "Chapter");
 });
 
+test("course notes: PDF figure markers become embedded images", () => {
+  const note = courseNotes.buildCourseNote(
+    [{ n: 2, text: "Cell structure\n[FIGURE page 2: ![[Course notes/images/cell-fig1.png]]]\nNucleus" }],
+    { sourceName: "Cells", sourcePageCount: 1, importedOn: "2026-10-29" }
+  );
+  assert.match(note.text, /!\[\[Course notes\/images\/cell-fig1\.png\]\]/);
+  assert.match(note.text, /\*Figure from page 2\*/);
+  assert.doesNotMatch(note.text, /\[FIGURE/);
+});
+
 test("course notes: safe names and unique paths do not overwrite existing notes", () => {
   assert.equal(courseNotes.safeName("Lecture 1: Cells / Mitosis"), "Lecture 1- Cells - Mitosis");
   assert.equal(courseNotes.safeName("", "Fallback"), "Fallback");
