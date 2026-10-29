@@ -5,7 +5,8 @@ const { fmtPct, packTestSession, sliceQuestionRange, unpackTestSession } = requi
 const { MODES } = require("./constants");
 const { pickQuestion } = require("./filters");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
-const { extractRationale, gradeAnswer } = require("./notes");
+const { extractRationale } = require("./notes");
+const { gradeAnswerDetailed } = require("./numeric-grading");
 const { NameModal } = require("./modals");
 const { buildSections, normalizeSections } = require("./exam-sections");
 
@@ -550,7 +551,8 @@ class TestView extends ItemView {
     let answered = 0;
     for (const it of this.items) {
       it.answered = !!str(it.sel).trim();
-      it.correct = it.answered ? gradeAnswer({ answer: it.key, question_type: it.mode }, it.sel) : null;
+      it.answerCheck = it.answered ? gradeAnswerDetailed({ ...it.fm, answer: it.key, question_type: it.mode }, it.sel) : null;
+      it.correct = it.answerCheck ? it.answerCheck.correct : null;
       it.conf = Math.max(0, Math.min(3, Number(it.conf) || 0));
       if (!it.answered) continue;
       answered++;
@@ -722,7 +724,13 @@ class TestView extends ItemView {
       row.createSpan({ cls: "qt-letter", text: c.letter });
       renderMarkdownInto(this.app, c.text, row.createDiv({ cls: "qt-choice-text" }), path, this);
     }
-    if (it.mode === "spr") d.createDiv({ cls: "qt-hint", text: `Your answer: ${it.sel || "(blank)"} · Correct answer: ${it.key}` });
+    if (it.mode === "spr") {
+      d.createDiv({ cls: "qt-hint", text: `Your answer: ${it.sel || "(blank)"} · Correct answer: ${it.key}` });
+      if (it.answerCheck && it.answerCheck.interpreted) {
+        d.createDiv({ cls: "qt-hint qt-numeric-check", text: it.answerCheck.interpreted });
+        if (it.answerCheck.reason) d.createDiv({ cls: "qt-hint qt-numeric-check", text: it.answerCheck.reason });
+      }
+    }
     const rat = extractRationale(it.sections.answer);
     d.createDiv({ cls: "qt-label", text: "Explanation" });
     if (rat) renderMarkdownInto(this.app, rat, d.createDiv({ cls: "qt-explanation is-open" }), path, this);

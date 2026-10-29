@@ -4,7 +4,8 @@ const { FILTER_FIELDS, MODES, VIEW_TYPE } = require("./constants");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
 const { fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
-const { extractRationale, gradeAnswer } = require("./notes");
+const { extractRationale } = require("./notes");
+const { gradeAnswerDetailed } = require("./numeric-grading");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
 const { API_PRESETS } = require("./api-client");
@@ -390,11 +391,13 @@ class PracticeView extends ItemView {
     const fm = q.fm;
     let correct;
     let chosen = this.sel;
+    let answerCheck = null;
     if (q.mode === "self") {
       correct = this.sel === "correct";
       chosen = "";
     } else {
-      correct = gradeAnswer({ answer: q.key, question_type: q.mode }, this.sel);
+      answerCheck = gradeAnswerDetailed({ ...fm, answer: q.key, question_type: q.mode }, this.sel);
+      correct = answerCheck ? answerCheck.correct : null;
     }
     const seconds = Math.round(this.plugin.elapsedMs() / 1000);
     const summary = await this.plugin.recordAttempt(q.file, {
@@ -419,6 +422,7 @@ class PracticeView extends ItemView {
       key: q.key,
       mode: q.mode,
       seconds,
+      answerCheck,
       summary,
       errorType: "",
       flagged: fm.flagged === true,
@@ -1317,6 +1321,10 @@ class PracticeView extends ItemView {
     }
     if (r.mode === "spr") {
       rv.createDiv({ cls: "qt-hint", text: `Your answer: ${r.chosen || "(blank)"} · Correct answer: ${r.key || "(not stored)"}` });
+      if (r.answerCheck && r.answerCheck.interpreted) {
+        rv.createDiv({ cls: "qt-hint qt-numeric-check", text: r.answerCheck.interpreted });
+        if (r.answerCheck.reason) rv.createDiv({ cls: "qt-hint qt-numeric-check", text: r.answerCheck.reason });
+      }
     } else if (r.mode === "self" && r.key) {
       rv.createDiv({ cls: "qt-hint", text: `Correct answer: ${r.key}` });
     }

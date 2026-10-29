@@ -150,8 +150,29 @@ Which choice best describes the relationship between the two texts?
 - `## Stimulus` is optional. If a note has none but has a `stimulus_id`, the plugin borrows the passage from another note with the same `stimulus_id`.
 - The answer key is read from the `answer` property, or from a line like `Correct Answer: B` in the `## Answer` section.
 - `question_type` can be `mcq`, `spr` (student-produced response), or anything else for self-grading. Free text such as "Multiple choice (4 choices)" is understood too.
-- Properties the plugin reads: `course, test, section, domain, skill, unit, difficulty, question_type, choices, answer, target_seconds, stimulus_id`.
+- Properties the plugin reads: `course, test, section, domain, skill, unit, difficulty, question_type, choices, answer, tolerance, tolerance_type, sig_figs, sig_figs_mode, units, answer_unit, accepted_answers, accepted_variants, target_seconds, stimulus_id`.
 - Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, next_review, last_attempt_id, srs, scheduler, history`, plus the Known/Exclude fields `study_status, known_days, known_until, excluded_on, excluded_reason` when you use those actions. `srs` and `scheduler` are populated when FSRS schedules a review (`srs` may be empty if you add tracking properties to notes first).
+
+### Numeric answers (SPR)
+
+Set `question_type: spr` and the plugin grades numbers instead of comparing text. These forms are equivalent: `3/4`, `0.75`, `7.5e-1`, `7.5 × 10⁻¹` and `75%`. Each result explains how the answer was read, such as `Read as 7.5 × 10⁻¹ m/s`.
+
+```yaml
+question_type: spr
+answer: 1000 m
+tolerance: 0.05
+tolerance_type: relative
+sig_figs: 2
+units: m
+accepted_answers:
+  - 1 km
+```
+
+- `tolerance` is off by default. `tolerance_type` is `absolute` (default), `relative` (a fraction of the expected value) or `percent`.
+- `sig_figs` checks the written answer's significant figures. `sig_figs_mode` is `at_least` (default) or `exact`; fractions are treated as exact and skip the check.
+- `units` (or `answer_unit`) enables dimension checking and conversion for common length, mass, time, volume, energy, force, pressure, power, electricity, amount, speed and temperature units. A length is never accepted for a mass, and a unitless answer is read in the expected unit. The existing `unit` property still means the course unit, not a physical unit.
+- `answer` may list alternatives with `|`, and also accepts ranges: `1..2`, `[1, 2]` (inclusive) or `(1, 2)` (exclusive). `accepted_answers` adds more alternatives as a list or a `|`-separated string.
+- The grader reads numbers only; it does not evaluate expressions such as `sqrt(2)` or `2^3`. Word answers still fall back to an exact text comparison.
 
 Run the command **Add missing tracking properties to all question notes** to add the writable properties to notes that don't have them yet.
 

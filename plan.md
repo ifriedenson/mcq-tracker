@@ -592,6 +592,8 @@ Build on the existing timed test.
 - **Equivalent expressions** (e.g., `x^2 - 1` vs `(x-1)(x+1)`): treat as a later, optional feature using a symbolic or sampling-based check, since this is much harder to do reliably.
 - Always show the student how their answer was interpreted ("Read as 3.2 × 10⁻³ m/s") so parsing errors are visible.
 
+**Shipped in 1.81.0:** `src/numeric-grading.js` reads fractions, mixed numbers, decimals, scientific notation and percentages; compares against `answer`, `accepted_answers` and `accepted_variants`; applies absolute, relative or percentage `tolerance`; supports inclusive/exclusive ranges (`1..2`, `[1, 2]`, `(1, 2)`); checks `sig_figs` (`at_least` or `exact`); and converts common length, mass, time, volume, energy, force, pressure, power, electricity, amount, speed and temperature units while rejecting incompatible dimensions. Practice and timed-test reviews show the interpretation and reason (for example `Read as 1 km (1000 m)`). Expression-equivalence grading remains intentionally out of scope. The pure rules are covered by `tests/numeric-grading.test.js`; the visual Obsidian check is not applicable because this is text-only grading.
+
 **5.16.4 Parameterized questions**
 - A question note defines **variables with ranges** and a **formula** for the answer; each attempt draws new values.
 - Variables appear in the stimulus and question through placeholders; the answer is computed, not typed.
@@ -1221,7 +1223,8 @@ These are **research and specification items**, not implementation work. The AP 
 ### Phase 5: FRQ and STEM
 
 - [ ] FRQ format, rubric grading, override, per-criterion feedback (§5.5; AP-specific research in §5.20)
-- [ ] Math, chemistry, and physics: numeric grading, parameterized questions, computation-based verification, SMILES integration, formula sheets (§5.16)
+- [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
+- [ ] Math, chemistry, and physics: parameterized questions, computation-based verification, SMILES integration, formula sheets (§5.16)
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
 ### Phase 6: Plans, time, and dashboard
@@ -2331,6 +2334,8 @@ Build on the existing timed test.
 - **Equivalent expressions** (e.g., `x^2 - 1` vs `(x-1)(x+1)`): treat as a later, optional feature using a symbolic or sampling-based check, since this is much harder to do reliably.
 - Always show the student how their answer was interpreted ("Read as 3.2 × 10⁻³ m/s") so parsing errors are visible.
 
+**Shipped in 1.81.0:** `src/numeric-grading.js` reads fractions, mixed numbers, decimals, scientific notation and percentages; compares against `answer`, `accepted_answers` and `accepted_variants`; applies absolute, relative or percentage `tolerance`; supports inclusive/exclusive ranges (`1..2`, `[1, 2]`, `(1, 2)`); checks `sig_figs` (`at_least` or `exact`); and converts common length, mass, time, volume, energy, force, pressure, power, electricity, amount, speed and temperature units while rejecting incompatible dimensions. Practice and timed-test reviews show the interpretation and reason (for example `Read as 1 km (1000 m)`). Expression-equivalence grading remains intentionally out of scope. The pure rules are covered by `tests/numeric-grading.test.js`; the visual Obsidian check is not applicable because this is text-only grading.
+
 **5.16.4 Parameterized questions**
 - A question note defines **variables with ranges** and a **formula** for the answer; each attempt draws new values.
 - Variables appear in the stimulus and question through placeholders; the answer is computed, not typed.
@@ -2603,7 +2608,8 @@ Names are proposals; keep existing ones unchanged.
 ### Phase 5: FRQ and STEM
 
 - [ ] FRQ format, rubric grading, override, per-criterion feedback (§5.5)
-- [ ] Math, chemistry, and physics: numeric grading, parameterized questions, computation-based verification, SMILES integration, formula sheets (§5.16)
+- [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
+- [ ] Math, chemistry, and physics: parameterized questions, computation-based verification, SMILES integration, formula sheets (§5.16)
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
 ### Phase 6: Plans, time, and dashboard

@@ -3,6 +3,7 @@ const { addDays, fmtDate, fmtDateTime, fmtDateTimeSec, str } = require("./util")
 const { appendHistory, hasAttemptId, setAttemptErrorType } = require("./history");
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
+const { gradeAnswerDetailed } = require("./numeric-grading");
 
 const HEAD_ALIASES = {
   stimulus: ["stimulus", "passage", "source", "excerpt", "reading", "text", "figure"],
@@ -132,14 +133,8 @@ function replaceMyNotes(data, text) {
 }
 
 function gradeAnswer(fm, chosen) {
-  const key = str(fm.answer).trim();
-  const type = fm.question_type || "mcq";
-  if (!key) return null;
-  if (type === "spr") {
-    const norm = (x) => str(x).trim().toLowerCase().replace(/\s+/g, "");
-    return key.split("|").map(norm).includes(norm(chosen));
-  }
-  return str(chosen).toUpperCase() === key.toUpperCase();
+  const result = gradeAnswerDetailed(fm, chosen);
+  return result ? result.correct : null;
 }
 
 /** Removes a cap from an earlier attempt when this review is no longer compressed. */
