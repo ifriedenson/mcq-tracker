@@ -228,6 +228,7 @@ function packTestSession(items, meta) {
       sel: str(it.sel),
       seconds: Math.round(it.seconds || 0),
       flagged: !!it.flagged,
+      ...(it.variant && it.variant.ok && Number.isFinite(Number(it.variant.seed)) ? { seed: Number(it.variant.seed) } : {}),
     })),
   };
 }
@@ -246,6 +247,7 @@ function unpackTestSession(s, now) {
       sel: str(r.sel),
       seconds: Number(r.seconds) || 0,
       flagged: !!r.flagged,
+      seed: Number.isFinite(Number(r.seed)) ? Number(r.seed) : undefined,
     }));
   if (!items.length) return null;
   const sections = (Array.isArray(s.sections) ? s.sections : [])

@@ -601,6 +601,8 @@ Build on the existing timed test.
 - Each variant's attempt is stored with the variable values used.
 - Great fit for physics, chemistry stoichiometry, and calculus drills where practicing many variants beats memorizing one.
 
+**Shipped in 1.82.0:** `src/parameterized.js` adds numeric variable ranges, stepped ranges, lists and fixed values, `{{name}}` substitution in the stimulus, question, answer and choices, and a restricted recursive-descent formula evaluator (no `eval`, no `Function`) supporting arithmetic, powers, parentheses, constants and a small function set. Each load gets a seeded variant, the computed answer feeds the existing numeric grader, reviews show the values, `variant_seed`/`last_variant` are written, and the optional eighth `history` field records the variant per attempt. Saved timed tests retain each item's seed across a restart. Malformed variants are never graded against a stale static answer. Covered by `tests/parameterized.test.js`.
+
 **5.16.5 Verification by computation (strengthens §5.4)**
 - For AI-generated or PDF-imported math questions, verify answers with an actual calculation (evaluate the expression numerically) instead of only asking a second model.
 - If model and computed answer disagree, mark `needs_review`.
@@ -1120,7 +1122,7 @@ Names are proposals; keep existing ones unchanged.
 | Sync safety | `history` as append-only entries with unique timestamps; derived fields recomputed from it |
 | Cards/vocab | `item_type: card\|vocab`, `language`, `part_of_speech`, `audio` |
 | Card answer modes | `answer_mode: flip\|type\|speak`, `accepted_variants`, `grading_strictness: strict\|standard\|lenient`, `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by`, `graded_on`, `grade_status: pending\|graded`, `grade_attempt_id`, `grade_confidence` |
-| Math / STEM | `tolerance`, `tolerance_type`, `sig_figs`, `units`, `accepted_answers`, `variables`, `answer_formula`, `variant_seed`, `calculator: allowed\|none`, `formula_sheet` |
+| Math / STEM | `tolerance`, `tolerance_type`, `sig_figs`, `units`, `accepted_answers`, `variables`, `answer_formula`, `variant_seed`, `last_variant`, `calculator: allowed\|none`, `formula_sheet` |
 | Item control | `study_status: active\|known\|excluded`, `known_until`, `excluded_on`, `excluded_reason` |
 | Import provenance | `import_source`, `import_format`, `imported_on`, `import_batch`, `import_source_url` |
 | Note opt-in | `flashcards: true\|false`, `quiz: true\|false` |
@@ -1224,7 +1226,8 @@ These are **research and specification items**, not implementation work. The AP 
 
 - [ ] FRQ format, rubric grading, override, per-criterion feedback (§5.5; AP-specific research in §5.20)
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
-- [ ] Math, chemistry, and physics: parameterized questions, computation-based verification, SMILES integration, formula sheets (§5.16)
+- [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
+- [ ] Math, chemistry, and physics: computation-based verification, SMILES integration, formula sheets (§5.16)
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
 ### Phase 6: Plans, time, and dashboard
@@ -2343,6 +2346,8 @@ Build on the existing timed test.
 - Each variant's attempt is stored with the variable values used.
 - Great fit for physics, chemistry stoichiometry, and calculus drills where practicing many variants beats memorizing one.
 
+**Shipped in 1.82.0:** `src/parameterized.js` adds numeric variable ranges, stepped ranges, lists and fixed values, `{{name}}` substitution in the stimulus, question, answer and choices, and a restricted recursive-descent formula evaluator (no `eval`, no `Function`) supporting arithmetic, powers, parentheses, constants and a small function set. Each load gets a seeded variant, the computed answer feeds the existing numeric grader, reviews show the values, `variant_seed`/`last_variant` are written, and the optional eighth `history` field records the variant per attempt. Saved timed tests retain each item's seed across a restart. Malformed variants are never graded against a stale static answer. Covered by `tests/parameterized.test.js`.
+
 **5.16.5 Verification by computation (strengthens §5.4)**
 - For AI-generated or PDF-imported math questions, verify answers with an actual calculation (evaluate the expression numerically) instead of only asking a second model.
 - If model and computed answer disagree, mark `needs_review`.
@@ -2535,7 +2540,7 @@ Names are proposals; keep existing ones unchanged.
 | Sync safety | `history` as append-only entries with unique timestamps; derived fields recomputed from it |
 | Cards/vocab | `item_type: card\|vocab`, `language`, `part_of_speech`, `audio` |
 | Card answer modes | `answer_mode: flip\|type\|speak`, `accepted_variants`, `grading_strictness: strict\|standard\|lenient`, `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by`, `graded_on` |
-| Math / STEM | `tolerance`, `tolerance_type`, `sig_figs`, `units`, `accepted_answers`, `variables`, `answer_formula`, `variant_seed`, `calculator: allowed\|none`, `formula_sheet` |
+| Math / STEM | `tolerance`, `tolerance_type`, `sig_figs`, `units`, `accepted_answers`, `variables`, `answer_formula`, `variant_seed`, `last_variant`, `calculator: allowed\|none`, `formula_sheet` |
 | Item control | `study_status: active\|known\|excluded`, `known_until`, `excluded_on`, `excluded_reason` |
 | Import provenance | `import_source`, `import_format`, `imported_on`, `import_batch`, `import_source_url` |
 | Note opt-in | `flashcards: true\|false`, `quiz: true\|false` |
@@ -2609,7 +2614,8 @@ Names are proposals; keep existing ones unchanged.
 
 - [ ] FRQ format, rubric grading, override, per-criterion feedback (§5.5)
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
-- [ ] Math, chemistry, and physics: parameterized questions, computation-based verification, SMILES integration, formula sheets (§5.16)
+- [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
+- [ ] Math, chemistry, and physics: computation-based verification, SMILES integration, formula sheets (§5.16)
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
 ### Phase 6: Plans, time, and dashboard

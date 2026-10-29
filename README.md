@@ -150,8 +150,8 @@ Which choice best describes the relationship between the two texts?
 - `## Stimulus` is optional. If a note has none but has a `stimulus_id`, the plugin borrows the passage from another note with the same `stimulus_id`.
 - The answer key is read from the `answer` property, or from a line like `Correct Answer: B` in the `## Answer` section.
 - `question_type` can be `mcq`, `spr` (student-produced response), or anything else for self-grading. Free text such as "Multiple choice (4 choices)" is understood too.
-- Properties the plugin reads: `course, test, section, domain, skill, unit, difficulty, question_type, choices, answer, tolerance, tolerance_type, sig_figs, sig_figs_mode, units, answer_unit, accepted_answers, accepted_variants, target_seconds, stimulus_id`.
-- Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, next_review, last_attempt_id, srs, scheduler, history`, plus the Known/Exclude fields `study_status, known_days, known_until, excluded_on, excluded_reason` when you use those actions. `srs` and `scheduler` are populated when FSRS schedules a review (`srs` may be empty if you add tracking properties to notes first).
+- Properties the plugin reads: `course, test, section, domain, skill, unit, difficulty, question_type, choices, answer, tolerance, tolerance_type, sig_figs, sig_figs_mode, units, answer_unit, accepted_answers, accepted_variants, variables, answer_formula, variant_seed, target_seconds, stimulus_id`.
+- Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, next_review, last_attempt_id, srs, scheduler, history`, plus the Known/Exclude fields `study_status, known_days, known_until, excluded_on, excluded_reason` when you use those actions, and `variant_seed` and `last_variant` after a parameterized attempt. `srs` and `scheduler` are populated when FSRS schedules a review (`srs` may be empty if you add tracking properties to notes first).
 
 ### Numeric answers (SPR)
 
@@ -173,6 +173,31 @@ accepted_answers:
 - `units` (or `answer_unit`) enables dimension checking and conversion for common length, mass, time, volume, energy, force, pressure, power, electricity, amount, speed and temperature units. A length is never accepted for a mass, and a unitless answer is read in the expected unit. The existing `unit` property still means the course unit, not a physical unit.
 - `answer` may list alternatives with `|`, and also accepts ranges: `1..2`, `[1, 2]` (inclusive) or `(1, 2)` (exclusive). `accepted_answers` adds more alternatives as a list or a `|`-separated string.
 - The grader reads numbers only; it does not evaluate expressions such as `sqrt(2)` or `2^3`. Word answers still fall back to an exact text comparison.
+
+### Parameterized questions
+
+A question note can draw new numbers for every attempt and compute the answer from them. Put placeholders in the question or stimulus, define the variables, and give an answer formula:
+
+```yaml
+question_type: spr
+variables:
+  a: 2..9
+  b: 1..5 by 0.5
+  c: [1, 2, 3]
+answer_formula: (a + b) * c
+units: m
+tolerance: 0.01
+```
+
+```markdown
+## Question
+A rectangle has side lengths {{a}} m and {{b}} m. What is its perimeter?
+```
+
+- Ranges are inclusive (`2..9`) and can use `by` for a step (`1..5 by 0.5`). Lists use `[1, 2, 3]` or `1,2,3`; a plain number is fixed. Variables can also be written compactly as `a=2..9; b=1..5`.
+- `answer_formula` supports `+ - * / % ^`, parentheses, `pi`, `e`, and `abs`, `sqrt`, `round`, `min`, `max`, `pow`, `mod`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `ln`, `log`, `exp`, `floor`, `ceil`, `trunc` and `sign`. It is evaluated by a restricted parser, never `eval`.
+- Each attempt gets a seeded variant. The review shows the values (`Variant: a = 3, b = 2.5, c = 1`), and the attempt stores them in the optional eighth `history` field plus `last_variant` and `variant_seed`. A saved timed test keeps the seed, so reopening it shows the same variant.
+- If a formula or range is invalid, the question shows a variant error and is self-graded instead of being graded against a stale answer.
 
 Run the command **Add missing tracking properties to all question notes** to add the writable properties to notes that don't have them yet.
 

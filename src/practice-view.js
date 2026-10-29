@@ -6,6 +6,7 @@ const { fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
+const { variantSummary, variantValuesText } = require("./parameterized");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
 const { API_PRESETS } = require("./api-client");
@@ -114,8 +115,7 @@ class PracticeView extends ItemView {
         this.plugin.settings.quickSession = null;
         await this.plugin.save();
       }
-    }
-    const s = this.plugin.session;
+    }    const s = this.plugin.session;
     if (!s) return;
     const file = this.app.vault.getAbstractFileByPath(s.path);
     const fm = file instanceof TFile ? this.app.metadataCache.getFileCache(file)?.frontmatter : null;
@@ -123,16 +123,16 @@ class PracticeView extends ItemView {
       this.plugin.clearSession();
       return;
     }
-    await this.loadQuestion({ file, fm }, false);
+    await this.loadQuestion({ file, fm }, false, s.variantSeed);
   }
 
-  async loadQuestion(q, fresh) {
-    this.current = await loadQuestionData(this.plugin, q);
+  async loadQuestion(q, fresh, seed) {
+    this.current = await loadQuestionData(this.plugin, q, { seed });
     this.sel = "";
     this.conf = 0;
     this.state = "question";
     if (fresh) {
-      this.plugin.startSession(q.file.path);
+      this.plugin.startSession(q.file.path, this.current.variant && this.current.variant.ok ? this.current.variant.seed : undefined);
       this.recent.push(q.file.path);
       if (this.recent.length > 5) this.recent.shift();
     }
@@ -258,6 +258,10 @@ class PracticeView extends ItemView {
       rating === "choice"
         ? studyAttemptForChoice(st.sel, st.card.key, seconds, st.card.mode === "self")
         : studyAttemptForFlip(rating === "known", seconds);
+    if (st.card.variant && st.card.variant.ok) {
+      attempt.variant = variantValuesText(st.card.variant.values);
+      attempt.variantSeed = st.card.variant.seed;
+    }
     try {
       const summary = await this.plugin.recordAttempt(st.card.file, attempt);
       st.summary = summary;
@@ -406,6 +410,8 @@ class PracticeView extends ItemView {
       conf: this.conf,
       seconds,
       now: new Date(),
+      variant: q.variant && q.variant.ok ? variantValuesText(q.variant.values) : "",
+      variantSeed: q.variant && q.variant.ok ? q.variant.seed : undefined,
     });
     if (summary && summary.queued) {
       new Notice("Saved offline. This result will be added to the note when the vault is writable.", 7000);
@@ -422,6 +428,7 @@ class PracticeView extends ItemView {
       key: q.key,
       mode: q.mode,
       seconds,
+      variant: q.variant,
       answerCheck,
       summary,
       errorType: "",
@@ -990,6 +997,11 @@ class PracticeView extends ItemView {
     const paused = !p.isRunning();
     const path = q.file.path;
     const verification = str(fm.verification).toLowerCase();
+    if (q.variant && q.variant.error) {
+      const variantBox = root.createDiv({ cls: "qt-verify-banner" });
+      variantBox.createSpan({ text: "Variant error. " });
+      variantBox.createSpan({ text: `${q.variant.error} This question is self-graded until the formula or variables are fixed.` });
+    }
     if (verification === "mismatch" || verification === "error") {
       const check = root.createDiv({ cls: "qt-verify-banner" });
       check.createSpan({ text: verification === "mismatch" ? "Answer check failed. " : "Answer check did not finish. " });
@@ -1301,6 +1313,9 @@ class PracticeView extends ItemView {
 
     // ---- review: the question and choices again, with your pick and the key marked
     const rv = root.createDiv({ cls: "qt-review" });
+    if (r.variant && r.variant.ok && Object.keys(r.variant.values || {}).length) {
+      rv.createDiv({ cls: "qt-hint qt-variant", text: `Variant: ${variantSummary(r.variant.values)}` });
+    }
     this.md(r.sections.question || "", rv.createDiv({ cls: "qt-stem" }), path);
     const rc = rv.createDiv({ cls: "qt-answers" });
     const chosenL = str(r.chosen).toUpperCase();

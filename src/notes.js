@@ -234,9 +234,13 @@ function applyAttempt(fm, a, intervals, options) {
   const now = fmtDateTime(a.now);
   const when = fmtDateTimeSec(a.now);
   const chosen = str(a.chosen).replace(/[|\n\r]/g, "/");
-  // date|result|seconds|answer|confidence|error_type|attempt_id
-  const row = `${when}|${a.correct ? "correct" : "incorrect"}|${a.seconds}|${chosen}|${a.conf}||${attemptId}`;
+  const variant = str(a.variant).replace(/[|\n\r]/g, "/").slice(0, 500);
+  // date|result|seconds|answer|confidence|error_type|attempt_id|variant
+  // The variant field is optional; older rows and readers stop at the id.
+  const row = `${when}|${a.correct ? "correct" : "incorrect"}|${a.seconds}|${chosen}|${a.conf}||${attemptId}${variant ? `|${variant}` : ""}`;
   fm.history = appendHistory(fm.history, row, attemptId);
+  if (variant) fm.last_variant = variant;
+  if (a.variantSeed !== undefined && Number.isFinite(Number(a.variantSeed))) fm.variant_seed = Number(a.variantSeed);
 
   fm.attempts = (Number(fm.attempts) || 0) + 1;
   fm.correct_count = (Number(fm.correct_count) || 0) + (a.correct ? 1 : 0);

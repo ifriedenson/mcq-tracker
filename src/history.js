@@ -1,11 +1,11 @@
 "use strict";
 /*
  * Review history rows are append-only:
- *   when|result|seconds|answer|confidence|error_type|attempt_id
+ *   when|result|seconds|answer|confidence|error_type|attempt_id|variant
  *
- * Older rows stop at error_type. The attempt id is what makes a retry or a
- * sync merge safe: the same row cannot be counted twice, while two devices can
- * contribute different rows for the same note.
+ * Older rows stop at error_type; the variant field is optional. The attempt id
+ * is what makes a retry or a sync merge safe: the same row cannot be counted
+ * twice, while two devices can contribute different rows for the same note.
  */
 const { str } = require("./util");
 

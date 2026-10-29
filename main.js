@@ -14072,6 +14072,7 @@ const { pickQuestion } = require("./filters");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
+const { variantSummary, variantValuesText } = require("./parameterized");
 const { NameModal } = require("./modals");
 const { buildSections, normalizeSections } = require("./exam-sections");
 
@@ -14157,7 +14158,7 @@ class TestView extends ItemView {
     for (const row of plan.items) {
       const q = byPath.get(row.path);
       if (!q) continue; // the note was deleted or moved
-      const data = await loadQuestionData(this.plugin, q);
+      const data = await loadQuestionData(this.plugin, q, { seed: row.seed });
       items.push({ ...data, sel: row.sel, seconds: row.seconds, flagged: row.flagged, conf: row.conf || 0 });
     }
     if (!items.length) {
@@ -14417,11 +14418,16 @@ class TestView extends ItemView {
     const specs = normalizeSections(sectionSpecs || (range && range.sections), n, minutes);
     const items = [];
     let noKey = 0;
+    let variantErrors = 0;
     while (items.length < n && rest.length) {
       const pick = pickQuestion(rest, mode, today, []);
       if (!pick) break;
       rest.splice(rest.indexOf(pick), 1);
       const data = await loadQuestionData(p, pick);
+      if (data.variant && data.variant.error) {
+        variantErrors++;
+        continue;
+      }
       if (data.mode === "self") {
         noKey++; // no answer key: it can't be graded in a timed test
         continue;
@@ -14429,13 +14435,18 @@ class TestView extends ItemView {
       items.push({ ...data, sel: "", seconds: 0, flagged: false, conf: 0 });
     }
     if (!items.length) {
-      new Notice("No questions with an answer key matched. Check your filters and the mode.");
+      new Notice(
+        variantErrors
+          ? `${variantErrors} parameterized question${variantErrors === 1 ? " was" : "s were"} left out because its variant could not be built.`
+          : "No questions with an answer key matched. Check your filters and the mode."
+      );
       this.phase = "setup";
       this.sections = [];
       this.render();
       return;
     }
     if (noKey) new Notice(`${noKey} question${noKey === 1 ? " was" : "s were"} left out because ${noKey === 1 ? "it has" : "they have"} no answer key.`, 6000);
+    if (variantErrors) new Notice(`${variantErrors} parameterized question${variantErrors === 1 ? " was" : "s were"} left out because its variant could not be built.`, 7000);
     this.items = items;
     this.startedAt = Date.now();
     this.sections = buildSections(items, specs, this.startedAt);
@@ -14629,7 +14640,15 @@ class TestView extends ItemView {
         rated++;
       }
       try {
-        await this.plugin.recordAttempt(it.file, { correct: !!it.correct, chosen: it.sel, conf: it.conf, seconds: Math.round(it.seconds), now });
+        await this.plugin.recordAttempt(it.file, {
+          correct: !!it.correct,
+          chosen: it.sel,
+          conf: it.conf,
+          seconds: Math.round(it.seconds),
+          now,
+          variant: it.variant && it.variant.ok ? variantValuesText(it.variant.values) : "",
+          variantSeed: it.variant && it.variant.ok ? it.variant.seed : undefined,
+        });
       } catch (e) {
         new Notice(`Couldn't save the result for ${it.file.basename}.`);
       }
@@ -14791,6 +14810,9 @@ class TestView extends ItemView {
     }
     if (it.mode === "spr") {
       d.createDiv({ cls: "qt-hint", text: `Your answer: ${it.sel || "(blank)"} · Correct answer: ${it.key}` });
+      if (it.variant && it.variant.ok && Object.keys(it.variant.values || {}).length) {
+        d.createDiv({ cls: "qt-hint qt-variant", text: `Variant: ${variantSummary(it.variant.values)}` });
+      }
       if (it.answerCheck && it.answerCheck.interpreted) {
         d.createDiv({ cls: "qt-hint qt-numeric-check", text: it.answerCheck.interpreted });
         if (it.answerCheck.reason) d.createDiv({ cls: "qt-hint qt-numeric-check", text: it.answerCheck.reason });
@@ -17477,11 +17499,11 @@ module.exports = Object.assign(exports.default || {}, exports)
 __defs["history"] = function (module, exports, require) {
 /*
  * Review history rows are append-only:
- *   when|result|seconds|answer|confidence|error_type|attempt_id
+ *   when|result|seconds|answer|confidence|error_type|attempt_id|variant
  *
- * Older rows stop at error_type. The attempt id is what makes a retry or a
- * sync merge safe: the same row cannot be counted twice, while two devices can
- * contribute different rows for the same note.
+ * Older rows stop at error_type; the variant field is optional. The attempt id
+ * is what makes a retry or a sync merge safe: the same row cannot be counted
+ * twice, while two devices can contribute different rows for the same note.
  */
 const { str } = require("./util");
 
@@ -20505,9 +20527,13 @@ function applyAttempt(fm, a, intervals, options) {
   const now = fmtDateTime(a.now);
   const when = fmtDateTimeSec(a.now);
   const chosen = str(a.chosen).replace(/[|\n\r]/g, "/");
-  // date|result|seconds|answer|confidence|error_type|attempt_id
-  const row = `${when}|${a.correct ? "correct" : "incorrect"}|${a.seconds}|${chosen}|${a.conf}||${attemptId}`;
+  const variant = str(a.variant).replace(/[|\n\r]/g, "/").slice(0, 500);
+  // date|result|seconds|answer|confidence|error_type|attempt_id|variant
+  // The variant field is optional; older rows and readers stop at the id.
+  const row = `${when}|${a.correct ? "correct" : "incorrect"}|${a.seconds}|${chosen}|${a.conf}||${attemptId}${variant ? `|${variant}` : ""}`;
   fm.history = appendHistory(fm.history, row, attemptId);
+  if (variant) fm.last_variant = variant;
+  if (a.variantSeed !== undefined && Number.isFinite(Number(a.variantSeed))) fm.variant_seed = Number(a.variantSeed);
 
   fm.attempts = (Number(fm.attempts) || 0) + 1;
   fm.correct_count = (Number(fm.correct_count) || 0) + (a.correct ? 1 : 0);
@@ -23147,6 +23173,467 @@ module.exports = {
   uniquePath,
   fileToJpeg,
   PaperScannerModal,
+};
+};
+
+/* ---- src/parameterized.js ---- */
+__defs["parameterized"] = function (module, exports, require) {
+/*
+ * Parameterized question variants.
+ *
+ * A note can define numeric variables with ranges or lists and an answer
+ * formula. Loading the note draws one seeded variant, substitutes {{name}}
+ * placeholders in the question text, and computes the answer with a small
+ * recursive-descent evaluator. Nothing here uses eval() or Function().
+ *
+ * Syntax:
+ *   variables:
+ *     a: 2..9
+ *     b: 1..5 by 0.5
+ *     c: [1, 2, 3]
+ *   answer_formula: (a + b) * c
+ *
+ * Placeholders use doubled braces: {{a}}, {{b}}.
+ */
+
+const { str } = require("./util");
+
+const FUNCTIONS = {
+  abs: { min: 1, max: 1, fn: (x) => Math.abs(x) },
+  sqrt: { min: 1, max: 1, fn: (x) => Math.sqrt(x) },
+  sin: { min: 1, max: 1, fn: (x) => Math.sin(x) },
+  cos: { min: 1, max: 1, fn: (x) => Math.cos(x) },
+  tan: { min: 1, max: 1, fn: (x) => Math.tan(x) },
+  asin: { min: 1, max: 1, fn: (x) => Math.asin(x) },
+  acos: { min: 1, max: 1, fn: (x) => Math.acos(x) },
+  atan: { min: 1, max: 1, fn: (x) => Math.atan(x) },
+  ln: { min: 1, max: 1, fn: (x) => Math.log(x) },
+  log: { min: 1, max: 1, fn: (x) => Math.log10(x) },
+  exp: { min: 1, max: 1, fn: (x) => Math.exp(x) },
+  floor: { min: 1, max: 1, fn: (x) => Math.floor(x) },
+  ceil: { min: 1, max: 1, fn: (x) => Math.ceil(x) },
+  trunc: { min: 1, max: 1, fn: (x) => Math.trunc(x) },
+  sign: { min: 1, max: 1, fn: (x) => Math.sign(x) },
+  round: { min: 1, max: 2, fn: (x, digits) => roundTo(x, digits === undefined ? 0 : digits) },
+  min: { min: 1, max: Infinity, fn: (...xs) => Math.min(...xs) },
+  max: { min: 1, max: Infinity, fn: (...xs) => Math.max(...xs) },
+  pow: { min: 2, max: 2, fn: (x, y) => Math.pow(x, y) },
+  mod: { min: 2, max: 2, fn: (x, y) => x % y },
+};
+const CONSTANTS = { pi: Math.PI, e: Math.E };
+const RESERVED = new Set([...Object.keys(FUNCTIONS), ...Object.keys(CONSTANTS)]);
+const IDENT_START = /[A-Za-z_]/;
+const IDENT_PART = /[A-Za-z0-9_]/;
+const NUMBER_RE = /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
+
+function roundTo(value, digits) {
+  const places = Math.max(0, Math.min(12, Math.round(Number(digits) || 0)));
+  const factor = Math.pow(10, places);
+  return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function normalizeExpressionText(text) {
+  return str(text)
+    .replace(/[−–—]/g, "-")
+    .replace(/[×✕✖·⋅]/g, "*")
+    .replace(/[÷]/g, "/")
+    .replace(/\bpi\b/g, "pi");
+}
+
+function tokenize(text) {
+  const src = normalizeExpressionText(text);
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (/[0-9.]/.test(ch)) {
+      const match = NUMBER_RE.exec(src.slice(i));
+      if (!match) throw new Error(`Bad number near "${src.slice(i, i + 12)}".`);
+      out.push({ type: "number", value: Number(match[0]) });
+      i += match[0].length;
+      continue;
+    }
+    if (IDENT_START.test(ch)) {
+      let j = i + 1;
+      while (j < src.length && IDENT_PART.test(src[j])) j++;
+      out.push({ type: "ident", value: src.slice(i, j) });
+      i = j;
+      continue;
+    }
+    if ("+-*/^%(),".includes(ch)) {
+      out.push({ type: ch });
+      i++;
+      continue;
+    }
+    throw new Error(`Unsupported character "${ch}" in the formula.`);
+  }
+  return insertImplicitMultiplication(out);
+}
+
+function insertImplicitMultiplication(tokens) {
+  const out = [];
+  const endsValue = (t) => !!t && (t.type === "number" || t.type === "ident" || t.type === ")");
+  const startsValue = (t) => !!t && (t.type === "number" || t.type === "ident" || t.type === "(");
+  for (const token of tokens) {
+    const prev = out[out.length - 1];
+    if (endsValue(prev) && startsValue(token)) {
+      // sin(x) is a call; a(x) is a variable times (x).
+      if (!(prev.type === "ident" && token.type === "(" && FUNCTIONS[prev.value])) out.push({ type: "*" });
+    }
+    out.push(token);
+  }
+  return out;
+}
+
+/** Evaluates one formula with a plain object of numeric variables. */
+function evaluateExpression(text, variables) {
+  const tokens = tokenize(text);
+  const vars = variables || {};
+  let at = 0;
+  const peek = () => tokens[at];
+  const take = (type) => {
+    const token = tokens[at];
+    if (!token || token.type !== type) throw new Error(`Expected ${type === ")" ? "a closing parenthesis" : type}.`);
+    at++;
+    return token;
+  };
+
+  function expression() {
+    let left = term();
+    while (peek() && (peek().type === "+" || peek().type === "-")) {
+      const op = tokens[at++].type;
+      const right = term();
+      left = op === "+" ? left + right : left - right;
+    }
+    return left;
+  }
+
+  function term() {
+    let left = unary();
+    while (peek() && (peek().type === "*" || peek().type === "/" || peek().type === "%")) {
+      const op = tokens[at++].type;
+      const right = unary();
+      left = op === "*" ? left * right : op === "/" ? left / right : left % right;
+    }
+    return left;
+  }
+
+  function unary() {
+    if (peek() && (peek().type === "+" || peek().type === "-")) {
+      const op = tokens[at++].type;
+      const inner = unary();
+      return op === "-" ? -inner : inner;
+    }
+    return power();
+  }
+
+  function power() {
+    const left = primary();
+    if (peek() && peek().type === "^") {
+      at++;
+      const right = unary(); // right-associative, and 2^-3 is allowed
+      return Math.pow(left, right);
+    }
+    return left;
+  }
+
+  function primary() {
+    const token = peek();
+    if (!token) throw new Error("The answer formula is incomplete.");
+    if (token.type === "number") {
+      at++;
+      return token.value;
+    }
+    if (token.type === "ident") {
+      at++;
+      const name = token.value;
+      if (FUNCTIONS[name] && peek() && peek().type === "(") {
+        take("(");
+        const args = [];
+        if (peek() && peek().type !== ")") {
+          args.push(expression());
+          while (peek() && peek().type === ",") {
+            at++;
+            args.push(expression());
+          }
+        }
+        take(")");
+        const spec = FUNCTIONS[name];
+        if (args.length < spec.min || args.length > spec.max) {
+          throw new Error(`The function ${name} takes ${spec.min === spec.max ? spec.min : `${spec.min} to ${spec.max}`} value(s).`);
+        }
+        return spec.fn(...args);
+      }
+      if (Object.prototype.hasOwnProperty.call(CONSTANTS, name)) return CONSTANTS[name];
+      if (Object.prototype.hasOwnProperty.call(vars, name)) return vars[name];
+      throw new Error(`Unknown variable "${name}". Add it under variables.`);
+    }
+    if (token.type === "(") {
+      at++;
+      const inner = expression();
+      take(")");
+      return inner;
+    }
+    throw new Error(`Unexpected "${token.type}" in the formula.`);
+  }
+
+  const value = expression();
+  if (at !== tokens.length) throw new Error("Unexpected extra text after the formula.");
+  if (!Number.isFinite(value)) throw new Error("The formula did not produce a real number.");
+  return value;
+}
+
+function parseNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const text = str(value).trim();
+  if (!text) return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
+
+function decimalPlaces(value) {
+  const text = String(value);
+  const match = /\.(\d+)/.exec(text);
+  return match ? Math.min(12, match[1].length) : 0;
+}
+
+/**
+ * Reads one variable spec:
+ *   3          fixed
+ *   2..9       integer range
+ *   1..5 by .5 stepped range
+ *   [1, 2, 3]  list
+ */
+function parseVariableSpec(raw) {
+  if (Array.isArray(raw)) {
+    const values = raw.map(parseNumber);
+    if (!values.length || values.some((v) => v === null)) return null;
+    return { kind: "list", values };
+  }
+  const fixed = parseNumber(raw);
+  if (fixed !== null) return { kind: "fixed", value: fixed };
+  let text = str(raw).trim();
+  if (!text) return null;
+  if (/^\[.*\]$/.test(text)) text = text.slice(1, -1).trim();
+
+  let body = text;
+  let step = null;
+  const stepMatch = text.match(/^(.*?)\s+(?:by|step)\s+(.+)$/i);
+  if (stepMatch) {
+    body = stepMatch[1].trim();
+    step = parseNumber(stepMatch[2]);
+    if (step === null || step <= 0) return null;
+  }
+
+  const range = body.split(/\s*(?:\.\.|\bto\b)\s*/i);
+  if (range.length === 2) {
+    const low = parseNumber(range[0]);
+    const high = parseNumber(range[1]);
+    if (low === null || high === null) return null;
+    const start = Math.min(low, high);
+    const end = Math.max(low, high);
+    // Integer ranges step by one. Decimal ranges use ten even steps unless
+    // the note asks for a specific "by" value.
+    const stride = step === null ? (Number.isInteger(start) && Number.isInteger(end) ? 1 : Math.max(1e-6, (end - start) / 10)) : step;
+    const count = Math.floor((end - start) / stride + 1e-9) + 1;
+    if (count < 1 || count > 1000) return null;
+    const places = decimalPlaces(stride);
+    const values = [];
+    for (let i = 0; i < count; i++) values.push(roundTo(start + i * stride, places));
+    return { kind: "range", values, step: stride, decimals: places };
+  }
+
+  const list = body.split(/[,|]/).map((part) => part.trim()).filter(Boolean);
+  if (list.length > 1) {
+    const values = list.map(parseNumber);
+    if (values.some((v) => v === null)) return null;
+    return { kind: "list", values };
+  }
+  return null;
+}
+
+/**
+ * Reads variables from a YAML-style object, a list of "name=spec" strings, or
+ * a compact string such as "a=2..9; b=1..5". Names are sorted so the same seed
+ * produces the same variant regardless of property order.
+ */
+function parseVariables(raw) {
+  const out = {};
+  const errors = [];
+  const add = (name, spec) => {
+    const key = str(name).trim();
+    if (!IDENT_START.test(key) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      errors.push(`"${key}" is not a valid variable name.`);
+      return;
+    }
+    if (RESERVED.has(key)) {
+      errors.push(`"${key}" is reserved for a function or constant.`);
+      return;
+    }
+    const parsed = parseVariableSpec(spec);
+    if (!parsed) {
+      errors.push(`Could not read the range for "${key}".`);
+      return;
+    }
+    out[key] = parsed;
+  };
+
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    Object.entries(raw).forEach(([name, spec]) => add(name, spec));
+  } else if (Array.isArray(raw)) {
+    raw.forEach((entry) => {
+      const text = str(entry).trim();
+      const match = /^([^=]+)=(.+)$/.exec(text);
+      if (match) add(match[1].trim(), match[2].trim());
+      else errors.push(`Could not read variable "${text}". Use name=range.`);
+    });
+  } else if (typeof raw === "string") {
+    raw
+      .split(/[;\n]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .forEach((entry) => {
+        const match = /^([^=]+)=(.+)$/.exec(entry);
+        if (match) add(match[1].trim(), match[2].trim());
+        else errors.push(`Could not read variable "${entry}". Use name=range.`);
+      });
+  } else if (raw !== undefined && raw !== null && str(raw).trim()) {
+    errors.push("Variables must be an object, a list, or name=range pairs.");
+  }
+
+  return { variables: out, errors };
+}
+
+function seedFromText(text) {
+  let h = 2166136261;
+  const s = str(text);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function normalizeSeed(seed, label) {
+  const number = Number(seed);
+  if (seed !== undefined && seed !== null && seed !== "" && Number.isFinite(number)) return Math.floor(Math.abs(number)) >>> 0;
+  return seedFromText(`${label || "variant"}|${Date.now()}|${Math.random()}`);
+}
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function random() {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function drawValue(spec, random) {
+  if (spec.kind === "fixed") return spec.value;
+  if (spec.kind === "list") return spec.values[Math.min(spec.values.length - 1, Math.floor(random() * spec.values.length))];
+  const index = Math.min(spec.values.length - 1, Math.floor(random() * spec.values.length));
+  return spec.values[index];
+}
+
+function formatVariantNumber(value) {
+  if (!Number.isFinite(value)) return "";
+  if (Object.is(value, -0)) return "0";
+  if (Number.isInteger(value)) return String(value);
+  return String(Number(value.toPrecision(10)));
+}
+
+/**
+ * Draws one variant. Returns { active:false } for ordinary notes, and an error
+ * object (never throws) when a parameterized note is malformed.
+ */
+function buildVariant(fm, seed, label) {
+  const formula = str(fm && fm.answer_formula).trim();
+  if (!formula) return { active: false, ok: false, error: "", seed: 0, values: {}, formula: "" };
+  const parsed = parseVariables(fm && fm.variables);
+  if (parsed.errors.length) {
+    return { active: true, ok: false, error: parsed.errors.join(" "), seed: normalizeSeed(seed, label), values: {}, formula };
+  }
+  const names = Object.keys(parsed.variables).sort();
+  const actualSeed = normalizeSeed(seed, label);
+  const random = mulberry32(actualSeed);
+  const values = {};
+  for (const name of names) values[name] = drawValue(parsed.variables[name], random);
+  try {
+    const answer = evaluateExpression(formula, values);
+    return {
+      active: true,
+      ok: true,
+      error: "",
+      seed: actualSeed,
+      values,
+      formula,
+      answer,
+      answerText: formatVariantNumber(answer),
+    };
+  } catch (e) {
+    return { active: true, ok: false, error: str(e && e.message) || "The answer formula could not be evaluated.", seed: actualSeed, values, formula };
+  }
+}
+
+function substituteVariables(text, values) {
+  const vars = values || {};
+  return str(text).replace(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (match, name) =>
+    Object.prototype.hasOwnProperty.call(vars, name) ? formatVariantNumber(vars[name]) : match
+  );
+}
+
+/** A new sections object with placeholders replaced in every learner-facing string. */
+function applyVariantToSections(sections, values) {
+  const source = sections || {};
+  const out = { ...source };
+  for (const key of ["stimulus", "question", "answer", "notes", "body"]) {
+    if (typeof source[key] === "string") out[key] = substituteVariables(source[key], values);
+  }
+  out.choices = (Array.isArray(source.choices) ? source.choices : []).map((choice) => ({
+    ...choice,
+    text: substituteVariables(choice && choice.text, values),
+  }));
+  return out;
+}
+
+function variantSummary(values) {
+  return Object.keys(values || {})
+    .sort()
+    .map((name) => `${name} = ${formatVariantNumber(values[name])}`)
+    .join(", ");
+}
+
+function variantValuesText(values) {
+  return Object.keys(values || {})
+    .sort()
+    .map((name) => `${name}=${formatVariantNumber(values[name])}`)
+    .join(";")
+    .replace(/[|\n\r]/g, "/")
+    .slice(0, 500);
+}
+
+module.exports = {
+  FUNCTIONS,
+  CONSTANTS,
+  tokenize,
+  evaluateExpression,
+  parseVariableSpec,
+  parseVariables,
+  normalizeSeed,
+  mulberry32,
+  buildVariant,
+  substituteVariables,
+  applyVariantToSections,
+  formatVariantNumber,
+  variantSummary,
+  variantValuesText,
 };
 };
 
@@ -28427,8 +28914,15 @@ class QuestionTrackerPlugin extends Plugin {
       /* storage unavailable: the timer still works, it just won't survive a reload */
     }
   }
-  startSession(path) {
-    this.session = { path, elapsedMs: 0, runningSince: Date.now(), lastBeat: Date.now() };
+  startSession(path, variantSeed) {
+    const seed = Number(variantSeed);
+    this.session = {
+      path,
+      elapsedMs: 0,
+      runningSince: Date.now(),
+      lastBeat: Date.now(),
+      ...(Number.isFinite(seed) ? { variantSeed: seed } : {}),
+    };
     this.writeSession();
   }
   isRunning() {
@@ -28839,6 +29333,7 @@ const { fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
+const { variantSummary, variantValuesText } = require("./parameterized");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
 const { API_PRESETS } = require("./api-client");
@@ -28947,8 +29442,7 @@ class PracticeView extends ItemView {
         this.plugin.settings.quickSession = null;
         await this.plugin.save();
       }
-    }
-    const s = this.plugin.session;
+    }    const s = this.plugin.session;
     if (!s) return;
     const file = this.app.vault.getAbstractFileByPath(s.path);
     const fm = file instanceof TFile ? this.app.metadataCache.getFileCache(file)?.frontmatter : null;
@@ -28956,16 +29450,16 @@ class PracticeView extends ItemView {
       this.plugin.clearSession();
       return;
     }
-    await this.loadQuestion({ file, fm }, false);
+    await this.loadQuestion({ file, fm }, false, s.variantSeed);
   }
 
-  async loadQuestion(q, fresh) {
-    this.current = await loadQuestionData(this.plugin, q);
+  async loadQuestion(q, fresh, seed) {
+    this.current = await loadQuestionData(this.plugin, q, { seed });
     this.sel = "";
     this.conf = 0;
     this.state = "question";
     if (fresh) {
-      this.plugin.startSession(q.file.path);
+      this.plugin.startSession(q.file.path, this.current.variant && this.current.variant.ok ? this.current.variant.seed : undefined);
       this.recent.push(q.file.path);
       if (this.recent.length > 5) this.recent.shift();
     }
@@ -29091,6 +29585,10 @@ class PracticeView extends ItemView {
       rating === "choice"
         ? studyAttemptForChoice(st.sel, st.card.key, seconds, st.card.mode === "self")
         : studyAttemptForFlip(rating === "known", seconds);
+    if (st.card.variant && st.card.variant.ok) {
+      attempt.variant = variantValuesText(st.card.variant.values);
+      attempt.variantSeed = st.card.variant.seed;
+    }
     try {
       const summary = await this.plugin.recordAttempt(st.card.file, attempt);
       st.summary = summary;
@@ -29239,6 +29737,8 @@ class PracticeView extends ItemView {
       conf: this.conf,
       seconds,
       now: new Date(),
+      variant: q.variant && q.variant.ok ? variantValuesText(q.variant.values) : "",
+      variantSeed: q.variant && q.variant.ok ? q.variant.seed : undefined,
     });
     if (summary && summary.queued) {
       new Notice("Saved offline. This result will be added to the note when the vault is writable.", 7000);
@@ -29255,6 +29755,7 @@ class PracticeView extends ItemView {
       key: q.key,
       mode: q.mode,
       seconds,
+      variant: q.variant,
       answerCheck,
       summary,
       errorType: "",
@@ -29823,6 +30324,11 @@ class PracticeView extends ItemView {
     const paused = !p.isRunning();
     const path = q.file.path;
     const verification = str(fm.verification).toLowerCase();
+    if (q.variant && q.variant.error) {
+      const variantBox = root.createDiv({ cls: "qt-verify-banner" });
+      variantBox.createSpan({ text: "Variant error. " });
+      variantBox.createSpan({ text: `${q.variant.error} This question is self-graded until the formula or variables are fixed.` });
+    }
     if (verification === "mismatch" || verification === "error") {
       const check = root.createDiv({ cls: "qt-verify-banner" });
       check.createSpan({ text: verification === "mismatch" ? "Answer check failed. " : "Answer check did not finish. " });
@@ -30134,6 +30640,9 @@ class PracticeView extends ItemView {
 
     // ---- review: the question and choices again, with your pick and the key marked
     const rv = root.createDiv({ cls: "qt-review" });
+    if (r.variant && r.variant.ok && Object.keys(r.variant.values || {}).length) {
+      rv.createDiv({ cls: "qt-hint qt-variant", text: `Variant: ${variantSummary(r.variant.values)}` });
+    }
     this.md(r.sections.question || "", rv.createDiv({ cls: "qt-stem" }), path);
     const rc = rv.createDiv({ cls: "qt-answers" });
     const chosenL = str(r.chosen).toUpperCase();
@@ -34244,6 +34753,7 @@ function packTestSession(items, meta) {
       sel: str(it.sel),
       seconds: Math.round(it.seconds || 0),
       flagged: !!it.flagged,
+      ...(it.variant && it.variant.ok && Number.isFinite(Number(it.variant.seed)) ? { seed: Number(it.variant.seed) } : {}),
     })),
   };
 }
@@ -34262,6 +34772,7 @@ function unpackTestSession(s, now) {
       sel: str(r.sel),
       seconds: Number(r.seconds) || 0,
       flagged: !!r.flagged,
+      seed: Number.isFinite(Number(r.seed)) ? Number(r.seed) : undefined,
     }));
   if (!items.length) return null;
   const sections = (Array.isArray(s.sections) ? s.sections : [])
@@ -36045,6 +36556,7 @@ const { MarkdownRenderer } = require("obsidian");
 const { findAnswerKey, inferMode, parseSections } = require("./notes");
 const { str } = require("./util");
 const { prepareMathMarkdown } = require("./math-rendering");
+const parameterized = require("./parameterized");
 
 /* ----------------------------------------------------------------- plugin */
 
@@ -36063,10 +36575,10 @@ function renderMarkdownInto(app, markdown, el, sourcePath, component) {
 }
 
 /** Reads a question note and works out how to present and grade it. */
-async function loadQuestionData(plugin, q) {
+async function loadQuestionData(plugin, q, options) {
   const app = plugin.app;
   const text = await app.vault.cachedRead(q.file);
-  const sections = parseSections(text);
+  let sections = parseSections(text);
   // Shared passage: if this note has none but names a stimulus_id, borrow it from a sibling note.
   if (!sections.stimulus && str(q.fm.stimulus_id).trim()) {
     const id = str(q.fm.stimulus_id).trim();
@@ -36083,9 +36595,21 @@ async function loadQuestionData(plugin, q) {
       }
     }
   }
-  const key = findAnswerKey(q.fm, sections);
-  const mode = inferMode(q.fm.question_type, key, sections.choices);
-  return { file: q.file, fm: { ...q.fm }, sections, key, mode };
+  let key = findAnswerKey(q.fm, sections);
+  let mode = inferMode(q.fm.question_type, key, sections.choices);
+  const variant = parameterized.buildVariant(q.fm, options && options.seed, q.file.path);
+  if (variant.active) {
+    if (variant.ok) {
+      sections = parameterized.applyVariantToSections(sections, variant.values);
+      key = variant.answerText;
+      mode = "spr";
+    } else {
+      // Never grade a broken variant against a stale static answer.
+      key = "";
+      mode = "self";
+    }
+  }
+  return { file: q.file, fm: { ...q.fm }, sections, key, mode, variant };
 }
 
 module.exports = {
@@ -36640,6 +37164,7 @@ const { fmtDate, fmtDateTime } = require("./util");
 const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
 const { answerFromSection, applyAttempt, extractRationale, fillDefaults, findAnswerKey, gradeAnswer, inferMode, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const numericGrading = require("./numeric-grading");
+const parameterized = require("./parameterized");
 const fsrs = require("./fsrs");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
@@ -36773,6 +37298,7 @@ QuestionTrackerPlugin.__test = {
   aiService,
   mathRendering,
   renderMarkdownInto,
+  loadQuestionData,
   noteContext,
   aiWriteGuard,
   cardWriteDiff,
@@ -36798,6 +37324,7 @@ QuestionTrackerPlugin.__test = {
   gradeAnswer,
   gradeAnswerDetailed: numericGrading.gradeAnswerDetailed,
   numericGrading,
+  parameterized,
   applyAttempt,
   fsrs,
   setLastErrorType,

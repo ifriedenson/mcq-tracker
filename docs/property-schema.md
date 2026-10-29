@@ -24,6 +24,9 @@ would break a reader ships with a migration and a new schema version.
 | `sig_figs`, `sig_figs_mode` | number, string | Optional significant-figure check. `sig_figs_mode` is `at_least` (default) or `exact`. Fractions are exempt because they are exact. |
 | `units`, `answer_unit` | string | Optional physical unit for a numeric answer, such as `m` or `m/s`. Compatible units are converted before comparison; incompatible dimensions are rejected. The separate `unit` property remains the course/unit classification. |
 | `accepted_answers`, `accepted_variants` | list or string | Extra accepted numeric or text answers, in addition to `answer`. |
+| `variables` | object, list or string | Numeric ranges, lists or fixed values for a parameterized question, for example `a: 2..9` or `a=2..9; b=1..5`. |
+| `answer_formula` | string | Safe arithmetic formula for the computed answer, using the variable names and `{{name}}` placeholders. |
+| `variant_seed`, `last_variant` | number, string | Written after a parameterized attempt: the seed used and the values (`a=3;b=2.5`). |
 | `choice_1` … `choice_8` | string | Answer choices, in display order. |
 | `correct_choices` | string | One-based choice numbers, for example `2` or `1,3`. |
 | `stimulus_id` | string | Shared ID for a passage or figure used by several questions. |
@@ -61,12 +64,13 @@ greater than `attempts`, and `accuracy` is derived rather than stored.
 
 ```text
 2026-10-29T14:05:00|correct|42|B|3|careless|a-mh3k2-8f1c2a
-timestamp|result|seconds|answer|confidence|error|attempt_id
+timestamp|result|seconds|answer|confidence|error|attempt_id|variant
 ```
 
 Fields after the timestamp may be empty. Rows written before 1.76.0 omit the final
 attempt id; the reader accepts both forms, and new rows always carry an id. The id makes
-a retry or a phone/desktop merge safe: the same row is never counted twice.
+a retry or a phone/desktop merge safe: the same row is never counted twice. The optional
+eighth field stores the parameterized variant values (`a=3;b=2.5`).
 
 ### Study status
 

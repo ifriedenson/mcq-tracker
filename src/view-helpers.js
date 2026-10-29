@@ -3,6 +3,7 @@ const { MarkdownRenderer } = require("obsidian");
 const { findAnswerKey, inferMode, parseSections } = require("./notes");
 const { str } = require("./util");
 const { prepareMathMarkdown } = require("./math-rendering");
+const parameterized = require("./parameterized");
 
 /* ----------------------------------------------------------------- plugin */
 
@@ -21,10 +22,10 @@ function renderMarkdownInto(app, markdown, el, sourcePath, component) {
 }
 
 /** Reads a question note and works out how to present and grade it. */
-async function loadQuestionData(plugin, q) {
+async function loadQuestionData(plugin, q, options) {
   const app = plugin.app;
   const text = await app.vault.cachedRead(q.file);
-  const sections = parseSections(text);
+  let sections = parseSections(text);
   // Shared passage: if this note has none but names a stimulus_id, borrow it from a sibling note.
   if (!sections.stimulus && str(q.fm.stimulus_id).trim()) {
     const id = str(q.fm.stimulus_id).trim();
@@ -41,9 +42,21 @@ async function loadQuestionData(plugin, q) {
       }
     }
   }
-  const key = findAnswerKey(q.fm, sections);
-  const mode = inferMode(q.fm.question_type, key, sections.choices);
-  return { file: q.file, fm: { ...q.fm }, sections, key, mode };
+  let key = findAnswerKey(q.fm, sections);
+  let mode = inferMode(q.fm.question_type, key, sections.choices);
+  const variant = parameterized.buildVariant(q.fm, options && options.seed, q.file.path);
+  if (variant.active) {
+    if (variant.ok) {
+      sections = parameterized.applyVariantToSections(sections, variant.values);
+      key = variant.answerText;
+      mode = "spr";
+    } else {
+      // Never grade a broken variant against a stale static answer.
+      key = "";
+      mode = "self";
+    }
+  }
+  return { file: q.file, fm: { ...q.fm }, sections, key, mode, variant };
 }
 
 module.exports = {

@@ -7,6 +7,7 @@ const { pickQuestion } = require("./filters");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
+const { variantSummary, variantValuesText } = require("./parameterized");
 const { NameModal } = require("./modals");
 const { buildSections, normalizeSections } = require("./exam-sections");
 
@@ -92,7 +93,7 @@ class TestView extends ItemView {
     for (const row of plan.items) {
       const q = byPath.get(row.path);
       if (!q) continue; // the note was deleted or moved
-      const data = await loadQuestionData(this.plugin, q);
+      const data = await loadQuestionData(this.plugin, q, { seed: row.seed });
       items.push({ ...data, sel: row.sel, seconds: row.seconds, flagged: row.flagged, conf: row.conf || 0 });
     }
     if (!items.length) {
@@ -352,11 +353,16 @@ class TestView extends ItemView {
     const specs = normalizeSections(sectionSpecs || (range && range.sections), n, minutes);
     const items = [];
     let noKey = 0;
+    let variantErrors = 0;
     while (items.length < n && rest.length) {
       const pick = pickQuestion(rest, mode, today, []);
       if (!pick) break;
       rest.splice(rest.indexOf(pick), 1);
       const data = await loadQuestionData(p, pick);
+      if (data.variant && data.variant.error) {
+        variantErrors++;
+        continue;
+      }
       if (data.mode === "self") {
         noKey++; // no answer key: it can't be graded in a timed test
         continue;
@@ -364,13 +370,18 @@ class TestView extends ItemView {
       items.push({ ...data, sel: "", seconds: 0, flagged: false, conf: 0 });
     }
     if (!items.length) {
-      new Notice("No questions with an answer key matched. Check your filters and the mode.");
+      new Notice(
+        variantErrors
+          ? `${variantErrors} parameterized question${variantErrors === 1 ? " was" : "s were"} left out because its variant could not be built.`
+          : "No questions with an answer key matched. Check your filters and the mode."
+      );
       this.phase = "setup";
       this.sections = [];
       this.render();
       return;
     }
     if (noKey) new Notice(`${noKey} question${noKey === 1 ? " was" : "s were"} left out because ${noKey === 1 ? "it has" : "they have"} no answer key.`, 6000);
+    if (variantErrors) new Notice(`${variantErrors} parameterized question${variantErrors === 1 ? " was" : "s were"} left out because its variant could not be built.`, 7000);
     this.items = items;
     this.startedAt = Date.now();
     this.sections = buildSections(items, specs, this.startedAt);
@@ -564,7 +575,15 @@ class TestView extends ItemView {
         rated++;
       }
       try {
-        await this.plugin.recordAttempt(it.file, { correct: !!it.correct, chosen: it.sel, conf: it.conf, seconds: Math.round(it.seconds), now });
+        await this.plugin.recordAttempt(it.file, {
+          correct: !!it.correct,
+          chosen: it.sel,
+          conf: it.conf,
+          seconds: Math.round(it.seconds),
+          now,
+          variant: it.variant && it.variant.ok ? variantValuesText(it.variant.values) : "",
+          variantSeed: it.variant && it.variant.ok ? it.variant.seed : undefined,
+        });
       } catch (e) {
         new Notice(`Couldn't save the result for ${it.file.basename}.`);
       }
@@ -726,6 +745,9 @@ class TestView extends ItemView {
     }
     if (it.mode === "spr") {
       d.createDiv({ cls: "qt-hint", text: `Your answer: ${it.sel || "(blank)"} · Correct answer: ${it.key}` });
+      if (it.variant && it.variant.ok && Object.keys(it.variant.values || {}).length) {
+        d.createDiv({ cls: "qt-hint qt-variant", text: `Variant: ${variantSummary(it.variant.values)}` });
+      }
       if (it.answerCheck && it.answerCheck.interpreted) {
         d.createDiv({ cls: "qt-hint qt-numeric-check", text: it.answerCheck.interpreted });
         if (it.answerCheck.reason) d.createDiv({ cls: "qt-hint qt-numeric-check", text: it.answerCheck.reason });

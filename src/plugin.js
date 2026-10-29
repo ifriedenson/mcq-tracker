@@ -3498,8 +3498,15 @@ class QuestionTrackerPlugin extends Plugin {
       /* storage unavailable: the timer still works, it just won't survive a reload */
     }
   }
-  startSession(path) {
-    this.session = { path, elapsedMs: 0, runningSince: Date.now(), lastBeat: Date.now() };
+  startSession(path, variantSeed) {
+    const seed = Number(variantSeed);
+    this.session = {
+      path,
+      elapsedMs: 0,
+      runningSince: Date.now(),
+      lastBeat: Date.now(),
+      ...(Number.isFinite(seed) ? { variantSeed: seed } : {}),
+    };
     this.writeSession();
   }
   isRunning() {

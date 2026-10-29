@@ -14,6 +14,7 @@ const { fmtDate, fmtDateTime } = require("./util");
 const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
 const { answerFromSection, applyAttempt, extractRationale, fillDefaults, findAnswerKey, gradeAnswer, inferMode, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const numericGrading = require("./numeric-grading");
+const parameterized = require("./parameterized");
 const fsrs = require("./fsrs");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
@@ -147,6 +148,7 @@ QuestionTrackerPlugin.__test = {
   aiService,
   mathRendering,
   renderMarkdownInto,
+  loadQuestionData,
   noteContext,
   aiWriteGuard,
   cardWriteDiff,
@@ -172,6 +174,7 @@ QuestionTrackerPlugin.__test = {
   gradeAnswer,
   gradeAnswerDetailed: numericGrading.gradeAnswerDetailed,
   numericGrading,
+  parameterized,
   applyAttempt,
   fsrs,
   setLastErrorType,
