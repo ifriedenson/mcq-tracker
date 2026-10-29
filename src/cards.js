@@ -8,6 +8,7 @@
  */
 const { str } = require("./util");
 const { isDue } = require("./filters");
+const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictness, parseVariants } = require("./card-grading");
 
 const CARD_TYPES = ["basic", "reversed", "cloze"];
 const CARD_GRADES = ["again", "hard", "good", "easy"];
@@ -33,7 +34,13 @@ function normalizeDecks(list) {
     const key = lower(name);
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ name, folder: normalizeFolder(raw.folder), course: str(raw.course).trim() });
+    out.push({
+      name,
+      folder: normalizeFolder(raw.folder),
+      course: str(raw.course).trim(),
+      answerMode: normalizeAnswerMode(raw.answerMode || raw.answer_mode, ""),
+      gradingStrictness: normalizeStrictness(raw.gradingStrictness || raw.grading_strictness, ""),
+    });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
@@ -41,7 +48,17 @@ function normalizeDecks(list) {
 /** Merges saved card settings into defaults without dropping new fields or user data. */
 function mergeCardSettings(saved, defaults) {
   const base = Object.assign(
-    { enabled: false, newCardFolder: "Cards", defaultDeck: "General", reviewLimit: 20, order: "due", decks: [] },
+    {
+      enabled: false,
+      newCardFolder: "Cards",
+      defaultDeck: "General",
+      reviewLimit: 20,
+      order: "due",
+      answerMode: "flip",
+      gradingStrictness: "standard",
+      aiGrading: false,
+      decks: [],
+    },
     defaults || {}
   );
   const src = saved && typeof saved === "object" ? saved : {};
@@ -51,6 +68,9 @@ function mergeCardSettings(saved, defaults) {
   out.defaultDeck = str(src.defaultDeck === undefined ? base.defaultDeck : src.defaultDeck).trim();
   out.reviewLimit = Math.min(100, Math.max(1, Math.round(Number(src.reviewLimit) || base.reviewLimit || 20)));
   out.order = src.order === "all" ? "all" : "due";
+  out.answerMode = normalizeAnswerMode(src.answerMode === undefined ? base.answerMode : src.answerMode, "flip");
+  out.gradingStrictness = normalizeStrictness(src.gradingStrictness === undefined ? base.gradingStrictness : src.gradingStrictness, "standard");
+  out.aiGrading = src.aiGrading === true;
   out.decks = normalizeDecks(src.decks === undefined ? base.decks : src.decks);
   return out;
 }
@@ -120,10 +140,36 @@ function courseOf(fm, settings, path, deckName) {
   return courseForFolder(settings, path);
 }
 
-/** Fill in the effective deck and course so views and filters agree. */
+/** Card setting, then deck setting, then the global card default. */
+function effectiveAnswerMode(fm, settings, deckName) {
+  const own = normalizeAnswerMode(fm && (fm.answer_mode || fm.answerMode), "");
+  if (own) return own;
+  const deck = deckConfig(settings, deckName);
+  if (deck && deck.answerMode) return deck.answerMode;
+  return normalizeAnswerMode(settings && settings.cards && settings.cards.answerMode, "flip");
+}
+
+/** Card setting, then deck setting, then the global strictness. */
+function effectiveGradingStrictness(fm, settings, deckName) {
+  const own = normalizeStrictness(fm && (fm.grading_strictness || fm.gradingStrictness), "");
+  if (own) return own;
+  const deck = deckConfig(settings, deckName);
+  if (deck && deck.gradingStrictness) return deck.gradingStrictness;
+  return normalizeStrictness(settings && settings.cards && settings.cards.gradingStrictness, "standard");
+}
+
+/** Fill in the effective deck, course and answer settings so views and filters agree. */
 function resolveCard(file, fm, settings) {
   const deck = deckOf(fm, settings, file.path);
-  return { file, fm, deck, course: courseOf(fm, settings, file.path, deck), kind: cardKind(fm) };
+  return {
+    file,
+    fm,
+    deck,
+    course: courseOf(fm, settings, file.path, deck),
+    kind: cardKind(fm),
+    answerMode: effectiveAnswerMode(fm, settings, deck),
+    gradingStrictness: effectiveGradingStrictness(fm, settings, deck),
+  };
 }
 
 function headingsOf(text) {
@@ -187,6 +233,7 @@ function parseCardBody(text, fm) {
       partOfSpeech: firstSection(h, ["part of speech", "pos"]) || str(fm.part_of_speech || fm.pos).trim(),
       language: str(fm.language || fm.lang).trim(),
       notes: firstSection(h, ["notes"]),
+      acceptedVariants: parseVariants(fm && (fm.accepted_variants || fm.answer_variants)),
     };
   }
 
@@ -217,6 +264,7 @@ function parseCardBody(text, fm) {
     partOfSpeech: "",
     language: "",
     notes: firstSection(h, ["notes"]),
+    acceptedVariants: parseVariants(fm && (fm.accepted_variants || fm.answer_variants)),
   };
 }
 
@@ -255,6 +303,25 @@ function cardNote(input, now) {
     `deck: ${yamlString(deck)}`,
   ];
   if (course) lines.push(`course: ${yamlString(course)}`);
+  if (data.importSource) lines.push(`import_source: ${yamlString(data.importSource)}`);
+  if (data.importKey) lines.push(`import_key: ${yamlString(data.importKey)}`);
+  if (data.questionSet) lines.push(`question_set: ${yamlString(data.questionSet)}`);
+  const choices = Array.isArray(data.choices) ? data.choices : [];
+  for (let i = 0; i < choices.length; i++) {
+    if (str(choices[i]).trim()) lines.push(`choice_${i + 1}: ${yamlString(str(choices[i]).trim())}`);
+  }
+  const correct = Array.isArray(data.correctChoices) ? data.correctChoices.join(",") : str(data.correctChoices).trim();
+  if (correct) lines.push(`correct_choices: ${yamlString(correct)}`);
+  if (Number(data.timeLimit) > 0) lines.push(`time_limit: ${Math.round(Number(data.timeLimit))}`);
+  const answerMode = normalizeAnswerMode(data.answerMode, "");
+  if (answerMode) lines.push(`answer_mode: ${yamlString(answerMode)}`);
+  const gradingStrictness = normalizeStrictness(data.gradingStrictness, "");
+  if (gradingStrictness) lines.push(`grading_strictness: ${yamlString(gradingStrictness)}`);
+  const variants = parseVariants(data.acceptedVariants);
+  if (variants.length) {
+    lines.push("accepted_variants:");
+    for (const variant of variants) lines.push(`  - ${yamlString(variant)}`);
+  }
   if (kind === "vocab") {
     if (data.partOfSpeech) lines.push(`part_of_speech: ${yamlString(data.partOfSpeech)}`);
     if (data.language) lines.push(`language: ${yamlString(data.language)}`);
@@ -368,6 +435,8 @@ function courseOptions(cards) {
 module.exports = {
   CARD_TYPES,
   CARD_GRADES,
+  ANSWER_MODES,
+  GRADING_STRICTNESS,
   GRADE_INFO,
   normalizeFolder,
   normalizeDecks,
@@ -378,6 +447,8 @@ module.exports = {
   deckOf,
   courseForFolder,
   courseOf,
+  effectiveAnswerMode,
+  effectiveGradingStrictness,
   resolveCard,
   parseCloze,
   parseCardBody,

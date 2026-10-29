@@ -151,13 +151,13 @@ test("aiReady: needs AI on, and a key and model for the direct API", async () =>
 
 /* ------------------------------------------------------------ the screen */
 
-test("screen: with no questions it shows the headline, the explanation, Import PDFs and the guide link", async () => {
+test("screen: with no questions it shows the headline, the explanation, Import files and the guide link", async () => {
   const { dom, view } = await setup([JOURNAL]);
   view.render();
   const texts = dom.texts();
   assert.ok(texts.includes("No questions yet"));
-  assert.ok(texts.some((t) => /Extract multiple-choice questions from your PDFs/.test(t)));
-  assert.ok(texts.includes("Import PDFs"));
+  assert.ok(texts.some((t) => /Extract multiple-choice questions from your PDFs, PowerPoints, Word files/.test(t)));
+  assert.ok(texts.includes("Import files"));
   const guide = dom.find("Quick-start guide")[0];
   assert.equal(guide.meta.href, T.QUICK_START_URL);
   assert.ok(!texts.includes("Start")); // none of the practice controls
@@ -166,23 +166,23 @@ test("screen: with no questions it shows the headline, the explanation, Import P
   assert.ok(!texts.some((t) => /look like questions/.test(t))); // nothing broken, so no warning
 });
 
-test("screen: Import PDFs opens the import flow when AI is set up", async () => {
+test("screen: Import files opens the import flow when AI is set up", async () => {
   const { plugin, dom, view } = await setup([]);
   Object.assign(plugin.settings.ai, { enabled: true, backend: "api" });
   plugin.settings.ai.api.keys.anthropic = "sk-test";
   view.render();
-  await dom.click("Import PDFs");
+  await dom.click("Import files");
   assert.equal(plugin.imports, 1);
   assert.equal(view.state, "idle");
 });
 
-test("screen: with no AI set up, Import PDFs goes to setup first, then on to the import flow", async () => {
+test("screen: with no AI set up, Import files goes to setup first, then on to the import flow", async () => {
   const { plugin, dom, view } = await setup([]);
   view.render();
-  await dom.click("Import PDFs");
+  await dom.click("Import files");
   assert.equal(plugin.imports, 0, "does not open the import yet");
   assert.equal(view.state, "ai-setup");
-  assert.ok(dom.texts().includes("Set up AI to import PDFs"));
+  assert.ok(dom.texts().includes("Set up AI to import files"));
 
   // continuing without a key is refused
   await dom.click("Save and continue");
@@ -206,7 +206,7 @@ test("screen: with no AI set up, Import PDFs goes to setup first, then on to the
 test("screen: choosing OpenCode opens the settings, then Continue returns to the import flow", async () => {
   const { plugin, dom, view } = await setup([]);
   view.render();
-  await dom.click("Import PDFs");
+  await dom.click("Import files");
   const how = dom.all.find((o) => o.meta && o.meta.tag === "select");
   how.value = "opencode";
   how.handlers.find((h) => h.ev === "change").fn({});
@@ -223,7 +223,7 @@ test("screen: choosing OpenCode opens the settings, then Continue returns to the
 test("screen: Back from AI setup returns to the empty screen without changing settings", async () => {
   const { plugin, dom, view } = await setup([]);
   view.render();
-  await dom.click("Import PDFs");
+  await dom.click("Import files");
   await dom.click("Back");
   assert.equal(view.state, "idle");
   assert.equal(plugin.settings.ai.enabled, false);

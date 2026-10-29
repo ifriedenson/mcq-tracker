@@ -76,7 +76,10 @@ const DEFAULT_SETTINGS = {
     defaultDeck: "General",
     reviewLimit: 20,
     order: "due", // "due" (due + new) | "all"
-    decks: [], // [{ name, folder, course }]
+    answerMode: "flip", // "flip" | "type" | "speak" (speak uses the text box with OS dictation)
+    gradingStrictness: "standard", // "strict" | "standard" | "lenient"
+    aiGrading: false, // optional AI second opinion when the local typed-answer grader is unsure
+    decks: [], // [{ name, folder, course, answerMode, gradingStrictness }]
   },
 };
 

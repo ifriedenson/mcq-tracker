@@ -2,7 +2,7 @@
 
 **Status:** Implementation in progress
 **Prepared:** October 27, 2026
-**Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), growth plan (§10b), and agent-driven quality gates (§8.5). Roadmap re-ordered (§7).
+**Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), and agent-driven quality gates (§8.5). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
 
 > **How to read the license notes.** License information below comes from each plugin's community page, README, or a stats/index site as seen during research on Oct 27, 2026. Items marked **Verify** were not confirmed. Before copying any code, open the repo's `LICENSE` file and `package.json` yourself. MIT allows reuse if you keep the copyright and license notice. This is not legal advice.
@@ -215,7 +215,7 @@ Obsidian renders LaTeX natively with MathJax. Forum posts report that the mhchem
 5. Focus and Study Time
 6. Analytics Dashboard
 7. AI Generation and Grading
-8. Source Ingestion (PDF, audio)
+8. Source Ingestion (PDF, paper scans, audio)
 9. Study Plan / Cram Mode
 10. Interop (Anki, Spaced Repetition syntax, Tasks syntax)
 11. Math, Chemistry, and Physics (rendering, numeric grading, parameterized questions)
@@ -257,7 +257,7 @@ Every studyable thing is an **item** with a common set of properties plus a type
 
 ### 4.5 Packaging: one modular plugin (confirmed)
 
-**Decision (confirmed by owner):** One plugin. Modules are off by default. A first-run preset chooser turns on the right set: "SAT/AP-style prep", "University courses", "Language learning", "STEM problem sets", "Just flashcards".
+**Decision (confirmed by owner):** One plugin. Modules are off by default. A first-run preset chooser in the welcome screen (§5.21) turns on the right set: "SAT/AP-style prep", "University courses", "Language learning", "STEM problem sets", "Just flashcards".
 
 **Why this works**
 - Value comes from modules sharing data (a missed question updates the schedule, exam plan, dashboard, and assistant context).
@@ -484,6 +484,38 @@ Build on the existing timed test.
 - **Audio → transcript → notes:** do not rebuild transcription. Detect a transcript note (from Whisper, Audio to Text, Local Whisper, or Lecture Transcriber) in a course folder, then offer "generate practice from this lecture."
 - **Optional built-in transcription** only after the above, using API or local Whisper, with clear process/network disclosure.
 
+#### 5.13.1 Paper scanning → PDF → practice items
+
+**Goal (owner):** A student can photograph or scan a paper worksheet, problem packet, or textbook page, turn it into a PDF in the vault, and have the plugin turn it into MCQs, FRQs, cards, or course notes depending on what the document contains.
+
+**Pipeline**
+1. **Capture.** On a phone, open the scanner from the ribbon or command palette and take one photo per page with the rear camera; also allow choosing existing photos. On desktop, drag in images or a PDF. Before saving, allow retake, rotate, crop, reorder and delete. Nothing is uploaded during capture.
+2. **Build the PDF in the vault.** Combine the pages into one PDF named from a template such as `{date} {course} {title}.pdf`, in a folder the user chooses. Write it locally with a small, permissively licensed PDF writer (verify the licence before adding it); the PDF step must not require a native binary or an external service. Keep the page images only when "Keep original pages" is on.
+3. **Get readable text.** Use an existing PDF text layer first. For image-only scans, OCR is required: offer a local option on desktop (for example a Tesseract-compatible engine, after verifying licence and packaging) and an opt-in BYOK vision/OCR option on mobile. Disclose exactly what is sent and keep it off by default. Show per-page confidence and let the user correct text before generation.
+4. **Classify the document.** Ask what it is: **MCQ**, **FRQ**, **mixed**, **flashcards/vocab**, or **course notes**. Default to **Auto-detect** with a confidence label, looking for answer choices, numbered questions or `Question ID` labels, rubric-style criteria, and free-response prompts. Never guess silently: show the proposed type and let the user change it.
+5. **Route through the existing converters.** MCQ pages go through the existing question importer. FRQ pages create `question_type: frq` notes with prompt, stimulus, rubric and sample answer. A mixed packet is split into blocks and classified per block. Course notes can become notes or card candidates. Reuse the AI layer and the existing review screen; do not build a second importer.
+6. **Review before writing.** Show the pages, extracted text, detected type and proposed notes. The user can merge or split blocks, fix labels, choose a folder, and untick items. Run the existing duplicate checks (official question IDs, normalized text, and a page/image hash) before creating anything.
+7. **Link provenance.** Every generated item stores `source_pdf`, `source_page`, `source_scan_id`, `scan_date`, `ocr_source` and `ocr_confidence`. Opening the source jumps to the page in the PDF, and the PDF note lists the generated items as backlinks.
+8. **Offline and batch behavior.** Capture and PDF creation work offline. OCR and generation queue behind the existing offline/AI queue. Multi-page and multi-document scans show progress, can be paused, and never leave half-written notes. A failed page can be retried without redoing the whole packet.
+9. **Mobile first.** The scanner is a primary phone surface: camera capture, thumbnails, reorder, crop, and one **Create notes** action. Desktop gets drag-and-drop and bulk import.
+10. **Privacy and limits.** Paper often contains names, school IDs or handwriting. Keep images local until the user starts OCR or generation; never upload automatically; allow deleting the PDF and original pages after import. Printed text is the first target. Handwriting recognition is a later, opt-in vision feature and is not promised for accuracy.
+
+**Data and settings**
+- Scanner settings: default folder, filename template, keep original pages, OCR engine, auto-detect on/off, default item type, and vision model.
+- `scan_id` groups the pages from one capture session. Re-scanning the same packet offers to replace or add pages instead of silently duplicating it.
+- A scan is a normal vault PDF, so existing PDF annotation and backlink plugins keep working.
+
+**Acceptance criteria**
+- A three-page photo scan becomes one PDF in the chosen vault folder, in the order shown.
+- A text PDF converts without OCR; an image-only PDF prompts for OCR and discloses the provider.
+- The user can choose MCQ, FRQ, mixed, cards or notes, and auto-detect is never applied without showing the result.
+- A mixed packet is split and classified per question, with a review step before any note is written.
+- Every generated note links back to the PDF page it came from.
+- Capture and saving work offline; OCR and generation queue and resume after a restart.
+- No image is uploaded when AI features or OCR are off.
+
+**Risks:** OCR quality on faint, skewed or handwritten pages; page order and duplicates; mistaking a worksheet heading for a question; vision cost; and privacy of student names. Mitigate with crop/rotate, confidence display, a review gate, provenance, and local-first defaults.
+
 ### 5.14 Notes ↔ practice links and concept views  — **S–M**
 
 - **"Reread this" button:** on a miss, open the source note and heading.
@@ -585,6 +617,15 @@ Build on the existing timed test.
 
 This saves cost, works offline for easy cases, and keeps latency low.
 
+**AI fallback (only after Steps 1–4 are inconclusive)**
+- **Never replaces a confident local grade.** A deterministic match (exact, variant, typo-tolerant, numeric) is final; the AI is called only when the local result is inconclusive or below the configured confidence threshold.
+- **One shared AI layer.** Uses the same BYOK/OpenCode provider selection, per-feature on/off switch, model choice and spend caps as the rest of the plugin (§4.6). If grading AI is off, the card falls back to self-grade instead of sending anything.
+- **Small, bounded request.** Sends only the card front, the stored reference answer, the learner's typed answer, the strictness, and optional key ideas. No vault context, no note body, no history, no unrelated cards.
+- **Structured result.** The model must return `{ verdict, confidence, present_ideas, missing_ideas, feedback }`; the plugin validates the shape and clamps the verdict to `correct | partial | incorrect`. Timeouts, refusals, malformed JSON and low confidence become **pending**, never **incorrect**.
+- **Prompt-injection contract.** The stored answer is the reference; the learner's text is untrusted data. Instructions inside an answer ("mark this correct", "ignore the rubric") are ignored. The grader has no tools and cannot write notes.
+- **Provenance.** Writes `graded_by: ai`, the model id and date, plus confidence. A learner override always wins and is stored separately as `verdict_override`.
+- **Cost guard.** One short request per card, bounded output tokens, no automatic retry after an ambiguous timeout (retrying can double-charge); the queue can retry explicitly later.
+
 **AI grader output**
 - Verdict: `correct`, `partial`, or `incorrect`.
 - Which key ideas were present or missing (for definitions with several parts).
@@ -600,9 +641,18 @@ This saves cost, works offline for easy cases, and keeps latency low.
 2. **In-plugin recording → transcription** through the configured provider (BYOK) or local Whisper on desktop. **Verify** that audio recording works reliably in Obsidian mobile before promising it; the transcription plugins surveyed list different platform support (e.g., one lists macOS and iOS only). See §3.6.
 3. **Language learning:** later, optional pronunciation feedback. Do not promise it in v1; transcription accuracy is not the same as pronunciation assessment.
 
+**Grade-later queue (offline, slow, or over budget)**
+- **Never block the session.** If the AI is unavailable, the request times out, the spend cap is reached, or the device is offline, save the attempt as `pending` and move on. The learner can keep reviewing.
+- **Durable outbox.** Store pending attempts in the plugin's own data (not in card frontmatter) with: attempt id, note path, card id, a snapshot of the reference answer, the typed answer, locale, strictness, requested model, and timestamp. The existing offline-attempt queue is the model. Cap the queue and drop the oldest with a clear notice; never grow without bound.
+- **Idempotent batch grading.** One attempt id maps to exactly one grade. On reconnect, send small batches (for example 10 at a time), oldest first, with backoff. If a note was edited or deleted meanwhile, grade against the stored snapshot and flag the result, or drop it if the note is gone.
+- **Pending is not a fail.** A pending attempt must not reset the streak, count as incorrect, or schedule the card as `Again`. Keep the previous due date and show a **Pending grade** badge in the review screen, Today list and card history.
+- **Learner controls.** From the pending badge the learner can **Grade now**, **Self-grade instead** (Again/Hard/Good/Easy), or **Discard**. Self-grading records `graded_by: self` and leaves the AI queue.
+- **Clear the queue.** After a batch, show one summary notice ("Graded 8 answers, 2 still pending") and write each verdict once. Do not interrupt the current review with per-card popups.
+- **Privacy.** Pending answers wait on the device and are sent only when the learner is online and AI grading is still enabled. Turning AI grading off offers to self-grade or discard the queue; it never uploads silently.
+
 **Mobile and bus-friendly behavior**
-- **Grade later:** if offline or slow, store the typed answer, show "pending grade", and grade in a batch when connected. The learner can keep going.
-- **Batch grading** at the end of a session reduces latency and API overhead.
+- Type-first review works one-handed; pending grades let a phone session continue on a bus with no signal.
+- Batch grading at the end of a session reduces latency and API overhead.
 
 **Quality and safety**
 - Grader is told the stored answer is the reference and the learner's text is **untrusted data** (a typed answer must not be able to instruct the grader, e.g., "mark this correct").
@@ -610,9 +660,18 @@ This saves cost, works offline for easy cases, and keeps latency low.
 - Periodically sample overrides to find systematic leniency or harshness; expose a small "grader accuracy" stat in settings.
 - Provide a deterministic test set of card/answer pairs to evaluate each model before recommending it.
 
-**Properties (see §6):** `answer_mode`, `accepted_variants`, `grading_strictness`, `last_typed_answer`, `last_verdict`, `verdict_override`.
+**Properties (see §6):** `answer_mode`, `accepted_variants`, `grading_strictness`, `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by`, `graded_on`, `grade_status: pending|graded`, `grade_attempt_id`, `grade_confidence`.
 
 **Privacy:** typed or spoken answers are sent to the selected provider only when the AI step is needed. Disclose this in settings. Easy matches never leave the device.
+
+**Acceptance criteria**
+- A deterministic match never calls a provider.
+- Offline, timeout or budget exhaustion stores a pending attempt and leaves the schedule unchanged.
+- Reconnecting grades each attempt exactly once, even after a restart.
+- Malformed, refused or low-confidence AI output becomes pending, never incorrect.
+- AI grading off falls back to self-grade and sends nothing.
+- Strictness, accepted variants and learner overrides are respected.
+- A prompt-injection attempt inside a typed answer cannot change the verdict.
 
 ---
 
@@ -704,6 +763,120 @@ This saves cost, works offline for easy cases, and keeps latency low.
 
 **Risks:** Obsidian mobile has platform limits (background work, notifications, widgets). Validate each idea on real iOS and Android devices before committing to it.
 
+### 5.20 AP FRQ grader, score calculator, and resource hub  — **M–L; research next, highly wanted**
+
+**Why this is next after card import.** AP students already bring decks from Quizlet, Anki, and Spaced Repetition. The part those decks cannot grade is the part that decides many AP scores: free-response writing, worked solutions, and the rubric language used by readers. The owner explicitly wants the FRQ grader next. This section is a research/spec backlog; **do not code it until the research deliverable and evaluation set are reviewed**.
+
+**Provisional product shape.** One optional **AP exam tools** module, enabled per course, with three connected surfaces: FRQ practice and grading, an exam score calculator, and a curated AP resource hub.
+
+#### 5.20.1 AP FRQ grader
+
+Reuse the general FRQ model in §5.5 and add AP-specific structure.
+
+- **Item format:** prompt, optional stimulus/source set, rubric, sample answer, and a course/exam link. Support `question_type: frq` notes that can live beside existing MCQ notes.
+- **Rubric editor:** each criterion has points, a short description, and an optional category (thesis/claim, evidence, reasoning, calculation, units/significant figures, notation, communication). Allow pasted official or teacher rubrics; store `rubric_source: official | user | ai`.
+- **Practice flow:** timed or untimed; typed answer first, with OS voice dictation where available. Photo-of-handwriting grading is a later, opt-in vision feature, not part of the first release.
+- **Grading:** score criterion by criterion, never as one holistic number. The grader must quote the part of the student answer that earned or missed each criterion, return `awarded / max` per line, and explain the decision in one or two sentences.
+- **Trust and control:** show a confidence value, flag low-confidence criteria, support a second independent grading pass, and let the learner override any criterion. Keep a **self-grade** mode that needs no AI at all.
+- **Scheduling:** map the rubric percentage to the existing scheduler bands; store `max_points`, `last_score`, `criteria_missed`, `graded_by`, and `graded_on`; feed missed criteria into weak spots and the study plan.
+- **AP-specific presets to research:** DBQ and LEQ rubrics for AP History; calculation/derivation and justification rubrics for AP STEM; document/data analysis; short-answer and long-essay formats; world-language writing; AP Seminar/Research performance tasks. Confirm the current rubric structure for each supported course rather than assuming one generic rubric.
+- **Quality target:** agreement with a small, human-scored evaluation set of released sample responses. Do not claim reader-level accuracy from a demo.
+
+#### 5.20.2 AP score calculator
+
+An **unofficial practice estimate**, never a prediction presented as an official College Board score.
+
+- **Inputs:** MCQ correct/raw score, FRQ points by question, section weights, exam form/year, and an optional custom curve. Support partial practice (MCQ only or one FRQ) with a clear "incomplete estimate" state.
+- **Outputs:** estimated composite, estimated 1–5, confidence range, section breakdown, and a reverse calculator: "What FRQ score do I need for a 4/5?"
+- **Profiles:** an `ap_exam_profile` per course/year containing MCQ count, FRQ count, timing, section weights, calculator rules, and the raw-to-composite formula. Source each profile from the current course and exam description, version it by year, and show the source.
+- **Curves:** score cutoffs vary by year, form, and administration. Ship no single "official" curve. Default to a clearly labeled unofficial estimate; allow a teacher or user to enter the curve from a released scoring worksheet; show the formula and source used.
+- **Storage:** practice-exam notes/properties with `course`, `exam_year`, `form`, section raw scores, composite, estimated AP score, and `curve_source`. Keep history so the learner can see a trend rather than one number.
+- **Validation:** test the arithmetic against public scoring worksheets and known sample composites. Treat every curve as data that needs a citation and a date.
+
+#### 5.20.3 AP resource hub
+
+A **link-and-index** feature, not a content dump.
+
+- **Official AP resources:** AP Central course pages, course and exam descriptions (CED), exam format pages, released free-response questions, scoring guidelines, sample student responses, chief reader reports, score distributions, AP Daily videos, and AP Students exam dates/registration deadlines.
+- **AP Classroom:** unit guides, progress checks, and the question bank are account-gated and may have no public API. Link to them; never scrape behind a login or copy question banks into the plugin without permission. **Verify** current terms before building any integration.
+- **Third-party study resources:** Fiveable, Khan Academy, teacher sites, AP student communities, and the Quizlet/Anki/Spaced Repetition decks users already have. The existing importers cover decks; the hub should tag and link rather than re-host.
+- **User-owned material:** review-book PDFs, teacher handouts, and released practice exams the user already has. Use the existing PDF import and provenance fields; do not bundle copyrighted prompts, rubrics, or videos.
+- **Features:** resource notes with `course`, `unit`, `resource_type`, `source_url`, and `checked_on`; attach a resource to an exam or study block; open the official source in one click; show stale-link warnings; provide a per-course "start here" pack.
+- **Calendar and Today:** AP exam dates and registration deadlines as exam events; study blocks can point to a resource or an FRQ; the Today screen shows the next AP exam and one recommended resource.
+
+#### 5.20.4 Research questions and guardrails
+
+1. **Course coverage:** Which AP courses first? Prioritize the courses with the clearest public rubrics and the largest user demand; do not promise every AP subject on day one.
+2. **Permissions:** What may be stored, quoted, or rendered from AP Central/AP Classroom? Prefer linking, user-supplied files, and original summaries. AP is a trademark; make no affiliation claim.
+3. **Rubric fidelity:** How closely can an AI grader reproduce reader scoring on released sample responses? Build a small evaluation set per course, measure agreement, and publish the limits in the UI.
+4. **Score curves:** Which public scoring worksheets are usable, and how should the plugin represent year/form differences without implying officialness?
+5. **Data and privacy:** Student essays are sensitive. Grading is opt-in, per-feature disclosed, and queued offline like other AI work (§5.17). Student text is untrusted input to the grader.
+6. **Scope discipline:** No AP Classroom scraping, no bundled College Board question banks, no claim that an estimated score is official, and no photo grading in the first release.
+
+**Definition of ready:** a reviewed spec listing supported AP courses, the rubric schema, the exam-profile and curve schema, a human-scored evaluation set, the resource-link policy, the copyright/permissions review, UX flows, and acceptance tests. Only then should implementation begin. The FRQ grader research spec and evaluation plan is [docs/ap-frq-grader-spec.md](docs/ap-frq-grader-spec.md).
+
+### 5.21 First-run welcome, guided setup, and optional support  — **S–M**
+
+**Goal (owner):** Every new install opens a welcome screen that explains what the plugin does, shows how to turn modules on and off, teaches the main workflows, and — later — offers an optional feedback survey and a way to donate. It should feel like a helpful start, not an advertisement.
+
+**When it appears**
+- The first time the plugin loads after installation and enabling in a vault. It is a modal or a dedicated welcome tab opened after Obsidian finishes loading; it never blocks startup.
+- Show it once per device. Store a local `welcomeSeenVersion` and `welcomeDismissed` flag; do not put onboarding state in note frontmatter.
+- Do not show the full welcome after every update. After a major release, a small, dismissible **What's new** card is enough.
+- Always provide **Skip for now**, **Close** and Escape/click-outside. A user who skips is not asked again unless they open the guide themselves.
+- Add a command, **Open welcome guide**, and a link in **Settings → Global → About**, so it can be reopened later.
+- If the vault already has questions or cards, keep the welcome but skip the empty-vault wording and point the first step at existing practice.
+
+**Step 1 — Welcome**
+- One sentence on the outcome: practice like the exam, review with spaced repetition, and optionally manage cards and a course calendar.
+- Three short bullets: **practice questions**, **flashcards and vocab**, **calendar and exams**.
+- Primary button **Get started**; secondary **Skip for now**; quiet link to the README/quick-start guide.
+- No network request, AI key, or account is needed to open or finish the welcome.
+
+**Step 2 — Choose what you need (and learn the module switches)**
+- Show the presets from §4.5: *SAT/AP-style prep*, *University courses*, *Language learning*, *STEM problem sets*, *Just flashcards*, and *Everything off*.
+- Under each preset, show exactly which modules it turns on. After choosing, show the actual module toggles — **MCQ Tracker**, **Cards**, **Calendar**, **AI features** — with a one-line description and their current state.
+- Let the user change any switch here; save through the existing module settings, not a separate copy.
+- Explain in one line that turning a module off hides its views and entry points but **does not delete notes, cards, schedules, or settings**.
+- Link to **Settings → Global → Modules** for later changes. This is the main place the welcome teaches “how to toggle different features”.
+
+**Step 3 — How to use the plugin**
+Use short step cards, each with a working button:
+
+1. **Get questions in** — import a PDF, PowerPoint, Word or other file, or create a question note. Button: **Import questions**.
+2. **Practice** — open the practice view, choose filters, or start a 2/5/10-minute Quick Practice session. Button: **Open practice**.
+3. **Review what is due** — Today shows due questions, cards and the next class. Button: **Open Today**.
+4. **Add cards (optional)** — create a flashcard, vocabulary item or cloze card. Button: **Create a card**.
+5. **Add your schedule (optional)** — import an `.ics` file or calendar link, then open the month/day view. Button: **Open calendar**.
+6. **Find settings later** — Settings has Global, MCQ Tracker, Cards and Calendar groups; each group has its own tabs. Button: **Open settings**.
+
+- Mark each step with a check when the user completes it, stored locally as a simple checklist. This is optional progress, not a gate.
+- Keep the copy short and link to the relevant README section for detail. The guide must use the same names as the current UI; update it whenever a button or tab is renamed.
+- Finish with **Open practice** and **Reopen this guide later**. The welcome is complete when the user closes it, whether or not every step was visited.
+
+**Step 4 — Help and support (future, optional)**
+- **Feedback survey:** three to five questions about setup friction, what the user wants next, and whether they would recommend the plugin. Open an external form only when the user clicks **Give feedback**; never auto-submit, never attach vault data, and offer an anonymous path. Link to GitHub Discussions for users who prefer public feedback.
+- **Donation:** one clearly optional link (for example GitHub Sponsors or Ko-fi, chosen later). No amount is preselected, no feature is locked, no repeated nag, and no guilt copy. Say plainly that the plugin is MIT and free, and that donations support maintenance.
+- Put the support step **after** the how-to, with **Maybe later** and **Don't ask again**. Do not show it before the user has had a chance to use the plugin.
+- Ship the welcome and how-to first; the survey and donation links can be added later behind a setting so the first release does not depend on them.
+- **No telemetry.** Do not count opens, clicks or completions remotely. If survey responses are collected, explain where they go and who can see them.
+
+**Data and settings**
+- `welcomeSeenVersion`, `welcomeDismissed`, and the optional checklist live in the plugin's own local data or device storage, not in notes.
+- Survey and donation URLs live in one constants file so they can be changed without touching the UI.
+- The welcome follows the theme, uses theme colour variables, works at phone width, supports keyboard navigation, and respects reduced motion.
+
+**Acceptance criteria**
+- A fresh install shows the welcome once; closing or skipping it prevents it from reappearing automatically.
+- Every module can be turned on or off from the welcome, and the state matches Settings → Global → Modules.
+- The how-to buttons open the real import, practice, Today, card, calendar and settings surfaces.
+- **Open welcome guide** reopens it from the command palette and settings.
+- The survey and donation links are optional, never block setup, never open automatically, and never gate a feature.
+- The welcome is usable on desktop and mobile and with the keyboard alone.
+- No network request is made until the user clicks an external feedback or donation link.
+
+**Risks:** onboarding fatigue, instructions going stale after UI changes, survey or donation pressure, and privacy concerns. Mitigate with a short three-step flow, a single dismissible guide, current screenshots/names, clear skip controls, and local-only onboarding state.
+
 ---
 
 ## 6. Property schema (draft)
@@ -723,7 +896,7 @@ Names are proposals; keep existing ones unchanged.
 | Courses | `course` (reuse), `semester`, `exam` (link or id) |
 | Sync safety | `history` as append-only entries with unique timestamps; derived fields recomputed from it |
 | Cards/vocab | `item_type: card\|vocab`, `language`, `part_of_speech`, `audio` |
-| Card answer modes | `answer_mode: flip\|type\|speak`, `accepted_variants`, `grading_strictness: strict\|standard\|lenient`, `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by`, `graded_on` |
+| Card answer modes | `answer_mode: flip\|type\|speak`, `accepted_variants`, `grading_strictness: strict\|standard\|lenient`, `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by`, `graded_on`, `grade_status: pending\|graded`, `grade_attempt_id`, `grade_confidence` |
 | Math / STEM | `tolerance`, `tolerance_type`, `sig_figs`, `units`, `accepted_answers`, `variables`, `answer_formula`, `variant_seed`, `calculator: allowed\|none`, `formula_sheet` |
 
 **Principle:** if a note can be understood without the plugin, the properties are well-named. Avoid storing large blobs in frontmatter.
@@ -736,13 +909,13 @@ Names are proposals; keep existing ones unchanged.
 
 ### Phase 0: Foundations and safety
 
-- [ ] Module system: every module off by default, lazy-loaded, with first-run presets (§4.5)
+- [x] Module system: every module off by default, lazy-loaded, with first-run presets (§4.5)
 - [ ] Shared AI service layer: BYOK + OpenCode, capability flags, queue, cost caps (§4.6)
 - [ ] Move API keys to Obsidian secret storage where supported (§4.4)
 - [ ] Publish the property schema and a data contract (§6)
-- [ ] Item-type model (§4.2)
+- [x] Item-type model (§4.2)
 - [ ] Append-only `history` and multi-device merge tests (§5.19)
-- [ ] Test suite, CI, and quality gates for agent-written code (§8.5)
+- [x] Test suite, CI, and quality gates for agent-written code (§8.5)
 - [ ] Math/chemistry rendering audit on a test vault (§5.16.1)
 - [ ] Mobile audit on real iOS and Android devices (§5.19)
 - [ ] Confirm licenses of anything to be reused (§9)
@@ -758,20 +931,32 @@ Names are proposals; keep existing ones unchanged.
 ### Phase 2: Flashcards and vocab (priority)
 
 - [x] Card and vocab item types, deck organization, course tagging (§5.7) — shipped in 1.12.0
-- [ ] Card syntax compatibility and importers: Spaced Repetition syntax, Anki, LearnKit-compatible (§5.15)
-- [ ] **Answer modes: flip, type, speak (via OS dictation first), with the cheap-first grading pipeline** (§5.17)
-- [ ] AI grader with strictness settings, override, and grade-later queue
-- [ ] Unified due queue across cards, vocab, and MCQs
+- [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — .apkg, AnkiConnect and LearnKit formats remain
+- [x] Answer modes: flip, type and speak via OS dictation, with the deterministic cheap-first grading pipeline (§5.17)
+- [x] AI fallback for typed answers that the local grader cannot settle, using the shared AI layer and a validated structured verdict (§5.17)
+- [x] Durable grade-later queue for offline, slow or over-budget grading, with batch retry, idempotency and a pending-grade badge (§5.17)
+- [x] Self-grade fallback when AI grading is off or the queue is discarded, recorded as `graded_by: self` (§5.17)
+- [x] Unified due queue model and Today/command list across cards, vocab and MCQs — interleaved mixed-review sessions remain
 - [ ] Optional TTS/audio (later in phase)
+
+### Phase 2b: AP exam tools (research next; highly wanted)
+
+These are **research and specification items**, not implementation work. The AP FRQ grader is the owner's requested next idea after card import; the score calculator and resource hub are its natural companions.
+
+- [ ] **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, and score history (§5.20)
+- [ ] **AP score calculator** — turn MCQ + FRQ practice results into an unofficial estimated 1–5, with section weights, year-specific profiles, and a reverse "what do I need?" calculator (§5.20)
+- [ ] **AP resource hub** — one place for official AP Central/AP Classroom links, course and exam descriptions, released FRQs and scoring guidelines, AP Daily videos, and user-supplied third-party resources (§5.20)
+- [x] **Research specification** — supported-course recommendation, rubric and score-profile schemas, evaluation plan, copyright/permissions questions, data model, UX flows, and acceptance tests ([spec](docs/ap-frq-grader-spec.md), §5.20)
+- [ ] **Pilot gate** — approve the four-course pilot, build the human-scored fixture set, complete the rights review, and approve the go/no-go thresholds before implementation
 
 ### Phase 3: Calendar and courses (priority)
 
-- [ ] Course registry, folder mapping, `.ics` import, per-class notes (§5.8)
-- [ ] Month grid, daily timeline, live countdown, mobile Today and Upcoming views
-- [ ] Exam model, exam countdowns, SAT/AP-style non-semester exam events
+- [x] Course registry, folder mapping, `.ics` import, per-class notes (§5.8)
+- [x] Month grid, daily timeline, live countdown, mobile Today and Upcoming views
+- [x] Exam model, exam countdowns, SAT/AP-style non-semester exam events
 - [ ] Exam-aware scheduling caps (§4.3)
-- [ ] Suggested study blocks in free gaps
-- [ ] Filtered `.ics` export
+- [x] Suggested study blocks in free gaps
+- [x] Filtered `.ics` export
 
 ### Phase 4: AI assistant and generation
 
@@ -784,7 +969,7 @@ Names are proposals; keep existing ones unchanged.
 
 ### Phase 5: FRQ and STEM
 
-- [ ] FRQ format, rubric grading, override, per-criterion feedback (§5.5)
+- [ ] FRQ format, rubric grading, override, per-criterion feedback (§5.5; AP-specific research in §5.20)
 - [ ] Math, chemistry, and physics: numeric grading, parameterized questions, computation-based verification, SMILES integration, formula sheets (§5.16)
 - [ ] Timed tests with sections and blueprints (§5.6)
 
@@ -798,6 +983,13 @@ Names are proposals; keep existing ones unchanged.
 ### Phase 7: Ingestion, interop, polish
 
 - [ ] Source ingestion extensions, provenance links, transcript-to-practice flow (§5.13, §5.14)
+- [ ] Paper scanner: camera or photos → crop/reorder → one PDF saved in the vault (§5.13.1)
+- [ ] OCR for image-only scans, with a local option and an opt-in BYOK vision/OCR option; show confidence and let the user correct text (§5.13.1)
+- [ ] Auto-classify a scanned document as MCQ, FRQ, mixed, cards or notes, then route it through the existing importers (§5.13.1)
+- [ ] Provenance links from generated items back to the source PDF page (§5.13.1)
+- [ ] First-run welcome screen with presets, module toggles and a short how-to guide (§5.21)
+- [ ] Reopen the welcome from a command and settings, and remember dismissal per device (§5.21)
+- [ ] Optional feedback survey and donation links, added later and never gating features (§5.21)
 - [ ] Remaining interop and CSV export (§5.15)
 - [ ] Pronunciation feedback for language learners (optional)
 - [ ] Handwritten-work photo grading (optional, vision models)
@@ -906,7 +1098,7 @@ Facts: MCQ Tracker was created days before the research date and had 42 download
 
 1. **Messaging.** Lead the README and directory description with the student outcome ("Practice like the exam. Review right before you forget."), not a feature list. Show short GIFs: a question session, a card with a typed answer being graded, the Today screen on a phone.
 2. **Name and listing.** "MCQ Tracker" undersells an all-in-one study plugin. Check Obsidian's current rules on changing the display name or description while keeping the plugin ID (never change the ID; that would break installs). Update the directory description and categories to match the new scope.
-3. **Easy first run.** Preset chooser (§4.5), a **sample vault** with original example questions and cards for SAT/AP-style and university use, and a 60-second quick start.
+3. **Easy first run.** Welcome screen with the preset chooser (§4.5, §5.21), a **sample vault** with original example questions and cards for SAT/AP-style and university use, and a 60-second quick start.
 4. **Original starter content.** Provide sample question packs you or your agents author. Do **not** redistribute copyrighted official exam questions; make clear in docs that users are responsible for content they import.
 5. **Honest comparisons.** A short page comparing the plugin with LearnKit, Spaced Repetition, and Adaptive Practice builds trust and helps search traffic.
 6. **Communities.** Share in the Obsidian forum and Discord, and in student communities for SAT/AP and university study, with a demo rather than a sales pitch. Ask for feedback and act on it publicly.
@@ -2071,13 +2263,13 @@ Names are proposals; keep existing ones unchanged.
 
 ### Phase 0: Foundations and safety
 
-- [ ] Module system: every module off by default, lazy-loaded, with first-run presets (§4.5)
+- [x] Module system: every module off by default, lazy-loaded, with first-run presets (§4.5)
 - [ ] Shared AI service layer: BYOK + OpenCode, capability flags, queue, cost caps (§4.6)
 - [ ] Move API keys to Obsidian secret storage where supported (§4.4)
 - [ ] Publish the property schema and a data contract (§6)
-- [ ] Item-type model (§4.2)
+- [x] Item-type model (§4.2)
 - [ ] Append-only `history` and multi-device merge tests (§5.19)
-- [ ] Test suite, CI, and quality gates for agent-written code (§8.5)
+- [x] Test suite, CI, and quality gates for agent-written code (§8.5)
 - [ ] Math/chemistry rendering audit on a test vault (§5.16.1)
 - [ ] Mobile audit on real iOS and Android devices (§5.19)
 - [ ] Confirm licenses of anything to be reused (§9)
@@ -2093,20 +2285,21 @@ Names are proposals; keep existing ones unchanged.
 ### Phase 2: Flashcards and vocab (priority)
 
 - [x] Card and vocab item types, deck organization, course tagging (§5.7) — shipped in 1.12.0
-- [ ] Card syntax compatibility and importers: Spaced Repetition syntax, Anki, LearnKit-compatible (§5.15)
-- [ ] **Answer modes: flip, type, speak (via OS dictation first), with the cheap-first grading pipeline** (§5.17)
-- [ ] AI grader with strictness settings, override, and grade-later queue
-- [ ] Unified due queue across cards, vocab, and MCQs
+- [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — .apkg, AnkiConnect and LearnKit formats remain
+- [x] Answer modes: flip, type and speak via OS dictation, with the deterministic cheap-first grading pipeline (§5.17) — AI fallback remains
+- [x] AI grader with strictness settings, override, and grade-later queue
+- [x] Unified due queue model and Today/command list across cards, vocab and MCQs — interleaved mixed-review sessions remain
 - [ ] Optional TTS/audio (later in phase)
+- [ ] **AP exam tools research (next after import)** — FRQ grader, AP score calculator, and AP resource hub (§5.20); research/spec only
 
 ### Phase 3: Calendar and courses (priority)
 
-- [ ] Course registry, folder mapping, `.ics` import, per-class notes (§5.8)
-- [ ] Month grid, daily timeline, live countdown, mobile Today and Upcoming views
-- [ ] Exam model, exam countdowns, SAT/AP-style non-semester exam events
+- [x] Course registry, folder mapping, `.ics` import, per-class notes (§5.8)
+- [x] Month grid, daily timeline, live countdown, mobile Today and Upcoming views
+- [x] Exam model, exam countdowns, SAT/AP-style non-semester exam events
 - [ ] Exam-aware scheduling caps (§4.3)
-- [ ] Suggested study blocks in free gaps
-- [ ] Filtered `.ics` export
+- [x] Suggested study blocks in free gaps
+- [x] Filtered `.ics` export
 
 ### Phase 4: AI assistant and generation
 

@@ -17,8 +17,7 @@ function parsePageRange(spec, total) {
     const b = m[2] ? Number(m[2]) : a;
     for (let p = Math.min(a, b); p <= Math.max(a, b); p++) if (p >= 1 && p <= total) set.add(p);
   }
-  const out = [...set].sort((x, y) => x - y);
-  if (!out.length) throw new Error(`That page range has no pages (the PDF has ${total}).`);
+  const out = [...set].sort((x, y) => x - y);    if (!out.length) throw new Error(`That page range has no pages (the document has ${total}).`);
   return out;
 }
 

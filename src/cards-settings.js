@@ -46,6 +46,16 @@ function renderDecks(containerEl, plugin, redisplay) {
   });
 
   new Setting(containerEl)
+    .setName("Import existing decks")
+    .setDesc("Bring in Spaced Repetition notes, Anki or Quizlet text, or a Kahoot, Blooket or Gimkit CSV. Duplicates are skipped by import key.")
+    .addButton((b) => b.setButtonText("Import cards").onClick(() => plugin.openCardImport()));
+
+  new Setting(containerEl)
+    .setName("Export cards")
+    .setDesc("Write the current deck as Quizlet text or a Kahoot, Blooket or Gimkit CSV. Question-set choices and the correct answer stay with the card.")
+    .addButton((b) => b.setButtonText("Export cards").onClick(() => plugin.openCardExport()));
+
+  new Setting(containerEl)
     .setName("Default deck")
     .setDesc("Used when a new card does not choose a deck, and for cards without their own deck property or folder match.")
     .addDropdown((d) => {
@@ -101,6 +111,32 @@ function renderDecks(containerEl, plugin, redisplay) {
           await plugin.save();
         })
     );
+    s.addDropdown((d) =>
+      d
+        .addOption("", "Use global mode")
+        .addOption("flip", "Flip")
+        .addOption("type", "Type")
+        .addOption("speak", "Speak")
+        .setValue((configured && configured.answerMode) || "")
+        .onChange(async (v) => {
+          const cfg = ensureDeck(st, deck.name);
+          cfg.answerMode = v;
+          await plugin.save();
+        })
+    );
+    s.addDropdown((d) =>
+      d
+        .addOption("", "Use global strictness")
+        .addOption("strict", "Strict")
+        .addOption("standard", "Standard")
+        .addOption("lenient", "Lenient")
+        .setValue((configured && configured.gradingStrictness) || "")
+        .onChange(async (v) => {
+          const cfg = ensureDeck(st, deck.name);
+          cfg.gradingStrictness = v;
+          await plugin.save();
+        })
+    );
     if (configured) {
       s.addButton((b) =>
         b
@@ -152,7 +188,7 @@ function ensureDeck(st, name) {
   st.decks = Array.isArray(st.decks) ? st.decks : [];
   let cfg = st.decks.find((d) => d.name.toLowerCase() === str(name).trim().toLowerCase());
   if (!cfg) {
-    cfg = { name: str(name).trim(), folder: "", course: "" };
+    cfg = { name: str(name).trim(), folder: "", course: "", answerMode: "", gradingStrictness: "" };
     st.decks.push(cfg);
   }
   return cfg;
@@ -193,13 +229,57 @@ function renderReview(containerEl, plugin) {
     );
 
   new Setting(containerEl)
+    .setName("Answer mode")
+    .setDesc("Flip is the classic reveal-and-rate review. Type asks for an answer and grades obvious matches locally; Speak uses the same box with your device's dictation. A card's answer_mode or its deck's setting overrides this default.")
+    .addDropdown((d) =>
+      d
+        .addOption("flip", "Flip and self-rate")
+        .addOption("type", "Type the answer")
+        .addOption("speak", "Speak or type (OS dictation)")
+        .setValue(st.answerMode || "flip")
+        .onChange(async (v) => {
+          st.answerMode = v === "type" || v === "speak" ? v : "flip";
+          await plugin.save();
+          plugin.refreshViews();
+        })
+    );
+
+  new Setting(containerEl)
+    .setName("Grading strictness")
+    .setDesc("Strict requires the stored wording and accents. Standard ignores case, accents, articles, punctuation and small typos. Lenient also accepts partial keyword coverage.")
+    .addDropdown((d) =>
+      d
+        .addOption("strict", "Strict")
+        .addOption("standard", "Standard")
+        .addOption("lenient", "Lenient")
+        .setValue(st.gradingStrictness || "standard")
+        .onChange(async (v) => {
+          st.gradingStrictness = v === "strict" || v === "lenient" ? v : "standard";
+          await plugin.save();
+          plugin.refreshViews();
+        })
+    );
+
+  new Setting(containerEl)
+    .setName("AI fallback for typed answers")
+    .setDesc("When the local check cannot decide, send only the card front, the stored answer and your answer to your AI provider for a second opinion. Needs AI features and a configured provider. Off by default; offline answers wait in a queue and are graded later.")
+    .addToggle((t) =>
+      t.setValue(st.aiGrading === true).onChange(async (v) => {
+        st.aiGrading = v;
+        await plugin.save();
+        plugin.refreshViews();
+        if (v && !plugin.settings.ai.enabled) new Notice("Turn on AI features under Settings, Global, Modules, then choose a provider under MCQ Tracker, AI.");
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Scheduler")
     .setDesc("Cards use the scheduler chosen under MCQ Tracker, Review. A card reviewed with FSRS stores its memory state in the note, and switching back to the simple ladder is lossless.")
     .addButton((b) => b.setButtonText("Open Cards view").onClick(() => plugin.activateCards()));
 
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "Ratings map to the scheduler as Again, Hard, Good and Easy. A card's history stays in the note next to its question history.",
+    text: "Ratings map to the scheduler as Again, Hard, Good and Easy. Typed answers are graded locally first; accepted_variants and grading_strictness on a card override the defaults. A card's history stays in the note next to its question history.",
   });
 }
 

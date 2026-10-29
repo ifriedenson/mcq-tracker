@@ -49,7 +49,7 @@ function emptyState(app, folder) {
   return { broken: scanQuestionNotes(app, folder).broken };
 }
 
-/** Whether PDF import can run without more setup. */
+/** Whether document import can run without more setup. */
 function aiReady(plugin) {
   const ai = plugin.settings.ai || {};
   if (!ai.enabled) return false;

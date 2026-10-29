@@ -69,12 +69,37 @@ class TodayView extends ItemView {
     } else {
       const card = root.createDiv({ cls: "qt-today-card" });
       card.createEl("h3", { text: "No questions yet" });
-      card.createDiv({ cls: "qt-today-meta", text: "Add notes with a question_id property, or import questions from a PDF." });
+      card.createDiv({ cls: "qt-today-meta", text: "Add notes with a question_id property, or import questions from a file." });
       card.createEl("button", { text: "Open practice view", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.activateView());
     }
 
+    this.renderDueQueue(root);
     this.renderCards(root);
     this.renderNext(root, now);
+  }
+
+  /** One mixed list when both modules have due work; the dedicated buttons stay below. */
+  renderDueQueue(root) {
+    const p = this.plugin;
+    if (!p.cardsEnabled || !p.cardsEnabled() || !p.getDueQueue) return;
+    const queue = p.getDueQueue({ limit: 5 });
+    const cardCount = queue.counts.cards + queue.counts.vocab;
+    if (!queue.counts.questions || !cardCount) return;
+    root.createEl("h3", { cls: "qt-today-section", text: "Due across modules" });
+    root.createDiv({
+      cls: "qt-today-count",
+      text: `${queue.counts.questions} question${queue.counts.questions === 1 ? "" : "s"} · ${cardCount} card${cardCount === 1 ? "" : "s"} due or new`,
+    });
+    const list = root.createDiv({ cls: "qt-due-list" });
+    for (const item of queue.items) {
+      const row = list.createDiv({ cls: `qt-due-row qt-due-${item.type}` });
+      const main = row.createDiv({ cls: "qt-due-main" });
+      main.createDiv({ cls: "qt-due-title", text: item.title });
+      main.createDiv({ cls: "qt-due-meta", text: item.meta });
+      row.createSpan({ cls: `qt-due-badge${item.isNew ? " is-new" : ""}`, text: item.isNew ? "New" : "Due" });
+    }
+    const open = root.createEl("button", { text: "Open due queue", cls: "mod-cta qt-primary" });
+    open.addEventListener("click", () => p.openDueQueue());
   }
 
   renderCards(root) {

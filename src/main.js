@@ -28,12 +28,18 @@ const { CALENDAR_TABS } = require("./calendar-settings");
 const cards = require("./cards");
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
+const cardsImport = require("./cards-import");
+const cardGrading = require("./card-grading");
+const cardGradingAi = require("./card-grading-ai");
+const cardGradeQueue = require("./card-grade-queue");
+const { buildDueQueue, DueQueueModal } = require("./due-queue");
 const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
 const { loadQuestionData } = require("./view-helpers");
 const offline = require("./offline");
+const documents = require("./documents");
 const calendarIcs = require("./calendar-ics");
 const calendarModel = require("./calendar-model");
 const calendarNotes = require("./calendar-notes");
@@ -118,6 +124,12 @@ QuestionTrackerPlugin.__test = {
   CARDS_TABS,
   CALENDAR_TABS,
   cards,
+  cardsImport,
+  cardGrading,
+  cardGradingAi,
+  cardGradeQueue,
+  buildDueQueue,
+  DueQueueModal,
   CardView,
   CardModal,
   renderSettingsTabs,
@@ -125,6 +137,7 @@ QuestionTrackerPlugin.__test = {
   QuestionFolderModal,
   FindQuestionModal,
   PdfImportModal,
+  documents,
   QUICK_START_URL,
   aiReady,
   emptyState,

@@ -86,6 +86,32 @@ test("today: shows the next class and exam from an enabled calendar", async () =
   assert.ok(texts.some((t) => /Final Exam/.test(t)));
 });
 
+test("today: shows one due list when questions and cards are both due", async () => {
+  const app = makeApp([
+    ...NOTES,
+    {
+      path: "Cards/Biology/cell.md",
+      noFm: true,
+      fm: { card_id: "cell", item_type: "card", deck: "Biology", attempts: 1, next_review: "2020-01-02" },
+      text: "## Front\nWhat is a cell?\n\n## Back\nThe basic unit of life.",
+    },
+  ]);
+  app.files[3].fm = { card_id: "cell", item_type: "card", deck: "Biology", attempts: 1, next_review: "2020-01-02" };
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  const dom = makeDom();
+  const view = new T.TodayView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  assert.ok(dom.texts().includes("Due across modules"));
+  assert.ok(dom.texts().some((text) => /2 questions · 1 card due or new/.test(text)));
+  assert.ok(dom.texts().includes("cell"));
+  assert.ok(dom.texts().includes("Open due queue"));
+});
+
 test("today: explains when the MCQ module is off", async () => {
   const { plugin, dom, view } = await setup();
   plugin.settings.mcqEnabled = false;

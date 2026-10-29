@@ -5,8 +5,11 @@ const { localDate, str } = require("./util");
 const { cardQueue, cardStats, courseOptions, deckSummary, parseCardBody } = require("./cards");
 const { CardModal } = require("./card-modal");
 const { renderMarkdownInto } = require("./view-helpers");
+const { gradeTypedAnswer } = require("./card-grading");
+const { needsAi } = require("./card-grading-ai");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
+const GRADE_LABELS = { again: "Again", hard: "Hard", good: "Good", easy: "Easy" };
 
 class CardView extends ItemView {
   constructor(leaf, plugin) {
@@ -20,6 +23,14 @@ class CardView extends ItemView {
     this.current = null;
     this.revealed = false;
     this.busy = false;
+    this.typedAnswer = "";
+    this.verdict = null;
+    this.suggestedGrade = "";
+    this.override = false;
+    this.aiChecking = false;
+    this.aiError = "";
+    this.pendingGrade = false;
+    this.pendingGradeId = "";
     this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
   }
 
@@ -53,6 +64,7 @@ class CardView extends ItemView {
     const t = ev && ev.target;
     if (t && /^(input|textarea|select)$/i.test(t.tagName || "")) return;
     if (ev.key === " " || ev.key === "Enter") {
+      if (this.current.answerMode && this.current.answerMode !== "flip") return;
       ev.preventDefault();
       if (!this.revealed) this.reveal();
       return;
@@ -99,6 +111,14 @@ class CardView extends ItemView {
     const tools = root.createDiv({ cls: "qt-row qt-cards-tools" });
     const add = tools.createEl("button", { text: "New card", cls: "mod-cta" });
     add.addEventListener("click", () => this.openCardModal());
+    const imp = tools.createEl("button", { text: "Import" });
+    imp.addEventListener("click", () =>
+      p.openCardImport({ deck: this.deck, course: this.course }, () => this.render())
+    );
+    const exp = tools.createEl("button", { text: "Export" });
+    exp.addEventListener("click", () =>
+      p.openCardExport({ deck: this.deck, course: this.course })
+    );
     const sync = tools.createEl("button", { text: "Tag courses from folders" });
     sync.addEventListener("click", async () => {
       const n = await p.tagCardsByCourse();
@@ -209,13 +229,13 @@ class CardView extends ItemView {
     ).open();
   }
 
-  startReview(order) {
+  startReview(order, only) {
     const p = this.plugin;
-    const pool = p.filteredCards({ deck: this.deck, course: this.course });
+    const pool = Array.isArray(only) ? only : p.filteredCards({ deck: this.deck, course: this.course });
     const queue = cardQueue(pool, {
       today: localDate(),
       order: order || p.settings.cards.order,
-      limit: p.settings.cards.reviewLimit,
+      limit: Array.isArray(only) ? Math.max(1, only.length) : p.settings.cards.reviewLimit,
     });
     if (!queue.length) {
       new Notice("Nothing to review in this deck. Try another deck or review all cards.");
@@ -228,11 +248,29 @@ class CardView extends ItemView {
     this.showCard();
   }
 
+  /** Start a one-card review from the unified due queue. */
+  async reviewCard(card) {
+    if (!card) return;
+    this.queue = [card];
+    this.index = 0;
+    this.state = "review";
+    this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
+    await this.showCard();
+  }
+
   async showCard() {
     const card = this.queue[this.index];
     if (!card) return this.finish();
     this.current = null;
     this.revealed = false;
+    this.typedAnswer = "";
+    this.verdict = null;
+    this.suggestedGrade = "";
+    this.override = false;
+    this.aiChecking = false;
+    this.aiError = "";
+    this.pendingGrade = false;
+    this.pendingGradeId = "";
     try {
       const text = await this.app.vault.cachedRead(card.file);
       this.current = { ...card, body: parseCardBody(text, card.fm) };
@@ -250,12 +288,76 @@ class CardView extends ItemView {
     this.render();
   }
 
+  /** Grade a typed or dictated answer locally, then ask AI only when the local result is unsure. */
+  async checkTyped(value) {
+    if (!this.current || this.aiChecking) return;
+    const card = this.current;
+    const typed = str(value).trim();
+    const graded = gradeTypedAnswer(card.body.back, typed, {
+      strictness: card.gradingStrictness,
+      variants: card.body.acceptedVariants,
+    });
+    this.typedAnswer = typed;
+    this.verdict = graded;
+    this.suggestedGrade = graded.suggestedGrade;
+    this.override = false;
+    this.revealed = true;
+    this.aiError = "";
+    this.pendingGrade = false;
+    this.pendingGradeId = "";
+    this.render();
+
+    if (!needsAi(graded)) return;
+    const st = this.plugin.settings;
+    if (!st.cards.aiGrading) return;
+    if (!st.ai.enabled) {
+      this.aiError = "AI fallback is on for cards, but AI features are off. Turn them on under Settings, Global, Modules.";
+      this.render();
+      return;
+    }
+    this.aiChecking = true;
+    this.render();
+    try {
+      const ai = await this.plugin.gradeCardWithAi(card, typed, card.gradingStrictness);
+      if (this.current !== card) return;
+      this.verdict = ai;
+      this.suggestedGrade = ai.suggestedGrade;
+      this.override = false;
+    } catch (e) {
+      if (this.current !== card) return;
+      this.aiError = str(e && e.message ? e.message : e) || "The AI grader is unavailable.";
+      this.pendingGrade = true;
+      try {
+        this.pendingGradeId = this.plugin.queueCardGrade(card, typed, card.gradingStrictness);
+      } catch (err) {
+        this.pendingGradeId = "";
+      }
+    } finally {
+      this.aiChecking = false;
+      this.render();
+    }
+  }
+
   async rate(grade) {
-    if (this.busy || !this.current) return;
+    if (this.busy || this.aiChecking || !this.current) return;
     this.busy = true;
     const card = this.current;
+    const override = !!(this.verdict && this.suggestedGrade && grade !== this.suggestedGrade);
     try {
-      const summary = await this.plugin.recordCardReview(card, grade, 0);
+      const extra = this.verdict
+        ? {
+            typedAnswer: this.typedAnswer,
+            verdict: this.verdict.verdict,
+            matchedBy: this.verdict.matchedBy,
+            verdictOverride: override,
+            gradedBy: this.pendingGrade ? "self" : this.verdict.gradedBy || "deterministic",
+            gradeStatus: this.pendingGrade ? "self" : "graded",
+            gradeConfidence: this.verdict.confidence,
+            gradeFeedback: this.verdict.reason,
+          }
+        : null;
+      const summary = await this.plugin.recordCardReview(card, grade, 0, extra);
+      if (this.pendingGrade && this.pendingGradeId) this.plugin.discardPendingCardGrade(this.pendingGradeId);
       if (summary && summary.queued) {
         new Notice("Saved offline. This card review will be written when the vault is available.", 6000);
       }
@@ -313,12 +415,59 @@ class CardView extends ItemView {
     }
     this.md(card.body.front || "*This card has no front.*", front.createDiv({ cls: "qt-cards-term" }), card.file.path);
 
+    const mode = card.answerMode || "flip";
+    if (!this.revealed && mode !== "flip") {
+      const typedWrap = root.createDiv({ cls: "qt-cards-typed-wrap" });
+      typedWrap.createEl("label", {
+        text: mode === "speak" ? "Your spoken answer (dictation or type)" : "Your answer",
+      });
+      const typed = typedWrap.createEl("textarea", {
+        cls: "qt-cards-typed",
+        attr: { rows: "3", placeholder: mode === "speak" ? "Use your device's dictation, or type here…" : "Type your answer…" },
+      });
+      typed.value = this.typedAnswer || "";
+      typed.addEventListener("input", () => (this.typedAnswer = typed.value));
+      typed.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" && !ev.shiftKey) {
+          ev.preventDefault();
+          this.checkTyped(typed.value);
+        }
+      });
+      const check = root.createEl("button", { text: "Check answer", cls: "mod-cta qt-primary qt-cards-show" });
+      check.addEventListener("click", () => this.checkTyped(typed.value));
+      root.createDiv({
+        cls: "qt-hint",
+        text:
+          mode === "speak"
+            ? "Use your keyboard's dictation or microphone key. The local match stays on this device; if AI fallback is on, only the card front, stored answer and your answer are sent when the local check is unsure."
+            : "Exact wording is not required at standard strictness; small typos and accepted variants count. If AI fallback is on, only the card front, stored answer and your answer are sent when the local check is unsure.",
+      });
+      return;
+    }
+
     if (!this.revealed) {
       const show = root.createEl("button", { text: "Show answer", cls: "mod-cta qt-primary qt-cards-show" });
       show.addEventListener("click", () => this.reveal());
       root.createDiv({ cls: "qt-hint", text: "Space or Enter also flips the card." });
       return;
     }
+
+    if (this.verdict) {
+      const kind = this.aiChecking ? "checking" : this.verdict.verdict;
+      const verdict = root.createDiv({ cls: `qt-cards-verdict qt-cards-verdict-${kind}` });
+      verdict.createDiv({
+        cls: "qt-cards-verdict-title",
+        text: this.aiChecking ? "Checking with AI…" : this.verdict.verdict === "correct" ? "Correct" : this.verdict.verdict === "partial" ? "Partly correct" : "Not yet",
+      });
+      verdict.createDiv({
+        cls: "qt-cards-verdict-reason",
+        text: this.aiChecking ? "The local check was unsure, so the AI is taking a second look." : this.verdict.reason,
+      });
+      if (this.typedAnswer) verdict.createDiv({ cls: "qt-cards-verdict-typed", text: `You wrote: ${this.typedAnswer}` });
+      if (!this.aiChecking && this.verdict.gradedBy === "ai") verdict.createDiv({ cls: "qt-hint", text: "Graded by AI." });
+    }
+    if (this.aiError) root.createDiv({ cls: "qt-error", text: this.aiError });
+    if (this.pendingGrade) root.createDiv({ cls: "qt-hint qt-cards-pending", text: "Pending grade. Rate the card yourself to save this review now, or leave it and it will be graded when AI is available." });
 
     const answer = root.createDiv({ cls: "qt-cards-box qt-cards-answer" });
     answer.createDiv({ cls: "qt-cards-answer-label", text: card.body.kind === "vocab" ? "Definition" : "Answer" });
@@ -337,10 +486,21 @@ class CardView extends ItemView {
     ];
     for (const [grade, label, key] of buttons) {
       const b = ratings.createEl("button", { text: label, cls: `qt-cards-rate qt-cards-rate-${grade}` });
+      if (grade === this.suggestedGrade) b.addClass("is-suggested");
+      if (this.aiChecking) b.disabled = true;
       b.createSpan({ cls: "qt-cards-rate-key", text: key });
       b.addEventListener("click", () => this.rate(grade));
     }
-    root.createDiv({ cls: "qt-hint", text: "Rate how well you recalled it. 1 = again, 4 = easy." });
+    root.createDiv({
+      cls: "qt-hint",
+      text: this.aiChecking
+        ? "Waiting for the AI check. You can rate the card after it finishes."
+        : this.pendingGrade
+          ? "The AI grade is pending. Rate the card yourself now, or leave it and it will be graded later."
+          : this.verdict
+            ? `Suggested rating: ${GRADE_LABELS[this.suggestedGrade] || "Good"}. Choose another rating to record an override.`
+            : "Rate how well you recalled it. 1 = again, 4 = easy.",
+    });
   }
 
   renderSummary(root) {

@@ -212,6 +212,17 @@ function applyAttempt(fm, a, intervals, options) {
     fm.scheduler = "ladder";
   }
   if (grade) fm.last_card_rating = grade;
+  if (a.typedAnswer !== undefined) fm.last_typed_answer = str(a.typedAnswer).slice(0, 1000);
+  if (a.verdict) {
+    fm.last_verdict = str(a.verdict).toLowerCase();
+    fm.verdict_override = a.verdictOverride === true;
+    fm.graded_by = str(a.gradedBy || "deterministic");
+    fm.graded_on = fmtDate(a.now);
+    fm.grade_status = a.gradeStatus === "self" ? "self" : "graded";
+    const confidence = Number(a.gradeConfidence);
+    if (Number.isFinite(confidence)) fm.grade_confidence = Math.max(0, Math.min(1, confidence));
+    if (a.gradeFeedback) fm.grade_feedback = str(a.gradeFeedback).slice(0, 500);
+  }
 
   return {
     streak,
@@ -225,6 +236,9 @@ function applyAttempt(fm, a, intervals, options) {
     fsrsReplayed: fsrsReview ? fsrsReview.replayed : 0,
     fsrsError,
     grade,
+    verdict: a.verdict || "",
+    typedAnswer: a.typedAnswer === undefined ? "" : str(a.typedAnswer),
+    verdictOverride: a.verdictOverride === true,
     attemptId: opts.attemptId || "",
   };
 }

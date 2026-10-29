@@ -3,6 +3,7 @@ const { Modal, Notice, Platform, Setting, TFile, normalizePath } = require("obsi
 const { FolderSuggest } = require("./modals");
 const { ensureFolder, localDate, sleep, str } = require("./util");
 const { chunkPages, readPdfPages, slugId } = require("./pdf");
+const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, extensionOf, readDocumentPages } = require("./documents");
 const { AGENT_SYSTEM, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
@@ -13,7 +14,7 @@ class PdfImportModal extends Modal {
     super(app);
     this.plugin = plugin;
     this.file = null; // a File chosen from the device
-    this.vaultPdf = ""; // or a PDF path inside the vault
+    this.vaultDoc = ""; // or a supported document path inside the vault
     this.stop = false;
     this.closed = false;
     this.items = [];
@@ -61,37 +62,37 @@ class PdfImportModal extends Modal {
   showSetup() {
     const el = this.contentEl;
     el.empty();
-    el.createEl("h3", { text: "Import questions from a PDF" });
+    el.createEl("h3", { text: "Import questions from a file" });
 
-    const pdfs = this.app.vault.getFiles().filter((f) => f.extension.toLowerCase() === "pdf");
-    const picked = new Setting(el).setName("PDF file").setDesc("No file chosen");
+    const docs = this.app.vault.getFiles().filter((f) => documentKind(f.path || f.name));
+    const picked = new Setting(el).setName("File").setDesc("No file chosen");
     const setName = (name) => {
       if (!this.folderTouched) {
-        this.folder = this.autoFolder(name);
+        this.folder = this.autoFolder(documentBaseName(name));
         if (this.folderText) this.folderText.setValue(this.folder);
       }
     };
-    const input = createEl("input", { type: "file", attr: { accept: "application/pdf,.pdf" } });
+    const input = createEl("input", { type: "file", attr: { accept: DOCUMENT_EXTENSIONS.map((e) => "." + e).join(",") } });
     input.hidden = true;
     input.addEventListener("change", () => {
       this.file = input.files && input.files[0] ? input.files[0] : null;
       if (this.file) {
-        this.vaultPdf = "";
+        this.vaultDoc = "";
         picked.setDesc(this.file.name);
-        setName(this.file.name.replace(/\.pdf$/i, ""));
+        setName(this.file.name);
       }
     });
     picked.addButton((b) => b.setButtonText("Choose file...").onClick(() => input.click()));
-    if (pdfs.length) {
-      new Setting(el).setName("...or a PDF in your vault").addDropdown((d) => {
+    if (docs.length) {
+      new Setting(el).setName("...or a file in your vault").addDropdown((d) => {
         d.addOption("", "Choose...");
-        for (const f of pdfs) d.addOption(f.path, f.path);
-        d.setValue(this.vaultPdf).onChange((v) => {
-          this.vaultPdf = v;
+        for (const f of docs) d.addOption(f.path, f.path);
+        d.setValue(this.vaultDoc).onChange((v) => {
+          this.vaultDoc = v;
           if (v) {
             this.file = null;
             picked.setDesc("No file chosen");
-            setName(v.replace(/^.*\//, "").replace(/\.pdf$/i, ""));
+            setName(v);
           }
         });
       });
@@ -114,8 +115,8 @@ class PdfImportModal extends Modal {
       .setName("Who writes the notes")
       .setDesc(
         agentOk
-          ? "The OpenCode agent reads the PDF and writes the note files itself. Direct AI sends the text to your provider and the plugin writes the files after you review them."
-          : "Direct AI sends the PDF's text to your provider, and the plugin writes the files after you review them. To let the OpenCode agent write the files itself, switch the AI backend to OpenCode in settings (desktop only)."
+          ? "The OpenCode agent reads the file and writes the note files itself. Direct AI sends the text to your provider and the plugin writes the files after you review them."
+          : "Direct AI sends the file's text to your provider, and the plugin writes the files after you review them. To let the OpenCode agent write the files itself, switch the AI backend to OpenCode in settings (desktop only)."
       )
       .addDropdown((d) => {
         if (agentOk) d.addOption("agent", "OpenCode agent (writes the files itself)");
@@ -124,8 +125,8 @@ class PdfImportModal extends Modal {
       });
 
     new Setting(el)
-      .setName("Capture figures and pictures")
-      .setDesc("Draws each page, cuts out charts, diagrams and images, saves them in an images folder next to the notes, and shows them in the questions that use them.")
+      .setName("Capture figures and pictures (PDF only)")
+      .setDesc("Draws each PDF page, cuts out charts, diagrams and images, saves them in an images folder next to the notes, and shows them in the questions that use them. Other formats are imported as text.")
       .addToggle((t) => t.setValue(this.opts.capture).onChange((v) => (this.opts.capture = v)));
     new Setting(el)
       .setName("Also save a picture of every page")
@@ -139,30 +140,30 @@ class PdfImportModal extends Modal {
       ["domain", "Domain", ""],
       ["unit", "Unit", "Example: 3"],
       ["difficulty", "Difficulty", "easy, medium or hard"],
-      ["skill", "Skill (optional)", "Blank lets the PDF's own labels through"],
+      ["skill", "Skill (optional)", "Blank lets the file's own labels through"],
     ];
     el.createEl("h4", { text: "Properties added to every note (all optional)" });
     el.createEl("p", {
       cls: "qt-hint",
-      text: "Leave a box blank and the AI reads that property from the PDF wherever it is shown, for each question (for example the Test, Domain, Skill and Difficulty in a question's table, and its Question ID). Whatever you type here is used for every note instead of what the PDF says.",
+      text: "Leave a box blank and the AI reads that property from the file wherever it is shown, for each question (for example the Test, Domain, Skill and Difficulty in a question's table, and its Question ID). Whatever you type here is used for every note instead of what the file says.",
     });
     for (const [key, label, ph] of fields) {
       new Setting(el).setName(label).addText((t) => t.setPlaceholder(ph).setValue(this.meta[key]).onChange((v) => (this.meta[key] = v.trim())));
     }
     new Setting(el)
       .setName("Question id prefix")
-      .setDesc("Ids look like PREFIX-Q01. Blank uses the PDF's name.")
+      .setDesc("Ids look like PREFIX-Q01. Blank uses the file's name.")
       .addText((t) => t.setValue(this.meta.prefix).onChange((v) => (this.meta.prefix = v.trim())));
     new Setting(el)
-      .setName("Pages (optional)")
-      .setDesc("Blank means all pages. Example: 1-12 or 2,4,6-8. Try a few pages first to check the result and the cost.")
+      .setName("Pages or slides (optional)")
+      .setDesc("Blank means every page or slide. Example: 1-12 or 2,4,6-8. Try a few first to check the result and the cost.")
       .addText((t) => t.setValue(this.meta.pages).onChange((v) => (this.meta.pages = v.trim())));
 
     el.createEl("p", {
       cls: "qt-hint",
       text:
-        "Where the PDF doesn't show an answer or explanation, the AI writes one and says so at the top of that note, with the model name and today's date. AI answers can be wrong, so check them. " +
-        "The PDF's text is sent to your AI provider, which may charge for long PDFs. A copy of the PDF is saved in the new folder with the notes.",
+        "Where the file doesn't show an answer or explanation, the AI writes one and says so at the top of that note, with the model name and today's date. AI answers can be wrong, so check them. " +
+        "The file's text is sent to your AI provider, which may charge for long files. A copy of the original file is saved in the new folder with the notes.",
     });
 
     const row = el.createDiv({ cls: "qt-row" });
@@ -171,13 +172,17 @@ class PdfImportModal extends Modal {
   }
 
   async readSource() {
-    if (this.file) return { buf: await this.file.arrayBuffer(), name: this.file.name.replace(/\.pdf$/i, ""), device: true };
-    if (this.vaultPdf) {
-      const f = this.app.vault.getAbstractFileByPath(this.vaultPdf);
-      if (!(f instanceof TFile)) throw new Error("I couldn't find that PDF in your vault.");
-      return { buf: await this.app.vault.readBinary(f), name: f.basename, device: false, path: f.path };
+    if (this.file) {
+      const name = this.file.name;
+      return { buf: await this.file.arrayBuffer(), name: documentBaseName(name), ext: extensionOf(name), kind: documentKind(name), device: true };
     }
-    throw new Error("Choose a PDF first.");
+    if (this.vaultDoc) {
+      const f = this.app.vault.getAbstractFileByPath(this.vaultDoc);
+      if (!(f instanceof TFile)) throw new Error("I couldn't find that file in your vault.");
+      const path = f.path || f.name;
+      return { buf: await this.app.vault.readBinary(f), name: f.basename, ext: extensionOf(path), kind: documentKind(path), device: false, path: f.path };
+    }
+    throw new Error("Choose a file first.");
   }
 
   async start() {
@@ -186,8 +191,8 @@ class PdfImportModal extends Modal {
       new Notice("Turn on AI features in the plugin settings first.");
       return;
     }
-    if (!this.file && !this.vaultPdf) {
-      new Notice("Choose a PDF first.");
+    if (!this.file && !this.vaultDoc) {
+      new Notice("Choose a file first.");
       return;
     }
     const folderPath = normalizePath(str(this.folder).trim());
@@ -223,16 +228,20 @@ class PdfImportModal extends Modal {
     this.warnings = [];
     try {
       const src = await this.readSource();
+      if (!src.kind) throw new Error(`This plugin can't read ${src.ext ? `.${src.ext}` : "that kind of"} files.`);
       this.source = src.name;
       const vault = this.app.vault;
       const folder = await ensureFolder(this.app, this.target);
       const prefix = slugId(this.meta.prefix || src.name);
-      // keep a copy of the PDF with the notes (before pdf.js reads it)
-      this.status("Copying the PDF into the folder...");
-      const pdfPath = normalizePath(`${folder}/${src.name.replace(/[\\/:*?"<>|]/g, "-")}.pdf`);
-      await vault.createBinary(pdfPath, src.buf);
+      // keep a copy of the original file with the notes
+      this.status("Copying the file into the folder...");
+      const sourcePath = normalizePath(`${folder}/${src.name.replace(/[\\/:*?"<>|]/g, "-")}.${src.ext}`);
+      await vault.createBinary(sourcePath, src.buf);
       const imagesDir = `${folder}/images`;
-      const cap = this.opts.capture
+      if (this.opts.capture && src.kind !== "pdf") {
+        this.warnings.push("Pictures are only captured from PDFs, so this import uses the text of the file.");
+      }
+      const cap = this.opts.capture && src.kind === "pdf"
         ? {
             prefix,
             scale: 2,
@@ -245,14 +254,20 @@ class PdfImportModal extends Modal {
             },
           }
         : null;
-      const read = await readPdfPages(src.buf, this.meta.pages, (m) => !this.closed && this.status(m), cap);
+      const read = src.kind === "pdf"
+        ? await readPdfPages(src.buf, this.meta.pages, (m) => !this.closed && this.status(m), cap)
+        : await readDocumentPages(src.buf, `${src.name}.${src.ext}`, this.meta.pages, (m) => !this.closed && this.status(m));
       const pages = read.pages;
       this.warnings.push(...read.warnings.slice(0, 5));
       const chars = pages.reduce((n, pg) => n + pg.text.trim().length, 0);
       if (chars < 40 * pages.length) {
-        throw new Error("This PDF has almost no readable text, so it is probably scanned images. Scanned PDFs aren't supported yet. Run it through text recognition (OCR) first, for example by opening it in Google Drive or Adobe, then try again.");
+        throw new Error(
+          src.kind === "pdf"
+            ? "This PDF has almost no readable text, so it is probably scanned images. Scanned PDFs aren't supported yet. Run it through text recognition (OCR) first, for example by opening it in Google Drive or Adobe, then try again."
+            : `This ${documentLabel(`${src.name}.${src.ext}`)} file has almost no readable text. If it is a scanned document, run it through text recognition (OCR) first, then try again.`
+        );
       }
-      this.ctx = { folder, prefix, pdfPath, imagesDir, pdfName: src.name, figCount: read.figCount };
+      this.ctx = { folder, prefix, sourcePath, imagesDir, sourceName: src.name, kind: src.kind, figCount: read.figCount };
       if (this.method === "agent") await this.runAgent(pages);
       else await this.runApi(pages);
     } catch (e) {
@@ -266,20 +281,20 @@ class PdfImportModal extends Modal {
   async runAgent(pages) {
     const p = this.plugin;
     const vault = this.app.vault;
-    const { folder, prefix, pdfPath, imagesDir, pdfName } = this.ctx;
-    const textPath = `${folder}/_pdf-text.txt`;
+    const { folder, prefix, sourcePath, imagesDir, sourceName, kind } = this.ctx;
+    const textPath = `${folder}/_import-text.txt`;
     await vault.create(textPath, pages.map((pg) => `--- Page ${pg.n} ---\n${pg.text.trim()}`).join("\n\n"));
 
     this.status("Starting OpenCode...");
     await p.ensureOpenCode((m) => !this.closed && this.status(m));
     const oc = p.openCode();
     await ensureProviders(oc);
-    const s = await oc.createSession(`Import ${pdfName}`);
+    const s = await oc.createSession(`Import ${sourceName}`);
     this.sid = s && s.id;
     if (!this.sid) throw new Error("OpenCode did not return a session id.");
     const ai = p.settings.ai;
     const body = {
-      parts: [{ type: "text", text: agentPrompt({ name: pdfName, textPath, pdfPath, imagesDir, folder, prefix, meta: this.meta }) }],
+      parts: [{ type: "text", text: agentPrompt({ name: sourceName, textPath, docPath: sourcePath, imagesDir, folder, prefix, meta: this.meta, kind }) }],
       system: AGENT_SYSTEM,
     };
     const model = modelFromString(ai.model);
@@ -304,7 +319,7 @@ class PdfImportModal extends Modal {
     this.status("Checking the notes...");
     await sleep(1500);
     const model2 = str(ai.model).trim() || modelFromMessages(msgs) || "the AI model set up in OpenCode";
-    const result = await this.finishAgentNotes(folder, pdfName, { model: model2, date: localDate() });
+    const result = await this.finishAgentNotes(folder, sourceName, { model: model2, date: localDate() });
     try {
       await this.app.vault.adapter.remove(textPath);
     } catch (e) {
@@ -387,7 +402,7 @@ class PdfImportModal extends Modal {
       const oid = officialIdOf(fin.fm);
       if (oid) result.ids.push({ path, id: oid });
     }
-    // the same official question id as a note you already had (or repeated in this PDF)
+    // the same official question id as a note you already had (or repeated in this file)
     result.dupes = findDuplicateIds(result.ids, indexOfficialIds(this.plugin.getQuestions(), folder));
     return result;
   }
@@ -421,7 +436,7 @@ class PdfImportModal extends Modal {
     const el = this.contentEl;
     el.empty();
     el.createEl("h3", { text: r.made ? `Created ${r.made} note${r.made === 1 ? "" : "s"}` : "No notes were created" });
-    el.createEl("p", { text: `Saved in ${folder}, together with a copy of the PDF${r.images ? ` and ${r.images} picture${r.images === 1 ? "" : "s"} cut from it (in the images folder)` : ""}.` });
+    el.createEl("p", { text: `Saved in ${folder}, together with a copy of the original file${r.images ? ` and ${r.images} picture${r.images === 1 ? "" : "s"} cut from it (in the images folder)` : ""}.` });
     if (r.ai) {
       el.createEl("p", {
         cls: "qt-hint",
@@ -573,13 +588,13 @@ class PdfImportModal extends Modal {
     el.createEl("h3", { text: items.length ? `Found ${items.length} question${items.length === 1 ? "" : "s"}` : "No questions found" });
     for (const w of this.warnings) el.createDiv({ cls: "qt-error", text: w });
     if (!items.length) {
-      el.createEl("p", { cls: "qt-hint", text: "Try a smaller page range, or check that the PDF contains questions with readable text." });
+      el.createEl("p", { cls: "qt-hint", text: "Try a smaller page range, or check that the file contains questions with readable text." });
       el.createEl("button", { text: "Back", cls: "qt-modal-btn" }).addEventListener("click", () => this.showSetup());
       return;
     }
     el.createEl("p", {
       cls: "qt-hint",
-      text: "Check these against your PDF. Answers the AI wrote itself are marked, and will be labelled at the top of the note. Untick anything you don't want.",
+      text: "Check these against the original file. Answers the AI wrote itself are marked, and will be labelled at the top of the note. Untick anything you don't want.",
     });
     const tools = el.createDiv({ cls: "qt-row qt-small-row" });
     const list = el.createDiv({ cls: "qt-imp-list" });
@@ -605,7 +620,7 @@ class PdfImportModal extends Modal {
       body.createDiv({ cls: "qt-imp-title", text: `${num}${text.length > 130 ? text.slice(0, 130) + "..." : text}` });
       const f = aiFlags(q.fm, q.sec);
       const tags = [q.sec.choices.length ? `${q.sec.choices.length} choices` : "no answer choices"];
-      tags.push(!f.hasAnswer ? "no answer" : f.aiAnswer ? `answer ${str(q.fm.answer)} (written by AI)` : `answer ${str(q.fm.answer)} (from PDF)`);
+      tags.push(!f.hasAnswer ? "no answer" : f.aiAnswer ? `answer ${str(q.fm.answer)} (written by AI)` : `answer ${str(q.fm.answer)} (from the file)`);
       if (f.aiExp) tags.push("explanation written by AI");
       if (str(q.sec.stimulus).trim()) tags.push("has passage");
       if (/!\[\[/.test(q.text)) tags.push("has picture");

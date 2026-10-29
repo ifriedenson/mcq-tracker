@@ -37,7 +37,7 @@ function renderModules(containerEl, plugin, redisplay) {
 
   new Setting(containerEl)
     .setName("MCQ Tracker")
-    .setDesc("Practice questions from your notes: filters and presets, weak spots, the error log, timed tests and PDF import. Off hides the practice view and its other views.")
+    .setDesc("Practice questions from your notes: filters and presets, weak spots, the error log, timed tests and document import. Off hides the practice view and its other views.")
     .addToggle((t) =>
       t.setValue(plugin.mcqEnabled()).onChange(async (v) => {
         st.mcqEnabled = v;
@@ -73,7 +73,7 @@ function renderModules(containerEl, plugin, redisplay) {
 
   new Setting(containerEl)
     .setName("AI features")
-    .setDesc("Ask AI on the result screen, the AI assistant, and PDF import. Off by default: nothing is sent anywhere until this is on. Choose the provider under MCQ Tracker, AI.")
+    .setDesc("Ask AI on the result screen, the AI assistant, and document import. Off by default: nothing is sent anywhere until this is on. Choose the provider under MCQ Tracker, AI.")
     .addToggle((t) =>
       t.setValue(!!st.ai.enabled).onChange(async (v) => {
         st.ai.enabled = v;

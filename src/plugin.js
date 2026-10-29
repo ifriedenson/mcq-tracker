@@ -9,7 +9,8 @@ const { TodayView } = require("./today-view");
 const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./modals");
 const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
-const { OpenCodeClient } = require("./opencode-client");
+const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
+const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
@@ -20,7 +21,11 @@ const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = r
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
-const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, resolveCard } = require("./cards");
+const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
+const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, resolveCard } = require("./cards");
+const { DueQueueModal, buildDueQueue } = require("./due-queue");
+const { gradeWithAi } = require("./card-grading-ai");
+const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
@@ -28,6 +33,7 @@ class QuestionTrackerPlugin extends Plugin {
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
     this._calendarCache = null;
+    this._pendingCardGradeFlush = null;
     // Calendar notes are resolved by their durable UID/date properties, so any
     // create/delete/rename (or frontmatter edit) invalidates the shared index.
     const invalidateNotes = () => this.invalidateCalendarNotes();
@@ -56,6 +62,13 @@ class QuestionTrackerPlugin extends Plugin {
       this.flushPendingAttempts().then((r) => {
         if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
       }).catch(() => {});
+      if (this.readPendingCardGrades().length && (this.backend() === "api" || (this.manager && this.manager.conn))) {
+        this.flushPendingCardGrades()
+          .then((r) => {
+            if (r.graded) new Notice(`Graded ${r.graded} typed answer${r.graded === 1 ? "" : "s"} that were waiting for AI.`, 5000);
+          })
+          .catch(() => {});
+      }
     });
     this.registerDomEvent(window, "beforeunload", () => this.manager.stop());
     this.registerView(VIEW_TYPE, (leaf) => new PracticeView(leaf, this));
@@ -69,7 +82,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshRibbon();
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
-    this.addCommand({ id: "import-pdf", name: "Import questions from a PDF", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({
       id: "practice-folder",
       name: "Practice a folder...",
@@ -110,6 +123,20 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
+    this.addCommand({
+      id: "cards-grade-pending",
+      name: "Cards: grade pending typed answers",
+      callback: async () => {
+        const r = await this.flushPendingCardGrades();
+        if (r.disabled) new Notice("Turn on AI features and the Cards AI fallback first.", 6000);
+        else if (r.remaining) new Notice(`Graded ${r.graded}; ${r.remaining} answer${r.remaining === 1 ? "" : "s"} still waiting.`, 6000);
+        else if (r.graded) new Notice(`Graded ${r.graded} pending answer${r.graded === 1 ? "" : "s"}.`, 5000);
+        else new Notice("No typed answers are waiting for an AI grade.");
+      },
+    });
+    this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
+    this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
+    this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
 
     // Embeds: `uni-schedule` and `uni-calendar` are the block names existing University
     // Schedule and Calendar notes use, so those keep working. If that plugin is enabled
@@ -406,7 +433,7 @@ class QuestionTrackerPlugin extends Plugin {
   openPdfImport() {
     if (this.moduleOff("mcq")) return;
     if (!this.settings.ai.enabled) {
-      new Notice("Turn on AI features in the plugin settings to import from a PDF.");
+      new Notice("Turn on AI features in the plugin settings to import from a file.");
       return;
     }
     new PdfImportModal(this.app, this).open();
@@ -766,12 +793,39 @@ class QuestionTrackerPlugin extends Plugin {
     return leaf.view;
   }
 
-  openNewCard(options) {
+  openNewCard(options, onDone) {
     if (this.moduleOff("cards")) return;
     new CardModal(this.app, this, options || {}, (result) => {
       if (result && result.path) new Notice(`Created ${result.path}.`);
       this.refreshViews();
+      if (onDone) onDone(result);
     }).open();
+  }
+
+  openCardImport(options, onDone) {
+    if (this.moduleOff("cards")) return;
+    new CardImportModal(
+      this.app,
+      this,
+      options || {},
+      (result) => {
+        this.refreshViews();
+        if (onDone) onDone(result);
+      }
+    ).open();
+  }
+
+  openCardExport(options, onDone) {
+    if (this.moduleOff("cards")) return;
+    new CardExportModal(
+      this.app,
+      this,
+      options || {},
+      (result) => {
+        this.refreshViews();
+        if (onDone) onDone(result);
+      }
+    ).open();
   }
 
   async activateCalendar() {
@@ -935,8 +989,160 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /** Write one card review through the same scheduler and offline outbox as questions. */
-  recordCardReview(card, grade, seconds) {
-    return this.recordAttempt(card.file, { ...cardAttempt(grade, seconds), now: new Date() });
+  recordCardReview(card, grade, seconds, extra) {
+    return this.recordAttempt(card.file, { ...cardAttempt(grade, seconds), ...(extra || {}), now: new Date() });
+  }
+
+  /* ---- optional AI second opinion for typed card answers */
+
+  cardGradeQueueKey() {
+    return "question-tracker-pending-card-grades";
+  }
+
+  readPendingCardGrades() {
+    if (Array.isArray(this._pendingCardGrades)) return this._pendingCardGrades;
+    let list = [];
+    try {
+      list = unpackPendingGrades(this.app.loadLocalStorage(this.cardGradeQueueKey()));
+    } catch (e) {
+      list = [];
+    }
+    this._pendingCardGrades = list;
+    return list;
+  }
+
+  writePendingCardGrades(list) {
+    this._pendingCardGrades = Array.isArray(list) ? list : [];
+    try {
+      this.app.saveLocalStorage(this.cardGradeQueueKey(), packPendingGrades(this._pendingCardGrades));
+    } catch (e) {
+      // Keep the in-memory queue for this session if device storage is unavailable.
+    }
+  }
+
+  queueCardGrade(card, typed, strictness) {
+    const id = newGradeId();
+    const entry = {
+      id,
+      path: card.file.path,
+      cardId: String(card.fm && card.fm.card_id ? card.fm.card_id : ""),
+      front: card.body && card.body.front ? card.body.front : "",
+      expected: card.body && card.body.back ? card.body.back : "",
+      typed: String(typed || ""),
+      strictness: strictness || "standard",
+      createdAt: new Date().toISOString(),
+    };
+    this.writePendingCardGrades(enqueuePendingGrade(this.readPendingCardGrades(), entry));
+    return id;
+  }
+
+  discardPendingCardGrade(id) {
+    if (!id) return;
+    this.writePendingCardGrades(removePendingGrade(this.readPendingCardGrades(), id));
+  }
+
+  pendingCardGrades() {
+    return this.readPendingCardGrades();
+  }
+
+  /** One completion path for both AI backends; the card grader only sees a chat-shaped client. */
+  async aiComplete(system, user, opts) {
+    const ai = this.settings.ai;
+    if (!ai.enabled) throw new Error("Turn on AI features in the plugin settings first.");
+    if (this.backend() === "opencode") {
+      await this.ensureOpenCode();
+      const oc = this.openCode();
+      const session = await oc.createSession("Grade a flashcard answer");
+      const body = { parts: [{ type: "text", text: user }], system };
+      const model = modelFromString(ai.model);
+      if (model) body.model = model;
+      await oc.send(session.id, body);
+      const turns = partsToTurns(await oc.messages(session.id));
+      const last = [...turns].reverse().find((turn) => turn.role === "assistant");
+      const text = last ? last.texts.join("\n").trim() : "";
+      if (!text) throw new Error("OpenCode returned an empty reply.");
+      return text;
+    }
+    return new ApiClient(ai).chat(system, [{ role: "user", content: user }], opts);
+  }
+
+  gradeCardWithAi(card, typed, strictness) {
+    const client = { chat: (system, messages, opts) => this.aiComplete(system, messages && messages[0] ? messages[0].content : "", opts) };
+    return gradeWithAi(client, { front: card.body && card.body.front, expected: card.body && card.body.back, typed, strictness });
+  }
+
+  /** Replay the device-local card-grade queue. One pending entry becomes exactly one AI grade. */
+  flushPendingCardGrades() {
+    if (this._pendingCardGradeFlush) return this._pendingCardGradeFlush;
+    if (!this.settings.ai.enabled || !this.settings.cards.aiGrading) {
+      return Promise.resolve({ graded: 0, remaining: this.readPendingCardGrades().length, disabled: true });
+    }
+    this._pendingCardGradeFlush = (async () => {
+      let list = this.readPendingCardGrades().slice();
+      let graded = 0;
+      for (const entry of list.slice()) {
+        const file = this.app.vault.getAbstractFileByPath(entry.path);
+        if (!(file instanceof TFile)) {
+          list = removePendingGrade(list, entry.id);
+          continue;
+        }
+        try {
+          const ai = await gradeWithAi(
+            { chat: (system, messages, opts) => this.aiComplete(system, messages && messages[0] ? messages[0].content : "", opts) },
+            entry
+          );
+          await this.app.fileManager.processFrontMatter(file, (fm) => {
+            fm.last_typed_answer = entry.typed.slice(0, 1000);
+            fm.last_verdict = ai.verdict;
+            fm.graded_by = "ai";
+            fm.graded_on = localDate();
+            fm.grade_status = "graded";
+            fm.grade_confidence = ai.confidence;
+            fm.grade_feedback = ai.reason;
+          });
+          list = removePendingGrade(list, entry.id);
+          graded++;
+        } catch (e) {
+          break; // still offline or provider unavailable: keep this and the rest for later
+        }
+      }
+      this.writePendingCardGrades(list);
+      return { graded, remaining: list.length, disabled: false };
+    })().finally(() => {
+      this._pendingCardGradeFlush = null;
+    });
+    return this._pendingCardGradeFlush;
+  }
+
+  /** Merged due list across the enabled modules. */
+  getDueQueue(options) {
+    const opts = options || {};
+    const today = opts.today || localDate();
+    const questions = this.mcqEnabled() ? this.getQuestions() : [];
+    const cards = this.cardsEnabled() ? this.getCards() : [];
+    return buildDueQueue(questions, cards, { today, limit: opts.limit });
+  }
+
+  /** Open a one-card review from the unified queue. */
+  async reviewCard(card) {
+    const view = await this.activateCards();
+    if (view && view.reviewCard) return view.reviewCard(card);
+    return null;
+  }
+
+  /** Review a specific set of cards (used by the due queue). */
+  async reviewCards(cards) {
+    const view = await this.activateCards();
+    if (view && view.startReview) return view.startReview("all", cards);
+    return null;
+  }
+
+  openDueQueue(onDone) {
+    if (this.moduleOff("mcq") && this.moduleOff("cards")) {
+      new Notice("Turn on MCQ Tracker or Cards to use the due queue.");
+      return;
+    }
+    new DueQueueModal(this.app, this, onDone).open();
   }
 
   /** Create a card note. The deck's folder, course and the note's own properties stay readable. */
@@ -969,6 +1175,149 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const file = await this.app.vault.create(path, note.text);
     return { path, file, deck, course };
+  }
+
+  /** Import cards from a folder of Spaced Repetition notes. */
+  async importCardsFromFolder(folder, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    const root = String(folder || "").replace(/^\/+|\/+$/g, "");
+    const files = this.app.vault.getMarkdownFiles().filter((file) => {
+      if (root && file.path !== root && !file.path.startsWith(root + "/")) return false;
+      // Never re-import notes this module already owns: cloze prompts contain `::`.
+      return !isCardNote(this.app.metadataCache.getFileCache(file)?.frontmatter);
+    });
+    const cards = [];
+    const errors = [];
+    for (const file of files) {
+      try {
+        const text = await this.app.vault.cachedRead(file);
+        const fallback = String(opts.deck || "").trim() || (root ? root.split("/").pop() : this.settings.cards.defaultDeck);
+        const parsed = parseSpacedRepetition(text, {
+          sourcePath: file.path,
+          deck: fallback,
+        });
+        cards.push(...parsed.cards);
+      } catch (e) {
+        errors.push(`${file.path}: ${String((e && e.message) || e)}`);
+      }
+    }
+    return this.importParsedCards(cards, { ...opts, errors });
+  }
+
+  /** Import an Anki plain-text/CSV export. Binary .apkg files need Anki's text export. */
+  async importCardsFromAnki(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    if (/\.(apkg|colpkg)$/i.test(String(path || ""))) {
+      throw new Error("Open the deck in Anki and use File → Export → Notes in Plain Text; .apkg files are not opened by this plugin.");
+    }
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That file is not in the vault.");
+    const text = await this.app.vault.cachedRead(file);
+    const parsed = parseAnkiText(text, { sourcePath: file.path, deck: opts.deck });
+    return this.importParsedCards(parsed.cards, opts);
+  }
+
+  /** Import a Quizlet text/CSV export. Quizlet has no deck field, so the fallback deck is used. */
+  async importCardsFromQuizlet(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    if (/\.pdf$/i.test(String(path || ""))) {
+      throw new Error("Save the Quizlet export as .txt or .csv; PDFs are not read by this plugin.");
+    }
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That file is not in the vault.");
+    const text = await this.app.vault.cachedRead(file);
+    const parsed = parseQuizletText(text, { sourcePath: file.path, deck: opts.deck });
+    return this.importParsedCards(parsed.cards, opts);
+  }
+
+  /** Import a Kahoot, Blooket or Gimkit CSV. The source deck is the file name unless a fallback is set. */
+  async importCardsFromQuestionSet(path, format, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    const kind = String(format || "").toLowerCase();
+    if (!["kahoot", "blooket", "gimkit"].includes(kind)) throw new Error(`Unsupported question-set format: ${kind || "none"}.`);
+    if (/\.(xlsx|xls|pdf|docx)$/i.test(String(path || ""))) {
+      throw new Error("Save the spreadsheet as CSV first; .xlsx, .xls, PDF and Word files are not read by this plugin.");
+    }
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That file is not in the vault.");
+    const deck = String(opts.deck || "").trim() || file.basename;
+    const text = await this.app.vault.cachedRead(file);
+    const parsed = parseQuestionSetText(text, { sourcePath: file.path, deck, format: kind });
+    return this.importParsedCards(parsed.cards, { ...opts, deck, errors: parsed.errors });
+  }
+
+  /** Write the current card filter as a Quizlet text file or a platform CSV. */
+  async exportCards(format, options) {
+    if (this.moduleOff("cards")) throw new Error("Turn on the Cards module first.");
+    const opts = options || {};
+    const kind = String(format || "quizlet").toLowerCase();
+    if (!["quizlet", "kahoot", "blooket", "gimkit"].includes(kind)) {
+      throw new Error(`Unsupported export format: ${kind}.`);
+    }
+    const cards = this.filteredCards({ deck: opts.deck, course: opts.course });
+    if (!cards.length) throw new Error("No cards match the current deck and course filter.");
+    const records = [];
+    const warnings = [];
+    for (const card of cards) {
+      try {
+        const text = await this.app.vault.cachedRead(card.file);
+        const record = { ...card, body: parseCardBody(text, card.fm) };
+        records.push(record);
+        if (kind !== "quizlet" && !record.body.back) warnings.push(`${card.file.path} has no answer and was skipped.`);
+      } catch (e) {
+        warnings.push(`${card.file.path}: ${String((e && e.message) || e)}`);
+      }
+    }
+    const output = kind === "quizlet" ? cardsToQuizlet(records) : cardsToQuestionSet(kind, records);
+    if (!output) throw new Error("Nothing in this filter can be exported in that format yet.");
+    const root = String(this.settings.cards.newCardFolder || "Cards").replace(/^\/+|\/+$/g, "") || "Cards";
+    const folder = `${root}/exports`;
+    await ensureFolder(this.app, folder);
+    const base = `${opts.deck && opts.deck !== "all" ? opts.deck : "cards"} ${kind} ${localDate()}`
+      .replace(/[\\/:*?"<>|]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const extension = kind === "quizlet" ? "txt" : "csv";
+    let path = `${folder}/${base}.${extension}`;
+    let n = 2;
+    while (this.app.vault.getAbstractFileByPath(path)) {
+      path = `${folder}/${base} ${n}.${extension}`;
+      n++;
+    }
+    await this.app.vault.create(path, output);
+    new Notice(`Exported ${records.length} card${records.length === 1 ? "" : "s"} to ${path}.`, 6000);
+    return { path, count: records.length, format: kind, warnings };
+  }
+
+  /** Write parsed cards, skipping import keys that are already present. */
+  async importParsedCards(parsed, options) {
+    const opts = options || {};
+    const existing = new Set(this.getCards().map((card) => String(card.fm.import_key || "").trim()).filter(Boolean));
+    let created = 0;
+    let skipped = 0;
+    const errors = Array.isArray(opts.errors) ? opts.errors.slice() : [];
+    for (const card of Array.isArray(parsed) ? parsed : []) {
+      if (card.importKey && existing.has(card.importKey)) {
+        skipped++;
+        continue;
+      }
+      try {
+        await this.createCard({
+          ...card,
+          deck: card.deck || String(opts.deck || "").trim(),
+          course: String(opts.course || "").trim() || card.course || "",
+        });
+        if (card.importKey) existing.add(card.importKey);
+        created++;
+      } catch (e) {
+        errors.push(`${card.importSource || "import"}: ${String((e && e.message) || e)}`);
+      }
+    }
+    return { created, skipped, errors, total: Array.isArray(parsed) ? parsed.length : 0 };
   }
 
   /** Backfill missing course tags from deck and calendar folder mappings. */

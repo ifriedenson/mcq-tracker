@@ -1,0 +1,837 @@
+"use strict";
+/*
+ * Importers for existing decks.
+ *
+ * - Spaced Repetition: Q::A, Q:::A (reversed), multi-line ? / ??, ==cloze==,
+ *   {{c1::cloze}} and #flashcards/deck tags.
+ * - Anki: the plain-text/CSV export, including its #separator/#html/#deck
+ *   column headers. A binary .apkg is deliberately not opened here; Anki's
+ *   own "Notes in Plain Text" export preserves the content without us shipping
+ *   a SQLite reader or executing untrusted archive contents.
+ * - Quizlet: the copied text/CSV export, with tab, comma, dash, newline and
+ *   semicolon layouts auto-detected.
+ */
+const { Modal, Notice } = require("obsidian");
+const { hashString, str } = require("./util");
+const { parseCloze } = require("./cards");
+
+const IMPORT_TYPES = ["spaced", "anki", "quizlet", "kahoot", "blooket", "gimkit"];
+const QUESTION_SET_TYPES = ["kahoot", "blooket", "gimkit"];
+
+function stripFrontmatter(text) {
+  return str(text).replace(/\r\n/g, "\n").replace(/^---\n[\s\S]*?\n---\n?/, "");
+}
+
+function stripCodeFences(text) {
+  return str(text).replace(/```[\s\S]*?```/g, "").replace(/~~~[\s\S]*?~~~/g, "");
+}
+
+function decodeEntities(text) {
+  return str(text)
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;/g, "'")
+    .replace(/&#x0*27;/gi, "'");
+}
+
+/** A small, predictable HTML-to-Markdown pass for Anki exports. */
+function htmlToMarkdown(html, enabled) {
+  if (!enabled) return str(html).trim();
+  let text = str(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "");
+  text = text
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "- ")
+    .replace(/<(b|strong)[^>]*>([\s\S]*?)<\/\1>/gi, "**$2**")
+    .replace(/<(i|em)[^>]*>([\s\S]*?)<\/\1>/gi, "*$2*")
+    .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, "`$1`")
+    .replace(/<[^>]+>/g, "");
+  return decodeEntities(text).replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function splitDelimited(text, sep) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+  const s = str(text).replace(/\r\n/g, "\n");
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (quoted) {
+      if (c === '"' && s[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (c === '"') {
+        quoted = false;
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      quoted = true;
+    } else if (c === sep) {
+      row.push(field);
+      field = "";
+    } else if (c === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += c;
+    }
+  }
+  if (field || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+/* ---- question sets (Kahoot, Blooket, Gimkit) */
+
+function questionSetDelimiter(text) {
+  const line = str(text).replace(/^\uFEFF/, "").split(/\r?\n/).find((row) => row.trim()) || "";
+  if (line.includes("\t")) return "\t";
+  if (line.includes(",")) return ",";
+  if (line.includes(";")) return ";";
+  return ",";
+}
+
+/** Fold a header to a stable key: "Correct answer(s)" and "Correct Answer" both become "correct answer". */
+function questionSetHeaderKey(value) {
+  return str(value)
+    .replace(/^\uFEFF/, "")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/#/g, " number ")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(?:seconds?|secs?)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findHeader(headers, names) {
+  for (const name of names) {
+    const at = headers.indexOf(name);
+    if (at >= 0) return at;
+  }
+  return -1;
+}
+
+function cleanQuestionSetField(value) {
+  let s = str(value).replace(/\u00a0/g, " ").trim();
+  if (s.length >= 2 && s[0] === '"' && s[s.length - 1] === '"') {
+    s = s.slice(1, -1).replace(/""/g, '"').trim();
+  }
+  return decodeEntities(s).trim();
+}
+
+/** Read a correct-answer cell as 1-based option numbers, or return null when it is answer text. */
+function correctIndexes(value, count) {
+  const s = str(value).trim();
+  if (!s) return null;
+  const parts = s
+    .replace(/\band\b/gi, ",")
+    .split(/\s*[,;/+&]\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length || !parts.every((part) => /^\d+$/.test(part))) return null;
+  const out = [...new Set(parts.map((part) => Number(part)))].filter((n) => n >= 1 && n <= count);
+  return out.length ? out : null;
+}
+
+/**
+ * Parse a Kahoot, Blooket or Gimkit CSV export. The column names are matched
+ * case-insensitively and accept the variants used by each platform's template.
+ * A card keeps the original choices and correct indexes in frontmatter, so the
+ * set can be exported back to any of the supported formats without guessing.
+ */
+function parseQuestionSetText(text, options) {
+  const opts = options || {};
+  const format = str(opts.format).toLowerCase();
+  if (!QUESTION_SET_TYPES.includes(format)) throw new Error(`Unsupported question-set format: ${format || "none"}.`);
+  const source = str(opts.sourcePath || `${format} export`);
+  const deck = str(opts.deck).trim() || "Imported";
+  const body = str(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").trim();
+  const cards = [];
+  const errors = [];
+  if (!body) return { cards, skipped: 0, errors, source, format };
+
+  const rows = splitDelimited(body, questionSetDelimiter(body));
+  if (rows.length < 2) return { cards, skipped: 0, errors: ["No question rows were found."], source, format };
+  const headers = rows[0].map(questionSetHeaderKey);
+  const questionAt = findHeader(headers, ["question", "question text", "prompt", "term"]);
+  if (questionAt < 0) return { cards, skipped: 0, errors: ["No Question column was found."], source, format };
+
+  const choiceColumns = [];
+  for (let n = 1; n <= 8; n++) {
+    const at = findHeader(headers, [`answer ${n}`, `option ${n}`, `choice ${n}`]);
+    if (at >= 0) choiceColumns.push(at);
+  }
+  const incorrectColumns = [];
+  for (let n = 1; n <= 8; n++) {
+    const at = findHeader(headers, [`incorrect answer ${n}`, `wrong answer ${n}`, `incorrect ${n}`]);
+    if (at >= 0) incorrectColumns.push(at);
+  }
+  const correctAt = findHeader(headers, ["correct answer", "correct answers", "correct choice", "correct", "definition"]);
+  const timeAt = findHeader(headers, ["time limit", "time"]);
+  if (correctAt < 0 && !incorrectColumns.length) {
+    return { cards, skipped: 0, errors: ["No correct-answer column was found."], source, format };
+  }
+
+  let skipped = 0;
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row.some((cell) => cleanQuestionSetField(cell))) continue;
+    const question = cleanQuestionSetField(row[questionAt]);
+    if (!question) {
+      skipped++;
+      continue;
+    }
+    const choices = choiceColumns.map((at) => cleanQuestionSetField(row[at])).filter(Boolean);
+    const incorrect = incorrectColumns.map((at) => cleanQuestionSetField(row[at])).filter(Boolean);
+    const correctRaw = correctAt >= 0 ? cleanQuestionSetField(row[correctAt]) : "";
+    let selected = [];
+
+    if (choices.length) {
+      const byNumber = correctIndexes(correctRaw, choices.length);
+      if (byNumber) {
+        selected = byNumber;
+      } else if (correctRaw) {
+        const parts = correctRaw.split(/\s*\|\s*/).filter(Boolean);
+        const matches = parts.map((part) => choices.findIndex((choice) => choice.toLowerCase() === part.toLowerCase()));
+        if (matches.length && matches.every((at) => at >= 0)) {
+          selected = [...new Set(matches.map((at) => at + 1))];
+        } else {
+          choices.push(correctRaw);
+          selected = [choices.length];
+        }
+      }
+      for (const value of incorrect) if (!choices.includes(value)) choices.push(value);
+    } else if (correctRaw) {
+      choices.push(correctRaw);
+      selected = [1];
+      for (const value of incorrect) if (!choices.includes(value)) choices.push(value);
+    }
+
+    const answers = selected.map((at) => choices[at - 1]).filter(Boolean);
+    if (!answers.length) {
+      skipped++;
+      errors.push(`${source}: row ${r + 1} has no usable correct answer.`);
+      continue;
+    }
+    const time = timeAt >= 0 ? Math.round(Number(cleanQuestionSetField(row[timeAt]))) : 0;
+    cards.push({
+      kind: "card",
+      cardType: "basic",
+      deck,
+      front: question,
+      back: answers.join(" · "),
+      notes: choices.length > 1 ? `Choices: ${choices.map((choice, i) => `${String.fromCharCode(65 + i)}. ${choice}`).join("; ")}` : "",
+      tags: [],
+      questionSet: format,
+      choices,
+      correctChoices: selected.join(","),
+      timeLimit: Number.isFinite(time) && time > 0 ? time : 0,
+      importSource: source,
+      importKey: `${format}:${hashString(source + "|" + r + "|" + question + "|" + choices.join("\u0001") + "|" + selected.join(","))}`,
+    });
+  }
+  return { cards, skipped, errors, source, format };
+}
+
+function csvCell(value) {
+  const s = str(value);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function csvLine(cells) {
+  return cells.map(csvCell).join(",");
+}
+
+function oneLine(value) {
+  return str(value).replace(/\r?\n/g, " ").replace(/\t/g, " ").trim();
+}
+
+/** Read the card's own choices and correct indexes, falling back to a plain front/back card. */
+function exportCardRow(card) {
+  const fm = (card && card.fm) || {};
+  const body = (card && card.body) || {};
+  const raw = [];
+  for (let n = 1; n <= 8; n++) {
+    const value = str(fm[`choice_${n}`]).trim();
+    if (value) raw.push(value);
+  }
+  if (!raw.length && Array.isArray(fm.choices)) {
+    for (const value of fm.choices) if (str(value).trim()) raw.push(str(value).trim());
+  }
+  if (!raw.length) {
+    const answer = str(body.back || fm.back || fm.answer).trim();
+    if (answer) raw.push(answer);
+  }
+  const choices = raw.map(oneLine).filter(Boolean);
+  const question = oneLine(body.front || fm.front || fm.question);
+  const asked = correctIndexes(fm.correct_choices, choices.length) || (choices.length ? [1] : []);
+  const time = Math.round(Number(fm.time_limit));
+  return { question, choices, correct: asked, timeLimit: Number.isFinite(time) && time > 0 ? time : 20 };
+}
+
+/** Quizlet's text export: one term per line, a tab before the definition. */
+function cardsToQuizlet(cards) {
+  const rows = [];
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const row = exportCardRow(card);
+    if (!row.question || !row.choices.length) continue;
+    rows.push(`${oneLine(row.question)}\t${oneLine(row.choices[row.correct[0] - 1] || row.choices[0])}`);
+  }
+  return rows.length ? rows.join("\n") + "\n" : "";
+}
+
+/** CSV in the layout each platform's spreadsheet importer expects. */
+function cardsToQuestionSet(format, cards) {
+  const kind = str(format).toLowerCase();
+  if (!QUESTION_SET_TYPES.includes(kind)) throw new Error(`Unsupported question-set format: ${format || "none"}.`);
+  const rows = [];
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const row = exportCardRow(card);
+    if (!row.question || !row.choices.length) continue;
+    if (kind === "gimkit") {
+      const correct = row.correct.map((at) => row.choices[at - 1]).filter(Boolean);
+      const wrong = row.choices.filter((_, i) => !row.correct.includes(i + 1));
+      rows.push(csvLine([row.question, correct.join(" / "), wrong[0] || "", wrong[1] || "", wrong[2] || ""]));
+      continue;
+    }
+    const shown = row.choices.slice(0, 4);
+    let selected = row.correct.filter((at) => at <= 4);
+    if (!selected.length && row.correct.length) {
+      shown[3] = row.choices[row.correct[0] - 1] || shown[3] || "";
+      selected = [4];
+    }
+    const limit = kind === "kahoot" ? Math.min(240, Math.max(5, row.timeLimit)) : Math.min(300, Math.max(5, row.timeLimit));
+    rows.push(csvLine([row.question, ...shown, ...Array(Math.max(0, 4 - shown.length)).fill(""), String(limit), selected.join(",")]));
+  }
+  if (!rows.length) return "";
+  const header =
+    kind === "kahoot"
+      ? ["Question", "Answer 1", "Answer 2", "Answer 3", "Answer 4", "Time limit (seconds)", "Correct answer(s)"]
+      : kind === "blooket"
+        ? ["Question", "Answer 1", "Answer 2", "Answer 3", "Answer 4", "Time Limit (sec)", "Correct Answer(s)"]
+        : ["Question", "Correct Answer", "Incorrect Answer 1", "Incorrect Answer 2", "Incorrect Answer 3"];
+  return [csvLine(header), ...rows].join("\n") + "\n";
+}
+
+function questionSetExportHint(format) {
+  const name = format === "kahoot" ? "Kahoot" : format === "blooket" ? "Blooket" : "Gimkit";
+  if (format === "kahoot") {
+    return "Kahoot: upload the CSV in the Kahoot creator; if it asks for .xlsx, open the CSV in Excel or Sheets and save it as .xlsx first. Kahoot accepts 4 answers and a 5–240 second limit.";
+  }
+  if (format === "blooket") return "Blooket: use CSV Import in the Set Creator, then upload this file. Blooket accepts 4 answers and a 5–300 second limit.";
+  return `${name}: use Import from Spreadsheet in the kit editor and upload this CSV. Gimkit's multiple-choice template has one correct answer and three incorrect answers.`;
+}
+
+function separatorFor(value) {
+  const v = str(value).trim().toLowerCase();
+  if (v === "tab" || v === "\\t") return "\t";
+  if (v === "comma") return ",";
+  if (v === "semicolon") return ";";
+  if (v === "pipe") return "|";
+  return v || "\t";
+}
+
+function parseAnkiText(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "Anki export");
+  const defaultDeck = str(opts.deck).trim() || "Imported";
+  const lines = str(text).replace(/\r\n/g, "\n").split("\n");
+  const meta = { separator: separatorFor(opts.separator || "\t"), html: false, notetype: 0, deck: 0, tags: 0, guid: 0 };
+  let start = 0;
+  for (; start < lines.length; start++) {
+    const line = lines[start];
+    if (!line.startsWith("#")) break;
+    const m = line.match(/^#([^:]+):\s*(.*)$/);
+    if (!m) continue;
+    const key = m[1].trim().toLowerCase();
+    const value = m[2].trim();
+    if (key === "separator") meta.separator = separatorFor(value);
+    else if (key === "html") meta.html = /^true$/i.test(value);
+    else if (key === "notetype column") meta.notetype = Math.max(0, parseInt(value, 10) || 0);
+    else if (key === "deck column") meta.deck = Math.max(0, parseInt(value, 10) || 0);
+    else if (key === "tags column") meta.tags = Math.max(0, parseInt(value, 10) || 0);
+    else if (key === "guid column") meta.guid = Math.max(0, parseInt(value, 10) || 0);
+  }
+  const body = lines.slice(start).join("\n");
+  const rows = splitDelimited(body, meta.separator);
+  const cards = [];
+  const skip = new Set([meta.notetype, meta.deck, meta.tags, meta.guid].filter(Boolean));
+  for (const row of rows) {
+    if (!row.length || !row.some((x) => str(x).trim())) continue;
+    const fields = row.filter((_, i) => !skip.has(i + 1));
+    if (!fields.length) continue;
+    const deck = (meta.deck && str(row[meta.deck - 1]).trim()) || defaultDeck;
+    const notetype = (meta.notetype && str(row[meta.notetype - 1]).trim()) || "";
+    const tags = meta.tags ? str(row[meta.tags - 1]).trim().split(/\s+/).filter(Boolean) : [];
+    let front = htmlToMarkdown(fields[0], meta.html);
+    let back = htmlToMarkdown(fields[1] || "", meta.html);
+    if (!front && !back) continue;
+    let cardType = "basic";
+    const type = notetype.toLowerCase();
+    if (/cloze/.test(type)) {
+      cardType = "cloze";
+      back = parseCloze(front).answers.join(" · ");
+    } else if (/revers/.test(type)) {
+      cardType = "reversed";
+    }
+    if (!front) front = fields[1] || "";
+    if (!front.trim() && !back.trim()) continue;
+    cards.push({
+      kind: "card",
+      cardType,
+      deck,
+      front,
+      back,
+      tags,
+      importSource: source,
+      importKey: `anki:${hashString(source + "|" + row.join("\u0001") + "|" + cards.length)}`,
+    });
+  }
+  return { cards, skipped: 0, source };
+}
+
+/* ---- Quizlet */
+
+function cleanQuizletField(value) {
+  let s = str(value).replace(/\u00a0/g, " ").trim();
+  if (s.length >= 2 && s[0] === '"' && s[s.length - 1] === '"') {
+    s = s.slice(1, -1).replace(/""/g, '"').trim();
+  }
+  return decodeEntities(s).trim();
+}
+
+/** The first Quizlet separator present in a record. Tab is the export default. */
+function quizletDelimiter(text) {
+  const line = str(text);
+  if (line.includes("\t")) return "tab";
+  if (line.includes(",")) return "comma";
+  if (/\s+[-\u2013\u2014]\s+/.test(line)) return "dash";
+  return "";
+}
+
+function splitQuizletRecord(text, kind) {
+  const line = str(text).trim();
+  if (!line || !kind) return null;
+  if (kind === "tab") {
+    const at = line.indexOf("\t");
+    return at > 0 ? [line.slice(0, at), line.slice(at + 1)] : null;
+  }
+  if (kind === "comma") {
+    const at = line.indexOf(",");
+    return at > 0 ? [line.slice(0, at), line.slice(at + 1)] : null;
+  }
+  const m = line.match(/^(.*?)\s+[-\u2013\u2014]\s+([\s\S]*)$/);
+  return m ? [m[1], m[2]] : null;
+}
+
+/** Quizlet can separate cards with semicolons; each part still needs one term/definition delimiter. */
+function quizletSemicolonRecords(body) {
+  if (!str(body).includes(";")) return [];
+  const parts = [];
+  for (const row of splitDelimited(body, ";")) {
+    for (const field of row) {
+      const text = str(field).trim();
+      if (text) parts.push(text);
+    }
+  }
+  if (parts.length < 2) return [];
+  const kind = quizletDelimiter(parts[0]);
+  if (!kind || !parts.every((part) => quizletDelimiter(part) === kind)) return [];
+  return parts.map((part) => splitQuizletRecord(part, kind)).filter(Boolean);
+}
+
+/**
+ * Parse Quizlet's copied text export. The exporter defaults to a tab between
+ * term and definition and a newline between cards, but comma, dash and
+ * semicolon layouts are accepted too. Quizlet has no deck field, so `deck` is
+ * the fallback chosen in the import dialog.
+ */
+function parseQuizletText(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "Quizlet export");
+  const deck = str(opts.deck).trim() || "Imported";
+  const body = str(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").trim();
+  const cards = [];
+  const add = (term, definition) => {
+    const front = cleanQuizletField(term);
+    const back = cleanQuizletField(definition);
+    if (!front || !back) return;
+    cards.push({
+      kind: "card",
+      cardType: "basic",
+      deck,
+      front,
+      back,
+      tags: [],
+      importSource: source,
+      importKey: `quizlet:${hashString(source + "|" + cards.length + "|" + front + "|" + back)}`,
+    });
+  };
+  if (!body) return { cards, skipped: 0, source };
+  const records = quizletSemicolonRecords(body);
+  if (records.length) {
+    for (const [term, definition] of records) add(term, definition);
+    return { cards, skipped: 0, source };
+  }
+  const lines = body.split("\n").map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return { cards, skipped: 0, source };
+
+  if (lines.every((line) => line.includes("\t"))) {
+    for (const line of lines) {
+      const pair = splitQuizletRecord(line, "tab");
+      if (pair) add(pair[0], pair[1]);
+    }
+    return { cards, skipped: 0, source };
+  }
+
+  const quoted = lines.some((line) => /^"/.test(line) || /\","/.test(line));
+  if (quoted) {
+    const rows = splitDelimited(body, ",").filter((row) => row.some((cell) => str(cell).trim()));
+    if (rows.length && rows.every((row) => row.length >= 2)) {
+      for (const row of rows) add(row[0], row.slice(1).join(","));
+      return { cards, skipped: 0, source };
+    }
+  }
+
+  if (lines.every((line) => line.includes(","))) {
+    for (const line of lines) {
+      const pair = splitQuizletRecord(line, "comma");
+      if (pair) add(pair[0], pair[1]);
+    }
+    return { cards, skipped: 0, source };
+  }
+
+  if (lines.every((line) => quizletDelimiter(line) === "dash")) {
+    for (const line of lines) {
+      const pair = splitQuizletRecord(line, "dash");
+      if (pair) add(pair[0], pair[1]);
+    }
+    return { cards, skipped: 0, source };
+  }
+
+  const blocks = body
+    .split(/\n\s*\n+/)
+    .map((block) => block.split("\n").map((line) => line.trim()).filter(Boolean))
+    .filter((block) => block.length);
+  if (blocks.length && blocks.every((block) => block.length >= 2)) {
+    for (const block of blocks) add(block[0], block.slice(1).join("\n"));
+    return { cards, skipped: 0, source };
+  }
+
+  if (lines.length === 2) add(lines[0], lines[1]);
+  else if (lines.length >= 4 && lines.length % 2 === 0) {
+    for (let i = 0; i < lines.length; i += 2) add(lines[i], lines[i + 1]);
+  }
+  return { cards, skipped: 0, source };
+}
+
+function cleanCardLine(line) {
+  return str(line)
+    .replace(/^\s*(?:[-*+]|\d+[.)])\s+/, "")
+    .trim();
+}
+
+function blockTags(block) {
+  return [...block.matchAll(/(^|\s)#([\w/-]+)/g)]
+    .map((m) => m[2])
+    .filter((t) => !/^flashcards(?:\/|$)/i.test(t));
+}
+
+/**
+ * Parse one Spaced Repetition Markdown note. A tag supplies the deck and also
+ * opts the file into cloze paragraphs, so ordinary notes in the same folder are
+ * not turned into cards by accident.
+ */
+function parseSpacedRepetition(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "Spaced Repetition note");
+  const body = stripCodeFences(stripFrontmatter(text));
+  const tagged = /#flashcards(?:\/|\b)/i.test(body);
+  let deck = str(opts.deck).trim() || "Imported";
+  const cards = [];
+  const blocks = body.split(/\n\s*\n+/);
+  for (let b = 0; b < blocks.length; b++) {
+    const raw = blocks[b].split("\n");
+    const lines = [];
+    for (const original of raw) {
+      // Spaced Repetition appends <!--SR:...--> scheduling comments inline.
+      const line = original.replace(/<!--\s*SR:[\s\S]*?-->/gi, "").replace(/<!--[\s\S]*?-->/g, "").trimEnd();
+      if (!line.trim()) continue;
+      const tag = line.match(/#flashcards(?:\/([^\s#]+))?/i);
+      if (tag) {
+        if (tag[1]) deck = tag[1].replace(/\\\//g, "/").trim();
+        const left = line.replace(/#flashcards(?:\/[^\s#]+)?/gi, "").trim();
+        if (left) lines.push(left);
+        continue;
+      }
+      if (line.trim()) lines.push(line);
+    }
+    if (!lines.length) continue;
+    const tags = blockTags(lines.join("\n"));
+    const add = (front, back, cardType) => {
+      const f = str(front).trim();
+      const a = str(back).trim();
+      if (!f || !a) return;
+      cards.push({
+        kind: "card",
+        cardType,
+        deck,
+        front: f,
+        back: a,
+        tags,
+        importSource: source,
+        importKey: `sr:${hashString(source + "|" + b + "|" + f + "|" + cardType)}`,
+      });
+    };
+
+    const sepIndex = lines.findIndex((l) => /^\s*\?\?\s*$/.test(l) || /^\s*\?\s*$/.test(l));
+    if (sepIndex > 0 && sepIndex < lines.length - 1) {
+      add(lines.slice(0, sepIndex).join("\n"), lines.slice(sepIndex + 1).join("\n"), /^\s*\?\?/.test(lines[sepIndex]) ? "reversed" : "basic");
+      continue;
+    }
+
+    let inline = 0;
+    for (const line of lines) {
+      const textLine = cleanCardLine(line);
+      if (!textLine) continue;
+      const m = textLine.match(/^(.*?)(:::|::)(.*)$/);
+      if (m) {
+        add(m[1], m[3], m[2] === ":::" ? "reversed" : "basic");
+        inline++;
+      }
+    }
+    if (inline) continue;
+
+    if (tagged) {
+      const joined = lines.join("\n");
+      const parsed = parseCloze(joined);
+      if (parsed.answers.length) add(joined, parsed.answers.join(" · "), "cloze");
+    }
+  }
+  return { cards, skipped: 0, source };
+}
+
+/** A plain-text Anki export may contain the deck column, so tell the user when it does not. */
+function ankiExportHint() {
+  return "Anki: File → Export → Notes in Plain Text, include the deck column if you want decks kept.";
+}
+
+/** Quizlet has no deck or file metadata, so point at its exact copy settings. */
+function quizletExportHint() {
+  return "Quizlet: open the set → Export, use Tab between term and definition and New line between cards, then save the copied text as a .txt or .csv file in this vault.";
+}
+
+class CardImportModal extends Modal {
+  constructor(app, plugin, options, onDone) {
+    super(app);
+    this.plugin = plugin;
+    this.options = options || {};
+    this.onDone = onDone || (() => {});
+    this.type = this.options.type || "spaced";
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    const p = this.plugin;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: "Import existing decks" });
+
+    const typeWrap = contentEl.createDiv({ cls: "qt-field" });
+    typeWrap.createEl("label", { text: "Source" });
+    const type = typeWrap.createEl("select", { cls: "dropdown" });
+    type.createEl("option", { text: "Spaced Repetition notes in this vault", value: "spaced" });
+    type.createEl("option", { text: "Anki plain-text export", value: "anki" });
+    type.createEl("option", { text: "Quizlet text export", value: "quizlet" });
+    type.createEl("option", { text: "Kahoot spreadsheet (CSV)", value: "kahoot" });
+    type.createEl("option", { text: "Blooket spreadsheet (CSV)", value: "blooket" });
+    type.createEl("option", { text: "Gimkit spreadsheet (CSV)", value: "gimkit" });
+    type.value = this.type;
+
+    const sourceWrap = contentEl.createDiv({ cls: "qt-field" });
+    const sourceLabel = sourceWrap.createEl("label", { text: "Folder" });
+    const source = sourceWrap.createEl("select", { cls: "dropdown" });
+    const refreshOptions = () => {
+      source.empty();
+      const files = p.app.vault.getAllLoadedFiles ? p.app.vault.getAllLoadedFiles() : p.app.vault.getMarkdownFiles();
+      if (this.type === "spaced") {
+        const folders = ["", ...new Set((files || []).map((f) => f.parent && f.parent.path).filter((x) => x && x !== "/"))];
+        folders.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+        for (const folder of folders) source.createEl("option", { text: folder || "Whole vault", value: folder });
+      } else {
+        const candidates = (files || []).filter((f) => /\.(txt|tsv|csv)$/i.test(f.path || ""));
+        if (!candidates.length) source.createEl("option", { text: "No .txt, .tsv or .csv files found", value: "" });
+        for (const f of candidates) source.createEl("option", { text: f.path, value: f.path });
+      }
+      const sourceLabels = { spaced: "Folder to scan", quizlet: "Quizlet text export", anki: "Anki text export", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
+      sourceLabel.setText(sourceLabels[this.type] || "Import file");
+    };
+    refreshOptions();
+    type.addEventListener("change", () => {
+      this.type = type.value;
+      refreshOptions();
+      help.setText(helpText());
+    });
+
+    const deckWrap = contentEl.createDiv({ cls: "qt-field" });
+    deckWrap.createEl("label", { text: "Fallback deck (source deck wins when present)" });
+    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: p.settings.cards.defaultDeck || "Imported" } });
+    if (this.options.deck) deck.value = this.options.deck;
+    const courseWrap = contentEl.createDiv({ cls: "qt-field" });
+    courseWrap.createEl("label", { text: "Course tag (optional)" });
+    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
+    if (this.options.course) course.value = this.options.course;
+
+    const help = contentEl.createEl("p", { cls: "setting-item-description" });
+    const helpText = () => {
+      if (this.type === "quizlet") return quizletExportHint();
+      if (this.type === "anki") return ankiExportHint() + " Binary .apkg files are not opened; export the notes to text from Anki first.";
+      if (QUESTION_SET_TYPES.includes(this.type)) {
+        return "Save the platform's spreadsheet as CSV first. Question, answer choices, correct answer and time limit are read automatically; the set's choices stay in the card so it can be exported back.";
+      }
+      return "Pick a folder of Markdown notes. Files without a #flashcards tag only contribute explicit :: cards.";
+    };
+    help.setText(helpText());
+    const note = contentEl.createDiv({ cls: "qt-hint" });
+    const row = contentEl.createDiv({ cls: "qt-row" });
+    const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
+    const go = row.createEl("button", { text: "Import cards", cls: "mod-cta qt-grow" });
+    cancel.addEventListener("click", () => this.close());
+    go.addEventListener("click", async () => {
+      const path = source.value;
+      if (this.type !== "spaced" && !path) {
+        new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet" : this.type === "anki" ? "Anki" : this.type} file first.`);
+        return;
+      }
+      go.disabled = true;
+      note.setText("Reading and importing…");
+      try {
+        const result =
+          this.type === "spaced"
+            ? await p.importCardsFromFolder(path, { deck: deck.value, course: course.value })
+            : this.type === "quizlet"
+              ? await p.importCardsFromQuizlet(path, { deck: deck.value, course: course.value })
+              : QUESTION_SET_TYPES.includes(this.type)
+                ? await p.importCardsFromQuestionSet(path, this.type, { deck: deck.value, course: course.value })
+                : await p.importCardsFromAnki(path, { deck: deck.value, course: course.value });
+        const bits = [`Imported ${result.created} card${result.created === 1 ? "" : "s"}`];
+        if (result.skipped) bits.push(`${result.skipped} already imported`);
+        if (result.errors && result.errors.length) bits.push(`${result.errors.length} failed`);
+        note.setText(bits.join(" · "));
+        new Notice(bits.join(" · "), 6000);
+        if (result.created) {
+          this.close();
+          this.onDone(result);
+        } else {
+          go.disabled = false;
+        }
+      } catch (e) {
+        go.disabled = false;
+        note.setText(str(e && e.message) || "Import failed.");
+      }
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+/** Export the current Cards filter to Quizlet or one of the question-set CSVs. */
+class CardExportModal extends Modal {
+  constructor(app, plugin, options, onDone) {
+    super(app);
+    this.plugin = plugin;
+    this.options = options || {};
+    this.onDone = onDone || (() => {});
+    this.format = this.options.format || "quizlet";
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    const p = this.plugin;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: "Export cards" });
+
+    const count = p.filteredCards({ deck: this.options.deck, course: this.options.course }).length;
+    contentEl.createEl("p", {
+      cls: "setting-item-description",
+      text: `${count} card${count === 1 ? "" : "s"} in the current deck and course filter. Exports are written to the vault as a file you can upload to the platform.`,
+    });
+
+    const wrap = contentEl.createDiv({ cls: "qt-field" });
+    wrap.createEl("label", { text: "Format" });
+    const format = wrap.createEl("select", { cls: "dropdown" });
+    format.createEl("option", { text: "Quizlet text", value: "quizlet" });
+    format.createEl("option", { text: "Kahoot CSV", value: "kahoot" });
+    format.createEl("option", { text: "Blooket CSV", value: "blooket" });
+    format.createEl("option", { text: "Gimkit CSV", value: "gimkit" });
+    format.value = this.format;
+
+    const help = contentEl.createEl("p", { cls: "setting-item-description" });
+    const setHelp = () => help.setText(questionSetExportHint(this.format));
+    format.addEventListener("change", () => {
+      this.format = format.value;
+      setHelp();
+    });
+    setHelp();
+
+    const note = contentEl.createDiv({ cls: "qt-hint" });
+    const row = contentEl.createDiv({ cls: "qt-row" });
+    const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
+    const go = row.createEl("button", { text: "Export file", cls: "mod-cta qt-grow" });
+    cancel.addEventListener("click", () => this.close());
+    go.addEventListener("click", async () => {
+      go.disabled = true;
+      note.setText("Writing the export…");
+      try {
+        const result = await p.exportCards(this.format, { deck: this.options.deck, course: this.options.course });
+        note.setText(`Exported ${result.count} card${result.count === 1 ? "" : "s"} to ${result.path}.`);
+        new Notice(`Exported ${result.count} card${result.count === 1 ? "" : "s"} to ${result.path}.`, 7000);
+        if (result.warnings && result.warnings.length) {
+          note.setText(`${note.textContent || result.path} · ${result.warnings[0]}`);
+        }
+        go.disabled = false;
+        if (this.onDone) this.onDone(result);
+      } catch (e) {
+        go.disabled = false;
+        note.setText(str(e && e.message) || "Export failed.");
+      }
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = {
+  IMPORT_TYPES,
+  QUESTION_SET_TYPES,
+  stripFrontmatter,
+  stripCodeFences,
+  htmlToMarkdown,
+  splitDelimited,
+  parseAnkiText,
+  parseQuizletText,
+  parseQuestionSetText,
+  parseSpacedRepetition,
+  cardsToQuizlet,
+  cardsToQuestionSet,
+  ankiExportHint,
+  quizletExportHint,
+  questionSetExportHint,
+  CardImportModal,
+  CardExportModal,
+};

@@ -210,6 +210,45 @@ test("plugin: a card review writes the shared tracking properties and respects t
   assert.match(card.file.fm.history[0], /\|correct\|9\|Good\|2\|/);
 });
 
+test("cards: answer mode and strictness resolve from the card, deck and global default", () => {
+  const settings = {
+    ...SETTINGS,
+    cards: {
+      ...SETTINGS.cards,
+      answerMode: "type",
+      gradingStrictness: "lenient",
+      decks: [{ name: "Biology", folder: "Courses/Bio", course: "BIOL 201", answerMode: "speak", gradingStrictness: "strict" }],
+    },
+  };
+  const inherited = cards.resolveCard({ path: "Courses/Bio/cell.md" }, { card_id: "cell", item_type: "card", deck: "Biology" }, settings);
+  assert.equal(inherited.answerMode, "speak");
+  assert.equal(inherited.gradingStrictness, "strict");
+
+  const own = cards.resolveCard(
+    { path: "Courses/Bio/cell.md" },
+    { card_id: "cell", item_type: "card", deck: "Biology", answer_mode: "flip", grading_strictness: "standard" },
+    settings
+  );
+  assert.equal(own.answerMode, "flip");
+  assert.equal(own.gradingStrictness, "standard");
+});
+
+test("cards: answer-mode properties and accepted variants are written and parsed", () => {
+  const made = cards.cardNote({
+    deck: "Biology",
+    front: "What is a cell?",
+    back: "The basic unit of life.",
+    answerMode: "type",
+    gradingStrictness: "lenient",
+    acceptedVariants: ["basic unit of life", "building block of life"],
+  });
+  const fm = { item_type: "card", answer_mode: "type", grading_strictness: "lenient", accepted_variants: ["basic unit of life"] };
+  assert.match(made.text, /answer_mode: "type"/);
+  assert.match(made.text, /grading_strictness: "lenient"/);
+  assert.match(made.text, /accepted_variants:\n  - "basic unit of life"/);
+  assert.deepEqual(cards.parseCardBody(made.text, fm).acceptedVariants, ["basic unit of life"]);
+});
+
 test("plugin: course tags can be backfilled from deck and calendar folder mappings", async () => {
   const { app, plugin } = await setup();
   const card = app.files.find((f) => f.path === "Courses/Chem/mole.md");
@@ -248,4 +287,117 @@ test("cards view: starts a review, flips, rates, and finishes", async () => {
   await dom.click("Good");
   assert.equal(view.state, "summary");
   assert.ok(dom.texts().includes("Review complete"));
+});
+
+test("cards view: a typed answer is graded locally and an override is saved", async () => {
+  const { app, plugin } = await setup();
+  plugin.settings.cards.answerMode = "type";
+  plugin.settings.cards.reviewLimit = 1;
+  const dom = makeDom();
+  const view = new T.CardView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+  await dom.click(/Start review/);
+  await new Promise((r) => setTimeout(r, 0));
+  const card = view.current;
+  const answer = card.body.back;
+  view.checkTyped(answer);
+  assert.equal(view.verdict.verdict, "correct");
+  assert.equal(view.suggestedGrade, "good");
+  assert.ok(dom.texts().includes("Correct"));
+
+  await dom.click("Hard");
+  assert.equal(view.state, "summary");
+  assert.equal(card.file.fm.last_verdict, "correct");
+  assert.equal(card.file.fm.last_typed_answer, answer);
+  assert.equal(card.file.fm.verdict_override, true);
+  assert.equal(card.file.fm.graded_by, "deterministic");
+});
+
+test("cards view: an unsure typed answer gets an AI second opinion and records it", async () => {
+  const { app, plugin } = await setup();
+  plugin.settings.cards.answerMode = "type";
+  plugin.settings.cards.reviewLimit = 1;
+  plugin.settings.cards.aiGrading = true;
+  plugin.settings.ai.enabled = true;
+  let asked = null;
+  plugin.gradeCardWithAi = async (card, typed, strictness) => {
+    asked = { card, typed, strictness };
+    return { verdict: "correct", suggestedGrade: "good", reason: "The AI accepted it.", matchedBy: "ai", gradedBy: "ai", confidence: 0.8 };
+  };
+  const dom = makeDom();
+  const view = new T.CardView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+  await dom.click(/Start review/);
+  await new Promise((r) => setTimeout(r, 0));
+  const card = view.current;
+  await view.checkTyped("powerhouse");
+  assert.equal(asked.typed, "powerhouse");
+  assert.equal(view.verdict.verdict, "correct");
+  assert.equal(view.verdict.gradedBy, "ai");
+  await dom.click("Good");
+  assert.equal(card.file.fm.graded_by, "ai");
+  assert.equal(card.file.fm.grade_status, "graded");
+  assert.equal(card.file.fm.grade_confidence, 0.8);
+});
+
+test("cards view: when AI is unavailable the answer waits, and rating it is recorded as a self-grade", async () => {
+  const { app, plugin } = await setup();
+  plugin.settings.cards.answerMode = "type";
+  plugin.settings.cards.reviewLimit = 1;
+  plugin.settings.cards.aiGrading = true;
+  plugin.settings.ai.enabled = true;
+  plugin.gradeCardWithAi = async () => {
+    throw new Error("offline");
+  };
+  const dom = makeDom();
+  const view = new T.CardView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+  await dom.click(/Start review/);
+  await new Promise((r) => setTimeout(r, 0));
+  const card = view.current;
+  await view.checkTyped("powerhouse");
+  assert.equal(view.pendingGrade, true);
+  assert.equal(plugin.pendingCardGrades().length, 1);
+  assert.equal(view.verdict.verdict, "incorrect");
+  await dom.click("Good");
+  assert.equal(plugin.pendingCardGrades().length, 0, "self-grading removes the pending AI request");
+  assert.equal(card.file.fm.graded_by, "self");
+  assert.equal(card.file.fm.grade_status, "self");
+});
+
+test("plugin: pending typed answers are graded once and cleared from the queue", async () => {
+  const { app, plugin } = await setup();
+  plugin.settings.cards.aiGrading = true;
+  plugin.settings.ai.enabled = true;
+  plugin.gradeCardWithAi = async () => ({
+    verdict: "correct",
+    suggestedGrade: "good",
+    reason: "The AI accepted it.",
+    matchedBy: "ai",
+    gradedBy: "ai",
+    confidence: 0.9,
+  });
+  const dom = makeDom();
+  const view = new T.CardView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+  await dom.click(/Start review/);
+  await new Promise((r) => setTimeout(r, 0));
+  const card = view.current;
+  plugin.queueCardGrade(card, "powerhouse", "standard");
+  assert.equal(plugin.pendingCardGrades().length, 1);
+  plugin.aiComplete = async () => '{"verdict":"correct","confidence":0.9,"feedback":"Accepted."}';
+  const r = await plugin.flushPendingCardGrades();
+  assert.equal(r.graded, 1);
+  assert.equal(plugin.pendingCardGrades().length, 0);
+  assert.equal(card.file.fm.last_verdict, "correct");
+  assert.equal(card.file.fm.graded_by, "ai");
+  assert.equal(card.file.fm.grade_status, "graded");
 });

@@ -121,19 +121,20 @@ The question text.
 const IMPORT_RULES = `Rules:
 - Make one note per question. Copy the question, passage and choices exactly as written. Only remove page numbers, running headers and footers, and line-break hyphenation. Never paraphrase, shorten or "fix" them.
 - Passage: one passage (stimulus) can have several questions, and those questions can be on later pages than the passage, even on the next page or after other pages. Work out which passage each question belongs to from its wording ("Text 1", "the passage", "the graph", "the table above" and so on) and from the order of the pages. Put the full passage under "## Stimulus" in EVERY question that uses it, repeated word for word, and give those questions the same stimulus_id. If a question has no passage, leave out the "## Stimulus" section and the stimulus_id line. Use markdown tables for tables and $...$ for math.
-- Pictures: lines like [FIGURE page 3: ![[path/to/picture.png]]] in the text mark a picture, chart, diagram, photo or table image in the PDF at that spot. If a question or its passage depends on it, copy the exact ![[path]] part to where it belongs: on its own "> " line inside the Stimulus when it is part of the passage or data, inside the question text when it is shown with the question, or inside an answer choice (- A. ![[path]]) when the choice is a picture. Use the paths exactly as given and never invent one. If a "whole page" picture is also listed, use it only when the cropped figure is clearly cut off. If the text says a figure is needed and no marker is there, write "> [Figure not captured]" in the Stimulus and carry on.
+- Pictures: lines like [FIGURE page 3: ![[path/to/picture.png]]] in the text mark a picture, chart, diagram, photo or table image in the document at that spot. If a question or its passage depends on it, copy the exact ![[path]] part to where it belongs: on its own "> " line inside the Stimulus when it is part of the passage or data, inside the question text when it is shown with the question, or inside an answer choice (- A. ![[path]]) when the choice is a picture. Use the paths exactly as given and never invent one. If a "whole page" picture is also listed, use it only when the cropped figure is clearly cut off. If the text says a figure is needed and no marker is there, write "> [Figure not captured]" in the Stimulus and carry on.
 - question_type is "mcq" when the question has answer choices (list them under "## Answer Choices" as "- A. text") and "choices" is how many there are. For a question with no answer choices, use "spr", leave out "## Answer Choices", and put the answer value in "answer".
-- Layout of question-bank PDFs: a question often starts with a line like "Question ID: 37e5c794", then a small table of labels, then "Question" followed by the question text, then the choices (sometimes under a heading called "Answer"), then "Correct Answer: D", then "Rationale". Everything from the start of the question text up to the first choice is the question: keep both the sentence with the blank (leave the blank as written, for example ______) and the instruction sentence after it ("Which choice completes the text..."). The choices go under "## Answer Choices", the correct letter goes in "answer", and the "Rationale" or "Explanation" text is the explanation.
-- Answer: if the PDF shows the correct answer anywhere (for example an answer key at the end), use it and set answer_source: pdf. If the PDF does NOT show it, work the question out carefully yourself, give your best answer, and set answer_source: ai. For a multiple-choice answer use just the letter.
-- Explanation: if the PDF gives one, copy it and set explanation_source: pdf. Otherwise write a short, correct explanation of why the answer is right (and why the others are wrong) and set explanation_source: ai.
+- The file may be a PDF, a PowerPoint deck, a Word document or another document. In a slide deck, each slide is marked as a page; a slide can hold one question, its choices and the answer. Keep the slides in order and never merge questions from different slides.
+- Layout of question-bank documents: a question often starts with a line like "Question ID: 37e5c794", then a small table of labels, then "Question" followed by the question text, then the choices (sometimes under a heading called "Answer"), then "Correct Answer: D", then "Rationale". Everything from the start of the question text up to the first choice is the question: keep both the sentence with the blank (leave the blank as written, for example ______) and the instruction sentence after it ("Which choice completes the text..."). The choices go under "## Answer Choices", the correct letter goes in "answer", and the "Rationale" or "Explanation" text is the explanation.
+- Answer: if the document shows the correct answer anywhere (for example an answer key at the end), use it and set answer_source: pdf. If the document does NOT show it, work the question out carefully yourself, give your best answer, and set answer_source: ai. For a multiple-choice answer use just the letter.
+- Explanation: if the document gives one, copy it and set explanation_source: pdf. Otherwise write a short, correct explanation of why the answer is right (and why the others are wrong) and set explanation_source: ai.
 - Do not write any "AI-generated" notice yourself. The plugin adds it.
 - Never put a line starting with # inside the question, passage, choices or explanation.
-- Properties from the PDF: besides the ones in the example, add a line for every piece of information the PDF shows for that question, or for the whole document (a title page or running header that names the test, for example). Leave a line out when the PDF does not show it, and never guess a value. Copy values exactly as written, except difficulty, which you write in lower case (easy, medium or hard):
-  - official_question_id: the question's official ID printed in the PDF, such as the part after "Question ID:". It is a separate property from question_id, which you build from the prefix and which must not be changed. Copy it exactly, and add it whenever the PDF gives one.
+- Properties from the document: besides the ones in the example, add a line for every piece of information the document shows for that question, or for the whole document (a title page or running header that names the test, for example). Leave a line out when the document does not show it, and never guess a value. Copy values exactly as written, except difficulty, which you write in lower case (easy, medium or hard):
+  - official_question_id: the question's official ID printed in the document, such as the part after "Question ID:". It is a separate property from question_id, which you build from the prefix and which must not be changed. Copy it exactly, and add it whenever the document gives one.
   - test: the exam or assessment (for example SAT, AP, ACT). A label called "Assessment" or "Exam" gives this.
-  - section: the part of the exam (for example Reading and Writing, Math). When the PDF has both an "Assessment" label and a separate "Test" label, the "Test" label is the section.
-  - domain, skill, difficulty, course, unit: whenever the PDF labels them.
-  - Anything else the PDF labels for the question (for example Score Band, Topic or Year): add it as its own property with a short lower-case name using underscores and a one-line value.
+  - section: the part of the exam (for example Reading and Writing, Math). When the document has both an "Assessment" label and a separate "Test" label, the "Test" label is the section.
+  - domain, skill, difficulty, course, unit: whenever the document labels them.
+  - Anything else the document labels for the question (for example Score Band, Topic or Year): add it as its own property with a short lower-case name using underscores and a one-line value.
   These labels are often shown as a small table: a header row (Assessment, Test, Domain, Skill, Difficulty) and a row of values underneath. Match each value to the label above it. A bar or icon graphic drawn next to the difficulty is decoration, not a picture: use the word and ignore the graphic.
 - Leave out anything that is not a question (directions, ads, blank pages).`;
 
@@ -143,16 +144,16 @@ function agentPrompt(o) {
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
   return [
-    `Import every question from the PDF "${o.name}" into notes.`,
+    `Import every question from the ${o.kind === "pptx" || o.kind === "pptm" ? "PowerPoint deck" : o.kind === "docx" || o.kind === "docm" ? "Word document" : "document"} "${o.name}" into notes.`,
     "",
     "Files (paths are relative to the folder you are working in):",
-    `- The PDF's text, with page markers: ${o.textPath}`,
-    `- The PDF itself: ${o.pdfPath}`,
-    `- Pictures cut from the PDF are in ${o.imagesDir}. Their paths appear in the text as [FIGURE ...] markers, so you don't need to open them.`,
+    `- The document's text, with page or slide markers: ${o.textPath}`,
+    `- The original file: ${o.docPath}`,
+    `- Pictures cut from the PDF (when there are any) are in ${o.imagesDir}. Their paths appear in the text as [FIGURE ...] markers, so you don't need to open them.`,
     "",
     `Create the notes in this folder, which already exists: ${o.folder}`,
-    `Use one file per question, named ${o.prefix}-Q01.md, ${o.prefix}-Q02.md and so on. If the PDF's own question numbers are all unique, use them (padded to two digits) instead. Use the prefix "${o.prefix}" for question_id and stimulus_id values too, and make question_id match the file name.`,
-    meta ? `\nAdd these properties to every note exactly as written:\n${meta}\nFor every other property (including official_question_id), take the value the PDF shows for that question.` : "\nThe user did not fill in any properties, so take every property (test, section, domain, skill, difficulty, official_question_id and so on) from what the PDF shows for each question.",
+    `Use one file per question, named ${o.prefix}-Q01.md, ${o.prefix}-Q02.md and so on. If the file's own question numbers are all unique, use them (padded to two digits) instead. Use the prefix "${o.prefix}" for question_id and stimulus_id values too, and make question_id match the file name.`,
+    meta ? `\nAdd these properties to every note exactly as written:\n${meta}\nFor every other property (including official_question_id), take the value the document shows for that question.` : "\nThe user did not fill in any properties, so take every property (test, section, domain, skill, difficulty, official_question_id and so on) from what the document shows for each question.",
     "",
     "Use exactly this format for every note:",
     "```",
@@ -161,15 +162,15 @@ function agentPrompt(o) {
     "",
     IMPORT_RULES,
     "",
-    "Work through the whole PDF. Remember that a passage can be on an earlier page than its questions, so read the whole text before deciding which passage a question belongs to. Do not create, change or delete any file outside that folder, and do not delete anything. When you are done, reply with one short line: how many notes you created, and how many contain an answer or explanation you wrote yourself.",
+    "Work through the whole document. Remember that a passage can be on an earlier page than its questions, so read the whole text before deciding which passage a question belongs to. Do not create, change or delete any file outside that folder, and do not delete anything. When you are done, reply with one short line: how many notes you created, and how many contain an answer or explanation you wrote yourself.",
   ]
     .filter((l) => l !== undefined)
     .join("\n");
 }
 
-const AGENT_SYSTEM = "You are importing practice-test questions from a PDF into an Obsidian vault. Work only inside the folder you are told to use. Be accurate and complete: every question in the PDF must become exactly one note.";
+const AGENT_SYSTEM = "You are importing practice-test questions from a document into an Obsidian vault. Work only inside the folder you are told to use. Be accurate and complete: every question in the document must become exactly one note.";
 
-const API_SYSTEM = `You turn pages of a practice-test PDF into Obsidian notes.
+const API_SYSTEM = `You turn pages or slides of a practice-test document into Obsidian notes.
 Reply with the notes only. Start each note with a line containing exactly =====NOTE===== and then the complete note, starting with the --- line. No other text and no code fences.
 
 Use exactly this format for every note (leave question_id as PREFIX-Q01; it is replaced later):
@@ -177,7 +178,7 @@ Use exactly this format for every note (leave question_id as PREFIX-Q01; it is r
 ${IMPORT_FORMAT}
 ${IMPORT_RULES}
 - If a question is cut off at the start or end of the pages you are given so that it is incomplete, leave it out. It is included in the next batch.
-- If a block called ANSWER KEY FROM ELSEWHERE IN THE PDF is given, use it for answers and explanations (answer_source: pdf, explanation_source: pdf).
+- If a block called ANSWER KEY FROM ELSEWHERE IN THE DOCUMENT is given, use it for answers and explanations (answer_source: pdf, explanation_source: pdf).
 - If a block called PASSAGES CARRIED OVER FROM EARLIER PAGES is given, those passages are on pages before the ones you were sent. Questions at the start of your pages that need a passage which isn't in your pages belong to one of them. Copy that passage exactly into those notes.`;
 
 function parseNote(text) {
@@ -220,8 +221,8 @@ async function extractNotesChunk(client, chunk, keyText, carry) {
   const inChunk = new Set(chunk.map((p) => p.n));
   const key = keyText && !chunk.some((p) => keyText.includes(`--- Page ${p.n} ---`) && inChunk.has(p.n)) ? keyText : "";
   const user =
-    `Pages ${chunk[0].n}-${chunk[chunk.length - 1].n} of the PDF:\n\n${chunkText(chunk)}` +
-    (key ? `\n\nANSWER KEY FROM ELSEWHERE IN THE PDF:\n${key}` : "") +
+    `Pages ${chunk[0].n}-${chunk[chunk.length - 1].n} of the document:\n\n${chunkText(chunk)}` +
+    (key ? `\n\nANSWER KEY FROM ELSEWHERE IN THE DOCUMENT:\n${key}` : "") +
     (carry && carry.length ? `\n\nPASSAGES CARRIED OVER FROM EARLIER PAGES:\n${carry.map((c, i) => `[Passage ${i + 1}]\n${c}`).join("\n\n")}` : "");
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -308,7 +309,7 @@ function finalizeNote(text, meta, qid, stamp) {
   const diff = meta.difficulty || src.difficulty;
   if (diff) fm.difficulty = /^(easy|medium|hard)$/i.test(str(diff).trim()) ? str(diff).trim().toLowerCase() : diff;
   if (meta.source) fm.source = meta.source;
-  // any other labelled information the PDF showed (single-line values only; never the plugin's own tracking fields)
+  // any other labelled information the document showed (single-line values only; never the plugin's own tracking fields)
   let extra = 0;
   for (const [k, v] of Object.entries(src)) {
     if (extra >= 12 || KNOWN_PROPS.has(k) || k in fm || !/^[a-z][a-z0-9_]{0,40}$/.test(k)) continue;
@@ -346,7 +347,7 @@ function finalizeNote(text, meta, qid, stamp) {
     const what = f.aiAnswer && f.aiExp ? "answer and explanation" : f.aiAnswer ? "answer" : "explanation";
     notice =
       `> [!warning] AI-generated ${what}\n` +
-      `> Written by ${stamp.model} on ${stamp.date}${f.aiAnswer ? ", because the PDF did not show the answer" : ""}. Check it before you rely on it.\n\n`;
+      `> Written by ${stamp.model} on ${stamp.date}${f.aiAnswer ? ", because the document did not show the answer" : ""}. Check it before you rely on it.\n\n`;
   }
   return `---\n${stringifyYaml(fm).trimEnd()}\n---\n\n${notice}${cleaned}\n`;
 }

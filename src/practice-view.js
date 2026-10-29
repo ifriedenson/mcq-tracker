@@ -458,7 +458,7 @@ class PracticeView extends ItemView {
     tools.createEl("button", { text: "Weak spots & errors" }).addEventListener("click", () => p.activateInsights("weak"));
 
     if (st.ai.enabled) {
-      const ib = root.createEl("button", { text: "Import questions from PDF" });
+      const ib = root.createEl("button", { text: "Import questions from a file" });
       ib.addEventListener("click", () => p.openPdfImport());
       const ab = root.createEl("button", { text: "AI assistant" });
       ab.addEventListener("click", () => {
@@ -492,8 +492,8 @@ class PracticeView extends ItemView {
     root.addClass("qt-onboard");
     const card = root.createDiv({ cls: "qt-onboard-card" });
     card.createEl("h3", { text: "No questions yet" });
-    card.createDiv({ cls: "qt-onboard-text", text: "Extract multiple-choice questions from your PDFs. Each one becomes a note you can practice." });
-    card.createEl("button", { text: "Import PDFs", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.startImport());
+    card.createDiv({ cls: "qt-onboard-text", text: "Extract multiple-choice questions from your PDFs, PowerPoints, Word files and more. Each one becomes a note you can practice." });
+    card.createEl("button", { text: "Import files", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.startImport());
     card.createEl("a", { text: "Quick-start guide", cls: "qt-onboard-link external-link", href: QUICK_START_URL, attr: { target: "_blank", rel: "noopener" } });
     if (empty.broken.length) this.renderBroken(card, empty.broken);
   }
@@ -518,7 +518,7 @@ class PracticeView extends ItemView {
     }
   }
 
-  /** The Import PDFs button: set up AI first when it isn't, then the usual import window. */
+  /** The Import files button: set up AI first when it isn't, then the usual import window. */
   startImport() {
     if (aiReady(this.plugin)) {
       this.plugin.openPdfImport();
@@ -544,10 +544,10 @@ class PracticeView extends ItemView {
     };
     root.addClass("qt-onboard");
     const card = root.createDiv({ cls: "qt-onboard-card" });
-    card.createEl("h3", { text: "Set up AI to import PDFs" });
+    card.createEl("h3", { text: "Set up AI to import files" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Importing uses an AI model to read your PDF. The PDF's text is sent to the provider you choose. Nothing is sent until you start an import.",
+      text: "Importing uses an AI model to read your document. The file's text is sent to the provider you choose. Nothing is sent until you start an import.",
     });
 
     let useApi = true;

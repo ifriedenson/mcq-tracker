@@ -22,7 +22,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Quick Practice:** start a 2, 5, or 10 minute session, or a 5, 10, or 20 question session, using your current filters. It saves the queue so you can resume after closing Obsidian.
 - **Today:** a phone-sized start screen with due and new counts, the next class or exam, and one **Start 5 minutes** button that opens Quick Practice.
 - **Notes box** on the result screen, saved into the note.
-- **Import questions from a PDF:** an AI agent (or your own AI key) turns a PDF into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from a PDF](#import-questions-from-a-pdf)).
+- **Import questions from a file:** an AI agent (or your own AI key) turns a PDF, PowerPoint deck, Word file, OpenDocument, HTML, RTF, Markdown, CSV or text file into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from your files](#import-questions-from-your-files)).
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
 - **Cards and vocabulary (optional module, off by default).** Create flashcards, reversed cards, cloze cards and vocabulary notes as ordinary Markdown notes. Organize them into decks, inherit a course tag from a deck or folder, and review them with Again/Hard/Good/Easy using the same ladder or FSRS schedule as your questions (see [Cards and vocabulary](#cards-and-vocabulary-optional-module-off-by-default)).
 - **Modules you can switch off.** Settings, Global has an on/off switch for each module (MCQ Tracker, Cards, Calendar and AI features) plus the plugin-wide options, so the parts you don't use stay out of the way.
@@ -31,8 +31,8 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 ## Quick start
 
 1. Install the plugin and enable it (see below).
-2. Open the practice view from the ribbon (graduation cap icon). With no questions in your vault yet, it offers **Import PDFs**.
-3. Press **Import PDFs**. The first time, you'll choose how to connect an AI model (your own API key, or OpenCode on desktop), then pick a PDF and a new folder name. See [Import questions from a PDF](#import-questions-from-a-pdf).
+2. Open the practice view from the ribbon (graduation cap icon). With no questions in your vault yet, it offers **Import files**.
+3. Press **Import files**. The first time, you'll choose how to connect an AI model (your own API key, or OpenCode on desktop), then pick a file and a new folder name. See [Import questions from your files](#import-questions-from-your-files).
 4. When the import finishes, press **Practice all** to start. Already have question notes? Add a `question_id` property to each (see [What counts as a question](#what-counts-as-a-question)) and the practice view finds them.
 
 ## Install
@@ -121,6 +121,8 @@ Each `history` entry is stored as `date|result|seconds|answer|confidence|error_t
 - Open cards
 - Create a flashcard or vocabulary card
 - Cards: tag cards with their folder's course
+- Cards: grade pending typed answers
+- Cards: import existing decks
 - Open calendar
 - Calendar: add an .ics schedule
 - Calendar: create or open the note for the next class
@@ -128,7 +130,7 @@ Each `history` entry is stored as `date|result|seconds|answer|confidence|error_t
 - Show weak spots
 - Show error log
 - Find a question by ID
-- Import questions from a PDF
+- Import questions from a file
 - Rename old source_question_id properties to official_question_id (one-time clean-up for notes imported before the rename)
 
 ## Calendar (optional module, off by default)
@@ -159,9 +161,21 @@ The class-detail parsing, the `.ics` parser and the calendar presentation are ad
 Turn on **Cards** under Settings, Global, Modules. Cards are first-class notes, not a separate database: each one has its own `history`, `next_review` and—if you use FSRS—`srs` state, so the same scheduler handles questions and cards. The module is off by default and touches nothing until you create or review a card.
 
 - **Create a card** from the Cards view, the command palette, or Today. Choose a flashcard, reversed card, cloze card, or vocabulary item, and pick a deck. A deck can have a folder and a course; cards in that folder inherit the course. New cards go under **New card folder** (default `Cards`) in a subfolder named after the deck, unless the deck specifies its own folder.
-- **Review** by revealing the answer and rating **Again**, **Hard**, **Good**, or **Easy** (keys 1–4; Space or Enter flips). The rating maps directly to the simple ladder or FSRS. Reviews use the same offline outbox as question attempts, so a temporary vault or sync lock does not lose a rating.
-- **Decks** are managed under Settings, Cards, Decks: set a default deck, a folder and a course for each deck, add or remove decks, and see per-deck due/new counts. Cards with a `deck` property are grouped even if the deck has no settings entry; use **Save deck** to give it a folder or course.
-- **Course tags** can also come from the calendar's subject-to-folder map. Press **Tag courses from folders** in the Cards view (or use the command) to backfill missing `course` properties.
+- **Review** by revealing the answer and rating **Again**, **Hard**, **Good**, or **Easy** (keys 1–4; Space or Enter flips when using Flip mode). The rating maps directly to the simple ladder or FSRS. Reviews use the same offline outbox as question attempts, so a temporary vault or sync lock does not lose a rating.
+- **Type or speak an answer.** Set **Answer mode** under Settings, Cards, Review to **Type** or **Speak**. Type grades the answer locally against the stored answer, ignores case, accents, articles and punctuation at standard strictness, accepts small typos, numbers and `accepted_variants`, and shows the missing key words. **Speak** uses the same text box with your device's dictation or microphone key; no audio leaves the device. The suggested rating is Good/Hard/Again, and choosing another rating records an override. A card's `answer_mode` or `grading_strictness` property, or its deck's setting, overrides the global default.
+- **Optional AI second opinion.** **AI fallback for typed answers** under Settings, Cards, Review sends only an inconclusive answer to your configured provider, with the card front, the stored answer, your answer and the strictness. A valid reply is mapped to Good/Hard/Again and keeps `graded_by: ai`, the confidence and the feedback in the note. If the request fails, the attempt waits in a device-local queue instead of being counted wrong; use **Cards: grade pending typed answers**, or let the plugin retry when Obsidian starts. Rating the card yourself records `graded_by: self` and removes it from the queue. The learner's answer is treated as untrusted data, and the grader has no tools or access to other notes.
+- **Decks** are managed under Settings, Cards, Decks: set a default deck, a folder, a course, an answer mode and grading strictness for each deck, add or remove decks, and see per-deck due/new counts. Cards with a `deck` property are grouped even if the deck has no settings entry; use **Save deck** to give it a folder or course.
+- **One due queue.** Today and the command **Open today's due queue** show one list across due questions, flashcards and vocabulary. Each row opens the note or starts the right review; the existing practice and Cards buttons remain available for a full session. The list is merged, but the question and card review screens are not interleaved yet.
+- **Import existing decks.** Use **Import** in the Cards view, **Import cards** under Settings, Cards, Decks, or the command **Cards: import existing decks**. Six sources are supported:
+  - **Spaced Repetition notes in this vault.** Pick a folder; the importer reads `Q::A`, reversed `Q:::A`, multiline `?` and `??`, `==cloze==` / `{{c1::cloze}}`, and `#flashcards/deck` tags. Files without a flashcard tag only contribute explicit `::` cards, so ordinary notes are left alone.
+  - **Anki plain-text/CSV export.** In Anki, use **File → Export → Notes in Plain Text** and include the deck column. Headers such as `#separator`, `#html`, `#notetype column`, `#deck column` and `#tags column` are understood; basic HTML is converted to Markdown. Binary `.apkg` files are not opened, so export the notes to text first.
+  - **Quizlet text export.** Open the set in Quizlet, choose **Export**, keep **Tab** between term and definition and **New line** between cards, then save the copied text as a `.txt` or `.csv` file in the vault. Comma, tab and ` - ` separators plus semicolon or newline rows are auto-detected; quoted CSV and two-line exports work too. Quizlet does not include a deck name, so choose a fallback deck in the dialog.
+  - **Kahoot spreadsheet.** Save the Kahoot template as CSV, then import it. The `Question`, `Answer 1–4`, `Time limit` and `Correct answer(s)` columns are read; the correct answer can be a number (`2`) or several numbers (`1,3`).
+  - **Blooket spreadsheet.** Save Blooket's CSV Import template as a file, then import it. `Question`, `Answer 1–4`, `Time Limit` and `Correct Answer(s)` are read, with numeric or answer-text correct answers.
+  - **Gimkit spreadsheet.** Save Gimkit's CSV template as a file, then import it. `Question`, `Correct Answer` and `Incorrect Answer 1–3` are read; Gimkit's two-column term/definition template also works.
+
+  Imports write normal card notes and record `import_source` / `import_key`, so importing the same file again skips cards that are already present. A question-set card also keeps `question_set`, `choice_1…choice_4`, `correct_choices` and `time_limit` in its properties, so its choices are not lost. Choose a fallback deck and optional course in the import dialog; for a question-set file the file name is the default deck. PDFs and `.xlsx` files are not read directly, so save the spreadsheet as CSV first.
+- **Export existing decks.** Use **Export** in the Cards view, **Export cards** under Settings, Cards, Decks, or the command **Cards: export to Quizlet, Kahoot, Blooket or Gimkit**. Quizlet is written as tab-separated text; the other formats are written as CSV in that platform's import layout. Kahoot may ask for `.xlsx`; open the CSV in Excel or Sheets and save it as `.xlsx` before uploading. Blooket's Set Creator and Gimkit's kit editor accept the CSV directly. Export files go under `Cards/exports` (or your configured card folder).
 - **Portable note format.** Each note stays readable and editable without the plugin:
 
   ```markdown
@@ -171,6 +185,10 @@ Turn on **Cards** under Settings, Global, Modules. Cards are first-class notes, 
   deck: Spanish verbs
   course: SPAN 101
   card_type: basic       # basic | reversed | cloze
+  answer_mode: type      # optional: flip | type | speak
+  grading_strictness: standard  # optional: strict | standard | lenient
+  accepted_variants:
+    - to speak
   ---
 
   ## Front
@@ -180,35 +198,35 @@ Turn on **Cards** under Settings, Global, Modules. Cards are first-class notes, 
   to speak
   ```
 
-  Vocabulary notes use `item_type: vocab`, `language`, optional `part_of_speech`, and `## Term`, `## Definition`, `## Example` sections. Cloze cards use `==highlighted text==` or `{{c1::highlighted text}}` in `## Front`.
+  Vocabulary notes use `item_type: vocab`, `language`, optional `part_of_speech`, and `## Term`, `## Definition`, `## Example` sections. Cloze cards use `==highlighted text==` or `{{c1::highlighted text}}` in `## Front`. Typed reviews add `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by` and `graded_on` beside the normal tracking properties.
 
 Cards share the scheduler selected under **Settings → MCQ Tracker → Review**. Switching between the simple ladder and FSRS stays lossless, and a card's first FSRS review is seeded from its existing history.
 
-## Import questions from a PDF
+## Import questions from your files
 
-Point the plugin at a PDF of practice questions and it creates one note per question, in the right format and with the passage included, in a new folder you name. Run the command **Import questions from a PDF**, or press **Import questions from PDF** on the practice home screen. This needs **Enable AI features** turned on.
+Point the plugin at a file of practice questions and it creates one note per question, in the right format and with the passage included, in a new folder you name. It reads PDFs, PowerPoint decks (`.pptx`, `.pptm`), Word documents (`.docx`, `.docm`), OpenDocument text and presentations (`.odt`, `.odp`), HTML, RTF, Markdown, CSV and plain text. Run the command **Import questions from a file**, or press **Import questions from a file** on the practice home screen. This needs **Enable AI features** turned on.
 
-1. Choose a PDF from your device or your vault.
+1. Choose a file from your device or your vault.
 2. Name the new folder. It's created for you, and it must not already contain files.
-3. Choose who writes the notes (see below), optionally add properties for every note (test, course, section, domain, unit, difficulty), and optionally limit the pages.
+3. Choose who writes the notes (see below), optionally add properties for every note (test, course, section, domain, unit, difficulty), and optionally limit the pages or slides.
 4. Press **Start import**.
 
 **Two ways to do it**
 
-- **OpenCode agent (desktop).** The agent reads the PDF and writes the note files itself, straight into the folder, the way you'd ask an AI agent to do it in a chat. Choose OpenCode as the AI backend in settings first. If the agent has to wait for permission to create files, allow file edits for your vault in OpenCode's permissions.
-- **Direct AI (any device).** The plugin sends the PDF's text to your provider a few pages at a time. The AI replies with finished notes, you review the list, untick anything you don't want, and the plugin creates the files.
+- **OpenCode agent (desktop).** The agent reads the file and writes the note files itself, straight into the folder, the way you'd ask an AI agent to do it in a chat. Choose OpenCode as the AI backend in settings first. If the agent has to wait for permission to create files, allow file edits for your vault in OpenCode's permissions.
+- **Direct AI (any device).** The plugin sends the file's text to your provider a few pages or slides at a time. The AI replies with finished notes, you review the list, untick anything you don't want, and the plugin creates the files.
 
-**Properties from the PDF.** The import reads the labels the PDF prints for each question and saves them as note properties: the question's own ID (as `official_question_id`, kept separate from the plugin's own `question_id`, for example the `Question ID: 37e5c794` on SAT Question Bank pages), plus test, section, domain, skill and difficulty. In an SAT-style table, "Assessment" becomes `test` and the table's "Test" column becomes `section`. Difficulty is saved in lower case (easy, medium, hard). Any other labelled value (for example a score band) is kept as an extra property. Anything you type in the import window's property boxes is used for every note instead of what the PDF says, so leave a box blank to take it from the PDF. Properties the PDF doesn't show are left out, never guessed.
+**Properties from the document.** The import reads the labels the file prints for each question and saves them as note properties: the question's own ID (as `official_question_id`, kept separate from the plugin's own `question_id`, for example the `Question ID: 37e5c794` on SAT Question Bank pages), plus test, section, domain, skill and difficulty. In an SAT-style table, "Assessment" becomes `test` and the table's "Test" column becomes `section`. Difficulty is saved in lower case (easy, medium, hard). Any other labelled value (for example a score band) is kept as an extra property. Anything you type in the import window's property boxes is used for every note instead of what the file says, so leave a box blank to take it from the file. Properties the file doesn't show are left out, never guessed.
 
 **Duplicates and a check of the result.** If a new note has the same official question ID as a note you already have, the review method skips it, and the agent method lists the repeats so you can move them to the trash in one click. When an import finishes, the plugin lists notes that need a look: no answer, no answer choices, or a missing figure. You can save that list as a note in the new folder.
 
-**Passages that span pages.** One passage can have several questions, and those questions can be on the next page or several pages later. The agent reads the whole PDF, so it matches each question to its passage. With Direct AI, each batch also receives the passages from the batches before it, so questions at the top of a page still get the right passage. Either way, the full passage is copied into every note that uses it, and those notes share one `stimulus_id`.
+**Passages that span pages.** One passage can have several questions, and those questions can be on the next page or several pages later. The agent reads the whole file, so it matches each question to its passage. With Direct AI, each batch also receives the passages from the batches before it, so questions at the top of a page still get the right passage. Either way, the full passage is copied into every note that uses it, and those notes share one `stimulus_id`.
 
 **Pictures, charts and screenshots.** With **Capture figures and pictures** on (the default), the plugin draws each page, finds charts, diagrams, photos and screenshots, cuts them out as PNG files, and saves them in an `images` folder inside your new folder. Each one is marked in the PDF text at the spot where it appears, so the AI puts it where it belongs: in the passage, in the question, or inside an answer choice that is a picture. Pictures that no note ends up using are deleted. Turn on **Also save a picture of every page** as a backup for figures that don't cut out cleanly.
 
-**Everything in one place.** The new folder holds the notes, a copy of the PDF, and the images folder.
+**Everything in one place.** The new folder holds the notes, a copy of the original file, and (for PDFs) the images folder.
 
-**Answers the PDF doesn't give.** If the PDF shows the answer (including an answer key anywhere in it), that answer is used. If it doesn't, the AI works out the answer and writes an explanation, and the plugin:
+**Answers the file doesn't give.** If the file shows the answer (including an answer key anywhere in it), that answer is used. If it doesn't, the AI works out the answer and writes an explanation, and the plugin:
 
 - puts a notice at the top of that note saying the answer or explanation is AI-generated, with the **model name and the date**,
 - records `answer_source`, `explanation_source`, `ai_model` and `ai_generated` in the note's properties, so you can find them later.
@@ -218,8 +236,9 @@ AI answers can be wrong. Check them, especially before relying on them to study.
 **Limits**
 
 - Scanned PDFs (pictures of pages) aren't supported because there's no text to read. Run them through text recognition (OCR) first.
+- PowerPoint, Word and other non-PDF files are imported as text. Pictures and charts are only captured from PDFs; the text of a slide or paragraph is still imported.
 - Figure detection looks for anything on the page that isn't text. It can miss a very faint figure, or cut a figure a little wide or narrow. Tables drawn with lines may come out as pictures. Questions that need a figure the plugin couldn't find say "[Figure not captured]" in the passage.
-- The AI can make copying mistakes, so spot-check a few notes against the PDF.
+- The AI can make copying mistakes, so spot-check a few notes against the original file.
 - Existing files are never overwritten, and a folder with files in it is refused.
 - Try a few pages first (use the page range) to check quality and cost before you run a whole book. Direct AI makes one request per few pages, and the agent uses as many as it needs, so check your provider's pricing.
 
@@ -244,8 +263,9 @@ The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRo
 ### What is disclosed and sent
 
 - **Network use:** requests to your chosen AI provider; requests to `api.github.com` and `github.com` only to set up OpenCode, which happens the first time you choose the OpenCode backend (the plugin shows what it will download, from where, and where it will go, and asks you to confirm first; if you say no it won't ask again) or when you press **Download and install**; and local requests to the OpenCode server on your own computer.
-- **PDF import:** the text of the pages you choose is sent to your AI provider (Direct AI), or to your local OpenCode agent, which sends it to the provider you set up in OpenCode. Nothing is sent until you press **Start import**. The agent can create files in the new folder only if you allow it in OpenCode, and the plugin writes a temporary text copy of the PDF into that folder that it deletes when done. The PDF you choose is copied into that folder, and cut-out pictures are saved in an `images` folder inside it.
+- **Document import:** the text of the pages or slides you choose is sent to your AI provider (Direct AI), or to your local OpenCode agent, which sends it to the provider you set up in OpenCode. Nothing is sent until you press **Start import**. The agent can create files in the new folder only if you allow it in OpenCode, and the plugin writes a temporary text copy of the file into that folder that it deletes when done. The file you choose is copied into that folder, and cut-out PDF pictures are saved in an `images` folder inside it.
 - **What a chat request contains:** the question text, any passage, the answer choices, your answer, the correct answer, the explanation, your notes for that question, and your past mistake types for it. In the general assistant or Agent mode, OpenCode may also read other files in your vault if you ask it to.
+- **Typed card answers:** when the local card grader is unsure and **AI fallback for typed answers** is on, only the card front, the stored reference answer, your typed answer and the strictness are sent. If that request fails, the answer stays in a device-local queue until AI grading succeeds or you self-grade it. Turning AI features off stops all grading requests.
 - **Files outside your vault:** only the OpenCode install folder and data folder named above, and only if you use Option 2.
 - **Programs started:** only `opencode` (and, during a download, your system's `tar` or PowerShell to unpack it), and only on desktop.
 - **API key storage:** a key you enter for Direct API is stored as plain text in the plugin's `data.json` inside your vault, so it syncs with your vault. Anyone who can read your vault can read it. Keep `data.json` out of any public repository or shared vault. A key you enter for OpenCode is saved in OpenCode's own `auth.json` outside your vault, with owner-only permissions.
@@ -257,7 +277,7 @@ Settings are grouped by module, then by tab. **Global** has Modules and General;
 - **Global → Modules** is one switch per module: **MCQ Tracker** (on by default), **Cards and vocabulary** (off by default), **Calendar** (off by default) and **AI features** (off by default). Turning a module off keeps its settings and your notes. It closes that module's open tabs and hides its ribbon button; using one of its commands anyway shows a notice that points back here.
 - **Global → General** holds the plugin-wide options: whether the plugin shows its ribbon icons, and whether the practice view opens when Obsidian starts.
 - **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
-- **Cards** covers the default deck, the new-card folder, deck folders and course tags, cards per review session, and whether to review due-and-new or all cards.
+- **Cards** covers the default deck, the new-card folder, deck folders and course tags, cards per review session, answer mode, grading strictness, the optional AI fallback for typed answers, and whether to review due-and-new or all cards.
 - The calendar's **Appearance & Colors** tab includes a maximum width setting (`0` fills the pane), class colors, break markers, and the study-slot buffer.
 
 ## Privacy
