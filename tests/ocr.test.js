@@ -36,6 +36,23 @@ test("OCR: the saved note records source, model, date and every page", () => {
   assert.throws(() => ocr.buildOcrNote([], {}), /no OCR text/i);
 });
 
+test("OCR: a local-command note records its source kind", () => {
+  const note = ocr.buildOcrNote([{ n: 1, text: "Local text" }], { title: "Local", sourceKind: "local-command", model: "local OCR (tesseract)", date: "2026-10-29" });
+  assert.match(note.text, /ocr_source_kind: local-command/);
+  assert.match(note.text, /ocr_model: "local OCR \(tesseract\)"/);
+});
+
+test("OCR: local command templates normalize, quote and require {image}", () => {
+  const local = T.localOcr;
+  assert.deepEqual(local.normalizeLocalOcr({ command: "  tesseract {image} stdout  ", timeoutSeconds: 999 }), { command: "tesseract {image} stdout", timeoutSeconds: 600 });
+  assert.equal(local.normalizeLocalOcr({ timeoutSeconds: "nope" }).timeoutSeconds, 120);
+  const call = local.commandParts('"C:\\Program Files\\OCR\\ocr.exe" --out "{image}"', "C:\\Temp\\page 1.png");
+  assert.equal(call.command, "C:\\Program Files\\OCR\\ocr.exe");
+  assert.deepEqual(call.args, ["--out", "C:\\Temp\\page 1.png"]);
+  assert.throws(() => local.commandParts("tesseract stdout", "page.png"), /\{image\}/);
+  assert.equal(local.localOcrLabel("/usr/bin/tesseract {image} stdout"), "tesseract");
+});
+
 test("OCR: OpenAI vision sends a data URL image and returns the text", async () => {
   let request;
   obsidian.requestImpl = async (req) => {

@@ -37,7 +37,7 @@ function buildOcrNote(pages, meta) {
     "---",
     "ocr: true",
     `ocr_source: ${yamlQuote(source ? `[[${source}]]` : sourceName)}`,
-    "ocr_source_kind: ai-vision",
+    `ocr_source_kind: ${m.sourceKind || "ai-vision"}`,
     `ocr_pages: ${list.length}`,
     `ocr_model: ${yamlQuote(m.model)}`,
     `ocr_date: ${yamlQuote(m.date)}`,

@@ -6,6 +6,7 @@
 const { Setting } = require("obsidian");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { normalizeSupport, supportLinks } = require("./support");
+const { normalizeLocalOcr } = require("./local-ocr");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
@@ -222,6 +223,35 @@ function renderGeneral(containerEl, plugin, redisplay) {
         await plugin.save();
       })
     );
+
+  new Setting(containerEl).setName("Local OCR (desktop)").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Optional. No OCR program is bundled. If you install one yourself, the plugin can run it on rendered page files. Use {image} for the temporary page path. The program runs directly, not through a shell; its licence and installation are your responsibility.",
+  });
+  new Setting(containerEl)
+    .setName("OCR command")
+    .setDesc("Desktop only. Example: tesseract {image} stdout --psm 6. Leave blank to use only AI vision.")
+    .addText((t) =>
+      t
+        .setPlaceholder("tesseract {image} stdout --psm 6")
+        .setValue(normalizeLocalOcr(st.localOcr).command)
+        .onChange(async (v) => {
+          st.localOcr = normalizeLocalOcr({ ...(st.localOcr || {}), command: v });
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("OCR command timeout")
+    .setDesc("Seconds to wait for each page. Between 10 and 600.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.setValue(String(normalizeLocalOcr(st.localOcr).timeoutSeconds));
+      t.onChange(async (v) => {
+        st.localOcr = normalizeLocalOcr({ ...(st.localOcr || {}), timeoutSeconds: v });
+        await plugin.save();
+      });
+    });
 
   const version = (plugin.manifest && plugin.manifest.version) || "";
   new Setting(containerEl)

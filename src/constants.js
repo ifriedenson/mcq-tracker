@@ -66,6 +66,7 @@ const DEFAULT_SETTINGS = {
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", keys: {} },
   },
+  localOcr: { command: "", timeoutSeconds: 120 }, // optional user-installed OCR command; nothing is bundled
   presets: [],
   importFolder: "",
   importDefaults: {},
