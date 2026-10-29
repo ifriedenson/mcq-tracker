@@ -49,6 +49,7 @@ const { parseApkg } = require("./apkg");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
+const { MixedReviewModal, buildMixedQueue } = require("./mixed-review");
 const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
 const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./study-skin");
 const { StudyStatusModal } = require("./study-status-modal");
@@ -252,6 +253,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
+    this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
     this.addCommand({ id: "manage-study-status", name: "Manage known and excluded items", callback: () => this.openStudyStatusManager() });
 
     // Embeds: `uni-schedule` and `uni-calendar` are the block names existing University
@@ -2358,6 +2360,28 @@ class QuestionTrackerPlugin extends Plugin {
       return;
     }
     new DueQueueModal(this.app, this, onDone).open();
+  }
+
+  /** Open one interleaved session across due questions, cards and vocabulary. */
+  openMixedReview(onDone) {
+    if (this.moduleOff("mcq") || this.moduleOff("cards")) {
+      new Notice("Mixed review needs both MCQ Tracker and Cards turned on. Use Quick Practice or Cards for a single-module session.");
+      return null;
+    }
+    const queue = buildMixedQueue(this.getQuestions(), this.getCards(), {
+      today: localDate(),
+      limit: this.settings.cards.reviewLimit || 20,
+    });
+    if (!queue.items.length) {
+      new Notice("Nothing is due across both modules yet.");
+      return null;
+    }
+    const modal = new MixedReviewModal(this.app, this, { limit: this.settings.cards.reviewLimit || 20 }, () => {
+      this.refreshViews();
+      if (onDone) onDone();
+    });
+    modal.open();
+    return modal;
   }
 
   /** Create a card note. The deck's folder, course and the note's own properties stay readable. */

@@ -136,6 +136,15 @@ class DueQueueModal extends Modal {
         () => this.startCards(queue.all)
       );
     }
+    if (c.questions && c.cards + c.vocab) {
+      actions.createEl("button", { text: "Start mixed review", cls: "mod-cta" }).addEventListener("click", () => this.startMixed());
+    }
+  }
+
+  async startMixed() {
+    this.close();
+    this.plugin.openMixedReview();
+    this.onDone();
   }
 
   async start(item) {

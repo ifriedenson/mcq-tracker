@@ -4163,3 +4163,112 @@
   resize: vertical;
   width: 100%;
 }
+
+
+/* Interleaved mixed review across questions, cards and vocabulary. */
+.qt-mixed-top {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.qt-mixed-progress {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.qt-mixed-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+
+.qt-mixed-badge {
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.qt-mixed-card,
+.qt-mixed-vocab {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.qt-mixed-title {
+  font-size: 1.25rem;
+  font-weight: 650;
+  line-height: 1.35;
+  margin-bottom: 4px;
+}
+
+.qt-mixed-meta {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin-bottom: 12px;
+}
+
+.qt-mixed-stimulus {
+  border-left: 3px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  padding-left: 12px;
+}
+
+.qt-mixed-stem {
+  font-size: 1.08rem;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.qt-mixed-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qt-mixed-choice {
+  align-items: baseline;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  display: flex;
+  gap: 8px;
+  padding: 6px 9px;
+}
+
+.qt-mixed-letter {
+  color: var(--text-faint);
+  font-weight: 700;
+  min-width: 1rem;
+}
+
+.qt-mixed-key {
+  color: var(--text-accent);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.qt-mixed-ratings {
+  margin-top: 14px;
+}
+
+.qt-mixed-foot {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+@media (max-width: 480px) {
+  .qt-mixed-ratings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

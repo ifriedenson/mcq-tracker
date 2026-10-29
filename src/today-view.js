@@ -168,8 +168,9 @@ class TodayView extends ItemView {
       row.createSpan({ cls: `qt-due-badge${item.isNew ? " is-new" : ""}`, text: item.isNew ? "New" : "Due" });
       if (pending.get(item.path)) row.createSpan({ cls: "qt-due-badge is-pending", text: "Pending" });
     }
-    const open = root.createEl("button", { text: "Open due queue", cls: "mod-cta qt-primary" });
-    open.addEventListener("click", () => p.openDueQueue());
+    const actions = root.createDiv({ cls: "qt-row" });
+    actions.createEl("button", { text: "Start mixed review", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.openMixedReview());
+    actions.createEl("button", { text: "Open due queue" }).addEventListener("click", () => p.openDueQueue());
   }
 
   renderCards(root) {
