@@ -45,7 +45,8 @@ async function loadQuestionData(plugin, q, options) {
     }
   }
   let key = findAnswerKey(q.fm, sections);
-  let mode = inferMode(q.fm.question_type, key, sections.choices);
+  const pairs = sections.pairs || [];
+  let mode = inferMode(q.fm.question_type, key, sections.choices, pairs);
   // True/false and select-all keys are stored in one canonical form so the
   // practice view, timed tests and history all compare the same values.
   key = normalizeAnswerKey(mode, key, sections.choices);
@@ -61,10 +62,33 @@ async function loadQuestionData(plugin, q, options) {
       mode = "self";
     }
   }
-  return { file: q.file, fm: { ...q.fm }, sections, key, mode, variant };
+  return { file: q.file, fm: { ...q.fm }, sections, key, mode, variant, pairs };
+}
+
+/** One matching row per pair, with the right column in `order`. */
+function renderMatchPicker(options) {
+  const opts = options || {};
+  const pairs = Array.isArray(opts.pairs) ? opts.pairs : [];
+  const order = Array.isArray(opts.order) ? opts.order : pairs.map((_pair, i) => i);
+  const picks = Array.isArray(opts.picks) ? opts.picks : [];
+  const list = opts.container.createDiv({ cls: "qt-match" });
+  const selects = [];
+  pairs.forEach((pair, i) => {
+    const row = list.createDiv({ cls: "qt-match-row" });
+    opts.renderLeft(pair.left, row.createDiv({ cls: "qt-match-left" }));
+    const sel = row.createEl("select", { cls: "qt-select qt-match-select" });
+    sel.createEl("option", { value: "", text: "Choose..." });
+    for (const idx of order) if (pairs[idx]) sel.createEl("option", { value: String(idx), text: str(pairs[idx].right) });
+    sel.value = Number.isInteger(picks[i]) && picks[i] >= 0 ? String(picks[i]) : "";
+    sel.addEventListener("change", () => opts.onChange(i, sel.value === "" ? -1 : Number(sel.value)));
+    selects.push(sel);
+  });
+  if (opts.hint) opts.container.createDiv({ cls: "qt-hint", text: opts.hint });
+  return { list, selects };
 }
 
 module.exports = {
   renderMarkdownInto,
   loadQuestionData,
+  renderMatchPicker,
 };

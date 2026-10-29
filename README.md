@@ -154,7 +154,7 @@ Which choice best describes the relationship between the two texts?
 
 - `## Stimulus` is optional. If a note has none but has a `stimulus_id`, the plugin borrows the passage from another note with the same `stimulus_id`.
 - The answer key is read from the `answer` property, or from a line like `Correct Answer: B` in the `## Answer` section.
-- `question_type` can be `mcq`, `spr` (student-produced response), `true_false`, `select_all`, or anything else for self-grading. Aliases such as `tf`, `sata` and `select-all-that-apply` are understood, and so is free text such as "Multiple choice (4 choices)".
+- `question_type` can be `mcq`, `spr` (student-produced response), `true_false`, `select_all`, `fill_in`, `matching`, or anything else for self-grading. Aliases such as `tf`, `sata` and `select-all-that-apply` are understood, and so is free text such as "Multiple choice (4 choices)".
 - Properties the plugin reads: `course, test, section, domain, skill, unit, difficulty, question_type, choices, answer, tolerance, tolerance_type, sig_figs, sig_figs_mode, units, answer_unit, accepted_answers, accepted_variants, variables, answer_formula, variant_seed, target_seconds, stimulus_id`.
 - Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, next_review, last_attempt_id, srs, scheduler, history`, plus the Known/Exclude fields `study_status, known_days, known_until, excluded_on, excluded_reason` when you use those actions, and `variant_seed` and `last_variant` after a parameterized attempt. `srs` and `scheduler` are populated when FSRS schedules a review (`srs` may be empty if you add tracking properties to notes first).
 
@@ -198,6 +198,37 @@ answer: A, C
 - Select-all compares exact sets: every keyed choice must be picked, and an extra pick is wrong. The result view marks the key, your picks and the missed choices.
 - A true/false note with no `## Answer Choices` still works; the two buttons are shown for you.
 - Unknown keys fall back to self-grading rather than guessing.
+
+### Fill-in and matching answers
+
+Set `question_type: fill_in` for a typed word or phrase. Text grading ignores case, extra spaces, surrounding punctuation and a leading article, so `Mitochondria`, `mitochondria.` and `the mitochondria` all match the key `mitochondria`. Alternatives use `|` or `accepted_answers`, the same as numeric answers.
+
+```yaml
+question_type: fill_in
+answer: mitochondria
+accepted_answers:
+  - powerhouse of the cell
+```
+
+A matching note lists its pairs under `## Pairs`, one per line as `Left :: Right` (`=>` and `->` also work). Practice and timed tests shuffle the right column, ask for one choice per row, require every row, and mark each row after submitting.
+
+```markdown
+---
+question_id: match-1
+question_type: matching
+---
+
+## Question
+Match each process to its description.
+
+## Pairs
+- Photosynthesis :: Converts light energy into chemical energy
+- Cellular respiration :: Releases energy from glucose
+- Diffusion :: Moves particles down a concentration gradient
+```
+
+- A matching note needs at least two pairs and its usual `question_id`, so it appears in practice and tests.
+- A pick is stored as the row's answer position, not the text, so an attempt keeps grading the same after a restart.
 
 ### Parameterized questions
 

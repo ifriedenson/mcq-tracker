@@ -5,10 +5,11 @@ const { fmtPct, packTestSession, sliceQuestionRange, unpackTestSession } = requi
 const { MODES } = require("./constants");
 const { pickQuestion } = require("./filters");
 const { examMatchesCourse } = require("./calendar-model");
-const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
+const { loadQuestionData, renderMarkdownInto, renderMatchPicker } = require("./view-helpers");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
 const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet, trueFalseLabels } = require("./answer-types");
+const { gradeMatching, parsePicks, shuffleForSeed } = require("./matching");
 const { variantSummary, variantValuesText } = require("./parameterized");
 const { NameModal } = require("./modals");
 const { buildSections, normalizeSections } = require("./exam-sections");
@@ -16,6 +17,16 @@ const { buildSections, normalizeSections } = require("./exam-sections");
 /* ------------------------------------------------------- timed test */
 
 const VIEW_TYPE_TEST = "question-tracker-test";
+
+/** A matching item is answered only when every row has a pick. */
+function itemAnswered(it) {
+  if (!it) return false;
+  if (it.mode === "match") {
+    const picks = parsePicks(it.sel);
+    return picks.length === (it.pairs || []).length && picks.every((pick) => Number.isInteger(pick) && pick >= 0);
+  }
+  return !!str(it.sel).trim();
+}
 
 /** Only the course filter applies to FRQ prompts; other question filters do not describe them. */
 function frqMatchesCourse(note, filters) {
@@ -143,7 +154,14 @@ class TestView extends ItemView {
       const q = byPath.get(row.path);
       if (!q) continue; // the note was deleted or moved
       const data = await loadQuestionData(this.plugin, q, { seed: row.seed });
-      items.push({ ...data, sel: row.sel, seconds: row.seconds, flagged: row.flagged, conf: row.conf || 0 });
+      items.push({
+        ...data,
+        sel: row.sel,
+        seconds: row.seconds,
+        flagged: row.flagged,
+        conf: row.conf || 0,
+        matchOrder: data.mode === "match" ? shuffleForSeed(data.pairs.map((_pair, i) => i), data.file.path) : [],
+      });
     }
     if (!items.length) {
       st.testSession = null;
@@ -458,7 +476,14 @@ class TestView extends ItemView {
         noKey++; // no answer key: it can't be graded in a timed test
         continue;
       }
-      items.push({ ...data, sel: "", seconds: 0, flagged: false, conf: 0 });
+      items.push({
+        ...data,
+        sel: "",
+        seconds: 0,
+        flagged: false,
+        conf: 0,
+        matchOrder: data.mode === "match" ? shuffleForSeed(data.pairs.map((_pair, i) => i), data.file.path) : [],
+      });
     }
     const frqNotes = frqCount ? await this.frqCandidates(frqCount) : [];
     for (const note of frqNotes) items.push(frqTestItem(this.app, note));
@@ -512,7 +537,7 @@ class TestView extends ItemView {
   paintNav() {
     this.navBtns.forEach(({ btn, i }) => {
       btn.toggleClass("is-current", i === this.idx);
-      btn.toggleClass("is-answered", !!str(this.items[i].sel).trim());
+      btn.toggleClass("is-answered", itemAnswered(this.items[i]));
       btn.toggleClass("is-flagged", !!this.items[i].flagged);
     });
   }
@@ -602,6 +627,25 @@ class TestView extends ItemView {
         });
         btns.push(b);
       }
+    } else if (it.mode === "match") {
+      const pairs = it.pairs || [];
+      renderMatchPicker({
+        container: ans,
+        pairs,
+        order: it.matchOrder && it.matchOrder.length ? it.matchOrder : pairs.map((_pair, i) => i),
+        picks: parsePicks(it.sel),
+        renderLeft: (text, el) => renderMarkdownInto(this.app, text, el, path, this),
+        hint: "Match every item.",
+        onChange: (index, value) => {
+          const width = pairs.length;
+          const next = parsePicks(it.sel);
+          for (let i = 0; i < width; i++) if (!Number.isInteger(next[i])) next[i] = -1;
+          next[index] = value;
+          it.sel = JSON.stringify(next.slice(0, width));
+          this.paintNav();
+          this.persist();
+        },
+      });
     } else if (it.mode === "frq") {
       const area = ans.createEl("textarea", {
         cls: "qt-frq-answer",
@@ -669,7 +713,7 @@ class TestView extends ItemView {
   }
 
   async tryFinish() {
-    const blank = this.items.filter((it) => !str(it.sel).trim()).length;
+    const blank = this.items.filter((it) => !itemAnswered(it)).length;
     if (blank) {
       const ok = await this.plugin.askConfirm(
         "Finish the test?",
@@ -695,7 +739,7 @@ class TestView extends ItemView {
     let answered = 0;
     let frqAnswered = 0;
     for (const it of this.items) {
-      it.answered = !!str(it.sel).trim();
+      it.answered = itemAnswered(it);
       it.conf = Math.max(0, Math.min(3, Number(it.conf) || 0));
       if (it.mode === "frq") {
         it.answerCheck = null;
@@ -703,7 +747,11 @@ class TestView extends ItemView {
         if (it.answered) frqAnswered++;
         continue;
       }
-      it.answerCheck = it.answered ? gradeAnswerDetailed({ ...it.fm, answer: it.key, question_type: it.mode }, it.sel) : null;
+      it.answerCheck = it.answered
+        ? it.mode === "match"
+          ? gradeMatching(it.pairs, it.sel)
+          : gradeAnswerDetailed({ ...it.fm, answer: it.key, question_type: it.mode }, it.sel)
+        : null;
       it.correct = it.answerCheck ? it.answerCheck.correct : null;
       if (!it.answered) continue;
       answered++;
@@ -865,7 +913,11 @@ class TestView extends ItemView {
             it.flagged ? "marked" : "",
           ].filter(Boolean)
         : [
-            it.answered ? `You: ${it.sel}` : "No answer",
+            it.answered
+              ? it.mode === "match" && it.answerCheck
+                ? `Matched ${it.answerCheck.right}/${it.answerCheck.total}`
+                : `You: ${it.sel}`
+              : "No answer",
             it.key ? `Answer: ${it.key}` : "",
             fmtClock(Math.round(it.seconds)),
             it.answered && it.conf ? `Confidence: ${p.settings.confidenceLabels[it.conf - 1] || it.conf}` : "",
@@ -933,6 +985,15 @@ class TestView extends ItemView {
       if (isMine) row.addClass("is-mine");
       row.createSpan({ cls: "qt-letter", text: c.letter });
       renderMarkdownInto(this.app, c.text, row.createDiv({ cls: "qt-choice-text" }), path, this);
+    }
+    if (it.mode === "match" && it.answerCheck) {
+      const list = d.createDiv({ cls: "qt-match-review" });
+      for (const row of it.answerCheck.rows) {
+        const line = list.createDiv({ cls: `qt-match-review-row ${row.correct ? "is-right" : "is-wrong"}` });
+        renderMarkdownInto(this.app, row.left, line.createDiv({ cls: "qt-match-left" }), path, this);
+        line.createDiv({ cls: "qt-match-review-answer", text: `Correct: ${row.right}` });
+        if (!row.correct) line.createDiv({ cls: "qt-match-review-mine", text: `You: ${row.picked || "(blank)"}` });
+      }
     }
     if (it.mode === "multi") {
       const keyText = formatChoiceSet(parseChoiceSet(it.key)) || it.key;

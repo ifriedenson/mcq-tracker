@@ -5076,3 +5076,15 @@
 .qt-ref-punnett-field { display: flex; align-items: center; gap: 6px; }
 .qt-ref-identity-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
 .qt-ref-identity { display: flex; flex-direction: column; gap: 2px; }
+
+/* matching questions: one left prompt per row, right answers in a select */
+.qt-match { display: flex; flex-direction: column; gap: 8px; }
+.qt-match-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--background-modifier-border); }
+.qt-match-left { min-width: 0; }
+.qt-match-select { width: 100%; }
+.qt-match-review { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.qt-match-review-row { padding: 6px 10px; border-left: 3px solid var(--background-modifier-border); }
+.qt-match-review-row.is-right { border-left-color: var(--color-green); }
+.qt-match-review-row.is-wrong { border-left-color: var(--color-red); }
+.qt-match-review-answer, .qt-match-review-mine { font-size: var(--font-ui-smaller); color: var(--text-muted); }
+@media (max-width: 500px) { .qt-match-row { grid-template-columns: 1fr; } }

@@ -5,11 +5,13 @@ const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
 const { gradeAnswerDetailed } = require("./numeric-grading");
 const { formatChoiceSet, isTrueFalseChoices, normalizeTrueFalse, parseChoiceSet } = require("./answer-types");
+const { parsePairs } = require("./matching");
 
 const HEAD_ALIASES = {
   stimulus: ["stimulus", "passage", "source", "excerpt", "reading", "text", "figure"],
   question: ["question", "stem", "prompt"],
   choices: ["answer choices", "choices", "options", "answers choices"],
+  pairs: ["pairs", "match", "matching"],
   answer: ["answer", "answer key", "correct answer", "answer and rationale", "solution"],
   notes: ["my notes", "notes"],
 };
@@ -66,6 +68,7 @@ function parseSections(text) {
     stimulus: tidyStimulus(first(HEAD_ALIASES.stimulus)),
     question: first(HEAD_ALIASES.question),
     choices,
+    pairs: parsePairs(first(HEAD_ALIASES.pairs)),
     answer: first(HEAD_ALIASES.answer),
     notes: first(HEAD_ALIASES.notes),
     body: norm,
@@ -134,9 +137,11 @@ function findAnswerKey(fm, sections) {
 }
 
 /** Decide how to present/grade a note even when question_type is free text like "Multiple choice (4 choices)". */
-function inferMode(declared, key, choices) {
+function inferMode(declared, key, choices, pairs) {
   const d = str(declared).toLowerCase();
   const list = Array.isArray(choices) ? choices : [];
+  const pairList = Array.isArray(pairs) ? pairs : [];
+  if (/match|pair/.test(d) && pairList.length >= 2) return "match";
   if (!key) return "self";
   const letter = /^[A-H]$/i.test(str(key).trim());
   if (/spr|student.?produced|grid.?in|free.?response|short.?answer|numeric|fill/.test(d)) return "spr";

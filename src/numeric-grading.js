@@ -10,6 +10,7 @@
  */
 
 const { gradeChoiceSelection, normalizeTrueFalse } = require("./answer-types");
+const { normalizeTextAnswer } = require("./matching");
 
 const SUPERSCRIPT = { "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "-", "⁺": "+" };
 const SUPERSCRIPT_OUT = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻", "+": "⁺" };
@@ -545,8 +546,9 @@ function gradeNumeric(fm, chosen) {
   const alternatives = parseAnswerSpec(fm);
   if (!alternatives.length) return null;
   const raw = String(chosen === undefined || chosen === null ? "" : chosen).trim();
-  const text = raw.toLowerCase().replace(/\s+/g, "");
-  const textMatch = alternatives.find((alt) => alt.kind === "text" && alt.text.toLowerCase().replace(/\s+/g, "") === text);
+  const textMatch = alternatives.find(
+    (alt) => alt.kind === "text" && normalizeTextAnswer(alt.text) === normalizeTextAnswer(raw)
+  );
   if (textMatch) {
     return {
       correct: true,

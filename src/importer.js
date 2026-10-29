@@ -42,6 +42,8 @@ function cacheIssues(fm, headings) {
   const has = (names) => names.some((n) => heads.has(n));
   const out = [];
   if (!str(fm.question_id).trim()) out.push("No question ID");
+  // A matching note carries its answers in the Pairs section, not in `answer`.
+  if (/match|pair/i.test(str(fm.question_type)) && has(HEAD_ALIASES.pairs)) return out;
   const prop = ANSWER_PROPS.map((k) => str(fm[k]).trim()).find(Boolean) || "";
   const answered = !!prop || has(HEAD_ALIASES.answer);
   if (!answered) out.push("No answer");
@@ -54,7 +56,7 @@ function cacheIssues(fm, headings) {
 function looksLikeQuestion(fm, headings) {
   fm = fm || {};
   if ("question_id" in fm) return true;
-  if (/mcq|multiple|true.?false|select.?all|sata|^tf$/i.test(str(fm.question_type))) return true;
+  if (/mcq|multiple|true.?false|select.?all|sata|^tf$|match|pair|fill/i.test(str(fm.question_type))) return true;
   if (fm.choices !== undefined && fm.answer !== undefined) return true;
   const heads = new Set((headings || []).map(headName));
   return HEAD_ALIASES.question.some((n) => heads.has(n)) && HEAD_ALIASES.choices.some((n) => heads.has(n));

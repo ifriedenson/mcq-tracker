@@ -1,12 +1,13 @@
 "use strict";
 const { ItemView, Notice, Platform, TFile, setIcon } = require("obsidian");
 const { FILTER_FIELDS, MODES, VIEW_TYPE } = require("./constants");
-const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
+const { loadQuestionData, renderMarkdownInto, renderMatchPicker } = require("./view-helpers");
 const { fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
 const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet, trueFalseLabels } = require("./answer-types");
+const { gradeMatching, parsePicks, shuffleForSeed } = require("./matching");
 const { variantSummary, variantValuesText } = require("./parameterized");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
@@ -40,6 +41,7 @@ class PracticeView extends ItemView {
     this.timerEl = null;
     this.quickSession = null;
     this.study = null;
+    this.matchOrder = [];
   }
 
   getViewType() {
@@ -133,6 +135,10 @@ class PracticeView extends ItemView {
     this.current = await loadQuestionData(this.plugin, q, { seed });
     this.sel = "";
     this.conf = 0;
+    this.matchOrder =
+      this.current.mode === "match"
+        ? shuffleForSeed(this.current.pairs.map((_pair, i) => i), q.file.path)
+        : [];
     this.state = "question";
     if (fresh) {
       this.plugin.startSession(q.file.path, this.current.variant && this.current.variant.ok ? this.current.variant.seed : undefined);
@@ -447,7 +453,10 @@ class PracticeView extends ItemView {
     let correct;
     let chosen = this.sel;
     let answerCheck = null;
-    if (q.mode === "self") {
+    if (q.mode === "match") {
+      answerCheck = gradeMatching(q.pairs, this.sel);
+      correct = answerCheck.correct;
+    } else if (q.mode === "self") {
       correct = this.sel === "correct";
       chosen = "";
     } else {
@@ -1252,8 +1261,14 @@ class PracticeView extends ItemView {
 
     const mode = q.mode;
     const submit = fr.createEl("button", { text: "Submit", cls: "mod-cta qt-submit" });
+    const ready = () => {
+      if (!this.sel) return false;
+      if (mode !== "match") return true;
+      const picks = parsePicks(this.sel);
+      return picks.length === q.pairs.length && picks.every((pick) => pick >= 0);
+    };
     const refresh = () => {
-      submit.disabled = !(this.sel && this.conf);
+      submit.disabled = !(ready() && this.conf);
     };
 
     // answer input
@@ -1299,11 +1314,33 @@ class PracticeView extends ItemView {
         btns.push(b);
       }
     } else if (mode === "spr") {
-      const input = ans.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer" } });
+      const fill = /fill|cloze|blank/i.test(str(fm.question_type));
+      const input = ans.createEl("input", {
+        type: "text",
+        cls: "qt-spr",
+        attr: { placeholder: fill ? "Type the missing word or phrase" : "Your answer" },
+      });
       input.value = this.sel;
       input.addEventListener("input", () => {
         this.sel = input.value.trim();
         refresh();
+      });
+    } else if (mode === "match") {
+      renderMatchPicker({
+        container: ans,
+        pairs: q.pairs,
+        order: this.matchOrder,
+        picks: parsePicks(this.sel),
+        renderLeft: (text, el) => this.md(text, el, path),
+        hint: "Match every item, then submit.",
+        onChange: (index, value) => {
+          const width = q.pairs.length;
+          const next = parsePicks(this.sel);
+          for (let i = 0; i < width; i++) if (!Number.isInteger(next[i])) next[i] = -1;
+          next[index] = value;
+          this.sel = JSON.stringify(next.slice(0, width));
+          refresh();
+        },
       });
     } else {
       // No usable key: still show the choices (read-only) and let you self-grade.
@@ -1424,7 +1461,8 @@ class PracticeView extends ItemView {
     const bl = banner.createDiv({ cls: "qt-res-left" });
     bl.createDiv({ cls: "qt-banner-title", text: r.correct ? "Correct" : "Incorrect" });
     const bits = [];
-    if (!r.correct && r.chosen) bits.push(`You chose ${r.chosen}${r.key ? `, answer ${r.key}` : ""}`);
+    if (r.mode === "match" && r.answerCheck) bits.push(`You matched ${r.answerCheck.right} of ${r.answerCheck.total}`);
+    else if (!r.correct && r.chosen) bits.push(`You chose ${r.chosen}${r.key ? `, answer ${r.key}` : ""}`);
     bits.push(fmtClock(r.seconds) + (s.target ? ` (target ${fmtClock(s.target)})` : ""));
     bl.createDiv({ cls: "qt-banner-sub", text: bits.join(" · ") });
 
@@ -1496,6 +1534,15 @@ class PracticeView extends ItemView {
     }
     this.md(r.sections.question || "", rv.createDiv({ cls: "qt-stem" }), path);
     const rc = rv.createDiv({ cls: "qt-answers" });
+    if (r.mode === "match" && r.answerCheck) {
+      const list = rv.createDiv({ cls: "qt-match-review" });
+      for (const row of r.answerCheck.rows) {
+        const line = list.createDiv({ cls: `qt-match-review-row ${row.correct ? "is-right" : "is-wrong"}` });
+        this.md(row.left, line.createDiv({ cls: "qt-match-left" }), path);
+        line.createDiv({ cls: "qt-match-review-answer", text: `Correct: ${row.right}` });
+        if (!row.correct) line.createDiv({ cls: "qt-match-review-mine", text: `You: ${row.picked || "(blank)"}` });
+      }
+    }
     const keySet = new Set(parseChoiceSet(r.key));
     const mineSet = new Set(parseChoiceSet(r.chosen));
     const tfKey = r.mode === "tf" ? normalizeTrueFalse(r.key, r.sections.choices) : "";

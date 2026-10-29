@@ -16729,10 +16729,11 @@ const { fmtPct, packTestSession, sliceQuestionRange, unpackTestSession } = requi
 const { MODES } = require("./constants");
 const { pickQuestion } = require("./filters");
 const { examMatchesCourse } = require("./calendar-model");
-const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
+const { loadQuestionData, renderMarkdownInto, renderMatchPicker } = require("./view-helpers");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
 const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet, trueFalseLabels } = require("./answer-types");
+const { gradeMatching, parsePicks, shuffleForSeed } = require("./matching");
 const { variantSummary, variantValuesText } = require("./parameterized");
 const { NameModal } = require("./modals");
 const { buildSections, normalizeSections } = require("./exam-sections");
@@ -16740,6 +16741,16 @@ const { buildSections, normalizeSections } = require("./exam-sections");
 /* ------------------------------------------------------- timed test */
 
 const VIEW_TYPE_TEST = "question-tracker-test";
+
+/** A matching item is answered only when every row has a pick. */
+function itemAnswered(it) {
+  if (!it) return false;
+  if (it.mode === "match") {
+    const picks = parsePicks(it.sel);
+    return picks.length === (it.pairs || []).length && picks.every((pick) => Number.isInteger(pick) && pick >= 0);
+  }
+  return !!str(it.sel).trim();
+}
 
 /** Only the course filter applies to FRQ prompts; other question filters do not describe them. */
 function frqMatchesCourse(note, filters) {
@@ -16867,7 +16878,14 @@ class TestView extends ItemView {
       const q = byPath.get(row.path);
       if (!q) continue; // the note was deleted or moved
       const data = await loadQuestionData(this.plugin, q, { seed: row.seed });
-      items.push({ ...data, sel: row.sel, seconds: row.seconds, flagged: row.flagged, conf: row.conf || 0 });
+      items.push({
+        ...data,
+        sel: row.sel,
+        seconds: row.seconds,
+        flagged: row.flagged,
+        conf: row.conf || 0,
+        matchOrder: data.mode === "match" ? shuffleForSeed(data.pairs.map((_pair, i) => i), data.file.path) : [],
+      });
     }
     if (!items.length) {
       st.testSession = null;
@@ -17182,7 +17200,14 @@ class TestView extends ItemView {
         noKey++; // no answer key: it can't be graded in a timed test
         continue;
       }
-      items.push({ ...data, sel: "", seconds: 0, flagged: false, conf: 0 });
+      items.push({
+        ...data,
+        sel: "",
+        seconds: 0,
+        flagged: false,
+        conf: 0,
+        matchOrder: data.mode === "match" ? shuffleForSeed(data.pairs.map((_pair, i) => i), data.file.path) : [],
+      });
     }
     const frqNotes = frqCount ? await this.frqCandidates(frqCount) : [];
     for (const note of frqNotes) items.push(frqTestItem(this.app, note));
@@ -17236,7 +17261,7 @@ class TestView extends ItemView {
   paintNav() {
     this.navBtns.forEach(({ btn, i }) => {
       btn.toggleClass("is-current", i === this.idx);
-      btn.toggleClass("is-answered", !!str(this.items[i].sel).trim());
+      btn.toggleClass("is-answered", itemAnswered(this.items[i]));
       btn.toggleClass("is-flagged", !!this.items[i].flagged);
     });
   }
@@ -17326,6 +17351,25 @@ class TestView extends ItemView {
         });
         btns.push(b);
       }
+    } else if (it.mode === "match") {
+      const pairs = it.pairs || [];
+      renderMatchPicker({
+        container: ans,
+        pairs,
+        order: it.matchOrder && it.matchOrder.length ? it.matchOrder : pairs.map((_pair, i) => i),
+        picks: parsePicks(it.sel),
+        renderLeft: (text, el) => renderMarkdownInto(this.app, text, el, path, this),
+        hint: "Match every item.",
+        onChange: (index, value) => {
+          const width = pairs.length;
+          const next = parsePicks(it.sel);
+          for (let i = 0; i < width; i++) if (!Number.isInteger(next[i])) next[i] = -1;
+          next[index] = value;
+          it.sel = JSON.stringify(next.slice(0, width));
+          this.paintNav();
+          this.persist();
+        },
+      });
     } else if (it.mode === "frq") {
       const area = ans.createEl("textarea", {
         cls: "qt-frq-answer",
@@ -17393,7 +17437,7 @@ class TestView extends ItemView {
   }
 
   async tryFinish() {
-    const blank = this.items.filter((it) => !str(it.sel).trim()).length;
+    const blank = this.items.filter((it) => !itemAnswered(it)).length;
     if (blank) {
       const ok = await this.plugin.askConfirm(
         "Finish the test?",
@@ -17419,7 +17463,7 @@ class TestView extends ItemView {
     let answered = 0;
     let frqAnswered = 0;
     for (const it of this.items) {
-      it.answered = !!str(it.sel).trim();
+      it.answered = itemAnswered(it);
       it.conf = Math.max(0, Math.min(3, Number(it.conf) || 0));
       if (it.mode === "frq") {
         it.answerCheck = null;
@@ -17427,7 +17471,11 @@ class TestView extends ItemView {
         if (it.answered) frqAnswered++;
         continue;
       }
-      it.answerCheck = it.answered ? gradeAnswerDetailed({ ...it.fm, answer: it.key, question_type: it.mode }, it.sel) : null;
+      it.answerCheck = it.answered
+        ? it.mode === "match"
+          ? gradeMatching(it.pairs, it.sel)
+          : gradeAnswerDetailed({ ...it.fm, answer: it.key, question_type: it.mode }, it.sel)
+        : null;
       it.correct = it.answerCheck ? it.answerCheck.correct : null;
       if (!it.answered) continue;
       answered++;
@@ -17589,7 +17637,11 @@ class TestView extends ItemView {
             it.flagged ? "marked" : "",
           ].filter(Boolean)
         : [
-            it.answered ? `You: ${it.sel}` : "No answer",
+            it.answered
+              ? it.mode === "match" && it.answerCheck
+                ? `Matched ${it.answerCheck.right}/${it.answerCheck.total}`
+                : `You: ${it.sel}`
+              : "No answer",
             it.key ? `Answer: ${it.key}` : "",
             fmtClock(Math.round(it.seconds)),
             it.answered && it.conf ? `Confidence: ${p.settings.confidenceLabels[it.conf - 1] || it.conf}` : "",
@@ -17657,6 +17709,15 @@ class TestView extends ItemView {
       if (isMine) row.addClass("is-mine");
       row.createSpan({ cls: "qt-letter", text: c.letter });
       renderMarkdownInto(this.app, c.text, row.createDiv({ cls: "qt-choice-text" }), path, this);
+    }
+    if (it.mode === "match" && it.answerCheck) {
+      const list = d.createDiv({ cls: "qt-match-review" });
+      for (const row of it.answerCheck.rows) {
+        const line = list.createDiv({ cls: `qt-match-review-row ${row.correct ? "is-right" : "is-wrong"}` });
+        renderMarkdownInto(this.app, row.left, line.createDiv({ cls: "qt-match-left" }), path, this);
+        line.createDiv({ cls: "qt-match-review-answer", text: `Correct: ${row.right}` });
+        if (!row.correct) line.createDiv({ cls: "qt-match-review-mine", text: `You: ${row.picked || "(blank)"}` });
+      }
     }
     if (it.mode === "multi") {
       const keyText = formatChoiceSet(parseChoiceSet(it.key)) || it.key;
@@ -23241,6 +23302,8 @@ function cacheIssues(fm, headings) {
   const has = (names) => names.some((n) => heads.has(n));
   const out = [];
   if (!str(fm.question_id).trim()) out.push("No question ID");
+  // A matching note carries its answers in the Pairs section, not in `answer`.
+  if (/match|pair/i.test(str(fm.question_type)) && has(HEAD_ALIASES.pairs)) return out;
   const prop = ANSWER_PROPS.map((k) => str(fm[k]).trim()).find(Boolean) || "";
   const answered = !!prop || has(HEAD_ALIASES.answer);
   if (!answered) out.push("No answer");
@@ -23253,7 +23316,7 @@ function cacheIssues(fm, headings) {
 function looksLikeQuestion(fm, headings) {
   fm = fm || {};
   if ("question_id" in fm) return true;
-  if (/mcq|multiple|true.?false|select.?all|sata|^tf$/i.test(str(fm.question_type))) return true;
+  if (/mcq|multiple|true.?false|select.?all|sata|^tf$|match|pair|fill/i.test(str(fm.question_type))) return true;
   if (fm.choices !== undefined && fm.answer !== undefined) return true;
   const heads = new Set((headings || []).map(headName));
   return HEAD_ALIASES.question.some((n) => heads.has(n)) && HEAD_ALIASES.choices.some((n) => heads.has(n));
@@ -24064,6 +24127,138 @@ class InsightsView extends ItemView {
 module.exports = {
   VIEW_TYPE_INSIGHTS,
   InsightsView,
+};
+};
+
+/* ---- src/matching.js ---- */
+__defs["matching"] = function (module, exports, require) {
+/*
+ * Matching questions and normalized text answers.
+ *
+ * A matching note lists pairs under `## Pairs`, one per line, as
+ * `Left :: Right` (or `=>`). The right column is shuffled for display, but a
+ * pick is stored as its index in the note's pair order, so the same attempt
+ * grades identically after a restart and history stays free of raw text.
+ */
+
+const { str } = require("./util");
+
+/** Case, whitespace, surrounding punctuation and a leading article are ignored. */
+function normalizeTextAnswer(value) {
+  return str(value)
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/^[\s"'“”‘’([{]+|[\s"'“”‘’)\]}.,;:!?]+$/g, "")
+    .replace(/^(?:a|an|the)\s+/, "")
+    .replace(/\s+/g, " ");
+}
+
+/** One `- Left :: Right` line, or null when the line is not a pair. */
+function parsePairLine(line) {
+  const text = str(line)
+    .replace(/^\s*[-*+]\s+/, "")
+    .replace(/^\s*\d+[.)]\s+/, "")
+    .trim();
+  const m = /^(.+?)\s*(?:::|=>|->)\s*(.+)$/.exec(text);
+  if (!m) return null;
+  const left = m[1].trim();
+  const right = m[2].trim();
+  if (!left || !right) return null;
+  return { left, right };
+}
+
+/** Pairs from a `## Pairs` section; a repeated left item is ignored. */
+function parsePairs(text) {
+  const out = [];
+  const seen = new Set();
+  for (const line of str(text).split("\n")) {
+    const pair = parsePairLine(line);
+    if (!pair) continue;
+    const key = normalizeTextAnswer(pair.left);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(pair);
+  }
+  return out;
+}
+
+function seedValue(seed) {
+  let h = 2166136261;
+  for (const ch of str(seed)) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** A stable shuffle, so a re-render or a restart keeps the same option order. */
+function shuffleForSeed(list, seed) {
+  const arr = (Array.isArray(list) ? list : []).slice();
+  let h = seedValue(seed) || 1;
+  for (let i = arr.length - 1; i > 0; i--) {
+    h ^= h << 13;
+    h >>>= 0;
+    h ^= h >>> 17;
+    h ^= h << 5;
+    h >>>= 0;
+    const j = h % (i + 1);
+    const swap = arr[i];
+    arr[i] = arr[j];
+    arr[j] = swap;
+  }
+  return arr;
+}
+
+/** Reads `[2,0,1]`; a missing or malformed pick becomes -1. */
+function parsePicks(value) {
+  const text = str(value).trim();
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item) => (Number.isInteger(Number(item)) ? Number(item) : -1));
+  } catch (e) {
+    return [];
+  }
+}
+
+/**
+ * Grades a full matching attempt. `chosen` is the JSON index array written by
+ * the view; each row is correct only when it points at that row's own answer.
+ */
+function gradeMatching(pairs, chosen) {
+  const list = Array.isArray(pairs) ? pairs : [];
+  const picks = parsePicks(chosen);
+  const rows = list.map((pair, index) => {
+    const at = picks[index];
+    const picked = Number.isInteger(at) && at >= 0 && at < list.length ? str(list[at].right).trim() : "";
+    return {
+      left: str(pair.left).trim(),
+      right: str(pair.right).trim(),
+      picked,
+      correct: !!picked && normalizeTextAnswer(picked) === normalizeTextAnswer(pair.right),
+    };
+  });
+  const right = rows.filter((row) => row.correct).length;
+  return {
+    correct: list.length > 0 && right === list.length,
+    mode: "match",
+    interpreted: `${right} of ${list.length} pairs matched`,
+    reason: right === list.length ? "" : `${list.length - right} pair${list.length - right === 1 ? "" : "s"} not matched`,
+    rows,
+    right,
+    total: list.length,
+  };
+}
+
+module.exports = {
+  normalizeTextAnswer,
+  parsePairLine,
+  parsePairs,
+  shuffleForSeed,
+  parsePicks,
+  gradeMatching,
 };
 };
 
@@ -24915,11 +25110,13 @@ const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
 const { gradeAnswerDetailed } = require("./numeric-grading");
 const { formatChoiceSet, isTrueFalseChoices, normalizeTrueFalse, parseChoiceSet } = require("./answer-types");
+const { parsePairs } = require("./matching");
 
 const HEAD_ALIASES = {
   stimulus: ["stimulus", "passage", "source", "excerpt", "reading", "text", "figure"],
   question: ["question", "stem", "prompt"],
   choices: ["answer choices", "choices", "options", "answers choices"],
+  pairs: ["pairs", "match", "matching"],
   answer: ["answer", "answer key", "correct answer", "answer and rationale", "solution"],
   notes: ["my notes", "notes"],
 };
@@ -24976,6 +25173,7 @@ function parseSections(text) {
     stimulus: tidyStimulus(first(HEAD_ALIASES.stimulus)),
     question: first(HEAD_ALIASES.question),
     choices,
+    pairs: parsePairs(first(HEAD_ALIASES.pairs)),
     answer: first(HEAD_ALIASES.answer),
     notes: first(HEAD_ALIASES.notes),
     body: norm,
@@ -25044,9 +25242,11 @@ function findAnswerKey(fm, sections) {
 }
 
 /** Decide how to present/grade a note even when question_type is free text like "Multiple choice (4 choices)". */
-function inferMode(declared, key, choices) {
+function inferMode(declared, key, choices, pairs) {
   const d = str(declared).toLowerCase();
   const list = Array.isArray(choices) ? choices : [];
+  const pairList = Array.isArray(pairs) ? pairs : [];
+  if (/match|pair/.test(d) && pairList.length >= 2) return "match";
   if (!key) return "self";
   const letter = /^[A-H]$/i.test(str(key).trim());
   if (/spr|student.?produced|grid.?in|free.?response|short.?answer|numeric|fill/.test(d)) return "spr";
@@ -25334,6 +25534,7 @@ __defs["numeric-grading"] = function (module, exports, require) {
  */
 
 const { gradeChoiceSelection, normalizeTrueFalse } = require("./answer-types");
+const { normalizeTextAnswer } = require("./matching");
 
 const SUPERSCRIPT = { "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "-", "⁺": "+" };
 const SUPERSCRIPT_OUT = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻", "+": "⁺" };
@@ -25869,8 +26070,9 @@ function gradeNumeric(fm, chosen) {
   const alternatives = parseAnswerSpec(fm);
   if (!alternatives.length) return null;
   const raw = String(chosen === undefined || chosen === null ? "" : chosen).trim();
-  const text = raw.toLowerCase().replace(/\s+/g, "");
-  const textMatch = alternatives.find((alt) => alt.kind === "text" && alt.text.toLowerCase().replace(/\s+/g, "") === text);
+  const textMatch = alternatives.find(
+    (alt) => alt.kind === "text" && normalizeTextAnswer(alt.text) === normalizeTextAnswer(raw)
+  );
   if (textMatch) {
     return {
       correct: true,
@@ -34824,12 +35026,13 @@ module.exports = {
 __defs["practice-view"] = function (module, exports, require) {
 const { ItemView, Notice, Platform, TFile, setIcon } = require("obsidian");
 const { FILTER_FIELDS, MODES, VIEW_TYPE } = require("./constants");
-const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
+const { loadQuestionData, renderMarkdownInto, renderMatchPicker } = require("./view-helpers");
 const { fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
 const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet, trueFalseLabels } = require("./answer-types");
+const { gradeMatching, parsePicks, shuffleForSeed } = require("./matching");
 const { variantSummary, variantValuesText } = require("./parameterized");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
@@ -34863,6 +35066,7 @@ class PracticeView extends ItemView {
     this.timerEl = null;
     this.quickSession = null;
     this.study = null;
+    this.matchOrder = [];
   }
 
   getViewType() {
@@ -34956,6 +35160,10 @@ class PracticeView extends ItemView {
     this.current = await loadQuestionData(this.plugin, q, { seed });
     this.sel = "";
     this.conf = 0;
+    this.matchOrder =
+      this.current.mode === "match"
+        ? shuffleForSeed(this.current.pairs.map((_pair, i) => i), q.file.path)
+        : [];
     this.state = "question";
     if (fresh) {
       this.plugin.startSession(q.file.path, this.current.variant && this.current.variant.ok ? this.current.variant.seed : undefined);
@@ -35270,7 +35478,10 @@ class PracticeView extends ItemView {
     let correct;
     let chosen = this.sel;
     let answerCheck = null;
-    if (q.mode === "self") {
+    if (q.mode === "match") {
+      answerCheck = gradeMatching(q.pairs, this.sel);
+      correct = answerCheck.correct;
+    } else if (q.mode === "self") {
       correct = this.sel === "correct";
       chosen = "";
     } else {
@@ -36075,8 +36286,14 @@ class PracticeView extends ItemView {
 
     const mode = q.mode;
     const submit = fr.createEl("button", { text: "Submit", cls: "mod-cta qt-submit" });
+    const ready = () => {
+      if (!this.sel) return false;
+      if (mode !== "match") return true;
+      const picks = parsePicks(this.sel);
+      return picks.length === q.pairs.length && picks.every((pick) => pick >= 0);
+    };
     const refresh = () => {
-      submit.disabled = !(this.sel && this.conf);
+      submit.disabled = !(ready() && this.conf);
     };
 
     // answer input
@@ -36122,11 +36339,33 @@ class PracticeView extends ItemView {
         btns.push(b);
       }
     } else if (mode === "spr") {
-      const input = ans.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer" } });
+      const fill = /fill|cloze|blank/i.test(str(fm.question_type));
+      const input = ans.createEl("input", {
+        type: "text",
+        cls: "qt-spr",
+        attr: { placeholder: fill ? "Type the missing word or phrase" : "Your answer" },
+      });
       input.value = this.sel;
       input.addEventListener("input", () => {
         this.sel = input.value.trim();
         refresh();
+      });
+    } else if (mode === "match") {
+      renderMatchPicker({
+        container: ans,
+        pairs: q.pairs,
+        order: this.matchOrder,
+        picks: parsePicks(this.sel),
+        renderLeft: (text, el) => this.md(text, el, path),
+        hint: "Match every item, then submit.",
+        onChange: (index, value) => {
+          const width = q.pairs.length;
+          const next = parsePicks(this.sel);
+          for (let i = 0; i < width; i++) if (!Number.isInteger(next[i])) next[i] = -1;
+          next[index] = value;
+          this.sel = JSON.stringify(next.slice(0, width));
+          refresh();
+        },
       });
     } else {
       // No usable key: still show the choices (read-only) and let you self-grade.
@@ -36247,7 +36486,8 @@ class PracticeView extends ItemView {
     const bl = banner.createDiv({ cls: "qt-res-left" });
     bl.createDiv({ cls: "qt-banner-title", text: r.correct ? "Correct" : "Incorrect" });
     const bits = [];
-    if (!r.correct && r.chosen) bits.push(`You chose ${r.chosen}${r.key ? `, answer ${r.key}` : ""}`);
+    if (r.mode === "match" && r.answerCheck) bits.push(`You matched ${r.answerCheck.right} of ${r.answerCheck.total}`);
+    else if (!r.correct && r.chosen) bits.push(`You chose ${r.chosen}${r.key ? `, answer ${r.key}` : ""}`);
     bits.push(fmtClock(r.seconds) + (s.target ? ` (target ${fmtClock(s.target)})` : ""));
     bl.createDiv({ cls: "qt-banner-sub", text: bits.join(" · ") });
 
@@ -36319,6 +36559,15 @@ class PracticeView extends ItemView {
     }
     this.md(r.sections.question || "", rv.createDiv({ cls: "qt-stem" }), path);
     const rc = rv.createDiv({ cls: "qt-answers" });
+    if (r.mode === "match" && r.answerCheck) {
+      const list = rv.createDiv({ cls: "qt-match-review" });
+      for (const row of r.answerCheck.rows) {
+        const line = list.createDiv({ cls: `qt-match-review-row ${row.correct ? "is-right" : "is-wrong"}` });
+        this.md(row.left, line.createDiv({ cls: "qt-match-left" }), path);
+        line.createDiv({ cls: "qt-match-review-answer", text: `Correct: ${row.right}` });
+        if (!row.correct) line.createDiv({ cls: "qt-match-review-mine", text: `You: ${row.picked || "(blank)"}` });
+      }
+    }
     const keySet = new Set(parseChoiceSet(r.key));
     const mineSet = new Set(parseChoiceSet(r.chosen));
     const tfKey = r.mode === "tf" ? normalizeTrueFalse(r.key, r.sections.choices) : "";
@@ -44117,7 +44366,8 @@ async function loadQuestionData(plugin, q, options) {
     }
   }
   let key = findAnswerKey(q.fm, sections);
-  let mode = inferMode(q.fm.question_type, key, sections.choices);
+  const pairs = sections.pairs || [];
+  let mode = inferMode(q.fm.question_type, key, sections.choices, pairs);
   // True/false and select-all keys are stored in one canonical form so the
   // practice view, timed tests and history all compare the same values.
   key = normalizeAnswerKey(mode, key, sections.choices);
@@ -44133,12 +44383,35 @@ async function loadQuestionData(plugin, q, options) {
       mode = "self";
     }
   }
-  return { file: q.file, fm: { ...q.fm }, sections, key, mode, variant };
+  return { file: q.file, fm: { ...q.fm }, sections, key, mode, variant, pairs };
+}
+
+/** One matching row per pair, with the right column in `order`. */
+function renderMatchPicker(options) {
+  const opts = options || {};
+  const pairs = Array.isArray(opts.pairs) ? opts.pairs : [];
+  const order = Array.isArray(opts.order) ? opts.order : pairs.map((_pair, i) => i);
+  const picks = Array.isArray(opts.picks) ? opts.picks : [];
+  const list = opts.container.createDiv({ cls: "qt-match" });
+  const selects = [];
+  pairs.forEach((pair, i) => {
+    const row = list.createDiv({ cls: "qt-match-row" });
+    opts.renderLeft(pair.left, row.createDiv({ cls: "qt-match-left" }));
+    const sel = row.createEl("select", { cls: "qt-select qt-match-select" });
+    sel.createEl("option", { value: "", text: "Choose..." });
+    for (const idx of order) if (pairs[idx]) sel.createEl("option", { value: String(idx), text: str(pairs[idx].right) });
+    sel.value = Number.isInteger(picks[i]) && picks[i] >= 0 ? String(picks[i]) : "";
+    sel.addEventListener("change", () => opts.onChange(i, sel.value === "" ? -1 : Number(sel.value)));
+    selects.push(sel);
+  });
+  if (opts.hint) opts.container.createDiv({ cls: "qt-hint", text: opts.hint });
+  return { list, selects };
 }
 
 module.exports = {
   renderMarkdownInto,
   loadQuestionData,
+  renderMatchPicker,
 };
 };
 
@@ -44692,6 +44965,7 @@ const { answerFromSection,
   applyAttempt, applySkip, extractRationale, fillDefaults, findAnswerKey, gradeAnswer, inferMode, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const numericGrading = require("./numeric-grading");
 const answerTypes = require("./answer-types");
+const matching = require("./matching");
 const parameterized = require("./parameterized");
 const fsrs = require("./fsrs");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
@@ -44879,6 +45153,7 @@ QuestionTrackerPlugin.__test = {
   gradeAnswerDetailed: numericGrading.gradeAnswerDetailed,
   numericGrading,
   answerTypes,
+  matching,
   parameterized,
   applyAttempt,
   applySkip,

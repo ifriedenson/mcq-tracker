@@ -18,6 +18,7 @@ const { answerFromSection,
   applyAttempt, applySkip, extractRationale, fillDefaults, findAnswerKey, gradeAnswer, inferMode, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const numericGrading = require("./numeric-grading");
 const answerTypes = require("./answer-types");
+const matching = require("./matching");
 const parameterized = require("./parameterized");
 const fsrs = require("./fsrs");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
@@ -205,6 +206,7 @@ QuestionTrackerPlugin.__test = {
   gradeAnswerDetailed: numericGrading.gradeAnswerDetailed,
   numericGrading,
   answerTypes,
+  matching,
   parameterized,
   applyAttempt,
   applySkip,
