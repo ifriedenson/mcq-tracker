@@ -13,6 +13,8 @@ const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-cl
 const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
+const { PdfAnnotationModal } = require("./pdf-annotation-modal");
+const { sidecarPathFor } = require("./pdf-annotations");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, visibleEvents } = require("./calendar-model");
@@ -111,6 +113,8 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
+    this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
     this.addCommand({
       id: "practice-folder",
       name: "Practice a folder...",
@@ -223,6 +227,11 @@ class QuestionTrackerPlugin extends Plugin {
               .setIcon("graduation-cap")
               .onClick(() => this.practiceFolder(file.path))
           );
+          return;
+        }
+        if (file instanceof TFile && /\.pdf$/i.test(file.path)) {
+          menu.addItem((item) => item.setTitle("Add PDF annotation").setIcon("highlighter").onClick(() => this.openPdfAnnotation(file.path)));
+          menu.addItem((item) => item.setTitle("Open PDF annotations").setIcon("notebook-pen").onClick(() => this.openPdfAnnotations(file.path)));
           return;
         }
         if (!(file instanceof TFile) || !/\.md$/i.test(file.path)) return;
@@ -545,6 +554,28 @@ class QuestionTrackerPlugin extends Plugin {
       return;
     }
     new PdfImportModal(this.app, this).open();
+  }
+
+  openPdfAnnotation(pdfPath) {
+    if (this.moduleOff("mcq")) return;
+    new PdfAnnotationModal(this.app, this, { pdfPath: pdfPath || "" }).open();
+  }
+
+  async openPdfAnnotations(pdfPath) {
+    if (this.moduleOff("mcq")) return;
+    const active = this.app.workspace.getActiveFile();
+    const source = pdfPath || (active && /\.pdf$/i.test(active.path) ? active.path : "");
+    if (!source) {
+      new Notice("Open a PDF first, or run Add PDF annotation.");
+      return;
+    }
+    const path = sidecarPathFor(source);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) {
+      new Notice("No annotations yet. Use Add PDF annotation to create the sidecar.");
+      return;
+    }
+    await this.app.workspace.getLeaf("tab").openFile(file);
   }
 
   onunload() {

@@ -52,6 +52,8 @@ const calendarNotes = require("./calendar-notes");
 const { CalendarView, StudySlotModal, parseScheduleBlock } = require("./calendar-view");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 const referenceData = require("./reference-data");
+const pdfAnnotations = require("./pdf-annotations");
+const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const referenceElements = require("./reference-elements");
 const referenceGraph = require("./reference-graph");
 const { ReferenceView } = require("./reference-view");
@@ -140,6 +142,8 @@ QuestionTrackerPlugin.__test = {
   REFERENCE_TABS,
   renderReferenceSettings,
   referenceData,
+  pdfAnnotations,
+  PdfAnnotationModal,
   referenceElements,
   referenceGraph,
   ReferenceView,

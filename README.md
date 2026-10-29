@@ -26,6 +26,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Study cards (optional, off by default).** Review the same MCQ notes as flip cards or choice cards, using your current filters and the same scheduler. No duplicate notes or second deck.
 - **Today:** a phone-sized start screen with due and new counts, the next class or exam, and one **Start 5 minutes** button that opens Quick Practice.
 - **Notes box** on the result screen, saved into the note.
+- **PDF annotations.** Add a highlighted quote, text box, form note or page note to any PDF in the vault. Each PDF gets a readable Markdown sidecar beside it, keyed by a content hash so a replaced file is noticed; the visual pen/highlighter overlay is still future work.
 - **Import questions from a file:** an AI agent (or your own AI key) turns a PDF, PowerPoint deck, Word file, OpenDocument, HTML, RTF, Markdown, CSV or text file into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from your files](#import-questions-from-your-files)).
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
 - **Cards and vocabulary (optional module, off by default).** Create flashcards, reversed cards, cloze cards, image occlusion cards and vocabulary notes as ordinary Markdown notes. Organize them into decks, inherit a course tag from a deck or folder, and review them with Again/Hard/Good/Easy using the same ladder or FSRS schedule as your questions (see [Cards and vocabulary](#cards-and-vocabulary-optional-module-off-by-default)).
@@ -255,6 +256,10 @@ Turn on **Cards** under Settings, Global, Modules. Cards are first-class notes, 
   Vocabulary notes use `item_type: vocab`, `language`, optional `part_of_speech`, and `## Term`, `## Definition`, `## Example` sections. Cloze cards use `==highlighted text==` or `{{c1::highlighted text}}` in `## Front`. Typed reviews add `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by` and `graded_on` beside the normal tracking properties.
 
 Cards share the scheduler selected under **Settings → MCQ Tracker → Review**. Switching between the simple ladder and FSRS stays lossless, and a card's first FSRS review is seeded from its existing history.
+
+## PDF annotations
+
+Right-click a PDF in the file explorer, or run **PDF: add an annotation**, to save a highlight quote, text box, form note or page note. The plugin writes `name.annotations.md` beside the PDF and opens it with **PDF: open annotations**. The sidecar has a readable summary plus a fenced machine-readable block, and it stores the PDF's content hash so a replaced download can be detected. This is an annotation store, not a canvas editor; pen/highlighter drawing remains future work.
 
 ## Import questions from your files
 
