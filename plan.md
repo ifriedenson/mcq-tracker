@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The next unblocked work is the visual PDF pen/highlighter overlay or the remaining deferred items; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.50.0 phase adds desktop `.apkg` import; the next unblocked interop work is bidirectional AnkiConnect sync, and the visual PDF pen/highlighter overlay remains open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), and the October 28 idea backlog (§5.22). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -24,7 +24,7 @@
 
 **Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay remains the next PDF-editor slice. A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review).
 
-**Recently completed (1.24.0):** Import preview, report and duplicate update/copy. Previous release 1.23.0 added Mochi and CrowdAnki import.
+**Recently completed (1.50.0):** `.apkg` import through a local ZIP/SQLite reader, with decks, tags, basic/reversed/cloze cards and Anki scheduling metadata. Previous release 1.49.0 added the desktop local OCR adapter; 1.48.0 added opt-in vision OCR.
 
 ---
 
@@ -554,7 +554,7 @@ Build on the existing timed test.
 
 ### 5.15 Interop and import/export  — **M**
 
-- **Anki:** import/export through LearnKit-compatible formats, plain text, and an optional AnkiConnect push (Yanki and Auto Anki show demand). Bidirectional sync and `.apkg` remain.
+- **Anki:** import/export through LearnKit-compatible formats, plain text, and an optional AnkiConnect push (Yanki and Auto Anki show demand). `.apkg` import shipped in 1.50.0; bidirectional AnkiConnect sync remains.
 - **Spaced Repetition card syntax:** read-only support to import existing decks.
 - **CSV export** of results for outside analysis.
 - **Dataview-friendly properties** so power users can build their own views.
@@ -1221,7 +1221,8 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Anki plain-text export with deck, note type and tag columns (§5.15) — shipped in 1.39.0
 - [x] Documented property schema and Dataview examples in [docs/property-schema.md](docs/property-schema.md) (§5.15) — shipped in 1.39.0
 - [x] Optional AnkiConnect push to a running Anki desktop, with duplicate reporting (§5.15) — shipped in 1.40.0
-- [ ] Optional `.apkg` import and bidirectional AnkiConnect sync (§5.15)
+- [x] Optional `.apkg` import through a local ZIP/SQLite reader, with scheduling metadata (§5.15) — shipped in 1.50.0
+- [ ] Bidirectional AnkiConnect sync (§5.15)
 - [ ] Pronunciation feedback for language learners (optional)
 - [ ] Handwritten-work photo grading (optional, vision models)
 

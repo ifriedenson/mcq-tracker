@@ -5,9 +5,8 @@
  * - Spaced Repetition: Q::A, Q:::A (reversed), multi-line ? / ??, ==cloze==,
  *   {{c1::cloze}} and #flashcards/deck tags.
  * - Anki: the plain-text/CSV export, including its #separator/#html/#deck
- *   column headers. A binary .apkg is deliberately not opened here; Anki's
- *   own "Notes in Plain Text" export preserves the content without us shipping
- *   a SQLite reader or executing untrusted archive contents.
+ *   column headers. The separate .apkg reader reads only the collection's
+ *   notes/cards tables and never executes SQL or extracts archive paths.
  * - Quizlet: the copied text/CSV export, with tab, comma, dash, newline and
  *   semicolon layouts auto-detected.
  */
@@ -15,7 +14,7 @@ const { Modal, Notice } = require("obsidian");
 const { hashString, localDate, str } = require("./util");
 const { parseCloze } = require("./cards");
 
-const IMPORT_TYPES = ["spaced", "mochi", "crowdanki", "anki", "quizlet", "gift", "moodlexml", "qti", "kahoot", "blooket", "gimkit", "csv"];
+const IMPORT_TYPES = ["spaced", "mochi", "crowdanki", "anki", "apkg", "quizlet", "gift", "moodlexml", "qti", "kahoot", "blooket", "gimkit", "csv"];
 const QUESTION_SET_TYPES = ["kahoot", "blooket", "gimkit"];
 
 function stripFrontmatter(text) {
@@ -1316,6 +1315,7 @@ class CardImportModal extends Modal {
     type.createEl("option", { text: "Mochi Markdown folder", value: "mochi" });
     type.createEl("option", { text: "CrowdAnki JSON export", value: "crowdanki" });
     type.createEl("option", { text: "Anki plain-text export", value: "anki" });
+    type.createEl("option", { text: "Anki package (.apkg)", value: "apkg" });
     type.createEl("option", { text: "Quizlet text export", value: "quizlet" });
     type.createEl("option", { text: "Moodle GIFT (.txt or .gift)", value: "gift" });
     type.createEl("option", { text: "Moodle XML quiz bank (.xml)", value: "moodlexml" });
@@ -1337,11 +1337,11 @@ class CardImportModal extends Modal {
         folders.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
         for (const folder of folders) source.createEl("option", { text: folder || "Whole vault", value: folder });
       } else {
-        const candidates = (files || []).filter((f) => /\.(txt|tsv|csv|gift|xml|json)$/i.test(f.path || ""));
-        if (!candidates.length) source.createEl("option", { text: "No .txt, .tsv, .csv, .gift, .xml or .json files found", value: "" });
+        const candidates = (files || []).filter((f) => /\.(txt|tsv|csv|gift|xml|json|apkg)$/i.test(f.path || ""));
+        if (!candidates.length) source.createEl("option", { text: "No .txt, .tsv, .csv, .gift, .xml, .json or .apkg files found", value: "" });
         for (const f of candidates) source.createEl("option", { text: f.path, value: f.path });
       }
-      const sourceLabels = { spaced: "Folder to scan", mochi: "Mochi Markdown folder", crowdanki: "CrowdAnki JSON file", quizlet: "Quizlet text export", anki: "Anki text export", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
+      const sourceLabels = { spaced: "Folder to scan", mochi: "Mochi Markdown folder", crowdanki: "CrowdAnki JSON file", quizlet: "Quizlet text export", anki: "Anki text export", apkg: "Anki package", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
       sourceLabel.setText(sourceLabels[this.type] || "Import file");
     };
     refreshOptions();
@@ -1478,7 +1478,8 @@ class CardImportModal extends Modal {
       if (this.type === "moodlexml") return "Moodle XML: export the course question bank as Moodle XML, then save the .xml file in this vault. Multiple choice, true/false, short answer and numerical questions are read; matching, essay, description and cloze questions are skipped.";
       if (this.type === "qti") return "QTI: export the quiz bank as QTI XML, then save the .xml file in this vault. QTI 1.2 and QTI 2.1 multiple-choice items are read, including response labels and correct-response identifiers.";
       if (this.type === "csv") return "Read a CSV or TSV with a header row. Front/term/question and Back/definition/answer columns are detected automatically; check or change the mapping, then import. Mappings are remembered for the same header layout.";
-      if (this.type === "anki") return ankiExportHint() + " Binary .apkg files are not opened; export the notes to text from Anki first.";
+      if (this.type === "anki") return ankiExportHint() + " To bring in a whole package with its notes and basic scheduling metadata, choose Anki package (.apkg) instead.";
+      if (this.type === "apkg") return "Anki: File → Export → Anki Deck Package (.apkg), save it in this vault, then choose it here. Notes, decks, tags, cloze cards and basic review dates are read; images and audio are not imported. Newer zstd-compressed packages are rejected with a text-export hint.";
       if (QUESTION_SET_TYPES.includes(this.type)) {
         return "Save the platform's spreadsheet as CSV first. Question, answer choices, correct answer and time limit are read automatically; the set's choices stay in the card so it can be exported back.";
       }
@@ -1518,7 +1519,7 @@ class CardImportModal extends Modal {
     go.addEventListener("click", async () => {
       const path = source.value;
       if (this.type !== "spaced" && !path) {
-        new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet" : this.type === "anki" ? "Anki" : this.type === "gift" ? "Moodle GIFT" : this.type === "moodlexml" ? "Moodle XML" : this.type === "qti" ? "QTI" : this.type === "mochi" ? "Mochi folder" : this.type === "crowdanki" ? "CrowdAnki JSON" : this.type} file first.`);
+        new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet" : this.type === "anki" ? "Anki" : this.type === "apkg" ? "Anki package" : this.type === "gift" ? "Moodle GIFT" : this.type === "moodlexml" ? "Moodle XML" : this.type === "qti" ? "QTI" : this.type === "mochi" ? "Mochi folder" : this.type === "crowdanki" ? "CrowdAnki JSON" : this.type} file first.`);
         return;
       }
       if (this.type === "csv") {
@@ -1532,28 +1533,33 @@ class CardImportModal extends Modal {
       go.disabled = true;
       note.setText("Reading and importing…");
       try {
-        const result =          this.type === "spaced"
-            ? await p.importCardsFromFolder(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
+        const options = { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value };
+        const result =
+          this.type === "spaced"
+            ? await p.importCardsFromFolder(path, options)
             : this.type === "mochi"
-              ? await p.importCardsFromMochi(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
+              ? await p.importCardsFromMochi(path, options)
               : this.type === "crowdanki"
-                ? await p.importCardsFromCrowdAnki(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
+                ? await p.importCardsFromCrowdAnki(path, options)
                 : this.type === "quizlet"
-                  ? await p.importCardsFromQuizlet(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
-                  : this.type === "csv"
-                    ? await p.importCardsFromCsv(path, { deck: deck.value, course: course.value, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked, duplicateMode: duplicateMode.value })
-                    : QUESTION_SET_TYPES.includes(this.type)
-                      ? await p.importCardsFromQuestionSet(path, this.type, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
-                      : this.type === "gift"
-                        ? await p.importCardsFromGift(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
-                        : this.type === "moodlexml" || this.type === "qti"
-                          ? await p.importCardsFromLmsXml(path, this.type, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
-                          : await p.importCardsFromAnki(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value });
+                  ? await p.importCardsFromQuizlet(path, options)
+                  : this.type === "apkg"
+                    ? await p.importCardsFromApkg(path, options)
+                    : this.type === "csv"
+                      ? await p.importCardsFromCsv(path, { ...options, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked })
+                      : QUESTION_SET_TYPES.includes(this.type)
+                        ? await p.importCardsFromQuestionSet(path, this.type, options)
+                        : this.type === "gift"
+                          ? await p.importCardsFromGift(path, options)
+                          : this.type === "moodlexml" || this.type === "qti"
+                            ? await p.importCardsFromLmsXml(path, this.type, options)
+                            : await p.importCardsFromAnki(path, options);
         const bits = [`Imported ${result.created} card${result.created === 1 ? "" : "s"}`];
         if (result.updated) bits.push(`${result.updated} updated`);
         if (result.copied) bits.push(`${result.copied} copied`);
         if (result.skipped) bits.push(`${result.skipped} skipped`);
         if (result.errors && result.errors.length) bits.push(`${result.errors.length} failed`);
+        if (result.warnings && result.warnings.length) bits.push(`${result.warnings.length} warning${result.warnings.length === 1 ? "" : "s"}`);
         note.setText(bits.join(" · "));
         new Notice(bits.join(" · "), 6000);
         if (result.created) {

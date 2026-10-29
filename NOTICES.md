@@ -62,6 +62,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Anki .apkg reader
+
+- **Project:** original code in this repository.
+- **License:** MIT, same as the rest of MCQ Tracker.
+- **What it does:** reads a user-provided `.apkg` ZIP, its uncompressed SQLite collection, and the `notes`, `cards` and `col` tables. It does not bundle Anki, AnkiConnect, SQLite, a ZIP library, or any third-party importer. Archive paths are never extracted and no SQL is executed.
+- **Files:** `src/apkg.js` (reader) and `src/plugin.js` (import wiring).
+- **Limitation:** Anki's newer zstd-compressed `collection.anki21b` packages are rejected with a text-export hint rather than guessed at.
+
 ## ts-fsrs
 
 - **Project:** [ts-fsrs](https://github.com/open-spaced-repetition/ts-fsrs) (npm package `ts-fsrs`)

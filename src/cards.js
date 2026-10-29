@@ -404,6 +404,20 @@ function cardNote(input, now) {
   if (data.importBatch) lines.push(`import_batch: ${yamlString(data.importBatch)}`);
   if (data.importSourceUrl) lines.push(`import_source_url: ${yamlString(data.importSourceUrl)}`);
   if (data.importKey) lines.push(`import_key: ${yamlString(data.importKey)}`);
+  if (data.ankiNoteId) lines.push(`anki_note_id: ${yamlString(data.ankiNoteId)}`);
+  if (data.ankiCardId) lines.push(`anki_card_id: ${yamlString(data.ankiCardId)}`);
+  if (data.ankiGuid) lines.push(`anki_guid: ${yamlString(data.ankiGuid)}`);
+  if (data.ankiDeck) lines.push(`anki_deck: ${yamlString(data.ankiDeck)}`);
+  if (data.ankiModel) lines.push(`anki_model: ${yamlString(data.ankiModel)}`);
+  if (data.ankiNoteId) {
+    lines.push(
+      `anki_due: ${Math.round(Number(data.ankiDue) || 0)}`,
+      `anki_interval: ${Math.max(0, Math.round(Number(data.ankiInterval) || 0))}`,
+      `anki_reps: ${Math.max(0, Math.round(Number(data.ankiReps) || 0))}`,
+      `anki_lapses: ${Math.max(0, Math.round(Number(data.ankiLapses) || 0))}`,
+      `anki_ord: ${Math.max(0, Math.round(Number(data.ankiOrd) || 0))}`
+    );
+  }
   if (data.sourcePdf) lines.push(`source_pdf: ${yamlString(data.sourcePdf)}`);
   if (data.sourceNote) lines.push(`source_note: ${yamlString(data.sourceNote)}`);
   if (data.sourcePage) lines.push(`source_page: ${yamlString(data.sourcePage)}`);
@@ -445,11 +459,15 @@ function cardNote(input, now) {
     lines.push("tags:");
     for (const tag of data.tags) if (str(tag).trim()) lines.push(`  - ${yamlString(String(tag).trim())}`);
   }
+  const attempts = Math.max(0, Math.round(Number(data.attempts) || 0));
+  const correctCount = Math.max(0, Math.round(Number(data.correctCount) || 0));
+  const streak = Math.max(0, Math.round(Number(data.streak) || 0));
+  const nextReview = str(data.nextReview || data.next_review).trim();
   lines.push(
-    'attempts: 0',
-    'correct_count: 0',
-    'streak: 0',
-    'next_review: ""',
+    `attempts: ${attempts}`,
+    `correct_count: ${correctCount}`,
+    `streak: ${streak}`,
+    `next_review: ${nextReview ? yamlString(nextReview) : '""'}`,
     'history: []',
     '---',
     '',

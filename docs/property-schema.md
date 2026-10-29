@@ -117,6 +117,9 @@ update the existing note instead of creating a duplicate.
 | `source_pdf`, `source_page`, `source_heading`, `source_note`, `source_link` | string | Link back to the document, page, heading or note. |
 | `answer_source`, `explanation_source` | string | Where the answer and explanation came from, including AI-generated ones. |
 | `ai_generated`, `ai_model` | string | Marks AI-written content and records the model. |
+| `anki_note_id`, `anki_card_id`, `anki_guid` | string | The source note, card and GUID from an imported `.apkg`, used by later syncs. |
+| `anki_deck`, `anki_model`, `anki_ord` | string/number | The source deck, model name and card ordinal. |
+| `anki_due`, `anki_interval`, `anki_reps`, `anki_lapses` | number | Anki's scheduling fields at import time; kept as metadata rather than translated into a different scheduler. |
 
 ## Dataview examples
 

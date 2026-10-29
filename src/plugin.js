@@ -44,6 +44,7 @@ const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
 const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, normalizeAnkiConnect } = require("./anki-connect");
+const { parseApkg } = require("./apkg");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
@@ -2191,6 +2192,33 @@ class QuestionTrackerPlugin extends Plugin {
     return this.importParsedCards(parsed.cards, opts);
   }
 
+  /** Read a vault binary file without assuming a Node filesystem path. */
+  async readVaultBytes(file) {
+    const vault = this.app && this.app.vault;
+    if (vault && typeof vault.readBinary === "function") {
+      const data = await vault.readBinary(file);
+      return Buffer.isBuffer(data) ? data : Buffer.from(data || []);
+    }
+    if (vault && vault.adapter && typeof vault.adapter.readBinary === "function") {
+      const data = await vault.adapter.readBinary(file.path);
+      return Buffer.isBuffer(data) ? data : Buffer.from(data || []);
+    }
+    throw new Error("This Obsidian build cannot read binary files from the vault.");
+  }
+
+  /** Import an Anki package (.apkg) through the same card writer and duplicate handling as text imports. */
+  async importCardsFromApkg(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    if (!/\.apkg$/i.test(String(path || ""))) throw new Error("Choose the .apkg file exported by Anki.");
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That .apkg file is not in the vault.");
+    const bytes = await this.readVaultBytes(file);
+    const parsed = parseApkg(bytes, { sourcePath: file.path, deck: opts.deck });
+    const result = await this.importParsedCards(parsed.cards, { ...opts, errors: parsed.errors });
+    return { ...result, warnings: parsed.warnings, skippedInFile: parsed.skipped };
+  }
+
   /** Import a Moodle GIFT text file. Each question becomes a basic card. */
   async importCardsFromGift(path, options) {
     if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
@@ -2393,6 +2421,11 @@ class QuestionTrackerPlugin extends Plugin {
       } else if (kind === "csv") {
         const parsed = await this.previewCardsCsv(path, opts);
         add(parsed);
+      } else if (kind === "apkg") {
+        const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+        if (!file) throw new Error("That .apkg file is not in the vault.");
+        const bytes = await this.readVaultBytes(file);
+        add(parseApkg(bytes, { sourcePath: file.path, deck: String(opts.deck || "").trim() || file.basename }));
       } else {
         const file = this.app.vault.getAbstractFileByPath(String(path || ""));
         if (!file) throw new Error("That file is not in the vault.");

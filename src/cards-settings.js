@@ -47,7 +47,7 @@ function renderDecks(containerEl, plugin, redisplay) {
 
   new Setting(containerEl)
     .setName("Import existing decks")
-    .setDesc("Bring in Spaced Repetition notes, Anki or Quizlet text, or a Kahoot, Blooket or Gimkit CSV. Duplicates are skipped by import key.")
+    .setDesc("Bring in Spaced Repetition notes, an Anki package or text export, Quizlet, or a Kahoot, Blooket or Gimkit CSV. Duplicates are skipped by import key.")
     .addButton((b) => b.setButtonText("Import cards").onClick(() => plugin.openCardImport()));
 
   new Setting(containerEl)
