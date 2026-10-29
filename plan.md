@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — 1.92.0 adds per-row import reporting and explicit .apkg media-loss reporting, after 1.91.0 added local SMILES structure rendering; 1.90.0 added the allow-listed Direct AI agent and a sample vault and 1.89.0 closed the Adaptive Practice parity gaps; 1.88.0 shipped bulk calculation preview with selective apply and 1.87.0 added agent-edit review; earlier import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.53.0 phase adds visual text boxes on top of 1.52.0's pen/highlighter overlay; form filling and a fuller PDF editor remain open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — 1.93.0 adds Suspend and Bury study states, after 1.92.0 added per-row import reporting and explicit .apkg media-loss reporting and 1.91.0 added local SMILES structure rendering; 1.90.0 added the allow-listed Direct AI agent and a sample vault and 1.89.0 closed the Adaptive Practice parity gaps; 1.88.0 shipped bulk calculation preview with selective apply and 1.87.0 added agent-edit review; earlier import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.53.0 phase adds visual text boxes on top of 1.52.0's pen/highlighter overlay; form filling and a fuller PDF editor remain open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), the October 28 idea backlog (§5.22), and the Adaptive Practice parity audit (§5.23, Oct 29, 2026). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -26,7 +26,7 @@
 
 **Recently completed (1.78.0):** timed tests now capture confidence per answer and report calibration and average time per answered question alongside the section and skill breakdowns. Previous release 1.77.0 added sections, separate timers and saved blueprints; 1.76.1 published the versioned property schema; 1.76.0 added merge-safe history.
 
-**Latest completed (1.92.0):** every card import returns per-row outcomes and reasons for skipped or failed rows, and `.apkg` imports report media files that stay in Anki instead of silently losing them. 1.91.0 added local SMILES structures; 1.90.0 added the allow-listed Direct AI agent and a sample vault; 1.89.0 closed the Adaptive Practice parity gaps.
+**Latest completed (1.93.0):** Suspend hides an item until restored, Bury hides it until tomorrow, and both use the same queue filters, manager, Undo and readable properties as Known and Exclude. 1.92.0 added per-row import reporting and `.apkg` media reporting; 1.91.0 added local SMILES structures.
 
 **Plan audit (Oct 29, 2026).** This is the evidence-based status pass over the whole document. A checked item is present in the code and covered by a test or a documented manual gate; a partial item has a working slice but a named gap.
 
@@ -38,6 +38,7 @@
 | Logged **Don't know** signal (P2 §5.23) | **Done** | Practice writes a `skipped` history row, `skip_count` and an earlier next review without touching accuracy or streak. Insights shows the overall count, per-skill skip rate and a dedicated Logged skips section; the plain Skip still records nothing. |
 | Adaptive session sizing (P2 §5.23) | **Done** | Optional warm-up/stretch planner reads recent accuracy, pace and logged skips. Quick Practice shows the recommendation and can override it per session; the daily quiz uses the same signal. Hard minute/count caps are configurable and off by default. |
 | Optional local daily reminder (P3 §5.23) | **Done** | Off by default; a local Today card and status-bar nudge appear once a day after a chosen hour and can be dismissed until tomorrow. No OS notification, network request or telemetry. |
+| Suspend and bury study states (§5.22.1) | **Done in 1.93.0** | Suspend stays hidden until restored; Bury returns tomorrow. Both are in practice, card review and the hidden-items manager, with Undo and protected properties. |
 | Import quality and reporting (§5.22.3) | **Done in 1.92.0** | Every import result lists each attempted card with its outcome and reason; CSV and question sets report exact skipped rows, and `.apkg` reports media counts and names. |
 | Direct AI agent with allow-listed tools (§5.18) | **Done** | `create_question`, `create_card` and one safe `update_section` proposal; review window, existing write roots and protected properties enforced. |
 | SMILES structure rendering (§5.16.2) | **Done in 1.91.0** | Local, original SVG renderer for a documented teaching subset; `smiles` code blocks in notes and a Structures tab in Reference. Invalid syntax reports an error rather than guessing. |
@@ -48,7 +49,7 @@
 | PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; true AcroForm filling needs an audited MIT PDF library and is not safe to approximate. |
 | README, screenshots, sample vault, license confirmation | **Partial — screenshots blocked** | README, NOTICES, `docs/license-audit.md` and `samples/sample-vault` exist. Screenshots still need a real Obsidian window. |
 
-**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.92.0. The items that remain `[~]` are explicitly gated: AP FRQ needs owner pilot/rights approval; the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation. The duplicate roadmap later in this file is historical and does not override this table.
+**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.93.0. The items that remain `[~]` are explicitly gated: AP FRQ needs owner pilot/rights approval; the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation. The duplicate roadmap later in this file is historical and does not override this table.
 
 **Adaptive Practice parity audit (Oct 29, 2026):** compared with Adaptive Practice 0.7.2. MCQ Tracker already has the broader study system; the meaningful gaps are generation from any note, per-note subtopic memory, a logged skip/fluency signal, adaptive session size and an optional local reminder. The Whetstone engine (AGPL) and the persistent vault index are non-goals. Full matrix and acceptance criteria: §5.23.
 
@@ -992,20 +993,20 @@ Use short step cards, each with a working button:
 | Study time, focus timer and daily goals | §5.10 |
 | Standalone mobile decision, packaging and monetization | §10c |
 
-#### 5.22.1 Known, Exclude, suspend and bury — **Implemented in 1.14.0 (suspend/bury deferred)**
+#### 5.22.1 Known, Exclude, suspend and bury — **Implemented in 1.14.0; suspend/bury in 1.93.0**
 
 **Source:** a direct student request: a button to skip or exclude a question from future use because the learner already knows it, as Quizlet allows. Do this before the larger poll items because it is small, visible and requested.
 
-**Shipped in 1.14.0:** Known and Exclude on practice and card review, a configurable snooze, exact Undo, readable status properties, and a searchable/course-filtered manager with Restore. Known/Exclude do not record an attempt or alter history. Suspend, bury and per-course snooze defaults remain deferred.
+**Shipped in 1.14.0:** Known and Exclude on practice and card review, a configurable snooze, exact Undo, readable status properties, and a searchable/course-filtered manager with Restore. **Shipped in 1.93.0:** Suspend hides an item until restored, Bury hides it until tomorrow, both appear in practice, card review and the same manager, and Undo restores the exact previous state. None of these actions records an attempt or alters history. Per-course snooze defaults remain deferred.
 
 - **Known (timed snooze)** and **Exclude (permanent)** are two separate actions, not one button with hidden behaviour.
 - **Known** hides the item for a configurable number of days (`known_days`, default 14, optionally per course). When the snooze ends the item returns as **due** by default, not as new; make that a setting.
 - **Exclude** removes the item from practice, Quick Practice, timed tests, the due queue and generated plans. Provide an **Excluded** list with search, course filter, restore and an undo toast.
 - **A skip is not a wrong answer.** Record a distinct `skipped` or `known` event, never `incorrect`. It must not reset the streak or count against accuracy unless the user explicitly enables that.
-- **Suspend** (hidden until restored) and **bury** (hidden until the next day or session) are optional advanced states; map them to Anki semantics only after Known/Exclude works.
-- **Readable properties:** `study_status: active|known|excluded`, `known_until`, `excluded_on`, `excluded_reason`. Keep history append-only and Dataview-friendly.
+- **Suspend** (hidden until restored) and **bury** (hidden until tomorrow) shipped in 1.93.0 using Anki semantics: suspend is indefinite, while bury ends at the next day boundary.
+- **Readable properties:** `study_status: active|known|excluded|suspended|buried`, `known_until`, `excluded_on`, `excluded_reason`, `suspended_on`, `buried_until`. Keep history append-only and Dataview-friendly.
 - **Surfaces:** practice, review, card history, Today and an excluded-items manager. A skip action should be one tap; disable it during timed tests if exam realism is preferred.
-- **Open decisions:** whether Known counts toward accuracy/streaks; whether a snoozed item returns as new or due; whether Exclude is allowed in timed tests; whether defaults are per item or per course.
+- **Resolved decisions:** Known returns as due, does not count as an attempt, and Exclude is allowed in timed tests. Per-course snooze defaults remain open.
 
 **Acceptance criteria:** excluding an item removes it from every queue and restores it from the Excluded list; a Known item disappears for exactly the configured period and returns in the chosen state; a skip never increments incorrect attempts or breaks a streak by default; the action is undoable and writes a readable property; excluded notes stay in the vault.
 

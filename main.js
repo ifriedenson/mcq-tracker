@@ -1199,8 +1199,13 @@ const PROTECTED_PROPERTIES = [
   "history",
   "study_status",
   "status_until",
+  "known_days",
   "known_until",
   "excluded",
+  "excluded_on",
+  "excluded_reason",
+  "suspended_on",
+  "buried_until",
   "exam_cap",
   "exam_cap_name",
   "exam_cap_exam_date",
@@ -12628,6 +12633,10 @@ class CardView extends ItemView {
     const manage = root.createDiv({ cls: "qt-row qt-cards-manage" });
     const known = manage.createEl("button", { text: `Known ${this.plugin.settings.knownDays || 14}d`, cls: "qt-link" });
     known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
+    const bury = manage.createEl("button", { text: "Bury", cls: "qt-link" });
+    bury.addEventListener("click", () => this.setCurrentStudyStatus("buried"));
+    const suspend = manage.createEl("button", { text: "Suspend", cls: "qt-link" });
+    suspend.addEventListener("click", () => this.setCurrentStudyStatus("suspended"));
     const exclude = manage.createEl("button", { text: "Exclude", cls: "qt-link qt-status-exclude" });
     exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));
     root.createDiv({
@@ -26835,7 +26844,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
     this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
-    this.addCommand({ id: "manage-study-status", name: "Manage known and excluded items", callback: () => this.openStudyStatusManager() });
+    this.addCommand({ id: "manage-study-status", name: "Manage hidden study items", callback: () => this.openStudyStatusManager() });
 
     // Embeds: `uni-schedule` and `uni-calendar` are the block names existing University
     // Schedule and Calendar notes use, so those keep working. If that plugin is enabled
@@ -30679,7 +30688,9 @@ class QuestionTrackerPlugin extends Plugin {
   studyStatusNotice(summary) {
     if (!summary) return "Study status updated.";
     if (summary.status === "known") return `Known for ${summary.days} days (until ${summary.until}).`;
-    if (summary.status === "excluded") return "Excluded from practice. Restore it from Manage known and excluded items.";
+    if (summary.status === "excluded") return "Excluded from practice. Restore it from Manage hidden study items.";
+    if (summary.status === "suspended") return "Suspended. Restore it from Manage hidden study items.";
+    if (summary.status === "buried") return `Buried for today. It returns tomorrow (${summary.until}).`;
     return "Restored to practice.";
   }
 
@@ -30829,12 +30840,11 @@ class QuestionTrackerPlugin extends Plugin {
         fm: card.fm,
       });
     }
+    const order = { excluded: 0, suspended: 1, buried: 2, known: 3 };
     return out.sort((a, b) =>
       a.status === b.status
         ? a.title.localeCompare(b.title, undefined, { numeric: true })
-        : a.status === "excluded"
-          ? -1
-          : 1
+        : (order[a.status] ?? 9) - (order[b.status] ?? 9)
     );
   }
 
@@ -32004,6 +32014,12 @@ class PracticeView extends ItemView {
     const known = fl.createEl("button", { text: `Known ${p.settings.knownDays || 14}d`, cls: "qt-status-btn" });
     known.setAttr("title", "Hide this question for a while, then return it as due.");
     known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
+    const bury = fl.createEl("button", { text: "Bury", cls: "qt-status-btn" });
+    bury.setAttr("title", "Hide this question until tomorrow.");
+    bury.addEventListener("click", () => this.setCurrentStudyStatus("buried"));
+    const suspend = fl.createEl("button", { text: "Suspend", cls: "qt-status-btn" });
+    suspend.setAttr("title", "Hide this question until you restore it.");
+    suspend.addEventListener("click", () => this.setCurrentStudyStatus("suspended"));
     const exclude = fl.createEl("button", { text: "Exclude", cls: "qt-status-btn qt-status-exclude" });
     exclude.setAttr("title", "Keep the note but skip it in every practice queue.");
     exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));
@@ -37583,24 +37599,29 @@ module.exports = {
 /* ---- src/study-status.js ---- */
 __defs["study-status"] = function (module, exports, require) {
 /*
- * Known and Exclude are note-level study controls, not scheduler state.
+ * Known, Exclude, Suspend and Bury are note-level study controls, not scheduler
+ * state.
  *
  * - known: hide the item for a number of days, then it returns as due.
  * - excluded: keep the note but remove it from every practice queue.
+ * - suspended: hide it until the learner restores it.
+ * - buried: hide it until tomorrow, then it returns as due.
  *
  * The properties are intentionally readable and Dataview-friendly:
- *   study_status: active | known | excluded
+ *   study_status: active | known | excluded | suspended | buried
  *   known_until: YYYY-MM-DD
  *   known_days: number
  *   excluded_on: YYYY-MM-DD
  *   excluded_reason: short text
+ *   suspended_on: YYYY-MM-DD
+ *   buried_until: YYYY-MM-DD
  */
 const { addDays, fmtDate, localDate, str } = require("./util");
 
 const DEFAULT_KNOWN_DAYS = 14;
 const MAX_KNOWN_DAYS = 3650;
-const STUDY_STATUSES = ["active", "known", "excluded"];
-const STATUS_PROPS = ["study_status", "known_days", "known_until", "excluded_on", "excluded_reason"];
+const STUDY_STATUSES = ["active", "known", "excluded", "suspended", "buried"];
+const STATUS_PROPS = ["study_status", "known_days", "known_until", "excluded_on", "excluded_reason", "suspended_on", "buried_until"];
 
 /** Capture only the readable status properties so an action can be undone exactly. */
 function snapshotStudyStatus(fm) {
@@ -37622,7 +37643,7 @@ function restoreStudyStatus(fm, snapshot) {
 
 function normalizeStatus(value) {
   const s = str(value).trim().toLowerCase();
-  return s === "known" || s === "excluded" ? s : "active";
+  return STUDY_STATUSES.includes(s) ? s : "active";
 }
 
 function normalizeDays(value, fallback) {
@@ -37639,10 +37660,15 @@ function dateKey(value) {
 /** The effective status today. An expired Known item becomes active again. */
 function statusOf(fm, today) {
   const raw = normalizeStatus(fm && fm.study_status);
+  const day = dateKey(today) || localDate();
   if (raw === "excluded") return "excluded";
+  if (raw === "suspended") return "suspended";
+  if (raw === "buried") {
+    const until = dateKey(fm && fm.buried_until);
+    return until && until > day ? "buried" : "active";
+  }
   if (raw === "known") {
     const until = dateKey(fm && fm.known_until);
-    const day = dateKey(today) || localDate();
     if (until && until > day) return "known";
   }
   return "active";
@@ -37668,6 +37694,8 @@ function setStudyStatus(fm, status, options) {
     fm.known_until = until;
     delete fm.excluded_on;
     delete fm.excluded_reason;
+    delete fm.suspended_on;
+    delete fm.buried_until;
     return { status: "known", days, until, on: day, previous };
   }
 
@@ -37677,7 +37705,32 @@ function setStudyStatus(fm, status, options) {
     fm.excluded_reason = str(opts.reason || "manual").trim().slice(0, 200) || "manual";
     delete fm.known_days;
     delete fm.known_until;
+    delete fm.suspended_on;
+    delete fm.buried_until;
     return { status: "excluded", on: day, reason: fm.excluded_reason, previous };
+  }
+
+  if (next === "suspended") {
+    fm.study_status = "suspended";
+    fm.suspended_on = day;
+    delete fm.known_days;
+    delete fm.known_until;
+    delete fm.excluded_on;
+    delete fm.excluded_reason;
+    delete fm.buried_until;
+    return { status: "suspended", on: day, previous };
+  }
+
+  if (next === "buried") {
+    const until = dateKey(opts.until) || fmtDate(addDays(now, 1));
+    fm.study_status = "buried";
+    fm.buried_until = until;
+    delete fm.known_days;
+    delete fm.known_until;
+    delete fm.excluded_on;
+    delete fm.excluded_reason;
+    delete fm.suspended_on;
+    return { status: "buried", until, on: day, previous };
   }
 
   delete fm.study_status;
@@ -37685,6 +37738,8 @@ function setStudyStatus(fm, status, options) {
   delete fm.known_until;
   delete fm.excluded_on;
   delete fm.excluded_reason;
+  delete fm.suspended_on;
+  delete fm.buried_until;
   return { status: "active", on: day, previous };
 }
 
@@ -37693,6 +37748,14 @@ function studyStatusSummary(fm, today) {
   if (status === "excluded") {
     const on = dateKey(fm && fm.excluded_on);
     return on ? `Excluded on ${on}` : "Excluded";
+  }
+  if (status === "suspended") {
+    const on = dateKey(fm && fm.suspended_on);
+    return on ? `Suspended on ${on}` : "Suspended";
+  }
+  if (status === "buried") {
+    const until = dateKey(fm && fm.buried_until);
+    return until ? `Buried until ${until}` : "Buried";
   }
   if (status === "known") {
     const until = dateKey(fm && fm.known_until);
@@ -37703,7 +37766,7 @@ function studyStatusSummary(fm, today) {
 
 function statusLabel(status) {
   const s = normalizeStatus(status);
-  return s === "excluded" ? "Excluded" : s === "known" ? "Known" : "Active";
+  return s === "excluded" ? "Excluded" : s === "suspended" ? "Suspended" : s === "buried" ? "Buried" : s === "known" ? "Known" : "Active";
 }
 
 module.exports = {
@@ -37743,17 +37806,17 @@ class StudyStatusModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("qt-status-modal");
-    contentEl.createEl("h3", { text: "Known and excluded items" });
+    contentEl.createEl("h3", { text: "Hidden study items" });
     contentEl.createEl("p", {
       cls: "setting-item-description",
-      text: "Known items return to the due queue when their snooze ends. Excluded items stay in your vault but are skipped by practice, Quick Practice, timed tests and the due queue.",
+      text: "Known items return when their snooze ends. Buried items return tomorrow. Suspended and excluded items stay in your vault but are skipped by every practice queue until you restore them.",
     });
 
     this.items = this.plugin.studyStatusItems();
     if (!this.items.length) {
       contentEl.createDiv({
         cls: "qt-hint",
-        text: "Nothing is marked Known or Excluded right now. Use the buttons on a practice or card review screen to hide something.",
+        text: "Nothing is hidden right now. Use Known, Bury, Suspend or Exclude on a practice or card review screen.",
       });
       this.addDone(contentEl);
       return;
@@ -37819,6 +37882,8 @@ class StudyStatusModal extends Modal {
 
     for (const [status, label] of [
       ["excluded", "Excluded"],
+      ["suspended", "Suspended"],
+      ["buried", "Buried"],
       ["known", "Known"],
     ]) {
       const rows = visible.filter((item) => item.status === status);
@@ -37994,7 +38059,7 @@ class TodayView extends ItemView {
       text: `${due.length} due · ${fresh.length} new · ${visible.length} question${visible.length === 1 ? "" : "s"}${hiddenText}`,
     });
     const manage = root.createDiv({ cls: "qt-row qt-small-row" });
-    manage.createEl("button", { text: "Known & excluded", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
+    manage.createEl("button", { text: "Hidden items", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
     this.renderReminder(root, today, due, fresh);
     this.renderStudyPlan(root);
@@ -38016,10 +38081,10 @@ class TodayView extends ItemView {
       card.createEl("h3", { text: hidden ? "All questions are hidden" : "No questions yet" });
       card.createDiv({
         cls: "qt-today-meta",
-        text: hidden ? "Known and Excluded items are not in the practice queue. Restore them whenever you want them back." : "Add notes with a question_id property, or import questions from a file.",
+        text: hidden ? "Hidden items are not in the practice queue. Restore them whenever you want them back." : "Add notes with a question_id property, or import questions from a file.",
       });
       card
-        .createEl("button", { text: hidden ? "Manage known and excluded items" : "Open practice view", cls: "mod-cta qt-primary" })
+        .createEl("button", { text: hidden ? "Manage hidden items" : "Open practice view", cls: "mod-cta qt-primary" })
         .addEventListener("click", () => (hidden ? p.openStudyStatusManager() : p.activateView()));
     }
 

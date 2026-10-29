@@ -9,7 +9,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Timer** with pause. It survives closing the app, and on mobile it can pause itself when you switch apps.
 - **Review after answering.** See the question and choices again with your pick and the correct answer marked, plus an explanation you can show or hide (the default is a setting).
 - **Spaced review.** Correct answers come back after 1, 3, 7, 21, then 60 days (editable). Misses come back tomorrow.
-- **Known and Exclude.** Hide a question or card you already know for a configurable snooze, or exclude it from every queue without deleting the note. Both actions are undoable, and **Manage known and excluded items** lists, searches, filters and restores them.
+- **Known, Bury, Suspend and Exclude.** Hide a question or card for a configurable snooze, until tomorrow, until you restore it, or from every queue without deleting the note. Every action is undoable, and **Manage hidden study items** lists, searches, filters and restores them.
 - **Exam-aware review.** When the calendar is on and an upcoming exam matches a question's or card's course, the next review is brought forward to the day before the exam. It never extends an interval, and items without a matching course or exam are unchanged.
 - **Optional FSRS scheduling.** Turn on a memory-model scheduler in settings. It estimates difficulty and stability per question, aims for your chosen recall probability, and replays existing history once so you do not start from zero. The simple 1/3/7/21/60-day ladder remains the default and switching back is lossless.
 - **Offline-tolerant results.** If a note cannot be written for a moment (a sync lock, a removable drive, or a mobile storage hiccup), the attempt is kept in a local outbox. The result screen still works, error tags stay attached, and the queue is retried on startup, when the device comes back online, and with **Retry saving offline practice results**.
@@ -226,13 +226,15 @@ When an upcoming calendar exam matches the note's `course`, the scheduled `next_
 
 Each `history` entry is stored as `date|result|seconds|answer|confidence|error_type`.
 
-### Known and excluded items
+### Hidden study items
 
-Every practice and card review screen has **Known** and **Exclude** buttons beside the answer controls. They hide an item without deleting its note or changing its review history:
+Every practice and card review screen has **Known**, **Bury**, **Suspend** and **Exclude** actions. They hide an item without deleting its note or changing its review history:
 
 - **Known** hides the item for **Known snooze (days)** (14 by default; Settings → MCQ Tracker → Review). It returns to the due queue on that date. The note keeps `study_status: known`, `known_days` and `known_until`.
+- **Bury** hides the item for the rest of today and returns it tomorrow. The note keeps `study_status: buried` and `buried_until`.
+- **Suspend** hides the item indefinitely until you restore it. The note keeps `study_status: suspended` and `suspended_on`.
 - **Exclude** removes the item from practice, Quick Practice, timed tests, card reviews and the merged due queue until you restore it. The note keeps `study_status: excluded`, `excluded_on` and `excluded_reason`.
-- The confirmation notice has an **Undo** button. You can also open **Manage known and excluded items** from the notice, Settings → MCQ Tracker → Review, Today, or the command palette to search the list, filter by course, open a note, or restore it.
+- The confirmation notice has an **Undo** button. You can also open **Manage hidden study items** from the notice, Settings → MCQ Tracker → Review, Today, or the command palette to search the list, filter by course, open a note, or restore it.
 - Hiding an item never records a wrong answer, changes its streak or changes its schedule. Excluded notes stay in the vault, are included in exports, and are still found by search and Dataview.
 
 ### Study cards (optional)

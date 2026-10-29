@@ -16,17 +16,17 @@ class StudyStatusModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("qt-status-modal");
-    contentEl.createEl("h3", { text: "Known and excluded items" });
+    contentEl.createEl("h3", { text: "Hidden study items" });
     contentEl.createEl("p", {
       cls: "setting-item-description",
-      text: "Known items return to the due queue when their snooze ends. Excluded items stay in your vault but are skipped by practice, Quick Practice, timed tests and the due queue.",
+      text: "Known items return when their snooze ends. Buried items return tomorrow. Suspended and excluded items stay in your vault but are skipped by every practice queue until you restore them.",
     });
 
     this.items = this.plugin.studyStatusItems();
     if (!this.items.length) {
       contentEl.createDiv({
         cls: "qt-hint",
-        text: "Nothing is marked Known or Excluded right now. Use the buttons on a practice or card review screen to hide something.",
+        text: "Nothing is hidden right now. Use Known, Bury, Suspend or Exclude on a practice or card review screen.",
       });
       this.addDone(contentEl);
       return;
@@ -92,6 +92,8 @@ class StudyStatusModal extends Modal {
 
     for (const [status, label] of [
       ["excluded", "Excluded"],
+      ["suspended", "Suspended"],
+      ["buried", "Buried"],
       ["known", "Known"],
     ]) {
       const rows = visible.filter((item) => item.status === status);

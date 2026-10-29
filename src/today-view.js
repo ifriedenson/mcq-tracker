@@ -71,7 +71,7 @@ class TodayView extends ItemView {
       text: `${due.length} due · ${fresh.length} new · ${visible.length} question${visible.length === 1 ? "" : "s"}${hiddenText}`,
     });
     const manage = root.createDiv({ cls: "qt-row qt-small-row" });
-    manage.createEl("button", { text: "Known & excluded", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
+    manage.createEl("button", { text: "Hidden items", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
     this.renderReminder(root, today, due, fresh);
     this.renderStudyPlan(root);
@@ -93,10 +93,10 @@ class TodayView extends ItemView {
       card.createEl("h3", { text: hidden ? "All questions are hidden" : "No questions yet" });
       card.createDiv({
         cls: "qt-today-meta",
-        text: hidden ? "Known and Excluded items are not in the practice queue. Restore them whenever you want them back." : "Add notes with a question_id property, or import questions from a file.",
+        text: hidden ? "Hidden items are not in the practice queue. Restore them whenever you want them back." : "Add notes with a question_id property, or import questions from a file.",
       });
       card
-        .createEl("button", { text: hidden ? "Manage known and excluded items" : "Open practice view", cls: "mod-cta qt-primary" })
+        .createEl("button", { text: hidden ? "Manage hidden items" : "Open practice view", cls: "mod-cta qt-primary" })
         .addEventListener("click", () => (hidden ? p.openStudyStatusManager() : p.activateView()));
     }
 

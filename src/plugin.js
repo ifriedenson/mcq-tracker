@@ -342,7 +342,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
     this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
-    this.addCommand({ id: "manage-study-status", name: "Manage known and excluded items", callback: () => this.openStudyStatusManager() });
+    this.addCommand({ id: "manage-study-status", name: "Manage hidden study items", callback: () => this.openStudyStatusManager() });
 
     // Embeds: `uni-schedule` and `uni-calendar` are the block names existing University
     // Schedule and Calendar notes use, so those keep working. If that plugin is enabled
@@ -4186,7 +4186,9 @@ class QuestionTrackerPlugin extends Plugin {
   studyStatusNotice(summary) {
     if (!summary) return "Study status updated.";
     if (summary.status === "known") return `Known for ${summary.days} days (until ${summary.until}).`;
-    if (summary.status === "excluded") return "Excluded from practice. Restore it from Manage known and excluded items.";
+    if (summary.status === "excluded") return "Excluded from practice. Restore it from Manage hidden study items.";
+    if (summary.status === "suspended") return "Suspended. Restore it from Manage hidden study items.";
+    if (summary.status === "buried") return `Buried for today. It returns tomorrow (${summary.until}).`;
     return "Restored to practice.";
   }
 
@@ -4336,12 +4338,11 @@ class QuestionTrackerPlugin extends Plugin {
         fm: card.fm,
       });
     }
+    const order = { excluded: 0, suspended: 1, buried: 2, known: 3 };
     return out.sort((a, b) =>
       a.status === b.status
         ? a.title.localeCompare(b.title, undefined, { numeric: true })
-        : a.status === "excluded"
-          ? -1
-          : 1
+        : (order[a.status] ?? 9) - (order[b.status] ?? 9)
     );
   }
 

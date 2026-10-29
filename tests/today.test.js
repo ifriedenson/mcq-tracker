@@ -60,7 +60,7 @@ test("today: hidden questions are not counted as due, new or available", async (
 
   assert.ok(dom.texts().includes("0 due · 0 new · 0 questions · 1 hidden"));
   assert.ok(dom.texts().includes("All questions are hidden"));
-  await dom.click("Manage known and excluded items");
+  await dom.click("Manage hidden items");
   assert.equal(opened, 1);
 });
 

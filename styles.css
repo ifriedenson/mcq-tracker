@@ -3468,6 +3468,14 @@
   border-left: 3px solid var(--text-accent);
 }
 
+.qt-status-row.qt-status-suspended {
+  border-left: 3px solid var(--color-orange);
+}
+
+.qt-status-row.qt-status-buried {
+  border-left: 3px solid var(--color-blue);
+}
+
 .qt-status-main {
   min-width: 0;
   flex: 1;

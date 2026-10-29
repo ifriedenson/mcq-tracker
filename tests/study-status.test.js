@@ -41,6 +41,48 @@ test("study status: Known expires, Exclude persists, and Restore clears every pr
   assert.equal(S.isStudyable(fm, TODAY), true);
 });
 
+test("study status: suspend stays hidden until restored and bury returns tomorrow", () => {
+  const fm = {};
+  S.setStudyStatus(fm, "buried", { now: NOW });
+  assert.equal(fm.study_status, "buried");
+  assert.equal(fm.buried_until, "2026-10-30");
+  assert.equal(S.statusOf(fm, TODAY), "buried");
+  assert.equal(S.statusOf(fm, "2026-10-30"), "active", "bury ends at the day boundary");
+  assert.equal(S.studyStatusSummary(fm, TODAY), "Buried until 2026-10-30");
+  assert.equal(S.statusLabel("buried"), "Buried");
+
+  S.setStudyStatus(fm, "suspended", { now: NOW });
+  assert.equal(fm.study_status, "suspended");
+  assert.equal(fm.suspended_on, TODAY);
+  assert.equal(fm.buried_until, undefined);
+  assert.equal(S.statusOf(fm, "2999-01-01"), "suspended", "suspend does not expire on its own");
+  assert.equal(S.studyStatusSummary(fm, TODAY), "Suspended on 2026-10-29");
+  assert.equal(S.statusLabel("suspended"), "Suspended");
+  assert.equal(S.isStudyable(fm, TODAY), false);
+
+  S.setStudyStatus(fm, "known", { now: NOW, days: 7 });
+  assert.equal(fm.suspended_on, undefined);
+  assert.equal(S.statusOf(fm, TODAY), "known");
+  S.setStudyStatus(fm, "active", { now: NOW });
+  assert.equal(fm.buried_until, undefined);
+});
+
+test("study status: suspended and buried items leave every queue", () => {
+  const suspended = question("Q/suspended.md", { attempts: 1, next_review: "2020-01-01", answer: "A", study_status: "suspended" });
+  const buried = question("Q/buried.md", { attempts: 1, next_review: "2020-01-01", answer: "B", study_status: "buried", buried_until: "2026-10-30" });
+  assert.equal(T.isDue(suspended.fm, TODAY), false);
+  assert.equal(T.isDue(buried.fm, TODAY), false);
+  assert.equal(T.isDue(buried.fm, "2026-10-30"), true);
+  assert.equal(T.pickQuestion([suspended, buried], "due", TODAY, [], () => 0), null);
+  assert.equal(T.pickQuestion([suspended, buried], "due", "2026-10-30", [], () => 0).file.path, "Q/buried.md");
+
+  const activeCard = card("Cards/active.md", { card_id: "a", attempts: 0 });
+  const buriedCard = card("Cards/buried.md", { card_id: "b", attempts: 1, next_review: "2020-01-01", study_status: "buried", buried_until: "2026-10-30" });
+  const suspendedCard = card("Cards/suspended.md", { card_id: "s", attempts: 1, next_review: "2020-01-01", study_status: "suspended" });
+  assert.deepEqual(T.cards.cardQueue([activeCard, buriedCard, suspendedCard], { today: TODAY, order: "all" }).map((c) => c.fm.card_id), ["a"]);
+  assert.deepEqual(T.cards.cardQueue([activeCard, buriedCard, suspendedCard], { today: "2026-10-30", order: "all" }).map((c) => c.fm.card_id).sort(), ["a", "b"]);
+});
+
 test("study status: missing and malformed dates fall back safely", () => {
   assert.equal(S.statusOf({}, TODAY), "active");
   assert.equal(S.statusOf({ study_status: "known" }, TODAY), "active", "a Known status without a date does not hide forever");
@@ -180,6 +222,18 @@ test("plugin: setting and restoring a status writes readable properties and refr
   assert.equal(known.fm.excluded_reason, "known it");
   assert.equal(plugin.studyStatusNotice(snoozed), "Known for 7 days (until 2026-11-05).");
   assert.match(plugin.studyStatusNotice(excluded), /Excluded from practice/);
+
+  const buried = await plugin.setStudyStatus(active.file, "buried", { now: NOW });
+  assert.equal(buried.status, "buried");
+  assert.equal(active.fm.buried_until, "2026-10-30");
+  assert.match(plugin.studyStatusNotice(buried), /returns tomorrow/);
+  assert.ok(plugin.studyStatusItems().some((item) => item.file.path === "Questions/active.md" && item.status === "buried"));
+
+  const suspended = await plugin.setStudyStatus(active.file, "suspended", { now: NOW });
+  assert.equal(suspended.status, "suspended");
+  assert.equal(active.fm.suspended_on, TODAY);
+  assert.equal(active.fm.buried_until, undefined);
+  assert.match(plugin.studyStatusNotice(suspended), /Suspended/);
 });
 
 test("practice view: Known and Exclude update the current question and move on", async () => {

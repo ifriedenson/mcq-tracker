@@ -77,10 +77,13 @@ eighth field stores the parameterized variant values (`a=3;b=2.5`).
 
 | Property | Type | Meaning |
 | --- | --- | --- |
-| `study_status` | string | `active`, `known` or `excluded`. |
+| `study_status` | string | `active`, `known`, `excluded`, `suspended` or `buried`. |
+| `known_days` | number | Snooze length written with a Known action. |
 | `known_until` | string | Date until which a known item is hidden from normal practice. |
 | `excluded_on` | string | Date the item was excluded. |
 | `excluded_reason` | string | Optional note explaining the exclusion. |
+| `suspended_on` | string | Date the item was suspended; it stays hidden until restored. |
+| `buried_until` | string | Date the buried item returns; bury ends at the next day boundary. |
 
 ## Card and vocabulary notes
 

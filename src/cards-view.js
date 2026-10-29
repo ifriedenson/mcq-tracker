@@ -644,6 +644,10 @@ class CardView extends ItemView {
     const manage = root.createDiv({ cls: "qt-row qt-cards-manage" });
     const known = manage.createEl("button", { text: `Known ${this.plugin.settings.knownDays || 14}d`, cls: "qt-link" });
     known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
+    const bury = manage.createEl("button", { text: "Bury", cls: "qt-link" });
+    bury.addEventListener("click", () => this.setCurrentStudyStatus("buried"));
+    const suspend = manage.createEl("button", { text: "Suspend", cls: "qt-link" });
+    suspend.addEventListener("click", () => this.setCurrentStudyStatus("suspended"));
     const exclude = manage.createEl("button", { text: "Exclude", cls: "qt-link qt-status-exclude" });
     exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));
     root.createDiv({

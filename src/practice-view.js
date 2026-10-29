@@ -1128,6 +1128,12 @@ class PracticeView extends ItemView {
     const known = fl.createEl("button", { text: `Known ${p.settings.knownDays || 14}d`, cls: "qt-status-btn" });
     known.setAttr("title", "Hide this question for a while, then return it as due.");
     known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
+    const bury = fl.createEl("button", { text: "Bury", cls: "qt-status-btn" });
+    bury.setAttr("title", "Hide this question until tomorrow.");
+    bury.addEventListener("click", () => this.setCurrentStudyStatus("buried"));
+    const suspend = fl.createEl("button", { text: "Suspend", cls: "qt-status-btn" });
+    suspend.setAttr("title", "Hide this question until you restore it.");
+    suspend.addEventListener("click", () => this.setCurrentStudyStatus("suspended"));
     const exclude = fl.createEl("button", { text: "Exclude", cls: "qt-status-btn qt-status-exclude" });
     exclude.setAttr("title", "Keep the note but skip it in every practice queue.");
     exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));
