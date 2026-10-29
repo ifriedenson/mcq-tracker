@@ -7,7 +7,7 @@
  * calendar create a duplicate.
  */
 const { TFile, TFolder } = require("obsidian");
-const { ensureFolder } = require("./util");
+const { ensureFolder, str } = require("./util");
 const { noteContent, noteFileName, noteVariables, resolveSubjectFolder } = require("./calendar-model");
 
 /** Every folder path in the vault, from loaded files (works without a vault-wide scan). */
@@ -102,7 +102,39 @@ async function openOrCreateClassNote(app, settings, event, dateKeyValue, index, 
   return { path, created: true, file };
 }
 
+/** Adds a wikilink to a saved resource under a managed `## AP resources` section once. */
+async function addResourceLink(app, file, entry) {
+  if (!file || !entry || !str(entry.path).trim()) return { added: false };
+  const target = str(entry.path).replace(/\.md$/i, "");
+  if (!target) return { added: false };
+  const text = await app.vault.read(file);
+  if (text.includes(`[[${target}`)) return { added: false, text };
+  const label = target.split("/").pop() || "Resource";
+  const line = `- [[${target}|${label}]]`;
+  const lines = text.split("\n");
+  const heading = lines.findIndex((value) => /^##\s+AP resources\s*$/i.test(value));
+  let next;
+  if (heading >= 0) {
+    let end = lines.length;
+    for (let i = heading + 1; i < lines.length; i++) {
+      if (/^##\s+/.test(lines[i])) {
+        end = i;
+        break;
+      }
+    }
+    let insertAt = end;
+    while (insertAt > heading + 1 && !lines[insertAt - 1].trim()) insertAt--;
+    lines.splice(insertAt, 0, line);
+    next = lines.join("\n");
+  } else {
+    next = `${text.replace(/\s*$/, "")}\n\n## AP resources\n\n${line}\n`;
+  }
+  await app.vault.modify(file, next);
+  return { added: true, text: next };
+}
+
 module.exports = {
+  addResourceLink,
   vaultFolders,
   notePathFor,
   noteKey,

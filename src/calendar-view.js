@@ -561,6 +561,13 @@ class CalendarView extends ItemView {
       const open = resourceRow.createEl("button", { cls: "uni-exam-resource-open", text: "Open" });
       open.setAttr("aria-label", `Open the resource attached to ${name}`);
       open.addEventListener("click", () => this.openResource(resource));
+      const add = resourceRow.createEl("button", { cls: "uni-exam-resource-open", text: "Add to note" });
+      add.setAttr("aria-label", `Add the attached resource to the class note for ${name}`);
+      add.addEventListener("click", () =>
+        this.plugin
+          .addApResourceToClassNote(exam, exam.dateKey, resource)
+          .catch((err) => new Notice(str(err && err.message) || "Could not add the resource to the note.")),
+      );
     }
   }
 

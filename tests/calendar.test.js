@@ -659,6 +659,14 @@ test("view: an exam's attached AP resource is shown with an open action", async 
   assert.ok(dom.texts().includes("Attached: Released FRQs"), "the attached resource appears beside its exam");
   await dom.click("Open");
   assert.deepEqual(app.opened, [resourcePath]);
+
+  await dom.click("Add to note");
+  const note = app.files.find((file) => file.fm && file.fm.calendar_uid === "final");
+  assert.ok(note, "the exam's class note is created");
+  assert.match(note.text, /## AP resources/, "the link lives in a named section");
+  assert.match(note.text, /\[\[AP resources\/AP Biology\/Released FRQs\|Released FRQs\]\]/);
+  await dom.click("Add to note");
+  assert.equal((note.text.match(/Released FRQs\]\]/g) || []).length, 1, "adding twice does not duplicate the link");
 });
 
 test("view: free time opens a study-slot chooser with durations and a buffer", async () => {

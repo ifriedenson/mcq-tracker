@@ -4951,7 +4951,7 @@ __defs["calendar-notes"] = function (module, exports, require) {
  * calendar create a duplicate.
  */
 const { TFile, TFolder } = require("obsidian");
-const { ensureFolder } = require("./util");
+const { ensureFolder, str } = require("./util");
 const { noteContent, noteFileName, noteVariables, resolveSubjectFolder } = require("./calendar-model");
 
 /** Every folder path in the vault, from loaded files (works without a vault-wide scan). */
@@ -5046,7 +5046,39 @@ async function openOrCreateClassNote(app, settings, event, dateKeyValue, index, 
   return { path, created: true, file };
 }
 
+/** Adds a wikilink to a saved resource under a managed `## AP resources` section once. */
+async function addResourceLink(app, file, entry) {
+  if (!file || !entry || !str(entry.path).trim()) return { added: false };
+  const target = str(entry.path).replace(/\.md$/i, "");
+  if (!target) return { added: false };
+  const text = await app.vault.read(file);
+  if (text.includes(`[[${target}`)) return { added: false, text };
+  const label = target.split("/").pop() || "Resource";
+  const line = `- [[${target}|${label}]]`;
+  const lines = text.split("\n");
+  const heading = lines.findIndex((value) => /^##\s+AP resources\s*$/i.test(value));
+  let next;
+  if (heading >= 0) {
+    let end = lines.length;
+    for (let i = heading + 1; i < lines.length; i++) {
+      if (/^##\s+/.test(lines[i])) {
+        end = i;
+        break;
+      }
+    }
+    let insertAt = end;
+    while (insertAt > heading + 1 && !lines[insertAt - 1].trim()) insertAt--;
+    lines.splice(insertAt, 0, line);
+    next = lines.join("\n");
+  } else {
+    next = `${text.replace(/\s*$/, "")}\n\n## AP resources\n\n${line}\n`;
+  }
+  await app.vault.modify(file, next);
+  return { added: true, text: next };
+}
+
 module.exports = {
+  addResourceLink,
   vaultFolders,
   notePathFor,
   noteKey,
@@ -6039,6 +6071,13 @@ class CalendarView extends ItemView {
       const open = resourceRow.createEl("button", { cls: "uni-exam-resource-open", text: "Open" });
       open.setAttr("aria-label", `Open the resource attached to ${name}`);
       open.addEventListener("click", () => this.openResource(resource));
+      const add = resourceRow.createEl("button", { cls: "uni-exam-resource-open", text: "Add to note" });
+      add.setAttr("aria-label", `Add the attached resource to the class note for ${name}`);
+      add.addEventListener("click", () =>
+        this.plugin
+          .addApResourceToClassNote(exam, exam.dateKey, resource)
+          .catch((err) => new Notice(str(err && err.message) || "Could not add the resource to the note.")),
+      );
     }
   }
 
@@ -22265,7 +22304,7 @@ const { buildStudyPlan } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { parseDashboardBlock, renderDashboardEmbed } = require("./analytics-embed");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
-const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
+const { addResourceLink, classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
 const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
@@ -24342,6 +24381,19 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (result.created) new Notice(`Created ${result.path}.`);
     return result;
+  }
+
+  /** Adds a saved resource to the exam's class note, creating the note when needed. */
+  async addApResourceToClassNote(event, key, entry) {
+    if (!event || !entry) return null;
+    const result = await this.openClassNote(event, key || event.dateKey);
+    const added = await addResourceLink(this.app, result.file, entry);
+    new Notice(
+      added.added
+        ? `Added ${entry.path.split("/").pop()?.replace(/\.md$/i, "") || "resource"} to ${result.path}.`
+        : "That resource is already linked in the class note.",
+    );
+    return { ...result, added: added.added };
   }
 
   /** The next exam's plan, scoped to matching question and card courses. */

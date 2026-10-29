@@ -35,7 +35,7 @@ const { buildStudyPlan } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { parseDashboardBlock, renderDashboardEmbed } = require("./analytics-embed");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
-const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
+const { addResourceLink, classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
 const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
@@ -2112,6 +2112,19 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (result.created) new Notice(`Created ${result.path}.`);
     return result;
+  }
+
+  /** Adds a saved resource to the exam's class note, creating the note when needed. */
+  async addApResourceToClassNote(event, key, entry) {
+    if (!event || !entry) return null;
+    const result = await this.openClassNote(event, key || event.dateKey);
+    const added = await addResourceLink(this.app, result.file, entry);
+    new Notice(
+      added.added
+        ? `Added ${entry.path.split("/").pop()?.replace(/\.md$/i, "") || "resource"} to ${result.path}.`
+        : "That resource is already linked in the class note.",
+    );
+    return { ...result, added: added.added };
   }
 
   /** The next exam's plan, scoped to matching question and card courses. */
