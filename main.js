@@ -37310,6 +37310,221 @@ module.exports = {
 };
 };
 
+/* ---- src/reference-sheets.js ---- */
+__defs["reference-sheets"] = function (module, exports, require) {
+/*
+ * One-screen reference sheets for the Reference module: the unit circle, trig
+ * identities, the standard RNA codon table and a small Punnett square. The
+ * data is written for this plugin from standard mathematics and biology; no
+ * third-party dataset is bundled. Everything is local and works offline.
+ */
+const { str } = require("./util");
+
+/* --------------------------------------------------------------- unit circle */
+
+const UNIT_CIRCLE = [
+  { degrees: 0, radians: "0", sin: "0", cos: "1", tan: "0" },
+  { degrees: 30, radians: "π/6", sin: "1/2", cos: "√3/2", tan: "√3/3" },
+  { degrees: 45, radians: "π/4", sin: "√2/2", cos: "√2/2", tan: "1" },
+  { degrees: 60, radians: "π/3", sin: "√3/2", cos: "1/2", tan: "√3" },
+  { degrees: 90, radians: "π/2", sin: "1", cos: "0", tan: "undefined" },
+  { degrees: 120, radians: "2π/3", sin: "√3/2", cos: "−1/2", tan: "−√3" },
+  { degrees: 135, radians: "3π/4", sin: "√2/2", cos: "−√2/2", tan: "−1" },
+  { degrees: 150, radians: "5π/6", sin: "1/2", cos: "−√3/2", tan: "−√3/3" },
+  { degrees: 180, radians: "π", sin: "0", cos: "−1", tan: "0" },
+  { degrees: 210, radians: "7π/6", sin: "−1/2", cos: "−√3/2", tan: "√3/3" },
+  { degrees: 225, radians: "5π/4", sin: "−√2/2", cos: "−√2/2", tan: "1" },
+  { degrees: 240, radians: "4π/3", sin: "−√3/2", cos: "−1/2", tan: "√3" },
+  { degrees: 270, radians: "3π/2", sin: "−1", cos: "0", tan: "undefined" },
+  { degrees: 300, radians: "5π/3", sin: "−√3/2", cos: "1/2", tan: "−√3" },
+  { degrees: 315, radians: "7π/4", sin: "−√2/2", cos: "√2/2", tan: "−1" },
+  { degrees: 330, radians: "11π/6", sin: "−1/2", cos: "√3/2", tan: "−√3/3" },
+];
+
+/* ----------------------------------------------------------- trig identities */
+
+const TRIG_IDENTITIES = [
+  {
+    group: "Pythagorean",
+    items: [
+      { name: "Pythagorean identity", formula: "sin²θ + cos²θ = 1" },
+      { name: "With tangent", formula: "1 + tan²θ = sec²θ" },
+      { name: "With cotangent", formula: "1 + cot²θ = csc²θ" },
+    ],
+  },
+  {
+    group: "Reciprocal and quotient",
+    items: [
+      { name: "Secant", formula: "sec θ = 1 / cos θ" },
+      { name: "Cosecant", formula: "csc θ = 1 / sin θ" },
+      { name: "Cotangent", formula: "cot θ = 1 / tan θ = cos θ / sin θ" },
+      { name: "Tangent", formula: "tan θ = sin θ / cos θ" },
+    ],
+  },
+  {
+    group: "Sum and difference",
+    items: [
+      { name: "Sine of a sum", formula: "sin(α + β) = sin α cos β + cos α sin β" },
+      { name: "Sine of a difference", formula: "sin(α − β) = sin α cos β − cos α sin β" },
+      { name: "Cosine of a sum", formula: "cos(α + β) = cos α cos β − sin α sin β" },
+      { name: "Cosine of a difference", formula: "cos(α − β) = cos α cos β + sin α sin β" },
+      { name: "Tangent of a sum", formula: "tan(α + β) = (tan α + tan β) / (1 − tan α tan β)" },
+    ],
+  },
+  {
+    group: "Double angle",
+    items: [
+      { name: "Sine", formula: "sin 2θ = 2 sin θ cos θ" },
+      { name: "Cosine", formula: "cos 2θ = cos²θ − sin²θ = 1 − 2 sin²θ = 2 cos²θ − 1" },
+      { name: "Tangent", formula: "tan 2θ = 2 tan θ / (1 − tan²θ)" },
+    ],
+  },
+  {
+    group: "Triangle rules",
+    items: [
+      { name: "Law of sines", formula: "a / sin A = b / sin B = c / sin C" },
+      { name: "Law of cosines", formula: "c² = a² + b² − 2ab cos C" },
+      { name: "Area of a triangle", formula: "Area = ½ ab sin C" },
+    ],
+  },
+];
+
+/* ------------------------------------------------------------ codon table */
+
+const AMINO_ACID_NAMES = {
+  A: "Alanine",
+  R: "Arginine",
+  N: "Asparagine",
+  D: "Aspartic acid",
+  C: "Cysteine",
+  Q: "Glutamine",
+  E: "Glutamic acid",
+  G: "Glycine",
+  H: "Histidine",
+  I: "Isoleucine",
+  L: "Leucine",
+  K: "Lysine",
+  M: "Methionine",
+  F: "Phenylalanine",
+  P: "Proline",
+  S: "Serine",
+  T: "Threonine",
+  W: "Tryptophan",
+  Y: "Tyrosine",
+  V: "Valine",
+  "*": "Stop",
+};
+
+const CODON_CODES = {
+  UUU: "F", UUC: "F", UUA: "L", UUG: "L",
+  UCU: "S", UCC: "S", UCA: "S", UCG: "S",
+  UAU: "Y", UAC: "Y", UAA: "*", UAG: "*",
+  UGU: "C", UGC: "C", UGA: "*", UGG: "W",
+  CUU: "L", CUC: "L", CUA: "L", CUG: "L",
+  CCU: "P", CCC: "P", CCA: "P", CCG: "P",
+  CAU: "H", CAC: "H", CAA: "Q", CAG: "Q",
+  CGU: "R", CGC: "R", CGA: "R", CGG: "R",
+  AUU: "I", AUC: "I", AUA: "I", AUG: "M",
+  ACU: "T", ACC: "T", ACA: "T", ACG: "T",
+  AAU: "N", AAC: "N", AAA: "K", AAG: "K",
+  AGU: "S", AGC: "S", AGA: "R", AGG: "R",
+  GUU: "V", GUC: "V", GUA: "V", GUG: "V",
+  GCU: "A", GCC: "A", GCA: "A", GCG: "A",
+  GAU: "D", GAC: "D", GAA: "E", GAG: "E",
+  GGU: "G", GGC: "G", GGA: "G", GGG: "G",
+};
+
+const CODON_BASES = ["U", "C", "A", "G"];
+
+const CODON_TABLE = CODON_BASES.flatMap((first) =>
+  CODON_BASES.flatMap((second) =>
+    CODON_BASES.map((third) => {
+      const codon = `${first}${second}${third}`;
+      const code = CODON_CODES[codon];
+      return { codon, code, aminoAcid: AMINO_ACID_NAMES[code], stop: code === "*" };
+    })
+  )
+);
+
+/** Accepts RNA or DNA spelling, any case. */
+function codonEntry(codon) {
+  const text = str(codon).trim().toUpperCase().replace(/T/g, "U");
+  return CODON_TABLE.find((row) => row.codon === text) || null;
+}
+
+function searchCodons(query) {
+  const q = str(query).trim().toLowerCase();
+  if (!q) return CODON_TABLE.slice();
+  return CODON_TABLE.filter(
+    (row) =>
+      row.codon.toLowerCase().includes(q) ||
+      row.aminoAcid.toLowerCase().includes(q) ||
+      row.code.toLowerCase() === q
+  );
+}
+
+function aminoAcidNames() {
+  const names = [];
+  for (const row of CODON_TABLE) if (!names.includes(row.aminoAcid)) names.push(row.aminoAcid);
+  return names;
+}
+
+/* ------------------------------------------------------------ Punnett square */
+
+const PUNNETT_GENOTYPES = ["AA", "Aa", "aa"];
+
+function normalizeGenotype(value) {
+  const text = str(value).trim();
+  if (PUNNETT_GENOTYPES.includes(text)) return text;
+  // AA, Aa and aa differ only by case, so count the dominant alleles instead
+  // of comparing lowercased strings.
+  const letters = text.replace(/[^Aa]/g, "");
+  if (letters.length !== 2) return "Aa";
+  const dominant = (letters.match(/A/g) || []).length;
+  return dominant === 2 ? "AA" : dominant === 1 ? "Aa" : "aa";
+}
+
+/**
+ * A two-parent, one-gene cross. Cells are ordered by the first parent's
+ * alleles, so Aa × Aa reads AA, Aa, Aa, aa.
+ */
+function punnettSquare(parentA, parentB) {
+  const a = normalizeGenotype(parentA);
+  const b = normalizeGenotype(parentB);
+  const cells = [];
+  for (const left of [a[0], a[1]]) {
+    for (const right of [b[0], b[1]]) {
+      cells.push([left, right].sort().join(""));
+    }
+  }
+  const counts = { AA: 0, Aa: 0, aa: 0 };
+  for (const cell of cells) counts[cell] = (counts[cell] || 0) + 1;
+  const total = cells.length;
+  return {
+    parentA: a,
+    parentB: b,
+    cells,
+    counts,
+    total,
+    ratio: `${counts.AA}:${counts.Aa}:${counts.aa}`,
+    dominant: counts.AA + counts.Aa,
+    recessive: counts.aa,
+  };
+}
+
+module.exports = {
+  UNIT_CIRCLE,
+  TRIG_IDENTITIES,
+  CODON_TABLE,
+  PUNNETT_GENOTYPES,
+  aminoAcidNames,
+  codonEntry,
+  searchCodons,
+  normalizeGenotype,
+  punnettSquare,
+};
+};
+
 /* ---- src/reference-view.js ---- */
 __defs["reference-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
@@ -37337,6 +37552,7 @@ const {
   resourcesForCourse,
 } = require("./ap-resources");
 const { apExamTrend } = require("./ap-exam-history");
+const { PUNNETT_GENOTYPES, TRIG_IDENTITIES, UNIT_CIRCLE, normalizeGenotype, punnettSquare, searchCodons } = require("./reference-sheets");
 
 /*
  * A local-only reference panel. It contains no network request or third-party
@@ -37387,6 +37603,11 @@ class ReferenceView extends ItemView {
     this.apResourceUnit = "";
     this.apResourceNotesEl = null;
     this.apResourceSaving = false;
+    this.sheet = "unit-circle";
+    this.codonQuery = "";
+    this.punnettA = "Aa";
+    this.punnettB = "Aa";
+    this.codonListEl = null;
   }
 
   getViewType() {
@@ -37425,7 +37646,7 @@ class ReferenceView extends ItemView {
     root.createEl("h2", { text: "Reference" });
     root.createDiv({
       cls: "qt-ref-intro",
-      text: "Bundled formulas, constants, unit conversions, a local calculator and an unofficial AP score estimator. Everything is local and works offline.",
+      text: "Bundled formulas, constants, unit conversions, one-screen reference sheets, a local calculator and an unofficial AP score estimator. Everything is local and works offline.",
     });
 
     const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-ref-tabs" });
@@ -37437,6 +37658,7 @@ class ReferenceView extends ItemView {
       ["graph", "Graph"],
       ["elements", "Periodic table"],
       ["constants", "Constants"],
+      ["sheets", "Sheets"],
       ["ap", "AP score"],
       ["resources", "AP resources"],
     ]) {
@@ -37454,6 +37676,7 @@ class ReferenceView extends ItemView {
     else if (this.tab === "graph") this.renderGraph(root);
     else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
+    else if (this.tab === "sheets") this.renderSheets(root);
     else if (this.tab === "ap") this.renderApScore(root);
     else if (this.tab === "resources") this.renderApResources(root);
     else this.renderFormulas(root);
@@ -38100,6 +38323,142 @@ class ReferenceView extends ItemView {
     } catch (err) {
       new Notice(err && err.message ? err.message : "Could not update the checked date.");
     }
+  }
+
+  /* ---- one-screen reference sheets */
+
+  renderSheets(root) {
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "One-screen references bundled with the plugin. Everything here is local and works offline; nothing is fetched.",
+    });
+    const sub = root.createDiv({ cls: "qt-row qt-small-row qt-ref-subjects" });
+    for (const [id, label] of [
+      ["unit-circle", "Unit circle"],
+      ["identities", "Trig identities"],
+      ["codons", "Codon table"],
+      ["punnett", "Punnett square"],
+    ]) {
+      const button = sub.createEl("button", { text: label, cls: "qt-ref-subject" });
+      if (this.sheet === id) button.addClass("mod-cta");
+      button.addEventListener("click", () => {
+        this.sheet = id;
+        this.render();
+      });
+    }
+    if (this.sheet === "identities") this.renderTrigIdentities(root);
+    else if (this.sheet === "codons") this.renderCodonTable(root);
+    else if (this.sheet === "punnett") this.renderPunnett(root);
+    else this.renderUnitCircle(root);
+  }
+
+  renderUnitCircle(root) {
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "sin is the y-coordinate, cos is the x-coordinate and tan is sin / cos. At 90 and 270 degrees the tangent is undefined.",
+    });
+    const wrap = root.createDiv({ cls: "qt-ref-table-wrap" });
+    const table = wrap.createEl("table", { cls: "qt-ref-table" });
+    const head = table.createEl("thead").createEl("tr");
+    for (const label of ["Degrees", "Radians", "sin θ", "cos θ", "tan θ"]) head.createEl("th", { text: label });
+    const body = table.createEl("tbody");
+    for (const row of UNIT_CIRCLE) {
+      const tr = body.createEl("tr");
+      for (const value of [String(row.degrees), row.radians, row.sin, row.cos, row.tan]) tr.createEl("td", { text: value });
+    }
+  }
+
+  renderTrigIdentities(root) {
+    for (const group of TRIG_IDENTITIES) {
+      root.createEl("h4", { text: group.group });
+      const list = root.createDiv({ cls: "qt-ref-identity-list" });
+      for (const item of group.items) {
+        const row = list.createDiv({ cls: "qt-ref-identity" });
+        row.createEl("strong", { text: item.name });
+        row.createEl("code", { cls: "qt-ref-equation", text: item.formula });
+      }
+    }
+  }
+
+  renderCodonTable(root) {
+    const search = root.createEl("input", {
+      cls: "qt-ref-search",
+      attr: { type: "search", placeholder: "Search a codon or amino acid (for example: AUG, methionine)" },
+    });
+    search.value = this.codonQuery;
+    search.addEventListener("input", () => {
+      this.codonQuery = search.value;
+      this.renderCodonList();
+    });
+    root.createDiv({ cls: "qt-ref-note", text: "The standard RNA genetic code. DNA codons use T; the lookup accepts either spelling." });
+    this.codonListEl = root.createDiv({ cls: "qt-ref-table-wrap" });
+    this.renderCodonList();
+  }
+
+  renderCodonList() {
+    const wrap = this.codonListEl;
+    if (!wrap) return;
+    wrap.empty();
+    const rows = searchCodons(this.codonQuery);
+    if (!rows.length) {
+      wrap.createDiv({ cls: "qt-hint", text: "No codons match that search." });
+      return;
+    }
+    const table = wrap.createEl("table", { cls: "qt-ref-table" });
+    const head = table.createEl("thead").createEl("tr");
+    for (const label of ["Codon", "Code", "Amino acid"]) head.createEl("th", { text: label });
+    const body = table.createEl("tbody");
+    for (const row of rows) {
+      const tr = body.createEl("tr");
+      tr.createEl("td", { text: row.codon });
+      tr.createEl("td", { text: row.code === "*" ? "Stop" : row.code });
+      tr.createEl("td", { text: row.aminoAcid });
+    }
+  }
+
+  renderPunnett(root) {
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "A one-gene cross. Each parent contributes one allele; the grid shows every equally likely offspring genotype.",
+    });
+    const controls = root.createDiv({ cls: "qt-row qt-ref-punnett-controls" });
+    const makeSelect = (label, value, onChange) => {
+      const field = controls.createEl("label", { cls: "qt-ref-punnett-field" });
+      field.createSpan({ text: label });
+      const select = field.createEl("select", { cls: "qt-ref-unit" });
+      for (const genotype of PUNNETT_GENOTYPES) select.createEl("option", { text: genotype, value: genotype });
+      select.value = value;
+      select.addEventListener("change", () => onChange(select.value));
+    };
+    makeSelect("Parent 1", this.punnettA, (value) => {
+      this.punnettA = normalizeGenotype(value);
+      this.render();
+    });
+    makeSelect("Parent 2", this.punnettB, (value) => {
+      this.punnettB = normalizeGenotype(value);
+      this.render();
+    });
+
+    const result = punnettSquare(this.punnettA, this.punnettB);
+    const wrap = root.createDiv({ cls: "qt-ref-table-wrap" });
+    const table = wrap.createEl("table", { cls: "qt-ref-table qt-ref-punnett" });
+    const head = table.createEl("thead").createEl("tr");
+    head.createEl("th", { text: `${result.parentA} x ${result.parentB}` });
+    for (const allele of [result.parentB[0], result.parentB[1]]) head.createEl("th", { text: allele });
+    const body = table.createEl("tbody");
+    for (let i = 0; i < 2; i++) {
+      const tr = body.createEl("tr");
+      tr.createEl("th", { text: result.parentA[i] });
+      for (let j = 0; j < 2; j++) tr.createEl("td", { text: result.cells[i * 2 + j] });
+    }
+    root.createDiv({
+      cls: "qt-ref-result",
+      text: `Genotypes ${result.counts.AA} AA : ${result.counts.Aa} Aa : ${result.counts.aa} aa (ratio ${result.ratio}).`,
+    });
+    root.createDiv({
+      cls: "qt-hint",
+      text: `${result.dominant} of ${result.total} offspring show the dominant trait and ${result.recessive} show the recessive trait.`,
+    });
   }
 
   renderApResources(root) {
@@ -43503,6 +43862,7 @@ const apScore = require("./ap-score");
 const apResources = require("./ap-resources");
 const apExamHistory = require("./ap-exam-history");
 const frq = require("./frq");
+const referenceSheets = require("./reference-sheets");
 const handwriting = require("./handwriting");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { StudyMatchModal } = require("./study-match-modal");
@@ -43637,6 +43997,7 @@ QuestionTrackerPlugin.__test = {
   apExamHistory,
   frq,
   handwriting,
+  referenceSheets,
   FrqGraderModal,
   NewFrqNoteModal,
   StudyMatchModal,

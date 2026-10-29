@@ -44,7 +44,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Focus timer and study log.** Start a 15, 25 or 45 minute session tied to a course, pause and resume it, and log the result. Manual study entry covers offline work. Today shows today's minutes against a configurable daily goal, the current streak, the last seven days and your top courses.
 - **First-run welcome guide.** A short three-step guide on first install: what the plugin does, a preset chooser that sets the real module switches, and buttons for import, practice, Today, cards, calendar and settings. It is shown once per device, never blocks startup, stores progress locally and can be reopened from the command palette or Settings, Global, About.
 - **Modules you can switch off.** Settings, Global has an on/off switch for each module (MCQ Tracker, Cards, Calendar and AI features) plus the plugin-wide options, so the parts you don't use stay out of the way.
-- **Reference (optional module, off by default).** A local formula sheet, constants list, unit converter, Basic/Scientific calculator, unofficial AP score estimator with saved practice-exam history, and link-only AP resource hub with saved resource notes in one view. It works offline, adds no data to your vault, and can be hidden automatically while a timed test is running. See [Reference](#reference-optional-module-off-by-default).
+- **Reference (optional module, off by default).** A local formula sheet, constants list, one-screen reference sheets (unit circle, trig identities, codon table and Punnett square), unit converter, Basic/Scientific calculator, unofficial AP score estimator with saved practice-exam history, and link-only AP resource hub with saved resource notes in one view. It works offline, adds no data to your vault, and can be hidden automatically while a timed test is running. See [Reference](#reference-optional-module-off-by-default).
 - **Calendar (optional module, off by default).** Import an `.ics` schedule from a file or a public feed, see classes and exams in a month grid, day timeline, live countdown and upcoming-exam countdowns, and create a note for a class in one click. Free periods can start a short Quick Practice session (see [Calendar](#calendar-optional-module-off-by-default)).
 - **Assignments and grades.** Keep assignments as ordinary notes with a course, type, due date, status and score. The gradebook shows weighted category grades, the score you need on the final, a credit-weighted GPA and the next tasks; Today adds a **Review N due items** task beside the nearest deadlines (see [Assignments, tasks and grades](#assignments-tasks-and-grades)).
 
@@ -341,7 +341,7 @@ When Today's **Next exam** is an AP course, it shows one saved resource for that
 
 ## Reference (optional module, off by default)
 
-Turn it on under **Settings, Global, Modules**, then open **Reference** from the ribbon or the command palette. The view has nine tabs:
+Turn it on under **Settings, Global, Modules**, then open **Reference** from the ribbon or the command palette. The view has ten tabs:
 
 - **Formulas** — searchable formulas for math, physics, chemistry and biology, with a subject filter.
 - **Structures** — paste a SMILES string to draw a molecular structure locally, with example molecules. A `smiles` code block in any note renders the same SVG. No structure service, network request or third-party dataset is used.
@@ -350,6 +350,7 @@ Turn it on under **Settings, Global, Modules**, then open **Reference** from the
 - **Graph** — plot `y = f(x)` with a restricted local expression parser. It supports `x`, `pi`, `e`, the usual trig and log functions, and `+ - * / ^`. It does not use `eval`, a calculator service or a Desmos key.
 - **Periodic table** — all 118 elements in a tap-to-open grid, with atomic number, the AP Chemistry 2020 mass where the table lists one, category, period and group.
 - **Constants** — common physical and chemical constants with units.
+- **Sheets** — one-screen references: a unit-circle table of 16 common angles, grouped trig identities, the standard RNA codon table with search (DNA spelling accepted), and a one-gene Punnett square with genotype counts.
 - **AP score** — an unofficial weighted score estimate for eight AP courses, with editable practice cutoffs and reverse planning. The separate free-response grader opens from the command palette.
 - **AP resources** — official AP Central, AP Students and AP Classroom links for each supported course, with saved notes and a next-exam recommendation on Today.
 

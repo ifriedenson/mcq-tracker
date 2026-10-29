@@ -24,6 +24,7 @@ const {
   resourcesForCourse,
 } = require("./ap-resources");
 const { apExamTrend } = require("./ap-exam-history");
+const { PUNNETT_GENOTYPES, TRIG_IDENTITIES, UNIT_CIRCLE, normalizeGenotype, punnettSquare, searchCodons } = require("./reference-sheets");
 
 /*
  * A local-only reference panel. It contains no network request or third-party
@@ -74,6 +75,11 @@ class ReferenceView extends ItemView {
     this.apResourceUnit = "";
     this.apResourceNotesEl = null;
     this.apResourceSaving = false;
+    this.sheet = "unit-circle";
+    this.codonQuery = "";
+    this.punnettA = "Aa";
+    this.punnettB = "Aa";
+    this.codonListEl = null;
   }
 
   getViewType() {
@@ -112,7 +118,7 @@ class ReferenceView extends ItemView {
     root.createEl("h2", { text: "Reference" });
     root.createDiv({
       cls: "qt-ref-intro",
-      text: "Bundled formulas, constants, unit conversions, a local calculator and an unofficial AP score estimator. Everything is local and works offline.",
+      text: "Bundled formulas, constants, unit conversions, one-screen reference sheets, a local calculator and an unofficial AP score estimator. Everything is local and works offline.",
     });
 
     const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-ref-tabs" });
@@ -124,6 +130,7 @@ class ReferenceView extends ItemView {
       ["graph", "Graph"],
       ["elements", "Periodic table"],
       ["constants", "Constants"],
+      ["sheets", "Sheets"],
       ["ap", "AP score"],
       ["resources", "AP resources"],
     ]) {
@@ -141,6 +148,7 @@ class ReferenceView extends ItemView {
     else if (this.tab === "graph") this.renderGraph(root);
     else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
+    else if (this.tab === "sheets") this.renderSheets(root);
     else if (this.tab === "ap") this.renderApScore(root);
     else if (this.tab === "resources") this.renderApResources(root);
     else this.renderFormulas(root);
@@ -787,6 +795,142 @@ class ReferenceView extends ItemView {
     } catch (err) {
       new Notice(err && err.message ? err.message : "Could not update the checked date.");
     }
+  }
+
+  /* ---- one-screen reference sheets */
+
+  renderSheets(root) {
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "One-screen references bundled with the plugin. Everything here is local and works offline; nothing is fetched.",
+    });
+    const sub = root.createDiv({ cls: "qt-row qt-small-row qt-ref-subjects" });
+    for (const [id, label] of [
+      ["unit-circle", "Unit circle"],
+      ["identities", "Trig identities"],
+      ["codons", "Codon table"],
+      ["punnett", "Punnett square"],
+    ]) {
+      const button = sub.createEl("button", { text: label, cls: "qt-ref-subject" });
+      if (this.sheet === id) button.addClass("mod-cta");
+      button.addEventListener("click", () => {
+        this.sheet = id;
+        this.render();
+      });
+    }
+    if (this.sheet === "identities") this.renderTrigIdentities(root);
+    else if (this.sheet === "codons") this.renderCodonTable(root);
+    else if (this.sheet === "punnett") this.renderPunnett(root);
+    else this.renderUnitCircle(root);
+  }
+
+  renderUnitCircle(root) {
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "sin is the y-coordinate, cos is the x-coordinate and tan is sin / cos. At 90 and 270 degrees the tangent is undefined.",
+    });
+    const wrap = root.createDiv({ cls: "qt-ref-table-wrap" });
+    const table = wrap.createEl("table", { cls: "qt-ref-table" });
+    const head = table.createEl("thead").createEl("tr");
+    for (const label of ["Degrees", "Radians", "sin θ", "cos θ", "tan θ"]) head.createEl("th", { text: label });
+    const body = table.createEl("tbody");
+    for (const row of UNIT_CIRCLE) {
+      const tr = body.createEl("tr");
+      for (const value of [String(row.degrees), row.radians, row.sin, row.cos, row.tan]) tr.createEl("td", { text: value });
+    }
+  }
+
+  renderTrigIdentities(root) {
+    for (const group of TRIG_IDENTITIES) {
+      root.createEl("h4", { text: group.group });
+      const list = root.createDiv({ cls: "qt-ref-identity-list" });
+      for (const item of group.items) {
+        const row = list.createDiv({ cls: "qt-ref-identity" });
+        row.createEl("strong", { text: item.name });
+        row.createEl("code", { cls: "qt-ref-equation", text: item.formula });
+      }
+    }
+  }
+
+  renderCodonTable(root) {
+    const search = root.createEl("input", {
+      cls: "qt-ref-search",
+      attr: { type: "search", placeholder: "Search a codon or amino acid (for example: AUG, methionine)" },
+    });
+    search.value = this.codonQuery;
+    search.addEventListener("input", () => {
+      this.codonQuery = search.value;
+      this.renderCodonList();
+    });
+    root.createDiv({ cls: "qt-ref-note", text: "The standard RNA genetic code. DNA codons use T; the lookup accepts either spelling." });
+    this.codonListEl = root.createDiv({ cls: "qt-ref-table-wrap" });
+    this.renderCodonList();
+  }
+
+  renderCodonList() {
+    const wrap = this.codonListEl;
+    if (!wrap) return;
+    wrap.empty();
+    const rows = searchCodons(this.codonQuery);
+    if (!rows.length) {
+      wrap.createDiv({ cls: "qt-hint", text: "No codons match that search." });
+      return;
+    }
+    const table = wrap.createEl("table", { cls: "qt-ref-table" });
+    const head = table.createEl("thead").createEl("tr");
+    for (const label of ["Codon", "Code", "Amino acid"]) head.createEl("th", { text: label });
+    const body = table.createEl("tbody");
+    for (const row of rows) {
+      const tr = body.createEl("tr");
+      tr.createEl("td", { text: row.codon });
+      tr.createEl("td", { text: row.code === "*" ? "Stop" : row.code });
+      tr.createEl("td", { text: row.aminoAcid });
+    }
+  }
+
+  renderPunnett(root) {
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "A one-gene cross. Each parent contributes one allele; the grid shows every equally likely offspring genotype.",
+    });
+    const controls = root.createDiv({ cls: "qt-row qt-ref-punnett-controls" });
+    const makeSelect = (label, value, onChange) => {
+      const field = controls.createEl("label", { cls: "qt-ref-punnett-field" });
+      field.createSpan({ text: label });
+      const select = field.createEl("select", { cls: "qt-ref-unit" });
+      for (const genotype of PUNNETT_GENOTYPES) select.createEl("option", { text: genotype, value: genotype });
+      select.value = value;
+      select.addEventListener("change", () => onChange(select.value));
+    };
+    makeSelect("Parent 1", this.punnettA, (value) => {
+      this.punnettA = normalizeGenotype(value);
+      this.render();
+    });
+    makeSelect("Parent 2", this.punnettB, (value) => {
+      this.punnettB = normalizeGenotype(value);
+      this.render();
+    });
+
+    const result = punnettSquare(this.punnettA, this.punnettB);
+    const wrap = root.createDiv({ cls: "qt-ref-table-wrap" });
+    const table = wrap.createEl("table", { cls: "qt-ref-table qt-ref-punnett" });
+    const head = table.createEl("thead").createEl("tr");
+    head.createEl("th", { text: `${result.parentA} x ${result.parentB}` });
+    for (const allele of [result.parentB[0], result.parentB[1]]) head.createEl("th", { text: allele });
+    const body = table.createEl("tbody");
+    for (let i = 0; i < 2; i++) {
+      const tr = body.createEl("tr");
+      tr.createEl("th", { text: result.parentA[i] });
+      for (let j = 0; j < 2; j++) tr.createEl("td", { text: result.cells[i * 2 + j] });
+    }
+    root.createDiv({
+      cls: "qt-ref-result",
+      text: `Genotypes ${result.counts.AA} AA : ${result.counts.Aa} Aa : ${result.counts.aa} aa (ratio ${result.ratio}).`,
+    });
+    root.createDiv({
+      cls: "qt-hint",
+      text: `${result.dominant} of ${result.total} offspring show the dominant trait and ${result.recessive} show the recessive trait.`,
+    });
   }
 
   renderApResources(root) {
