@@ -27,7 +27,7 @@ const { WelcomeModal } = require("./welcome-modal");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
-const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
+const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
 const { computedVerification } = require("./computed-verification");
 const { allowedWriteRoots, assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
@@ -255,6 +255,18 @@ class QuestionTrackerPlugin extends Plugin {
         const headings = (cache?.headings || []).map((h) => h.heading);
         if (!isTranscriptNote(fm, file.path, "", headings)) return false;
         if (!checking) this.openTranscriptPractice(file.path);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "generate-from-note",
+      name: "AI: generate practice from this note",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !/\.md$/i.test(file.path)) return false;
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+        if (isCardNote(fm) || (fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "")) return false;
+        if (!checking) this.openTranscriptPractice(file.path, { force: true });
         return true;
       },
     });
@@ -1908,17 +1920,17 @@ class QuestionTrackerPlugin extends Plugin {
     }).open();
   }
 
-  openTranscriptPractice(path) {
+  openTranscriptPractice(path, options) {
     if (this.moduleOff("mcq") && this.moduleOff("cards")) {
       new Notice("Turn on MCQ Tracker or Cards before generating practice.");
       return;
     }
     const target = path && path.path ? path.path : str(path).trim();
     if (!target) {
-      new Notice("Open a lecture note first.");
+      new Notice("Open a Markdown note first.");
       return;
     }
-    new TranscriptPracticeModal(this.app, this, { path: target }, () => this.refreshViews()).open();
+    new TranscriptPracticeModal(this.app, this, { ...(options || {}), path: target }, () => this.refreshViews()).open();
   }
 
   weakSpotChoices() {
@@ -2411,14 +2423,19 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const info = await this.inspectTranscript(path);
     if (!info.isTranscript && !opts.force) {
-      throw new Error("This note does not look like a lecture transcript. Add `transcript: true` or open it from the lecture-practice command to use it anyway.");
+      throw new Error("This note does not look like a lecture transcript. Add `transcript: true` or use Generate practice from this note.");
     }
     const kind = opts.kind === "questions" ? "questions" : "cards";
     if (kind === "questions" && this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
     if (kind === "cards" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
     const count = Math.min(30, Math.max(1, Math.round(Number(opts.count) || (kind === "questions" ? 5 : 8))));
     const course = str(opts.course).trim() || info.course || courseForFolder(this.settings, info.path) || "";
-    const base = { kind, sourcePath: info.path, title: info.title, course, items: [], errors: [], ai: false, model: "" };
+    const difficulty = ["easy", "medium", "hard"].includes(str(opts.difficulty).toLowerCase()) ? str(opts.difficulty).toLowerCase() : "mixed";
+    const coveredSubtopics = Array.isArray(info.fm && info.fm.generated_subtopics)
+      ? info.fm.generated_subtopics.map((v) => str(v).trim()).filter(Boolean).slice(-12)
+      : [];
+    const folder = str(opts.folder).trim() || str(this.settings.questionFolder).trim() || "Questions";
+    const base = { kind, sourcePath: info.path, title: info.title, course, folder, difficulty, coveredSubtopics, items: [], errors: [], ai: false, model: "" };
 
     if (kind === "cards" && opts.local) {
       const preview = await this.previewNoteCards(info.path, {
@@ -2434,17 +2451,20 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const prompt =
       kind === "questions"
-        ? buildTranscriptQuestionPrompt({ title: info.title, course, text: info.text, count })
-        : buildTranscriptCardPrompt({ title: info.title, course, text: info.text, count });
+        ? buildTranscriptQuestionPrompt({ title: info.title, course, text: info.text, count, difficulty, coveredSubtopics })
+        : buildTranscriptCardPrompt({ title: info.title, course, text: info.text, count, difficulty, coveredSubtopics });
     const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: kind === "questions" ? 4000 : 3000 });
     const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
-    const items = kind === "questions" ? parsed.questions : parsed.cards;
+    const items = kind === "questions"
+      ? parsed.questions.map((item) => ({ ...item, difficulty: item.difficulty || (difficulty === "mixed" ? "" : difficulty) }))
+      : parsed.cards;
     const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : null;
     return {
       ...base,
       ai: true,
       model: this.aiModelLabel("generation"),
       items: items.filter((item) => !(item.verification && item.verification.drop)),
+      subtopics: [...new Set(items.map((item) => str(item.subtopic).trim()).filter(Boolean))],
       verification,
     };
   }
@@ -2513,6 +2533,20 @@ class QuestionTrackerPlugin extends Plugin {
       }
     }
     if (paths.length) this.refreshViews();
+    const subtopics = Array.isArray(g.subtopics) ? g.subtopics.filter(Boolean) : [];
+    if (subtopics.length && g.sourcePath) {
+      const source = this.app.vault.getAbstractFileByPath(g.sourcePath);
+      if (source instanceof TFile) {
+        try {
+          await this.app.fileManager.processFrontMatter(source, (fm) => {
+            const prior = Array.isArray(fm.generated_subtopics) ? fm.generated_subtopics.map(String) : [];
+            fm.generated_subtopics = [...new Set([...prior, ...subtopics])].slice(-50);
+          });
+        } catch (e) {
+          // The generated notes are already safe; memory is best-effort.
+        }
+      }
+    }
     this.recordAiTranscriptWrite(g, beforePaths);
     return { created: paths.length, paths, errors };
   }
@@ -3869,6 +3903,21 @@ class QuestionTrackerPlugin extends Plugin {
     if (changed) this.refreshViews();
     new Notice(`Checked ${files.length} note${files.length === 1 ? "" : "s"}; repaired ${changed}.`);
     return { changed, scanned: files.length };
+  }
+
+  /** A deliberate "don't know": log it, keep accuracy/streak untouched, and schedule sooner. */
+  async recordSkip(file) {
+    const attemptId = newAttemptId(new Date());
+    let summary;
+    try {
+      await this.app.fileManager.processFrontMatter(file, (fm) => {
+        summary = applySkip(fm, new Date(), attemptId);
+      });
+    } catch (e) {
+      throw new Error(str(e && e.message) || "Could not log this skip.");
+    }
+    this.refreshViews();
+    return { ...summary, queued: false };
   }
 
   async recordAttempt(file, a) {

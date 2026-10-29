@@ -296,6 +296,22 @@ function applyAttempt(fm, a, intervals, options) {
   };
 }
 
+/** A deliberate "don't know" is not a wrong answer: keep counters, log the skip, and pull the next review forward. */
+function applySkip(fm, now, attemptId) {
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  const id = str(attemptId).trim();
+  const when = fmtDateTimeSec(at);
+  const row = `${when}|skipped|0||||${id}`;
+  fm.history = appendHistory(fm.history, row, id);
+  fm.skip_count = (Number(fm.skip_count) || 0) + 1;
+  fm.last_skipped = fmtDate(at);
+  const tomorrow = fmtDate(addDays(at, 1));
+  const current = str(fm.next_review).slice(0, 10);
+  if (!current || current > tomorrow) fm.next_review = tomorrow;
+  if (id) fm.last_attempt_id = id;
+  return { skipped: true, nextReview: str(fm.next_review), skippedCount: fm.skip_count, attemptId: id };
+}
+
 function setLastErrorType(fm, type) {
   fm.history = setAttemptErrorType(fm.history, "", type);
   fm.last_error_type = type;
@@ -330,6 +346,7 @@ module.exports = {
   replaceMyNotes,
   gradeAnswer,
   applyAttempt,
+  applySkip,
   setLastErrorType,
   setAttemptError,
   fillDefaults,

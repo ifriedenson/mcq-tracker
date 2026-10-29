@@ -112,3 +112,72 @@ test("reference: the view shows formulas, the converter and the off state", asyn
   view.render();
   assert.ok(constants.texts().includes("Avogadro constant"));
 });
+
+
+test("chemistry: AP equations and constants match the 2025 reference sheet", () => {
+  const actual = ref.FORMULAS.filter((f) => f.subject === "chemistry").map((f) => f.formula);
+  for (const equation of [
+    '1 hertz = 1 s^-1',
+    '1 atm = 760 mm Hg = 760 torr',
+    'K = °C + 273.15',
+    '1 volt = 1 joule/coulomb',
+    '1 ampere = 1 coulomb/second',
+    'E = hν',
+    'c = λν',
+    'F_coulombic ∝ q1 q2 / r^2',
+    'P1 V1 / T1 = P2 V2 / T2',
+    'P V = n R T',
+    'P_A = P_total X_A',
+    'P_total = P_A + P_B + P_C + ...',
+    'n = m / M',
+    'D = m / V',
+    'KE = (1/2) m v^2',
+    'M = n_solute / L_solution',
+    'A = εbc',
+    '[A]_t - [A]_0 = -k t',
+    'ln[A]_t - ln[A]_0 = -k t',
+    '1 / [A]_t - 1 / [A]_0 = k t',
+    't_1/2 = 0.693 / k',
+    'K_c = [C]^c [D]^d / ([A]^a [B]^b)',
+    'K_p = (P_C)^c (P_D)^d / ((P_A)^a (P_B)^b)',
+    'K_w = [H3O+][OH-] = 1.0 x 10^-14 at 25 °C',
+    'pK_w = 14 = pH + pOH at 25 °C',
+    'pH = -log[H3O+]',
+    'pOH = -log[OH-]',
+    'K_a = [H3O+][A-] / [HA]',
+    'K_b = [OH-][HB+] / [B]',
+    'pK_a = -log K_a; pK_b = -log K_b',
+    'K_w = K_a x K_b; pK_w = pK_a + pK_b',
+    'pH = pK_a + log([A-] / [HA])',
+    'q = m c ΔT',
+    'ΔH°_reaction = Σ ΔH°_f products - Σ ΔH°_f reactants',
+    'ΔS°_reaction = Σ S° products - Σ S° reactants',
+    'ΔG°_reaction = Σ ΔG°_f products - Σ ΔG°_f reactants',
+    'ΔG° = ΔH° - T ΔS°',
+    'ΔG° = -R T ln K',
+    'ΔG° = -n F E°',
+    'I = q / t',
+    'E_cell = E°_cell - (R T / n F) ln Q',
+  ]) {
+    assert.ok(actual.includes(equation), equation);
+  }
+
+  const constants = Object.fromEntries(ref.CONSTANTS.map((item) => [item.id, item]));
+  const expected = {
+    planck: ["6.626 x 10^-34", "J s"],
+    "speed-of-light": ["2.998 x 10^8", "m/s"],
+    avogadro: ["6.022 x 10^23", "1/mol"],
+    "gas-constant": ["8.314", "J/(mol K)"],
+    "gas-constant-atm": ["0.08206", "L atm/(mol K)"],
+    faraday: ["96,485", "C/mol e-"],
+    "molar-volume-stp": ["22.4", "L/mol"],
+    "water-ion-product": ["1.0 x 10^-14", "at 25 °C"],
+    "stp-temperature": ["273.15", "K"],
+    "stp-pressure": ["1.0", "atm"],
+  };
+  for (const [id, [value, unit]] of Object.entries(expected)) {
+    assert.equal(constants[id] && constants[id].value, value, id);
+    assert.equal(constants[id] && constants[id].unit, unit, id);
+  }
+  assert.ok(Math.abs(ref.convertUnit(1, "pressure", "atm", "mmhg") - 760) < 1e-9);
+});

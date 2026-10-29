@@ -1075,6 +1075,21 @@ class PracticeView extends ItemView {
     const fl = ctl.createDiv({ cls: "qt-foot-left" });
     const skip = fl.createEl("button", { text: "Skip (don't log)" });
     skip.addEventListener("click", () => this.next());
+    const dontKnow = fl.createEl("button", { text: "Don't know", cls: "qt-status-btn" });
+    dontKnow.setAttr("title", "Log that you don't know this; it is not a wrong answer, but the next review comes sooner.");
+    dontKnow.addEventListener("click", async () => {
+      if (this.busy) return;
+      this.busy = true;
+      try {
+        const summary = await p.recordSkip(q.file);
+        new Notice(summary.nextReview ? `Logged a skip. Next review ${summary.nextReview}.` : "Logged a skip.", 5000);
+        await this.next();
+      } catch (e) {
+        new Notice(str(e && e.message ? e.message : e) || "Could not log this skip.", 6000);
+      } finally {
+        this.busy = false;
+      }
+    });
     const known = fl.createEl("button", { text: `Known ${p.settings.knownDays || 14}d`, cls: "qt-status-btn" });
     known.setAttr("title", "Hide this question for a while, then return it as due.");
     known.addEventListener("click", () => this.setCurrentStudyStatus("known"));

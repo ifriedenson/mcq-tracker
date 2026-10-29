@@ -14,6 +14,8 @@ class TranscriptPracticeModal extends Modal {
     this.options = options || {};
     this.onDone = onDone || (() => {});
     this.path = str(this.options.path).trim();
+    this.force = this.options.force === true;
+    this.difficulty = "mixed";
     this.info = null;
     this.error = "";
     this.generated = null;
@@ -45,7 +47,7 @@ class TranscriptPracticeModal extends Modal {
   render() {
     const el = this.contentEl;
     el.empty();
-    el.createEl("h3", { text: "Practice from this lecture" });
+    el.createEl("h3", { text: this.force ? "Generate practice from this note" : "Practice from this lecture" });
     if (this.error) {
       el.createEl("p", { cls: "qt-error", text: this.error });
       if (!this.info) {
@@ -57,7 +59,7 @@ class TranscriptPracticeModal extends Modal {
       el.createEl("p", { cls: "qt-hint", text: "Reading the note..." });
       return;
     }
-    if (!this.info.isTranscript) {
+    if (!this.info.isTranscript && !this.force) {
       el.createEl("p", {
         cls: "qt-hint",
         text: "This note has no transcript markers. You can still use it if it holds a lecture recording or a long talk.",
@@ -102,6 +104,17 @@ class TranscriptPracticeModal extends Modal {
     count.value = String(this.count);
     count.addEventListener("change", () => (this.count = Number(count.value)));
 
+    if (this.mode === "questions") {
+      const diffWrap = el.createDiv({ cls: "qt-field" });
+      diffWrap.createEl("label", { text: "Difficulty" });
+      const diff = diffWrap.createEl("select", { cls: "qt-select" });
+      for (const [value, label] of [["mixed", "Mixed"], ["easy", "Easy"], ["medium", "Medium"], ["hard", "Hard"]]) {
+        diff.createEl("option", { value, text: label });
+      }
+      diff.value = this.difficulty;
+      diff.addEventListener("change", () => (this.difficulty = diff.value));
+    }
+
     if (this.mode === "cards" || this.mode === "local") {
       const deckWrap = el.createDiv({ cls: "qt-field" });
       deckWrap.createEl("label", { text: "Deck" });
@@ -125,6 +138,10 @@ class TranscriptPracticeModal extends Modal {
     });
     el.createDiv({
       cls: "qt-hint",
+      text: `Source: ${this.info.path}. Destination: ${this.mode === "questions" ? this.folder : `deck ${this.deck}`}.`,
+    });
+    el.createDiv({
+      cls: "qt-hint",
       text: "Generated items keep a source_note link back to this note. AI-written answers are marked as AI-generated.",
     });
 
@@ -142,6 +159,10 @@ class TranscriptPracticeModal extends Modal {
   renderPreview(el) {
     const g = this.generated;
     el.createEl("h4", { text: `Ready to write ${g.items.length} ${g.kind === "questions" ? "question" : "card"}${g.items.length === 1 ? "" : "s"}` });
+    el.createDiv({
+      cls: "qt-hint",
+      text: `Source: ${g.title || g.sourcePath}. Destination: ${g.kind === "questions" ? g.folder || this.folder : `deck ${this.deck}`}${g.kind === "questions" ? ` · difficulty ${g.difficulty || "mixed"}` : ""}.`,
+    });
     if (g.errors && g.errors.length) el.createEl("p", { cls: "qt-error", text: g.errors[0] });
     const list = el.createEl("ul", { cls: "qt-extract-preview" });
     for (const item of g.items.slice(0, 20)) {
@@ -171,7 +192,10 @@ class TranscriptPracticeModal extends Modal {
         kind,
         count: this.count,
         local: this.mode === "local",
-        force: !this.info.isTranscript,
+        force: this.force || !this.info.isTranscript,
+        difficulty: this.difficulty,
+        folder: this.folder,
+        deck: this.deck,
       });
       this.generated = result;
       if (!result.items.length) {

@@ -1,8 +1,8 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.53.0 phase adds visual text boxes on top of 1.52.0's pen/highlighter overlay; form filling and a fuller PDF editor remain open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — 1.88.0 shipped bulk calculation preview with selective apply and 1.87.0 added agent-edit review; earlier import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.53.0 phase adds visual text boxes on top of 1.52.0's pen/highlighter overlay; form filling and a fuller PDF editor remain open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
-**Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), and the October 28 idea backlog (§5.22). Roadmap re-ordered (§7).
+**Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), the October 28 idea backlog (§5.22), and the Adaptive Practice parity audit (§5.23, Oct 29, 2026). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
 
 > **How to read the license notes.** License information below comes from each plugin's community page, README, or a stats/index site as seen during research on Oct 27, 2026. Items marked **Verify** were not confirmed. Before copying any code, open the repo's `LICENSE` file and `package.json` yourself. MIT allows reuse if you keep the copyright and license notice. This is not legal advice.
@@ -11,9 +11,9 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Completed: import preview, report and duplicate handling (§5.22.3).** Imports now stage a readable preview before writing, and duplicate keys no longer have only one outcome.
+**Completed in 1.24.0: import preview, report and duplicate handling (§5.22.3).** Imports now stage a readable preview before writing, and duplicate keys no longer have only one outcome.
 
-**What shipped**
+**What shipped in 1.24.0**
 
 - **Preview:** every importer reports ready, duplicate and issue counts before writing; CSV keeps its column-preview flow and other sources use the same report.
 - **Duplicate control:** Skip duplicates, Update the existing card, or Create a copy with a distinct import key.
@@ -22,9 +22,31 @@
 - **Coverage:** preview duplicate detection, history preservation on update, and distinct keys on copy.
 - **No third-party code was added.** The plugin remains MIT.
 
-**Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0, visual text boxes in 1.53.0 and highlight regions in 1.54.0; form filling and a fuller PDF editor remain future work. The unofficial AP score calculator shipped in 1.56.0, the link-only AP resource hub in 1.57.0 and saved practice-exam history with trends in 1.58.0, AP resource notes with course/unit tags and stale-link checks in 1.59.0, a next-exam resource recommendation on Today in 1.60.0, and exam-specific resource attachments in 1.61.0, the calendar exam panel showing attached resources with a detach action on Today in 1.62.0, study-block resource attachment in 1.63.0, the class-note resource link in 1.64.0, binding management in Reference in 1.65.0, a read-only study context for the AI assistant in 1.66.0, an undo journal for AI-generated practice notes in 1.67.0, undo for AI course-note summaries in 1.68.0, weak-spot practice generation in 1.69.0, and blind answer verification in 1.70.0. The AP FRQ grader remains behind the owner pilot gate (four-course pilot, human-scored fixtures and rights review). A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated.
+**Earlier shipped:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0, visual text boxes in 1.53.0 and highlight regions in 1.54.0; form filling and a fuller PDF editor remain future work. The unofficial AP score calculator shipped in 1.56.0, the link-only AP resource hub in 1.57.0 and saved practice-exam history with trends in 1.58.0, AP resource notes with course/unit tags and stale-link checks in 1.59.0, a next-exam resource recommendation on Today in 1.60.0, and exam-specific resource attachments in 1.61.0, the calendar exam panel showing attached resources with a detach action on Today in 1.62.0, study-block resource attachment in 1.63.0, the class-note resource link in 1.64.0, binding management in Reference in 1.65.0, a read-only study context for the AI assistant in 1.66.0, an undo journal for AI-generated practice notes in 1.67.0, undo for AI course-note summaries in 1.68.0, weak-spot practice generation in 1.69.0, and blind answer verification in 1.70.0. The AP FRQ grader remains behind the owner pilot gate (four-course pilot, human-scored fixtures and rights review). A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated.
 
 **Recently completed (1.78.0):** timed tests now capture confidence per answer and report calibration and average time per answered question alongside the section and skill breakdowns. Previous release 1.77.0 added sections, separate timers and saved blueprints; 1.76.1 published the versioned property schema; 1.76.0 added merge-safe history.
+
+**Latest completed (1.88.0):** bulk calculation verification now computes every check first and previews each property change before writing; 1.87.0 added agent-edit diff review with per-file approval and undo.
+
+**Plan audit (Oct 29, 2026).** This is the evidence-based status pass over the whole document. A checked item is present in the code and covered by a test or a documented manual gate; a partial item has a working slice but a named gap.
+
+| Area | Actual status | Evidence / remaining gap |
+|---|---|---|
+| Reference panel (formula sheet, constants, units, calculator, graph, periodic table) | **Done** | Data audited against the 2025 AP Chemistry sheet and 2020 AP table; 560-test suite passes. |
+| Generate practice from any note (P1 §5.23) | **Done in this working tree** | `AI: generate practice from this note`; preview shows source, destination, count and difficulty; blind check and AI undo reused. |
+| Per-note subtopic memory (P2 §5.23) | **Done in this working tree** | AI output writes `subtopic` per question and `generated_subtopics` on the source note; later prompts avoid covered subtopics. |
+| Logged **Don't know** signal (P2 §5.23) | **Partial** | Practice button writes a `skipped` history row, `skip_count` and an earlier next review without touching accuracy or streak. Insights breakdown is still open. |
+| Adaptive session sizing (P2 §5.23) | **Open** | Quick Practice still uses fixed 2/5/10 minutes or 5/10/20 questions. |
+| Optional local daily reminder (P3 §5.23) | **Open** | No reminder or status-bar nudge yet. |
+| AP FRQ grader | **Partial — specification only** | `docs/ap-frq-grader-spec.md` exists; implementation is correctly blocked by the four-course pilot and rights gate. |
+| Math/chemistry rendering audit | **Partial** | Renderer and golden tests are done; a real-Obsidian visual pass is still needed. Automated tests cannot substitute for that. |
+| Mobile audit | **Blocked** | No real iOS/Android device is available in this environment. |
+| TTS / audio commute | **Deferred** | Provider and mobile validation still missing. |
+| SMILES integration | **Open** | Formula sheets now ship; structure rendering does not. |
+| PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; form fields do not. |
+| README, screenshots, sample vault, license confirmation | **Partial** | NOTICES and docs exist; screenshots and a refreshed sample vault are still open. |
+
+**Adaptive Practice parity audit (Oct 29, 2026):** compared with Adaptive Practice 0.7.2. MCQ Tracker already has the broader study system; the meaningful gaps are generation from any note, per-note subtopic memory, a logged skip/fluency signal, adaptive session size and an optional local reminder. The Whetstone engine (AGPL) and the persistent vault index are non-goals. Full matrix and acceptance criteria: §5.23.
 
 ---
 
@@ -1117,6 +1139,38 @@ These are in addition to §11.
 9. **Import polish** — GIFT, Moodle XML, QTI, Mochi Markdown and CrowdAnki are implemented, with preview/report/update-copy; per-row media-failure detail remains.
 10. **Standalone mobile prep** — keep the core portable now; start the app only when the trigger is met.
 
+### 5.23 Adaptive Practice parity audit — **S–M** (Oct 29, 2026)
+
+Compared with Adaptive Practice 0.7.2 ([README](https://github.com/anupchavan/adaptive-practice), [LICENSE](https://github.com/anupchavan/adaptive-practice/blob/main/LICENSE)). The plugin repository is MIT. Its generation path runs through the separate Whetstone engine, which is AGPL, so no engine code may be copied. This audit is about behavior and UX, not code reuse.
+
+**Verdict:** do not port Adaptive Practice wholesale. MCQ Tracker already has the broader study system and most of the core loop. Adaptive Practice is narrower but more automatic in five places: generate from any note, per-note subtopic memory, logged-skip fluency, adaptive session size, and a daily nudge. Add those in original MIT code, behind the existing optional-AI, preview, write-guard and undo rules.
+
+| Adaptive Practice behavior | MCQ Tracker today | Decision |
+|---|---|---|
+| Generate from notes and PDFs | PDF/document import, lecture transcripts and weak-spot generation work; there is no **generate from any note** action. | **P1.** Add **Generate practice from this note** for any Markdown note and selected PDF text. Preview count, difficulty, destination and source before writing. |
+| Deep read with outline, excerpts and attachments | Current-note and selection context are capped; lecture and document import read their own source. | **P1, same builder.** Send a bounded outline plus excerpts and headings, never the whole vault. Keep the untrusted-data boundary. |
+| Lightweight vault skeleton index | Enumeration uses Obsidian's metadata cache; there is no persistent AI index. | **Do not adopt.** Vault enumeration stays for queues and filters. Revisit only if the large-vault test (§8.4) shows a real bottleneck. |
+| Daily skill-aware topic queue | Today, due queue, daily quiz, adaptive difficulty and FSRS exist; there is no per-note skill score. | **P3.** Optional per-skill readiness later. Per-question FSRS is already more granular than per-note skill. |
+| Fluency from correctness, skips and time | Time and confidence feed FSRS; **Skip (don't log)** deliberately records nothing. | **P2.** Add an optional **Don't know** action that records `result: skipped` and shortens the interval; keep the existing no-log Skip. Show both in Insights. |
+| `sourceSubtopics` memory | Skill, domain and unit drive weak spots; generated questions do not remember which subtopics were covered. | **P2.** Record subtopic labels for generated batches and feed them into later prompts. Do not add a database. |
+| Session size adapts to recent recall | Quick Practice is fixed at 2/5/10 minutes or 5/10/20 questions; the daily count is fixed. | **P2.** Optional warm-up/stretch sizing from recent accuracy and fluency, with hard caps and a visible override. |
+| Daily practice reminder | Today and the daily quiz are available, but there is no reminder or status-bar nudge. | **P3.** Optional local reminder; no OS notification, no network request. |
+| Provider breadth | Direct AI has Anthropic, OpenAI, OpenRouter, Gemini, Ollama and custom endpoints. OpenCode adds DeepSeek and Groq. | **P3.** Add Qwen as an OpenAI-compatible preset if its endpoint is confirmed. Keep Claude Code/Codex subscription routes out of the core; document OpenCode or a manual server. |
+| Native PDF attachments | PDFs are read locally, figures captured, scans OCR'd through vision. | **Do not adopt.** Native PDF upload adds provider limits and sends more data; local extraction plus OCR is the better privacy path. |
+| Dashboard, streak, one-click daily practice | Yes, and broader: Insights, heatmap, calibration, retention, study log, calendar. | **Done.** No parity work. |
+| Blind verification | Blind AI check plus local numeric/calculation checks. | **Done.** No parity work. |
+| Manual topic picker | Filters exceed Adaptive Practice, but there is no low-skill or PDF-only picker. | **Not separate work.** Add a low-skill filter only if users ask. |
+
+**Priority and acceptance**
+
+1. **P1 — Generate from any note.** This is the largest missing workflow. Acceptance: the preview shows count, difficulty, destination and source; nothing is written until confirmation; every AI-written MCQ runs the blind check; the batch is undoable; a normal note with no `transcript` property works.
+2. **P2 — Fluency and session shape.** Acceptance: a logged skip is visible, is not counted as correct, and shortens the next interval; the existing no-log Skip is unchanged; warm-up/stretch stays within configured limits and can be overridden; subtopic labels survive an edit and are not sent when AI is off.
+3. **P3 — Reminder and provider polish.** Acceptance: the reminder is off by default, local, once per day, and dismissible; Qwen is only listed after a real request test; no new binaries or subscription CLIs are added.
+
+**Not parity goals:** the Whetstone engine, Elo-style generation calibration, native PDF attachment, and the persistent vault index. The engine is AGPL and would reintroduce process-execution warnings. The other three are implementation choices, not missing study features.
+
+**Positioning line:** Adaptive Practice is generation-first and automatic; MCQ Tracker is bank-first and deeper on exams, cards, calendar, analytics and safety. Do not claim feature parity; claim the specific gaps above and their status.
+
 ---
 
 ## 6. Property schema (draft)
@@ -1159,15 +1213,15 @@ Names are proposals; keep existing ones unchanged.
 - [x] Item-type model (§4.2)
 - [x] Append-only `history` with unique attempt ids, duplicate-safe retries, a merge helper and phone/desktop conflict tests (§5.19) — shipped in 1.76.0; the repair command also rebuilds counters and streak, while scheduling is left unchanged
 - [x] Test suite, CI, and quality gates for agent-written code (§8.5)
-- [ ] Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests and chemistry fallback shipped in 1.80.0; the visual Obsidian check remains
-- [ ] Mobile audit on real iOS and Android devices (§5.19)
-- [ ] Confirm licenses of anything to be reused (§9)
-- [ ] README, screenshots, and sample vault refresh (§10b)
+- [~] **Partial** Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests and chemistry fallback shipped in 1.80.0; the visual Obsidian check remains
+- [~] **Blocked** Mobile audit on real iOS and Android devices (§5.19) — no real device available here
+- [~] **Partial** Confirm licenses of anything to be reused (§9) — NOTICES and MIT-only guardrails exist; each future candidate still needs a repo-level check
+- [~] **Partial** README, screenshots, and sample vault refresh (§10b) — README and docs exist; screenshots and sample vault remain
 
 ### Phase 1: Quick Practice and smarter scheduling
 
 - [x] Quick Practice entry and Today screen (§5.19)
-- [x] FSRS scheduler option + fluency signals; migration from existing `history` (§5.1)
+- [x] FSRS scheduler option + time/confidence fluency signals; migration from existing `history` (§5.1) — a logged skip signal remains (§5.23)
 - [x] Adaptive difficulty pick mode (§5.2)
 - [x] Offline-tolerant sessions
 
@@ -1187,13 +1241,13 @@ Names are proposals; keep existing ones unchanged.
 - [x] Self-grade fallback when AI grading is off or the queue is discarded, recorded as `graded_by: self` (§5.17)
 - [x] Unified due queue model and Today/command list across cards, vocab and MCQs — interleaved mixed-review sessions shipped in 1.55.0
 - [x] Pending-grade visibility in Today and the Cards list, with per-card Review actions and a Grade now retry control (§5.17)
-- [ ] Optional TTS/audio — deferred; provider choice, mobile support and an audio-only commute mode still need validation. Exam-aware scheduling caps have landed (§4.3); see §5.22.4.
+- [~] **Deferred** Optional TTS/audio — provider choice, mobile support and an audio-only commute mode still need validation. Exam-aware scheduling caps have landed (§4.3); see §5.22.4.
 
 ### Phase 2b: AP exam tools (research next; highly wanted)
 
 These are **research and specification items**, not implementation work. The AP FRQ grader is the owner's requested next idea after card import; the score calculator and resource hub are its natural companions.
 
-- [ ] **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, and score history (§5.20)
+- [~] **Spec complete, implementation gated** **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, and score history (§5.20)
 - [x] **AP score calculator** — four 2027 profiles, weighted section and part inputs, editable practice cutoffs, incomplete estimates, a likely band and a reverse "what do I need?" calculation (§5.20) — shipped in 1.56.0
 - [x] **Saved AP practice-exam history** — save a complete result as an ordinary note, list attempts newest first, show the average and change from the previous attempt (§5.20.2) — shipped in 1.58.0; FRQ score history remains
 - [x] **Saved AP practice-exam history** — save a complete result as an ordinary note, list attempts newest first, show the average and change from the previous attempt (§5.20.2) — shipped in 1.58.0; FRQ score history remains
@@ -1206,7 +1260,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] **Resource link in the exam class note** — add the attached resource as a wikilink under a managed `## AP resources` heading, creating the note when needed and skipping duplicates (§5.20.3) — shipped in 1.64.0
 - [x] **Binding management in Reference** — label exam and study-block bindings on saved resource notes and detach either one without touching the other (§5.20.3) — shipped in 1.65.0
 - [x] **Research specification** — supported-course recommendation, rubric and score-profile schemas, evaluation plan, copyright/permissions questions, data model, UX flows, and acceptance tests ([spec](docs/ap-frq-grader-spec.md), §5.20)
-- [ ] **Pilot gate** — approve the four-course pilot, build the human-scored fixture set, complete the rights review, and approve the go/no-go thresholds before implementing the FRQ grader (the link-only resource hub did not require this gate)
+- [~] **Open** **Pilot gate** — approve the four-course pilot, build the human-scored fixture set, complete the rights review, and approve the go/no-go thresholds before implementing the FRQ grader (the link-only resource hub did not require this gate)
 
 ### Phase 3: Calendar and courses (priority)
 
@@ -1234,19 +1288,24 @@ These are **research and specification items**, not implementation work. The AP 
   - [x] Bulk calculation verification preview with selective apply and conflict detection (§5.16.5) — shipped in 1.88.0
 - [ ] AI question and card generation in plugin formats (§5.3)
   - [x] Preview-first weak-spot generation for questions and cards, with no note text sent and undo through the AI write journal (§5.3) — shipped in 1.69.0
+  - [x] **Generate practice from any note or selected PDF** with a preview of count, difficulty and destination; reuse the write guard, undo journal and blind verification (§5.3, §5.23) — shipped in this working tree
+  - [x] Per-note subtopic coverage memory for generated questions (§5.3, §5.23) — shipped in this working tree
 - [x] Blind verification pass for generated and imported answers (§5.4) — shipped in 1.70.0: an independent call solves each AI-written multiple-choice answer without the key, mismatches are flagged or dropped, and `verified`/`verified_by`/`verified_on` plus a visible banner are written.
-- [ ] Weak-spot-targeted generation
-- [ ] Agent mode via OpenCode (desktop) and allow-listed tools for BYOK
+- [x] Weak-spot-targeted generation (§5.3) — shipped in 1.69.0
+- [~] **Open** Adaptive session sizing for Quick Practice and the daily quiz (§5.2, §5.23) — P2 parity gap
+- [~] **Partial** Logged "don't know" skip signal for fluency and Insights (§5.1, §5.23) — practice logging and earlier review shipped; Insights breakdown remains
+- [~] **Open** Optional in-app daily reminder or status-bar nudge (§5.23) — P3 parity gap
+- [~] **Partial** Agent mode via OpenCode (desktop) and allow-listed tools for BYOK — OpenCode agent and edit review exist; BYOK tool allow-list remains
 
 ### Phase 5: FRQ and STEM
 
-- [ ] FRQ format, rubric grading, override, per-criterion feedback (§5.5; AP-specific research in §5.20)
+- [~] **Partial — spec only** FRQ format, rubric grading, override, per-criterion feedback (§5.5; AP-specific research in §5.20)
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
 - [x] Imported PDF figures and normal Obsidian embeds display in practice, timed tests and reviews (§5.16.7) — shipped in 1.84.0
 - [x] Local Basic/Scientific calculator in Reference, with a timed-test guard (§5.16.8) — shipped in 1.85.0
-- [ ] Math, chemistry, and physics: SMILES integration and formula sheets (§5.16)
+- [~] **Partial** Math, chemistry, and physics: formula sheets ship; SMILES integration remains (§5.16)
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
 ### Phase 6: Plans, time, and dashboard
@@ -1279,8 +1338,8 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Optional AnkiConnect push to a running Anki desktop, with duplicate reporting (§5.15) — shipped in 1.40.0
 - [x] Optional `.apkg` import through a local ZIP/SQLite reader, with scheduling metadata (§5.15) — shipped in 1.50.0
 - [x] Bidirectional AnkiConnect sync with note-ID mapping, content hashes and conflict handling (§5.15) — shipped in 1.51.0
-- [ ] Pronunciation feedback for language learners (optional)
-- [ ] Handwritten-work photo grading (optional, vision models)
+- [~] **Open (optional)** Pronunciation feedback for language learners
+- [~] **Open (optional)** Handwritten-work photo grading
 
 **Unscheduled backlog.** The October 28 ideas in §5.22 are intentionally not assigned to a phase. Promote them individually after the owner ranks them; §5.22.9 is an advisory order, not a commitment.
 
@@ -1734,6 +1793,8 @@ Your plugin is already in the official community directory with 42 downloads. Th
 
     Treat every release note as a mini-marketing moment: clearly articulate what new superpower you just added to the plugin.
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
+
+> **Status note:** this is an earlier duplicate of the plan. The audit table and §7 above are canonical; stale checkboxes here are retained only as history.
 
 **Status:** Execution started: Quick Practice foundation
 **Prepared:** October 27, 2026
@@ -2596,15 +2657,15 @@ Names are proposals; keep existing ones unchanged.
 - [x] Item-type model (§4.2)
 - [x] Append-only `history` with unique attempt ids, duplicate-safe retries, a merge helper and phone/desktop conflict tests (§5.19) — shipped in 1.76.0; the repair command also rebuilds counters and streak, while scheduling is left unchanged
 - [x] Test suite, CI, and quality gates for agent-written code (§8.5)
-- [ ] Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests and chemistry fallback shipped in 1.80.0; the visual Obsidian check remains
-- [ ] Mobile audit on real iOS and Android devices (§5.19)
-- [ ] Confirm licenses of anything to be reused (§9)
-- [ ] README, screenshots, and sample vault refresh (§10b)
+- [~] **Partial** Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests and chemistry fallback shipped in 1.80.0; the visual Obsidian check remains
+- [~] **Blocked** Mobile audit on real iOS and Android devices (§5.19) — no real device available here
+- [~] **Partial** Confirm licenses of anything to be reused (§9) — NOTICES and MIT-only guardrails exist; each future candidate still needs a repo-level check
+- [~] **Partial** README, screenshots, and sample vault refresh (§10b) — README and docs exist; screenshots and sample vault remain
 
 ### Phase 1: Quick Practice and smarter scheduling
 
 - [x] Quick Practice entry and Today screen (§5.19)
-- [x] FSRS scheduler option + fluency signals; migration from existing `history` (§5.1)
+- [x] FSRS scheduler option + time/confidence fluency signals; migration from existing `history` (§5.1) — a logged skip signal remains (§5.23)
 - [x] Adaptive difficulty pick mode (§5.2)
 - [x] Offline-tolerant sessions
 
@@ -2616,7 +2677,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] AI grader with strictness settings, override, and grade-later queue
 - [x] Unified due queue model and Today/command list across cards, vocab and MCQs — interleaved mixed-review sessions shipped in 1.55.0
 - [x] Pending-grade visibility in Today and the Cards list, with per-card Review actions and a Grade now retry control (§5.17)
-- [ ] Optional TTS/audio — deferred; provider choice, mobile support and an audio-only commute mode still need validation. Exam-aware scheduling caps have landed (§4.3); see §5.22.4.
+- [~] **Deferred** Optional TTS/audio — provider choice, mobile support and an audio-only commute mode still need validation. Exam-aware scheduling caps have landed (§4.3); see §5.22.4.
 - [x] **AP exam tools research** — FRQ grader, AP score calculator, and AP resource hub (§5.20); [spec](docs/ap-frq-grader-spec.md) complete.
 - [x] **AP score calculator** — four 2027 profiles, editable cutoffs and reverse planning in Reference (§5.20) — shipped in 1.56.0; saved practice-exam history remains
 
@@ -2642,7 +2703,7 @@ Names are proposals; keep existing ones unchanged.
   - [x] Preview-first weak-spot generation for questions and cards, with no note text sent and undo through the AI write journal (§5.3) — shipped in 1.69.0
 - [ ] Blind verification pass for generated and imported answers (§5.4)
 - [ ] Weak-spot-targeted generation
-- [ ] Agent mode via OpenCode (desktop) and allow-listed tools for BYOK
+- [~] **Partial** Agent mode via OpenCode (desktop) and allow-listed tools for BYOK — OpenCode agent and edit review exist; BYOK tool allow-list remains
 
 ### Phase 5: FRQ and STEM
 
@@ -2652,7 +2713,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
 - [x] Imported PDF figures and normal Obsidian embeds display in practice, timed tests and reviews (§5.16.7) — shipped in 1.84.0
 - [x] Local Basic/Scientific calculator in Reference, with a timed-test guard (§5.16.8) — shipped in 1.85.0
-- [ ] Math, chemistry, and physics: SMILES integration and formula sheets (§5.16)
+- [~] **Partial** Math, chemistry, and physics: formula sheets ship; SMILES integration remains (§5.16)
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
 ### Phase 6: Plans, time, and dashboard
@@ -2676,8 +2737,8 @@ Names are proposals; keep existing ones unchanged.
 - [x] Documented property schema and Dataview examples in [docs/property-schema.md](docs/property-schema.md) (§5.15) — shipped in 1.39.0
 - [x] Optional AnkiConnect push to a running Anki desktop, with duplicate reporting (§5.15) — shipped in 1.40.0
 - [x] Optional `.apkg` import and bidirectional AnkiConnect sync (§5.15) — shipped in 1.50.0 and 1.51.0
-- [ ] Pronunciation feedback for language learners (optional)
-- [ ] Handwritten-work photo grading (optional, vision models)
+- [~] **Open (optional)** Pronunciation feedback for language learners
+- [~] **Open (optional)** Handwritten-work photo grading
 - [ ] Long-term standalone mobile product discovery (§10c); do not split the
       confirmed Obsidian plugin before validating demand and maintenance cost
 

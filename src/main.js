@@ -12,7 +12,7 @@ const { QuestionTrackerPlugin } = require("./plugin");
 const { API_SYSTEM, buildReportMarkdown, cacheIssues, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
 const { fmtDate, fmtDateTime } = require("./util");
 const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
-const { answerFromSection, applyAttempt, extractRationale, fillDefaults, findAnswerKey, gradeAnswer, inferMode, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
+const { answerFromSection, applyAttempt, applySkip, extractRationale, fillDefaults, findAnswerKey, gradeAnswer, inferMode, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const numericGrading = require("./numeric-grading");
 const parameterized = require("./parameterized");
 const fsrs = require("./fsrs");
@@ -187,6 +187,7 @@ QuestionTrackerPlugin.__test = {
   numericGrading,
   parameterized,
   applyAttempt,
+  applySkip,
   fsrs,
   setLastErrorType,
   fillDefaults,

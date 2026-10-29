@@ -120,9 +120,14 @@ SOFTWARE.
 The Reference module's formula list, constants and unit factors in `src/reference-data.js`, the
 element facts in `src/reference-elements.js` and the small expression parser in
 `src/reference-graph.js` are written for this plugin. No third-party formula-sheet PDF,
-periodic-table dataset, calculator library or Desmos code is bundled. The formulas, constants
-and element facts use standard definitions; course and exam formula sheets can differ in
-rounding or notation.
+periodic-table dataset, calculator library or Desmos code is bundled.
+
+The chemistry equations and constants match the College Board **AP Chemistry Equations and
+Constants (2025)**. Periodic-table masses and blanks match the College Board **AP Chemistry
+Periodic Table of the Elements (2020)**. Only factual equations, constants and element data are
+included; no AP PDF pages, questions, rubrics or other AP material are bundled. AP is a
+trademark of the College Board; this plugin is not affiliated with or endorsed by the College
+Board.
 
 ## Math and chemistry fallback
 

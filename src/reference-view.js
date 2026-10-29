@@ -353,6 +353,10 @@ class ReferenceView extends ItemView {
       this.elementQuery = search.value;
       this.renderElementGrid();
     });
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "Atomic masses and blanks follow the AP Chemistry Periodic Table of the Elements (2020).",
+    });
     this.periodicGridEl = root.createDiv({ cls: "qt-ref-periodic", attr: { role: "grid", "aria-label": "Periodic table" } });
     this.periodicDetailEl = root.createDiv({ cls: "qt-ref-element-detail" });
     this.renderElementGrid();
@@ -396,8 +400,13 @@ class ReferenceView extends ItemView {
       return;
     }
     detail.createEl("h3", { text: `${element.symbol} - ${element.name}` });
-    detail.createDiv({ cls: "qt-ref-note", text: `Atomic number ${element.z} - mass ${element.mass} - ${categoryLabel(element.category)}` });
-    detail.createDiv({ cls: "qt-ref-note", text: `Period ${element.period}, group ${element.group}, ${element.block}-block.` });
+    const mass = element.mass ? `mass ${element.mass}` : "mass not listed on the AP table";
+    detail.createDiv({ cls: "qt-ref-note", text: `Atomic number ${element.z} - ${mass} - ${categoryLabel(element.category)}` });
+    const placement =
+      element.block === "f"
+        ? `Period ${element.period}, ${categoryLabel(element.category)}, f-block.`
+        : `Period ${element.period}, group ${element.group}, ${element.block}-block.`;
+    detail.createDiv({ cls: "qt-ref-note", text: placement });
   }
 
   renderFormulas(root) {
@@ -418,6 +427,13 @@ class ReferenceView extends ItemView {
       button.addEventListener("click", () => {
         this.subject = subject.id;
         this.render();
+      });
+    }
+
+    if (this.subject === "chemistry") {
+      root.createDiv({
+        cls: "qt-ref-note",
+        text: "Chemistry equations and constants follow the AP Chemistry Equations and Constants (2025).",
       });
     }
 
