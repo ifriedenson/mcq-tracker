@@ -48,6 +48,7 @@ const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
 const courseNotes = require("./course-notes");
+const paperScanner = require("./paper-scanner");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
 const { loadQuestionData } = require("./view-helpers");
 const offline = require("./offline");
@@ -213,6 +214,7 @@ QuestionTrackerPlugin.__test = {
   FindQuestionModal,
   PdfImportModal,
   courseNotes,
+  paperScanner,
   documents,
   QUICK_START_URL,
   aiReady,

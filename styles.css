@@ -2077,6 +2077,45 @@
   width: min(760px, 94vw);
 }
 
+.qt-scan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+  max-height: 42vh;
+  overflow-y: auto;
+}
+
+.qt-scan-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.qt-scan-thumb {
+  width: 64px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: var(--radius-s);
+  flex: 0 0 auto;
+}
+
+.qt-scan-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.qt-scan-name {
+  display: block;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .qt-imp-list {
   max-height: 46vh;
   overflow-y: auto;
