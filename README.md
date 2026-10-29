@@ -97,6 +97,8 @@ Run the command **Add missing tracking properties to all question notes** to add
 1. Open the practice view from the ribbon (graduation cap icon) or with the command **Open practice view**.
 2. Pick a preset or set filters. The **Folder** filter lists every folder that holds questions; picking a folder also includes its sub folders. Tap several values to allow any of them. Tap **+ Add another set (OR)** to combine groups, for example "Unit 3 or 4 of a history course" OR "SAT, Reading and Writing, Inferences".
 3. Choose how to pick questions and press **Start**. Or press **Timed test** or **Weak spots & errors** on the same screen.
+
+   To study one note only, right-click a question in the file explorer and choose **Practice this note only** (or run the command with that note open). A banner on the practice screen names the note; **Practice all notes** clears the limit.
 4. Choose an answer, say how sure you are, and **Submit**.
 5. On the result screen you can review the question, show or hide the explanation, tag why you missed it, write notes, flag the question, open the note, or ask the AI. Press **Next question** to continue. **Known** and **Exclude** are beside the answer controls and stay available after you answer.
 
@@ -137,6 +139,7 @@ Every practice and card review screen has **Known** and **Exclude** buttons besi
 - Add missing tracking properties to all question notes
 - Practice a folder...
 - Practice the folder of this note
+- Practice this note only
 - Start a timed test
 - Quick Practice
 - Open study cards
@@ -144,6 +147,7 @@ Every practice and card review screen has **Known** and **Exclude** buttons besi
 - Retry saving offline practice results
 - Open cards
 - Create a flashcard or vocabulary card
+- Cards: extract cards from this note
 - Cards: tag cards with their folder's course
 - Cards: grade pending typed answers
 - Cards: import existing decks
@@ -185,6 +189,7 @@ The class-detail parsing, the `.ics` parser and the calendar presentation are ad
 Turn on **Cards** under Settings, Global, Modules. Cards are first-class notes, not a separate database: each one has its own `history`, `next_review` and—if you use FSRS—`srs` state, so the same scheduler handles questions and cards. The module is off by default and touches nothing until you create or review a card.
 
 - **Create a card** from the Cards view, the command palette, or Today. Choose a flashcard, reversed card, cloze card, or vocabulary item, and pick a deck. A deck can have a folder and a course; cards in that folder inherit the course. New cards go under **New card folder** (default `Cards`) in a subfolder named after the deck, unless the deck specifies its own folder.
+- **Extract cards from a note.** Right-click a lecture or source note and choose **Extract cards from this note** (or run the command with it open). The preview reads question/answer headings, `Term: definition` and `Term — definition` lines, “X means Y” sentences, two-column Term/Definition tables, `==highlights==` and `{{c1::cloze}}` marks without an AI key. Nothing is written until you review the pairs. The note gets `flashcards: true` after a successful extraction; set `flashcards: false` to stop extraction for that note.
 - **Review** by revealing the answer and rating **Again**, **Hard**, **Good**, or **Easy** (keys 1–4; Space or Enter flips when using Flip mode). The rating maps directly to the simple ladder or FSRS. Reviews use the same offline outbox as question attempts, so a temporary vault or sync lock does not lose a rating.
 - **Type or speak an answer.** Set **Answer mode** under Settings, Cards, Review to **Type** or **Speak**. Type grades the answer locally against the stored answer, ignores case, accents, articles and punctuation at standard strictness, accepts small typos, numbers and `accepted_variants`, and shows the missing key words. **Speak** uses the same text box with your device's dictation or microphone key; no audio leaves the device. The suggested rating is Good/Hard/Again, and choosing another rating records an override. A card's `answer_mode` or `grading_strictness` property, or its deck's setting, overrides the global default.
 - **Optional AI second opinion.** **AI fallback for typed answers** under Settings, Cards, Review sends only an inconclusive answer to your configured provider, with the card front, the stored answer, your answer and the strictness. A valid reply is mapped to Good/Hard/Again and keeps `graded_by: ai`, the confidence and the feedback in the note. If the request fails, the attempt waits in a device-local queue instead of being counted wrong; pending grades appear in **Today** and at the top of the **Cards** list, with a **Review** action beside each card and a **Grade now** button; the **Cards: grade pending typed answers** command retries them too. The plugin also retries when Obsidian starts. Rating the card yourself records `graded_by: self` and removes it from the queue. The learner's answer is treated as untrusted data, and the grader has no tools or access to other notes.

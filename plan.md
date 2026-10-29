@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — generic CSV/TSV import shipped in 1.16.0; next unblocked backlog item is rule-based card extraction (§5.22.4). AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — rule-based card extraction, per-note opt-in and practice-this-note-only shipped in 1.17.0; next unblocked backlog items are the remaining §5.22.4 study-flow ideas. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), and the October 28 idea backlog (§5.22). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,19 +11,19 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Completed: generic CSV/TSV import (§5.22.3).** Any spreadsheet export with a header row can now become cards without a per-app importer. The dialog detects the delimiter and common columns, lets the learner remap or ignore any column, previews the first rows, and remembers the mapping for the same headers. Headerless files use the first two columns; a row missing its front or back is reported and skipped. Cards carry `import_source`, `import_format`, `imported_on`, `import_batch` and `import_key`, so a re-import skips duplicates and every card stays traceable to its source.
+**Completed: rule-based card extraction, per-note opt-in and practice-this-note-only (§5.22.4).** Lecture notes can now become cards without an AI key, and a single question note can be practised on its own.
 
 **What shipped**
 
-- **Generic CSV / TSV / text tables** with comma, tab, semicolon or pipe delimiters, quoted fields and UTF-8 BOM handling.
-- **Column mapping** for front, back, deck, course, tags, notes and card type, with a header toggle and saved mapping presets keyed by header layout.
-- **Dry-run preview** with ready/skipped counts and the first rows before writing anything.
-- **Source metadata** and duplicate-safe re-imports; existing Quizlet, Anki, Kahoot, Blooket and Gimkit importers are unchanged.
-- Coverage includes delimiter/header detection, explicit and saved mappings, headerless files, skipped rows, source properties and duplicate re-imports.
+- **Rule-based extraction** from question/answer or front/back headings, definition lines, “X means Y” sentences, two-column tables, highlights and existing cloze marks. Code fences, frontmatter and duplicate pairs are ignored.
+- **Preview before writing** with deck and course fields, ready/skipped counts and the first pairs shown. Cards use the normal card note format, scheduler and due queue.
+- **Per-note opt-in:** `flashcards: true` marks a note for extraction, `flashcards: false` blocks it, and an unset note is stamped true only after a successful manual extraction.
+- **Practice this note only:** command and file-menu action, plus a practice-screen banner with **Open note** and **Practice all notes**.
+- Coverage includes extraction rules, duplicate removal, blocked notes, opt-in stamping, note-scoped filtering and the banner.
 
-**Next:** The next unblocked backlog item is rule-based card extraction, per-note opt-in and practice-this-note-only (§5.22.4), followed by the remaining import formats in §5.22.3. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred.
+**Next:** The remaining §5.22.4 items are daily quiz plus streak, exam question ranges, tutor role presets, image occlusion and audio-only commute mode. The rest of the §5.22.3 import formats and the full import report are also queued. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred.
 
-**Recently completed (1.16.0):** Generic CSV/TSV import with column mapping and saved presets. Previous release 1.15.0 added Quizlet-style study cards; 1.14.0 added Known/Exclude item controls.
+**Recently completed (1.17.0):** Rule-based card extraction, the `flashcards` opt-in and practice-this-note-only. Previous release 1.16.0 added generic CSV/TSV import.
 
 ---
 
@@ -968,7 +968,9 @@ The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced R
 
 **Acceptance criteria:** a generic CSV with a header imports by mapped columns and reports skipped rows; a same-length, same-prefix file edit is detected before re-import; re-importing the same deck does not duplicate by default; every imported item carries source properties and enters the normal due queue; a failed row or media file is reported without blocking the batch.
 
-#### 5.22.4 Smaller study-flow ideas
+#### 5.22.4 Smaller study-flow ideas — **partly implemented in 1.17.0**
+
+**Implemented in 1.17.0:** rule-based extraction from headings, definitions, sentences, two-column tables, highlights and cloze marks; the `flashcards: true|false` per-note opt-in with preview; and **Practice this note only**. Daily quiz plus streak, exam question ranges, tutor role presets, image occlusion and audio-only commute mode remain queued.
 
 - **Rule-based card extraction (no AI).** Build Q/A pairs from headings, "X means…" sentences, colon and bullet definitions, two-column tables, highlights and existing cloze marks. AI can improve or expand the result, but the rule-based path must work with AI off. *(Source: FlashCard plugin.)*
 - **Per-note auto-card opt in/out.** A `flashcards: true|false` property so a lecture note is never scraped into cards by surprise. Pair it with a preview before writing.

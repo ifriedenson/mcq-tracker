@@ -65,6 +65,7 @@ const DEFAULT_SETTINGS = {
   filters: {},
   moreSets: [], // extra filter sets, OR'd with `filters`
   mode: "smart",
+  practicePath: "", // when set, practice is limited to this note (Practice this note only)
   studySkin: "off", // "off" | "flip" | "choice": an extra way to review the same MCQ notes
   activePreset: "",
   folderFilterStyle: "auto", // "auto" (search box when there are many folders) | "buttons" | "search"

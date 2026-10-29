@@ -429,6 +429,22 @@ class PracticeView extends ItemView {
       return;
     }
 
+    const only = str(st.practicePath).trim();
+    if (only) {
+      const bar = root.createDiv({ cls: "qt-only-note" });
+      bar.createSpan({ text: `Practising only ${only.split("/").pop().replace(/\.md$/i, "")}` });
+      const open = bar.createEl("button", { text: "Open note", cls: "qt-link" });
+      open.addEventListener("click", () => {
+        const file = p.app.vault.getAbstractFileByPath(only);
+        if (file) p.app.workspace.getLeaf("tab").openFile(file);
+      });
+      bar.createEl("button", { text: "Practice all notes", cls: "qt-link" }).addEventListener("click", async () => {
+        st.practicePath = "";
+        await p.save();
+        this.render();
+      });
+    }
+
     // presets
     const prow = root.createDiv({ cls: "qt-row" });
     const psel = prow.createEl("select", { cls: "qt-select qt-grow" });

@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { load, obsidian, TFolder } = require("./helpers/load");
+const { load, obsidian, TFile, TFolder } = require("./helpers/load");
 const { makeApp } = require("./helpers/fake");
 const { Plugin: QT } = load();
 
@@ -22,7 +22,7 @@ test("the plugin starts and registers its views, commands and folder events", as
   const { app, plugin } = await start();
   assert.deepEqual(Object.keys(plugin.views).sort(), ["question-tracker-calendar", "question-tracker-cards", "question-tracker-insights", "question-tracker-test", "question-tracker-today", "question-tracker-view"]);
   const ids = plugin.commands.map((c) => c.id);
-  for (const id of ["practice-folder", "practice-current-folder", "timed-test", "weak-spots", "error-log", "find-question", "rename-source-id", "open-practice-view", "open-today", "import-pdf", "open-calendar", "open-cards", "new-card", "tag-card-courses", "import-cards"]) {
+  for (const id of ["practice-folder", "practice-current-folder", "practice-note", "timed-test", "weak-spots", "error-log", "find-question", "rename-source-id", "open-practice-view", "open-today", "import-pdf", "open-calendar", "open-cards", "new-card", "cards-extract-note", "tag-card-courses", "import-cards"]) {
     assert.ok(ids.includes(id), `missing command ${id}`);
   }
   assert.ok(app.handlers["ws:file-menu"], "file explorer menu");
@@ -75,6 +75,33 @@ test("right-clicking a folder that holds questions adds 'Practice this folder'",
   const before = items.length;
   app.handlers["ws:file-menu"](menu, empty);
   assert.equal(items.length, before);
+});
+
+test("right-clicking a question note adds Practice this note only and Extract cards", async () => {
+  const { app, plugin } = await start();
+  plugin.settings.cards.enabled = true;
+  const items = [];
+  const menu = {
+    addItem: (cb) => {
+      const item = { setTitle: (t) => ((item.title = t), item), setIcon: () => item, onClick: (fn) => ((item.fn = fn), item) };
+      cb(item);
+      items.push(item);
+    },
+  };
+  const file = new TFile();
+  file.path = "Questions/sat/Q1.md";
+  file.basename = "Q1";
+  file.fm = { question_id: "Q1" };
+  app.handlers["ws:file-menu"](menu, file);
+  assert.deepEqual(items.map((item) => item.title), ["Practice this note only", "Extract cards from this note"]);
+  let practised = "";
+  let extracted = "";
+  plugin.practiceNote = async (path) => (practised = path);
+  plugin.openCardExtract = (path) => (extracted = path);
+  await items[0].fn();
+  await items[1].fn();
+  assert.equal(practised, "Questions/sat/Q1.md");
+  assert.equal(extracted, "Questions/sat/Q1.md");
 });
 
 test("practiceWith sets the filters, switches the mode and starts a question", async () => {

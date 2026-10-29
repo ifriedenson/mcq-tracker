@@ -32,6 +32,16 @@ function makeView(Cls, plugin, app, dom) {
   return v;
 }
 
+test("practice view: shows and clears the practice-this-note-only banner", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.settings.practicePath = "Questions/sat/Q1.md";
+  const v = makeView(T.PracticeView, plugin, app, dom);
+  v.render();
+  assert.ok(dom.texts().includes("Practising only Q1"));
+  await dom.click("Practice all notes");
+  assert.equal(plugin.settings.practicePath, "");
+});
+
 test("weak spots: shows the weakest skill and starts practising it", async () => {
   const { app, plugin, dom } = await setup();
   const v = makeView(T.InsightsView, plugin, app, dom);

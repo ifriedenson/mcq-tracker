@@ -3782,6 +3782,387 @@ module.exports = {
 };
 };
 
+/* ---- src/cards-extract.js ---- */
+__defs["cards-extract"] = function (module, exports, require) {
+/*
+ * Rule-based card extraction. This is deliberately small and deterministic:
+ * it reads Markdown headings, definition lines, two-column tables and cloze
+ * marks, and never calls an AI provider. The caller previews the result before
+ * writing anything.
+ */
+const { hashString, localDate, str } = require("./util");
+
+const FRONT_HEADS = ["question", "front", "prompt", "term", "word"];
+const BACK_HEADS = ["answer", "back", "definition", "meaning", "explanation", "solution"];
+const FRONT_COLS = ["front", "term", "word", "question", "prompt"];
+const BACK_COLS = ["back", "definition", "meaning", "answer", "explanation"];
+const SKIP_LABELS = new Set([
+  "answer",
+  "chapter",
+  "date",
+  "example",
+  "figure",
+  "homework",
+  "important",
+  "lesson",
+  "link",
+  "note",
+  "page",
+  "reading",
+  "section",
+  "source",
+  "table",
+  "time",
+  "tip",
+  "unit",
+  "url",
+  "warning",
+]);
+const CLOZE_RE = /==([^=\n]+)==|\{\{c?(\d*)::([\s\S]*?)\}\}/g;
+const MAX_FRONT = 240;
+const MAX_BACK = 1200;
+const MAX_CARDS = 200;
+
+function cleanInline(value) {
+  return str(value)
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/<[^>]+>/g, "")
+    .replace(/[*_`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanBody(text) {
+  return str(text)
+    .replace(/\r\n?/g, "\n")
+    .replace(/^---\n[\s\S]*?\n---\n?/, "")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/~~~[\s\S]*?~~~/g, "");
+}
+
+function heading(text) {
+  return cleanInline(text).toLowerCase().replace(/:\s*$/, "").trim();
+}
+
+/** A heading section can run into the next topic; its first paragraph is the answer, not the rest of the lecture. */
+function firstParagraph(value) {
+  const blocks = str(value).split(/\n\s*\n/).map((block) => cleanInline(block)).filter(Boolean);
+  return blocks[0] || "";
+}
+
+function isSeparator(cells) {
+  return cells.length > 0 && cells.every((cell) => /^:?-{2,}:?$/.test(str(cell).trim()));
+}
+
+function tableCells(line) {
+  const raw = str(line).trim();
+  if (!raw.startsWith("|") || !raw.endsWith("|")) return null;
+  return raw
+    .slice(1, -1)
+    .split("|")
+    .map((cell) => cleanInline(cell));
+}
+
+function columnIndex(headers, names) {
+  for (let i = 0; i < headers.length; i++) {
+    if (names.includes(heading(headers[i]))) return i;
+  }
+  return -1;
+}
+
+/** true/false when a note explicitly opts in or out of automatic card extraction. */
+function flashcardsFlag(fm) {
+  const raw = fm ? fm.flashcards : undefined;
+  if (raw === undefined || raw === null || raw === "") return null;
+  if (raw === false || raw === 0) return false;
+  if (raw === true || raw === 1) return true;
+  const value = str(raw).trim().toLowerCase();
+  if (["false", "no", "off", "0", "never"].includes(value)) return false;
+  if (["true", "yes", "on", "1", "auto"].includes(value)) return true;
+  return null;
+}
+
+/**
+ * Extract cards from one Markdown note. Returns { cards, skipped, warnings }.
+ * `options.deck` and `options.course` are copied onto every card; the plugin
+ * fills in defaults and stamps import metadata when it writes them.
+ */
+function extractCardsFromMarkdown(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "Note");
+  const deck = str(opts.deck).trim() || "Imported";
+  const course = str(opts.course).trim();
+  const tags = Array.isArray(opts.tags) ? opts.tags.map((tag) => str(tag).replace(/^#/, "").trim()).filter(Boolean) : [];
+  const body = cleanBody(text);
+  const cards = [];
+  const warnings = [];
+  const seen = new Set();
+  let skipped = 0;
+
+  const add = (front, back, cardType, origin) => {
+    const f = cleanInline(front).replace(/^[-*+]\s+/, "").trim();
+    const b = cleanInline(back).replace(/^[-*+]\s+/, "").trim();
+    if (!f || !b) {
+      skipped++;
+      return;
+    }
+    if (f.length < 2 || b.length < 2 || f.length > MAX_FRONT || b.length > MAX_BACK) {
+      skipped++;
+      return;
+    }
+    const key = `${f.toLowerCase()}\u0000${b.toLowerCase()}\u0000${cardType}`;
+    if (seen.has(key) || cards.length >= MAX_CARDS) {
+      skipped++;
+      return;
+    }
+    seen.add(key);
+    cards.push({
+      kind: "card",
+      cardType,
+      deck,
+      course,
+      front: f,
+      back: b,
+      tags,
+      importSource: source,
+      importFormat: "outline",
+      importedOn: opts.importedOn || localDate(),
+      importKey: `outline:${hashString(source + "|" + key)}`,
+      extractOrigin: origin || "",
+    });
+  };
+
+  const lines = body.split("\n");
+  const sections = [];
+  let current = null;
+  for (const line of lines) {
+    const m = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (m) {
+      current = { level: m[1].length, title: heading(m[2]), lines: [] };
+      sections.push(current);
+    } else if (current) {
+      current.lines.push(line);
+    }
+  }
+
+  // 1. Front/back or question/answer headings, including Term/Definition.
+  let pendingFront = "";
+  for (const section of sections) {
+    const bodyText = firstParagraph(section.lines.join("\n"));
+    if (!bodyText) continue;
+    if (FRONT_HEADS.includes(section.title)) {
+      pendingFront = bodyText;
+    } else if (BACK_HEADS.includes(section.title) && pendingFront) {
+      add(pendingFront, bodyText, "basic", "heading");
+      pendingFront = "";
+    }
+  }
+
+  // 2. Definition lines and "X means Y" sentences.
+  const meansRe = /\b([A-Z][A-Za-z0-9'’\- ]{1,60})\s+(?:means|refers to|is defined as)\s+([^.!?\n]{2,300})/g;
+  for (const line of lines) {
+    if (/^\s*(?:#{1,6}\s|\||>|```|~~~)/.test(line)) continue;
+    const bullet = line.match(/^\s*(?:[-*+]|\d+[.)])\s+(.+)$/);
+    const content = cleanInline(bullet ? bullet[1] : line);
+    if (!content || /==|\{\{c?\d*::/.test(content)) continue;
+    const pair = content.match(/^(.{2,80}?)\s*(?::|—|–|\s+means\s+|\s+refers to\s+|\s+is defined as\s+)\s*(.{2,500})$/i);
+    if (pair) {
+      const front = cleanInline(pair[1]);
+      const back = cleanInline(pair[2]);
+      const label = front.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+      const words = front.split(/\s+/).filter(Boolean).length;
+      if (!SKIP_LABELS.has(label) && words <= 10 && !/https?:|www\./i.test(front)) {
+        add(front, back, "basic", "definition");
+      }
+    }
+    for (const match of content.matchAll(meansRe)) add(match[1], match[2], "basic", "sentence");
+  }
+
+  // 3. Two-column tables. A header such as Term/Definition is honoured; a
+  // plain two-column table is read as front/back from its first row.
+  for (let i = 0; i < lines.length; i++) {
+    if (!tableCells(lines[i])) continue;
+    const rows = [];
+    while (i < lines.length) {
+      const cells = tableCells(lines[i]);
+      if (!cells) break;
+      rows.push(cells);
+      i++;
+    }
+    if (rows.length < 2) continue;
+    const headers = rows[0];
+    const frontCol = columnIndex(headers, FRONT_COLS);
+    const backCol = columnIndex(headers, BACK_COLS);
+    const knownHeader = frontCol >= 0 && backCol >= 0;
+    if (knownHeader) {
+      const start = rows[1] && isSeparator(rows[1]) ? 2 : 1;
+      for (const row of rows.slice(start)) {
+        if (isSeparator(row)) continue;
+        add(row[frontCol], row[backCol], "basic", "table");
+      }
+    } else if (headers.length === 2) {
+      for (const row of rows) {
+        if (isSeparator(row)) continue;
+        add(row[0], row[1], "basic", "table");
+      }
+    }
+  }
+
+  // 4. Existing highlights and cloze marks, one card per marked line.
+  for (const line of lines) {
+    if (/^\s*(?:#{1,6}\s|\||```|~~~)/.test(line)) continue;
+    if (!/==|{{c?\d*::/.test(line)) continue;
+    const answers = [];
+    const prompt = str(line)
+      .replace(CLOZE_RE, (_match, highlighted, _number, marked) => {
+        const answer = cleanInline(highlighted || marked);
+        if (answer) answers.push(answer);
+        return "[…]";
+      })
+      .trim();
+    if (!answers.length) continue;
+    const cleaned = cleanInline(prompt);
+    if (!cleaned || cleaned === "[…]") continue;
+    add(cleaned, answers.join(" · "), "cloze", "cloze");
+  }
+
+  if (!cards.length && !warnings.length) warnings.push("No card-like headings, definitions, tables or cloze marks were found.");
+  return { cards, skipped, warnings, source };
+}
+
+module.exports = {
+  FRONT_HEADS,
+  BACK_HEADS,
+  FRONT_COLS,
+  BACK_COLS,
+  MAX_CARDS,
+  cleanInline,
+  cleanBody,
+  flashcardsFlag,
+  extractCardsFromMarkdown,
+};
+};
+
+/* ---- src/cards-extract-modal.js ---- */
+__defs["cards-extract-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { str } = require("./util");
+
+/** Preview and write rule-based cards extracted from one Markdown note. */
+class CardExtractModal extends Modal {
+  constructor(app, plugin, options, onDone) {
+    super(app);
+    this.plugin = plugin;
+    this.options = options || {};
+    this.onDone = onDone || (() => {});
+    this.path = str(this.options.path).trim();
+    this.preview = null;
+  }
+
+  async onOpen() {
+    const { contentEl } = this;
+    const p = this.plugin;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: "Extract cards from this note" });
+
+    let preview;
+    try {
+      preview = await p.previewNoteCards(this.path, this.options);
+    } catch (e) {
+      contentEl.createEl("p", { cls: "qt-error", text: str(e && e.message) || "Could not read this note." });
+      return;
+    }
+    this.preview = preview;
+    if (preview.blocked) {
+      contentEl.createEl("p", { cls: "setting-item-description", text: preview.reason });
+      const row = contentEl.createDiv({ cls: "qt-row" });
+      row.createEl("button", { text: "Close", cls: "qt-grow" }).addEventListener("click", () => this.close());
+      return;
+    }
+
+    contentEl.createEl("p", {
+      cls: "setting-item-description",
+      text: `${preview.cards.length} card${preview.cards.length === 1 ? "" : "s"} ready from ${preview.file.basename}. Nothing is written until you press Extract cards.`,
+    });
+    if (preview.warnings.length) {
+      contentEl.createEl("p", { cls: "qt-hint", text: preview.warnings[0] });
+    }
+
+    const deckWrap = contentEl.createDiv({ cls: "qt-field" });
+    deckWrap.createEl("label", { text: "Deck" });
+    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology" } });
+    deck.value = preview.deck || "";
+
+    const courseWrap = contentEl.createDiv({ cls: "qt-field" });
+    courseWrap.createEl("label", { text: "Course tag (optional)" });
+    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
+    course.value = preview.course || "";
+
+    if (preview.cards.length) {
+      const list = contentEl.createEl("ul", { cls: "qt-extract-preview" });
+      for (const card of preview.cards.slice(0, 8)) {
+        list.createEl("li", {
+          text: `${card.front} → ${card.back}${card.cardType === "cloze" ? " (cloze)" : ""}`,
+        });
+      }
+      if (preview.cards.length > 8) {
+        contentEl.createEl("p", {
+          cls: "qt-hint",
+          text: `…and ${preview.cards.length - 8} more.`,
+        });
+      }
+      contentEl.createEl("p", {
+        cls: "qt-hint",
+        text: preview.flashcards === true
+          ? "This note is opted in with `flashcards: true`."
+          : "This note has no `flashcards` flag yet; extracting will mark it `flashcards: true` so later bulk extraction can find it.",
+      });
+    }
+
+    const note = contentEl.createDiv({ cls: "qt-hint" });
+    const row = contentEl.createDiv({ cls: "qt-row" });
+    const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
+    const go = row.createEl("button", {
+      text: `Extract ${preview.cards.length} card${preview.cards.length === 1 ? "" : "s"}`,
+      cls: "mod-cta qt-grow",
+    });
+    if (!preview.cards.length) go.disabled = true;
+    cancel.addEventListener("click", () => this.close());
+    go.addEventListener("click", async () => {
+      go.disabled = true;
+      note.setText("Writing cards…");
+      try {
+        const result = await p.extractCardsFromNote(this.path, {
+          deck: deck.value,
+          course: course.value,
+        });
+        const bits = [`Created ${result.created} card${result.created === 1 ? "" : "s"}`];
+        if (result.skipped) bits.push(`${result.skipped} already there`);
+        if (result.errors && result.errors.length) bits.push(`${result.errors.length} failed`);
+        note.setText(bits.join(" · "));
+        new Notice(bits.join(" · "), 6000);
+        if (result.created) {
+          this.close();
+          this.onDone(result);
+        } else {
+          go.disabled = false;
+        }
+      } catch (e) {
+        go.disabled = false;
+        note.setText(str(e && e.message) || "Could not extract cards.");
+      }
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = { CardExtractModal };
+};
+
 /* ---- src/cards-import.js ---- */
 __defs["cards-import"] = function (module, exports, require) {
 /*
@@ -6237,6 +6618,7 @@ const DEFAULT_SETTINGS = {
   filters: {},
   moreSets: [], // extra filter sets, OR'd with `filters`
   mode: "smart",
+  practicePath: "", // when set, practice is limited to this note (Practice this note only)
   studySkin: "off", // "off" | "flip" | "choice": an extra way to review the same MCQ notes
   activePreset: "",
   folderFilterStyle: "auto", // "auto" (search box when there are many folders) | "buttons" | "search"
@@ -12948,6 +13330,8 @@ const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, rem
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
 const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseGenericCsv, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
+const { CardExtractModal } = require("./cards-extract-modal");
+const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, resolveCard } = require("./cards");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
@@ -13052,6 +13436,29 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
+    this.addCommand({
+      id: "practice-note",
+      name: "Practice this note only",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        const fm = file && this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (!file || !fm || fm.question_id === undefined || fm.question_id === null || fm.question_id === "") return false;
+        if (!checking) this.practiceNote(file.path);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "cards-extract-note",
+      name: "Cards: extract cards from this note",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !/\.md$/i.test(file.path) || this.moduleOff("cards")) return false;
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (isCardNote(fm)) return false;
+        if (!checking) this.openCardExtract(file.path);
+        return true;
+      },
+    });
     this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
     this.addCommand({
       id: "cards-grade-pending",
@@ -13090,13 +13497,34 @@ class QuestionTrackerPlugin extends Plugin {
     // right-click a folder in the file explorer
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
-        if (!(file instanceof TFolder) || !this.folderHasQuestions(file.path)) return;
-        menu.addItem((item) =>
-          item
-            .setTitle("Practice this folder")
-            .setIcon("graduation-cap")
-            .onClick(() => this.practiceFolder(file.path))
-        );
+        if (file instanceof TFolder) {
+          if (!this.folderHasQuestions(file.path)) return;
+          menu.addItem((item) =>
+            item
+              .setTitle("Practice this folder")
+              .setIcon("graduation-cap")
+              .onClick(() => this.practiceFolder(file.path))
+          );
+          return;
+        }
+        if (!(file instanceof TFile) || !/\.md$/i.test(file.path)) return;
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (fm && fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "") {
+          menu.addItem((item) =>
+            item
+              .setTitle("Practice this note only")
+              .setIcon("graduation-cap")
+              .onClick(() => this.practiceNote(file.path))
+          );
+        }
+        if (!isCardNote(fm) && !this.moduleOff("cards")) {
+          menu.addItem((item) =>
+            item
+              .setTitle("Extract cards from this note")
+              .setIcon("layers")
+              .onClick(() => this.openCardExtract(file.path))
+          );
+        }
       })
     );
     // keep saved filters and presets pointing at a folder that was renamed or moved
@@ -13203,6 +13631,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
+    this.settings.practicePath = str(this.settings.practicePath).trim();
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
@@ -13276,11 +13705,13 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /** Opens the practice view with these filters and starts the first question. */
-  async practiceWith(filters, mode) {
+  async practiceWith(filters, mode, options) {
     const st = this.settings;
+    const opts = options || {};
     st.filters = cloneFilters(filters);
     st.moreSets = [];
     st.activePreset = "";
+    st.practicePath = str(opts.practicePath).trim();
     if (mode) st.mode = mode;
     await this.save();
     const view = await this.activateView();
@@ -13299,6 +13730,16 @@ class QuestionTrackerPlugin extends Plugin {
       return;
     }
     await this.practiceWith({ folder: [folder] }, "smart"); // smart mix: every note is eligible, new ones come first
+  }
+
+  /** Practice one note only, useful after a lecture or while fixing a question. */
+  async practiceNote(path) {
+    const note = this.getQuestions().find((q) => q.file.path === path);
+    if (!note) {
+      new Notice("That note is not a practice question.");
+      return;
+    }
+    await this.practiceWith({}, "smart", { practicePath: note.file.path });
   }
 
   async activateInsights(tab) {
@@ -13782,6 +14223,71 @@ class QuestionTrackerPlugin extends Plugin {
     ).open();
   }
 
+  openCardExtract(path, options, onDone) {
+    if (this.moduleOff("cards")) return;
+    const target = path && path.path ? path.path : str(path).trim();
+    if (!target) {
+      new Notice("Open a Markdown note first.");
+      return;
+    }
+    new CardExtractModal(this.app, this, { ...(options || {}), path: target }, (result) => {
+      this.refreshViews();
+      if (onDone) onDone(result);
+    }).open();
+  }
+
+  /** Read and map one note without writing anything, so the preview can be reviewed. */
+  async previewNoteCards(path, options) {
+    const opts = options || {};
+    const target = path && path.path ? path.path : str(path).trim();
+    const file = this.app.vault.getAbstractFileByPath(target);
+    if (!(file instanceof TFile)) throw new Error("That note is not in the vault.");
+    if (!/\.md$/i.test(file.path)) throw new Error("Choose a Markdown note.");
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    if (isCardNote(fm)) {
+      return { blocked: true, reason: "This note is already a card; extract from a lecture or source note instead.", cards: [], skipped: 0, warnings: [], file, fm };
+    }
+    const flag = flashcardsFlag(fm);
+    if (flag === false) {
+      return {
+        blocked: true,
+        reason: "This note has `flashcards: false`, so nothing will be extracted. Change that property to true or remove it first.",
+        cards: [],
+        skipped: 0,
+        warnings: [],
+        file,
+        fm,
+      };
+    }
+    const text = await this.app.vault.cachedRead(file);
+    const deck = str(opts.deck).trim() || str(fm.deck).trim() || str(this.settings.cards.defaultDeck).trim() || "Extracted";
+    const course = str(opts.course).trim() || str(fm.course).trim() || courseForFolder(this.settings, file.path) || "";
+    const tags = Array.isArray(fm.tags) ? fm.tags : [];
+    const parsed = extractCardsFromMarkdown(text, { sourcePath: file.path, deck, course, tags });
+    return { ...parsed, file, fm, deck, course, flashcards: flag };
+  }
+
+  /** Write previewed extraction cards. The note is stamped after the first successful write. */
+  async extractCardsFromNote(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: ["Cards are off."] };
+    const opts = options || {};
+    const preview = await this.previewNoteCards(path, opts);
+    if (preview.blocked) return { created: 0, skipped: 0, errors: [preview.reason], blocked: true };
+    if (!preview.cards.length) return { created: 0, skipped: 0, errors: preview.warnings || [], total: 0 };
+    const result = await this.importParsedCards(preview.cards, {
+      deck: preview.deck,
+      course: preview.course,
+      errors: preview.warnings,
+    });
+    if (result.created && opts.stamp !== false) {
+      await this.app.fileManager.processFrontMatter(preview.file, (fm) => {
+        if (flashcardsFlag(fm) === null) fm.flashcards = true;
+      });
+    }
+    this.refreshViews();
+    return { ...result, path: preview.file.path };
+  }
+
   async activateCalendar() {
     if (this.moduleOff("calendar")) return null;
     const ws = this.app.workspace;
@@ -13916,9 +14422,11 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const includeHidden = opts.includeHidden === true;
     const today = opts.today || localDate();
+    const only = str(opts.practicePath !== undefined ? opts.practicePath : this.settings.practicePath).trim();
     return questions.filter(
       (q) =>
         (includeHidden || isStudyable(q.fm, today)) &&
+        (!only || q.file.path === only) &&
         matchSets(q.fm, [this.settings.filters, ...(this.settings.moreSets || [])], q.file.path)
     );
   }
@@ -15120,6 +15628,22 @@ class PracticeView extends ItemView {
     if (empty) {
       this.renderEmpty(root, empty);
       return;
+    }
+
+    const only = str(st.practicePath).trim();
+    if (only) {
+      const bar = root.createDiv({ cls: "qt-only-note" });
+      bar.createSpan({ text: `Practising only ${only.split("/").pop().replace(/\.md$/i, "")}` });
+      const open = bar.createEl("button", { text: "Open note", cls: "qt-link" });
+      open.addEventListener("click", () => {
+        const file = p.app.vault.getAbstractFileByPath(only);
+        if (file) p.app.workspace.getLeaf("tab").openFile(file);
+      });
+      bar.createEl("button", { text: "Practice all notes", cls: "qt-link" }).addEventListener("click", async () => {
+        st.practicePath = "";
+        await p.save();
+        this.render();
+      });
     }
 
     // presets
@@ -17976,6 +18500,8 @@ const cards = require("./cards");
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
 const cardsImport = require("./cards-import");
+const cardsExtract = require("./cards-extract");
+const { CardExtractModal } = require("./cards-extract-modal");
 const cardGrading = require("./card-grading");
 const cardGradingAi = require("./card-grading-ai");
 const cardGradeQueue = require("./card-grade-queue");
@@ -18075,6 +18601,8 @@ QuestionTrackerPlugin.__test = {
   CALENDAR_TABS,
   cards,
   cardsImport,
+  cardsExtract,
+  CardExtractModal,
   cardGrading,
   cardGradingAi,
   cardGradeQueue,

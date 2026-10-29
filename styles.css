@@ -1265,6 +1265,35 @@
   }
 }
 
+.qt-only-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-small);
+}
+
+.qt-only-note button {
+  margin-left: auto;
+}
+
+.qt-extract-preview {
+  max-height: 12rem;
+  overflow: auto;
+  margin: 4px 0 8px;
+  padding-left: 1.2em;
+}
+
+.qt-extract-preview li {
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+
 .qt-hint,
 .qt-count,
 .qt-empty,

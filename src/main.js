@@ -29,6 +29,8 @@ const cards = require("./cards");
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
 const cardsImport = require("./cards-import");
+const cardsExtract = require("./cards-extract");
+const { CardExtractModal } = require("./cards-extract-modal");
 const cardGrading = require("./card-grading");
 const cardGradingAi = require("./card-grading-ai");
 const cardGradeQueue = require("./card-grade-queue");
@@ -128,6 +130,8 @@ QuestionTrackerPlugin.__test = {
   CALENDAR_TABS,
   cards,
   cardsImport,
+  cardsExtract,
+  CardExtractModal,
   cardGrading,
   cardGradingAi,
   cardGradeQueue,

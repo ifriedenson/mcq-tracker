@@ -22,6 +22,8 @@ const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, rem
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
 const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseGenericCsv, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
+const { CardExtractModal } = require("./cards-extract-modal");
+const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, resolveCard } = require("./cards");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
@@ -126,6 +128,29 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
+    this.addCommand({
+      id: "practice-note",
+      name: "Practice this note only",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        const fm = file && this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (!file || !fm || fm.question_id === undefined || fm.question_id === null || fm.question_id === "") return false;
+        if (!checking) this.practiceNote(file.path);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "cards-extract-note",
+      name: "Cards: extract cards from this note",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !/\.md$/i.test(file.path) || this.moduleOff("cards")) return false;
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (isCardNote(fm)) return false;
+        if (!checking) this.openCardExtract(file.path);
+        return true;
+      },
+    });
     this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
     this.addCommand({
       id: "cards-grade-pending",
@@ -164,13 +189,34 @@ class QuestionTrackerPlugin extends Plugin {
     // right-click a folder in the file explorer
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
-        if (!(file instanceof TFolder) || !this.folderHasQuestions(file.path)) return;
-        menu.addItem((item) =>
-          item
-            .setTitle("Practice this folder")
-            .setIcon("graduation-cap")
-            .onClick(() => this.practiceFolder(file.path))
-        );
+        if (file instanceof TFolder) {
+          if (!this.folderHasQuestions(file.path)) return;
+          menu.addItem((item) =>
+            item
+              .setTitle("Practice this folder")
+              .setIcon("graduation-cap")
+              .onClick(() => this.practiceFolder(file.path))
+          );
+          return;
+        }
+        if (!(file instanceof TFile) || !/\.md$/i.test(file.path)) return;
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (fm && fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "") {
+          menu.addItem((item) =>
+            item
+              .setTitle("Practice this note only")
+              .setIcon("graduation-cap")
+              .onClick(() => this.practiceNote(file.path))
+          );
+        }
+        if (!isCardNote(fm) && !this.moduleOff("cards")) {
+          menu.addItem((item) =>
+            item
+              .setTitle("Extract cards from this note")
+              .setIcon("layers")
+              .onClick(() => this.openCardExtract(file.path))
+          );
+        }
       })
     );
     // keep saved filters and presets pointing at a folder that was renamed or moved
@@ -277,6 +323,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
+    this.settings.practicePath = str(this.settings.practicePath).trim();
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
@@ -350,11 +397,13 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /** Opens the practice view with these filters and starts the first question. */
-  async practiceWith(filters, mode) {
+  async practiceWith(filters, mode, options) {
     const st = this.settings;
+    const opts = options || {};
     st.filters = cloneFilters(filters);
     st.moreSets = [];
     st.activePreset = "";
+    st.practicePath = str(opts.practicePath).trim();
     if (mode) st.mode = mode;
     await this.save();
     const view = await this.activateView();
@@ -373,6 +422,16 @@ class QuestionTrackerPlugin extends Plugin {
       return;
     }
     await this.practiceWith({ folder: [folder] }, "smart"); // smart mix: every note is eligible, new ones come first
+  }
+
+  /** Practice one note only, useful after a lecture or while fixing a question. */
+  async practiceNote(path) {
+    const note = this.getQuestions().find((q) => q.file.path === path);
+    if (!note) {
+      new Notice("That note is not a practice question.");
+      return;
+    }
+    await this.practiceWith({}, "smart", { practicePath: note.file.path });
   }
 
   async activateInsights(tab) {
@@ -856,6 +915,71 @@ class QuestionTrackerPlugin extends Plugin {
     ).open();
   }
 
+  openCardExtract(path, options, onDone) {
+    if (this.moduleOff("cards")) return;
+    const target = path && path.path ? path.path : str(path).trim();
+    if (!target) {
+      new Notice("Open a Markdown note first.");
+      return;
+    }
+    new CardExtractModal(this.app, this, { ...(options || {}), path: target }, (result) => {
+      this.refreshViews();
+      if (onDone) onDone(result);
+    }).open();
+  }
+
+  /** Read and map one note without writing anything, so the preview can be reviewed. */
+  async previewNoteCards(path, options) {
+    const opts = options || {};
+    const target = path && path.path ? path.path : str(path).trim();
+    const file = this.app.vault.getAbstractFileByPath(target);
+    if (!(file instanceof TFile)) throw new Error("That note is not in the vault.");
+    if (!/\.md$/i.test(file.path)) throw new Error("Choose a Markdown note.");
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    if (isCardNote(fm)) {
+      return { blocked: true, reason: "This note is already a card; extract from a lecture or source note instead.", cards: [], skipped: 0, warnings: [], file, fm };
+    }
+    const flag = flashcardsFlag(fm);
+    if (flag === false) {
+      return {
+        blocked: true,
+        reason: "This note has `flashcards: false`, so nothing will be extracted. Change that property to true or remove it first.",
+        cards: [],
+        skipped: 0,
+        warnings: [],
+        file,
+        fm,
+      };
+    }
+    const text = await this.app.vault.cachedRead(file);
+    const deck = str(opts.deck).trim() || str(fm.deck).trim() || str(this.settings.cards.defaultDeck).trim() || "Extracted";
+    const course = str(opts.course).trim() || str(fm.course).trim() || courseForFolder(this.settings, file.path) || "";
+    const tags = Array.isArray(fm.tags) ? fm.tags : [];
+    const parsed = extractCardsFromMarkdown(text, { sourcePath: file.path, deck, course, tags });
+    return { ...parsed, file, fm, deck, course, flashcards: flag };
+  }
+
+  /** Write previewed extraction cards. The note is stamped after the first successful write. */
+  async extractCardsFromNote(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: ["Cards are off."] };
+    const opts = options || {};
+    const preview = await this.previewNoteCards(path, opts);
+    if (preview.blocked) return { created: 0, skipped: 0, errors: [preview.reason], blocked: true };
+    if (!preview.cards.length) return { created: 0, skipped: 0, errors: preview.warnings || [], total: 0 };
+    const result = await this.importParsedCards(preview.cards, {
+      deck: preview.deck,
+      course: preview.course,
+      errors: preview.warnings,
+    });
+    if (result.created && opts.stamp !== false) {
+      await this.app.fileManager.processFrontMatter(preview.file, (fm) => {
+        if (flashcardsFlag(fm) === null) fm.flashcards = true;
+      });
+    }
+    this.refreshViews();
+    return { ...result, path: preview.file.path };
+  }
+
   async activateCalendar() {
     if (this.moduleOff("calendar")) return null;
     const ws = this.app.workspace;
@@ -990,9 +1114,11 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const includeHidden = opts.includeHidden === true;
     const today = opts.today || localDate();
+    const only = str(opts.practicePath !== undefined ? opts.practicePath : this.settings.practicePath).trim();
     return questions.filter(
       (q) =>
         (includeHidden || isStudyable(q.fm, today)) &&
+        (!only || q.file.path === only) &&
         matchSets(q.fm, [this.settings.filters, ...(this.settings.moreSets || [])], q.file.path)
     );
   }
