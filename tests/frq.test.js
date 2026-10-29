@@ -324,3 +324,65 @@ test("FRQ: the grader and creator modals draw their main controls", async () => 
   assert.ok(creatorDom.texts().includes("Create note"));
   assert.ok(creatorDom.texts().some((text) => text.includes("editable starting points")));
 });
+
+test("FRQ: two independent passes are compared and disagreements are never averaged", () => {
+  const rubric = chemistryRubric();
+  const first = { scores: { c1: 1, c2: 2, c3: 1 } };
+  const second = { scores: { c1: 1, c2: 1, c3: 1 } };
+  const comparison = frq.compareFrqPasses(first, second, rubric);
+  assert.equal(comparison.agrees, false);
+  assert.deepEqual(comparison.disagreements.map((item) => item.id), ["c2"]);
+  assert.equal(comparison.disagreements[0].first, 2);
+  assert.equal(comparison.disagreements[0].second, 1);
+  assert.equal(comparison.firstTotal, 4);
+  assert.equal(comparison.secondTotal, 3);
+  assert.equal(comparison.max, 4);
+  assert.equal(comparison.delta, -1);
+  assert.equal(frq.compareFrqPasses(first, first, rubric).agrees, true);
+});
+
+test("FRQ: an official or teacher-supplied rubric is marked and carried into attempts", () => {
+  const built = frq.buildFrqNote({
+    courseId: "ap-us-history",
+    kind: "dbq",
+    title: "Official DBQ practice",
+    prompt: "Evaluate the extent of change.",
+    rubric: frq.presetFor("ap-us-history", "dbq").criteria,
+    rubricSource: "official",
+  });
+  assert.equal(built.frontmatter.rubric_source, "official");
+  assert.match(built.text, /official or teacher-supplied rubric/);
+  const parsed = frq.parseFrqNote(built.text, built.frontmatter, built.path);
+  assert.equal(parsed.rubricSource, "official");
+
+  const attempt = frq.scoreAttempt({ rubric: parsed.rubric, scores: {}, gradedBy: "ai" });
+  const note = frq.buildFrqAttemptNote(
+    parsed,
+    { ...attempt, answer: "An answer.", secondPass: true, disagreed: ["Thesis"] },
+    "2026-10-29"
+  );
+  assert.equal(note.frontmatter.second_pass, true);
+  assert.deepEqual(note.frontmatter.criteria_disagreed, ["Thesis"]);
+  assert.equal(note.frontmatter.rubric_source, "official");
+  const entry = frq.entryFromAttemptFrontmatter(note.frontmatter, note.path);
+  assert.equal(entry.secondPass, true);
+  assert.deepEqual(entry.disagreed, ["Thesis"]);
+  assert.equal(entry.rubricSource, "official");
+});
+
+test("FRQ: saved missed criteria aggregate into an Insights weak-spot list", () => {
+  const rows = frq.frqCriterionWeakSpots([
+    { courseId: "ap-us-history", course: "AP U.S. History", missed: ["Thesis", "Evidence"] },
+    { courseId: "ap-us-history", course: "AP U.S. History", missed: ["Thesis"] },
+    { courseId: "ap-us-history", course: "AP U.S. History", missed: [] },
+    { courseId: "ap-world-history", course: "AP World History: Modern", missed: ["Context"] },
+  ]);
+  assert.equal(rows[0].criterion, "Context");
+  assert.equal(rows[0].attempts, 1);
+  assert.equal(rows[0].rate, 1);
+  const thesis = rows.find((row) => row.criterion === "Thesis");
+  assert.equal(thesis.misses, 2);
+  assert.equal(thesis.attempts, 3);
+  assert.equal(thesis.rate, 0.7);
+  assert.equal(frq.frqCriterionWeakSpots([]).length, 0);
+});

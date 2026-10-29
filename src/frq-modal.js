@@ -1,7 +1,7 @@
 "use strict";
 const { Modal, Notice } = require("obsidian");
 const { renderMarkdownInto } = require("./view-helpers");
-const { FRQ_COURSES, courseById, parseRubric, presetFor, presetsForCourse, scoreAttempt } = require("./frq");
+const { FRQ_COURSES, courseById, compareFrqPasses, parseRubric, presetFor, presetsForCourse, scoreAttempt } = require("./frq");
 const { str } = require("./util");
 
 function presetText(courseId, kind) {
@@ -29,11 +29,14 @@ class FrqGraderModal extends Modal {
     this.scores = {};
     this.aiResult = null;
     this.aiScores = {};
+    this.secondResult = null;
+    this.comparison = null;
     this.result = null;
     this.attempts = [];
     this.message = "";
     this.loading = true;
     this.grading = false;
+    this.secondGrading = false;
     this.saving = false;
     this.resultEl = null;
   }
@@ -58,6 +61,8 @@ class FrqGraderModal extends Modal {
     this.scores = {};
     this.aiResult = null;
     this.aiScores = {};
+    this.secondResult = null;
+    this.comparison = null;
     this.result = this.note ? this.computeResult() : null;
     this.draw();
     if (this.note) await this.loadAttempts();
@@ -81,6 +86,8 @@ class FrqGraderModal extends Modal {
     this.scores = {};
     this.aiResult = null;
     this.aiScores = {};
+    this.secondResult = null;
+    this.comparison = null;
     this.attempts = [];
     this.message = "";
     this.result = this.computeResult();
@@ -93,7 +100,7 @@ class FrqGraderModal extends Modal {
     const ai = this.aiResult;
     let gradedBy = ai ? "ai" : "self";
     if (ai && Object.keys(this.scores).some((id) => Number(this.scores[id]) !== Number(ai.scores[id]))) gradedBy = "ai-edited";
-    return scoreAttempt({
+    const result = scoreAttempt({
       rubric: this.note.rubric,
       scores: this.scores,
       evidence: ai ? ai.evidence : {},
@@ -103,6 +110,12 @@ class FrqGraderModal extends Modal {
       overall: ai ? ai.overall : "",
       gradedBy,
     });
+    if (this.comparison) {
+      result.comparison = this.comparison;
+      result.needsReview = result.needsReview || !this.comparison.agrees;
+    }
+    result.secondPass = !!this.secondResult;
+    return result;
   }
 
   updateResult() {
@@ -199,6 +212,8 @@ class FrqGraderModal extends Modal {
     actions.createEl("button", { text: "Self-grade", cls: "qt-grow" }).addEventListener("click", () => {
       this.aiResult = null;
       this.aiScores = {};
+      this.secondResult = null;
+      this.comparison = null;
       this.message = "Self-grading. Change any score, then save the attempt.";
       this.result = this.computeResult();
       this.draw();
@@ -210,6 +225,15 @@ class FrqGraderModal extends Modal {
     });
     ai.disabled = this.grading;
     ai.addEventListener("click", () => this.runAi());
+    if (this.aiResult) {
+      const second = actions.createEl("button", {
+        text: this.secondGrading ? "Second pass…" : "Second pass",
+        cls: "qt-grow",
+        attr: { title: "Run an independent grading pass and flag every criterion the two passes score differently." },
+      });
+      second.disabled = this.secondGrading || this.grading;
+      second.addEventListener("click", () => this.runSecondPass());
+    }
     const save = actions.createEl("button", { text: this.saving ? "Saving…" : "Save attempt", cls: "mod-cta qt-grow" });
     save.disabled = this.saving || this.grading;
     save.addEventListener("click", () => this.save());
@@ -225,6 +249,8 @@ class FrqGraderModal extends Modal {
       this.scores = {};
       this.aiResult = null;
       this.aiScores = {};
+      this.secondResult = null;
+      this.comparison = null;
       this.message = "";
       this.result = this.computeResult();
       this.draw();
@@ -268,6 +294,21 @@ class FrqGraderModal extends Modal {
       if (criterion.evidence) row.createDiv({ cls: "qt-hint", text: `“${criterion.evidence}”` });
       if (criterion.comment) row.createDiv({ cls: "qt-hint", text: criterion.comment });
     }
+    if (result.comparison) {
+      const box = el.createDiv({ cls: "qt-frq-comparison" });
+      box.createEl("strong", {
+        text: result.comparison.agrees
+          ? "Two AI passes agree"
+          : `Two AI passes disagree on ${result.comparison.disagreements.length} criteria`,
+      });
+      box.createDiv({
+        cls: "qt-hint",
+        text: `Pass 1 ${result.comparison.firstTotal}/${result.comparison.max} · pass 2 ${result.comparison.secondTotal}/${result.comparison.max}. Choose the score you trust before saving.`,
+      });
+      for (const item of result.comparison.disagreements) {
+        box.createDiv({ cls: "qt-hint", text: `${item.label}: ${item.first === null ? "—" : item.first} / ${item.max} first, ${item.second === null ? "—" : item.second} / ${item.max} second.` });
+      }
+    }
     if (result.overall) el.createDiv({ cls: "qt-hint", text: result.overall });
     if (result.missed.length) el.createDiv({ cls: "qt-hint", text: `Missed: ${result.missedLabels.join(", ")}` });
   }
@@ -287,12 +328,40 @@ class FrqGraderModal extends Modal {
       this.aiResult = out;
       this.aiScores = { ...out.scores };
       this.scores = { ...out.scores };
+      this.secondResult = null;
+      this.comparison = null;
       this.result = this.computeResult();
       this.message = "AI draft ready. A human decides: check the quotes, change any score, then save the attempt.";
     } catch (error) {
       this.message = str(error && error.message ? error.message : error);
     }
     this.grading = false;
+    this.draw();
+  }
+
+  /** A second independent pass; disagreement is shown, never averaged away. */
+  async runSecondPass() {
+    if (!this.note || !this.aiResult || this.secondGrading) return;
+    if (!str(this.answer).trim()) {
+      this.message = "Write an answer before asking for a second pass.";
+      this.draw();
+      return;
+    }
+    this.secondGrading = true;
+    this.message = "";
+    this.draw();
+    try {
+      const out = await this.plugin.gradeFrqWithAi(this.note, this.answer);
+      this.secondResult = out;
+      this.comparison = compareFrqPasses(this.aiResult, out, this.note.rubric);
+      this.result = this.computeResult();
+      this.message = this.comparison && this.comparison.agrees
+        ? `Second pass agrees with the first (${this.comparison.secondTotal}/${this.comparison.max}).`
+        : `Second pass disagrees on ${this.comparison ? this.comparison.disagreements.length : 0} criteria. Resolve the scores before saving.`;
+    } catch (error) {
+      this.message = str(error && error.message ? error.message : error);
+    }
+    this.secondGrading = false;
     this.draw();
   }
 
@@ -317,6 +386,8 @@ class FrqGraderModal extends Modal {
         ...this.result,
         answer: this.answer,
         model: this.aiResult ? this.plugin.aiModelLabel("frqGrading") : "",
+        secondPass: !!this.secondResult,
+        disagreed: this.comparison ? this.comparison.disagreements.map((item) => item.label) : [],
       });
       this.message = `Saved ${saved.path}`;
       this.attempts = await this.plugin.getFrqAttempts(this.note.path);
@@ -341,6 +412,7 @@ class NewFrqNoteModal extends Modal {
     this.onDone = typeof onDone === "function" ? onDone : null;
     this.courseId = FRQ_COURSES[0].id;
     this.kind = presetsForCourse(this.courseId)[0].id;
+    this.rubricSource = "user";
     this.saving = false;
     this.error = "";
     this.errorEl = null;
@@ -394,6 +466,16 @@ class NewFrqNoteModal extends Modal {
     rubric.value = presetText(this.courseId, this.kind);
     root.createDiv({ cls: "qt-hint", text: "One criterion per line: - [points] Name: what earns the point. A Markdown table with a points column also works." });
 
+    const sourceRow = root.createDiv({ cls: "qt-row" });
+    sourceRow.createEl("label", { text: "Rubric source" });
+    const source = sourceRow.createEl("select", { cls: "dropdown" });
+    source.createEl("option", { text: "My own rubric", value: "user" });
+    source.createEl("option", { text: "Official or teacher-supplied rubric (pasted)", value: "official" });
+    source.value = this.rubricSource;
+    source.addEventListener("change", () => {
+      this.rubricSource = source.value;
+    });
+
     root.createEl("label", { text: "Sample answer (optional)" });
     const sample = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "4", placeholder: "Your own model answer, or leave blank." } });
 
@@ -439,6 +521,7 @@ class NewFrqNoteModal extends Modal {
           prompt: prompt.value,
           stimulus: stimulus.value,
           rubric: criteria,
+          rubricSource: this.rubricSource,
           sampleAnswer: sample.value,
         });
         new Notice(`Created ${created.path}`);

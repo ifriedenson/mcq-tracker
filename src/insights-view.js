@@ -71,12 +71,18 @@ class InsightsView extends ItemView {
       el.scrollTop = top;
       return;
     }
+    if (this.tab === "weak") {
+      if (questions.length) this.renderWeak(root, questions);
+      else root.createDiv({ cls: "qt-empty", text: "No question notes found yet." });
+      this.renderFrqWeak(root);
+      el.scrollTop = top;
+      return;
+    }
     if (!questions.length) {
       root.createDiv({ cls: "qt-empty", text: "No question notes found yet." });
       return;
     }
-    if (this.tab === "weak") this.renderWeak(root, questions);
-    else this.renderErrors(root, questions);
+    this.renderErrors(root, questions);
     el.scrollTop = top;
   }
 
@@ -265,6 +271,37 @@ class InsightsView extends ItemView {
       col.createDiv({ cls: "qt-hint qt-trend-lab", text: w.accuracy === null ? "" : fmtPct(w.accuracy) });
     }
     root.createDiv({ cls: "qt-hint", text: "Each bar is one week, oldest on the left." });
+  }
+
+  /** Missed FRQ rubric criteria from saved attempts. Scheduler routing is still open. */
+  async renderFrqWeak(root) {
+    if (!this.plugin.getFrqWeakSpotRows) return;
+    const box = root.createDiv({ cls: "qt-frq-weak" });
+    box.createEl("h3", { cls: "qt-today-section", text: "FRQ criteria to review" });
+    let rows = [];
+    try {
+      rows = await this.plugin.getFrqWeakSpotRows();
+    } catch (e) {
+      rows = [];
+    }
+    if (!rows.length) {
+      box.createDiv({ cls: "qt-hint", text: "Saved FRQ attempts will show missed rubric criteria here." });
+      return;
+    }
+    box.createDiv({
+      cls: "qt-hint",
+      text: "Built from criteria marked short in your saved AP FRQ attempts. This is a practice signal, not a score prediction.",
+    });
+    for (const row of rows.slice(0, 6)) {
+      const line = box.createDiv({ cls: "qt-ins-row" });
+      const main = line.createDiv({ cls: "qt-ins-main" });
+      main.createDiv({ cls: "qt-ins-name", text: row.criterion });
+      main.createDiv({
+        cls: "qt-hint",
+        text: `${row.course} · short in ${row.misses} of ${row.attempts} attempt${row.attempts === 1 ? "" : "s"}`,
+      });
+    }
+    box.createEl("button", { cls: "mod-cta qt-primary", text: "Open AP FRQ practice" }).addEventListener("click", () => this.plugin.openFrqGrader());
   }
 
   renderErrors(root, questions) {

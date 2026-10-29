@@ -17326,6 +17326,40 @@ async function gradeFrqWithAi(client, note, answer) {
   return parseFrqGradeReply(reply, note && note.rubric);
 }
 
+/**
+ * Compare two independent AI passes without merging them. A difference is a
+ * signal to review, not an invitation to average two guesses.
+ */
+function compareFrqPasses(first, second, rubric) {
+  if (!first || !second) return null;
+  const criteria = normalizeRubric(rubric);
+  const rows = criteria.map((criterion) => {
+    const a = first.scores && first.scores[criterion.id] !== undefined ? round1(clampPoints(first.scores[criterion.id], criterion.points)) : null;
+    const b = second.scores && second.scores[criterion.id] !== undefined ? round1(clampPoints(second.scores[criterion.id], criterion.points)) : null;
+    return {
+      id: criterion.id,
+      label: criterion.label,
+      max: criterion.points,
+      first: a,
+      second: b,
+      delta: a !== null && b !== null ? round1(b - a) : null,
+      disagree: a !== b,
+    };
+  });
+  const disagreements = rows.filter((row) => row.disagree);
+  const firstTotal = round1(rows.reduce((sum, row) => sum + (row.first || 0), 0));
+  const secondTotal = round1(rows.reduce((sum, row) => sum + (row.second || 0), 0));
+  return {
+    criteria: rows,
+    disagreements,
+    agrees: disagreements.length === 0,
+    firstTotal,
+    secondTotal,
+    max: rubricTotal(criteria),
+    delta: round1(secondTotal - firstTotal),
+  };
+}
+
 /* --------------------------------------------------------------------- notes */
 
 function yamlScalar(value) {
@@ -17371,6 +17405,7 @@ function buildFrqNote(input) {
   const title = safeFilePart(o.title) || "Untitled FRQ";
   const createdOn = normalizeDate(o.createdOn) || localDate();
   const maxPoints = rubricTotal(rubric);
+  const rubricSource = str(o.rubricSource).trim().toLowerCase() === "official" ? "official" : "user";
   const fm = {
     type: FRQ_NOTE_TYPE,
     ap_course: course.id,
@@ -17378,7 +17413,7 @@ function buildFrqNote(input) {
     title,
     frq_kind: str(o.kind).trim() || presetsForCourse(course.id)[0].id,
     source: "user",
-    rubric_source: "user",
+    rubric_source: rubricSource,
     max_points: maxPoints,
     created_on: createdOn,
     tags: ["ap", "ap-frq", tagPart(course.id)].filter(Boolean),
@@ -17391,7 +17426,11 @@ function buildFrqNote(input) {
   }
   lines.push("---", "");
   lines.push(`# ${title}`, "");
-  lines.push("> A user-supplied free-response item. The rubric below is your own scoring guide, not an official College Board rubric.");
+  lines.push(
+    rubricSource === "official"
+      ? "> A user-supplied free-response item. The rubric below is a pasted official or teacher-supplied rubric, marked as such by the learner. The plugin does not bundle it."
+      : "> A user-supplied free-response item. The rubric below is your own scoring guide, not an official College Board rubric.",
+  );
   lines.push("");
   lines.push("## Question", "", str(o.prompt).trim() || "Paste the free-response prompt here.", "");
   if (str(o.stimulus).trim()) lines.push("## Stimulus", "", str(o.stimulus).trim(), "");
@@ -17433,8 +17472,11 @@ function buildFrqAttemptNote(note, attempt, date) {
     percent: round1(attempt.percent),
     rating: str(attempt.rating),
     graded_by: str(attempt.gradedBy) || "self",
+    rubric_source: str(note.rubricSource) || "user",
     confidence: Number.isFinite(Number(attempt.confidence)) ? round1(Number(attempt.confidence) * 100) / 100 : null,
     criteria_missed: Array.isArray(attempt.missedLabels) ? attempt.missedLabels : [],
+    second_pass: attempt.secondPass === true,
+    criteria_disagreed: Array.isArray(attempt.disagreed) ? attempt.disagreed : [],
     model: str(attempt.model).trim(),
   };
   const lines = ["---"];
@@ -17486,6 +17528,9 @@ function entryFromAttemptFrontmatter(fm, path) {
     rating: str(fm.rating),
     gradedBy: str(fm.graded_by),
     missed: Array.isArray(fm.criteria_missed) ? fm.criteria_missed.map((item) => str(item)).filter(Boolean) : [],
+    rubricSource: str(fm.rubric_source) || "user",
+    secondPass: fm.second_pass === true || fm.second_pass === "true",
+    disagreed: Array.isArray(fm.criteria_disagreed) ? fm.criteria_disagreed.map((item) => str(item)).filter(Boolean) : [],
   };
 }
 
@@ -17512,6 +17557,38 @@ function frqAttemptTrend(entries) {
   };
 }
 
+/** Missed rubric criteria across saved attempts, for the Insights review list. */
+function frqCriterionWeakSpots(attempts) {
+  const list = Array.isArray(attempts) ? attempts : [];
+  const totals = new Map();
+  for (const entry of list) {
+    if (!entry || !entry.courseId) continue;
+    totals.set(entry.courseId, (totals.get(entry.courseId) || 0) + 1);
+  }
+  const map = new Map();
+  for (const entry of list) {
+    if (!entry || !entry.courseId) continue;
+    const criteria = [...new Set((entry.missed || []).map((item) => str(item).trim()).filter(Boolean))];
+    for (const criterion of criteria) {
+      const key = `${entry.courseId}::${criterion}`;
+      const row = map.get(key) || {
+        courseId: entry.courseId,
+        course: entry.course || entry.courseId,
+        criterion,
+        misses: 0,
+      };
+      row.misses += 1;
+      map.set(key, row);
+    }
+  }
+  return [...map.values()]
+    .map((row) => {
+      const count = totals.get(row.courseId) || 0;
+      return { ...row, attempts: count, rate: count ? round1(row.misses / count) : 0 };
+    })
+    .sort((a, b) => b.rate - a.rate || b.misses - a.misses || a.criterion.localeCompare(b.criterion));
+}
+
 /** Properties written back to the learner's FRQ note after an attempt. */
 function sourceFrontmatterUpdate(attempt, previousAttempts) {
   const count = Math.max(0, Number(previousAttempts) || 0) + 1;
@@ -17519,6 +17596,7 @@ function sourceFrontmatterUpdate(attempt, previousAttempts) {
     frq_last_score: round1(attempt.earned),
     frq_last_max: round1(attempt.max),
     frq_last_percent: round1(attempt.percent),
+    frq_last_rating: str(attempt.rating),
     frq_criteria_missed: Array.isArray(attempt.missedLabels) ? attempt.missedLabels : [],
     frq_graded_by: str(attempt.gradedBy) || "self",
     frq_graded_on: normalizeDate(attempt.gradedOn) || localDate(),
@@ -17538,9 +17616,11 @@ module.exports = {
   buildFrqAttemptNote,
   buildFrqNote,
   buildFrqPrompt,
+  compareFrqPasses,
   courseById,
   entryFromAttemptFrontmatter,
   frqAttemptTrend,
+  frqCriterionWeakSpots,
   gradeFrqWithAi,
   isFrqNote,
   normalizeDate,
@@ -17563,7 +17643,7 @@ module.exports = {
 __defs["frq-modal"] = function (module, exports, require) {
 const { Modal, Notice } = require("obsidian");
 const { renderMarkdownInto } = require("./view-helpers");
-const { FRQ_COURSES, courseById, parseRubric, presetFor, presetsForCourse, scoreAttempt } = require("./frq");
+const { FRQ_COURSES, courseById, compareFrqPasses, parseRubric, presetFor, presetsForCourse, scoreAttempt } = require("./frq");
 const { str } = require("./util");
 
 function presetText(courseId, kind) {
@@ -17591,11 +17671,14 @@ class FrqGraderModal extends Modal {
     this.scores = {};
     this.aiResult = null;
     this.aiScores = {};
+    this.secondResult = null;
+    this.comparison = null;
     this.result = null;
     this.attempts = [];
     this.message = "";
     this.loading = true;
     this.grading = false;
+    this.secondGrading = false;
     this.saving = false;
     this.resultEl = null;
   }
@@ -17620,6 +17703,8 @@ class FrqGraderModal extends Modal {
     this.scores = {};
     this.aiResult = null;
     this.aiScores = {};
+    this.secondResult = null;
+    this.comparison = null;
     this.result = this.note ? this.computeResult() : null;
     this.draw();
     if (this.note) await this.loadAttempts();
@@ -17643,6 +17728,8 @@ class FrqGraderModal extends Modal {
     this.scores = {};
     this.aiResult = null;
     this.aiScores = {};
+    this.secondResult = null;
+    this.comparison = null;
     this.attempts = [];
     this.message = "";
     this.result = this.computeResult();
@@ -17655,7 +17742,7 @@ class FrqGraderModal extends Modal {
     const ai = this.aiResult;
     let gradedBy = ai ? "ai" : "self";
     if (ai && Object.keys(this.scores).some((id) => Number(this.scores[id]) !== Number(ai.scores[id]))) gradedBy = "ai-edited";
-    return scoreAttempt({
+    const result = scoreAttempt({
       rubric: this.note.rubric,
       scores: this.scores,
       evidence: ai ? ai.evidence : {},
@@ -17665,6 +17752,12 @@ class FrqGraderModal extends Modal {
       overall: ai ? ai.overall : "",
       gradedBy,
     });
+    if (this.comparison) {
+      result.comparison = this.comparison;
+      result.needsReview = result.needsReview || !this.comparison.agrees;
+    }
+    result.secondPass = !!this.secondResult;
+    return result;
   }
 
   updateResult() {
@@ -17761,6 +17854,8 @@ class FrqGraderModal extends Modal {
     actions.createEl("button", { text: "Self-grade", cls: "qt-grow" }).addEventListener("click", () => {
       this.aiResult = null;
       this.aiScores = {};
+      this.secondResult = null;
+      this.comparison = null;
       this.message = "Self-grading. Change any score, then save the attempt.";
       this.result = this.computeResult();
       this.draw();
@@ -17772,6 +17867,15 @@ class FrqGraderModal extends Modal {
     });
     ai.disabled = this.grading;
     ai.addEventListener("click", () => this.runAi());
+    if (this.aiResult) {
+      const second = actions.createEl("button", {
+        text: this.secondGrading ? "Second pass…" : "Second pass",
+        cls: "qt-grow",
+        attr: { title: "Run an independent grading pass and flag every criterion the two passes score differently." },
+      });
+      second.disabled = this.secondGrading || this.grading;
+      second.addEventListener("click", () => this.runSecondPass());
+    }
     const save = actions.createEl("button", { text: this.saving ? "Saving…" : "Save attempt", cls: "mod-cta qt-grow" });
     save.disabled = this.saving || this.grading;
     save.addEventListener("click", () => this.save());
@@ -17787,6 +17891,8 @@ class FrqGraderModal extends Modal {
       this.scores = {};
       this.aiResult = null;
       this.aiScores = {};
+      this.secondResult = null;
+      this.comparison = null;
       this.message = "";
       this.result = this.computeResult();
       this.draw();
@@ -17830,6 +17936,21 @@ class FrqGraderModal extends Modal {
       if (criterion.evidence) row.createDiv({ cls: "qt-hint", text: `“${criterion.evidence}”` });
       if (criterion.comment) row.createDiv({ cls: "qt-hint", text: criterion.comment });
     }
+    if (result.comparison) {
+      const box = el.createDiv({ cls: "qt-frq-comparison" });
+      box.createEl("strong", {
+        text: result.comparison.agrees
+          ? "Two AI passes agree"
+          : `Two AI passes disagree on ${result.comparison.disagreements.length} criteria`,
+      });
+      box.createDiv({
+        cls: "qt-hint",
+        text: `Pass 1 ${result.comparison.firstTotal}/${result.comparison.max} · pass 2 ${result.comparison.secondTotal}/${result.comparison.max}. Choose the score you trust before saving.`,
+      });
+      for (const item of result.comparison.disagreements) {
+        box.createDiv({ cls: "qt-hint", text: `${item.label}: ${item.first === null ? "—" : item.first} / ${item.max} first, ${item.second === null ? "—" : item.second} / ${item.max} second.` });
+      }
+    }
     if (result.overall) el.createDiv({ cls: "qt-hint", text: result.overall });
     if (result.missed.length) el.createDiv({ cls: "qt-hint", text: `Missed: ${result.missedLabels.join(", ")}` });
   }
@@ -17849,12 +17970,40 @@ class FrqGraderModal extends Modal {
       this.aiResult = out;
       this.aiScores = { ...out.scores };
       this.scores = { ...out.scores };
+      this.secondResult = null;
+      this.comparison = null;
       this.result = this.computeResult();
       this.message = "AI draft ready. A human decides: check the quotes, change any score, then save the attempt.";
     } catch (error) {
       this.message = str(error && error.message ? error.message : error);
     }
     this.grading = false;
+    this.draw();
+  }
+
+  /** A second independent pass; disagreement is shown, never averaged away. */
+  async runSecondPass() {
+    if (!this.note || !this.aiResult || this.secondGrading) return;
+    if (!str(this.answer).trim()) {
+      this.message = "Write an answer before asking for a second pass.";
+      this.draw();
+      return;
+    }
+    this.secondGrading = true;
+    this.message = "";
+    this.draw();
+    try {
+      const out = await this.plugin.gradeFrqWithAi(this.note, this.answer);
+      this.secondResult = out;
+      this.comparison = compareFrqPasses(this.aiResult, out, this.note.rubric);
+      this.result = this.computeResult();
+      this.message = this.comparison && this.comparison.agrees
+        ? `Second pass agrees with the first (${this.comparison.secondTotal}/${this.comparison.max}).`
+        : `Second pass disagrees on ${this.comparison ? this.comparison.disagreements.length : 0} criteria. Resolve the scores before saving.`;
+    } catch (error) {
+      this.message = str(error && error.message ? error.message : error);
+    }
+    this.secondGrading = false;
     this.draw();
   }
 
@@ -17879,6 +18028,8 @@ class FrqGraderModal extends Modal {
         ...this.result,
         answer: this.answer,
         model: this.aiResult ? this.plugin.aiModelLabel("frqGrading") : "",
+        secondPass: !!this.secondResult,
+        disagreed: this.comparison ? this.comparison.disagreements.map((item) => item.label) : [],
       });
       this.message = `Saved ${saved.path}`;
       this.attempts = await this.plugin.getFrqAttempts(this.note.path);
@@ -17903,6 +18054,7 @@ class NewFrqNoteModal extends Modal {
     this.onDone = typeof onDone === "function" ? onDone : null;
     this.courseId = FRQ_COURSES[0].id;
     this.kind = presetsForCourse(this.courseId)[0].id;
+    this.rubricSource = "user";
     this.saving = false;
     this.error = "";
     this.errorEl = null;
@@ -17956,6 +18108,16 @@ class NewFrqNoteModal extends Modal {
     rubric.value = presetText(this.courseId, this.kind);
     root.createDiv({ cls: "qt-hint", text: "One criterion per line: - [points] Name: what earns the point. A Markdown table with a points column also works." });
 
+    const sourceRow = root.createDiv({ cls: "qt-row" });
+    sourceRow.createEl("label", { text: "Rubric source" });
+    const source = sourceRow.createEl("select", { cls: "dropdown" });
+    source.createEl("option", { text: "My own rubric", value: "user" });
+    source.createEl("option", { text: "Official or teacher-supplied rubric (pasted)", value: "official" });
+    source.value = this.rubricSource;
+    source.addEventListener("change", () => {
+      this.rubricSource = source.value;
+    });
+
     root.createEl("label", { text: "Sample answer (optional)" });
     const sample = root.createEl("textarea", { cls: "qt-frq-answer", attr: { rows: "4", placeholder: "Your own model answer, or leave blank." } });
 
@@ -18001,6 +18163,7 @@ class NewFrqNoteModal extends Modal {
           prompt: prompt.value,
           stimulus: stimulus.value,
           rubric: criteria,
+          rubricSource: this.rubricSource,
           sampleAnswer: sample.value,
         });
         new Notice(`Created ${created.path}`);
@@ -21722,12 +21885,18 @@ class InsightsView extends ItemView {
       el.scrollTop = top;
       return;
     }
+    if (this.tab === "weak") {
+      if (questions.length) this.renderWeak(root, questions);
+      else root.createDiv({ cls: "qt-empty", text: "No question notes found yet." });
+      this.renderFrqWeak(root);
+      el.scrollTop = top;
+      return;
+    }
     if (!questions.length) {
       root.createDiv({ cls: "qt-empty", text: "No question notes found yet." });
       return;
     }
-    if (this.tab === "weak") this.renderWeak(root, questions);
-    else this.renderErrors(root, questions);
+    this.renderErrors(root, questions);
     el.scrollTop = top;
   }
 
@@ -21916,6 +22085,37 @@ class InsightsView extends ItemView {
       col.createDiv({ cls: "qt-hint qt-trend-lab", text: w.accuracy === null ? "" : fmtPct(w.accuracy) });
     }
     root.createDiv({ cls: "qt-hint", text: "Each bar is one week, oldest on the left." });
+  }
+
+  /** Missed FRQ rubric criteria from saved attempts. Scheduler routing is still open. */
+  async renderFrqWeak(root) {
+    if (!this.plugin.getFrqWeakSpotRows) return;
+    const box = root.createDiv({ cls: "qt-frq-weak" });
+    box.createEl("h3", { cls: "qt-today-section", text: "FRQ criteria to review" });
+    let rows = [];
+    try {
+      rows = await this.plugin.getFrqWeakSpotRows();
+    } catch (e) {
+      rows = [];
+    }
+    if (!rows.length) {
+      box.createDiv({ cls: "qt-hint", text: "Saved FRQ attempts will show missed rubric criteria here." });
+      return;
+    }
+    box.createDiv({
+      cls: "qt-hint",
+      text: "Built from criteria marked short in your saved AP FRQ attempts. This is a practice signal, not a score prediction.",
+    });
+    for (const row of rows.slice(0, 6)) {
+      const line = box.createDiv({ cls: "qt-ins-row" });
+      const main = line.createDiv({ cls: "qt-ins-main" });
+      main.createDiv({ cls: "qt-ins-name", text: row.criterion });
+      main.createDiv({
+        cls: "qt-hint",
+        text: `${row.course} · short in ${row.misses} of ${row.attempts} attempt${row.attempts === 1 ? "" : "s"}`,
+      });
+    }
+    box.createEl("button", { cls: "mod-cta qt-primary", text: "Open AP FRQ practice" }).addEventListener("click", () => this.plugin.openFrqGrader());
   }
 
   renderErrors(root, questions) {
@@ -27965,7 +28165,7 @@ const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
 const { attachFrontmatter, attachStudySlotFrontmatter, buildApResourceNote, detachFrontmatter, detachStudySlotFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
-const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
+const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, frqCriterionWeakSpots, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
@@ -29531,6 +29731,11 @@ class QuestionTrackerPlugin extends Plugin {
       entries.push(entry);
     }
     return sortFrqAttempts(entries);
+  }
+
+  /** Missed FRQ criteria across saved attempts, for the Insights weak-spot list. */
+  async getFrqWeakSpotRows() {
+    return frqCriterionWeakSpots(await this.getFrqAttempts());
   }
 
   /** Saves one graded attempt and records its summary on the prompt note. */

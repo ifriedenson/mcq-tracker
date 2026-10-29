@@ -502,6 +502,40 @@ async function gradeFrqWithAi(client, note, answer) {
   return parseFrqGradeReply(reply, note && note.rubric);
 }
 
+/**
+ * Compare two independent AI passes without merging them. A difference is a
+ * signal to review, not an invitation to average two guesses.
+ */
+function compareFrqPasses(first, second, rubric) {
+  if (!first || !second) return null;
+  const criteria = normalizeRubric(rubric);
+  const rows = criteria.map((criterion) => {
+    const a = first.scores && first.scores[criterion.id] !== undefined ? round1(clampPoints(first.scores[criterion.id], criterion.points)) : null;
+    const b = second.scores && second.scores[criterion.id] !== undefined ? round1(clampPoints(second.scores[criterion.id], criterion.points)) : null;
+    return {
+      id: criterion.id,
+      label: criterion.label,
+      max: criterion.points,
+      first: a,
+      second: b,
+      delta: a !== null && b !== null ? round1(b - a) : null,
+      disagree: a !== b,
+    };
+  });
+  const disagreements = rows.filter((row) => row.disagree);
+  const firstTotal = round1(rows.reduce((sum, row) => sum + (row.first || 0), 0));
+  const secondTotal = round1(rows.reduce((sum, row) => sum + (row.second || 0), 0));
+  return {
+    criteria: rows,
+    disagreements,
+    agrees: disagreements.length === 0,
+    firstTotal,
+    secondTotal,
+    max: rubricTotal(criteria),
+    delta: round1(secondTotal - firstTotal),
+  };
+}
+
 /* --------------------------------------------------------------------- notes */
 
 function yamlScalar(value) {
@@ -547,6 +581,7 @@ function buildFrqNote(input) {
   const title = safeFilePart(o.title) || "Untitled FRQ";
   const createdOn = normalizeDate(o.createdOn) || localDate();
   const maxPoints = rubricTotal(rubric);
+  const rubricSource = str(o.rubricSource).trim().toLowerCase() === "official" ? "official" : "user";
   const fm = {
     type: FRQ_NOTE_TYPE,
     ap_course: course.id,
@@ -554,7 +589,7 @@ function buildFrqNote(input) {
     title,
     frq_kind: str(o.kind).trim() || presetsForCourse(course.id)[0].id,
     source: "user",
-    rubric_source: "user",
+    rubric_source: rubricSource,
     max_points: maxPoints,
     created_on: createdOn,
     tags: ["ap", "ap-frq", tagPart(course.id)].filter(Boolean),
@@ -567,7 +602,11 @@ function buildFrqNote(input) {
   }
   lines.push("---", "");
   lines.push(`# ${title}`, "");
-  lines.push("> A user-supplied free-response item. The rubric below is your own scoring guide, not an official College Board rubric.");
+  lines.push(
+    rubricSource === "official"
+      ? "> A user-supplied free-response item. The rubric below is a pasted official or teacher-supplied rubric, marked as such by the learner. The plugin does not bundle it."
+      : "> A user-supplied free-response item. The rubric below is your own scoring guide, not an official College Board rubric.",
+  );
   lines.push("");
   lines.push("## Question", "", str(o.prompt).trim() || "Paste the free-response prompt here.", "");
   if (str(o.stimulus).trim()) lines.push("## Stimulus", "", str(o.stimulus).trim(), "");
@@ -609,8 +648,11 @@ function buildFrqAttemptNote(note, attempt, date) {
     percent: round1(attempt.percent),
     rating: str(attempt.rating),
     graded_by: str(attempt.gradedBy) || "self",
+    rubric_source: str(note.rubricSource) || "user",
     confidence: Number.isFinite(Number(attempt.confidence)) ? round1(Number(attempt.confidence) * 100) / 100 : null,
     criteria_missed: Array.isArray(attempt.missedLabels) ? attempt.missedLabels : [],
+    second_pass: attempt.secondPass === true,
+    criteria_disagreed: Array.isArray(attempt.disagreed) ? attempt.disagreed : [],
     model: str(attempt.model).trim(),
   };
   const lines = ["---"];
@@ -662,6 +704,9 @@ function entryFromAttemptFrontmatter(fm, path) {
     rating: str(fm.rating),
     gradedBy: str(fm.graded_by),
     missed: Array.isArray(fm.criteria_missed) ? fm.criteria_missed.map((item) => str(item)).filter(Boolean) : [],
+    rubricSource: str(fm.rubric_source) || "user",
+    secondPass: fm.second_pass === true || fm.second_pass === "true",
+    disagreed: Array.isArray(fm.criteria_disagreed) ? fm.criteria_disagreed.map((item) => str(item)).filter(Boolean) : [],
   };
 }
 
@@ -688,6 +733,38 @@ function frqAttemptTrend(entries) {
   };
 }
 
+/** Missed rubric criteria across saved attempts, for the Insights review list. */
+function frqCriterionWeakSpots(attempts) {
+  const list = Array.isArray(attempts) ? attempts : [];
+  const totals = new Map();
+  for (const entry of list) {
+    if (!entry || !entry.courseId) continue;
+    totals.set(entry.courseId, (totals.get(entry.courseId) || 0) + 1);
+  }
+  const map = new Map();
+  for (const entry of list) {
+    if (!entry || !entry.courseId) continue;
+    const criteria = [...new Set((entry.missed || []).map((item) => str(item).trim()).filter(Boolean))];
+    for (const criterion of criteria) {
+      const key = `${entry.courseId}::${criterion}`;
+      const row = map.get(key) || {
+        courseId: entry.courseId,
+        course: entry.course || entry.courseId,
+        criterion,
+        misses: 0,
+      };
+      row.misses += 1;
+      map.set(key, row);
+    }
+  }
+  return [...map.values()]
+    .map((row) => {
+      const count = totals.get(row.courseId) || 0;
+      return { ...row, attempts: count, rate: count ? round1(row.misses / count) : 0 };
+    })
+    .sort((a, b) => b.rate - a.rate || b.misses - a.misses || a.criterion.localeCompare(b.criterion));
+}
+
 /** Properties written back to the learner's FRQ note after an attempt. */
 function sourceFrontmatterUpdate(attempt, previousAttempts) {
   const count = Math.max(0, Number(previousAttempts) || 0) + 1;
@@ -695,6 +772,7 @@ function sourceFrontmatterUpdate(attempt, previousAttempts) {
     frq_last_score: round1(attempt.earned),
     frq_last_max: round1(attempt.max),
     frq_last_percent: round1(attempt.percent),
+    frq_last_rating: str(attempt.rating),
     frq_criteria_missed: Array.isArray(attempt.missedLabels) ? attempt.missedLabels : [],
     frq_graded_by: str(attempt.gradedBy) || "self",
     frq_graded_on: normalizeDate(attempt.gradedOn) || localDate(),
@@ -714,9 +792,11 @@ module.exports = {
   buildFrqAttemptNote,
   buildFrqNote,
   buildFrqPrompt,
+  compareFrqPasses,
   courseById,
   entryFromAttemptFrontmatter,
   frqAttemptTrend,
+  frqCriterionWeakSpots,
   gradeFrqWithAi,
   isFrqNote,
   normalizeDate,
