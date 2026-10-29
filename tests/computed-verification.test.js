@@ -142,3 +142,45 @@ test("computed verification fields preserve a numeric answer and mark the method
   assert.equal(fields.verified_answer, "42");
   assert.match(T.answerVerification.verificationBanner({ ...fields, method: "computed", status: "mismatch", key: "41", answer: "42" }), /calculation gives 42/);
 });
+
+test("plugin: a bulk calculation preview writes nothing and applies only checked notes", async () => {
+  const note = (id, answer) => ({
+    path: `Questions/${id}.md`,
+    fm: { question_id: id, answer, calculation: "6 * 7" },
+    text: `---\nquestion_id: ${id}\nanswer: ${answer}\ncalculation: 6 * 7\n---\n\n## Question\nWhat is 6 times 7?\n`,
+  });
+  const app = makeApp([note("good", "42"), note("bad", "41")]);
+  const plugin = new QT(app);
+  await plugin.onload();
+
+  const preview = await plugin.previewCalculationVerification();
+  assert.equal(preview.checked, 2);
+  assert.equal(preview.items.length, 2);
+  assert.equal(app.files[0].fm.verification, undefined, "preview leaves the note untouched");
+  assert.equal(app.files[1].fm.verification, undefined);
+
+  const result = await plugin.applyCalculationPreview(preview.items, ["Questions/good.md"]);
+  assert.deepEqual(result.applied, ["Questions/good.md"]);
+  assert.deepEqual(result.conflicts, []);
+  assert.equal(app.files[0].fm.verification, "match");
+  assert.equal(app.files[1].fm.verification, undefined, "unchecked notes are not written");
+});
+
+test("plugin: a bulk calculation check skips a note edited during review", async () => {
+  const app = makeApp([
+    {
+      path: "Questions/calc.md",
+      fm: { question_id: "calc", answer: "41", calculation: "6 * 7" },
+      text: "---\nquestion_id: calc\nanswer: 41\ncalculation: 6 * 7\n---\n\n## Question\nWhat is 6 times 7?\n",
+    },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const preview = await plugin.previewCalculationVerification();
+  app.files[0].text += "\nuser edit during review\n";
+
+  const result = await plugin.applyCalculationPreview(preview.items, ["Questions/calc.md"]);
+  assert.deepEqual(result.applied, []);
+  assert.deepEqual(result.conflicts, ["Questions/calc.md"]);
+  assert.equal(app.files[0].fm.verification, undefined);
+});

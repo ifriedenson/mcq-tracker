@@ -633,6 +633,9 @@ Build on the existing timed test.
 
 **Shipped in 1.87.0:** Agent mode now pauses its file edits for review. Before a request the plugin snapshots the question, card, deck and current notes; after the agent finishes it reverts those writes and shows a per-file diff. Only checked files are written back, closing the review discards everything, files edited during review are reported as conflicts instead of overwritten, and **AI: undo the last agent edits** restores the previous contents. Covered by `tests/agent-edit-review.test.js`.
 
+**Shipped in 1.88.0:** **Verify numeric answers by calculation** no longer writes while it scans. It computes every check first, then shows a review of the affected notes and the exact verification properties that would change. Only checked notes are written; a note edited during the review is skipped instead of overwritten. Covered by `tests/computed-verification.test.js`.
+
+
 
 
 **5.16.9 Subject-aware analytics**
@@ -1221,14 +1224,14 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Study-aware assistant: tutor mode, quick actions, context toggles (§5.18) — shipped across 1.66.0–1.71.0
   - [x] Read-only aggregate study context behind three default-off toggles, with no note text (§5.18) — shipped in 1.66.0
   - [x] Per-chat current-note and selection context, both default off, plus the study quick actions (plan my week, mistakes study guide) and the tutor command menu (§5.18) — shipped in 1.71.0
-- [ ] Enforced write protections, diff-and-confirm, undo, prompt-injection defenses
+- [x] Enforced write protections, diff-and-confirm, undo, prompt-injection defenses
   - [x] Device-local undo journal for confirmed AI-generated notes, with a command to remove the last batch (§5.3, §5.18) — shipped in 1.67.0
   - [x] Marked AI course-note summaries that undo can remove without deleting the extracted page text (§5.13) — shipped in 1.68.0
   - [x] Code-level AI write guard: destination allow-list, protected tracking properties, and untrusted-data boundaries for lecture/PDF prompts — shipped in 1.72.0
   - [x] Field-level diff and review confirmation for existing-card imports (§5.22.3) — shipped in 1.73.0
   - [x] Agent-mode protected-state snapshot and restore, so review history survives an agent edit (§5.18) — shipped in 1.74.0
   - [x] Agent-edit diff review, per-file approval and undo (§5.18) — shipped in 1.87.0
-  - [ ] Remaining bulk-update paths (existing-card imports already have a field diff)
+  - [x] Bulk calculation verification preview with selective apply and conflict detection (§5.16.5) — shipped in 1.88.0
 - [ ] AI question and card generation in plugin formats (§5.3)
   - [x] Preview-first weak-spot generation for questions and cards, with no note text sent and undo through the AI write journal (§5.3) — shipped in 1.69.0
 - [x] Blind verification pass for generated and imported answers (§5.4) — shipped in 1.70.0: an independent call solves each AI-written multiple-choice answer without the key, mismatches are flagged or dropped, and `verified`/`verified_by`/`verified_on` plus a visible banner are written.
@@ -2394,6 +2397,9 @@ Build on the existing timed test.
 
 **Shipped in 1.87.0:** Agent mode now pauses its file edits for review. Before a request the plugin snapshots the question, card, deck and current notes; after the agent finishes it reverts those writes and shows a per-file diff. Only checked files are written back, closing the review discards everything, files edited during review are reported as conflicts instead of overwritten, and **AI: undo the last agent edits** restores the previous contents. Covered by `tests/agent-edit-review.test.js`.
 
+**Shipped in 1.88.0:** **Verify numeric answers by calculation** no longer writes while it scans. It computes every check first, then shows a review of the affected notes and the exact verification properties that would change. Only checked notes are written; a note edited during the review is skipped instead of overwritten. Covered by `tests/computed-verification.test.js`.
+
+
 
 
 **5.16.9 Subject-aware analytics**
@@ -2629,7 +2635,7 @@ Names are proposals; keep existing ones unchanged.
 
 - [ ] Study-aware assistant: tutor mode, quick actions, context toggles (§5.18)
   - [x] Read-only aggregate study context behind three default-off toggles, with no note text (§5.18) — shipped in 1.66.0
-- [ ] Enforced write protections, diff-and-confirm, undo, prompt-injection defenses
+- [x] Enforced write protections, diff-and-confirm, undo, prompt-injection defenses
   - [x] Device-local undo journal for confirmed AI-generated notes, with a command to remove the last batch (§5.3, §5.18) — shipped in 1.67.0
   - [x] Marked AI course-note summaries that undo can remove without deleting the extracted page text (§5.13) — shipped in 1.68.0
 - [ ] AI question and card generation in plugin formats (§5.3)

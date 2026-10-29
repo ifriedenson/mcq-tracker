@@ -4804,6 +4804,134 @@ class AssignmentsView extends ItemView {
 module.exports = { VIEW_TYPE_ASSIGNMENTS, AssignmentsView };
 };
 
+/* ---- src/calculation-preview-modal.js ---- */
+__defs["calculation-preview-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+
+const STATUS_LABELS = {
+  match: "Agrees",
+  mismatch: "Disagrees",
+  error: "Could not check",
+  review: "Needs review",
+};
+
+function displayValue(value) {
+  if (value === undefined || value === null || value === "") return "(empty)";
+  if (Array.isArray(value)) return value.join(", ");
+  return String(value);
+}
+
+class CalculationPreviewModal extends Modal {
+  constructor(app, plugin, preview) {
+    super(app);
+    this.plugin = plugin;
+    this.preview = preview || { items: [] };
+    this.applying = false;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("qt-agent-review");
+    contentEl.createEl("h3", { text: "Review calculation checks" });
+    contentEl.createEl("p", {
+      cls: "setting-item-description",
+      text:
+        "Nothing has been written yet. The plugin compared each note's stored numeric answer with its calculation or answer formula. " +
+        "Tick the notes you want to update, then apply the check results.",
+    });
+    const p = this.preview;
+    contentEl.createEl("p", {
+      cls: "qt-hint",
+      text:
+        `${p.checked || 0} checked · ${p.items.length} to update · ${p.unchanged || 0} already up to date` +
+        `${p.mismatched ? ` · ${p.mismatched} disagree` : ""}${p.errors ? ` · ${p.errors} could not be checked` : ""}`,
+    });
+
+    this.boxes = new Map();
+    for (const item of p.items || []) {
+      const wrap = contentEl.createDiv({ cls: "qt-agent-file" });
+      const head = wrap.createDiv({ cls: "qt-agent-file-head" });
+      const box = head.createEl("input", { type: "checkbox", attr: { "aria-label": `Apply ${item.path}` } });
+      box.checked = true;
+      this.boxes.set(item.path, box);
+      const name = head.createSpan({ cls: "qt-agent-file-name", text: item.path });
+      name.title = item.path;
+      head.createSpan({ cls: `qt-agent-status is-${item.status}`, text: STATUS_LABELS[item.status] || item.status });
+      if (item.result && item.result.reason) {
+        wrap.createDiv({ cls: "qt-hint", text: item.result.reason });
+      }
+      const list = wrap.createDiv({ cls: "qt-calc-changes" });
+      for (const change of item.changes || []) {
+        list.createDiv({
+          cls: "qt-calc-change",
+          text: `${change.key}: ${displayValue(change.before)} → ${displayValue(change.after)}`,
+        });
+      }
+    }
+
+    const row = contentEl.createDiv({ cls: "qt-row" });
+    const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
+    cancel.addEventListener("click", () => this.close());
+    const apply = row.createEl("button", { text: "Apply checked", cls: "mod-cta qt-grow" });
+    apply.addEventListener("click", () => this.apply());
+    this.applyButton = apply;
+  }
+
+  selectedPaths() {
+    const out = [];
+    for (const [path, box] of this.boxes || []) if (box && box.checked) out.push(path);
+    return out;
+  }
+
+  async apply() {
+    if (this.applying || !this.plugin || typeof this.plugin.applyCalculationPreview !== "function") return;
+    const paths = this.selectedPaths();
+    if (!paths.length) {
+      this.close();
+      return;
+    }
+    this.applying = true;
+    if (this.applyButton) {
+      this.applyButton.disabled = true;
+      this.applyButton.setText("Applying...");
+    }
+    try {
+      const result = await this.plugin.applyCalculationPreview(this.preview.items, paths);
+      const applied = (result && result.applied) || [];
+      const conflicts = (result && result.conflicts) || [];
+      const failed = (result && result.failed) || [];
+      if (applied.length) {
+        new Notice(`Updated calculation checks in ${applied.length} note${applied.length === 1 ? "" : "s"}.`, 7000);
+      }
+      if (conflicts.length) {
+        new Notice(`Skipped ${conflicts.length} note${conflicts.length === 1 ? "" : "s"} that changed during review.`, 9000);
+      }
+      if (failed.length) {
+        new Notice(`Could not update ${failed.length} note${failed.length === 1 ? "" : "s"}.`, 9000);
+      }
+      this.close();
+    } catch (e) {
+      if (this.applyButton) {
+        this.applyButton.disabled = false;
+        this.applyButton.setText("Apply checked");
+      }
+      new Notice(`Could not apply the calculation checks: ${e && e.message ? e.message : e}`, 10000);
+    } finally {
+      this.applying = false;
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = {
+  CalculationPreviewModal,
+};
+};
+
 /* ---- src/calculator.js ---- */
 __defs["calculator"] = function (module, exports, require) {
 /*
@@ -25855,6 +25983,7 @@ const { computedVerification } = require("./computed-verification");
 const { allowedWriteRoots, assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
 const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
+const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
@@ -28052,37 +28181,95 @@ class QuestionTrackerPlugin extends Plugin {
     await this.app.vault.modify(file, addVerificationBanner(await this.app.vault.cachedRead(file), verification));
   }
 
-  /** Check every question that carries a literal calculation or answer formula. */
-  async verifyAllByCalculation() {
+  /** Properties a computed check would change, without writing them. */
+  calculationPreviewChanges(fm, result) {
+    const fields = verificationFields(result);
+    if (!fm.answer && result.status === "match" && !fm.variables) fields.answer = result.answer;
+    if (result.status === "mismatch" || result.status === "error" || result.status === "review") fields.needs_review = true;
+    return Object.keys(fields)
+      .filter((key) => JSON.stringify(fm[key] === undefined ? null : fm[key]) !== JSON.stringify(fields[key] === undefined ? null : fields[key]))
+      .map((key) => ({ key, before: fm[key], after: fields[key] }));
+  }
+
+  /** Compute the whole vault's calculation checks first; write nothing. */
+  async previewCalculationVerification() {
+    const items = [];
     let checked = 0;
     let mismatched = 0;
     let errors = 0;
     let skipped = 0;
+    let unchanged = 0;
     for (const q of this.getQuestions()) {
       try {
-        const sections = parseSections(await this.app.vault.cachedRead(q.file));
+        const text = await this.app.vault.cachedRead(q.file);
+        const sections = parseSections(text);
         const key = findAnswerKey(q.fm, sections);
         const result = computedVerification({ ...q.fm, answer: key }, { key, date: localDate() });
         if (!result) {
           skipped++;
           continue;
         }
-        await this.applyComputedVerification(q.file, result);
         checked++;
         if (result.status === "mismatch") mismatched++;
         else if (result.status === "error") errors++;
+        const changes = this.calculationPreviewChanges(q.fm, result);
+        if (!changes.length) {
+          unchanged++;
+          continue;
+        }
+        items.push({ path: q.file.path, status: result.status, result, changes, beforeText: text });
       } catch (e) {
         errors++;
       }
     }
-    this.refreshViews();
-    new Notice(
-      `Checked ${checked} numeric answer${checked === 1 ? "" : "s"} by calculation` +
-        `${mismatched ? `; ${mismatched} disagree` : ""}` +
-        `${errors ? `; ${errors} could not be checked` : ""}.`,
-      8000
-    );
-    return { checked, mismatched, errors, skipped };
+    items.sort((a, b) => a.path.localeCompare(b.path));
+    return { items, checked, mismatched, errors, skipped, unchanged };
+  }
+
+  /** Apply only the calculation checks the learner confirmed. */
+  async applyCalculationPreview(items, selectedPaths) {
+    const wanted = selectedPaths instanceof Set ? selectedPaths : new Set(Array.isArray(selectedPaths) ? selectedPaths : []);
+    const applied = [];
+    const conflicts = [];
+    const failed = [];
+    for (const item of Array.isArray(items) ? items : []) {
+      if (!wanted.has(item.path)) continue;
+      const file = this.app.vault.getAbstractFileByPath(item.path);
+      if (!(file instanceof TFile)) {
+        conflicts.push(item.path);
+        continue;
+      }
+      try {
+        const current = await this.app.vault.cachedRead(file);
+        if (current !== item.beforeText) {
+          conflicts.push(item.path);
+          continue;
+        }
+        await this.applyComputedVerification(file, item.result);
+        applied.push(item.path);
+      } catch (e) {
+        failed.push(item.path);
+      }
+    }
+    if (applied.length) this.refreshViews();
+    return { applied, conflicts, failed };
+  }
+
+  /** Check every question that carries a literal calculation or answer formula. */
+  async verifyAllByCalculation() {
+    const preview = await this.previewCalculationVerification();
+    if (!preview.items.length) {
+      new Notice(
+        `Calculation check: ${preview.checked} numeric answer${preview.checked === 1 ? "" : "s"} checked` +
+          `${preview.unchanged ? `; ${preview.unchanged} already up to date` : ""}` +
+          `${preview.mismatched ? `; ${preview.mismatched} disagree` : ""}` +
+          `${preview.errors ? `; ${preview.errors} could not be checked` : ""}.`,
+        8000
+      );
+      return preview;
+    }
+    new CalculationPreviewModal(this.app, this, preview).open();
+    return preview;
   }
 
   /** Read one note and describe whether it is a transcript. */
@@ -37925,6 +38112,7 @@ const cardWriteDiff = require("./card-write-diff");
 const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { AgentEditReviewModal } = require("./agent-edit-review-modal");
+const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const secretKeys = require("./secret-keys");
 const history = require("./history");
 const testSections = require("./exam-sections");
@@ -38054,6 +38242,7 @@ QuestionTrackerPlugin.__test = {
   agentWriteGuard,
   agentEditReview,
   AgentEditReviewModal,
+  CalculationPreviewModal,
   secretKeys,
   history,
   testSections,

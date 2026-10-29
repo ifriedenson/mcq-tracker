@@ -33,6 +33,7 @@ const { computedVerification } = require("./computed-verification");
 const { allowedWriteRoots, assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
 const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
+const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
@@ -2230,37 +2231,95 @@ class QuestionTrackerPlugin extends Plugin {
     await this.app.vault.modify(file, addVerificationBanner(await this.app.vault.cachedRead(file), verification));
   }
 
-  /** Check every question that carries a literal calculation or answer formula. */
-  async verifyAllByCalculation() {
+  /** Properties a computed check would change, without writing them. */
+  calculationPreviewChanges(fm, result) {
+    const fields = verificationFields(result);
+    if (!fm.answer && result.status === "match" && !fm.variables) fields.answer = result.answer;
+    if (result.status === "mismatch" || result.status === "error" || result.status === "review") fields.needs_review = true;
+    return Object.keys(fields)
+      .filter((key) => JSON.stringify(fm[key] === undefined ? null : fm[key]) !== JSON.stringify(fields[key] === undefined ? null : fields[key]))
+      .map((key) => ({ key, before: fm[key], after: fields[key] }));
+  }
+
+  /** Compute the whole vault's calculation checks first; write nothing. */
+  async previewCalculationVerification() {
+    const items = [];
     let checked = 0;
     let mismatched = 0;
     let errors = 0;
     let skipped = 0;
+    let unchanged = 0;
     for (const q of this.getQuestions()) {
       try {
-        const sections = parseSections(await this.app.vault.cachedRead(q.file));
+        const text = await this.app.vault.cachedRead(q.file);
+        const sections = parseSections(text);
         const key = findAnswerKey(q.fm, sections);
         const result = computedVerification({ ...q.fm, answer: key }, { key, date: localDate() });
         if (!result) {
           skipped++;
           continue;
         }
-        await this.applyComputedVerification(q.file, result);
         checked++;
         if (result.status === "mismatch") mismatched++;
         else if (result.status === "error") errors++;
+        const changes = this.calculationPreviewChanges(q.fm, result);
+        if (!changes.length) {
+          unchanged++;
+          continue;
+        }
+        items.push({ path: q.file.path, status: result.status, result, changes, beforeText: text });
       } catch (e) {
         errors++;
       }
     }
-    this.refreshViews();
-    new Notice(
-      `Checked ${checked} numeric answer${checked === 1 ? "" : "s"} by calculation` +
-        `${mismatched ? `; ${mismatched} disagree` : ""}` +
-        `${errors ? `; ${errors} could not be checked` : ""}.`,
-      8000
-    );
-    return { checked, mismatched, errors, skipped };
+    items.sort((a, b) => a.path.localeCompare(b.path));
+    return { items, checked, mismatched, errors, skipped, unchanged };
+  }
+
+  /** Apply only the calculation checks the learner confirmed. */
+  async applyCalculationPreview(items, selectedPaths) {
+    const wanted = selectedPaths instanceof Set ? selectedPaths : new Set(Array.isArray(selectedPaths) ? selectedPaths : []);
+    const applied = [];
+    const conflicts = [];
+    const failed = [];
+    for (const item of Array.isArray(items) ? items : []) {
+      if (!wanted.has(item.path)) continue;
+      const file = this.app.vault.getAbstractFileByPath(item.path);
+      if (!(file instanceof TFile)) {
+        conflicts.push(item.path);
+        continue;
+      }
+      try {
+        const current = await this.app.vault.cachedRead(file);
+        if (current !== item.beforeText) {
+          conflicts.push(item.path);
+          continue;
+        }
+        await this.applyComputedVerification(file, item.result);
+        applied.push(item.path);
+      } catch (e) {
+        failed.push(item.path);
+      }
+    }
+    if (applied.length) this.refreshViews();
+    return { applied, conflicts, failed };
+  }
+
+  /** Check every question that carries a literal calculation or answer formula. */
+  async verifyAllByCalculation() {
+    const preview = await this.previewCalculationVerification();
+    if (!preview.items.length) {
+      new Notice(
+        `Calculation check: ${preview.checked} numeric answer${preview.checked === 1 ? "" : "s"} checked` +
+          `${preview.unchanged ? `; ${preview.unchanged} already up to date` : ""}` +
+          `${preview.mismatched ? `; ${preview.mismatched} disagree` : ""}` +
+          `${preview.errors ? `; ${preview.errors} could not be checked` : ""}.`,
+        8000
+      );
+      return preview;
+    }
+    new CalculationPreviewModal(this.app, this, preview).open();
+    return preview;
   }
 
   /** Read one note and describe whether it is a transcript. */

@@ -1722,6 +1722,18 @@
   color: var(--text-error);
 }
 
+.qt-calc-changes {
+  margin-top: 6px;
+}
+
+.qt-calc-change {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  padding: 2px 0;
+}
+
 .qt-agent-details {
   margin-top: 6px;
 }

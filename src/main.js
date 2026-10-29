@@ -30,6 +30,7 @@ const cardWriteDiff = require("./card-write-diff");
 const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { AgentEditReviewModal } = require("./agent-edit-review-modal");
+const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const secretKeys = require("./secret-keys");
 const history = require("./history");
 const testSections = require("./exam-sections");
@@ -159,6 +160,7 @@ QuestionTrackerPlugin.__test = {
   agentWriteGuard,
   agentEditReview,
   AgentEditReviewModal,
+  CalculationPreviewModal,
   secretKeys,
   history,
   testSections,
