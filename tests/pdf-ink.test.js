@@ -102,3 +102,16 @@ test("pdf annotations: text boxes round-trip through the sidecar", () => {
   assert.equal(parsed.annotations[0].type, "text");
   assert.deepEqual(parsed.annotations[0].boxes, [box]);
 });
+
+test("pdf ink: highlight areas clamp to the page, keep notes and hit-test by rectangle", () => {
+  const area = ink.normalizeHighlightArea({ x: 0.99, y: 0.99, width: 0.4, height: 0.2, color: "green", note: "  Key idea\nSecond line  " });
+  assert.equal(area.width, 0.4);
+  assert.equal(area.height, 0.2);
+  assert.equal(area.x, 0.6);
+  assert.equal(area.y, 0.8);
+  assert.equal(area.color, "green");
+  assert.equal(area.note, "Key idea\nSecond line");
+  assert.equal(ink.areaAt([area], [0.7, 0.85]), area);
+  assert.equal(ink.areaAt([area], [0.1, 0.1]), null);
+  assert.equal(ink.normalizeHighlightAreas([area, null]).length, 1);
+});

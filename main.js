@@ -19660,7 +19660,7 @@ __defs["pdf-annotations"] = function (module, exports, require) {
  * old notes to a different document.
  */
 
-const { normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
+const { normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
 
 const ANNOTATION_BLOCK = "mcq-pdf-annotations";
 const ANNOTATION_TYPES = ["highlight", "note", "text", "form", "pen"];
@@ -19707,7 +19707,8 @@ function normalizeAnnotation(input) {
   const text = str(src.text).trim();
   const strokes = type === "pen" ? normalizeInkStrokes(src.strokes) : [];
   const boxes = type === "text" ? normalizeTextBoxes(src.boxes) : [];
-  if (!quote && !note && !text && !strokes.length && !boxes.length) throw new Error("Add a quote, note or text, or draw some ink, for the annotation.");
+  const areas = type === "highlight" ? normalizeHighlightAreas(src.areas) : [];
+  if (!quote && !note && !text && !strokes.length && !boxes.length && !areas.length) throw new Error("Add a quote, note or text, or draw some ink, for the annotation.");
   const out = {
     id: str(src.id).trim() || newAnnotationId(),
     page,
@@ -19720,6 +19721,7 @@ function normalizeAnnotation(input) {
   };
   if (type === "pen") out.strokes = strokes;
   if (type === "text" && boxes.length) out.boxes = boxes;
+  if (type === "highlight" && areas.length) out.areas = areas;
   return out;
 }
 
@@ -19753,6 +19755,9 @@ function annotationSummary(annotation) {
   }
   if (Array.isArray(annotation.boxes) && annotation.boxes.length) {
     bits.push(`${annotation.boxes.length} text box${annotation.boxes.length === 1 ? "" : "es"}`);
+  }
+  if (Array.isArray(annotation.areas) && annotation.areas.length) {
+    bits.push(`${annotation.areas.length} highlighted area${annotation.areas.length === 1 ? "" : "s"}`);
   }
   return bits.join(" - ") || "(no text)";
 }
@@ -19843,6 +19848,7 @@ const MAX_INK_POINTS = 4000;
 const MAX_INK_STROKES = 200;
 const MAX_TEXT_BOXES = 100;
 const MAX_TEXT_LENGTH = 2000;
+const MAX_HIGHLIGHT_AREAS = 100;
 const INK_COLOR_HEX = {
   yellow: "#f2c94c",
   green: "#6fcf97",
@@ -19943,6 +19949,48 @@ function boxAt(boxes, point) {
   return null;
 }
 
+/** A highlighted rectangle with an optional note, in page coordinates. */
+function normalizeHighlightArea(input) {
+  if (!input || typeof input !== "object") return null;
+  const rawWidth = Number(input.width);
+  const rawHeight = Number(input.height);
+  if (!Number.isFinite(rawWidth) || !Number.isFinite(rawHeight) || rawWidth <= 0 || rawHeight <= 0) return null;
+  const src = input;
+  const width = clamp(rawWidth, 0.001, 0.95);
+  const height = clamp(rawHeight, 0.001, 0.95);
+  const x = clamp(Number(src.x) || 0, 0, 1 - width);
+  const y = clamp(Number(src.y) || 0, 0, 1 - height);
+  const color = INK_COLORS.includes(str(src.color)) ? str(src.color) : "yellow";
+  return {
+    x: round(x, 4),
+    y: round(y, 4),
+    width: round(width, 4),
+    height: round(height, 4),
+    color,
+    note: str(src.note).replace(/\r\n?/g, "\n").trim().slice(0, MAX_TEXT_LENGTH),
+  };
+}
+
+function normalizeHighlightAreas(list) {
+  const out = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    const area = normalizeHighlightArea(raw);
+    if (area) out.push(area);
+    if (out.length >= MAX_HIGHLIGHT_AREAS) break;
+  }
+  return out;
+}
+
+function areaAt(areas, point) {
+  const list = Array.isArray(areas) ? areas : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const area = list[i];
+    if (!area) continue;
+    if (point[0] >= area.x && point[0] <= area.x + area.width && point[1] >= area.y && point[1] <= area.y + area.height) return area;
+  }
+  return null;
+}
+
 /** Distance from a point to a line segment, all in normalized page coordinates. */
 function pointToSegmentDistance(point, a, b) {
   const px = point[0];
@@ -19985,9 +20033,9 @@ function lineWidthFor(stroke, canvasWidth) {
   return Math.max(1, Number(canvasWidth) * (Number(stroke && stroke.width) || 0.003));
 }
 
-function drawInkStrokes(ctx, strokes, width, height) {
+function drawInkStrokes(ctx, strokes, width, height, clear) {
   if (!ctx) return;
-  ctx.clearRect(0, 0, width, height);
+  if (clear !== false) ctx.clearRect(0, 0, width, height);
   for (const stroke of Array.isArray(strokes) ? strokes : []) {
     const points = stroke && Array.isArray(stroke.points) ? stroke.points : [];
     if (!points.length) continue;
@@ -20032,16 +20080,20 @@ module.exports = {
   INK_COLORS,
   INK_COLOR_HEX,
   INK_TOOLS,
+  MAX_HIGHLIGHT_AREAS,
   MAX_INK_POINTS,
   MAX_INK_STROKES,
   MAX_TEXT_BOXES,
   MAX_TEXT_LENGTH,
+  areaAt,
   boxAt,
   drawInkSegment,
   drawInkStrokes,
   eraseStrokesAt,
   hitStroke,
   normalizeInkStroke,
+  normalizeHighlightArea,
+  normalizeHighlightAreas,
   normalizeInkStrokes,
   normalizePoint,
   normalizeTextBox,
@@ -20056,9 +20108,9 @@ __defs["pdf-ink-modal"] = function (module, exports, require) {
 const { Modal, Notice, Setting, TFile } = require("obsidian");
 const { renderPdfPagesAsPng } = require("./pdf");
 const { hashBytes, parseAnnotationFile, removeAnnotation, sidecarPathFor, upsertAnnotation } = require("./pdf-annotations");
-const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MAX_INK_POINTS, boxAt, clamp, drawInkSegment, drawInkStrokes, eraseStrokesAt, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes } = require("./pdf-ink");
+const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MAX_INK_POINTS, areaAt, boxAt, clamp, drawInkSegment, drawInkStrokes, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes } = require("./pdf-ink");
 
-const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", text: "Text box", eraser: "Eraser" };
+const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", text: "Text box", highlight: "Highlight", eraser: "Eraser" };
 const COLOR_LABELS = { yellow: "Yellow", green: "Green", blue: "Blue", red: "Red", purple: "Purple", gray: "Gray" };
 const SIZE_PRESETS = {
   thin: { pen: 0.0018, highlighter: 0.012 },
@@ -20126,6 +20178,11 @@ class PdfInkModal extends Modal {
     this.inkId = "";
     this.textBoxes = [];
     this.textId = "";
+    this.highlights = [];
+    this.highlightId = "";
+    this.highlightStart = null;
+    this.highlightDraft = null;
+    this.lastPoint = null;
     this.history = [];
     this.currentHash = "";
     this.savedHash = "";
@@ -20192,7 +20249,7 @@ class PdfInkModal extends Modal {
     el.createEl("h3", { text: "Draw on a PDF" });
     el.createEl("p", {
       cls: "setting-item-description",
-      text: "Pen, highlighter and text-box edits are saved in the PDF's annotation sidecar. They are stored as page coordinates, so they stay in place at any zoom or on another device. Quoted highlights and page notes remain available in Add a PDF annotation.",
+      text: "Pen, highlighter, text-box and highlight edits are saved in the PDF's annotation sidecar. They are stored as page coordinates, so they stay in place at any zoom or on another device. Quoted highlights and page notes remain available in Add a PDF annotation.",
     });
 
     const files = this.pdfFiles();
@@ -20230,9 +20287,9 @@ class PdfInkModal extends Modal {
     next.addEventListener("click", () => this.stepPage(1));
 
     new Setting(el).setName("Tool").addDropdown((d) => {
-      for (const tool of [...INK_TOOLS, "text", "eraser"]) d.addOption(tool, TOOL_LABELS[tool]);
+      for (const tool of [...INK_TOOLS, "text", "highlight", "eraser"]) d.addOption(tool, TOOL_LABELS[tool]);
       d.setValue(this.tool).onChange((v) => {
-        this.tool = INK_TOOLS.includes(v) || v === "text" || v === "eraser" ? v : "pen";
+        this.tool = INK_TOOLS.includes(v) || v === "text" || v === "highlight" || v === "eraser" ? v : "pen";
         if (this.tool === "highlighter" && this.color === "blue") this.color = "yellow";
       });
     });
@@ -20306,6 +20363,8 @@ class PdfInkModal extends Modal {
     this.inkId = "";
     this.textBoxes = [];
     this.textId = "";
+    this.highlights = [];
+    this.highlightId = "";
     this.savedHash = "";
     const existing = this.app.vault.getAbstractFileByPath(this.sidecarPath);
     if (!existing) return;
@@ -20326,6 +20385,11 @@ class PdfInkModal extends Modal {
     if (textLayer) {
       this.textId = textLayer.id;
       this.textBoxes = normalizeTextBoxes(textLayer.boxes);
+    }
+    const highlightLayer = (parsed.annotations || []).find((a) => a.page === Number(this.page) && a.type === "highlight" && Array.isArray(a.areas) && a.areas.length);
+    if (highlightLayer) {
+      this.highlightId = highlightLayer.id;
+      this.highlights = normalizeHighlightAreas(highlightLayer.areas);
     }
   }
 
@@ -20377,8 +20441,15 @@ class PdfInkModal extends Modal {
         }
       }
       const point = pointAt(event);
+      this.lastPoint = point;
       if (this.tool === "text") {
         this.editTextBox(point, boxAt(this.textBoxes, point));
+        return;
+      }
+      if (this.tool === "highlight") {
+        this.highlightStart = point;
+        this.highlightDraft = normalizeHighlightArea({ x: point[0], y: point[1], width: 0.001, height: 0.001, color: this.color, note: "" });
+        this.redraw();
         return;
       }
       if (this.tool === "eraser") {
@@ -20403,6 +20474,24 @@ class PdfInkModal extends Modal {
     });
     canvas.addEventListener("pointermove", (event) => {
       if (this.busy) return;
+      if (this.highlightStart) {
+        if (event.preventDefault) event.preventDefault();
+        const point = pointAt(event);
+        this.lastPoint = point;
+        const start = this.highlightStart;
+        const x = Math.min(start[0], point[0]);
+        const y = Math.min(start[1], point[1]);
+        this.highlightDraft = normalizeHighlightArea({
+          x,
+          y,
+          width: Math.max(0.001, Math.abs(start[0] - point[0])),
+          height: Math.max(0.001, Math.abs(start[1] - point[1])),
+          color: this.color,
+          note: "",
+        });
+        this.redraw();
+        return;
+      }
       if (this.erasing) {
         if (event.preventDefault) event.preventDefault();
         this.eraseAt(pointAt(event));
@@ -20420,6 +20509,7 @@ class PdfInkModal extends Modal {
       this.touch();
     });
     const finish = () => {
+      if (this.highlightStart) this.finishHighlight();
       if (this.drawing) {
         this.drawing = null;
         this.redraw();
@@ -20434,6 +20524,13 @@ class PdfInkModal extends Modal {
   }
 
   eraseAt(point) {
+    const hitHighlight = areaAt(this.highlights, point);
+    if (hitHighlight) {
+      this.highlights = this.highlights.filter((area) => area !== hitHighlight);
+      this.touch();
+      this.redraw();
+      return;
+    }
     const hitBox = boxAt(this.textBoxes, point);
     if (hitBox) {
       this.textBoxes = this.textBoxes.filter((box) => box !== hitBox);
@@ -20455,14 +20552,20 @@ class PdfInkModal extends Modal {
 
   redraw() {
     if (!this.ctx || !this.canvas) return;
-    drawInkStrokes(this.ctx, this.strokes, this.canvas.width, this.canvas.height);
-    drawTextBoxes(this.ctx, this.textBoxes, this.canvas.width, this.canvas.height);
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+    this.ctx.clearRect(0, 0, width, height);
+    drawHighlightAreas(this.ctx, this.highlights, width, height);
+    if (this.highlightDraft) drawHighlightAreas(this.ctx, [this.highlightDraft], width, height);
+    drawInkStrokes(this.ctx, this.strokes, width, height, false);
+    drawTextBoxes(this.ctx, this.textBoxes, width, height);
   }
 
   snapshot() {
     return {
       strokes: this.strokes.map((stroke) => ({ ...stroke, points: stroke.points.map((point) => point.slice()) })),
       textBoxes: this.textBoxes.map((box) => ({ ...box })),
+      highlights: this.highlights.map((area) => ({ ...area })),
     };
   }
 
@@ -20476,18 +20579,74 @@ class PdfInkModal extends Modal {
     if (!previous) return;
     this.strokes = previous.strokes;
     this.textBoxes = previous.textBoxes;
+    this.highlights = previous.highlights;
     this.touch();
     this.redraw();
   }
 
   clear() {
-    if (!this.strokes.length && !this.textBoxes.length) return;
+    if (!this.strokes.length && !this.textBoxes.length && !this.highlights.length) return;
     this.pushHistory();
     this.strokes = [];
     this.textBoxes = [];
-    // Keep inkId/textId: saving an empty page must remove the existing layers.
+    this.highlights = [];
+    // Keep inkId/textId/highlightId: saving an empty page must remove the layers.
     this.touch();
     this.redraw();
+  }
+
+  finishHighlight() {
+    const start = this.highlightStart;
+    const end = this.lastPoint || start;
+    this.highlightStart = null;
+    this.highlightDraft = null;
+    if (!start || !end) {
+      this.redraw();
+      return;
+    }
+    const width = Math.abs(end[0] - start[0]);
+    const height = Math.abs(end[1] - start[1]);
+    if (width >= 0.01 && height >= 0.01) {
+      const area = normalizeHighlightArea({
+        x: Math.min(start[0], end[0]),
+        y: Math.min(start[1], end[1]),
+        width,
+        height,
+        color: this.color,
+        note: "",
+      });
+      this.redraw();
+      if (!area) return;
+      new TextBoxPromptModal(
+        this.app,
+        { title: "Highlight note", text: "" },
+        (value) => {
+          area.note = String(value || "").trim();
+          this.pushHistory();
+          this.highlights.push(area);
+          this.touch();
+          this.redraw();
+        }
+      ).open();
+      return;
+    }
+    const hit = areaAt(this.highlights, end);
+    if (hit) this.editHighlightNote(hit);
+    else this.setStatus("Drag across an area to highlight it.");
+    this.redraw();
+  }
+
+  editHighlightNote(existing) {
+    new TextBoxPromptModal(
+      this.app,
+      { title: "Edit highlight note", text: existing.note || "" },
+      (value) => {
+        this.pushHistory();
+        existing.note = String(value || "").trim();
+        this.touch();
+        this.redraw();
+      }
+    ).open();
   }
 
   editTextBox(point, existing) {
@@ -20546,8 +20705,9 @@ class PdfInkModal extends Modal {
     const page = this.page;
     const strokes = normalizeInkStrokes(this.strokes);
     const boxes = normalizeTextBoxes(this.textBoxes);
-    if (!strokes.length && !this.inkId && !boxes.length && !this.textId) {
-      this.setStatus("Draw something or add a text box first.");
+    const areas = normalizeHighlightAreas(this.highlights);
+    if (!strokes.length && !this.inkId && !boxes.length && !this.textId && !areas.length && !this.highlightId) {
+      this.setStatus("Draw something, add a text box or highlight an area first.");
       return false;
     }
     this.busy = true;
@@ -20564,6 +20724,7 @@ class PdfInkModal extends Modal {
       let nextText = oldText;
       let inkId = this.inkId;
       let textId = this.textId;
+      let highlightId = this.highlightId;
       if (strokes.length) {
         const result = upsertAnnotation(nextText, { id: inkId || undefined, page, type: "pen", color: this.color, strokes }, meta);
         nextText = result.text;
@@ -20582,16 +20743,27 @@ class PdfInkModal extends Modal {
         nextText = removeAnnotation(nextText, textId, meta).text;
         textId = "";
       }
+      if (areas.length) {
+        const result = upsertAnnotation(nextText, { id: highlightId || undefined, page, type: "highlight", color: this.color, areas }, meta);
+        nextText = result.text;
+        const savedHighlights = (result.annotations || []).find((a) => a.page === page && a.type === "highlight" && Array.isArray(a.areas) && a.areas.length);
+        highlightId = savedHighlights ? savedHighlights.id : "";
+      } else if (highlightId) {
+        nextText = removeAnnotation(nextText, highlightId, meta).text;
+        highlightId = "";
+      }
       if (existing) await this.app.vault.modify(existing, nextText);
       else await this.app.vault.create(path, nextText);
       this.sidecarPath = path;
       this.savedHash = hash;
       this.inkId = inkId;
       this.textId = textId;
+      this.highlightId = highlightId;
       this.dirty = this.editSeq !== seq;
       const bits = [];
       if (strokes.length) bits.push(`${strokes.length} stroke${strokes.length === 1 ? "" : "s"}`);
       if (boxes.length) bits.push(`${boxes.length} text box${boxes.length === 1 ? "" : "es"}`);
+      if (areas.length) bits.push(`${areas.length} highlight${areas.length === 1 ? "" : "s"}`);
       this.setStatus(bits.length ? `Saved ${bits.join(" and ")} on page ${page}.` : `Removed the overlay from page ${page}.`);
       if (opts.close && !this.dirty) this.close();
       return true;
@@ -20650,6 +20822,33 @@ function drawTextBoxes(ctx, boxes, width, height) {
     const lineHeight = fontSize * 1.3;
     for (let i = 0; i < lines.length && i * lineHeight < boxHeight - 6; i++) {
       ctx.fillText(lines[i], x + 4, y + 4 + i * lineHeight);
+    }
+    ctx.restore();
+  }
+}
+
+function drawHighlightAreas(ctx, areas, width, height) {
+  if (!ctx) return;
+  for (const area of Array.isArray(areas) ? areas : []) {
+    const x = area.x * width;
+    const y = area.y * height;
+    const areaWidth = Math.max(1, area.width * width);
+    const areaHeight = Math.max(1, area.height * height);
+    const color = INK_COLOR_HEX[area.color] || INK_COLOR_HEX.yellow;
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, areaWidth, areaHeight);
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, areaWidth, areaHeight);
+    if (area.note) {
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x + areaWidth - 6, y + 6, 3, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.restore();
   }

@@ -45,3 +45,14 @@ test("pdf annotations: an empty or damaged sidecar fails safely", () => {
   assert.throws(() => pdf.normalizeAnnotation({ page: 0 }), /quote, note or text/);
   assert.equal(pdf.normalizeAnnotation({ page: 3, note: "x" }).page, 3);
 });
+
+test("pdf annotations: highlight areas and their notes round-trip through the sidecar", () => {
+  const area = T.pdfInk.normalizeHighlightArea({ x: 0.1, y: 0.2, width: 0.3, height: 0.08, color: "yellow", note: "Compare with unit 2." });
+  const saved = pdf.upsertAnnotation("", { page: 5, type: "highlight", color: "yellow", areas: [area] }, { pdfPath: "Papers/Exam.pdf", pdfHash: "hash" });
+  assert.match(saved.text, /1 highlighted area/);
+  assert.match(saved.text, /Compare with unit 2\./);
+  const parsed = pdf.parseAnnotationFile(saved.text);
+  assert.equal(parsed.annotations[0].type, "highlight");
+  assert.deepEqual(parsed.annotations[0].areas, [area]);
+  assert.throws(() => pdf.normalizeAnnotation({ page: 1, type: "highlight" }), /quote, note or text/);
+});

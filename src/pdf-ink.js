@@ -14,6 +14,7 @@ const MAX_INK_POINTS = 4000;
 const MAX_INK_STROKES = 200;
 const MAX_TEXT_BOXES = 100;
 const MAX_TEXT_LENGTH = 2000;
+const MAX_HIGHLIGHT_AREAS = 100;
 const INK_COLOR_HEX = {
   yellow: "#f2c94c",
   green: "#6fcf97",
@@ -114,6 +115,48 @@ function boxAt(boxes, point) {
   return null;
 }
 
+/** A highlighted rectangle with an optional note, in page coordinates. */
+function normalizeHighlightArea(input) {
+  if (!input || typeof input !== "object") return null;
+  const rawWidth = Number(input.width);
+  const rawHeight = Number(input.height);
+  if (!Number.isFinite(rawWidth) || !Number.isFinite(rawHeight) || rawWidth <= 0 || rawHeight <= 0) return null;
+  const src = input;
+  const width = clamp(rawWidth, 0.001, 0.95);
+  const height = clamp(rawHeight, 0.001, 0.95);
+  const x = clamp(Number(src.x) || 0, 0, 1 - width);
+  const y = clamp(Number(src.y) || 0, 0, 1 - height);
+  const color = INK_COLORS.includes(str(src.color)) ? str(src.color) : "yellow";
+  return {
+    x: round(x, 4),
+    y: round(y, 4),
+    width: round(width, 4),
+    height: round(height, 4),
+    color,
+    note: str(src.note).replace(/\r\n?/g, "\n").trim().slice(0, MAX_TEXT_LENGTH),
+  };
+}
+
+function normalizeHighlightAreas(list) {
+  const out = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    const area = normalizeHighlightArea(raw);
+    if (area) out.push(area);
+    if (out.length >= MAX_HIGHLIGHT_AREAS) break;
+  }
+  return out;
+}
+
+function areaAt(areas, point) {
+  const list = Array.isArray(areas) ? areas : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const area = list[i];
+    if (!area) continue;
+    if (point[0] >= area.x && point[0] <= area.x + area.width && point[1] >= area.y && point[1] <= area.y + area.height) return area;
+  }
+  return null;
+}
+
 /** Distance from a point to a line segment, all in normalized page coordinates. */
 function pointToSegmentDistance(point, a, b) {
   const px = point[0];
@@ -156,9 +199,9 @@ function lineWidthFor(stroke, canvasWidth) {
   return Math.max(1, Number(canvasWidth) * (Number(stroke && stroke.width) || 0.003));
 }
 
-function drawInkStrokes(ctx, strokes, width, height) {
+function drawInkStrokes(ctx, strokes, width, height, clear) {
   if (!ctx) return;
-  ctx.clearRect(0, 0, width, height);
+  if (clear !== false) ctx.clearRect(0, 0, width, height);
   for (const stroke of Array.isArray(strokes) ? strokes : []) {
     const points = stroke && Array.isArray(stroke.points) ? stroke.points : [];
     if (!points.length) continue;
@@ -203,16 +246,20 @@ module.exports = {
   INK_COLORS,
   INK_COLOR_HEX,
   INK_TOOLS,
+  MAX_HIGHLIGHT_AREAS,
   MAX_INK_POINTS,
   MAX_INK_STROKES,
   MAX_TEXT_BOXES,
   MAX_TEXT_LENGTH,
+  areaAt,
   boxAt,
   drawInkSegment,
   drawInkStrokes,
   eraseStrokesAt,
   hitStroke,
   normalizeInkStroke,
+  normalizeHighlightArea,
+  normalizeHighlightAreas,
   normalizeInkStrokes,
   normalizePoint,
   normalizeTextBox,
