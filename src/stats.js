@@ -75,7 +75,7 @@ const fmtPct = (x) => (x === null || x === undefined ? "-" : `${Math.round(x * 1
 function parseHistory(h) {
   return (Array.isArray(h) ? h : []).map((line) => {
     const p = str(line).split("|");
-    return { when: p[0] || "", result: p[1] || "", seconds: Number(p[2]) || 0, answer: p[3] || "", conf: p[4] || "", error: (p[5] || "").trim() };
+    return { when: p[0] || "", result: p[1] || "", seconds: Number(p[2]) || 0, answer: p[3] || "", conf: p[4] || "", error: (p[5] || "").trim(), id: (p[6] || "").trim() };
   });
 }
 

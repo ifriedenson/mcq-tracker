@@ -462,6 +462,12 @@ Run **AI: generate practice from a weak spot** to open a preview-first generator
 
 The general assistant has two switches above its quick actions: **Include current note** and **Include selection**. Both are off by default and reset on **New chat**. While off, the assistant never reads a note for context. While on, it receives the active note's body with frontmatter removed (capped at 6,000 characters) and, separately, the current editor selection (capped at 2,000 characters). The note and selection are labelled as untrusted data, and the prompt tells the model not to follow instructions found inside them or change tracking properties. Turning a switch off stops that text from being sent on the next message.
 
+### Review history and syncing
+
+Every review appends one row to a note's `history` property: timestamp, result, seconds, answer, confidence, error tag and a unique attempt id. A retry with an id that is already present is ignored, so replaying an offline queue cannot count the same attempt twice. New rows use a second-level timestamp.
+
+If a phone and a desktop edit the same note, run **Repair review counters from history** after Obsidian Sync finishes. It recomputes attempts, correct count, total time, streak and the latest-attempt fields from the rows. The next review date is not changed. Rows written by older versions have no attempt id and still work; only new rows carry one.
+
 ### Reviewing card updates before import
 
 When an import would update an existing card, choose **Update the existing card** and press **Preview**. The dialog lists each affected note and the fields that will change: front, back, deck or course. Tick **I reviewed these updates** before importing. Review history, attempts, scheduling and notes are not changed by the update.

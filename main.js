@@ -16845,6 +16845,177 @@ exports.show_diff_message = show_diff_message;
 module.exports = Object.assign(exports.default || {}, exports)
 };
 
+/* ---- src/history.js ---- */
+__defs["history"] = function (module, exports, require) {
+/*
+ * Review history rows are append-only:
+ *   when|result|seconds|answer|confidence|error_type|attempt_id
+ *
+ * Older rows stop at error_type. The attempt id is what makes a retry or a
+ * sync merge safe: the same row cannot be counted twice, while two devices can
+ * contribute different rows for the same note.
+ */
+const { str } = require("./util");
+
+const VALID_RESULTS = new Set(["correct", "incorrect"]);
+
+function splitRow(line) {
+  return str(line).split("|");
+}
+
+function attemptIdOf(line) {
+  return str(splitRow(line)[6]).trim();
+}
+
+function hasAttemptId(list, id) {
+  const wanted = str(id).trim();
+  if (!wanted) return false;
+  return (Array.isArray(list) ? list : []).some((line) => attemptIdOf(line) === wanted);
+}
+
+/** Append one row unless its attempt id is already present. */
+function appendHistory(list, line, id) {
+  const out = Array.isArray(list) ? list.slice() : [];
+  const wanted = str(id).trim();
+  if (wanted && hasAttemptId(out, wanted)) return out;
+  out.push(str(line));
+  return out;
+}
+
+/**
+ * Union several histories. Attempt ids are the identity; legacy rows without
+ * one are identified by their full text. Sorting by the ISO timestamp keeps a
+ * phone and desktop merge in chronological order without dropping either side.
+ */
+function mergeHistory(...lists) {
+  const seen = new Set();
+  const rows = [];
+  for (const list of lists) {
+    for (const line of Array.isArray(list) ? list : []) {
+      const text = str(line);
+      if (!text) continue;
+      const identity = attemptIdOf(text) || text;
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      rows.push(text);
+    }
+  }
+  return rows.sort((a, b) => {
+    const whenA = str(splitRow(a)[0]);
+    const whenB = str(splitRow(b)[0]);
+    return whenA.localeCompare(whenB);
+  });
+}
+
+/** Update the error tag on one attempt, preserving its id, or on the latest row. */
+function setAttemptErrorType(list, id, type) {
+  const rows = Array.isArray(list) ? list.slice() : [];
+  const wanted = str(id).trim();
+  let index = -1;
+  if (wanted) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (attemptIdOf(rows[i]) === wanted) {
+        index = i;
+        break;
+      }
+    }
+  }
+  if (index < 0 && !wanted && rows.length) index = rows.length - 1;
+  if (index < 0) return rows;
+  const parts = splitRow(rows[index]);
+  while (parts.length < 6) parts.push("");
+  parts[5] = str(type);
+  rows[index] = parts.join("|");
+  return rows;
+}
+
+function rowData(line) {
+  const p = splitRow(line);
+  return {
+    when: str(p[0]),
+    result: str(p[1]),
+    seconds: Math.max(0, Number(p[2]) || 0),
+    answer: str(p[3]),
+    conf: str(p[4]),
+    error: str(p[5]).trim(),
+    id: str(p[6]).trim(),
+  };
+}
+
+/**
+ * Recompute the counters that can be derived without guessing a scheduler:
+ * attempts, correct count, total time and the latest-attempt fields. Scheduling
+ * and streak are left alone because they depend on the review policy used.
+ */
+function repairHistoryCounters(fm) {
+  if (!fm || typeof fm !== "object") return { changed: false, attempts: 0 };
+  const rows = (Array.isArray(fm.history) ? fm.history : []).map(rowData).filter((row) => VALID_RESULTS.has(row.result));
+  if (!rows.length) return { changed: false, attempts: 0 };
+  const attempts = rows.length;
+  const correct = rows.filter((row) => row.result === "correct").length;
+  const seconds = rows.reduce((sum, row) => sum + row.seconds, 0);
+  const first = rows.reduce((a, row) => (row.when < a ? row.when : a), rows[0].when);
+  const last = rows.reduce((a, row) => (row.when > a ? row.when : a), rows[0].when);
+  const ordered = rows.slice().sort((a, b) => a.when.localeCompare(b.when));
+  const latest = ordered[ordered.length - 1];
+  // Replay the same streak rule the normal review path uses. Hard reviews
+  // (confidence 1) keep the current streak; every other correct review adds one.
+  let streak = 0;
+  for (const row of ordered) {
+    if (row.result === "incorrect") streak = 0;
+    else if (row.conf !== "1") streak++;
+  }
+  const before = {
+    attempts: Number(fm.attempts) || 0,
+    correct: Number(fm.correct_count) || 0,
+    seconds: Number(fm.time_spent_total) || 0,
+    streak: Number(fm.streak) || 0,
+    first: str(fm.first_attempted),
+    last: str(fm["date attempted"]),
+    result: str(fm.result),
+    answer: str(fm.last_answer),
+    confidence: str(fm.last_confidence),
+    error: str(fm.last_error_type),
+  };
+  fm.attempts = attempts;
+  fm.correct_count = correct;
+  fm.time_spent_total = seconds;
+  fm.streak = streak;
+  if (first) fm.first_attempted = first;
+  if (last) fm["date attempted"] = last;
+  fm.result = latest.result;
+  fm.last_answer = latest.answer;
+  fm.last_confidence = latest.conf;
+  fm.last_error_type = latest.error;
+  const after = {
+    attempts,
+    correct,
+    seconds,
+    streak,
+    first: str(fm.first_attempted),
+    last: str(fm["date attempted"]),
+    result: fm.result,
+    answer: fm.last_answer,
+    confidence: fm.last_confidence,
+    error: fm.last_error_type,
+  };
+  const changed = Object.keys(after).some((key) => before[key] !== after[key]);
+  return { changed, attempts };
+}
+
+module.exports = {
+  VALID_RESULTS,
+  appendHistory,
+  attemptIdOf,
+  hasAttemptId,
+  mergeHistory,
+  repairHistoryCounters,
+  rowData,
+  setAttemptErrorType,
+  splitRow,
+};
+};
+
 /* ---- src/image-occlusion-modal.js ---- */
 __defs["image-occlusion-modal"] = function (module, exports, require) {
 const { Modal, Notice } = require("obsidian");
@@ -19244,7 +19415,8 @@ module.exports = {
 
 /* ---- src/notes.js ---- */
 __defs["notes"] = function (module, exports, require) {
-const { addDays, fmtDate, fmtDateTime, str } = require("./util");
+const { addDays, fmtDate, fmtDateTime, fmtDateTimeSec, str } = require("./util");
+const { appendHistory, hasAttemptId, setAttemptErrorType } = require("./history");
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
 
@@ -19415,7 +19587,31 @@ function applyExamCap(fm, nextReview, examCap, now) {
 /** Mutates `fm` (inside processFrontMatter). Returns a summary. */
 function applyAttempt(fm, a, intervals, options) {
   const opts = options || {};
-  if (opts.attemptId) fm.last_attempt_id = opts.attemptId;
+  const attemptId = str(opts.attemptId).trim();
+  // A sync conflict or an offline retry can hand us the same id twice. Do not
+  // increment counters or append a second row for an attempt we already have.
+  if (attemptId && hasAttemptId(fm.history, attemptId)) {
+    return {
+      duplicate: true,
+      streak: Number(fm.streak) || 0,
+      attempts: Number(fm.attempts) || 0,
+      correctCount: Number(fm.correct_count) || 0,
+      nextReview: str(fm.next_review),
+      examCap: null,
+      target: Number(fm.target_seconds) || 0,
+      scheduler: fm.scheduler === "fsrs" ? "fsrs" : "ladder",
+      fsrsRating: 0,
+      fsrsDays: 0,
+      fsrsReplayed: 0,
+      fsrsError: "",
+      grade: "",
+      verdict: "",
+      typedAnswer: "",
+      verdictOverride: false,
+      attemptId,
+    };
+  }
+  if (attemptId) fm.last_attempt_id = attemptId;
   const iv = intervals && intervals.length ? intervals : DEFAULT_SETTINGS.intervals;
   const prev = Number(fm.streak) || 0;
   // Cards rate themselves explicitly. Hard keeps the current rung without
@@ -19457,11 +19653,11 @@ function applyAttempt(fm, a, intervals, options) {
   }
 
   const now = fmtDateTime(a.now);
+  const when = fmtDateTimeSec(a.now);
   const chosen = str(a.chosen).replace(/[|\n\r]/g, "/");
-  const history = Array.isArray(fm.history) ? fm.history : [];
-  // date|result|seconds|answer|confidence|error_type
-  history.push(`${now}|${a.correct ? "correct" : "incorrect"}|${a.seconds}|${chosen}|${a.conf}|`);
-  fm.history = history;
+  // date|result|seconds|answer|confidence|error_type|attempt_id
+  const row = `${when}|${a.correct ? "correct" : "incorrect"}|${a.seconds}|${chosen}|${a.conf}||${attemptId}`;
+  fm.history = appendHistory(fm.history, row, attemptId);
 
   fm.attempts = (Number(fm.attempts) || 0) + 1;
   fm.correct_count = (Number(fm.correct_count) || 0) + (a.correct ? 1 : 0);
@@ -19518,14 +19714,13 @@ function applyAttempt(fm, a, intervals, options) {
 }
 
 function setLastErrorType(fm, type) {
-  const history = Array.isArray(fm.history) ? fm.history : [];
-  if (history.length) {
-    const parts = str(history[history.length - 1]).split("|");
-    while (parts.length < 6) parts.push("");
-    parts[5] = type;
-    history[history.length - 1] = parts.slice(0, 6).join("|");
-    fm.history = history;
-  }
+  fm.history = setAttemptErrorType(fm.history, "", type);
+  fm.last_error_type = type;
+}
+
+/** Tag one specific attempt, so an offline retry labels the right history row. */
+function setAttemptError(fm, attemptId, type) {
+  fm.history = setAttemptErrorType(fm.history, attemptId, type);
   fm.last_error_type = type;
 }
 
@@ -19553,6 +19748,7 @@ module.exports = {
   gradeAnswer,
   applyAttempt,
   setLastErrorType,
+  setAttemptError,
   fillDefaults,
 };
 };
@@ -23190,7 +23386,7 @@ const { WelcomeModal } = require("./welcome-modal");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
-const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
+const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
 const { assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
 const agentWriteGuard = require("./agent-write-guard");
@@ -23235,6 +23431,7 @@ const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
 const { migrateApiKeys } = require("./secret-keys");
+const { hasAttemptId, repairHistoryCounters } = require("./history");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -23576,6 +23773,11 @@ class QuestionTrackerPlugin extends Plugin {
       id: "add-fields-all",
       name: "Add missing tracking properties to all question notes",
       callback: () => this.addMissingFields(this.getQuestions().map((q) => q.file)),
+    });
+    this.addCommand({
+      id: "repair-review-history",
+      name: "Repair review counters from history",
+      callback: () => this.repairReviewHistory(),
     });
 
     this.addSettingTab(new QuestionTrackerSettingTab(this.app, this));
@@ -26617,6 +26819,44 @@ class QuestionTrackerPlugin extends Plugin {
     }
   }
 
+  /** Recompute counters after a sync conflict or a hand-edited history. */
+  async repairReviewHistory() {
+    const items = [...this.getQuestions(), ...(typeof this.getCards === "function" ? this.getCards() : [])];
+    const seen = new Set();
+    const files = [];
+    for (const item of items) {
+      if (!item || !item.file || seen.has(item.file.path)) continue;
+      seen.add(item.file.path);
+      files.push(item.file);
+    }
+    if (!files.length) {
+      new Notice("No question or card notes found.");
+      return { changed: 0, scanned: 0 };
+    }
+    const ok = await this.askConfirm(
+      "Repair review counters?",
+      "This recalculates attempts, correct count, total time, streak and the latest-attempt fields from each note's append-only history. The next review date is not changed. Use it after a sync conflict or if the counters look wrong.",
+      "Repair counters"
+    );
+    if (!ok) return { changed: 0, scanned: 0 };
+    let changed = 0;
+    for (const file of files) {
+      try {
+        const cached = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (!cached || !repairHistoryCounters(cloneFrontmatter(cached)).changed) continue;
+        await this.app.fileManager.processFrontMatter(file, (fm) => {
+          repairHistoryCounters(fm);
+        });
+        changed++;
+      } catch (e) {
+        /* one unreadable note should not block the rest */
+      }
+    }
+    if (changed) this.refreshViews();
+    new Notice(`Checked ${files.length} note${files.length === 1 ? "" : "s"}; repaired ${changed}.`);
+    return { changed, scanned: files.length };
+  }
+
   async recordAttempt(file, a) {
     const attempt = { ...a, attemptId: a.attemptId || newAttemptId(a.now) };
     const opts = { scheduler: this.settings.scheduler, fsrsRetention: this.settings.fsrsRetention, attemptId: attempt.attemptId };
@@ -26680,8 +26920,8 @@ class QuestionTrackerPlugin extends Plugin {
         }
         try {
           await this.app.fileManager.processFrontMatter(file, (fm) => {
-            if (fm.last_attempt_id === entry.id) {
-              if (entry.errorType) setLastErrorType(fm, entry.errorType);
+            if (fm.last_attempt_id === entry.id || hasAttemptId(fm.history, entry.id)) {
+              if (entry.errorType) setAttemptError(fm, entry.id, entry.errorType);
               return;
             }
             const attempt = unpackAttempt(entry.attempt);
@@ -26691,7 +26931,7 @@ class QuestionTrackerPlugin extends Plugin {
               attemptId: entry.id,
               examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
             });
-            if (entry.errorType) setLastErrorType(fm, entry.errorType);
+            if (entry.errorType) setAttemptError(fm, entry.id, entry.errorType);
           });
           list = removePending(list, entry.id);
           sent++;
@@ -32090,7 +32330,7 @@ const fmtPct = (x) => (x === null || x === undefined ? "-" : `${Math.round(x * 1
 function parseHistory(h) {
   return (Array.isArray(h) ? h : []).map((line) => {
     const p = str(line).split("|");
-    return { when: p[0] || "", result: p[1] || "", seconds: Number(p[2]) || 0, answer: p[3] || "", conf: p[4] || "", error: (p[5] || "").trim() };
+    return { when: p[0] || "", result: p[1] || "", seconds: Number(p[2]) || 0, answer: p[3] || "", conf: p[4] || "", error: (p[5] || "").trim(), id: (p[6] || "").trim() };
   });
 }
 
@@ -33951,6 +34191,7 @@ const { normalizePath } = require("obsidian");
 const pad = (n) => String(n).padStart(2, "0");
 const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const fmtDateTime = (d) => `${fmtDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const fmtDateTimeSec = (d) => `${fmtDateTime(d)}:${pad(d.getSeconds())}`;
 const addDays = (d, n) => {
   const x = new Date(d.getTime());
   x.setDate(x.getDate() + n);
@@ -33993,6 +34234,7 @@ module.exports = {
   pad,
   fmtDate,
   fmtDateTime,
+  fmtDateTimeSec,
   addDays,
   fmtClock,
   str,
@@ -34610,6 +34852,7 @@ const aiWriteGuard = require("./ai-write-guard");
 const cardWriteDiff = require("./card-write-diff");
 const agentWriteGuard = require("./agent-write-guard");
 const secretKeys = require("./secret-keys");
+const history = require("./history");
 const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
 const answerVerification = require("./answer-verification");
@@ -34727,6 +34970,7 @@ QuestionTrackerPlugin.__test = {
   cardWriteDiff,
   agentWriteGuard,
   secretKeys,
+  history,
   aiWrites,
   weakSpot,
   answerVerification,

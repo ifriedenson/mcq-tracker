@@ -28,7 +28,7 @@ const { WelcomeModal } = require("./welcome-modal");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
-const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
+const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
 const { assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
 const agentWriteGuard = require("./agent-write-guard");
@@ -73,6 +73,7 @@ const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
 const { migrateApiKeys } = require("./secret-keys");
+const { hasAttemptId, repairHistoryCounters } = require("./history");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -414,6 +415,11 @@ class QuestionTrackerPlugin extends Plugin {
       id: "add-fields-all",
       name: "Add missing tracking properties to all question notes",
       callback: () => this.addMissingFields(this.getQuestions().map((q) => q.file)),
+    });
+    this.addCommand({
+      id: "repair-review-history",
+      name: "Repair review counters from history",
+      callback: () => this.repairReviewHistory(),
     });
 
     this.addSettingTab(new QuestionTrackerSettingTab(this.app, this));
@@ -3455,6 +3461,44 @@ class QuestionTrackerPlugin extends Plugin {
     }
   }
 
+  /** Recompute counters after a sync conflict or a hand-edited history. */
+  async repairReviewHistory() {
+    const items = [...this.getQuestions(), ...(typeof this.getCards === "function" ? this.getCards() : [])];
+    const seen = new Set();
+    const files = [];
+    for (const item of items) {
+      if (!item || !item.file || seen.has(item.file.path)) continue;
+      seen.add(item.file.path);
+      files.push(item.file);
+    }
+    if (!files.length) {
+      new Notice("No question or card notes found.");
+      return { changed: 0, scanned: 0 };
+    }
+    const ok = await this.askConfirm(
+      "Repair review counters?",
+      "This recalculates attempts, correct count, total time, streak and the latest-attempt fields from each note's append-only history. The next review date is not changed. Use it after a sync conflict or if the counters look wrong.",
+      "Repair counters"
+    );
+    if (!ok) return { changed: 0, scanned: 0 };
+    let changed = 0;
+    for (const file of files) {
+      try {
+        const cached = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (!cached || !repairHistoryCounters(cloneFrontmatter(cached)).changed) continue;
+        await this.app.fileManager.processFrontMatter(file, (fm) => {
+          repairHistoryCounters(fm);
+        });
+        changed++;
+      } catch (e) {
+        /* one unreadable note should not block the rest */
+      }
+    }
+    if (changed) this.refreshViews();
+    new Notice(`Checked ${files.length} note${files.length === 1 ? "" : "s"}; repaired ${changed}.`);
+    return { changed, scanned: files.length };
+  }
+
   async recordAttempt(file, a) {
     const attempt = { ...a, attemptId: a.attemptId || newAttemptId(a.now) };
     const opts = { scheduler: this.settings.scheduler, fsrsRetention: this.settings.fsrsRetention, attemptId: attempt.attemptId };
@@ -3518,8 +3562,8 @@ class QuestionTrackerPlugin extends Plugin {
         }
         try {
           await this.app.fileManager.processFrontMatter(file, (fm) => {
-            if (fm.last_attempt_id === entry.id) {
-              if (entry.errorType) setLastErrorType(fm, entry.errorType);
+            if (fm.last_attempt_id === entry.id || hasAttemptId(fm.history, entry.id)) {
+              if (entry.errorType) setAttemptError(fm, entry.id, entry.errorType);
               return;
             }
             const attempt = unpackAttempt(entry.attempt);
@@ -3529,7 +3573,7 @@ class QuestionTrackerPlugin extends Plugin {
               attemptId: entry.id,
               examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
             });
-            if (entry.errorType) setLastErrorType(fm, entry.errorType);
+            if (entry.errorType) setAttemptError(fm, entry.id, entry.errorType);
           });
           list = removePending(list, entry.id);
           sent++;

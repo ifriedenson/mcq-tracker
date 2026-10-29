@@ -6,6 +6,7 @@ const { normalizePath } = require("obsidian");
 const pad = (n) => String(n).padStart(2, "0");
 const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const fmtDateTime = (d) => `${fmtDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const fmtDateTimeSec = (d) => `${fmtDateTime(d)}:${pad(d.getSeconds())}`;
 const addDays = (d, n) => {
   const x = new Date(d.getTime());
   x.setDate(x.getDate() + n);
@@ -48,6 +49,7 @@ module.exports = {
   pad,
   fmtDate,
   fmtDateTime,
+  fmtDateTimeSec,
   addDays,
   fmtClock,
   str,

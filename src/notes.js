@@ -1,5 +1,6 @@
 "use strict";
-const { addDays, fmtDate, fmtDateTime, str } = require("./util");
+const { addDays, fmtDate, fmtDateTime, fmtDateTimeSec, str } = require("./util");
+const { appendHistory, hasAttemptId, setAttemptErrorType } = require("./history");
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
 
@@ -170,7 +171,31 @@ function applyExamCap(fm, nextReview, examCap, now) {
 /** Mutates `fm` (inside processFrontMatter). Returns a summary. */
 function applyAttempt(fm, a, intervals, options) {
   const opts = options || {};
-  if (opts.attemptId) fm.last_attempt_id = opts.attemptId;
+  const attemptId = str(opts.attemptId).trim();
+  // A sync conflict or an offline retry can hand us the same id twice. Do not
+  // increment counters or append a second row for an attempt we already have.
+  if (attemptId && hasAttemptId(fm.history, attemptId)) {
+    return {
+      duplicate: true,
+      streak: Number(fm.streak) || 0,
+      attempts: Number(fm.attempts) || 0,
+      correctCount: Number(fm.correct_count) || 0,
+      nextReview: str(fm.next_review),
+      examCap: null,
+      target: Number(fm.target_seconds) || 0,
+      scheduler: fm.scheduler === "fsrs" ? "fsrs" : "ladder",
+      fsrsRating: 0,
+      fsrsDays: 0,
+      fsrsReplayed: 0,
+      fsrsError: "",
+      grade: "",
+      verdict: "",
+      typedAnswer: "",
+      verdictOverride: false,
+      attemptId,
+    };
+  }
+  if (attemptId) fm.last_attempt_id = attemptId;
   const iv = intervals && intervals.length ? intervals : DEFAULT_SETTINGS.intervals;
   const prev = Number(fm.streak) || 0;
   // Cards rate themselves explicitly. Hard keeps the current rung without
@@ -212,11 +237,11 @@ function applyAttempt(fm, a, intervals, options) {
   }
 
   const now = fmtDateTime(a.now);
+  const when = fmtDateTimeSec(a.now);
   const chosen = str(a.chosen).replace(/[|\n\r]/g, "/");
-  const history = Array.isArray(fm.history) ? fm.history : [];
-  // date|result|seconds|answer|confidence|error_type
-  history.push(`${now}|${a.correct ? "correct" : "incorrect"}|${a.seconds}|${chosen}|${a.conf}|`);
-  fm.history = history;
+  // date|result|seconds|answer|confidence|error_type|attempt_id
+  const row = `${when}|${a.correct ? "correct" : "incorrect"}|${a.seconds}|${chosen}|${a.conf}||${attemptId}`;
+  fm.history = appendHistory(fm.history, row, attemptId);
 
   fm.attempts = (Number(fm.attempts) || 0) + 1;
   fm.correct_count = (Number(fm.correct_count) || 0) + (a.correct ? 1 : 0);
@@ -273,14 +298,13 @@ function applyAttempt(fm, a, intervals, options) {
 }
 
 function setLastErrorType(fm, type) {
-  const history = Array.isArray(fm.history) ? fm.history : [];
-  if (history.length) {
-    const parts = str(history[history.length - 1]).split("|");
-    while (parts.length < 6) parts.push("");
-    parts[5] = type;
-    history[history.length - 1] = parts.slice(0, 6).join("|");
-    fm.history = history;
-  }
+  fm.history = setAttemptErrorType(fm.history, "", type);
+  fm.last_error_type = type;
+}
+
+/** Tag one specific attempt, so an offline retry labels the right history row. */
+function setAttemptError(fm, attemptId, type) {
+  fm.history = setAttemptErrorType(fm.history, attemptId, type);
   fm.last_error_type = type;
 }
 
@@ -308,5 +332,6 @@ module.exports = {
   gradeAnswer,
   applyAttempt,
   setLastErrorType,
+  setAttemptError,
   fillDefaults,
 };
