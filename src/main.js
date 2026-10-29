@@ -277,6 +277,7 @@ QuestionTrackerPlugin.__test = {
   CALENDAR_TABS,
   cards,
   cardsImport,
+  pdf: require("./pdf"),
   ankiConnect,
   apkg,
   cardsExtract,

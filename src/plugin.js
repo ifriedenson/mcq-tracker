@@ -16,6 +16,7 @@ const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-cl
 const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
+const { readPdfPages } = require("./pdf");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
 const { DocumentReviewModal } = require("./document-review-modal");
 const { OcrModal } = require("./ocr-modal");
@@ -52,7 +53,7 @@ const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entry
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
-const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
+const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
 const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
@@ -3624,14 +3625,40 @@ class QuestionTrackerPlugin extends Plugin {
   async importCardsFromQuizlet(path, options) {
     if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
     const opts = options || {};
-    if (/\.pdf$/i.test(String(path || ""))) {
-      throw new Error("Save the Quizlet export as .txt or .csv; PDFs are not read by this plugin.");
-    }
+    if (/\.pdf$/i.test(String(path || ""))) return this.importCardsFromQuizletPdf(path, opts);
     const file = this.app.vault.getAbstractFileByPath(String(path || ""));
     if (!file) throw new Error("That file is not in the vault.");
     const text = await this.app.vault.cachedRead(file);
     const parsed = parseQuizletText(text, { sourcePath: file.path, deck: opts.deck });
     return this.importParsedCards(parsed.cards, opts);
+  }
+
+  /** Read a text-based Quizlet PDF into card records, without writing anything. */
+  async parseQuizletPdfCards(path, options) {
+    const opts = options || {};
+    if (!/\.pdf$/i.test(String(path || ""))) throw new Error("Choose the .pdf file printed from Quizlet.");
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That PDF is not in the vault. Add it to the vault first, then choose it here.");
+    const bytes = await this.readVaultBytes(file);
+    const read = await readPdfPages(bytes, String(opts.pages || ""), opts.progress || (() => {}));
+    return parseQuizletPdf(read.pages, {
+      ...opts,
+      sourcePath: file.path,
+      deck: String(opts.deck || "").trim() || file.basename,
+    });
+  }
+
+  /** Import a PDF of a Quizlet set or printed test bank as flashcards. */
+  async importCardsFromQuizletPdf(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    const parsed = await this.parseQuizletPdfCards(path, opts);
+    const result = await this.importParsedCards(parsed.cards, {
+      ...opts,
+      errors: parsed.errors,
+      skippedDetails: parsed.skipped ? [{ reason: `${parsed.skipped} printed question${parsed.skipped === 1 ? "" : "s"} had no answer key` }] : [],
+    });
+    return { ...result, warnings: parsed.warnings, questions: parsed.questions, totalPages: parsed.totalPages };
   }
 
   /** Adds duplicate details to a read-only import preview so the dialog can show a diff. */
@@ -3785,6 +3812,8 @@ class QuestionTrackerPlugin extends Plugin {
         if (!file) throw new Error("That .apkg file is not in the vault.");
         const bytes = await this.readVaultBytes(file);
         add(parseApkg(bytes, { sourcePath: file.path, deck: String(opts.deck || "").trim() || file.basename }));
+      } else if (kind === "quizlet" && /\.pdf$/i.test(String(path || ""))) {
+        add(await this.parseQuizletPdfCards(path, { ...opts, progress: () => {} }));
       } else {
         const file = this.app.vault.getAbstractFileByPath(String(path || ""));
         if (!file) throw new Error("That file is not in the vault.");

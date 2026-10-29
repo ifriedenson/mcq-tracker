@@ -4907,6 +4907,19 @@
   font-weight: 600;
   text-transform: capitalize;
 }
+.qt-import-preview {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: var(--background-secondary);
+}
+.qt-import-preview h4 {
+  margin: 0 0 4px;
+}
+.qt-import-preview li {
+  margin: 5px 0;
+}
 
 /* AP free-response practice */
 .qt-frq-toolbar,

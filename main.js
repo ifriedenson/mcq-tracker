@@ -11427,6 +11427,437 @@ function parseQuizletText(text, options) {
   return { cards, skipped: 0, source };
 }
 
+/* ---- Quizlet PDF / test-bank printouts */
+
+const PDF_PRINT_NOISE = [
+  /^quizlet(?:\.com)?$/i,
+  /^https?:\/\/(?:www\.)?quizlet\.com/i,
+  /^\d{1,3}$/,
+  /^\d{1,3}\s*\/\s*\d{1,3}$/,
+  /^page\s+\d+(?:\s*(?:of|\/)\s*\d+)?$/i,
+  /^(?:name|date|class|period|score|teacher)\s*:/i,
+  /^terms?\s+in\s+this\s+set(?:\s*\(\d+\))?$/i,
+  /^quizlet\s+(?:test|flashcards?|study set)$/i,
+  /^(?:print|printed)\s+(?:on|by)\b/i,
+];
+
+function pdfCleanTextLine(value) {
+  return str(value)
+    .replace(/\u00a0/g, " ")
+    .replace(/\t+/g, "\t")
+    .replace(/[ ]{2,}/g, " ")
+    .trim();
+}
+
+function pdfLineIsNoise(value) {
+  const text = str(value).trim();
+  if (!text) return true;
+  return PDF_PRINT_NOISE.some((re) => re.test(text));
+}
+
+/** Page lines with their vertical positions. The PDF reader also supplies gap-aware lines. */
+function pdfRawPageLines(page) {
+  const p = page || {};
+  if (Array.isArray(p.lines) && p.lines.length) {
+    return p.lines.map((line) => ({
+      text: pdfCleanTextLine(line && line.text !== undefined ? line.text : line),
+      y: Number.isFinite(Number(line && line.y)) ? Number(line.y) : null,
+    }));
+  }
+  return str(p.text)
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((text) => ({ text: pdfCleanTextLine(text), y: null }));
+}
+
+/** Inserts blank lines where the printed page leaves a larger-than-normal vertical gap. */
+function pdfPageLines(page) {
+  const raw = pdfRawPageLines(page);
+  const ys = raw.map((line) => line.y).filter((y) => Number.isFinite(y));
+  if (ys.length < 2) return raw;
+  const gaps = [];
+  for (let i = 1; i < raw.length; i++) {
+    const before = raw[i - 1].y;
+    const after = raw[i].y;
+    if (Number.isFinite(before) && Number.isFinite(after) && before > after) gaps.push(before - after);
+  }
+  gaps.sort((a, b) => a - b);
+  const median = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 12;
+  const threshold = Math.max(16, median * 1.8);
+  const out = [raw[0]];
+  for (let i = 1; i < raw.length; i++) {
+    const before = raw[i - 1].y;
+    const after = raw[i].y;
+    if (Number.isFinite(before) && Number.isFinite(after) && before - after > threshold) out.push({ text: "", y: null });
+    out.push(raw[i]);
+  }
+  return out;
+}
+
+/** Combines pages, drops Quizlet page furniture and repeated print headers, and keeps blank separators. */
+function pdfCardLines(pages) {
+  const pageLines = (Array.isArray(pages) ? pages : [{ text: pages }]).map(pdfPageLines);
+  const counts = new Map();
+  for (const lines of pageLines) {
+    const seen = new Set();
+    for (const line of lines) {
+      if (!line.text || pdfLineIsNoise(line.text) || seen.has(line.text)) continue;
+      seen.add(line.text);
+      counts.set(line.text, (counts.get(line.text) || 0) + 1);
+    }
+  }
+  const repeated = (text) => {
+    if (pageLines.length < 3) return false;
+    const count = counts.get(text) || 0;
+    if (count < Math.max(2, Math.ceil(pageLines.length * 0.5))) return false;
+    return text.length <= 80 && !text.includes("\t") && !/\?$/.test(text);
+  };
+  const out = [];
+  pageLines.forEach((lines, index) => {
+    if (index) out.push({ text: "", page: index + 1, y: null });
+    for (const line of lines) {
+      if (!line.text) {
+        out.push({ text: "", page: index + 1, y: null });
+        continue;
+      }
+      if (pdfLineIsNoise(line.text) || repeated(line.text)) continue;
+      out.push({ text: line.text, page: index + 1, y: line.y });
+    }
+  });
+  return out;
+}
+
+/** Reads the printed answer key into question number -> letter/text. */
+function pdfAnswerKey(lines) {
+  let start = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^answer\s*key$/i.test(lines[i].text)) {
+      start = i;
+      break;
+    }
+  }
+  if (start < 0) return { start: lines.length, answers: new Map() };
+  const answers = new Map();
+  for (let i = start + 1; i < lines.length; i++) {
+    const text = lines[i].text;
+    if (!text) continue;
+    const chunks = text.split(/\s{2,}|;\s*|\s+(?=\d{1,3}\s*[.)\-–—:]\s*[A-Ha-h]\b)/);
+    for (const chunk of chunks) {
+      const piece = chunk.trim();
+      if (!piece) continue;
+      const letter = piece.match(/^(\d{1,3})\s*[.)\-–—:]?\s*([A-Ha-h])(?:\s*[.)\-–—:]?\s*(.*))?$/);
+      if (letter) {
+        const n = Number(letter[1]);
+        if (n && !answers.has(n)) answers.set(n, { letter: letter[2].toUpperCase(), text: str(letter[3]).trim() });
+        continue;
+      }
+      const plain = piece.match(/^(\d{1,3})\s*[.)\-–—:]\s+(.+)$/);
+      if (plain) {
+        const n = Number(plain[1]);
+        if (n && !answers.has(n)) answers.set(n, { letter: "", text: plain[2].trim() });
+      }
+    }
+  }
+  return answers.size ? { start, answers } : { start: lines.length, answers: new Map() };
+}
+
+function pdfChoiceLine(value) {
+  const text = str(value).trim();
+  const marked = text.match(/^([A-Ha-h])\s*[.)\]:\-]\s*(.+)$/);
+  if (marked) return { letter: marked[1].toUpperCase(), text: marked[2].trim() };
+  const spaced = text.match(/^([A-Ha-h])\t+(.+)$/) || text.match(/^([A-Ha-h])\s{2,}(.+)$/);
+  return spaced ? { letter: spaced[1].toUpperCase(), text: spaced[2].trim() } : null;
+}
+
+/** Handles a line such as "A. one   B. two   C. three   D. four". */
+function pdfInlineChoices(value) {
+  const text = str(value);
+  const marks = [...text.matchAll(/(?:^|\s)([A-Ha-h])\s*[.)\]:\-]\s+/g)];
+  if (marks.length < 2 || marks[0].index !== 0) return [];
+  const out = [];
+  for (let i = 0; i < marks.length; i++) {
+    const mark = marks[i];
+    const from = mark.index + mark[0].length;
+    const to = i + 1 < marks.length ? marks[i + 1].index : text.length;
+    const choice = text.slice(from, to).trim();
+    if (choice) out.push({ letter: mark[1].toUpperCase(), text: choice });
+  }
+  return out;
+}
+
+function pdfNormalizeAnswer(value) {
+  return str(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function pdfChoiceIndex(choices, value) {
+  const raw = str(value).trim();
+  if (!raw || !choices.length) return -1;
+  const marked = raw.match(/^([A-Ha-h])(?:\s*[.)\]:\-]\s*(.*))?$/);
+  if (marked) {
+    const at = choices.findIndex((choice) => choice.letter === marked[1].toUpperCase());
+    if (at >= 0) return at;
+    if (!str(marked[2]).trim()) return -1;
+  }
+  const wanted = pdfNormalizeAnswer(raw);
+  if (!wanted) return -1;
+  const exact = choices.findIndex((choice) => pdfNormalizeAnswer(choice.text) === wanted);
+  if (exact >= 0) return exact;
+  return choices.findIndex((choice) => {
+    const text = pdfNormalizeAnswer(choice.text);
+    return text && (wanted.startsWith(text) || text.startsWith(wanted));
+  });
+}
+
+/** One numbered question and the lines under it, resolved against the answer key. */
+function parsePdfQuestion(number, first, lines, answers) {
+  let stem = str(first).trim();
+  const choices = [];
+  let hint = "";
+  for (let i = 0; i < lines.length; i++) {
+    const text = pdfCleanTextLine(lines[i] && lines[i].text !== undefined ? lines[i].text : lines[i]);
+    if (!text) continue;
+    const answer = text.match(/^(?:correct\s+)?ans(?:wer)?\s*[:：\-]\s*(.+)$/i);
+    if (answer) {
+      hint = answer[1].trim();
+      continue;
+    }
+    if (/^[✓✔√]/.test(text)) {
+      hint = text.replace(/^[✓✔√]\s*/, "").trim();
+      continue;
+    }
+    const inline = pdfInlineChoices(text);
+    if (inline.length >= 2 && !choices.length) {
+      choices.push(...inline);
+      continue;
+    }
+    const choice = pdfChoiceLine(text);
+    if (choice) {
+      choices.push(choice);
+      continue;
+    }
+    if (/^[A-H]$/i.test(text) && choices.length && i + 1 < lines.length) {
+      const next = pdfCleanTextLine(lines[i + 1] && lines[i + 1].text !== undefined ? lines[i + 1].text : lines[i + 1]);
+      if (next) {
+        choices.push({ letter: text.toUpperCase(), text: next });
+        i++;
+        continue;
+      }
+    }
+    if (!choices.length) stem += ` ${text}`;
+    else choices[choices.length - 1].text += ` ${text}`;
+  }
+
+  const key = answers.get(number);
+  let correct = -1;
+  if (key) {
+    correct = pdfChoiceIndex(choices, key.letter || key.text);
+    if (correct < 0 && !choices.length && key.text) hint = key.text;
+  }
+  if (correct < 0 && hint) correct = pdfChoiceIndex(choices, hint);
+
+  if (choices.length >= 2) {
+    if (correct < 0) {
+      return { skipped: 1, warning: `Question ${number}: choices were found but no answer key entry.` };
+    }
+    return {
+      card: {
+        front: stem,
+        back: choices[correct].text,
+        choices: choices.map((choice) => choice.text),
+        correctChoices: String(correct + 1),
+        questionSet: "quizlet",
+      },
+    };
+  }
+  if (correct < 0 && hint && !choices.length) return { card: { front: stem, back: hint } };
+  if (!choices.length && lines.length === 1 && /\?$/.test(stem)) {
+    const answer = pdfCleanTextLine(lines[0] && lines[0].text !== undefined ? lines[0].text : lines[0]);
+    if (answer && !/\?$/.test(answer)) return { card: { front: stem, back: answer } };
+  }
+  return { skipped: 0 };
+}
+
+/** Parses a printed test with numbered questions, choices and an answer key. */
+function parsePdfQuestions(lines, answers) {
+  const starts = [];
+  for (let i = 0; i < lines.length; i++) {
+    const text = lines[i].text;
+    if (!text) continue;
+    const match = text.match(/^(?:q(?:uestion)?\s*)?(\d{1,3})\s*[.)]\s+(.+)$/i);
+    if (!match) continue;
+    const number = Number(match[1]);
+    if (number >= 1 && number <= 999) starts.push({ i, number, first: match[2].trim(), page: lines[i].page });
+  }
+  if (!starts.length) return { cards: [], skipped: 0, warnings: [], found: 0, choiceCount: 0 };
+  let choiceCount = 0;
+  for (const line of lines) {
+    if (!line.text) continue;
+    if (pdfChoiceLine(line.text) || pdfInlineChoices(line.text).length >= 2) choiceCount++;
+  }
+  const cards = [];
+  const warnings = [];
+  let skipped = 0;
+  for (let s = 0; s < starts.length; s++) {
+    const start = starts[s];
+    const end = s + 1 < starts.length ? starts[s + 1].i : lines.length;
+    const chunk = lines.slice(start.i + 1, end);
+    const parsed = parsePdfQuestion(start.number, start.first, chunk, answers);
+    if (parsed.warning) warnings.push(parsed.warning);
+    skipped += parsed.skipped || 0;
+    if (parsed.card) cards.push({ ...parsed.card, sourcePage: start.page ? String(start.page) : "" });
+  }
+  return { cards, skipped, warnings, found: starts.length, choiceCount };
+}
+
+/** Parses a flashcard printout: two-column rows, dashed pairs, or one card per block. */
+function parsePdfTerms(lines, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "Quizlet PDF");
+  const deck = str(opts.deck).trim() || "Imported";
+  const cards = [];
+  const errors = [];
+  const seen = new Set();
+  const add = (frontValue, backValue, page, extra) => {
+    const front = cleanQuizletField(frontValue);
+    const back = cleanQuizletField(backValue);
+    if (!front || !back) return false;
+    const identity = `${front.toLowerCase()}\u0000${back.toLowerCase()}`;
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    const data = extra || {};
+    cards.push({
+      kind: "card",
+      cardType: "basic",
+      deck,
+      front,
+      back,
+      tags: [],
+      importSource: source,
+      importFormat: "quizlet-pdf",
+      importedOn: opts.importedOn || localDate(),
+      importKey: `quizlet-pdf:${hashString(source + "|" + cards.length + "|" + front + "|" + back + "|" + str(data.correctChoices))}`,
+      ...(page ? { sourcePage: String(page) } : {}),
+      ...data,
+    });
+    return true;
+  };
+
+  const nonEmpty = lines.filter((line) => line.text);
+  if (!nonEmpty.length) return { cards, skipped: 0, errors };
+
+  const tabbed = nonEmpty.filter((line) => line.text.includes("\t"));
+  if (tabbed.length) {
+    for (const line of tabbed) {
+      const at = line.text.indexOf("\t");
+      add(line.text.slice(0, at), line.text.slice(at + 1).replace(/\t/g, " "), line.page);
+    }
+    if (cards.length) return { cards, skipped: 0, errors };
+  }
+
+  const dashed = nonEmpty.filter((line) => /\s+[-–—]\s+/.test(line.text));
+  if (dashed.length >= 2 && dashed.length === nonEmpty.length) {
+    for (const line of dashed) {
+      const match = line.text.match(/^(.*?)\s+[-–—]\s+([\s\S]*)$/);
+      if (match) add(match[1], match[2], line.page);
+    }
+    if (cards.length) return { cards, skipped: 0, errors };
+  }
+
+  const blocks = [];
+  let block = [];
+  for (const line of lines) {
+    if (!line.text) {
+      if (block.length) blocks.push(block);
+      block = [];
+      continue;
+    }
+    block.push(line);
+  }
+  if (block.length) blocks.push(block);
+
+  for (const group of blocks) {
+    const text = group.map((line) => line.text);
+    if (text.length === 2) add(text[0], text[1], group[0].page);
+    else if (text.length > 2 && text[0].endsWith("?")) add(text[0], text.slice(1).join(" "), group[0].page);
+  }
+  if (cards.length) return { cards, skipped: 0, errors };
+
+  const plain = nonEmpty.map((line) => line.text);
+  if (plain.length >= 2 && plain.length % 2 === 0) {
+    for (let i = 0; i < plain.length; i += 2) {
+      const front = plain[i].replace(/^\s*\d{1,3}[.)]\s+/, "").trim();
+      add(front || plain[i], plain[i + 1], nonEmpty[i].page);
+    }
+  }
+  return { cards, skipped: 0, errors };
+}
+
+/**
+ * Parse a PDF of a Quizlet set or test bank. The text must already have been
+ * extracted by readPdfPages; scanned PDFs need OCR before this can work.
+ */
+function parseQuizletPdf(pages, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "Quizlet PDF");
+  const list = Array.isArray(pages) ? pages : [{ n: 1, text: str(pages) }];
+  const chars = list.reduce((total, page) => {
+    const text = str(page && page.text).trim();
+    if (text) return total + text.length;
+    const lines = page && Array.isArray(page.lines) ? page.lines.map((line) => str(line && line.text !== undefined ? line.text : line)).join(" ").trim() : "";
+    return total + lines.length;
+  }, 0);
+  const warnings = [];
+  const errors = [];
+  if (!chars) {
+    return {
+      cards: [],
+      skipped: 0,
+      errors: ["This PDF has almost no readable text. It is probably a scan; run OCR first, then import the searchable PDF."],
+      warnings,
+      source,
+      format: "quizlet-pdf",
+      questions: 0,
+      totalPages: list.length,
+    };
+  }
+
+  const lines = pdfCardLines(list);
+  const key = pdfAnswerKey(lines);
+  const body = lines.slice(0, key.start);
+  const questions = parsePdfQuestions(body, key.answers);
+  const cards = questions.cards.slice();
+  let skipped = questions.skipped;
+  if (questions.warnings.length) warnings.push(...questions.warnings);
+
+  if (!cards.length && !questions.choiceCount) {
+    const terms = parsePdfTerms(body, { ...opts, sourcePath: source });
+    cards.push(...terms.cards);
+    skipped += terms.skipped;
+    errors.push(...terms.errors);
+  }
+
+  if (!cards.length && questions.choiceCount) {
+    errors.push(
+      `Found ${questions.found} numbered question${questions.found === 1 ? "" : "s"} with choices, but no readable answer key. Print the Test view with the answer key included, or import the text export.`
+    );
+  }
+  if (!cards.length && !questions.choiceCount) {
+    errors.push(
+      "No term/definition pairs or answered questions were found. In Quizlet choose Print, then use the Flashcard or Test view with the answer key included, or import the text export instead."
+    );
+  }
+  return {
+    cards,
+    skipped,
+    errors,
+    warnings,
+    source,
+    format: "quizlet-pdf",
+    questions: questions.found,
+    totalPages: list.length,
+  };
+}
+
 function cleanCardLine(line) {
   return str(line)
     .replace(/^\s*(?:[-*+]|\d+[.)])\s+/, "")
@@ -11566,7 +11997,7 @@ class CardImportModal extends Modal {
     type.createEl("option", { text: "CrowdAnki JSON export", value: "crowdanki" });
     type.createEl("option", { text: "Anki plain-text export", value: "anki" });
     type.createEl("option", { text: "Anki package (.apkg)", value: "apkg" });
-    type.createEl("option", { text: "Quizlet text export", value: "quizlet" });
+    type.createEl("option", { text: "Quizlet text export or PDF test bank", value: "quizlet" });
     type.createEl("option", { text: "Moodle GIFT (.txt or .gift)", value: "gift" });
     type.createEl("option", { text: "Moodle XML quiz bank (.xml)", value: "moodlexml" });
     type.createEl("option", { text: "QTI quiz bank (.xml)", value: "qti" });
@@ -11587,21 +12018,25 @@ class CardImportModal extends Modal {
         folders.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
         for (const folder of folders) source.createEl("option", { text: folder || "Whole vault", value: folder });
       } else {
-        const candidates = (files || []).filter((f) => /\.(txt|tsv|csv|gift|xml|json|apkg)$/i.test(f.path || ""));
-        if (!candidates.length) source.createEl("option", { text: "No .txt, .tsv, .csv, .gift, .xml, .json or .apkg files found", value: "" });
+        const pattern = this.type === "quizlet" ? /\.(txt|tsv|csv|pdf)$/i : /\.(txt|tsv|csv|gift|xml|json|apkg)$/i;
+        const candidates = (files || []).filter((f) => pattern.test(f.path || ""));
+        const missing = this.type === "quizlet" ? "No .txt, .csv or .pdf files found" : "No .txt, .tsv, .csv, .gift, .xml, .json or .apkg files found";
+        if (!candidates.length) source.createEl("option", { text: missing, value: "" });
         for (const f of candidates) source.createEl("option", { text: f.path, value: f.path });
       }
-      const sourceLabels = { spaced: "Folder to scan", mochi: "Mochi Markdown folder", crowdanki: "CrowdAnki JSON file", quizlet: "Quizlet text export", anki: "Anki text export", apkg: "Anki package", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
+      const sourceLabels = { spaced: "Folder to scan", mochi: "Mochi Markdown folder", crowdanki: "CrowdAnki JSON file", quizlet: "Quizlet text export or PDF", anki: "Anki text export", apkg: "Anki package", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
       sourceLabel.setText(sourceLabels[this.type] || "Import file");
     };
     refreshOptions();
     source.addEventListener("change", () => {
       this.csvParsed = null;
       this.csvMapping = null;
+      this.preview = null;
       if (this.type === "csv") {
         csvGrid.empty();
         csvPreview.empty();
       }
+      if (this.type === "quizlet") renderCardPreview(null);
     });
     type.addEventListener("change", () => {
       this.type = type.value;
@@ -11610,6 +12045,7 @@ class CardImportModal extends Modal {
       refreshOptions();
       help.setText(helpText());
       toggleCsvControls();
+      renderCardPreview(null);
     });
 
     const deckWrap = contentEl.createDiv({ cls: "qt-field" });
@@ -11725,7 +12161,9 @@ class CardImportModal extends Modal {
 
     const help = contentEl.createEl("p", { cls: "setting-item-description" });
     const helpText = () => {
-      if (this.type === "quizlet") return quizletExportHint();
+      if (this.type === "quizlet") {
+        return quizletExportHint() + " A PDF printed from Quizlet is also read: choose Print, use the Flashcard or Test view with the answer key included, save the PDF in this vault, and pick it here. Scanned PDFs must be OCR'd first.";
+      }
       if (this.type === "mochi") return "Mochi: export the deck as Markdown, unzip it into a vault folder, then choose that folder. Each card file uses --- or *** between its sides; the folder name supplies the deck unless you enter a fallback deck.";
       if (this.type === "crowdanki") return "CrowdAnki: export the deck as CrowdAnki JSON and save the .json file in the vault. Nested deck names, note fields, Anki tags and cloze models are read; review history is not exported by CrowdAnki.";
       if (this.type === "gift") return giftExportHint();
@@ -11740,6 +12178,7 @@ class CardImportModal extends Modal {
       return "Pick a folder of Markdown notes. Files without a #flashcards tag only contribute explicit :: cards.";
     };
     help.setText(helpText());
+    const cardPreview = contentEl.createDiv({ cls: "qt-import-preview qt-hidden" });
     const note = contentEl.createDiv({ cls: "qt-hint" });
     const resultBox = contentEl.createDiv({ cls: "qt-import-result qt-hidden" });
     const row = contentEl.createDiv({ cls: "qt-row" });
@@ -11818,6 +12257,24 @@ class CardImportModal extends Modal {
       this.reviewedUpdates = false;
       renderDiffPreview(this.preview);
     });
+    const isQuizletPdf = () => this.type === "quizlet" && /\.pdf$/i.test(String(source.value || ""));
+    const renderCardPreview = (parsed) => {
+      cardPreview.empty();
+      if (!isQuizletPdf() || !parsed || !Array.isArray(parsed.cards) || !parsed.cards.length) {
+        cardPreview.toggleClass("qt-hidden", true);
+        return;
+      }
+      cardPreview.toggleClass("qt-hidden", false);
+      cardPreview.createEl("h4", { text: `PDF preview: ${parsed.cards.length} flashcard${parsed.cards.length === 1 ? "" : "s"}` });
+      const list = cardPreview.createEl("ul", { cls: "qt-import-rows" });
+      for (const card of parsed.cards.slice(0, 8)) {
+        const item = list.createEl("li");
+        item.createDiv({ text: card.front });
+        item.createDiv({ cls: "qt-hint", text: `→ ${card.back}${card.sourcePage ? ` · page ${card.sourcePage}` : ""}` });
+      }
+      if (parsed.cards.length > 8) cardPreview.createDiv({ cls: "qt-hint", text: `…and ${parsed.cards.length - 8} more.` });
+      for (const warning of Array.isArray(parsed.warnings) ? parsed.warnings.slice(0, 3) : []) cardPreview.createDiv({ cls: "qt-warning", text: warning });
+    };
     cancel.addEventListener("click", () => this.close());
     preview.addEventListener("click", async () => {
       const path = source.value;
@@ -11836,6 +12293,7 @@ class CardImportModal extends Modal {
         this.preview = parsed;
         this.reviewedUpdates = false;
         renderDiffPreview(parsed);
+        renderCardPreview(parsed);
         const duplicateText = parsed.duplicates ? ` · ${parsed.duplicates} duplicate${parsed.duplicates === 1 ? "" : "s"}` : "";
         const errorText = parsed.errors && parsed.errors.length ? ` · ${parsed.errors.length} issue${parsed.errors.length === 1 ? "" : "s"}` : "";
         const message = `${parsed.total} card${parsed.total === 1 ? "" : "s"} ready${duplicateText}${errorText}. Choose a duplicate mode, then import.`;
@@ -11849,7 +12307,7 @@ class CardImportModal extends Modal {
     go.addEventListener("click", async () => {
       const path = source.value;
       if (this.type !== "spaced" && !path) {
-        new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet" : this.type === "anki" ? "Anki" : this.type === "apkg" ? "Anki package" : this.type === "gift" ? "Moodle GIFT" : this.type === "moodlexml" ? "Moodle XML" : this.type === "qti" ? "QTI" : this.type === "mochi" ? "Mochi folder" : this.type === "crowdanki" ? "CrowdAnki JSON" : this.type} file first.`);
+        new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet text or PDF" : this.type === "anki" ? "Anki" : this.type === "apkg" ? "Anki package" : this.type === "gift" ? "Moodle GIFT" : this.type === "moodlexml" ? "Moodle XML" : this.type === "qti" ? "QTI" : this.type === "mochi" ? "Mochi folder" : this.type === "crowdanki" ? "CrowdAnki JSON" : this.type} file first.`);
         return;
       }
       if (this.type === "csv") {
@@ -12010,6 +12468,7 @@ module.exports = {
   parseMochiMarkdown,
   parseCrowdAnkiJson,
   parseQuizletText,
+  parseQuizletPdf,
   parseQuestionSetText,
   parseSpacedRepetition,
   cardsToQuizlet,
@@ -26930,6 +27389,60 @@ function itemsToLines(items, viewport) {
   return lines.map((l) => ({ text: l.text.replace(/[ \t]+$/, ""), y: l.y })).filter((l) => l.text.trim());
 }
 
+/**
+ * Text lines that keep the space between columns. A printed Quizlet table puts the
+ * term and definition on the same line; the normal line reader would run them
+ * together, so a large horizontal gap becomes a tab.
+ */
+function itemsToGapLines(items, viewport) {
+  const scale = viewport && Number(viewport.scale) > 0 ? Number(viewport.scale) : 1;
+  const tol = Math.max(3, 3 * scale);
+  const pieces = [];
+  for (const it of items) {
+    if (!it || typeof it.str !== "string" || !it.str.trim()) continue;
+    const t = it.transform && viewport ? matMul(viewport.transform, it.transform) : null;
+    pieces.push({
+      text: it.str,
+      x: t ? t[4] : 0,
+      y: t ? t[5] : 0,
+      w: Math.max(0, (it.width || 0) * scale),
+      h: Math.max(1, (it.height || 0) * scale),
+    });
+  }
+  // Group by baseline first, then read each row left to right. This keeps a
+  // two-column term/definition table together even when the PDF stores each
+  // column as a separate run of text.
+  pieces.sort((a, b) => b.y - a.y || a.x - b.x);
+  const rows = [];
+  for (const piece of pieces) {
+    let row = rows[rows.length - 1];
+    if (!row || Math.abs(piece.y - row.y) > tol) {
+      row = { y: piece.y, parts: [] };
+      rows.push(row);
+    }
+    row.parts.push(piece);
+  }
+  const out = [];
+  for (const row of rows) {
+    const parts = row.parts.slice().sort((a, b) => a.x - b.x);
+    let text = "";
+    let prev = null;
+    for (const part of parts) {
+      if (prev) {
+        const gap = part.x - prev.end;
+        const size = Math.max(prev.h, part.h);
+        if (gap > Math.max(8, 1.2 * size)) text += "\t";
+        else if (gap > 0.15 * size && !/\s$/.test(text) && !/^\s/.test(part.text)) text += " ";
+      }
+      text += part.text;
+      prev = { end: part.x + (part.w || part.text.length * 0.5 * part.h), h: part.h };
+    }
+    const cleaned = text.replace(/[ \t]+$/, "");
+    if (cleaned.trim()) out.push({ text: cleaned, y: row.y });
+  }
+  return out;
+}
+
 /** Where each piece of text sits on the page picture, so figures can be told apart from text. */
 function textBoxes(items, viewport) {
   const out = [];
@@ -27167,7 +27680,14 @@ async function readPdfPages(buf, spec, progress, cap) {
           warnings.push(`Page ${n}: couldn't capture pictures (${e && e.message ? e.message : e}).`);
         }
       }
-      pages.push({ n, text: pageText(itemsToLines(tc.items, vp), figs), figs: figs.length });
+      pages.push({
+        n,
+        text: pageText(itemsToLines(tc.items, vp), figs),
+        lines: itemsToGapLines(tc.items, vp),
+        pageHeight: vp.height,
+        pageWidth: vp.width,
+        figs: figs.length,
+      });
     }
     return { pages, total: doc.numPages, warnings, figCount };
   } finally {
@@ -27239,6 +27759,7 @@ module.exports = {
   parsePageRange,
   matMul,
   itemsToLines,
+  itemsToGapLines,
   textBoxes,
   figMarker,
   pageText,
@@ -28672,6 +29193,7 @@ const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-cl
 const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
+const { readPdfPages } = require("./pdf");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
 const { DocumentReviewModal } = require("./document-review-modal");
 const { OcrModal } = require("./ocr-modal");
@@ -28708,7 +29230,7 @@ const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entry
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
-const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
+const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
 const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
@@ -32280,14 +32802,40 @@ class QuestionTrackerPlugin extends Plugin {
   async importCardsFromQuizlet(path, options) {
     if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
     const opts = options || {};
-    if (/\.pdf$/i.test(String(path || ""))) {
-      throw new Error("Save the Quizlet export as .txt or .csv; PDFs are not read by this plugin.");
-    }
+    if (/\.pdf$/i.test(String(path || ""))) return this.importCardsFromQuizletPdf(path, opts);
     const file = this.app.vault.getAbstractFileByPath(String(path || ""));
     if (!file) throw new Error("That file is not in the vault.");
     const text = await this.app.vault.cachedRead(file);
     const parsed = parseQuizletText(text, { sourcePath: file.path, deck: opts.deck });
     return this.importParsedCards(parsed.cards, opts);
+  }
+
+  /** Read a text-based Quizlet PDF into card records, without writing anything. */
+  async parseQuizletPdfCards(path, options) {
+    const opts = options || {};
+    if (!/\.pdf$/i.test(String(path || ""))) throw new Error("Choose the .pdf file printed from Quizlet.");
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That PDF is not in the vault. Add it to the vault first, then choose it here.");
+    const bytes = await this.readVaultBytes(file);
+    const read = await readPdfPages(bytes, String(opts.pages || ""), opts.progress || (() => {}));
+    return parseQuizletPdf(read.pages, {
+      ...opts,
+      sourcePath: file.path,
+      deck: String(opts.deck || "").trim() || file.basename,
+    });
+  }
+
+  /** Import a PDF of a Quizlet set or printed test bank as flashcards. */
+  async importCardsFromQuizletPdf(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    const parsed = await this.parseQuizletPdfCards(path, opts);
+    const result = await this.importParsedCards(parsed.cards, {
+      ...opts,
+      errors: parsed.errors,
+      skippedDetails: parsed.skipped ? [{ reason: `${parsed.skipped} printed question${parsed.skipped === 1 ? "" : "s"} had no answer key` }] : [],
+    });
+    return { ...result, warnings: parsed.warnings, questions: parsed.questions, totalPages: parsed.totalPages };
   }
 
   /** Adds duplicate details to a read-only import preview so the dialog can show a diff. */
@@ -32441,6 +32989,8 @@ class QuestionTrackerPlugin extends Plugin {
         if (!file) throw new Error("That .apkg file is not in the vault.");
         const bytes = await this.readVaultBytes(file);
         add(parseApkg(bytes, { sourcePath: file.path, deck: String(opts.deck || "").trim() || file.basename }));
+      } else if (kind === "quizlet" && /\.pdf$/i.test(String(path || ""))) {
+        add(await this.parseQuizletPdfCards(path, { ...opts, progress: () => {} }));
       } else {
         const file = this.app.vault.getAbstractFileByPath(String(path || ""));
         if (!file) throw new Error("That file is not in the vault.");
@@ -42528,6 +43078,7 @@ QuestionTrackerPlugin.__test = {
   CALENDAR_TABS,
   cards,
   cardsImport,
+  pdf: require("./pdf"),
   ankiConnect,
   apkg,
   cardsExtract,

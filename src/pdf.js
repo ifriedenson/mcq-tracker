@@ -50,6 +50,60 @@ function itemsToLines(items, viewport) {
   return lines.map((l) => ({ text: l.text.replace(/[ \t]+$/, ""), y: l.y })).filter((l) => l.text.trim());
 }
 
+/**
+ * Text lines that keep the space between columns. A printed Quizlet table puts the
+ * term and definition on the same line; the normal line reader would run them
+ * together, so a large horizontal gap becomes a tab.
+ */
+function itemsToGapLines(items, viewport) {
+  const scale = viewport && Number(viewport.scale) > 0 ? Number(viewport.scale) : 1;
+  const tol = Math.max(3, 3 * scale);
+  const pieces = [];
+  for (const it of items) {
+    if (!it || typeof it.str !== "string" || !it.str.trim()) continue;
+    const t = it.transform && viewport ? matMul(viewport.transform, it.transform) : null;
+    pieces.push({
+      text: it.str,
+      x: t ? t[4] : 0,
+      y: t ? t[5] : 0,
+      w: Math.max(0, (it.width || 0) * scale),
+      h: Math.max(1, (it.height || 0) * scale),
+    });
+  }
+  // Group by baseline first, then read each row left to right. This keeps a
+  // two-column term/definition table together even when the PDF stores each
+  // column as a separate run of text.
+  pieces.sort((a, b) => b.y - a.y || a.x - b.x);
+  const rows = [];
+  for (const piece of pieces) {
+    let row = rows[rows.length - 1];
+    if (!row || Math.abs(piece.y - row.y) > tol) {
+      row = { y: piece.y, parts: [] };
+      rows.push(row);
+    }
+    row.parts.push(piece);
+  }
+  const out = [];
+  for (const row of rows) {
+    const parts = row.parts.slice().sort((a, b) => a.x - b.x);
+    let text = "";
+    let prev = null;
+    for (const part of parts) {
+      if (prev) {
+        const gap = part.x - prev.end;
+        const size = Math.max(prev.h, part.h);
+        if (gap > Math.max(8, 1.2 * size)) text += "\t";
+        else if (gap > 0.15 * size && !/\s$/.test(text) && !/^\s/.test(part.text)) text += " ";
+      }
+      text += part.text;
+      prev = { end: part.x + (part.w || part.text.length * 0.5 * part.h), h: part.h };
+    }
+    const cleaned = text.replace(/[ \t]+$/, "");
+    if (cleaned.trim()) out.push({ text: cleaned, y: row.y });
+  }
+  return out;
+}
+
 /** Where each piece of text sits on the page picture, so figures can be told apart from text. */
 function textBoxes(items, viewport) {
   const out = [];
@@ -287,7 +341,14 @@ async function readPdfPages(buf, spec, progress, cap) {
           warnings.push(`Page ${n}: couldn't capture pictures (${e && e.message ? e.message : e}).`);
         }
       }
-      pages.push({ n, text: pageText(itemsToLines(tc.items, vp), figs), figs: figs.length });
+      pages.push({
+        n,
+        text: pageText(itemsToLines(tc.items, vp), figs),
+        lines: itemsToGapLines(tc.items, vp),
+        pageHeight: vp.height,
+        pageWidth: vp.width,
+        figs: figs.length,
+      });
     }
     return { pages, total: doc.numPages, warnings, figCount };
   } finally {
@@ -359,6 +420,7 @@ module.exports = {
   parsePageRange,
   matMul,
   itemsToLines,
+  itemsToGapLines,
   textBoxes,
   figMarker,
   pageText,

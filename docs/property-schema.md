@@ -126,7 +126,7 @@ update the existing note instead of creating a duplicate.
 | Property | Type | Meaning |
 | --- | --- | --- |
 | `import_source` | string | Source file or folder. |
-| `import_format` | string | Importer that created the note, for example `anki`, `quizlet` or `csv`. |
+| `import_format` | string | Importer that created the note, for example `anki`, `quizlet`, `quizlet-pdf` or `csv`. |
 | `imported_on` | string | Date of the import. |
 | `import_batch` | string | Groups notes written in one import. |
 | `import_key` | string | Stable key used to recognise the same source note on a later import. |

@@ -137,18 +137,151 @@ test("quizlet: tab, comma/semicolon, dash, quoted CSV and two-line layouts", () 
   assert.equal(importer.parseQuizletText("just a note", { deck: "Spanish" }).cards.length, 0);
 });
 
-test("plugin: imports a Quizlet text export and rejects a PDF", async () => {
-  const notes = [
-    { path: "quizlet.txt", text: "hola\thello\nadiós\tgoodbye" },
-    { path: "quizlet.pdf", text: "not a text export" },
-  ];
+test("plugin: imports a Quizlet text export", async () => {
+  const notes = [{ path: "quizlet.txt", text: "hola\thello\nadiós\tgoodbye" }];
   const { app, plugin } = await setup(notes);
   const result = await plugin.importCardsFromQuizlet("quizlet.txt", { deck: "Spanish", course: "SPAN 101" });
   assert.equal(result.created, 2);
   assert.ok(app.created.every((c) => /import_key: "quizlet:/.test(c.text)));
   assert.ok(app.created.every((c) => /deck: "Spanish"/.test(c.text)));
   assert.ok(app.created.every((c) => /course: "SPAN 101"/.test(c.text)));
-  await assert.rejects(() => plugin.importCardsFromQuizlet("quizlet.pdf", {}), /PDFs are not read/);
+});
+
+test("quizlet PDF: two-column flashcard printout ignores headers and keeps pages", () => {
+  const pages = [
+    {
+      n: 1,
+      text: "Quizlet\nSpanish Basics\nTerms in this set (3)\n1\n\nhola\thello\nadiós\tgoodbye\n",
+    },
+    {
+      n: 2,
+      text: "Quizlet\nSpanish Basics\nPage 2\n\ngracias\tthank you\n",
+    },
+  ];
+  const result = importer.parseQuizletPdf(pages, { sourcePath: "sets/spanish.pdf", deck: "Spanish" });
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.cards.length, 3);
+  assert.deepEqual(result.cards.map((card) => [card.front, card.back]), [
+    ["hola", "hello"],
+    ["adiós", "goodbye"],
+    ["gracias", "thank you"],
+  ]);
+  assert.ok(result.cards.every((card) => card.importFormat === "quizlet-pdf"));
+  assert.ok(result.cards.every((card) => /^quizlet-pdf:/.test(card.importKey)));
+  assert.deepEqual(result.cards.map((card) => card.sourcePage), ["1", "1", "2"]);
+  assert.equal(result.cards[0].deck, "Spanish");
+});
+
+test("pdf lines: a wide gap between columns becomes a tab", () => {
+  const lines = T.pdf.itemsToGapLines(
+    [
+      { str: "hola", transform: [1, 0, 0, 1, 50, 700], width: 20, height: 10 },
+      { str: "hello", transform: [1, 0, 0, 1, 250, 700], width: 30, height: 10 },
+      { str: "adiós", transform: [1, 0, 0, 1, 50, 680], width: 24, height: 10 },
+      { str: "goodbye", transform: [1, 0, 0, 1, 250, 680], width: 40, height: 10 },
+    ],
+    { scale: 1, transform: [1, 0, 0, 1, 0, 0], width: 600, height: 800 }
+  );
+  assert.deepEqual(lines.map((line) => line.text), ["hola\thello", "adiós\tgoodbye"]);
+});
+
+test("quizlet PDF: numbered term/definition pairs are not glued into one card", () => {
+  const text = "1. hola\nhello\n2. adiós\ngoodbye";
+  const result = importer.parseQuizletPdf([{ text }], { deck: "Spanish" });
+  assert.equal(result.cards.length, 2);
+  assert.deepEqual(result.cards.map((card) => [card.front, card.back]), [["hola", "hello"], ["adiós", "goodbye"]]);
+});
+
+test("quizlet PDF: numbered test with choices and an answer key", () => {
+  const text = [
+    "Quizlet",
+    "World History Test",
+    "1. Which empire built the Grand Canal?",
+    "A. Rome",
+    "B. China",
+    "C. Egypt",
+    "D. Greece",
+    "2. Who wrote the Declaration of Independence?",
+    "A. Washington",
+    "B. Jefferson",
+    "C. Adams",
+    "D. Franklin",
+    "Answer Key",
+    "1. B",
+    "2. B",
+  ].join("\n");
+  const result = importer.parseQuizletPdf([{ n: 1, text }], { sourcePath: "test-bank.pdf", deck: "AP World" });
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.questions, 2);
+  assert.equal(result.cards.length, 2);
+  assert.deepEqual(result.cards[0].choices, ["Rome", "China", "Egypt", "Greece"]);
+  assert.equal(result.cards[0].back, "China");
+  assert.equal(result.cards[0].correctChoices, "2");
+  assert.equal(result.cards[0].questionSet, "quizlet");
+  assert.equal(result.cards[1].back, "Jefferson");
+  assert.equal(result.cards[1].correctChoices, "2");
+  assert.equal(result.cards[0].sourcePage, "1");
+});
+
+test("quizlet PDF: inline choices and an inline answer without a key", () => {
+  const text = "1. What is 2 + 2?\nA. 3   B. 4   C. 5   D. 6\nAnswer: B";
+  const result = importer.parseQuizletPdf([{ text }], { deck: "Math" });
+  assert.equal(result.cards.length, 1);
+  assert.equal(result.cards[0].front, "What is 2 + 2?");
+  assert.equal(result.cards[0].back, "4");
+  assert.equal(result.cards[0].correctChoices, "2");
+  assert.deepEqual(result.cards[0].choices, ["3", "4", "5", "6"]);
+});
+
+test("quizlet PDF: choices without an answer key are reported, not guessed", () => {
+  const text = "1. Question one?\nA. yes\nB. no\n2. Question two?\nA. one\nB. two";
+  const result = importer.parseQuizletPdf([{ text }], { deck: "Practice" });
+  assert.equal(result.cards.length, 0);
+  assert.equal(result.skipped, 2);
+  assert.match(result.errors[0], /no readable answer key/);
+  assert.equal(result.warnings.length, 2);
+});
+
+test("quizlet PDF: a scanned or empty PDF gets an OCR hint", () => {
+  const result = importer.parseQuizletPdf([{ n: 1, text: "   " }], { deck: "Scanned" });
+  assert.equal(result.cards.length, 0);
+  assert.match(result.errors[0], /almost no readable text/);
+  assert.match(result.errors[0], /OCR/);
+});
+
+test("plugin: a Quizlet PDF delegates to the card writer and records its format", async () => {
+  const { app, plugin } = await setup([]);
+  plugin.parseQuizletPdfCards = async () => ({
+    cards: [
+      {
+        kind: "card",
+        cardType: "basic",
+        deck: "Spanish",
+        front: "hola",
+        back: "hello",
+        tags: [],
+        importSource: "sets/spanish.pdf",
+        importFormat: "quizlet-pdf",
+        importedOn: "2026-10-29",
+        importKey: "quizlet-pdf:test",
+        sourcePage: "1",
+      },
+    ],
+    errors: [],
+    warnings: [],
+    skipped: 0,
+    questions: 0,
+    totalPages: 1,
+  });
+  const preview = await plugin.previewCardsImport("quizlet", "sets/spanish.pdf", { deck: "Spanish" });
+  assert.equal(preview.total, 1);
+  assert.equal(preview.cards[0].back, "hello");
+
+  const result = await plugin.importCardsFromQuizlet("sets/spanish.pdf", { deck: "Spanish", course: "SPAN 101" });
+  assert.equal(result.created, 1);
+  assert.match(app.created[0].text, /import_format: "quizlet-pdf"/);
+  assert.match(app.created[0].text, /source_page: "1"/);
+  assert.match(app.created[0].text, /course: "SPAN 101"/);
 });
 
 test("plugin: imports an Anki text export and rejects a binary package", async () => {
