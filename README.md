@@ -287,7 +287,7 @@ Open **Reference → AP score**, or run **Open AP score calculator**. Choose AP 
 
 The **What do I need for a 4/5?** control holds the other sections fixed and shows the percentage and points required on each section, or that the target is not reachable with the entered scores. Nothing leaves the device.
 
-When the estimate is complete, **Save practice exam** writes an ordinary Markdown note under **AP practice exams/** with the date, course, exam year, composite, estimated score, likely band, section table and the cut scores used. The note also keeps every written-response score and adds a per-question table. The tab then lists saved attempts newest first, with an average, the change from the previous attempt, and an FRQ average and change across attempts. The note is yours: rename it, edit the notes section, or delete it without affecting the calculator.
+When the estimate is complete, **Save practice exam** writes an ordinary Markdown note under **AP practice exams/** with the date, course, exam year, composite, estimated score, likely band, section table and the cut scores used. The note also keeps every written-response score and adds a per-question table. The tab then lists saved attempts newest first, with an average, the change from the previous attempt, and a written-score average plus per-section trends. AP U.S. History shows SAQ, DBQ and LEQ separately; single-written-section courses show FRQ. The note is yours: rename it, edit the notes section, or delete it without affecting the calculator.
 
 ## AP resources
 

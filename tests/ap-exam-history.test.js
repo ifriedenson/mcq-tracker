@@ -79,6 +79,68 @@ test("AP exam history: AP U.S. History keeps SAQ, DBQ and LEQ scores separately"
   assert.match(note.text, /\| Long essay \| Long essay \| 4 \/ 6 \|/);
   assert.equal(note.entry.frqEarned, 17);
   assert.equal(note.entry.frqPercent, 77.3);
+  assert.deepEqual(
+    note.entry.writtenSections.map((section) => [section.id, section.earned, section.max, section.percent]),
+    [["saq", 8, 9, 88.9], ["dbq", 5, 7, 71.4], ["leq", 4, 6, 66.7]]
+  );
+});
+
+test("AP exam history: per-section written trends use the latest course", () => {
+  const section = (id, label, earned, max, percent) => ({ id, label, earned, max, percent });
+  const trend = history.apExamTrend([
+    {
+      path: "new.md", takenOn: "2026-10-20", composite: 80, courseId: "ap-us-history",
+      writtenSections: [section("saq", "Short answer", 8, 9, 88.9), section("dbq", "Document-based question", 5, 7, 71.4), section("leq", "Long essay", 4, 6, 66.7)],
+    },
+    {
+      path: "old.md", takenOn: "2026-10-01", composite: 70, courseId: "ap-us-history",
+      writtenSections: [section("saq", "Short answer", 7, 9, 77.8), section("dbq", "Document-based question", 4, 7, 57.1), section("leq", "Long essay", 3, 6, 50)],
+    },
+    {
+      path: "other.md", takenOn: "2026-10-15", composite: 90, courseId: "ap-biology",
+      writtenSections: [section("frq", "Free response", 30, 34, 88.2)],
+    },
+  ]);
+  assert.equal(trend.writtenLabel, "Written");
+  assert.equal(trend.written.length, 3);
+  const saq = trend.written.find((item) => item.id === "saq");
+  assert.equal(saq.average, 83.4);
+  assert.equal(saq.delta, 11.1);
+  assert.equal(saq.direction, "up");
+  const dbq = trend.written.find((item) => item.id === "dbq");
+  assert.equal(dbq.average, 64.3);
+  assert.equal(dbq.delta, 14.3);
+  const leq = trend.written.find((item) => item.id === "leq");
+  assert.equal(leq.average, 58.4);
+  assert.equal(leq.delta, 16.7);
+});
+
+test("AP exam history: the Reference tab labels APUSH written sections and shows their trends", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.apHistoryEl = dom.root;
+  const section = (id, label, earned, max, percent) => ({ id, label, earned, max, percent });
+  view.renderApHistory([
+    {
+      path: "new.md", takenOn: "2026-10-20", composite: 80, estimated: 5, low: 5, high: 5, courseId: "ap-us-history", course: "AP United States History",
+      frqEarned: 17, frqMax: 22, frqPercent: 77.3,
+      writtenSections: [section("saq", "Short answer", 8, 9, 88.9), section("dbq", "Document-based question", 5, 7, 71.4), section("leq", "Long essay", 4, 6, 66.7)],
+    },
+    {
+      path: "old.md", takenOn: "2026-10-01", composite: 70, estimated: 4, low: 4, high: 4, courseId: "ap-us-history", course: "AP United States History",
+      frqEarned: 14, frqMax: 22, frqPercent: 63.6,
+      writtenSections: [section("saq", "Short answer", 7, 9, 77.8), section("dbq", "Document-based question", 4, 7, 57.1), section("leq", "Long essay", 3, 6, 50)],
+    },
+  ]);
+  assert.ok(dom.texts().some((text) => text.includes("Written avg 70.5%")));
+  assert.ok(dom.texts().some((text) => text.includes("Short answer 83.4% (+11.1)")));
+  assert.ok(dom.texts().some((text) => text.includes("Written 17/22 (77.3%)")));
 });
 
 test("AP exam history: an incomplete estimate cannot be saved or parsed as a result", () => {

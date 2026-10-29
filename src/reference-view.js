@@ -653,21 +653,33 @@ class ReferenceView extends ItemView {
     }
     const summary = el.createDiv({ cls: "qt-ap-history-summary" });
     summary.createSpan({ text: `${trend.count} saved · average ${trend.average}%` });
+    const writtenLabel = trend.writtenLabel || "FRQ";
     if (trend.frqAverage !== null) {
       const frqSign = trend.frqDelta > 0 ? "+" : "";
-      const frqChange = trend.frqDelta === null ? "" : ` · ${frqSign}${trend.frqDelta} FRQ points vs previous`;
-      summary.createSpan({ cls: "qt-ap-history-frq", text: ` · FRQ avg ${trend.frqAverage}%${frqChange}` });
+      const frqChange = trend.frqDelta === null ? "" : ` · ${frqSign}${trend.frqDelta} ${writtenLabel.toLowerCase()} points vs previous`;
+      summary.createSpan({ cls: "qt-ap-history-frq", text: ` · ${writtenLabel} avg ${trend.frqAverage}%${frqChange}` });
     }
     if (trend.count > 1) {
       const sign = trend.delta > 0 ? "+" : "";
       summary.createSpan({ cls: `qt-ap-trend qt-ap-trend-${trend.direction}`, text: `${sign}${trend.delta} points vs previous` });
     }
+    if (trend.written.length > 1) {
+      const details = trend.written.map((section) => {
+        const sign = section.delta > 0 ? "+" : "";
+        const change = section.delta === null ? "" : ` (${sign}${section.delta})`;
+        return `${section.label} ${section.average}%${change}`;
+      }).join(" · ");
+      el.createDiv({ cls: "qt-ap-written-sections", text: details });
+    }
     for (const entry of entries.slice(0, 8)) {
       const row = el.createDiv({ cls: "qt-ap-history-row" });
       const text = row.createDiv({ cls: "qt-ap-history-text" });
       text.createEl("strong", { text: `${entry.takenOn || "Undated"} · ${entry.course}` });
-      const frq = entry.frqPercent === null || entry.frqPercent === undefined ? "" : ` · FRQ ${entry.frqEarned}/${entry.frqMax} (${entry.frqPercent}%)`;
-      text.createDiv({ cls: "qt-hint", text: `${entry.composite}% composite · estimated ${entry.estimated}${entry.low !== entry.high ? ` (${entry.low}-${entry.high})` : ""}${frq}` });
+      const frq = entry.frqPercent === null || entry.frqPercent === undefined ? "" : ` · ${trend.writtenLabel || "FRQ"} ${entry.frqEarned}/${entry.frqMax} (${entry.frqPercent}%)`;
+      const sections = entry.writtenSections && entry.writtenSections.length > 1
+        ? ` · ${entry.writtenSections.map((section) => `${section.label} ${section.earned}/${section.max}`).join(" · ")}`
+        : "";
+      text.createDiv({ cls: "qt-hint", text: `${entry.composite}% composite · estimated ${entry.estimated}${entry.low !== entry.high ? ` (${entry.low}-${entry.high})` : ""}${frq}${sections}` });
       row.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => {
         if (this.app && this.app.workspace && this.app.workspace.openLinkText) this.app.workspace.openLinkText(entry.path, "", false);
       });
