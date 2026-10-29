@@ -60,6 +60,16 @@ test("modules: with MCQ Tracker off its entry points point back at Global settin
   assert.ok(!obsidian.notices.some((n) => /Turn on AI features/.test(n)), "PDF import stops at the module switch");
 });
 
+test("settings: scheduler defaults to the ladder and saved values are bounded", async () => {
+  const { plugin } = await setup();
+  assert.equal(plugin.settings.scheduler, "ladder");
+  assert.equal(plugin.settings.fsrsRetention, 0.9);
+
+  const bad = await setup({ scheduler: "something-else", fsrsRetention: 2 });
+  assert.equal(bad.plugin.settings.scheduler, "ladder");
+  assert.equal(bad.plugin.settings.fsrsRetention, 0.95);
+});
+
 test("modules: an already-open practice tab says the module is off", async () => {
   const { app, plugin } = await setup();
   plugin.settings.mcqEnabled = false;

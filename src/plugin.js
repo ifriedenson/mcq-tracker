@@ -226,6 +226,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.showRibbonIcons = this.settings.showRibbonIcons !== false;
     this.settings.openPracticeOnStartUp = this.settings.openPracticeOnStartUp === true;
     if (!["auto", "buttons", "search"].includes(this.settings.folderFilterStyle)) this.settings.folderFilterStyle = "auto";
+    if (!["ladder", "fsrs"].includes(this.settings.scheduler)) this.settings.scheduler = "ladder";
+    const retention = Number(this.settings.fsrsRetention);
+    this.settings.fsrsRetention = Number.isFinite(retention) ? Math.min(0.95, Math.max(0.85, retention)) : 0.9;
     for (const k of ["intervals", "errorTypes", "confidenceLabels"]) {
       if (!Array.isArray(this.settings[k]) || !this.settings[k].length) this.settings[k] = DEFAULT_SETTINGS[k].slice();
     }
@@ -942,8 +945,14 @@ class QuestionTrackerPlugin extends Plugin {
   async recordAttempt(file, a) {
     let summary;
     await this.app.fileManager.processFrontMatter(file, (fm) => {
-      summary = applyAttempt(fm, a, this.settings.intervals);
+      summary = applyAttempt(fm, a, this.settings.intervals, {
+        scheduler: this.settings.scheduler,
+        fsrsRetention: this.settings.fsrsRetention,
+      });
     });
+    if (summary && summary.fsrsError) {
+      new Notice("FSRS couldn't schedule this question, so the simple ladder was used.");
+    }
     return summary;
   }
 

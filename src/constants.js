@@ -32,6 +32,8 @@ const DEFAULT_SETTINGS = {
   openPracticeOnStartUp: false, // open the practice view when the workspace is ready
   questionFolder: "",
   intervals: [1, 3, 7, 21, 60],
+  scheduler: "ladder", // "ladder" (default) | "fsrs"
+  fsrsRetention: 0.9, // desired recall probability when FSRS is on (0.85-0.95)
   errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed"],
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
   autoPauseOnMobile: true,
@@ -84,6 +86,7 @@ const TRACKING_DEFAULTS = {
   last_error_type: "",
   flagged: false,
   next_review: "",
+  srs: "", // compact FSRS state; written only when FSRS schedules a review
   history: [],
 };
 const FOLDER_AUTO_MAX = 8; // "auto" folder filter: buttons up to this many folders, a search box beyond

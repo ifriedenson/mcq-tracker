@@ -1,6 +1,7 @@
 "use strict";
 const { addDays, fmtDate, fmtDateTime, str } = require("./util");
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
+const { reviewNote } = require("./fsrs");
 
 const HEAD_ALIASES = {
   stimulus: ["stimulus", "passage", "source", "excerpt", "reading", "text", "figure"],
@@ -141,7 +142,8 @@ function gradeAnswer(fm, chosen) {
 }
 
 /** Mutates `fm` (inside processFrontMatter). Returns a summary. */
-function applyAttempt(fm, a, intervals) {
+function applyAttempt(fm, a, intervals, options) {
+  const opts = options || {};
   const iv = intervals && intervals.length ? intervals : DEFAULT_SETTINGS.intervals;
   const prev = Number(fm.streak) || 0;
   const streak = a.correct ? (a.conf === 1 ? prev : prev + 1) : 0;
@@ -149,6 +151,18 @@ function applyAttempt(fm, a, intervals) {
   if (!a.correct) days = 1;
   else if (a.conf === 1) days = 2;
   else days = iv[Math.min(Math.max(streak, 1) - 1, iv.length - 1)];
+
+  // FSRS reads the history before this attempt is appended, so a note that has
+  // never used FSRS is seeded from its existing history exactly once.
+  let fsrsReview = null;
+  let fsrsError = "";
+  if (opts.scheduler === "fsrs") {
+    try {
+      fsrsReview = reviewNote(fm, a, opts.fsrsRetention);
+    } catch (e) {
+      fsrsError = str(e && e.message);
+    }
+  }
 
   const now = fmtDateTime(a.now);
   const chosen = str(a.chosen).replace(/[|\n\r]/g, "/");
@@ -168,7 +182,14 @@ function applyAttempt(fm, a, intervals) {
   fm.result = a.correct ? "correct" : "incorrect";
   fm["date attempted"] = now;
   if (!fm.first_attempted) fm.first_attempted = now;
-  fm.next_review = fmtDate(addDays(a.now, days));
+  fm.next_review = fsrsReview ? fsrsReview.nextReview : fmtDate(addDays(a.now, days));
+  if (fsrsReview) {
+    fm.srs = fsrsReview.srs;
+    fm.scheduler = "fsrs";
+  } else if (fm.srs) {
+    // Switching back to the ladder is lossless: keep the FSRS state for later.
+    fm.scheduler = "ladder";
+  }
 
   return {
     streak,
@@ -176,6 +197,11 @@ function applyAttempt(fm, a, intervals) {
     correctCount: fm.correct_count,
     nextReview: fm.next_review,
     target: Number(fm.target_seconds) || 0,
+    scheduler: fsrsReview ? "fsrs" : "ladder",
+    fsrsRating: fsrsReview ? fsrsReview.rating : 0,
+    fsrsDays: fsrsReview ? fsrsReview.days : 0,
+    fsrsReplayed: fsrsReview ? fsrsReview.replayed : 0,
+    fsrsError,
   };
 }
 

@@ -13,6 +13,7 @@ const { buildReportMarkdown, cacheIssues, finalizeNote, groupIssues, noteIssues,
 const { fmtDate, fmtDateTime } = require("./util");
 const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
 const { answerFromSection, applyAttempt, extractRationale, fillDefaults, gradeAnswer, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
+const fsrs = require("./fsrs");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
@@ -78,6 +79,7 @@ QuestionTrackerPlugin.__test = {
   replaceMyNotes,
   gradeAnswer,
   applyAttempt,
+  fsrs,
   setLastErrorType,
   fillDefaults,
   // folders, ids, stats, errors, tests, import checks

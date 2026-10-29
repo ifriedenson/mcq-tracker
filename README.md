@@ -9,6 +9,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Timer** with pause. It survives closing the app, and on mobile it can pause itself when you switch apps.
 - **Review after answering.** See the question and choices again with your pick and the correct answer marked, plus an explanation you can show or hide (the default is a setting).
 - **Spaced review.** Correct answers come back after 1, 3, 7, 21, then 60 days (editable). Misses come back tomorrow.
+- **Optional FSRS scheduling.** Turn on a memory-model scheduler in settings. It estimates difficulty and stability per question, aims for your chosen recall probability, and replays existing history once so you do not start from zero. The simple 1/3/7/21/60-day ladder remains the default and switching back is lossless.
 - **Mistake tracking.** After a miss, tag why (careless, content gap, misread, ran out of time, guessed, or your own labels).
 - **Flexible filters.** Filter by folder (including all its sub folders), course, test, section, domain, skill, unit and difficulty, for example folder + skill + difficulty together. You can pick several values in one field (OR), and add extra filter sets that are combined with OR. Save any combination as a **preset**.
 - **Counts and folder search.** Every filter button shows how many notes it holds. The Folder filter switches to a type-ahead search box when you have many folders (or whenever you choose), and the choice is a setting.
@@ -82,7 +83,7 @@ Which choice best describes the relationship between the two texts?
 - The answer key is read from the `answer` property, or from a line like `Correct Answer: B` in the `## Answer` section.
 - `question_type` can be `mcq`, `spr` (student-produced response), or anything else for self-grading. Free text such as "Multiple choice (4 choices)" is understood too.
 - Properties the plugin reads: `course, test, section, domain, skill, unit, difficulty, question_type, choices, answer, target_seconds, stimulus_id`.
-- Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, next_review, history`.
+- Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, next_review, srs, scheduler, history`. `srs` and `scheduler` are populated when FSRS schedules a review (`srs` may be empty if you add tracking properties to notes first).
 
 Run the command **Add missing tracking properties to all question notes** to add the writable properties to notes that don't have them yet.
 
@@ -97,6 +98,8 @@ Run the command **Add missing tracking properties to all question notes** to add
 ### Review scheduling
 
 After a correct answer with confidence 2 or 3, the next review is 1, 3, 7, 21, then 60 days out (editable). A miss resets the streak and returns tomorrow. A correct answer rated "Guessing" doesn't extend the streak and returns in 2 days.
+
+To use **FSRS** instead, open **Settings → MCQ Tracker → Review → Scheduler** and choose **FSRS (memory model)**. FSRS stores a compact state in the note's `srs` property; `history` stays the source of truth. The first time a question is reviewed, its existing history is replayed to seed that state. Existing `next_review` dates are not changed until that review. You can choose 85%, 90%, or 95% desired retention. Switching back to the ladder keeps the FSRS state and resumes the old streak-based schedule.
 
 Each `history` entry is stored as `date|result|seconds|answer|confidence|error_type`.
 
@@ -217,7 +220,7 @@ Settings are grouped by module, then by tab. **Global** has Modules and General;
 
 - **Global → Modules** is one switch per module: **MCQ Tracker** (on by default), **Calendar** (off by default) and **AI features** (off by default). Turning a module off keeps its settings and your notes. It closes that module's open tabs and hides its ribbon button; using one of its commands anyway shows a notice that points back here.
 - **Global → General** holds the plugin-wide options: whether the plugin shows its ribbon icons, and whether the practice view opens when Obsidian starts.
-- **MCQ Tracker** covers the question folder, folder-filter style, review intervals, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
+- **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
 - The calendar's **Appearance & Colors** tab includes a maximum width setting (`0` fills the pane), class colors, break markers, and the study-slot buffer.
 
 ## Privacy
@@ -247,4 +250,4 @@ Please report bugs and ideas on the GitHub issues page for this repository.
 
 ## License
 
-[MIT](LICENSE). The calendar module contains code adapted from University Schedule and Calendar (MIT, Cesemess); see [NOTICES.md](NOTICES.md).
+[MIT](LICENSE). The calendar module contains code adapted from University Schedule and Calendar (MIT, Cesemess), and the optional FSRS scheduler uses ts-fsrs 5.4.1 (MIT, Open Spaced Repetition); see [NOTICES.md](NOTICES.md).

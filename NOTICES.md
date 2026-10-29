@@ -62,6 +62,43 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## ts-fsrs
+
+- **Project:** [ts-fsrs](https://github.com/open-spaced-repetition/ts-fsrs) (npm package `ts-fsrs`)
+- **Author:** Open Spaced Repetition
+- **License:** MIT, Copyright (c) 2026 Open Spaced Repetition (verified in the package's `LICENSE` on October 29, 2026)
+- **Version:** 5.4.1 (FSRS-6; chosen for its Node >=20 compatibility and because it is the version used by the MIT Spaced Repetition plugin at audit time. ts-fsrs 6.x is newer but requires Node 24.)
+- **What was absorbed:** the published package's compiled CommonJS bundle, `dist/index.cjs`, vendored as `src/fsrs-lib.js`. It has no external `require()` calls and runs in the plugin's plain-JavaScript bundle.
+- **Files in this repository that contain the work:** `src/fsrs-lib.js` (the vendored scheduler) and `src/fsrs.js` (the local adapter for note properties, ratings and history replay). The adapter is original code, not a copy of another plugin's wrapper.
+- **Modifications:** the vendored bundle is unmodified except for a header comment naming the version and license, removal of the trailing `sourceMappingURL` comment, and trimming one whitespace-only line. The 21 default weights are FSRS-6.
+- **Why this instead of copying LearnKit or Spaced Repetition:** both plugins are MIT, but both delegate FSRS to `ts-fsrs`; copying their wrappers would add Obsidian- and UI-specific code without adding a scheduler. The plan's candidate library is therefore used directly.
+
+The MIT notice that applies to the vendored scheduler:
+
+```
+MIT License
+
+Copyright (c) 2026 Open Spaced Repetition
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## Not absorbed (yet)
 
 The product plan also names LearnKit as a future absorb source. It has **not** been copied

@@ -126,6 +126,55 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Scheduler")
+      .setDesc(
+        "Simple ladder uses fixed intervals. FSRS schedules each question from an estimated memory state and your target recall. " +
+          "FSRS is optional and off by default; switching it on never rewrites an existing next review date until that question is next reviewed."
+      )
+      .addDropdown((d) =>
+        d
+          .addOptions({ ladder: "Simple ladder (default)", fsrs: "FSRS (memory model)" })
+          .setValue(st.scheduler)
+          .onChange(async (v) => {
+            if (v === "fsrs" && st.scheduler !== "fsrs") {
+              const ok = await this.plugin.askConfirm(
+                "Use FSRS scheduling?",
+                "FSRS is an optional memory-model scheduler. The first time a question is reviewed, its saved history is replayed to build an FSRS state. Existing next review dates are not changed until that review.\n\nSwitching back to the simple ladder is lossless: FSRS state is kept in the note and the ladder resumes from your streak.",
+                "Use FSRS"
+              );
+              if (!ok) {
+                this.display();
+                return;
+              }
+            }
+            st.scheduler = v;
+            await this.plugin.save();
+            this.display();
+            this.plugin.refreshViews();
+          })
+      );
+
+    if (st.scheduler === "fsrs") {
+      new Setting(containerEl)
+        .setName("Desired retention")
+        .setDesc("The recall probability FSRS aims for. Higher retention means more reviews and shorter intervals. The default is 90%.")
+        .addDropdown((d) =>
+          d
+            .addOptions({ "0.85": "85%", "0.9": "90%", "0.95": "95%" })
+            .setValue(String(st.fsrsRetention))
+            .onChange(async (v) => {
+              st.fsrsRetention = Number(v) || 0.9;
+              await this.plugin.save();
+              this.plugin.refreshViews();
+            })
+        );
+      containerEl.createEl("p", {
+        cls: "setting-item-description",
+        text: "FSRS uses the MIT-licensed ts-fsrs 5.4.1 scheduler. State is stored in the note's srs property; history remains the source of truth.",
+      });
+    }
+
+    new Setting(containerEl)
       .setName("Error types")
       .setDesc("Comma-separated. Shown after a wrong answer.")
       .addText((t) =>

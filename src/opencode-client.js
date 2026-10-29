@@ -86,7 +86,7 @@ function buildTutorContext(r, notesText, confLabels, mode) {
     lines.push(
       "",
       `This question is stored in the Obsidian note "${r.file.path}". You may edit it if asked, but never change the ` +
-        "tracking properties (result, attempts, correct_count, streak, history, next_review, time_spent_total, and similar) unless explicitly told to."
+        "tracking properties (result, attempts, correct_count, streak, history, next_review, srs, scheduler, time_spent_total, and similar) unless explicitly told to."
     );
   }
   return lines.join("\n");
@@ -104,7 +104,7 @@ function buildGeneralContext(app, mode) {
     "Each question note has YAML properties: static ones (question_id, test, subject, course, section, domain, skill, difficulty, unit, " +
       "question_type, choices, answer, source, target_seconds, tags) and tracking ones written by a plugin " +
       "(result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, " +
-      "last_confidence, last_error_type, flagged, next_review, history).",
+      "last_confidence, last_error_type, flagged, next_review, srs, scheduler, history).",
     "The body uses the headings: ## Question, ## Answer Choices (lines like '- A. text'), ## Answer (a '> [!answer]-' callout with " +
       "'**Correct Answer: X**' and a rationale), and ## My Notes.",
     "Never change the tracking properties unless explicitly told to. Keep the format above when creating or editing notes.",
