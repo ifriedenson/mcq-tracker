@@ -625,3 +625,46 @@ test("crowdanki: nested decks, HTML fields, tags, cloze and a plugin import", as
   assert.match(app.created[0].text, /import_key: "crowdanki:root-note"/);
   assert.match(app.created[1].text, /deck: "Languages::Spanish"/);
 });
+
+test("plugin: import preview counts duplicates, update preserves history notes, copy creates a new key", async () => {
+  const source = "Imports/review.gift";
+  const parsed = importer.parseGiftText("Q?{=A}", { sourcePath: source, deck: "Moodle" });
+  const key = parsed.cards[0].importKey;
+  const existing = {
+    path: "Cards/Moodle/Q.md",
+    fm: {
+      card_id: "c1",
+      item_type: "card",
+      deck: "Moodle",
+      import_key: key,
+      attempts: 7,
+      correct_count: 5,
+      streak: 3,
+      next_review: "2026-12-01",
+      history: ["2026-11-01 | correct"],
+    },
+    text: `---\ncard_id: c1\nitem_type: card\ndeck: Moodle\nimport_key: "${key}"\nattempts: 7\ncorrect_count: 5\nstreak: 3\nnext_review: "2026-12-01"\nhistory:\n  - "2026-11-01 | correct"\n---\n\n## Front\nOld question\n\n## Back\nOld answer\n\n## Notes\nKeep this note\n`,
+  };
+  const { app, plugin } = await setup([{ path: source, text: "Q?{=A}" }, existing]);
+
+  const preview = await plugin.previewCardsImport("gift", source, { deck: "Moodle" });
+  assert.equal(preview.total, 1);
+  assert.equal(preview.duplicates, 1);
+  assert.deepEqual(preview.duplicatePaths, ["Cards/Moodle/Q.md"]);
+
+  const updated = await plugin.importCardsFromGift(source, { deck: "Moodle", duplicateMode: "update" });
+  assert.equal(updated.updated, 1);
+  const file = app.files.find((f) => f.path === "Cards/Moodle/Q.md");
+  assert.match(file.text, /## Front\n\nQ\?/);
+  assert.match(file.text, /## Notes\n\nKeep this note/);
+  assert.equal(file.fm.attempts, 7, "attempts are preserved");
+  assert.equal(file.fm.correct_count, 5);
+  assert.equal(file.fm.streak, 3);
+  assert.deepEqual(file.fm.history, ["2026-11-01 | correct"]);
+
+  const copied = await plugin.importCardsFromGift(source, { deck: "Moodle", duplicateMode: "copy" });
+  assert.equal(copied.copied, 1);
+  assert.equal(app.created.length, 1);
+  assert.match(app.created[0].text, /import_key: "gift:.*~copy-/);
+  assert.match(app.created[0].text, /## Front\n\nQ\?/);
+});

@@ -5594,6 +5594,14 @@ class CardImportModal extends Modal {
     const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
     if (this.options.course) course.value = this.options.course;
 
+    const duplicateWrap = contentEl.createDiv({ cls: "qt-field" });
+    duplicateWrap.createEl("label", { text: "If an import key already exists" });
+    const duplicateMode = duplicateWrap.createEl("select", { cls: "dropdown" });
+    duplicateMode.createEl("option", { text: "Skip duplicates", value: "skip" });
+    duplicateMode.createEl("option", { text: "Update the existing card", value: "update" });
+    duplicateMode.createEl("option", { text: "Create a copy", value: "copy" });
+    duplicateMode.value = "skip";
+
     const csvSection = contentEl.createDiv({ cls: "qt-csv-section" });
     const csvGrid = csvSection.createDiv({ cls: "qt-csv-mapping" });
     const csvHeaderWrap = csvSection.createDiv({ cls: "qt-field" });
@@ -5703,8 +5711,33 @@ class CardImportModal extends Modal {
     const note = contentEl.createDiv({ cls: "qt-hint" });
     const row = contentEl.createDiv({ cls: "qt-row" });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
+    const preview = row.createEl("button", { text: "Preview", cls: "qt-grow" });
     const go = row.createEl("button", { text: "Import cards", cls: "mod-cta qt-grow" });
     cancel.addEventListener("click", () => this.close());
+    preview.addEventListener("click", async () => {
+      const path = source.value;
+      if (this.type === "csv") {
+        await readCsv({ keepMapping: !!this.csvMapping, autoHeader: !this.csvMapping });
+        return;
+      }
+      if (!path) {
+        note.setText("Choose a file or folder first.");
+        return;
+      }
+      preview.disabled = true;
+      note.setText("Reading preview…");
+      try {
+        const parsed = await p.previewCardsImport(this.type, path, { deck: deck.value, course: course.value });
+        const duplicateText = parsed.duplicates ? ` · ${parsed.duplicates} duplicate${parsed.duplicates === 1 ? "" : "s"}` : "";
+        const errorText = parsed.errors && parsed.errors.length ? ` · ${parsed.errors.length} issue${parsed.errors.length === 1 ? "" : "s"}` : "";
+        const message = `${parsed.total} card${parsed.total === 1 ? "" : "s"} ready${duplicateText}${errorText}. Choose a duplicate mode, then import.`;
+        note.setText(parsed.errors && parsed.errors.length ? `${message} ${parsed.errors[0]}` : message);
+      } catch (e) {
+        note.setText(str(e && e.message) || "Could not preview that import.");
+      } finally {
+        preview.disabled = false;
+      }
+    });
     go.addEventListener("click", async () => {
       const path = source.value;
       if (this.type !== "spaced" && !path) {
@@ -5722,26 +5755,27 @@ class CardImportModal extends Modal {
       go.disabled = true;
       note.setText("Reading and importing…");
       try {
-        const result =
-          this.type === "spaced"
-            ? await p.importCardsFromFolder(path, { deck: deck.value, course: course.value })
+        const result =          this.type === "spaced"
+            ? await p.importCardsFromFolder(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
             : this.type === "mochi"
-              ? await p.importCardsFromMochi(path, { deck: deck.value, course: course.value })
+              ? await p.importCardsFromMochi(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
               : this.type === "crowdanki"
-                ? await p.importCardsFromCrowdAnki(path, { deck: deck.value, course: course.value })
+                ? await p.importCardsFromCrowdAnki(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
                 : this.type === "quizlet"
-              ? await p.importCardsFromQuizlet(path, { deck: deck.value, course: course.value })
-              : this.type === "csv"
-                ? await p.importCardsFromCsv(path, { deck: deck.value, course: course.value, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked })
-                : QUESTION_SET_TYPES.includes(this.type)
-                  ? await p.importCardsFromQuestionSet(path, this.type, { deck: deck.value, course: course.value })
-                  : this.type === "gift"
-                    ? await p.importCardsFromGift(path, { deck: deck.value, course: course.value })
-                    : this.type === "moodlexml" || this.type === "qti"
-                      ? await p.importCardsFromLmsXml(path, this.type, { deck: deck.value, course: course.value })
-                      : await p.importCardsFromAnki(path, { deck: deck.value, course: course.value });
+                  ? await p.importCardsFromQuizlet(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
+                  : this.type === "csv"
+                    ? await p.importCardsFromCsv(path, { deck: deck.value, course: course.value, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked, duplicateMode: duplicateMode.value })
+                    : QUESTION_SET_TYPES.includes(this.type)
+                      ? await p.importCardsFromQuestionSet(path, this.type, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
+                      : this.type === "gift"
+                        ? await p.importCardsFromGift(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
+                        : this.type === "moodlexml" || this.type === "qti"
+                          ? await p.importCardsFromLmsXml(path, this.type, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
+                          : await p.importCardsFromAnki(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value });
         const bits = [`Imported ${result.created} card${result.created === 1 ? "" : "s"}`];
-        if (result.skipped) bits.push(`${result.skipped} already imported`);
+        if (result.updated) bits.push(`${result.updated} updated`);
+        if (result.copied) bits.push(`${result.copied} copied`);
+        if (result.skipped) bits.push(`${result.skipped} skipped`);
         if (result.errors && result.errors.length) bits.push(`${result.errors.length} failed`);
         note.setText(bits.join(" · "));
         new Notice(bits.join(" · "), 6000);
@@ -14391,6 +14425,23 @@ const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, 
 const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { normalizeTutorRole } = require("./tutor-presets");
 
+function noteBodyText(text) {
+  const close = str(text).indexOf("\n---\n", 3);
+  return close >= 0 ? str(text).slice(close + 5) : str(text);
+}
+
+function noteNotesSection(body) {
+  const lines = str(body).split("\n");
+  const start = lines.findIndex((line) => /^##\s+Notes\b/i.test(line));
+  if (start < 0) return "";
+  const out = [];
+  for (let i = start; i < lines.length; i++) {
+    if (i > start && /^##\s+/.test(lines[i])) break;
+    out.push(lines[i]);
+  }
+  return out.join("\n").trimEnd().replace(/^(##\s+Notes\b)[ \t]*\n?/i, "$1\n\n");
+}
+
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
@@ -15999,34 +16050,143 @@ class QuestionTrackerPlugin extends Plugin {
     return { path, count: records.length, format: kind, warnings };
   }
 
-  /** Write parsed cards, skipping import keys that are already present. */
+  /** Parsed-card preview with duplicate counts, used before writing anything. */
+  async previewCardsImport(type, path, options) {
+    if (this.moduleOff("cards")) return { cards: [], total: 0, duplicates: 0, duplicatePaths: [], errors: ["Turn on the Cards module first."], format: type };
+    const kind = String(type || "").toLowerCase();
+    const opts = options || {};
+    const cards = [];
+    const errors = [];
+    const add = (parsed) => {
+      cards.push(...((parsed && parsed.cards) || []));
+      if (parsed && Array.isArray(parsed.errors)) errors.push(...parsed.errors);
+    };
+    try {
+      if (kind === "spaced" || kind === "mochi") {
+        const root = String(path || "").replace(/^\/+|\/+$/g, "");
+        const files = this.app.vault.getMarkdownFiles().filter((file) => (!root || file.path === root || file.path.startsWith(root + "/")) && !isCardNote(this.app.metadataCache.getFileCache(file)?.frontmatter));
+        for (const file of files) {
+          try {
+            const text = await this.app.vault.cachedRead(file);
+            const folder = String(file.path || "").split("/").slice(0, -1).join("/");
+            const deck = String(opts.deck || "").trim() || (kind === "mochi" ? (folder ? folder.split("/").pop() : "Imported") : (root ? root.split("/").pop() : this.settings.cards.defaultDeck));
+            add(kind === "mochi" ? parseMochiMarkdown(text, { sourcePath: file.path, deck }) : parseSpacedRepetition(text, { sourcePath: file.path, deck }));
+          } catch (e) {
+            errors.push(`${file.path}: ${String((e && e.message) || e)}`);
+          }
+        }
+      } else if (kind === "csv") {
+        const parsed = await this.previewCardsCsv(path, opts);
+        add(parsed);
+      } else {
+        const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+        if (!file) throw new Error("That file is not in the vault.");
+        const text = await this.app.vault.cachedRead(file);
+        const deck = String(opts.deck || "").trim() || file.basename;
+        const base = { sourcePath: file.path, deck };
+        if (kind === "anki") add(parseAnkiText(text, base));
+        else if (kind === "gift") add(parseGiftText(text, base));
+        else if (kind === "moodlexml") add(parseMoodleXml(text, base));
+        else if (kind === "qti") add(parseQtiXml(text, base));
+        else if (kind === "crowdanki") add(parseCrowdAnkiJson(text, base));
+        else if (kind === "quizlet") add(parseQuizletText(text, base));
+        else if (["kahoot", "blooket", "gimkit"].includes(kind)) add(parseQuestionSetText(text, { ...base, format: kind }));
+        else throw new Error(`Unsupported import format: ${kind || "none"}.`);
+      }
+    } catch (e) {
+      errors.push(String((e && e.message) || e));
+    }
+    const existing = this.existingImportCardMap();
+    const duplicatePaths = cards.filter((card) => card.importKey && existing.has(card.importKey)).map((card) => existing.get(card.importKey).file.path);
+    return { cards, total: cards.length, duplicates: duplicatePaths.length, duplicatePaths, errors, format: kind };
+  }
+
+  existingImportCardMap() {
+    const map = new Map();
+    for (const card of this.getCards()) {
+      const key = String(card.fm.import_key || "").trim();
+      if (key) map.set(key, card);
+    }
+    return map;
+  }
+
+  /** Replace a card's body while retaining its review history and study status. */
+  async updateCardFromImport(existing, card, options) {
+    const opts = options || {};
+    const generated = cardNote({
+      ...card,
+      id: existing.fm && existing.fm.card_id,
+      deck: card.deck || existing.deck,
+      course: card.course || existing.course,
+      importBatch: opts.importBatch,
+    });
+    const oldText = await this.app.vault.cachedRead(existing.file);
+    const close = oldText.indexOf("\n---\n", 3);
+    if (close < 0) throw new Error("The existing card has no closing frontmatter fence.");
+    const body = noteBodyText(generated.text);
+    const oldBody = noteBodyText(oldText);
+    const notes = noteNotesSection(oldBody);
+    const merged = notes ? `${body.trimEnd()}\n\n${notes}\n` : body;
+    await this.app.vault.modify(existing.file, oldText.slice(0, close + 5) + merged);
+    if (this.app.fileManager && typeof this.app.fileManager.processFrontMatter === "function") {
+      await this.app.fileManager.processFrontMatter(existing.file, (fm) => {
+        if (generated.deck) fm.deck = generated.deck;
+        if (generated.course) fm.course = generated.course;
+        if (card.importSource) fm.import_source = card.importSource;
+        if (card.importFormat) fm.import_format = card.importFormat;
+        if (opts.importBatch) fm.import_batch = opts.importBatch;
+        fm.imported_on = localDate();
+        if (card.importKey) fm.import_key = card.importKey;
+        if (generated.cardType && generated.cardType !== "basic") fm.card_type = generated.cardType;
+        else delete fm.card_type;
+      });
+    }
+  }
+
+  /** Write parsed cards, skipping, updating or copying duplicate import keys. */
   async importParsedCards(parsed, options) {
     const opts = options || {};
-    const existing = new Set(this.getCards().map((card) => String(card.fm.import_key || "").trim()).filter(Boolean));
+    const existing = this.existingImportCardMap();
+    const mode = ["skip", "update", "copy"].includes(opts.duplicateMode) ? opts.duplicateMode : "skip";
     const importBatch = String(opts.importBatch || "").trim() || `import-${Date.now().toString(36)}`;
     let created = 0;
+    let updated = 0;
+    let copied = 0;
     let skipped = 0;
     const errors = Array.isArray(opts.errors) ? opts.errors.slice() : [];
     for (const card of Array.isArray(parsed) ? parsed : []) {
-      if (card.importKey && existing.has(card.importKey)) {
+      const duplicate = card.importKey ? existing.get(card.importKey) : null;
+      if (duplicate && mode === "skip") {
         skipped++;
         continue;
       }
+      if (duplicate && mode === "update") {
+        try {
+          await this.updateCardFromImport(duplicate, card, { ...opts, importBatch });
+          updated++;
+        } catch (e) {
+          errors.push(`${card.importSource || "import"}: ${String((e && e.message) || e)}`);
+        }
+        continue;
+      }
+      const copy = !!duplicate;
+      const target = copy ? { ...card, importKey: `${card.importKey}~copy-${Date.now().toString(36)}-${copied + 1}` } : card;
       try {
         await this.createCard({
-          ...card,
-          deck: card.deck || String(opts.deck || "").trim(),
-          course: String(opts.course || "").trim() || card.course || "",
-          importBatch: card.importBatch || importBatch,
-          importSourceUrl: card.importSourceUrl || opts.importSourceUrl || "",
+          ...target,
+          deck: target.deck || String(opts.deck || "").trim(),
+          course: String(opts.course || "").trim() || target.course || "",
+          importBatch: target.importBatch || importBatch,
+          importSourceUrl: target.importSourceUrl || opts.importSourceUrl || "",
         });
-        if (card.importKey) existing.add(card.importKey);
-        created++;
+        if (target.importKey) existing.set(target.importKey, target);
+        if (copy) copied++;
+        else created++;
       } catch (e) {
-        errors.push(`${card.importSource || "import"}: ${String((e && e.message) || e)}`);
+        errors.push(`${target.importSource || "import"}: ${String((e && e.message) || e)}`);
       }
     }
-    return { created, skipped, errors, total: Array.isArray(parsed) ? parsed.length : 0 };
+    return { created, updated, copied, skipped, errors, total: Array.isArray(parsed) ? parsed.length : 0, duplicateMode: mode };
   }
 
   /** Backfill missing course tags from deck and calendar folder mappings. */

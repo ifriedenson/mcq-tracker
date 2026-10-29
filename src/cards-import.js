@@ -1322,6 +1322,14 @@ class CardImportModal extends Modal {
     const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
     if (this.options.course) course.value = this.options.course;
 
+    const duplicateWrap = contentEl.createDiv({ cls: "qt-field" });
+    duplicateWrap.createEl("label", { text: "If an import key already exists" });
+    const duplicateMode = duplicateWrap.createEl("select", { cls: "dropdown" });
+    duplicateMode.createEl("option", { text: "Skip duplicates", value: "skip" });
+    duplicateMode.createEl("option", { text: "Update the existing card", value: "update" });
+    duplicateMode.createEl("option", { text: "Create a copy", value: "copy" });
+    duplicateMode.value = "skip";
+
     const csvSection = contentEl.createDiv({ cls: "qt-csv-section" });
     const csvGrid = csvSection.createDiv({ cls: "qt-csv-mapping" });
     const csvHeaderWrap = csvSection.createDiv({ cls: "qt-field" });
@@ -1431,8 +1439,33 @@ class CardImportModal extends Modal {
     const note = contentEl.createDiv({ cls: "qt-hint" });
     const row = contentEl.createDiv({ cls: "qt-row" });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
+    const preview = row.createEl("button", { text: "Preview", cls: "qt-grow" });
     const go = row.createEl("button", { text: "Import cards", cls: "mod-cta qt-grow" });
     cancel.addEventListener("click", () => this.close());
+    preview.addEventListener("click", async () => {
+      const path = source.value;
+      if (this.type === "csv") {
+        await readCsv({ keepMapping: !!this.csvMapping, autoHeader: !this.csvMapping });
+        return;
+      }
+      if (!path) {
+        note.setText("Choose a file or folder first.");
+        return;
+      }
+      preview.disabled = true;
+      note.setText("Reading preview…");
+      try {
+        const parsed = await p.previewCardsImport(this.type, path, { deck: deck.value, course: course.value });
+        const duplicateText = parsed.duplicates ? ` · ${parsed.duplicates} duplicate${parsed.duplicates === 1 ? "" : "s"}` : "";
+        const errorText = parsed.errors && parsed.errors.length ? ` · ${parsed.errors.length} issue${parsed.errors.length === 1 ? "" : "s"}` : "";
+        const message = `${parsed.total} card${parsed.total === 1 ? "" : "s"} ready${duplicateText}${errorText}. Choose a duplicate mode, then import.`;
+        note.setText(parsed.errors && parsed.errors.length ? `${message} ${parsed.errors[0]}` : message);
+      } catch (e) {
+        note.setText(str(e && e.message) || "Could not preview that import.");
+      } finally {
+        preview.disabled = false;
+      }
+    });
     go.addEventListener("click", async () => {
       const path = source.value;
       if (this.type !== "spaced" && !path) {
@@ -1450,26 +1483,27 @@ class CardImportModal extends Modal {
       go.disabled = true;
       note.setText("Reading and importing…");
       try {
-        const result =
-          this.type === "spaced"
-            ? await p.importCardsFromFolder(path, { deck: deck.value, course: course.value })
+        const result =          this.type === "spaced"
+            ? await p.importCardsFromFolder(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
             : this.type === "mochi"
-              ? await p.importCardsFromMochi(path, { deck: deck.value, course: course.value })
+              ? await p.importCardsFromMochi(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
               : this.type === "crowdanki"
-                ? await p.importCardsFromCrowdAnki(path, { deck: deck.value, course: course.value })
+                ? await p.importCardsFromCrowdAnki(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
                 : this.type === "quizlet"
-              ? await p.importCardsFromQuizlet(path, { deck: deck.value, course: course.value })
-              : this.type === "csv"
-                ? await p.importCardsFromCsv(path, { deck: deck.value, course: course.value, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked })
-                : QUESTION_SET_TYPES.includes(this.type)
-                  ? await p.importCardsFromQuestionSet(path, this.type, { deck: deck.value, course: course.value })
-                  : this.type === "gift"
-                    ? await p.importCardsFromGift(path, { deck: deck.value, course: course.value })
-                    : this.type === "moodlexml" || this.type === "qti"
-                      ? await p.importCardsFromLmsXml(path, this.type, { deck: deck.value, course: course.value })
-                      : await p.importCardsFromAnki(path, { deck: deck.value, course: course.value });
+                  ? await p.importCardsFromQuizlet(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
+                  : this.type === "csv"
+                    ? await p.importCardsFromCsv(path, { deck: deck.value, course: course.value, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked, duplicateMode: duplicateMode.value })
+                    : QUESTION_SET_TYPES.includes(this.type)
+                      ? await p.importCardsFromQuestionSet(path, this.type, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
+                      : this.type === "gift"
+                        ? await p.importCardsFromGift(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
+                        : this.type === "moodlexml" || this.type === "qti"
+                          ? await p.importCardsFromLmsXml(path, this.type, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value })
+                          : await p.importCardsFromAnki(path, { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value });
         const bits = [`Imported ${result.created} card${result.created === 1 ? "" : "s"}`];
-        if (result.skipped) bits.push(`${result.skipped} already imported`);
+        if (result.updated) bits.push(`${result.updated} updated`);
+        if (result.copied) bits.push(`${result.copied} copied`);
+        if (result.skipped) bits.push(`${result.skipped} skipped`);
         if (result.errors && result.errors.length) bits.push(`${result.errors.length} failed`);
         note.setText(bits.join(" · "));
         new Notice(bits.join(" · "), 6000);
