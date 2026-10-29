@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — 1.89.0 closes the Adaptive Practice parity gaps (skip Insights, adaptive session sizing, local reminder); 1.88.0 shipped bulk calculation preview with selective apply and 1.87.0 added agent-edit review; earlier import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.53.0 phase adds visual text boxes on top of 1.52.0's pen/highlighter overlay; form filling and a fuller PDF editor remain open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — 1.90.0 adds the allow-listed Direct AI agent and a sample vault, after 1.89.0 closed the Adaptive Practice parity gaps; 1.88.0 shipped bulk calculation preview with selective apply and 1.87.0 added agent-edit review; earlier import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.53.0 phase adds visual text boxes on top of 1.52.0's pen/highlighter overlay; form filling and a fuller PDF editor remain open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), the October 28 idea backlog (§5.22), and the Adaptive Practice parity audit (§5.23, Oct 29, 2026). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -26,25 +26,27 @@
 
 **Recently completed (1.78.0):** timed tests now capture confidence per answer and report calibration and average time per answered question alongside the section and skill breakdowns. Previous release 1.77.0 added sections, separate timers and saved blueprints; 1.76.1 published the versioned property schema; 1.76.0 added merge-safe history.
 
-**Latest completed (1.89.0):** logged skips now appear in Insights without changing accuracy, Quick Practice and the daily quiz size themselves from recent recall within hard caps, and an optional local reminder nudges once a day in Today and the status bar. 1.88.0 shipped bulk calculation verification with a selective preview; 1.87.0 added agent-edit diff review with per-file approval and undo.
+**Latest completed (1.90.0):** Direct AI agent mode now proposes only allow-listed actions (create a question, create a card, replace one safe body section), shows them for review, and writes nothing until checked. A small original sample vault and setup guide ship under `samples/`. 1.89.0 closed the Adaptive Practice parity gaps; 1.88.0 added selective bulk calculation verification.
 
 **Plan audit (Oct 29, 2026).** This is the evidence-based status pass over the whole document. A checked item is present in the code and covered by a test or a documented manual gate; a partial item has a working slice but a named gap.
 
 | Area | Actual status | Evidence / remaining gap |
 |---|---|---|
-| Reference panel (formula sheet, constants, units, calculator, graph, periodic table) | **Done** | Data audited against the 2025 AP Chemistry sheet and 2020 AP table; 560-test suite passes. |
-| Generate practice from any note (P1 §5.23) | **Done in this working tree** | `AI: generate practice from this note`; preview shows source, destination, count and difficulty; blind check and AI undo reused. |
-| Per-note subtopic memory (P2 §5.23) | **Done in this working tree** | AI output writes `subtopic` per question and `generated_subtopics` on the source note; later prompts avoid covered subtopics. |
+| Reference panel (formula sheet, constants, units, calculator, graph, periodic table) | **Done** | Data audited against the 2025 AP Chemistry sheet and 2020 AP table; 574-test suite passes. |
+| Generate practice from any note (P1 §5.23) | **Done** | `AI: generate practice from this note`; preview shows source, destination, count and difficulty; blind check and AI undo reused. |
+| Per-note subtopic memory (P2 §5.23) | **Done** | AI output writes `subtopic` per question and `generated_subtopics` on the source note; later prompts avoid covered subtopics. |
 | Logged **Don't know** signal (P2 §5.23) | **Done** | Practice writes a `skipped` history row, `skip_count` and an earlier next review without touching accuracy or streak. Insights now shows the overall count, per-skill skip rate and a dedicated Logged skips section; the plain Skip still records nothing. |
 | Adaptive session sizing (P2 §5.23) | **Done** | Optional warm-up/stretch planner reads recent accuracy, pace and logged skips. Quick Practice shows the recommendation and can override it per session; the daily quiz uses the same signal. Hard minute/count caps are configurable and off by default. |
-| Optional local daily reminder (P3 §5.23) | **Done** | Off by default; a local Today card and status-bar nudge appear once a day after a chosen hour and can be dismissed until tomorrow. No OS notification, network request or telemetry. |
+| Optional local daily reminder (P3 §5.23) | **Done** |
+| Direct AI agent with allow-listed tools (§5.18) | **Done** | `create_question`, `create_card` and one safe `update_section` proposal; review window, existing write roots and protected properties enforced. |
+ Off by default; a local Today card and status-bar nudge appear once a day after a chosen hour and can be dismissed until tomorrow. No OS notification, network request or telemetry. |
 | AP FRQ grader | **Partial — specification only** | `docs/ap-frq-grader-spec.md` exists; implementation is correctly blocked by the four-course pilot and rights gate. |
-| Math/chemistry rendering audit | **Partial** | Renderer and golden tests are done; a real-Obsidian visual pass is still needed. Automated tests cannot substitute for that. |
+| Math/chemistry rendering audit | **Blocked — manual gate** | Renderer and golden tests are done; the remaining visual pass needs a real Obsidian window and cannot be completed in this cloud environment. |
 | Mobile audit | **Blocked** | No real iOS/Android device is available in this environment. |
 | TTS / audio commute | **Deferred** | Provider and mobile validation still missing. |
 | SMILES integration | **Open** | Formula sheets now ship; structure rendering does not. |
 | PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; form fields do not. |
-| README, screenshots, sample vault, license confirmation | **Partial** | NOTICES and docs exist; screenshots and a refreshed sample vault are still open. |
+| README, screenshots, sample vault, license confirmation | **Partial — screenshots blocked** | README, NOTICES and docs exist; `samples/sample-vault` now provides an original four-question, one-card walkthrough. Screenshots still need a real Obsidian window, so they remain a documented manual gate. |
 
 **Adaptive Practice parity audit (Oct 29, 2026):** compared with Adaptive Practice 0.7.2. MCQ Tracker already has the broader study system; the meaningful gaps are generation from any note, per-note subtopic memory, a logged skip/fluency signal, adaptive session size and an optional local reminder. The Whetstone engine (AGPL) and the persistent vault index are non-goals. Full matrix and acceptance criteria: §5.23.
 
@@ -757,6 +759,8 @@ This saves cost, works offline for easy cases, and keeps latency low.
 
 **Where the idea comes from:** Copilot, Agent Client, Codex Panel, Gemini Helper, LLM Hub (see §3.8), plus MCQ Tracker's existing tutor and OpenCode integration.
 
+**Shipped in 1.90.0:** Direct AI agent mode uses an allow-listed tool protocol rather than file access. It can propose a question note, a card note, or one replacement of a safe body section; each proposal is reviewed and checked before it is written, and the existing AI write roots and protected review properties still apply. OpenCode keeps its richer agent mode.
+
 **Surfaces**
 - Side-panel chat on desktop; full-screen chat on mobile.
 - Inline quick actions on a question, card, or selected text.
@@ -1218,7 +1222,7 @@ Names are proposals; keep existing ones unchanged.
 - [~] **Partial** Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests and chemistry fallback shipped in 1.80.0; the visual Obsidian check remains
 - [~] **Blocked** Mobile audit on real iOS and Android devices (§5.19) — no real device available here
 - [~] **Partial** Confirm licenses of anything to be reused (§9) — NOTICES and MIT-only guardrails exist; each future candidate still needs a repo-level check
-- [~] **Partial** README, screenshots, and sample vault refresh (§10b) — README and docs exist; screenshots and sample vault remain
+- [~] **Partial** README, screenshots, and sample vault refresh (§10b) — README, docs and the `samples/sample-vault` walkthrough are done; screenshots remain a real-Obsidian manual gate
 
 ### Phase 1: Quick Practice and smarter scheduling
 
@@ -1297,7 +1301,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Adaptive session sizing for Quick Practice and the daily quiz (§5.2, §5.23) — shipped in 1.89.0
 - [x] Logged "don't know" skip signal for fluency and Insights (§5.1, §5.23) — shipped in 1.89.0
 - [x] Optional in-app daily reminder or status-bar nudge (§5.23) — shipped in 1.89.0
-- [~] **Partial** Agent mode via OpenCode (desktop) and allow-listed tools for BYOK — OpenCode agent and edit review exist; BYOK tool allow-list remains
+- [x] Agent mode via OpenCode (desktop) and allow-listed tools for BYOK — shipped in 1.90.0
 
 ### Phase 5: FRQ and STEM
 

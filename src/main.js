@@ -23,6 +23,7 @@ const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
 const aiService = require("./ai-service");
+const aiTools = require("./ai-tools");
 const mathRendering = require("./math-rendering");
 const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
@@ -153,6 +154,7 @@ QuestionTrackerPlugin.__test = {
   tutorPresets,
   aiContext,
   aiService,
+  aiTools,
   mathRendering,
   renderMarkdownInto,
   loadQuestionData,

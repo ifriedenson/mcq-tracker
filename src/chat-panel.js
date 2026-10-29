@@ -6,6 +6,8 @@ const { friendlyError, modelFromString, partsToTurns } = require("./opencode-cli
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
 const { buildCurrentNoteContext } = require("./note-context");
 const { AgentEditReviewModal } = require("./agent-edit-review-modal");
+const { AiToolReviewModal } = require("./ai-tool-review-modal");
+const { toolProtocol } = require("./ai-tools");
 
 class ChatPanel {
   /**
@@ -55,17 +57,18 @@ class ChatPanel {
     }
 
     const top = root.createDiv({ cls: "qt-row qt-small-row" });
-    if (this.view.plugin.backend() !== "api") {
-      const modeSel = top.createEl("select", { cls: "qt-select" });
-      modeSel.createEl("option", { value: "tutor", text: "Tutor (no file edits)" });
-      modeSel.createEl("option", { value: "agent", text: "Agent (can edit files)" });
-      modeSel.value = this.ai.mode;
-      modeSel.addEventListener("change", () => {
-        this.ai.mode = modeSel.value;
-        this.view.plugin.save();
-        this.updateHint();
-      });
-    }
+    const modeSel = top.createEl("select", { cls: "qt-select" });
+    modeSel.createEl("option", { value: "tutor", text: "Tutor (no file edits)" });
+    modeSel.createEl("option", {
+      value: "agent",
+      text: this.view.plugin.backend() === "api" ? "Agent (allow-listed notes)" : "Agent (can edit files)",
+    });
+    modeSel.value = this.ai.mode;
+    modeSel.addEventListener("change", () => {
+      this.ai.mode = modeSel.value;
+      this.view.plugin.save();
+      this.updateHint();
+    });
     const role = top.createEl("select", { cls: "qt-select", attr: { "aria-label": "Tutor role", title: "Tutor role" } });
     for (const item of TUTOR_ROLES) role.createEl("option", { value: item.id, text: item.label });
     role.value = this.currentRole();
@@ -154,7 +157,11 @@ class ChatPanel {
     const role = tutorRole(this.currentRole());
     const suffix = ` Role: ${role.label}. Commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}.`;
     if (this.view.plugin.backend() === "api") {
-      this.hint.setText("Direct API chat: it can see this question, but has no access to your files." + suffix);
+      this.hint.setText(
+        (this.ai.mode === "agent"
+          ? "Direct API agent: it can propose new practice questions, cards and one safe body-section edit. Nothing is written until you review and apply the proposals."
+          : "Direct API tutor: it can see this question, but has no access to your files.") + suffix
+      );
       return;
     }
     this.hint.setText(
@@ -329,14 +336,20 @@ class ChatPanel {
     this.setBusy(true);
     this.draw();
     const hist = this.apiHistory();
+    const agent = this.ai.mode === "agent";
+    let proposals = [];
     try {
-      const reply = await this.view.plugin.aiChat(
-        this.opts.buildContext("tutor", currentNote),
-        hist.concat([{ role: "user", content: text }]),
-        { feature: "chat" }
-      );
+      const system = [this.opts.buildContext(agent ? "agent" : "tutor", currentNote), agent ? toolProtocol() : ""]
+        .filter(Boolean)
+        .join("\n\n");
+      const reply = await this.view.plugin.aiChat(system, hist.concat([{ role: "user", content: text }]), { feature: "chat" });
       hist.push({ role: "user", content: text }, { role: "assistant", content: reply });
       this.pending = "";
+      if (agent && typeof this.view.plugin.parseByokToolProposals === "function") {
+        const parsed = this.view.plugin.parseByokToolProposals(reply);
+        proposals = parsed.proposals;
+        if (parsed.errors.length) new Notice(`Some AI actions were ignored: ${parsed.errors.join(" ")}`, 8000);
+      }
     } catch (e) {
       this.error = friendlyApiError(e);
       this.pending = "";
@@ -345,6 +358,7 @@ class ChatPanel {
       this.setBusy(false);
       this.turns = apiTurns(hist);
       this.draw();
+      if (proposals.length) new AiToolReviewModal(this.view.app, this.view.plugin, proposals).open();
     }
   }
 

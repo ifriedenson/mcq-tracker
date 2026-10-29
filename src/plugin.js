@@ -69,6 +69,7 @@ const { dismissReminder, markReminderShown, normalizeReminder, reminderState: co
 const { normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
 const aiService = require("./ai-service");
+const aiTools = require("./ai-tools");
 const { AI_WRITE_STORAGE_KEY, appendAiWrite, latestAiWrite, makeAiWriteRecord, normalizeAiWrites } = require("./ai-writes");
 const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
@@ -2473,6 +2474,69 @@ class QuestionTrackerPlugin extends Plugin {
       subtopics: [...new Set(items.map((item) => str(item.subtopic).trim()).filter(Boolean))],
       verification,
     };
+  }
+
+  /** Parse allow-listed Direct AI actions out of a chat reply. */
+  parseByokToolProposals(reply) {
+    return aiTools.parseToolProposals(reply);
+  }
+
+  /** Apply only the actions the learner checked in the review window. */
+  async applyByokToolProposals(proposals) {
+    const list = Array.isArray(proposals) ? proposals : [];
+    const result = { created: 0, updated: 0, errors: [] };
+    const questions = list.filter((item) => item && item.tool === "create_question");
+    const cards = list.filter((item) => item && item.tool === "create_card");
+    const edits = list.filter((item) => item && item.tool === "update_section");
+
+    if (questions.length) {
+      try {
+        const generated = {
+          kind: "questions",
+          title: "AI assistant",
+          course: questions.map((item) => item.course).find(Boolean) || "",
+          items: questions,
+          model: this.aiModelLabel("chat"),
+          ai: true,
+          sourcePath: "",
+          subtopics: [...new Set(questions.map((item) => str(item.skill).trim()).filter(Boolean))],
+        };
+        const written = await this.writeTranscriptPractice(generated, { folder: this.settings.questionFolder });
+        result.created += Number(written && written.created) || 0;
+        result.errors.push(...((written && written.errors) || []));
+      } catch (e) {
+        result.errors.push(str(e && e.message ? e.message : e) || "Could not create the questions.");
+      }
+    }
+
+    for (const card of cards) {
+      try {
+        const written = await this.createCard({
+          ...card,
+          aiGenerated: this.aiModelLabel("chat"),
+          importFormat: "ai-tool",
+        });
+        if (written) result.created++;
+      } catch (e) {
+        result.errors.push(str(e && e.message ? e.message : e) || `Could not create the card "${card.front}".`);
+      }
+    }
+
+    const active = this.app.workspace.getActiveFile ? this.app.workspace.getActiveFile() : null;
+    for (const edit of edits) {
+      try {
+        const file = this.app.vault.getAbstractFileByPath(edit.path);
+        if (!(file instanceof TFile)) throw new Error(`"${edit.path}" is not in the vault.`);
+        if (!active || active.path !== file.path) assertAllowedWritePath(file.path, this.settings);
+        const text = await this.app.vault.cachedRead(file);
+        await this.app.vault.modify(file, aiTools.replaceSection(text, edit.heading, edit.content));
+        result.updated++;
+      } catch (e) {
+        result.errors.push(str(e && e.message ? e.message : e) || `Could not edit ${edit.path}.`);
+      }
+    }
+    if (result.created || result.updated) this.refreshViews();
+    return result;
   }
 
   /** Write an already-previewed transcript draft. */

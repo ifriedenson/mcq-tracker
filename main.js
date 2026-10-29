@@ -912,6 +912,261 @@ module.exports = {
 };
 };
 
+/* ---- src/ai-tool-review-modal.js ---- */
+__defs["ai-tool-review-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { proposalPreview } = require("./ai-tools");
+
+const TOOL_LABELS = {
+  create_question: "New practice question",
+  create_card: "New flashcard",
+  update_section: "Section edit",
+};
+
+class AiToolReviewModal extends Modal {
+  constructor(app, plugin, proposals) {
+    super(app);
+    this.plugin = plugin;
+    this.proposals = Array.isArray(proposals) ? proposals : [];
+    this.boxes = [];
+    this.applying = false;
+  }
+
+  onOpen() {
+    const el = this.contentEl;
+    el.empty();
+    el.addClass("qt-agent-review");
+    el.createEl("h3", { text: "Review Direct AI actions" });
+    el.createEl("p", {
+      cls: "setting-item-description",
+      text: "The Direct AI cannot touch your files. These are allow-listed proposals: a new question, a new card or one safe body section. Nothing is written until you press Apply selected.",
+    });
+    for (const proposal of this.proposals) {
+      const box = el.createDiv({ cls: "qt-agent-file" });
+      const head = box.createDiv({ cls: "qt-agent-file-head" });
+      const check = head.createEl("input", { type: "checkbox", attr: { "aria-label": `Apply ${TOOL_LABELS[proposal.tool] || proposal.tool}` } });
+      check.checked = true;
+      this.boxes.push({ check, proposal });
+      head.createSpan({ cls: "qt-agent-file-name", text: TOOL_LABELS[proposal.tool] || proposal.tool });
+      if (proposal.tool === "update_section") head.createSpan({ cls: "qt-hint", text: proposal.path });
+      const details = box.createEl("details", { cls: "qt-agent-details", open: "" });
+      details.createEl("summary", { text: "Show preview" });
+      details.createEl("pre", { cls: "qt-agent-diff", text: proposalPreview(proposal) });
+    }
+    const row = el.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Discard all", cls: "qt-grow" }).addEventListener("click", () => this.close());
+    this.applyButton = row.createEl("button", { text: "Apply selected", cls: "mod-cta qt-grow" });
+    this.applyButton.addEventListener("click", () => this.apply());
+    this.statusEl = el.createDiv({ cls: "qt-hint" });
+  }
+
+  async apply() {
+    if (this.applying || !this.plugin || typeof this.plugin.applyByokToolProposals !== "function") return;
+    const selected = this.boxes.filter((item) => item.check && item.check.checked).map((item) => item.proposal);
+    if (!selected.length) {
+      this.close();
+      return;
+    }
+    this.applying = true;
+    this.applyButton.disabled = true;
+    this.applyButton.setText("Applying...");
+    try {
+      const result = await this.plugin.applyByokToolProposals(selected);
+      if (result.created || result.updated) {
+        new Notice(`Applied ${result.created + result.updated} AI action${result.created + result.updated === 1 ? "" : "s"}.`, 7000);
+      }
+      if (result.errors && result.errors.length) {
+        new Notice(`${result.errors.length} action${result.errors.length === 1 ? "" : "s"} could not be applied: ${result.errors[0]}`, 10000);
+      }
+      this.close();
+    } catch (e) {
+      this.applyButton.disabled = false;
+      this.applyButton.setText("Apply selected");
+      if (this.statusEl) this.statusEl.setText(e && e.message ? e.message : String(e));
+    } finally {
+      this.applying = false;
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = {
+  AiToolReviewModal,
+};
+};
+
+/* ---- src/ai-tools.js ---- */
+__defs["ai-tools"] = function (module, exports, require) {
+/*
+ * Allow-listed tools for the Direct AI agent.
+ *
+ * The model never receives file access. It can only propose a small set of
+ * actions in a fenced `mcqtool` block. The plugin validates each proposal,
+ * shows it in a review window, and only then writes through the same guards as
+ * the rest of AI generation.
+ */
+const { str } = require("./util");
+
+const TOOL_NAMES = ["create_question", "create_card", "update_section"];
+const SAFE_HEADINGS = ["stimulus", "question", "answer choices", "answer", "explanation", "my notes", "front", "back", "notes"];
+
+function toolProtocol() {
+  return [
+    "Direct API agent mode uses an allow-listed tool protocol. You cannot read or write files directly.",
+    "When the learner asks you to create or change study material, reply normally and include one fenced block per action:",
+    "```mcqtool",
+    '{"tool":"create_question","question":"...","choices":["...","..."],"answer":"B","explanation":"...","course":"...","skill":"...","difficulty":"medium"}',
+    "```",
+    'For a flashcard use {"tool":"create_card","front":"...","back":"...","deck":"...","course":"..."}.',
+    'To replace one existing section use {"tool":"update_section","path":"Folder/Note.md","heading":"My Notes","content":"..."}.',
+    "Allowed headings are Stimulus, Question, Answer Choices, Answer, Explanation, My Notes, Front, Back and Notes.",
+    "Only propose an action the learner asked for. Never propose tracking properties, frontmatter, deletions or shell commands. The learner reviews every action before anything is written.",
+  ].join("\n");
+}
+
+function fencedBlocks(text) {
+  const out = [];
+  const re = /```(?:mcqtool|json:mcqtool)[ \t]*\r?\n([\s\S]*?)```/gi;
+  let match;
+  while ((match = re.exec(String(text || ""))) !== null) out.push(match[1].trim());
+  return out;
+}
+
+function asChoices(value) {
+  if (Array.isArray(value)) return value.map((item) => str(item).trim()).filter(Boolean).slice(0, 8);
+  if (value && typeof value === "object") {
+    return Object.keys(value)
+      .sort()
+      .map((key) => str(value[key]).trim())
+      .filter(Boolean)
+      .slice(0, 8);
+  }
+  return [];
+}
+
+function normalizeAnswer(value, choices) {
+  const answer = str(value).trim();
+  if (!answer) return "";
+  if (/^[A-H]$/i.test(answer)) return answer.toUpperCase();
+  const index = choices.findIndex((choice) => choice.toLowerCase() === answer.toLowerCase());
+  return index >= 0 ? "ABCDEFGH"[index] : answer;
+}
+
+function normalizeProposal(raw) {
+  const item = raw && typeof raw === "object" ? raw : {};
+  const tool = str(item.tool || item.action || item.type).trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!TOOL_NAMES.includes(tool)) return { ok: false, error: `Unknown tool: ${tool || "(missing)"}.` };
+
+  if (tool === "create_question") {
+    const question = str(item.question || item.stem).trim();
+    const choices = asChoices(item.choices);
+    const answer = normalizeAnswer(item.answer, choices);
+    if (question.length < 5) return { ok: false, error: "A question needs at least five characters." };
+    if (choices.length < 2) return { ok: false, error: "A question needs at least two choices." };
+    if (!answer) return { ok: false, error: "A question needs an answer." };
+    return {
+      ok: true,
+      proposal: {
+        tool,
+        question,
+        choices,
+        answer,
+        explanation: str(item.explanation).trim(),
+        course: str(item.course).trim(),
+        skill: str(item.skill).trim(),
+        difficulty: ["easy", "medium", "hard"].includes(str(item.difficulty).trim().toLowerCase()) ? str(item.difficulty).trim().toLowerCase() : "",
+      },
+    };
+  }
+
+  if (tool === "create_card") {
+    const front = str(item.front || item.prompt).trim();
+    const back = str(item.back || item.answer).trim();
+    if (!front || !back) return { ok: false, error: "A card needs both a front and a back." };
+    return {
+      ok: true,
+      proposal: {
+        tool,
+        front,
+        back,
+        deck: str(item.deck).trim(),
+        course: str(item.course).trim(),
+      },
+    };
+  }
+
+  const path = str(item.path).trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  const heading = str(item.heading).trim();
+  const content = str(item.content).trim();
+  if (!path || !/\.md$/i.test(path)) return { ok: false, error: "update_section needs a Markdown note path." };
+  if (!SAFE_HEADINGS.includes(heading.toLowerCase())) return { ok: false, error: `Heading "${heading}" is not on the allowed list.` };
+  if (!content) return { ok: false, error: "update_section needs content." };
+  return { ok: true, proposal: { tool, path, heading, content } };
+}
+
+function parseToolProposals(reply) {
+  const proposals = [];
+  const errors = [];
+  for (const block of fencedBlocks(reply)) {
+    let parsed;
+    try {
+      parsed = JSON.parse(block);
+    } catch (e) {
+      errors.push("A tool block was not valid JSON.");
+      continue;
+    }
+    const list = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.actions) ? parsed.actions : [parsed];
+    for (const raw of list) {
+      const result = normalizeProposal(raw);
+      if (result.ok) proposals.push(result.proposal);
+      else errors.push(result.error);
+    }
+  }
+  return { proposals, errors };
+}
+
+function proposalPreview(proposal) {
+  const p = proposal || {};
+  if (p.tool === "create_question") {
+    return [
+      `Question: ${p.question}`,
+      ...p.choices.map((choice, index) => `  ${"ABCDEFGH"[index]}. ${choice}`),
+      `Answer: ${p.answer}`,
+      p.explanation ? `Explanation: ${p.explanation}` : "",
+      [p.course, p.skill, p.difficulty].filter(Boolean).join(" · "),
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (p.tool === "create_card") return `Front: ${p.front}\nBack: ${p.back}\n${[p.deck, p.course].filter(Boolean).join(" · ")}`.trim();
+  return `Note: ${p.path}\nSection: ${p.heading}\n\n${p.content}`;
+}
+
+/** Replace exactly one safe body section. Frontmatter and other sections are untouched. */
+function replaceSection(text, heading, content) {
+  const source = String(text || "");
+  const name = str(heading).trim();
+  if (!SAFE_HEADINGS.includes(name.toLowerCase())) throw new Error(`Heading "${name}" is not allowed.`);
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(^##[ \\t]+${escaped}[ \\t]*\\r?\\n)([\\s\\S]*?)(?=^##[ \\t]+|(?![\\s\\S]))`, "mi");
+  if (!re.test(source)) throw new Error(`This note has no "## ${name}" section.`);
+  return source.replace(re, (_match, head) => `${head}\n${str(content).trim()}\n\n`);
+}
+
+module.exports = {
+  SAFE_HEADINGS,
+  TOOL_NAMES,
+  normalizeProposal,
+  parseToolProposals,
+  proposalPreview,
+  replaceSection,
+  toolProtocol,
+};
+};
+
 /* ---- src/ai-write-guard.js ---- */
 __defs["ai-write-guard"] = function (module, exports, require) {
 /*
@@ -12378,6 +12633,8 @@ const { friendlyError, modelFromString, partsToTurns } = require("./opencode-cli
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
 const { buildCurrentNoteContext } = require("./note-context");
 const { AgentEditReviewModal } = require("./agent-edit-review-modal");
+const { AiToolReviewModal } = require("./ai-tool-review-modal");
+const { toolProtocol } = require("./ai-tools");
 
 class ChatPanel {
   /**
@@ -12427,17 +12684,18 @@ class ChatPanel {
     }
 
     const top = root.createDiv({ cls: "qt-row qt-small-row" });
-    if (this.view.plugin.backend() !== "api") {
-      const modeSel = top.createEl("select", { cls: "qt-select" });
-      modeSel.createEl("option", { value: "tutor", text: "Tutor (no file edits)" });
-      modeSel.createEl("option", { value: "agent", text: "Agent (can edit files)" });
-      modeSel.value = this.ai.mode;
-      modeSel.addEventListener("change", () => {
-        this.ai.mode = modeSel.value;
-        this.view.plugin.save();
-        this.updateHint();
-      });
-    }
+    const modeSel = top.createEl("select", { cls: "qt-select" });
+    modeSel.createEl("option", { value: "tutor", text: "Tutor (no file edits)" });
+    modeSel.createEl("option", {
+      value: "agent",
+      text: this.view.plugin.backend() === "api" ? "Agent (allow-listed notes)" : "Agent (can edit files)",
+    });
+    modeSel.value = this.ai.mode;
+    modeSel.addEventListener("change", () => {
+      this.ai.mode = modeSel.value;
+      this.view.plugin.save();
+      this.updateHint();
+    });
     const role = top.createEl("select", { cls: "qt-select", attr: { "aria-label": "Tutor role", title: "Tutor role" } });
     for (const item of TUTOR_ROLES) role.createEl("option", { value: item.id, text: item.label });
     role.value = this.currentRole();
@@ -12526,7 +12784,11 @@ class ChatPanel {
     const role = tutorRole(this.currentRole());
     const suffix = ` Role: ${role.label}. Commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}.`;
     if (this.view.plugin.backend() === "api") {
-      this.hint.setText("Direct API chat: it can see this question, but has no access to your files." + suffix);
+      this.hint.setText(
+        (this.ai.mode === "agent"
+          ? "Direct API agent: it can propose new practice questions, cards and one safe body-section edit. Nothing is written until you review and apply the proposals."
+          : "Direct API tutor: it can see this question, but has no access to your files.") + suffix
+      );
       return;
     }
     this.hint.setText(
@@ -12701,14 +12963,20 @@ class ChatPanel {
     this.setBusy(true);
     this.draw();
     const hist = this.apiHistory();
+    const agent = this.ai.mode === "agent";
+    let proposals = [];
     try {
-      const reply = await this.view.plugin.aiChat(
-        this.opts.buildContext("tutor", currentNote),
-        hist.concat([{ role: "user", content: text }]),
-        { feature: "chat" }
-      );
+      const system = [this.opts.buildContext(agent ? "agent" : "tutor", currentNote), agent ? toolProtocol() : ""]
+        .filter(Boolean)
+        .join("\n\n");
+      const reply = await this.view.plugin.aiChat(system, hist.concat([{ role: "user", content: text }]), { feature: "chat" });
       hist.push({ role: "user", content: text }, { role: "assistant", content: reply });
       this.pending = "";
+      if (agent && typeof this.view.plugin.parseByokToolProposals === "function") {
+        const parsed = this.view.plugin.parseByokToolProposals(reply);
+        proposals = parsed.proposals;
+        if (parsed.errors.length) new Notice(`Some AI actions were ignored: ${parsed.errors.join(" ")}`, 8000);
+      }
     } catch (e) {
       this.error = friendlyApiError(e);
       this.pending = "";
@@ -12717,6 +12985,7 @@ class ChatPanel {
       this.setBusy(false);
       this.turns = apiTurns(hist);
       this.draw();
+      if (proposals.length) new AiToolReviewModal(this.view.app, this.view.plugin, proposals).open();
     }
   }
 
@@ -26249,6 +26518,7 @@ const { dismissReminder, markReminderShown, normalizeReminder, reminderState: co
 const { normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
 const aiService = require("./ai-service");
+const aiTools = require("./ai-tools");
 const { AI_WRITE_STORAGE_KEY, appendAiWrite, latestAiWrite, makeAiWriteRecord, normalizeAiWrites } = require("./ai-writes");
 const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
@@ -28653,6 +28923,69 @@ class QuestionTrackerPlugin extends Plugin {
       subtopics: [...new Set(items.map((item) => str(item.subtopic).trim()).filter(Boolean))],
       verification,
     };
+  }
+
+  /** Parse allow-listed Direct AI actions out of a chat reply. */
+  parseByokToolProposals(reply) {
+    return aiTools.parseToolProposals(reply);
+  }
+
+  /** Apply only the actions the learner checked in the review window. */
+  async applyByokToolProposals(proposals) {
+    const list = Array.isArray(proposals) ? proposals : [];
+    const result = { created: 0, updated: 0, errors: [] };
+    const questions = list.filter((item) => item && item.tool === "create_question");
+    const cards = list.filter((item) => item && item.tool === "create_card");
+    const edits = list.filter((item) => item && item.tool === "update_section");
+
+    if (questions.length) {
+      try {
+        const generated = {
+          kind: "questions",
+          title: "AI assistant",
+          course: questions.map((item) => item.course).find(Boolean) || "",
+          items: questions,
+          model: this.aiModelLabel("chat"),
+          ai: true,
+          sourcePath: "",
+          subtopics: [...new Set(questions.map((item) => str(item.skill).trim()).filter(Boolean))],
+        };
+        const written = await this.writeTranscriptPractice(generated, { folder: this.settings.questionFolder });
+        result.created += Number(written && written.created) || 0;
+        result.errors.push(...((written && written.errors) || []));
+      } catch (e) {
+        result.errors.push(str(e && e.message ? e.message : e) || "Could not create the questions.");
+      }
+    }
+
+    for (const card of cards) {
+      try {
+        const written = await this.createCard({
+          ...card,
+          aiGenerated: this.aiModelLabel("chat"),
+          importFormat: "ai-tool",
+        });
+        if (written) result.created++;
+      } catch (e) {
+        result.errors.push(str(e && e.message ? e.message : e) || `Could not create the card "${card.front}".`);
+      }
+    }
+
+    const active = this.app.workspace.getActiveFile ? this.app.workspace.getActiveFile() : null;
+    for (const edit of edits) {
+      try {
+        const file = this.app.vault.getAbstractFileByPath(edit.path);
+        if (!(file instanceof TFile)) throw new Error(`"${edit.path}" is not in the vault.`);
+        if (!active || active.path !== file.path) assertAllowedWritePath(file.path, this.settings);
+        const text = await this.app.vault.cachedRead(file);
+        await this.app.vault.modify(file, aiTools.replaceSection(text, edit.heading, edit.content));
+        result.updated++;
+      } catch (e) {
+        result.errors.push(str(e && e.message ? e.message : e) || `Could not edit ${edit.path}.`);
+      }
+    }
+    if (result.created || result.updated) this.refreshViews();
+    return result;
   }
 
   /** Write an already-previewed transcript draft. */
@@ -31733,7 +32066,7 @@ class PracticeView extends ItemView {
     if (p.backend() === "api") {
       root.createDiv({
         cls: "qt-hint",
-        text: "Direct API chat can't see or edit your files. For creating notes or searching your vault, use OpenCode on your computer.",
+        text: "Direct API chat has no file access. Tutor mode answers from this question; Agent mode can propose new questions, cards and one safe body-section edit, and you review every action before it is written.",
       });
     }
     new ChatPanel(this, root.createDiv(), {
@@ -38976,6 +39309,7 @@ const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
 const aiService = require("./ai-service");
+const aiTools = require("./ai-tools");
 const mathRendering = require("./math-rendering");
 const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
@@ -39106,6 +39440,7 @@ QuestionTrackerPlugin.__test = {
   tutorPresets,
   aiContext,
   aiService,
+  aiTools,
   mathRendering,
   renderMarkdownInto,
   loadQuestionData,

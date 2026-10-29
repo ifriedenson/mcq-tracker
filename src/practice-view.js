@@ -1263,7 +1263,7 @@ class PracticeView extends ItemView {
     if (p.backend() === "api") {
       root.createDiv({
         cls: "qt-hint",
-        text: "Direct API chat can't see or edit your files. For creating notes or searching your vault, use OpenCode on your computer.",
+        text: "Direct API chat has no file access. Tutor mode answers from this question; Agent mode can propose new questions, cards and one safe body-section edit, and you review every action before it is written.",
       });
     }
     new ChatPanel(this, root.createDiv(), {
