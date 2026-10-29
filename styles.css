@@ -1234,6 +1234,24 @@
   color: var(--text-muted);
 }
 
+.uni-study-slot-resource {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+
+.uni-study-slot-resource-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .uni-study-slot-durations {
   display: flex;
   flex-wrap: wrap;

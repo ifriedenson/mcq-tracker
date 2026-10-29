@@ -41,7 +41,7 @@ const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
-const { attachFrontmatter, buildApResourceNote, detachFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
+const { attachFrontmatter, attachStudySlotFrontmatter, buildApResourceNote, detachFrontmatter, detachStudySlotFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -1392,6 +1392,36 @@ class QuestionTrackerPlugin extends Plugin {
       delete data.exam_uid;
       delete data.exam_date;
       delete data.exam_title;
+    });
+    return resourceNoteEntry(next, path);
+  }
+
+  /** Binds a saved resource to one computed study block (date and start time). */
+  async attachApResourceToStudySlot(path, slot) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    const next = attachStudySlotFrontmatter(fm, slot);
+    if (!this.app.fileManager || !this.app.fileManager.processFrontMatter) return null;
+    await this.app.fileManager.processFrontMatter(file, (data) => {
+      data.study_slot_date = next.study_slot_date;
+      data.study_slot_start = next.study_slot_start;
+      data.study_slot_subject = next.study_slot_subject;
+    });
+    return resourceNoteEntry({ ...fm, ...next }, path);
+  }
+
+  /** Removes the study-block binding from a saved resource note. */
+  async detachApResourceFromStudySlot(path) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    if (!this.app.fileManager || !this.app.fileManager.processFrontMatter) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    const next = detachStudySlotFrontmatter(fm);
+    await this.app.fileManager.processFrontMatter(file, (data) => {
+      delete data.study_slot_date;
+      delete data.study_slot_start;
+      delete data.study_slot_subject;
     });
     return resourceNoteEntry(next, path);
   }

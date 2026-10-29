@@ -9,6 +9,7 @@
  */
 const { courseMatches } = require("./analytics");
 const { cleanSubjectTitle } = require("./calendar-model");
+const { isAttachedToStudySlot } = require("./ap-resource-notes");
 const { AP_RESOURCE_COURSES } = require("./ap-resources");
 const { str } = require("./util");
 
@@ -68,6 +69,18 @@ function recommendApResource(exam, entries) {
   return rankApResources(matching)[0] || null;
 }
 
+/** Prefer a resource bound to this date and time; otherwise match the next class's course. */
+function recommendStudyResource(slot, entries) {
+  const attached = (entries || []).find((entry) => isAttachedToStudySlot(entry, slot));
+  if (attached) return attached;
+  const course = apCourseForExam({ summary: str(slot && slot.subject).trim() });
+  if (!course) return null;
+  const matching = (entries || []).filter(
+    (entry) => entry && (entry.courseId === course.id || courseMatches(entry.course, course.name)),
+  );
+  return rankApResources(matching)[0] || null;
+}
+
 module.exports = {
   RESOURCE_PRIORITY,
   apCourseForExam,
@@ -75,5 +88,6 @@ module.exports = {
   isAttachedToExam,
   rankApResources,
   recommendApResource,
+  recommendStudyResource,
   resourceTitle,
 };

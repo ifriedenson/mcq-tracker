@@ -97,6 +97,46 @@ function attachFrontmatter(fm, exam) {
   };
 }
 
+/** The local date and start time that identify one computed study block. */
+function studySlotStamp(slot) {
+  const start = slot && slot.start instanceof Date ? slot.start : new Date(slot && slot.start);
+  if (Number.isNaN(start.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  return {
+    date: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`,
+    start: `${pad(start.getHours())}:${pad(start.getMinutes())}`,
+    subject: str(slot && slot.subject).trim(),
+  };
+}
+
+/** Bind a resource to the free period starting at a given date and time. */
+function attachStudySlotFrontmatter(fm, slot) {
+  const stamp = studySlotStamp(slot);
+  if (!stamp) return { ...(fm || {}) };
+  return {
+    ...(fm || {}),
+    study_slot_date: stamp.date,
+    study_slot_start: stamp.start,
+    study_slot_subject: stamp.subject,
+  };
+}
+
+/** True when the note is bound to this exact study block. */
+function isAttachedToStudySlot(entry, slot) {
+  const stamp = studySlotStamp(slot);
+  if (!stamp || !entry) return false;
+  return entry.studySlotDate === stamp.date && entry.studySlotStart === stamp.start;
+}
+
+/** Remove a study-block binding without touching the exam binding or link. */
+function detachStudySlotFrontmatter(fm) {
+  const next = { ...(fm || {}) };
+  delete next.study_slot_date;
+  delete next.study_slot_start;
+  delete next.study_slot_subject;
+  return next;
+}
+
 /** Remove the exam binding without touching the resource's course or link. */
 function detachFrontmatter(fm) {
   const next = { ...(fm || {}) };
@@ -185,6 +225,9 @@ function entryFromFrontmatter(fm, path, now) {
     examUid: str(fm.exam_uid),
     examDate: str(fm.exam_date),
     examTitle: str(fm.exam_title),
+    studySlotDate: str(fm.study_slot_date),
+    studySlotStart: str(fm.study_slot_start),
+    studySlotSubject: str(fm.study_slot_subject),
   };
 }
 
@@ -209,9 +252,13 @@ module.exports = {
   AP_RESOURCE_NOTE_TYPE,
   STALE_RESOURCE_DAYS,
   attachFrontmatter,
+  attachStudySlotFrontmatter,
   buildApResourceNote,
   daysSince,
   detachFrontmatter,
+  detachStudySlotFrontmatter,
+  isAttachedToStudySlot,
+  studySlotStamp,
   entryFromFrontmatter,
   findApResourceNote,
   isStale,

@@ -702,6 +702,51 @@ test("view: free time opens a study-slot chooser with durations and a buffer", a
   assert.match(captured[2].label, /Linear Algebra/);
 });
 
+test("view: a study block can attach and detach an AP resource", async () => {
+  const icsText = wrap(
+    event({ uid: "a", summary: "AP Biology", start: stamp(at(0, 9)), end: stamp(at(0, 10)) }),
+    event({ uid: "b", summary: "Physics", start: stamp(at(0, 12)), end: stamp(at(0, 13)) })
+  );
+  const resourcePath = "AP resources/AP Biology/Released FRQs.md";
+  const app = makeApp([
+    { path: "schedule.ics", text: icsText, noFm: true },
+    {
+      path: resourcePath,
+      fm: {
+        type: "ap_resource",
+        ap_course: "ap-biology",
+        course: "AP Biology",
+        resource_type: "practice",
+        source_url: "https://apcentral.collegeboard.org/courses/ap-biology/exam/past-exam-questions",
+        checked_on: local(new Date()),
+        official: true,
+      },
+      text: "An official AP resource link.",
+    },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  await plugin.addCalendarFileSource("schedule.ics");
+  plugin.settings.calendar.enabled = true;
+  plugin.settings.reference.enabled = true;
+
+  const slot = { start: at(0, 10), end: at(0, 12), minutes: 120, subject: "AP Biology" };
+  const modal = new T.StudySlotModal(app, plugin, [slot]);
+  modal.close = () => {};
+  const dom = makeDom();
+  modal.contentEl = dom.root;
+  modal.onOpen();
+
+  assert.ok(dom.texts().some((text) => text.includes("Suggested: Released FRQs")), "the next class's resource is suggested");
+  await dom.click("Attach to this block");
+  assert.equal(app.files[1].fm.study_slot_date, local(slot.start));
+  assert.equal(app.files[1].fm.study_slot_start, "10:00");
+  assert.ok(dom.texts().some((text) => text.includes("Attached: Released FRQs")));
+  await dom.click("Detach");
+  assert.equal(app.files[1].fm.study_slot_date, undefined, "detaching clears the block binding");
+  assert.ok(dom.texts().some((text) => text.includes("Suggested: Released FRQs")));
+});
+
 test("view: day cells and class cards are keyboard operable", async () => {
   const { app, plugin } = await pluginWith(TODAY_EVENT());
   await plugin.addCalendarFileSource("schedule.ics");

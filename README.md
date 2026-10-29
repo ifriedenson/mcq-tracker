@@ -246,7 +246,7 @@ This is a **link index, not a content dump**. The plugin stores only titles, sho
 
 When Today's **Next exam** is an AP course, it shows one saved resource for that course. Fresh links come first, practice material is preferred, and a stale link is labelled rather than hidden. **Open resource** goes straight to the note; if none is saved yet, save one from Reference → AP resources.
 
-**Attach to exam** binds that note to the exact calendar exam by writing `exam_uid`, `exam_date` and `exam_title`. An explicitly attached note wins over a generic course match on later visits, and the row changes to **Attached resource**. The calendar's **Upcoming exams** panel then shows **Attached: <note>** under that exam with an **Open** action. **Detach from exam** on Today removes the binding; you can also edit or delete the three properties by hand.
+**Attach to exam** binds that note to the exact calendar exam by writing `exam_uid`, `exam_date` and `exam_title`. An explicitly attached note wins over a generic course match on later visits, and the row changes to **Attached resource**. The calendar's **Upcoming exams** panel then shows **Attached: <note>** under that exam with an **Open** action. **Detach from exam** on Today removes the binding; you can also edit or delete the three properties by hand. Free-time study blocks use the same notes: the chooser suggests a saved resource for the next class, and **Attach to this block** stores `study_slot_date`, `study_slot_start` and `study_slot_subject` on the note. Detaching clears only those three properties, leaving the exam binding and the link untouched.
 
 ## Reference (optional module, off by default)
 

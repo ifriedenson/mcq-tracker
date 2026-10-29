@@ -51,6 +51,17 @@ test("AP exam resources: an explicitly attached note wins over a fresher generic
   assert.equal(recommend.recommendApResource({ uid: "exam-2", summary: "AP Biology Exam" }, [fresh, attached]).path, "fresh.md");
 });
 
+test("AP study resources: an attached block binding wins, otherwise the next class matches", () => {
+  const attached = entry({ path: "attached.md", stale: true, studySlotDate: "2026-10-29", studySlotStart: "10:30" });
+  const fresh = entry({ path: "fresh.md", resourceType: "course" });
+  const slot = { start: new Date(2026, 9, 29, 10, 30), subject: "AP Biology" };
+  assert.equal(recommend.recommendStudyResource(slot, [fresh, attached]).path, "attached.md");
+
+  const later = { start: new Date(2026, 9, 29, 12, 0), subject: "AP Biology" };
+  assert.equal(recommend.recommendStudyResource(later, [fresh, attached]).path, "fresh.md");
+  assert.equal(recommend.recommendStudyResource({ subject: "Linear Algebra" }, [fresh, attached]), null);
+});
+
 test("AP exam resources: a non-AP exam or another course gets no recommendation", () => {
   const entries = [entry()];
   assert.equal(recommend.recommendApResource({ summary: "Chemistry Final Exam" }, entries), null);

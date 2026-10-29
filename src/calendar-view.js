@@ -28,7 +28,8 @@ const {
   parseClassDetails,
   weekdayLabels,
 } = require("./calendar-model");
-const { isAttachedToExam, recommendApResource, resourceTitle } = require("./ap-exam-resources");
+const { isAttachedToExam, recommendApResource, recommendStudyResource, resourceTitle } = require("./ap-exam-resources");
+const { isAttachedToStudySlot } = require("./ap-resource-notes");
 
 
 function detailsOf(event) {
@@ -805,6 +806,8 @@ class StudySlotModal extends Modal {
       }
       select.value = filter;
 
+      this.renderStudyResource(body, slot, draw);
+
       let pool = this.plugin.quickPracticePool(filter, slot.subject);
       const hint = body.createDiv({ cls: "uni-study-slot-count", text: `${pool.length} question${pool.length === 1 ? "" : "s"} available` });
       const start = body.createEl("button", { text: `Start ${minutes} minutes`, cls: "mod-cta" });
@@ -836,6 +839,38 @@ class StudySlotModal extends Modal {
     };
 
     draw();
+  }
+
+  /** One saved resource for this block: attached first, then a course match. */
+  renderStudyResource(body, slot, redraw) {
+    const p = this.plugin;
+    if (!p.referenceEnabled || !p.referenceEnabled() || !p.getApResourceNotes) return;
+    const entries = p.getApResourceNotes();
+    const resource = recommendStudyResource(slot, entries);
+    if (!resource) return;
+    const attached = isAttachedToStudySlot(resource, slot);
+    body.createDiv({ cls: "uni-study-slot-label", text: "Resource" });
+    const row = body.createDiv({ cls: "uni-study-slot-resource" });
+    row.createDiv({
+      cls: "uni-study-slot-resource-name",
+      text: `${attached ? "Attached" : "Suggested"}: ${resourceTitle(resource)}${resource.stale ? " (stale)" : ""}`,
+    });
+    if (!attached) {
+      row.createEl("button", { text: "Attach to this block", cls: "qt-link" }).addEventListener("click", async () => {
+        if (p.attachApResourceToStudySlot) await p.attachApResourceToStudySlot(resource.path, slot);
+        redraw();
+      });
+    } else {
+      row.createEl("button", { text: "Detach", cls: "qt-link" }).addEventListener("click", async () => {
+        if (p.detachApResourceFromStudySlot) await p.detachApResourceFromStudySlot(resource.path);
+        redraw();
+      });
+    }
+    row.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => {
+      const app = this.plugin.app;
+      const file = app.vault.getAbstractFileByPath(resource.path);
+      if (file) app.workspace.getLeaf("tab").openFile(file);
+    });
   }
 
   onClose() {

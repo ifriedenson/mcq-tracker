@@ -75,6 +75,25 @@ test("AP resource notes: saving is idempotent and Mark checked updates the note"
   assert.equal(saved.file.fm.checked_on, "2026-10-29");
 });
 
+test("AP resource notes: a study-block binding stores its date, start and subject", () => {
+  const slot = { start: new Date(2026, 9, 29, 10, 30), end: new Date(2026, 9, 29, 12, 0), minutes: 90, subject: "AP Biology" };
+  const fm = notes.attachStudySlotFrontmatter({ type: "ap_resource" }, slot);
+  assert.equal(fm.study_slot_date, "2026-10-29");
+  assert.equal(fm.study_slot_start, "10:30");
+  assert.equal(fm.study_slot_subject, "AP Biology");
+
+  const entry = notes.entryFromFrontmatter(fm, "AP resources/AP Biology/Released FRQs.md");
+  assert.equal(notes.isAttachedToStudySlot(entry, slot), true);
+  assert.equal(notes.isAttachedToStudySlot(entry, { ...slot, start: new Date(2026, 9, 29, 11, 0) }), false);
+  assert.equal(notes.isAttachedToStudySlot(entry, { ...slot, start: new Date(2026, 9, 30, 10, 30) }), false);
+
+  const detached = notes.detachStudySlotFrontmatter(fm);
+  assert.equal(detached.study_slot_date, undefined);
+  assert.equal(detached.study_slot_start, undefined);
+  assert.equal(detached.study_slot_subject, undefined);
+  assert.equal(detached.type, "ap_resource", "detaching leaves the rest of the note alone");
+});
+
 test("AP resource notes: the Reference tab saves a link and lists saved notes", async () => {
   const app = makeApp([]);
   const plugin = new QT(app);

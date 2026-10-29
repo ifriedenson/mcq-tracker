@@ -1146,6 +1146,7 @@ __defs["ap-exam-resources"] = function (module, exports, require) {
  */
 const { courseMatches } = require("./analytics");
 const { cleanSubjectTitle } = require("./calendar-model");
+const { isAttachedToStudySlot } = require("./ap-resource-notes");
 const { AP_RESOURCE_COURSES } = require("./ap-resources");
 const { str } = require("./util");
 
@@ -1205,6 +1206,18 @@ function recommendApResource(exam, entries) {
   return rankApResources(matching)[0] || null;
 }
 
+/** Prefer a resource bound to this date and time; otherwise match the next class's course. */
+function recommendStudyResource(slot, entries) {
+  const attached = (entries || []).find((entry) => isAttachedToStudySlot(entry, slot));
+  if (attached) return attached;
+  const course = apCourseForExam({ summary: str(slot && slot.subject).trim() });
+  if (!course) return null;
+  const matching = (entries || []).filter(
+    (entry) => entry && (entry.courseId === course.id || courseMatches(entry.course, course.name)),
+  );
+  return rankApResources(matching)[0] || null;
+}
+
 module.exports = {
   RESOURCE_PRIORITY,
   apCourseForExam,
@@ -1212,6 +1225,7 @@ module.exports = {
   isAttachedToExam,
   rankApResources,
   recommendApResource,
+  recommendStudyResource,
   resourceTitle,
 };
 };
@@ -1316,6 +1330,46 @@ function attachFrontmatter(fm, exam) {
   };
 }
 
+/** The local date and start time that identify one computed study block. */
+function studySlotStamp(slot) {
+  const start = slot && slot.start instanceof Date ? slot.start : new Date(slot && slot.start);
+  if (Number.isNaN(start.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  return {
+    date: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`,
+    start: `${pad(start.getHours())}:${pad(start.getMinutes())}`,
+    subject: str(slot && slot.subject).trim(),
+  };
+}
+
+/** Bind a resource to the free period starting at a given date and time. */
+function attachStudySlotFrontmatter(fm, slot) {
+  const stamp = studySlotStamp(slot);
+  if (!stamp) return { ...(fm || {}) };
+  return {
+    ...(fm || {}),
+    study_slot_date: stamp.date,
+    study_slot_start: stamp.start,
+    study_slot_subject: stamp.subject,
+  };
+}
+
+/** True when the note is bound to this exact study block. */
+function isAttachedToStudySlot(entry, slot) {
+  const stamp = studySlotStamp(slot);
+  if (!stamp || !entry) return false;
+  return entry.studySlotDate === stamp.date && entry.studySlotStart === stamp.start;
+}
+
+/** Remove a study-block binding without touching the exam binding or link. */
+function detachStudySlotFrontmatter(fm) {
+  const next = { ...(fm || {}) };
+  delete next.study_slot_date;
+  delete next.study_slot_start;
+  delete next.study_slot_subject;
+  return next;
+}
+
 /** Remove the exam binding without touching the resource's course or link. */
 function detachFrontmatter(fm) {
   const next = { ...(fm || {}) };
@@ -1404,6 +1458,9 @@ function entryFromFrontmatter(fm, path, now) {
     examUid: str(fm.exam_uid),
     examDate: str(fm.exam_date),
     examTitle: str(fm.exam_title),
+    studySlotDate: str(fm.study_slot_date),
+    studySlotStart: str(fm.study_slot_start),
+    studySlotSubject: str(fm.study_slot_subject),
   };
 }
 
@@ -1428,9 +1485,13 @@ module.exports = {
   AP_RESOURCE_NOTE_TYPE,
   STALE_RESOURCE_DAYS,
   attachFrontmatter,
+  attachStudySlotFrontmatter,
   buildApResourceNote,
   daysSince,
   detachFrontmatter,
+  detachStudySlotFrontmatter,
+  isAttachedToStudySlot,
+  studySlotStamp,
   entryFromFrontmatter,
   findApResourceNote,
   isStale,
@@ -5445,7 +5506,8 @@ const {
   parseClassDetails,
   weekdayLabels,
 } = require("./calendar-model");
-const { isAttachedToExam, recommendApResource, resourceTitle } = require("./ap-exam-resources");
+const { isAttachedToExam, recommendApResource, recommendStudyResource, resourceTitle } = require("./ap-exam-resources");
+const { isAttachedToStudySlot } = require("./ap-resource-notes");
 
 
 function detailsOf(event) {
@@ -6222,6 +6284,8 @@ class StudySlotModal extends Modal {
       }
       select.value = filter;
 
+      this.renderStudyResource(body, slot, draw);
+
       let pool = this.plugin.quickPracticePool(filter, slot.subject);
       const hint = body.createDiv({ cls: "uni-study-slot-count", text: `${pool.length} question${pool.length === 1 ? "" : "s"} available` });
       const start = body.createEl("button", { text: `Start ${minutes} minutes`, cls: "mod-cta" });
@@ -6253,6 +6317,38 @@ class StudySlotModal extends Modal {
     };
 
     draw();
+  }
+
+  /** One saved resource for this block: attached first, then a course match. */
+  renderStudyResource(body, slot, redraw) {
+    const p = this.plugin;
+    if (!p.referenceEnabled || !p.referenceEnabled() || !p.getApResourceNotes) return;
+    const entries = p.getApResourceNotes();
+    const resource = recommendStudyResource(slot, entries);
+    if (!resource) return;
+    const attached = isAttachedToStudySlot(resource, slot);
+    body.createDiv({ cls: "uni-study-slot-label", text: "Resource" });
+    const row = body.createDiv({ cls: "uni-study-slot-resource" });
+    row.createDiv({
+      cls: "uni-study-slot-resource-name",
+      text: `${attached ? "Attached" : "Suggested"}: ${resourceTitle(resource)}${resource.stale ? " (stale)" : ""}`,
+    });
+    if (!attached) {
+      row.createEl("button", { text: "Attach to this block", cls: "qt-link" }).addEventListener("click", async () => {
+        if (p.attachApResourceToStudySlot) await p.attachApResourceToStudySlot(resource.path, slot);
+        redraw();
+      });
+    } else {
+      row.createEl("button", { text: "Detach", cls: "qt-link" }).addEventListener("click", async () => {
+        if (p.detachApResourceFromStudySlot) await p.detachApResourceFromStudySlot(resource.path);
+        redraw();
+      });
+    }
+    row.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => {
+      const app = this.plugin.app;
+      const file = app.vault.getAbstractFileByPath(resource.path);
+      if (file) app.workspace.getLeaf("tab").openFile(file);
+    });
   }
 
   onClose() {
@@ -22175,7 +22271,7 @@ const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
-const { attachFrontmatter, buildApResourceNote, detachFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
+const { attachFrontmatter, attachStudySlotFrontmatter, buildApResourceNote, detachFrontmatter, detachStudySlotFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -23526,6 +23622,36 @@ class QuestionTrackerPlugin extends Plugin {
       delete data.exam_uid;
       delete data.exam_date;
       delete data.exam_title;
+    });
+    return resourceNoteEntry(next, path);
+  }
+
+  /** Binds a saved resource to one computed study block (date and start time). */
+  async attachApResourceToStudySlot(path, slot) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    const next = attachStudySlotFrontmatter(fm, slot);
+    if (!this.app.fileManager || !this.app.fileManager.processFrontMatter) return null;
+    await this.app.fileManager.processFrontMatter(file, (data) => {
+      data.study_slot_date = next.study_slot_date;
+      data.study_slot_start = next.study_slot_start;
+      data.study_slot_subject = next.study_slot_subject;
+    });
+    return resourceNoteEntry({ ...fm, ...next }, path);
+  }
+
+  /** Removes the study-block binding from a saved resource note. */
+  async detachApResourceFromStudySlot(path) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    if (!this.app.fileManager || !this.app.fileManager.processFrontMatter) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    const next = detachStudySlotFrontmatter(fm);
+    await this.app.fileManager.processFrontMatter(file, (data) => {
+      delete data.study_slot_date;
+      delete data.study_slot_start;
+      delete data.study_slot_subject;
     });
     return resourceNoteEntry(next, path);
   }
