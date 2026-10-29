@@ -74,6 +74,7 @@ const { renderDailySettings } = require("./daily-quiz-settings");
 const provenance = require("./provenance");
 const transcript = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
+const resultsExport = require("./results-export");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
@@ -182,6 +183,7 @@ QuestionTrackerPlugin.__test = {
   provenance,
   transcript,
   TranscriptPracticeModal,
+  resultsExport,
   AssignmentsView,
   AssignmentModal,
   renderAssignmentsSettings,

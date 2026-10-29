@@ -729,6 +729,10 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       .setDesc("Open the practice view to start a session, choose filters, or continue where you left off.")
       .addButton((b) => b.setButtonText("Open practice").onClick(() => this.plugin.activateView()));
     new Setting(containerEl)
+      .setName("Export practice results")
+      .setDesc("Write a summary CSV and an attempt-history CSV to the vault root for analysis outside Obsidian.")
+      .addButton((b) => b.setButtonText("Export CSV").onClick(() => this.plugin.exportResultsCsv()));
+    new Setting(containerEl)
       .setName("About the project")
       .setDesc(version ? `Version ${version}.` : "Source code and issue tracker.")
       .addButton((b) => b.setButtonText("GitHub repository").onClick(() => openExternal("https://github.com/ifriedenson/mcq-tracker")))

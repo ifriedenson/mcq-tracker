@@ -16924,6 +16924,7 @@ const { normalizeTutorRole } = require("./tutor-presets");
 const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
+const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -17006,6 +17007,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "focus-log", name: "Focus: log study time", callback: () => this.openFocusLog() });
     this.addCommand({ id: "study-plan", name: "Study plan: start for the next exam", callback: () => this.startNextExamPlan() });
     this.addCommand({ id: "open-dashboard", name: "Open analytics dashboard", callback: () => this.activateInsights("overview") });
+    this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
@@ -18607,6 +18609,40 @@ class QuestionTrackerPlugin extends Plugin {
     await this.save();
     this.refreshViews();
     return after;
+  }
+
+  /** Write one summary row per note and one row per stored attempt, for outside analysis. */
+  async exportResultsCsv() {
+    const includeMcq = !this.moduleOff("mcq");
+    const includeCards = !this.moduleOff("cards");
+    if (!includeMcq && !includeCards) {
+      new Notice("Turn on MCQ Tracker or Cards before exporting results.");
+      return null;
+    }
+    const questions = includeMcq ? this.getQuestions() : [];
+    const cards = includeCards ? this.getCards() : [];
+    if (!questions.length && !cards.length) {
+      new Notice("There are no practice questions or cards to export yet.");
+      return null;
+    }
+    const today = localDate();
+    const names = resultFileNames(today);
+    const summary = buildResultsCsv(questions, cards, { today });
+    const attempts = buildAttemptsCsv(questions, cards);
+    const write = async (path, text) => {
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      if (existing instanceof TFile) await this.app.vault.modify(existing, text);
+      else await this.app.vault.create(path, text);
+    };
+    try {
+      await write(names.summary, summary.text);
+      await write(names.attempts, attempts.text);
+    } catch (e) {
+      new Notice(`Could not write the CSV files: ${str(e && e.message ? e.message : e)}`, 7000);
+      return null;
+    }
+    new Notice(`Exported ${summary.rows.length} notes and ${attempts.rows.length} attempts to ${names.summary} and ${names.attempts}.`, 7000);
+    return { paths: [names.summary, names.attempts], summary, attempts };
   }
 
   async exportCalendarIcs() {
@@ -22937,6 +22973,201 @@ module.exports = {
 };
 };
 
+/* ---- src/results-export.js ---- */
+__defs["results-export"] = function (module, exports, require) {
+/*
+ * CSV export for practice results and attempt history.
+ *
+ * This is deliberately a plain CSV writer, with no spreadsheet or CSV
+ * dependency. It is for analysis outside Obsidian; all values come from the
+ * note properties already stored in the vault.
+ */
+const { str } = require("./util");
+const { parseHistory } = require("./stats");
+const { isDue } = require("./filters");
+const { sourceOf } = require("./provenance");
+
+const SUMMARY_COLUMNS = [
+  "kind",
+  "id",
+  "path",
+  "deck",
+  "course",
+  "test",
+  "section",
+  "domain",
+  "skill",
+  "unit",
+  "difficulty",
+  "attempts",
+  "correct_count",
+  "accuracy",
+  "accuracy_percent",
+  "time_spent_seconds",
+  "average_seconds",
+  "streak",
+  "last_result",
+  "last_date",
+  "next_review",
+  "last_confidence",
+  "last_error_type",
+  "flagged",
+  "study_status",
+  "due",
+  "source",
+  "source_link",
+];
+
+const ATTEMPT_COLUMNS = [
+  "kind",
+  "id",
+  "path",
+  "deck",
+  "course",
+  "attempt",
+  "when",
+  "result",
+  "seconds",
+  "answer",
+  "confidence",
+  "error_type",
+];
+
+/** A field that starts with a spreadsheet formula marker is neutralised, not executed. */
+function csvCell(value) {
+  let s = str(value);
+  if (/^[=+@\t\r]/.test(s)) s = "'" + s;
+  if (/[",\r\n]/.test(s)) s = `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function csvLine(cells) {
+  return cells.map(csvCell).join(",");
+}
+
+function csvText(columns, rows) {
+  return [csvLine(columns), ...rows.map(csvLine)].join("\n") + "\n";
+}
+
+function number(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function rounded(value, digits) {
+  const factor = 10 ** (digits === undefined ? 2 : digits);
+  return Math.round(value * factor) / factor;
+}
+
+function resultRow(item, kind, today) {
+  const fm = (item && item.fm) || {};
+  const attempts = Math.max(0, Math.round(number(fm.attempts)));
+  const correct = Math.min(attempts, Math.max(0, Math.round(number(fm.correct_count))));
+  const seconds = Math.max(0, Math.round(number(fm.time_spent_total)));
+  const source = sourceOf(fm);
+  return {
+    kind,
+    id: str(kind === "card" ? fm.card_id : fm.question_id),
+    path: item && item.file ? item.file.path : "",
+    deck: str(item && item.deck !== undefined ? item.deck : fm.deck),
+    course: str(item && item.course !== undefined ? item.course : fm.course),
+    test: str(fm.test),
+    section: str(fm.section),
+    domain: str(fm.domain),
+    skill: str(fm.skill),
+    unit: str(fm.unit),
+    difficulty: str(fm.difficulty),
+    attempts: String(attempts),
+    correct_count: String(correct),
+    accuracy: attempts ? String(rounded(correct / attempts, 4)) : "",
+    accuracy_percent: attempts ? String(rounded((correct / attempts) * 100, 1)) : "",
+    time_spent_seconds: String(seconds),
+    average_seconds: attempts ? String(rounded(seconds / attempts, 1)) : "",
+    streak: String(Math.round(number(fm.streak))),
+    last_result: str(fm.result),
+    last_date: str(fm["date attempted"]),
+    next_review: str(fm.next_review).slice(0, 10),
+    last_confidence: str(fm.last_confidence),
+    last_error_type: str(fm.last_error_type),
+    flagged: fm.flagged === true ? "true" : "false",
+    study_status: str(fm.study_status),
+    due: isDue(fm, today) ? "true" : "false",
+    source: source.label || str(fm.source),
+    source_link: source.link,
+  };
+}
+
+function attemptRows(item, kind) {
+  const fm = (item && item.fm) || {};
+  const id = str(kind === "card" ? fm.card_id : fm.question_id);
+  const path = item && item.file ? item.file.path : "";
+  const deck = str(item && item.deck !== undefined ? item.deck : fm.deck);
+  const course = str(item && item.course !== undefined ? item.course : fm.course);
+  return parseHistory(fm.history).map((entry, index) => ({
+    kind,
+    id,
+    path,
+    deck,
+    course,
+    attempt: String(index + 1),
+    when: entry.when,
+    result: entry.result,
+    seconds: String(entry.seconds),
+    answer: entry.answer,
+    confidence: entry.conf,
+    error_type: entry.error,
+  }));
+}
+
+function orderedRows(rows, columns) {
+  return rows.map((row) => columns.map((column) => row[column] === undefined ? "" : row[column]));
+}
+
+/** Summary of every question and card, one row per note. */
+function buildResultsCsv(questions, cards, options) {
+  const opts = options || {};
+  const today = str(opts.today).slice(0, 10);
+  const rows = [
+    ...(Array.isArray(questions) ? questions : []).map((item) => resultRow(item, "question", today)),
+    ...(Array.isArray(cards) ? cards : []).map((item) => resultRow(item, "card", today)),
+  ].sort((a, b) => a.kind.localeCompare(b.kind) || a.path.localeCompare(b.path, undefined, { numeric: true }));
+  return { columns: SUMMARY_COLUMNS.slice(), rows, text: csvText(SUMMARY_COLUMNS, orderedRows(rows, SUMMARY_COLUMNS)) };
+}
+
+/** One row per stored attempt, for retention curves and time-series work. */
+function buildAttemptsCsv(questions, cards, options) {
+  const rows = [
+    ...(Array.isArray(questions) ? questions : []).flatMap((item) => attemptRows(item, "question")),
+    ...(Array.isArray(cards) ? cards : []).flatMap((item) => attemptRows(item, "card")),
+  ].sort((a, b) => a.kind.localeCompare(b.kind) || a.path.localeCompare(b.path, undefined, { numeric: true }) || a.attempt.localeCompare(b.attempt, undefined, { numeric: true }));
+  return { columns: ATTEMPT_COLUMNS.slice(), rows, text: csvText(ATTEMPT_COLUMNS, orderedRows(rows, ATTEMPT_COLUMNS)) };
+}
+
+const safeDay = (date) => {
+  const value = str(date).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "export";
+};
+
+function resultFileNames(date) {
+  const day = safeDay(date);
+  return {
+    summary: `mcq-results-${day}.csv`,
+    attempts: `mcq-attempts-${day}.csv`,
+  };
+}
+
+module.exports = {
+  SUMMARY_COLUMNS,
+  ATTEMPT_COLUMNS,
+  buildAttemptsCsv,
+  buildResultsCsv,
+  csvCell,
+  csvLine,
+  csvText,
+  resultFileNames,
+};
+};
+
 /* ---- src/settings-global.js ---- */
 __defs["settings-global"] = function (module, exports, require) {
 /*
@@ -23860,6 +24091,10 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       .setName("Practice view")
       .setDesc("Open the practice view to start a session, choose filters, or continue where you left off.")
       .addButton((b) => b.setButtonText("Open practice").onClick(() => this.plugin.activateView()));
+    new Setting(containerEl)
+      .setName("Export practice results")
+      .setDesc("Write a summary CSV and an attempt-history CSV to the vault root for analysis outside Obsidian.")
+      .addButton((b) => b.setButtonText("Export CSV").onClick(() => this.plugin.exportResultsCsv()));
     new Setting(containerEl)
       .setName("About the project")
       .setDesc(version ? `Version ${version}.` : "Source code and issue tracker.")
@@ -26229,6 +26464,7 @@ const { renderDailySettings } = require("./daily-quiz-settings");
 const provenance = require("./provenance");
 const transcript = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
+const resultsExport = require("./results-export");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
@@ -26337,6 +26573,7 @@ QuestionTrackerPlugin.__test = {
   provenance,
   transcript,
   TranscriptPracticeModal,
+  resultsExport,
   AssignmentsView,
   AssignmentModal,
   renderAssignmentsSettings,

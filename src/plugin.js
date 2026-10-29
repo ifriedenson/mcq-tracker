@@ -51,6 +51,7 @@ const { normalizeTutorRole } = require("./tutor-presets");
 const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
+const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -133,6 +134,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "focus-log", name: "Focus: log study time", callback: () => this.openFocusLog() });
     this.addCommand({ id: "study-plan", name: "Study plan: start for the next exam", callback: () => this.startNextExamPlan() });
     this.addCommand({ id: "open-dashboard", name: "Open analytics dashboard", callback: () => this.activateInsights("overview") });
+    this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
@@ -1734,6 +1736,40 @@ class QuestionTrackerPlugin extends Plugin {
     await this.save();
     this.refreshViews();
     return after;
+  }
+
+  /** Write one summary row per note and one row per stored attempt, for outside analysis. */
+  async exportResultsCsv() {
+    const includeMcq = !this.moduleOff("mcq");
+    const includeCards = !this.moduleOff("cards");
+    if (!includeMcq && !includeCards) {
+      new Notice("Turn on MCQ Tracker or Cards before exporting results.");
+      return null;
+    }
+    const questions = includeMcq ? this.getQuestions() : [];
+    const cards = includeCards ? this.getCards() : [];
+    if (!questions.length && !cards.length) {
+      new Notice("There are no practice questions or cards to export yet.");
+      return null;
+    }
+    const today = localDate();
+    const names = resultFileNames(today);
+    const summary = buildResultsCsv(questions, cards, { today });
+    const attempts = buildAttemptsCsv(questions, cards);
+    const write = async (path, text) => {
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      if (existing instanceof TFile) await this.app.vault.modify(existing, text);
+      else await this.app.vault.create(path, text);
+    };
+    try {
+      await write(names.summary, summary.text);
+      await write(names.attempts, attempts.text);
+    } catch (e) {
+      new Notice(`Could not write the CSV files: ${str(e && e.message ? e.message : e)}`, 7000);
+      return null;
+    }
+    new Notice(`Exported ${summary.rows.length} notes and ${attempts.rows.length} attempts to ${names.summary} and ${names.attempts}.`, 7000);
+    return { paths: [names.summary, names.attempts], summary, attempts };
   }
 
   async exportCalendarIcs() {
