@@ -13886,7 +13886,7 @@ class TestView extends ItemView {
       const q = byPath.get(row.path);
       if (!q) continue; // the note was deleted or moved
       const data = await loadQuestionData(this.plugin, q);
-      items.push({ ...data, sel: row.sel, seconds: row.seconds, flagged: row.flagged });
+      items.push({ ...data, sel: row.sel, seconds: row.seconds, flagged: row.flagged, conf: row.conf || 0 });
     }
     if (!items.length) {
       st.testSession = null;
@@ -14154,7 +14154,7 @@ class TestView extends ItemView {
         noKey++; // no answer key: it can't be graded in a timed test
         continue;
       }
-      items.push({ ...data, sel: "", seconds: 0, flagged: false });
+      items.push({ ...data, sel: "", seconds: 0, flagged: false, conf: 0 });
     }
     if (!items.length) {
       new Notice("No questions with an answer key matched. Check your filters and the mode.");
@@ -14275,6 +14275,23 @@ class TestView extends ItemView {
       input.addEventListener("change", () => this.persist());
     }
 
+    const confRow = right.createDiv({ cls: "qt-conf" });
+    confRow.createDiv({ cls: "qt-label", text: "How sure are you?" });
+    const confChips = confRow.createDiv({ cls: "qt-chips" });
+    const confBtns = [];
+    const confLabels = (p.settings.confidenceLabels || ["Guessing", "Unsure", "Confident"]).slice(0, 3);
+    confLabels.forEach((label, index) => {
+      const value = index + 1;
+      const btn = confChips.createEl("button", { text: label, cls: "qt-chip" });
+      if (Number(it.conf) === value) btn.addClass("is-selected");
+      btn.addEventListener("click", () => {
+        it.conf = Number(it.conf) === value ? 0 : value;
+        confBtns.forEach(({ btn: b, value: v }) => b.toggleClass("is-selected", Number(it.conf) === v));
+        this.persist();
+      });
+      confBtns.push({ btn, value });
+    });
+
     const nav = right.createDiv({ cls: "qt-tnav" });
     const navStart = section ? section.start : 0;
     const navEnd = section ? section.end : this.items.length;
@@ -14315,20 +14332,31 @@ class TestView extends ItemView {
 
   async finish(timeUp) {
     if (this.phase !== "test") return;
+    const p = this.plugin;
     this.leave();
     this.phase = "saving";
     this.render();
     const now = new Date();
+    const confLabels = (p.settings.confidenceLabels || ["Guessing", "Unsure", "Confident"]).slice(0, 3);
+    const confidenceLevels = confLabels.map((label, index) => ({ value: index + 1, label, total: 0, correct: 0 }));
+    let rated = 0;
     let correct = 0;
     let answered = 0;
     for (const it of this.items) {
       it.answered = !!str(it.sel).trim();
       it.correct = it.answered ? gradeAnswer({ answer: it.key, question_type: it.mode }, it.sel) : null;
+      it.conf = Math.max(0, Math.min(3, Number(it.conf) || 0));
       if (!it.answered) continue;
       answered++;
       if (it.correct) correct++;
+      const level = confidenceLevels[it.conf - 1];
+      if (level) {
+        level.total++;
+        if (it.correct) level.correct++;
+        rated++;
+      }
       try {
-        await this.plugin.recordAttempt(it.file, { correct: !!it.correct, chosen: it.sel, conf: 0, seconds: Math.round(it.seconds), now });
+        await this.plugin.recordAttempt(it.file, { correct: !!it.correct, chosen: it.sel, conf: it.conf, seconds: Math.round(it.seconds), now });
       } catch (e) {
         new Notice(`Couldn't save the result for ${it.file.basename}.`);
       }
@@ -14343,14 +14371,17 @@ class TestView extends ItemView {
         seconds: Math.round(slice.reduce((sum, it) => sum + (Number(it.seconds) || 0), 0)),
       };
     });
+    const usedSeconds = Math.min(this.allowedSeconds, Math.round((Date.now() - this.startedAt) / 1000));
     this.result = {
       correct,
       answered,
       total: this.items.length,
-      usedSeconds: Math.min(this.allowedSeconds, Math.round((Date.now() - this.startedAt) / 1000)),
+      usedSeconds,
       allowed: this.allowedSeconds,
       timeUp: !!timeUp,
       sections,
+      avgSeconds: answered ? Math.round(usedSeconds / answered) : 0,
+      confidence: { levels: confidenceLevels, rated, answered },
     };
     this.phase = "review";
     await this.persist(); // clears the saved test
@@ -14370,6 +14401,22 @@ class TestView extends ItemView {
       cls: "qt-banner-sub",
       text: `Answered ${r.answered} · ${fmtClock(r.usedSeconds)} used of ${fmtClock(r.allowed)}`,
     });
+
+    if (r.confidence && r.confidence.rated) {
+      root.createDiv({ cls: "qt-label", text: "Confidence calibration" });
+      const confChips = root.createDiv({ cls: "qt-chips" });
+      for (const level of r.confidence.levels) {
+        if (!level.total) continue;
+        confChips.createSpan({
+          cls: "qt-chip",
+          text: `${level.label}: ${level.correct}/${level.total} correct`,
+        });
+      }
+      root.createDiv({
+        cls: "qt-hint",
+        text: `Rated ${r.confidence.rated} of ${r.answered} answered · average ${fmtClock(r.avgSeconds)} per answered question`,
+      });
+    }
 
     if (r.sections && r.sections.length > 1) {
       root.createDiv({ cls: "qt-label", text: "By section" });
@@ -14436,6 +14483,7 @@ class TestView extends ItemView {
         it.answered ? `You: ${it.sel}` : "No answer",
         it.key ? `Answer: ${it.key}` : "",
         fmtClock(Math.round(it.seconds)),
+        it.answered && it.conf ? `Confidence: ${p.settings.confidenceLabels[it.conf - 1] || it.conf}` : "",
         it.flagged ? "marked" : "",
       ].filter(Boolean);
       info.createDiv({ cls: "qt-hint", text: bits.join(" · ") });
@@ -32785,6 +32833,7 @@ function packTestSession(items, meta) {
     items: items.map((it) => ({
       path: it.file.path,
       ...(sections.length ? { section: Number(it.section) || 0 } : {}),
+      ...(Number(it.conf) ? { conf: Number(it.conf) } : {}),
       sel: str(it.sel),
       seconds: Math.round(it.seconds || 0),
       flagged: !!it.flagged,
@@ -32802,6 +32851,7 @@ function unpackTestSession(s, now) {
     .map((r) => ({
       path: r.path,
       section: Math.max(0, Number(r.section) || 0),
+      conf: Math.max(0, Math.min(3, Number(r.conf) || 0)),
       sel: str(r.sel),
       seconds: Number(r.seconds) || 0,
       flagged: !!r.flagged,

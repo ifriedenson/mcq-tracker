@@ -224,6 +224,7 @@ function packTestSession(items, meta) {
     items: items.map((it) => ({
       path: it.file.path,
       ...(sections.length ? { section: Number(it.section) || 0 } : {}),
+      ...(Number(it.conf) ? { conf: Number(it.conf) } : {}),
       sel: str(it.sel),
       seconds: Math.round(it.seconds || 0),
       flagged: !!it.flagged,
@@ -241,6 +242,7 @@ function unpackTestSession(s, now) {
     .map((r) => ({
       path: r.path,
       section: Math.max(0, Number(r.section) || 0),
+      conf: Math.max(0, Math.min(3, Number(r.conf) || 0)),
       sel: str(r.sel),
       seconds: Number(r.seconds) || 0,
       flagged: !!r.flagged,

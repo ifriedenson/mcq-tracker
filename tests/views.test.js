@@ -224,6 +224,28 @@ test("timed test: sections split the questions and run their own timers", async 
   assert.ok(dom.texts().includes("By section"));
 });
 
+test("timed test: confidence ratings are stored and reported", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.recorded = [];
+  plugin.recordAttempt = async (file, a) => plugin.recorded.push([file.basename, a.correct, a.chosen, a.conf]);
+  const v = makeView(T.TestView, plugin, app, dom);
+  await v.begin(3, 5, "random");
+  v.items[0].sel = v.items[0].key;
+  v.items[0].conf = 3;
+  v.items[1].sel = v.items[1].key === "A" ? "B" : "A";
+  v.items[1].conf = 1;
+  plugin.askConfirm = async () => true;
+  await v.tryFinish();
+  assert.deepEqual(plugin.recorded.map((entry) => entry[3]), [3, 1]);
+  assert.equal(v.result.confidence.rated, 2);
+  assert.equal(v.result.confidence.levels[2].total, 1);
+  assert.equal(v.result.confidence.levels[2].correct, 1);
+  assert.equal(v.result.confidence.levels[0].total, 1);
+  assert.equal(v.result.confidence.levels[0].correct, 0);
+  assert.ok(v.result.avgSeconds >= 0);
+  assert.ok(dom.texts().includes("Confidence calibration"));
+});
+
 test("timed test: the setup screen can add sections and saves blueprints", async () => {
   const { app, plugin, dom } = await setup();
   const v = makeView(T.TestView, plugin, app, dom);
@@ -396,6 +418,7 @@ test("timed test: closing Obsidian mid-test saves it, and reopening picks it up"
   const v = makeView(T.TestView, plugin, app, dom);
   await v.begin(3, 10, "random");
   v.items[0].sel = "A";
+  v.items[0].conf = 3;
   v.items[1].flagged = true;
   v.go(1);
   assert.ok(plugin.saved.testSession, "the test in progress is saved");
@@ -414,6 +437,7 @@ test("timed test: closing Obsidian mid-test saves it, and reopening picks it up"
   assert.equal(v2.phase, "test");
   assert.equal(v2.items.length, 3);
   assert.equal(v2.items[0].sel, "A");
+  assert.equal(v2.items[0].conf, 3);
   assert.equal(v2.items[1].flagged, true);
   assert.equal(v2.idx, 1);
   assert.equal(v2.deadline, saved.deadline);

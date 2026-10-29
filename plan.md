@@ -24,7 +24,7 @@
 
 **Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0, visual text boxes in 1.53.0 and highlight regions in 1.54.0; form filling and a fuller PDF editor remain future work. The unofficial AP score calculator shipped in 1.56.0, the link-only AP resource hub in 1.57.0 and saved practice-exam history with trends in 1.58.0, AP resource notes with course/unit tags and stale-link checks in 1.59.0, a next-exam resource recommendation on Today in 1.60.0, and exam-specific resource attachments in 1.61.0, the calendar exam panel showing attached resources with a detach action on Today in 1.62.0, study-block resource attachment in 1.63.0, the class-note resource link in 1.64.0, binding management in Reference in 1.65.0, a read-only study context for the AI assistant in 1.66.0, an undo journal for AI-generated practice notes in 1.67.0, undo for AI course-note summaries in 1.68.0, weak-spot practice generation in 1.69.0, and blind answer verification in 1.70.0. The AP FRQ grader remains behind the owner pilot gate (four-course pilot, human-scored fixtures and rights review). A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated.
 
-**Recently completed (1.77.0):** timed tests now support multiple sections with separate timers, saved blueprints, section-scoped question navigation and a by-section score breakdown. Previous release 1.76.1 published the versioned property schema; 1.76.0 added unique attempt ids and merge-safe history; 1.75.0 moved Direct API keys to Obsidian Secret Storage.
+**Recently completed (1.78.0):** timed tests now capture confidence per answer and report calibration and average time per answered question alongside the section and skill breakdowns. Previous release 1.77.0 added sections, separate timers and saved blueprints; 1.76.1 published the versioned property schema; 1.76.0 added merge-safe history.
 
 ---
 
@@ -1218,7 +1218,7 @@ These are **research and specification items**, not implementation work. The AP 
 
 - [ ] FRQ format, rubric grading, override, per-criterion feedback (§5.5; AP-specific research in §5.20)
 - [ ] Math, chemistry, and physics: numeric grading, parameterized questions, computation-based verification, SMILES integration, formula sheets (§5.16)
-- [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; mixed MCQ/SPR/FRQ items and confidence calibration remain in Phase 5
+- [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
 ### Phase 6: Plans, time, and dashboard
 
@@ -2596,7 +2596,7 @@ Names are proposals; keep existing ones unchanged.
 
 - [ ] FRQ format, rubric grading, override, per-criterion feedback (§5.5)
 - [ ] Math, chemistry, and physics: numeric grading, parameterized questions, computation-based verification, SMILES integration, formula sheets (§5.16)
-- [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; mixed MCQ/SPR/FRQ items and confidence calibration remain in Phase 5
+- [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
 ### Phase 6: Plans, time, and dashboard
 
