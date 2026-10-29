@@ -31,6 +31,7 @@ const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./s
 const { StudyStatusModal } = require("./study-status-modal");
 const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
+const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
@@ -107,6 +108,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "timed-test", name: "Start a timed test", callback: () => this.activateTest() });
     this.addCommand({ id: "open-today", name: "Open Today", callback: () => this.activateToday() });
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
+    this.addCommand({ id: "daily-quiz", name: "Daily quiz", callback: () => this.startDailyQuiz() });
     this.addCommand({ id: "study-skin", name: "Open study cards", callback: () => this.openStudySkin() });
     this.addCommand({
       id: "retry-pending-attempts",
@@ -323,6 +325,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
+    this.settings.dailyQuiz = normalizeDailyQuiz(saved.dailyQuiz);
     this.settings.practicePath = str(this.settings.practicePath).trim();
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
@@ -1078,6 +1081,41 @@ class QuestionTrackerPlugin extends Plugin {
     const minutes = Math.max(1, Math.round(Number(opts.minutes) || 5));
     await view.startQuick("time", minutes, { pool: opts.pool, mode: opts.mode, label: opts.label });
     return view;
+  }
+
+  /** Start the opt-in daily quiz, reusing today's saved set when it is still valid. */
+  async startDailyQuiz() {
+    if (this.moduleOff("mcq")) return null;
+    const cfg = normalizeDailyQuiz(this.settings.dailyQuiz);
+    if (!cfg.enabled) {
+      new Notice("Daily quiz is off. Turn it on in Settings, MCQ Tracker, Daily quiz.");
+      return null;
+    }
+    const today = localDate();
+    const picked = pickDailyQuiz(this.getQuestions(), cfg, today);
+    this.settings.dailyQuiz = picked.state;
+    await this.save();
+    if (!picked.questions.length) {
+      new Notice("No questions match the daily quiz folders.");
+      return null;
+    }
+    const view = await this.activateView();
+    if (!view || !view.startDailySession) {
+      new Notice("Could not open the practice view.");
+      return null;
+    }
+    await view.startDailySession(picked.questions.map((q) => q.file.path), today);
+    return view;
+  }
+
+  /** Called when the last card in a daily quiz is answered; one completion per day. */
+  async completeDailyQuiz(date) {
+    const before = normalizeDailyQuiz(this.settings.dailyQuiz);
+    const after = recordDailyCompletion(before, date || localDate());
+    this.settings.dailyQuiz = after;
+    await this.save();
+    this.refreshViews();
+    return after;
   }
 
   async exportCalendarIcs() {

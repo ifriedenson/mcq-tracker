@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — rule-based card extraction, per-note opt-in and practice-this-note-only shipped in 1.17.0; next unblocked backlog items are the remaining §5.22.4 study-flow ideas. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — the daily quiz and exam question ranges shipped in 1.18.0; next unblocked backlog items are the remaining §5.22.4 study-flow ideas (tutor role presets, image occlusion, audio-only commute mode) and §5.22.3 import breadth. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), and the October 28 idea backlog (§5.22). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,19 +11,23 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Completed: rule-based card extraction, per-note opt-in and practice-this-note-only (§5.22.4).** Lecture notes can now become cards without an AI key, and a single question note can be practised on its own.
+**Completed: daily quiz plus its own streak, and optional exam question ranges (§5.22.4).** The daily quiz is an opt-in, local set drawn from chosen folders; timed tests can now run a 1–20-style range from a larger bank.
 
 **What shipped**
 
-- **Rule-based extraction** from question/answer or front/back headings, definition lines, “X means Y” sentences, two-column tables, highlights and existing cloze marks. Code fences, frontmatter and duplicate pairs are ignored.
+- **Daily quiz:** an opt-in set of 1–50 questions chosen once per day from chosen folders, with a separate completion streak and best streak. It reuses the normal queue and scheduler, caches today's paths so the set stays stable, and skips known/excluded items.
+- **Daily surfaces:** a Daily quiz settings tab with count, folders, streak and reset, plus a Today card and a command. Nothing is shown or notified unless the feature is enabled.
+- **Exam question range:** timed tests accept optional From/To question numbers, applied to the filtered bank before questions are picked, for Bluebook-style section practice.
+- **Coverage:** deterministic daily selection, folder filtering, hidden-item exclusion, cache regeneration when a note disappears, consecutive/gap streak rules, the Today card, the settings tab, and timed-test range slicing.
+- **Previous extraction work** from question/answer or front/back headings, definition lines, “X means Y” sentences, two-column tables, highlights and existing cloze marks. Code fences, frontmatter and duplicate pairs are ignored.
 - **Preview before writing** with deck and course fields, ready/skipped counts and the first pairs shown. Cards use the normal card note format, scheduler and due queue.
 - **Per-note opt-in:** `flashcards: true` marks a note for extraction, `flashcards: false` blocks it, and an unset note is stamped true only after a successful manual extraction.
 - **Practice this note only:** command and file-menu action, plus a practice-screen banner with **Open note** and **Practice all notes**.
 - Coverage includes extraction rules, duplicate removal, blocked notes, opt-in stamping, note-scoped filtering and the banner.
 
-**Next:** The remaining §5.22.4 items are daily quiz plus streak, exam question ranges, tutor role presets, image occlusion and audio-only commute mode. The rest of the §5.22.3 import formats and the full import report are also queued. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred.
+**Next:** The remaining §5.22.4 items are tutor role presets, image occlusion and audio-only commute mode. The rest of the §5.22.3 import formats and the full import report are also queued. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred.
 
-**Recently completed (1.17.0):** Rule-based card extraction, the `flashcards` opt-in and practice-this-note-only. Previous release 1.16.0 added generic CSV/TSV import.
+**Recently completed (1.18.0):** Daily quiz with its own streak, and optional exam question ranges. Previous release 1.17.0 added rule-based card extraction, the `flashcards` opt-in and practice-this-note-only.
 
 ---
 
@@ -968,9 +972,9 @@ The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced R
 
 **Acceptance criteria:** a generic CSV with a header imports by mapped columns and reports skipped rows; a same-length, same-prefix file edit is detected before re-import; re-importing the same deck does not duplicate by default; every imported item carries source properties and enters the normal due queue; a failed row or media file is reported without blocking the batch.
 
-#### 5.22.4 Smaller study-flow ideas — **partly implemented in 1.17.0**
+#### 5.22.4 Smaller study-flow ideas — **partly implemented in 1.17.0 and 1.18.0**
 
-**Implemented in 1.17.0:** rule-based extraction from headings, definitions, sentences, two-column tables, highlights and cloze marks; the `flashcards: true|false` per-note opt-in with preview; and **Practice this note only**. Daily quiz plus streak, exam question ranges, tutor role presets, image occlusion and audio-only commute mode remain queued.
+**Implemented in 1.17.0:** rule-based extraction from headings, definitions, sentences, two-column tables, highlights and cloze marks; the `flashcards: true|false` per-note opt-in with preview; and **Practice this note only**. **Implemented in 1.18.0:** the opt-in daily quiz with its own streak, and optional exam question ranges in timed tests. Tutor role presets, image occlusion and audio-only commute mode remain queued.
 
 - **Rule-based card extraction (no AI).** Build Q/A pairs from headings, "X means…" sentences, colon and bullet definitions, two-column tables, highlights and existing cloze marks. AI can improve or expand the result, but the rule-based path must work with AI off. *(Source: FlashCard plugin.)*
 - **Per-note auto-card opt in/out.** A `flashcards: true|false` property so a lecture note is never scraped into cards by surprise. Pair it with a preview before writing.

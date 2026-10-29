@@ -6622,10 +6622,20 @@ const DEFAULT_SETTINGS = {
   studySkin: "off", // "off" | "flip" | "choice": an extra way to review the same MCQ notes
   activePreset: "",
   folderFilterStyle: "auto", // "auto" (search box when there are many folders) | "buttons" | "search"
-  testDefaults: { count: 10, minutes: 12 },
+  testDefaults: { count: 10, minutes: 12, from: 1, to: 0 }, // from/to are optional 1-based question ranges
   testSession: null, // a timed test in progress, so it survives closing Obsidian
   quickDefaults: { count: 5, minutes: 5 },
   quickSession: null, // a Quick Practice queue in progress, so it survives closing Obsidian
+  dailyQuiz: {
+    enabled: false, // opt-in; no command, card or notifications until it is on
+    count: 5,
+    folders: [],
+    lastDate: "",
+    paths: [],
+    streak: 0,
+    best: 0,
+    lastCompleted: "",
+  },
   cards: {
     enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off
     newCardFolder: "Cards", // where new cards go when their deck has no folder
@@ -6677,6 +6687,299 @@ module.exports = {
   TRACKING_DEFAULTS,
   FOLDER_AUTO_MAX,
   STAT_FIELDS,
+};
+};
+
+/* ---- src/daily-quiz.js ---- */
+__defs["daily-quiz"] = function (module, exports, require) {
+/*
+ * The daily quiz is a small, deterministic set of MCQ notes for one calendar
+ * day. It deliberately reuses the normal practice queue and scheduler; this
+ * module only chooses the set and tracks the separate daily streak.
+ */
+const { isDue } = require("./filters");
+const { isStudyable } = require("./study-status");
+const { addDays, fmtDate, str } = require("./util");
+
+const DEFAULT_DAILY_QUIZ = {
+  enabled: false,
+  count: 5,
+  folders: [],
+  lastDate: "",
+  paths: [],
+  streak: 0,
+  best: 0,
+  lastCompleted: "",
+};
+
+function dayKey(value) {
+  if (value instanceof Date) return isNaN(value.getTime()) ? "" : fmtDate(value);
+  const s = str(value).trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
+}
+
+function parseDay(value) {
+  const key = dayKey(value);
+  if (!key) return null;
+  const [year, month, day] = key.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+function previousDay(value) {
+  const date = parseDay(value);
+  return date ? fmtDate(addDays(date, -1)) : "";
+}
+
+function nonNegative(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/** A textarea or an array both become a clean list of folder paths. */
+function folderList(value) {
+  const list = Array.isArray(value) ? value : str(value).split(/[\n,]+/);
+  const out = [];
+  for (const item of list) {
+    const path = str(item).trim().replace(/^\/+|\/+$/g, "");
+    if (path && !out.includes(path)) out.push(path);
+  }
+  return out;
+}
+
+function foldersText(value) {
+  return folderList(value).join("\n");
+}
+
+function normalizeDailyQuiz(value) {
+  const src = value && typeof value === "object" ? value : {};
+  const count = Number(src.count);
+  return {
+    enabled: src.enabled === true,
+    count: Number.isFinite(count) ? Math.min(50, Math.max(1, Math.round(count))) : DEFAULT_DAILY_QUIZ.count,
+    folders: folderList(src.folders),
+    lastDate: dayKey(src.lastDate),
+    paths: Array.isArray(src.paths) ? src.paths.filter((p) => typeof p === "string" && p) : [],
+    streak: nonNegative(src.streak),
+    best: nonNegative(src.best),
+    lastCompleted: dayKey(src.lastCompleted),
+  };
+}
+
+function pathInFolders(path, folders) {
+  const list = folderList(folders);
+  if (!list.length) return true;
+  const clean = str(path).replace(/^\/+/, "");
+  return list.some((folder) => clean === folder || clean.startsWith(folder + "/"));
+}
+
+function hashSeed(text) {
+  let h = 2166136261;
+  const s = str(text);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function randomFrom(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffle(items, seed) {
+  const out = items.slice();
+  const rnd = randomFrom(seed);
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
+  }
+  return out;
+}
+
+/**
+ * Choose today's questions. Due questions come first, then unseen ones, then
+ * the rest; each group is shuffled with a date seed so reopening the quiz on
+ * the same day gives the same set.
+ */
+function buildDailyQuiz(questions, options) {
+  const opts = options || {};
+  const today = dayKey(opts.today) || fmtDate(new Date());
+  const cfg = normalizeDailyQuiz({ count: opts.count, folders: opts.folders });
+  const eligible = (questions || []).filter(
+    (q) => q && q.file && pathInFolders(q.file.path, cfg.folders) && isStudyable(q.fm, today)
+  );
+  const groups = [[], [], []];
+  for (const q of eligible) {
+    const rank = isDue(q.fm, today) ? 0 : !Number(q.fm && q.fm.attempts) ? 1 : 2;
+    groups[rank].push(q);
+  }
+  const seed = hashSeed(`${today}|${cfg.folders.join("|")}|${cfg.count}`);
+  const ordered = [];
+  groups.forEach((group, i) => ordered.push(...shuffle(group, seed + i * 7919)));
+  return ordered.slice(0, Math.min(cfg.count, ordered.length));
+}
+
+/**
+ * Use the cached set for today when every saved path still resolves to an
+ * eligible note. A renamed, deleted, hidden or moved-away note regenerates the
+ * set instead of silently shortening it.
+ */
+function pickDailyQuiz(questions, state, today) {
+  const cfg = normalizeDailyQuiz(state);
+  const day = dayKey(today) || fmtDate(new Date());
+  if (cfg.lastDate === day && cfg.paths.length) {
+    const byPath = new Map((questions || []).filter((q) => q && q.file).map((q) => [q.file.path, q]));
+    const cached = [];
+    let valid = true;
+    for (const path of cfg.paths) {
+      const q = byPath.get(path);
+      if (!q || !isStudyable(q.fm, day) || !pathInFolders(q.file.path, cfg.folders)) {
+        valid = false;
+        break;
+      }
+      cached.push(q);
+    }
+    if (valid && cached.length) return { state: cfg, questions: cached };
+  }
+  const questionsForDay = buildDailyQuiz(questions, { today: day, count: cfg.count, folders: cfg.folders });
+  return {
+    state: { ...cfg, lastDate: day, paths: questionsForDay.map((q) => q.file.path) },
+    questions: questionsForDay,
+  };
+}
+
+function dailyDone(state, today) {
+  const cfg = normalizeDailyQuiz(state);
+  return !!cfg.lastCompleted && cfg.lastCompleted === (dayKey(today) || fmtDate(new Date()));
+}
+
+/** The streak is still alive today when the last completion was today or yesterday. */
+function dailyStreak(state, today) {
+  const cfg = normalizeDailyQuiz(state);
+  const day = dayKey(today) || fmtDate(new Date());
+  if (!cfg.lastCompleted) return 0;
+  if (cfg.lastCompleted === day || cfg.lastCompleted === previousDay(day)) return cfg.streak;
+  return 0;
+}
+
+/** Completing the quiz twice in one day never increments the streak twice. */
+function completeDailyQuiz(state, today) {
+  const cfg = normalizeDailyQuiz(state);
+  const day = dayKey(today) || fmtDate(new Date());
+  if (cfg.lastCompleted === day) return cfg;
+  const streak = cfg.lastCompleted === previousDay(day) ? cfg.streak + 1 : 1;
+  return { ...cfg, lastCompleted: day, streak, best: Math.max(cfg.best, streak) };
+}
+
+module.exports = {
+  DEFAULT_DAILY_QUIZ,
+  buildDailyQuiz,
+  completeDailyQuiz,
+  dailyDone,
+  dailyStreak,
+  dayKey,
+  folderList,
+  foldersText,
+  normalizeDailyQuiz,
+  pathInFolders,
+  pickDailyQuiz,
+};
+};
+
+/* ---- src/daily-quiz-settings.js ---- */
+__defs["daily-quiz-settings"] = function (module, exports, require) {
+const { Setting } = require("obsidian");
+const { localDate } = require("./util");
+const { dailyDone, dailyStreak, foldersText, normalizeDailyQuiz } = require("./daily-quiz");
+
+function renderDailySettings(containerEl, plugin, redisplay) {
+  const st = plugin.settings;
+  const daily = normalizeDailyQuiz(st.dailyQuiz);
+  const today = localDate();
+  const streak = dailyStreak(daily, today);
+  const done = dailyDone(daily, today);
+
+  new Setting(containerEl).setName("Daily quiz").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "A small set of questions chosen once per day from the folders you pick. It is opt-in, stays local, and sends no notifications. Reviews use your normal scheduler and history.",
+  });
+
+  new Setting(containerEl)
+    .setName("Enable the daily quiz")
+    .setDesc("Adds a Daily quiz command, a card on Today, and a start button here.")
+    .addToggle((toggle) =>
+      toggle.setValue(daily.enabled).onChange(async (value) => {
+        st.dailyQuiz = { ...normalizeDailyQuiz(st.dailyQuiz), enabled: value };
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Questions per day")
+    .setDesc("Between 1 and 50. If fewer questions match, the quiz uses what is available.")
+    .addText((text) =>
+      text
+        .setValue(String(daily.count))
+        .setPlaceholder("5")
+        .onChange(async (value) => {
+          const count = parseInt(value, 10);
+          if (!Number.isFinite(count) || count < 1) return;
+          st.dailyQuiz = { ...normalizeDailyQuiz(st.dailyQuiz), count: Math.min(50, count) };
+          await plugin.save();
+          plugin.refreshViews();
+        })
+    );
+
+  new Setting(containerEl)
+    .setName("Folders")
+    .setDesc("One folder path per line. Leave empty to draw from every question note. Subfolders are included.")
+    .addTextArea((area) =>
+      area
+        .setValue(foldersText(daily.folders))
+        .setPlaceholder("Questions/SAT\nQuestions/AP Biology")
+        .onChange(async (value) => {
+          st.dailyQuiz = { ...normalizeDailyQuiz(st.dailyQuiz), folders: value };
+          await plugin.save();
+          plugin.refreshViews();
+        })
+    );
+
+  new Setting(containerEl)
+    .setName("Current streak")
+    .setDesc(`${streak} day${streak === 1 ? "" : "s"} · best ${daily.best} · ${done ? "today is complete" : "today is not complete yet"}`)
+    .addButton((button) => button.setButtonText("Start today's quiz").setCta().onClick(() => plugin.startDailyQuiz()))
+    .addExtraButton((button) =>
+      button
+        .setIcon("reset")
+        .setTooltip("Reset the daily streak")
+        .onClick(async () => {
+          st.dailyQuiz = { ...normalizeDailyQuiz(st.dailyQuiz), streak: 0, best: 0, lastCompleted: "" };
+          await plugin.save();
+          plugin.refreshViews();
+          redisplay();
+        })
+    );
+
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "The streak counts days on which you finish the whole daily set. It is separate from study-time and question streaks.",
+  });
+}
+
+module.exports = {
+  renderDailySettings,
 };
 };
 
@@ -7279,7 +7582,7 @@ module.exports = { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQ
 __defs["exam-view"] = function (module, exports, require) {
 const { ItemView, Notice, setIcon } = require("obsidian");
 const { fmtClock, fmtDate, str } = require("./util");
-const { fmtPct, packTestSession, suggestMinutes, unpackTestSession } = require("./stats");
+const { fmtPct, packTestSession, sliceQuestionRange, suggestMinutes, unpackTestSession } = require("./stats");
 const { MODES } = require("./constants");
 const { pickQuestion } = require("./filters");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
@@ -7438,10 +7741,11 @@ class TestView extends ItemView {
     const st = p.settings;
     const d = st.testDefaults;
     root.createEl("h3", { text: "Timed test" });
-    const pool = p.filtered(p.getQuestions());
+    const all = p.filtered(p.getQuestions());
+    const pool = sliceQuestionRange(all, d.from, d.to);
     root.createDiv({
       cls: "qt-count",
-      text: `${pool.length} question${pool.length === 1 ? "" : "s"} match your current filters. Change them in the practice view first if you want a different set.`,
+      text: `${pool.length} question${pool.length === 1 ? "" : "s"} in this range${pool.length !== all.length ? ` (of ${all.length})` : ""}. Change the filters in the practice view first if you want a different set.`,
     });
     root.createDiv({
       cls: "qt-hint",
@@ -7458,6 +7762,14 @@ class TestView extends ItemView {
     nIn.addEventListener("change", () => {
       if (!this.minTouched) mIn.value = String(suggestMinutes(Math.max(1, parseInt(nIn.value, 10) || 1)));
     });
+
+    root.createDiv({ cls: "qt-label", text: "Question range (optional)" });
+    const rangeRow = root.createDiv({ cls: "qt-row qt-range" });
+    const fromIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "From" } });
+    fromIn.value = String(d.from || 1);
+    const toIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "To (last)" } });
+    toIn.value = d.to ? String(d.to) : "";
+    root.createDiv({ cls: "qt-hint", text: "Use a range for Bluebook-style section practice, for example 1 to 20. Leave To empty to use the last question." });
     root.createDiv({ cls: "qt-label", text: "Pick questions" });
     const sel = root.createEl("select", { cls: "qt-select" });
     for (const [v, t] of MODES) sel.createEl("option", { value: v, text: t });
@@ -7468,17 +7780,20 @@ class TestView extends ItemView {
     go.addEventListener("click", () => {
       const n = Math.min(200, Math.max(1, parseInt(nIn.value, 10) || 1));
       const minutes = Math.min(300, Math.max(1, parseInt(mIn.value, 10) || 1));
-      st.testDefaults = { count: n, minutes };
+      const from = Math.max(1, parseInt(fromIn.value, 10) || 1);
+      const to = Math.max(0, parseInt(toIn.value, 10) || 0);
+      st.testDefaults = { count: n, minutes, from, to };
       p.save();
-      this.begin(n, minutes, sel.value);
+      this.begin(n, minutes, sel.value, { from, to });
     });
   }
 
-  async begin(n, minutes, mode) {
+  async begin(n, minutes, mode, range) {
     const p = this.plugin;
     this.phase = "loading";
     this.render();
-    const rest = p.filtered(p.getQuestions());
+    const all = p.filtered(p.getQuestions());
+    const rest = sliceQuestionRange(all, range && range.from, range && range.to);
     const today = fmtDate(new Date());
     const items = [];
     let noKey = 0;
@@ -13339,6 +13654,7 @@ const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./s
 const { StudyStatusModal } = require("./study-status-modal");
 const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
+const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
@@ -13415,6 +13731,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "timed-test", name: "Start a timed test", callback: () => this.activateTest() });
     this.addCommand({ id: "open-today", name: "Open Today", callback: () => this.activateToday() });
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
+    this.addCommand({ id: "daily-quiz", name: "Daily quiz", callback: () => this.startDailyQuiz() });
     this.addCommand({ id: "study-skin", name: "Open study cards", callback: () => this.openStudySkin() });
     this.addCommand({
       id: "retry-pending-attempts",
@@ -13631,6 +13948,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
+    this.settings.dailyQuiz = normalizeDailyQuiz(saved.dailyQuiz);
     this.settings.practicePath = str(this.settings.practicePath).trim();
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
@@ -14386,6 +14704,41 @@ class QuestionTrackerPlugin extends Plugin {
     const minutes = Math.max(1, Math.round(Number(opts.minutes) || 5));
     await view.startQuick("time", minutes, { pool: opts.pool, mode: opts.mode, label: opts.label });
     return view;
+  }
+
+  /** Start the opt-in daily quiz, reusing today's saved set when it is still valid. */
+  async startDailyQuiz() {
+    if (this.moduleOff("mcq")) return null;
+    const cfg = normalizeDailyQuiz(this.settings.dailyQuiz);
+    if (!cfg.enabled) {
+      new Notice("Daily quiz is off. Turn it on in Settings, MCQ Tracker, Daily quiz.");
+      return null;
+    }
+    const today = localDate();
+    const picked = pickDailyQuiz(this.getQuestions(), cfg, today);
+    this.settings.dailyQuiz = picked.state;
+    await this.save();
+    if (!picked.questions.length) {
+      new Notice("No questions match the daily quiz folders.");
+      return null;
+    }
+    const view = await this.activateView();
+    if (!view || !view.startDailySession) {
+      new Notice("Could not open the practice view.");
+      return null;
+    }
+    await view.startDailySession(picked.questions.map((q) => q.file.path), today);
+    return view;
+  }
+
+  /** Called when the last card in a daily quiz is answered; one completion per day. */
+  async completeDailyQuiz(date) {
+    const before = normalizeDailyQuiz(this.settings.dailyQuiz);
+    const after = recordDailyCompletion(before, date || localDate());
+    this.settings.dailyQuiz = after;
+    await this.save();
+    this.refreshViews();
+    return after;
   }
 
   async exportCalendarIcs() {
@@ -15495,13 +15848,40 @@ class PracticeView extends ItemView {
     this.render();
   }
 
+  /** Start an exact set of paths, used by the daily quiz instead of a weighted queue. */
+  async startDailySession(paths, date) {
+    const p = this.plugin;
+    const list = Array.isArray(paths) ? paths : [];
+    const byPath = new Map(p.getQuestions().map((q) => [q.file.path, q]));
+    const queue = list.map((path) => byPath.get(path)).filter(Boolean);
+    if (!queue.length) {
+      new Notice("Today's daily quiz questions are no longer available.");
+      return;
+    }
+    this.quickSession = null;
+    const session = createQuickSession(queue, {
+      kind: "count",
+      value: queue.length,
+      mode: "smart",
+      daily: true,
+      date,
+    });
+    this.quickSession = session;
+    p.settings.quickSession = packQuickSession(session);
+    await p.save();
+    await this.loadQuestion(queue[0], true);
+    this.render();
+  }
+
   async nextQuick() {
     await this.flushNotes();
     const session = this.quickSession;
     if (!session) return this.next();
     if (session.kind === "time" && quickRemainingSeconds(session) <= 0) return this.finishQuick("Quick Practice time is up.");
     const nextIndex = session.index + 1;
-    if (nextIndex >= session.paths.length) return this.finishQuick("Quick Practice complete.");
+    if (nextIndex >= session.paths.length) {
+      return this.finishQuick(session.daily ? "Daily quiz complete." : "Quick Practice complete.", true);
+    }
     session.index = nextIndex;
     this.plugin.settings.quickSession = packQuickSession(session);
     await this.plugin.save();
@@ -15532,13 +15912,19 @@ class PracticeView extends ItemView {
     }
   }
 
-  async finishQuick(message) {
+  async finishQuick(message, completed) {
+    const finished = this.quickSession;
     this.plugin.clearSession();
     this.plugin.settings.quickSession = null;
     await this.plugin.save();
     this.quickSession = null;
     this.state = "idle";
-    new Notice(message, 5000);
+    if (finished && finished.daily && completed && this.plugin.completeDailyQuiz) {
+      const state = await this.plugin.completeDailyQuiz(finished.date || fmtDate(new Date()));
+      new Notice(`${message} Daily streak: ${state.streak} day${state.streak === 1 ? "" : "s"}.`, 6000);
+    } else {
+      new Notice(message, 5000);
+    }
     this.render();
   }
 
@@ -16579,6 +16965,8 @@ function createQuickSession(items, options, now) {
     startedAt,
     remainingSeconds: kind === "time" ? value * 60 : 0,
     runningSince: kind === "time" ? startedAt : 0,
+    daily: options && options.daily === true,
+    date: str(options && options.date),
   };
 }
 
@@ -16595,6 +16983,8 @@ function packQuickSession(session) {
     deadline: Number(session.deadline) || 0,
     remainingSeconds: Number.isFinite(session.remainingSeconds) ? Math.max(0, session.remainingSeconds) : 0,
     runningSince: Number(session.runningSince) || 0,
+    daily: session.daily === true,
+    date: str(session.date),
   };
 }
 
@@ -16789,6 +17179,7 @@ const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
+const { renderDailySettings } = require("./daily-quiz-settings");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
@@ -16803,6 +17194,7 @@ const SETTINGS_MODULES = [
 const MCQ_TABS = [
   { id: "practice", label: "Practice", icon: "play" },
   { id: "review", label: "Review", icon: "repeat" },
+  { id: "daily", label: "Daily quiz", icon: "sun" },
   { id: "ai", label: "AI", icon: "sparkles" },
   { id: "about", label: "About", icon: "info" },
 ];
@@ -16879,6 +17271,11 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     }
     if (this.activeMcqTab === "about") {
       this.renderAbout(containerEl);
+      return;
+    }
+
+    if (this.activeMcqTab === "daily") {
+      renderDailySettings(containerEl, this.plugin, () => this.display());
       return;
     }
 
@@ -17620,6 +18017,16 @@ function errorLog(questions) {
 
 /* ---- timed tests */
 
+/** A 1-based, inclusive question range. An empty or zero end means the last question. */
+function sliceQuestionRange(items, from, to) {
+  const list = Array.isArray(items) ? items : [];
+  const start = Math.max(1, Math.floor(Number(from) || 1));
+  const endRaw = Number(to);
+  const end = !Number.isFinite(endRaw) || endRaw <= 0 ? list.length : Math.min(list.length, Math.floor(endRaw));
+  if (end < start) return [];
+  return list.slice(start - 1, end);
+}
+
 /** Up to n different questions picked with the chosen mode (the weighted mix favours due and new ones). */
 function buildTestSet(pool, mode, n, today, rnd) {
   const rest = pool.slice();
@@ -17748,6 +18155,7 @@ module.exports = {
   fmtPct,
   parseHistory,
   errorLog,
+  sliceQuestionRange,
   buildTestSet,
   suggestMinutes,
   weekStart,
@@ -18140,6 +18548,7 @@ const { fmtDate } = require("./util");
 const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
+const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
 
 /*
  * The phone-sized entry point: what is due, what is next, and one large
@@ -18201,6 +18610,8 @@ class TodayView extends ItemView {
     const manage = root.createDiv({ cls: "qt-row qt-small-row" });
     manage.createEl("button", { text: "Known & excluded", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
+    this.renderDaily(root, today);
+
     if (visible.length) {
       const pool = due.length ? due : visible;
       const mode = due.length ? "due" : "smart";
@@ -18225,6 +18636,28 @@ class TodayView extends ItemView {
     this.renderDueQueue(root);
     this.renderCards(root);
     this.renderNext(root, now);
+  }
+
+  /** The opt-in daily quiz, with its own streak so it never competes with study-time streaks. */
+  renderDaily(root, today) {
+    const p = this.plugin;
+    const daily = normalizeDailyQuiz(p.settings.dailyQuiz);
+    if (!daily.enabled) return;
+    const streak = dailyStreak(daily, today);
+    const done = dailyDone(daily, today);
+    const card = root.createDiv({ cls: "qt-today-card qt-daily-card" });
+    card.createDiv({ cls: "qt-today-kicker", text: "Daily quiz" });
+    card.createDiv({
+      cls: "qt-today-title",
+      text: done ? "Today is complete" : `${daily.count} question${daily.count === 1 ? "" : "s"} today`,
+    });
+    card.createDiv({
+      cls: "qt-today-meta",
+      text: `Streak ${streak} day${streak === 1 ? "" : "s"} · best ${daily.best}${done ? " · finish once counts once" : ""}`,
+    });
+    card
+      .createEl("button", { text: done ? "Practice again" : "Start daily quiz", cls: "mod-cta qt-primary" })
+      .addEventListener("click", () => p.startDailyQuiz());
   }
 
   /** One mixed list when both modules have due work; the dedicated buttons stay below. */
@@ -18490,7 +18923,7 @@ const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { ChatPanel } = require("./chat-panel");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
-const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
+const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
 const { TodayView } = require("./today-view");
@@ -18521,6 +18954,8 @@ const calendarModel = require("./calendar-model");
 const calendarNotes = require("./calendar-notes");
 const { CalendarView, StudySlotModal, parseScheduleBlock } = require("./calendar-view");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
+const dailyQuiz = require("./daily-quiz");
+const { renderDailySettings } = require("./daily-quiz-settings");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
@@ -18582,6 +19017,7 @@ QuestionTrackerPlugin.__test = {
   parseHistory,
   errorLog,
   buildTestSet,
+  sliceQuestionRange,
   suggestMinutes,
   noteIssues,
   cacheIssues,
@@ -18632,6 +19068,8 @@ QuestionTrackerPlugin.__test = {
   trendDelta,
   packTestSession,
   unpackTestSession,
+  dailyQuiz,
+  renderDailySettings,
   QUICK_TIME_OPTIONS,
   QUICK_COUNT_OPTIONS,
   buildQuickQueue,

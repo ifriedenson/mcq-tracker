@@ -294,13 +294,40 @@ class PracticeView extends ItemView {
     this.render();
   }
 
+  /** Start an exact set of paths, used by the daily quiz instead of a weighted queue. */
+  async startDailySession(paths, date) {
+    const p = this.plugin;
+    const list = Array.isArray(paths) ? paths : [];
+    const byPath = new Map(p.getQuestions().map((q) => [q.file.path, q]));
+    const queue = list.map((path) => byPath.get(path)).filter(Boolean);
+    if (!queue.length) {
+      new Notice("Today's daily quiz questions are no longer available.");
+      return;
+    }
+    this.quickSession = null;
+    const session = createQuickSession(queue, {
+      kind: "count",
+      value: queue.length,
+      mode: "smart",
+      daily: true,
+      date,
+    });
+    this.quickSession = session;
+    p.settings.quickSession = packQuickSession(session);
+    await p.save();
+    await this.loadQuestion(queue[0], true);
+    this.render();
+  }
+
   async nextQuick() {
     await this.flushNotes();
     const session = this.quickSession;
     if (!session) return this.next();
     if (session.kind === "time" && quickRemainingSeconds(session) <= 0) return this.finishQuick("Quick Practice time is up.");
     const nextIndex = session.index + 1;
-    if (nextIndex >= session.paths.length) return this.finishQuick("Quick Practice complete.");
+    if (nextIndex >= session.paths.length) {
+      return this.finishQuick(session.daily ? "Daily quiz complete." : "Quick Practice complete.", true);
+    }
     session.index = nextIndex;
     this.plugin.settings.quickSession = packQuickSession(session);
     await this.plugin.save();
@@ -331,13 +358,19 @@ class PracticeView extends ItemView {
     }
   }
 
-  async finishQuick(message) {
+  async finishQuick(message, completed) {
+    const finished = this.quickSession;
     this.plugin.clearSession();
     this.plugin.settings.quickSession = null;
     await this.plugin.save();
     this.quickSession = null;
     this.state = "idle";
-    new Notice(message, 5000);
+    if (finished && finished.daily && completed && this.plugin.completeDailyQuiz) {
+      const state = await this.plugin.completeDailyQuiz(finished.date || fmtDate(new Date()));
+      new Notice(`${message} Daily streak: ${state.streak} day${state.streak === 1 ? "" : "s"}.`, 6000);
+    } else {
+      new Notice(message, 5000);
+    }
     this.render();
   }
 

@@ -388,3 +388,19 @@ test("views never shadow Obsidian's built-in View methods (a shadowed open() lea
     }
   }
 });
+
+test("timed test: an optional question range restricts the pool before picking", async () => {
+  const { app, plugin, dom } = await setup();
+  const v = makeView(T.TestView, plugin, app, dom);
+  await v.begin(2, 5, "random", { from: 2, to: 3 });
+  assert.equal(v.phase, "test");
+  assert.equal(v.items.length, 2);
+  assert.deepEqual(
+    v.items.map((it) => it.file.path).sort(),
+    ["Questions/other/Q3.md", "Questions/sat/sub/Q2.md"],
+    "only questions 2 and 3 were eligible"
+  );
+  assert.equal(T.sliceQuestionRange(["a", "b", "c", "d"], 2, 3).join(""), "bc");
+  assert.equal(T.sliceQuestionRange(["a", "b", "c"], 2, 0).join(""), "bc", "an empty end means the last question");
+  assert.deepEqual(T.sliceQuestionRange(["a", "b"], 3, 4), []);
+});

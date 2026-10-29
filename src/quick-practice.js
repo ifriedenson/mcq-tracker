@@ -36,6 +36,8 @@ function createQuickSession(items, options, now) {
     startedAt,
     remainingSeconds: kind === "time" ? value * 60 : 0,
     runningSince: kind === "time" ? startedAt : 0,
+    daily: options && options.daily === true,
+    date: str(options && options.date),
   };
 }
 
@@ -52,6 +54,8 @@ function packQuickSession(session) {
     deadline: Number(session.deadline) || 0,
     remainingSeconds: Number.isFinite(session.remainingSeconds) ? Math.max(0, session.remainingSeconds) : 0,
     runningSince: Number(session.runningSince) || 0,
+    daily: session.daily === true,
+    date: str(session.date),
   };
 }
 

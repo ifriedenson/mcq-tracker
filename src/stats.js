@@ -107,6 +107,16 @@ function errorLog(questions) {
 
 /* ---- timed tests */
 
+/** A 1-based, inclusive question range. An empty or zero end means the last question. */
+function sliceQuestionRange(items, from, to) {
+  const list = Array.isArray(items) ? items : [];
+  const start = Math.max(1, Math.floor(Number(from) || 1));
+  const endRaw = Number(to);
+  const end = !Number.isFinite(endRaw) || endRaw <= 0 ? list.length : Math.min(list.length, Math.floor(endRaw));
+  if (end < start) return [];
+  return list.slice(start - 1, end);
+}
+
 /** Up to n different questions picked with the chosen mode (the weighted mix favours due and new ones). */
 function buildTestSet(pool, mode, n, today, rnd) {
   const rest = pool.slice();
@@ -235,6 +245,7 @@ module.exports = {
   fmtPct,
   parseHistory,
   errorLog,
+  sliceQuestionRange,
   buildTestSet,
   suggestMinutes,
   weekStart,

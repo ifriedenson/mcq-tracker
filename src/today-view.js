@@ -6,6 +6,7 @@ const { fmtDate } = require("./util");
 const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
+const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
 
 /*
  * The phone-sized entry point: what is due, what is next, and one large
@@ -67,6 +68,8 @@ class TodayView extends ItemView {
     const manage = root.createDiv({ cls: "qt-row qt-small-row" });
     manage.createEl("button", { text: "Known & excluded", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
+    this.renderDaily(root, today);
+
     if (visible.length) {
       const pool = due.length ? due : visible;
       const mode = due.length ? "due" : "smart";
@@ -91,6 +94,28 @@ class TodayView extends ItemView {
     this.renderDueQueue(root);
     this.renderCards(root);
     this.renderNext(root, now);
+  }
+
+  /** The opt-in daily quiz, with its own streak so it never competes with study-time streaks. */
+  renderDaily(root, today) {
+    const p = this.plugin;
+    const daily = normalizeDailyQuiz(p.settings.dailyQuiz);
+    if (!daily.enabled) return;
+    const streak = dailyStreak(daily, today);
+    const done = dailyDone(daily, today);
+    const card = root.createDiv({ cls: "qt-today-card qt-daily-card" });
+    card.createDiv({ cls: "qt-today-kicker", text: "Daily quiz" });
+    card.createDiv({
+      cls: "qt-today-title",
+      text: done ? "Today is complete" : `${daily.count} question${daily.count === 1 ? "" : "s"} today`,
+    });
+    card.createDiv({
+      cls: "qt-today-meta",
+      text: `Streak ${streak} day${streak === 1 ? "" : "s"} · best ${daily.best}${done ? " · finish once counts once" : ""}`,
+    });
+    card
+      .createEl("button", { text: done ? "Practice again" : "Start daily quiz", cls: "mod-cta qt-primary" })
+      .addEventListener("click", () => p.startDailyQuiz());
   }
 
   /** One mixed list when both modules have due work; the dedicated buttons stay below. */

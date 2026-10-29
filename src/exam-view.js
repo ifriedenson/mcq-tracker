@@ -1,7 +1,7 @@
 "use strict";
 const { ItemView, Notice, setIcon } = require("obsidian");
 const { fmtClock, fmtDate, str } = require("./util");
-const { fmtPct, packTestSession, suggestMinutes, unpackTestSession } = require("./stats");
+const { fmtPct, packTestSession, sliceQuestionRange, suggestMinutes, unpackTestSession } = require("./stats");
 const { MODES } = require("./constants");
 const { pickQuestion } = require("./filters");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
@@ -160,10 +160,11 @@ class TestView extends ItemView {
     const st = p.settings;
     const d = st.testDefaults;
     root.createEl("h3", { text: "Timed test" });
-    const pool = p.filtered(p.getQuestions());
+    const all = p.filtered(p.getQuestions());
+    const pool = sliceQuestionRange(all, d.from, d.to);
     root.createDiv({
       cls: "qt-count",
-      text: `${pool.length} question${pool.length === 1 ? "" : "s"} match your current filters. Change them in the practice view first if you want a different set.`,
+      text: `${pool.length} question${pool.length === 1 ? "" : "s"} in this range${pool.length !== all.length ? ` (of ${all.length})` : ""}. Change the filters in the practice view first if you want a different set.`,
     });
     root.createDiv({
       cls: "qt-hint",
@@ -180,6 +181,14 @@ class TestView extends ItemView {
     nIn.addEventListener("change", () => {
       if (!this.minTouched) mIn.value = String(suggestMinutes(Math.max(1, parseInt(nIn.value, 10) || 1)));
     });
+
+    root.createDiv({ cls: "qt-label", text: "Question range (optional)" });
+    const rangeRow = root.createDiv({ cls: "qt-row qt-range" });
+    const fromIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "From" } });
+    fromIn.value = String(d.from || 1);
+    const toIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "To (last)" } });
+    toIn.value = d.to ? String(d.to) : "";
+    root.createDiv({ cls: "qt-hint", text: "Use a range for Bluebook-style section practice, for example 1 to 20. Leave To empty to use the last question." });
     root.createDiv({ cls: "qt-label", text: "Pick questions" });
     const sel = root.createEl("select", { cls: "qt-select" });
     for (const [v, t] of MODES) sel.createEl("option", { value: v, text: t });
@@ -190,17 +199,20 @@ class TestView extends ItemView {
     go.addEventListener("click", () => {
       const n = Math.min(200, Math.max(1, parseInt(nIn.value, 10) || 1));
       const minutes = Math.min(300, Math.max(1, parseInt(mIn.value, 10) || 1));
-      st.testDefaults = { count: n, minutes };
+      const from = Math.max(1, parseInt(fromIn.value, 10) || 1);
+      const to = Math.max(0, parseInt(toIn.value, 10) || 0);
+      st.testDefaults = { count: n, minutes, from, to };
       p.save();
-      this.begin(n, minutes, sel.value);
+      this.begin(n, minutes, sel.value, { from, to });
     });
   }
 
-  async begin(n, minutes, mode) {
+  async begin(n, minutes, mode, range) {
     const p = this.plugin;
     this.phase = "loading";
     this.render();
-    const rest = p.filtered(p.getQuestions());
+    const all = p.filtered(p.getQuestions());
+    const rest = sliceQuestionRange(all, range && range.from, range && range.to);
     const today = fmtDate(new Date());
     const items = [];
     let noKey = 0;

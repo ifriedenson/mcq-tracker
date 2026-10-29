@@ -18,10 +18,11 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Counts and folder search.** Every filter button shows how many notes it holds. The Folder filter switches to a type-ahead search box when you have many folders (or whenever you choose), and the choice is a setting.
 - **Weak spots.** Accuracy and average time by skill, domain, difficulty and folder, a bar chart of your accuracy by week, an up or down note on each row when your last two weeks differ from before, and a **Practice my weakest skill** button plus a Practice button on every row.
 - **Error log.** Questions you missed, grouped by the reason you gave, with a button to practice each group.
-- **Timed test.** Pick a number of questions and minutes, answer with a countdown and no explanations, then see your score, a by-skill breakdown, and a full review. If you close Obsidian mid-test, it picks the test back up when you reopen it (and marks it if the time ran out meanwhile).
+- **Timed test.** Pick a number of questions and minutes, optionally restrict the bank to a question range such as 1–20, answer with a countdown and no explanations, then see your score, a by-skill breakdown, and a full review. If you close Obsidian mid-test, it picks the test back up when you reopen it (and marks it if the time ran out meanwhile).
 - **Practice from your files.** Right-click any folder that holds questions and choose **Practice this folder**, or use the commands. Find any question by its official ID.
 - **Pick modes:** smart weighted mix, adaptive difficulty, due for review, never attempted, missed, flagged, or pure random. Adaptive difficulty favors questions near the learner's current level based on past accuracy and streaks.
 - **Quick Practice:** start a 2, 5, or 10 minute session, or a 5, 10, or 20 question session, using your current filters. It saves the queue so you can resume after closing Obsidian.
+- **Daily quiz (optional, off by default).** Get a small set of questions once a day from the folders you choose, with a separate completion streak and best streak. It uses the same queue and scheduler, stays on your device, and sends no notifications. Start it from Settings, MCQ Tracker, Daily quiz, Today, or the command palette.
 - **Study cards (optional, off by default).** Review the same MCQ notes as flip cards or choice cards, using your current filters and the same scheduler. No duplicate notes or second deck.
 - **Today:** a phone-sized start screen with due and new counts, the next class or exam, and one **Start 5 minutes** button that opens Quick Practice.
 - **Notes box** on the result screen, saved into the note.
@@ -142,6 +143,7 @@ Every practice and card review screen has **Known** and **Exclude** buttons besi
 - Practice this note only
 - Start a timed test
 - Quick Practice
+- Daily quiz
 - Open study cards
 - Open Today
 - Retry saving offline practice results
@@ -302,11 +304,11 @@ The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRo
 
 ## Settings
 
-Settings are grouped by module, then by tab. **Global** has Modules and General; **MCQ Tracker** has Practice, Review, AI and About; **Cards** has Decks, Review and About; **Calendar** has About, Schedules & Sync, Notes & Templates, Exclusions, Appearance & Colors, and Language & Region.
+Settings are grouped by module, then by tab. **Global** has Modules and General; **MCQ Tracker** has Practice, Review, Daily quiz, AI and About; **Cards** has Decks, Review and About; **Calendar** has About, Schedules & Sync, Notes & Templates, Exclusions, Appearance & Colors, and Language & Region.
 
 - **Global → Modules** is one switch per module: **MCQ Tracker** (on by default), **Cards and vocabulary** (off by default), **Calendar** (off by default) and **AI features** (off by default). Turning a module off keeps its settings and your notes. It closes that module's open tabs and hides its ribbon button; using one of its commands anyway shows a notice that points back here.
 - **Global → General** holds the plugin-wide options: whether the plugin shows its ribbon icons, and whether the practice view opens when Obsidian starts.
-- **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, the Known snooze length and manager, the optional study-cards skin, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
+- **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, the Known snooze length and manager, the optional study-cards skin, the daily quiz count and folders, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
 - **Cards** covers the default deck, the new-card folder, deck folders and course tags, cards per review session, answer mode, grading strictness, the optional AI fallback for typed answers, and whether to review due-and-new or all cards.
 - The calendar's **Appearance & Colors** tab includes a maximum width setting (`0` fills the pane), class colors, break markers, and the study-slot buffer.
 

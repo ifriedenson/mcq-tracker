@@ -69,10 +69,20 @@ const DEFAULT_SETTINGS = {
   studySkin: "off", // "off" | "flip" | "choice": an extra way to review the same MCQ notes
   activePreset: "",
   folderFilterStyle: "auto", // "auto" (search box when there are many folders) | "buttons" | "search"
-  testDefaults: { count: 10, minutes: 12 },
+  testDefaults: { count: 10, minutes: 12, from: 1, to: 0 }, // from/to are optional 1-based question ranges
   testSession: null, // a timed test in progress, so it survives closing Obsidian
   quickDefaults: { count: 5, minutes: 5 },
   quickSession: null, // a Quick Practice queue in progress, so it survives closing Obsidian
+  dailyQuiz: {
+    enabled: false, // opt-in; no command, card or notifications until it is on
+    count: 5,
+    folders: [],
+    lastDate: "",
+    paths: [],
+    streak: 0,
+    best: 0,
+    lastCompleted: "",
+  },
   cards: {
     enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off
     newCardFolder: "Cards", // where new cards go when their deck has no folder

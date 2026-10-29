@@ -19,7 +19,7 @@ const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { ChatPanel } = require("./chat-panel");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
-const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
+const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
 const { TodayView } = require("./today-view");
@@ -50,6 +50,8 @@ const calendarModel = require("./calendar-model");
 const calendarNotes = require("./calendar-notes");
 const { CalendarView, StudySlotModal, parseScheduleBlock } = require("./calendar-view");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
+const dailyQuiz = require("./daily-quiz");
+const { renderDailySettings } = require("./daily-quiz-settings");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
@@ -111,6 +113,7 @@ QuestionTrackerPlugin.__test = {
   parseHistory,
   errorLog,
   buildTestSet,
+  sliceQuestionRange,
   suggestMinutes,
   noteIssues,
   cacheIssues,
@@ -161,6 +164,8 @@ QuestionTrackerPlugin.__test = {
   trendDelta,
   packTestSession,
   unpackTestSession,
+  dailyQuiz,
+  renderDailySettings,
   QUICK_TIME_OPTIONS,
   QUICK_COUNT_OPTIONS,
   buildQuickQueue,

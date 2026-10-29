@@ -9,6 +9,7 @@ const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
+const { renderDailySettings } = require("./daily-quiz-settings");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
@@ -23,6 +24,7 @@ const SETTINGS_MODULES = [
 const MCQ_TABS = [
   { id: "practice", label: "Practice", icon: "play" },
   { id: "review", label: "Review", icon: "repeat" },
+  { id: "daily", label: "Daily quiz", icon: "sun" },
   { id: "ai", label: "AI", icon: "sparkles" },
   { id: "about", label: "About", icon: "info" },
 ];
@@ -99,6 +101,11 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     }
     if (this.activeMcqTab === "about") {
       this.renderAbout(containerEl);
+      return;
+    }
+
+    if (this.activeMcqTab === "daily") {
+      renderDailySettings(containerEl, this.plugin, () => this.display());
       return;
     }
 
