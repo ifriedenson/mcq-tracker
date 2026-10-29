@@ -25,7 +25,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Pick modes:** smart weighted mix, adaptive difficulty, due for review, never attempted, missed, flagged, or pure random. Adaptive difficulty favors questions near the learner's current level based on past accuracy and streaks.
 - **Quick Practice:** start a 2, 5, or 10 minute session, or a 5, 10, or 20 question session, using your current filters. It saves the queue so you can resume after closing Obsidian. An optional adaptive length warms up or stretches the session from recent accuracy, pace and logged skips, always shows its recommendation, lets you override it, and stays inside configured hard caps.
 - **Daily quiz (optional, off by default).** Get a small set of questions once a day from the folders you choose, with a separate completion streak and best streak. It uses the same queue and scheduler, stays on your device, and sends no notifications. When adaptive length is on, its count uses the same recent-recall signal. Start it from Settings, MCQ Tracker, Daily quiz, Today, or the command palette.
-- **Study cards (optional, off by default).** Review the same MCQ notes as flip cards or choice cards, using your current filters and the same scheduler. No duplicate notes or second deck.
+- **Study cards (optional, off by default).** Review the same MCQ notes as flip cards or choice cards, or switch the session to Learn, Test or Match, using your current filters and the same scheduler. No duplicate notes or second deck.
 - **Today:** a phone-sized start screen with due and new counts, the next class or exam, and one **Start 5 minutes** button that opens Quick Practice. When both modules have due work, **Start mixed review** runs one interleaved session.
 - **CSV results export.** Export a summary row per question or card plus a row per stored attempt, with course, skill, difficulty, accuracy, timing, review dates, error type and history. The files are plain CSVs written to the vault root for outside analysis.
 - **Source links.** Imported questions keep the source document path and, for PDFs, the page. Extracted cards keep the lecture or source note. A miss shows a **Reread this** button that opens the exact source page; cards show a **Reread source** button after the answer.
@@ -239,10 +239,13 @@ Every practice and card review screen has **Known**, **Bury**, **Suspend** and *
 
 ### Study cards (optional)
 
-**Settings → MCQ Tracker → Practice → Study cards skin** adds a Quizlet-style way to review the same question notes. It is **off by default**; turning it on adds a **Study cards** button to the practice home screen and the command **Open study cards**.
+**Settings → MCQ Tracker → Practice → Study cards skin** adds a Quizlet-style way to review the same question notes. It is **off by default**; turning it on adds a **Study cards** button to the practice home screen and the command **Open study cards**. **Study cards mode** then picks how each session runs: **Flashcards**, **Learn**, **Test** or **Match**.
 
 - **Flip cards** show the passage and question first. **Show answer** reveals the answer and explanation; **Still learning** records a miss and **Known** records a correct recall, so the next review is scheduled exactly as in normal practice.
 - **Choice cards** show the answer choices. Pick one, press **Show answer**, and the correct choice and your choice are marked. The selected letter is written to the same `history` and attempt properties as ordinary practice.
+- **Learn** keeps the flip or choice card, and a card you miss comes back once later in the same session, so the second look happens before you finish.
+- **Test** hides the answer and the score until the end. Choose an answer and press **Submit answer**; the closing screen lists every card with your answer, the key and a percentage. Reviews still go through the normal scheduler, and nothing is revealed mid-test.
+- **Match** opens a two-column board of up to six prompts and their answers. Pick a question, then its answer: a correct pair disappears and records one normal review, while a wrong tap only raises the try count and records nothing.
 - A session uses the current filters, pick mode, hidden-item rules and scheduler, and is capped at 20 cards. A question with no choices or no answer key automatically falls back to a flip card.
 - The skin never creates or changes a second note, deck or scheduler. Turning it off restores the practice home screen unchanged.
 

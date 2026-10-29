@@ -16,7 +16,7 @@ const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
-const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
+const { STUDY_MODE_LABELS, STUDY_SKIN_LABELS, normalizeStudyMode, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
@@ -356,6 +356,18 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             st.studySkin = normalizeStudySkin(v);
             await this.plugin.save();
             this.plugin.refreshViews();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Study cards mode")
+      .setDesc("Flashcards keeps the flip or choice review. Learn repeats a missed card once in the same session. Test hides the answer until the end, then lists every item with your answer and the key. Match pairs up to six prompts with their answers; a correct match records one review and a wrong tap records nothing.")
+      .addDropdown((d) => {
+        for (const [id, label] of Object.entries(STUDY_MODE_LABELS)) d.addOption(id, label);
+        d.setValue(normalizeStudyMode(st.studyMode))
+          .onChange(async (v) => {
+            st.studyMode = normalizeStudyMode(v);
+            await this.plugin.save();
           });
       });
 

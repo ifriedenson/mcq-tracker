@@ -109,6 +109,7 @@ const apExamHistory = require("./ap-exam-history");
 const frq = require("./frq");
 const handwriting = require("./handwriting");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
+const { StudyMatchModal } = require("./study-match-modal");
 const apResourceNotes = require("./ap-resource-notes");
 const apExamResources = require("./ap-exam-resources");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
@@ -242,6 +243,7 @@ QuestionTrackerPlugin.__test = {
   handwriting,
   FrqGraderModal,
   NewFrqNoteModal,
+  StudyMatchModal,
   apResourceNotes,
   apExamResources,
   pdfAnnotations,

@@ -68,10 +68,87 @@ function studyProgress(index, total) {
   return `${Math.min(at, count)} / ${count}`;
 }
 
+/* ---- session modes: Flashcards (default), Learn, Test and Match ---- */
+
+const STUDY_MODES = ["cards", "learn", "test", "match"];
+const STUDY_MODE_LABELS = {
+  cards: "Flashcards",
+  learn: "Learn",
+  test: "Test",
+  match: "Match",
+};
+
+function normalizeStudyMode(value) {
+  const mode = str(value).trim().toLowerCase();
+  return STUDY_MODES.includes(mode) ? mode : "cards";
+}
+
+function studyModeLabel(mode) {
+  return STUDY_MODE_LABELS[normalizeStudyMode(mode)];
+}
+
+/** Learn brings a missed card back once, after at least one other card. */
+function shouldRepeatStudyCard(mode, correct, alreadyRepeated) {
+  return normalizeStudyMode(mode) === "learn" && correct !== true && alreadyRepeated !== true;
+}
+
+function clipStudyText(value, limit) {
+  const text = str(value).replace(/\s+/g, " ").trim();
+  const max = Math.max(1, Number(limit) || 120);
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+}
+
+/** One matchable pair: the question prompt and its keyed answer. */
+function matchPairForCard(card) {
+  const path = str(card && card.file && card.file.path);
+  const question = clipStudyText(card && card.sections && card.sections.question, 140);
+  const key = str(card && card.key).trim();
+  const choices = card && card.sections && Array.isArray(card.sections.choices) ? card.sections.choices : [];
+  const hit = choices.find((choice) => str(choice && choice.letter).trim().toUpperCase() === key.toUpperCase());
+  const back = clipStudyText(hit ? `${str(hit.letter).trim()}. ${hit.text}` : key, 140);
+  if (!path || !question || !back) return null;
+  return { id: path, path, front: question, back };
+}
+
+function buildMatchPairs(cards, limit) {
+  const cap = Math.max(2, Math.min(6, Number(limit) || 6));
+  const seen = new Set();
+  const out = [];
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const pair = matchPairForCard(card);
+    if (!pair || seen.has(pair.id)) continue;
+    seen.add(pair.id);
+    out.push(pair);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+function shufflePairs(pairs, rand) {
+  const list = (Array.isArray(pairs) ? pairs : []).slice();
+  const random = typeof rand === "function" ? rand : Math.random;
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    const swap = list[i];
+    list[i] = list[j];
+    list[j] = swap;
+  }
+  return list;
+}
+
 module.exports = {
   STUDY_SKINS,
   STUDY_SKIN_LABELS,
+  STUDY_MODES,
+  STUDY_MODE_LABELS,
   normalizeStudySkin,
+  normalizeStudyMode,
+  studyModeLabel,
+  shouldRepeatStudyCard,
+  clipStudyText,
+  matchPairForCard,
+  buildMatchPairs,
+  shufflePairs,
   studySkinEnabled,
   resolveStudySkin,
   studySeconds,

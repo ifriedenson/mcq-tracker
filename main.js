@@ -34044,7 +34044,8 @@ const { anyContext, buildStudyContext } = require("./ai-context");
 const { readActiveNoteContext } = require("./note-context");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 const { adaptiveSessionValue, normalizeQuickAdaptive } = require("./adaptive-session");
-const { STUDY_SKIN_LABELS, normalizeStudySkin, resolveStudySkin, studyAttemptForChoice, studyAttemptForFlip, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
+const { STUDY_SKIN_LABELS, buildMatchPairs, normalizeStudyMode, normalizeStudySkin, resolveStudySkin, shouldRepeatStudyCard, studyAttemptForChoice, studyAttemptForFlip, studyModeLabel, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
+const { StudyMatchModal } = require("./study-match-modal");
 
 class PracticeView extends ItemView {
   constructor(leaf, plugin) {
@@ -34195,11 +34196,16 @@ class PracticeView extends ItemView {
   }
 
   /** The optional Quizlet-style skin: same filtered MCQ notes, same scheduler. */
-  async startStudySkin(skinOverride) {
+  async startStudySkin(skinOverride, modeOverride) {
     const p = this.plugin;
     const skin = normalizeStudySkin(skinOverride || p.settings.studySkin);
     if (skin === "off") {
       new Notice("Study cards are off. Turn them on under Settings, MCQ Tracker, Practice.");
+      return;
+    }
+    const mode = normalizeStudyMode(modeOverride || p.settings.studyMode);
+    if (mode === "match") {
+      await this.startStudyMatch();
       return;
     }
     const pool = p.filtered(p.getQuestions());
@@ -34216,7 +34222,11 @@ class PracticeView extends ItemView {
     p.clearSession();
     this.study = {
       skin,
+      mode,
       paths: queue.map((q) => q.file.path),
+      queue: queue.map((q) => q.file.path),
+      results: [],
+      repeats: [],
       index: -1,
       card: null,
       currentSkin: skin,
@@ -34240,8 +34250,9 @@ class PracticeView extends ItemView {
       return;
     }
     const p = this.plugin;
-    for (let i = st.index + 1; i < st.paths.length; i++) {
-      const q = p.getQuestions().find((x) => x.file.path === st.paths[i]);
+    const queue = Array.isArray(st.queue) ? st.queue : st.paths;
+    for (let i = st.index + 1; i < queue.length; i++) {
+      const q = p.getQuestions().find((x) => x.file.path === queue[i]);
       if (!q) continue;
       try {
         st.card = await loadQuestionData(p, q);
@@ -34258,7 +34269,7 @@ class PracticeView extends ItemView {
         // The note vanished between building the queue and opening it.
       }
     }
-    st.index = st.paths.length;
+    st.index = queue.length;
     this.state = "study-summary";
     this.render();
   }
@@ -34296,6 +34307,23 @@ class PracticeView extends ItemView {
       st.revealed = true;
       st.reviewed++;
       if (attempt.correct) st.recalled++;
+      if (st.mode === "learn" || st.mode === "test") {
+        st.results.push({
+          path: st.card.file.path,
+          question: str(st.card.sections && st.card.sections.question).replace(/\s+/g, " ").trim(),
+          picked: attempt.chosen,
+          key: str(st.card.key),
+          correct: attempt.correct === true,
+        });
+      }
+      if (shouldRepeatStudyCard(st.mode, attempt.correct, st.repeats.includes(st.card.file.path))) {
+        st.repeats.push(st.card.file.path);
+        st.queue.push(st.card.file.path);
+      }
+      if (st.mode === "test") {
+        await this.nextStudyCard();
+        return;
+      }
       this.render();
     } catch (e) {
       new Notice(str(e && e.message) || "Could not save this review.", 6000);
@@ -34306,6 +34334,27 @@ class PracticeView extends ItemView {
     this.study = null;
     this.state = "idle";
     this.render();
+  }
+
+  /** Match mode: pair six prompts with their answers in a small modal. */
+  async startStudyMatch() {
+    const p = this.plugin;
+    const pool = p.filtered(p.getQuestions());
+    const queue = buildQuickQueue(pool, p.settings.mode, fmtDate(new Date()), 6);
+    const cards = [];
+    for (const q of queue) {
+      try {
+        cards.push(await loadQuestionData(p, q));
+      } catch (e) {
+        // The note vanished while the board was built.
+      }
+    }
+    const pairs = buildMatchPairs(cards, 6);
+    if (pairs.length < 2) {
+      new Notice("Match needs at least two questions with a prompt and an answer key.");
+      return;
+    }
+    new StudyMatchModal(this.app, p, pairs, { onDone: () => this.render() }).open();
   }
 
   async startQuick(kind, value, options) {
@@ -34879,7 +34928,8 @@ class PracticeView extends ItemView {
     const bar = root.createDiv({ cls: "qt-study-bar" });
     const meta = bar.createDiv({ cls: "qt-study-meta" });
     meta.createSpan({ cls: "qt-study-mode", text: (st && STUDY_SKIN_LABELS[st.currentSkin]) || "Study cards" });
-    if (st) meta.createSpan({ cls: "qt-study-progress", text: studyProgress(st.index, st.paths.length) });
+    if (st && st.mode && st.mode !== "cards") meta.createSpan({ cls: "qt-study-mode", text: studyModeLabel(st.mode) });
+    if (st) meta.createSpan({ cls: "qt-study-progress", text: studyProgress(st.index, (st.queue || st.paths).length) });
     const tools = bar.createDiv({ cls: "qt-study-tools" });
     if (card) {
       const open = tools.createEl("button", { text: "Open note", cls: "qt-link" });
@@ -34928,12 +34978,20 @@ class PracticeView extends ItemView {
           });
         }
       }
-      if (!st.revealed) box.createDiv({ cls: "qt-hint", text: "Choose one, then reveal the answer." });
+      if (!st.revealed) {
+        box.createDiv({
+          cls: "qt-hint",
+          text: st.mode === "test" ? "Choose one, then submit. Answers and scores appear at the end." : "Choose one, then reveal the answer.",
+        });
+      }
     }
 
     if (!st.revealed) {
       const actions = box.createDiv({ cls: "qt-row qt-study-actions" });
-      const show = actions.createEl("button", { text: "Show answer", cls: "mod-cta qt-grow" });
+      const show = actions.createEl("button", {
+        text: st.mode === "test" && st.currentSkin === "choice" ? "Submit answer" : "Show answer",
+        cls: "mod-cta qt-grow",
+      });
       show.addEventListener("click", () => this.revealStudyAnswer());
       const skip = actions.createEl("button", { text: "Skip", cls: "qt-grow" });
       skip.addEventListener("click", () => this.nextStudyCard());
@@ -34969,12 +35027,25 @@ class PracticeView extends ItemView {
     const reviewed = st ? st.reviewed : 0;
     const recalled = st ? st.recalled : 0;
     root.addClass("qt-study");
-    root.createEl("h3", { text: "Study cards complete" });
-    root.createDiv({ cls: "qt-count", text: `${recalled} of ${reviewed} recalled` });
+    const mode = normalizeStudyMode(st && st.mode);
+    root.createEl("h3", { text: mode === "test" ? "Test complete" : "Study cards complete" });
+    root.createDiv({
+      cls: "qt-count",
+      text: `${recalled} of ${reviewed} recalled${mode === "test" && reviewed ? ` (${Math.round((recalled / reviewed) * 100)}%)` : ""}`,
+    });
     root.createDiv({ cls: "qt-hint", text: "This session used the same review history and scheduler as normal practice." });
+    if (mode === "test" && st && st.results.length) {
+      const list = root.createDiv({ cls: "qt-study-results" });
+      for (const item of st.results) {
+        const row = list.createDiv({ cls: "qt-study-result" });
+        row.createSpan({ cls: "qt-study-result-mark", text: item.correct ? "Correct" : "Missed" });
+        row.createSpan({ cls: "qt-hint", text: item.question });
+        row.createDiv({ cls: "qt-hint", text: `Your answer: ${item.picked || "—"} · Correct: ${item.key || "—"}` });
+      }
+    }
     const actions = root.createDiv({ cls: "qt-row qt-study-actions" });
     actions.createEl("button", { text: "Back to practice", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.endStudy());
-    actions.createEl("button", { text: "Study again", cls: "qt-grow" }).addEventListener("click", () => this.startStudySkin(st && st.skin));
+    actions.createEl("button", { text: "Study again", cls: "qt-grow" }).addEventListener("click", () => this.startStudySkin(st && st.skin, st && st.mode));
   }
 
   renderQuickSetup(root) {
@@ -38902,7 +38973,7 @@ const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
-const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
+const { STUDY_MODE_LABELS, STUDY_SKIN_LABELS, normalizeStudyMode, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
@@ -39242,6 +39313,18 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             st.studySkin = normalizeStudySkin(v);
             await this.plugin.save();
             this.plugin.refreshViews();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Study cards mode")
+      .setDesc("Flashcards keeps the flip or choice review. Learn repeats a missed card once in the same session. Test hides the answer until the end, then lists every item with your answer and the key. Match pairs up to six prompts with their answers; a correct match records one review and a wrong tap records nothing.")
+      .addDropdown((d) => {
+        for (const [id, label] of Object.entries(STUDY_MODE_LABELS)) d.addOption(id, label);
+        d.setValue(normalizeStudyMode(st.studyMode))
+          .onChange(async (v) => {
+            st.studyMode = normalizeStudyMode(v);
+            await this.plugin.save();
           });
       });
 
@@ -40544,6 +40627,151 @@ module.exports = {
 };
 };
 
+/* ---- src/study-match-modal.js ---- */
+__defs["study-match-modal"] = function (module, exports, require) {
+/*
+ * Match mode for the optional study skin: pair question prompts with their
+ * answers. A correct match records one ordinary review, so the same scheduler
+ * owns everything; a wrong tap records nothing and only raises the try count.
+ */
+const { Modal } = require("obsidian");
+const { str } = require("./util");
+const { shufflePairs } = require("./study-skin");
+
+class StudyMatchModal extends Modal {
+  constructor(app, plugin, pairs, options) {
+    super(app);
+    this.app = app;
+    this.plugin = plugin;
+    this.pairs = (Array.isArray(pairs) ? pairs : []).slice();
+    this.options = options || {};
+    this.backs = shufflePairs(this.pairs);
+    this.selected = "";
+    this.selectedAt = 0;
+    this.matched = [];
+    this.tries = 0;
+    this.wrong = "";
+    this.message = "";
+    this.recorded = new Set();
+  }
+
+  onOpen() {
+    this.contentEl.addClass("qt-match-modal");
+    this.draw();
+  }
+
+  isMatched(id) {
+    return this.matched.includes(id);
+  }
+
+  draw() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Match cards" });
+    el.createDiv({
+      cls: "qt-hint",
+      text: "Pick a question on the left, then its answer on the right. A correct match records one review in the normal scheduler; a wrong tap records nothing.",
+    });
+    el.createDiv({
+      cls: "qt-count",
+      text: `${this.matched.length} / ${this.pairs.length} matched · ${this.tries} ${this.tries === 1 ? "try" : "tries"}`,
+    });
+    if (this.message) el.createDiv({ cls: "qt-hint qt-match-message", text: this.message });
+
+    if (!this.pairs.length) {
+      el.createDiv({ cls: "qt-hint", text: "No question has both a prompt and an answer to match." });
+      this.addDone(el);
+      return;
+    }
+
+    if (this.matched.length === this.pairs.length) {
+      el.createDiv({ cls: "qt-count", text: `All pairs matched in ${this.tries} ${this.tries === 1 ? "try" : "tries"}.` });
+      this.addDone(el);
+      return;
+    }
+
+    const board = el.createDiv({ cls: "qt-match-board" });
+    const left = board.createDiv({ cls: "qt-match-column" });
+    left.createEl("h4", { text: "Questions" });
+    for (const pair of this.pairs) {
+      if (this.isMatched(pair.id)) continue;
+      const btn = left.createEl("button", { cls: "qt-match-card", text: pair.front });
+      if (this.selected === pair.id) btn.addClass("is-selected");
+      btn.addEventListener("click", () => {
+        this.selected = pair.id;
+        this.selectedAt = Date.now();
+        this.wrong = "";
+        this.message = "";
+        this.draw();
+      });
+    }
+
+    const right = board.createDiv({ cls: "qt-match-column" });
+    right.createEl("h4", { text: "Answers" });
+    for (const pair of this.backs) {
+      if (this.isMatched(pair.id)) continue;
+      const btn = right.createEl("button", { cls: "qt-match-card qt-match-answer", text: pair.back });
+      if (this.wrong === pair.id) btn.addClass("is-wrong");
+      btn.addEventListener("click", () => this.pick(pair.id));
+    }
+
+    if (!this.selected) el.createDiv({ cls: "qt-hint", text: "Choose a question first." });
+    this.addDone(el);
+  }
+
+  async pick(id) {
+    if (!this.selected) {
+      this.message = "Choose a question first.";
+      this.draw();
+      return;
+    }
+    this.tries++;
+    if (this.selected !== id) {
+      this.wrong = id;
+      this.message = "Not that one. Try again.";
+      this.draw();
+      return;
+    }
+    const pair = this.pairs.find((item) => item.id === id) || null;
+    const seconds = Math.max(1, Math.round((Date.now() - (this.selectedAt || Date.now())) / 1000));
+    this.matched.push(id);
+    this.selected = "";
+    this.selectedAt = 0;
+    this.wrong = "";
+    this.message = pair ? `Matched: ${pair.back}` : "Matched.";
+    await this.record(pair, seconds);
+    this.draw();
+  }
+
+  async record(pair, seconds) {
+    if (!pair || this.recorded.has(pair.id)) return;
+    this.recorded.add(pair.id);
+    const file = this.app.vault.getAbstractFileByPath(pair.path);
+    if (!file || !this.plugin || typeof this.plugin.recordAttempt !== "function") return;
+    try {
+      await this.plugin.recordAttempt(file, { correct: true, chosen: "match", conf: 2, seconds: Math.max(1, seconds || 1) });
+    } catch (error) {
+      this.message = str(error && error.message ? error.message : error);
+    }
+  }
+
+  addDone(el) {
+    const row = el.createDiv({ cls: "qt-row" });
+    const done = row.createEl("button", { text: "Done", cls: "mod-cta qt-grow" });
+    done.addEventListener("click", () => this.close());
+  }
+
+  onClose() {
+    this.contentEl.empty();
+    if (typeof this.options.onDone === "function") {
+      this.options.onDone({ matched: this.matched.length, tries: this.tries, total: this.pairs.length });
+    }
+  }
+}
+
+module.exports = { StudyMatchModal };
+};
+
 /* ---- src/study-plan.js ---- */
 __defs["study-plan"] = function (module, exports, require) {
 /* Exam-scoped study plans. The planner only reads existing question/card state. */
@@ -40764,10 +40992,87 @@ function studyProgress(index, total) {
   return `${Math.min(at, count)} / ${count}`;
 }
 
+/* ---- session modes: Flashcards (default), Learn, Test and Match ---- */
+
+const STUDY_MODES = ["cards", "learn", "test", "match"];
+const STUDY_MODE_LABELS = {
+  cards: "Flashcards",
+  learn: "Learn",
+  test: "Test",
+  match: "Match",
+};
+
+function normalizeStudyMode(value) {
+  const mode = str(value).trim().toLowerCase();
+  return STUDY_MODES.includes(mode) ? mode : "cards";
+}
+
+function studyModeLabel(mode) {
+  return STUDY_MODE_LABELS[normalizeStudyMode(mode)];
+}
+
+/** Learn brings a missed card back once, after at least one other card. */
+function shouldRepeatStudyCard(mode, correct, alreadyRepeated) {
+  return normalizeStudyMode(mode) === "learn" && correct !== true && alreadyRepeated !== true;
+}
+
+function clipStudyText(value, limit) {
+  const text = str(value).replace(/\s+/g, " ").trim();
+  const max = Math.max(1, Number(limit) || 120);
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+}
+
+/** One matchable pair: the question prompt and its keyed answer. */
+function matchPairForCard(card) {
+  const path = str(card && card.file && card.file.path);
+  const question = clipStudyText(card && card.sections && card.sections.question, 140);
+  const key = str(card && card.key).trim();
+  const choices = card && card.sections && Array.isArray(card.sections.choices) ? card.sections.choices : [];
+  const hit = choices.find((choice) => str(choice && choice.letter).trim().toUpperCase() === key.toUpperCase());
+  const back = clipStudyText(hit ? `${str(hit.letter).trim()}. ${hit.text}` : key, 140);
+  if (!path || !question || !back) return null;
+  return { id: path, path, front: question, back };
+}
+
+function buildMatchPairs(cards, limit) {
+  const cap = Math.max(2, Math.min(6, Number(limit) || 6));
+  const seen = new Set();
+  const out = [];
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const pair = matchPairForCard(card);
+    if (!pair || seen.has(pair.id)) continue;
+    seen.add(pair.id);
+    out.push(pair);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+function shufflePairs(pairs, rand) {
+  const list = (Array.isArray(pairs) ? pairs : []).slice();
+  const random = typeof rand === "function" ? rand : Math.random;
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    const swap = list[i];
+    list[i] = list[j];
+    list[j] = swap;
+  }
+  return list;
+}
+
 module.exports = {
   STUDY_SKINS,
   STUDY_SKIN_LABELS,
+  STUDY_MODES,
+  STUDY_MODE_LABELS,
   normalizeStudySkin,
+  normalizeStudyMode,
+  studyModeLabel,
+  shouldRepeatStudyCard,
+  clipStudyText,
+  matchPairForCard,
+  buildMatchPairs,
+  shufflePairs,
   studySkinEnabled,
   resolveStudySkin,
   studySeconds,
@@ -43200,6 +43505,7 @@ const apExamHistory = require("./ap-exam-history");
 const frq = require("./frq");
 const handwriting = require("./handwriting");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
+const { StudyMatchModal } = require("./study-match-modal");
 const apResourceNotes = require("./ap-resource-notes");
 const apExamResources = require("./ap-exam-resources");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
@@ -43333,6 +43639,7 @@ QuestionTrackerPlugin.__test = {
   handwriting,
   FrqGraderModal,
   NewFrqNoteModal,
+  StudyMatchModal,
   apResourceNotes,
   apExamResources,
   pdfAnnotations,

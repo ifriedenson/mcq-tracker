@@ -5050,3 +5050,17 @@
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
 }
+
+
+/* ---- study skin modes (Learn / Test / Match) ---- */
+.qt-study-results { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.qt-study-result { border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 8px 10px; }
+.qt-study-result-mark { font-weight: 700; margin-right: 6px; }
+.qt-match-board { display: flex; gap: 12px; align-items: flex-start; }
+.qt-match-column { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.qt-match-card { height: auto; text-align: left; white-space: normal; padding: 8px 10px; }
+.qt-match-answer { background: var(--background-secondary); }
+.qt-match-card.is-selected { outline: 2px solid var(--interactive-accent); }
+.qt-match-card.is-wrong { outline: 2px solid var(--text-error); }
+.qt-match-message { margin-top: 6px; }
+@media (max-width: 480px) { .qt-match-board { flex-direction: column; } }

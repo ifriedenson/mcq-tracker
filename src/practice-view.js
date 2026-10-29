@@ -18,7 +18,8 @@ const { anyContext, buildStudyContext } = require("./ai-context");
 const { readActiveNoteContext } = require("./note-context");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 const { adaptiveSessionValue, normalizeQuickAdaptive } = require("./adaptive-session");
-const { STUDY_SKIN_LABELS, normalizeStudySkin, resolveStudySkin, studyAttemptForChoice, studyAttemptForFlip, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
+const { STUDY_SKIN_LABELS, buildMatchPairs, normalizeStudyMode, normalizeStudySkin, resolveStudySkin, shouldRepeatStudyCard, studyAttemptForChoice, studyAttemptForFlip, studyModeLabel, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
+const { StudyMatchModal } = require("./study-match-modal");
 
 class PracticeView extends ItemView {
   constructor(leaf, plugin) {
@@ -169,11 +170,16 @@ class PracticeView extends ItemView {
   }
 
   /** The optional Quizlet-style skin: same filtered MCQ notes, same scheduler. */
-  async startStudySkin(skinOverride) {
+  async startStudySkin(skinOverride, modeOverride) {
     const p = this.plugin;
     const skin = normalizeStudySkin(skinOverride || p.settings.studySkin);
     if (skin === "off") {
       new Notice("Study cards are off. Turn them on under Settings, MCQ Tracker, Practice.");
+      return;
+    }
+    const mode = normalizeStudyMode(modeOverride || p.settings.studyMode);
+    if (mode === "match") {
+      await this.startStudyMatch();
       return;
     }
     const pool = p.filtered(p.getQuestions());
@@ -190,7 +196,11 @@ class PracticeView extends ItemView {
     p.clearSession();
     this.study = {
       skin,
+      mode,
       paths: queue.map((q) => q.file.path),
+      queue: queue.map((q) => q.file.path),
+      results: [],
+      repeats: [],
       index: -1,
       card: null,
       currentSkin: skin,
@@ -214,8 +224,9 @@ class PracticeView extends ItemView {
       return;
     }
     const p = this.plugin;
-    for (let i = st.index + 1; i < st.paths.length; i++) {
-      const q = p.getQuestions().find((x) => x.file.path === st.paths[i]);
+    const queue = Array.isArray(st.queue) ? st.queue : st.paths;
+    for (let i = st.index + 1; i < queue.length; i++) {
+      const q = p.getQuestions().find((x) => x.file.path === queue[i]);
       if (!q) continue;
       try {
         st.card = await loadQuestionData(p, q);
@@ -232,7 +243,7 @@ class PracticeView extends ItemView {
         // The note vanished between building the queue and opening it.
       }
     }
-    st.index = st.paths.length;
+    st.index = queue.length;
     this.state = "study-summary";
     this.render();
   }
@@ -270,6 +281,23 @@ class PracticeView extends ItemView {
       st.revealed = true;
       st.reviewed++;
       if (attempt.correct) st.recalled++;
+      if (st.mode === "learn" || st.mode === "test") {
+        st.results.push({
+          path: st.card.file.path,
+          question: str(st.card.sections && st.card.sections.question).replace(/\s+/g, " ").trim(),
+          picked: attempt.chosen,
+          key: str(st.card.key),
+          correct: attempt.correct === true,
+        });
+      }
+      if (shouldRepeatStudyCard(st.mode, attempt.correct, st.repeats.includes(st.card.file.path))) {
+        st.repeats.push(st.card.file.path);
+        st.queue.push(st.card.file.path);
+      }
+      if (st.mode === "test") {
+        await this.nextStudyCard();
+        return;
+      }
       this.render();
     } catch (e) {
       new Notice(str(e && e.message) || "Could not save this review.", 6000);
@@ -280,6 +308,27 @@ class PracticeView extends ItemView {
     this.study = null;
     this.state = "idle";
     this.render();
+  }
+
+  /** Match mode: pair six prompts with their answers in a small modal. */
+  async startStudyMatch() {
+    const p = this.plugin;
+    const pool = p.filtered(p.getQuestions());
+    const queue = buildQuickQueue(pool, p.settings.mode, fmtDate(new Date()), 6);
+    const cards = [];
+    for (const q of queue) {
+      try {
+        cards.push(await loadQuestionData(p, q));
+      } catch (e) {
+        // The note vanished while the board was built.
+      }
+    }
+    const pairs = buildMatchPairs(cards, 6);
+    if (pairs.length < 2) {
+      new Notice("Match needs at least two questions with a prompt and an answer key.");
+      return;
+    }
+    new StudyMatchModal(this.app, p, pairs, { onDone: () => this.render() }).open();
   }
 
   async startQuick(kind, value, options) {
@@ -853,7 +902,8 @@ class PracticeView extends ItemView {
     const bar = root.createDiv({ cls: "qt-study-bar" });
     const meta = bar.createDiv({ cls: "qt-study-meta" });
     meta.createSpan({ cls: "qt-study-mode", text: (st && STUDY_SKIN_LABELS[st.currentSkin]) || "Study cards" });
-    if (st) meta.createSpan({ cls: "qt-study-progress", text: studyProgress(st.index, st.paths.length) });
+    if (st && st.mode && st.mode !== "cards") meta.createSpan({ cls: "qt-study-mode", text: studyModeLabel(st.mode) });
+    if (st) meta.createSpan({ cls: "qt-study-progress", text: studyProgress(st.index, (st.queue || st.paths).length) });
     const tools = bar.createDiv({ cls: "qt-study-tools" });
     if (card) {
       const open = tools.createEl("button", { text: "Open note", cls: "qt-link" });
@@ -902,12 +952,20 @@ class PracticeView extends ItemView {
           });
         }
       }
-      if (!st.revealed) box.createDiv({ cls: "qt-hint", text: "Choose one, then reveal the answer." });
+      if (!st.revealed) {
+        box.createDiv({
+          cls: "qt-hint",
+          text: st.mode === "test" ? "Choose one, then submit. Answers and scores appear at the end." : "Choose one, then reveal the answer.",
+        });
+      }
     }
 
     if (!st.revealed) {
       const actions = box.createDiv({ cls: "qt-row qt-study-actions" });
-      const show = actions.createEl("button", { text: "Show answer", cls: "mod-cta qt-grow" });
+      const show = actions.createEl("button", {
+        text: st.mode === "test" && st.currentSkin === "choice" ? "Submit answer" : "Show answer",
+        cls: "mod-cta qt-grow",
+      });
       show.addEventListener("click", () => this.revealStudyAnswer());
       const skip = actions.createEl("button", { text: "Skip", cls: "qt-grow" });
       skip.addEventListener("click", () => this.nextStudyCard());
@@ -943,12 +1001,25 @@ class PracticeView extends ItemView {
     const reviewed = st ? st.reviewed : 0;
     const recalled = st ? st.recalled : 0;
     root.addClass("qt-study");
-    root.createEl("h3", { text: "Study cards complete" });
-    root.createDiv({ cls: "qt-count", text: `${recalled} of ${reviewed} recalled` });
+    const mode = normalizeStudyMode(st && st.mode);
+    root.createEl("h3", { text: mode === "test" ? "Test complete" : "Study cards complete" });
+    root.createDiv({
+      cls: "qt-count",
+      text: `${recalled} of ${reviewed} recalled${mode === "test" && reviewed ? ` (${Math.round((recalled / reviewed) * 100)}%)` : ""}`,
+    });
     root.createDiv({ cls: "qt-hint", text: "This session used the same review history and scheduler as normal practice." });
+    if (mode === "test" && st && st.results.length) {
+      const list = root.createDiv({ cls: "qt-study-results" });
+      for (const item of st.results) {
+        const row = list.createDiv({ cls: "qt-study-result" });
+        row.createSpan({ cls: "qt-study-result-mark", text: item.correct ? "Correct" : "Missed" });
+        row.createSpan({ cls: "qt-hint", text: item.question });
+        row.createDiv({ cls: "qt-hint", text: `Your answer: ${item.picked || "—"} · Correct: ${item.key || "—"}` });
+      }
+    }
     const actions = root.createDiv({ cls: "qt-row qt-study-actions" });
     actions.createEl("button", { text: "Back to practice", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.endStudy());
-    actions.createEl("button", { text: "Study again", cls: "qt-grow" }).addEventListener("click", () => this.startStudySkin(st && st.skin));
+    actions.createEl("button", { text: "Study again", cls: "qt-grow" }).addEventListener("click", () => this.startStudySkin(st && st.skin, st && st.mode));
   }
 
   renderQuickSetup(root) {
