@@ -152,6 +152,12 @@ function calculateApScore(profile, scores, cutoffs) {
       earned: complete ? earned : null,
       max,
       percent: complete && max ? (earned / max) * 100 : null,
+      parts: parts.map((part, index) => ({
+        id: part.id,
+        label: part.label,
+        max: Number(part.max) || 0,
+        earned: values[index],
+      })),
     };
   });
   const complete = sections.every((section) => section.complete);

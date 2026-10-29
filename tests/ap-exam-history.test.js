@@ -28,15 +28,25 @@ test("AP exam history: a complete result becomes a note with durable properties 
   assert.equal(note.frontmatter.taken_on, "2026-10-29");
   assert.equal(note.frontmatter.composite, 82.8);
   assert.equal(note.frontmatter.estimated_ap_score, 5);
+  assert.equal(note.frontmatter.frq_earned, 28);
+  assert.equal(note.frontmatter.frq_max, 34);
+  assert.equal(note.frontmatter.frq_percent, 82.4);
+  assert.equal(note.frontmatter.frq_frq_earned, 28);
+  assert.equal(note.frontmatter.frq_frq_max, 34);
   assert.equal(note.frontmatter.cut_score_5, 75);
   assert.match(note.text, /AP practice exam: AP Biology/);
   assert.match(note.text, /\| Multiple choice \| 50% \| 50 \/ 60 \| 83.3% \|/);
   assert.match(note.text, /\| Free response \| 50% \| 28 \/ 34 \| 82.4% \|/);
   assert.match(note.text, /not a College Board score/i);
+  assert.match(note.text, /## Written scores/);
+  assert.match(note.text, /\| Free response \| Long question 1 \| 8 \/ 9 \|/);
   assert.match(note.text, /## Practice cut scores/);
   assert.match(note.text, /Add what to review/);
   assert.equal(note.entry.course, "AP Biology");
   assert.equal(note.entry.estimated, 5);
+  assert.equal(note.entry.frqEarned, 28);
+  assert.equal(note.entry.frqMax, 34);
+  assert.equal(note.entry.frqPercent, 82.4);
 });
 
 test("AP exam history: an incomplete estimate cannot be saved or parsed as a result", () => {
@@ -56,9 +66,9 @@ test("AP exam history: duplicate dates get a unique filename instead of overwrit
 
 test("AP exam history: entries sort newest first and report the latest change", () => {
   const entries = [
-    { path: "b.md", takenOn: "2026-09-20", composite: 60, estimated: 2 },
-    { path: "c.md", takenOn: "2026-10-20", composite: 80, estimated: 5 },
-    { path: "a.md", takenOn: "2026-10-01", composite: 70, estimated: 4 },
+    { path: "b.md", takenOn: "2026-09-20", composite: 60, estimated: 2, frqPercent: 60, frqEarned: 20, frqMax: 34 },
+    { path: "c.md", takenOn: "2026-10-20", composite: 80, estimated: 5, frqPercent: 80, frqEarned: 27, frqMax: 34 },
+    { path: "a.md", takenOn: "2026-10-01", composite: 70, estimated: 4, frqPercent: 70, frqEarned: 24, frqMax: 34 },
   ];
   const sorted = history.sortApExamEntries(entries);
   assert.deepEqual(sorted.map((entry) => entry.composite), [80, 70, 60]);
@@ -69,6 +79,13 @@ test("AP exam history: entries sort newest first and report the latest change", 
   assert.equal(trend.previous.composite, 70);
   assert.equal(trend.delta, 10);
   assert.equal(trend.direction, "up");
+  assert.equal(trend.frqAverage, 70);
+  assert.equal(trend.frqLatest.composite, 80);
+  assert.equal(trend.frqDelta, 10);
+  assert.equal(trend.frqDirection, "up");
+  const noFrq = history.apExamTrend([{ composite: 70, takenOn: "2026-10-01" }]);
+  assert.equal(noFrq.frqAverage, null);
+  assert.equal(noFrq.frqDelta, null);
   assert.equal(history.apExamTrend([]).direction, "none");
 });
 
@@ -118,4 +135,6 @@ test("AP exam history: the Reference tab saves a result and shows the trend", as
   assert.equal(app.created.length, 1);
   assert.ok(dom.texts().some((text) => text.includes("2026-") && text.includes("AP Biology")));
   assert.ok(dom.texts().some((text) => text.includes("1 saved") && text.includes("82.8%")));
+  assert.ok(dom.texts().some((text) => text.includes("FRQ avg 82.4%")));
+  assert.ok(dom.texts().some((text) => text.includes("FRQ 28/34 (82.4%)")));
 });

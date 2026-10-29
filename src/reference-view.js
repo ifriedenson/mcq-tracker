@@ -653,6 +653,11 @@ class ReferenceView extends ItemView {
     }
     const summary = el.createDiv({ cls: "qt-ap-history-summary" });
     summary.createSpan({ text: `${trend.count} saved · average ${trend.average}%` });
+    if (trend.frqAverage !== null) {
+      const frqSign = trend.frqDelta > 0 ? "+" : "";
+      const frqChange = trend.frqDelta === null ? "" : ` · ${frqSign}${trend.frqDelta} FRQ points vs previous`;
+      summary.createSpan({ cls: "qt-ap-history-frq", text: ` · FRQ avg ${trend.frqAverage}%${frqChange}` });
+    }
     if (trend.count > 1) {
       const sign = trend.delta > 0 ? "+" : "";
       summary.createSpan({ cls: `qt-ap-trend qt-ap-trend-${trend.direction}`, text: `${sign}${trend.delta} points vs previous` });
@@ -661,7 +666,8 @@ class ReferenceView extends ItemView {
       const row = el.createDiv({ cls: "qt-ap-history-row" });
       const text = row.createDiv({ cls: "qt-ap-history-text" });
       text.createEl("strong", { text: `${entry.takenOn || "Undated"} · ${entry.course}` });
-      text.createDiv({ cls: "qt-hint", text: `${entry.composite}% composite · estimated ${entry.estimated}${entry.low !== entry.high ? ` (${entry.low}-${entry.high})` : ""}` });
+      const frq = entry.frqPercent === null || entry.frqPercent === undefined ? "" : ` · FRQ ${entry.frqEarned}/${entry.frqMax} (${entry.frqPercent}%)`;
+      text.createDiv({ cls: "qt-hint", text: `${entry.composite}% composite · estimated ${entry.estimated}${entry.low !== entry.high ? ` (${entry.low}-${entry.high})` : ""}${frq}` });
       row.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => {
         if (this.app && this.app.workspace && this.app.workspace.openLinkText) this.app.workspace.openLinkText(entry.path, "", false);
       });

@@ -37,6 +37,7 @@ test("AP score: a complete Biology estimate uses weighted section percentages", 
   assert.deepEqual(result.range, [5, 5]);
   assert.equal(result.sections.find((section) => section.id === "frq").earned, 28);
   assert.equal(result.sections.find((section) => section.id === "frq").max, 34);
+  assert.deepEqual(result.sections.find((section) => section.id === "frq").parts.map((part) => part.earned), [8, 7, 4, 3, 3, 3]);
 });
 
 test("AP score: missing sections stay incomplete instead of pretending zero", () => {

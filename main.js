@@ -2515,7 +2515,7 @@ function apExamFrontmatter(profile, result, cutoffs, takenOn) {
   if (!p || !result || result.complete !== true || !Number.isFinite(Number(result.composite))) return null;
   const date = normalizeDate(takenOn) || localDate();
   const c = normalizeCutoffs(cutoffs || result.cutoffs);
-  return {
+  const fm = {
     type: AP_EXAM_TYPE,
     ap_course: p.id,
     course: p.name,
@@ -2531,6 +2531,21 @@ function apExamFrontmatter(profile, result, cutoffs, takenOn) {
     cut_score_2: Number(c[2]),
     curve_source: AP_EXAM_CURVE_SOURCE,
   };
+  // Keep free-response / written scores separate from the composite so a
+  // learner can see whether the written half is improving across attempts.
+  const written = result.sections.filter((section) => section.id !== "mcq" && section.complete && Number(section.max) > 0);
+  if (written.length) {
+    const earned = written.reduce((sum, section) => sum + Number(section.earned || 0), 0);
+    const max = written.reduce((sum, section) => sum + Number(section.max || 0), 0);
+    fm.frq_earned = Math.round(earned * 10) / 10;
+    fm.frq_max = Math.round(max * 10) / 10;
+    fm.frq_percent = max ? Math.round((earned / max) * 1000) / 10 : 0;
+    for (const section of written) {
+      fm[`frq_${section.id}_earned`] = Math.round(Number(section.earned || 0) * 10) / 10;
+      fm[`frq_${section.id}_max`] = Math.round(Number(section.max || 0) * 10) / 10;
+    }
+  }
+  return fm;
 }
 
 /** Build the note text and its frontmatter from a complete calculator result. */
@@ -2558,6 +2573,17 @@ function buildApExamNote(profile, result, cutoffs, takenOn) {
     lines.push(`| ${section.label} | ${Math.round(Number(section.weight) * 100)}% | ${numberText(section.earned)} / ${numberText(section.max)} | ${numberText(section.percent)}% |`);
   }
   lines.push("");
+  const written = result.sections.filter((section) => section.id !== "mcq" && Array.isArray(section.parts) && section.parts.some((part) => part.earned !== null));
+  if (written.length) {
+    lines.push("## Written scores");
+    lines.push("");
+    lines.push("| Section | Question | Earned / max |");
+    lines.push("| --- | --- | ---: |");
+    for (const section of written) {
+      for (const part of section.parts) lines.push(`| ${section.label} | ${part.label} | ${part.earned === null ? "—" : numberText(part.earned)} / ${numberText(part.max)} |`);
+    }
+    lines.push("");
+  }
   lines.push("## Practice cut scores");
   lines.push("");
   lines.push("| AP score | Minimum composite |");
@@ -2605,6 +2631,9 @@ function entryFromFrontmatter(fm, path) {
     estimated: Number(fm.estimated_ap_score) || 0,
     low: Number(fm.score_low) || Number(fm.estimated_ap_score) || 0,
     high: Number(fm.score_high) || Number(fm.estimated_ap_score) || 0,
+    frqEarned: Number.isFinite(Number(fm.frq_earned)) ? Number(fm.frq_earned) : null,
+    frqMax: Number.isFinite(Number(fm.frq_max)) ? Number(fm.frq_max) : null,
+    frqPercent: Number.isFinite(Number(fm.frq_percent)) ? Number(fm.frq_percent) : null,
   };
 }
 
@@ -2622,6 +2651,11 @@ function apExamTrend(entries) {
   const previous = newest[1] || null;
   const average = newest.length ? Math.round((newest.reduce((sum, item) => sum + item.composite, 0) / newest.length) * 10) / 10 : null;
   const delta = latest && previous ? Math.round((latest.composite - previous.composite) * 10) / 10 : null;
+  const withFrq = newest.filter((item) => Number.isFinite(item.frqPercent) && Number(item.frqMax) > 0);
+  const frqLatest = withFrq[0] || null;
+  const frqPrevious = withFrq[1] || null;
+  const frqAverage = withFrq.length ? Math.round((withFrq.reduce((sum, item) => sum + item.frqPercent, 0) / withFrq.length) * 10) / 10 : null;
+  const frqDelta = frqLatest && frqPrevious ? Math.round((frqLatest.frqPercent - frqPrevious.frqPercent) * 10) / 10 : null;
   return {
     count: newest.length,
     latest,
@@ -2629,6 +2663,11 @@ function apExamTrend(entries) {
     average,
     delta,
     direction: delta === null ? "none" : delta > 0 ? "up" : delta < 0 ? "down" : "flat",
+    frqLatest,
+    frqPrevious,
+    frqAverage,
+    frqDelta,
+    frqDirection: frqDelta === null ? "none" : frqDelta > 0 ? "up" : frqDelta < 0 ? "down" : "flat",
   };
 }
 
@@ -3319,6 +3358,12 @@ function calculateApScore(profile, scores, cutoffs) {
       earned: complete ? earned : null,
       max,
       percent: complete && max ? (earned / max) * 100 : null,
+      parts: parts.map((part, index) => ({
+        id: part.id,
+        label: part.label,
+        max: Number(part.max) || 0,
+        earned: values[index],
+      })),
     };
   });
   const complete = sections.every((section) => section.complete);
@@ -34765,6 +34810,11 @@ class ReferenceView extends ItemView {
     }
     const summary = el.createDiv({ cls: "qt-ap-history-summary" });
     summary.createSpan({ text: `${trend.count} saved · average ${trend.average}%` });
+    if (trend.frqAverage !== null) {
+      const frqSign = trend.frqDelta > 0 ? "+" : "";
+      const frqChange = trend.frqDelta === null ? "" : ` · ${frqSign}${trend.frqDelta} FRQ points vs previous`;
+      summary.createSpan({ cls: "qt-ap-history-frq", text: ` · FRQ avg ${trend.frqAverage}%${frqChange}` });
+    }
     if (trend.count > 1) {
       const sign = trend.delta > 0 ? "+" : "";
       summary.createSpan({ cls: `qt-ap-trend qt-ap-trend-${trend.direction}`, text: `${sign}${trend.delta} points vs previous` });
@@ -34773,7 +34823,8 @@ class ReferenceView extends ItemView {
       const row = el.createDiv({ cls: "qt-ap-history-row" });
       const text = row.createDiv({ cls: "qt-ap-history-text" });
       text.createEl("strong", { text: `${entry.takenOn || "Undated"} · ${entry.course}` });
-      text.createDiv({ cls: "qt-hint", text: `${entry.composite}% composite · estimated ${entry.estimated}${entry.low !== entry.high ? ` (${entry.low}-${entry.high})` : ""}` });
+      const frq = entry.frqPercent === null || entry.frqPercent === undefined ? "" : ` · FRQ ${entry.frqEarned}/${entry.frqMax} (${entry.frqPercent}%)`;
+      text.createDiv({ cls: "qt-hint", text: `${entry.composite}% composite · estimated ${entry.estimated}${entry.low !== entry.high ? ` (${entry.low}-${entry.high})` : ""}${frq}` });
       row.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => {
         if (this.app && this.app.workspace && this.app.workspace.openLinkText) this.app.workspace.openLinkText(entry.path, "", false);
       });
