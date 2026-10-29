@@ -112,6 +112,46 @@ test("today: shows one due list when questions and cards are both due", async ()
   assert.ok(dom.texts().includes("Open due queue"));
 });
 
+test("today: pending typed answers are visible and can be retried", async () => {
+  const app = makeApp([
+    ...NOTES,
+    {
+      path: "Cards/Biology/cell.md",
+      noFm: true,
+      fm: { card_id: "cell", item_type: "card", deck: "Biology", attempts: 1, next_review: "2020-01-02" },
+      text: "## Front\nPowerhouse of the cell\n\n## Back\nmitochondria",
+    },
+  ]);
+  app.files[3].fm = { card_id: "cell", item_type: "card", deck: "Biology", attempts: 1, next_review: "2020-01-02" };
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  const card = plugin.getCards().find((c) => c.file.path === "Cards/Biology/cell.md");
+  card.body = { front: "Powerhouse of the cell", back: "mitochondria" };
+  plugin.queueCardGrade(card, "powerhouse", "standard");
+  let flushed = 0;
+  let reviewed = "";
+  plugin.flushPendingCardGrades = async () => {
+    flushed++;
+    return { graded: 1, remaining: 0, disabled: false };
+  };
+  plugin.reviewCard = async (c) => (reviewed = c.file.path);
+
+  const dom = makeDom();
+  const view = new T.TodayView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  assert.ok(dom.texts().includes("Pending AI grade"));
+  assert.ok(dom.texts().includes("Powerhouse of the cell"));
+  assert.ok(dom.texts().includes("Grade pending"));
+  await dom.click("Review");
+  assert.equal(reviewed, "Cards/Biology/cell.md");
+  await dom.click("Grade pending");
+  assert.equal(flushed, 1);
+});
+
 test("today: explains when the MCQ module is off", async () => {
   const { plugin, dom, view } = await setup();
   plugin.settings.mcqEnabled = false;

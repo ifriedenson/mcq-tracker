@@ -2427,6 +2427,52 @@
   margin-top: 4px;
 }
 
+.qt-today-pending {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.qt-pending-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.qt-pending-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.qt-pending-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qt-pending-count {
+  color: var(--interactive-accent);
+  flex: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.qt-pending-more {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+.qt-today-pending .qt-row {
+  margin-top: 8px;
+}
+
 @media (max-width: 480px) {
   .qt-today {
     padding: 16px 14px 24px;
@@ -2453,6 +2499,43 @@
   gap: 8px 16px;
   color: var(--text-muted);
   font-size: 0.9rem;
+}
+
+.qt-cards-pending-count {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.qt-cards-pending-panel {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: var(--radius-m);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.qt-cards-pending-title {
+  font-weight: 600;
+}
+
+.qt-cards-pending-text {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.qt-cards-pending-badge {
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 35%, transparent);
+  border-radius: 999px;
+  color: var(--text-accent);
+  flex: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  white-space: nowrap;
 }
 
 .qt-cards-filter {
@@ -2753,6 +2836,11 @@
 
 .qt-due-badge.is-new {
   color: var(--interactive-accent);
+  font-weight: 600;
+}
+
+.qt-due-badge.is-pending {
+  color: var(--text-accent);
   font-weight: 600;
 }
 

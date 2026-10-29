@@ -65,6 +65,16 @@ function findPendingGrade(list, id) {
   return (Array.isArray(list) ? list : []).find((entry) => entry.id === id) || null;
 }
 
+/** Count queued answers by note path for badges in Today and the Cards list. */
+function pendingGradeCounts(list) {
+  const counts = new Map();
+  for (const entry of Array.isArray(list) ? list : []) {
+    if (!validEntry(entry)) continue;
+    counts.set(entry.path, (counts.get(entry.path) || 0) + 1);
+  }
+  return counts;
+}
+
 module.exports = {
   MAX_PENDING,
   newGradeId,
@@ -73,4 +83,5 @@ module.exports = {
   enqueuePendingGrade,
   removePendingGrade,
   findPendingGrade,
+  pendingGradeCounts,
 };

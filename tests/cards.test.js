@@ -371,6 +371,34 @@ test("cards view: when AI is unavailable the answer waits, and rating it is reco
   assert.equal(card.file.fm.grade_status, "self");
 });
 
+test("cards view: pending typed grades are visible in the card list and can be retried", async () => {
+  const { app, plugin } = await setup();
+  const card = plugin.getCards().find((c) => c.file.path === "Courses/Bio/cell.md");
+  card.body = { front: "Powerhouse of the cell", back: "mitochondria" };
+  plugin.queueCardGrade(card, "powerhouse", "standard");
+  let flushed = 0;
+  let reviewed = "";
+  plugin.flushPendingCardGrades = async () => {
+    flushed++;
+    return { graded: 1, remaining: 0, disabled: false };
+  };
+
+  const dom = makeDom();
+  const view = new T.CardView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.reviewCard = async (c) => (reviewed = c.file.path);
+  view.render();
+
+  assert.ok(dom.texts().includes("1 pending AI grade"));
+  assert.ok(dom.texts().includes("Powerhouse of the cell"));
+  assert.ok(dom.texts().includes("Pending grade"));
+  await dom.click("Review");
+  assert.equal(reviewed, "Courses/Bio/cell.md");
+  await dom.click("Grade now");
+  assert.equal(flushed, 1);
+});
+
 test("plugin: pending typed answers are graded once and cleared from the queue", async () => {
   const { app, plugin } = await setup();
   plugin.settings.cards.aiGrading = true;

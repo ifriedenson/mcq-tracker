@@ -74,3 +74,15 @@ test("grade-later queue: entries round-trip, replace themselves, and are removed
   assert.equal(queue.unpackPendingGrades([{ ...entry, expected: "" }]).length, 0, "invalid entries are ignored");
   assert.equal(queue.packPendingGrades(list).length, 1);
 });
+
+test("grade-later queue: pending counts group answers by note path", () => {
+  const counts = queue.pendingGradeCounts([
+    { id: "g-1", path: "Cards/a.md", expected: "A", typed: "a" },
+    { id: "g-2", path: "Cards/a.md", expected: "A", typed: "b" },
+    { id: "g-3", path: "Cards/b.md", expected: "B", typed: "b" },
+    { id: "bad", path: "Cards/c.md", expected: "", typed: "c" },
+  ]);
+  assert.equal(counts.get("Cards/a.md"), 2);
+  assert.equal(counts.get("Cards/b.md"), 1);
+  assert.equal(counts.has("Cards/c.md"), false, "invalid entries are not counted");
+});

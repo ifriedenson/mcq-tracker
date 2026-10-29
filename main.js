@@ -2755,6 +2755,16 @@ function findPendingGrade(list, id) {
   return (Array.isArray(list) ? list : []).find((entry) => entry.id === id) || null;
 }
 
+/** Count queued answers by note path for badges in Today and the Cards list. */
+function pendingGradeCounts(list) {
+  const counts = new Map();
+  for (const entry of Array.isArray(list) ? list : []) {
+    if (!validEntry(entry)) continue;
+    counts.set(entry.path, (counts.get(entry.path) || 0) + 1);
+  }
+  return counts;
+}
+
 module.exports = {
   MAX_PENDING,
   newGradeId,
@@ -2763,6 +2773,7 @@ module.exports = {
   enqueuePendingGrade,
   removePendingGrade,
   findPendingGrade,
+  pendingGradeCounts,
 };
 };
 
@@ -4878,6 +4889,7 @@ const { CardModal } = require("./card-modal");
 const { renderMarkdownInto } = require("./view-helpers");
 const { gradeTypedAnswer } = require("./card-grading");
 const { needsAi } = require("./card-grading-ai");
+const { pendingGradeCounts } = require("./card-grade-queue");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
 const GRADE_LABELS = { again: "Again", hard: "Hard", good: "Good", easy: "Easy" };
@@ -4978,6 +4990,8 @@ class CardView extends ItemView {
     const all = p.getCards();
     const stats = cardStats(all, today);
     const shown = p.filteredCards({ deck: this.deck, course: this.course });
+    const pending = p.pendingCardGrades ? p.pendingCardGrades() : [];
+    const pendingByPath = pendingGradeCounts(pending);
 
     const tools = root.createDiv({ cls: "qt-row qt-cards-tools" });
     const add = tools.createEl("button", { text: "New card", cls: "mod-cta" });
@@ -5001,7 +5015,9 @@ class CardView extends ItemView {
     summary.createSpan({ text: `${stats.total} card${stats.total === 1 ? "" : "s"}` });
     summary.createSpan({ text: `${stats.due} due` });
     summary.createSpan({ text: `${stats.fresh} new` });
+    if (pending.length) summary.createSpan({ cls: "qt-cards-pending-count", text: `${pending.length} pending` });
 
+    this.renderPendingGrades(root, pending);
     this.renderDeckPicker(root, all, today);
     this.renderCoursePicker(root, all);
 
@@ -5042,10 +5058,14 @@ class CardView extends ItemView {
       main.createDiv({ cls: "qt-cards-row-title", text: str(card.fm.card_title || card.file.basename) });
       const bits = [card.deck, card.course, card.kind === "vocab" ? "Vocabulary" : "Flashcard"].filter(Boolean);
       main.createDiv({ cls: "qt-cards-row-meta", text: bits.join(" · ") });
+      const queued = pendingByPath.get(card.file.path) || 0;
+      if (queued) row.createSpan({ cls: "qt-cards-pending-badge", text: queued > 1 ? `Pending ${queued}` : "Pending grade" });
       const due = !Number(card.fm.attempts) ? "New" : str(card.fm.next_review).slice(0, 10) <= today ? "Due" : `Due ${str(card.fm.next_review).slice(0, 10)}`;
       row.createSpan({ cls: `qt-cards-due${due === "Due" ? " is-due" : ""}`, text: due });
-      const open = row.createEl("button", { text: "Open", cls: "qt-link" });
-      open.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(card.file));
+      const action = row.createEl("button", { text: queued ? "Review" : "Open", cls: "qt-link" });
+      action.addEventListener("click", () =>
+        queued ? this.reviewCard(card) : this.app.workspace.getLeaf("tab").openFile(card.file)
+      );
     }
     if (shown.length > preview.length) {
       root.createDiv({ cls: "qt-hint", text: `Showing ${preview.length} of ${shown.length}. Start a review for the rest.` });
@@ -5086,6 +5106,62 @@ class CardView extends ItemView {
     };
     add("All courses", "");
     for (const course of courses) add(course, course);
+  }
+
+  /** Queued typed answers are visible on the card list, not only inside a review. */
+  renderPendingGrades(root, pending) {
+    if (!pending.length) return;
+    const panel = root.createDiv({ cls: "qt-cards-pending-panel" });
+    panel.createDiv({ cls: "qt-cards-pending-title", text: pending.length === 1 ? "1 pending AI grade" : `${pending.length} pending AI grades` });
+    panel.createDiv({
+      cls: "qt-cards-pending-text",
+      text: "Typed answers waiting for the AI grader. They stay out of your review history and are not counted as incorrect.",
+    });
+    const list = panel.createDiv({ cls: "qt-pending-list" });
+    const cards = this.plugin.getCards ? this.plugin.getCards() : [];
+    const seen = new Set();
+    const pendingCards = [];
+    for (const entry of pending) {
+      if (seen.has(entry.path)) continue;
+      seen.add(entry.path);
+      pendingCards.push(entry);
+    }
+    for (const entry of pendingCards.slice(0, 5)) {
+      const row = list.createDiv({ cls: "qt-pending-row" });
+      row.createSpan({ cls: "qt-pending-name", text: entry.front || entry.path.split("/").pop().replace(/\.md$/, "") });
+      const card = cards.find((c) => c.file.path === entry.path);
+      if (card) {
+        const review = row.createEl("button", { text: "Review", cls: "qt-link" });
+        review.addEventListener("click", () => this.reviewCard(card));
+      } else {
+        const open = row.createEl("button", { text: "Open note", cls: "qt-link" });
+        open.addEventListener("click", () => {
+          const file = this.app.vault.getAbstractFileByPath(entry.path);
+          if (file) this.app.workspace.getLeaf("tab").openFile(file);
+        });
+      }
+    }
+    if (pendingCards.length > 5) list.createDiv({ cls: "qt-pending-more", text: `+${pendingCards.length - 5} more` });
+    const actions = panel.createDiv({ cls: "qt-row" });
+    const grade = actions.createEl("button", { text: "Grade now", cls: "mod-cta" });
+    grade.addEventListener("click", () => this.gradePending(grade));
+  }
+
+  async gradePending(button) {
+    const p = this.plugin;
+    if (!p || typeof p.flushPendingCardGrades !== "function") return;
+    if (button) button.disabled = true;
+    try {
+      const r = await p.flushPendingCardGrades();
+      if (r.disabled) new Notice("Turn on AI features and the Cards AI fallback first.", 6000);
+      else if (r.remaining) new Notice(`Graded ${r.graded}; ${r.remaining} answer${r.remaining === 1 ? "" : "s"} still waiting.`, 6000);
+      else if (r.graded) new Notice(`Graded ${r.graded} pending answer${r.graded === 1 ? "" : "s"}.`, 5000);
+      else new Notice("No typed answers are waiting for an AI grade.");
+    } catch (e) {
+      new Notice((e && e.message) || "Could not grade pending answers.");
+    } finally {
+      this.render();
+    }
   }
 
   openCardModal() {
@@ -5145,6 +5221,9 @@ class CardView extends ItemView {
     try {
       const text = await this.app.vault.cachedRead(card.file);
       this.current = { ...card, body: parseCardBody(text, card.fm) };
+      const queued = this.plugin.pendingCardGrades ? this.plugin.pendingCardGrades().find((entry) => entry.path === card.file.path) : null;
+      this.pendingGrade = !!queued;
+      this.pendingGradeId = queued ? queued.id : "";
     } catch (e) {
       new Notice(`Could not read ${card.file.path}.`);
       this.queue.splice(this.index, 1);
@@ -16233,8 +16312,9 @@ module.exports = {
 
 /* ---- src/today-view.js ---- */
 __defs["today-view"] = function (module, exports, require) {
-const { ItemView } = require("obsidian");
+const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_TODAY } = require("./constants");
+const { pendingGradeCounts } = require("./card-grade-queue");
 const { fmtDate } = require("./util");
 const { isDue } = require("./filters");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
@@ -16317,6 +16397,7 @@ class TodayView extends ItemView {
     const p = this.plugin;
     if (!p.cardsEnabled || !p.cardsEnabled() || !p.getDueQueue) return;
     const queue = p.getDueQueue({ limit: 5 });
+    const pending = pendingGradeCounts(p.pendingCardGrades ? p.pendingCardGrades() : []);
     const cardCount = queue.counts.cards + queue.counts.vocab;
     if (!queue.counts.questions || !cardCount) return;
     root.createEl("h3", { cls: "qt-today-section", text: "Due across modules" });
@@ -16331,6 +16412,7 @@ class TodayView extends ItemView {
       main.createDiv({ cls: "qt-due-title", text: item.title });
       main.createDiv({ cls: "qt-due-meta", text: item.meta });
       row.createSpan({ cls: `qt-due-badge${item.isNew ? " is-new" : ""}`, text: item.isNew ? "New" : "Due" });
+      if (pending.get(item.path)) row.createSpan({ cls: "qt-due-badge is-pending", text: "Pending" });
     }
     const open = root.createEl("button", { text: "Open due queue", cls: "mod-cta qt-primary" });
     open.addEventListener("click", () => p.openDueQueue());
@@ -16340,6 +16422,8 @@ class TodayView extends ItemView {
     const p = this.plugin;
     if (!p.cardsEnabled || !p.cardsEnabled()) return;
     const cards = p.getCards ? p.getCards() : [];
+    const pending = p.pendingCardGrades ? p.pendingCardGrades() : [];
+    const pendingByPath = pendingGradeCounts(pending);
     const due = cards.filter((c) => !Number(c.fm.attempts) || (!!c.fm.next_review && String(c.fm.next_review).slice(0, 10) <= fmtDate(new Date()))).length;
     root.createEl("h3", { cls: "qt-today-section", text: "Cards" });
     const card = root.createDiv({ cls: "qt-today-card" });
@@ -16349,9 +16433,54 @@ class TodayView extends ItemView {
       text: due ? `${due} card${due === 1 ? "" : "s"} due or new` : `${cards.length} card${cards.length === 1 ? "" : "s"} in your decks`,
     });
     card.createDiv({ cls: "qt-today-meta", text: "Flashcards and vocabulary share the same review schedule as your questions." });
+    if (pending.length) {
+      const box = card.createDiv({ cls: "qt-today-pending" });
+      box.createDiv({ cls: "qt-today-kicker", text: pending.length === 1 ? "Pending AI grade" : `${pending.length} pending AI grades` });
+      box.createDiv({ cls: "qt-today-meta", text: "Typed answers waiting for the AI grader. They are not counted as incorrect." });
+      const list = box.createDiv({ cls: "qt-pending-list" });
+      const seen = new Set();
+      const pendingCards = [];
+      for (const entry of pending) {
+        if (seen.has(entry.path)) continue;
+        seen.add(entry.path);
+        pendingCards.push(entry);
+      }
+      for (const entry of pendingCards.slice(0, 3)) {
+        const line = list.createDiv({ cls: "qt-pending-row" });
+        line.createSpan({ cls: "qt-pending-name", text: entry.front || entry.path.split("/").pop().replace(/\.md$/, "") });
+        const n = pendingByPath.get(entry.path) || 0;
+        if (n > 1) line.createSpan({ cls: "qt-pending-count", text: `${n} answers` });
+        const card = cards.find((c) => c.file.path === entry.path);
+        if (card) {
+          const review = line.createEl("button", { text: "Review", cls: "qt-link" });
+          review.addEventListener("click", () => p.reviewCard(card));
+        }
+      }
+      if (pendingCards.length > 3) list.createDiv({ cls: "qt-pending-more", text: `+${pendingCards.length - 3} more` });
+      const actions = box.createDiv({ cls: "qt-row" });
+      const grade = actions.createEl("button", { text: "Grade pending", cls: "mod-cta" });
+      grade.addEventListener("click", () => this.gradePending(grade));
+    }
     const row = card.createDiv({ cls: "qt-row" });
     row.createEl("button", { text: due ? "Review cards" : "Open cards", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.activateCards());
     if (due) row.createEl("button", { text: "New card" }).addEventListener("click", () => p.openNewCard());
+  }
+
+  async gradePending(button) {
+    const p = this.plugin;
+    if (!p || typeof p.flushPendingCardGrades !== "function") return;
+    if (button) button.disabled = true;
+    try {
+      const r = await p.flushPendingCardGrades();
+      if (r.disabled) new Notice("Turn on AI features and the Cards AI fallback first.", 6000);
+      else if (r.remaining) new Notice(`Graded ${r.graded}; ${r.remaining} answer${r.remaining === 1 ? "" : "s"} still waiting.`, 6000);
+      else if (r.graded) new Notice(`Graded ${r.graded} pending answer${r.graded === 1 ? "" : "s"}.`, 5000);
+      else new Notice("No typed answers are waiting for an AI grade.");
+    } catch (e) {
+      new Notice((e && e.message) || "Could not grade pending answers.");
+    } finally {
+      this.render();
+    }
   }
 
   renderNext(root, now) {
