@@ -3785,6 +3785,62 @@
   margin: 4px 0;
 }
 
+/* Saved AP practice exams: ordinary notes, newest first, with a simple trend. */
+.qt-ap-history {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 16px;
+  padding-top: 10px;
+}
+
+.qt-ap-history h4 {
+  margin: 0 0 4px;
+}
+
+.qt-ap-history-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.qt-ap-history-summary {
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  justify-content: space-between;
+}
+
+.qt-ap-trend-up {
+  color: var(--color-green);
+}
+
+.qt-ap-trend-down {
+  color: var(--color-red);
+}
+
+.qt-ap-history-row {
+  align-items: center;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 8px 10px;
+}
+
+.qt-ap-history-text {
+  min-width: 0;
+}
+
+.qt-ap-history-text strong {
+  display: block;
+}
+
+.qt-ap-history-text .qt-hint {
+  margin: 2px 0 0;
+}
+
 .qt-welcome-support-label {
   font-size: 0.82rem;
 }

@@ -82,6 +82,7 @@ const referenceGraph = require("./reference-graph");
 const { ReferenceView } = require("./reference-view");
 const apScore = require("./ap-score");
 const apResources = require("./ap-resources");
+const apExamHistory = require("./ap-exam-history");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const dailyQuiz = require("./daily-quiz");
 const { renderDailySettings } = require("./daily-quiz-settings");
@@ -175,6 +176,7 @@ QuestionTrackerPlugin.__test = {
   referenceData,
   apScore,
   apResources,
+  apExamHistory,
   pdfAnnotations,
   pdfInk,
   PdfAnnotationModal,

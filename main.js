@@ -947,6 +947,193 @@ module.exports = {
 };
 };
 
+/* ---- src/ap-exam-history.js ---- */
+__defs["ap-exam-history"] = function (module, exports, require) {
+/*
+ * Saved AP practice-exam notes.
+ *
+ * A saved result is an ordinary Markdown note with frontmatter. The calculator
+ * writes it, and the history view reads those properties; no separate database
+ * is needed and the learner can edit or delete the note like any other.
+ */
+const { localDate, str } = require("./util");
+const { normalizeCutoffs, profileById } = require("./ap-score");
+
+const AP_EXAM_TYPE = "ap_practice_exam";
+const AP_EXAM_FOLDER = "AP practice exams";
+const AP_EXAM_CURVE_SOURCE = "practice-defaults";
+
+function numberText(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  return String(Math.round(n * 10) / 10).replace(/\.0$/, "");
+}
+
+function yamlScalar(value) {
+  const text = str(value);
+  if (text === "") return '""';
+  if (/^[A-Za-z0-9_./-]+$/.test(text) && !/^(true|false|null|-?\d+(\.\d+)?)$/i.test(text)) return text;
+  return JSON.stringify(text);
+}
+
+function safeFilePart(value) {
+  return str(value)
+    .replace(/[\\/:*?"<>|#^[\]{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 90);
+}
+
+function normalizeDate(value) {
+  const text = str(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const d = new Date(text);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function isApExamNote(fm) {
+  if (!fm || typeof fm !== "object") return false;
+  return fm.type === AP_EXAM_TYPE || fm.ap_practice_exam === true || fm.ap_practice_exam === "true";
+}
+
+function apExamFrontmatter(profile, result, cutoffs, takenOn) {
+  const p = profile || (result && result.profile);
+  if (!p || !result || result.complete !== true || !Number.isFinite(Number(result.composite))) return null;
+  const date = normalizeDate(takenOn) || localDate();
+  const c = normalizeCutoffs(cutoffs || result.cutoffs);
+  return {
+    type: AP_EXAM_TYPE,
+    ap_course: p.id,
+    course: p.name,
+    exam_year: p.year,
+    taken_on: date,
+    composite: Math.round(Number(result.composite) * 10) / 10,
+    estimated_ap_score: Number(result.estimated),
+    score_low: result.range ? Number(result.range[0]) : Number(result.estimated),
+    score_high: result.range ? Number(result.range[1]) : Number(result.estimated),
+    cut_score_5: Number(c[5]),
+    cut_score_4: Number(c[4]),
+    cut_score_3: Number(c[3]),
+    cut_score_2: Number(c[2]),
+    curve_source: AP_EXAM_CURVE_SOURCE,
+  };
+}
+
+/** Build the note text and its frontmatter from a complete calculator result. */
+function buildApExamNote(profile, result, cutoffs, takenOn) {
+  const fm = apExamFrontmatter(profile, result, cutoffs, takenOn);
+  if (!fm) return null;
+  const range = fm.score_low === fm.score_high ? String(fm.estimated_ap_score) : `${fm.score_low}-${fm.score_high}`;
+  const lines = [];
+  lines.push("---");
+  for (const [key, value] of Object.entries(fm)) lines.push(`${key}: ${typeof value === "number" ? value : yamlScalar(value)}`);
+  lines.push("---", "");
+  lines.push(`# AP practice exam: ${fm.course}`, "");
+  lines.push("> Unofficial practice estimate. This is not a College Board score, and the cut scores are editable practice defaults.");
+  lines.push("");
+  lines.push(`- **Date:** ${fm.taken_on}`);
+  lines.push(`- **Course:** ${fm.course} (${fm.exam_year})`);
+  lines.push(`- **Composite:** ${numberText(fm.composite)}%`);
+  lines.push(`- **Estimated score:** ${fm.estimated_ap_score} (likely band ${range})`);
+  lines.push("");
+  lines.push("## Sections");
+  lines.push("");
+  lines.push("| Section | Weight | Points | Percent |");
+  lines.push("| --- | ---: | ---: | ---: |");
+  for (const section of result.sections) {
+    lines.push(`| ${section.label} | ${Math.round(Number(section.weight) * 100)}% | ${numberText(section.earned)} / ${numberText(section.max)} | ${numberText(section.percent)}% |`);
+  }
+  lines.push("");
+  lines.push("## Practice cut scores");
+  lines.push("");
+  lines.push("| AP score | Minimum composite |");
+  lines.push("| ---: | ---: |");
+  for (const score of [5, 4, 3, 2]) lines.push(`| ${score} | ${numberText(fm[`cut_score_${score}`])}% |`);
+  lines.push("");
+  lines.push("## Notes");
+  lines.push("");
+  lines.push("Add what to review before the next attempt.");
+  lines.push("");
+
+  const title = `${fm.taken_on} ${fm.course} ${numberText(fm.composite)}`;
+  return {
+    path: `${AP_EXAM_FOLDER}/${safeFilePart(title) || "AP practice exam"}.md`,
+    title,
+    text: lines.join("\n"),
+    frontmatter: fm,
+    entry: entryFromFrontmatter(fm, `${AP_EXAM_FOLDER}/${safeFilePart(title) || "AP practice exam"}.md`),
+  };
+}
+
+/** Use a unique path so saving twice never overwrites an earlier attempt. */
+function uniqueApExamPath(note, exists) {
+  const has = typeof exists === "function" ? exists : () => false;
+  if (!has(note.path)) return note.path;
+  const base = note.path.replace(/\.md$/i, "");
+  let n = 2;
+  while (has(`${base} ${n}.md`)) n++;
+  return `${base} ${n}.md`;
+}
+
+function entryFromFrontmatter(fm, path) {
+  if (!isApExamNote(fm)) return null;
+  const composite = Number(fm.composite);
+  if (!Number.isFinite(composite)) return null;
+  const profile = profileById(fm.ap_course);
+  const date = normalizeDate(fm.taken_on);
+  return {
+    path: str(path),
+    courseId: str(fm.ap_course) || profile.id,
+    course: str(fm.course) || profile.name,
+    examYear: str(fm.exam_year) || profile.year,
+    takenOn: date,
+    composite: Math.round(composite * 10) / 10,
+    estimated: Number(fm.estimated_ap_score) || 0,
+    low: Number(fm.score_low) || Number(fm.estimated_ap_score) || 0,
+    high: Number(fm.score_high) || Number(fm.estimated_ap_score) || 0,
+  };
+}
+
+/** Newest first; an undated note goes last rather than disappearing. */
+function sortApExamEntries(entries) {
+  return (entries || [])
+    .filter(Boolean)
+    .slice()
+    .sort((a, b) => String(b.takenOn || "").localeCompare(String(a.takenOn || "")) || String(a.path).localeCompare(String(b.path)));
+}
+
+function apExamTrend(entries) {
+  const newest = sortApExamEntries(entries);
+  const latest = newest[0] || null;
+  const previous = newest[1] || null;
+  const average = newest.length ? Math.round((newest.reduce((sum, item) => sum + item.composite, 0) / newest.length) * 10) / 10 : null;
+  const delta = latest && previous ? Math.round((latest.composite - previous.composite) * 10) / 10 : null;
+  return {
+    count: newest.length,
+    latest,
+    previous,
+    average,
+    delta,
+    direction: delta === null ? "none" : delta > 0 ? "up" : delta < 0 ? "down" : "flat",
+  };
+}
+
+module.exports = {
+  AP_EXAM_CURVE_SOURCE,
+  AP_EXAM_FOLDER,
+  AP_EXAM_TYPE,
+  apExamFrontmatter,
+  apExamTrend,
+  buildApExamNote,
+  entryFromFrontmatter,
+  isApExamNote,
+  normalizeDate,
+  sortApExamEntries,
+  uniqueApExamPath,
+};
+};
+
 /* ---- src/ap-resources.js ---- */
 __defs["ap-resources"] = function (module, exports, require) {
 /*
@@ -21652,6 +21839,7 @@ const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, rem
 const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
+const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -22913,6 +23101,27 @@ class QuestionTrackerPlugin extends Plugin {
       return;
     }
     await this.app.workspace.getLeaf("tab").openFile(file);
+  }
+
+  /** Saves a complete calculator result as an ordinary note with history properties. */
+  async saveApExamResult(profile, result, cutoffs, takenOn) {
+    const note = buildApExamNote(profile, result, cutoffs, takenOn);
+    if (!note) throw new Error("Enter every section before saving a practice exam.");
+    await ensureFolder(this.app, AP_EXAM_FOLDER);
+    const path = uniqueApExamPath(note, (candidate) => !!this.app.vault.getAbstractFileByPath(candidate));
+    const file = await this.app.vault.create(path, note.text);
+    return { file, path, frontmatter: note.frontmatter, entry: { ...note.entry, path } };
+  }
+
+  /** Reads saved practice-exam notes back from the metadata cache, newest first. */
+  getApExamHistory() {
+    const entries = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const entry = entryFromFrontmatter(fm, file.path);
+      if (entry) entries.push(entry);
+    }
+    return sortApExamEntries(entries);
   }
 
   async openApScore() {
@@ -27728,7 +27937,7 @@ module.exports = {
 
 /* ---- src/reference-view.js ---- */
 __defs["reference-view"] = function (module, exports, require) {
-const { ItemView } = require("obsidian");
+const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_REFERENCE } = require("./constants");
 const {
   REFERENCE_SUBJECTS,
@@ -27750,6 +27959,7 @@ const {
   resourceTypeLabel,
   resourcesForCourse,
 } = require("./ap-resources");
+const { apExamTrend } = require("./ap-exam-history");
 
 /*
  * A local-only reference panel. It deliberately contains no calculator engine,
@@ -27787,6 +27997,8 @@ class ReferenceView extends ItemView {
     this.apTarget = "4";
     this.apResultEl = null;
     this.apResourceCourse = AP_RESOURCE_COURSES[0].id;
+    this.apHistoryEl = null;
+    this.apSaving = false;
   }
 
   getViewType() {
@@ -28164,6 +28376,64 @@ class ReferenceView extends ItemView {
     }
   }
 
+  async saveApExam(profile, result, button) {
+    if (this.apSaving) return;
+    if (!this.plugin.saveApExamResult) {
+      new Notice("Practice-exam history is unavailable in this build.");
+      return;
+    }
+    this.apSaving = true;
+    if (button) button.disabled = true;
+    try {
+      const saved = await this.plugin.saveApExamResult(profile, result, this.apCutoffs);
+      new Notice(`Saved ${saved.path}.`);
+      await this.loadApHistory(saved.entry);
+    } catch (err) {
+      new Notice(err && err.message ? err.message : "Could not save this practice exam.");
+    } finally {
+      this.apSaving = false;
+      if (button) button.disabled = false;
+    }
+  }
+
+  async loadApHistory(extra) {
+    if (!this.apHistoryEl) return;
+    let entries = [];
+    try {
+      entries = (this.plugin.getApExamHistory && this.plugin.getApExamHistory()) || [];
+    } catch (e) {
+      entries = [];
+    }
+    if (extra && !entries.some((entry) => entry.path === extra.path)) entries = [extra, ...entries];
+    this.renderApHistory(entries);
+  }
+
+  renderApHistory(entries) {
+    const el = this.apHistoryEl;
+    if (!el) return;
+    el.empty();
+    const trend = apExamTrend(entries);
+    if (!trend.count) {
+      el.createDiv({ cls: "qt-hint", text: "No saved practice exams yet. Enter every section and save one to start a trend." });
+      return;
+    }
+    const summary = el.createDiv({ cls: "qt-ap-history-summary" });
+    summary.createSpan({ text: `${trend.count} saved · average ${trend.average}%` });
+    if (trend.count > 1) {
+      const sign = trend.delta > 0 ? "+" : "";
+      summary.createSpan({ cls: `qt-ap-trend qt-ap-trend-${trend.direction}`, text: `${sign}${trend.delta} points vs previous` });
+    }
+    for (const entry of entries.slice(0, 8)) {
+      const row = el.createDiv({ cls: "qt-ap-history-row" });
+      const text = row.createDiv({ cls: "qt-ap-history-text" });
+      text.createEl("strong", { text: `${entry.takenOn || "Undated"} · ${entry.course}` });
+      text.createDiv({ cls: "qt-hint", text: `${entry.composite}% composite · estimated ${entry.estimated}${entry.low !== entry.high ? ` (${entry.low}-${entry.high})` : ""}` });
+      row.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => {
+        if (this.app && this.app.workspace && this.app.workspace.openLinkText) this.app.workspace.openLinkText(entry.path, "", false);
+      });
+    }
+  }
+
   renderApResources(root) {
     const pack = resourcesForCourse(this.apResourceCourse);
     root.createDiv({
@@ -28281,6 +28551,12 @@ class ReferenceView extends ItemView {
 
     this.apResultEl = root.createDiv({ cls: "qt-ap-result" });
     this.renderApResult();
+
+    const history = root.createDiv({ cls: "qt-ap-history" });
+    history.createEl("h4", { text: "Saved practice exams" });
+    history.createDiv({ cls: "qt-hint", text: "Saving writes an ordinary note with your section scores and practice cut scores, so the result stays in the vault and can be edited or deleted." });
+    this.apHistoryEl = history.createDiv({ cls: "qt-ap-history-list" });
+    this.loadApHistory();
   }
 
   renderApResult() {
@@ -28298,6 +28574,9 @@ class ReferenceView extends ItemView {
       card.createDiv({ cls: "qt-ap-big", text: `${result.composite}% weighted` });
       const range = result.range && result.range[0] !== result.range[1] ? `${result.range[0]}–${result.range[1]}` : String(result.estimated);
       card.createDiv({ cls: "qt-hint", text: `Likely band at ±4 composite points: ${range}. This is a study estimate, not an official score.` });
+      const save = card.createEl("button", { text: "Save practice exam", cls: "mod-cta qt-ap-save" });
+      save.disabled = this.apSaving;
+      save.addEventListener("click", () => this.saveApExam(profile, result, save));
     }
 
     const breakdown = el.createDiv({ cls: "qt-ap-breakdown" });
@@ -31973,6 +32252,7 @@ const referenceGraph = require("./reference-graph");
 const { ReferenceView } = require("./reference-view");
 const apScore = require("./ap-score");
 const apResources = require("./ap-resources");
+const apExamHistory = require("./ap-exam-history");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const dailyQuiz = require("./daily-quiz");
 const { renderDailySettings } = require("./daily-quiz-settings");
@@ -32066,6 +32346,7 @@ QuestionTrackerPlugin.__test = {
   referenceData,
   apScore,
   apResources,
+  apExamHistory,
   pdfAnnotations,
   pdfInk,
   PdfAnnotationModal,

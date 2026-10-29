@@ -40,6 +40,7 @@ const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, rem
 const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
+const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -1301,6 +1302,27 @@ class QuestionTrackerPlugin extends Plugin {
       return;
     }
     await this.app.workspace.getLeaf("tab").openFile(file);
+  }
+
+  /** Saves a complete calculator result as an ordinary note with history properties. */
+  async saveApExamResult(profile, result, cutoffs, takenOn) {
+    const note = buildApExamNote(profile, result, cutoffs, takenOn);
+    if (!note) throw new Error("Enter every section before saving a practice exam.");
+    await ensureFolder(this.app, AP_EXAM_FOLDER);
+    const path = uniqueApExamPath(note, (candidate) => !!this.app.vault.getAbstractFileByPath(candidate));
+    const file = await this.app.vault.create(path, note.text);
+    return { file, path, frontmatter: note.frontmatter, entry: { ...note.entry, path } };
+  }
+
+  /** Reads saved practice-exam notes back from the metadata cache, newest first. */
+  getApExamHistory() {
+    const entries = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const entry = entryFromFrontmatter(fm, file.path);
+      if (entry) entries.push(entry);
+    }
+    return sortApExamEntries(entries);
   }
 
   async openApScore() {

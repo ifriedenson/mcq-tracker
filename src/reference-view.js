@@ -1,5 +1,5 @@
 "use strict";
-const { ItemView } = require("obsidian");
+const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_REFERENCE } = require("./constants");
 const {
   REFERENCE_SUBJECTS,
@@ -21,6 +21,7 @@ const {
   resourceTypeLabel,
   resourcesForCourse,
 } = require("./ap-resources");
+const { apExamTrend } = require("./ap-exam-history");
 
 /*
  * A local-only reference panel. It deliberately contains no calculator engine,
@@ -58,6 +59,8 @@ class ReferenceView extends ItemView {
     this.apTarget = "4";
     this.apResultEl = null;
     this.apResourceCourse = AP_RESOURCE_COURSES[0].id;
+    this.apHistoryEl = null;
+    this.apSaving = false;
   }
 
   getViewType() {
@@ -435,6 +438,64 @@ class ReferenceView extends ItemView {
     }
   }
 
+  async saveApExam(profile, result, button) {
+    if (this.apSaving) return;
+    if (!this.plugin.saveApExamResult) {
+      new Notice("Practice-exam history is unavailable in this build.");
+      return;
+    }
+    this.apSaving = true;
+    if (button) button.disabled = true;
+    try {
+      const saved = await this.plugin.saveApExamResult(profile, result, this.apCutoffs);
+      new Notice(`Saved ${saved.path}.`);
+      await this.loadApHistory(saved.entry);
+    } catch (err) {
+      new Notice(err && err.message ? err.message : "Could not save this practice exam.");
+    } finally {
+      this.apSaving = false;
+      if (button) button.disabled = false;
+    }
+  }
+
+  async loadApHistory(extra) {
+    if (!this.apHistoryEl) return;
+    let entries = [];
+    try {
+      entries = (this.plugin.getApExamHistory && this.plugin.getApExamHistory()) || [];
+    } catch (e) {
+      entries = [];
+    }
+    if (extra && !entries.some((entry) => entry.path === extra.path)) entries = [extra, ...entries];
+    this.renderApHistory(entries);
+  }
+
+  renderApHistory(entries) {
+    const el = this.apHistoryEl;
+    if (!el) return;
+    el.empty();
+    const trend = apExamTrend(entries);
+    if (!trend.count) {
+      el.createDiv({ cls: "qt-hint", text: "No saved practice exams yet. Enter every section and save one to start a trend." });
+      return;
+    }
+    const summary = el.createDiv({ cls: "qt-ap-history-summary" });
+    summary.createSpan({ text: `${trend.count} saved · average ${trend.average}%` });
+    if (trend.count > 1) {
+      const sign = trend.delta > 0 ? "+" : "";
+      summary.createSpan({ cls: `qt-ap-trend qt-ap-trend-${trend.direction}`, text: `${sign}${trend.delta} points vs previous` });
+    }
+    for (const entry of entries.slice(0, 8)) {
+      const row = el.createDiv({ cls: "qt-ap-history-row" });
+      const text = row.createDiv({ cls: "qt-ap-history-text" });
+      text.createEl("strong", { text: `${entry.takenOn || "Undated"} · ${entry.course}` });
+      text.createDiv({ cls: "qt-hint", text: `${entry.composite}% composite · estimated ${entry.estimated}${entry.low !== entry.high ? ` (${entry.low}-${entry.high})` : ""}` });
+      row.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => {
+        if (this.app && this.app.workspace && this.app.workspace.openLinkText) this.app.workspace.openLinkText(entry.path, "", false);
+      });
+    }
+  }
+
   renderApResources(root) {
     const pack = resourcesForCourse(this.apResourceCourse);
     root.createDiv({
@@ -552,6 +613,12 @@ class ReferenceView extends ItemView {
 
     this.apResultEl = root.createDiv({ cls: "qt-ap-result" });
     this.renderApResult();
+
+    const history = root.createDiv({ cls: "qt-ap-history" });
+    history.createEl("h4", { text: "Saved practice exams" });
+    history.createDiv({ cls: "qt-hint", text: "Saving writes an ordinary note with your section scores and practice cut scores, so the result stays in the vault and can be edited or deleted." });
+    this.apHistoryEl = history.createDiv({ cls: "qt-ap-history-list" });
+    this.loadApHistory();
   }
 
   renderApResult() {
@@ -569,6 +636,9 @@ class ReferenceView extends ItemView {
       card.createDiv({ cls: "qt-ap-big", text: `${result.composite}% weighted` });
       const range = result.range && result.range[0] !== result.range[1] ? `${result.range[0]}–${result.range[1]}` : String(result.estimated);
       card.createDiv({ cls: "qt-hint", text: `Likely band at ±4 composite points: ${range}. This is a study estimate, not an official score.` });
+      const save = card.createEl("button", { text: "Save practice exam", cls: "mod-cta qt-ap-save" });
+      save.disabled = this.apSaving;
+      save.addEventListener("click", () => this.saveApExam(profile, result, save));
     }
 
     const breakdown = el.createDiv({ cls: "qt-ap-breakdown" });

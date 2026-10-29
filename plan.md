@@ -22,9 +22,9 @@
 - **Coverage:** preview duplicate detection, history preservation on update, and distinct keys on copy.
 - **No third-party code was added.** The plugin remains MIT.
 
-**Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0, visual text boxes in 1.53.0 and highlight regions in 1.54.0; form filling and a fuller PDF editor remain future work. The unofficial AP score calculator shipped in 1.56.0 and the link-only AP resource hub in 1.57.0. The AP FRQ grader remains behind the owner pilot gate (four-course pilot, human-scored fixtures and rights review). A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated.
+**Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0, visual text boxes in 1.53.0 and highlight regions in 1.54.0; form filling and a fuller PDF editor remain future work. The unofficial AP score calculator shipped in 1.56.0, the link-only AP resource hub in 1.57.0 and saved practice-exam history with trends in 1.58.0. The AP FRQ grader remains behind the owner pilot gate (four-course pilot, human-scored fixtures and rights review). A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated.
 
-**Recently completed (1.57.0):** a link-only AP resource hub for the four supported courses, with official AP Central, AP Students and AP Classroom links, released FRQs, scoring guidelines, exam format and dates. Previous release 1.56.0 added the unofficial AP score calculator; 1.55.0 added image occlusion, 1.54.0 highlight regions and 1.52.0 the PDF pen/highlighter overlay.
+**Recently completed (1.58.0):** saved AP practice-exam history, with a durable note for every complete result, a newest-first list, an average and the change from the previous attempt. Previous release 1.57.0 added the link-only AP resource hub; 1.56.0 the unofficial AP score calculator; 1.55.0 image occlusion and 1.54.0 highlight regions.
 
 ---
 
@@ -813,7 +813,7 @@ Reuse the general FRQ model in §5.5 and add AP-specific structure.
 
 #### 5.20.2 AP score calculator
 
-**Implemented in 1.56.0:** the Reference tab ships four 2027 exam profiles (AP Biology, Calculus AB, English Language, U.S. History), weighted section and part inputs, editable cut scores, an explicit incomplete state, a likely band, and a reverse "what do I need?" calculation. Profiles link to the official AP Central exam page. FRQ score history and saved practice-exam notes remain future work.
+**Implemented in 1.56.0 and 1.58.0:** the Reference tab ships four 2027 exam profiles (AP Biology, Calculus AB, English Language, U.S. History), weighted section and part inputs, editable cut scores, an explicit incomplete state, a likely band, and a reverse "what do I need?" calculation. Profiles link to the official AP Central exam page. **Save practice exam** writes an ordinary note under `AP practice exams/` with the date, section table, composite, estimate, band and cut scores; the tab lists saved attempts with an average and the change from the previous attempt. FRQ score history remains future work.
 
 An **unofficial practice estimate**, never a prediction presented as an official College Board score.
 
@@ -1169,7 +1169,8 @@ Names are proposals; keep existing ones unchanged.
 These are **research and specification items**, not implementation work. The AP FRQ grader is the owner's requested next idea after card import; the score calculator and resource hub are its natural companions.
 
 - [ ] **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, and score history (§5.20)
-- [x] **AP score calculator** — four 2027 profiles, weighted section and part inputs, editable practice cutoffs, incomplete estimates, a likely band and a reverse "what do I need?" calculation (§5.20) — shipped in 1.56.0; saved practice-exam history remains
+- [x] **AP score calculator** — four 2027 profiles, weighted section and part inputs, editable practice cutoffs, incomplete estimates, a likely band and a reverse "what do I need?" calculation (§5.20) — shipped in 1.56.0
+- [x] **Saved AP practice-exam history** — save a complete result as an ordinary note, list attempts newest first, show the average and change from the previous attempt (§5.20.2) — shipped in 1.58.0; FRQ score history remains
 - [x] **AP resource hub** — one place for official AP Central/AP Classroom links, course and exam descriptions, released FRQs and scoring guidelines, AP Videos, and exam dates (§5.20) — link-only version shipped in 1.57.0; resource notes, unit tags and stale-link checks remain
 - [x] **Research specification** — supported-course recommendation, rubric and score-profile schemas, evaluation plan, copyright/permissions questions, data model, UX flows, and acceptance tests ([spec](docs/ap-frq-grader-spec.md), §5.20)
 - [ ] **Pilot gate** — approve the four-course pilot, build the human-scored fixture set, complete the rights review, and approve the go/no-go thresholds before implementing the FRQ grader (the link-only resource hub did not require this gate)
