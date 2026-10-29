@@ -64,6 +64,7 @@ const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, 
 const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
+const aiService = require("./ai-service");
 const { AI_WRITE_STORAGE_KEY, appendAiWrite, latestAiWrite, makeAiWriteRecord, normalizeAiWrites } = require("./ai-writes");
 const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
@@ -100,6 +101,7 @@ class QuestionTrackerPlugin extends Plugin {
     this._calendarFolders = null;
     this._calendarCache = null;
     this._pendingCardGradeFlush = null;
+    this._aiRun = { startedAt: 0, requests: 0 };
     // Calendar notes are resolved by their durable UID/date properties, so any
     // create/delete/rename (or frontmatter edit) invalidates the shared index.
     const invalidateNotes = () => this.invalidateCalendarNotes();
@@ -469,6 +471,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
     this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
+    aiService.normalizeAiService(this.settings.ai);
     // 0.2.0 saved settings had no `managed` flag: move those users to the automatic setup.
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
@@ -1913,7 +1916,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (kind === "cards" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
     const count = Math.max(1, Math.min(20, Math.round(Number(opts.count) || (kind === "cards" ? 8 : 5))));
     const prompt = buildWeakSpotPrompt({ skill: row.value, course: opts.course, kind, count });
-    const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: kind === "questions" ? 3500 : 2500 });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: kind === "questions" ? 3500 : 2500 });
     const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
     const items = kind === "questions" ? parsed.questions : parsed.cards;
     const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : null;
@@ -1927,7 +1930,7 @@ class QuestionTrackerPlugin extends Plugin {
       verification,
       errors: [],
       ai: true,
-      model: this.aiModelLabel(),
+      model: this.aiModelLabel("generation"),
     };
   }
 
@@ -1961,7 +1964,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!/^[A-H]$/.test(key)) throw new Error("Only multiple-choice items with a letter answer can be checked.");
     if (!Array.isArray(data.choices) || !data.choices.length) throw new Error("This item has no answer choices to check.");
     const prompt = buildBlindVerificationPrompt({ question: data.question, choices: data.choices });
-    const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: 800 });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 });
     const verdict = parseBlindVerification(reply);
     if (!verdict.answer) throw new Error("The AI did not return a usable answer letter.");
     return { match: verdict.answer === key, answer: verdict.answer, key, confidence: verdict.confidence };
@@ -1974,7 +1977,7 @@ class QuestionTrackerPlugin extends Plugin {
   async verifyDraftQuestions(items) {
     const list = Array.isArray(items) ? items : [];
     const mode = normalizeVerificationMode(this.settings.ai.verification);
-    const model = this.aiModelLabel();
+    const model = this.aiModelLabel("verification");
     const date = localDate();
     let checked = 0;
     let dropped = 0;
@@ -2034,7 +2037,7 @@ class QuestionTrackerPlugin extends Plugin {
       answer: result.answer,
       key,
       confidence: result.confidence,
-      model: this.aiModelLabel(),
+      model: this.aiModelLabel("verification"),
       date: localDate(),
     };
     await this.app.fileManager.processFrontMatter(file, (data) => {
@@ -2061,13 +2064,77 @@ class QuestionTrackerPlugin extends Plugin {
     return { ...transcriptInfo(file, fm, text), file, fm };
   }
 
-  aiModelLabel() {
+  /** Capability flags for the backend this device is actually using. */
+  aiCapabilities() {
+    return aiService.capabilities(this.backend());
+  }
+
+  aiSupports(capability) {
+    return !!this.aiCapabilities()[str(capability).trim()];
+  }
+
+  aiModelFor(feature) {
+    return aiService.featureModel(this.settings.ai, feature, this.backend());
+  }
+
+  /** The model name recorded in notes and shown in the UI for one feature. */
+  aiModelLabel(feature) {
     const ai = this.settings.ai;
-    return (
-      str(ai.backend === "opencode" ? ai.model : ai.api && ai.api.model).trim() ||
-      str(ai.api && ai.api.provider).trim() ||
-      "AI"
-    );
+    const model = this.aiModelFor(feature || "chat");
+    return model || str(ai.api && ai.api.provider).trim() || "AI";
+  }
+
+  aiUsageKey() {
+    return aiService.AI_USAGE_STORAGE_KEY;
+  }
+
+  readAiUsage() {
+    if (this._aiUsage && this._aiUsage.date === localDate()) return this._aiUsage;
+    let usage = null;
+    try {
+      usage = aiService.usageForDate(this.app.loadLocalStorage(this.aiUsageKey()), localDate());
+    } catch (e) {
+      usage = aiService.usageForDate(null, localDate());
+    }
+    this._aiUsage = usage;
+    return usage;
+  }
+
+  writeAiUsage(usage) {
+    this._aiUsage = aiService.usageForDate(usage, localDate());
+    try {
+      this.app.saveLocalStorage(this.aiUsageKey(), aiService.packUsage(this._aiUsage));
+    } catch (e) {
+      // Keep the in-memory count for this session if device storage is unavailable.
+    }
+  }
+
+  aiBudget() {
+    return aiService.budgetState(this.readAiUsage(), this.settings.ai.limits, localDate());
+  }
+
+  aiRunBudget() {
+    return aiService.runBudgetState(this._aiRun, this.settings.ai.limits, Date.now());
+  }
+
+  /** Check the daily and per-run caps before a request leaves the device. */
+  aiCanSpend(feature) {
+    const support = aiService.featureSupport(feature, this.backend());
+    if (!support.ok) return support;
+    const daily = this.aiBudget();
+    if (!daily.allowed) return { ok: false, reason: daily.message };
+    const run = this.aiRunBudget();
+    if (!run.allowed) return { ok: false, reason: run.message };
+    return { ok: true, reason: "" };
+  }
+
+  spendAiRequest(feature, tokens) {
+    this.writeAiUsage(aiService.recordUsage(this.readAiUsage(), feature, tokens, localDate()));
+    const now = Date.now();
+    if (!this._aiRun || !this._aiRun.startedAt || now - this._aiRun.startedAt > 10 * 60 * 1000) {
+      this._aiRun = { startedAt: now, requests: 0 };
+    }
+    this._aiRun.requests += 1;
   }
 
   /** Draft cards or questions from a transcript. This method writes nothing. */
@@ -2100,14 +2167,14 @@ class QuestionTrackerPlugin extends Plugin {
       kind === "questions"
         ? buildTranscriptQuestionPrompt({ title: info.title, course, text: info.text, count })
         : buildTranscriptCardPrompt({ title: info.title, course, text: info.text, count });
-    const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: kind === "questions" ? 4000 : 3000 });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: kind === "questions" ? 4000 : 3000 });
     const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
     const items = kind === "questions" ? parsed.questions : parsed.cards;
     const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : null;
     return {
       ...base,
       ai: true,
-      model: this.aiModelLabel(),
+      model: this.aiModelLabel("generation"),
       items: items.filter((item) => !(item.verification && item.verification.drop)),
       verification,
     };
@@ -2167,7 +2234,7 @@ class QuestionTrackerPlugin extends Plugin {
           item,
           { course: g.course, source: g.title },
           qid,
-          { model: g.model || this.aiModelLabel(), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note", verification: item.verification }
+          { model: g.model || this.aiModelLabel("generation"), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note", verification: item.verification }
         );
         assertAllowedWritePath(path, this.settings);
         await this.app.vault.create(path, note);
@@ -2628,17 +2695,30 @@ class QuestionTrackerPlugin extends Plugin {
     return this.readPendingCardGrades();
   }
 
-  /** One completion path for both AI backends; the card grader only sees a chat-shaped client. */
-  async aiComplete(system, user, opts) {
+  /**
+   * One request path for every AI feature and both backends. It checks the
+   * feature's capability, both request caps and the per-feature model, counts
+   * the request before it is sent, then lets the provider client do the call.
+   */
+  async aiChat(system, messages, opts) {
+    const o = opts || {};
+    const feature = aiService.normalizeFeatureId(o.feature);
     const ai = this.settings.ai;
     if (!ai.enabled) throw new Error("Turn on AI features in the plugin settings first.");
+    const support = aiService.featureSupport(feature, this.backend());
+    if (!support.ok) throw new Error(support.reason);
+    const can = this.aiCanSpend(feature);
+    if (!can.ok) throw new Error(can.reason);
+    const maxTokens = aiService.clampMaxTokens(ai, o.maxTokens);
+    const model = this.aiModelFor(feature);
+    this.spendAiRequest(feature, aiService.estimateRequestTokens(system, messages, o.images));
     if (this.backend() === "opencode") {
       await this.ensureOpenCode();
       const oc = this.openCode();
-      const session = await oc.createSession("Grade a flashcard answer");
-      const body = { parts: [{ type: "text", text: user }], system };
-      const model = modelFromString(ai.model);
-      if (model) body.model = model;
+      const session = await oc.createSession("MCQ Tracker AI");
+      const body = { parts: [{ type: "text", text: (Array.isArray(messages) ? messages : []).map((m) => str(m && m.content)).join("\n\n") }], system };
+      const parsed = modelFromString(model);
+      if (parsed) body.model = parsed;
       await oc.send(session.id, body);
       const turns = partsToTurns(await oc.messages(session.id));
       const last = [...turns].reverse().find((turn) => turn.role === "assistant");
@@ -2646,19 +2726,30 @@ class QuestionTrackerPlugin extends Plugin {
       if (!text) throw new Error("OpenCode returned an empty reply.");
       return text;
     }
-    return new ApiClient(ai, this.app).chat(system, [{ role: "user", content: user }], opts);
+    return new ApiClient(ai, this.app, { model }).chat(system, Array.isArray(messages) ? messages : [], { ...o, maxTokens });
+  }
+
+  /** One-message convenience wrapper used by generation, verification and grading. */
+  async aiComplete(system, user, opts) {
+    return this.aiChat(system, [{ role: "user", content: user }], opts);
   }
 
   /** Opt-in image request for OCR. Only Direct AI can receive page images. */
   async aiVision(system, prompt, images, opts) {
+    const o = opts || {};
     const ai = this.settings.ai;
     if (!ai.enabled) throw new Error("Turn on AI features in the plugin settings first.");
-    if (this.backend() !== "api") throw new Error("Vision OCR needs the Direct AI backend; OpenCode cannot receive page images through this plugin.");
-    return new ApiClient(ai, this.app).vision(system, prompt, images, opts);
+    const support = aiService.featureSupport("ocr", this.backend());
+    if (!support.ok) throw new Error(support.reason);
+    const can = this.aiCanSpend("ocr");
+    if (!can.ok) throw new Error(can.reason);
+    const maxTokens = aiService.clampMaxTokens(ai, o.maxTokens);
+    this.spendAiRequest("ocr", aiService.estimateRequestTokens(system, [{ content: prompt }], images));
+    return new ApiClient(ai, this.app, { model: this.aiModelFor("ocr") }).vision(system, prompt, images, { ...o, maxTokens });
   }
 
   gradeCardWithAi(card, typed, strictness) {
-    const client = { chat: (system, messages, opts) => this.aiComplete(system, messages && messages[0] ? messages[0].content : "", opts) };
+    const client = { chat: (system, messages, opts) => this.aiComplete(system, messages && messages[0] ? messages[0].content : "", { ...(opts || {}), feature: "cardGrading" }) };
     return gradeWithAi(client, { front: card.body && card.body.front, expected: card.body && card.body.back, typed, strictness });
   }
 
@@ -2679,7 +2770,7 @@ class QuestionTrackerPlugin extends Plugin {
         }
         try {
           const ai = await gradeWithAi(
-            { chat: (system, messages, opts) => this.aiComplete(system, messages && messages[0] ? messages[0].content : "", opts) },
+            { chat: (system, messages, opts) => this.aiComplete(system, messages && messages[0] ? messages[0].content : "", { ...(opts || {}), feature: "cardGrading" }) },
             entry
           );
           await this.app.fileManager.processFrontMatter(file, (fm) => {
@@ -3638,7 +3729,7 @@ class QuestionTrackerPlugin extends Plugin {
       makeAiWriteRecord({
         kind: generated.kind,
         sourcePath: generated.sourcePath,
-        model: generated.model || this.aiModelLabel(),
+        model: generated.model || this.aiModelLabel("generation"),
         summary: generated.title,
         paths,
       }),

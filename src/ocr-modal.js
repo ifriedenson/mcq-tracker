@@ -132,7 +132,7 @@ class OcrModal extends Modal {
     if (this.method === "ai") {
       new Setting(el)
         .setName("I understand page images are sent to my AI provider")
-        .setDesc(this.canRun() ? `Provider: ${this.plugin.aiModelLabel()}.` : "Turn on AI features and use Direct AI to enable this.")
+        .setDesc(this.canRun() ? `Provider: ${this.plugin.aiModelLabel("ocr")}.` : "Turn on AI features and use Direct AI to enable this.")
         .addToggle((t) =>
           t.setValue(this.consent).onChange((v) => {
             this.consent = v;
@@ -195,7 +195,7 @@ class OcrModal extends Modal {
         status.setText(`Reading ${rendered.pages.length} page${rendered.pages.length === 1 ? "" : "s"} with ${localOcrLabel(config.command)}...`);
         results.push(...(await ocrPagesWithLocalCommand(config.command, rendered.pages, { timeoutSeconds: config.timeoutSeconds })));
       } else {
-        this.engineLabel = this.plugin.aiModelLabel();
+        this.engineLabel = this.plugin.aiModelLabel("ocr");
         for (let i = 0; i < rendered.pages.length; i++) {
           const page = rendered.pages[i];
           status.setText(`Reading page ${page.n} (${i + 1} of ${rendered.pages.length}) with ${this.engineLabel}...`);
@@ -247,7 +247,7 @@ class OcrModal extends Modal {
         title: this.title,
         sourcePath: this.source && this.source.path,
         sourceName: this.source && this.source.name,
-        model: this.engineLabel || (this.method === "local" ? "local OCR" : this.plugin.aiModelLabel()),
+        model: this.engineLabel || (this.method === "local" ? "local OCR" : this.plugin.aiModelLabel("ocr")),
         sourceKind: this.method === "local" ? "local-command" : "ai-vision",
         date: localDate(),
       });

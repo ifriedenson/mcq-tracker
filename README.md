@@ -440,6 +440,18 @@ The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRo
 - **Running it:** when you use the AI chat, the plugin starts `opencode serve` on `127.0.0.1` with a random port and a random password, so only your computer can reach it. It is stopped when Obsidian closes. Its own data (including any provider key you save here) lives in `~/.question-tracker/opencode-data`.
 - **Tutor mode (default)** switches off OpenCode's file-editing and shell tools. **Agent mode** leaves them on, so OpenCode can read and edit files in your vault. Keep your vault backed up before using Agent mode. The plugin also snapshots every question and card note before an Agent-mode message and puts back any review state the agent changes, so an over-eager edit cannot rewrite attempts or scheduling.
 
+### Models, limits and capabilities
+
+All AI features share one request path, so you configure the provider once. Under **Settings → MCQ Tracker → AI → Models and request limits** you can:
+
+- **Pick a model per feature.** Chat, generation and import, answer checking, typed-card grading and vision OCR can each name their own model. Leave a field empty to use the backend-wide model. A saved per-feature model is also the name recorded in notes when that feature writes one.
+- **Cap one reply.** **Reply token cap** is a hard ceiling for a single reply, including features that ask for more. The default is 4,000.
+- **Cap a day or a run.** **Daily request cap** stops requests after that many in one local day; **0** means no cap. **Per-run request cap** limits one burst of work and resets after ten idle minutes, so a long import cannot run away. Both counters and the rough token estimate are kept on this device, not in your vault.
+- **See what the backend can do.** Direct AI reports page images, JSON replies, live progress and file tools. OpenCode reports the same, except that it cannot receive page images through this plugin. A feature that needs a missing capability explains the problem instead of sending a request that will fail.
+- **Read what each feature sends.** The same settings page lists the content for chat, generation and import, answer checking, typed-card grading and vision OCR in one place.
+
+A refused capability or an exhausted cap spends nothing. Requests that reach the provider count even if the provider then fails, which keeps a retry loop from silently bypassing the cap. Keys stay in Secret Storage where Obsidian provides it, and are never written to logs.
+
 ### Tutor roles and commands
 
 Choose **Private tutor**, **Socratic tutor**, or **Language partner** under **Settings → MCQ Tracker → AI → Tutor role**, or from the role menu in a chat. The same role is used by the review panel and the general assistant, with either AI backend.
@@ -500,7 +512,7 @@ Settings are grouped by module, then by tab. **Global** has Modules and General;
 
 - **Global → Modules** is one switch per module: **MCQ Tracker** (on by default), **Cards and vocabulary** (off by default), **Calendar** (off by default) and **AI features** (off by default). Turning a module off keeps its settings and your notes. It closes that module's open tabs and hides its ribbon button; using one of its commands anyway shows a notice that points back here.
 - **Global → General** holds the plugin-wide options: whether the plugin shows its ribbon icons, and whether the practice view opens when Obsidian starts.
-- **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, the Known snooze length and manager, the optional study-cards skin, the daily quiz count and folders, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
+- **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, the Known snooze length and manager, the optional study-cards skin, the daily quiz count and folders, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, per-feature models, daily and per-run request caps, and saved presets.
 - **Cards** covers the default deck, the new-card folder, deck folders and course tags, cards per review session, answer mode, grading strictness, the optional AI fallback for typed answers, and whether to review due-and-new or all cards.
 - The calendar's **Appearance & Colors** tab includes a maximum width setting (`0` fills the pane), class colors, break markers, and the study-slot buffer.
 

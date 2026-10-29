@@ -305,6 +305,8 @@ Every AI feature (generation, verification, FRQ grading, flashcard answer gradin
 - **Privacy:** a single place that lists exactly what each feature sends.
 - **Safety:** all note, PDF, and calendar content is treated as **untrusted data** (prompt-injection defense, §5.18, §8.5).
 
+**Implemented in 1.79.0:** every AI call now goes through one request path (`src/ai-service.js` and `Plugin.aiChat`/`aiVision`). It normalises feature ids and per-feature models, checks backend capabilities before sending, enforces a reply-token ceiling plus optional daily and per-run request caps, counts requests per device before the provider call, and exposes the same feature/privacy list in Settings. Chat, document import, generation, answer verification, typed-card grading and vision OCR all use it. The durable card grade-later queue and offline practice outbox remain the retry path; network and 5xx errors are classified as retryable while bad keys and malformed requests are not. Third-party code: none added.
+
 ---
 
 ## 5. Feature modules in detail
@@ -1130,7 +1132,7 @@ Names are proposals; keep existing ones unchanged.
 ### Phase 0: Foundations and safety
 
 - [x] Module system: every module off by default, lazy-loaded, with first-run presets (§4.5)
-- [ ] Shared AI service layer: BYOK + OpenCode, capability flags, queue, cost caps (§4.6)
+- [x] Shared AI service layer: BYOK + OpenCode, capability flags, queue, cost caps (§4.6) — shipped in 1.79.0; the grade-later queue is the offline/retry path
 - [x] Move API keys to Obsidian secret storage where supported (§4.4) — shipped in 1.75.0, with a plain-text fallback for older app versions and one-time migration
 - [x] Publish the property schema and a data contract (§6) — schema version 1 and the stability rules shipped in 1.76.1, building on the 1.39.0 schema page
 - [x] Item-type model (§4.2)
@@ -2074,6 +2076,8 @@ Every AI feature (generation, verification, FRQ grading, flashcard answer gradin
 - **Privacy:** a single place that lists exactly what each feature sends.
 - **Safety:** all note, PDF, and calendar content is treated as **untrusted data** (prompt-injection defense, §5.18, §8.5).
 
+**Implemented in 1.79.0:** every AI call now goes through one request path (`src/ai-service.js` and `Plugin.aiChat`/`aiVision`). It normalises feature ids and per-feature models, checks backend capabilities before sending, enforces a reply-token ceiling plus optional daily and per-run request caps, counts requests per device before the provider call, and exposes the same feature/privacy list in Settings. Chat, document import, generation, answer verification, typed-card grading and vision OCR all use it. The durable card grade-later queue and offline practice outbox remain the retry path; network and 5xx errors are classified as retryable while bad keys and malformed requests are not. Third-party code: none added.
+
 ---
 
 ## 5. Feature modules in detail
@@ -2538,7 +2542,7 @@ Names are proposals; keep existing ones unchanged.
 ### Phase 0: Foundations and safety
 
 - [x] Module system: every module off by default, lazy-loaded, with first-run presets (§4.5)
-- [ ] Shared AI service layer: BYOK + OpenCode, capability flags, queue, cost caps (§4.6)
+- [x] Shared AI service layer: BYOK + OpenCode, capability flags, queue, cost caps (§4.6) — shipped in 1.79.0; the grade-later queue is the offline/retry path
 - [x] Move API keys to Obsidian secret storage where supported (§4.4) — shipped in 1.75.0, with a plain-text fallback for older app versions and one-time migration
 - [x] Publish the property schema and a data contract (§6) — schema version 1 and the stability rules shipped in 1.76.1, building on the 1.39.0 schema page
 - [x] Item-type model (§4.2)

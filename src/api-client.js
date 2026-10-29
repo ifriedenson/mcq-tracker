@@ -30,9 +30,11 @@ function apiTurns(history) {
 
 /** Plain chat against Anthropic or any OpenAI-compatible endpoint. One request, no streaming. */
 class ApiClient {
-  constructor(ai, app) {
+  /** opts.model overrides the backend-wide model for one feature. */
+  constructor(ai, app, opts) {
     this.ai = ai;
     this.app = app;
+    this.opts = opts || {};
   }
   cfg() {
     const a = this.ai.api || {};
@@ -41,7 +43,7 @@ class ApiClient {
       preset,
       base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, ""),
       key: resolveApiKey(this.app, a),
-      model: str(a.model).trim(),
+      model: str(this.opts.model).trim() || str(a.model).trim(),
     };
   }
   async vision(system, prompt, images, opts) {
@@ -75,6 +77,7 @@ class ApiClient {
       headers = key ? { Authorization: `Bearer ${key}` } : {};
       body = {
         model,
+        max_tokens: (opts && opts.maxTokens) || 1800,
         messages: [
           { role: "system", content: system },
           {
@@ -125,7 +128,7 @@ class ApiClient {
     } else {
       url = `${base}/chat/completions`;
       headers = key ? { Authorization: `Bearer ${key}` } : {};
-      body = { model, messages: [{ role: "system", content: system }, ...msgs] };
+      body = { model, max_tokens: (opts && opts.maxTokens) || 1500, messages: [{ role: "system", content: system }, ...msgs] };
     }
     const r = await requestUrl({ url, method: "POST", headers, contentType: "application/json", body: JSON.stringify(body), throw: false });
     let data = null;

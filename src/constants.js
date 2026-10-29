@@ -2,6 +2,7 @@
 const { DEFAULT_REFERENCE_SETTINGS } = require("./reference-data");
 const { DEFAULT_ASSIGNMENT_SETTINGS } = require("./assignments");
 const { DEFAULT_SUPPORT } = require("./support");
+const { DEFAULT_AI_LIMITS } = require("./ai-service");
 
 const VIEW_TYPE = "question-tracker-view";
 const VIEW_TYPE_TODAY = "question-tracker-today";
@@ -67,6 +68,8 @@ const DEFAULT_SETTINGS = {
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", keys: {} },
+    features: {}, // per-feature model overrides, filled by normalizeAiService
+    limits: { ...DEFAULT_AI_LIMITS }, // one reply cap, optional daily and per-run request caps
   },
   localOcr: { command: "", timeoutSeconds: 120 }, // optional user-installed OCR command; nothing is bundled
   presets: [],

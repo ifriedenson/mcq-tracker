@@ -20,6 +20,7 @@ const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
+const aiService = require("./ai-service");
 const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
 const cardWriteDiff = require("./card-write-diff");
@@ -139,6 +140,7 @@ QuestionTrackerPlugin.__test = {
   ChatPanel,
   tutorPresets,
   aiContext,
+  aiService,
   noteContext,
   aiWriteGuard,
   cardWriteDiff,

@@ -1,6 +1,6 @@
 "use strict";
 const { Notice } = require("obsidian");
-const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
+const { apiTurns, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
@@ -298,9 +298,10 @@ class ChatPanel {
     this.draw();
     const hist = this.apiHistory();
     try {
-      const reply = await new ApiClient(this.ai, this.view.plugin.app).chat(
+      const reply = await this.view.plugin.aiChat(
         this.opts.buildContext("tutor", currentNote),
-        hist.concat([{ role: "user", content: text }])
+        hist.concat([{ role: "user", content: text }]),
+        { feature: "chat" }
       );
       hist.push({ role: "user", content: text }, { role: "assistant", content: reply });
       this.pending = "";

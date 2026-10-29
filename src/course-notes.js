@@ -343,10 +343,10 @@ class CourseNotesModal extends Modal {
           status.setText("Writing the AI summary...");
           try {
             const prompt = buildCourseSummaryPrompt({ title: this.title || src.name, course: this.course, pages });
-            const reply = await this.plugin.aiComplete(prompt.system, prompt.user, { maxTokens: 1400 });
+            const reply = await this.plugin.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: 1400 });
             summary = parseCourseSummary(reply);
             if (!summary) throw new Error("The AI returned no usable summary.");
-            summaryModel = this.plugin.aiModelLabel();
+            summaryModel = this.plugin.aiModelLabel("generation");
           } catch (e) {
             this.summaryError = str(e && e.message) || "The AI summary failed; the note was written without it.";
           }

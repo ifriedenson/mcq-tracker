@@ -17,6 +17,7 @@ const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
+const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
 const { normalizeVerificationMode } = require("./answer-verification");
 const { hasSecretStorage } = require("./secret-keys");
 
@@ -702,6 +703,91 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 
     if (this.plugin.backend() === "api") renderApi();
     else renderOpenCode();
+
+    new Setting(containerEl).setName("Models and request limits").setHeading();
+    const backend = this.plugin.backend();
+    const caps = this.plugin.aiCapabilities();
+    const capText = Object.entries(CAPABILITY_LABELS)
+      .map(([key, label]) => `${label}: ${caps[key] ? "yes" : "no"}`)
+      .join(" · ");
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: `This device uses ${backend === "opencode" ? "OpenCode" : "Direct AI"}. ${capText}. Features that need a capability this backend does not have say so instead of failing silently.`,
+    });
+    const budget = this.plugin.aiBudget();
+    const countText = `${budget.used} request${budget.used === 1 ? "" : "s"} today (~${budget.tokens.toLocaleString()} tokens, estimated)`;
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: `${countText}. ${budget.cap ? `${Math.max(0, budget.cap - budget.used)} left under the daily cap.` : "No daily cap is set."} Counts are kept on this device only.`,
+    });
+    ai.features = ai.features && typeof ai.features === "object" ? ai.features : {};
+    for (const feature of AI_FEATURES) {
+      const saved = ai.features[feature.id] && typeof ai.features[feature.id] === "object" ? ai.features[feature.id] : (ai.features[feature.id] = { model: "" });
+      const support = this.plugin.aiCapabilities();
+      const unsupported = !!(feature.requires && !support[feature.requires]);
+      new Setting(containerEl)
+        .setName(`${feature.label} model`)
+        .setDesc(
+          unsupported
+            ? `${feature.label} needs ${CAPABILITY_LABELS[feature.requires] || feature.requires}, which this backend cannot receive. Use Direct AI for this feature.`
+            : `Leave empty to use the shared model (${this.plugin.aiModelFor(feature.id) || "provider default"}). Sends: ${feature.sends}`
+        )
+        .addText((t) => {
+          t.setPlaceholder(this.plugin.aiModelFor(feature.id) || "provider default")
+            .setValue(saved.model || "")
+            .setDisabled(unsupported)
+            .onChange(async (v) => {
+              saved.model = str(v).trim().slice(0, 200);
+              await this.plugin.save();
+            });
+        });
+    }
+    const limitRow = (name, desc, key, min, max, fallback) => {
+      new Setting(containerEl)
+        .setName(name)
+        .setDesc(desc)
+        .addText((t) => {
+          t.inputEl.type = "number";
+          t.setValue(String(ai.limits[key]))
+            .onChange(async (v) => {
+              const n = Math.round(Number(v));
+              ai.limits[key] = Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+              await this.plugin.save();
+            });
+        });
+    };
+    limitRow(
+      "Reply token cap",
+      "The most one reply may use. Features that ask for more are capped here. Default 4000.",
+      "maxTokens",
+      256,
+      32000,
+      4000
+    );
+    limitRow(
+      "Daily request cap",
+      "Stop AI requests after this many in one local day. 0 means no daily cap. Counts are per device and reset at local midnight.",
+      "dailyRequests",
+      0,
+      10000,
+      0
+    );
+    limitRow(
+      "Per-run request cap",
+      "Stop one burst of work after this many requests. 0 means no cap. A run resets after 10 idle minutes, so the next import, chat or grading batch starts fresh.",
+      "runRequests",
+      0,
+      1000,
+      0
+    );
+    containerEl.createEl("p", { cls: "setting-item-description", text: "What each feature sends:" });
+    for (const feature of AI_FEATURES) {
+      containerEl.createEl("p", { cls: "setting-item-description", text: `${feature.label}: ${feature.sends}` });
+    }
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Everything here is off until Enable AI features is on. Notes, pages and learner answers are treated as untrusted data, and keys are never logged.",
+    });
     }
 
     if (this.activeMcqTab === "practice") {

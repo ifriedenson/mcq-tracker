@@ -7,7 +7,7 @@ const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, exte
 const { AGENT_SYSTEM, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
-const { ApiClient, friendlyApiError } = require("./api-client");
+const { friendlyApiError } = require("./api-client");
 
 class PdfImportModal extends Modal {
   constructor(app, plugin, options) {
@@ -574,7 +574,7 @@ class PdfImportModal extends Modal {
     const p = this.plugin;
     const chunks = chunkPages(pages, 9000, 5);
     const keyText = answerKeyText(pages);
-    const client = new ApiClient(p.settings.ai);
+    const client = { chat: (system, messages, opts) => p.aiChat(system, messages, { ...(opts || {}), feature: "generation" }) };
     const blocks = [];
     let carry = [];
     let failures = 0;

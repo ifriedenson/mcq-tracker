@@ -232,6 +232,270 @@ module.exports = {
 };
 };
 
+/* ---- src/ai-service.js ---- */
+__defs["ai-service"] = function (module, exports, require) {
+/*
+ * One description of every AI feature, what it is allowed to send, which
+ * backend can run it, which model it should use and how many requests it may
+ * spend. Provider calls still happen in ./api-client and ./opencode-client;
+ * this module is the shared policy layer around them.
+ */
+const { str } = require("./util");
+
+const AI_USAGE_STORAGE_KEY = "question-tracker-ai-usage";
+
+const AI_FEATURES = [
+  {
+    id: "chat",
+    label: "Assistant chat",
+    sends: "Your message, plus the current note or selection only while its switch is on for that chat.",
+  },
+  {
+    id: "generation",
+    label: "Generate practice and import",
+    sends: "The lecture, document text or source pages you choose, and the prompt.",
+  },
+  {
+    id: "verification",
+    label: "Check AI-written answers",
+    sends: "The question and choices; never the stored answer key.",
+  },
+  {
+    id: "cardGrading",
+    label: "Grade typed card answers",
+    sends: "The card front, stored answer, your typed answer and the strictness.",
+  },
+  {
+    id: "ocr",
+    label: "Vision OCR",
+    requires: "vision",
+    sends: "The page images you choose.",
+  },
+];
+
+const FEATURE_IDS = AI_FEATURES.map((feature) => feature.id);
+
+const DEFAULT_AI_LIMITS = {
+  maxTokens: 4000, // hard cap for one reply, even if a feature asks for more
+  dailyRequests: 0, // 0 = no daily cap
+  runRequests: 0, // 0 = no cap on one burst of work (a run resets after 10 idle minutes)
+};
+
+const AI_CAPABILITIES = {
+  api: { vision: true, structured: true, streaming: false, tools: false },
+  opencode: { vision: false, structured: true, streaming: true, tools: true },
+};
+
+const CAPABILITY_LABELS = {
+  vision: "page images",
+  structured: "JSON replies",
+  streaming: "live progress",
+  tools: "file tools",
+};
+
+function normalizeBackend(value) {
+  return str(value).trim() === "opencode" ? "opencode" : "api";
+}
+
+function normalizeFeatureId(value) {
+  const wanted = str(value).trim().toLowerCase();
+  return FEATURE_IDS.find((id) => id.toLowerCase() === wanted) || "chat";
+}
+
+function featureDef(id) {
+  const key = normalizeFeatureId(id);
+  return AI_FEATURES.find((feature) => feature.id === key);
+}
+
+/** Capability flags for one backend. Unknown backends fall back to Direct API. */
+function capabilities(backend) {
+  return { ...AI_CAPABILITIES[normalizeBackend(backend)] };
+}
+
+/** Whether a feature can run on a backend, with a short reason when it cannot. */
+function featureSupport(feature, backend) {
+  const def = featureDef(feature);
+  const caps = capabilities(backend);
+  if (def.requires && !caps[def.requires]) {
+    return {
+      ok: false,
+      reason: `${def.label} needs ${CAPABILITY_LABELS[def.requires] || def.requires}, which ${normalizeBackend(backend) === "opencode" ? "OpenCode" : "this backend"} cannot receive. Use Direct AI for this feature.`,
+    };
+  }
+  return { ok: true, reason: "" };
+}
+
+/** The model for one feature: its override, else the backend-wide model. */
+function featureModel(ai, feature, backend) {
+  const id = normalizeFeatureId(feature);
+  const features = (ai && ai.features) || {};
+  const own = str(features[id] && features[id].model).trim();
+  if (own) return own;
+  return normalizeBackend(backend) === "opencode" ? str(ai && ai.model).trim() : str(ai && ai.api && ai.api.model).trim();
+}
+
+function clampInteger(value, fallback, min, max) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function normalizeLimits(value) {
+  const limits = value && typeof value === "object" ? value : {};
+  return {
+    maxTokens: clampInteger(limits.maxTokens, DEFAULT_AI_LIMITS.maxTokens, 256, 32000),
+    dailyRequests: clampInteger(limits.dailyRequests, DEFAULT_AI_LIMITS.dailyRequests, 0, 10000),
+    runRequests: clampInteger(limits.runRequests, DEFAULT_AI_LIMITS.runRequests, 0, 1000),
+  };
+}
+
+/** Fill in feature models and limits without dropping any existing AI setting. */
+function normalizeAiService(ai) {
+  const out = ai && typeof ai === "object" ? ai : {};
+  const saved = out.features && typeof out.features === "object" ? out.features : {};
+  out.features = {};
+  for (const id of FEATURE_IDS) {
+    out.features[id] = { model: str(saved[id] && saved[id].model).trim().slice(0, 200) };
+  }
+  out.limits = normalizeLimits(out.limits);
+  return out;
+}
+
+function clampMaxTokens(ai, requested) {
+  const limits = normalizeLimits(ai && ai.limits);
+  const wanted = Math.round(Number(requested));
+  if (!Number.isFinite(wanted) || wanted <= 0) return limits.maxTokens;
+  return Math.min(wanted, limits.maxTokens);
+}
+
+/** Rough size estimate used before sending, without a tokenizer dependency. */
+function estimateTokens(text) {
+  return Math.ceil(str(text).length / 4);
+}
+
+function estimateRequestTokens(system, messages, images) {
+  let total = estimateTokens(system);
+  for (const message of Array.isArray(messages) ? messages : []) total += estimateTokens(message && message.content);
+  for (const image of Array.isArray(images) ? images : []) if (image && image.data) total += 1200;
+  return total;
+}
+
+function usageForDate(value, today) {
+  let raw = value;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch (e) {
+      raw = null;
+    }
+  }
+  const date = str(today).trim();
+  if (!raw || typeof raw !== "object" || str(raw.date).trim() !== date) {
+    return { date, requests: 0, tokens: 0, features: {} };
+  }
+  const features = {};
+  for (const id of FEATURE_IDS) {
+    const item = raw.features && raw.features[id];
+    if (!item) continue;
+    const requests = Math.max(0, Number(item.requests) || 0);
+    const tokens = Math.max(0, Number(item.tokens) || 0);
+    if (requests || tokens) features[id] = { requests, tokens };
+  }
+  return {
+    date,
+    requests: Math.max(0, Number(raw.requests) || 0),
+    tokens: Math.max(0, Number(raw.tokens) || 0),
+    features,
+  };
+}
+
+function packUsage(usage) {
+  return JSON.stringify(usage || { date: "", requests: 0, tokens: 0, features: {} });
+}
+
+/** Count one request before it is sent, so a failing provider cannot bypass the cap. */
+function recordUsage(usage, feature, tokens, today) {
+  const base = usageForDate(usage, today);
+  const id = normalizeFeatureId(feature);
+  const addTokens = Math.max(0, Math.round(Number(tokens) || 0));
+  const item = base.features[id] || { requests: 0, tokens: 0 };
+  base.requests += 1;
+  base.tokens += addTokens;
+  base.features[id] = { requests: item.requests + 1, tokens: item.tokens + addTokens };
+  return base;
+}
+
+function budgetState(usage, limits, today) {
+  const current = usageForDate(usage, today);
+  const clean = normalizeLimits(limits);
+  const cap = clean.dailyRequests;
+  const remaining = cap ? Math.max(0, cap - current.requests) : null;
+  return {
+    used: current.requests,
+    tokens: current.tokens,
+    features: current.features,
+    cap,
+    remaining,
+    allowed: !cap || current.requests < cap,
+    message: cap && current.requests >= cap ? `The daily AI request cap (${cap}) has been reached. Raise it in Settings, MCQ Tracker, AI, or try again tomorrow.` : "",
+  };
+}
+
+function runBudgetState(run, limits, now) {
+  const clean = normalizeLimits(limits);
+  const started = Number(run && run.startedAt) || 0;
+  const fresh = !started || now - started > 10 * 60 * 1000;
+  const requests = fresh ? 0 : Math.max(0, Number(run && run.requests) || 0);
+  const cap = clean.runRequests;
+  return {
+    requests,
+    cap,
+    remaining: cap ? Math.max(0, cap - requests) : null,
+    allowed: !cap || requests < cap,
+    message: cap && requests >= cap ? `This AI run has reached its request cap (${cap}). Finish this batch, or raise the cap in Settings, MCQ Tracker, AI.` : "",
+  };
+}
+
+/** A 401/400 will not fix itself; 429, 5xx and network errors may. */
+function isRetryableError(error) {
+  const m = str(error && error.message ? error.message : error);
+  if (/HTTP 40[0134]|HTTP 422/.test(m)) return false;
+  if (/HTTP 408|HTTP 409|HTTP 425|HTTP 429|HTTP 5\d\d/.test(m)) return true;
+  return /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|Failed to fetch|net::|network/i.test(m);
+}
+
+function featureListText() {
+  return AI_FEATURES.map((feature) => `${feature.label}: ${feature.sends}`).join("\n");
+}
+
+module.exports = {
+  AI_USAGE_STORAGE_KEY,
+  AI_FEATURES,
+  FEATURE_IDS,
+  DEFAULT_AI_LIMITS,
+  AI_CAPABILITIES,
+  CAPABILITY_LABELS,
+  normalizeBackend,
+  normalizeFeatureId,
+  featureDef,
+  capabilities,
+  featureSupport,
+  featureModel,
+  normalizeLimits,
+  normalizeAiService,
+  clampMaxTokens,
+  estimateTokens,
+  estimateRequestTokens,
+  usageForDate,
+  packUsage,
+  recordUsage,
+  budgetState,
+  runBudgetState,
+  isRetryableError,
+  featureListText,
+};
+};
+
 /* ---- src/ai-write-guard.js ---- */
 __defs["ai-write-guard"] = function (module, exports, require) {
 /*
@@ -2449,9 +2713,11 @@ function apiTurns(history) {
 
 /** Plain chat against Anthropic or any OpenAI-compatible endpoint. One request, no streaming. */
 class ApiClient {
-  constructor(ai, app) {
+  /** opts.model overrides the backend-wide model for one feature. */
+  constructor(ai, app, opts) {
     this.ai = ai;
     this.app = app;
+    this.opts = opts || {};
   }
   cfg() {
     const a = this.ai.api || {};
@@ -2460,7 +2726,7 @@ class ApiClient {
       preset,
       base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, ""),
       key: resolveApiKey(this.app, a),
-      model: str(a.model).trim(),
+      model: str(this.opts.model).trim() || str(a.model).trim(),
     };
   }
   async vision(system, prompt, images, opts) {
@@ -2494,6 +2760,7 @@ class ApiClient {
       headers = key ? { Authorization: `Bearer ${key}` } : {};
       body = {
         model,
+        max_tokens: (opts && opts.maxTokens) || 1800,
         messages: [
           { role: "system", content: system },
           {
@@ -2544,7 +2811,7 @@ class ApiClient {
     } else {
       url = `${base}/chat/completions`;
       headers = key ? { Authorization: `Bearer ${key}` } : {};
-      body = { model, messages: [{ role: "system", content: system }, ...msgs] };
+      body = { model, max_tokens: (opts && opts.maxTokens) || 1500, messages: [{ role: "system", content: system }, ...msgs] };
     }
     const r = await requestUrl({ url, method: "POST", headers, contentType: "application/json", body: JSON.stringify(body), throw: false });
     let data = null;
@@ -11441,7 +11708,7 @@ module.exports = {
 /* ---- src/chat-panel.js ---- */
 __defs["chat-panel"] = function (module, exports, require) {
 const { Notice } = require("obsidian");
-const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
+const { apiTurns, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
@@ -11739,9 +12006,10 @@ class ChatPanel {
     this.draw();
     const hist = this.apiHistory();
     try {
-      const reply = await new ApiClient(this.ai, this.view.plugin.app).chat(
+      const reply = await this.view.plugin.aiChat(
         this.opts.buildContext("tutor", currentNote),
-        hist.concat([{ role: "user", content: text }])
+        hist.concat([{ role: "user", content: text }]),
+        { feature: "chat" }
       );
       hist.push({ role: "user", content: text }, { role: "assistant", content: reply });
       this.pending = "";
@@ -11822,6 +12090,7 @@ __defs["constants"] = function (module, exports, require) {
 const { DEFAULT_REFERENCE_SETTINGS } = require("./reference-data");
 const { DEFAULT_ASSIGNMENT_SETTINGS } = require("./assignments");
 const { DEFAULT_SUPPORT } = require("./support");
+const { DEFAULT_AI_LIMITS } = require("./ai-service");
 
 const VIEW_TYPE = "question-tracker-view";
 const VIEW_TYPE_TODAY = "question-tracker-today";
@@ -11887,6 +12156,8 @@ const DEFAULT_SETTINGS = {
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", keys: {} },
+    features: {}, // per-feature model overrides, filled by normalizeAiService
+    limits: { ...DEFAULT_AI_LIMITS }, // one reply cap, optional daily and per-run request caps
   },
   localOcr: { command: "", timeoutSeconds: 120 }, // optional user-installed OCR command; nothing is bundled
   presets: [],
@@ -12324,10 +12595,10 @@ class CourseNotesModal extends Modal {
           status.setText("Writing the AI summary...");
           try {
             const prompt = buildCourseSummaryPrompt({ title: this.title || src.name, course: this.course, pages });
-            const reply = await this.plugin.aiComplete(prompt.system, prompt.user, { maxTokens: 1400 });
+            const reply = await this.plugin.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: 1400 });
             summary = parseCourseSummary(reply);
             if (!summary) throw new Error("The AI returned no usable summary.");
-            summaryModel = this.plugin.aiModelLabel();
+            summaryModel = this.plugin.aiModelLabel("generation");
           } catch (e) {
             this.summaryError = str(e && e.message) || "The AI summary failed; the note was written without it.";
           }
@@ -17479,7 +17750,7 @@ const { DOCUMENT_EXTENSIONS, documentBaseName, documentKind, documentLabel, exte
 const { AGENT_SYSTEM, agentPrompt, aiFlags, answerKeyText, buildReportMarkdown, carryPassages, ensureProviders, extractNotesChunk, finalizeNote, groupIssues, mergeNotes, modelFromMessages, noteIssues, parseNote } = require("./importer");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { findDuplicateIds, indexOfficialIds, officialIdOf } = require("./filters");
-const { ApiClient, friendlyApiError } = require("./api-client");
+const { friendlyApiError } = require("./api-client");
 
 class PdfImportModal extends Modal {
   constructor(app, plugin, options) {
@@ -18046,7 +18317,7 @@ class PdfImportModal extends Modal {
     const p = this.plugin;
     const chunks = chunkPages(pages, 9000, 5);
     const keyText = answerKeyText(pages);
-    const client = new ApiClient(p.settings.ai);
+    const client = { chat: (system, messages, opts) => p.aiChat(system, messages, { ...(opts || {}), feature: "generation" }) };
     const blocks = [];
     let carry = [];
     let failures = 0;
@@ -20302,7 +20573,7 @@ class OcrModal extends Modal {
     if (this.method === "ai") {
       new Setting(el)
         .setName("I understand page images are sent to my AI provider")
-        .setDesc(this.canRun() ? `Provider: ${this.plugin.aiModelLabel()}.` : "Turn on AI features and use Direct AI to enable this.")
+        .setDesc(this.canRun() ? `Provider: ${this.plugin.aiModelLabel("ocr")}.` : "Turn on AI features and use Direct AI to enable this.")
         .addToggle((t) =>
           t.setValue(this.consent).onChange((v) => {
             this.consent = v;
@@ -20365,7 +20636,7 @@ class OcrModal extends Modal {
         status.setText(`Reading ${rendered.pages.length} page${rendered.pages.length === 1 ? "" : "s"} with ${localOcrLabel(config.command)}...`);
         results.push(...(await ocrPagesWithLocalCommand(config.command, rendered.pages, { timeoutSeconds: config.timeoutSeconds })));
       } else {
-        this.engineLabel = this.plugin.aiModelLabel();
+        this.engineLabel = this.plugin.aiModelLabel("ocr");
         for (let i = 0; i < rendered.pages.length; i++) {
           const page = rendered.pages[i];
           status.setText(`Reading page ${page.n} (${i + 1} of ${rendered.pages.length}) with ${this.engineLabel}...`);
@@ -20417,7 +20688,7 @@ class OcrModal extends Modal {
         title: this.title,
         sourcePath: this.source && this.source.path,
         sourceName: this.source && this.source.name,
-        model: this.engineLabel || (this.method === "local" ? "local OCR" : this.plugin.aiModelLabel()),
+        model: this.engineLabel || (this.method === "local" ? "local OCR" : this.plugin.aiModelLabel("ocr")),
         sourceKind: this.method === "local" ? "local-command" : "ai-vision",
         date: localDate(),
       });
@@ -23771,6 +24042,7 @@ const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, 
 const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
+const aiService = require("./ai-service");
 const { AI_WRITE_STORAGE_KEY, appendAiWrite, latestAiWrite, makeAiWriteRecord, normalizeAiWrites } = require("./ai-writes");
 const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
@@ -23807,6 +24079,7 @@ class QuestionTrackerPlugin extends Plugin {
     this._calendarFolders = null;
     this._calendarCache = null;
     this._pendingCardGradeFlush = null;
+    this._aiRun = { startedAt: 0, requests: 0 };
     // Calendar notes are resolved by their durable UID/date properties, so any
     // create/delete/rename (or frontmatter edit) invalidates the shared index.
     const invalidateNotes = () => this.invalidateCalendarNotes();
@@ -24176,6 +24449,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
     this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
+    aiService.normalizeAiService(this.settings.ai);
     // 0.2.0 saved settings had no `managed` flag: move those users to the automatic setup.
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
@@ -25620,7 +25894,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (kind === "cards" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
     const count = Math.max(1, Math.min(20, Math.round(Number(opts.count) || (kind === "cards" ? 8 : 5))));
     const prompt = buildWeakSpotPrompt({ skill: row.value, course: opts.course, kind, count });
-    const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: kind === "questions" ? 3500 : 2500 });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: kind === "questions" ? 3500 : 2500 });
     const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
     const items = kind === "questions" ? parsed.questions : parsed.cards;
     const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : null;
@@ -25634,7 +25908,7 @@ class QuestionTrackerPlugin extends Plugin {
       verification,
       errors: [],
       ai: true,
-      model: this.aiModelLabel(),
+      model: this.aiModelLabel("generation"),
     };
   }
 
@@ -25668,7 +25942,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!/^[A-H]$/.test(key)) throw new Error("Only multiple-choice items with a letter answer can be checked.");
     if (!Array.isArray(data.choices) || !data.choices.length) throw new Error("This item has no answer choices to check.");
     const prompt = buildBlindVerificationPrompt({ question: data.question, choices: data.choices });
-    const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: 800 });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 });
     const verdict = parseBlindVerification(reply);
     if (!verdict.answer) throw new Error("The AI did not return a usable answer letter.");
     return { match: verdict.answer === key, answer: verdict.answer, key, confidence: verdict.confidence };
@@ -25681,7 +25955,7 @@ class QuestionTrackerPlugin extends Plugin {
   async verifyDraftQuestions(items) {
     const list = Array.isArray(items) ? items : [];
     const mode = normalizeVerificationMode(this.settings.ai.verification);
-    const model = this.aiModelLabel();
+    const model = this.aiModelLabel("verification");
     const date = localDate();
     let checked = 0;
     let dropped = 0;
@@ -25741,7 +26015,7 @@ class QuestionTrackerPlugin extends Plugin {
       answer: result.answer,
       key,
       confidence: result.confidence,
-      model: this.aiModelLabel(),
+      model: this.aiModelLabel("verification"),
       date: localDate(),
     };
     await this.app.fileManager.processFrontMatter(file, (data) => {
@@ -25768,13 +26042,77 @@ class QuestionTrackerPlugin extends Plugin {
     return { ...transcriptInfo(file, fm, text), file, fm };
   }
 
-  aiModelLabel() {
+  /** Capability flags for the backend this device is actually using. */
+  aiCapabilities() {
+    return aiService.capabilities(this.backend());
+  }
+
+  aiSupports(capability) {
+    return !!this.aiCapabilities()[str(capability).trim()];
+  }
+
+  aiModelFor(feature) {
+    return aiService.featureModel(this.settings.ai, feature, this.backend());
+  }
+
+  /** The model name recorded in notes and shown in the UI for one feature. */
+  aiModelLabel(feature) {
     const ai = this.settings.ai;
-    return (
-      str(ai.backend === "opencode" ? ai.model : ai.api && ai.api.model).trim() ||
-      str(ai.api && ai.api.provider).trim() ||
-      "AI"
-    );
+    const model = this.aiModelFor(feature || "chat");
+    return model || str(ai.api && ai.api.provider).trim() || "AI";
+  }
+
+  aiUsageKey() {
+    return aiService.AI_USAGE_STORAGE_KEY;
+  }
+
+  readAiUsage() {
+    if (this._aiUsage && this._aiUsage.date === localDate()) return this._aiUsage;
+    let usage = null;
+    try {
+      usage = aiService.usageForDate(this.app.loadLocalStorage(this.aiUsageKey()), localDate());
+    } catch (e) {
+      usage = aiService.usageForDate(null, localDate());
+    }
+    this._aiUsage = usage;
+    return usage;
+  }
+
+  writeAiUsage(usage) {
+    this._aiUsage = aiService.usageForDate(usage, localDate());
+    try {
+      this.app.saveLocalStorage(this.aiUsageKey(), aiService.packUsage(this._aiUsage));
+    } catch (e) {
+      // Keep the in-memory count for this session if device storage is unavailable.
+    }
+  }
+
+  aiBudget() {
+    return aiService.budgetState(this.readAiUsage(), this.settings.ai.limits, localDate());
+  }
+
+  aiRunBudget() {
+    return aiService.runBudgetState(this._aiRun, this.settings.ai.limits, Date.now());
+  }
+
+  /** Check the daily and per-run caps before a request leaves the device. */
+  aiCanSpend(feature) {
+    const support = aiService.featureSupport(feature, this.backend());
+    if (!support.ok) return support;
+    const daily = this.aiBudget();
+    if (!daily.allowed) return { ok: false, reason: daily.message };
+    const run = this.aiRunBudget();
+    if (!run.allowed) return { ok: false, reason: run.message };
+    return { ok: true, reason: "" };
+  }
+
+  spendAiRequest(feature, tokens) {
+    this.writeAiUsage(aiService.recordUsage(this.readAiUsage(), feature, tokens, localDate()));
+    const now = Date.now();
+    if (!this._aiRun || !this._aiRun.startedAt || now - this._aiRun.startedAt > 10 * 60 * 1000) {
+      this._aiRun = { startedAt: now, requests: 0 };
+    }
+    this._aiRun.requests += 1;
   }
 
   /** Draft cards or questions from a transcript. This method writes nothing. */
@@ -25807,14 +26145,14 @@ class QuestionTrackerPlugin extends Plugin {
       kind === "questions"
         ? buildTranscriptQuestionPrompt({ title: info.title, course, text: info.text, count })
         : buildTranscriptCardPrompt({ title: info.title, course, text: info.text, count });
-    const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: kind === "questions" ? 4000 : 3000 });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: kind === "questions" ? 4000 : 3000 });
     const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
     const items = kind === "questions" ? parsed.questions : parsed.cards;
     const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : null;
     return {
       ...base,
       ai: true,
-      model: this.aiModelLabel(),
+      model: this.aiModelLabel("generation"),
       items: items.filter((item) => !(item.verification && item.verification.drop)),
       verification,
     };
@@ -25874,7 +26212,7 @@ class QuestionTrackerPlugin extends Plugin {
           item,
           { course: g.course, source: g.title },
           qid,
-          { model: g.model || this.aiModelLabel(), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note", verification: item.verification }
+          { model: g.model || this.aiModelLabel("generation"), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note", verification: item.verification }
         );
         assertAllowedWritePath(path, this.settings);
         await this.app.vault.create(path, note);
@@ -26335,17 +26673,30 @@ class QuestionTrackerPlugin extends Plugin {
     return this.readPendingCardGrades();
   }
 
-  /** One completion path for both AI backends; the card grader only sees a chat-shaped client. */
-  async aiComplete(system, user, opts) {
+  /**
+   * One request path for every AI feature and both backends. It checks the
+   * feature's capability, both request caps and the per-feature model, counts
+   * the request before it is sent, then lets the provider client do the call.
+   */
+  async aiChat(system, messages, opts) {
+    const o = opts || {};
+    const feature = aiService.normalizeFeatureId(o.feature);
     const ai = this.settings.ai;
     if (!ai.enabled) throw new Error("Turn on AI features in the plugin settings first.");
+    const support = aiService.featureSupport(feature, this.backend());
+    if (!support.ok) throw new Error(support.reason);
+    const can = this.aiCanSpend(feature);
+    if (!can.ok) throw new Error(can.reason);
+    const maxTokens = aiService.clampMaxTokens(ai, o.maxTokens);
+    const model = this.aiModelFor(feature);
+    this.spendAiRequest(feature, aiService.estimateRequestTokens(system, messages, o.images));
     if (this.backend() === "opencode") {
       await this.ensureOpenCode();
       const oc = this.openCode();
-      const session = await oc.createSession("Grade a flashcard answer");
-      const body = { parts: [{ type: "text", text: user }], system };
-      const model = modelFromString(ai.model);
-      if (model) body.model = model;
+      const session = await oc.createSession("MCQ Tracker AI");
+      const body = { parts: [{ type: "text", text: (Array.isArray(messages) ? messages : []).map((m) => str(m && m.content)).join("\n\n") }], system };
+      const parsed = modelFromString(model);
+      if (parsed) body.model = parsed;
       await oc.send(session.id, body);
       const turns = partsToTurns(await oc.messages(session.id));
       const last = [...turns].reverse().find((turn) => turn.role === "assistant");
@@ -26353,19 +26704,30 @@ class QuestionTrackerPlugin extends Plugin {
       if (!text) throw new Error("OpenCode returned an empty reply.");
       return text;
     }
-    return new ApiClient(ai, this.app).chat(system, [{ role: "user", content: user }], opts);
+    return new ApiClient(ai, this.app, { model }).chat(system, Array.isArray(messages) ? messages : [], { ...o, maxTokens });
+  }
+
+  /** One-message convenience wrapper used by generation, verification and grading. */
+  async aiComplete(system, user, opts) {
+    return this.aiChat(system, [{ role: "user", content: user }], opts);
   }
 
   /** Opt-in image request for OCR. Only Direct AI can receive page images. */
   async aiVision(system, prompt, images, opts) {
+    const o = opts || {};
     const ai = this.settings.ai;
     if (!ai.enabled) throw new Error("Turn on AI features in the plugin settings first.");
-    if (this.backend() !== "api") throw new Error("Vision OCR needs the Direct AI backend; OpenCode cannot receive page images through this plugin.");
-    return new ApiClient(ai, this.app).vision(system, prompt, images, opts);
+    const support = aiService.featureSupport("ocr", this.backend());
+    if (!support.ok) throw new Error(support.reason);
+    const can = this.aiCanSpend("ocr");
+    if (!can.ok) throw new Error(can.reason);
+    const maxTokens = aiService.clampMaxTokens(ai, o.maxTokens);
+    this.spendAiRequest("ocr", aiService.estimateRequestTokens(system, [{ content: prompt }], images));
+    return new ApiClient(ai, this.app, { model: this.aiModelFor("ocr") }).vision(system, prompt, images, { ...o, maxTokens });
   }
 
   gradeCardWithAi(card, typed, strictness) {
-    const client = { chat: (system, messages, opts) => this.aiComplete(system, messages && messages[0] ? messages[0].content : "", opts) };
+    const client = { chat: (system, messages, opts) => this.aiComplete(system, messages && messages[0] ? messages[0].content : "", { ...(opts || {}), feature: "cardGrading" }) };
     return gradeWithAi(client, { front: card.body && card.body.front, expected: card.body && card.body.back, typed, strictness });
   }
 
@@ -26386,7 +26748,7 @@ class QuestionTrackerPlugin extends Plugin {
         }
         try {
           const ai = await gradeWithAi(
-            { chat: (system, messages, opts) => this.aiComplete(system, messages && messages[0] ? messages[0].content : "", opts) },
+            { chat: (system, messages, opts) => this.aiComplete(system, messages && messages[0] ? messages[0].content : "", { ...(opts || {}), feature: "cardGrading" }) },
             entry
           );
           await this.app.fileManager.processFrontMatter(file, (fm) => {
@@ -27345,7 +27707,7 @@ class QuestionTrackerPlugin extends Plugin {
       makeAiWriteRecord({
         kind: generated.kind,
         sourcePath: generated.sourcePath,
-        model: generated.model || this.aiModelLabel(),
+        model: generated.model || this.aiModelLabel("generation"),
         summary: generated.title,
         paths,
       }),
@@ -31773,6 +32135,7 @@ const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
+const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
 const { normalizeVerificationMode } = require("./answer-verification");
 const { hasSecretStorage } = require("./secret-keys");
 
@@ -32458,6 +32821,91 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 
     if (this.plugin.backend() === "api") renderApi();
     else renderOpenCode();
+
+    new Setting(containerEl).setName("Models and request limits").setHeading();
+    const backend = this.plugin.backend();
+    const caps = this.plugin.aiCapabilities();
+    const capText = Object.entries(CAPABILITY_LABELS)
+      .map(([key, label]) => `${label}: ${caps[key] ? "yes" : "no"}`)
+      .join(" · ");
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: `This device uses ${backend === "opencode" ? "OpenCode" : "Direct AI"}. ${capText}. Features that need a capability this backend does not have say so instead of failing silently.`,
+    });
+    const budget = this.plugin.aiBudget();
+    const countText = `${budget.used} request${budget.used === 1 ? "" : "s"} today (~${budget.tokens.toLocaleString()} tokens, estimated)`;
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: `${countText}. ${budget.cap ? `${Math.max(0, budget.cap - budget.used)} left under the daily cap.` : "No daily cap is set."} Counts are kept on this device only.`,
+    });
+    ai.features = ai.features && typeof ai.features === "object" ? ai.features : {};
+    for (const feature of AI_FEATURES) {
+      const saved = ai.features[feature.id] && typeof ai.features[feature.id] === "object" ? ai.features[feature.id] : (ai.features[feature.id] = { model: "" });
+      const support = this.plugin.aiCapabilities();
+      const unsupported = !!(feature.requires && !support[feature.requires]);
+      new Setting(containerEl)
+        .setName(`${feature.label} model`)
+        .setDesc(
+          unsupported
+            ? `${feature.label} needs ${CAPABILITY_LABELS[feature.requires] || feature.requires}, which this backend cannot receive. Use Direct AI for this feature.`
+            : `Leave empty to use the shared model (${this.plugin.aiModelFor(feature.id) || "provider default"}). Sends: ${feature.sends}`
+        )
+        .addText((t) => {
+          t.setPlaceholder(this.plugin.aiModelFor(feature.id) || "provider default")
+            .setValue(saved.model || "")
+            .setDisabled(unsupported)
+            .onChange(async (v) => {
+              saved.model = str(v).trim().slice(0, 200);
+              await this.plugin.save();
+            });
+        });
+    }
+    const limitRow = (name, desc, key, min, max, fallback) => {
+      new Setting(containerEl)
+        .setName(name)
+        .setDesc(desc)
+        .addText((t) => {
+          t.inputEl.type = "number";
+          t.setValue(String(ai.limits[key]))
+            .onChange(async (v) => {
+              const n = Math.round(Number(v));
+              ai.limits[key] = Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+              await this.plugin.save();
+            });
+        });
+    };
+    limitRow(
+      "Reply token cap",
+      "The most one reply may use. Features that ask for more are capped here. Default 4000.",
+      "maxTokens",
+      256,
+      32000,
+      4000
+    );
+    limitRow(
+      "Daily request cap",
+      "Stop AI requests after this many in one local day. 0 means no daily cap. Counts are per device and reset at local midnight.",
+      "dailyRequests",
+      0,
+      10000,
+      0
+    );
+    limitRow(
+      "Per-run request cap",
+      "Stop one burst of work after this many requests. 0 means no cap. A run resets after 10 idle minutes, so the next import, chat or grading batch starts fresh.",
+      "runRequests",
+      0,
+      1000,
+      0
+    );
+    containerEl.createEl("p", { cls: "setting-item-description", text: "What each feature sends:" });
+    for (const feature of AI_FEATURES) {
+      containerEl.createEl("p", { cls: "setting-item-description", text: `${feature.label}: ${feature.sends}` });
+    }
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Everything here is off until Enable AI features is on. Notes, pages and learner answers are treated as untrusted data, and keys are never logged.",
+    });
     }
 
     if (this.activeMcqTab === "practice") {
@@ -35233,6 +35681,7 @@ const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
+const aiService = require("./ai-service");
 const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
 const cardWriteDiff = require("./card-write-diff");
@@ -35352,6 +35801,7 @@ QuestionTrackerPlugin.__test = {
   ChatPanel,
   tutorPresets,
   aiContext,
+  aiService,
   noteContext,
   aiWriteGuard,
   cardWriteDiff,
