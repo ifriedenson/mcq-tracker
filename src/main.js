@@ -34,6 +34,7 @@ const testSections = require("./exam-sections");
 const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
 const answerVerification = require("./answer-verification");
+const computedVerification = require("./computed-verification");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
@@ -159,6 +160,7 @@ QuestionTrackerPlugin.__test = {
   aiWrites,
   weakSpot,
   answerVerification,
+  computedVerification,
   WeakSpotModal,
   OpenCodeManager,
   MAX_OPENCODE_MAJOR,

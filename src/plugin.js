@@ -30,6 +30,7 @@ const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normali
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
+const { computedVerification } = require("./computed-verification");
 const { assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
 const agentWriteGuard = require("./agent-write-guard");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
@@ -271,6 +272,36 @@ class QuestionTrackerPlugin extends Plugin {
         }
         return true;
       },
+    });
+
+    this.addCommand({
+      id: "verify-calculation-note",
+      name: "Verify this answer by calculation",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        const fm = file && this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (!file || !fm || fm.question_id === undefined || fm.question_id === null || fm.question_id === "") return false;
+        if (!checking) {
+          this.verifyAnswerByCalculation(file.path)
+            .then((result) => {
+              if (result) {
+                new Notice(
+                  result.match
+                    ? "The calculation agrees with the stored answer."
+                    : `The calculation gives ${result.answer}; the note says ${result.key}. Marked for review.`,
+                  7000
+                );
+              }
+            })
+            .catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not check that answer by calculation.", 7000));
+        }
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "verify-calculation-all",
+      name: "Verify numeric answers by calculation",
+      callback: () => this.verifyAllByCalculation(),
     });
     this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
     this.addCommand({
@@ -2051,6 +2082,67 @@ class QuestionTrackerPlugin extends Plugin {
     await this.app.vault.modify(file, addVerificationBanner(await this.app.vault.cachedRead(file), verification));
     this.refreshViews();
     return { ...verification, path: file.path };
+  }
+
+  /** Compare a note's numeric answer with its calculation, without calling a model. */
+  async verifyAnswerByCalculation(path) {
+    const file = this.app.vault.getAbstractFileByPath(str(path).trim());
+    if (!(file instanceof TFile)) throw new Error("That note is not in the vault.");
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    if (fm.question_id === undefined || fm.question_id === null || fm.question_id === "") {
+      throw new Error("Only question notes can be verified.");
+    }
+    const sections = parseSections(await this.app.vault.cachedRead(file));
+    const key = findAnswerKey(fm, sections);
+    const result = computedVerification({ ...fm, answer: key }, { key, date: localDate() });
+    if (!result) throw new Error("This note has no numeric calculation or answer formula to check.");
+    await this.applyComputedVerification(file, result);
+    this.refreshViews();
+    return { ...result, path: file.path };
+  }
+
+  /** Write one computed verification and refresh the visible warning banner. */
+  async applyComputedVerification(file, result) {
+    const verification = { ...result, date: result.date || localDate() };
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      Object.assign(fm, verificationFields(verification));
+      if (verification.status === "mismatch" || verification.status === "error" || verification.status === "review") fm.needs_review = true;
+      if (!fm.answer && verification.status === "match" && !fm.variables) fm.answer = verification.answer;
+    });
+    await this.app.vault.modify(file, addVerificationBanner(await this.app.vault.cachedRead(file), verification));
+  }
+
+  /** Check every question that carries a literal calculation or answer formula. */
+  async verifyAllByCalculation() {
+    let checked = 0;
+    let mismatched = 0;
+    let errors = 0;
+    let skipped = 0;
+    for (const q of this.getQuestions()) {
+      try {
+        const sections = parseSections(await this.app.vault.cachedRead(q.file));
+        const key = findAnswerKey(q.fm, sections);
+        const result = computedVerification({ ...q.fm, answer: key }, { key, date: localDate() });
+        if (!result) {
+          skipped++;
+          continue;
+        }
+        await this.applyComputedVerification(q.file, result);
+        checked++;
+        if (result.status === "mismatch") mismatched++;
+        else if (result.status === "error") errors++;
+      } catch (e) {
+        errors++;
+      }
+    }
+    this.refreshViews();
+    new Notice(
+      `Checked ${checked} numeric answer${checked === 1 ? "" : "s"} by calculation` +
+        `${mismatched ? `; ${mismatched} disagree` : ""}` +
+        `${errors ? `; ${errors} could not be checked` : ""}.`,
+      8000
+    );
+    return { checked, mismatched, errors, skipped };
   }
 
   /** Read one note and describe whether it is a transcript. */

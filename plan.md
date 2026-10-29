@@ -608,6 +608,8 @@ Build on the existing timed test.
 - If model and computed answer disagree, mark `needs_review`.
 - Never present an AI-solved numeric answer as verified unless the check passed.
 
+**Shipped in 1.83.0:** `src/computed-verification.js` evaluates a note's `calculation` or `answer_formula` with the restricted numeric evaluator and compares the result with the stored numeric answer using the normal tolerance/unit rules. Import finalization runs it automatically; **Verify this answer by calculation** and **Verify numeric answers by calculation** cover existing notes. A mismatch or invalid expression writes `verification: mismatch|error`, `verified_by: calculation`, `verification_method: computed`, `verified_answer` and `needs_review: true` with a visible Calculation check banner. AI and calculated checks are merged conservatively: a model disagreement with a passing calculation is still marked for review, and a calculation never silently verifies a non-numeric answer. Covered by `tests/computed-verification.test.js`.
+
 **5.16.6 FRQ and work-showing (extends §5.5)**
 - Math-friendly answer box with live LaTeX preview.
 - Compatibility with Latex Suite shortcuts for users who have it, without requiring it.
@@ -1227,7 +1229,8 @@ These are **research and specification items**, not implementation work. The AP 
 - [ ] FRQ format, rubric grading, override, per-criterion feedback (§5.5; AP-specific research in §5.20)
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
-- [ ] Math, chemistry, and physics: computation-based verification, SMILES integration, formula sheets (§5.16)
+- [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
+- [ ] Math, chemistry, and physics: SMILES integration and formula sheets (§5.16)
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
 ### Phase 6: Plans, time, and dashboard
@@ -2353,6 +2356,8 @@ Build on the existing timed test.
 - If model and computed answer disagree, mark `needs_review`.
 - Never present an AI-solved numeric answer as verified unless the check passed.
 
+**Shipped in 1.83.0:** `src/computed-verification.js` evaluates a note's `calculation` or `answer_formula` with the restricted numeric evaluator and compares the result with the stored numeric answer using the normal tolerance/unit rules. Import finalization runs it automatically; **Verify this answer by calculation** and **Verify numeric answers by calculation** cover existing notes. A mismatch or invalid expression writes `verification: mismatch|error`, `verified_by: calculation`, `verification_method: computed`, `verified_answer` and `needs_review: true` with a visible Calculation check banner. AI and calculated checks are merged conservatively: a model disagreement with a passing calculation is still marked for review, and a calculation never silently verifies a non-numeric answer. Covered by `tests/computed-verification.test.js`.
+
 **5.16.6 FRQ and work-showing (extends §5.5)**
 - Math-friendly answer box with live LaTeX preview.
 - Compatibility with Latex Suite shortcuts for users who have it, without requiring it.
@@ -2615,7 +2620,8 @@ Names are proposals; keep existing ones unchanged.
 - [ ] FRQ format, rubric grading, override, per-criterion feedback (§5.5)
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
-- [ ] Math, chemistry, and physics: computation-based verification, SMILES integration, formula sheets (§5.16)
+- [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
+- [ ] Math, chemistry, and physics: SMILES integration and formula sheets (§5.16)
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
 ### Phase 6: Plans, time, and dashboard

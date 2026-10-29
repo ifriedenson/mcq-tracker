@@ -26,6 +26,7 @@ would break a reader ships with a migration and a new schema version.
 | `accepted_answers`, `accepted_variants` | list or string | Extra accepted numeric or text answers, in addition to `answer`. |
 | `variables` | object, list or string | Numeric ranges, lists or fixed values for a parameterized question, for example `a: 2..9` or `a=2..9; b=1..5`. |
 | `answer_formula` | string | Safe arithmetic formula for the computed answer, using the variable names and `{{name}}` placeholders. |
+| `calculation` | string | Literal arithmetic expression used to verify a numeric answer, for example `6 * 7`. The evaluator is restricted and never uses `eval`. |
 | `variant_seed`, `last_variant` | number, string | Written after a parameterized attempt: the seed used and the values (`a=3;b=2.5`). |
 | `choice_1` … `choice_8` | string | Answer choices, in display order. |
 | `correct_choices` | string | One-based choice numbers, for example `2` or `1,3`. |

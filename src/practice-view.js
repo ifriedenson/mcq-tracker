@@ -997,19 +997,37 @@ class PracticeView extends ItemView {
     const paused = !p.isRunning();
     const path = q.file.path;
     const verification = str(fm.verification).toLowerCase();
+    const computedCheck = str(fm.verification_method).toLowerCase() === "computed" || str(fm.verified_by).toLowerCase() === "calculation";
     if (q.variant && q.variant.error) {
       const variantBox = root.createDiv({ cls: "qt-verify-banner" });
       variantBox.createSpan({ text: "Variant error. " });
       variantBox.createSpan({ text: `${q.variant.error} This question is self-graded until the formula or variables are fixed.` });
     }
-    if (verification === "mismatch" || verification === "error") {
+    if (verification === "mismatch" || verification === "error" || verification === "review") {
       const check = root.createDiv({ cls: "qt-verify-banner" });
-      check.createSpan({ text: verification === "mismatch" ? "Answer check failed. " : "Answer check did not finish. " });
       check.createSpan({
         text:
-          verification === "mismatch"
-            ? `An independent AI pass chose ${str(fm.verified_answer).trim() || "a different answer"}, but this note says ${str(fm.answer).trim() || "no answer"}.`
-            : "This answer has not been checked against a second answer.",
+          verification === "review"
+            ? "Answer checks disagree. "
+            : verification === "mismatch"
+              ? computedCheck
+                ? "Calculation check failed. "
+                : "Answer check failed. "
+              : computedCheck
+                ? "Calculation check did not finish. "
+                : "Answer check did not finish. ",
+      });
+      check.createSpan({
+        text:
+          verification === "review"
+            ? `The AI check and the calculation disagree; this note is marked for review.`
+            : verification === "mismatch"
+              ? computedCheck
+                ? `A calculation gives ${str(fm.verified_answer).trim() || "a different value"}, but this note says ${str(fm.answer).trim() || "no answer"}.`
+                : `An independent AI pass chose ${str(fm.verified_answer).trim() || "a different answer"}, but this note says ${str(fm.answer).trim() || "no answer"}.`
+              : computedCheck
+                ? "This answer has not been checked by calculation."
+                : "This answer has not been checked against a second answer.",
       });
     }
     root.addClass("qt-exam");

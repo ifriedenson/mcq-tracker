@@ -71,20 +71,40 @@ function verificationFields(verification) {
     verified_on: str(v.date).trim(),
     verification: str(v.status).trim() || "unchecked",
   };
-  if (str(v.answer).trim()) out.verified_answer = str(v.answer).trim().toUpperCase();
+  const answer = str(v.answer).trim();
+  if (answer) out.verified_answer = v.method === "computed" ? answer : answer.toUpperCase();
+  if (str(v.method).trim()) out.verification_method = str(v.method).trim();
   return out;
 }
 
 /** A visible warning block for a disagreement or an unfinished check. */
 function verificationBanner(verification) {
   const v = verification || {};
+  if (v.status === "review") {
+    return (
+      "> [!warning] Answer checks disagree\n" +
+      `> The AI check chose ${str(v.ai_answer).trim() || "a different answer"}, while the calculation gives ${str(v.answer).trim() || "a value"}. This note is marked for review.\n\n`
+    );
+  }
   if (v.status === "mismatch") {
+    if (v.method === "computed") {
+      return (
+        "> [!warning] Calculation check failed\n" +
+        `> A calculation gives ${str(v.answer).trim() || "a different value"}, but this note's answer is ${str(v.key).trim() || "not set"}. This note is marked for review.\n\n`
+      );
+    }
     return (
       "> [!warning] Answer check failed\n" +
       `> An independent AI pass chose ${str(v.answer).trim() || "a different answer"}, but this note's answer is ${str(v.key).trim() || "not set"}. This note is marked for review.\n\n`
     );
   }
   if (v.status === "error") {
+    if (v.method === "computed") {
+      return (
+        "> [!warning] Calculation check did not finish\n" +
+        `> ${str(v.error).trim() || "The calculation could not be evaluated."} This note has not been checked by calculation.\n\n`
+      );
+    }
     return (
       "> [!warning] Answer check did not finish\n" +
       `> ${str(v.error).trim() || "The independent check could not complete."} This note has not been checked against a second answer.\n\n`
@@ -95,7 +115,7 @@ function verificationBanner(verification) {
 
 /** Removes an earlier verification banner without touching an AI-generated notice. */
 function stripVerificationBanner(text) {
-  return str(text).replace(/^> \[!warning\] Answer check (?:failed|did not finish)[^\n]*(?:\n>[^\n]*)*\n*/m, "");
+  return str(text).replace(/^> \[!warning\] (?:Answer checks disagree|(?:Answer|Calculation) check (?:failed|did not finish))[^\n]*(?:\n>[^\n]*)*\n*/m, "");
 }
 
 /** Places a verification banner directly after the YAML, replacing an older one. */

@@ -353,7 +353,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     });
     new Setting(containerEl)
       .setName("Check AI-written answers")
-      .setDesc("After the AI writes a multiple-choice answer, a second independent call solves the question without seeing the key. Flag a disagreement for review, or drop that item.")
+      .setDesc("AI-written multiple-choice answers are checked by a second independent call. Numeric answers with a calculation or answer formula are checked locally by arithmetic. Flag a disagreement for review, or drop a mismatched multiple-choice item.")
       .addDropdown((d) =>
         d
           .addOption("mark", "Flag mismatches for review")

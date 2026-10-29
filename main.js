@@ -1687,20 +1687,40 @@ function verificationFields(verification) {
     verified_on: str(v.date).trim(),
     verification: str(v.status).trim() || "unchecked",
   };
-  if (str(v.answer).trim()) out.verified_answer = str(v.answer).trim().toUpperCase();
+  const answer = str(v.answer).trim();
+  if (answer) out.verified_answer = v.method === "computed" ? answer : answer.toUpperCase();
+  if (str(v.method).trim()) out.verification_method = str(v.method).trim();
   return out;
 }
 
 /** A visible warning block for a disagreement or an unfinished check. */
 function verificationBanner(verification) {
   const v = verification || {};
+  if (v.status === "review") {
+    return (
+      "> [!warning] Answer checks disagree\n" +
+      `> The AI check chose ${str(v.ai_answer).trim() || "a different answer"}, while the calculation gives ${str(v.answer).trim() || "a value"}. This note is marked for review.\n\n`
+    );
+  }
   if (v.status === "mismatch") {
+    if (v.method === "computed") {
+      return (
+        "> [!warning] Calculation check failed\n" +
+        `> A calculation gives ${str(v.answer).trim() || "a different value"}, but this note's answer is ${str(v.key).trim() || "not set"}. This note is marked for review.\n\n`
+      );
+    }
     return (
       "> [!warning] Answer check failed\n" +
       `> An independent AI pass chose ${str(v.answer).trim() || "a different answer"}, but this note's answer is ${str(v.key).trim() || "not set"}. This note is marked for review.\n\n`
     );
   }
   if (v.status === "error") {
+    if (v.method === "computed") {
+      return (
+        "> [!warning] Calculation check did not finish\n" +
+        `> ${str(v.error).trim() || "The calculation could not be evaluated."} This note has not been checked by calculation.\n\n`
+      );
+    }
     return (
       "> [!warning] Answer check did not finish\n" +
       `> ${str(v.error).trim() || "The independent check could not complete."} This note has not been checked against a second answer.\n\n`
@@ -1711,7 +1731,7 @@ function verificationBanner(verification) {
 
 /** Removes an earlier verification banner without touching an AI-generated notice. */
 function stripVerificationBanner(text) {
-  return str(text).replace(/^> \[!warning\] Answer check (?:failed|did not finish)[^\n]*(?:\n>[^\n]*)*\n*/m, "");
+  return str(text).replace(/^> \[!warning\] (?:Answer checks disagree|(?:Answer|Calculation) check (?:failed|did not finish))[^\n]*(?:\n>[^\n]*)*\n*/m, "");
 }
 
 /** Places a verification banner directly after the YAML, replacing an older one. */
@@ -12085,6 +12105,157 @@ module.exports = {
 };
 };
 
+/* ---- src/computed-verification.js ---- */
+__defs["computed-verification"] = function (module, exports, require) {
+/*
+ * Computation-based answer verification.
+ *
+ * A note can carry a literal arithmetic `calculation` (for example 6 * 7) or
+ * an `answer_formula` with parameterized variables. The evaluator is the same
+ * restricted parser used by parameterized questions; this module never calls
+ * eval. A numeric stored answer is compared with the computed value using the
+ * normal tolerance/unit rules. Non-numeric questions are left alone.
+ */
+const { str } = require("./util");
+const { evaluateExpression, buildVariant, formatVariantNumber } = require("./parameterized");
+const { parseQuantity, gradeNumeric } = require("./numeric-grading");
+
+function expressionFrom(fm) {
+  for (const key of ["calculation", "answer_calculation", "answer_formula"]) {
+    const value = str(fm && fm[key]).trim();
+    if (value) return value.replace(/^=\s*/, "");
+  }
+  return "";
+}
+
+/** Parse the compact `a=3;b=2.5` form written to last_variant. */
+function parseVariantValues(text) {
+  const values = {};
+  for (const part of str(text).split(";")) {
+    const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$/.exec(part);
+    if (!match) continue;
+    const value = Number(match[2]);
+    if (Number.isFinite(value)) values[match[1]] = value;
+  }
+  return values;
+}
+
+/**
+ * Evaluate the note's calculation. Returns { value, text, expression, variables }.
+ * Throws a readable error when the expression is malformed.
+ */
+function computeAnswer(fm) {
+  const expression = expressionFrom(fm);
+  if (!expression) return null;
+  let variables = {};
+  if (fm && fm.variables) {
+    variables = parseVariantValues(fm.last_variant);
+    if (!Object.keys(variables).length) {
+      // A formula with variables but no recorded variant is still checkable:
+      // use the saved seed when one exists, otherwise the first reproducible
+      // draw. The note's formula is the authority.
+      const seed = fm.variant_seed === undefined || fm.variant_seed === null ? 1 : fm.variant_seed;
+      const variant = buildVariant(fm, seed);
+      if (!variant.ok) throw new Error(variant.error || "The parameterized variant could not be built.");
+      variables = variant.values;
+    }
+  }
+  const value = evaluateExpression(expression, variables);
+  return {
+    value,
+    text: formatVariantNumber(value),
+    expression,
+    variables,
+  };
+}
+
+/**
+ * Compare a stored numeric answer with the calculation. Returns a verification
+ * object, or null when the note has no calculation or its answer is non-numeric.
+ */
+function computedVerification(fm, options) {
+  const opts = options || {};
+  if (!expressionFrom(fm)) return null;
+  const key = str(opts.key !== undefined ? opts.key : fm && fm.answer).trim();
+  const base = {
+    model: "calculation",
+    method: "computed",
+    date: str(opts.date).trim(),
+    key,
+    drop: false,
+  };
+  let computed;
+  try {
+    computed = computeAnswer(fm);
+  } catch (e) {
+    return {
+      ...base,
+      status: "error",
+      match: null,
+      answer: "",
+      error: str(e && e.message ? e.message : e) || "The calculation could not be evaluated.",
+    };
+  }
+  if (!computed) return null;
+  if (!key) {
+    return {
+      ...base,
+      status: "match",
+      match: true,
+      answer: computed.text,
+      reason: `Computed ${computed.text} from ${computed.expression}.`,
+      expression: computed.expression,
+    };
+  }
+  if (!parseQuantity(key)) return null; // letter, word or otherwise non-numeric
+  const graded = gradeNumeric({ ...fm, answer: key, question_type: "spr" }, computed.text);
+  if (!graded) return null;
+  return {
+    ...base,
+    status: graded.correct ? "match" : "mismatch",
+    match: graded.correct,
+    answer: computed.text,
+    reason: `Computed ${computed.text} from ${computed.expression}. ${graded.reason}`,
+    expression: computed.expression,
+    interpreted: graded.interpreted,
+  };
+}
+
+/**
+ * When both a model check and a local calculation exist, the calculation is the
+ * stronger signal. A model disagreement is still surfaced for review.
+ */
+function mergeVerification(ai, computed) {
+  if (!computed) return ai || null;
+  if (!ai) return computed;
+  const out = {
+    ...computed,
+    ai_status: str(ai.status),
+    ai_answer: str(ai.answer),
+    ai_model: str(ai.model),
+  };
+  if (computed.status === "mismatch" || computed.status === "error") return out;
+  if (ai.status === "mismatch") {
+    return {
+      ...out,
+      status: "review",
+      match: false,
+      error: "The AI check disagreed with the calculated answer.",
+      drop: false,
+    };
+  }
+  return out;
+}
+
+module.exports = {
+  expressionFrom,
+  parseVariantValues,
+  computeAnswer,
+  computedVerification,
+  mergeVerification,
+};
+};
+
 /* ---- src/constants.js ---- */
 __defs["constants"] = function (module, exports, require) {
 const { DEFAULT_REFERENCE_SETTINGS } = require("./reference-data");
@@ -18549,6 +18720,7 @@ const { chunkText } = require("./pdf");
 const { officialIdOf } = require("./filters");
 const { normalizePage, sourceLink } = require("./provenance");
 const { verificationBanner, verificationFields } = require("./answer-verification");
+const { computedVerification, mergeVerification } = require("./computed-verification");
 
 /* ---- checking imported notes */
 
@@ -18626,7 +18798,7 @@ function buildReportMarkdown(folder, issues, dupes, date) {
 
 const KNOWN_PROPS = new Set([
   "question_id", "official_question_id", "source_question_id", "pdf_question_id", "original_id", "number", "test", "course", "section", "domain", "skill", "unit", "difficulty", "source",
-  "stimulus_id", "question_type", "choices", "answer", "answer_source", "explanation_source", "ai_model", "ai_generated",
+  "stimulus_id", "question_type", "choices", "answer", "answer_source", "explanation_source", "ai_model", "ai_generated", "calculation", "answer_calculation", "answer_formula", "variables", "variant_seed", "last_variant", "units", "answer_unit", "tolerance", "tolerance_type", "sig_figs", "sig_figs_mode", "accepted_answers", "accepted_variants", "verification", "verification_method", "verified", "verified_by", "verified_on", "verified_answer", "needs_review",
   "source_pdf", "source_document", "source_note", "source_file", "source_page", "source_heading", "source_link", "source_scan_id", "scan_date", "ocr_source", "ocr_confidence",
   ...Object.keys(TRACKING_DEFAULTS),
 ]);
@@ -18672,6 +18844,7 @@ const IMPORT_RULES = `Rules:
 - The file may be a PDF, a PowerPoint deck, a Word document or another document. In a slide deck, each slide is marked as a page; a slide can hold one question, its choices and the answer. Keep the slides in order and never merge questions from different slides.
 - Layout of question-bank documents: a question often starts with a line like "Question ID: 37e5c794", then a small table of labels, then "Question" followed by the question text, then the choices (sometimes under a heading called "Answer"), then "Correct Answer: D", then "Rationale". Everything from the start of the question text up to the first choice is the question: keep both the sentence with the blank (leave the blank as written, for example ______) and the instruction sentence after it ("Which choice completes the text..."). The choices go under "## Answer Choices", the correct letter goes in "answer", and the "Rationale" or "Explanation" text is the explanation.
 - Answer: if the document shows the correct answer anywhere (for example an answer key at the end), use it and set answer_source: pdf. If the document does NOT show it, work the question out carefully yourself, give your best answer, and set answer_source: ai. For a multiple-choice answer use just the letter.
+- Calculation: for a numeric answer (an SPR question or any answer you work out with arithmetic), add a 'calculation' property with one arithmetic expression using literal numbers, spaces and the operators + - * / ^ and parentheses. Do not put prose, units or equals signs in it. Example: answer: 42 followed by calculation: 6 * 7. The plugin evaluates it locally to check the answer. Leave calculation out for letter or word answers, or when the arithmetic cannot be verified.
 - Explanation: if the document gives one, copy it and set explanation_source: pdf. Otherwise write a short, correct explanation of why the answer is right (and why the others are wrong) and set explanation_source: ai.
 - source_page: the page or slide number where the question begins, taken from the '--- Page N ---' marker. Use a number, or a range like 3-4 when a question spans pages. Leave it out if you cannot tell. Do not invent a page. The plugin adds the source file path and link itself.
 - Do not write any "AI-generated" notice yourself. The plugin adds it.
@@ -18856,6 +19029,13 @@ function finalizeNote(text, meta, qid, stamp) {
   const diff = meta.difficulty || src.difficulty;
   if (diff) fm.difficulty = /^(easy|medium|hard)$/i.test(str(diff).trim()) ? str(diff).trim().toLowerCase() : diff;
   if (meta.source) fm.source = meta.source;
+  // Numeric-answer and verification properties carry meaning across a re-import.
+  for (const k of [
+    "calculation", "answer_calculation", "answer_formula", "variables", "variant_seed", "last_variant",
+    "units", "answer_unit", "tolerance", "tolerance_type", "sig_figs", "sig_figs_mode", "accepted_answers", "accepted_variants",
+  ]) {
+    if (src[k] !== undefined && src[k] !== null) fm[k] = src[k];
+  }
   // any other labelled information the document showed (single-line values only; never the plugin's own tracking fields)
   let extra = 0;
   for (const [k, v] of Object.entries(src)) {
@@ -18911,9 +19091,14 @@ function finalizeNote(text, meta, qid, stamp) {
     fm.ai_generated = stamp.date;
   }
   const verification = stamp.verification && typeof stamp.verification === "object" ? stamp.verification : null;
-  if (verification) {
-    Object.assign(fm, verificationFields(verification));
-    if (verification.status === "mismatch" || verification.status === "error") fm.needs_review = true;
+  const computed = computedVerification(fm, { key: fm.answer });
+  const merged = mergeVerification(verification, computed);
+  if (merged) {
+    Object.assign(fm, verificationFields(merged));
+    if (merged.status === "mismatch" || merged.status === "error" || merged.status === "review") fm.needs_review = true;
+    // A plain arithmetic calculation can supply a missing static answer. A
+    // parameterized formula stays dynamic and is evaluated at load time.
+    if (!fm.answer && merged.status === "match" && !fm.variables) fm.answer = merged.answer;
   } else if (ai) {
     fm.verified = false;
     fm.verification = "unchecked";
@@ -18931,7 +19116,7 @@ function finalizeNote(text, meta, qid, stamp) {
       `> [!warning] AI-generated ${what}\n` +
       `> Written by ${stamp.model} on ${stamp.date}${f.aiAnswer ? ", because the document did not show the answer" : ""}. Check it before you rely on it.\n\n`;
   }
-  const check = verification ? verificationBanner(verification) : "";
+  const check = merged ? verificationBanner(merged) : "";
   return `---\n${stringifyYaml(fm).trimEnd()}\n---\n\n${notice}${check}${cleaned}\n`;
 }
 
@@ -25446,6 +25631,7 @@ const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normali
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
+const { computedVerification } = require("./computed-verification");
 const { assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
 const agentWriteGuard = require("./agent-write-guard");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
@@ -25687,6 +25873,36 @@ class QuestionTrackerPlugin extends Plugin {
         }
         return true;
       },
+    });
+
+    this.addCommand({
+      id: "verify-calculation-note",
+      name: "Verify this answer by calculation",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        const fm = file && this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (!file || !fm || fm.question_id === undefined || fm.question_id === null || fm.question_id === "") return false;
+        if (!checking) {
+          this.verifyAnswerByCalculation(file.path)
+            .then((result) => {
+              if (result) {
+                new Notice(
+                  result.match
+                    ? "The calculation agrees with the stored answer."
+                    : `The calculation gives ${result.answer}; the note says ${result.key}. Marked for review.`,
+                  7000
+                );
+              }
+            })
+            .catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not check that answer by calculation.", 7000));
+        }
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "verify-calculation-all",
+      name: "Verify numeric answers by calculation",
+      callback: () => this.verifyAllByCalculation(),
     });
     this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
     this.addCommand({
@@ -27467,6 +27683,67 @@ class QuestionTrackerPlugin extends Plugin {
     await this.app.vault.modify(file, addVerificationBanner(await this.app.vault.cachedRead(file), verification));
     this.refreshViews();
     return { ...verification, path: file.path };
+  }
+
+  /** Compare a note's numeric answer with its calculation, without calling a model. */
+  async verifyAnswerByCalculation(path) {
+    const file = this.app.vault.getAbstractFileByPath(str(path).trim());
+    if (!(file instanceof TFile)) throw new Error("That note is not in the vault.");
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    if (fm.question_id === undefined || fm.question_id === null || fm.question_id === "") {
+      throw new Error("Only question notes can be verified.");
+    }
+    const sections = parseSections(await this.app.vault.cachedRead(file));
+    const key = findAnswerKey(fm, sections);
+    const result = computedVerification({ ...fm, answer: key }, { key, date: localDate() });
+    if (!result) throw new Error("This note has no numeric calculation or answer formula to check.");
+    await this.applyComputedVerification(file, result);
+    this.refreshViews();
+    return { ...result, path: file.path };
+  }
+
+  /** Write one computed verification and refresh the visible warning banner. */
+  async applyComputedVerification(file, result) {
+    const verification = { ...result, date: result.date || localDate() };
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      Object.assign(fm, verificationFields(verification));
+      if (verification.status === "mismatch" || verification.status === "error" || verification.status === "review") fm.needs_review = true;
+      if (!fm.answer && verification.status === "match" && !fm.variables) fm.answer = verification.answer;
+    });
+    await this.app.vault.modify(file, addVerificationBanner(await this.app.vault.cachedRead(file), verification));
+  }
+
+  /** Check every question that carries a literal calculation or answer formula. */
+  async verifyAllByCalculation() {
+    let checked = 0;
+    let mismatched = 0;
+    let errors = 0;
+    let skipped = 0;
+    for (const q of this.getQuestions()) {
+      try {
+        const sections = parseSections(await this.app.vault.cachedRead(q.file));
+        const key = findAnswerKey(q.fm, sections);
+        const result = computedVerification({ ...q.fm, answer: key }, { key, date: localDate() });
+        if (!result) {
+          skipped++;
+          continue;
+        }
+        await this.applyComputedVerification(q.file, result);
+        checked++;
+        if (result.status === "mismatch") mismatched++;
+        else if (result.status === "error") errors++;
+      } catch (e) {
+        errors++;
+      }
+    }
+    this.refreshViews();
+    new Notice(
+      `Checked ${checked} numeric answer${checked === 1 ? "" : "s"} by calculation` +
+        `${mismatched ? `; ${mismatched} disagree` : ""}` +
+        `${errors ? `; ${errors} could not be checked` : ""}.`,
+      8000
+    );
+    return { checked, mismatched, errors, skipped };
   }
 
   /** Read one note and describe whether it is a transcript. */
@@ -30324,19 +30601,37 @@ class PracticeView extends ItemView {
     const paused = !p.isRunning();
     const path = q.file.path;
     const verification = str(fm.verification).toLowerCase();
+    const computedCheck = str(fm.verification_method).toLowerCase() === "computed" || str(fm.verified_by).toLowerCase() === "calculation";
     if (q.variant && q.variant.error) {
       const variantBox = root.createDiv({ cls: "qt-verify-banner" });
       variantBox.createSpan({ text: "Variant error. " });
       variantBox.createSpan({ text: `${q.variant.error} This question is self-graded until the formula or variables are fixed.` });
     }
-    if (verification === "mismatch" || verification === "error") {
+    if (verification === "mismatch" || verification === "error" || verification === "review") {
       const check = root.createDiv({ cls: "qt-verify-banner" });
-      check.createSpan({ text: verification === "mismatch" ? "Answer check failed. " : "Answer check did not finish. " });
       check.createSpan({
         text:
-          verification === "mismatch"
-            ? `An independent AI pass chose ${str(fm.verified_answer).trim() || "a different answer"}, but this note says ${str(fm.answer).trim() || "no answer"}.`
-            : "This answer has not been checked against a second answer.",
+          verification === "review"
+            ? "Answer checks disagree. "
+            : verification === "mismatch"
+              ? computedCheck
+                ? "Calculation check failed. "
+                : "Answer check failed. "
+              : computedCheck
+                ? "Calculation check did not finish. "
+                : "Answer check did not finish. ",
+      });
+      check.createSpan({
+        text:
+          verification === "review"
+            ? `The AI check and the calculation disagree; this note is marked for review.`
+            : verification === "mismatch"
+              ? computedCheck
+                ? `A calculation gives ${str(fm.verified_answer).trim() || "a different value"}, but this note says ${str(fm.answer).trim() || "no answer"}.`
+                : `An independent AI pass chose ${str(fm.verified_answer).trim() || "a different answer"}, but this note says ${str(fm.answer).trim() || "no answer"}.`
+              : computedCheck
+                ? "This answer has not been checked by calculation."
+                : "This answer has not been checked against a second answer.",
       });
     }
     root.addClass("qt-exam");
@@ -33939,7 +34234,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     });
     new Setting(containerEl)
       .setName("Check AI-written answers")
-      .setDesc("After the AI writes a multiple-choice answer, a second independent call solves the question without seeing the key. Flag a disagreement for review, or drop that item.")
+      .setDesc("AI-written multiple-choice answers are checked by a second independent call. Numeric answers with a calculation or answer formula are checked locally by arithmetic. Flag a disagreement for review, or drop a mismatched multiple-choice item.")
       .addDropdown((d) =>
         d
           .addOption("mark", "Flag mismatches for review")
@@ -37184,6 +37479,7 @@ const testSections = require("./exam-sections");
 const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
 const answerVerification = require("./answer-verification");
+const computedVerification = require("./computed-verification");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
@@ -37309,6 +37605,7 @@ QuestionTrackerPlugin.__test = {
   aiWrites,
   weakSpot,
   answerVerification,
+  computedVerification,
   WeakSpotModal,
   OpenCodeManager,
   MAX_OPENCODE_MAJOR,

@@ -7,6 +7,7 @@ const { chunkText } = require("./pdf");
 const { officialIdOf } = require("./filters");
 const { normalizePage, sourceLink } = require("./provenance");
 const { verificationBanner, verificationFields } = require("./answer-verification");
+const { computedVerification, mergeVerification } = require("./computed-verification");
 
 /* ---- checking imported notes */
 
@@ -84,7 +85,7 @@ function buildReportMarkdown(folder, issues, dupes, date) {
 
 const KNOWN_PROPS = new Set([
   "question_id", "official_question_id", "source_question_id", "pdf_question_id", "original_id", "number", "test", "course", "section", "domain", "skill", "unit", "difficulty", "source",
-  "stimulus_id", "question_type", "choices", "answer", "answer_source", "explanation_source", "ai_model", "ai_generated",
+  "stimulus_id", "question_type", "choices", "answer", "answer_source", "explanation_source", "ai_model", "ai_generated", "calculation", "answer_calculation", "answer_formula", "variables", "variant_seed", "last_variant", "units", "answer_unit", "tolerance", "tolerance_type", "sig_figs", "sig_figs_mode", "accepted_answers", "accepted_variants", "verification", "verification_method", "verified", "verified_by", "verified_on", "verified_answer", "needs_review",
   "source_pdf", "source_document", "source_note", "source_file", "source_page", "source_heading", "source_link", "source_scan_id", "scan_date", "ocr_source", "ocr_confidence",
   ...Object.keys(TRACKING_DEFAULTS),
 ]);
@@ -130,6 +131,7 @@ const IMPORT_RULES = `Rules:
 - The file may be a PDF, a PowerPoint deck, a Word document or another document. In a slide deck, each slide is marked as a page; a slide can hold one question, its choices and the answer. Keep the slides in order and never merge questions from different slides.
 - Layout of question-bank documents: a question often starts with a line like "Question ID: 37e5c794", then a small table of labels, then "Question" followed by the question text, then the choices (sometimes under a heading called "Answer"), then "Correct Answer: D", then "Rationale". Everything from the start of the question text up to the first choice is the question: keep both the sentence with the blank (leave the blank as written, for example ______) and the instruction sentence after it ("Which choice completes the text..."). The choices go under "## Answer Choices", the correct letter goes in "answer", and the "Rationale" or "Explanation" text is the explanation.
 - Answer: if the document shows the correct answer anywhere (for example an answer key at the end), use it and set answer_source: pdf. If the document does NOT show it, work the question out carefully yourself, give your best answer, and set answer_source: ai. For a multiple-choice answer use just the letter.
+- Calculation: for a numeric answer (an SPR question or any answer you work out with arithmetic), add a 'calculation' property with one arithmetic expression using literal numbers, spaces and the operators + - * / ^ and parentheses. Do not put prose, units or equals signs in it. Example: answer: 42 followed by calculation: 6 * 7. The plugin evaluates it locally to check the answer. Leave calculation out for letter or word answers, or when the arithmetic cannot be verified.
 - Explanation: if the document gives one, copy it and set explanation_source: pdf. Otherwise write a short, correct explanation of why the answer is right (and why the others are wrong) and set explanation_source: ai.
 - source_page: the page or slide number where the question begins, taken from the '--- Page N ---' marker. Use a number, or a range like 3-4 when a question spans pages. Leave it out if you cannot tell. Do not invent a page. The plugin adds the source file path and link itself.
 - Do not write any "AI-generated" notice yourself. The plugin adds it.
@@ -314,6 +316,13 @@ function finalizeNote(text, meta, qid, stamp) {
   const diff = meta.difficulty || src.difficulty;
   if (diff) fm.difficulty = /^(easy|medium|hard)$/i.test(str(diff).trim()) ? str(diff).trim().toLowerCase() : diff;
   if (meta.source) fm.source = meta.source;
+  // Numeric-answer and verification properties carry meaning across a re-import.
+  for (const k of [
+    "calculation", "answer_calculation", "answer_formula", "variables", "variant_seed", "last_variant",
+    "units", "answer_unit", "tolerance", "tolerance_type", "sig_figs", "sig_figs_mode", "accepted_answers", "accepted_variants",
+  ]) {
+    if (src[k] !== undefined && src[k] !== null) fm[k] = src[k];
+  }
   // any other labelled information the document showed (single-line values only; never the plugin's own tracking fields)
   let extra = 0;
   for (const [k, v] of Object.entries(src)) {
@@ -369,9 +378,14 @@ function finalizeNote(text, meta, qid, stamp) {
     fm.ai_generated = stamp.date;
   }
   const verification = stamp.verification && typeof stamp.verification === "object" ? stamp.verification : null;
-  if (verification) {
-    Object.assign(fm, verificationFields(verification));
-    if (verification.status === "mismatch" || verification.status === "error") fm.needs_review = true;
+  const computed = computedVerification(fm, { key: fm.answer });
+  const merged = mergeVerification(verification, computed);
+  if (merged) {
+    Object.assign(fm, verificationFields(merged));
+    if (merged.status === "mismatch" || merged.status === "error" || merged.status === "review") fm.needs_review = true;
+    // A plain arithmetic calculation can supply a missing static answer. A
+    // parameterized formula stays dynamic and is evaluated at load time.
+    if (!fm.answer && merged.status === "match" && !fm.variables) fm.answer = merged.answer;
   } else if (ai) {
     fm.verified = false;
     fm.verification = "unchecked";
@@ -389,7 +403,7 @@ function finalizeNote(text, meta, qid, stamp) {
       `> [!warning] AI-generated ${what}\n` +
       `> Written by ${stamp.model} on ${stamp.date}${f.aiAnswer ? ", because the document did not show the answer" : ""}. Check it before you rely on it.\n\n`;
   }
-  const check = verification ? verificationBanner(verification) : "";
+  const check = merged ? verificationBanner(merged) : "";
   return `---\n${stringifyYaml(fm).trimEnd()}\n---\n\n${notice}${check}${cleaned}\n`;
 }
 
