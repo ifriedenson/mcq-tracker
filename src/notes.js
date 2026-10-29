@@ -4,6 +4,7 @@ const { appendHistory, hasAttemptId, setAttemptErrorType } = require("./history"
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
 const { gradeAnswerDetailed } = require("./numeric-grading");
+const { formatChoiceSet, isTrueFalseChoices, normalizeTrueFalse, parseChoiceSet } = require("./answer-types");
 
 const HEAD_ALIASES = {
   stimulus: ["stimulus", "passage", "source", "excerpt", "reading", "text", "figure"],
@@ -98,28 +99,53 @@ function answerFromSection(text) {
   return "";
 }
 
+/** A select-all key written in the Answer section, such as "Answers: A, C" or "Answer: B and D". */
+function answerSetFromSection(text) {
+  const re = /(?:correct\s+)?answers?\s*(?:is|are|:|=|-|–|—)\s*[*_`(]*\s*([A-H](?:\s*(?:,|\/|&|\band\b)\s*[A-H])+)/i;
+  const m = str(text).match(re);
+  if (!m) return "";
+  return formatChoiceSet(parseChoiceSet(m[1]));
+}
+
+/** A true/false key written in the Answer section, such as "Correct Answer: False". */
+function answerTrueFalseFromSection(text) {
+  const re = /(?:correct\s+)?answer\s*(?:is|:|=|-|–|—)\s*[*_`(]*\s*(true|false|t|f|yes|no)\b/i;
+  const m = str(text).match(re);
+  return m ? normalizeTrueFalse(m[1]) : "";
+}
+
 /** Read the key from properties first (several common names), then the note's own answer section, then the whole body. */
 function findAnswerKey(fm, sections) {
   for (const k of ["answer", "correct_answer", "correct", "answer_key", "key"]) {
     const raw = str(fm[k]).trim();
     if (!raw) continue;
+    // A set stays whole; the single-letter reader below would cut "A, C" to "A".
+    if (parseChoiceSet(raw).length > 1) return formatChoiceSet(parseChoiceSet(raw));
     const m = raw.match(/^\(?(?:choice\s+|option\s+)?([A-Ha-h])\)?(?:[.):\s]|$)/i);
     if (m && sections.choices.length) return m[1].toUpperCase();
     if (m && raw.length <= 3) return m[1].toUpperCase();
     return raw;
   }
+  const set = answerSetFromSection(sections.answer) || answerSetFromSection(sections.body);
+  if (set) return set;
+  const tf = answerTrueFalseFromSection(sections.answer) || answerTrueFalseFromSection(sections.body);
+  if (tf) return tf;
   return answerFromSection(sections.answer) || answerFromSection(sections.body);
 }
 
 /** Decide how to present/grade a note even when question_type is free text like "Multiple choice (4 choices)". */
 function inferMode(declared, key, choices) {
   const d = str(declared).toLowerCase();
+  const list = Array.isArray(choices) ? choices : [];
   if (!key) return "self";
-  const letter = /^[A-H]$/i.test(key);
+  const letter = /^[A-H]$/i.test(str(key).trim());
   if (/spr|student.?produced|grid.?in|free.?response|short.?answer|numeric|fill/.test(d)) return "spr";
-  if (/mcq|multiple|choice|select/.test(d)) return letter ? "mcq" : "self";
-  if (!d && letter) return "mcq";
-  if (letter && choices.length) return "mcq";
+  if (/select.?all|sata|multi(?:ple)?[ _-]?select|multi.?answer|checkbox/.test(d)) return "multi";
+  if (/true[ _-]?false|boolean|(^|\W)tf(\W|$)/.test(d)) return "tf";
+  if (/mcq|multiple|choice|select/.test(d)) return parseChoiceSet(key).length > 1 ? "multi" : letter ? "mcq" : "self";
+  if (parseChoiceSet(key).length > 1) return "multi";
+  if (isTrueFalseChoices(list) || normalizeTrueFalse(key, list)) return "tf";
+  if (letter) return "mcq";
   return "self";
 }
 
@@ -341,6 +367,8 @@ module.exports = {
   extractRationale,
   KEY_PATTERNS,
   answerFromSection,
+  answerSetFromSection,
+  answerTrueFalseFromSection,
   findAnswerKey,
   inferMode,
   replaceMyNotes,

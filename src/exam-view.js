@@ -8,6 +8,7 @@ const { examMatchesCourse } = require("./calendar-model");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
+const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet, trueFalseLabels } = require("./answer-types");
 const { variantSummary, variantValuesText } = require("./parameterized");
 const { NameModal } = require("./modals");
 const { buildSections, normalizeSections } = require("./exam-sections");
@@ -560,18 +561,42 @@ class TestView extends ItemView {
     renderMarkdownInto(this.app, it.sections.question || "*No `## Question` section found in this note.*", right.createDiv({ cls: "qt-stem" }), path, this);
 
     const ans = right.createDiv({ cls: "qt-answers" });
-    if (it.mode === "mcq") {
+    if (it.mode === "mcq" || it.mode === "multi") {
       const n = Number(it.fm.choices) || it.sections.choices.length || 4;
       const byLetter = Object.fromEntries(it.sections.choices.map((c) => [c.letter, c.text]));
+      const multi = it.mode === "multi";
+      const picked = new Set(parseChoiceSet(it.sel));
       const btns = [];
       for (const L of "ABCDEFGH".slice(0, n).split("")) {
         const b = ans.createEl("button", { cls: "qt-choice" });
         b.createSpan({ cls: "qt-letter", text: L });
         if (byLetter[L]) renderMarkdownInto(this.app, byLetter[L], b.createDiv({ cls: "qt-choice-text" }), path, this);
-        if (it.sel === L) b.addClass("is-selected");
+        if (multi ? picked.has(L) : it.sel === L) b.addClass("is-selected");
         b.addEventListener("click", () => {
-          it.sel = it.sel === L ? "" : L; // tap again to clear
-          btns.forEach((x, i) => x.toggleClass("is-selected", "ABCDEFGH"[i] === it.sel));
+          if (multi) {
+            if (picked.has(L)) picked.delete(L);
+            else picked.add(L);
+            it.sel = formatChoiceSet([...picked]);
+            btns.forEach((x, i) => x.toggleClass("is-selected", picked.has("ABCDEFGH"[i])));
+          } else {
+            it.sel = it.sel === L ? "" : L; // tap again to clear
+            btns.forEach((x, i) => x.toggleClass("is-selected", "ABCDEFGH"[i] === it.sel));
+          }
+          this.paintNav();
+          this.persist();
+        });
+        btns.push(b);
+      }
+      if (multi) ans.createDiv({ cls: "qt-hint", text: "Select all that apply." });
+    } else if (it.mode === "tf") {
+      const btns = [];
+      for (const option of trueFalseLabels(it.sections.choices)) {
+        const b = ans.createEl("button", { cls: "qt-choice qt-choice-tf" });
+        b.createSpan({ cls: "qt-choice-text", text: option.label });
+        if (it.sel === option.value) b.addClass("is-selected");
+        b.addEventListener("click", () => {
+          it.sel = option.value;
+          btns.forEach((x) => x.toggleClass("is-selected", x === b));
           this.paintNav();
           this.persist();
         });
@@ -887,17 +912,32 @@ class TestView extends ItemView {
       return;
     }
     const rc = d.createDiv({ cls: "qt-answers" });
-    const mine = str(it.sel).toUpperCase();
-    const keyL = str(it.key).toUpperCase();
+    const keySet = new Set(parseChoiceSet(it.key));
+    const mineSet = new Set(parseChoiceSet(it.sel));
+    const tfKey = it.mode === "tf" ? normalizeTrueFalse(it.key, it.sections.choices) : "";
+    const tfMine = it.mode === "tf" ? normalizeTrueFalse(it.sel, it.sections.choices) : "";
     for (const c of it.sections.choices) {
-      const isKey = it.mode === "mcq" && c.letter === keyL;
-      const isMine = it.mode === "mcq" && c.letter === mine;
+      let isKey = false;
+      let isMine = false;
+      if (it.mode === "tf") {
+        const word = normalizeTrueFalse(c.text, it.sections.choices);
+        isKey = !!word && word === tfKey;
+        isMine = !!word && word === tfMine;
+      } else if (it.mode === "mcq" || it.mode === "multi") {
+        isKey = keySet.has(c.letter);
+        isMine = mineSet.has(c.letter);
+      }
       const row = rc.createDiv({ cls: "qt-choice qt-choice-static" });
       if (isKey) row.addClass("is-key");
       if (isMine && !isKey) row.addClass("is-miss");
       if (isMine) row.addClass("is-mine");
       row.createSpan({ cls: "qt-letter", text: c.letter });
       renderMarkdownInto(this.app, c.text, row.createDiv({ cls: "qt-choice-text" }), path, this);
+    }
+    if (it.mode === "multi") {
+      const keyText = formatChoiceSet(parseChoiceSet(it.key)) || it.key;
+      const mineText = formatChoiceSet(parseChoiceSet(it.sel)) || it.sel || "(blank)";
+      d.createDiv({ cls: "qt-hint", text: `Correct answers: ${keyText} · Your answer: ${mineText}` });
     }
     if (it.mode === "spr") {
       d.createDiv({ cls: "qt-hint", text: `Your answer: ${it.sel || "(blank)"} · Correct answer: ${it.key}` });

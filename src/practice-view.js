@@ -6,6 +6,7 @@ const { fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
+const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet, trueFalseLabels } = require("./answer-types");
 const { variantSummary, variantValuesText } = require("./parameterized");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
@@ -1257,21 +1258,44 @@ class PracticeView extends ItemView {
 
     // answer input
     const ans = right.createDiv({ cls: "qt-answers" });
-    if (mode === "mcq") {
+    if (mode === "mcq" || mode === "multi") {
       const n = Number(fm.choices) || q.sections.choices.length || 4;
       const letters = "ABCDEFGH".slice(0, n).split("");
       const byLetter = Object.fromEntries(q.sections.choices.map((c) => [c.letter, c.text]));
+      const multi = mode === "multi";
+      const picked = new Set(parseChoiceSet(this.sel));
       const btns = [];
       for (const L of letters) {
         const b = ans.createEl("button", { cls: "qt-choice" });
         b.createSpan({ cls: "qt-letter", text: L });
         if (byLetter[L]) this.md(byLetter[L], b.createDiv({ cls: "qt-choice-text" }), path);
         b.addEventListener("click", () => {
-          this.sel = L;
+          if (multi) {
+            if (picked.has(L)) picked.delete(L);
+            else picked.add(L);
+            this.sel = formatChoiceSet([...picked]);
+            btns.forEach((x, i) => x.toggleClass("is-selected", picked.has("ABCDEFGH"[i])));
+          } else {
+            this.sel = L;
+            btns.forEach((x) => x.toggleClass("is-selected", x === b));
+          }
+          refresh();
+        });
+        if (multi ? picked.has(L) : this.sel === L) b.addClass("is-selected");
+        btns.push(b);
+      }
+      if (multi) ans.createDiv({ cls: "qt-hint", text: "Select all that apply." });
+    } else if (mode === "tf") {
+      const btns = [];
+      for (const option of trueFalseLabels(q.sections.choices)) {
+        const b = ans.createEl("button", { cls: "qt-choice qt-choice-tf" });
+        b.createSpan({ cls: "qt-choice-text", text: option.label });
+        b.addEventListener("click", () => {
+          this.sel = option.value;
           btns.forEach((x) => x.toggleClass("is-selected", x === b));
           refresh();
         });
-        if (this.sel === L) b.addClass("is-selected");
+        if (this.sel === option.value) b.addClass("is-selected");
         btns.push(b);
       }
     } else if (mode === "spr") {
@@ -1463,12 +1487,22 @@ class PracticeView extends ItemView {
     }
     this.md(r.sections.question || "", rv.createDiv({ cls: "qt-stem" }), path);
     const rc = rv.createDiv({ cls: "qt-answers" });
-    const chosenL = str(r.chosen).toUpperCase();
-    const keyL = str(r.key).toUpperCase();
+    const keySet = new Set(parseChoiceSet(r.key));
+    const mineSet = new Set(parseChoiceSet(r.chosen));
+    const tfKey = r.mode === "tf" ? normalizeTrueFalse(r.key, r.sections.choices) : "";
+    const tfMine = r.mode === "tf" ? normalizeTrueFalse(r.chosen, r.sections.choices) : "";
     if (r.sections.choices.length) {
       for (const c of r.sections.choices) {
-        const isKey = r.mode === "mcq" && c.letter === keyL;
-        const isMine = r.mode === "mcq" && c.letter === chosenL;
+        let isKey = false;
+        let isMine = false;
+        if (r.mode === "tf") {
+          const word = normalizeTrueFalse(c.text, r.sections.choices);
+          isKey = !!word && word === tfKey;
+          isMine = !!word && word === tfMine;
+        } else if (r.mode === "mcq" || r.mode === "multi") {
+          isKey = keySet.has(c.letter);
+          isMine = mineSet.has(c.letter);
+        }
         const row = rc.createDiv({ cls: "qt-choice qt-choice-static" });
         if (isKey) row.addClass("is-key");
         if (isMine && !isKey) row.addClass("is-miss");
@@ -1478,6 +1512,14 @@ class PracticeView extends ItemView {
         const tag = isKey && isMine ? "Your answer · correct" : isKey ? "Correct answer" : isMine ? "Your answer" : "";
         if (tag) row.createSpan({ cls: "qt-tag", text: tag });
       }
+    }
+    if (r.mode === "multi") {
+      const keyText = formatChoiceSet(parseChoiceSet(r.key)) || r.key;
+      const mineText = formatChoiceSet(parseChoiceSet(r.chosen)) || r.chosen || "(blank)";
+      rv.createDiv({ cls: "qt-hint", text: `Correct answers: ${keyText} · Your answer: ${mineText}` });
+    }
+    if (r.mode === "tf" && !r.sections.choices.length) {
+      rv.createDiv({ cls: "qt-hint", text: `Your answer: ${r.chosen || "(blank)"} · Correct answer: ${tfKey || r.key}` });
     }
     if (r.mode === "spr") {
       rv.createDiv({ cls: "qt-hint", text: `Your answer: ${r.chosen || "(blank)"} · Correct answer: ${r.key || "(not stored)"}` });

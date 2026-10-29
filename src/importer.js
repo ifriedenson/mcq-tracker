@@ -9,6 +9,7 @@ const { normalizePage, sourceLink } = require("./provenance");
 const { verificationBanner, verificationFields } = require("./answer-verification");
 const { computedVerification, mergeVerification } = require("./computed-verification");
 const { figureEmbeds } = require("./figures");
+const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet } = require("./answer-types");
 
 /* ---- checking imported notes */
 
@@ -53,7 +54,7 @@ function cacheIssues(fm, headings) {
 function looksLikeQuestion(fm, headings) {
   fm = fm || {};
   if ("question_id" in fm) return true;
-  if (/mcq|multiple/i.test(str(fm.question_type))) return true;
+  if (/mcq|multiple|true.?false|select.?all|sata|^tf$/i.test(str(fm.question_type))) return true;
   if (fm.choices !== undefined && fm.answer !== undefined) return true;
   const heads = new Set((headings || []).map(headName));
   return HEAD_ALIASES.question.some((n) => heads.has(n)) && HEAD_ALIASES.choices.some((n) => heads.has(n));
@@ -361,11 +362,18 @@ function finalizeNote(text, meta, qid, stamp) {
     if (src[k] !== undefined && src[k] !== null && str(src[k]).trim() !== "") fm[k] = src[k];
   }
 
-  const type = sec.choices.length ? "mcq" : "spr";
+  const declaredType = str(src.question_type).trim().toLowerCase();
+  let type = sec.choices.length ? "mcq" : "spr";
+  if (sec.choices.length && /select.?all|sata|multi(?:ple)?[ _-]?select|multi.?answer|checkbox/.test(declaredType)) type = "multi";
+  else if (sec.choices.length && /true.?false|boolean|(^|\W)tf(\W|$)/.test(declaredType)) type = "tf";
   fm.question_type = type;
-  if (type === "mcq") fm.choices = sec.choices.length;
+  if (type !== "spr") fm.choices = sec.choices.length;
   let ans = str(src.answer).trim();
-  if (type === "mcq") {
+  if (type === "multi") {
+    ans = formatChoiceSet(parseChoiceSet(ans));
+  } else if (type === "tf") {
+    ans = normalizeTrueFalse(ans, sec.choices);
+  } else if (type === "mcq") {
     const m = ans.match(/^\(?([A-Ha-h])(?![A-Za-z])/);
     ans = m ? m[1].toUpperCase() : "";
   }

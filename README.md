@@ -154,7 +154,7 @@ Which choice best describes the relationship between the two texts?
 
 - `## Stimulus` is optional. If a note has none but has a `stimulus_id`, the plugin borrows the passage from another note with the same `stimulus_id`.
 - The answer key is read from the `answer` property, or from a line like `Correct Answer: B` in the `## Answer` section.
-- `question_type` can be `mcq`, `spr` (student-produced response), or anything else for self-grading. Free text such as "Multiple choice (4 choices)" is understood too.
+- `question_type` can be `mcq`, `spr` (student-produced response), `true_false`, `select_all`, or anything else for self-grading. Aliases such as `tf`, `sata` and `select-all-that-apply` are understood, and so is free text such as "Multiple choice (4 choices)".
 - Properties the plugin reads: `course, test, section, domain, skill, unit, difficulty, question_type, choices, answer, tolerance, tolerance_type, sig_figs, sig_figs_mode, units, answer_unit, accepted_answers, accepted_variants, variables, answer_formula, variant_seed, target_seconds, stimulus_id`.
 - Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, next_review, last_attempt_id, srs, scheduler, history`, plus the Known/Exclude fields `study_status, known_days, known_until, excluded_on, excluded_reason` when you use those actions, and `variant_seed` and `last_variant` after a parameterized attempt. `srs` and `scheduler` are populated when FSRS schedules a review (`srs` may be empty if you add tracking properties to notes first).
 
@@ -178,6 +178,26 @@ accepted_answers:
 - `units` (or `answer_unit`) enables dimension checking and conversion for common length, mass, time, volume, energy, force, pressure, power, electricity, amount, speed and temperature units. A length is never accepted for a mass, and a unitless answer is read in the expected unit. The existing `unit` property still means the course unit, not a physical unit.
 - `answer` may list alternatives with `|`, and also accepts ranges: `1..2`, `[1, 2]` (inclusive) or `(1, 2)` (exclusive). `accepted_answers` adds more alternatives as a list or a `|`-separated string.
 - The grader reads numbers only; it does not evaluate expressions such as `sqrt(2)` or `2^3`. Word answers still fall back to an exact text comparison.
+
+### True/false and select-all answers
+
+Set `question_type: true_false` or `select_all`. Practice shows True/False buttons, or lets you toggle several choices, grades the whole selection and writes it to the normal attempt history.
+
+```yaml
+question_type: true_false
+answer: False
+```
+
+```yaml
+question_type: select_all
+answer: A, C
+```
+
+- The key may be a letter mapped through the choices (`B` with `- A. True` / `- B. False`), a word (`true`, `False`, `T`) or a list (`A, C`, `A/C`, `A and C`, `AC`).
+- In the `## Answer` section, `Correct Answers: A, C` and `Correct Answer: False` are read too.
+- Select-all compares exact sets: every keyed choice must be picked, and an extra pick is wrong. The result view marks the key, your picks and the missed choices.
+- A true/false note with no `## Answer Choices` still works; the two buttons are shown for you.
+- Unknown keys fall back to self-grading rather than guessing.
 
 ### Parameterized questions
 

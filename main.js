@@ -2328,6 +2328,151 @@ module.exports = {
 };
 };
 
+/* ---- src/answer-types.js ---- */
+__defs["answer-types"] = function (module, exports, require) {
+/*
+ * Answer keys that are not a single letter: true/false prompts and
+ * select-all-that-apply questions.
+ *
+ * Everything here is pure text handling. It reads the key formats notes and
+ * importers already use (`A`, `A, C`, `A/C`, `True`, `false`) and never guesses
+ * a value it cannot recognise, so a malformed key falls back to self-grading.
+ */
+const { str } = require("./util");
+
+const TRUE_WORDS = ["true", "t", "yes", "y", "1"];
+const FALSE_WORDS = ["false", "f", "no", "n", "0"];
+
+/** "A, C", "A/C", "A C", "A and C" and "AC" all read as a letter set. */
+function parseChoiceSet(value) {
+  if (Array.isArray(value)) {
+    const out = [];
+    for (const item of value) for (const letter of parseChoiceSet(item)) if (!out.includes(letter)) out.push(letter);
+    return out;
+  }
+  const text = str(value).trim();
+  if (!text) return [];
+  const parts = text
+    .split(/[,;\/&]|\band\b|\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part && !/^and$/i.test(part));
+  if (parts.length && parts.every((part) => /^[A-Ha-h]$/.test(part))) {
+    return [...new Set(parts.map((part) => part.toUpperCase()))].sort();
+  }
+  if (/^[A-Ha-h]{2,8}$/.test(text)) return [...new Set(text.toUpperCase().split(""))].sort();
+  return [];
+}
+
+function formatChoiceSet(letters) {
+  const list = Array.isArray(letters) ? letters : parseChoiceSet(letters);
+  return [...new Set(list.map((l) => str(l).trim().toUpperCase()).filter((l) => /^[A-H]$/.test(l)))].sort().join(", ");
+}
+
+function isChoiceSetAnswer(value) {
+  return parseChoiceSet(value).length > 1;
+}
+
+/** "True"/"False", or "" when the text is neither. */
+function trueFalseWord(value) {
+  const text = str(value)
+    .trim()
+    .replace(/[.!。]+$/, "")
+    .toLowerCase();
+  if (TRUE_WORDS.includes(text)) return "True";
+  if (FALSE_WORDS.includes(text)) return "False";
+  return "";
+}
+
+function isTrueFalseChoices(choices) {
+  const list = Array.isArray(choices) ? choices : [];
+  if (list.length !== 2) return false;
+  const words = list.map((choice) => trueFalseWord(choice && choice.text));
+  return !!words[0] && !!words[1] && words[0] !== words[1];
+}
+
+/**
+ * Canonical True/False key. Accepts words (`true`, `T`, `yes`), and a letter
+ * (`A`/`B`) mapped through the note's own choices when they are True/False.
+ */
+function normalizeTrueFalse(value, choices) {
+  const direct = trueFalseWord(value);
+  if (direct) return direct;
+  const letters = parseChoiceSet(value);
+  if (letters.length === 1) {
+    const letter = letters[0];
+    const list = Array.isArray(choices) ? choices : [];
+    const hit = list.find((choice) => str(choice && choice.letter).trim().toUpperCase() === letter);
+    const word = trueFalseWord(hit && hit.text);
+    if (word) return word;
+    if (!list.length && letter === "A") return "True";
+    if (!list.length && letter === "B") return "False";
+  }
+  return "";
+}
+
+/** Display labels for the two buttons, keeping whatever wording the note uses. */
+function trueFalseLabels(choices) {
+  const list = Array.isArray(choices) ? choices : [];
+  const label = (word) => {
+    const hit = list.find((choice) => trueFalseWord(choice && choice.text) === word);
+    return hit && str(hit.text).trim() ? str(hit.text).trim() : word;
+  };
+  return [
+    { value: "True", label: label("True") },
+    { value: "False", label: label("False") },
+  ];
+}
+
+/** A key that keeps its declared type readable: canonical set or words. */
+function normalizeAnswerKey(mode, key, choices) {
+  if (mode === "tf") return normalizeTrueFalse(key, choices) || str(key).trim();
+  if (mode === "multi") return formatChoiceSet(parseChoiceSet(key)) || str(key).trim();
+  return str(key).trim();
+}
+
+function textTokens(value) {
+  return String(value)
+    .split(/[,;|]/)
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/**
+ * Set comparison for select-all. Letter keys compare as letters; a free-text
+ * key compares as a comma-separated list, so "mitosis, meiosis" still works.
+ */
+function gradeChoiceSelection(key, chosen) {
+  const keyLetters = parseChoiceSet(key);
+  const chosenLetters = parseChoiceSet(chosen);
+  const byLetter = keyLetters.length > 0;
+  const expected = byLetter ? keyLetters : textTokens(key);
+  const picked = byLetter ? chosenLetters : textTokens(chosen);
+  const missing = expected.filter((item) => !picked.includes(item));
+  const extra = picked.filter((item) => !expected.includes(item));
+  const correct = expected.length > 0 && !missing.length && !extra.length;
+  return {
+    correct,
+    keySet: expected,
+    selected: picked,
+    missing,
+    extra,
+    interpreted: byLetter ? picked.join(", ") : picked.join(", "),
+  };
+}
+
+module.exports = {
+  parseChoiceSet,
+  formatChoiceSet,
+  isChoiceSetAnswer,
+  trueFalseWord,
+  isTrueFalseChoices,
+  normalizeTrueFalse,
+  trueFalseLabels,
+  normalizeAnswerKey,
+  gradeChoiceSelection,
+};
+};
+
 /* ---- src/answer-verification.js ---- */
 __defs["answer-verification"] = function (module, exports, require) {
 /*
@@ -16585,6 +16730,7 @@ const { examMatchesCourse } = require("./calendar-model");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
+const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet, trueFalseLabels } = require("./answer-types");
 const { variantSummary, variantValuesText } = require("./parameterized");
 const { NameModal } = require("./modals");
 const { buildSections, normalizeSections } = require("./exam-sections");
@@ -17137,18 +17283,42 @@ class TestView extends ItemView {
     renderMarkdownInto(this.app, it.sections.question || "*No `## Question` section found in this note.*", right.createDiv({ cls: "qt-stem" }), path, this);
 
     const ans = right.createDiv({ cls: "qt-answers" });
-    if (it.mode === "mcq") {
+    if (it.mode === "mcq" || it.mode === "multi") {
       const n = Number(it.fm.choices) || it.sections.choices.length || 4;
       const byLetter = Object.fromEntries(it.sections.choices.map((c) => [c.letter, c.text]));
+      const multi = it.mode === "multi";
+      const picked = new Set(parseChoiceSet(it.sel));
       const btns = [];
       for (const L of "ABCDEFGH".slice(0, n).split("")) {
         const b = ans.createEl("button", { cls: "qt-choice" });
         b.createSpan({ cls: "qt-letter", text: L });
         if (byLetter[L]) renderMarkdownInto(this.app, byLetter[L], b.createDiv({ cls: "qt-choice-text" }), path, this);
-        if (it.sel === L) b.addClass("is-selected");
+        if (multi ? picked.has(L) : it.sel === L) b.addClass("is-selected");
         b.addEventListener("click", () => {
-          it.sel = it.sel === L ? "" : L; // tap again to clear
-          btns.forEach((x, i) => x.toggleClass("is-selected", "ABCDEFGH"[i] === it.sel));
+          if (multi) {
+            if (picked.has(L)) picked.delete(L);
+            else picked.add(L);
+            it.sel = formatChoiceSet([...picked]);
+            btns.forEach((x, i) => x.toggleClass("is-selected", picked.has("ABCDEFGH"[i])));
+          } else {
+            it.sel = it.sel === L ? "" : L; // tap again to clear
+            btns.forEach((x, i) => x.toggleClass("is-selected", "ABCDEFGH"[i] === it.sel));
+          }
+          this.paintNav();
+          this.persist();
+        });
+        btns.push(b);
+      }
+      if (multi) ans.createDiv({ cls: "qt-hint", text: "Select all that apply." });
+    } else if (it.mode === "tf") {
+      const btns = [];
+      for (const option of trueFalseLabels(it.sections.choices)) {
+        const b = ans.createEl("button", { cls: "qt-choice qt-choice-tf" });
+        b.createSpan({ cls: "qt-choice-text", text: option.label });
+        if (it.sel === option.value) b.addClass("is-selected");
+        b.addEventListener("click", () => {
+          it.sel = option.value;
+          btns.forEach((x) => x.toggleClass("is-selected", x === b));
           this.paintNav();
           this.persist();
         });
@@ -17464,17 +17634,32 @@ class TestView extends ItemView {
       return;
     }
     const rc = d.createDiv({ cls: "qt-answers" });
-    const mine = str(it.sel).toUpperCase();
-    const keyL = str(it.key).toUpperCase();
+    const keySet = new Set(parseChoiceSet(it.key));
+    const mineSet = new Set(parseChoiceSet(it.sel));
+    const tfKey = it.mode === "tf" ? normalizeTrueFalse(it.key, it.sections.choices) : "";
+    const tfMine = it.mode === "tf" ? normalizeTrueFalse(it.sel, it.sections.choices) : "";
     for (const c of it.sections.choices) {
-      const isKey = it.mode === "mcq" && c.letter === keyL;
-      const isMine = it.mode === "mcq" && c.letter === mine;
+      let isKey = false;
+      let isMine = false;
+      if (it.mode === "tf") {
+        const word = normalizeTrueFalse(c.text, it.sections.choices);
+        isKey = !!word && word === tfKey;
+        isMine = !!word && word === tfMine;
+      } else if (it.mode === "mcq" || it.mode === "multi") {
+        isKey = keySet.has(c.letter);
+        isMine = mineSet.has(c.letter);
+      }
       const row = rc.createDiv({ cls: "qt-choice qt-choice-static" });
       if (isKey) row.addClass("is-key");
       if (isMine && !isKey) row.addClass("is-miss");
       if (isMine) row.addClass("is-mine");
       row.createSpan({ cls: "qt-letter", text: c.letter });
       renderMarkdownInto(this.app, c.text, row.createDiv({ cls: "qt-choice-text" }), path, this);
+    }
+    if (it.mode === "multi") {
+      const keyText = formatChoiceSet(parseChoiceSet(it.key)) || it.key;
+      const mineText = formatChoiceSet(parseChoiceSet(it.sel)) || it.sel || "(blank)";
+      d.createDiv({ cls: "qt-hint", text: `Correct answers: ${keyText} · Your answer: ${mineText}` });
     }
     if (it.mode === "spr") {
       d.createDiv({ cls: "qt-hint", text: `Your answer: ${it.sel || "(blank)"} · Correct answer: ${it.key}` });
@@ -23021,6 +23206,7 @@ const { normalizePage, sourceLink } = require("./provenance");
 const { verificationBanner, verificationFields } = require("./answer-verification");
 const { computedVerification, mergeVerification } = require("./computed-verification");
 const { figureEmbeds } = require("./figures");
+const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet } = require("./answer-types");
 
 /* ---- checking imported notes */
 
@@ -23065,7 +23251,7 @@ function cacheIssues(fm, headings) {
 function looksLikeQuestion(fm, headings) {
   fm = fm || {};
   if ("question_id" in fm) return true;
-  if (/mcq|multiple/i.test(str(fm.question_type))) return true;
+  if (/mcq|multiple|true.?false|select.?all|sata|^tf$/i.test(str(fm.question_type))) return true;
   if (fm.choices !== undefined && fm.answer !== undefined) return true;
   const heads = new Set((headings || []).map(headName));
   return HEAD_ALIASES.question.some((n) => heads.has(n)) && HEAD_ALIASES.choices.some((n) => heads.has(n));
@@ -23373,11 +23559,18 @@ function finalizeNote(text, meta, qid, stamp) {
     if (src[k] !== undefined && src[k] !== null && str(src[k]).trim() !== "") fm[k] = src[k];
   }
 
-  const type = sec.choices.length ? "mcq" : "spr";
+  const declaredType = str(src.question_type).trim().toLowerCase();
+  let type = sec.choices.length ? "mcq" : "spr";
+  if (sec.choices.length && /select.?all|sata|multi(?:ple)?[ _-]?select|multi.?answer|checkbox/.test(declaredType)) type = "multi";
+  else if (sec.choices.length && /true.?false|boolean|(^|\W)tf(\W|$)/.test(declaredType)) type = "tf";
   fm.question_type = type;
-  if (type === "mcq") fm.choices = sec.choices.length;
+  if (type !== "spr") fm.choices = sec.choices.length;
   let ans = str(src.answer).trim();
-  if (type === "mcq") {
+  if (type === "multi") {
+    ans = formatChoiceSet(parseChoiceSet(ans));
+  } else if (type === "tf") {
+    ans = normalizeTrueFalse(ans, sec.choices);
+  } else if (type === "mcq") {
     const m = ans.match(/^\(?([A-Ha-h])(?![A-Za-z])/);
     ans = m ? m[1].toUpperCase() : "";
   }
@@ -24719,6 +24912,7 @@ const { appendHistory, hasAttemptId, setAttemptErrorType } = require("./history"
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
 const { gradeAnswerDetailed } = require("./numeric-grading");
+const { formatChoiceSet, isTrueFalseChoices, normalizeTrueFalse, parseChoiceSet } = require("./answer-types");
 
 const HEAD_ALIASES = {
   stimulus: ["stimulus", "passage", "source", "excerpt", "reading", "text", "figure"],
@@ -24813,28 +25007,53 @@ function answerFromSection(text) {
   return "";
 }
 
+/** A select-all key written in the Answer section, such as "Answers: A, C" or "Answer: B and D". */
+function answerSetFromSection(text) {
+  const re = /(?:correct\s+)?answers?\s*(?:is|are|:|=|-|–|—)\s*[*_`(]*\s*([A-H](?:\s*(?:,|\/|&|\band\b)\s*[A-H])+)/i;
+  const m = str(text).match(re);
+  if (!m) return "";
+  return formatChoiceSet(parseChoiceSet(m[1]));
+}
+
+/** A true/false key written in the Answer section, such as "Correct Answer: False". */
+function answerTrueFalseFromSection(text) {
+  const re = /(?:correct\s+)?answer\s*(?:is|:|=|-|–|—)\s*[*_`(]*\s*(true|false|t|f|yes|no)\b/i;
+  const m = str(text).match(re);
+  return m ? normalizeTrueFalse(m[1]) : "";
+}
+
 /** Read the key from properties first (several common names), then the note's own answer section, then the whole body. */
 function findAnswerKey(fm, sections) {
   for (const k of ["answer", "correct_answer", "correct", "answer_key", "key"]) {
     const raw = str(fm[k]).trim();
     if (!raw) continue;
+    // A set stays whole; the single-letter reader below would cut "A, C" to "A".
+    if (parseChoiceSet(raw).length > 1) return formatChoiceSet(parseChoiceSet(raw));
     const m = raw.match(/^\(?(?:choice\s+|option\s+)?([A-Ha-h])\)?(?:[.):\s]|$)/i);
     if (m && sections.choices.length) return m[1].toUpperCase();
     if (m && raw.length <= 3) return m[1].toUpperCase();
     return raw;
   }
+  const set = answerSetFromSection(sections.answer) || answerSetFromSection(sections.body);
+  if (set) return set;
+  const tf = answerTrueFalseFromSection(sections.answer) || answerTrueFalseFromSection(sections.body);
+  if (tf) return tf;
   return answerFromSection(sections.answer) || answerFromSection(sections.body);
 }
 
 /** Decide how to present/grade a note even when question_type is free text like "Multiple choice (4 choices)". */
 function inferMode(declared, key, choices) {
   const d = str(declared).toLowerCase();
+  const list = Array.isArray(choices) ? choices : [];
   if (!key) return "self";
-  const letter = /^[A-H]$/i.test(key);
+  const letter = /^[A-H]$/i.test(str(key).trim());
   if (/spr|student.?produced|grid.?in|free.?response|short.?answer|numeric|fill/.test(d)) return "spr";
-  if (/mcq|multiple|choice|select/.test(d)) return letter ? "mcq" : "self";
-  if (!d && letter) return "mcq";
-  if (letter && choices.length) return "mcq";
+  if (/select.?all|sata|multi(?:ple)?[ _-]?select|multi.?answer|checkbox/.test(d)) return "multi";
+  if (/true[ _-]?false|boolean|(^|\W)tf(\W|$)/.test(d)) return "tf";
+  if (/mcq|multiple|choice|select/.test(d)) return parseChoiceSet(key).length > 1 ? "multi" : letter ? "mcq" : "self";
+  if (parseChoiceSet(key).length > 1) return "multi";
+  if (isTrueFalseChoices(list) || normalizeTrueFalse(key, list)) return "tf";
+  if (letter) return "mcq";
   return "self";
 }
 
@@ -25056,6 +25275,8 @@ module.exports = {
   extractRationale,
   KEY_PATTERNS,
   answerFromSection,
+  answerSetFromSection,
+  answerTrueFalseFromSection,
   findAnswerKey,
   inferMode,
   replaceMyNotes,
@@ -25079,6 +25300,8 @@ __defs["numeric-grading"] = function (module, exports, require) {
  * absolute, relative or percentage tolerance. Everything here is pure so the
  * same rules run in practice, timed tests and the test suite.
  */
+
+const { gradeChoiceSelection, normalizeTrueFalse } = require("./answer-types");
 
 const SUPERSCRIPT = { "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "-", "⁺": "+" };
 const SUPERSCRIPT_OUT = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻", "+": "⁺" };
@@ -25758,6 +25981,34 @@ function gradeAnswerDetailed(fm, chosen) {
   const type = String((fm && fm.question_type) || "mcq").toLowerCase();
   if (/spr|student.?produced|grid.?in|numeric|short.?answer|fill/.test(type)) {
     return gradeNumeric(fm, chosen);
+  }
+  if (/select.?all|sata|multi(?:ple)?[ _-]?select|multi.?answer|checkbox/.test(type)) {
+    const detail = gradeChoiceSelection(key, chosen);
+    const reason = detail.missing.length
+      ? `Missing ${detail.missing.join(", ")}`
+      : detail.extra.length
+        ? `Extra ${detail.extra.join(", ")}`
+        : "";
+    return {
+      correct: detail.correct,
+      mode: "multi",
+      interpreted: detail.interpreted,
+      reason,
+      keySet: detail.keySet,
+      selected: detail.selected,
+      missing: detail.missing,
+      extra: detail.extra,
+    };
+  }
+  if (/true.?false|boolean|(^|\W)tf(\W|$)/.test(type)) {
+    const expected = normalizeTrueFalse(key);
+    const picked = normalizeTrueFalse(chosen);
+    return {
+      correct: !!expected && picked === expected,
+      mode: "tf",
+      interpreted: picked || String(chosen === undefined || chosen === null ? "" : chosen),
+      reason: picked ? "" : "Choose True or False",
+    };
   }
   return {
     correct: String(chosen === undefined || chosen === null ? "" : chosen).toUpperCase() === key.toUpperCase(),
@@ -34542,6 +34793,7 @@ const { fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
+const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet, trueFalseLabels } = require("./answer-types");
 const { variantSummary, variantValuesText } = require("./parameterized");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
@@ -35793,21 +36045,44 @@ class PracticeView extends ItemView {
 
     // answer input
     const ans = right.createDiv({ cls: "qt-answers" });
-    if (mode === "mcq") {
+    if (mode === "mcq" || mode === "multi") {
       const n = Number(fm.choices) || q.sections.choices.length || 4;
       const letters = "ABCDEFGH".slice(0, n).split("");
       const byLetter = Object.fromEntries(q.sections.choices.map((c) => [c.letter, c.text]));
+      const multi = mode === "multi";
+      const picked = new Set(parseChoiceSet(this.sel));
       const btns = [];
       for (const L of letters) {
         const b = ans.createEl("button", { cls: "qt-choice" });
         b.createSpan({ cls: "qt-letter", text: L });
         if (byLetter[L]) this.md(byLetter[L], b.createDiv({ cls: "qt-choice-text" }), path);
         b.addEventListener("click", () => {
-          this.sel = L;
+          if (multi) {
+            if (picked.has(L)) picked.delete(L);
+            else picked.add(L);
+            this.sel = formatChoiceSet([...picked]);
+            btns.forEach((x, i) => x.toggleClass("is-selected", picked.has("ABCDEFGH"[i])));
+          } else {
+            this.sel = L;
+            btns.forEach((x) => x.toggleClass("is-selected", x === b));
+          }
+          refresh();
+        });
+        if (multi ? picked.has(L) : this.sel === L) b.addClass("is-selected");
+        btns.push(b);
+      }
+      if (multi) ans.createDiv({ cls: "qt-hint", text: "Select all that apply." });
+    } else if (mode === "tf") {
+      const btns = [];
+      for (const option of trueFalseLabels(q.sections.choices)) {
+        const b = ans.createEl("button", { cls: "qt-choice qt-choice-tf" });
+        b.createSpan({ cls: "qt-choice-text", text: option.label });
+        b.addEventListener("click", () => {
+          this.sel = option.value;
           btns.forEach((x) => x.toggleClass("is-selected", x === b));
           refresh();
         });
-        if (this.sel === L) b.addClass("is-selected");
+        if (this.sel === option.value) b.addClass("is-selected");
         btns.push(b);
       }
     } else if (mode === "spr") {
@@ -35999,12 +36274,22 @@ class PracticeView extends ItemView {
     }
     this.md(r.sections.question || "", rv.createDiv({ cls: "qt-stem" }), path);
     const rc = rv.createDiv({ cls: "qt-answers" });
-    const chosenL = str(r.chosen).toUpperCase();
-    const keyL = str(r.key).toUpperCase();
+    const keySet = new Set(parseChoiceSet(r.key));
+    const mineSet = new Set(parseChoiceSet(r.chosen));
+    const tfKey = r.mode === "tf" ? normalizeTrueFalse(r.key, r.sections.choices) : "";
+    const tfMine = r.mode === "tf" ? normalizeTrueFalse(r.chosen, r.sections.choices) : "";
     if (r.sections.choices.length) {
       for (const c of r.sections.choices) {
-        const isKey = r.mode === "mcq" && c.letter === keyL;
-        const isMine = r.mode === "mcq" && c.letter === chosenL;
+        let isKey = false;
+        let isMine = false;
+        if (r.mode === "tf") {
+          const word = normalizeTrueFalse(c.text, r.sections.choices);
+          isKey = !!word && word === tfKey;
+          isMine = !!word && word === tfMine;
+        } else if (r.mode === "mcq" || r.mode === "multi") {
+          isKey = keySet.has(c.letter);
+          isMine = mineSet.has(c.letter);
+        }
         const row = rc.createDiv({ cls: "qt-choice qt-choice-static" });
         if (isKey) row.addClass("is-key");
         if (isMine && !isKey) row.addClass("is-miss");
@@ -36014,6 +36299,14 @@ class PracticeView extends ItemView {
         const tag = isKey && isMine ? "Your answer · correct" : isKey ? "Correct answer" : isMine ? "Your answer" : "";
         if (tag) row.createSpan({ cls: "qt-tag", text: tag });
       }
+    }
+    if (r.mode === "multi") {
+      const keyText = formatChoiceSet(parseChoiceSet(r.key)) || r.key;
+      const mineText = formatChoiceSet(parseChoiceSet(r.chosen)) || r.chosen || "(blank)";
+      rv.createDiv({ cls: "qt-hint", text: `Correct answers: ${keyText} · Your answer: ${mineText}` });
+    }
+    if (r.mode === "tf" && !r.sections.choices.length) {
+      rv.createDiv({ cls: "qt-hint", text: `Your answer: ${r.chosen || "(blank)"} · Correct answer: ${tfKey || r.key}` });
     }
     if (r.mode === "spr") {
       rv.createDiv({ cls: "qt-hint", text: `Your answer: ${r.chosen || "(blank)"} · Correct answer: ${r.key || "(not stored)"}` });
@@ -43708,6 +44001,7 @@ module.exports = {
 __defs["view-helpers"] = function (module, exports, require) {
 const { MarkdownRenderer } = require("obsidian");
 const { findAnswerKey, inferMode, parseSections } = require("./notes");
+const { normalizeAnswerKey } = require("./answer-types");
 const { str } = require("./util");
 const { prepareMathMarkdown } = require("./math-rendering");
 const { normalizeFigureMarkers } = require("./figures");
@@ -43752,6 +44046,9 @@ async function loadQuestionData(plugin, q, options) {
   }
   let key = findAnswerKey(q.fm, sections);
   let mode = inferMode(q.fm.question_type, key, sections.choices);
+  // True/false and select-all keys are stored in one canonical form so the
+  // practice view, timed tests and history all compare the same values.
+  key = normalizeAnswerKey(mode, key, sections.choices);
   const variant = parameterized.buildVariant(q.fm, options && options.seed, q.file.path);
   if (variant.active) {
     if (variant.ok) {
@@ -44317,8 +44614,12 @@ const { QuestionTrackerPlugin } = require("./plugin");
 const { API_SYSTEM, buildReportMarkdown, cacheIssues, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
 const { fmtDate, fmtDateTime } = require("./util");
 const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
-const { answerFromSection, applyAttempt, applySkip, extractRationale, fillDefaults, findAnswerKey, gradeAnswer, inferMode, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
+const { answerFromSection,
+  answerSetFromSection,
+  answerTrueFalseFromSection,
+  applyAttempt, applySkip, extractRationale, fillDefaults, findAnswerKey, gradeAnswer, inferMode, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const numericGrading = require("./numeric-grading");
+const answerTypes = require("./answer-types");
 const parameterized = require("./parameterized");
 const fsrs = require("./fsrs");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
@@ -44451,6 +44752,8 @@ QuestionTrackerPlugin.__test = {
   parseSections,
   extractRationale,
   answerFromSection,
+  answerSetFromSection,
+  answerTrueFalseFromSection,
   findAnswerKey,
   inferMode,
   modelFromString,
@@ -44503,6 +44806,7 @@ QuestionTrackerPlugin.__test = {
   gradeAnswer,
   gradeAnswerDetailed: numericGrading.gradeAnswerDetailed,
   numericGrading,
+  answerTypes,
   parameterized,
   applyAttempt,
   applySkip,

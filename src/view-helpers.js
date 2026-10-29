@@ -1,6 +1,7 @@
 "use strict";
 const { MarkdownRenderer } = require("obsidian");
 const { findAnswerKey, inferMode, parseSections } = require("./notes");
+const { normalizeAnswerKey } = require("./answer-types");
 const { str } = require("./util");
 const { prepareMathMarkdown } = require("./math-rendering");
 const { normalizeFigureMarkers } = require("./figures");
@@ -45,6 +46,9 @@ async function loadQuestionData(plugin, q, options) {
   }
   let key = findAnswerKey(q.fm, sections);
   let mode = inferMode(q.fm.question_type, key, sections.choices);
+  // True/false and select-all keys are stored in one canonical form so the
+  // practice view, timed tests and history all compare the same values.
+  key = normalizeAnswerKey(mode, key, sections.choices);
   const variant = parameterized.buildVariant(q.fm, options && options.seed, q.file.path);
   if (variant.active) {
     if (variant.ok) {

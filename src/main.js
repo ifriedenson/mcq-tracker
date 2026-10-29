@@ -12,8 +12,12 @@ const { QuestionTrackerPlugin } = require("./plugin");
 const { API_SYSTEM, buildReportMarkdown, cacheIssues, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
 const { fmtDate, fmtDateTime } = require("./util");
 const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
-const { answerFromSection, applyAttempt, applySkip, extractRationale, fillDefaults, findAnswerKey, gradeAnswer, inferMode, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
+const { answerFromSection,
+  answerSetFromSection,
+  answerTrueFalseFromSection,
+  applyAttempt, applySkip, extractRationale, fillDefaults, findAnswerKey, gradeAnswer, inferMode, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const numericGrading = require("./numeric-grading");
+const answerTypes = require("./answer-types");
 const parameterized = require("./parameterized");
 const fsrs = require("./fsrs");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
@@ -146,6 +150,8 @@ QuestionTrackerPlugin.__test = {
   parseSections,
   extractRationale,
   answerFromSection,
+  answerSetFromSection,
+  answerTrueFalseFromSection,
   findAnswerKey,
   inferMode,
   modelFromString,
@@ -198,6 +204,7 @@ QuestionTrackerPlugin.__test = {
   gradeAnswer,
   gradeAnswerDetailed: numericGrading.gradeAnswerDetailed,
   numericGrading,
+  answerTypes,
   parameterized,
   applyAttempt,
   applySkip,
