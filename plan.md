@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — 1.99.0 routes missed FRQ rubric criteria into a score-based review schedule, the Today view and the next exam's study plan, on top of 1.98.0's optional second grading pass and official/teacher rubric marker and 1.97.0's six-course AP FRQ pilot (self-grade plus optional AI grade, user-supplied prompts), 1.96.1's mixed-course written-trend isolation, and earlier work through 1.24.0. Remaining blocked items: the real-Obsidian visual/screenshot pass, a real-device mobile audit, TTS provider/mobile validation, and PDF form filling/full editor. Human-scored FRQ calibration remains a quality gate, not an implementation gate.
+**Status:** Implementation in progress — 1.100.0 adds mixed MCQ/SPR/FRQ timed tests, on top of 1.99.0's score-based FRQ review schedule, Today view and study-plan routing, 1.98.0's optional second grading pass and official/teacher rubric marker and 1.97.0's six-course AP FRQ pilot (self-grade plus optional AI grade, user-supplied prompts), 1.96.1's mixed-course written-trend isolation, and earlier work through 1.24.0. Remaining blocked items: the real-Obsidian visual/screenshot pass, a real-device mobile audit, TTS provider/mobile validation, and PDF form filling/full editor. Human-scored FRQ calibration remains a quality gate, not an implementation gate.
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), the October 28 idea backlog (§5.22), and the Adaptive Practice parity audit (§5.23, Oct 29, 2026). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,7 +11,9 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Latest completed (1.99.0):** every saved FRQ attempt now writes `frq_review_interval` and `frq_next_review` to its prompt note. Below 60% returns in one day, 60–79% in three days, 80–89% in seven and 90%+ in fourteen; any missed rubric criterion caps the wait at three days. Due prompts appear in Today and in the next exam's study plan with a direct **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed.
+**Latest completed (1.100.0):** timed tests can now include a chosen number of FRQ prompts alongside MCQ and SPR items. FRQ responses count toward each section's item total, are written in the timed test, are not counted as objective correct or incorrect, and are restored with a saved session. After the test, each response opens the existing FRQ grader with its answer prefilled for self-grading or optional AI grading. Blueprints keep the FRQ count.
+
+**Previously (1.99.0):** every saved FRQ attempt writes `frq_review_interval` and `frq_next_review` to its prompt note. Below 60% returns in one day, 60–79% in three days, 80–89% in seven and 90%+ in fourteen; any missed rubric criterion caps the wait at three days. Due prompts appear in Today and in the next exam's study plan with a direct **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed.
 
 **Previously (1.98.0):** the AP FRQ grader added an optional second independent AI pass. It compares both passes criterion by criterion, reports disagreements without averaging them, and requires the learner to resolve them before saving. A pasted rubric can be marked `rubric_source: official`, and attempts record `second_pass` and `criteria_disagreed`. Saved missed criteria now appear in Insights → Weak spots. This closes the §5.5 second-pass, rubric-source and weak-spot visibility gaps for the six-course pilot.
 
@@ -49,14 +51,15 @@
 | Direct AI agent with allow-listed tools (§5.18) | **Done** | `create_question`, `create_card` and one safe `update_section` proposal; review window, existing write roots and protected properties enforced. |
 | SMILES structure rendering (§5.16.2) | **Done in 1.91.0** | Local, original SVG renderer for a documented teaching subset; `smiles` code blocks in notes and a Structures tab in Reference. Invalid syntax reports an error rather than guessing. |
 | AP FRQ grader | **Done in 1.97.0 (pilot)** | Six owner-approved courses, user-supplied prompts and rubrics, self-grade plus optional AI grade, per-criterion feedback, quotes, override, attempt history and docs in `docs/ap-frq-practice.md`; 1.98.0 added the second pass and official-rubric marker; 1.99.0 added prompt-level review scheduling and Today/study-plan routing. |
-| FRQ scheduler and study-plan feed | **Done in 1.99.0** | Saving an attempt writes `frq_review_interval` and `frq_next_review`; weak attempts and missed criteria return in 1–3 days, stronger attempts in 7–14. Today lists due prompts, the next exam's study plan includes the course's FRQ prompts with a **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed. Mixed MCQ/SPR/FRQ timed tests and handwriting photos remain separate gaps. |
+| FRQ scheduler and study-plan feed | **Done in 1.99.0** | Saving an attempt writes `frq_review_interval` and `frq_next_review`; weak attempts and missed criteria return in 1–3 days, stronger attempts in 7–14. Today lists due prompts, the next exam's study plan includes the course's FRQ prompts with a **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed. Handwriting photos remain a separate gap. |
+| Mixed MCQ/SPR/FRQ timed tests (§5.6) | **Done in 1.100.0** | A timed test takes an optional FRQ count included in the section totals, writes responses in the test, restores them with the saved session, and offers **Grade this response** after the test with the answer prefilled in the existing grader. Objective score, confidence and skill breakdown count only MCQ/SPR items; written responses are reported separately. |
 | Math/chemistry rendering audit | **Blocked — manual gate** | Renderer and golden tests are done; the remaining visual pass needs a real Obsidian window and cannot be completed in this cloud environment. |
 | Mobile audit | **Blocked** | No real iOS/Android device is available in this environment. |
 | TTS / audio commute | **Deferred** | Provider and mobile validation still missing. |
 | PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; true AcroForm filling needs an audited MIT PDF library and is not safe to approximate. |
 | README, screenshots, sample vault, license confirmation | **Partial — screenshots blocked** | README, NOTICES, `docs/license-audit.md` and `samples/sample-vault` exist. Screenshots still need a real Obsidian window. |
 
-**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.99.0. The items that remain `[~]` are explicitly gated: the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation; PDF form filling needs an audited MIT library. Human-scored FRQ calibration remains a quality gate, not an implementation gate. The duplicate roadmap later in this file is historical and has now been reconciled with this table; it does not override the table.
+**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.100.0. The items that remain `[~]` are explicitly gated: the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation; PDF form filling needs an audited MIT library. Human-scored FRQ calibration remains a quality gate, not an implementation gate. The duplicate roadmap later in this file is historical and has now been reconciled with this table; it does not override the table.
 
 **Adaptive Practice parity audit (Oct 29, 2026):** compared with Adaptive Practice 0.7.2. MCQ Tracker already has the broader study system; the meaningful gaps are generation from any note, per-note subtopic memory, a logged skip/fluency signal, adaptive session size and an optional local reminder. The Whetstone engine (AGPL) and the persistent vault index are non-goals. Full matrix and acceptance criteria: §5.23.
 
@@ -427,7 +430,7 @@ Effort key: **S** (days), **M** (1–3 weeks), **L** (1+ months). Estimates assu
 - **Official rubrics:** allow pasting official scoring guidelines and mark `rubric_source: official | ai`.
 - Uses the attempt percentage to set the next review date and records which rubric criteria were missed.
 
-**Implemented in 1.97.0–1.99.0 (AP pilot).** A user-supplied note can use `type: ap_frq`, `## Question`, optional `## Stimulus`, `## Rubric` and optional `## Sample Answer`. The grader scores one criterion at a time with quotes, confidence and `awarded / max`; the learner can override every line; an optional second pass flags criterion-level disagreement instead of averaging it; and `rubric_source: official | user` records a pasted official or teacher rubric. Attempt notes keep `graded_by`, `graded_on`, `criteria_missed`, `second_pass` and `criteria_disagreed`. Since 1.99.0 the prompt note also gets `frq_review_interval` and `frq_next_review`: below 60% returns in one day, 60–79% in three, 80–89% in seven and 90%+ in fourteen, with any missed criterion capped at three days. Today shows due prompts, the next exam's study plan includes the course's FRQ prompts and a **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed. Still open: mixed MCQ/SPR/FRQ timed tests and handwriting photos.
+**Implemented in 1.97.0–1.99.0 (AP pilot).** A user-supplied note can use `type: ap_frq`, `## Question`, optional `## Stimulus`, `## Rubric` and optional `## Sample Answer`. The grader scores one criterion at a time with quotes, confidence and `awarded / max`; the learner can override every line; an optional second pass flags criterion-level disagreement instead of averaging it; and `rubric_source: official | user` records a pasted official or teacher rubric. Attempt notes keep `graded_by`, `graded_on`, `criteria_missed`, `second_pass` and `criteria_disagreed`. Since 1.99.0 the prompt note also gets `frq_review_interval` and `frq_next_review`: below 60% returns in one day, 60–79% in three, 80–89% in seven and 90%+ in fourteen, with any missed criterion capped at three days. Today shows due prompts, the next exam's study plan includes the course's FRQ prompts and a **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed. Still open: photo-of-handwriting grading. Mixed MCQ/SPR/FRQ timed tests shipped in 1.100.0.
 
 **Privacy:** the student's writing is sent to the provider. Off by default and disclosed.
 
@@ -438,6 +441,8 @@ Build on the existing timed test.
 - **Test blueprints:** save a recipe ("32 questions, 4 domains, 30 minutes") as a preset.
 - **Score report:** by skill, by domain, time per question, confidence calibration (how often "sure" answers were right).
 - **Mixed item types** in one test: MCQ + SPR + FRQ.
+
+**Implemented in 1.100.0:** the timed-test setup has a **Written responses (FRQ)** count. FRQ prompts come from the learner's own `ap_frq` notes, count toward the section totals, and are written in a text box during the test. They are never marked by the objective key or logged as MCQ attempts. After the test, **Grade this response** opens the existing FRQ grader with the prompt, rubric and answer prefilled; self-grading is local and AI grading stays opt-in. Saved sessions and blueprints keep the mixed composition.
 
 ### 5.7 Flashcards and vocabulary  — **M–L**
 
@@ -1324,14 +1329,14 @@ These are **research and specification items**, not implementation work. The AP 
 
 ### Phase 5: FRQ and STEM
 
-- [x] **Typed FRQ, rubric grading, override and per-criterion feedback** (§5.5; AP-specific research in §5.20) — shipped in 1.97.0 for the six AP pilot courses; second pass and official/teacher rubric marker in 1.98.0, and the scheduler/study-plan feed in 1.99.0. Mixed MCQ/SPR/FRQ timed tests remain open.
+- [x] **Typed FRQ, rubric grading, override and per-criterion feedback** (§5.5; AP-specific research in §5.20) — shipped in 1.97.0 for the six AP pilot courses; second pass and official/teacher rubric marker in 1.98.0, and the scheduler/study-plan feed in 1.99.0. Mixed MCQ/SPR/FRQ timed tests shipped in 1.100.0.
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
 - [x] Imported PDF figures and normal Obsidian embeds display in practice, timed tests and reviews (§5.16.7) — shipped in 1.84.0
 - [x] Local Basic/Scientific calculator in Reference, with a timed-test guard (§5.16.8) — shipped in 1.85.0
 - [x] Math, chemistry, and physics: formula sheets, local SMILES structures, numeric grading and parameterized questions ship (§5.16) — SMILES rendering shipped in 1.91.0
-- [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
+- [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items shipped in 1.100.0
 
 ### Phase 6: Plans, time, and dashboard
 
@@ -2287,6 +2292,8 @@ Build on the existing timed test.
 - **Score report:** by skill, by domain, time per question, confidence calibration (how often "sure" answers were right).
 - **Mixed item types** in one test: MCQ + SPR + FRQ.
 
+**Implemented in 1.100.0:** the timed-test setup has a **Written responses (FRQ)** count. FRQ prompts come from the learner's own `ap_frq` notes, count toward the section totals, and are written in a text box during the test. They are never marked by the objective key or logged as MCQ attempts. After the test, **Grade this response** opens the existing FRQ grader with the prompt, rubric and answer prefilled; self-grading is local and AI grading stays opt-in. Saved sessions and blueprints keep the mixed composition.
+
 ### 5.7 Flashcards and vocabulary  — **M–L**
 
 **Approach (confirmed):** Flashcards are a built-in, first-class module that shares the scheduler and due queue with MCQs and FRQs. Differentiate through answer modes (§5.17), calendar awareness, and compatibility (see §2.1).
@@ -2743,7 +2750,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Imported PDF figures and normal Obsidian embeds display in practice, timed tests and reviews (§5.16.7) — shipped in 1.84.0
 - [x] Local Basic/Scientific calculator in Reference, with a timed-test guard (§5.16.8) — shipped in 1.85.0
 - [x] Math, chemistry, and physics: formula sheets, local SMILES structures, numeric grading and parameterized questions ship (§5.16) — SMILES rendering shipped in 1.91.0
-- [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
+- [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items shipped in 1.100.0
 
 ### Phase 6: Plans, time, and dashboard
 

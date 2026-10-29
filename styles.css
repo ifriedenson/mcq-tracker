@@ -4930,6 +4930,14 @@
   font: inherit;
   margin: 4px 0 6px;
 }
+.qt-frq-answer-static {
+  white-space: pre-wrap;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 6px 0 12px;
+  background: var(--background-secondary);
+}
 .qt-frq-rubric {
   margin: 6px 0 12px;
 }

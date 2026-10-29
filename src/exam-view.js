@@ -4,6 +4,7 @@ const { fmtClock, fmtDate, str } = require("./util");
 const { fmtPct, packTestSession, sliceQuestionRange, unpackTestSession } = require("./stats");
 const { MODES } = require("./constants");
 const { pickQuestion } = require("./filters");
+const { examMatchesCourse } = require("./calendar-model");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
@@ -14,6 +15,39 @@ const { buildSections, normalizeSections } = require("./exam-sections");
 /* ------------------------------------------------------- timed test */
 
 const VIEW_TYPE_TEST = "question-tracker-test";
+
+/** Only the course filter applies to FRQ prompts; other question filters do not describe them. */
+function frqMatchesCourse(note, filters) {
+  const raw = filters && filters.course;
+  const wanted = (Array.isArray(raw) ? raw : raw === undefined || raw === null || raw === "" ? [] : [raw]).map(str).filter(Boolean);
+  if (!wanted.length) return true;
+  return wanted.some(
+    (course) =>
+      examMatchesCourse({ summary: note.course }, course) ||
+      examMatchesCourse({ summary: note.courseId }, course),
+  );
+}
+
+/** One FRQ prompt as a timed-test item. The response is graded after the test. */
+function frqTestItem(app, note, saved) {
+  const path = str(note.path);
+  const basename = path.split("/").pop().replace(/\.md$/i, "");
+  const file = (app.vault.getAbstractFileByPath && app.vault.getAbstractFileByPath(path)) || { path, basename };
+  const s = saved || {};
+  return {
+    kind: "frq",
+    file,
+    fm: note.frontmatter && typeof note.frontmatter === "object" ? note.frontmatter : {},
+    note,
+    sections: { question: note.prompt, stimulus: note.stimulus, choices: [], answer: "" },
+    key: "",
+    mode: "frq",
+    sel: str(s.sel),
+    seconds: Number(s.seconds) || 0,
+    flagged: !!s.flagged,
+    conf: Math.max(0, Math.min(3, Number(s.conf) || 0)),
+  };
+}
 
 class TestView extends ItemView {
   constructor(leaf, plugin) {
@@ -35,6 +69,7 @@ class TestView extends ItemView {
     this.sections = [];
     this.sectionIdx = 0;
     this.sectionsDraft = null;
+    this.frqDraft = null;
   }
   getViewType() {
     return VIEW_TYPE_TEST;
@@ -89,8 +124,21 @@ class TestView extends ItemView {
       return;
     }
     const byPath = new Map(this.plugin.getQuestions().map((q) => [q.file.path, q]));
+    const frqByPath = new Map();
+    if (plan.items.some((row) => row.frq) && this.plugin.getFrqNotes) {
+      try {
+        for (const note of await this.plugin.getFrqNotes()) frqByPath.set(note.path, note);
+      } catch (e) {
+        /* an unreadable FRQ note is skipped, not fatal */
+      }
+    }
     const items = [];
     for (const row of plan.items) {
+      if (row.frq) {
+        const note = frqByPath.get(row.path);
+        if (note) items.push(frqTestItem(this.app, note, row));
+        continue;
+      }
       const q = byPath.get(row.path);
       if (!q) continue; // the note was deleted or moved
       const data = await loadQuestionData(this.plugin, q, { seed: row.seed });
@@ -283,6 +331,15 @@ class TestView extends ItemView {
     for (const [v, t] of MODES) sel.createEl("option", { value: v, text: t });
     sel.value = st.mode;
 
+    root.createDiv({ cls: "qt-label", text: "Written responses (FRQ)" });
+    const frqRow = root.createDiv({ cls: "qt-row qt-range" });
+    const frqIn = frqRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "0", max: "20", placeholder: "0" } });
+    frqIn.value = String(this.frqDraft === null ? Math.max(0, Number(d.frq) || 0) : this.frqDraft);
+    frqIn.addEventListener("input", () => {
+      this.frqDraft = Math.max(0, Math.min(20, parseInt(frqIn.value, 10) || 0));
+    });
+    root.createDiv({ cls: "qt-hint", text: "FRQ prompts count toward the section totals. Type each response during the test, then grade it against your rubric afterwards. 0 keeps the test multiple choice and short answer only." });
+
     if (st.testBlueprints.length) {
       root.createDiv({ cls: "qt-label", text: "Saved blueprint" });
       const bpSel = root.createEl("select", { cls: "qt-select" });
@@ -295,6 +352,7 @@ class TestView extends ItemView {
         fromIn.value = String(bp.from);
         toIn.value = bp.to ? String(bp.to) : "";
         sel.value = bp.mode;
+        this.frqDraft = Math.max(0, Number(bp.frq) || 0);
         this.render();
       });
     }
@@ -316,6 +374,7 @@ class TestView extends ItemView {
           from,
           to,
           mode: sel.value,
+          frq: Math.max(0, Math.min(20, parseInt(frqIn.value, 10) || 0)),
           sections,
         };
         st.testBlueprints = st.testBlueprints.filter((bp) => bp.name.toLowerCase() !== name.toLowerCase());
@@ -326,7 +385,7 @@ class TestView extends ItemView {
     });
 
     const go = root.createEl("button", { text: "Start the test", cls: "mod-cta qt-primary" });
-    go.disabled = !pool.length;
+    go.disabled = !pool.length && !(Math.max(0, parseInt(frqIn.value, 10) || 0));
     go.addEventListener("click", () => {
       const sections = draft.map((section, i) => ({
         name: str(section.name).trim() || `Section ${i + 1}`,
@@ -337,10 +396,39 @@ class TestView extends ItemView {
       const minutes = Math.min(300, sections.reduce((sum, section) => sum + section.minutes, 0));
       const from = Math.max(1, parseInt(fromIn.value, 10) || 1);
       const to = Math.max(0, parseInt(toIn.value, 10) || 0);
-      st.testDefaults = { count: n, minutes, from, to };
+      const frq = Math.max(0, Math.min(20, parseInt(frqIn.value, 10) || 0));
+      st.testDefaults = { count: n, minutes, from, to, frq };
+      this.frqDraft = frq;
       p.save();
-      this.begin(n, minutes, sel.value, { from, to }, sections);
+      this.begin(n, minutes, sel.value, { from, to, frq }, sections);
     });
+  }
+
+  /** Due prompts first, capped to the number of written responses in this test. */
+  async frqCandidates(limit) {
+    if (this.plugin.moduleOff && this.plugin.moduleOff("reference")) return [];
+    if (!this.plugin.getFrqNotes) return [];
+    let notes = [];
+    try {
+      notes = await this.plugin.getFrqNotes();
+    } catch (e) {
+      return [];
+    }
+    const today = fmtDate(new Date());
+    const rows = notes.filter((note) => frqMatchesCourse(note, this.plugin.settings.filters));
+    const rank = (note) => {
+      const fm = note.frontmatter || {};
+      const next = str(fm.frq_next_review).slice(0, 10);
+      if (next && next <= today) return 0;
+      return Number(fm.frq_attempts) ? 2 : 1;
+    };
+    rows.sort(
+      (a, b) =>
+        rank(a) - rank(b) ||
+        str(a.course).localeCompare(str(b.course)) ||
+        str(a.title).localeCompare(str(b.title)),
+    );
+    return rows.slice(0, Math.max(0, Math.min(20, Math.round(Number(limit) || 0))));
   }
 
   async begin(n, minutes, mode, range, sectionSpecs) {
@@ -350,11 +438,13 @@ class TestView extends ItemView {
     const all = p.filtered(p.getQuestions());
     const rest = sliceQuestionRange(all, range && range.from, range && range.to);
     const today = fmtDate(new Date());
+    const frqCount = Math.max(0, Math.min(20, Math.round(Number(range && range.frq) || 0)));
+    const objectiveTarget = Math.max(0, n - frqCount);
     const specs = normalizeSections(sectionSpecs || (range && range.sections), n, minutes);
     const items = [];
     let noKey = 0;
     let variantErrors = 0;
-    while (items.length < n && rest.length) {
+    while (items.length < objectiveTarget && rest.length) {
       const pick = pickQuestion(rest, mode, today, []);
       if (!pick) break;
       rest.splice(rest.indexOf(pick), 1);
@@ -369,11 +459,13 @@ class TestView extends ItemView {
       }
       items.push({ ...data, sel: "", seconds: 0, flagged: false, conf: 0 });
     }
+    const frqNotes = frqCount ? await this.frqCandidates(frqCount) : [];
+    for (const note of frqNotes) items.push(frqTestItem(this.app, note));
     if (!items.length) {
       new Notice(
         variantErrors
           ? `${variantErrors} parameterized question${variantErrors === 1 ? " was" : "s were"} left out because its variant could not be built.`
-          : "No questions with an answer key matched. Check your filters and the mode."
+          : "No questions with an answer key or FRQ prompts matched. Check your filters and the written-response count."
       );
       this.phase = "setup";
       this.sections = [];
@@ -382,6 +474,7 @@ class TestView extends ItemView {
     }
     if (noKey) new Notice(`${noKey} question${noKey === 1 ? " was" : "s were"} left out because ${noKey === 1 ? "it has" : "they have"} no answer key.`, 6000);
     if (variantErrors) new Notice(`${variantErrors} parameterized question${variantErrors === 1 ? " was" : "s were"} left out because its variant could not be built.`, 7000);
+    if (frqCount && !frqNotes.length) new Notice("No FRQ prompts matched the course filter. Add a note under AP FRQs or set Written responses to 0.", 6000);
     this.items = items;
     this.startedAt = Date.now();
     this.sections = buildSections(items, specs, this.startedAt);
@@ -432,9 +525,10 @@ class TestView extends ItemView {
 
     const section = this.sections[this.sectionIdx];
     const bar = root.createDiv({ cls: "qt-bar qt-exam-bar" });
+    const kind = it.mode === "frq" ? " · FRQ" : "";
     const metaText = section && this.sections.length > 1
-      ? `${section.name} · Question ${this.idx - section.start + 1} of ${section.count}`
-      : `Question ${this.idx + 1} of ${this.items.length}`;
+      ? `${section.name} · Question ${this.idx - section.start + 1} of ${section.count}${kind}`
+      : `Question ${this.idx + 1} of ${this.items.length}${kind}`;
     bar.createDiv({ cls: "qt-meta", text: metaText });
     this.timerEl = bar.createDiv({ cls: "qt-timer-wrap" }).createSpan({ cls: "qt-timer" });
     const fin = bar.createDiv({ cls: "qt-exam-tools" }).createEl("button", { text: "Finish test" });
@@ -483,6 +577,18 @@ class TestView extends ItemView {
         });
         btns.push(b);
       }
+    } else if (it.mode === "frq") {
+      const area = ans.createEl("textarea", {
+        cls: "qt-frq-answer",
+        attr: { placeholder: "Type your free-response answer. OS voice dictation works here.", rows: "10" },
+      });
+      area.value = it.sel;
+      area.addEventListener("input", () => {
+        it.sel = area.value;
+        this.paintNav();
+      });
+      area.addEventListener("change", () => this.persist());
+      ans.createDiv({ cls: "qt-hint", text: "This response is graded after the test against the rubric in its note. It is not scored automatically." });
     } else {
       const input = ans.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer" } });
       input.value = it.sel;
@@ -493,6 +599,7 @@ class TestView extends ItemView {
       input.addEventListener("change", () => this.persist());
     }
 
+    if (it.mode !== "frq") {
     const confRow = right.createDiv({ cls: "qt-conf" });
     confRow.createDiv({ cls: "qt-label", text: "How sure are you?" });
     const confChips = confRow.createDiv({ cls: "qt-chips" });
@@ -509,6 +616,7 @@ class TestView extends ItemView {
       });
       confBtns.push({ btn, value });
     });
+    }
 
     const nav = right.createDiv({ cls: "qt-tnav" });
     const navStart = section ? section.start : 0;
@@ -540,7 +648,7 @@ class TestView extends ItemView {
     if (blank) {
       const ok = await this.plugin.askConfirm(
         "Finish the test?",
-        `${blank} question${blank === 1 ? " has" : "s have"} no answer. Blank questions count as wrong in your score and are not logged as attempts.`,
+        `${blank} item${blank === 1 ? " has" : "s have"} no answer. Blank objective items count as wrong and are not logged as attempts; blank written responses stay ungraded.`,
         "Finish"
       );
       if (!ok) return;
@@ -560,11 +668,18 @@ class TestView extends ItemView {
     let rated = 0;
     let correct = 0;
     let answered = 0;
+    let frqAnswered = 0;
     for (const it of this.items) {
       it.answered = !!str(it.sel).trim();
+      it.conf = Math.max(0, Math.min(3, Number(it.conf) || 0));
+      if (it.mode === "frq") {
+        it.answerCheck = null;
+        it.correct = null;
+        if (it.answered) frqAnswered++;
+        continue;
+      }
       it.answerCheck = it.answered ? gradeAnswerDetailed({ ...it.fm, answer: it.key, question_type: it.mode }, it.sel) : null;
       it.correct = it.answerCheck ? it.answerCheck.correct : null;
-      it.conf = Math.max(0, Math.min(3, Number(it.conf) || 0));
       if (!it.answered) continue;
       answered++;
       if (it.correct) correct++;
@@ -588,13 +703,17 @@ class TestView extends ItemView {
         new Notice(`Couldn't save the result for ${it.file.basename}.`);
       }
     }
+    const objective = this.items.filter((it) => it.mode !== "frq");
+    const written = this.items.filter((it) => it.mode === "frq");
     const sections = this.sections.map((section) => {
       const slice = this.items.slice(section.start, section.end);
+      const objectiveSlice = slice.filter((it) => it.mode !== "frq");
       return {
         name: section.name,
-        total: slice.length,
-        answered: slice.filter((it) => it.answered).length,
-        correct: slice.filter((it) => it.answered && it.correct).length,
+        total: objectiveSlice.length,
+        answered: objectiveSlice.filter((it) => it.answered).length,
+        correct: objectiveSlice.filter((it) => it.answered && it.correct).length,
+        frq: slice.length - objectiveSlice.length,
         seconds: Math.round(slice.reduce((sum, it) => sum + (Number(it.seconds) || 0), 0)),
       };
     });
@@ -602,12 +721,14 @@ class TestView extends ItemView {
     this.result = {
       correct,
       answered,
-      total: this.items.length,
+      total: objective.length,
+      frqTotal: written.length,
+      frqAnswered,
       usedSeconds,
       allowed: this.allowedSeconds,
       timeUp: !!timeUp,
       sections,
-      avgSeconds: answered ? Math.round(usedSeconds / answered) : 0,
+      avgSeconds: answered + frqAnswered ? Math.round(usedSeconds / (answered + frqAnswered)) : 0,
       confidence: { levels: confidenceLevels, rated, answered },
     };
     this.phase = "review";
@@ -622,11 +743,15 @@ class TestView extends ItemView {
     const r = this.result;
     root.createEl("h3", { text: r.timeUp ? "Time's up" : "Test finished" });
     const pct = r.total ? r.correct / r.total : 0;
-    const card = root.createDiv({ cls: `qt-banner ${pct >= 0.7 ? "is-correct" : "is-wrong"}` });
-    card.createDiv({ cls: "qt-banner-title", text: `${r.correct} of ${r.total} correct (${fmtPct(pct)})` });
+    const card = root.createDiv({ cls: `qt-banner ${!r.total || pct >= 0.7 ? "is-correct" : "is-wrong"}` });
+    const bannerBits = [
+      r.total ? `${r.correct} of ${r.total} objective correct (${fmtPct(pct)})` : "No objective items",
+      r.frqTotal ? `${r.frqTotal} written response${r.frqTotal === 1 ? "" : "s"} to grade` : "",
+    ].filter(Boolean);
+    card.createDiv({ cls: "qt-banner-title", text: bannerBits.join(" · ") });
     card.createDiv({
       cls: "qt-banner-sub",
-      text: `Answered ${r.answered} · ${fmtClock(r.usedSeconds)} used of ${fmtClock(r.allowed)}`,
+      text: `Answered ${r.answered}${r.frqTotal ? ` + ${r.frqAnswered} written` : ""} · ${fmtClock(r.usedSeconds)} used of ${fmtClock(r.allowed)}`,
     });
 
     if (r.confidence && r.confidence.rated) {
@@ -651,7 +776,7 @@ class TestView extends ItemView {
       for (const section of r.sections) {
         sectionChips.createSpan({
           cls: "qt-chip",
-          text: `${section.name}: ${section.correct}/${section.total} · ${fmtClock(section.seconds)}`,
+          text: `${section.name}: ${section.correct}/${section.total}${section.frq ? ` + ${section.frq} FRQ` : ""} · ${fmtClock(section.seconds)}`,
         });
       }
     }
@@ -695,24 +820,32 @@ class TestView extends ItemView {
     }
     const keep = (it) =>
       this.filter === "all" ||
-      (this.filter === "missed" && it.answered && !it.correct) ||
+      (this.filter === "missed" && it.mode !== "frq" && it.answered && !it.correct) ||
       (this.filter === "flagged" && it.flagged) ||
       (this.filter === "blank" && !it.answered);
     this.items.forEach((it, i) => {
       if (!keep(it)) return;
       const box = root.createDiv({ cls: "qt-ins-group" });
       const head = box.createDiv({ cls: "qt-trow" });
-      const mark = !it.answered ? "-" : it.correct ? "✓" : "✗";
+      const isFrq = it.mode === "frq";
+      const mark = isFrq ? "✎" : !it.answered ? "-" : it.correct ? "✓" : "✗";
       head.createSpan({ cls: `qt-tmark ${!it.answered ? "is-blank" : it.correct ? "is-right" : "is-wrong"}`, text: mark });
       const info = head.createDiv({ cls: "qt-ins-main" });
-      info.createDiv({ cls: "qt-ins-name", text: `${i + 1}. ${it.fm.skill || it.file.basename}` });
-      const bits = [
-        it.answered ? `You: ${it.sel}` : "No answer",
-        it.key ? `Answer: ${it.key}` : "",
-        fmtClock(Math.round(it.seconds)),
-        it.answered && it.conf ? `Confidence: ${p.settings.confidenceLabels[it.conf - 1] || it.conf}` : "",
-        it.flagged ? "marked" : "",
-      ].filter(Boolean);
+      info.createDiv({ cls: "qt-ins-name", text: `${i + 1}. ${isFrq ? `FRQ: ${it.note.title}` : it.fm.skill || it.file.basename}` });
+      const bits = isFrq
+        ? [
+            it.answered ? "Response saved" : "No response",
+            `${it.note.maxPoints} rubric point${it.note.maxPoints === 1 ? "" : "s"}`,
+            fmtClock(Math.round(it.seconds)),
+            it.flagged ? "marked" : "",
+          ].filter(Boolean)
+        : [
+            it.answered ? `You: ${it.sel}` : "No answer",
+            it.key ? `Answer: ${it.key}` : "",
+            fmtClock(Math.round(it.seconds)),
+            it.answered && it.conf ? `Confidence: ${p.settings.confidenceLabels[it.conf - 1] || it.conf}` : "",
+            it.flagged ? "marked" : "",
+          ].filter(Boolean);
       info.createDiv({ cls: "qt-hint", text: bits.join(" · ") });
       const tg = head.createEl("button", { text: this.expanded.has(i) ? "Hide" : "Review" });
       tg.addEventListener("click", () => {
@@ -730,6 +863,29 @@ class TestView extends ItemView {
     const d = box.createDiv({ cls: "qt-detail" });
     if (it.sections.stimulus) renderMarkdownInto(this.app, it.sections.stimulus, d.createDiv({ cls: "qt-stimulus" }), path, this);
     renderMarkdownInto(this.app, it.sections.question || "", d.createDiv({ cls: "qt-stem" }), path, this);
+    if (it.mode === "frq") {
+      d.createDiv({ cls: "qt-label", text: "Your response" });
+      if (it.sel) d.createDiv({ cls: "qt-frq-answer-static", text: it.sel });
+      else d.createDiv({ cls: "qt-hint", text: "No response was written for this prompt." });
+      d.createDiv({ cls: "qt-label", text: "Rubric" });
+      const rubric = d.createDiv({ cls: "qt-frq-rubric" });
+      for (const criterion of it.note.rubric || []) {
+        const row = rubric.createDiv({ cls: "qt-frq-criterion" });
+        const text = row.createDiv({ cls: "qt-frq-criterion-text" });
+        text.createEl("strong", { text: criterion.label });
+        text.createDiv({ cls: "qt-hint", text: criterion.description || "No description." });
+        row.createSpan({ cls: "qt-frq-max", text: `/ ${criterion.points}` });
+      }
+      const row = d.createDiv({ cls: "qt-row" });
+      row.createEl("button", { text: "Grade this response", cls: "mod-cta qt-grow" }).addEventListener("click", () => {
+        p.openFrqGrader({ path: it.note.path, answer: it.sel });
+      });
+      row.createEl("button", { text: "Open prompt note", cls: "qt-grow" }).addEventListener("click", () => {
+        const file = this.app.vault.getAbstractFileByPath(it.note.path);
+        if (file) this.app.workspace.getLeaf("tab").openFile(file);
+      });
+      return;
+    }
     const rc = d.createDiv({ cls: "qt-answers" });
     const mine = str(it.sel).toUpperCase();
     const keyL = str(it.key).toUpperCase();

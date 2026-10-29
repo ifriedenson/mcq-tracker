@@ -537,3 +537,69 @@ test("timed test: an optional question range restricts the pool before picking",
   assert.equal(T.sliceQuestionRange(["a", "b", "c"], 2, 0).join(""), "bc", "an empty end means the last question");
   assert.deepEqual(T.sliceQuestionRange(["a", "b"], 3, 4), []);
 });
+
+test("timed test: an FRQ prompt joins the session and opens the grader with its response", async () => {
+  const app = makeApp([
+    NOTES[0],
+    {
+      path: "AP FRQs/AP Biology/Cells.md",
+      fm: { type: "ap_frq", ap_course: "ap-biology", course: "AP Biology", title: "Cells", max_points: 2 },
+      text: [
+        "---",
+        "type: ap_frq",
+        "ap_course: ap-biology",
+        "course: AP Biology",
+        "title: Cells",
+        "max_points: 2",
+        "---",
+        "",
+        "## Question",
+        "Explain how a cell maintains homeostasis.",
+        "",
+        "## Rubric",
+        "- [1] Claim: states a defensible claim.",
+        "- [1] Evidence: supports it with specific evidence.",
+        "",
+      ].join("\n"),
+    },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.moduleOff = () => false;
+  plugin.recorded = [];
+  plugin.recordAttempt = async (file, a) => plugin.recorded.push([file.basename, a.correct]);
+  plugin.calls = [];
+  plugin.openFrqGrader = (options) => plugin.calls.push(options);
+  const dom = makeDom();
+  const v = makeView(T.TestView, plugin, app, dom);
+  await v.begin(2, 5, "random", { from: 1, to: 1, frq: 1 }, [{ name: "Mixed", count: 2, minutes: 5 }]);
+  assert.equal(v.items.length, 2);
+  const frqIndex = v.items.findIndex((it) => it.mode === "frq");
+  assert.ok(frqIndex >= 0);
+  assert.equal(v.items[frqIndex].note.title, "Cells");
+  assert.equal(plugin.settings.testSession.items.some((row) => row.frq === true), true, "FRQ survives a saved session");
+  const mcq = v.items.find((it) => it.mode !== "frq");
+  mcq.sel = mcq.key;
+  v.items[frqIndex].sel = "A cell uses a membrane and transport proteins.";
+  await v.persist();
+  const saved = JSON.parse(JSON.stringify(plugin.settings.testSession));
+  const dom2 = makeDom();
+  const v2 = makeView(T.TestView, plugin, app, dom2);
+  plugin.settings.testSession = saved;
+  await v2.onOpen();
+  assert.equal(v2.phase, "test", "the mixed session is restored");
+  assert.equal(v2.items.filter((it) => it.mode === "frq").length, 1);
+  assert.equal(v2.items[frqIndex].sel, "A cell uses a membrane and transport proteins.");
+  await v2.finish(false);
+  assert.equal(v2.result.total, 1);
+  assert.equal(v2.result.correct, 1);
+  assert.equal(v2.result.frqTotal, 1);
+  assert.equal(v2.result.frqAnswered, 1);
+  assert.equal(plugin.recorded.length, 1, "the FRQ is not logged as an MCQ attempt");
+  assert.ok(dom2.texts().some((text) => /1 written response to grade/.test(text)));
+  v2.expanded.add(frqIndex);
+  v2.render();
+  await dom2.click("Grade this response");
+  assert.equal(plugin.calls.at(-1).path, "AP FRQs/AP Biology/Cells.md");
+  assert.equal(plugin.calls.at(-1).answer, "A cell uses a membrane and transport proteins.");
+});

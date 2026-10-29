@@ -386,3 +386,22 @@ test("FRQ: saved missed criteria aggregate into an Insights weak-spot list", () 
   assert.equal(thesis.rate, 0.7);
   assert.equal(frq.frqCriterionWeakSpots([]).length, 0);
 });
+
+test("FRQ: the grader can start with a response typed in a timed test", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const created = await plugin.createFrqNote({
+    courseId: "ap-statistics",
+    title: "Unit 2 FRQ",
+    prompt: "Describe the sampling distribution.",
+    rubric: statisticsRubric(),
+  });
+  const file = app.files.find((item) => item.path === created.path);
+  file.fm = created.note.frontmatter;
+  const modal = new T.FrqGraderModal({ app }, plugin, { path: created.path, answer: "Typed during the timed test." });
+  modal.contentEl = makeDom().root;
+  await modal.load();
+  assert.equal(modal.note.path, created.path);
+  assert.equal(modal.answer, "Typed during the timed test.");
+});

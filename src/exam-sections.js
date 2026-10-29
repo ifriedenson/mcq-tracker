@@ -109,6 +109,7 @@ function normalizeBlueprint(raw) {
     from: Math.max(1, Math.round(Number(raw.from) || 1)),
     to: Math.max(0, Math.round(Number(raw.to) || 0)),
     mode: str(raw.mode).trim() || "random",
+    frq: clampInt(raw.frq, 0, 20, 0),
     sections: normalizeSections(raw.sections, count, minutes),
   };
 }

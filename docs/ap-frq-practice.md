@@ -71,6 +71,10 @@ Open **AP: open free-response practice and grader**, pick the prompt, and type t
 
 The total maps to a practice band: below 50% `again`, below 70% `hard`, below 85% `good`, otherwise `easy`. The band is a study signal, not an AP score prediction. It also sets the next review: below 60% returns in one day, 60–79% in three, 80–89% in seven and 90%+ in fourteen, and any missed rubric criterion caps the wait at three days. Due prompts appear in **Today** and in the next exam's study plan with a **Practice FRQ** button. **Insights → Weak spots** lists the rubric criteria marked short across saved attempts, with the course and miss count, and each row opens the prompt where it was missed.
 
+## Mixed timed tests
+
+On the timed-test setup screen, set **Written responses (FRQ)** to include prompts from your own `ap_frq` notes. The count is part of the section totals: a 10-item section with 2 FRQs has 8 objective items and 2 written responses. Type each response during the timer; it is stored in the session and restored if Obsidian closes. FRQs never count as objective correct or incorrect, so the score, confidence calibration and skill breakdown stay objective. After the test, open a written response and press **Grade this response**; the existing grader opens with the prompt, rubric and your answer prefilled. Saved blueprints keep the FRQ count.
+
 ## Privacy and trust
 
 Self-grading makes no network request. AI grading is off until AI features are enabled, sends only the fields listed above, and goes through the same request caps and per-feature model setting as the other AI tools. The learner answer is treated as untrusted data in the grader prompt, so instructions inside an answer cannot change the rubric. The saved attempt note contains the answer; delete it if you do not want that text in the vault. No AP Classroom content is fetched, scraped or stored.

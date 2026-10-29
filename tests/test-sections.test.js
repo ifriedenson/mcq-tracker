@@ -78,3 +78,10 @@ test("blueprints are cleaned and rebuilt from saved settings", () => {
   assert.equal(bp.sections.length, 2);
   assert.equal(S.normalizeBlueprint({ name: "" }), null);
 });
+
+test("blueprints keep an FRQ count", () => {
+  const bp = S.normalizeBlueprint({ name: "Mixed", count: 4, minutes: 20, frq: 1, sections: [{ name: "One", count: 4, minutes: 20 }] });
+  assert.equal(bp.frq, 1);
+  const none = S.normalizeBlueprint({ name: "Objective", count: 4, minutes: 20, frq: 99 });
+  assert.equal(none.frq, 20);
+});

@@ -25,7 +25,9 @@ class FrqGraderModal extends Modal {
     this.options = options || {};
     this.notes = [];
     this.note = null;
-    this.answer = "";
+    this.initialAnswer = str(this.options.answer);
+    this.answer = this.initialAnswer;
+    this.answerLoaded = false;
     this.scores = {};
     this.aiResult = null;
     this.aiScores = {};
@@ -57,7 +59,8 @@ class FrqGraderModal extends Modal {
     const wanted = this.options.path || (this.note && this.note.path);
     this.note = this.notes.find((note) => note.path === wanted) || this.notes[0] || null;
     this.loading = false;
-    this.answer = "";
+    this.answer = this.answerLoaded ? "" : this.initialAnswer;
+    this.answerLoaded = true;
     this.scores = {};
     this.aiResult = null;
     this.aiScores = {};
