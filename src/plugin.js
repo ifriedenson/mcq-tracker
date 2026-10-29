@@ -30,6 +30,7 @@ const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normali
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
+const { assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
@@ -2127,6 +2128,7 @@ class QuestionTrackerPlugin extends Plugin {
           qid,
           { model: g.model || this.aiModelLabel(), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note", verification: item.verification }
         );
+        assertAllowedWritePath(path, this.settings);
         await this.app.vault.create(path, note);
         paths.push(path);
       } catch (e) {
@@ -2743,6 +2745,7 @@ class QuestionTrackerPlugin extends Plugin {
       path = folder ? `${folder}/${note.title} ${n}.md` : `${note.title} ${n}.md`;
       n++;
     }
+    if (data.aiGenerated || data.importFormat === "transcript-ai") assertAllowedWritePath(path, this.settings);
     const file = await this.app.vault.create(path, note.text);
     return { path, file, deck, course };
   }
@@ -3093,6 +3096,18 @@ class QuestionTrackerPlugin extends Plugin {
       importBatch: opts.importBatch,
     });
     const oldText = await this.app.vault.cachedRead(existing.file);
+    const beforeFm = { ...((existing && existing.fm) || {}) };
+    const nextFm = { ...beforeFm };
+    if (generated.deck) nextFm.deck = generated.deck;
+    if (generated.course) nextFm.course = generated.course;
+    if (card.importSource) nextFm.import_source = card.importSource;
+    if (card.importFormat) nextFm.import_format = card.importFormat;
+    if (opts.importBatch) nextFm.import_batch = opts.importBatch;
+    nextFm.imported_on = localDate();
+    if (card.importKey) nextFm.import_key = card.importKey;
+    if (generated.cardType && generated.cardType !== "basic") nextFm.card_type = generated.cardType;
+    else delete nextFm.card_type;
+    assertProtectedUnchanged(beforeFm, nextFm);
     const close = oldText.indexOf("\n---\n", 3);
     if (close < 0) throw new Error("The existing card has no closing frontmatter fence.");
     const body = noteBodyText(generated.text);

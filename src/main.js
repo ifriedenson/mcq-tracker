@@ -9,7 +9,7 @@
  * bundled into the single main.js that Obsidian loads by scripts/build.js.
  */
 const { QuestionTrackerPlugin } = require("./plugin");
-const { buildReportMarkdown, cacheIssues, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
+const { API_SYSTEM, buildReportMarkdown, cacheIssues, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
 const { fmtDate, fmtDateTime } = require("./util");
 const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
 const { answerFromSection, applyAttempt, extractRationale, fillDefaults, gradeAnswer, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
@@ -21,6 +21,7 @@ const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
 const noteContext = require("./note-context");
+const aiWriteGuard = require("./ai-write-guard");
 const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
 const answerVerification = require("./answer-verification");
@@ -103,6 +104,7 @@ const support = require("./support");
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
   finalizeNote,
+  API_SYSTEM,
   parseNote,
   fmtDate,
   fmtDateTime,
@@ -133,6 +135,7 @@ QuestionTrackerPlugin.__test = {
   tutorPresets,
   aiContext,
   noteContext,
+  aiWriteGuard,
   aiWrites,
   weakSpot,
   answerVerification,

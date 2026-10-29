@@ -462,6 +462,12 @@ Run **AI: generate practice from a weak spot** to open a preview-first generator
 
 The general assistant has two switches above its quick actions: **Include current note** and **Include selection**. Both are off by default and reset on **New chat**. While off, the assistant never reads a note for context. While on, it receives the active note's body with frontmatter removed (capped at 6,000 characters) and, separately, the current editor selection (capped at 2,000 characters). The note and selection are labelled as untrusted data, and the prompt tells the model not to follow instructions found inside them or change tracking properties. Turning a switch off stops that text from being sent on the next message.
 
+### AI write protections
+
+AI-generated notes are written only inside your configured question folder, card folder or deck folders. The plugin checks the destination in code before creating a note; a path outside those folders is refused. When an import updates an existing card, the plugin also checks the review state before writing: `attempts`, `correct_count`, `streak`, `history`, `next_review`, `srs`, study status and the other tracking properties cannot change. The body and the card's deck/course can change, but the learner's review history is a lock, not a prompt request.
+
+Lecture transcripts and imported PDFs are labelled as untrusted data in the generation prompts. Instructions found inside a document are not treated as commands.
+
 ### Checking AI-written answers
 
 When the AI writes a multiple-choice answer, the plugin can make a second independent call that sees the question and choices but never the stored key or explanation. A disagreement is marked `needs_review: true`, gets a visible warning banner in the note and in practice, and records `verified: false`, `verified_by` and `verified_on`. Choose **Flag mismatches for review** (the default) or **Drop mismatched items** under **Settings → MCQ Tracker → AI**. The same check runs on AI-written PDF-import answers and on questions generated from a weak spot or a lecture. You can also run **AI: verify the answer for this note** at any time. Answers with no letter key, such as free-response items, are recorded as unchecked rather than silently treated as verified.
