@@ -12,7 +12,7 @@ const {
 } = require("../src/ap-resources");
 const { AP_PROFILES } = require("../src/ap-score");
 
-test("AP resources: the four calculator courses also have a resource pack", () => {
+test("AP resources: every calculator course also has a resource pack", () => {
   assert.deepEqual(
     AP_RESOURCE_COURSES.map((course) => course.id),
     AP_PROFILES.map((profile) => profile.id),

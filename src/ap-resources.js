@@ -47,6 +47,30 @@ const AP_RESOURCE_COURSES = [
     slug: "ap-united-states-history",
     studentsSlug: "ap-united-states-history",
   },
+  {
+    id: "ap-world-history",
+    name: "AP World History: Modern",
+    slug: "ap-world-history",
+    studentsSlug: "ap-world-history",
+  },
+  {
+    id: "ap-chemistry",
+    name: "AP Chemistry",
+    slug: "ap-chemistry",
+    studentsSlug: "ap-chemistry",
+  },
+  {
+    id: "ap-calculus-bc",
+    name: "AP Calculus BC",
+    slug: "ap-calculus-bc",
+    studentsSlug: "ap-calculus-bc",
+  },
+  {
+    id: "ap-statistics",
+    name: "AP Statistics",
+    slug: "ap-statistics",
+    studentsSlug: "ap-statistics",
+  },
 ];
 
 const AP_RESOURCE_POLICY = [

@@ -31,6 +31,11 @@ const AI_FEATURES = [
     sends: "The card front, stored answer, your typed answer and the strictness.",
   },
   {
+    id: "frqGrading",
+    label: "Grade free-response answers",
+    sends: "The prompt, your rubric, the optional sample answer and your typed answer.",
+  },
+  {
     id: "ocr",
     label: "Vision OCR",
     requires: "vision",

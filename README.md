@@ -283,15 +283,50 @@ Every practice and card review screen has **Known**, **Bury**, **Suspend** and *
 
 ## AP score calculator
 
-Open **Reference → AP score**, or run **Open AP score calculator**. Choose AP Biology, Calculus AB, English Language and Composition, or U.S. History, enter the points for each section, and get an unofficial weighted estimate. The 2027 section weights and point totals come from the official AP Central exam pages linked in the tab. Cut scores are editable practice defaults, not an official College Board curve, and the tab says so. If any section is blank, the result stays **Incomplete estimate** rather than treating missing work as zero.
+Open **Reference → AP score**, or run **Open AP score calculator**. Choose from eight 2027 profiles (AP Biology, Calculus AB, Calculus BC, Chemistry, English Language and Composition, Statistics, U.S. History, and World History: Modern), enter the points for each section, and get an unofficial weighted estimate. The 2027 section weights and point totals come from the official AP Central exam pages linked in the tab. Cut scores are editable practice defaults, not an official College Board curve, and the tab says so. If any section is blank, the result stays **Incomplete estimate** rather than treating missing work as zero.
 
 The **What do I need for a 4/5?** control holds the other sections fixed and shows the percentage and points required on each section, or that the target is not reachable with the entered scores. Nothing leaves the device.
 
 When the estimate is complete, **Save practice exam** writes an ordinary Markdown note under **AP practice exams/** with the date, course, exam year, composite, estimated score, likely band, section table and the cut scores used. The note also keeps every written-response score and adds a per-question table. The tab then lists saved attempts newest first, with an average, the change from the previous attempt, and a written-score average plus per-section trends. AP U.S. History shows SAQ, DBQ and LEQ separately; single-written-section courses show FRQ. The note is yours: rename it, edit the notes section, or delete it without affecting the calculator.
 
+## AP free-response practice
+
+Run **AP: open free-response practice and grader**, or create a note first with **AP: create a free-response note**. The pilot supports six courses: AP World History: Modern, AP U.S. History, AP Chemistry, AP Calculus AB, AP Calculus BC and AP Statistics. You supply the prompt and rubric; the plugin ships no AP questions, rubrics or sample responses.
+
+A practice note is ordinary Markdown:
+
+```md
+---
+type: ap_frq
+ap_course: ap-world-history
+max_points: 6
+---
+
+## Question
+Your prompt here.
+
+## Stimulus
+Optional shared passage, data or documents.
+
+## Rubric
+- [1] Thesis: states a defensible claim.
+- [2] Evidence: uses the documents and outside evidence.
+- [2] Sourcing: explains point of view, purpose, situation or audience.
+- [1] Complexity: explains a nuance or limitation.
+
+## Sample Answer
+Optional model answer.
+```
+
+The rubric accepts `- [points] Label: description`, `- points: Label — description`, `- Label (points)`, or a Markdown table with a points column. **New FRQ note** starts from an editable preset for the selected course and question type: DBQ, LEQ or SAQ for history; long or short response for chemistry; free response for calculus; free response for statistics. Those presets are original starting points written for this project, not official College Board rubrics. Edit them to match the rubric you were given.
+
+**Self-grade** needs no AI and no network: enter the points for each criterion, and the total is clamped to each maximum. **AI grade** sends the prompt, your rubric, the optional sample answer and your typed answer to your configured provider, then returns a draft score per criterion with a quote and a short explanation. The draft flags low-confidence criteria and any point awarded without a quote; every line stays editable, and saving records whether the result was self-graded, AI-graded or AI-edited. Photo-of-handwriting grading is not part of this release; type the answer or use your operating system's dictation.
+
+Each saved attempt becomes its own note under **AP FRQ attempts/** with the course, prompt link, score, percentage, practice band, missed criteria and the graded answer. The prompt note also gets `frq_last_score`, `frq_last_max`, `frq_last_percent`, `frq_criteria_missed`, `frq_graded_by`, `frq_graded_on` and `frq_attempts`, so history and Dataview queries work without a database. Scores are practice feedback against your rubric, not a College Board score. The grader has no human-scored accuracy evaluation yet; treat AI drafts as a second opinion and check the rubric yourself.
+
 ## AP resources
 
-Open **Reference → AP resources**, run **Open AP resources**, or use the button in **Settings → Reference → Tools**. Pick a course to get its official starting points: the AP Central course page and course/exam description, the exam format and section weights, released free-response questions with scoring guidelines and sample responses, the AP Students page with dates and registration, AP Classroom/AP Videos, and the AP exam calendar.
+Open **Reference → AP resources**, run **Open AP resources**, or use the button in **Settings → Reference → Tools**. The index covers the same eight courses as the score calculator. Pick a course to get its official starting points: the AP Central course page and course/exam description, the exam format and section weights, released free-response questions with scoring guidelines and sample responses, the AP Students page with dates and registration, AP Classroom/AP Videos, and the AP exam calendar.
 
 This is a **link index, not a content dump**. The plugin stores only titles, short original descriptions and URLs. It never signs in to AP Classroom, scrapes account-gated material, or copies prompts, rubrics, videos or question banks into your vault. Links were checked on 2026-10-29; if one moves, report it rather than pasting the page in. AP is a College Board trademark and this plugin is not affiliated with or endorsed by the College Board.
 
@@ -312,7 +347,7 @@ Turn it on under **Settings, Global, Modules**, then open **Reference** from the
 - **Graph** — plot `y = f(x)` with a restricted local expression parser. It supports `x`, `pi`, `e`, the usual trig and log functions, and `+ - * / ^`. It does not use `eval`, a calculator service or a Desmos key.
 - **Periodic table** — all 118 elements in a tap-to-open grid, with atomic number, the AP Chemistry 2020 mass where the table lists one, category, period and group.
 - **Constants** — common physical and chemical constants with units.
-- **AP score** — an unofficial weighted score estimate for four AP courses, with editable practice cutoffs and reverse planning.
+- **AP score** — an unofficial weighted score estimate for eight AP courses, with editable practice cutoffs and reverse planning. The separate free-response grader opens from the command palette.
 - **AP resources** — official AP Central, AP Students and AP Classroom links for each supported course, with saved notes and a next-exam recommendation on Today.
 
 The local SMILES renderer supports common organic atoms, bracket atoms with charge and hydrogen counts, single/double/triple/aromatic bonds, branches, ring labels and disconnected fragments; unsupported syntax reports an error instead of guessing. The graph parser only accepts the listed names and operators; an unknown name or a pasted script is rejected rather than evaluated. Periodic-table masses and blanks match the College Board AP Chemistry Periodic Table of the Elements (2020); chemistry equations and constants match the AP Chemistry Equations and Constants (2025). The panel is local: it does not read notes, call a model or make a network request. **Hide while a timed test is running** is on by default, so it stays out of a closed-book section; turn it off under Settings, Reference if your test allows a reference sheet. The calculator has its own **Hide calculator during timed tests** switch, so a no-calculator section stays honest even when the rest of the panel is allowed. Formulas are study aids, not official exam material; check the sheet supplied with your course and exam year.

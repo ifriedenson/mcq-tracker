@@ -762,13 +762,13 @@ Implementation starts only when all of these are true:
 
 ## 15. Open decisions for the owner
 
-1. **Pilot courses:** AP US History, AP English Language, AP Biology, and AP Calculus AB are the recommended first set. **Provisional decision:** start with these four; confirm demand, rubric clarity and permissions before locking them.
-2. **AI default:** keep AI grading off by default; self-grade is always available.
+1. **Pilot courses:** **Decided 2026-10-29:** AP World History: Modern, AP U.S. History, AP Chemistry, AP Calculus AB, AP Calculus BC and AP Statistics. Learners upload their own FRQs and rubrics; self-grading and optional AI grading ship in the 1.97.0 pilot. Human-scored evaluation and the go/no-go gate remain open.
+2. **AI default:** **Decided:** AI grading stays off by default; self-grade is always available and needs no network.
 3. **Rubric authoring:** start with paste/import plus a simple editor, or require structured JSON from the start?
-4. **Official samples:** are user-supplied released responses allowed in local evaluation only, or should the product avoid them entirely until permission is confirmed?
+4. **Official samples:** **Decided for the pilot:** prompts and rubrics are user-supplied; the repository does not include released AP questions, rubrics or sample responses.
 5. **Cost ceiling:** what per-grade cost is acceptable for the default model?
 6. **Teacher mode:** is a teacher-facing batch view in scope later, or should the product stay learner-only?
-7. **Handwriting:** confirm photo grading remains a later optional feature.
+7. **Handwriting:** **Decided:** photo-of-handwriting grading remains out of the 1.97.0 pilot.
 8. **AP score display:** should the FRQ screen show only rubric points, or also a clearly unofficial projected AP score after the calculator exists?
 
 ---

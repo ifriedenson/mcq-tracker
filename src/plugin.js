@@ -48,6 +48,8 @@ const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
 const { attachFrontmatter, attachStudySlotFrontmatter, buildApResourceNote, detachFrontmatter, detachStudySlotFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
+const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
+const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -224,6 +226,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
     this.addCommand({ id: "open-ap-resources", name: "Open AP resources", callback: () => this.openApResources() });
+    this.addCommand({ id: "open-frq-grader", name: "AP: open free-response practice and grader", callback: () => this.openFrqGrader() });
+    this.addCommand({ id: "new-frq-note", name: "AP: create a free-response note", callback: () => this.openNewFrqNote() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
     this.addCommand({
@@ -1543,6 +1547,98 @@ class QuestionTrackerPlugin extends Plugin {
 
   async openApResources() {
     return this.openReferenceTab("resources", "Turn on the Reference module under Settings, Global, Modules to use AP resources.");
+  }
+
+  /** Opens the FRQ practice modal. Reference must be on; the grader is part of the AP tools. */
+  openFrqGrader(options) {
+    if (this.moduleOff("reference")) {
+      new Notice("Turn on the Reference module under Settings, Global, Modules to use AP free-response practice.");
+      return null;
+    }
+    if (this.settings.reference.hideDuringTests !== false && this.timedTestRunning()) {
+      new Notice("AP tools are hidden while a timed test is running. Change this under Settings, Reference.");
+      return null;
+    }
+    const modal = new FrqGraderModal(this.app, this, options);
+    modal.open();
+    return modal;
+  }
+
+  /** Opens the note creator for a learner-supplied prompt and rubric. */
+  openNewFrqNote(onDone) {
+    if (this.moduleOff("reference")) {
+      new Notice("Turn on the Reference module under Settings, Global, Modules to create AP free-response notes.");
+      return null;
+    }
+    const modal = new NewFrqNoteModal(this.app, this, onDone);
+    modal.open();
+    return modal;
+  }
+
+  /** Every user-supplied FRQ note, read through the normal note format. */
+  async getFrqNotes() {
+    const notes = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      if (!isFrqNote(fm)) continue;
+      try {
+        const text = await this.app.vault.cachedRead(file);
+        notes.push(parseFrqNote(text, fm, file.path));
+      } catch (e) {
+        /* an unreadable note should not hide the rest */
+      }
+    }
+    return notes.sort((a, b) => String(a.course).localeCompare(String(b.course)) || String(a.title).localeCompare(String(b.title)));
+  }
+
+  /** Writes a new FRQ note under AP FRQs/<course>/ and returns the parsed result. */
+  async createFrqNote(input) {
+    const built = buildFrqNote(input);
+    if (!built) throw new Error("Add a title, prompt and at least one rubric criterion.");
+    const folder = built.path.replace(/\/[^/]+$/, "");
+    await ensureFolder(this.app, FRQ_FOLDER);
+    await ensureFolder(this.app, folder);
+    const path = uniqueNotePath(built, (candidate) => !!this.app.vault.getAbstractFileByPath(candidate));
+    const file = await this.app.vault.create(path, built.text);
+    return { file, path, note: parseFrqNote(built.text, built.frontmatter, path) };
+  }
+
+  /** Saved attempts for one prompt, newest first. */
+  async getFrqAttempts(notePath) {
+    const entries = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const entry = entryFromAttemptFrontmatter(fm, file.path);
+      if (!entry) continue;
+      if (notePath && entry.frqNote !== notePath) continue;
+      entries.push(entry);
+    }
+    return sortFrqAttempts(entries);
+  }
+
+  /** Saves one graded attempt and records its summary on the prompt note. */
+  async saveFrqAttempt(note, attempt) {
+    const built = buildFrqAttemptNote(note, attempt, attempt && attempt.gradedOn);
+    if (!built) throw new Error("Score at least one rubric criterion before saving.");
+    await ensureFolder(this.app, FRQ_ATTEMPT_FOLDER);
+    const path = uniqueNotePath(built, (candidate) => !!this.app.vault.getAbstractFileByPath(candidate));
+    const file = await this.app.vault.create(path, built.text);
+    const source = this.app.vault.getAbstractFileByPath(note.path);
+    if (source && /\.md$/i.test(source.path)) {
+      await this.app.fileManager.processFrontMatter(source, (data) => {
+        Object.assign(data, sourceFrontmatterUpdate(attempt, data.frq_attempts));
+      });
+    }
+    return { file, path, frontmatter: built.frontmatter, entry: { ...built.entry, path } };
+  }
+
+  /** One request path for AI FRQ grading, using the shared feature limits. */
+  async gradeFrqWithAi(note, answer) {
+    const client = {
+      chat: (system, messages, opts) =>
+        this.aiComplete(system, messages && messages[0] ? messages[0].content : "", { ...(opts || {}), feature: "frqGrading" }),
+    };
+    return gradeFrqWithAi(client, note, answer);
   }
 
   async openReferenceTab(tab, offMessage) {

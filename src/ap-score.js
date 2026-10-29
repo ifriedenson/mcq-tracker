@@ -88,6 +88,80 @@ const AP_PROFILES = [
       { id: "leq", label: "Long essay", weight: 0.15, max: 6 },
     ],
   },
+  {
+    id: "ap-world-history",
+    name: "AP World History: Modern",
+    year: "2027",
+    source: "https://apcentral.collegeboard.org/courses/ap-world-history/exam",
+    sections: [
+      { id: "mcq", label: "Multiple choice", weight: 0.4, max: 55 },
+      {
+        id: "saq",
+        label: "Short answer",
+        weight: 0.2,
+        parts: [
+          { id: "saq1", label: "Short answer 1", max: 3 },
+          { id: "saq2", label: "Short answer 2", max: 3 },
+          { id: "saq3", label: "Short answer 3", max: 3 },
+        ],
+      },
+      { id: "dbq", label: "Document-based question", weight: 0.25, max: 7 },
+      { id: "leq", label: "Long essay", weight: 0.15, max: 6 },
+    ],
+  },
+  {
+    id: "ap-chemistry",
+    name: "AP Chemistry",
+    year: "2027",
+    source: "https://apcentral.collegeboard.org/courses/ap-chemistry/exam",
+    sections: [
+      { id: "mcq", label: "Multiple choice", weight: 0.5, max: 60 },
+      {
+        id: "frq",
+        label: "Free response",
+        weight: 0.5,
+        parts: [
+          { id: "long1", label: "Long question 1", max: 10 },
+          { id: "long2", label: "Long question 2", max: 10 },
+          { id: "long3", label: "Long question 3", max: 10 },
+          { id: "short1", label: "Short question 1", max: 4 },
+          { id: "short2", label: "Short question 2", max: 4 },
+          { id: "short3", label: "Short question 3", max: 4 },
+          { id: "short4", label: "Short question 4", max: 4 },
+        ],
+      },
+    ],
+  },
+  {
+    id: "ap-calculus-bc",
+    name: "AP Calculus BC",
+    year: "2027",
+    source: "https://apcentral.collegeboard.org/courses/ap-calculus-bc/exam",
+    sections: [
+      { id: "mcq", label: "Multiple choice", weight: 0.5, max: 42 },
+      {
+        id: "frq",
+        label: "Free response",
+        weight: 0.5,
+        parts: [1, 2, 3, 4, 5, 6].map((n) => ({ id: `frq${n}`, label: `Question ${n}`, max: 9 })),
+      },
+    ],
+  },
+  {
+    id: "ap-statistics",
+    name: "AP Statistics",
+    year: "2027",
+    source: "https://apcentral.collegeboard.org/courses/ap-statistics/exam",
+    sections: [
+      { id: "mcq", label: "Multiple choice", weight: 0.5, max: 42 },
+      {
+        id: "frq",
+        label: "Free response",
+        weight: 0.5,
+        parts: [1, 2, 3, 4].map((n) => ({ id: `frq${n}`, label: `Question ${n}`, max: 10 })),
+      },
+    ],
+  },
 ];
 
 const SECTION_ID = { mcq: "mcq" };

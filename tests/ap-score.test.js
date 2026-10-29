@@ -15,7 +15,7 @@ function biologyScores() {
 }
 
 test("AP score: 2027 profiles use the official section weights and point totals", () => {
-  assert.equal(ap.AP_PROFILES.length, 4);
+  assert.equal(ap.AP_PROFILES.length, 8);
   const biology = ap.profileById("ap-biology");
   assert.equal(biology.sections.find((section) => section.id === "mcq").weight, 0.5);
   assert.equal(ap.sectionMax(biology.sections.find((section) => section.id === "frq")), 34);
@@ -27,6 +27,21 @@ test("AP score: 2027 profiles use the official section weights and point totals"
   assert.equal(language.sections[1].weight, 0.55);
   const history = ap.profileById("ap-us-history");
   assert.equal(history.sections.reduce((sum, section) => sum + section.weight, 0), 1);
+
+  // FRQ pilot courses added in 1.97.0.
+  const world = ap.profileById("ap-world-history");
+  assert.equal(world.sections.find((section) => section.id === "saq").weight, 0.2);
+  assert.equal(ap.sectionMax(world.sections.find((section) => section.id === "dbq")), 7);
+  assert.equal(ap.sectionMax(world.sections.find((section) => section.id === "leq")), 6);
+  const chemistry = ap.profileById("ap-chemistry");
+  assert.equal(chemistry.sections[0].max, 60);
+  assert.equal(ap.sectionMax(chemistry.sections[1]), 46);
+  const bc = ap.profileById("ap-calculus-bc");
+  assert.equal(bc.sections[0].max, 42);
+  assert.equal(ap.sectionMax(bc.sections[1]), 54);
+  const statistics = ap.profileById("ap-statistics");
+  assert.equal(statistics.sections[0].max, 42);
+  assert.equal(ap.sectionMax(statistics.sections[1]), 40);
 });
 
 test("AP score: a complete Biology estimate uses weighted section percentages", () => {
