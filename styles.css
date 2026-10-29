@@ -146,6 +146,46 @@
   margin-top: 4px;
 }
 
+.qt-csv-section {
+  margin-bottom: 8px;
+}
+
+.qt-csv-mapping {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.qt-csv-map-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1fr) minmax(10rem, 1.4fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.qt-csv-map-row label {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.qt-csv-preview ul {
+  margin: 4px 0 8px;
+  padding-left: 1.2em;
+}
+
+.qt-csv-save {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.qt-csv-save label {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
 /* Calendar view: markup and styles are ported from University Schedule and Calendar
    (MIT, Copyright (c) 2026 Cesemess), commit 35778e4, so the two calendars look the
    same. See NOTICES.md. The mode switcher is the only local addition. */

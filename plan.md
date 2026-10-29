@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — exam-aware scheduling caps implemented; next: owner pilot gate for AP tools (Phase 2b)
+**Status:** Implementation in progress — generic CSV/TSV import shipped in 1.16.0; next unblocked backlog item is rule-based card extraction (§5.22.4). AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), and the October 28 idea backlog (§5.22). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,19 +11,19 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Completed: Quizlet-style MCQ study cards (§5.22.2).** The same question notes can now be reviewed as flip cards or choice cards without creating a second note, deck or scheduler. Both skins write ordinary attempts, so `history`, `next_review`, analytics and the due queue stay unified.
+**Completed: generic CSV/TSV import (§5.22.3).** Any spreadsheet export with a header row can now become cards without a per-app importer. The dialog detects the delimiter and common columns, lets the learner remap or ignore any column, previews the first rows, and remembers the mapping for the same headers. Headerless files use the first two columns; a row missing its front or back is reported and skipped. Cards carry `import_source`, `import_format`, `imported_on`, `import_batch` and `import_key`, so a re-import skips duplicates and every card stays traceable to its source.
 
 **What shipped**
 
-- **Flip cards** show the passage and question, then reveal the answer and explanation. **Still learning** records a miss; **Known** records a correct recall.
-- **Choice cards** let the learner pick a letter before revealing the marked answer and explanation; the chosen letter is recorded exactly as in normal practice.
-- The skin uses the current filters, pick mode, hidden-item rules and 20-card session cap. Questions without choices or a key fall back to flip cards.
-- **Off by default**; the setting is under Settings, MCQ Tracker, Practice, and turns on a **Study cards** button and command without changing the normal practice screen.
-- Coverage includes default-off behavior, no duplicate notes, flip and choice flows, fallback rules, attempt mapping, progress and summary.
+- **Generic CSV / TSV / text tables** with comma, tab, semicolon or pipe delimiters, quoted fields and UTF-8 BOM handling.
+- **Column mapping** for front, back, deck, course, tags, notes and card type, with a header toggle and saved mapping presets keyed by header layout.
+- **Dry-run preview** with ready/skipped counts and the first rows before writing anything.
+- **Source metadata** and duplicate-safe re-imports; existing Quizlet, Anki, Kahoot, Blooket and Gimkit importers are unchanged.
+- Coverage includes delimiter/header detection, explicit and saved mappings, headerless files, skipped rows, source properties and duplicate re-imports.
 
-**Next:** The next unblocked backlog item is the generic CSV/TSV importer (§5.22.3), followed by the rest of the October 28 list. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred.
+**Next:** The next unblocked backlog item is rule-based card extraction, per-note opt-in and practice-this-note-only (§5.22.4), followed by the remaining import formats in §5.22.3. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred.
 
-**Recently completed (1.15.0):** Quizlet-style study cards (§5.22.2). Previous release 1.14.0 added Known/Exclude item controls.
+**Recently completed (1.16.0):** Generic CSV/TSV import with column mapping and saved presets. Previous release 1.15.0 added Quizlet-style study cards; 1.14.0 added Known/Exclude item controls.
 
 ---
 
@@ -948,6 +948,8 @@ Use short step cards, each with a working button:
 **Acceptance criteria:** the same MCQ note can be reviewed in exam mode and Quizlet mode without duplication; answers write normal attempt/history properties and feed the same due queue; the mode is off by default and does not change the existing practice screen; flip-card and choice-card flows are both tested before release.
 
 #### 5.22.3 Import breadth and import quality — **M–L, split by format**
+
+**Implemented in 1.16.0:** the generic CSV/TSV importer with delimiter and header detection, column mapping, saved mapping presets, dry-run preview, skipped-row reporting, source metadata (`import_source`, `import_format`, `imported_on`, `import_batch`, `import_key`) and duplicate-safe re-imports. The remaining formats and the full import report are still queued.
 
 The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced Repetition to varying degrees. Add the following, in this order.
 

@@ -12,10 +12,10 @@
  *   semicolon layouts auto-detected.
  */
 const { Modal, Notice } = require("obsidian");
-const { hashString, str } = require("./util");
+const { hashString, localDate, str } = require("./util");
 const { parseCloze } = require("./cards");
 
-const IMPORT_TYPES = ["spaced", "anki", "quizlet", "kahoot", "blooket", "gimkit"];
+const IMPORT_TYPES = ["spaced", "anki", "quizlet", "kahoot", "blooket", "gimkit", "csv"];
 const QUESTION_SET_TYPES = ["kahoot", "blooket", "gimkit"];
 
 function stripFrontmatter(text) {
@@ -243,6 +243,199 @@ function parseQuestionSetText(text, options) {
     });
   }
   return { cards, skipped, errors, source, format };
+}
+
+/* ---- generic CSV / TSV */
+
+const GENERIC_FIELDS = [
+  ["front", ["front", "term", "question", "prompt", "word", "concept", "key"]],
+  ["back", ["back", "definition", "answer", "meaning", "translation", "correct answer"]],
+  ["deck", ["deck", "set", "topic", "category", "folder"]],
+  ["course", ["course", "class", "subject"]],
+  ["tags", ["tags", "tag"]],
+  ["notes", ["notes", "note", "hint", "extra", "explanation"]],
+  ["type", ["type", "card type", "kind"]],
+];
+
+const GENERIC_LABELS = {
+  front: "Front / term / question",
+  back: "Back / definition / answer",
+  deck: "Deck",
+  course: "Course",
+  tags: "Tags",
+  notes: "Notes",
+  type: "Card type",
+};
+
+/** Pick the separator from the first non-empty row. */
+function genericDelimiter(text) {
+  const line = str(text).replace(/^\uFEFF/, "").split(/\r?\n/).find((row) => row.trim()) || "";
+  const candidates = [
+    ["\t", (line.match(/\t/g) || []).length],
+    [",", (line.match(/,/g) || []).length],
+    [";", (line.match(/;/g) || []).length],
+    ["|", (line.match(/\|/g) || []).length],
+  ].sort((a, b) => b[1] - a[1]);
+  return candidates[0][1] ? candidates[0][0] : ",";
+}
+
+function genericHeaderKey(headers, hasHeader, delimiter) {
+  return hashString([hasHeader ? "header" : "no-header", delimiter || "", ...(headers || []).map((h) => questionSetHeaderKey(h))].join("|"));
+}
+
+function genericLooksLikeHeader(row) {
+  const keys = (row || []).map(questionSetHeaderKey);
+  return GENERIC_FIELDS.some(([, aliases]) => keys.some((key) => aliases.includes(key)));
+}
+
+function detectGenericMapping(headers) {
+  const keys = (headers || []).map(questionSetHeaderKey);
+  const used = new Set();
+  const mapping = {};
+  for (const [field, aliases] of GENERIC_FIELDS) {
+    let at = -1;
+    for (let i = 0; i < keys.length; i++) {
+      if (!used.has(i) && aliases.includes(keys[i])) {
+        at = i;
+        break;
+      }
+    }
+    mapping[field] = at;
+    if (at >= 0) used.add(at);
+  }
+  return mapping;
+}
+
+function normalizeGenericMapping(mapping, count) {
+  const out = {};
+  for (const [field] of GENERIC_FIELDS) {
+    const raw = mapping ? mapping[field] : undefined;
+    const n = raw === undefined || raw === null || raw === "" ? NaN : Number(raw);
+    out[field] = Number.isInteger(n) && n >= 0 && n < count ? n : -1;
+  }
+  return out;
+}
+
+function genericCell(value) {
+  return cleanQuestionSetField(value);
+}
+
+function genericTags(value) {
+  return str(value)
+    .split(/\s*[,;|]\s*/)
+    .map((tag) => tag.replace(/^#/, "").trim())
+    .filter(Boolean);
+}
+
+function genericCardType(value, front) {
+  const type = str(value).trim().toLowerCase();
+  if (/revers|back.?front/.test(type)) return "reversed";
+  if (/cloze|fill/.test(type) || /==[^=]+==|\{\{c\d+::/.test(str(front))) return "cloze";
+  return "basic";
+}
+
+/**
+ * Parse a generic CSV/TSV table. Headers are detected from common names, but
+ * the caller can pass `mapping` indexes from a saved preset or the mapping UI.
+ * The first row is treated as a header when it contains a known column name;
+ * otherwise the first two columns are used as front and back.
+ */
+function parseGenericCsv(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "CSV import");
+  const fallbackDeck = str(opts.deck).trim() || "Imported";
+  const body = str(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").trim();
+  const delimiter = opts.delimiter || genericDelimiter(body);
+  const rows = splitDelimited(body, delimiter).filter((row) => row.some((cell) => genericCell(cell)));
+  if (!rows.length) {
+    return {
+      cards: [],
+      skipped: 0,
+      errors: ["The file is empty."],
+      source,
+      format: "csv",
+      delimiter,
+      headers: [],
+      hasHeader: false,
+      mapping: normalizeGenericMapping(null, 0),
+      detected: normalizeGenericMapping(null, 0),
+      headerKey: genericHeaderKey([], false, delimiter),
+      preview: [],
+    };
+  }
+
+  const width = Math.max(...rows.map((row) => row.length));
+  const autoHeader = genericLooksLikeHeader(rows[0]);
+  const hasHeader = opts.hasHeader === undefined ? autoHeader : !!opts.hasHeader;
+  const headers = hasHeader
+    ? rows[0].map((cell, i) => genericCell(cell) || `Column ${i + 1}`).concat(Array.from({ length: Math.max(0, width - rows[0].length) }, (_, i) => `Column ${rows[0].length + i + 1}`))
+    : Array.from({ length: width }, (_, i) => `Column ${i + 1}`);
+  const dataRows = hasHeader ? rows.slice(1) : rows;
+  const detected = hasHeader
+    ? detectGenericMapping(headers)
+    : normalizeGenericMapping({ front: 0, back: width > 1 ? 1 : -1 }, width);
+  const mapping = normalizeGenericMapping(opts.mapping === undefined ? detected : { ...detected, ...opts.mapping }, width);
+  const headerKey = genericHeaderKey(headers, hasHeader, delimiter);
+  const errors = [];
+  const cards = [];
+  const preview = [];
+  const previewRow = (row, r) => ({
+    row: r + (hasHeader ? 2 : 1),
+    front: mapping.front >= 0 ? genericCell(row[mapping.front]) : "",
+    back: mapping.back >= 0 ? genericCell(row[mapping.back]) : "",
+    deck: mapping.deck >= 0 ? genericCell(row[mapping.deck]) : "",
+    course: mapping.course >= 0 ? genericCell(row[mapping.course]) : "",
+  });
+  const sample = dataRows.slice(0, 5).map(previewRow);
+
+  if (mapping.front < 0 || mapping.back < 0) {
+    return {
+      cards,
+      skipped: 0,
+      errors: ["Choose a Front column and a Back column before importing."],
+      source,
+      format: "csv",
+      delimiter,
+      headers,
+      hasHeader,
+      mapping,
+      detected,
+      headerKey,
+      preview: sample,
+    };
+  }
+
+  let skipped = 0;
+  for (let r = 0; r < dataRows.length; r++) {
+    const row = dataRows[r];
+    const front = genericCell(row[mapping.front]);
+    const back = genericCell(row[mapping.back]);
+    if (!front || !back) {
+      skipped++;
+      errors.push(`${source}: row ${r + (hasHeader ? 2 : 1)} needs both a front and a back.`);
+      continue;
+    }
+    const deck = (mapping.deck >= 0 ? genericCell(row[mapping.deck]) : "") || fallbackDeck;
+    const course = mapping.course >= 0 ? genericCell(row[mapping.course]) : "";
+    const notes = mapping.notes >= 0 ? genericCell(row[mapping.notes]) : "";
+    const tags = mapping.tags >= 0 ? genericTags(row[mapping.tags]) : [];
+    const cardType = genericCardType(mapping.type >= 0 ? row[mapping.type] : "", front);
+    cards.push({
+      kind: "card",
+      cardType,
+      deck,
+      course,
+      front,
+      back,
+      notes,
+      tags,
+      importSource: source,
+      importFormat: "csv",
+      importedOn: opts.importedOn || localDate(),
+      importKey: `csv:${hashString(source + "|" + headerKey + "|" + front + "|" + back + "|" + deck)}`,
+    });
+  }
+  return { cards, skipped, errors, source, format: "csv", delimiter, headers, hasHeader, mapping, detected, headerKey, preview: sample.length ? sample : dataRows.slice(0, 5).map(previewRow) };
 }
 
 function csvCell(value) {
@@ -640,6 +833,8 @@ class CardImportModal extends Modal {
     this.options = options || {};
     this.onDone = onDone || (() => {});
     this.type = this.options.type || "spaced";
+    this.csvParsed = null;
+    this.csvMapping = null;
   }
 
   onOpen() {
@@ -654,6 +849,7 @@ class CardImportModal extends Modal {
     type.createEl("option", { text: "Spaced Repetition notes in this vault", value: "spaced" });
     type.createEl("option", { text: "Anki plain-text export", value: "anki" });
     type.createEl("option", { text: "Quizlet text export", value: "quizlet" });
+    type.createEl("option", { text: "Generic CSV / TSV (choose columns)", value: "csv" });
     type.createEl("option", { text: "Kahoot spreadsheet (CSV)", value: "kahoot" });
     type.createEl("option", { text: "Blooket spreadsheet (CSV)", value: "blooket" });
     type.createEl("option", { text: "Gimkit spreadsheet (CSV)", value: "gimkit" });
@@ -674,14 +870,25 @@ class CardImportModal extends Modal {
         if (!candidates.length) source.createEl("option", { text: "No .txt, .tsv or .csv files found", value: "" });
         for (const f of candidates) source.createEl("option", { text: f.path, value: f.path });
       }
-      const sourceLabels = { spaced: "Folder to scan", quizlet: "Quizlet text export", anki: "Anki text export", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
+      const sourceLabels = { spaced: "Folder to scan", quizlet: "Quizlet text export", anki: "Anki text export", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
       sourceLabel.setText(sourceLabels[this.type] || "Import file");
     };
     refreshOptions();
+    source.addEventListener("change", () => {
+      this.csvParsed = null;
+      this.csvMapping = null;
+      if (this.type === "csv") {
+        csvGrid.empty();
+        csvPreview.empty();
+      }
+    });
     type.addEventListener("change", () => {
       this.type = type.value;
+      this.csvParsed = null;
+      this.csvMapping = null;
       refreshOptions();
       help.setText(helpText());
+      toggleCsvControls();
     });
 
     const deckWrap = contentEl.createDiv({ cls: "qt-field" });
@@ -693,9 +900,100 @@ class CardImportModal extends Modal {
     const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
     if (this.options.course) course.value = this.options.course;
 
+    const csvSection = contentEl.createDiv({ cls: "qt-csv-section" });
+    const csvGrid = csvSection.createDiv({ cls: "qt-csv-mapping" });
+    const csvHeaderWrap = csvSection.createDiv({ cls: "qt-field" });
+    const csvHeader = csvHeaderWrap.createEl("input", { type: "checkbox" });
+    csvHeader.checked = true;
+    csvHeaderWrap.createEl("label", { text: "First row is a header" });
+    const csvPreview = csvSection.createDiv({ cls: "qt-csv-preview" });
+    const saveMappingWrap = contentEl.createDiv({ cls: "qt-csv-save" });
+    const saveMapping = saveMappingWrap.createEl("input", { type: "checkbox" });
+    saveMapping.checked = true;
+    saveMappingWrap.createEl("label", { text: "Remember this mapping for the same column headers" });
+
+    const renderCsvMapping = (parsed) => {
+      csvGrid.empty();
+      for (const [field] of GENERIC_FIELDS) {
+        const line = csvGrid.createDiv({ cls: "qt-csv-map-row" });
+        line.createEl("label", { text: GENERIC_LABELS[field] });
+        const select = line.createEl("select", { cls: "dropdown" });
+        select.createEl("option", { text: "Not imported", value: "-1" });
+        parsed.headers.forEach((header, i) => select.createEl("option", { text: `${i + 1}. ${header}`, value: String(i) }));
+        const current = this.csvMapping && this.csvMapping[field] !== undefined && this.csvMapping[field] !== null ? Number(this.csvMapping[field]) : -1;
+        select.value = String(current >= 0 ? current : -1);
+        select.addEventListener("change", async () => {
+          this.csvMapping = { ...(this.csvMapping || parsed.mapping), [field]: Number(select.value) };
+          await readCsv({ keepMapping: true, renderMapping: false, quiet: true });
+        });
+      }
+    };
+
+    const renderCsvPreview = (parsed) => {
+      csvPreview.empty();
+      if (!parsed) return;
+      const missing = parsed.mapping.front < 0 || parsed.mapping.back < 0;
+      csvPreview.createEl("p", {
+        text: missing
+          ? "Choose the Front and Back columns."
+          : `${parsed.cards.length} card${parsed.cards.length === 1 ? "" : "s"} ready${parsed.skipped ? `, ${parsed.skipped} row${parsed.skipped === 1 ? "" : "s"} skipped` : ""}.`,
+      });
+      if (parsed.errors.length) csvPreview.createEl("p", { text: parsed.errors[0] });
+      if (parsed.preview && parsed.preview.length) {
+        const list = csvPreview.createEl("ul");
+        for (const row of parsed.preview) {
+          list.createEl("li", { text: `Row ${row.row}: ${row.front || "—"} → ${row.back || "—"}${row.deck ? ` · ${row.deck}` : ""}` });
+        }
+      }
+    };
+
+    const toggleCsvControls = () => {
+      const on = this.type === "csv";
+      csvSection.style.display = on ? "" : "none";
+      saveMappingWrap.style.display = on ? "" : "none";
+    };
+
+    const readCsv = async (options) => {
+      const o = options || {};
+      const path = source.value;
+      if (!path) {
+        note.setText("Choose a .csv, .tsv or .txt file first.");
+        return null;
+      }
+      try {
+        const parsed = await p.previewCardsCsv(path, {
+          deck: deck.value,
+          course: course.value,
+          mapping: o.keepMapping ? this.csvMapping : undefined,
+          hasHeader: o.autoHeader ? undefined : csvHeader.checked,
+        });
+        this.csvParsed = parsed;
+        if (!o.keepMapping || !this.csvMapping) {
+          this.csvMapping = { ...parsed.mapping };
+          csvHeader.checked = parsed.hasHeader;
+        }
+        if (o.renderMapping !== false) renderCsvMapping(parsed);
+        renderCsvPreview(parsed);
+        toggleCsvControls();
+        if (!o.quiet) {
+          note.setText(parsed.cards.length ? `Previewing ${parsed.cards.length} card${parsed.cards.length === 1 ? "" : "s"}.` : parsed.errors[0] || "No cards found.");
+        }
+        return parsed;
+      } catch (e) {
+        note.setText(str(e && e.message) || "Could not read that file.");
+        return null;
+      }
+    };
+    csvHeader.addEventListener("change", () => {
+      this.csvParsed = null;
+      readCsv({ keepMapping: true, quiet: true });
+    });
+    toggleCsvControls();
+
     const help = contentEl.createEl("p", { cls: "setting-item-description" });
     const helpText = () => {
       if (this.type === "quizlet") return quizletExportHint();
+      if (this.type === "csv") return "Read a CSV or TSV with a header row. Front/term/question and Back/definition/answer columns are detected automatically; check or change the mapping, then import. Mappings are remembered for the same header layout.";
       if (this.type === "anki") return ankiExportHint() + " Binary .apkg files are not opened; export the notes to text from Anki first.";
       if (QUESTION_SET_TYPES.includes(this.type)) {
         return "Save the platform's spreadsheet as CSV first. Question, answer choices, correct answer and time limit are read automatically; the set's choices stay in the card so it can be exported back.";
@@ -714,6 +1012,14 @@ class CardImportModal extends Modal {
         new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet" : this.type === "anki" ? "Anki" : this.type} file first.`);
         return;
       }
+      if (this.type === "csv") {
+        const parsed = await readCsv({ keepMapping: !!this.csvMapping, autoHeader: !this.csvMapping, quiet: true });
+        if (!parsed) return;
+        if (parsed.mapping.front < 0 || parsed.mapping.back < 0) {
+          note.setText("Choose a Front column and a Back column before importing.");
+          return;
+        }
+      }
       go.disabled = true;
       note.setText("Reading and importing…");
       try {
@@ -722,9 +1028,11 @@ class CardImportModal extends Modal {
             ? await p.importCardsFromFolder(path, { deck: deck.value, course: course.value })
             : this.type === "quizlet"
               ? await p.importCardsFromQuizlet(path, { deck: deck.value, course: course.value })
-              : QUESTION_SET_TYPES.includes(this.type)
-                ? await p.importCardsFromQuestionSet(path, this.type, { deck: deck.value, course: course.value })
-                : await p.importCardsFromAnki(path, { deck: deck.value, course: course.value });
+              : this.type === "csv"
+                ? await p.importCardsFromCsv(path, { deck: deck.value, course: course.value, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked })
+                : QUESTION_SET_TYPES.includes(this.type)
+                  ? await p.importCardsFromQuestionSet(path, this.type, { deck: deck.value, course: course.value })
+                  : await p.importCardsFromAnki(path, { deck: deck.value, course: course.value });
         const bits = [`Imported ${result.created} card${result.created === 1 ? "" : "s"}`];
         if (result.skipped) bits.push(`${result.skipped} already imported`);
         if (result.errors && result.errors.length) bits.push(`${result.errors.length} failed`);
@@ -819,6 +1127,13 @@ class CardExportModal extends Modal {
 module.exports = {
   IMPORT_TYPES,
   QUESTION_SET_TYPES,
+  GENERIC_FIELDS,
+  GENERIC_LABELS,
+  genericDelimiter,
+  detectGenericMapping,
+  normalizeGenericMapping,
+  parseGenericCsv,
+  CardImportModal,
   stripFrontmatter,
   stripCodeFences,
   htmlToMarkdown,

@@ -334,3 +334,101 @@ test("plugin: exports the filtered cards to a CSV file", async () => {
   assert.match(exported.text, /^Question,Answer 1,Answer 2,Answer 3,Answer 4,Time limit \(seconds\),Correct answer\(s\)/);
   assert.match(exported.text, /Which one\?,A,B,C,D,20,2/);
 });
+
+test("generic CSV: detects delimiter, header columns, tags and skipped rows", () => {
+  const text = [
+    "Term;Definition;Deck;Course;Tags;Notes",
+    "hola;hello;Spanish;SPAN 101;greeting,basic;A greeting",
+    ";missing;Spanish;;;",
+    "adiós;goodbye;Spanish;;;",
+  ].join("\n");
+  const result = importer.parseGenericCsv(text, { sourcePath: "Languages/spanish.csv", deck: "Fallback" });
+  assert.equal(result.delimiter, ";");
+  assert.deepEqual(result.headers.slice(0, 3), ["Term", "Definition", "Deck"]);
+  assert.equal(result.hasHeader, true);
+  assert.equal(result.mapping.front, 0);
+  assert.equal(result.mapping.back, 1);
+  assert.equal(result.cards.length, 2);
+  assert.equal(result.skipped, 1);
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.cards[0].deck, "Spanish");
+  assert.equal(result.cards[0].course, "SPAN 101");
+  assert.deepEqual(result.cards[0].tags, ["greeting", "basic"]);
+  assert.equal(result.cards[0].notes, "A greeting");
+  assert.equal(result.cards[0].importFormat, "csv");
+  assert.equal(result.preview.length, 3);
+  assert.equal(result.preview[1].front, "");
+});
+
+test("generic CSV: explicit mapping, headerless files and custom column names", () => {
+  const noHeader = importer.parseGenericCsv("hello\thola\nbye\tadiós", { hasHeader: false });
+  assert.equal(noHeader.hasHeader, false);
+  assert.equal(noHeader.cards.length, 2);
+  assert.equal(noHeader.cards[0].front, "hello");
+  assert.equal(noHeader.cards[0].back, "hola");
+
+  const custom = importer.parseGenericCsv("Definition|Term\nhello|hola", { hasHeader: true, mapping: { front: 1, back: 0 } });
+  assert.equal(custom.cards[0].front, "hola");
+  assert.equal(custom.cards[0].back, "hello");
+
+  const incomplete = importer.parseGenericCsv("First|Second\none|two", { hasHeader: true });
+  assert.equal(incomplete.cards.length, 0);
+  assert.match(incomplete.errors[0], /Choose a Front column/);
+  assert.equal(incomplete.preview.length, 1);
+});
+
+test("plugin: generic CSV previews columns, saves the mapping and writes source properties", async () => {
+  const notes = [
+    {
+      path: "imports/spanish.csv",
+      text: "Term,Definition,Deck,Course,Tags\nhola,hello,Spanish,SPAN 101,greeting\n,missing,Spanish,,\nadiós,goodbye,Spanish,,farewell\n",
+    },
+    { path: "imports/not-a-table.xlsx", text: "not a csv" },
+  ];
+  const { app, plugin } = await setup(notes);
+
+  const preview = await plugin.previewCardsCsv("imports/spanish.csv", { deck: "Fallback" });
+  assert.equal(preview.cards.length, 2);
+  assert.equal(preview.skipped, 1);
+  assert.equal(preview.mapping.deck, 2);
+  assert.deepEqual(preview.preview[0], { row: 2, front: "hola", back: "hello", deck: "Spanish", course: "SPAN 101" });
+
+  const result = await plugin.importCardsFromCsv("imports/spanish.csv", { deck: "Fallback" });
+  assert.equal(result.created, 2);
+  assert.equal(result.skippedRows, 1);
+  assert.equal(app.created.length, 2);
+  // Obsidian's metadata cache reads frontmatter from a newly created note; the
+  // fake vault needs the same step before a second import can see the keys.
+  for (const created of app.created) {
+    const file = app.files.find((f) => f.path === created.path);
+    const frontmatter = created.text.match(/^---\n([\s\S]*?)\n---/);
+    if (file && frontmatter) file.fm = obsidian.parseYaml(frontmatter[1]);
+  }
+  assert.match(app.created[0].text, /import_source: "imports\/spanish.csv"/);
+  assert.match(app.created[0].text, /import_format: "csv"/);
+  assert.match(app.created[0].text, /imported_on: "\d{4}-\d{2}-\d{2}"/);
+  assert.match(app.created[0].text, /import_batch: "import-/);
+  assert.match(app.created[0].text, /course: "SPAN 101"/);
+  assert.match(app.created[0].text, /tags:/);
+  assert.deepEqual(plugin.settings.cards.csvMappings[result.headerKey], result.mapping);
+
+  const again = await plugin.importCardsFromCsv("imports/spanish.csv", { deck: "Fallback" });
+  assert.equal(again.created, 0);
+  assert.equal(again.skipped, 2);
+  assert.equal(app.created.length, 2, "re-importing the same deck does not duplicate cards");
+  await assert.rejects(() => plugin.previewCardsCsv("imports/not-a-table.xlsx"), /Choose a \.csv/);
+});
+
+test("plugin: an explicit CSV mapping is not replaced by a saved preset", async () => {
+  const notes = [{ path: "imports/swapped.csv", text: "Definition,Term\nhello,hola\n" }];
+  const { app, plugin } = await setup(notes);
+  const result = await plugin.importCardsFromCsv("imports/swapped.csv", {
+    hasHeader: true,
+    mapping: { front: 1, back: 0 },
+    saveMapping: true,
+  });
+  assert.equal(result.created, 1);
+  assert.match(app.created[0].text, /## Front\n\nhola/);
+  const preview = await plugin.previewCardsCsv("imports/swapped.csv", { hasHeader: true });
+  assert.equal(preview.cards[0].front, "hola", "the saved mapping keeps the reversed column choice");
+});

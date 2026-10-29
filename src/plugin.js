@@ -21,7 +21,7 @@ const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = r
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
-const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
+const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseGenericCsv, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, resolveCard } = require("./cards");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
@@ -1277,6 +1277,40 @@ class QuestionTrackerPlugin extends Plugin {
     return this.importParsedCards(parsed.cards, opts);
   }
 
+  /** Read a generic CSV/TSV without writing anything, so the import dialog can preview its columns. */
+  async previewCardsCsv(path, options) {
+    const opts = options || {};
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That file is not in the vault.");
+    if (!/\.(csv|tsv|txt)$/i.test(String(file.path || ""))) {
+      throw new Error("Choose a .csv, .tsv or .txt file. Spreadsheet and PDF files are not read directly.");
+    }
+    const text = await this.app.vault.cachedRead(file);
+    const base = {
+      ...opts,
+      sourcePath: file.path,
+      deck: String(opts.deck || "").trim() || file.basename,
+    };
+    const first = parseGenericCsv(text, base);
+    const explicitMapping = opts.mapping !== undefined && opts.mapping !== null;
+    const saved = !explicitMapping && this.settings.cards.csvMappings && this.settings.cards.csvMappings[first.headerKey];
+    return saved ? parseGenericCsv(text, { ...base, mapping: saved }) : first;
+  }
+
+  /** Import a generic CSV/TSV, remembering its column mapping by header layout. */
+  async importCardsFromCsv(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    const parsed = await this.previewCardsCsv(path, opts);
+    if (opts.saveMapping !== false && parsed.headerKey && parsed.mapping.front >= 0 && parsed.mapping.back >= 0) {
+      this.settings.cards.csvMappings = this.settings.cards.csvMappings || {};
+      this.settings.cards.csvMappings[parsed.headerKey] = { ...parsed.mapping };
+      await this.save();
+    }
+    const result = await this.importParsedCards(parsed.cards, { ...opts, errors: parsed.errors });
+    return { ...result, headers: parsed.headers, mapping: parsed.mapping, headerKey: parsed.headerKey, hasHeader: parsed.hasHeader, skippedRows: parsed.skipped, delimiter: parsed.delimiter };
+  }
+
   /** Import a Kahoot, Blooket or Gimkit CSV. The source deck is the file name unless a fallback is set. */
   async importCardsFromQuestionSet(path, format, options) {
     if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
@@ -1341,6 +1375,7 @@ class QuestionTrackerPlugin extends Plugin {
   async importParsedCards(parsed, options) {
     const opts = options || {};
     const existing = new Set(this.getCards().map((card) => String(card.fm.import_key || "").trim()).filter(Boolean));
+    const importBatch = String(opts.importBatch || "").trim() || `import-${Date.now().toString(36)}`;
     let created = 0;
     let skipped = 0;
     const errors = Array.isArray(opts.errors) ? opts.errors.slice() : [];
@@ -1354,6 +1389,8 @@ class QuestionTrackerPlugin extends Plugin {
           ...card,
           deck: card.deck || String(opts.deck || "").trim(),
           course: String(opts.course || "").trim() || card.course || "",
+          importBatch: card.importBatch || importBatch,
+          importSourceUrl: card.importSourceUrl || opts.importSourceUrl || "",
         });
         if (card.importKey) existing.add(card.importKey);
         created++;

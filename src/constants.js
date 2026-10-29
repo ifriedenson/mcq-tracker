@@ -82,6 +82,7 @@ const DEFAULT_SETTINGS = {
     gradingStrictness: "standard", // "strict" | "standard" | "lenient"
     aiGrading: false, // optional AI second opinion when the local typed-answer grader is unsure
     decks: [], // [{ name, folder, course, answerMode, gradingStrictness }]
+    csvMappings: {}, // header-signature -> column mapping remembered by the generic CSV importer
   },
 };
 

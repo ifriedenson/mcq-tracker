@@ -59,6 +59,7 @@ function mergeCardSettings(saved, defaults) {
       gradingStrictness: "standard",
       aiGrading: false,
       decks: [],
+      csvMappings: {},
     },
     defaults || {}
   );
@@ -73,6 +74,7 @@ function mergeCardSettings(saved, defaults) {
   out.gradingStrictness = normalizeStrictness(src.gradingStrictness === undefined ? base.gradingStrictness : src.gradingStrictness, "standard");
   out.aiGrading = src.aiGrading === true;
   out.decks = normalizeDecks(src.decks === undefined ? base.decks : src.decks);
+  out.csvMappings = src.csvMappings && typeof src.csvMappings === "object" && !Array.isArray(src.csvMappings) ? { ...src.csvMappings } : {};
   return out;
 }
 
@@ -305,6 +307,10 @@ function cardNote(input, now) {
   ];
   if (course) lines.push(`course: ${yamlString(course)}`);
   if (data.importSource) lines.push(`import_source: ${yamlString(data.importSource)}`);
+  if (data.importFormat) lines.push(`import_format: ${yamlString(data.importFormat)}`);
+  if (data.importedOn) lines.push(`imported_on: ${yamlString(data.importedOn)}`);
+  if (data.importBatch) lines.push(`import_batch: ${yamlString(data.importBatch)}`);
+  if (data.importSourceUrl) lines.push(`import_source_url: ${yamlString(data.importSourceUrl)}`);
   if (data.importKey) lines.push(`import_key: ${yamlString(data.importKey)}`);
   if (data.questionSet) lines.push(`question_set: ${yamlString(data.questionSet)}`);
   const choices = Array.isArray(data.choices) ? data.choices : [];
