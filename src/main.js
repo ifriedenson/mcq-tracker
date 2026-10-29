@@ -25,6 +25,7 @@ const aiContext = require("./ai-context");
 const aiService = require("./ai-service");
 const aiTools = require("./ai-tools");
 const mathRendering = require("./math-rendering");
+const smiles = require("./smiles");
 const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
 const cardWriteDiff = require("./card-write-diff");
@@ -156,6 +157,7 @@ QuestionTrackerPlugin.__test = {
   aiService,
   aiTools,
   mathRendering,
+  smiles,
   renderMarkdownInto,
   loadQuestionData,
   noteContext,

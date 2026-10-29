@@ -13,6 +13,7 @@ const {
 } = require("./reference-data");
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
 const { buildPlot } = require("./reference-graph");
+const { renderSmilesSvg } = require("./smiles");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -33,7 +34,7 @@ class ReferenceView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
-    this.tab = "formulas"; // formulas | units | calculator | graph | elements | constants | ap | resources
+    this.tab = "formulas"; // formulas | structures | units | calculator | graph | elements | constants | ap | resources
     this.subject = (plugin.settings.reference && plugin.settings.reference.defaultSubject) || "all";
     this.query = "";
     this.constantQuery = "";
@@ -43,6 +44,7 @@ class ReferenceView extends ItemView {
     this.toUnit = defaults[1];
     this.amount = "1";
     this.formulaListEl = null;
+    this.smilesInput = "c1ccccc1";
     this.constantListEl = null;
     this.unitResultEl = null;
     this.graphExpression = "sin(x)";
@@ -116,6 +118,7 @@ class ReferenceView extends ItemView {
     const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-ref-tabs" });
     for (const [id, label] of [
       ["formulas", "Formulas"],
+      ["structures", "Structures"],
       ["units", "Unit converter"],
       ["calculator", "Calculator"],
       ["graph", "Graph"],
@@ -132,7 +135,8 @@ class ReferenceView extends ItemView {
       });
     }
 
-    if (this.tab === "units") this.renderUnits(root);
+    if (this.tab === "structures") this.renderStructures(root);
+    else if (this.tab === "units") this.renderUnits(root);
     else if (this.tab === "calculator") this.renderCalculator(root);
     else if (this.tab === "graph") this.renderGraph(root);
     else if (this.tab === "elements") this.renderPeriodic(root);
@@ -407,6 +411,46 @@ class ReferenceView extends ItemView {
         ? `Period ${element.period}, ${categoryLabel(element.category)}, f-block.`
         : `Period ${element.period}, group ${element.group}, ${element.block}-block.`;
     detail.createDiv({ cls: "qt-ref-note", text: placement });
+  }
+
+  renderStructures(root) {
+    root.createEl("h3", { text: "Chemical structures" });
+    root.createDiv({
+      cls: "qt-hint",
+      text: "Paste a SMILES string to draw it locally. You can also put a smiles code block in any note. No structure data or drawing service is contacted.",
+    });
+    const input = root.createEl("input", {
+      cls: "qt-ref-search",
+      attr: { type: "text", placeholder: "SMILES (for example: c1ccccc1, CCO, CC(=O)O)" },
+    });
+    input.value = this.smilesInput;
+    const preview = root.createDiv({ cls: "qt-ref-smiles" });
+    const error = root.createDiv({ cls: "qt-smiles-error" });
+    const draw = () => {
+      this.smilesInput = input.value.trim();
+      preview.empty();
+      error.setText("");
+      if (!this.smilesInput) return;
+      const result = renderSmilesSvg(this.smilesInput);
+      if (!result.ok) {
+        error.setText(result.error);
+        return;
+      }
+      preview.innerHTML = result.svg;
+    };
+    input.addEventListener("input", draw);
+    const examples = root.createDiv({ cls: "qt-row qt-small-row qt-ref-subjects" });
+    for (const example of ["c1ccccc1", "CCO", "CC(=O)O", "C1CCCCC1", "[NH4+].[Cl-]"]) {
+      examples.createEl("button", { text: example, cls: "qt-ref-subject" }).addEventListener("click", () => {
+        input.value = example;
+        draw();
+      });
+    }
+    draw();
+    root.createEl("p", {
+      cls: "qt-ref-note",
+      text: "Supported: common organic atoms, bracket atoms with charge and hydrogen counts, single/double/triple/aromatic bonds, branches, ring labels and disconnected fragments. Unsupported SMILES shows an error rather than a guessed structure.",
+    });
   }
 
   renderFormulas(root) {

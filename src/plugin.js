@@ -30,6 +30,7 @@ const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
 const { computedVerification } = require("./computed-verification");
+const { renderSmilesSvg } = require("./smiles");
 const { allowedWriteRoots, assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
 const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
@@ -353,6 +354,15 @@ class QuestionTrackerPlugin extends Plugin {
     }
     this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.registerMarkdownCodeBlockProcessor("mcq-dashboard", (source, el) => this.renderDashboardBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("smiles", (source, el) => {
+      const result = renderSmilesSvg(source);
+      if (!result.ok) {
+        el.createDiv({ cls: "qt-smiles-error", text: `SMILES: ${result.error}` });
+        return;
+      }
+      const box = el.createDiv({ cls: "qt-smiles" });
+      box.innerHTML = result.svg;
+    });
     this.addCommand({ id: "weak-spots", name: "Show weak spots", callback: () => this.activateInsights("weak") });
     this.addCommand({ id: "error-log", name: "Show error log", callback: () => this.activateInsights("errors") });
     this.addCommand({ id: "find-question", name: "Find a question by ID", callback: () => new FindQuestionModal(this.app, this).open() });

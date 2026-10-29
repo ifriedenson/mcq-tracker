@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — 1.90.0 adds the allow-listed Direct AI agent and a sample vault, after 1.89.0 closed the Adaptive Practice parity gaps; 1.88.0 shipped bulk calculation preview with selective apply and 1.87.0 added agent-edit review; earlier import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.53.0 phase adds visual text boxes on top of 1.52.0's pen/highlighter overlay; form filling and a fuller PDF editor remain open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — 1.91.0 adds local SMILES structure rendering, after 1.90.0 added the allow-listed Direct AI agent and a sample vault and 1.89.0 closed the Adaptive Practice parity gaps; 1.88.0 shipped bulk calculation preview with selective apply and 1.87.0 added agent-edit review; earlier import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.53.0 phase adds visual text boxes on top of 1.52.0's pen/highlighter overlay; form filling and a fuller PDF editor remain open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), the October 28 idea backlog (§5.22), and the Adaptive Practice parity audit (§5.23, Oct 29, 2026). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -26,27 +26,28 @@
 
 **Recently completed (1.78.0):** timed tests now capture confidence per answer and report calibration and average time per answered question alongside the section and skill breakdowns. Previous release 1.77.0 added sections, separate timers and saved blueprints; 1.76.1 published the versioned property schema; 1.76.0 added merge-safe history.
 
-**Latest completed (1.90.0):** Direct AI agent mode now proposes only allow-listed actions (create a question, create a card, replace one safe body section), shows them for review, and writes nothing until checked. A small original sample vault and setup guide ship under `samples/`. 1.89.0 closed the Adaptive Practice parity gaps; 1.88.0 added selective bulk calculation verification.
+**Latest completed (1.91.0):** chemistry notes can render SMILES structures locally in a `smiles` code block or the Reference Structures tab, with a documented teaching subset and clear errors. 1.90.0 added the allow-listed Direct AI agent and a sample vault; 1.89.0 closed the Adaptive Practice parity gaps; 1.88.0 added selective bulk calculation verification.
 
 **Plan audit (Oct 29, 2026).** This is the evidence-based status pass over the whole document. A checked item is present in the code and covered by a test or a documented manual gate; a partial item has a working slice but a named gap.
 
 | Area | Actual status | Evidence / remaining gap |
 |---|---|---|
-| Reference panel (formula sheet, constants, units, calculator, graph, periodic table) | **Done** | Data audited against the 2025 AP Chemistry sheet and 2020 AP table; 574-test suite passes. |
+| Reference panel (formulas, constants, units, calculator, graph, periodic table) | **Done** | Data audited against the 2025 AP Chemistry sheet and 2020 AP table; tests cover search, conversion, plotting and the element table. |
 | Generate practice from any note (P1 §5.23) | **Done** | `AI: generate practice from this note`; preview shows source, destination, count and difficulty; blind check and AI undo reused. |
 | Per-note subtopic memory (P2 §5.23) | **Done** | AI output writes `subtopic` per question and `generated_subtopics` on the source note; later prompts avoid covered subtopics. |
-| Logged **Don't know** signal (P2 §5.23) | **Done** | Practice writes a `skipped` history row, `skip_count` and an earlier next review without touching accuracy or streak. Insights now shows the overall count, per-skill skip rate and a dedicated Logged skips section; the plain Skip still records nothing. |
+| Logged **Don't know** signal (P2 §5.23) | **Done** | Practice writes a `skipped` history row, `skip_count` and an earlier next review without touching accuracy or streak. Insights shows the overall count, per-skill skip rate and a dedicated Logged skips section; the plain Skip still records nothing. |
 | Adaptive session sizing (P2 §5.23) | **Done** | Optional warm-up/stretch planner reads recent accuracy, pace and logged skips. Quick Practice shows the recommendation and can override it per session; the daily quiz uses the same signal. Hard minute/count caps are configurable and off by default. |
-| Optional local daily reminder (P3 §5.23) | **Done** |
+| Optional local daily reminder (P3 §5.23) | **Done** | Off by default; a local Today card and status-bar nudge appear once a day after a chosen hour and can be dismissed until tomorrow. No OS notification, network request or telemetry. |
 | Direct AI agent with allow-listed tools (§5.18) | **Done** | `create_question`, `create_card` and one safe `update_section` proposal; review window, existing write roots and protected properties enforced. |
- Off by default; a local Today card and status-bar nudge appear once a day after a chosen hour and can be dismissed until tomorrow. No OS notification, network request or telemetry. |
+| SMILES structure rendering (§5.16.2) | **Done in 1.91.0** | Local, original SVG renderer for a documented teaching subset; `smiles` code blocks in notes and a Structures tab in Reference. Invalid syntax reports an error rather than guessing. |
 | AP FRQ grader | **Partial — specification only** | `docs/ap-frq-grader-spec.md` exists; implementation is correctly blocked by the four-course pilot and rights gate. |
 | Math/chemistry rendering audit | **Blocked — manual gate** | Renderer and golden tests are done; the remaining visual pass needs a real Obsidian window and cannot be completed in this cloud environment. |
 | Mobile audit | **Blocked** | No real iOS/Android device is available in this environment. |
 | TTS / audio commute | **Deferred** | Provider and mobile validation still missing. |
-| SMILES integration | **Open** | Formula sheets now ship; structure rendering does not. |
-| PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; form fields do not. |
-| README, screenshots, sample vault, license confirmation | **Partial — screenshots blocked** | README, NOTICES and docs exist; `samples/sample-vault` now provides an original four-question, one-card walkthrough. Screenshots still need a real Obsidian window, so they remain a documented manual gate. |
+| PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; true AcroForm filling needs an audited MIT PDF library and is not safe to approximate. |
+| README, screenshots, sample vault, license confirmation | **Partial — screenshots blocked** | README, NOTICES, `docs/license-audit.md` and `samples/sample-vault` exist. Screenshots still need a real Obsidian window. |
+
+**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.91.0. The items that remain `[~]` are explicitly gated: AP FRQ needs owner pilot/rights approval; the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation. The duplicate roadmap later in this file is historical and does not override this table.
 
 **Adaptive Practice parity audit (Oct 29, 2026):** compared with Adaptive Practice 0.7.2. MCQ Tracker already has the broader study system; the meaningful gaps are generation from any note, per-note subtopic memory, a logged skip/fluency signal, adaptive session size and an optional local reminder. The Whetstone engine (AGPL) and the persistent vault index are non-goals. Full matrix and acceptance criteria: §5.23.
 
@@ -606,6 +607,8 @@ Build on the existing timed test.
 - Support `smiles` code blocks in stimuli and choices when the Chem plugin is installed. Show a clear message when it is not (and which plugin provides it).
 - Longer term, consider a built-in renderer only if integration proves unreliable.
 - Allow answer choices that are structures (like FSRS Vocabulary's image/media question columns for the analogous pattern).
+
+**Shipped in 1.91.0:** an original, local SMILES renderer (`src/smiles.js`) draws a documented teaching subset as SVG. `smiles` code blocks work in any Markdown surface because they use Obsidian's code-block processor, and Reference has a Structures tab with examples. Supported syntax: common organic atoms, bracket atoms with charge and hydrogen counts, single/double/triple/aromatic bonds, branches, ring-closure digits, `%nn` labels and disconnected fragments. Unsupported syntax returns a clear error; nothing is copied from Chem, RDKit, Ketcher or another GPL/AGPL project. The remaining visual check is the same real-Obsidian gate as §5.16.1.
 
 **5.16.3 Numeric answer grading (extend SPR)**
 - **Tolerance:** absolute and relative, per question (`tolerance`, `tolerance_type`).
@@ -1219,9 +1222,9 @@ Names are proposals; keep existing ones unchanged.
 - [x] Item-type model (§4.2)
 - [x] Append-only `history` with unique attempt ids, duplicate-safe retries, a merge helper and phone/desktop conflict tests (§5.19) — shipped in 1.76.0; the repair command also rebuilds counters and streak, while scheduling is left unchanged
 - [x] Test suite, CI, and quality gates for agent-written code (§8.5)
-- [~] **Partial** Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests and chemistry fallback shipped in 1.80.0; the visual Obsidian check remains
+- [~] **Blocked — manual gate** Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests and chemistry fallback shipped in 1.80.0; the visual Obsidian check needs a real window
 - [~] **Blocked** Mobile audit on real iOS and Android devices (§5.19) — no real device available here
-- [~] **Partial** Confirm licenses of anything to be reused (§9) — NOTICES and MIT-only guardrails exist; each future candidate still needs a repo-level check
+- [x] Confirm licenses of anything currently bundled (§9) — audited in NOTICES and `docs/license-audit.md`; every future candidate still needs a repo-level check before use
 - [~] **Partial** README, screenshots, and sample vault refresh (§10b) — README, docs and the `samples/sample-vault` walkthrough are done; screenshots remain a real-Obsidian manual gate
 
 ### Phase 1: Quick Practice and smarter scheduling
@@ -1311,7 +1314,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
 - [x] Imported PDF figures and normal Obsidian embeds display in practice, timed tests and reviews (§5.16.7) — shipped in 1.84.0
 - [x] Local Basic/Scientific calculator in Reference, with a timed-test guard (§5.16.8) — shipped in 1.85.0
-- [~] **Partial** Math, chemistry, and physics: formula sheets ship; SMILES integration remains (§5.16)
+- [x] Math, chemistry, and physics: formula sheets, local SMILES structures, numeric grading and parameterized questions ship (§5.16) — SMILES rendering shipped in 1.91.0
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
 ### Phase 6: Plans, time, and dashboard
@@ -1798,6 +1801,8 @@ Your plugin is already in the official community directory with 42 downloads. Th
     Every time you push a major module update (e.g., adding AI-graded typed cards or calendar sync), Obsidian lists your update in the changelog.
 
     Treat every release note as a mini-marketing moment: clearly articulate what new superpower you just added to the plugin.
+> **HISTORICAL DRAFT — superseded.** This second copy of the plan is kept for provenance only. Its checkboxes and status notes are frozen as of the original draft and must not be read as current. The canonical audit table and shipped version status are at the top of this file; when the two differ, the top wins.
+
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
 > **Status note:** this is an earlier duplicate of the plan. The audit table and §7 above are canonical; stale checkboxes here are retained only as history.
@@ -2414,6 +2419,8 @@ Build on the existing timed test.
 - Longer term, consider a built-in renderer only if integration proves unreliable.
 - Allow answer choices that are structures (like FSRS Vocabulary's image/media question columns for the analogous pattern).
 
+**Shipped in 1.91.0:** an original, local SMILES renderer (`src/smiles.js`) draws a documented teaching subset as SVG. `smiles` code blocks work in any Markdown surface because they use Obsidian's code-block processor, and Reference has a Structures tab with examples. Supported syntax: common organic atoms, bracket atoms with charge and hydrogen counts, single/double/triple/aromatic bonds, branches, ring-closure digits, `%nn` labels and disconnected fragments. Unsupported syntax returns a clear error; nothing is copied from Chem, RDKit, Ketcher or another GPL/AGPL project. The remaining visual check is the same real-Obsidian gate as §5.16.1.
+
 **5.16.3 Numeric answer grading (extend SPR)**
 - **Tolerance:** absolute and relative, per question (`tolerance`, `tolerance_type`).
 - **Significant figures:** optionally require or check them.
@@ -2663,10 +2670,10 @@ Names are proposals; keep existing ones unchanged.
 - [x] Item-type model (§4.2)
 - [x] Append-only `history` with unique attempt ids, duplicate-safe retries, a merge helper and phone/desktop conflict tests (§5.19) — shipped in 1.76.0; the repair command also rebuilds counters and streak, while scheduling is left unchanged
 - [x] Test suite, CI, and quality gates for agent-written code (§8.5)
-- [~] **Partial** Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests and chemistry fallback shipped in 1.80.0; the visual Obsidian check remains
+- [~] **Blocked — manual gate** Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests and chemistry fallback shipped in 1.80.0; the visual Obsidian check needs a real window
 - [~] **Blocked** Mobile audit on real iOS and Android devices (§5.19) — no real device available here
-- [~] **Partial** Confirm licenses of anything to be reused (§9) — NOTICES and MIT-only guardrails exist; each future candidate still needs a repo-level check
-- [~] **Partial** README, screenshots, and sample vault refresh (§10b) — README and docs exist; screenshots and sample vault remain
+- [x] Confirm licenses of anything currently bundled (§9) — audited in NOTICES and `docs/license-audit.md`; every future candidate still needs a repo-level check before use
+- [~] **Partial** README, screenshots, and sample vault refresh (§10b) — README, docs and the `samples/sample-vault` walkthrough are done; screenshots remain a real-Obsidian manual gate
 
 ### Phase 1: Quick Practice and smarter scheduling
 
@@ -2709,7 +2716,7 @@ Names are proposals; keep existing ones unchanged.
   - [x] Preview-first weak-spot generation for questions and cards, with no note text sent and undo through the AI write journal (§5.3) — shipped in 1.69.0
 - [ ] Blind verification pass for generated and imported answers (§5.4)
 - [ ] Weak-spot-targeted generation
-- [~] **Partial** Agent mode via OpenCode (desktop) and allow-listed tools for BYOK — OpenCode agent and edit review exist; BYOK tool allow-list remains
+- [x] Agent mode via OpenCode (desktop) and allow-listed tools for BYOK — shipped in 1.90.0
 
 ### Phase 5: FRQ and STEM
 
@@ -2719,7 +2726,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
 - [x] Imported PDF figures and normal Obsidian embeds display in practice, timed tests and reviews (§5.16.7) — shipped in 1.84.0
 - [x] Local Basic/Scientific calculator in Reference, with a timed-test guard (§5.16.8) — shipped in 1.85.0
-- [~] **Partial** Math, chemistry, and physics: formula sheets ship; SMILES integration remains (§5.16)
+- [x] Math, chemistry, and physics: formula sheets, local SMILES structures, numeric grading and parameterized questions ship (§5.16) — SMILES rendering shipped in 1.91.0
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
 ### Phase 6: Plans, time, and dashboard

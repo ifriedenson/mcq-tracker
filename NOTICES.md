@@ -129,12 +129,17 @@ included; no AP PDF pages, questions, rubrics or other AP material are bundled. 
 trademark of the College Board; this plugin is not affiliated with or endorsed by the College
 Board.
 
-## Math and chemistry fallback
+## Math, chemistry and SMILES fallback
 
-`src/math-rendering.js` is original code written for this plugin. It rewrites a small, conservative subset of `\ce{...}` notation into ordinary MathJax at display time. No MathJax, mhchem, KaTeX or other renderer code is bundled, and complex chemistry is left for the user's mhchem setup.
+`src/math-rendering.js` and `src/smiles.js` are original code written for this plugin. The SMILES renderer implements a documented teaching subset and draws it as local SVG; no Chem, RDKit, Ketcher or other structure-rendering library is bundled. Complex or unsupported SMILES is rejected rather than approximated. It rewrites a small, conservative subset of `\ce{...}` notation into ordinary MathJax at display time. No MathJax, mhchem, KaTeX or other renderer code is bundled, and complex chemistry is left for the user's mhchem setup.
 
 ## Not absorbed (yet)
 
 The product plan also names LearnKit as a future absorb source. It has **not** been copied
 into this repository. Its license, dependencies and architecture still need the audit
 described in the plan before any code is reused.
+
+
+## Shipped dependency audit
+
+See [docs/license-audit.md](docs/license-audit.md) for the current inventory of bundled code, the packages with zero runtime dependencies, and the rule that every future reuse must be checked at its repository and recorded here before it is copied.

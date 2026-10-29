@@ -4856,3 +4856,28 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Local SMILES structures */
+.qt-smiles,
+.qt-ref-smiles {
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.qt-smiles-svg {
+  color: var(--text-normal);
+  height: auto;
+  max-width: 100%;
+}
+
+.qt-smiles-error {
+  color: var(--text-error);
+  font-size: 0.82rem;
+  margin-top: 8px;
+}
