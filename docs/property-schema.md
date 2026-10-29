@@ -9,6 +9,10 @@ This page documents the fields the plugin reads and writes. It is a description 
 current format, not a promise that every field exists on every note: use Dataview's
 `row.property` or `row["property with spaces"]` with a fallback when a field is optional.
 
+**Schema version 1.** This is the public data contract for question and card notes.
+Changes are additive: existing property names and meanings stay stable. A change that
+would break a reader ships with a migration and a new schema version.
+
 ## Question notes
 
 | Property | Type | Meaning |
@@ -52,12 +56,13 @@ greater than `attempts`, and `accuracy` is derived rather than stored.
 `history` entries use:
 
 ```text
-2026-10-29T14:05:00|correct|42|B|3|careless
-timestamp|result|seconds|answer|confidence|error
+2026-10-29T14:05:00|correct|42|B|3|careless|a-mh3k2-8f1c2a
+timestamp|result|seconds|answer|confidence|error|attempt_id
 ```
 
-Fields after the timestamp may be empty. Older notes can have a `|`-separated history
-written by an earlier version; the reader accepts both.
+Fields after the timestamp may be empty. Rows written before 1.76.0 omit the final
+attempt id; the reader accepts both forms, and new rows always carry an id. The id makes
+a retry or a phone/desktop merge safe: the same row is never counted twice.
 
 ### Study status
 
@@ -176,9 +181,9 @@ need a row per attempt:
 ```dataviewjs
 for (const page of dv.pages('"Questions"').where(p => p.history)) {
   for (const entry of page.history) {
-    const [when, result, seconds, answer, confidence, error] = String(entry).split("|");
-    dv.table(["Question", "When", "Result", "Seconds", "Answer", "Confidence", "Error"],
-      [[page.file.link, when, result, seconds, answer, confidence, error]]);
+    const [when, result, seconds, answer, confidence, error, attemptId] = String(entry).split("|");
+    dv.table(["Question", "When", "Result", "Seconds", "Answer", "Confidence", "Error", "Attempt"],
+      [[page.file.link, when, result, seconds, answer, confidence, error, attemptId]]);
   }
 }
 ```
@@ -191,6 +196,27 @@ above, so a spreadsheet or notebook can join the export back to the notes by
 `question_id` or `card_id`. CSV writing quotes separators and neutralises cells that begin
 with a spreadsheet formula marker; the note properties themselves are never modified.
 
+## Data contract
+
+- **Identity.** A question has `question_id`; a card or vocabulary item has `card_id`.
+  These IDs are stable and are what exports and other plugins should join on. Source IDs
+  such as `official_question_id` are separate and never replace the plugin's ID.
+- **Dates.** `next_review` is `YYYY-MM-DD`. `date attempted` and `first_attempted` are
+  local wall-clock timestamps to the minute. New `history` rows use local wall-clock
+  timestamps to the second. None of these values carries a timezone suffix.
+- **History is append-only.** Each review adds one row and new rows carry a unique
+  `attempt_id`. Readers must not rewrite, sort or deduplicate the list by timestamp;
+  two devices can review the same note in the same minute.
+- **Derived fields.** `attempts`, `correct_count`, `time_spent_total`, `streak`, `result`
+  and the `last_*` fields are derived from the review history. The repair command can
+  rebuild them after a sync merge; `next_review` and the scheduler state are not changed
+  by that repair.
+- **Optional fields.** A missing property means "not set", not zero or false. Use a
+  fallback in Dataview queries. The tracking block is created with defaults, but older
+  notes can predate any later field.
+- **Compatibility.** New properties may appear in a later release. Existing properties
+  are not renamed or repurposed without a migration. Unknown properties are left alone.
+
 ## Compatibility notes
 
 - Fields are case-sensitive. The plugin writes lower-case names such as `question_id`,
@@ -200,5 +226,5 @@ with a spreadsheet formula marker; the note properties themselves are never modi
 - `correct_choices` is one-based, matching the displayed `choice_1` … `choice_8` order.
 - Dataview's `date()` accepts the ISO `YYYY-MM-DD` form used by `next_review`; older notes
   with an empty date are simply excluded by a `next_review` filter.
-- This schema is shared by questions and cards. A future field will be additive; existing
-  fields will not be renamed without a migration.
+- This schema is shared by questions and cards. New fields are additive; existing fields
+  will not be renamed without a migration. See **Schema version 1** above.
