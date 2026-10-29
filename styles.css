@@ -2116,6 +2116,45 @@
   white-space: nowrap;
 }
 
+.qt-scan-controls {
+  flex-wrap: wrap;
+}
+
+.qt-scan-controls button {
+  min-height: 32px;
+  padding: 2px 8px;
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-scan-crop {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.qt-scan-crop-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.qt-scan-crop-img {
+  display: block;
+  max-width: 100%;
+  max-height: 52vh;
+}
+
+.qt-scan-crop-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--interactive-accent);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
 .qt-imp-list {
   max-height: 46vh;
   overflow-y: auto;

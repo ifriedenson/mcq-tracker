@@ -39,6 +39,26 @@ test("paper scanner: builds one PDF page per photo with a valid xref and trailer
   assert.match(text.slice(start), /^xref\n0 9\n0000000000 65535 f \n/);
 });
 
+test("paper scanner: crop and rotation are normalized before drawing", () => {
+  assert.equal(scanner.normalizeRotation(450), 90);
+  assert.equal(scanner.normalizeRotation(-90), 270);
+  assert.deepEqual(scanner.normalizeCrop({ x: -1, y: 2, w: 3, h: 0 }), { x: 0, y: 0.99, w: 1, h: 0.01 });
+});
+
+test("paper scanner: crop is measured before rotation and the output is size-capped", () => {
+  const portrait = scanner.scanGeometry(100, 50, { x: 0.2, y: 0.1, w: 0.5, h: 0.8 }, 90, 2400);
+  assert.equal(portrait.sourceX, 20);
+  assert.equal(portrait.sourceY, 5);
+  assert.equal(portrait.sourceWidth, 50);
+  assert.equal(portrait.sourceHeight, 40);
+  assert.equal(portrait.width, 40);
+  assert.equal(portrait.height, 50);
+  const small = scanner.scanGeometry(100, 50, scanner.FULL_CROP, 0, 10);
+  assert.equal(small.width, 10);
+  assert.equal(small.height, 5);
+  assert.equal(small.scale, 0.1);
+});
+
 test("paper scanner: refuses an empty scan and chooses a non-colliding vault path", () => {
   assert.throws(() => scanner.buildPdfFromJpegs([]), /at least one photo/);
   const taken = new Set(["Paper scans/Scan 2026-10-29.pdf", "Paper scans/Scan 2026-10-29 2.pdf"]);
