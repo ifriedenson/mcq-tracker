@@ -1,7 +1,7 @@
 "use strict";
 const { Modal, Notice } = require("obsidian");
 const { renderMarkdownInto } = require("./view-helpers");
-const { FRQ_COURSES, courseById, compareFrqPasses, parseRubric, presetFor, presetsForCourse, scoreAttempt } = require("./frq");
+const { FRQ_COURSES, courseById, compareFrqPasses, parseRubric, presetFor, presetsForCourse, rubricCategoryLabel, scoreAttempt } = require("./frq");
 const { str } = require("./util");
 
 function presetText(courseId, kind) {
@@ -180,10 +180,16 @@ class FrqGraderModal extends Modal {
     area.value = this.answer;
     area.addEventListener("input", () => {
       this.answer = area.value;
+      this.paintMathPreview();
     });
+    const preview = root.createEl("details", { cls: "qt-frq-math-preview" });
+    preview.open = /\$|\\ce\{/.test(this.answer);
+    preview.createEl("summary", { text: "Math preview" });
+    this.previewEl = preview.createDiv({ cls: "qt-frq-math-preview-body" });
+    this.paintMathPreview();
     root.createDiv({
       cls: "qt-hint",
-      text: "Photo-of-handwriting grading is not part of this release. Type the answer, or dictate it with your operating system.",
+      text: "Math preview updates as you type: use $...$, $$...$$ or \\ce{...}. Photo-of-handwriting grading is not part of this release; type the answer or dictate it with your operating system.",
     });
 
     root.createEl("h4", { text: "Rubric" });
@@ -196,6 +202,9 @@ class FrqGraderModal extends Modal {
       const row = table.createDiv({ cls: "qt-frq-criterion" });
       const text = row.createDiv({ cls: "qt-frq-criterion-text" });
       text.createEl("strong", { text: criterion.label });
+      if (criterion.category && criterion.category !== "other") {
+        text.createSpan({ cls: "qt-frq-category", text: rubricCategoryLabel(criterion.category) });
+      }
       text.createDiv({ cls: "qt-hint", text: criterion.description || "No description." });
       const score = row.createEl("input", {
         type: "number",
@@ -276,6 +285,16 @@ class FrqGraderModal extends Modal {
     }
   }
 
+  paintMathPreview() {
+    if (!this.previewEl) return;
+    this.previewEl.empty();
+    if (!str(this.answer).trim()) {
+      this.previewEl.createDiv({ cls: "qt-hint", text: "Type $...$ or \\ce{...} to preview math here." });
+      return;
+    }
+    renderMarkdownInto(this.app, this.answer, this.previewEl, this.note && this.note.path, this);
+  }
+
   renderResult(el, result) {
     if (!el) return;
     el.empty();
@@ -292,7 +311,10 @@ class FrqGraderModal extends Modal {
     const list = el.createDiv({ cls: "qt-frq-result-list" });
     for (const criterion of result.criteria) {
       const row = list.createDiv({ cls: "qt-frq-result-row" });
-      row.createSpan({ cls: "qt-frq-result-label", text: criterion.label });
+      const label = criterion.category && criterion.category !== "other"
+        ? `${criterion.label} · ${rubricCategoryLabel(criterion.category)}`
+        : criterion.label;
+      row.createSpan({ cls: "qt-frq-result-label", text: label });
       row.createSpan({ cls: "qt-frq-result-points", text: `${criterion.awarded} / ${criterion.max}` });
       if (criterion.evidence) row.createDiv({ cls: "qt-hint", text: `“${criterion.evidence}”` });
       if (criterion.comment) row.createDiv({ cls: "qt-hint", text: criterion.comment });

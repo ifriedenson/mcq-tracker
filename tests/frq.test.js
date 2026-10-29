@@ -315,6 +315,8 @@ test("FRQ: the grader and creator modals draw their main controls", async () => 
   assert.ok(dom.texts().includes("AI grade"));
   assert.ok(dom.texts().includes("Save attempt"));
   assert.ok(dom.texts().some((text) => text.includes("7 rubric points")));
+  assert.ok(dom.texts().includes("Math preview"));
+  assert.ok(dom.texts().some((text) => text.includes("Type $...$")));
 
   const creator = new T.NewFrqNoteModal({ app }, plugin);
   const creatorDom = makeDom();
@@ -404,4 +406,26 @@ test("FRQ: the grader can start with a response typed in a timed test", async ()
   await modal.load();
   assert.equal(modal.note.path, created.path);
   assert.equal(modal.answer, "Typed during the timed test.");
+});
+
+test("FRQ: rubric categories can be explicit, inferred and round-tripped", () => {
+  const parsed = frq.parseRubric("- [1] [thesis] Claim: states a defensible claim.\n- [2] Evidence: uses the documents.");
+  assert.equal(parsed.criteria[0].category, "thesis");
+  assert.equal(parsed.criteria[1].category, "evidence");
+
+  const built = frq.buildFrqNote({
+    courseId: "ap-chemistry",
+    kind: "short",
+    title: "Category round trip",
+    prompt: "Explain the result.",
+    rubric: parsed.criteria,
+  });
+  assert.match(built.text, /\[thesis\]/);
+  const read = frq.parseFrqNote(built.text, built.frontmatter, built.path);
+  assert.equal(read.rubric[0].category, "thesis");
+  assert.equal(read.rubric[1].category, "evidence");
+  const scored = frq.scoreAttempt({ rubric: read.rubric, scores: { claim: 1, evidence: 2 }, gradedBy: "self" });
+  assert.equal(scored.criteria[0].category, "thesis");
+  assert.equal(frq.rubricCategoryLabel("calculation"), "Calculation");
+  assert.equal(frq.presetFor("ap-chemistry", "short").criteria[1].category, "calculation");
 });

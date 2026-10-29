@@ -250,7 +250,10 @@ function courseFinalWeight(settings, course) {
 
 function courseCredits(settings, course) {
   const cfg = courseConfig(settings, course);
-  return cfg && Number.isFinite(cfg.credits) ? cfg.credits : 3;
+  if (cfg && Number.isFinite(cfg.credits)) return cfg.credits;
+  const key = str(course).trim().toLowerCase();
+  const registered = settings && settings.registryCredits ? settings.registryCredits[key] : undefined;
+  return Number.isFinite(registered) ? registered : 3;
 }
 
 function letterForPercent(percent) {

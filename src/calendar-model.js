@@ -84,6 +84,7 @@ const DEFAULT_CALENDAR_SETTINGS = {
   excludedSubjects: [],
   excludedKeywords: [],
   subjectFolders: {},
+  courses: [], // { id, name, code, folder, color, semester, instructor, credits }
   classColors: {},
   subjectColors: {},
   classNames: {},
@@ -105,6 +106,71 @@ const WEEKDAYS = { monday: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], su
 const str = (v) => (v === undefined || v === null ? "" : String(v));
 const subjectKey = (s) => str(s).trim().toLowerCase().replace(/\s+/g, " ");
 const normalizeFolder = (p) => str(p).trim().replace(/^\/+|\/+$/g, "");
+const COURSE_COLOR_RE = /^#[0-9a-f]{6}$/i;
+
+/**
+ * The course registry: one row per course the learner wants to keep. Names,
+ * codes and folders stay readable, and credits are reused by Assignments when
+ * that course has no explicit assignment credit setting.
+ */
+function normalizeCourseRegistry(value) {
+  const out = [];
+  const ids = new Set();
+  for (const raw of Array.isArray(value) ? value : []) {
+    const name = str(raw && raw.name).trim();
+    const code = str(raw && raw.code).trim();
+    if (!name && !code) continue;
+    const base = (code || name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "course";
+    let id = str(raw.id).trim() || base;
+    let suffix = 2;
+    while (ids.has(id)) id = `${base}-${suffix++}`;
+    ids.add(id);
+    const credits = Math.round(Number(raw.credits));
+    out.push({
+      id,
+      name: name || code,
+      code,
+      folder: normalizeFolder(raw.folder),
+      color: COURSE_COLOR_RE.test(str(raw.color).trim()) ? str(raw.color).trim().toLowerCase() : "",
+      semester: str(raw.semester).trim(),
+      instructor: str(raw.instructor).trim(),
+      credits: Number.isFinite(credits) ? Math.max(0, Math.min(30, credits)) : 3,
+    });
+  }
+  return out;
+}
+
+function registeredCourseKeys(course) {
+  return [course && course.name, course && course.code, cleanSubjectTitle(course && course.name), cleanSubjectTitle(course && course.code)]
+    .map(subjectKey)
+    .filter(Boolean);
+}
+
+/** A course row by exact name/code, then by a code prefix such as `CHEM 101 - Lecture`. */
+function findRegisteredCourse(settings, subject) {
+  const key = subjectKey(subject);
+  if (!key) return null;
+  const clean = subjectKey(cleanSubjectTitle(subject));
+  const courses = settings && Array.isArray(settings.courses) ? settings.courses : [];
+  for (const course of courses) {
+    if (registeredCourseKeys(course).some((candidate) => candidate === key || candidate === clean)) return course;
+  }
+  for (const course of courses) {
+    const code = subjectKey(course.code);
+    if (code && (key.startsWith(`${code} `) || key.startsWith(`${code}-`) || key.startsWith(`${code}:`))) return course;
+  }
+  return null;
+}
+
+function registeredCourseFolder(settings, subject) {
+  const course = findRegisteredCourse(settings, subject);
+  return course ? normalizeFolder(course.folder) : "";
+}
+
+function registeredCourseColor(settings, subject) {
+  const course = findRegisteredCourse(settings, subject);
+  return course && course.color ? course.color : "";
+}
 
 /** Merges saved settings into defaults without dropping new fields. */
 function mergeCalendarSettings(saved) {
@@ -124,6 +190,7 @@ function mergeCalendarSettings(saved) {
   out.excludedSubjects = (Array.isArray(out.excludedSubjects) ? out.excludedSubjects : []).map(str).filter(Boolean);
   out.excludedKeywords = (Array.isArray(out.excludedKeywords) ? out.excludedKeywords : []).map(str).filter(Boolean);
   out.subjectFolders = plainObject(out.subjectFolders);
+  out.courses = normalizeCourseRegistry(out.courses);
   out.classColors = plainObject(out.classColors);
   out.subjectColors = plainObject(out.subjectColors);
   out.classNames = plainObject(out.classNames);
@@ -162,19 +229,25 @@ function noteVariables(settings, event, key) {
   const details = event.details || parseClassDetails(event.summary, event.description, event.location);
   const rawSubject = str(event.summary) || "Class";
   const subject = settings.cleanSubjectNames ? cleanSubjectTitle(rawSubject) : rawSubject;
+  const registered = findRegisteredCourse(settings, rawSubject);
   const allDay = event.allDay === true;
   const start = event.dtstart ? formatTime(settings, event.dtstart) : "";
   const end = event.dtend ? formatTime(settings, event.dtend) : "";
   return {
     subject,
     course: subject,
+    course_name: registered ? registered.name : subject,
+    course_code: registered ? registered.code : "",
+    semester: registered ? registered.semester : "",
+    credits: registered ? registered.credits : "",
     date: formatDateValue(settings.dateFormat, key),
     iso_date: key,
     time: allDay ? "All day" : end ? `${start}–${end}` : start,
     time_start: allDay ? "" : start,
     time_end: allDay ? "" : end,
     room: str(details.room),
-    lecturer: str(details.lecturer),
+    lecturer: str(details.lecturer) || (registered ? registered.instructor : ""),
+    instructor: str(details.lecturer) || (registered ? registered.instructor : ""),
     type: classTypeLabel(settings, details.category),
     description: str(event.description),
     event_id: str(event.uid),
@@ -339,6 +412,8 @@ function cleanSubjectTitle(rawTitle) {
 }
 
 function classColor(settings, details, subject) {
+  const registered = registeredCourseColor(settings, subject);
+  if (registered) return registered;
   const category = str(details && details.category) || "inne";
   const byCategory = (settings.classColors || {})[category];
   if (byCategory) return byCategory;
@@ -609,6 +684,8 @@ function resolveSubjectFolder(settings, subject, folders, event) {
   const list = (folders || []).map(normalizeFolder).filter(Boolean);
   const key = subjectKey(subject);
   const clean = subjectKey(cleanSubjectTitle(subject));
+  const registered = registeredCourseFolder(settings, subject);
+  if (registered) return registered;
   for (const [mapped, folder] of Object.entries(settings.subjectFolders || {})) {
     if (subjectKey(mapped) === key || subjectKey(mapped) === clean) {
       const target = normalizeFolder(folder);
@@ -644,6 +721,10 @@ module.exports = {
   MONTHS,
   subjectKey,
   normalizeFolder,
+  normalizeCourseRegistry,
+  findRegisteredCourse,
+  registeredCourseFolder,
+  registeredCourseColor,
   mergeCalendarSettings,
   noteVariables,
   renderNoteTemplate,

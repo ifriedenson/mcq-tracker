@@ -965,7 +965,17 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   assignmentSettings() {
-    return this.settings.assignments;
+    const base = this.settings.assignments;
+    const registryCredits = {};
+    for (const course of (this.settings.calendar && this.settings.calendar.courses) || []) {
+      const credits = Number(course.credits);
+      if (!Number.isFinite(credits)) continue;
+      for (const name of [course.name, course.code]) {
+        const key = str(name).trim().toLowerCase();
+        if (key) registryCredits[key] = credits;
+      }
+    }
+    return { ...base, registryCredits };
   }
 
   /** A saved timed test is still in progress (the test view is the only writer of testSession). */

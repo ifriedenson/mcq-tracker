@@ -182,3 +182,13 @@ test("assignments: settings normalize bad saved values and deduplicate courses",
   assert.equal(settings.courses.length, 1);
   assert.equal(settings.courses[0].credits, 30);
 });
+
+test("assignments: a calendar course credit fills the GPA when no explicit credit is set", () => {
+  const settings = {
+    courses: [{ name: "Biology", credits: 4 }],
+    registryCredits: { "chem 101": 5, biology: 2 },
+  };
+  assert.equal(T.assignments.courseCredits(settings, "CHEM 101"), 5);
+  assert.equal(T.assignments.courseCredits(settings, "Biology"), 4, "an explicit assignment credit wins");
+  assert.equal(T.assignments.courseCredits({ courses: [] }, "Unknown"), 3);
+});

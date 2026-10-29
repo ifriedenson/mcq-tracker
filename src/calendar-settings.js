@@ -6,13 +6,14 @@
  */
 const { Notice, Setting } = require("obsidian");
 const { str } = require("./util");
-const { BREAK_ICON_OPTIONS, CLASS_CATEGORIES } = require("./calendar-model");
+const { BREAK_ICON_OPTIONS, CLASS_CATEGORIES, normalizeCourseRegistry } = require("./calendar-model");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 
 const CALENDAR_TABS = [
   { id: "about", label: "About", icon: "sparkles" },
   { id: "schedules", label: "Schedules & Sync", icon: "calendar-days" },
   { id: "notes", label: "Notes & Templates", icon: "file-text" },
+  { id: "courses", label: "Courses", icon: "book-marked" },
   { id: "exclusions", label: "Exclusions", icon: "eye-off" },
   { id: "appearance", label: "Appearance & Colors", icon: "palette" },
   { id: "language", label: "Language & Region", icon: "globe" },
@@ -42,6 +43,7 @@ function renderCalendarSettings(containerEl, plugin, redisplay, activeTab, setTa
   }
   if (current === "schedules") return renderSchedules(section, plugin, redisplay);
   if (current === "notes") return renderNotes(section, plugin, redisplay);
+  if (current === "courses") return renderCourses(section, plugin, redisplay);
   if (current === "exclusions") return renderExclusions(section, plugin);
   if (current === "appearance") return renderAppearance(section, plugin);
   return renderLanguage(section, plugin);
@@ -224,6 +226,131 @@ function renderNotes(containerEl, plugin, redisplay) {
     .setName("Create or open the note for the next class")
     .setDesc("Uses the note template above and the subject's folder.")
     .addButton((b) => b.setButtonText("Open note").onClick(() => plugin.openNextClassNote()));
+}
+
+function renderCourses(containerEl, plugin, redisplay) {
+  const cal = plugin.settings.calendar;
+  new Setting(containerEl).setName("Course registry").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "One row per course. A matching class uses the folder for new notes and the course color on the calendar. Credits are used by Assignments when that course has no explicit assignment credit setting.",
+  });
+
+  if (!cal.courses.length) {
+    containerEl.createEl("p", { cls: "setting-item-description", text: "No courses yet. Add one below, or let a class note create its subject folder mapping first." });
+  }
+
+  for (const course of cal.courses) {
+    const card = containerEl.createDiv({ cls: "qt-settings-card qt-course-row" });
+    const heading = new Setting(card)
+      .setName(course.name || course.code)
+      .setDesc([course.code, course.semester, course.instructor].filter(Boolean).join(" · ") || "Course details");
+    heading.addButton((b) =>
+      b.setButtonText("Remove").setWarning().onClick(async () => {
+        cal.courses = cal.courses.filter((row) => row.id !== course.id);
+        await plugin.save();
+        plugin.invalidateCalendar();
+        plugin.refreshCalendarViews();
+        redisplay();
+      })
+    );
+
+    new Setting(card)
+      .setName("Name and code")
+      .setDesc("The name matches a class subject; the code also matches titles such as CHEM 101 - Lecture.")
+      .addText((t) =>
+        t.setPlaceholder("Course name").setValue(course.name).onChange(async (v) => {
+          course.name = v.trim();
+          await plugin.save();
+        })
+      )
+      .addText((t) =>
+        t.setPlaceholder("Code").setValue(course.code).onChange(async (v) => {
+          course.code = v.trim();
+          await plugin.save();
+        })
+      );
+
+    new Setting(card)
+      .setName("Folder")
+      .setDesc("New class notes for this course go here. Leave blank to use the normal subject matching.")
+      .addText((t) =>
+        t.setPlaceholder("e.g. University/CHEM 101").setValue(course.folder).onChange(async (v) => {
+          course.folder = v.trim().replace(/^\/+|\/+$/g, "");
+          await plugin.save();
+        })
+      );
+
+    new Setting(card)
+      .setName("Semester and instructor")
+      .setDesc("Readable metadata for the course; it does not change scheduling.")
+      .addText((t) =>
+        t.setPlaceholder("Semester").setValue(course.semester).onChange(async (v) => {
+          course.semester = v.trim();
+          await plugin.save();
+        })
+      )
+      .addText((t) =>
+        t.setPlaceholder("Instructor").setValue(course.instructor).onChange(async (v) => {
+          course.instructor = v.trim();
+          await plugin.save();
+        })
+      );
+
+    new Setting(card)
+      .setName("Credit weight and color")
+      .setDesc("Credits feed the credit-weighted GPA when Assignments has no explicit credit setting for this course.")
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.inputEl.min = "0";
+        t.inputEl.max = "30";
+        t.setPlaceholder("credits");
+        t.setValue(String(course.credits)).onChange(async (v) => {
+          const n = Math.round(Number(v));
+          course.credits = Number.isFinite(n) ? Math.max(0, Math.min(30, n)) : 3;
+          await plugin.save();
+          plugin.refreshViews();
+        });
+      })
+      .addColorPicker((c) =>
+        c.setValue(course.color || "#3b82f6").onChange(async (v) => {
+          course.color = v;
+          await plugin.save();
+          plugin.invalidateCalendar();
+          plugin.refreshCalendarViews();
+        })
+      )
+      .addButton((b) =>
+        b.setButtonText("Clear color").onClick(async () => {
+          course.color = "";
+          await plugin.save();
+          plugin.invalidateCalendar();
+          plugin.refreshCalendarViews();
+          redisplay();
+        })
+      );
+  }
+
+  new Setting(containerEl)
+    .setName("Add a course")
+    .setDesc("The name is required. A code is optional but makes matching timetable titles easier.")
+    .addText((t) => t.setPlaceholder("Course name").setValue(cal._newCourseName || "").onChange((v) => (cal._newCourseName = v)))
+    .addText((t) => t.setPlaceholder("Code").setValue(cal._newCourseCode || "").onChange((v) => (cal._newCourseCode = v)))
+    .addButton((b) =>
+      b.setButtonText("Add").onClick(async () => {
+        const name = str(cal._newCourseName).trim();
+        const code = str(cal._newCourseCode).trim();
+        if (!name && !code) return;
+        const folder = cal.subjectFolders[name] || cal.subjectFolders[code] || "";
+        cal.courses = normalizeCourseRegistry([...cal.courses, { name, code, folder, credits: 3 }]);
+        cal._newCourseName = "";
+        cal._newCourseCode = "";
+        await plugin.save();
+        plugin.invalidateCalendar();
+        plugin.refreshCalendarViews();
+        redisplay();
+      })
+    );
 }
 
 function renderExclusions(containerEl, plugin) {

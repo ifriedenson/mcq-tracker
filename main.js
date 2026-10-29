@@ -4530,7 +4530,10 @@ function courseFinalWeight(settings, course) {
 
 function courseCredits(settings, course) {
   const cfg = courseConfig(settings, course);
-  return cfg && Number.isFinite(cfg.credits) ? cfg.credits : 3;
+  if (cfg && Number.isFinite(cfg.credits)) return cfg.credits;
+  const key = str(course).trim().toLowerCase();
+  const registered = settings && settings.registryCredits ? settings.registryCredits[key] : undefined;
+  return Number.isFinite(registered) ? registered : 3;
 }
 
 function letterForPercent(percent) {
@@ -6278,6 +6281,7 @@ const DEFAULT_CALENDAR_SETTINGS = {
   excludedSubjects: [],
   excludedKeywords: [],
   subjectFolders: {},
+  courses: [], // { id, name, code, folder, color, semester, instructor, credits }
   classColors: {},
   subjectColors: {},
   classNames: {},
@@ -6299,6 +6303,71 @@ const WEEKDAYS = { monday: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], su
 const str = (v) => (v === undefined || v === null ? "" : String(v));
 const subjectKey = (s) => str(s).trim().toLowerCase().replace(/\s+/g, " ");
 const normalizeFolder = (p) => str(p).trim().replace(/^\/+|\/+$/g, "");
+const COURSE_COLOR_RE = /^#[0-9a-f]{6}$/i;
+
+/**
+ * The course registry: one row per course the learner wants to keep. Names,
+ * codes and folders stay readable, and credits are reused by Assignments when
+ * that course has no explicit assignment credit setting.
+ */
+function normalizeCourseRegistry(value) {
+  const out = [];
+  const ids = new Set();
+  for (const raw of Array.isArray(value) ? value : []) {
+    const name = str(raw && raw.name).trim();
+    const code = str(raw && raw.code).trim();
+    if (!name && !code) continue;
+    const base = (code || name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "course";
+    let id = str(raw.id).trim() || base;
+    let suffix = 2;
+    while (ids.has(id)) id = `${base}-${suffix++}`;
+    ids.add(id);
+    const credits = Math.round(Number(raw.credits));
+    out.push({
+      id,
+      name: name || code,
+      code,
+      folder: normalizeFolder(raw.folder),
+      color: COURSE_COLOR_RE.test(str(raw.color).trim()) ? str(raw.color).trim().toLowerCase() : "",
+      semester: str(raw.semester).trim(),
+      instructor: str(raw.instructor).trim(),
+      credits: Number.isFinite(credits) ? Math.max(0, Math.min(30, credits)) : 3,
+    });
+  }
+  return out;
+}
+
+function registeredCourseKeys(course) {
+  return [course && course.name, course && course.code, cleanSubjectTitle(course && course.name), cleanSubjectTitle(course && course.code)]
+    .map(subjectKey)
+    .filter(Boolean);
+}
+
+/** A course row by exact name/code, then by a code prefix such as `CHEM 101 - Lecture`. */
+function findRegisteredCourse(settings, subject) {
+  const key = subjectKey(subject);
+  if (!key) return null;
+  const clean = subjectKey(cleanSubjectTitle(subject));
+  const courses = settings && Array.isArray(settings.courses) ? settings.courses : [];
+  for (const course of courses) {
+    if (registeredCourseKeys(course).some((candidate) => candidate === key || candidate === clean)) return course;
+  }
+  for (const course of courses) {
+    const code = subjectKey(course.code);
+    if (code && (key.startsWith(`${code} `) || key.startsWith(`${code}-`) || key.startsWith(`${code}:`))) return course;
+  }
+  return null;
+}
+
+function registeredCourseFolder(settings, subject) {
+  const course = findRegisteredCourse(settings, subject);
+  return course ? normalizeFolder(course.folder) : "";
+}
+
+function registeredCourseColor(settings, subject) {
+  const course = findRegisteredCourse(settings, subject);
+  return course && course.color ? course.color : "";
+}
 
 /** Merges saved settings into defaults without dropping new fields. */
 function mergeCalendarSettings(saved) {
@@ -6318,6 +6387,7 @@ function mergeCalendarSettings(saved) {
   out.excludedSubjects = (Array.isArray(out.excludedSubjects) ? out.excludedSubjects : []).map(str).filter(Boolean);
   out.excludedKeywords = (Array.isArray(out.excludedKeywords) ? out.excludedKeywords : []).map(str).filter(Boolean);
   out.subjectFolders = plainObject(out.subjectFolders);
+  out.courses = normalizeCourseRegistry(out.courses);
   out.classColors = plainObject(out.classColors);
   out.subjectColors = plainObject(out.subjectColors);
   out.classNames = plainObject(out.classNames);
@@ -6356,19 +6426,25 @@ function noteVariables(settings, event, key) {
   const details = event.details || parseClassDetails(event.summary, event.description, event.location);
   const rawSubject = str(event.summary) || "Class";
   const subject = settings.cleanSubjectNames ? cleanSubjectTitle(rawSubject) : rawSubject;
+  const registered = findRegisteredCourse(settings, rawSubject);
   const allDay = event.allDay === true;
   const start = event.dtstart ? formatTime(settings, event.dtstart) : "";
   const end = event.dtend ? formatTime(settings, event.dtend) : "";
   return {
     subject,
     course: subject,
+    course_name: registered ? registered.name : subject,
+    course_code: registered ? registered.code : "",
+    semester: registered ? registered.semester : "",
+    credits: registered ? registered.credits : "",
     date: formatDateValue(settings.dateFormat, key),
     iso_date: key,
     time: allDay ? "All day" : end ? `${start}–${end}` : start,
     time_start: allDay ? "" : start,
     time_end: allDay ? "" : end,
     room: str(details.room),
-    lecturer: str(details.lecturer),
+    lecturer: str(details.lecturer) || (registered ? registered.instructor : ""),
+    instructor: str(details.lecturer) || (registered ? registered.instructor : ""),
     type: classTypeLabel(settings, details.category),
     description: str(event.description),
     event_id: str(event.uid),
@@ -6533,6 +6609,8 @@ function cleanSubjectTitle(rawTitle) {
 }
 
 function classColor(settings, details, subject) {
+  const registered = registeredCourseColor(settings, subject);
+  if (registered) return registered;
   const category = str(details && details.category) || "inne";
   const byCategory = (settings.classColors || {})[category];
   if (byCategory) return byCategory;
@@ -6803,6 +6881,8 @@ function resolveSubjectFolder(settings, subject, folders, event) {
   const list = (folders || []).map(normalizeFolder).filter(Boolean);
   const key = subjectKey(subject);
   const clean = subjectKey(cleanSubjectTitle(subject));
+  const registered = registeredCourseFolder(settings, subject);
+  if (registered) return registered;
   for (const [mapped, folder] of Object.entries(settings.subjectFolders || {})) {
     if (subjectKey(mapped) === key || subjectKey(mapped) === clean) {
       const target = normalizeFolder(folder);
@@ -6838,6 +6918,10 @@ module.exports = {
   MONTHS,
   subjectKey,
   normalizeFolder,
+  normalizeCourseRegistry,
+  findRegisteredCourse,
+  registeredCourseFolder,
+  registeredCourseColor,
   mergeCalendarSettings,
   noteVariables,
   renderNoteTemplate,
@@ -7030,13 +7114,14 @@ __defs["calendar-settings"] = function (module, exports, require) {
  */
 const { Notice, Setting } = require("obsidian");
 const { str } = require("./util");
-const { BREAK_ICON_OPTIONS, CLASS_CATEGORIES } = require("./calendar-model");
+const { BREAK_ICON_OPTIONS, CLASS_CATEGORIES, normalizeCourseRegistry } = require("./calendar-model");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 
 const CALENDAR_TABS = [
   { id: "about", label: "About", icon: "sparkles" },
   { id: "schedules", label: "Schedules & Sync", icon: "calendar-days" },
   { id: "notes", label: "Notes & Templates", icon: "file-text" },
+  { id: "courses", label: "Courses", icon: "book-marked" },
   { id: "exclusions", label: "Exclusions", icon: "eye-off" },
   { id: "appearance", label: "Appearance & Colors", icon: "palette" },
   { id: "language", label: "Language & Region", icon: "globe" },
@@ -7066,6 +7151,7 @@ function renderCalendarSettings(containerEl, plugin, redisplay, activeTab, setTa
   }
   if (current === "schedules") return renderSchedules(section, plugin, redisplay);
   if (current === "notes") return renderNotes(section, plugin, redisplay);
+  if (current === "courses") return renderCourses(section, plugin, redisplay);
   if (current === "exclusions") return renderExclusions(section, plugin);
   if (current === "appearance") return renderAppearance(section, plugin);
   return renderLanguage(section, plugin);
@@ -7248,6 +7334,131 @@ function renderNotes(containerEl, plugin, redisplay) {
     .setName("Create or open the note for the next class")
     .setDesc("Uses the note template above and the subject's folder.")
     .addButton((b) => b.setButtonText("Open note").onClick(() => plugin.openNextClassNote()));
+}
+
+function renderCourses(containerEl, plugin, redisplay) {
+  const cal = plugin.settings.calendar;
+  new Setting(containerEl).setName("Course registry").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "One row per course. A matching class uses the folder for new notes and the course color on the calendar. Credits are used by Assignments when that course has no explicit assignment credit setting.",
+  });
+
+  if (!cal.courses.length) {
+    containerEl.createEl("p", { cls: "setting-item-description", text: "No courses yet. Add one below, or let a class note create its subject folder mapping first." });
+  }
+
+  for (const course of cal.courses) {
+    const card = containerEl.createDiv({ cls: "qt-settings-card qt-course-row" });
+    const heading = new Setting(card)
+      .setName(course.name || course.code)
+      .setDesc([course.code, course.semester, course.instructor].filter(Boolean).join(" · ") || "Course details");
+    heading.addButton((b) =>
+      b.setButtonText("Remove").setWarning().onClick(async () => {
+        cal.courses = cal.courses.filter((row) => row.id !== course.id);
+        await plugin.save();
+        plugin.invalidateCalendar();
+        plugin.refreshCalendarViews();
+        redisplay();
+      })
+    );
+
+    new Setting(card)
+      .setName("Name and code")
+      .setDesc("The name matches a class subject; the code also matches titles such as CHEM 101 - Lecture.")
+      .addText((t) =>
+        t.setPlaceholder("Course name").setValue(course.name).onChange(async (v) => {
+          course.name = v.trim();
+          await plugin.save();
+        })
+      )
+      .addText((t) =>
+        t.setPlaceholder("Code").setValue(course.code).onChange(async (v) => {
+          course.code = v.trim();
+          await plugin.save();
+        })
+      );
+
+    new Setting(card)
+      .setName("Folder")
+      .setDesc("New class notes for this course go here. Leave blank to use the normal subject matching.")
+      .addText((t) =>
+        t.setPlaceholder("e.g. University/CHEM 101").setValue(course.folder).onChange(async (v) => {
+          course.folder = v.trim().replace(/^\/+|\/+$/g, "");
+          await plugin.save();
+        })
+      );
+
+    new Setting(card)
+      .setName("Semester and instructor")
+      .setDesc("Readable metadata for the course; it does not change scheduling.")
+      .addText((t) =>
+        t.setPlaceholder("Semester").setValue(course.semester).onChange(async (v) => {
+          course.semester = v.trim();
+          await plugin.save();
+        })
+      )
+      .addText((t) =>
+        t.setPlaceholder("Instructor").setValue(course.instructor).onChange(async (v) => {
+          course.instructor = v.trim();
+          await plugin.save();
+        })
+      );
+
+    new Setting(card)
+      .setName("Credit weight and color")
+      .setDesc("Credits feed the credit-weighted GPA when Assignments has no explicit credit setting for this course.")
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.inputEl.min = "0";
+        t.inputEl.max = "30";
+        t.setPlaceholder("credits");
+        t.setValue(String(course.credits)).onChange(async (v) => {
+          const n = Math.round(Number(v));
+          course.credits = Number.isFinite(n) ? Math.max(0, Math.min(30, n)) : 3;
+          await plugin.save();
+          plugin.refreshViews();
+        });
+      })
+      .addColorPicker((c) =>
+        c.setValue(course.color || "#3b82f6").onChange(async (v) => {
+          course.color = v;
+          await plugin.save();
+          plugin.invalidateCalendar();
+          plugin.refreshCalendarViews();
+        })
+      )
+      .addButton((b) =>
+        b.setButtonText("Clear color").onClick(async () => {
+          course.color = "";
+          await plugin.save();
+          plugin.invalidateCalendar();
+          plugin.refreshCalendarViews();
+          redisplay();
+        })
+      );
+  }
+
+  new Setting(containerEl)
+    .setName("Add a course")
+    .setDesc("The name is required. A code is optional but makes matching timetable titles easier.")
+    .addText((t) => t.setPlaceholder("Course name").setValue(cal._newCourseName || "").onChange((v) => (cal._newCourseName = v)))
+    .addText((t) => t.setPlaceholder("Code").setValue(cal._newCourseCode || "").onChange((v) => (cal._newCourseCode = v)))
+    .addButton((b) =>
+      b.setButtonText("Add").onClick(async () => {
+        const name = str(cal._newCourseName).trim();
+        const code = str(cal._newCourseCode).trim();
+        if (!name && !code) return;
+        const folder = cal.subjectFolders[name] || cal.subjectFolders[code] || "";
+        cal.courses = normalizeCourseRegistry([...cal.courses, { name, code, folder, credits: 3 }]);
+        cal._newCourseName = "";
+        cal._newCourseCode = "";
+        await plugin.save();
+        plugin.invalidateCalendar();
+        plugin.refreshCalendarViews();
+        redisplay();
+      })
+    );
 }
 
 function renderExclusions(containerEl, plugin) {
@@ -17109,6 +17320,18 @@ const FRQ_PRESETS = {
 
 const GRADED_BY = ["self", "ai", "ai-edited"];
 
+const RUBRIC_CATEGORIES = [
+  { id: "thesis", label: "Thesis or claim" },
+  { id: "evidence", label: "Evidence" },
+  { id: "reasoning", label: "Reasoning" },
+  { id: "calculation", label: "Calculation" },
+  { id: "units", label: "Units and significant figures" },
+  { id: "notation", label: "Notation" },
+  { id: "communication", label: "Communication" },
+  { id: "other", label: "Other" },
+];
+const RUBRIC_CATEGORY_IDS = RUBRIC_CATEGORIES.map((category) => category.id);
+
 function courseById(id) {
   return FRQ_COURSES.find((course) => course.id === id) || FRQ_COURSES[0];
 }
@@ -17128,8 +17351,34 @@ function presetFor(courseId, kind) {
       label: criterion.label,
       points: criterion.points,
       description: criterion.description,
+      category: normalizeRubricCategory(criterion.category, criterion.label, criterion.description),
     })),
   };
+}
+
+function rubricCategoryId(value) {
+  const id = str(value).trim().toLowerCase().replace(/[^a-z]+/g, "-").replace(/^-+|-+$/g, "");
+  return RUBRIC_CATEGORY_IDS.includes(id) ? id : "";
+}
+
+/** An optional category such as [evidence], or a label-based default. */
+function normalizeRubricCategory(value, label, description) {
+  const explicit = rubricCategoryId(value);
+  if (explicit) return explicit;
+  const text = `${str(label)} ${str(description)}`.toLowerCase();
+  if (/\bunits?\b|significant figures|sig\.? ?figs?/.test(text)) return "units";
+  if (/\bnotation\b|symbol|graph label|axis/.test(text)) return "notation";
+  if (/\bcalculation\b|compute|numerical|arithmetic|\banswer\b/.test(text)) return "calculation";
+  if (/\bthesis\b|\bclaim\b/.test(text)) return "thesis";
+  if (/\bcontext\b|\bevidence\b|\bdocuments?\b|\bsourcing\b|\bsource\b/.test(text)) return "evidence";
+  if (/\breasoning\b|\bexplanation\b|justif|\bcomplexity\b|\bprinciples?\b|\bmethod\b|\bconditions?\b|\bsetup\b|supporting work/.test(text)) return "reasoning";
+  if (/\bcommunication\b|clarity|\bconclusion\b|interpretation/.test(text)) return "communication";
+  return "other";
+}
+
+function rubricCategoryLabel(id) {
+  const found = RUBRIC_CATEGORIES.find((category) => category.id === id);
+  return found ? found.label : "Other";
 }
 
 function clampPoints(value, max) {
@@ -17199,12 +17448,21 @@ function slugId(label, used) {
 }
 
 function splitCriterion(text) {
-  const body = str(text).trim();
+  let body = str(text).trim();
+  let category = "";
+  const tagged = body.match(/^\[([a-z][a-z -]{2,30})\]\s*(.+)$/i);
+  if (tagged) {
+    const id = rubricCategoryId(tagged[1]);
+    if (id) {
+      category = id;
+      body = tagged[2].trim();
+    }
+  }
   const colon = body.indexOf(":");
   if (colon > 0 && colon <= 60) {
-    return { label: body.slice(0, colon).trim(), description: body.slice(colon + 1).trim() };
+    return { label: body.slice(0, colon).trim(), description: body.slice(colon + 1).trim(), category };
   }
-  return { label: body, description: "" };
+  return { label: body, description: "", category };
 }
 
 /** Parse the bullet and table forms a learner or teacher is likely to paste. */
@@ -17262,7 +17520,13 @@ function parseRubric(text) {
     criteria.push({ id: slugId(parts.label, used), label: parts.label, points: 1, description: parts.description });
     warnings.push(`"${parts.label}" had no point value, so it starts at 1 point.`);
   }
-  return { criteria, warnings };
+  return {
+    criteria: criteria.map((criterion) => ({
+      ...criterion,
+      category: normalizeRubricCategory(criterion.category, criterion.label, criterion.description),
+    })),
+    warnings,
+  };
 }
 
 function rubricTotal(criteria) {
@@ -17280,6 +17544,7 @@ function normalizeRubric(criteria) {
         label,
         points: Math.max(0, Number(criterion.points) || 0),
         description: str(criterion.description).trim(),
+        category: normalizeRubricCategory(criterion.category, label, criterion.description),
       };
     });
 }
@@ -17303,7 +17568,7 @@ function parseFrqNote(text, fm, path) {
   const warnings = parsed.warnings.slice();
   if (!criteria.length) {
     const max = Number(frontmatter.max_points);
-    criteria = [{ id: "overall", label: "Overall", points: Number.isFinite(max) && max > 0 ? max : 0, description: "Add a ## Rubric section to score criterion by criterion." }];
+    criteria = [{ id: "overall", label: "Overall", points: Number.isFinite(max) && max > 0 ? max : 0, description: "Add a ## Rubric section to score criterion by criterion.", category: "other" }];
     if (!(Number.isFinite(max) && max > 0)) warnings.push("No rubric and no max_points property: add a rubric before grading.");
   }
   const courseId = str(frontmatter.ap_course).trim() || FRQ_COURSES[0].id;
@@ -17353,6 +17618,7 @@ function scoreAttempt(input) {
       id: criterion.id,
       label: criterion.label,
       description: criterion.description,
+      category: criterion.category,
       max: criterion.points,
       awarded,
       lost: round1(criterion.points - awarded),
@@ -17407,6 +17673,7 @@ function buildFrqPrompt(note, answer) {
     rubric: (note && note.rubric ? note.rubric : []).map((criterion) => ({
       id: criterion.id,
       criterion: trimmed(criterion.label, 200),
+      category: str(criterion.category) || "other",
       max_points: Number(criterion.points) || 0,
       description: trimmed(criterion.description, 600),
     })),
@@ -17550,7 +17817,12 @@ function normalizeDate(value) {
 }
 
 function rubricMarkdown(criteria) {
-  return criteria.map((criterion) => `- [${criterion.points}] ${criterion.label}${criterion.description ? `: ${criterion.description}` : ""}`).join("\n");
+  return criteria
+    .map((criterion) => {
+      const category = criterion.category && criterion.category !== "other" ? `[${criterion.category}] ` : "";
+      return `- [${criterion.points}] ${category}${criterion.label}${criterion.description ? `: ${criterion.description}` : ""}`;
+    })
+    .join("\n");
 }
 
 /** Build a new FRQ note from a pasted prompt and rubric. */
@@ -17841,6 +18113,9 @@ module.exports = {
   FRQ_ATTEMPT_FOLDER,
   FRQ_ATTEMPT_TYPE,
   FRQ_COURSES,
+  RUBRIC_CATEGORIES,
+  normalizeRubricCategory,
+  rubricCategoryLabel,
   FRQ_FOLDER,
   FRQ_NOTE_TYPE,
   FRQ_PILOT_COURSES,
@@ -17880,7 +18155,7 @@ module.exports = {
 __defs["frq-modal"] = function (module, exports, require) {
 const { Modal, Notice } = require("obsidian");
 const { renderMarkdownInto } = require("./view-helpers");
-const { FRQ_COURSES, courseById, compareFrqPasses, parseRubric, presetFor, presetsForCourse, scoreAttempt } = require("./frq");
+const { FRQ_COURSES, courseById, compareFrqPasses, parseRubric, presetFor, presetsForCourse, rubricCategoryLabel, scoreAttempt } = require("./frq");
 const { str } = require("./util");
 
 function presetText(courseId, kind) {
@@ -18059,10 +18334,16 @@ class FrqGraderModal extends Modal {
     area.value = this.answer;
     area.addEventListener("input", () => {
       this.answer = area.value;
+      this.paintMathPreview();
     });
+    const preview = root.createEl("details", { cls: "qt-frq-math-preview" });
+    preview.open = /\$|\\ce\{/.test(this.answer);
+    preview.createEl("summary", { text: "Math preview" });
+    this.previewEl = preview.createDiv({ cls: "qt-frq-math-preview-body" });
+    this.paintMathPreview();
     root.createDiv({
       cls: "qt-hint",
-      text: "Photo-of-handwriting grading is not part of this release. Type the answer, or dictate it with your operating system.",
+      text: "Math preview updates as you type: use $...$, $$...$$ or \\ce{...}. Photo-of-handwriting grading is not part of this release; type the answer or dictate it with your operating system.",
     });
 
     root.createEl("h4", { text: "Rubric" });
@@ -18075,6 +18356,9 @@ class FrqGraderModal extends Modal {
       const row = table.createDiv({ cls: "qt-frq-criterion" });
       const text = row.createDiv({ cls: "qt-frq-criterion-text" });
       text.createEl("strong", { text: criterion.label });
+      if (criterion.category && criterion.category !== "other") {
+        text.createSpan({ cls: "qt-frq-category", text: rubricCategoryLabel(criterion.category) });
+      }
       text.createDiv({ cls: "qt-hint", text: criterion.description || "No description." });
       const score = row.createEl("input", {
         type: "number",
@@ -18155,6 +18439,16 @@ class FrqGraderModal extends Modal {
     }
   }
 
+  paintMathPreview() {
+    if (!this.previewEl) return;
+    this.previewEl.empty();
+    if (!str(this.answer).trim()) {
+      this.previewEl.createDiv({ cls: "qt-hint", text: "Type $...$ or \\ce{...} to preview math here." });
+      return;
+    }
+    renderMarkdownInto(this.app, this.answer, this.previewEl, this.note && this.note.path, this);
+  }
+
   renderResult(el, result) {
     if (!el) return;
     el.empty();
@@ -18171,7 +18465,10 @@ class FrqGraderModal extends Modal {
     const list = el.createDiv({ cls: "qt-frq-result-list" });
     for (const criterion of result.criteria) {
       const row = list.createDiv({ cls: "qt-frq-result-row" });
-      row.createSpan({ cls: "qt-frq-result-label", text: criterion.label });
+      const label = criterion.category && criterion.category !== "other"
+        ? `${criterion.label} · ${rubricCategoryLabel(criterion.category)}`
+        : criterion.label;
+      row.createSpan({ cls: "qt-frq-result-label", text: label });
       row.createSpan({ cls: "qt-frq-result-points", text: `${criterion.awarded} / ${criterion.max}` });
       if (criterion.evidence) row.createDiv({ cls: "qt-hint", text: `“${criterion.evidence}”` });
       if (criterion.comment) row.createDiv({ cls: "qt-hint", text: criterion.comment });
@@ -29324,7 +29621,17 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   assignmentSettings() {
-    return this.settings.assignments;
+    const base = this.settings.assignments;
+    const registryCredits = {};
+    for (const course of (this.settings.calendar && this.settings.calendar.courses) || []) {
+      const credits = Number(course.credits);
+      if (!Number.isFinite(credits)) continue;
+      for (const name of [course.name, course.code]) {
+        const key = str(name).trim().toLowerCase();
+        if (key) registryCredits[key] = credits;
+      }
+    }
+    return { ...base, registryCredits };
   }
 
   /** A saved timed test is still in progress (the test view is the only writer of testSession). */

@@ -1,6 +1,6 @@
 # AP free-response practice and grading
 
-This guide covers the FRQ pilot shipped in 1.97.0. It is practice feedback, not a College Board score, and the plugin bundles no AP prompts, rubrics or sample responses.
+This guide covers the FRQ pilot shipped in 1.97.0, with rubric categories and a local math preview added in 1.101.0. It is practice feedback, not a College Board score, and the plugin bundles no AP prompts, rubrics or sample responses.
 
 ## Supported courses
 
@@ -23,6 +23,7 @@ Run **AP: create a free-response note**, or open the grader and press **New FRQ 
 
 ```md
 - [2] Evidence: uses at least four documents.
+- [1] [thesis] Thesis: states a defensible claim.
 - 1 point: Context — places the argument in a broader context.
 - Thesis (1 point)
 ```
@@ -36,7 +37,7 @@ A Markdown table with a points column also works:
 | Evidence | 2 | Uses the documents and outside evidence. |
 ```
 
-Rows without a point value are kept at one point and the grader shows a warning. The note is saved under `AP FRQs/<course>/` with `type: ap_frq`, `ap_course`, `max_points` and `rubric_source` (`user` or `official`).
+Rows without a point value are kept at one point and the grader shows a warning. An optional category tag such as `[thesis]`, `[evidence]`, `[reasoning]`, `[calculation]`, `[units]`, `[notation]` or `[communication]` follows the points and is preserved when a note is created. If the tag is omitted, the grader infers a category from the label and description; the category appears beside the criterion and in the saved attempt. The note is saved under `AP FRQs/<course>/` with `type: ap_frq`, `ap_course`, `max_points` and `rubric_source` (`user` or `official`).
 
 You can also mark an existing note by hand:
 
@@ -51,10 +52,10 @@ max_points: 10
 ...
 
 ## Rubric
-- [3] Chemical principles: ...
-- [4] Calculation: ...
-- [2] Explanation: ...
-- [1] Units and significant figures: ...
+- [3] [reasoning] Chemical principles: ...
+- [4] [calculation] Calculation: ...
+- [2] [reasoning] Explanation: ...
+- [1] [units] Units and significant figures: ...
 
 ## Sample Answer
 ...
@@ -64,7 +65,7 @@ max_points: 10
 
 Open **AP: open free-response practice and grader**, pick the prompt, and type the answer. Then choose one route:
 
-- **Self-grade** works offline and needs no AI. Set the points for each criterion; each input is capped at that criterion's maximum.
+- **Self-grade** works offline and needs no AI. Set the points for each criterion; each input is capped at that criterion's maximum. The answer box has a collapsible **Math preview** that renders `$...$`, `$$...$$` and `\ce{...}` locally as you type. Nothing about the preview is sent anywhere.
 - **AI grade** uses the Direct AI or OpenCode backend configured under Settings, AI. It sends the prompt, rubric, optional sample answer and your typed answer under the `frqGrading` feature. The reply must cover every rubric criterion, must quote the words that earned each point and cannot exceed a maximum. A low-confidence criterion, or a point awarded without a quote, flags the attempt for review. **Second pass** runs another independent pass and lists every criterion where the two passes disagree; it never averages them. Resolve the score you trust before saving.
 - **Rubric source** records whether the rubric is yours or a pasted official/teacher-supplied rubric (`rubric_source: official | user`). The plugin still bundles no AP rubric.
 - **Save attempt** writes a note under `AP FRQ attempts/` and updates the prompt note with `frq_last_score`, `frq_last_max`, `frq_last_percent`, `frq_criteria_missed`, `frq_graded_by`, `frq_graded_on`, `frq_attempts`, `frq_review_interval` and `frq_next_review`. The modal lists recent attempts for the selected prompt.
@@ -83,6 +84,5 @@ Self-grading makes no network request. AI grading is off until AI features are e
 
 - Human-scored agreement against released sample responses, the human-human baseline and the go/no-go thresholds in [ap-frq-grader-spec.md](ap-frq-grader-spec.md). There is no claim of reader-level accuracy.
 - Photo-of-handwriting grading.
-- A full rubric category taxonomy. Missed criteria already schedule the prompt and appear in Today, the exam study plan and Insights.
 - Per-course review of rubric fidelity beyond the editable presets.
 - World-language writing, AP Seminar/Research performance tasks and AP courses outside the six pilot subjects.

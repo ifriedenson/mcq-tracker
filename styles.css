@@ -5006,3 +5006,28 @@
 .qt-frq-weak {
   margin-top: 18px;
 }
+
+/* FRQ answer math preview: a local Obsidian Markdown render, never a network call. */
+.qt-frq-math-preview {
+  margin: 8px 0 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+.qt-frq-math-preview summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.qt-frq-math-preview-body {
+  padding-top: 8px;
+}
+
+.qt-frq-category {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}

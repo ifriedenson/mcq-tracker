@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — 1.100.0 adds mixed MCQ/SPR/FRQ timed tests, on top of 1.99.0's score-based FRQ review schedule, Today view and study-plan routing, 1.98.0's optional second grading pass and official/teacher rubric marker and 1.97.0's six-course AP FRQ pilot (self-grade plus optional AI grade, user-supplied prompts), 1.96.1's mixed-course written-trend isolation, and earlier work through 1.24.0. Remaining blocked items: the real-Obsidian visual/screenshot pass, a real-device mobile audit, TTS provider/mobile validation, and PDF form filling/full editor. Human-scored FRQ calibration remains a quality gate, not an implementation gate.
+**Status:** Implementation in progress — 1.101.0 adds the full course registry, FRQ math preview and rubric categories, on top of 1.100.0's mixed MCQ/SPR/FRQ timed tests, on top of 1.99.0's score-based FRQ review schedule, Today view and study-plan routing, 1.98.0's optional second grading pass and official/teacher rubric marker and 1.97.0's six-course AP FRQ pilot (self-grade plus optional AI grade, user-supplied prompts), 1.96.1's mixed-course written-trend isolation, and earlier work through 1.24.0. Remaining blocked items: the real-Obsidian visual/screenshot pass, a real-device mobile audit, TTS provider/mobile validation, and PDF form filling/full editor. Human-scored FRQ calibration remains a quality gate, not an implementation gate.
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), the October 28 idea backlog (§5.22), and the Adaptive Practice parity audit (§5.23, Oct 29, 2026). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,7 +11,9 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Latest completed (1.100.0):** timed tests can now include a chosen number of FRQ prompts alongside MCQ and SPR items. FRQ responses count toward each section's item total, are written in the timed test, are not counted as objective correct or incorrect, and are restored with a saved session. After the test, each response opens the existing FRQ grader with its answer prefilled for self-grading or optional AI grading. Blueprints keep the FRQ count.
+**Latest completed (1.101.0):** the Calendar now has a full course registry: name, code, folder, color, semester, instructor and credit weight in Settings, Calendar, Courses. A registered course drives class-note folders and calendar colors, and its credits fill the GPA when Assignments has no explicit credit. The FRQ grader now shows a local **Math preview** under the answer box for `$...$`, `$$...$$` and `\ce{...}`, and rubric rows carry a category (`[thesis]`, `[evidence]`, `[reasoning]`, `[calculation]`, `[units]`, `[notation]`, `[communication]`), inferred from the label when omitted and included in the saved attempt and AI payload.
+
+**Previously (1.100.0):** timed tests can include a chosen number of FRQ prompts alongside MCQ and SPR items. FRQ responses count toward each section's item total, are written in the timed test, are not counted as objective correct or incorrect, and are restored with a saved session. After the test, each response opens the existing FRQ grader with its answer prefilled for self-grading or optional AI grading. Blueprints keep the FRQ count.
 
 **Previously (1.99.0):** every saved FRQ attempt writes `frq_review_interval` and `frq_next_review` to its prompt note. Below 60% returns in one day, 60–79% in three days, 80–89% in seven and 90%+ in fourteen; any missed rubric criterion caps the wait at three days. Due prompts appear in Today and in the next exam's study plan with a direct **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed.
 
@@ -53,13 +55,15 @@
 | AP FRQ grader | **Done in 1.97.0 (pilot)** | Six owner-approved courses, user-supplied prompts and rubrics, self-grade plus optional AI grade, per-criterion feedback, quotes, override, attempt history and docs in `docs/ap-frq-practice.md`; 1.98.0 added the second pass and official-rubric marker; 1.99.0 added prompt-level review scheduling and Today/study-plan routing. |
 | FRQ scheduler and study-plan feed | **Done in 1.99.0** | Saving an attempt writes `frq_review_interval` and `frq_next_review`; weak attempts and missed criteria return in 1–3 days, stronger attempts in 7–14. Today lists due prompts, the next exam's study plan includes the course's FRQ prompts with a **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed. Handwriting photos remain a separate gap. |
 | Mixed MCQ/SPR/FRQ timed tests (§5.6) | **Done in 1.100.0** | A timed test takes an optional FRQ count included in the section totals, writes responses in the test, restores them with the saved session, and offers **Grade this response** after the test with the answer prefilled in the existing grader. Objective score, confidence and skill breakdown count only MCQ/SPR items; written responses are reported separately. |
+| Course registry (§5.8) | **Done in 1.101.0** | Settings, Calendar, Courses stores name, code, folder, color, semester, instructor and credit weight. A match drives class-note folders and calendar colors; credits feed the GPA when Assignments has no explicit course credit. |
+| FRQ math preview and rubric categories (§5.16.6, §5.20.1) | **Done in 1.101.0** | The answer box has a local **Math preview** for math and chemistry notation. Rubric rows accept an optional category tag, infer one from the label when omitted, show it in the grader, and preserve it in generated notes and the AI payload. |
 | Math/chemistry rendering audit | **Blocked — manual gate** | Renderer and golden tests are done; the remaining visual pass needs a real Obsidian window and cannot be completed in this cloud environment. |
 | Mobile audit | **Blocked** | No real iOS/Android device is available in this environment. |
 | TTS / audio commute | **Deferred** | Provider and mobile validation still missing. |
 | PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; true AcroForm filling needs an audited MIT PDF library and is not safe to approximate. |
 | README, screenshots, sample vault, license confirmation | **Partial — screenshots blocked** | README, NOTICES, `docs/license-audit.md` and `samples/sample-vault` exist. Screenshots still need a real Obsidian window. |
 
-**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.100.0. The items that remain `[~]` are explicitly gated: the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation; PDF form filling needs an audited MIT library. Human-scored FRQ calibration remains a quality gate, not an implementation gate. The duplicate roadmap later in this file is historical and has now been reconciled with this table; it does not override the table.
+**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.101.0, including the course registry and FRQ rubric categories. The items that remain `[~]` are explicitly gated: the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation; PDF form filling needs an audited MIT library. Human-scored FRQ calibration remains a quality gate, not an implementation gate. The duplicate roadmap later in this file is historical and has now been reconciled with this table; it does not override the table.
 
 **Adaptive Practice parity audit (Oct 29, 2026):** compared with Adaptive Practice 0.7.2. MCQ Tracker already has the broader study system; the meaningful gaps are generation from any note, per-note subtopic memory, a logged skip/fluency signal, adaptive session size and an optional local reminder. The Whetstone engine (AGPL) and the persistent vault index are non-goals. Full matrix and acceptance criteria: §5.23.
 
@@ -486,6 +490,8 @@ Build on the existing timed test.
 8. **Interop:** also read events/properties from Full Calendar, Hold Course, or uni-calendar notes where practical.
 9. **Mobile:** read-only Today and Upcoming views first; editing second.
 
+**Shipped in 1.101.0:** the course registry stores name, code, folder, color, semester, instructor and credit weight. A code also matches timetable titles such as `CHEM 101 - Lecture`; a registered folder wins for new class notes, its color wins on the calendar, and its credits fill the GPA when Assignments has no explicit credit for that course. Existing subject/folder mappings and class colors still work as fallbacks.
+
 **Risks:** time zones and recurring events are a bug magnet. Use a proven iCalendar parser (check its license), test against real exports from Canvas, Google, and Outlook, and handle daylight-saving transitions explicitly.
 
 ### 5.9 Assignments, tasks, and grades  — **M**
@@ -658,6 +664,8 @@ Build on the existing timed test.
 - Compatibility with Latex Suite shortcuts for users who have it, without requiring it.
 - Rubric lines for **method steps** and **final answer** separately, so a right method with an arithmetic slip earns partial credit.
 - Later: photo of handwritten work, graded by a vision-capable model. Off by default, with a clear privacy note.
+
+**Shipped in 1.101.0:** the FRQ answer box has a collapsible **Math preview** that renders the typed answer locally through Obsidian's Markdown renderer. `$...$`, `$$...$$` and `\\ce{...}` update as the learner types; nothing is sent anywhere. Rubric criteria can also carry a category; see §5.20.1.
 
 **5.16.7 Figures and graphs**
 - Embed Function Plot graphs or Excalidraw diagrams in stimuli (works because they are normal Obsidian embeds).
@@ -885,7 +893,7 @@ Reuse the general FRQ model in §5.5 and add AP-specific structure.
 
 Shipped: `type: ap_frq` notes with `## Question`, optional `## Stimulus`, `## Rubric` and optional `## Sample Answer`; a **New FRQ note** creator with editable rubric presets for history DBQ/LEQ/SAQ, chemistry long/short, calculus and statistics; a grader that scores criterion by criterion, clamps every score to its maximum, shows `awarded / max`, flags low confidence and any point awarded without a quote, supports an optional second independent pass that reports per-criterion disagreement without averaging it away, lets the learner mark a pasted official or teacher-supplied rubric, and lets the learner override every line; self-grade mode with no network request; optional AI grading through the shared `frqGrading` feature and request limits; and saved attempts under `AP FRQ attempts/` plus `frq_last_*` properties on the prompt note.
 
-Still open: a human-scored agreement study and go/no-go evaluation, photo-of-handwriting grading, and a rubric category taxonomy. Since 1.99.0, missed criteria drive the prompt's review date, appear in Today and the next exam's study plan, and link from Insights. No claim of reader-level accuracy is made.
+Still open: a human-scored agreement study and go/no-go evaluation, and photo-of-handwriting grading. 1.101.0 shipped the rubric category taxonomy (`[thesis]`, `[evidence]`, `[reasoning]`, `[calculation]`, `[units]`, `[notation]`, `[communication]`), shown in the grader and preserved in generated notes. Since 1.99.0, missed criteria drive the prompt's review date, appear in Today and the next exam's study plan, and link from Insights. No claim of reader-level accuracy is made.
 
 #### 5.20.2 AP score calculator
 
@@ -1278,7 +1286,7 @@ Names are proposals; keep existing ones unchanged.
 
 These are **research and specification items**, not implementation work. The AP FRQ grader is the owner's requested next idea after card import; the score calculator and resource hub are its natural companions.
 
-- [x] **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, score history, second pass, official-rubric marker and a scheduler/study-plan feed shipped in 1.97.0–1.99.0 for six courses (§5.20); human-scored calibration remains a quality gate
+- [x] **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, score history, second pass, official-rubric marker, rubric categories and a scheduler/study-plan feed shipped in 1.97.0–1.101.0 for six courses (§5.20); human-scored calibration remains a quality gate
 - [x] **AP score calculator** — four 2027 profiles, weighted section and part inputs, editable practice cutoffs, incomplete estimates, a likely band and a reverse "what do I need?" calculation (§5.20) — shipped in 1.56.0
 - [x] **Saved AP practice-exam history** — save a complete result as an ordinary note, list attempts newest first, show the average and change from the previous attempt (§5.20.2) — shipped in 1.58.0; per-question FRQ history shipped in 1.95.0 and per-section trends in 1.96.0
 - [x] **AP resource hub** — one place for official AP Central/AP Classroom links, course and exam descriptions, released FRQs and scoring guidelines, AP Videos, and exam dates (§5.20) — link-only version shipped in 1.57.0; resource notes, course/unit tags and stale-link checks shipped in 1.59.0; calendar/Today integration shipped in 1.60.0–1.62.0
@@ -1294,7 +1302,7 @@ These are **research and specification items**, not implementation work. The AP 
 
 ### Phase 3: Calendar and courses (priority)
 
-- [x] Course registry, folder mapping, `.ics` import, per-class notes (§5.8)
+- [x] Course registry (name, code, folder, color, semester, instructor and credits), folder mapping, `.ics` import, per-class notes (§5.8) — full registry in 1.101.0
 - [x] Month grid, daily timeline, live countdown, mobile Today and Upcoming views
 - [x] Exam model, exam countdowns, SAT/AP-style non-semester exam events
 - [x] **Exam-aware scheduling caps (§4.3)** — shipped. Cap ladder and FSRS due dates before a matching exam; never extend an interval; leave unknown courses untouched.
@@ -1329,7 +1337,7 @@ These are **research and specification items**, not implementation work. The AP 
 
 ### Phase 5: FRQ and STEM
 
-- [x] **Typed FRQ, rubric grading, override and per-criterion feedback** (§5.5; AP-specific research in §5.20) — shipped in 1.97.0 for the six AP pilot courses; second pass and official/teacher rubric marker in 1.98.0, and the scheduler/study-plan feed in 1.99.0. Mixed MCQ/SPR/FRQ timed tests shipped in 1.100.0.
+- [x] **Typed FRQ, rubric grading, override and per-criterion feedback** (§5.5; AP-specific research in §5.20) — shipped in 1.97.0 for the six AP pilot courses; second pass and official/teacher rubric marker in 1.98.0, and the scheduler/study-plan feed in 1.99.0. Mixed MCQ/SPR/FRQ timed tests shipped in 1.100.0; rubric categories and the answer math preview in 1.101.0.
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
@@ -2743,7 +2751,7 @@ Names are proposals; keep existing ones unchanged.
 
 ### Phase 5: FRQ and STEM
 
-- [x] **Typed FRQ, rubric grading, override and per-criterion feedback** (§5.5) — shipped in 1.97.0 for six AP courses; second pass in 1.98.0, and the scheduler/study-plan feed in 1.99.0. Mixed timed-test FRQ items remain.
+- [x] **Typed FRQ, rubric grading, override and per-criterion feedback** (§5.5) — shipped in 1.97.0 for six AP courses; second pass in 1.98.0, and the scheduler/study-plan feed in 1.99.0. Mixed timed-test FRQ items shipped in 1.100.0; rubric categories and the math preview in 1.101.0.
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
@@ -3177,6 +3185,5 @@ Shipped behind the module switch (off by default):
 - English-only labels and an editable text template: no visual template builder and no regional
   guides (the current answer to §11 item 20).
 
-Not done yet: the full course registry (semester, credit weight), exam-aware scheduler caps
-(§4.3), reading events written by other calendar plugins, and testing on real iOS and Android
+Not done yet: reading events written by other calendar plugins, and testing on real iOS and Android
 devices.

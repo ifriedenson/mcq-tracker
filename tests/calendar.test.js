@@ -347,6 +347,7 @@ test("settings: module and calendar navigation groups expose the requested tabs"
     "About",
     "Schedules & Sync",
     "Notes & Templates",
+    "Courses",
     "Exclusions",
     "Appearance & Colors",
     "Language & Region",
@@ -884,4 +885,44 @@ test("stylesheet: ported calendar selectors stay scoped to the calendar or its m
     }
   }
   assert.deepEqual(unscoped, [], `global calendar selectors: ${unscoped.join(" | ")}`);
+});
+
+test("courses: registry fields normalize, then drive folders, colors and note variables", () => {
+  const settings = model.mergeCalendarSettings({
+    noteFolder: "University",
+    courses: [
+      {
+        name: "CHEM 101",
+        code: "CHEM 101",
+        folder: "University/Chemistry",
+        color: "#123456",
+        semester: "Fall 2026",
+        instructor: "Dr. Chen",
+        credits: 4,
+      },
+    ],
+  });
+  assert.equal(settings.courses.length, 1);
+  assert.equal(settings.courses[0].credits, 4);
+  assert.equal(settings.courses[0].color, "#123456");
+  assert.equal(model.findRegisteredCourse(settings, "chem 101").id, "chem-101");
+  assert.equal(model.findRegisteredCourse(settings, "CHEM 101 - Lecture").code, "CHEM 101");
+  assert.equal(model.resolveSubjectFolder(settings, "CHEM 101 - Lecture", ["University/Chemistry"], {}), "University/Chemistry");
+  assert.equal(model.classColor(settings, { category: "wyklad" }, "CHEM 101 - Lecture"), "#123456");
+
+  const ev = {
+    uid: "chem-1",
+    summary: "CHEM 101 - Lecture",
+    description: "",
+    location: "",
+    allDay: false,
+    dtstart: new Date(2026, 9, 5, 10, 0),
+    dtend: new Date(2026, 9, 5, 11, 0),
+  };
+  const vars = model.noteVariables(settings, ev, "2026-10-05");
+  assert.equal(vars.course_name, "CHEM 101");
+  assert.equal(vars.course_code, "CHEM 101");
+  assert.equal(vars.semester, "Fall 2026");
+  assert.equal(vars.instructor, "Dr. Chen");
+  assert.equal(vars.credits, 4);
 });

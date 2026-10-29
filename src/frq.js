@@ -128,6 +128,18 @@ const FRQ_PRESETS = {
 
 const GRADED_BY = ["self", "ai", "ai-edited"];
 
+const RUBRIC_CATEGORIES = [
+  { id: "thesis", label: "Thesis or claim" },
+  { id: "evidence", label: "Evidence" },
+  { id: "reasoning", label: "Reasoning" },
+  { id: "calculation", label: "Calculation" },
+  { id: "units", label: "Units and significant figures" },
+  { id: "notation", label: "Notation" },
+  { id: "communication", label: "Communication" },
+  { id: "other", label: "Other" },
+];
+const RUBRIC_CATEGORY_IDS = RUBRIC_CATEGORIES.map((category) => category.id);
+
 function courseById(id) {
   return FRQ_COURSES.find((course) => course.id === id) || FRQ_COURSES[0];
 }
@@ -147,8 +159,34 @@ function presetFor(courseId, kind) {
       label: criterion.label,
       points: criterion.points,
       description: criterion.description,
+      category: normalizeRubricCategory(criterion.category, criterion.label, criterion.description),
     })),
   };
+}
+
+function rubricCategoryId(value) {
+  const id = str(value).trim().toLowerCase().replace(/[^a-z]+/g, "-").replace(/^-+|-+$/g, "");
+  return RUBRIC_CATEGORY_IDS.includes(id) ? id : "";
+}
+
+/** An optional category such as [evidence], or a label-based default. */
+function normalizeRubricCategory(value, label, description) {
+  const explicit = rubricCategoryId(value);
+  if (explicit) return explicit;
+  const text = `${str(label)} ${str(description)}`.toLowerCase();
+  if (/\bunits?\b|significant figures|sig\.? ?figs?/.test(text)) return "units";
+  if (/\bnotation\b|symbol|graph label|axis/.test(text)) return "notation";
+  if (/\bcalculation\b|compute|numerical|arithmetic|\banswer\b/.test(text)) return "calculation";
+  if (/\bthesis\b|\bclaim\b/.test(text)) return "thesis";
+  if (/\bcontext\b|\bevidence\b|\bdocuments?\b|\bsourcing\b|\bsource\b/.test(text)) return "evidence";
+  if (/\breasoning\b|\bexplanation\b|justif|\bcomplexity\b|\bprinciples?\b|\bmethod\b|\bconditions?\b|\bsetup\b|supporting work/.test(text)) return "reasoning";
+  if (/\bcommunication\b|clarity|\bconclusion\b|interpretation/.test(text)) return "communication";
+  return "other";
+}
+
+function rubricCategoryLabel(id) {
+  const found = RUBRIC_CATEGORIES.find((category) => category.id === id);
+  return found ? found.label : "Other";
 }
 
 function clampPoints(value, max) {
@@ -218,12 +256,21 @@ function slugId(label, used) {
 }
 
 function splitCriterion(text) {
-  const body = str(text).trim();
+  let body = str(text).trim();
+  let category = "";
+  const tagged = body.match(/^\[([a-z][a-z -]{2,30})\]\s*(.+)$/i);
+  if (tagged) {
+    const id = rubricCategoryId(tagged[1]);
+    if (id) {
+      category = id;
+      body = tagged[2].trim();
+    }
+  }
   const colon = body.indexOf(":");
   if (colon > 0 && colon <= 60) {
-    return { label: body.slice(0, colon).trim(), description: body.slice(colon + 1).trim() };
+    return { label: body.slice(0, colon).trim(), description: body.slice(colon + 1).trim(), category };
   }
-  return { label: body, description: "" };
+  return { label: body, description: "", category };
 }
 
 /** Parse the bullet and table forms a learner or teacher is likely to paste. */
@@ -281,7 +328,13 @@ function parseRubric(text) {
     criteria.push({ id: slugId(parts.label, used), label: parts.label, points: 1, description: parts.description });
     warnings.push(`"${parts.label}" had no point value, so it starts at 1 point.`);
   }
-  return { criteria, warnings };
+  return {
+    criteria: criteria.map((criterion) => ({
+      ...criterion,
+      category: normalizeRubricCategory(criterion.category, criterion.label, criterion.description),
+    })),
+    warnings,
+  };
 }
 
 function rubricTotal(criteria) {
@@ -299,6 +352,7 @@ function normalizeRubric(criteria) {
         label,
         points: Math.max(0, Number(criterion.points) || 0),
         description: str(criterion.description).trim(),
+        category: normalizeRubricCategory(criterion.category, label, criterion.description),
       };
     });
 }
@@ -322,7 +376,7 @@ function parseFrqNote(text, fm, path) {
   const warnings = parsed.warnings.slice();
   if (!criteria.length) {
     const max = Number(frontmatter.max_points);
-    criteria = [{ id: "overall", label: "Overall", points: Number.isFinite(max) && max > 0 ? max : 0, description: "Add a ## Rubric section to score criterion by criterion." }];
+    criteria = [{ id: "overall", label: "Overall", points: Number.isFinite(max) && max > 0 ? max : 0, description: "Add a ## Rubric section to score criterion by criterion.", category: "other" }];
     if (!(Number.isFinite(max) && max > 0)) warnings.push("No rubric and no max_points property: add a rubric before grading.");
   }
   const courseId = str(frontmatter.ap_course).trim() || FRQ_COURSES[0].id;
@@ -372,6 +426,7 @@ function scoreAttempt(input) {
       id: criterion.id,
       label: criterion.label,
       description: criterion.description,
+      category: criterion.category,
       max: criterion.points,
       awarded,
       lost: round1(criterion.points - awarded),
@@ -426,6 +481,7 @@ function buildFrqPrompt(note, answer) {
     rubric: (note && note.rubric ? note.rubric : []).map((criterion) => ({
       id: criterion.id,
       criterion: trimmed(criterion.label, 200),
+      category: str(criterion.category) || "other",
       max_points: Number(criterion.points) || 0,
       description: trimmed(criterion.description, 600),
     })),
@@ -569,7 +625,12 @@ function normalizeDate(value) {
 }
 
 function rubricMarkdown(criteria) {
-  return criteria.map((criterion) => `- [${criterion.points}] ${criterion.label}${criterion.description ? `: ${criterion.description}` : ""}`).join("\n");
+  return criteria
+    .map((criterion) => {
+      const category = criterion.category && criterion.category !== "other" ? `[${criterion.category}] ` : "";
+      return `- [${criterion.points}] ${category}${criterion.label}${criterion.description ? `: ${criterion.description}` : ""}`;
+    })
+    .join("\n");
 }
 
 /** Build a new FRQ note from a pasted prompt and rubric. */
@@ -860,6 +921,9 @@ module.exports = {
   FRQ_ATTEMPT_FOLDER,
   FRQ_ATTEMPT_TYPE,
   FRQ_COURSES,
+  RUBRIC_CATEGORIES,
+  normalizeRubricCategory,
+  rubricCategoryLabel,
   FRQ_FOLDER,
   FRQ_NOTE_TYPE,
   FRQ_PILOT_COURSES,
