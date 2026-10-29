@@ -10,6 +10,7 @@ const { str } = require("./util");
 const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictness, parseVariants } = require("./card-grading");
+const { DEFAULT_ANKI_CONNECT, normalizeAnkiConnect } = require("./anki-connect");
 
 const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
 const CARD_TYPE_LABELS = {
@@ -66,6 +67,7 @@ function mergeCardSettings(saved, defaults) {
       aiGrading: false,
       decks: [],
       csvMappings: {},
+      ankiConnect: { ...DEFAULT_ANKI_CONNECT },
     },
     defaults || {}
   );
@@ -81,6 +83,7 @@ function mergeCardSettings(saved, defaults) {
   out.aiGrading = src.aiGrading === true;
   out.decks = normalizeDecks(src.decks === undefined ? base.decks : src.decks);
   out.csvMappings = src.csvMappings && typeof src.csvMappings === "object" && !Array.isArray(src.csvMappings) ? { ...src.csvMappings } : {};
+  out.ankiConnect = normalizeAnkiConnect(src.ankiConnect === undefined ? base.ankiConnect : src.ankiConnect);
   return out;
 }
 

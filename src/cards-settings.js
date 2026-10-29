@@ -182,6 +182,48 @@ function renderDecks(containerEl, plugin, redisplay) {
         redisplay();
       })
     );
+
+  const anki = st.ankiConnect;
+  new Setting(containerEl).setName("AnkiConnect").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Optional one-way push to a running Anki desktop with the AnkiConnect add-on. Nothing is sent until this is on. AnkiConnect listens on your computer only; this does not use AnkiWeb.",
+  });
+  new Setting(containerEl)
+    .setName("Enable AnkiConnect push")
+    .setDesc("Adds a Push to Anki command and button. Your notes stay in the vault either way.")
+    .addToggle((t) =>
+      t.setValue(anki.enabled === true).onChange(async (v) => {
+        anki.enabled = v;
+        await plugin.save();
+        redisplay();
+      })
+    );
+  new Setting(containerEl)
+    .setName("AnkiConnect address")
+    .setDesc("The local address AnkiConnect listens on. The default is 127.0.0.1:8765.")
+    .addText((t) =>
+      t.setValue(anki.url || "http://127.0.0.1:8765").onChange(async (v) => {
+        anki.url = str(v).trim();
+        await plugin.save();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Target deck")
+    .setDesc("Leave blank to keep each card's own deck. A name here sends every card in this filter to that one deck.")
+    .addText((t) =>
+      t
+        .setPlaceholder("Each card's deck")
+        .setValue(anki.deck || "")
+        .onChange(async (v) => {
+          anki.deck = str(v).trim();
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Push the current filter to Anki")
+    .setDesc("Uses the deck and course filter from the Cards view. Duplicate cards are reported and left alone.")
+    .addButton((b) => b.setButtonText("Push to Anki").onClick(() => plugin.openAnkiConnectPush()));
 }
 
 function ensureDeck(st, name) {

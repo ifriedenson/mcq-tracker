@@ -106,6 +106,7 @@ const DEFAULT_SETTINGS = {
     aiGrading: false, // optional AI second opinion when the local typed-answer grader is unsure
     decks: [], // [{ name, folder, course, answerMode, gradingStrictness }]
     csvMappings: {}, // header-signature -> column mapping remembered by the generic CSV importer
+    ankiConnect: { enabled: false, url: "http://127.0.0.1:8765", deck: "" }, // optional local AnkiConnect push; off by default
   },
 };
 

@@ -554,7 +554,7 @@ Build on the existing timed test.
 
 ### 5.15 Interop and import/export  — **M**
 
-- **Anki:** import/export through LearnKit-compatible formats or AnkiConnect-based sync (Yanki and Auto Anki show demand).
+- **Anki:** import/export through LearnKit-compatible formats, plain text, and an optional AnkiConnect push (Yanki and Auto Anki show demand). Bidirectional sync and `.apkg` remain.
 - **Spaced Repetition card syntax:** read-only support to import existing decks.
 - **CSV export** of results for outside analysis.
 - **Dataview-friendly properties** so power users can build their own views.
@@ -1151,7 +1151,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Moodle XML and QTI import (§5.22.3) — shipped in 1.22.0
 - [x] Mochi Markdown and CrowdAnki JSON import (§5.22.3) — shipped in 1.23.0
 - [x] Import preview, report and duplicate update/copy (§5.22.3) — shipped in 1.24.0
-- [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — .apkg, AnkiConnect and LearnKit formats remain
+- [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — .apkg, bidirectional AnkiConnect sync and LearnKit formats remain
 - [x] Answer modes: flip, type and speak via OS dictation, with the deterministic cheap-first grading pipeline (§5.17)
 - [x] AI fallback for typed answers that the local grader cannot settle, using the shared AI layer and a validated structured verdict (§5.17)
 - [x] Durable grade-later queue for offline, slow or over-budget grading, with batch retry, idempotency and a pending-grade badge (§5.17)
@@ -1219,7 +1219,8 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] CSV export of a per-note summary and full attempt history for outside analysis (§5.15) — shipped in 1.38.0
 - [x] Anki plain-text export with deck, note type and tag columns (§5.15) — shipped in 1.39.0
 - [x] Documented property schema and Dataview examples in [docs/property-schema.md](docs/property-schema.md) (§5.15) — shipped in 1.39.0
-- [ ] Optional AnkiConnect sync and `.apkg` import (§5.15)
+- [x] Optional AnkiConnect push to a running Anki desktop, with duplicate reporting (§5.15) — shipped in 1.40.0
+- [ ] Optional `.apkg` import and bidirectional AnkiConnect sync (§5.15)
 - [ ] Pronunciation feedback for language learners (optional)
 - [ ] Handwritten-work photo grading (optional, vision models)
 
@@ -2261,7 +2262,7 @@ Build on the existing timed test.
 
 ### 5.15 Interop and import/export  — **M**
 
-- **Anki:** import/export through LearnKit-compatible formats or AnkiConnect-based sync (Yanki and Auto Anki show demand).
+- **Anki:** import/export through LearnKit-compatible formats, plain text, and an optional AnkiConnect push (Yanki and Auto Anki show demand). Bidirectional sync and `.apkg` remain.
 - **Spaced Repetition card syntax:** read-only support to import existing decks.
 - **CSV export** of results for outside analysis.
 - **Dataview-friendly properties** so power users can build their own views.
@@ -2529,7 +2530,7 @@ Names are proposals; keep existing ones unchanged.
 ### Phase 2: Flashcards and vocab (priority)
 
 - [x] Card and vocab item types, deck organization, course tagging (§5.7) — shipped in 1.12.0
-- [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — .apkg, AnkiConnect and LearnKit formats remain
+- [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — .apkg, bidirectional AnkiConnect sync and LearnKit formats remain
 - [x] Answer modes: flip, type and speak via OS dictation, with the deterministic cheap-first grading pipeline (§5.17) — AI fallback remains
 - [x] AI grader with strictness settings, override, and grade-later queue
 - [x] Unified due queue model and Today/command list across cards, vocab and MCQs — interleaved mixed-review sessions remain
@@ -2579,7 +2580,8 @@ Names are proposals; keep existing ones unchanged.
 - [x] CSV export of a per-note summary and full attempt history for outside analysis (§5.15) — shipped in 1.38.0
 - [x] Anki plain-text export with deck, note type and tag columns (§5.15) — shipped in 1.39.0
 - [x] Documented property schema and Dataview examples in [docs/property-schema.md](docs/property-schema.md) (§5.15) — shipped in 1.39.0
-- [ ] Optional AnkiConnect sync and `.apkg` import (§5.15)
+- [x] Optional AnkiConnect push to a running Anki desktop, with duplicate reporting (§5.15) — shipped in 1.40.0
+- [ ] Optional `.apkg` import and bidirectional AnkiConnect sync (§5.15)
 - [ ] Pronunciation feedback for language learners (optional)
 - [ ] Handwritten-work photo grading (optional, vision models)
 - [ ] Long-term standalone mobile product discovery (§10c); do not split the

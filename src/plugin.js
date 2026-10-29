@@ -38,6 +38,7 @@ const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
+const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, normalizeAnkiConnect } = require("./anki-connect");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
@@ -235,6 +236,7 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
     this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
+    this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
     this.addCommand({ id: "manage-study-status", name: "Manage known and excluded items", callback: () => this.openStudyStatusManager() });
 
@@ -1321,6 +1323,51 @@ class QuestionTrackerPlugin extends Plugin {
         if (onDone) onDone(result);
       }
     ).open();
+  }
+
+  openAnkiConnectPush(options, onDone) {
+    if (this.moduleOff("cards")) return;
+    const settings = normalizeAnkiConnect(this.settings.cards.ankiConnect);
+    if (!settings.enabled) {
+      new Notice("Turn on AnkiConnect push under Settings, Cards, Decks first.");
+      return;
+    }
+    new AnkiConnectModal(
+      this.app,
+      this,
+      options || {},
+      (result) => {
+        this.refreshViews();
+        if (onDone) onDone(result);
+      }
+    ).open();
+  }
+
+  /** Optional one-way push to a running AnkiConnect. Nothing leaves the device without this call. */
+  async pushCardsToAnki(options) {
+    if (this.moduleOff("cards")) throw new Error("Turn on the Cards module first.");
+    const opts = options || {};
+    const settings = normalizeAnkiConnect(this.settings.cards.ankiConnect);
+    if (!settings.enabled) throw new Error("Turn on AnkiConnect push under Settings, Cards, Decks first.");
+    const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
+    if (!cards.length) throw new Error("No cards match the current deck and course filter.");
+    const records = [];
+    const warnings = [];
+    for (const card of cards) {
+      try {
+        const text = await this.app.vault.cachedRead(card.file);
+        records.push({ ...card, body: parseCardBody(text, card.fm) });
+      } catch (e) {
+        warnings.push(`${card.file.path}: ${String((e && e.message) || e)}`);
+      }
+    }
+    const built = buildAnkiNotes(records, {
+      deck: opts.targetDeck || settings.deck,
+      defaultDeck: this.settings.cards.defaultDeck,
+    });
+    if (!built.notes.length) throw new Error("Nothing in this filter can be sent to Anki yet.");
+    const result = await new AnkiConnectClient({ url: settings.url }).push(built.notes);
+    return { ...result, format: "ankiconnect", count: built.notes.length, warnings: [...warnings, ...built.warnings] };
   }
 
   openCardExtract(path, options, onDone) {

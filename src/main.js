@@ -34,6 +34,7 @@ const cards = require("./cards");
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
 const cardsImport = require("./cards-import");
+const ankiConnect = require("./anki-connect");
 const cardsExtract = require("./cards-extract");
 const { CardExtractModal } = require("./cards-extract-modal");
 const cardGrading = require("./card-grading");
@@ -190,6 +191,7 @@ QuestionTrackerPlugin.__test = {
   CALENDAR_TABS,
   cards,
   cardsImport,
+  ankiConnect,
   cardsExtract,
   CardExtractModal,
   cardGrading,
