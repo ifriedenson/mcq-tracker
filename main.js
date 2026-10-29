@@ -43,6 +43,32 @@ function courseMatches(value, course) {
 }
 
 const DEFAULT_CONFIDENCE_LABELS = ["Guessing", "Unsure", "Confident"];
+const BREAKDOWN_FIELDS = ["skill", "domain", "difficulty"];
+const FIELD_LABELS = { skill: "Weak spots", domain: "Domain breakdown", difficulty: "Difficulty breakdown" };
+
+function gradeLetter(accuracy) {
+  if (accuracy === null || accuracy === undefined) return "-";
+  if (accuracy >= 0.9) return "A";
+  if (accuracy >= 0.8) return "B";
+  if (accuracy >= 0.7) return "C";
+  if (accuracy >= 0.6) return "D";
+  return "F";
+}
+
+/** A clearly practice-derived snapshot, not an assignment or transcript grade. */
+function buildGradeSnapshot(questions) {
+  const list = Array.isArray(questions) ? questions : [];
+  const overall = overallStats(list);
+  const courses = computeStats(list, "course")
+    .filter((row) => row.attempts > 0)
+    .map((row) => ({ course: row.value, accuracy: row.accuracy, attempts: row.attempts, grade: gradeLetter(row.accuracy) }))
+    .slice(0, 6);
+  return {
+    basis: "practice accuracy",
+    overall: { accuracy: overall.accuracy, attempts: overall.attempts, grade: gradeLetter(overall.accuracy) },
+    courses,
+  };
+}
 
 function confidenceLabelsOf(labels) {
   const source = Array.isArray(labels) ? labels : [];
@@ -189,7 +215,8 @@ function buildDashboard(options) {
   const scopedLog = course
     ? { ...studyLog, sessions: (studyLog.sessions || []).filter((session) => courseMatches(session.course, course)) }
     : studyLog;
-  const stats = computeStats(scopedQuestions, "skill");
+  const field = BREAKDOWN_FIELDS.includes(opts.field) ? opts.field : "skill";
+  const stats = computeStats(scopedQuestions, field);
   const calibration = buildCalibration(scopedQuestions, opts.confidenceLabels);
   const retention = buildRetention(scopedQuestions, today, opts.retentionWeeks || 8);
   const overall = overallStats(scopedQuestions);
@@ -205,8 +232,12 @@ function buildDashboard(options) {
     overall,
     study,
     cardStats,
+    field,
+    fieldLabel: FIELD_LABELS[field],
     weak: weakestRow(stats),
     skills: stats.slice(0, 8),
+    breakdown: stats.slice(0, 8),
+    grades: buildGradeSnapshot(scopedQuestions),
     calibration,
     retention,
     heatmap: buildHeatmap(scopedLog.sessions, scopedQuestions, today, opts.weeks || 12),
@@ -216,13 +247,17 @@ function buildDashboard(options) {
 }
 
 module.exports = {
+  BREAKDOWN_FIELDS,
+  FIELD_LABELS,
   activityByDay,
   activityLevel,
   buildCalibration,
   buildDashboard,
+  buildGradeSnapshot,
   buildHeatmap,
   buildRetention,
   confidenceLabelsOf,
+  gradeLetter,
   courseKey,
   courseMatches,
   dayKey,
@@ -235,8 +270,9 @@ module.exports = {
 __defs["analytics-embed"] = function (module, exports, require) {
 const { fmtPct } = require("./stats");
 const { fmtClock } = require("./util");
+const { BREAKDOWN_FIELDS, FIELD_LABELS } = require("./analytics");
 
-const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "calibration", "retention", "weak", "courses", "exam"];
+const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "calibration", "retention", "weak", "grades", "courses", "exam"];
 const ALIASES = {
   overview: "overview",
   dashboard: "overview",
@@ -252,6 +288,8 @@ const ALIASES = {
   trend: "retention",
   weak: "weak",
   skills: "weak",
+  grade: "grades",
+  grades: "grades",
   courses: "courses",
   course: "courses",
   exam: "exam",
@@ -265,13 +303,14 @@ const LABELS = {
   calibration: "Confidence calibration",
   retention: "Retention trend",
   weak: "Weak spots",
+  grades: "Grade snapshot",
   courses: "Study time by course",
   exam: "Next exam",
 };
 
 /** Read a `mcq-dashboard` block. Unknown metrics fall back to the overview. */
 function parseDashboardBlock(source) {
-  const opts = { metric: "overview", weeks: 12, course: "", title: "" };
+  const opts = { metric: "overview", weeks: 12, course: "", field: "skill", title: "" };
   for (const line of String(source || "").split(/\r?\n/)) {
     const m = /^\s*([A-Za-z][\w-]*)\s*:\s*(.*)$/.exec(line);
     if (!m) continue;
@@ -282,6 +321,7 @@ function parseDashboardBlock(source) {
       const n = Math.round(Number(value));
       if (Number.isFinite(n)) opts.weeks = Math.max(1, Math.min(26, n));
     } else if (key === "course") opts.course = value;
+    else if (key === "field") opts.field = BREAKDOWN_FIELDS.includes(value.toLowerCase()) ? value.toLowerCase() : "skill";
     else if (key === "title") opts.title = value;
   }
   return opts;
@@ -374,11 +414,12 @@ function renderRetention(container, data) {
   });
 }
 
-function renderWeak(container, data, hooks) {
-  heading(container, "Weak spots");
-  const rows = data.skills.filter((row) => row.accuracy !== null).slice(0, 5);
+function renderBreakdown(container, data, hooks) {
+  const field = data.field || "skill";
+  heading(container, data.fieldLabel || FIELD_LABELS[field] || "Weak spots");
+  const rows = (data.breakdown || data.skills || []).filter((row) => row.accuracy !== null).slice(0, 5);
   if (!rows.length) {
-    container.createDiv({ cls: "qt-hint", text: "No attempted skills yet." });
+    container.createDiv({ cls: "qt-hint", text: `No attempted ${field} values yet.` });
     return;
   }
   const list = container.createDiv({ cls: "qt-ins-list" });
@@ -392,8 +433,27 @@ function renderWeak(container, data, hooks) {
     meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round(row.accuracy * 100)}%` });
     meter.createSpan({ cls: "qt-ins-pct", text: fmtPct(row.accuracy) });
     if (hooks && hooks.onPractice) {
-      line.createEl("button", { text: "Practice" }).addEventListener("click", () => hooks.onPractice(row.value));
+      line.createEl("button", { text: "Practice" }).addEventListener("click", () => hooks.onPractice(field, row.value));
     }
+  }
+}
+
+function renderGrade(container, data) {
+  heading(container, "Grade snapshot");
+  const grades = data.grades;
+  if (!grades || !grades.overall.attempts) {
+    container.createDiv({ cls: "qt-hint", text: "No practice grade yet. Answer a question to start the snapshot." });
+    return;
+  }
+  const box = container.createDiv({ cls: "qt-dash-exam qt-grade-snapshot" });
+  box.createDiv({ cls: "qt-dash-value", text: grades.overall.grade });
+  box.createDiv({ cls: "qt-today-meta", text: `${fmtPct(grades.overall.accuracy)} practice accuracy · ${grades.overall.attempts} attempts` });
+  box.createDiv({ cls: "qt-hint", text: "Based on practice accuracy, not assignment or transcript grades." });
+  for (const row of grades.courses) {
+    const line = box.createDiv({ cls: "qt-grade-row" });
+    line.createSpan({ cls: "qt-ins-name", text: row.course });
+    line.createSpan({ cls: "qt-hint", text: `${fmtPct(row.accuracy)} · ${row.attempts} attempts` });
+    line.createSpan({ cls: "qt-dash-value", text: row.grade });
   }
 }
 
@@ -452,7 +512,8 @@ function renderDashboardEmbed(container, data, options, hooks) {
   if (show("heatmap")) renderHeatmap(container, data);
   if (show("calibration")) renderCalibration(container, data);
   if (show("retention")) renderRetention(container, data);
-  if (show("weak")) renderWeak(container, data, hooks);
+  if (show("grades")) renderGrade(container, data);
+  if (show("weak")) renderBreakdown(container, data, hooks);
   if (show("courses")) renderCourses(container, data);
   if (show("exam")) renderExam(container, data);
 }
@@ -461,8 +522,10 @@ module.exports = {
   DASHBOARD_METRICS,
   LABELS,
   parseDashboardBlock,
+  renderBreakdown,
   renderCalibration,
   renderDashboardEmbed,
+  renderGrade,
   renderRetention,
 };
 };
@@ -13108,7 +13171,7 @@ const { fmtClock, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
-const { renderCalibration, renderRetention } = require("./analytics-embed");
+const { renderBreakdown, renderCalibration, renderGrade, renderRetention } = require("./analytics-embed");
 
 /* ------------------------------------------- weak spots and error log */
 
@@ -13119,6 +13182,7 @@ class InsightsView extends ItemView {
     super(leaf);
     this.plugin = plugin;
     this.tab = "weak"; // weak | errors | overview
+    this.overviewField = "skill";
     this.field = "skill";
     this.showAll = {};
     this.timer = null;
@@ -13191,6 +13255,7 @@ class InsightsView extends ItemView {
       cards,
       studyLog: p.settings.studyLog,
       confidenceLabels: p.settings.confidenceLabels,
+      field: this.overviewField,
       today: new Date(),
     });
     const o = data.overall;
@@ -13216,6 +13281,7 @@ class InsightsView extends ItemView {
     tile("Accuracy", fmtPct(o.accuracy), o.attempts ? `${fmtClock(Math.round(o.avgSeconds))} per question` : "No attempts yet");
     tile("Study today", `${data.study.todayMinutes} min`, `${data.study.streak} day streak`);
     tile("Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
+    renderGrade(root, data);
 
     root.createEl("h3", { cls: "qt-today-section", text: "Study heatmap" });
     root.createDiv({
@@ -13239,24 +13305,18 @@ class InsightsView extends ItemView {
     renderCalibration(root, data);
     renderRetention(root, data);
 
-    root.createEl("h3", { cls: "qt-today-section", text: "Weak spots" });
-    const tried = data.skills.filter((r) => r.accuracy !== null).slice(0, 5);
-    if (tried.length) {
-      const list = root.createDiv({ cls: "qt-ins-list" });
-      for (const r of tried) {
-        const row = list.createDiv({ cls: "qt-ins-row" });
-        const main = row.createDiv({ cls: "qt-ins-main" });
-        main.createDiv({ cls: "qt-ins-name", text: r.value });
-        main.createDiv({ cls: "qt-hint", text: `${r.attempts} attempt${r.attempts === 1 ? "" : "s"} · ${r.notes} note${r.notes === 1 ? "" : "s"}` });
-        const meter = row.createDiv({ cls: "qt-ins-meter" });
-        const band = r.accuracy < 0.6 ? "is-low" : r.accuracy < 0.8 ? "is-mid" : "is-high";
-        meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round(r.accuracy * 100)}%` });
-        meter.createSpan({ cls: "qt-ins-pct", text: fmtPct(r.accuracy) });
-        row.createEl("button", { text: "Practice" }).addEventListener("click", () => p.practiceWith({ skill: [r.value] }, "smart"));
-      }
-    } else {
-      root.createDiv({ cls: "qt-hint", text: "Answer a few questions to see where you are losing marks." });
+    const chips = root.createDiv({ cls: "qt-chips" });
+    for (const [field, label] of [["skill", "Skill"], ["domain", "Domain"], ["difficulty", "Difficulty"]]) {
+      const chip = chips.createEl("button", { text: label, cls: "qt-chip" });
+      if (this.overviewField === field) chip.addClass("is-selected");
+      chip.addEventListener("click", () => {
+        this.overviewField = field;
+        this.render();
+      });
     }
+    renderBreakdown(root, data, {
+      onPractice: (field, value) => p.practiceWith({ [field]: [value] }, "smart"),
+    });
 
     if (data.byCourse.length) {
       root.createEl("h3", { cls: "qt-today-section", text: "Study time by course" });
@@ -16791,12 +16851,13 @@ class QuestionTrackerPlugin extends Plugin {
         confidenceLabels: this.settings.confidenceLabels,
         today: new Date(),
         course: opts.course,
+        field: opts.field,
         weeks: opts.weeks,
       });
       const plan = this.studyPlan ? this.studyPlan() : null;
       data.plan = plan && (!opts.course || courseMatches(plan.course, opts.course)) ? plan : null;
       renderDashboardEmbed(box, data, opts, {
-        onPractice: (skill) => this.practiceWith({ skill: [skill] }, "smart"),
+        onPractice: (field, value) => this.practiceWith({ [field]: [value] }, "smart"),
       });
       const footer = box.createDiv({ cls: "qt-row qt-small-row qt-dash-embed-footer" });
       footer.createSpan({ cls: "qt-hint", text: "Calculated locally." });
@@ -23877,6 +23938,8 @@ QuestionTrackerPlugin.__test = {
   buildHeatmap: analytics.buildHeatmap,
   buildCalibration: analytics.buildCalibration,
   buildRetention: analytics.buildRetention,
+  buildGradeSnapshot: analytics.buildGradeSnapshot,
+  gradeLetter: analytics.gradeLetter,
   activityLevel: analytics.activityLevel,
   analyticsEmbed,
   parseDashboardBlock: analyticsEmbed.parseDashboardBlock,

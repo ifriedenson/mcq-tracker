@@ -1,8 +1,9 @@
 "use strict";
 const { fmtPct } = require("./stats");
 const { fmtClock } = require("./util");
+const { BREAKDOWN_FIELDS, FIELD_LABELS } = require("./analytics");
 
-const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "calibration", "retention", "weak", "courses", "exam"];
+const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "calibration", "retention", "weak", "grades", "courses", "exam"];
 const ALIASES = {
   overview: "overview",
   dashboard: "overview",
@@ -18,6 +19,8 @@ const ALIASES = {
   trend: "retention",
   weak: "weak",
   skills: "weak",
+  grade: "grades",
+  grades: "grades",
   courses: "courses",
   course: "courses",
   exam: "exam",
@@ -31,13 +34,14 @@ const LABELS = {
   calibration: "Confidence calibration",
   retention: "Retention trend",
   weak: "Weak spots",
+  grades: "Grade snapshot",
   courses: "Study time by course",
   exam: "Next exam",
 };
 
 /** Read a `mcq-dashboard` block. Unknown metrics fall back to the overview. */
 function parseDashboardBlock(source) {
-  const opts = { metric: "overview", weeks: 12, course: "", title: "" };
+  const opts = { metric: "overview", weeks: 12, course: "", field: "skill", title: "" };
   for (const line of String(source || "").split(/\r?\n/)) {
     const m = /^\s*([A-Za-z][\w-]*)\s*:\s*(.*)$/.exec(line);
     if (!m) continue;
@@ -48,6 +52,7 @@ function parseDashboardBlock(source) {
       const n = Math.round(Number(value));
       if (Number.isFinite(n)) opts.weeks = Math.max(1, Math.min(26, n));
     } else if (key === "course") opts.course = value;
+    else if (key === "field") opts.field = BREAKDOWN_FIELDS.includes(value.toLowerCase()) ? value.toLowerCase() : "skill";
     else if (key === "title") opts.title = value;
   }
   return opts;
@@ -140,11 +145,12 @@ function renderRetention(container, data) {
   });
 }
 
-function renderWeak(container, data, hooks) {
-  heading(container, "Weak spots");
-  const rows = data.skills.filter((row) => row.accuracy !== null).slice(0, 5);
+function renderBreakdown(container, data, hooks) {
+  const field = data.field || "skill";
+  heading(container, data.fieldLabel || FIELD_LABELS[field] || "Weak spots");
+  const rows = (data.breakdown || data.skills || []).filter((row) => row.accuracy !== null).slice(0, 5);
   if (!rows.length) {
-    container.createDiv({ cls: "qt-hint", text: "No attempted skills yet." });
+    container.createDiv({ cls: "qt-hint", text: `No attempted ${field} values yet.` });
     return;
   }
   const list = container.createDiv({ cls: "qt-ins-list" });
@@ -158,8 +164,27 @@ function renderWeak(container, data, hooks) {
     meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round(row.accuracy * 100)}%` });
     meter.createSpan({ cls: "qt-ins-pct", text: fmtPct(row.accuracy) });
     if (hooks && hooks.onPractice) {
-      line.createEl("button", { text: "Practice" }).addEventListener("click", () => hooks.onPractice(row.value));
+      line.createEl("button", { text: "Practice" }).addEventListener("click", () => hooks.onPractice(field, row.value));
     }
+  }
+}
+
+function renderGrade(container, data) {
+  heading(container, "Grade snapshot");
+  const grades = data.grades;
+  if (!grades || !grades.overall.attempts) {
+    container.createDiv({ cls: "qt-hint", text: "No practice grade yet. Answer a question to start the snapshot." });
+    return;
+  }
+  const box = container.createDiv({ cls: "qt-dash-exam qt-grade-snapshot" });
+  box.createDiv({ cls: "qt-dash-value", text: grades.overall.grade });
+  box.createDiv({ cls: "qt-today-meta", text: `${fmtPct(grades.overall.accuracy)} practice accuracy · ${grades.overall.attempts} attempts` });
+  box.createDiv({ cls: "qt-hint", text: "Based on practice accuracy, not assignment or transcript grades." });
+  for (const row of grades.courses) {
+    const line = box.createDiv({ cls: "qt-grade-row" });
+    line.createSpan({ cls: "qt-ins-name", text: row.course });
+    line.createSpan({ cls: "qt-hint", text: `${fmtPct(row.accuracy)} · ${row.attempts} attempts` });
+    line.createSpan({ cls: "qt-dash-value", text: row.grade });
   }
 }
 
@@ -218,7 +243,8 @@ function renderDashboardEmbed(container, data, options, hooks) {
   if (show("heatmap")) renderHeatmap(container, data);
   if (show("calibration")) renderCalibration(container, data);
   if (show("retention")) renderRetention(container, data);
-  if (show("weak")) renderWeak(container, data, hooks);
+  if (show("grades")) renderGrade(container, data);
+  if (show("weak")) renderBreakdown(container, data, hooks);
   if (show("courses")) renderCourses(container, data);
   if (show("exam")) renderExam(container, data);
 }
@@ -227,7 +253,9 @@ module.exports = {
   DASHBOARD_METRICS,
   LABELS,
   parseDashboardBlock,
+  renderBreakdown,
   renderCalibration,
   renderDashboardEmbed,
+  renderGrade,
   renderRetention,
 };

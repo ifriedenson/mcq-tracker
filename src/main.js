@@ -160,6 +160,8 @@ QuestionTrackerPlugin.__test = {
   buildHeatmap: analytics.buildHeatmap,
   buildCalibration: analytics.buildCalibration,
   buildRetention: analytics.buildRetention,
+  buildGradeSnapshot: analytics.buildGradeSnapshot,
+  gradeLetter: analytics.gradeLetter,
   activityLevel: analytics.activityLevel,
   analyticsEmbed,
   parseDashboardBlock: analyticsEmbed.parseDashboardBlock,

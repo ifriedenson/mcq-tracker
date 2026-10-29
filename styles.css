@@ -2322,6 +2322,23 @@
   align-items: flex-start;
 }
 
+.qt-grade-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 5px;
+}
+
+.qt-grade-row .qt-ins-name {
+  flex: 1;
+}
+
+.qt-grade-row .qt-dash-value {
+  font-size: 1.1em;
+}
+
 .qt-dash-privacy {
   margin-top: 14px;
 }

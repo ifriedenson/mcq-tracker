@@ -5,7 +5,7 @@ const { fmtClock, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
-const { renderCalibration, renderRetention } = require("./analytics-embed");
+const { renderBreakdown, renderCalibration, renderGrade, renderRetention } = require("./analytics-embed");
 
 /* ------------------------------------------- weak spots and error log */
 
@@ -16,6 +16,7 @@ class InsightsView extends ItemView {
     super(leaf);
     this.plugin = plugin;
     this.tab = "weak"; // weak | errors | overview
+    this.overviewField = "skill";
     this.field = "skill";
     this.showAll = {};
     this.timer = null;
@@ -88,6 +89,7 @@ class InsightsView extends ItemView {
       cards,
       studyLog: p.settings.studyLog,
       confidenceLabels: p.settings.confidenceLabels,
+      field: this.overviewField,
       today: new Date(),
     });
     const o = data.overall;
@@ -113,6 +115,7 @@ class InsightsView extends ItemView {
     tile("Accuracy", fmtPct(o.accuracy), o.attempts ? `${fmtClock(Math.round(o.avgSeconds))} per question` : "No attempts yet");
     tile("Study today", `${data.study.todayMinutes} min`, `${data.study.streak} day streak`);
     tile("Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
+    renderGrade(root, data);
 
     root.createEl("h3", { cls: "qt-today-section", text: "Study heatmap" });
     root.createDiv({
@@ -136,24 +139,18 @@ class InsightsView extends ItemView {
     renderCalibration(root, data);
     renderRetention(root, data);
 
-    root.createEl("h3", { cls: "qt-today-section", text: "Weak spots" });
-    const tried = data.skills.filter((r) => r.accuracy !== null).slice(0, 5);
-    if (tried.length) {
-      const list = root.createDiv({ cls: "qt-ins-list" });
-      for (const r of tried) {
-        const row = list.createDiv({ cls: "qt-ins-row" });
-        const main = row.createDiv({ cls: "qt-ins-main" });
-        main.createDiv({ cls: "qt-ins-name", text: r.value });
-        main.createDiv({ cls: "qt-hint", text: `${r.attempts} attempt${r.attempts === 1 ? "" : "s"} · ${r.notes} note${r.notes === 1 ? "" : "s"}` });
-        const meter = row.createDiv({ cls: "qt-ins-meter" });
-        const band = r.accuracy < 0.6 ? "is-low" : r.accuracy < 0.8 ? "is-mid" : "is-high";
-        meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round(r.accuracy * 100)}%` });
-        meter.createSpan({ cls: "qt-ins-pct", text: fmtPct(r.accuracy) });
-        row.createEl("button", { text: "Practice" }).addEventListener("click", () => p.practiceWith({ skill: [r.value] }, "smart"));
-      }
-    } else {
-      root.createDiv({ cls: "qt-hint", text: "Answer a few questions to see where you are losing marks." });
+    const chips = root.createDiv({ cls: "qt-chips" });
+    for (const [field, label] of [["skill", "Skill"], ["domain", "Domain"], ["difficulty", "Difficulty"]]) {
+      const chip = chips.createEl("button", { text: label, cls: "qt-chip" });
+      if (this.overviewField === field) chip.addClass("is-selected");
+      chip.addEventListener("click", () => {
+        this.overviewField = field;
+        this.render();
+      });
     }
+    renderBreakdown(root, data, {
+      onPractice: (field, value) => p.practiceWith({ [field]: [value] }, "smart"),
+    });
 
     if (data.byCourse.length) {
       root.createEl("h3", { cls: "qt-today-section", text: "Study time by course" });

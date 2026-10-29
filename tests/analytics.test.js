@@ -68,6 +68,22 @@ test("analytics retention counts review attempts but not each question's first t
   assert.equal(retention.weeks.reduce((n, week) => n + week.attempts, 0), 2);
 });
 
+test("analytics grade snapshot uses practice accuracy and reports a per-course letter", () => {
+  const questions = [
+    q("Q/a.md", { course: "Biology", attempts: 4, correct_count: 3 }),
+    q("Q/b.md", { course: "Biology", attempts: 2, correct_count: 2 }),
+    q("Q/c.md", { course: "Chemistry", attempts: 2, correct_count: 0 }),
+  ];
+  const d = T.buildDashboard({ questions, today: "2026-10-28", field: "difficulty" });
+  assert.equal(d.field, "difficulty");
+  assert.equal(d.grades.overall.grade, "D");
+  assert.equal(d.grades.overall.attempts, 8);
+  assert.deepEqual(d.grades.courses.map((row) => [row.course, row.grade]), [["Chemistry", "F"], ["Biology", "B"]]);
+  assert.equal(T.gradeLetter(0.9), "A");
+  assert.equal(T.gradeLetter(0.5), "F");
+  assert.equal(T.gradeLetter(null), "-");
+});
+
 test("analytics dashboard reports accuracy, due cards, course time and the weakest skill", () => {
   const today = "2026-10-28";
   const questions = [

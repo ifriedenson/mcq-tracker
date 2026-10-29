@@ -24,6 +24,32 @@ function courseMatches(value, course) {
 }
 
 const DEFAULT_CONFIDENCE_LABELS = ["Guessing", "Unsure", "Confident"];
+const BREAKDOWN_FIELDS = ["skill", "domain", "difficulty"];
+const FIELD_LABELS = { skill: "Weak spots", domain: "Domain breakdown", difficulty: "Difficulty breakdown" };
+
+function gradeLetter(accuracy) {
+  if (accuracy === null || accuracy === undefined) return "-";
+  if (accuracy >= 0.9) return "A";
+  if (accuracy >= 0.8) return "B";
+  if (accuracy >= 0.7) return "C";
+  if (accuracy >= 0.6) return "D";
+  return "F";
+}
+
+/** A clearly practice-derived snapshot, not an assignment or transcript grade. */
+function buildGradeSnapshot(questions) {
+  const list = Array.isArray(questions) ? questions : [];
+  const overall = overallStats(list);
+  const courses = computeStats(list, "course")
+    .filter((row) => row.attempts > 0)
+    .map((row) => ({ course: row.value, accuracy: row.accuracy, attempts: row.attempts, grade: gradeLetter(row.accuracy) }))
+    .slice(0, 6);
+  return {
+    basis: "practice accuracy",
+    overall: { accuracy: overall.accuracy, attempts: overall.attempts, grade: gradeLetter(overall.accuracy) },
+    courses,
+  };
+}
 
 function confidenceLabelsOf(labels) {
   const source = Array.isArray(labels) ? labels : [];
@@ -170,7 +196,8 @@ function buildDashboard(options) {
   const scopedLog = course
     ? { ...studyLog, sessions: (studyLog.sessions || []).filter((session) => courseMatches(session.course, course)) }
     : studyLog;
-  const stats = computeStats(scopedQuestions, "skill");
+  const field = BREAKDOWN_FIELDS.includes(opts.field) ? opts.field : "skill";
+  const stats = computeStats(scopedQuestions, field);
   const calibration = buildCalibration(scopedQuestions, opts.confidenceLabels);
   const retention = buildRetention(scopedQuestions, today, opts.retentionWeeks || 8);
   const overall = overallStats(scopedQuestions);
@@ -186,8 +213,12 @@ function buildDashboard(options) {
     overall,
     study,
     cardStats,
+    field,
+    fieldLabel: FIELD_LABELS[field],
     weak: weakestRow(stats),
     skills: stats.slice(0, 8),
+    breakdown: stats.slice(0, 8),
+    grades: buildGradeSnapshot(scopedQuestions),
     calibration,
     retention,
     heatmap: buildHeatmap(scopedLog.sessions, scopedQuestions, today, opts.weeks || 12),
@@ -197,13 +228,17 @@ function buildDashboard(options) {
 }
 
 module.exports = {
+  BREAKDOWN_FIELDS,
+  FIELD_LABELS,
   activityByDay,
   activityLevel,
   buildCalibration,
   buildDashboard,
+  buildGradeSnapshot,
   buildHeatmap,
   buildRetention,
   confidenceLabelsOf,
+  gradeLetter,
   courseKey,
   courseMatches,
   dayKey,

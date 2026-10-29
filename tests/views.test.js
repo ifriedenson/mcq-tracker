@@ -92,6 +92,8 @@ test("insights overview: shows the study heatmap, course time and weak skills", 
   assert.ok(texts.includes("Study today"));
   assert.ok(texts.some((t) => /65 logged minutes/.test(t)));
   assert.ok(texts.some((t) => /sat/.test(t)));
+  await dom.click("Domain");
+  assert.ok(dom.texts().includes("Domain breakdown"));
   await dom.click("Weak spots");
   assert.equal(v.tab, "weak");
 });

@@ -9,12 +9,14 @@ const q = (path, fm) => ({ file: { path, basename: path.split("/").pop().replace
 
 test("dashboard embeds parse metric, weeks, course and title", () => {
   const opts = T.parseDashboardBlock("metric: Heatmap\nweeks: 52\ncourse: Biology\ntitle: Bio dashboard");
-  assert.deepEqual(opts, { metric: "heatmap", weeks: 26, course: "Biology", title: "Bio dashboard" });
+  assert.deepEqual(opts, { metric: "heatmap", weeks: 26, course: "Biology", field: "skill", title: "Bio dashboard" });
+  assert.equal(T.parseDashboardBlock("field: Domain").field, "domain");
+  assert.equal(T.parseDashboardBlock("field: nope").field, "skill");
   assert.equal(T.parseDashboardBlock("metric: Confidence").metric, "calibration");
   assert.equal(T.parseDashboardBlock("metric: trend").metric, "retention");
   assert.equal(T.parseDashboardBlock("metric: unknown").metric, "overview");
   assert.equal(T.parseDashboardBlock("weeks: nope").weeks, 12);
-  assert.deepEqual(T.parseDashboardBlock(""), { metric: "overview", weeks: 12, course: "", title: "" });
+  assert.deepEqual(T.parseDashboardBlock(""), { metric: "overview", weeks: 12, course: "", field: "skill", title: "" });
 });
 
 test("dashboard course scoping filters questions, cards and study sessions", () => {
@@ -73,6 +75,12 @@ test("dashboard embed draws only the requested metric and keeps the empty state 
   T.renderDashboardEmbed(retention.root, data, { metric: "retention" });
   assert.ok(retention.texts().includes("Retention trend"));
   assert.ok(!retention.texts().includes("Confidence calibration"));
+
+  const grades = makeDom();
+  T.renderDashboardEmbed(grades.root, data, { metric: "grades" });
+  assert.ok(grades.texts().includes("Grade snapshot"));
+  assert.ok(grades.texts().includes("F"));
+  assert.ok(!grades.texts().includes("Retention trend"));
 
   const empty = makeDom();
   T.renderDashboardEmbed(empty.root, T.buildDashboard({ today: "2026-10-28" }), { metric: "stats", course: "History" });

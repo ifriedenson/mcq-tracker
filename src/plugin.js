@@ -1225,12 +1225,13 @@ class QuestionTrackerPlugin extends Plugin {
         confidenceLabels: this.settings.confidenceLabels,
         today: new Date(),
         course: opts.course,
+        field: opts.field,
         weeks: opts.weeks,
       });
       const plan = this.studyPlan ? this.studyPlan() : null;
       data.plan = plan && (!opts.course || courseMatches(plan.course, opts.course)) ? plan : null;
       renderDashboardEmbed(box, data, opts, {
-        onPractice: (skill) => this.practiceWith({ skill: [skill] }, "smart"),
+        onPractice: (field, value) => this.practiceWith({ [field]: [value] }, "smart"),
       });
       const footer = box.createDiv({ cls: "qt-row qt-small-row qt-dash-embed-footer" });
       footer.createSpan({ cls: "qt-hint", text: "Calculated locally." });
