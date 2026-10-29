@@ -10,6 +10,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Review after answering.** See the question and choices again with your pick and the correct answer marked, plus an explanation you can show or hide (the default is a setting).
 - **Spaced review.** Correct answers come back after 1, 3, 7, 21, then 60 days (editable). Misses come back tomorrow.
 - **Optional FSRS scheduling.** Turn on a memory-model scheduler in settings. It estimates difficulty and stability per question, aims for your chosen recall probability, and replays existing history once so you do not start from zero. The simple 1/3/7/21/60-day ladder remains the default and switching back is lossless.
+- **Offline-tolerant results.** If a note cannot be written for a moment (a sync lock, a removable drive, or a mobile storage hiccup), the attempt is kept in a local outbox. The result screen still works, error tags stay attached, and the queue is retried on startup, when the device comes back online, and with **Retry saving offline practice results**.
 - **Mistake tracking.** After a miss, tag why (careless, content gap, misread, ran out of time, guessed, or your own labels).
 - **Flexible filters.** Filter by folder (including all its sub folders), course, test, section, domain, skill, unit and difficulty, for example folder + skill + difficulty together. You can pick several values in one field (OR), and add extra filter sets that are combined with OR. Save any combination as a **preset**.
 - **Counts and folder search.** Every filter button shows how many notes it holds. The Folder filter switches to a type-ahead search box when you have many folders (or whenever you choose), and the choice is a setting.
@@ -83,7 +84,7 @@ Which choice best describes the relationship between the two texts?
 - The answer key is read from the `answer` property, or from a line like `Correct Answer: B` in the `## Answer` section.
 - `question_type` can be `mcq`, `spr` (student-produced response), or anything else for self-grading. Free text such as "Multiple choice (4 choices)" is understood too.
 - Properties the plugin reads: `course, test, section, domain, skill, unit, difficulty, question_type, choices, answer, target_seconds, stimulus_id`.
-- Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, next_review, srs, scheduler, history`. `srs` and `scheduler` are populated when FSRS schedules a review (`srs` may be empty if you add tracking properties to notes first).
+- Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, next_review, last_attempt_id, srs, scheduler, history`. `srs` and `scheduler` are populated when FSRS schedules a review (`srs` may be empty if you add tracking properties to notes first).
 
 Run the command **Add missing tracking properties to all question notes** to add the writable properties to notes that don't have them yet.
 
@@ -115,6 +116,7 @@ Each `history` entry is stored as `date|result|seconds|answer|confidence|error_t
 - Start a timed test
 - Quick Practice
 - Open Today
+- Retry saving offline practice results
 - Open calendar
 - Calendar: add an .ics schedule
 - Calendar: create or open the note for the next class

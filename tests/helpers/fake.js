@@ -37,6 +37,7 @@ function makeApp(notes) {
     return f;
   });
   const handlers = {};
+  const storage = {};
   const app = {
     files,
     handlers,
@@ -91,8 +92,10 @@ function makeApp(notes) {
       getLeaf: () => ({ openFile: async (f) => app.opened.push(f.path) }),
       getActiveFile: () => null,
     },
-    loadLocalStorage: () => null,
-    saveLocalStorage: () => {},
+    loadLocalStorage: (key) => (key in storage ? storage[key] : null),
+    saveLocalStorage: (key, value) => {
+      storage[key] = value === null ? null : JSON.parse(JSON.stringify(value));
+    },
   };
   return app;
 }

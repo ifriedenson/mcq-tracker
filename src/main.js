@@ -30,6 +30,7 @@ const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require(
 const { PdfImportModal } = require("./import-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
 const { loadQuestionData } = require("./view-helpers");
+const offline = require("./offline");
 const calendarIcs = require("./calendar-ics");
 const calendarModel = require("./calendar-model");
 const calendarNotes = require("./calendar-notes");
@@ -123,6 +124,7 @@ QuestionTrackerPlugin.__test = {
   hasValidQuestion,
   scanQuestionNotes,
   loadQuestionData,
+  offline,
   weekStart,
   weeklyAccuracy,
   trendBy,

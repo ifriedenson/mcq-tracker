@@ -235,6 +235,9 @@ class PracticeView extends ItemView {
       seconds,
       now: new Date(),
     });
+    if (summary && summary.queued) {
+      new Notice("Saved offline. This result will be added to the note when the vault is writable.", 7000);
+    }
     this.plugin.clearSession();
     this.tally.n++;
     if (correct) this.tally.correct++;
@@ -927,6 +930,9 @@ class PracticeView extends ItemView {
       cls: "qt-count",
       text: `Streak ${s.streak} · ${s.correctCount}/${s.attempts} correct overall · next review ${s.nextReview}`,
     });
+    if (r.summary && r.summary.queued) {
+      root.createDiv({ cls: "qt-hint", text: "Saved offline. This result will be added to the note when the vault is writable." });
+    }
 
     // ---- review: the question and choices again, with your pick and the key marked
     const rv = root.createDiv({ cls: "qt-review" });
@@ -966,7 +972,9 @@ class PracticeView extends ItemView {
           const next = r.errorType === t ? "" : t;
           r.errorType = next;
           cb.forEach((x) => x.toggleClass("is-selected", x === c && !!next));
-          await p.setErrorType(r.file, next);
+          const queued = r.summary && r.summary.queued;
+          const saved = queued ? await p.setPendingAttemptError(r.file.path, r.summary.attemptId, next) : false;
+          if (!saved) await p.setErrorType(r.file, next);
         });
         cb.push(c);
       }

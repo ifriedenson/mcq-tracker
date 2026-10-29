@@ -7649,6 +7649,7 @@ function gradeAnswer(fm, chosen) {
 /** Mutates `fm` (inside processFrontMatter). Returns a summary. */
 function applyAttempt(fm, a, intervals, options) {
   const opts = options || {};
+  if (opts.attemptId) fm.last_attempt_id = opts.attemptId;
   const iv = intervals && intervals.length ? intervals : DEFAULT_SETTINGS.intervals;
   const prev = Number(fm.streak) || 0;
   const streak = a.correct ? (a.conf === 1 ? prev : prev + 1) : 0;
@@ -7707,6 +7708,7 @@ function applyAttempt(fm, a, intervals, options) {
     fsrsDays: fsrsReview ? fsrsReview.days : 0,
     fsrsReplayed: fsrsReview ? fsrsReview.replayed : 0,
     fsrsError,
+    attemptId: opts.attemptId || "",
   };
 }
 
@@ -7747,6 +7749,123 @@ module.exports = {
   applyAttempt,
   setLastErrorType,
   fillDefaults,
+};
+};
+
+/* ---- src/offline.js ---- */
+__defs["offline"] = function (module, exports, require) {
+/*
+ * A small, device-local outbox for practice attempts that could not be written
+ * to a note. It deliberately lives in local storage, not the synced plugin data:
+ * the vault may be the thing that is temporarily unavailable, and a per-device
+ * queue avoids turning one failed attempt into several copies across devices.
+ */
+const { str } = require("./util");
+
+const MAX_PENDING = 100;
+
+function newAttemptId(now) {
+  const t = now instanceof Date && !isNaN(now.getTime()) ? now.getTime() : Date.now();
+  return `a-${t.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function packAttempt(attempt) {
+  const a = attempt || {};
+  return { ...a, now: a.now instanceof Date && !isNaN(a.now.getTime()) ? a.now.toISOString() : a.now };
+}
+
+function unpackAttempt(attempt) {
+  const a = { ...(attempt || {}) };
+  if (a.now) {
+    const at = new Date(a.now);
+    a.now = isNaN(at.getTime()) ? new Date() : at;
+  }
+  return a;
+}
+
+function validEntry(entry) {
+  return !!(
+    entry &&
+    typeof entry === "object" &&
+    typeof entry.id === "string" &&
+    entry.id &&
+    typeof entry.path === "string" &&
+    entry.path &&
+    entry.attempt &&
+    typeof entry.attempt === "object" &&
+    typeof entry.attempt.correct === "boolean"
+  );
+}
+
+/** Read whatever local storage returned. Malformed entries are ignored, newest kept. */
+function unpackPendingAttempts(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(validEntry)
+    .slice(-MAX_PENDING)
+    .map((entry) => ({
+      id: entry.id,
+      path: entry.path,
+      errorType: str(entry.errorType),
+      attempt: unpackAttempt({ ...entry.attempt, attemptId: entry.id }),
+    }));
+}
+
+function packPendingAttempts(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter(validEntry)
+    .slice(-MAX_PENDING)
+    .map((entry) => ({
+      id: entry.id,
+      path: entry.path,
+      errorType: str(entry.errorType),
+      attempt: packAttempt({ ...entry.attempt, attemptId: entry.id }),
+    }));
+}
+
+/** Add one attempt, replacing the same id if it is already queued. */
+function enqueuePending(list, path, attempt) {
+  const id = str(attempt && attempt.attemptId) || newAttemptId(attempt && attempt.now);
+  const entry = {
+    id,
+    path: str(path),
+    errorType: "",
+    attempt: { ...(attempt || {}), attemptId: id },
+  };
+  return [...(Array.isArray(list) ? list : []).filter((e) => e.id !== id), entry].slice(-MAX_PENDING);
+}
+
+function removePending(list, id) {
+  return (Array.isArray(list) ? list : []).filter((e) => e.id !== id);
+}
+
+/** Attach the "why did I miss it" tag to an attempt that has not been written yet. */
+function updatePendingError(list, path, id, type) {
+  const entry = (Array.isArray(list) ? list : []).find((e) => e.id === id && e.path === path);
+  if (!entry) return null;
+  entry.errorType = str(type);
+  return list;
+}
+
+function cloneFrontmatter(fm) {
+  try {
+    return JSON.parse(JSON.stringify(fm || {}));
+  } catch (e) {
+    return {};
+  }
+}
+
+module.exports = {
+  MAX_PENDING,
+  newAttemptId,
+  packAttempt,
+  unpackAttempt,
+  unpackPendingAttempts,
+  packPendingAttempts,
+  enqueuePending,
+  removePending,
+  updatePendingError,
+  cloneFrontmatter,
 };
 };
 
@@ -7839,7 +7958,7 @@ function buildTutorContext(r, notesText, confLabels, mode) {
     lines.push(
       "",
       `This question is stored in the Obsidian note "${r.file.path}". You may edit it if asked, but never change the ` +
-        "tracking properties (result, attempts, correct_count, streak, history, next_review, srs, scheduler, time_spent_total, and similar) unless explicitly told to."
+        "tracking properties (result, attempts, correct_count, streak, history, next_review, last_attempt_id, srs, scheduler, time_spent_total, and similar) unless explicitly told to."
     );
   }
   return lines.join("\n");
@@ -7857,7 +7976,7 @@ function buildGeneralContext(app, mode) {
     "Each question note has YAML properties: static ones (question_id, test, subject, course, section, domain, skill, difficulty, unit, " +
       "question_type, choices, answer, source, target_seconds, tags) and tracking ones written by a plugin " +
       "(result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, " +
-      "last_confidence, last_error_type, flagged, next_review, srs, scheduler, history).",
+      "last_confidence, last_error_type, flagged, next_review, last_attempt_id, srs, scheduler, history).",
     "The body uses the headings: ## Question, ## Answer Choices (lines like '- A. text'), ## Answer (a '> [!answer]-' callout with " +
       "'**Correct Answer: X**' and a rationale), and ## My Notes.",
     "Never change the tracking properties unless explicitly told to. Keep the format above when creating or editing notes.",
@@ -8964,6 +9083,7 @@ const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, p
 const { cleanSubjectTitle, mergeCalendarSettings, nextClassStatus, subjectKey, visibleEvents } = require("./calendar-model");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
+const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
@@ -8996,6 +9116,9 @@ class QuestionTrackerPlugin extends Plugin {
         this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
       }
       if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
+      this.flushPendingAttempts().then((r) => {
+        if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
+      }).catch(() => {});
     });
     this.registerDomEvent(window, "beforeunload", () => this.manager.stop());
     this.registerView(VIEW_TYPE, (leaf) => new PracticeView(leaf, this));
@@ -9028,6 +9151,16 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "timed-test", name: "Start a timed test", callback: () => this.activateTest() });
     this.addCommand({ id: "open-today", name: "Open Today", callback: () => this.activateToday() });
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
+    this.addCommand({
+      id: "retry-pending-attempts",
+      name: "Retry saving offline practice results",
+      callback: async () => {
+        const r = await this.flushPendingAttempts();
+        if (r.remaining) new Notice(`${r.remaining} result${r.remaining === 1 ? "" : "s"} still waiting for the vault to be writable.`, 6000);
+        else if (r.sent) new Notice(`Saved ${r.sent} offline result${r.sent === 1 ? "" : "s"}.`, 5000);
+        else new Notice("No offline practice results are waiting.");
+      },
+    });
     this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => this.activateCalendar() });
     this.addCommand({ id: "calendar-add-schedule", name: "Calendar: add an .ics schedule", callback: () => this.openCalendarImport() });
     this.addCommand({
@@ -9134,6 +9267,11 @@ class QuestionTrackerPlugin extends Plugin {
         }
       }, 10000)
     );
+
+    // A vault can be temporarily unwritable (sync lock, removable drive, mobile
+    // storage). Retry the local outbox periodically and as soon as we are online.
+    this.registerInterval(activeWindow.setInterval(() => this.flushPendingAttempts().catch(() => {}), 60000));
+    this.registerDomEvent(window, "online", () => this.flushPendingAttempts().catch(() => {}));
 
     this.registerDomEvent(activeDocument, "visibilitychange", () => {
       if (activeDocument.hidden && Platform.isMobile && this.settings.autoPauseOnMobile && this.isRunning()) {
@@ -9889,18 +10027,111 @@ class QuestionTrackerPlugin extends Plugin {
 
   /* ---- writing to notes */
 
+  pendingKey() {
+    return "question-tracker-pending-attempts";
+  }
+
+  readPendingAttempts() {
+    if (Array.isArray(this._pendingAttempts)) return this._pendingAttempts;
+    let list = [];
+    try {
+      list = unpackPendingAttempts(this.app.loadLocalStorage(this.pendingKey()));
+    } catch (e) {
+      list = [];
+    }
+    this._pendingAttempts = list;
+    return list;
+  }
+
+  writePendingAttempts(list) {
+    this._pendingAttempts = Array.isArray(list) ? list : [];
+    try {
+      this.app.saveLocalStorage(this.pendingKey(), packPendingAttempts(this._pendingAttempts));
+    } catch (e) {
+      // Keep the in-memory queue for this session even if device storage is unavailable.
+    }
+  }
+
   async recordAttempt(file, a) {
+    const attempt = { ...a, attemptId: a.attemptId || newAttemptId(a.now) };
+    const opts = { scheduler: this.settings.scheduler, fsrsRetention: this.settings.fsrsRetention, attemptId: attempt.attemptId };
+
+    // Build the result the UI should show before touching the note. If the write
+    // fails, this summary is still correct and the attempt can be replayed later.
+    let preview;
+    try {
+      const cached = this.app.metadataCache.getFileCache(file);
+      const copy = cloneFrontmatter(cached && cached.frontmatter);
+      preview = applyAttempt(copy, attempt, this.settings.intervals, opts);
+    } catch (e) {
+      preview = null;
+    }
+
     let summary;
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      summary = applyAttempt(fm, a, this.settings.intervals, {
-        scheduler: this.settings.scheduler,
-        fsrsRetention: this.settings.fsrsRetention,
+    try {
+      await this.app.fileManager.processFrontMatter(file, (fm) => {
+        summary = applyAttempt(fm, attempt, this.settings.intervals, opts);
       });
-    });
+    } catch (e) {
+      if (!preview) throw e;
+      const list = enqueuePending(this.readPendingAttempts(), file.path, attempt);
+      this.writePendingAttempts(list);
+      new Notice("Saved offline. This result will be added to the note when the vault is writable.", 7000);
+      return { ...preview, queued: true, pending: list.length, attemptId: attempt.attemptId };
+    }
+
     if (summary && summary.fsrsError) {
       new Notice("FSRS couldn't schedule this question, so the simple ladder was used.");
     }
-    return summary;
+    return { ...summary, queued: false, attemptId: attempt.attemptId };
+  }
+
+  /** Attach an error tag to a queued attempt, or return false if it has already been written. */
+  async setPendingAttemptError(path, attemptId, type) {
+    const list = this.readPendingAttempts();
+    const next = updatePendingError(list, path, attemptId, type);
+    if (!next) return false;
+    this.writePendingAttempts(next);
+    return true;
+  }
+
+  /** Replay the local outbox. The attempt id makes a retry safe if the first write partially succeeded. */
+  flushPendingAttempts() {
+    if (this._pendingFlush) return this._pendingFlush;
+    this._pendingFlush = (async () => {
+      let list = this.readPendingAttempts().slice();
+      let sent = 0;
+      for (const entry of list.slice()) {
+        const file = this.app.vault.getAbstractFileByPath(entry.path);
+        if (!(file instanceof TFile)) {
+          list = removePending(list, entry.id);
+          continue;
+        }
+        try {
+          await this.app.fileManager.processFrontMatter(file, (fm) => {
+            if (fm.last_attempt_id === entry.id) {
+              if (entry.errorType) setLastErrorType(fm, entry.errorType);
+              return;
+            }
+            applyAttempt(fm, unpackAttempt(entry.attempt), this.settings.intervals, {
+              scheduler: this.settings.scheduler,
+              fsrsRetention: this.settings.fsrsRetention,
+              attemptId: entry.id,
+            });
+            if (entry.errorType) setLastErrorType(fm, entry.errorType);
+          });
+          list = removePending(list, entry.id);
+          sent++;
+        } catch (e) {
+          break; // still offline: keep this and the rest for the next retry
+        }
+      }
+      this.writePendingAttempts(list);
+      return { sent, remaining: list.length };
+    })().finally(() => {
+      this._pendingFlush = null;
+    });
+    return this._pendingFlush;
   }
 
   async setErrorType(file, type) {
@@ -10176,6 +10407,9 @@ class PracticeView extends ItemView {
       seconds,
       now: new Date(),
     });
+    if (summary && summary.queued) {
+      new Notice("Saved offline. This result will be added to the note when the vault is writable.", 7000);
+    }
     this.plugin.clearSession();
     this.tally.n++;
     if (correct) this.tally.correct++;
@@ -10868,6 +11102,9 @@ class PracticeView extends ItemView {
       cls: "qt-count",
       text: `Streak ${s.streak} · ${s.correctCount}/${s.attempts} correct overall · next review ${s.nextReview}`,
     });
+    if (r.summary && r.summary.queued) {
+      root.createDiv({ cls: "qt-hint", text: "Saved offline. This result will be added to the note when the vault is writable." });
+    }
 
     // ---- review: the question and choices again, with your pick and the key marked
     const rv = root.createDiv({ cls: "qt-review" });
@@ -10907,7 +11144,9 @@ class PracticeView extends ItemView {
           const next = r.errorType === t ? "" : t;
           r.errorType = next;
           cb.forEach((x) => x.toggleClass("is-selected", x === c && !!next));
-          await p.setErrorType(r.file, next);
+          const queued = r.summary && r.summary.queued;
+          const saved = queued ? await p.setPendingAttemptError(r.file.path, r.summary.attemptId, next) : false;
+          if (!saved) await p.setErrorType(r.file, next);
         });
         cb.push(c);
       }
@@ -12413,6 +12652,7 @@ const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require(
 const { PdfImportModal } = require("./import-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
 const { loadQuestionData } = require("./view-helpers");
+const offline = require("./offline");
 const calendarIcs = require("./calendar-ics");
 const calendarModel = require("./calendar-model");
 const calendarNotes = require("./calendar-notes");
@@ -12506,6 +12746,7 @@ QuestionTrackerPlugin.__test = {
   hasValidQuestion,
   scanQuestionNotes,
   loadQuestionData,
+  offline,
   weekStart,
   weeklyAccuracy,
   trendBy,

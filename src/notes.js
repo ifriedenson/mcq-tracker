@@ -144,6 +144,7 @@ function gradeAnswer(fm, chosen) {
 /** Mutates `fm` (inside processFrontMatter). Returns a summary. */
 function applyAttempt(fm, a, intervals, options) {
   const opts = options || {};
+  if (opts.attemptId) fm.last_attempt_id = opts.attemptId;
   const iv = intervals && intervals.length ? intervals : DEFAULT_SETTINGS.intervals;
   const prev = Number(fm.streak) || 0;
   const streak = a.correct ? (a.conf === 1 ? prev : prev + 1) : 0;
@@ -202,6 +203,7 @@ function applyAttempt(fm, a, intervals, options) {
     fsrsDays: fsrsReview ? fsrsReview.days : 0,
     fsrsReplayed: fsrsReview ? fsrsReview.replayed : 0,
     fsrsError,
+    attemptId: opts.attemptId || "",
   };
 }
 

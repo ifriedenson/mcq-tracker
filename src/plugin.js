@@ -17,6 +17,7 @@ const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, p
 const { cleanSubjectTitle, mergeCalendarSettings, nextClassStatus, subjectKey, visibleEvents } = require("./calendar-model");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
+const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
@@ -49,6 +50,9 @@ class QuestionTrackerPlugin extends Plugin {
         this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
       }
       if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
+      this.flushPendingAttempts().then((r) => {
+        if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
+      }).catch(() => {});
     });
     this.registerDomEvent(window, "beforeunload", () => this.manager.stop());
     this.registerView(VIEW_TYPE, (leaf) => new PracticeView(leaf, this));
@@ -81,6 +85,16 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "timed-test", name: "Start a timed test", callback: () => this.activateTest() });
     this.addCommand({ id: "open-today", name: "Open Today", callback: () => this.activateToday() });
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
+    this.addCommand({
+      id: "retry-pending-attempts",
+      name: "Retry saving offline practice results",
+      callback: async () => {
+        const r = await this.flushPendingAttempts();
+        if (r.remaining) new Notice(`${r.remaining} result${r.remaining === 1 ? "" : "s"} still waiting for the vault to be writable.`, 6000);
+        else if (r.sent) new Notice(`Saved ${r.sent} offline result${r.sent === 1 ? "" : "s"}.`, 5000);
+        else new Notice("No offline practice results are waiting.");
+      },
+    });
     this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => this.activateCalendar() });
     this.addCommand({ id: "calendar-add-schedule", name: "Calendar: add an .ics schedule", callback: () => this.openCalendarImport() });
     this.addCommand({
@@ -187,6 +201,11 @@ class QuestionTrackerPlugin extends Plugin {
         }
       }, 10000)
     );
+
+    // A vault can be temporarily unwritable (sync lock, removable drive, mobile
+    // storage). Retry the local outbox periodically and as soon as we are online.
+    this.registerInterval(activeWindow.setInterval(() => this.flushPendingAttempts().catch(() => {}), 60000));
+    this.registerDomEvent(window, "online", () => this.flushPendingAttempts().catch(() => {}));
 
     this.registerDomEvent(activeDocument, "visibilitychange", () => {
       if (activeDocument.hidden && Platform.isMobile && this.settings.autoPauseOnMobile && this.isRunning()) {
@@ -942,18 +961,111 @@ class QuestionTrackerPlugin extends Plugin {
 
   /* ---- writing to notes */
 
+  pendingKey() {
+    return "question-tracker-pending-attempts";
+  }
+
+  readPendingAttempts() {
+    if (Array.isArray(this._pendingAttempts)) return this._pendingAttempts;
+    let list = [];
+    try {
+      list = unpackPendingAttempts(this.app.loadLocalStorage(this.pendingKey()));
+    } catch (e) {
+      list = [];
+    }
+    this._pendingAttempts = list;
+    return list;
+  }
+
+  writePendingAttempts(list) {
+    this._pendingAttempts = Array.isArray(list) ? list : [];
+    try {
+      this.app.saveLocalStorage(this.pendingKey(), packPendingAttempts(this._pendingAttempts));
+    } catch (e) {
+      // Keep the in-memory queue for this session even if device storage is unavailable.
+    }
+  }
+
   async recordAttempt(file, a) {
+    const attempt = { ...a, attemptId: a.attemptId || newAttemptId(a.now) };
+    const opts = { scheduler: this.settings.scheduler, fsrsRetention: this.settings.fsrsRetention, attemptId: attempt.attemptId };
+
+    // Build the result the UI should show before touching the note. If the write
+    // fails, this summary is still correct and the attempt can be replayed later.
+    let preview;
+    try {
+      const cached = this.app.metadataCache.getFileCache(file);
+      const copy = cloneFrontmatter(cached && cached.frontmatter);
+      preview = applyAttempt(copy, attempt, this.settings.intervals, opts);
+    } catch (e) {
+      preview = null;
+    }
+
     let summary;
-    await this.app.fileManager.processFrontMatter(file, (fm) => {
-      summary = applyAttempt(fm, a, this.settings.intervals, {
-        scheduler: this.settings.scheduler,
-        fsrsRetention: this.settings.fsrsRetention,
+    try {
+      await this.app.fileManager.processFrontMatter(file, (fm) => {
+        summary = applyAttempt(fm, attempt, this.settings.intervals, opts);
       });
-    });
+    } catch (e) {
+      if (!preview) throw e;
+      const list = enqueuePending(this.readPendingAttempts(), file.path, attempt);
+      this.writePendingAttempts(list);
+      new Notice("Saved offline. This result will be added to the note when the vault is writable.", 7000);
+      return { ...preview, queued: true, pending: list.length, attemptId: attempt.attemptId };
+    }
+
     if (summary && summary.fsrsError) {
       new Notice("FSRS couldn't schedule this question, so the simple ladder was used.");
     }
-    return summary;
+    return { ...summary, queued: false, attemptId: attempt.attemptId };
+  }
+
+  /** Attach an error tag to a queued attempt, or return false if it has already been written. */
+  async setPendingAttemptError(path, attemptId, type) {
+    const list = this.readPendingAttempts();
+    const next = updatePendingError(list, path, attemptId, type);
+    if (!next) return false;
+    this.writePendingAttempts(next);
+    return true;
+  }
+
+  /** Replay the local outbox. The attempt id makes a retry safe if the first write partially succeeded. */
+  flushPendingAttempts() {
+    if (this._pendingFlush) return this._pendingFlush;
+    this._pendingFlush = (async () => {
+      let list = this.readPendingAttempts().slice();
+      let sent = 0;
+      for (const entry of list.slice()) {
+        const file = this.app.vault.getAbstractFileByPath(entry.path);
+        if (!(file instanceof TFile)) {
+          list = removePending(list, entry.id);
+          continue;
+        }
+        try {
+          await this.app.fileManager.processFrontMatter(file, (fm) => {
+            if (fm.last_attempt_id === entry.id) {
+              if (entry.errorType) setLastErrorType(fm, entry.errorType);
+              return;
+            }
+            applyAttempt(fm, unpackAttempt(entry.attempt), this.settings.intervals, {
+              scheduler: this.settings.scheduler,
+              fsrsRetention: this.settings.fsrsRetention,
+              attemptId: entry.id,
+            });
+            if (entry.errorType) setLastErrorType(fm, entry.errorType);
+          });
+          list = removePending(list, entry.id);
+          sent++;
+        } catch (e) {
+          break; // still offline: keep this and the rest for the next retry
+        }
+      }
+      this.writePendingAttempts(list);
+      return { sent, remaining: list.length };
+    })().finally(() => {
+      this._pendingFlush = null;
+    });
+    return this._pendingFlush;
   }
 
   async setErrorType(file, type) {

@@ -753,7 +753,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Quick Practice entry and Today screen (§5.19)
 - [x] FSRS scheduler option + fluency signals; migration from existing `history` (§5.1)
 - [x] Adaptive difficulty pick mode (§5.2)
-- [ ] Offline-tolerant sessions
+- [x] Offline-tolerant sessions
 
 ### Phase 2: Flashcards and vocab (priority)
 
@@ -2088,7 +2088,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Quick Practice entry and Today screen (§5.19)
 - [x] FSRS scheduler option + fluency signals; migration from existing `history` (§5.1)
 - [x] Adaptive difficulty pick mode (§5.2)
-- [ ] Offline-tolerant sessions
+- [x] Offline-tolerant sessions
 
 ### Phase 2: Flashcards and vocab (priority)
 
