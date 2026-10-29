@@ -52,7 +52,14 @@ function rankApResources(entries) {
     );
 }
 
+function isAttachedToExam(entry, exam) {
+  const uid = str(exam && exam.uid);
+  return !!uid && str(entry && entry.examUid) === uid;
+}
+
 function recommendApResource(exam, entries) {
+  const attached = (entries || []).filter((entry) => isAttachedToExam(entry, exam));
+  if (attached.length) return rankApResources(attached)[0] || null;
   const course = apCourseForExam(exam);
   if (!course) return null;
   const matching = (entries || []).filter(
@@ -65,6 +72,7 @@ module.exports = {
   RESOURCE_PRIORITY,
   apCourseForExam,
   examTitle,
+  isAttachedToExam,
   rankApResources,
   recommendApResource,
   resourceTitle,

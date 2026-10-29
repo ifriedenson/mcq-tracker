@@ -1189,7 +1189,14 @@ function rankApResources(entries) {
     );
 }
 
+function isAttachedToExam(entry, exam) {
+  const uid = str(exam && exam.uid);
+  return !!uid && str(entry && entry.examUid) === uid;
+}
+
 function recommendApResource(exam, entries) {
+  const attached = (entries || []).filter((entry) => isAttachedToExam(entry, exam));
+  if (attached.length) return rankApResources(attached)[0] || null;
   const course = apCourseForExam(exam);
   if (!course) return null;
   const matching = (entries || []).filter(
@@ -1202,6 +1209,7 @@ module.exports = {
   RESOURCE_PRIORITY,
   apCourseForExam,
   examTitle,
+  isAttachedToExam,
   rankApResources,
   recommendApResource,
   resourceTitle,
@@ -1298,6 +1306,16 @@ function resourceNoteFrontmatter(course, resource, unit, checkedOn) {
   };
 }
 
+/** Bind a saved resource to one calendar exam without touching its link. */
+function attachFrontmatter(fm, exam) {
+  return {
+    ...(fm || {}),
+    exam_uid: str(exam && exam.uid),
+    exam_date: str(exam && (exam.dateKey || exam.date)),
+    exam_title: str(exam && (exam.summary || exam.title)),
+  };
+}
+
 /** Build a link-only resource note. The body never contains AP material. */
 function buildApResourceNote(course, resource, unit, checkedOn) {
   if (!course || !resource || !resource.url) return null;
@@ -1374,6 +1392,9 @@ function entryFromFrontmatter(fm, path, now) {
     checkedOn,
     ageDays,
     stale: isStale(checkedOn, now || new Date()),
+    examUid: str(fm.exam_uid),
+    examDate: str(fm.exam_date),
+    examTitle: str(fm.exam_title),
   };
 }
 
@@ -1397,6 +1418,7 @@ module.exports = {
   AP_RESOURCE_FOLDER,
   AP_RESOURCE_NOTE_TYPE,
   STALE_RESOURCE_DAYS,
+  attachFrontmatter,
   buildApResourceNote,
   daysSince,
   entryFromFrontmatter,
@@ -22116,7 +22138,7 @@ const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
-const { buildApResourceNote, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
+const { attachFrontmatter, buildApResourceNote, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -23438,6 +23460,21 @@ class QuestionTrackerPlugin extends Plugin {
       const text = await this.app.vault.read(file);
       await this.app.vault.modify(file, text.replace(/^checked_on:.*$/m, `checked_on: ${next.checked_on}`));
     }
+    return resourceNoteEntry({ ...fm, ...next }, path);
+  }
+
+  /** Binds a saved resource note to the calendar exam it is meant to support. */
+  async attachApResourceToExam(path, exam) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file || !exam || !exam.uid) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    const next = attachFrontmatter(fm, exam);
+    if (!this.app.fileManager || !this.app.fileManager.processFrontMatter) return null;
+    await this.app.fileManager.processFrontMatter(file, (data) => {
+      data.exam_uid = next.exam_uid;
+      data.exam_date = next.exam_date;
+      data.exam_title = next.exam_title;
+    });
     return resourceNoteEntry({ ...fm, ...next }, path);
   }
 
@@ -31473,10 +31510,24 @@ class TodayView extends ItemView {
           ? recommendApResource(exam, p.getApResourceNotes())
           : null;
       if (resource) {
+        const attached = !!(resource.examUid && exam.uid && resource.examUid === exam.uid);
         const row = card.createDiv({ cls: "qt-today-resource" });
-        row.createDiv({ cls: "qt-today-meta", text: `${resource.stale ? "Saved resource (stale)" : "Saved resource"}: ${resourceTitle(resource)}` });
+        row.createDiv({ cls: "qt-today-meta", text: `${attached ? "Attached resource" : "Saved resource"}${resource.stale ? " (stale)" : ""}: ${resourceTitle(resource)}` });
+        if (!attached && p.attachApResourceToExam) {
+          row.createEl("button", { text: "Attach to exam", cls: "qt-link" }).addEventListener("click", () => this.attachResource(resource, exam));
+        }
         row.createEl("button", { text: "Open resource", cls: "qt-link" }).addEventListener("click", () => this.openResource(resource));
       }
+    }
+  }
+
+  async attachResource(entry, exam) {
+    if (!this.plugin.attachApResourceToExam) return;
+    try {
+      await this.plugin.attachApResourceToExam(entry.path, exam);
+      this.render();
+    } catch (err) {
+      new Notice(err && err.message ? err.message : "Could not attach that resource.");
     }
   }
 

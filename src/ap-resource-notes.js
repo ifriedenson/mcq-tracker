@@ -87,6 +87,16 @@ function resourceNoteFrontmatter(course, resource, unit, checkedOn) {
   };
 }
 
+/** Bind a saved resource to one calendar exam without touching its link. */
+function attachFrontmatter(fm, exam) {
+  return {
+    ...(fm || {}),
+    exam_uid: str(exam && exam.uid),
+    exam_date: str(exam && (exam.dateKey || exam.date)),
+    exam_title: str(exam && (exam.summary || exam.title)),
+  };
+}
+
 /** Build a link-only resource note. The body never contains AP material. */
 function buildApResourceNote(course, resource, unit, checkedOn) {
   if (!course || !resource || !resource.url) return null;
@@ -163,6 +173,9 @@ function entryFromFrontmatter(fm, path, now) {
     checkedOn,
     ageDays,
     stale: isStale(checkedOn, now || new Date()),
+    examUid: str(fm.exam_uid),
+    examDate: str(fm.exam_date),
+    examTitle: str(fm.exam_title),
   };
 }
 
@@ -186,6 +199,7 @@ module.exports = {
   AP_RESOURCE_FOLDER,
   AP_RESOURCE_NOTE_TYPE,
   STALE_RESOURCE_DAYS,
+  attachFrontmatter,
   buildApResourceNote,
   daysSince,
   entryFromFrontmatter,

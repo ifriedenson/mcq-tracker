@@ -43,6 +43,14 @@ test("AP exam resources: matching resources are ranked fresh first, then practic
   assert.equal(recommend.rankApResources(entries).at(-1).path, "stale-practice.md");
 });
 
+test("AP exam resources: an explicitly attached note wins over a fresher generic candidate", () => {
+  const attached = entry({ path: "attached.md", resourceType: "course", stale: true, examUid: "exam-1" });
+  const fresh = entry({ path: "fresh.md", resourceType: "practice", stale: false });
+  assert.equal(recommend.isAttachedToExam(attached, { uid: "exam-1" }), true);
+  assert.equal(recommend.recommendApResource({ uid: "exam-1", summary: "AP Biology Exam" }, [fresh, attached]).path, "attached.md");
+  assert.equal(recommend.recommendApResource({ uid: "exam-2", summary: "AP Biology Exam" }, [fresh, attached]).path, "fresh.md");
+});
+
 test("AP exam resources: a non-AP exam or another course gets no recommendation", () => {
   const entries = [entry()];
   assert.equal(recommend.recommendApResource({ summary: "Chemistry Final Exam" }, entries), null);
@@ -95,6 +103,10 @@ test("today: the next AP exam shows one saved resource and opens it", async () =
   assert.ok(texts.includes("Next exam"));
   assert.ok(texts.some((text) => text.includes("Saved resource")));
   assert.ok(texts.some((text) => text.includes("Released free-response questions")));
+  assert.ok(texts.includes("Attach to exam"));
+  await dom.click("Attach to exam");
+  assert.equal(app.files[0].fm.exam_uid, "exam");
+  assert.ok(dom.texts().some((text) => text.includes("Attached resource")));
   await dom.click("Open resource");
   assert.deepEqual(app.opened, [resourcePath]);
 });

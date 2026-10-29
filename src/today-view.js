@@ -358,10 +358,24 @@ class TodayView extends ItemView {
           ? recommendApResource(exam, p.getApResourceNotes())
           : null;
       if (resource) {
+        const attached = !!(resource.examUid && exam.uid && resource.examUid === exam.uid);
         const row = card.createDiv({ cls: "qt-today-resource" });
-        row.createDiv({ cls: "qt-today-meta", text: `${resource.stale ? "Saved resource (stale)" : "Saved resource"}: ${resourceTitle(resource)}` });
+        row.createDiv({ cls: "qt-today-meta", text: `${attached ? "Attached resource" : "Saved resource"}${resource.stale ? " (stale)" : ""}: ${resourceTitle(resource)}` });
+        if (!attached && p.attachApResourceToExam) {
+          row.createEl("button", { text: "Attach to exam", cls: "qt-link" }).addEventListener("click", () => this.attachResource(resource, exam));
+        }
         row.createEl("button", { text: "Open resource", cls: "qt-link" }).addEventListener("click", () => this.openResource(resource));
       }
+    }
+  }
+
+  async attachResource(entry, exam) {
+    if (!this.plugin.attachApResourceToExam) return;
+    try {
+      await this.plugin.attachApResourceToExam(entry.path, exam);
+      this.render();
+    } catch (err) {
+      new Notice(err && err.message ? err.message : "Could not attach that resource.");
     }
   }
 

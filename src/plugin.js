@@ -41,7 +41,7 @@ const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
-const { buildApResourceNote, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
+const { attachFrontmatter, buildApResourceNote, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -1363,6 +1363,21 @@ class QuestionTrackerPlugin extends Plugin {
       const text = await this.app.vault.read(file);
       await this.app.vault.modify(file, text.replace(/^checked_on:.*$/m, `checked_on: ${next.checked_on}`));
     }
+    return resourceNoteEntry({ ...fm, ...next }, path);
+  }
+
+  /** Binds a saved resource note to the calendar exam it is meant to support. */
+  async attachApResourceToExam(path, exam) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file || !exam || !exam.uid) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    const next = attachFrontmatter(fm, exam);
+    if (!this.app.fileManager || !this.app.fileManager.processFrontMatter) return null;
+    await this.app.fileManager.processFrontMatter(file, (data) => {
+      data.exam_uid = next.exam_uid;
+      data.exam_date = next.exam_date;
+      data.exam_title = next.exam_title;
+    });
     return resourceNoteEntry({ ...fm, ...next }, path);
   }
 
