@@ -1,11 +1,29 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress
+**Status:** Implementation in progress — next: exam-aware scheduling caps (§4.3)
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), and agent-driven quality gates (§8.5). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
 
 > **How to read the license notes.** License information below comes from each plugin's community page, README, or a stats/index site as seen during research on Oct 27, 2026. Items marked **Verify** were not confirmed. Before copying any code, open the repo's `LICENSE` file and `package.json` yourself. MIT allows reuse if you keep the copyright and license notice. This is not legal advice.
+
+---
+
+## Current focus (Oct 29, 2026)
+
+**Next implementation: exam-aware scheduling caps (§4.3, §5.8).** The calendar already models exams and shows countdowns, but the scheduler does not yet shorten an interval when an exam falls before the computed due date.
+
+**Scope for the next release**
+
+- Cap `next_review` for questions and cards when the item's `course` matches an upcoming exam.
+- Apply the cap after ladder or FSRS scheduling, and never extend an interval.
+- Use the existing calendar exam model and course mappings; leave items with no matching exam or course untouched.
+- Surface the cap in the result/review summary so a learner knows why the date moved.
+- Test ladder and FSRS, no exam, an exam after the computed due date, an exam before it, exam day, two exams for one course, and unknown courses.
+
+**Why this is next:** the AP exam tools are blocked on the owner pilot gate (Phase 2b), and optional card TTS/audio is explicitly deferred. Exam-aware caps finish the calendar module and improve scheduling without adding a provider dependency.
+
+**Recently completed (unreleased):** pending-grade visibility in Today and the Cards list, with per-card Review actions and a Grade now retry control (§5.17).
 
 ---
 
@@ -937,7 +955,8 @@ Names are proposals; keep existing ones unchanged.
 - [x] Durable grade-later queue for offline, slow or over-budget grading, with batch retry, idempotency and a pending-grade badge (§5.17)
 - [x] Self-grade fallback when AI grading is off or the queue is discarded, recorded as `graded_by: self` (§5.17)
 - [x] Unified due queue model and Today/command list across cards, vocab and MCQs — interleaved mixed-review sessions remain
-- [ ] Optional TTS/audio (later in phase)
+- [x] Pending-grade visibility in Today and the Cards list, with per-card Review actions and a Grade now retry control (§5.17)
+- [ ] Optional TTS/audio — deferred until exam-aware scheduling caps land; provider choice and mobile support still need validation.
 
 ### Phase 2b: AP exam tools (research next; highly wanted)
 
@@ -954,7 +973,9 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Course registry, folder mapping, `.ics` import, per-class notes (§5.8)
 - [x] Month grid, daily timeline, live countdown, mobile Today and Upcoming views
 - [x] Exam model, exam countdowns, SAT/AP-style non-semester exam events
-- [ ] Exam-aware scheduling caps (§4.3)
+- [ ] **Exam-aware scheduling caps (§4.3)** — next implementation. Cap ladder and FSRS due dates before a matching exam; never extend an interval; leave unknown courses untouched.
+  - [ ] Apply the cap after ladder/FSRS scheduling and explain it in the result summary.
+  - [ ] Test ladder, FSRS, no exam, exam after the due date, exam before it, exam day, two exams for one course, and unknown courses.
 - [x] Suggested study blocks in free gaps
 - [x] Filtered `.ics` export
 
@@ -2289,15 +2310,18 @@ Names are proposals; keep existing ones unchanged.
 - [x] Answer modes: flip, type and speak via OS dictation, with the deterministic cheap-first grading pipeline (§5.17) — AI fallback remains
 - [x] AI grader with strictness settings, override, and grade-later queue
 - [x] Unified due queue model and Today/command list across cards, vocab and MCQs — interleaved mixed-review sessions remain
-- [ ] Optional TTS/audio (later in phase)
-- [ ] **AP exam tools research (next after import)** — FRQ grader, AP score calculator, and AP resource hub (§5.20); research/spec only
+- [x] Pending-grade visibility in Today and the Cards list, with per-card Review actions and a Grade now retry control (§5.17)
+- [ ] Optional TTS/audio — deferred until exam-aware scheduling caps land; provider choice and mobile support still need validation.
+- [x] **AP exam tools research** — FRQ grader, AP score calculator, and AP resource hub (§5.20); [spec](docs/ap-frq-grader-spec.md) complete. Implementation remains behind the pilot gate.
 
 ### Phase 3: Calendar and courses (priority)
 
 - [x] Course registry, folder mapping, `.ics` import, per-class notes (§5.8)
 - [x] Month grid, daily timeline, live countdown, mobile Today and Upcoming views
 - [x] Exam model, exam countdowns, SAT/AP-style non-semester exam events
-- [ ] Exam-aware scheduling caps (§4.3)
+- [ ] **Exam-aware scheduling caps (§4.3)** — next implementation. Cap ladder and FSRS due dates before a matching exam; never extend an interval; leave unknown courses untouched.
+  - [ ] Apply the cap after ladder/FSRS scheduling and explain it in the result summary.
+  - [ ] Test ladder, FSRS, no exam, exam after the due date, exam before it, exam day, two exams for one course, and unknown courses.
 - [x] Suggested study blocks in free gaps
 - [x] Filtered `.ics` export
 
@@ -2732,5 +2756,5 @@ Shipped behind the module switch (off by default):
   guides (the current answer to §11 item 20).
 
 Not done yet: the full course registry (semester, credit weight), exam-aware scheduler caps
-(§4.3), suggested study blocks in free gaps, reading events written by other calendar plugins,
-and testing on real iOS and Android devices.
+(§4.3), reading events written by other calendar plugins, and testing on real iOS and Android
+devices.
