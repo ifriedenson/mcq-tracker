@@ -66,7 +66,9 @@ const { CalendarView, StudySlotModal, parseScheduleBlock } = require("./calendar
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 const referenceData = require("./reference-data");
 const pdfAnnotations = require("./pdf-annotations");
+const pdfInk = require("./pdf-ink");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
+const { PdfInkModal } = require("./pdf-ink-modal");
 const welcome = require("./welcome");
 const focus = require("./focus");
 const studyPlan = require("./study-plan");
@@ -169,7 +171,9 @@ QuestionTrackerPlugin.__test = {
   renderReferenceSettings,
   referenceData,
   pdfAnnotations,
+  pdfInk,
   PdfAnnotationModal,
+  PdfInkModal,
   welcome,
   WelcomeModal,
   focus,

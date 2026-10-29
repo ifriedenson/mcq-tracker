@@ -9,6 +9,8 @@
  * old notes to a different document.
  */
 
+const { normalizeInkStrokes } = require("./pdf-ink");
+
 const ANNOTATION_BLOCK = "mcq-pdf-annotations";
 const ANNOTATION_TYPES = ["highlight", "note", "text", "form", "pen"];
 const ANNOTATION_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
@@ -52,8 +54,9 @@ function normalizeAnnotation(input) {
   const quote = str(src.quote).trim();
   const note = str(src.note).trim();
   const text = str(src.text).trim();
-  if (!quote && !note && !text) throw new Error("Add a quote, note or text for the annotation.");
-  return {
+  const strokes = type === "pen" ? normalizeInkStrokes(src.strokes) : [];
+  if (!quote && !note && !text && !strokes.length) throw new Error("Add a quote, note or text, or draw some ink, for the annotation.");
+  const out = {
     id: str(src.id).trim() || newAnnotationId(),
     page,
     type,
@@ -63,6 +66,8 @@ function normalizeAnnotation(input) {
     text,
     createdAt: str(src.createdAt).trim() || new Date().toISOString(),
   };
+  if (type === "pen") out.strokes = strokes;
+  return out;
 }
 
 function sortAnnotations(list) {
@@ -90,6 +95,9 @@ function annotationSummary(annotation) {
   if (annotation.quote) bits.push(`"${annotation.quote.replace(/\s+/g, " ").slice(0, 160)}"`);
   if (annotation.text) bits.push(annotation.text.replace(/\s+/g, " ").slice(0, 160));
   if (annotation.note) bits.push(annotation.note.replace(/\s+/g, " ").slice(0, 200));
+  if (Array.isArray(annotation.strokes) && annotation.strokes.length) {
+    bits.push(`${annotation.strokes.length} ink stroke${annotation.strokes.length === 1 ? "" : "s"}`);
+  }
   return bits.join(" - ") || "(no text)";
 }
 

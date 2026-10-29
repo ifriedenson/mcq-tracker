@@ -19507,7 +19507,7 @@ class PdfAnnotationModal extends Modal {
     el.createEl("h3", { text: "Add a PDF annotation" });
     el.createEl("p", {
       cls: "setting-item-description",
-      text: "Annotations are saved in a Markdown sidecar next to the PDF, keyed by the PDF's content hash. The visual pen and highlighter overlay is not part of this first slice.",
+      text: "Annotations are saved in a Markdown sidecar next to the PDF, keyed by the PDF's content hash. Use Draw on this PDF for pen and highlighter strokes.",
     });
 
     const files = this.pdfFiles();
@@ -19580,6 +19580,11 @@ class PdfAnnotationModal extends Modal {
     save.addEventListener("click", () => this.save());
     const open = row.createEl("button", { text: "Open annotations", cls: "qt-grow" });
     open.addEventListener("click", () => this.openAnnotations());
+    const draw = row.createEl("button", { text: "Draw on this PDF", cls: "qt-grow" });
+    draw.addEventListener("click", () => {
+      this.plugin.openPdfInk(this.pdfPath);
+      this.close();
+    });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
     cancel.addEventListener("click", () => this.close());
     this.statusEl = el.createDiv({ cls: "qt-hint" });
@@ -19655,6 +19660,8 @@ __defs["pdf-annotations"] = function (module, exports, require) {
  * old notes to a different document.
  */
 
+const { normalizeInkStrokes } = require("./pdf-ink");
+
 const ANNOTATION_BLOCK = "mcq-pdf-annotations";
 const ANNOTATION_TYPES = ["highlight", "note", "text", "form", "pen"];
 const ANNOTATION_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
@@ -19698,8 +19705,9 @@ function normalizeAnnotation(input) {
   const quote = str(src.quote).trim();
   const note = str(src.note).trim();
   const text = str(src.text).trim();
-  if (!quote && !note && !text) throw new Error("Add a quote, note or text for the annotation.");
-  return {
+  const strokes = type === "pen" ? normalizeInkStrokes(src.strokes) : [];
+  if (!quote && !note && !text && !strokes.length) throw new Error("Add a quote, note or text, or draw some ink, for the annotation.");
+  const out = {
     id: str(src.id).trim() || newAnnotationId(),
     page,
     type,
@@ -19709,6 +19717,8 @@ function normalizeAnnotation(input) {
     text,
     createdAt: str(src.createdAt).trim() || new Date().toISOString(),
   };
+  if (type === "pen") out.strokes = strokes;
+  return out;
 }
 
 function sortAnnotations(list) {
@@ -19736,6 +19746,9 @@ function annotationSummary(annotation) {
   if (annotation.quote) bits.push(`"${annotation.quote.replace(/\s+/g, " ").slice(0, 160)}"`);
   if (annotation.text) bits.push(annotation.text.replace(/\s+/g, " ").slice(0, 160));
   if (annotation.note) bits.push(annotation.note.replace(/\s+/g, " ").slice(0, 200));
+  if (Array.isArray(annotation.strokes) && annotation.strokes.length) {
+    bits.push(`${annotation.strokes.length} ink stroke${annotation.strokes.length === 1 ? "" : "s"}`);
+  }
   return bits.join(" - ") || "(no text)";
 }
 
@@ -19808,6 +19821,631 @@ module.exports = {
 };
 };
 
+/* ---- src/pdf-ink.js ---- */
+__defs["pdf-ink"] = function (module, exports, require) {
+/*
+ * Pen and highlighter strokes for PDF pages.
+ *
+ * Points are stored normalized to the page (0..1), so the same sidecar works
+ * at any render scale. Widths are also fractions of the page width. This module
+ * has no Obsidian dependency and no PDF dependency; the modal supplies the
+ * canvas and the sidecar writer.
+ */
+
+const INK_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
+const INK_TOOLS = ["pen", "highlighter"];
+const MAX_INK_POINTS = 4000;
+const MAX_INK_STROKES = 200;
+const INK_COLOR_HEX = {
+  yellow: "#f2c94c",
+  green: "#6fcf97",
+  blue: "#56a9f2",
+  red: "#eb5757",
+  purple: "#bb6bd9",
+  gray: "#828282",
+};
+
+function str(value) {
+  return value === undefined || value === null ? "" : String(value);
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function round(value, places) {
+  const scale = Math.pow(10, places || 0);
+  return Math.round(value * scale) / scale;
+}
+
+function normalizePoint(value) {
+  const x = Array.isArray(value) ? value[0] : value && value.x;
+  const y = Array.isArray(value) ? value[1] : value && value.y;
+  const nx = Number(x);
+  const ny = Number(y);
+  if (!Number.isFinite(nx) || !Number.isFinite(ny)) return null;
+  return [round(clamp(nx, 0, 1), 4), round(clamp(ny, 0, 1), 4)];
+}
+
+/** One stroke in the durable sidecar format. Invalid/empty strokes are dropped. */
+function normalizeInkStroke(input) {
+  const src = input && typeof input === "object" ? input : {};
+  const tool = INK_TOOLS.includes(str(src.tool)) ? str(src.tool) : "pen";
+  const points = [];
+  for (const raw of Array.isArray(src.points) ? src.points : []) {
+    const point = normalizePoint(raw);
+    if (point) points.push(point);
+    if (points.length >= MAX_INK_POINTS) break;
+  }
+  if (!points.length) return null;
+  const defaultWidth = tool === "highlighter" ? 0.018 : 0.003;
+  const defaultOpacity = tool === "highlighter" ? 0.35 : 0.9;
+  const width = clamp(Number(src.width) || defaultWidth, 0.0005, 0.08);
+  const opacity = clamp(Number(src.opacity) || defaultOpacity, 0.05, 1);
+  const color = INK_COLORS.includes(str(src.color)) ? str(src.color) : tool === "highlighter" ? "yellow" : "blue";
+  return {
+    tool,
+    color,
+    width: round(width, 4),
+    opacity: round(opacity, 2),
+    points,
+  };
+}
+
+function normalizeInkStrokes(list) {
+  const out = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    const stroke = normalizeInkStroke(raw);
+    if (stroke) out.push(stroke);
+    if (out.length >= MAX_INK_STROKES) break;
+  }
+  return out;
+}
+
+/** Distance from a point to a line segment, all in normalized page coordinates. */
+function pointToSegmentDistance(point, a, b) {
+  const px = point[0];
+  const py = point[1];
+  const ax = a[0];
+  const ay = a[1];
+  const bx = b[0];
+  const by = b[1];
+  const dx = bx - ax;
+  const dy = by - ay;
+  const length = dx * dx + dy * dy;
+  let t = 0;
+  if (length > 0) t = clamp(((px - ax) * dx + (py - ay) * dy) / length, 0, 1);
+  const x = ax + t * dx;
+  const y = ay + t * dy;
+  return Math.hypot(px - x, py - y);
+}
+
+function hitStroke(stroke, point, tolerance) {
+  const points = stroke && Array.isArray(stroke.points) ? stroke.points : [];
+  if (!points.length) return false;
+  const reach = Math.max(Number(tolerance) || 0, Number(stroke.width) / 2 || 0);
+  if (points.length === 1) return Math.hypot(point[0] - points[0][0], point[1] - points[0][1]) <= reach;
+  for (let i = 1; i < points.length; i++) {
+    if (pointToSegmentDistance(point, points[i - 1], points[i]) <= reach) return true;
+  }
+  return false;
+}
+
+/** Removes every stroke touched by the eraser at `point`. */
+function eraseStrokesAt(strokes, point, tolerance) {
+  return (Array.isArray(strokes) ? strokes : []).filter((stroke) => !hitStroke(stroke, point, tolerance));
+}
+
+function colorFor(stroke) {
+  return INK_COLOR_HEX[stroke && stroke.color] || INK_COLOR_HEX.yellow;
+}
+
+function lineWidthFor(stroke, canvasWidth) {
+  return Math.max(1, Number(canvasWidth) * (Number(stroke && stroke.width) || 0.003));
+}
+
+function drawInkStrokes(ctx, strokes, width, height) {
+  if (!ctx) return;
+  ctx.clearRect(0, 0, width, height);
+  for (const stroke of Array.isArray(strokes) ? strokes : []) {
+    const points = stroke && Array.isArray(stroke.points) ? stroke.points : [];
+    if (!points.length) continue;
+    ctx.save();
+    ctx.globalAlpha = clamp(Number(stroke.opacity) || 0.9, 0.05, 1);
+    ctx.strokeStyle = colorFor(stroke);
+    ctx.fillStyle = colorFor(stroke);
+    ctx.lineWidth = lineWidthFor(stroke, width);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if (points.length === 1) {
+      ctx.beginPath();
+      ctx.arc(points[0][0] * width, points[0][1] * height, ctx.lineWidth / 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(points[0][0] * width, points[0][1] * height);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0] * width, points[i][1] * height);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+/** Draws only the newest segment while the pointer is down, then a full redraw caps it. */
+function drawInkSegment(ctx, stroke, from, to, width, height) {
+  if (!ctx || !stroke || !from || !to) return;
+  ctx.save();
+  ctx.globalAlpha = clamp(Number(stroke.opacity) || 0.9, 0.05, 1);
+  ctx.strokeStyle = colorFor(stroke);
+  ctx.lineWidth = lineWidthFor(stroke, width);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(from[0] * width, from[1] * height);
+  ctx.lineTo(to[0] * width, to[1] * height);
+  ctx.stroke();
+  ctx.restore();
+}
+
+module.exports = {
+  INK_COLORS,
+  INK_COLOR_HEX,
+  INK_TOOLS,
+  MAX_INK_POINTS,
+  MAX_INK_STROKES,
+  drawInkSegment,
+  drawInkStrokes,
+  eraseStrokesAt,
+  hitStroke,
+  normalizeInkStroke,
+  normalizeInkStrokes,
+  normalizePoint,
+  pointToSegmentDistance,
+  clamp,
+};
+};
+
+/* ---- src/pdf-ink-modal.js ---- */
+__defs["pdf-ink-modal"] = function (module, exports, require) {
+const { Modal, Notice, Setting, TFile } = require("obsidian");
+const { renderPdfPagesAsPng } = require("./pdf");
+const { hashBytes, parseAnnotationFile, removeAnnotation, sidecarPathFor, upsertAnnotation } = require("./pdf-annotations");
+const { INK_COLORS, INK_TOOLS, MAX_INK_POINTS, clamp, drawInkSegment, drawInkStrokes, eraseStrokesAt, normalizeInkStroke, normalizeInkStrokes } = require("./pdf-ink");
+
+const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", eraser: "Eraser" };
+const COLOR_LABELS = { yellow: "Yellow", green: "Green", blue: "Blue", red: "Red", purple: "Purple", gray: "Gray" };
+const SIZE_PRESETS = {
+  thin: { pen: 0.0018, highlighter: 0.012 },
+  medium: { pen: 0.003, highlighter: 0.018 },
+  thick: { pen: 0.005, highlighter: 0.028 },
+};
+const ERASER_RADIUS = 0.012;
+
+function clampPage(value, total) {
+  const n = Math.round(Number(value) || 1);
+  return Math.max(1, total > 0 ? Math.min(total, n) : n);
+}
+
+/* A canvas overlay on top of a rendered PDF page. */
+class PdfInkModal extends Modal {
+  constructor(app, plugin, options) {
+    super(app);
+    this.plugin = plugin;
+    this.pdfPath = (options && options.pdfPath) || "";
+    this.page = Math.max(1, Math.round(Number(options && options.page) || 1));
+    this.total = 0;
+    this.tool = "pen";
+    this.color = "blue";
+    this.size = "medium";
+    this.strokes = [];
+    this.inkId = "";
+    this.currentHash = "";
+    this.savedHash = "";
+    this.sidecarPath = "";
+    this.objectUrl = "";
+    this.loadToken = 0;
+    this.editSeq = 0;
+    this.drawing = null;
+    this.erasing = false;
+    this.dirty = false;
+    this.busy = false;
+    this.pageInputEl = null;
+    this.pageTotalEl = null;
+    this.statusEl = null;
+    this.stageEl = null;
+    this.pageWrap = null;
+    this.canvas = null;
+    this.ctx = null;
+  }
+
+  onOpen() {
+    this.modalEl.addClass("qt-pdf-ink-modal");
+    this.render();
+    this.loadPage();
+  }
+
+  onClose() {
+    this.loadToken++;
+    if (this.dirty) this.save().catch(() => {});
+    if (this.objectUrl) {
+      try {
+        URL.revokeObjectURL(this.objectUrl);
+      } catch (e) {
+        /* ignore */
+      }
+      this.objectUrl = "";
+    }
+    this.contentEl.empty();
+  }
+
+  setStatus(text) {
+    if (this.statusEl) this.statusEl.setText(text);
+  }
+
+  pdfFiles() {
+    return this.app.vault
+      .getFiles()
+      .filter((f) => f instanceof TFile && /\.pdf$/i.test(f.path))
+      .sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  widthForTool() {
+    const preset = SIZE_PRESETS[this.size] || SIZE_PRESETS.medium;
+    return this.tool === "highlighter" ? preset.highlighter : preset.pen;
+  }
+
+  opacityForTool() {
+    return this.tool === "highlighter" ? 0.35 : 0.9;
+  }
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Draw on a PDF" });
+    el.createEl("p", {
+      cls: "setting-item-description",
+      text: "Pen and highlighter strokes are saved in the PDF's annotation sidecar. They are stored as page coordinates, so they stay in place at any zoom or on another device. Text boxes and quoted highlights remain available in Add a PDF annotation.",
+    });
+
+    const files = this.pdfFiles();
+    if (!files.length) {
+      el.createEl("p", { cls: "qt-hint", text: "No PDFs are in this vault yet. Add one, then reopen this window." });
+      return;
+    }
+    if (!this.pdfPath || !files.some((f) => f.path === this.pdfPath)) {
+      const active = this.app.workspace.getActiveFile();
+      this.pdfPath = active && /\.pdf$/i.test(active.path) ? active.path : files[0].path;
+    }
+
+    new Setting(el).setName("PDF").addDropdown((d) => {
+      for (const file of files) d.addOption(file.path, file.path);
+      d.setValue(this.pdfPath).onChange(async (v) => {
+        if (v === this.pdfPath) return;
+        if (!(await this.leavePage())) return;
+        this.pdfPath = v;
+        this.page = 1;
+        this.total = 0;
+        await this.loadPage();
+      });
+    });
+
+    const nav = el.createDiv({ cls: "qt-pdf-ink-nav" });
+    const prev = nav.createEl("button", { text: "Previous", cls: "qt-grow" });
+    prev.addEventListener("click", () => this.stepPage(-1));
+    const pageLabel = nav.createEl("label", { cls: "qt-pdf-ink-page-label", text: "Page" });
+    this.pageInputEl = pageLabel.createEl("input", { type: "number", cls: "qt-pdf-ink-page-input" });
+    this.pageInputEl.min = "1";
+    this.pageInputEl.value = String(this.page);
+    this.pageInputEl.addEventListener("change", () => this.goToPage(this.pageInputEl.value));
+    this.pageTotalEl = pageLabel.createEl("span", { cls: "qt-pdf-ink-page-total", text: "of ?" });
+    const next = nav.createEl("button", { text: "Next", cls: "qt-grow" });
+    next.addEventListener("click", () => this.stepPage(1));
+
+    new Setting(el).setName("Tool").addDropdown((d) => {
+      for (const tool of [...INK_TOOLS, "eraser"]) d.addOption(tool, TOOL_LABELS[tool]);
+      d.setValue(this.tool).onChange((v) => {
+        this.tool = INK_TOOLS.includes(v) || v === "eraser" ? v : "pen";
+        if (this.tool === "highlighter" && this.color === "blue") this.color = "yellow";
+      });
+    });
+
+    new Setting(el).setName("Colour").addDropdown((d) => {
+      for (const color of INK_COLORS) d.addOption(color, COLOR_LABELS[color]);
+      d.setValue(this.color).onChange((v) => {
+        this.color = INK_COLORS.includes(v) ? v : "blue";
+      });
+    });
+
+    new Setting(el).setName("Thickness").addDropdown((d) => {
+      d.addOption("thin", "Thin");
+      d.addOption("medium", "Medium");
+      d.addOption("thick", "Thick");
+      d.setValue(this.size).onChange((v) => {
+        this.size = Object.prototype.hasOwnProperty.call(SIZE_PRESETS, v) ? v : "medium";
+      });
+    });
+
+    const actions = el.createDiv({ cls: "qt-row qt-pdf-ink-actions" });
+    const undo = actions.createEl("button", { text: "Undo", cls: "qt-grow" });
+    undo.addEventListener("click", () => this.undo());
+    const clear = actions.createEl("button", { text: "Clear page", cls: "qt-grow" });
+    clear.addEventListener("click", () => this.clear());
+    const save = actions.createEl("button", { text: "Save", cls: "qt-grow" });
+    save.addEventListener("click", () => this.save());
+    const saveClose = actions.createEl("button", { text: "Save & close", cls: "mod-cta qt-grow" });
+    saveClose.addEventListener("click", () => this.save({ close: true }));
+
+    this.statusEl = el.createDiv({ cls: "qt-hint" });
+    this.stageEl = el.createDiv({ cls: "qt-pdf-ink-stage" });
+    if (this.busy) this.setStatus("Loading…");
+  }
+
+  async loadPage() {
+    if (!this.stageEl) return;
+    const token = ++this.loadToken;
+    this.busy = true;
+    this.setStatus("Rendering page…");
+    try {
+      const file = this.app.vault.getAbstractFileByPath(this.pdfPath);
+      if (!file || !(file instanceof TFile)) throw new Error("That PDF is no longer in the vault.");
+      const bytes = await this.app.vault.readBinary(file);
+      const hash = hashBytes(bytes);
+      const rendered = await renderPdfPagesAsPng(bytes, String(this.page), (message) => this.setStatus(message), 1.6);
+      if (token !== this.loadToken) return;
+      if (!rendered.pages.length) throw new Error("That page could not be rendered.");
+      this.total = Math.max(0, Number(rendered.total) || 0);
+      this.currentHash = hash;
+      await this.loadSidecar();
+      if (token !== this.loadToken) return;
+      await this.showPage(rendered.pages[0].png);
+      if (token !== this.loadToken) return;
+      this.dirty = false;
+      this.pageInputEl.value = String(this.page);
+      this.pageTotalEl.setText(`of ${this.total || "?"}`);
+      const warning = this.savedHash && this.savedHash !== hash ? " The PDF changed since its annotations were saved; check that the page still matches." : "";
+      this.setStatus(`Page ${this.page} ready. Draw, then Save.${warning}`);
+    } catch (e) {
+      if (token === this.loadToken) this.setStatus(e && e.message ? e.message : String(e));
+    } finally {
+      if (token === this.loadToken) this.busy = false;
+    }
+  }
+
+  async loadSidecar() {
+    this.sidecarPath = sidecarPathFor(this.pdfPath);
+    this.strokes = [];
+    this.inkId = "";
+    this.savedHash = "";
+    const existing = this.app.vault.getAbstractFileByPath(this.sidecarPath);
+    if (!existing) return;
+    let parsed;
+    try {
+      parsed = parseAnnotationFile(await this.app.vault.cachedRead(existing));
+    } catch (e) {
+      this.setStatus(e.message);
+      return;
+    }
+    this.savedHash = parsed.pdfHash || "";
+    const ink = (parsed.annotations || []).find((a) => a.page === Number(this.page) && a.type === "pen" && Array.isArray(a.strokes) && a.strokes.length);
+    if (!ink) return;
+    this.inkId = ink.id;
+    this.strokes = normalizeInkStrokes(ink.strokes);
+  }
+
+  async showPage(png) {
+    if (!this.stageEl) return;
+    this.stageEl.empty();
+    if (this.objectUrl) {
+      try {
+        URL.revokeObjectURL(this.objectUrl);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    const blob = new Blob([png], { type: "image/png" });
+    this.objectUrl = URL.createObjectURL(blob);
+    this.pageWrap = this.stageEl.createDiv({ cls: "qt-pdf-ink-page-wrap" });
+    const image = this.pageWrap.createEl("img", { cls: "qt-pdf-ink-page" });
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error("The rendered page could not be shown."));
+      image.src = this.objectUrl;
+    });
+    const canvas = this.pageWrap.createEl("canvas", { cls: "qt-pdf-ink-canvas" });
+    canvas.width = Math.max(1, Math.round(image.naturalWidth || image.width || 1000));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight || image.height || 1400));
+    this.canvas = canvas;
+    this.ctx = canvas.getContext ? canvas.getContext("2d") : null;
+    this.bindCanvas();
+    this.redraw();
+  }
+
+  bindCanvas() {
+    const canvas = this.canvas;
+    if (!canvas || !canvas.addEventListener) return;
+    const pointAt = (event) => {
+      const rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { left: 0, top: 0, width: canvas.width, height: canvas.height };
+      const width = Number(rect.width) || canvas.width || 1;
+      const height = Number(rect.height) || canvas.height || 1;
+      return [clamp((Number(event.clientX) - Number(rect.left || 0)) / width, 0, 1), clamp((Number(event.clientY) - Number(rect.top || 0)) / height, 0, 1)];
+    };
+    canvas.addEventListener("pointerdown", (event) => {
+      if (this.busy) return;
+      if (event.preventDefault) event.preventDefault();
+      if (canvas.setPointerCapture && event.pointerId !== undefined) {
+        try {
+          canvas.setPointerCapture(event.pointerId);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      const point = pointAt(event);
+      if (this.tool === "eraser") {
+        this.erasing = true;
+        this.eraseAt(point);
+        return;
+      }
+      const stroke = normalizeInkStroke({
+        tool: this.tool,
+        color: this.color,
+        width: this.widthForTool(),
+        opacity: this.opacityForTool(),
+        points: [point],
+      });
+      if (!stroke) return;
+      this.strokes.push(stroke);
+      this.drawing = this.strokes[this.strokes.length - 1];
+      this.touch();
+      this.redraw();
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      if (this.busy) return;
+      if (this.erasing) {
+        if (event.preventDefault) event.preventDefault();
+        this.eraseAt(pointAt(event));
+        return;
+      }
+      if (!this.drawing) return;
+      if (event.preventDefault) event.preventDefault();
+      const point = pointAt(event);
+      const points = this.drawing.points;
+      const last = points[points.length - 1];
+      if (!last || Math.hypot(point[0] - last[0], point[1] - last[1]) < 0.0015) return;
+      if (points.length >= MAX_INK_POINTS) return;
+      points.push(point);
+      drawInkSegment(this.ctx, this.drawing, last, point, this.canvas.width, this.canvas.height);
+      this.touch();
+    });
+    const finish = () => {
+      if (this.drawing) {
+        this.drawing = null;
+        this.redraw();
+      }
+      this.erasing = false;
+    };
+    canvas.addEventListener("pointerup", finish);
+    canvas.addEventListener("pointercancel", finish);
+    canvas.addEventListener("pointerleave", (event) => {
+      if (this.drawing && event.buttons === 0) finish();
+    });
+  }
+
+  eraseAt(point) {
+    const next = eraseStrokesAt(this.strokes, point, ERASER_RADIUS);
+    if (next.length === this.strokes.length) return;
+    this.strokes = next;
+    this.touch();
+    this.redraw();
+  }
+
+  touch() {
+    this.editSeq++;
+    this.dirty = true;
+  }
+
+  redraw() {
+    if (!this.ctx || !this.canvas) return;
+    drawInkStrokes(this.ctx, this.strokes, this.canvas.width, this.canvas.height);
+  }
+
+  undo() {
+    if (!this.strokes.length) return;
+    this.strokes.pop();
+    this.touch();
+    this.redraw();
+  }
+
+  clear() {
+    if (!this.strokes.length) return;
+    this.strokes = [];
+    // Keep inkId: saving an empty page must remove the existing annotation.
+    this.touch();
+    this.redraw();
+  }
+
+  async goToPage(value) {
+    const target = clampPage(value, this.total);
+    if (target === this.page) {
+      if (this.pageInputEl) this.pageInputEl.value = String(this.page);
+      return;
+    }
+    if (!(await this.leavePage())) return;
+    this.page = target;
+    await this.loadPage();
+  }
+
+  async stepPage(delta) {
+    if (!this.total) return;
+    await this.goToPage(this.page + delta);
+  }
+
+  async leavePage() {
+    if (!this.dirty) return true;
+    const saved = await this.save();
+    return saved === true;
+  }
+
+  async save(options) {
+    const opts = options || {};
+    if (this.busy) return false;
+    if (!this.strokes.length && !this.inkId) {
+      this.setStatus("Draw something first.");
+      return false;
+    }
+    this.busy = true;
+    this.setStatus("Saving…");
+    const seq = this.editSeq;
+    const page = this.page;
+    const strokes = normalizeInkStrokes(this.strokes);
+    try {
+      const file = this.app.vault.getAbstractFileByPath(this.pdfPath);
+      if (!file || !(file instanceof TFile)) throw new Error("That PDF is no longer in the vault.");
+      const bytes = await this.app.vault.readBinary(file);
+      const hash = hashBytes(bytes);
+      const path = sidecarPathFor(this.pdfPath);
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      const oldText = existing ? await this.app.vault.cachedRead(existing) : "";
+      let result;
+      if (strokes.length) {
+        result = upsertAnnotation(
+          oldText,
+          {
+            id: this.inkId || undefined,
+            page,
+            type: "pen",
+            color: this.color,
+            strokes,
+          },
+          { pdfPath: this.pdfPath, pdfHash: hash }
+        );
+      } else if (this.inkId) {
+        result = removeAnnotation(oldText, this.inkId, { pdfPath: this.pdfPath, pdfHash: hash });
+      } else {
+        this.setStatus("Draw something first.");
+        return false;
+      }
+      if (existing) await this.app.vault.modify(existing, result.text);
+      else await this.app.vault.create(path, result.text);
+      this.sidecarPath = path;
+      this.savedHash = hash;
+      const ink = (result.annotations || []).find((a) => a.page === page && a.type === "pen" && Array.isArray(a.strokes) && a.strokes.length);
+      this.inkId = ink ? ink.id : "";
+      this.dirty = this.editSeq !== seq;
+      this.setStatus(strokes.length ? `Saved ${strokes.length} stroke${strokes.length === 1 ? "" : "s"} on page ${page}.` : `Removed the ink from page ${page}.`);
+      if (opts.close && !this.dirty) this.close();
+      return true;
+    } catch (e) {
+      this.setStatus(e && e.message ? e.message : String(e));
+      return false;
+    } finally {
+      this.busy = false;
+    }
+  }
+}
+
+module.exports = { PdfInkModal };
+};
+
 /* ---- src/plugin.js ---- */
 __defs["plugin"] = function (module, exports, require) {
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
@@ -19833,6 +20471,7 @@ const { DocumentReviewModal } = require("./document-review-modal");
 const { OcrModal } = require("./ocr-modal");
 const { PaperScannerModal } = require("./paper-scanner");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
+const { PdfInkModal } = require("./pdf-ink-modal");
 const { sidecarPathFor } = require("./pdf-annotations");
 const { WelcomeModal } = require("./welcome-modal");
 const { FocusLogModal } = require("./focus-modal");
@@ -19960,6 +20599,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "document-review", name: "Review a document for import", callback: () => this.openDocumentReview() });
     this.addCommand({ id: "ocr-pdf", name: "OCR a scanned PDF", callback: () => this.openOcr() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
+    this.addCommand({ id: "pdf-draw", name: "PDF: draw with pen or highlighter", callback: () => this.openPdfInk() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
     this.addCommand({
       id: "practice-folder",
@@ -20097,6 +20737,7 @@ class QuestionTrackerPlugin extends Plugin {
         }
         if (file instanceof TFile && /\.pdf$/i.test(file.path)) {
           menu.addItem((item) => item.setTitle("Add PDF annotation").setIcon("highlighter").onClick(() => this.openPdfAnnotation(file.path)));
+          menu.addItem((item) => item.setTitle("Draw on PDF").setIcon("pencil").onClick(() => this.openPdfInk(file.path)));
           menu.addItem((item) => item.setTitle("Open PDF annotations").setIcon("notebook-pen").onClick(() => this.openPdfAnnotations(file.path)));
           return;
         }
@@ -20521,6 +21162,11 @@ class QuestionTrackerPlugin extends Plugin {
   openPdfAnnotation(pdfPath) {
     if (this.moduleOff("mcq")) return;
     new PdfAnnotationModal(this.app, this, { pdfPath: pdfPath || "" }).open();
+  }
+
+  openPdfInk(pdfPath) {
+    if (this.moduleOff("mcq")) return;
+    new PdfInkModal(this.app, this, { pdfPath: pdfPath || "" }).open();
   }
 
   async openPdfAnnotations(pdfPath) {
@@ -29914,7 +30560,9 @@ const { CalendarView, StudySlotModal, parseScheduleBlock } = require("./calendar
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 const referenceData = require("./reference-data");
 const pdfAnnotations = require("./pdf-annotations");
+const pdfInk = require("./pdf-ink");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
+const { PdfInkModal } = require("./pdf-ink-modal");
 const welcome = require("./welcome");
 const focus = require("./focus");
 const studyPlan = require("./study-plan");
@@ -30017,7 +30665,9 @@ QuestionTrackerPlugin.__test = {
   renderReferenceSettings,
   referenceData,
   pdfAnnotations,
+  pdfInk,
   PdfAnnotationModal,
+  PdfInkModal,
   welcome,
   WelcomeModal,
   focus,

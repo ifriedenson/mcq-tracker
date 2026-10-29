@@ -46,7 +46,7 @@ class PdfAnnotationModal extends Modal {
     el.createEl("h3", { text: "Add a PDF annotation" });
     el.createEl("p", {
       cls: "setting-item-description",
-      text: "Annotations are saved in a Markdown sidecar next to the PDF, keyed by the PDF's content hash. The visual pen and highlighter overlay is not part of this first slice.",
+      text: "Annotations are saved in a Markdown sidecar next to the PDF, keyed by the PDF's content hash. Use Draw on this PDF for pen and highlighter strokes.",
     });
 
     const files = this.pdfFiles();
@@ -119,6 +119,11 @@ class PdfAnnotationModal extends Modal {
     save.addEventListener("click", () => this.save());
     const open = row.createEl("button", { text: "Open annotations", cls: "qt-grow" });
     open.addEventListener("click", () => this.openAnnotations());
+    const draw = row.createEl("button", { text: "Draw on this PDF", cls: "qt-grow" });
+    draw.addEventListener("click", () => {
+      this.plugin.openPdfInk(this.pdfPath);
+      this.close();
+    });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
     cancel.addEventListener("click", () => this.close());
     this.statusEl = el.createDiv({ cls: "qt-hint" });

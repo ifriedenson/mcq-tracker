@@ -4071,3 +4071,84 @@
     flex-wrap: wrap;
   }
 }
+
+/* PDF pen and highlighter overlay. The page is an image; the canvas above it
+   stores normalized coordinates, so resizing the window never moves the ink. */
+.qt-pdf-ink-modal {
+  max-width: 94vw;
+  width: min(94vw, 1100px);
+}
+
+.qt-pdf-ink-nav {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.qt-pdf-ink-page-label {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  gap: 6px;
+}
+
+.qt-pdf-ink-page-input {
+  max-width: 5rem;
+  min-height: 2rem;
+  text-align: center;
+}
+
+.qt-pdf-ink-page-total {
+  color: var(--text-faint);
+  font-size: var(--font-ui-small);
+  white-space: nowrap;
+}
+
+.qt-pdf-ink-actions {
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.qt-pdf-ink-stage {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+  max-height: 68vh;
+  overflow: auto;
+  padding: 8px;
+}
+
+.qt-pdf-ink-page-wrap {
+  display: inline-block;
+  line-height: 0;
+  max-width: 100%;
+  position: relative;
+}
+
+.qt-pdf-ink-page {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  user-select: none;
+}
+
+.qt-pdf-ink-canvas {
+  cursor: crosshair;
+  height: 100%;
+  inset: 0;
+  position: absolute;
+  touch-action: none;
+  width: 100%;
+}
+
+@media (max-width: 480px) {
+  .qt-pdf-ink-stage {
+    max-height: 58vh;
+    padding: 4px;
+  }
+}

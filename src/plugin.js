@@ -22,6 +22,7 @@ const { DocumentReviewModal } = require("./document-review-modal");
 const { OcrModal } = require("./ocr-modal");
 const { PaperScannerModal } = require("./paper-scanner");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
+const { PdfInkModal } = require("./pdf-ink-modal");
 const { sidecarPathFor } = require("./pdf-annotations");
 const { WelcomeModal } = require("./welcome-modal");
 const { FocusLogModal } = require("./focus-modal");
@@ -149,6 +150,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "document-review", name: "Review a document for import", callback: () => this.openDocumentReview() });
     this.addCommand({ id: "ocr-pdf", name: "OCR a scanned PDF", callback: () => this.openOcr() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
+    this.addCommand({ id: "pdf-draw", name: "PDF: draw with pen or highlighter", callback: () => this.openPdfInk() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
     this.addCommand({
       id: "practice-folder",
@@ -286,6 +288,7 @@ class QuestionTrackerPlugin extends Plugin {
         }
         if (file instanceof TFile && /\.pdf$/i.test(file.path)) {
           menu.addItem((item) => item.setTitle("Add PDF annotation").setIcon("highlighter").onClick(() => this.openPdfAnnotation(file.path)));
+          menu.addItem((item) => item.setTitle("Draw on PDF").setIcon("pencil").onClick(() => this.openPdfInk(file.path)));
           menu.addItem((item) => item.setTitle("Open PDF annotations").setIcon("notebook-pen").onClick(() => this.openPdfAnnotations(file.path)));
           return;
         }
@@ -710,6 +713,11 @@ class QuestionTrackerPlugin extends Plugin {
   openPdfAnnotation(pdfPath) {
     if (this.moduleOff("mcq")) return;
     new PdfAnnotationModal(this.app, this, { pdfPath: pdfPath || "" }).open();
+  }
+
+  openPdfInk(pdfPath) {
+    if (this.moduleOff("mcq")) return;
+    new PdfInkModal(this.app, this, { pdfPath: pdfPath || "" }).open();
   }
 
   async openPdfAnnotations(pdfPath) {
