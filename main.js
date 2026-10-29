@@ -2684,14 +2684,14 @@ function apExamTrend(entries) {
   const previous = newest[1] || null;
   const average = newest.length ? Math.round((newest.reduce((sum, item) => sum + item.composite, 0) / newest.length) * 10) / 10 : null;
   const delta = latest && previous ? Math.round((latest.composite - previous.composite) * 10) / 10 : null;
-  const withFrq = newest.filter((item) => Number.isFinite(item.frqPercent) && Number(item.frqMax) > 0);
+  const sameCourse = latest && latest.courseId ? newest.filter((item) => item.courseId === latest.courseId) : newest;
+  const withFrq = sameCourse.filter((item) => Number.isFinite(item.frqPercent) && Number(item.frqMax) > 0);
   const frqLatest = withFrq[0] || null;
   const frqPrevious = withFrq[1] || null;
   const frqAverage = withFrq.length ? Math.round((withFrq.reduce((sum, item) => sum + item.frqPercent, 0) / withFrq.length) * 10) / 10 : null;
   const frqDelta = frqLatest && frqPrevious ? Math.round((frqLatest.frqPercent - frqPrevious.frqPercent) * 10) / 10 : null;
   const written = [];
   if (latest) {
-    const sameCourse = newest.filter((item) => !latest.courseId || item.courseId === latest.courseId);
     for (const section of latest.writtenSections || []) {
       const series = sameCourse
         .map((item) => (item.writtenSections || []).find((candidate) => candidate.id === section.id))

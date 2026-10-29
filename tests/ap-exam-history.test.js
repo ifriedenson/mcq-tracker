@@ -89,19 +89,21 @@ test("AP exam history: per-section written trends use the latest course", () => 
   const section = (id, label, earned, max, percent) => ({ id, label, earned, max, percent });
   const trend = history.apExamTrend([
     {
-      path: "new.md", takenOn: "2026-10-20", composite: 80, courseId: "ap-us-history",
+      path: "new.md", takenOn: "2026-10-20", composite: 80, courseId: "ap-us-history", frqPercent: 77.3, frqMax: 22,
       writtenSections: [section("saq", "Short answer", 8, 9, 88.9), section("dbq", "Document-based question", 5, 7, 71.4), section("leq", "Long essay", 4, 6, 66.7)],
     },
     {
-      path: "old.md", takenOn: "2026-10-01", composite: 70, courseId: "ap-us-history",
+      path: "old.md", takenOn: "2026-10-01", composite: 70, courseId: "ap-us-history", frqPercent: 63.6, frqMax: 22,
       writtenSections: [section("saq", "Short answer", 7, 9, 77.8), section("dbq", "Document-based question", 4, 7, 57.1), section("leq", "Long essay", 3, 6, 50)],
     },
     {
-      path: "other.md", takenOn: "2026-10-15", composite: 90, courseId: "ap-biology",
+      path: "other.md", takenOn: "2026-10-15", composite: 90, courseId: "ap-biology", frqPercent: 88.2, frqMax: 34,
       writtenSections: [section("frq", "Free response", 30, 34, 88.2)],
     },
   ]);
   assert.equal(trend.writtenLabel, "Written");
+  assert.equal(trend.frqAverage, 70.5);
+  assert.equal(trend.frqDelta, 13.7);
   assert.equal(trend.written.length, 3);
   const saq = trend.written.find((item) => item.id === "saq");
   assert.equal(saq.average, 83.4);

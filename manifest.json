@@ -1,7 +1,7 @@
 {
   "id": "mcq-tracker",
   "name": "MCQ Tracker",
-  "version": "1.96.0",
+  "version": "1.96.1",
   "minAppVersion": "1.8.7",
   "description": "Practice questions from notes and PDFs, review with flashcards, track progress, and study with a private AI tutor.",
   "author": "Isaac Friedenson",
