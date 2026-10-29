@@ -1,4 +1,5 @@
 "use strict";
+const { Notice } = require("obsidian");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
@@ -228,6 +229,7 @@ class ChatPanel {
     if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote);
     const plugin = this.view.plugin;
     const ai = this.ai;
+    const guard = ai.mode === "agent" && typeof plugin.snapshotProtectedState === "function" ? plugin.snapshotProtectedState() : null;
     this.error = "";
     this.input.value = "";
     this.pending = text;
@@ -272,6 +274,16 @@ class ChatPanel {
       this.error = friendlyError(e, plugin.openCode().base());
     } finally {
       if (timer) activeWindow.clearInterval(timer);
+      if (guard && typeof plugin.restoreProtectedState === "function") {
+        try {
+          const restored = await plugin.restoreProtectedState(guard);
+          if (restored.length) {
+            new Notice(`Restored protected review state in ${restored.length} note${restored.length === 1 ? "" : "s"}.`, 6000);
+          }
+        } catch (e) {
+          new Notice("Could not verify protected review state after the agent reply.", 7000);
+        }
+      }
       this.setBusy(false);
       if (sid) await this.refresh(sid);
       else this.draw();

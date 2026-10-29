@@ -438,7 +438,7 @@ The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRo
 - **Download from inside the plugin:** pressing **Download and install** (or the automatic first-time setup) shows a confirmation that names the source, version, size and folder. Only after you confirm does the plugin download the release from `github.com/anomalyco/opencode`, check its SHA-256 checksum (it refuses to install if no checksum is published or it doesn't match), and unpack it into `~/.question-tracker/opencode`, which is outside your vault. The first time you turn on the OpenCode backend, the plugin starts this setup for you automatically (unless it finds an OpenCode you already have), and you still see the confirmation before anything is downloaded. It never updates OpenCode by itself.
 - **If the download is slow or stuck:** every step has a time limit now, and **Check again** in settings re-runs the status check. You can skip the plugin's download completely: get the zip from the OpenCode releases page in your browser, unzip it, and enter the path to `opencode.exe` under **OpenCode program**. Antivirus software often scans a large new program the first time it runs, which can add a minute or more.
 - **Running it:** when you use the AI chat, the plugin starts `opencode serve` on `127.0.0.1` with a random port and a random password, so only your computer can reach it. It is stopped when Obsidian closes. Its own data (including any provider key you save here) lives in `~/.question-tracker/opencode-data`.
-- **Tutor mode (default)** switches off OpenCode's file-editing and shell tools. **Agent mode** leaves them on, so OpenCode can read and edit files in your vault. Keep your vault backed up before using Agent mode. The plugin asks it not to touch tracking properties, but that is an instruction, not a lock.
+- **Tutor mode (default)** switches off OpenCode's file-editing and shell tools. **Agent mode** leaves them on, so OpenCode can read and edit files in your vault. Keep your vault backed up before using Agent mode. The plugin also snapshots every question and card note before an Agent-mode message and puts back any review state the agent changes, so an over-eager edit cannot rewrite attempts or scheduling.
 
 ### Tutor roles and commands
 
@@ -469,6 +469,8 @@ When an import would update an existing card, choose **Update the existing card*
 ### AI write protections
 
 AI-generated notes are written only inside your configured question folder, card folder or deck folders. The plugin checks the destination in code before creating a note; a path outside those folders is refused. When an import updates an existing card, the plugin also checks the review state before writing: `attempts`, `correct_count`, `streak`, `history`, `next_review`, `srs`, study status and the other tracking properties cannot change. The body and the card's deck/course can change, but the learner's review history is a lock, not a prompt request.
+
+Agent mode adds a second layer: before each request the plugin snapshots the protected properties of every question and card note, and after the reply it restores any property the agent changed. The chat shows a notice naming how many notes were repaired. The agent can still edit question text, answers, decks or courses; only review history and scheduling are put back. This is not a file lock, so a backup is still worthwhile.
 
 Lecture transcripts and imported PDFs are labelled as untrusted data in the generation prompts. Instructions found inside a document are not treated as commands.
 

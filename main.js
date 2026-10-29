@@ -16,6 +16,79 @@ function __require(name) {
   return name.startsWith("./") ? __load(name.slice(2).replace(/\.js$/, "")) : require(name);
 }
 
+/* ---- src/agent-write-guard.js ---- */
+__defs["agent-write-guard"] = function (module, exports, require) {
+/*
+ * Agent-mode protection.
+ *
+ * OpenCode's agent can edit note files directly, so a prompt instruction is
+ * not enough to protect review history. Before an agent request the plugin
+ * snapshots the protected properties of every question/card note. After the
+ * request it restores anything the agent changed. This is a restore guard, not
+ * a file-lock: body/deck/course edits are allowed, review state is not.
+ */
+const { PROTECTED_PROPERTIES } = require("./ai-write-guard");
+const { str } = require("./util");
+
+function cloneValue(value) {
+  if (value === undefined) return undefined;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (e) {
+    return value;
+  }
+}
+
+function sameValue(a, b) {
+  return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+}
+
+function isReviewNote(fm) {
+  return !!(fm && (str(fm.question_id).trim() || str(fm.card_id).trim()));
+}
+
+/** Map of note path -> protected property snapshot. */
+function snapshotProtected(records) {
+  const map = new Map();
+  for (const record of Array.isArray(records) ? records : []) {
+    const fm = (record && record.fm) || {};
+    const path = (record && record.file && record.file.path) || (record && record.path) || "";
+    if (!path || !isReviewNote(fm) || map.has(path)) continue;
+    const state = {};
+    for (const key of PROTECTED_PROPERTIES) {
+      if (Object.prototype.hasOwnProperty.call(fm, key)) state[key] = cloneValue(fm[key]);
+    }
+    map.set(path, state);
+  }
+  return map;
+}
+
+/** Protected keys whose value differs from the snapshot. */
+function changedProtected(before, after) {
+  const old = before && typeof before === "object" ? before : {};
+  const next = after && typeof after === "object" ? after : {};
+  return PROTECTED_PROPERTIES.filter((key) => !sameValue(old[key], next[key]));
+}
+
+/** Apply the snapshot values back to a frontmatter object. Returns the changed keys. */
+function restoreFrontmatter(target, before) {
+  const fm = target && typeof target === "object" ? target : {};
+  const old = before && typeof before === "object" ? before : {};
+  const changes = changedProtected(old, fm);
+  for (const key of changes) {
+    if (Object.prototype.hasOwnProperty.call(old, key)) fm[key] = cloneValue(old[key]);
+    else delete fm[key];
+  }
+  return changes;
+}
+
+module.exports = {
+  changedProtected,
+  restoreFrontmatter,
+  snapshotProtected,
+};
+};
+
 /* ---- src/ai-context.js ---- */
 __defs["ai-context"] = function (module, exports, require) {
 /*
@@ -11365,6 +11438,7 @@ module.exports = {
 
 /* ---- src/chat-panel.js ---- */
 __defs["chat-panel"] = function (module, exports, require) {
+const { Notice } = require("obsidian");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
@@ -11594,6 +11668,7 @@ class ChatPanel {
     if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote);
     const plugin = this.view.plugin;
     const ai = this.ai;
+    const guard = ai.mode === "agent" && typeof plugin.snapshotProtectedState === "function" ? plugin.snapshotProtectedState() : null;
     this.error = "";
     this.input.value = "";
     this.pending = text;
@@ -11638,6 +11713,16 @@ class ChatPanel {
       this.error = friendlyError(e, plugin.openCode().base());
     } finally {
       if (timer) activeWindow.clearInterval(timer);
+      if (guard && typeof plugin.restoreProtectedState === "function") {
+        try {
+          const restored = await plugin.restoreProtectedState(guard);
+          if (restored.length) {
+            new Notice(`Restored protected review state in ${restored.length} note${restored.length === 1 ? "" : "s"}.`, 6000);
+          }
+        } catch (e) {
+          new Notice("Could not verify protected review state after the agent reply.", 7000);
+        }
+      }
       this.setBusy(false);
       if (sid) await this.refresh(sid);
       else this.draw();
@@ -23105,6 +23190,7 @@ const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
 const { assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
+const agentWriteGuard = require("./agent-write-guard");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
@@ -24986,6 +25072,29 @@ class QuestionTrackerPlugin extends Plugin {
       ai: true,
       model: this.aiModelLabel(),
     };
+  }
+
+  /** Remember protected review state before an Agent-mode request. */
+  snapshotProtectedState() {
+    const records = [...this.getQuestions(), ...(typeof this.getCards === "function" ? this.getCards() : [])];
+    return agentWriteGuard.snapshotProtected(records);
+  }
+
+  /** Put back any protected review state an Agent-mode request changed. */
+  async restoreProtectedState(snapshot) {
+    if (!snapshot || typeof snapshot.forEach !== "function") return [];
+    const restored = [];
+    for (const [path, before] of snapshot) {
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (!(file instanceof TFile)) continue;
+      const current = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+      const changes = agentWriteGuard.changedProtected(before, current);
+      if (!changes.length) continue;
+      await this.app.fileManager.processFrontMatter(file, (fm) => agentWriteGuard.restoreFrontmatter(fm, before));
+      restored.push({ path, changes });
+    }
+    if (restored.length) this.refreshViews();
+    return restored;
   }
 
   /** Ask one independent question, without showing the stored key. */
@@ -34343,6 +34452,7 @@ const aiContext = require("./ai-context");
 const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
 const cardWriteDiff = require("./card-write-diff");
+const agentWriteGuard = require("./agent-write-guard");
 const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
 const answerVerification = require("./answer-verification");
@@ -34458,6 +34568,7 @@ QuestionTrackerPlugin.__test = {
   noteContext,
   aiWriteGuard,
   cardWriteDiff,
+  agentWriteGuard,
   aiWrites,
   weakSpot,
   answerVerification,

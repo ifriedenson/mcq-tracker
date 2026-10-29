@@ -31,6 +31,7 @@ const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
 const { assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
+const agentWriteGuard = require("./agent-write-guard");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
@@ -1912,6 +1913,29 @@ class QuestionTrackerPlugin extends Plugin {
       ai: true,
       model: this.aiModelLabel(),
     };
+  }
+
+  /** Remember protected review state before an Agent-mode request. */
+  snapshotProtectedState() {
+    const records = [...this.getQuestions(), ...(typeof this.getCards === "function" ? this.getCards() : [])];
+    return agentWriteGuard.snapshotProtected(records);
+  }
+
+  /** Put back any protected review state an Agent-mode request changed. */
+  async restoreProtectedState(snapshot) {
+    if (!snapshot || typeof snapshot.forEach !== "function") return [];
+    const restored = [];
+    for (const [path, before] of snapshot) {
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (!(file instanceof TFile)) continue;
+      const current = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+      const changes = agentWriteGuard.changedProtected(before, current);
+      if (!changes.length) continue;
+      await this.app.fileManager.processFrontMatter(file, (fm) => agentWriteGuard.restoreFrontmatter(fm, before));
+      restored.push({ path, changes });
+    }
+    if (restored.length) this.refreshViews();
+    return restored;
   }
 
   /** Ask one independent question, without showing the stored key. */

@@ -24,7 +24,7 @@
 
 **Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0, visual text boxes in 1.53.0 and highlight regions in 1.54.0; form filling and a fuller PDF editor remain future work. The unofficial AP score calculator shipped in 1.56.0, the link-only AP resource hub in 1.57.0 and saved practice-exam history with trends in 1.58.0, AP resource notes with course/unit tags and stale-link checks in 1.59.0, a next-exam resource recommendation on Today in 1.60.0, and exam-specific resource attachments in 1.61.0, the calendar exam panel showing attached resources with a detach action on Today in 1.62.0, study-block resource attachment in 1.63.0, the class-note resource link in 1.64.0, binding management in Reference in 1.65.0, a read-only study context for the AI assistant in 1.66.0, an undo journal for AI-generated practice notes in 1.67.0, undo for AI course-note summaries in 1.68.0, weak-spot practice generation in 1.69.0, and blind answer verification in 1.70.0. The AP FRQ grader remains behind the owner pilot gate (four-course pilot, human-scored fixtures and rights review). A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated.
 
-**Recently completed (1.73.0):** card imports that update existing notes now show a field-level diff and require an explicit review confirmation before writing. Previous release 1.72.0 added the AI write guard and untrusted prompts; 1.71.0 added opt-in assistant context.
+**Recently completed (1.74.0):** Agent mode now snapshots protected review state before each request and restores anything the agent changed. Previous release 1.73.0 added the field-level diff and review confirmation for existing-card imports; 1.72.0 added the AI write guard and untrusted prompts; 1.71.0 added opt-in assistant context.
 
 ---
 
@@ -1206,7 +1206,8 @@ These are **research and specification items**, not implementation work. The AP 
   - [x] Marked AI course-note summaries that undo can remove without deleting the extracted page text (§5.13) — shipped in 1.68.0
   - [x] Code-level AI write guard: destination allow-list, protected tracking properties, and untrusted-data boundaries for lecture/PDF prompts — shipped in 1.72.0
   - [x] Field-level diff and review confirmation for existing-card imports (§5.22.3) — shipped in 1.73.0
-  - [ ] Remaining bulk updates and agent-mode write protections
+  - [x] Agent-mode protected-state snapshot and restore, so review history survives an agent edit (§5.18) — shipped in 1.74.0
+  - [ ] Pre-write diff and confirmation for agent edits, plus the remaining bulk-update paths
 - [ ] AI question and card generation in plugin formats (§5.3)
   - [x] Preview-first weak-spot generation for questions and cards, with no note text sent and undo through the AI write journal (§5.3) — shipped in 1.69.0
 - [x] Blind verification pass for generated and imported answers (§5.4) — shipped in 1.70.0: an independent call solves each AI-written multiple-choice answer without the key, mismatches are flagged or dropped, and `verified`/`verified_by`/`verified_on` plus a visible banner are written.
