@@ -51,7 +51,7 @@
 | PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; true AcroForm filling needs an audited MIT PDF library and is not safe to approximate. |
 | README, screenshots, sample vault, license confirmation | **Partial — screenshots blocked** | README, NOTICES, `docs/license-audit.md` and `samples/sample-vault` exist. Screenshots still need a real Obsidian window. |
 
-**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.95.0. The items that remain `[~]` are explicitly gated: AP FRQ needs owner pilot/rights approval; the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation. The duplicate roadmap later in this file is historical and does not override this table.
+**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.95.0. The items that remain `[~]` are explicitly gated: AP FRQ needs owner pilot/rights approval; the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation. The duplicate roadmap later in this file is historical and has now been reconciled with this table; it does not override the table.
 
 **Adaptive Practice parity audit (Oct 29, 2026):** compared with Adaptive Practice 0.7.2. MCQ Tracker already has the broader study system; the meaningful gaps are generation from any note, per-note subtopic memory, a logged skip/fluency signal, adaptive session size and an optional local reminder. The Whetstone engine (AGPL) and the persistent vault index are non-goals. Full matrix and acceptance criteria: §5.23.
 
@@ -1234,7 +1234,7 @@ Names are proposals; keep existing ones unchanged.
 ### Phase 1: Quick Practice and smarter scheduling
 
 - [x] Quick Practice entry and Today screen (§5.19)
-- [x] FSRS scheduler option + time/confidence fluency signals; migration from existing `history` (§5.1) — a logged skip signal remains (§5.23)
+- [x] FSRS scheduler option + time/confidence fluency signals; migration from existing `history` (§5.1) — logged skip signal shipped in 1.89.0 (§5.23)
 - [x] Adaptive difficulty pick mode (§5.2)
 - [x] Offline-tolerant sessions
 
@@ -1263,10 +1263,10 @@ These are **research and specification items**, not implementation work. The AP 
 - [~] **Spec complete, implementation gated** **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, and score history (§5.20)
 - [x] **AP score calculator** — four 2027 profiles, weighted section and part inputs, editable practice cutoffs, incomplete estimates, a likely band and a reverse "what do I need?" calculation (§5.20) — shipped in 1.56.0
 - [x] **Saved AP practice-exam history** — save a complete result as an ordinary note, list attempts newest first, show the average and change from the previous attempt (§5.20.2) — shipped in 1.58.0; per-question FRQ history shipped in 1.95.0
-- [x] **AP resource hub** — one place for official AP Central/AP Classroom links, course and exam descriptions, released FRQs and scoring guidelines, AP Videos, and exam dates (§5.20) — link-only version shipped in 1.57.0; resource notes, course/unit tags and stale-link checks shipped in 1.59.0; calendar/Today integration remains
+- [x] **AP resource hub** — one place for official AP Central/AP Classroom links, course and exam descriptions, released FRQs and scoring guidelines, AP Videos, and exam dates (§5.20) — link-only version shipped in 1.57.0; resource notes, course/unit tags and stale-link checks shipped in 1.59.0; calendar/Today integration shipped in 1.60.0–1.62.0
 - [x] **AP resource notes** — save an official link as a tagged note with course, optional unit, type, URL and checked-on date; list saved notes and warn when a link is older than 180 days (§5.20.3) — shipped in 1.59.0
 - [x] **AP resource recommendation on Today** — match the next AP exam to saved resources for its course, prefer fresh practice material, label stale links and open the note in one click (§5.20.3) — shipped in 1.60.0
-- [x] **AP exam-specific resource attachment** — bind a saved resource note to one calendar exam with `exam_uid`, `exam_date` and `exam_title`, prefer the attached note over generic matches, and attach in one click from Today (§5.20.3) — shipped in 1.61.0; study-block attachment remains
+- [x] **AP exam-specific resource attachment** — bind a saved resource note to one calendar exam with `exam_uid`, `exam_date` and `exam_title`, prefer the attached note over generic matches, and attach in one click from Today (§5.20.3) — shipped in 1.61.0; study-block attachment shipped in 1.63.0
 - [x] **Attached resources in the calendar exam panel** — show the resource bound to each exam in the Upcoming exams panel, open it in one click, and detach the binding from Today (§5.20.3) — shipped in 1.62.0
 - [x] **Study-block resource attachment** — suggest a saved resource for the next class in the free-time chooser, bind it to that date and start time, and detach it without changing the exam binding (§5.20.3) — shipped in 1.63.0
 - [x] **Resource link in the exam class note** — add the attached resource as a wikilink under a managed `## AP resources` heading, creating the note when needed and skipping duplicates (§5.20.3) — shipped in 1.64.0
@@ -1298,7 +1298,7 @@ These are **research and specification items**, not implementation work. The AP 
   - [x] Agent-mode protected-state snapshot and restore, so review history survives an agent edit (§5.18) — shipped in 1.74.0
   - [x] Agent-edit diff review, per-file approval and undo (§5.18) — shipped in 1.87.0
   - [x] Bulk calculation verification preview with selective apply and conflict detection (§5.16.5) — shipped in 1.88.0
-- [ ] AI question and card generation in plugin formats (§5.3)
+- [x] AI question and card generation in plugin formats (§5.3) — shipped in 1.69.0 and extended in 1.89.0
   - [x] Preview-first weak-spot generation for questions and cards, with no note text sent and undo through the AI write journal (§5.3) — shipped in 1.69.0
   - [x] **Generate practice from any note or selected PDF** with a preview of count, difficulty and destination; reuse the write guard, undo journal and blind verification (§5.3, §5.23) — shipped in this working tree
   - [x] Per-note subtopic coverage memory for generated questions (§5.3, §5.23) — shipped in this working tree
@@ -1339,7 +1339,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Optional AI summary and key-terms section for course notes, marked with the model and preserved when the summary fails (§5.13) — shipped in 1.44.0; OCR and auto-classification remain
 - [x] Paper scanner: camera or photos → crop, rotate, reorder → one PDF saved in the vault (§5.13.1) — shipped in 1.46.0; OCR and automatic item classification remain
 - [x] OCR for image-only scans: opt-in BYOK vision path with editable per-page text and a Markdown OCR note. The desktop user-installed OCR command adapter shipped in 1.49.0 and was removed in 1.86.0, so the plugin no longer requires `child_process` or `fs` directly; a bundled OCR engine remains (licence review)
-- [x] Auto-classify a text document as MCQ, FRQ, mixed, cards or notes, then route it through the existing importers (§5.13.1) — shipped in 1.47.0; OCR for image-only scans remains
+- [x] Auto-classify a text document as MCQ, FRQ, mixed, cards or notes, then route it through the existing importers (§5.13.1) — shipped in 1.47.0; image-only OCR shipped through the opt-in vision path in 1.49.0
 - [x] Provenance links from generated items back to the source PDF page (§5.13.1) — shared with 1.36.0
 - [x] First-run welcome screen with presets, module toggles and a short how-to guide (§5.21) — shipped in 1.28.0
 - [x] Reopen the welcome from a command and settings, and remember dismissal per device (§5.21) — shipped in 1.28.0
@@ -2681,7 +2681,7 @@ Names are proposals; keep existing ones unchanged.
 ### Phase 1: Quick Practice and smarter scheduling
 
 - [x] Quick Practice entry and Today screen (§5.19)
-- [x] FSRS scheduler option + time/confidence fluency signals; migration from existing `history` (§5.1) — a logged skip signal remains (§5.23)
+- [x] FSRS scheduler option + time/confidence fluency signals; migration from existing `history` (§5.1) — logged skip signal shipped in 1.89.0 (§5.23)
 - [x] Adaptive difficulty pick mode (§5.2)
 - [x] Offline-tolerant sessions
 
@@ -2710,20 +2710,20 @@ Names are proposals; keep existing ones unchanged.
 
 ### Phase 4: AI assistant and generation
 
-- [ ] Study-aware assistant: tutor mode, quick actions, context toggles (§5.18)
+- [x] Study-aware assistant: tutor mode, quick actions, context toggles (§5.18) — shipped across 1.66.0–1.71.0
   - [x] Read-only aggregate study context behind three default-off toggles, with no note text (§5.18) — shipped in 1.66.0
 - [x] Enforced write protections, diff-and-confirm, undo, prompt-injection defenses
   - [x] Device-local undo journal for confirmed AI-generated notes, with a command to remove the last batch (§5.3, §5.18) — shipped in 1.67.0
   - [x] Marked AI course-note summaries that undo can remove without deleting the extracted page text (§5.13) — shipped in 1.68.0
-- [ ] AI question and card generation in plugin formats (§5.3)
+- [x] AI question and card generation in plugin formats (§5.3) — shipped in 1.69.0 and extended in 1.89.0
   - [x] Preview-first weak-spot generation for questions and cards, with no note text sent and undo through the AI write journal (§5.3) — shipped in 1.69.0
-- [ ] Blind verification pass for generated and imported answers (§5.4)
-- [ ] Weak-spot-targeted generation
+- [x] Blind verification pass for generated and imported answers (§5.4) — shipped in 1.70.0
+- [x] Weak-spot-targeted generation — shipped in 1.69.0
 - [x] Agent mode via OpenCode (desktop) and allow-listed tools for BYOK — shipped in 1.90.0
 
 ### Phase 5: FRQ and STEM
 
-- [ ] FRQ format, rubric grading, override, per-criterion feedback (§5.5)
+- [~] **Partial — spec only** FRQ format, rubric grading, override, per-criterion feedback (§5.5) — implementation blocked by the AP pilot gate
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
@@ -2734,8 +2734,8 @@ Names are proposals; keep existing ones unchanged.
 
 ### Phase 6: Plans, time, and dashboard
 
-- [ ] Study plan and cram mode (§5.11)
-- [ ] Focus timer and study-time logging (§5.10)
+- [x] Study plan and cram mode (§5.11) — first exam-scoped slice shipped in 1.30.0
+- [x] Focus timer and study-time logging (§5.10) — shipped in 1.29.0
 - [x] Analytics dashboard (§5.12) — shipped in 1.31.0
 - [x] Embeddable analytics widgets (§5.12) — shipped in 1.32.0
 - [x] Assignments, tasks, and grades (§5.9) — shipped in 1.35.0
