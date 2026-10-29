@@ -3281,3 +3281,101 @@
     display: none;
   }
 }
+
+/* Reference graph and periodic table. */
+.qt-ref-graph-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-ref-canvas {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: block;
+  height: 320px;
+  margin: 10px 0;
+  max-width: 100%;
+  width: 100%;
+}
+
+.qt-ref-periodic {
+  display: grid;
+  gap: 2px;
+  grid-template-columns: repeat(18, minmax(0, 1fr));
+  margin: 8px 0 14px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.qt-ref-element {
+  align-items: center;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  color: var(--text-normal);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  font-size: 0.62rem;
+  justify-content: center;
+  min-height: 34px;
+  min-width: 0;
+  padding: 1px;
+}
+
+.qt-ref-element:hover,
+.qt-ref-element.is-selected {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+}
+
+.qt-ref-element-number {
+  color: var(--text-faint);
+  font-size: 0.52rem;
+  line-height: 1;
+}
+
+.qt-ref-element-symbol {
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.qt-ref-element.is-alkali { background: color-mix(in srgb, var(--color-orange) 22%, var(--background-secondary)); }
+.qt-ref-element.is-alkaline { background: color-mix(in srgb, var(--color-yellow) 22%, var(--background-secondary)); }
+.qt-ref-element.is-transition { background: color-mix(in srgb, var(--color-blue) 20%, var(--background-secondary)); }
+.qt-ref-element.is-post { background: color-mix(in srgb, var(--color-cyan) 18%, var(--background-secondary)); }
+.qt-ref-element.is-metalloid { background: color-mix(in srgb, var(--color-green) 20%, var(--background-secondary)); }
+.qt-ref-element.is-nonmetal { background: color-mix(in srgb, var(--color-green) 18%, var(--background-secondary)); }
+.qt-ref-element.is-halogen { background: color-mix(in srgb, var(--color-purple) 18%, var(--background-secondary)); }
+.qt-ref-element.is-noble { background: color-mix(in srgb, var(--text-muted) 26%, var(--background-secondary)); }
+.qt-ref-element.is-lanthanide { background: color-mix(in srgb, var(--color-red) 18%, var(--background-secondary)); }
+.qt-ref-element.is-actinide { background: color-mix(in srgb, var(--color-red) 18%, var(--background-secondary)); }
+
+.qt-ref-element-detail {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 10px 12px;
+}
+
+.qt-ref-element-detail h3 {
+  margin: 0 0 4px;
+}
+
+@media (max-width: 480px) {
+  .qt-ref-periodic {
+    grid-template-columns: repeat(18, minmax(26px, 1fr));
+  }
+
+  .qt-ref-element {
+    min-height: 30px;
+  }
+
+  .qt-ref-canvas {
+    height: 240px;
+  }
+}

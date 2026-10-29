@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — import preview, reporting and duplicate update/copy shipped in 1.24.0, and the first Reference-panel tranche (formula sheet, constants and unit converter, with a timed-test hide guard) shipped in 1.25.0. The next unblocked module work is the PDF-editor evaluation (§5.22.4) and the remaining reference tools (graphing, periodic table); audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, and the local graph plotter plus all 118 elements shipped in 1.26.0. The next unblocked module work is the PDF-editor evaluation (§5.22.4); audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), and the October 28 idea backlog (§5.22). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -22,7 +22,7 @@
 - **Coverage:** preview duplicate detection, history preservation on update, and distinct keys on copy.
 - **No third-party code was added.** The plugin remains MIT.
 
-**Next:** The Reference panel now ships formulas, constants and unit conversion (1.25.0); graphing and the periodic table remain in §5.22.5, and the PDF-editor evaluation is §5.22.4. Audio-only commute mode is still deferred until TTS provider and mobile support are validated. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review).
+**Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). A full JSXGraph geometry/vector-field tool remains optional future work; the PDF-editor evaluation is §5.22.4. Audio-only commute mode is still deferred until TTS provider and mobile support are validated. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review).
 
 **Recently completed (1.24.0):** Import preview, report and duplicate update/copy. Previous release 1.23.0 added Mochi and CrowdAnki import.
 

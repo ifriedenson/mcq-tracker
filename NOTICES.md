@@ -101,10 +101,12 @@ SOFTWARE.
 
 ## Bundled Reference content
 
-The Reference module's formula list, constants and unit factors in `src/reference-data.js` are
-written for this plugin. No third-party formula-sheet PDF, periodic-table dataset, calculator
-library or Desmos code is bundled. The formulas and constants use standard definitions; course
-and exam formula sheets can differ in rounding or notation.
+The Reference module's formula list, constants and unit factors in `src/reference-data.js`, the
+element facts in `src/reference-elements.js` and the small expression parser in
+`src/reference-graph.js` are written for this plugin. No third-party formula-sheet PDF,
+periodic-table dataset, calculator library or Desmos code is bundled. The formulas, constants
+and element facts use standard definitions; course and exam formula sheets can differ in
+rounding or notation.
 
 ## Not absorbed (yet)
 

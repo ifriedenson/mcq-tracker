@@ -171,9 +171,11 @@ Turn it on under **Settings, Global, Modules**, then open **Reference** from the
 
 - **Formulas** — searchable formulas for math, physics, chemistry and biology, with a subject filter.
 - **Unit converter** — length, mass, volume, temperature, time, speed, energy, pressure, angle and digital data.
+- **Graph** — plot `y = f(x)` with a restricted local expression parser. It supports `x`, `pi`, `e`, the usual trig and log functions, and `+ - * / ^`. It does not use `eval`, a calculator service or a Desmos key.
+- **Periodic table** — all 118 elements in a tap-to-open grid, with atomic number, approximate mass, category, period and group.
 - **Constants** — common physical and chemical constants with units.
 
-The panel is local: it does not read notes, call a model or make a network request. **Hide while a timed test is running** is on by default, so it stays out of a closed-book section; turn it off under Settings, Reference if your test allows a reference sheet. Formulas are study aids, not official exam material; check the sheet supplied with your course and exam year.
+The graph parser only accepts the listed names and operators; an unknown name or a pasted script is rejected rather than evaluated. The periodic table data is a factual compilation written for this plugin, not a third-party dataset. The panel is local: it does not read notes, call a model or make a network request. **Hide while a timed test is running** is on by default, so it stays out of a closed-book section; turn it off under Settings, Reference if your test allows a reference sheet. Formulas are study aids, not official exam material; check the sheet supplied with your course and exam year.
 
 ## Calendar (optional module, off by default)
 

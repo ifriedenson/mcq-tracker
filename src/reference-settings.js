@@ -8,6 +8,7 @@ const {
   UNIT_CATEGORIES,
   mergeReferenceSettings,
 } = require("./reference-data");
+const { ELEMENTS } = require("./reference-elements");
 
 const REFERENCE_TABS = [
   { id: "tools", label: "Tools", icon: "book-open" },
@@ -79,7 +80,7 @@ function renderTools(containerEl, plugin, redisplay) {
   card.createEl("h3", { text: "Bundled content" });
   card.createEl("p", {
     cls: "setting-item-description",
-    text: `${FORMULAS.length} formulas across ${REFERENCE_SUBJECTS.length - 1} subjects, ${CONSTANTS.length} constants and ${UNIT_CATEGORIES.length} unit categories.`,
+    text: `${FORMULAS.length} formulas across ${REFERENCE_SUBJECTS.length - 1} subjects, ${CONSTANTS.length} constants, ${UNIT_CATEGORIES.length} unit categories and all ${ELEMENTS.length} elements.`,
   });
   card.createEl("p", {
     cls: "setting-item-description",

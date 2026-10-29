@@ -11,6 +11,8 @@ const {
   searchFormulas,
   unitCategory,
 } = require("./reference-data");
+const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
+const { buildPlot } = require("./reference-graph");
 
 /*
  * A local-only reference panel. It deliberately contains no calculator engine,
@@ -33,6 +35,15 @@ class ReferenceView extends ItemView {
     this.formulaListEl = null;
     this.constantListEl = null;
     this.unitResultEl = null;
+    this.graphExpression = "sin(x)";
+    this.graphXMin = "-10";
+    this.graphXMax = "10";
+    this.graphCanvas = null;
+    this.graphErrorEl = null;
+    this.elementQuery = "";
+    this.selectedElement = null;
+    this.periodicGridEl = null;
+    this.periodicDetailEl = null;
   }
 
   getViewType() {
@@ -75,7 +86,13 @@ class ReferenceView extends ItemView {
     });
 
     const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-ref-tabs" });
-    for (const [id, label] of [["formulas", "Formulas"], ["units", "Unit converter"], ["constants", "Constants"]]) {
+    for (const [id, label] of [
+      ["formulas", "Formulas"],
+      ["units", "Unit converter"],
+      ["graph", "Graph"],
+      ["elements", "Periodic table"],
+      ["constants", "Constants"],
+    ]) {
       const button = tabs.createEl("button", { text: label, cls: "qt-ref-tab" });
       if (this.tab === id) button.addClass("mod-cta");
       button.addEventListener("click", () => {
@@ -85,9 +102,173 @@ class ReferenceView extends ItemView {
     }
 
     if (this.tab === "units") this.renderUnits(root);
+    else if (this.tab === "graph") this.renderGraph(root);
+    else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
     else this.renderFormulas(root);
     el.scrollTop = top;
+  }
+
+  renderGraph(root) {
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "Plot y = f(x). Use x, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
+    });
+    const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
+    const expression = controls.createEl("input", {
+      cls: "qt-ref-search",
+      attr: { type: "text", placeholder: "sin(x)", "aria-label": "Expression to plot" },
+    });
+    expression.value = this.graphExpression;
+    expression.addEventListener("input", () => {
+      this.graphExpression = expression.value;
+      this.drawGraph();
+    });
+    for (const [key, label] of [["graphXMin", "Minimum x"], ["graphXMax", "Maximum x"]]) {
+      const field = controls.createEl("input", {
+        cls: "qt-ref-amount",
+        attr: { type: "number", step: "any", "aria-label": label },
+      });
+      field.value = this[key];
+      field.addEventListener("input", () => {
+        this[key] = field.value;
+        this.drawGraph();
+      });
+    }
+    this.graphCanvas = root.createEl("canvas", { cls: "qt-ref-canvas", attr: { "aria-label": "Graph of the expression" } });
+    this.graphErrorEl = root.createDiv({ cls: "qt-ref-note" });
+    this.drawGraph();
+  }
+
+  drawGraph() {
+    const canvas = this.graphCanvas;
+    if (!canvas) return;
+    const rawWidth = Number(canvas.clientWidth);
+    const width = Number.isFinite(rawWidth) && rawWidth > 0 ? Math.round(rawWidth) : 640;
+    const height = 320;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext ? canvas.getContext("2d") : null;
+    if (!ctx) return;
+    ctx.clearRect(0, 0, width, height);
+    let plot;
+    try {
+      plot = buildPlot(this.graphExpression, { xMin: this.graphXMin, xMax: this.graphXMax });
+    } catch (e) {
+      if (this.graphErrorEl) this.graphErrorEl.setText(e.message);
+      return;
+    }
+    if (this.graphErrorEl) this.graphErrorEl.setText("");
+    const px = (x) => ((x - plot.xMin) / (plot.xMax - plot.xMin)) * width;
+    const py = (y) => height - ((y - plot.yMin) / (plot.yMax - plot.yMin)) * height;
+    ctx.strokeStyle = "rgba(127, 127, 127, 0.22)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 8; i++) {
+      const x = (width * i) / 8;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    }
+    for (let i = 0; i <= 6; i++) {
+      const y = (height * i) / 6;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(127, 127, 127, 0.6)";
+    if (plot.xMin <= 0 && plot.xMax >= 0) {
+      ctx.beginPath();
+      ctx.moveTo(px(0), 0);
+      ctx.lineTo(px(0), height);
+      ctx.stroke();
+    }
+    if (plot.yMin <= 0 && plot.yMax >= 0) {
+      ctx.beginPath();
+      ctx.moveTo(0, py(0));
+      ctx.lineTo(width, py(0));
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "#5b8def";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    let drawing = false;
+    let lastY = null;
+    for (const point of plot.points) {
+      if (point.y === null) {
+        drawing = false;
+        lastY = null;
+        continue;
+      }
+      const x = px(point.x);
+      const y = py(point.y);
+      if (!drawing || (lastY !== null && Math.abs(y - lastY) > height * 0.8)) {
+        ctx.moveTo(x, y);
+        drawing = true;
+      } else {
+        ctx.lineTo(x, y);
+      }
+      lastY = y;
+    }
+    ctx.stroke();
+  }
+
+  renderPeriodic(root) {
+    const search = root.createEl("input", {
+      cls: "qt-ref-search",
+      attr: { type: "search", placeholder: "Search by name, symbol or atomic number" },
+    });
+    search.value = this.elementQuery;
+    search.addEventListener("input", () => {
+      this.elementQuery = search.value;
+      this.renderElementGrid();
+    });
+    this.periodicGridEl = root.createDiv({ cls: "qt-ref-periodic", attr: { role: "grid", "aria-label": "Periodic table" } });
+    this.periodicDetailEl = root.createDiv({ cls: "qt-ref-element-detail" });
+    this.renderElementGrid();
+    this.renderElementDetail();
+  }
+
+  renderElementGrid() {
+    const grid = this.periodicGridEl;
+    if (!grid) return;
+    grid.empty();
+    for (const element of searchElements(this.elementQuery)) {
+      const cell = grid.createEl("button", {
+        cls: `qt-ref-element is-${element.category}${this.selectedElement && this.selectedElement.z === element.z ? " is-selected" : ""}`,
+        attr: { "aria-label": `${element.name}, atomic number ${element.z}`, role: "gridcell" },
+      });
+      if (element.block === "f") {
+        const index = element.z <= 71 ? element.z - 57 : element.z - 89;
+        cell.style.gridColumn = String(3 + index);
+        cell.style.gridRow = element.z <= 71 ? "9" : "10";
+      } else {
+        cell.style.gridColumn = String(element.group);
+        cell.style.gridRow = String(element.period);
+      }
+      cell.createSpan({ cls: "qt-ref-element-number", text: String(element.z) });
+      cell.createSpan({ cls: "qt-ref-element-symbol", text: element.symbol });
+      cell.addEventListener("click", () => {
+        this.selectedElement = element;
+        this.render();
+      });
+    }
+    if (!searchElements(this.elementQuery).length) grid.createDiv({ cls: "qt-hint", text: "No elements match that search." });
+  }
+
+  renderElementDetail() {
+    const detail = this.periodicDetailEl;
+    if (!detail) return;
+    detail.empty();
+    const element = this.selectedElement;
+    if (!element) {
+      detail.createDiv({ cls: "qt-ref-note", text: "Tap an element to see its name, atomic mass and category." });
+      return;
+    }
+    detail.createEl("h3", { text: `${element.symbol} - ${element.name}` });
+    detail.createDiv({ cls: "qt-ref-note", text: `Atomic number ${element.z} - mass ${element.mass} - ${categoryLabel(element.category)}` });
+    detail.createDiv({ cls: "qt-ref-note", text: `Period ${element.period}, group ${element.group}, ${element.block}-block.` });
   }
 
   renderFormulas(root) {

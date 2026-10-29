@@ -18751,6 +18751,404 @@ module.exports = {
 };
 };
 
+/* ---- src/reference-elements.js ---- */
+__defs["reference-elements"] = function (module, exports, require) {
+/*
+ * A small periodic table dataset, written for this plugin from standard atomic
+ * numbers, symbols, names and approximate standard atomic weights. Facts such as
+ * these are not copied from a third-party dataset. Masses in brackets are the
+ * mass number of the most stable known isotope, not a standard atomic weight.
+ */
+
+const RAW_ELEMENTS = [
+  [1, "H", "Hydrogen", "1.008", "nonmetal", 1, 1, "s"],
+  [2, "He", "Helium", "4.0026", "noble", 18, 1, "s"],
+  [3, "Li", "Lithium", "6.94", "alkali", 1, 2, "s"],
+  [4, "Be", "Beryllium", "9.0122", "alkaline", 2, 2, "s"],
+  [5, "B", "Boron", "10.81", "metalloid", 13, 2, "p"],
+  [6, "C", "Carbon", "12.011", "nonmetal", 14, 2, "p"],
+  [7, "N", "Nitrogen", "14.007", "nonmetal", 15, 2, "p"],
+  [8, "O", "Oxygen", "15.999", "nonmetal", 16, 2, "p"],
+  [9, "F", "Fluorine", "18.998", "halogen", 17, 2, "p"],
+  [10, "Ne", "Neon", "20.180", "noble", 18, 2, "p"],
+  [11, "Na", "Sodium", "22.990", "alkali", 1, 3, "s"],
+  [12, "Mg", "Magnesium", "24.305", "alkaline", 2, 3, "s"],
+  [13, "Al", "Aluminium", "26.982", "post", 13, 3, "p"],
+  [14, "Si", "Silicon", "28.085", "metalloid", 14, 3, "p"],
+  [15, "P", "Phosphorus", "30.974", "nonmetal", 15, 3, "p"],
+  [16, "S", "Sulfur", "32.06", "nonmetal", 16, 3, "p"],
+  [17, "Cl", "Chlorine", "35.45", "halogen", 17, 3, "p"],
+  [18, "Ar", "Argon", "39.948", "noble", 18, 3, "p"],
+  [19, "K", "Potassium", "39.098", "alkali", 1, 4, "s"],
+  [20, "Ca", "Calcium", "40.078", "alkaline", 2, 4, "s"],
+  [21, "Sc", "Scandium", "44.956", "transition", 3, 4, "d"],
+  [22, "Ti", "Titanium", "47.867", "transition", 4, 4, "d"],
+  [23, "V", "Vanadium", "50.942", "transition", 5, 4, "d"],
+  [24, "Cr", "Chromium", "51.996", "transition", 6, 4, "d"],
+  [25, "Mn", "Manganese", "54.938", "transition", 7, 4, "d"],
+  [26, "Fe", "Iron", "55.845", "transition", 8, 4, "d"],
+  [27, "Co", "Cobalt", "58.933", "transition", 9, 4, "d"],
+  [28, "Ni", "Nickel", "58.693", "transition", 10, 4, "d"],
+  [29, "Cu", "Copper", "63.546", "transition", 11, 4, "d"],
+  [30, "Zn", "Zinc", "65.38", "transition", 12, 4, "d"],
+  [31, "Ga", "Gallium", "69.723", "post", 13, 4, "p"],
+  [32, "Ge", "Germanium", "72.630", "metalloid", 14, 4, "p"],
+  [33, "As", "Arsenic", "74.922", "metalloid", 15, 4, "p"],
+  [34, "Se", "Selenium", "78.971", "nonmetal", 16, 4, "p"],
+  [35, "Br", "Bromine", "79.904", "halogen", 17, 4, "p"],
+  [36, "Kr", "Krypton", "83.798", "noble", 18, 4, "p"],
+  [37, "Rb", "Rubidium", "85.468", "alkali", 1, 5, "s"],
+  [38, "Sr", "Strontium", "87.62", "alkaline", 2, 5, "s"],
+  [39, "Y", "Yttrium", "88.906", "transition", 3, 5, "d"],
+  [40, "Zr", "Zirconium", "91.224", "transition", 4, 5, "d"],
+  [41, "Nb", "Niobium", "92.906", "transition", 5, 5, "d"],
+  [42, "Mo", "Molybdenum", "95.95", "transition", 6, 5, "d"],
+  [43, "Tc", "Technetium", "[98]", "transition", 7, 5, "d"],
+  [44, "Ru", "Ruthenium", "101.07", "transition", 8, 5, "d"],
+  [45, "Rh", "Rhodium", "102.91", "transition", 9, 5, "d"],
+  [46, "Pd", "Palladium", "106.42", "transition", 10, 5, "d"],
+  [47, "Ag", "Silver", "107.87", "transition", 11, 5, "d"],
+  [48, "Cd", "Cadmium", "112.41", "transition", 12, 5, "d"],
+  [49, "In", "Indium", "114.82", "post", 13, 5, "p"],
+  [50, "Sn", "Tin", "118.71", "post", 14, 5, "p"],
+  [51, "Sb", "Antimony", "121.76", "metalloid", 15, 5, "p"],
+  [52, "Te", "Tellurium", "127.60", "metalloid", 16, 5, "p"],
+  [53, "I", "Iodine", "126.90", "halogen", 17, 5, "p"],
+  [54, "Xe", "Xenon", "131.29", "noble", 18, 5, "p"],
+  [55, "Cs", "Caesium", "132.91", "alkali", 1, 6, "s"],
+  [56, "Ba", "Barium", "137.33", "alkaline", 2, 6, "s"],
+  [57, "La", "Lanthanum", "138.91", "lanthanide", 3, 6, "f"],
+  [58, "Ce", "Cerium", "140.12", "lanthanide", 3, 6, "f"],
+  [59, "Pr", "Praseodymium", "140.91", "lanthanide", 3, 6, "f"],
+  [60, "Nd", "Neodymium", "144.24", "lanthanide", 3, 6, "f"],
+  [61, "Pm", "Promethium", "[145]", "lanthanide", 3, 6, "f"],
+  [62, "Sm", "Samarium", "150.36", "lanthanide", 3, 6, "f"],
+  [63, "Eu", "Europium", "151.96", "lanthanide", 3, 6, "f"],
+  [64, "Gd", "Gadolinium", "157.25", "lanthanide", 3, 6, "f"],
+  [65, "Tb", "Terbium", "158.93", "lanthanide", 3, 6, "f"],
+  [66, "Dy", "Dysprosium", "162.50", "lanthanide", 3, 6, "f"],
+  [67, "Ho", "Holmium", "164.93", "lanthanide", 3, 6, "f"],
+  [68, "Er", "Erbium", "167.26", "lanthanide", 3, 6, "f"],
+  [69, "Tm", "Thulium", "168.93", "lanthanide", 3, 6, "f"],
+  [70, "Yb", "Ytterbium", "173.05", "lanthanide", 3, 6, "f"],
+  [71, "Lu", "Lutetium", "174.97", "lanthanide", 3, 6, "f"],
+  [72, "Hf", "Hafnium", "178.49", "transition", 4, 6, "d"],
+  [73, "Ta", "Tantalum", "180.95", "transition", 5, 6, "d"],
+  [74, "W", "Tungsten", "183.84", "transition", 6, 6, "d"],
+  [75, "Re", "Rhenium", "186.21", "transition", 7, 6, "d"],
+  [76, "Os", "Osmium", "190.23", "transition", 8, 6, "d"],
+  [77, "Ir", "Iridium", "192.22", "transition", 9, 6, "d"],
+  [78, "Pt", "Platinum", "195.08", "transition", 10, 6, "d"],
+  [79, "Au", "Gold", "196.97", "transition", 11, 6, "d"],
+  [80, "Hg", "Mercury", "200.59", "transition", 12, 6, "d"],
+  [81, "Tl", "Thallium", "204.38", "post", 13, 6, "p"],
+  [82, "Pb", "Lead", "207.2", "post", 14, 6, "p"],
+  [83, "Bi", "Bismuth", "208.98", "post", 15, 6, "p"],
+  [84, "Po", "Polonium", "[209]", "post", 16, 6, "p"],
+  [85, "At", "Astatine", "[210]", "halogen", 17, 6, "p"],
+  [86, "Rn", "Radon", "[222]", "noble", 18, 6, "p"],
+  [87, "Fr", "Francium", "[223]", "alkali", 1, 7, "s"],
+  [88, "Ra", "Radium", "[226]", "alkaline", 2, 7, "s"],
+  [89, "Ac", "Actinium", "[227]", "actinide", 3, 7, "f"],
+  [90, "Th", "Thorium", "232.04", "actinide", 3, 7, "f"],
+  [91, "Pa", "Protactinium", "231.04", "actinide", 3, 7, "f"],
+  [92, "U", "Uranium", "238.03", "actinide", 3, 7, "f"],
+  [93, "Np", "Neptunium", "[237]", "actinide", 3, 7, "f"],
+  [94, "Pu", "Plutonium", "[244]", "actinide", 3, 7, "f"],
+  [95, "Am", "Americium", "[243]", "actinide", 3, 7, "f"],
+  [96, "Cm", "Curium", "[247]", "actinide", 3, 7, "f"],
+  [97, "Bk", "Berkelium", "[247]", "actinide", 3, 7, "f"],
+  [98, "Cf", "Californium", "[251]", "actinide", 3, 7, "f"],
+  [99, "Es", "Einsteinium", "[252]", "actinide", 3, 7, "f"],
+  [100, "Fm", "Fermium", "[257]", "actinide", 3, 7, "f"],
+  [101, "Md", "Mendelevium", "[258]", "actinide", 3, 7, "f"],
+  [102, "No", "Nobelium", "[259]", "actinide", 3, 7, "f"],
+  [103, "Lr", "Lawrencium", "[266]", "actinide", 3, 7, "f"],
+  [104, "Rf", "Rutherfordium", "[267]", "transition", 4, 7, "d"],
+  [105, "Db", "Dubnium", "[268]", "transition", 5, 7, "d"],
+  [106, "Sg", "Seaborgium", "[269]", "transition", 6, 7, "d"],
+  [107, "Bh", "Bohrium", "[270]", "transition", 7, 7, "d"],
+  [108, "Hs", "Hassium", "[277]", "transition", 8, 7, "d"],
+  [109, "Mt", "Meitnerium", "[278]", "transition", 9, 7, "d"],
+  [110, "Ds", "Darmstadtium", "[281]", "transition", 10, 7, "d"],
+  [111, "Rg", "Roentgenium", "[282]", "transition", 11, 7, "d"],
+  [112, "Cn", "Copernicium", "[285]", "transition", 12, 7, "d"],
+  [113, "Nh", "Nihonium", "[286]", "post", 13, 7, "p"],
+  [114, "Fl", "Flerovium", "[289]", "post", 14, 7, "p"],
+  [115, "Mc", "Moscovium", "[290]", "post", 15, 7, "p"],
+  [116, "Lv", "Livermorium", "[293]", "post", 16, 7, "p"],
+  [117, "Ts", "Tennessine", "[294]", "halogen", 17, 7, "p"],
+  [118, "Og", "Oganesson", "[294]", "noble", 18, 7, "p"],
+];
+
+const ELEMENTS = RAW_ELEMENTS.map(([z, symbol, name, mass, category, group, period, block]) => ({
+  z,
+  symbol,
+  name,
+  mass,
+  category,
+  group,
+  period,
+  block,
+}));
+
+const ELEMENT_CATEGORIES = [
+  { id: "alkali", label: "Alkali metal" },
+  { id: "alkaline", label: "Alkaline earth metal" },
+  { id: "transition", label: "Transition metal" },
+  { id: "post", label: "Post-transition metal" },
+  { id: "metalloid", label: "Metalloid" },
+  { id: "nonmetal", label: "Nonmetal" },
+  { id: "halogen", label: "Halogen" },
+  { id: "noble", label: "Noble gas" },
+  { id: "lanthanide", label: "Lanthanide" },
+  { id: "actinide", label: "Actinide" },
+];
+
+function elementBySymbol(symbol) {
+  const s = String(symbol || "").trim().toLowerCase();
+  return ELEMENTS.find((el) => el.symbol.toLowerCase() === s) || null;
+}
+
+function searchElements(query) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return ELEMENTS.slice();
+  return ELEMENTS.filter((el) => [String(el.z), el.symbol, el.name, el.category].some((part) => part.toLowerCase().includes(q)));
+}
+
+function categoryLabel(id) {
+  const found = ELEMENT_CATEGORIES.find((c) => c.id === id);
+  return found ? found.label : id;
+}
+
+module.exports = {
+  ELEMENTS,
+  ELEMENT_CATEGORIES,
+  categoryLabel,
+  elementBySymbol,
+  searchElements,
+};
+};
+
+/* ---- src/reference-graph.js ---- */
+__defs["reference-graph"] = function (module, exports, require) {
+/*
+ * A deliberately small expression parser for the Reference plotter.
+ *
+ * It never calls eval() or Function: a short recursive-descent parser turns a
+ * text expression into a numeric function. Only the names below are allowed, so
+ * a pasted expression cannot reach the app, the vault or the network.
+ */
+
+const FUNCTIONS = {
+  sin: Math.sin,
+  cos: Math.cos,
+  tan: Math.tan,
+  asin: Math.asin,
+  acos: Math.acos,
+  atan: Math.atan,
+  sqrt: Math.sqrt,
+  abs: Math.abs,
+  ln: Math.log,
+  log: Math.log10,
+  exp: Math.exp,
+  floor: Math.floor,
+  ceil: Math.ceil,
+};
+
+const CONSTANTS = { pi: Math.PI, e: Math.E };
+const IDENT_START = /[A-Za-z_]/;
+const IDENT_PART = /[A-Za-z0-9_]/;
+
+function tokenize(text) {
+  const src = String(text || "");
+  const out = [];
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (/[0-9.]/.test(ch)) {
+      let j = i;
+      while (j < src.length && /[0-9.]/.test(src[j])) j++;
+      const raw = src.slice(i, j);
+      if (raw === "." || (raw.match(/\./g) || []).length > 1) throw new Error(`Bad number "${raw}".`);
+      out.push({ type: "number", value: Number(raw) });
+      i = j;
+      continue;
+    }
+    if (IDENT_START.test(ch)) {
+      let j = i + 1;
+      while (j < src.length && IDENT_PART.test(src[j])) j++;
+      out.push({ type: "ident", value: src.slice(i, j) });
+      i = j;
+      continue;
+    }
+    if ("+-*/^()".includes(ch)) {
+      out.push({ type: ch });
+      i++;
+      continue;
+    }
+    throw new Error(`Unsupported character "${ch}".`);
+  }
+  return insertImplicitMultiplication(out);
+}
+
+function insertImplicitMultiplication(tokens) {
+  const out = [];
+  const endsValue = (t) => t && (t.type === "number" || t.type === "ident" || t.type === ")" || t.type === "x");
+  const startsValue = (t) => t && (t.type === "number" || t.type === "ident" || t.type === "(");
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const prev = out[out.length - 1];
+    if (endsValue(prev) && startsValue(token)) {
+      // `sin(x)` is a function call, not sin multiplied by (x).
+      if (!(prev.type === "ident" && token.type === "(" && FUNCTIONS[prev.value])) out.push({ type: "*" });
+    }
+    out.push(token);
+  }
+  return out;
+}
+
+function compileExpression(text) {
+  const tokens = tokenize(text);
+  let at = 0;
+  const peek = () => tokens[at];
+  const take = (type) => {
+    const token = tokens[at];
+    if (!token || token.type !== type) throw new Error(`Expected ${type === ")" ? "a closing parenthesis" : type}.`);
+    at++;
+    return token;
+  };
+
+  function expression() {
+    let left = term();
+    while (peek() && (peek().type === "+" || peek().type === "-")) {
+      const op = tokens[at++].type;
+      const right = term();
+      const a = left;
+      left = op === "+" ? (x) => a(x) + right(x) : (x) => a(x) - right(x);
+    }
+    return left;
+  }
+
+  function term() {
+    let left = unary();
+    while (peek() && (peek().type === "*" || peek().type === "/")) {
+      const op = tokens[at++].type;
+      const right = unary();
+      const a = left;
+      left = op === "*" ? (x) => a(x) * right(x) : (x) => a(x) / right(x);
+    }
+    return left;
+  }
+
+  function unary() {
+    if (peek() && (peek().type === "+" || peek().type === "-")) {
+      const op = tokens[at++].type;
+      const inner = unary();
+      return op === "-" ? (x) => -inner(x) : inner;
+    }
+    return power();
+  }
+
+  function power() {
+    const left = primary();
+    if (peek() && peek().type === "^") {
+      at++;
+      const right = unary();
+      return (x) => Math.pow(left(x), right(x));
+    }
+    return left;
+  }
+
+  function primary() {
+    const token = peek();
+    if (!token) throw new Error("The expression is incomplete.");
+    if (token.type === "number") {
+      at++;
+      const n = token.value;
+      return () => n;
+    }
+    if (token.type === "ident") {
+      at++;
+      const name = token.value;
+      if (name === "x") return (x) => x;
+      if (Object.prototype.hasOwnProperty.call(CONSTANTS, name)) {
+        const n = CONSTANTS[name];
+        return () => n;
+      }
+      if (Object.prototype.hasOwnProperty.call(FUNCTIONS, name)) {
+        take("(");
+        const inner = expression();
+        take(")");
+        const fn = FUNCTIONS[name];
+        return (x) => fn(inner(x));
+      }
+      throw new Error(`Unknown name "${name}". Use x, pi, e and the listed functions.`);
+    }
+    if (token.type === "(") {
+      at++;
+      const inner = expression();
+      take(")");
+      return inner;
+    }
+    throw new Error(`Unexpected "${token.type}".`);
+  }
+
+  const fn = expression();
+  if (at !== tokens.length) throw new Error("Unexpected extra text after the expression.");
+  return fn;
+}
+
+/** Samples an expression into graph points. Returns null when no finite point exists. */
+function buildPlot(text, options) {
+  const opts = options || {};
+  const fn = compileExpression(text);
+  const xMin = Number.isFinite(Number(opts.xMin)) ? Number(opts.xMin) : -10;
+  const xMax = Number.isFinite(Number(opts.xMax)) ? Number(opts.xMax) : 10;
+  if (!(xMax > xMin)) throw new Error("The maximum x must be larger than the minimum x.");
+  const samples = Math.max(3, Math.min(1200, Math.round(Number(opts.samples) || 241)));
+  const points = [];
+  let low = Infinity;
+  let high = -Infinity;
+  for (let i = 0; i < samples; i++) {
+    const x = xMin + ((xMax - xMin) * i) / (samples - 1);
+    let y;
+    try {
+      y = fn(x);
+    } catch (e) {
+      y = NaN;
+    }
+    const finite = Number.isFinite(y);
+    if (finite) {
+      low = Math.min(low, y);
+      high = Math.max(high, y);
+    }
+    points.push({ x, y: finite ? y : null });
+  }
+  if (low === Infinity) throw new Error("That expression has no real values in this range.");
+  if (low === high) {
+    low -= 1;
+    high += 1;
+  } else {
+    const pad = (high - low) * 0.08;
+    low -= pad;
+    high += pad;
+  }
+  return { points, xMin, xMax, yMin: low, yMax: high };
+}
+
+module.exports = {
+  FUNCTIONS,
+  buildPlot,
+  compileExpression,
+  tokenize,
+};
+};
+
 /* ---- src/reference-settings.js ---- */
 __defs["reference-settings"] = function (module, exports, require) {
 const { Setting } = require("obsidian");
@@ -18762,6 +19160,7 @@ const {
   UNIT_CATEGORIES,
   mergeReferenceSettings,
 } = require("./reference-data");
+const { ELEMENTS } = require("./reference-elements");
 
 const REFERENCE_TABS = [
   { id: "tools", label: "Tools", icon: "book-open" },
@@ -18833,7 +19232,7 @@ function renderTools(containerEl, plugin, redisplay) {
   card.createEl("h3", { text: "Bundled content" });
   card.createEl("p", {
     cls: "setting-item-description",
-    text: `${FORMULAS.length} formulas across ${REFERENCE_SUBJECTS.length - 1} subjects, ${CONSTANTS.length} constants and ${UNIT_CATEGORIES.length} unit categories.`,
+    text: `${FORMULAS.length} formulas across ${REFERENCE_SUBJECTS.length - 1} subjects, ${CONSTANTS.length} constants, ${UNIT_CATEGORIES.length} unit categories and all ${ELEMENTS.length} elements.`,
   });
   card.createEl("p", {
     cls: "setting-item-description",
@@ -18880,6 +19279,8 @@ const {
   searchFormulas,
   unitCategory,
 } = require("./reference-data");
+const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
+const { buildPlot } = require("./reference-graph");
 
 /*
  * A local-only reference panel. It deliberately contains no calculator engine,
@@ -18902,6 +19303,15 @@ class ReferenceView extends ItemView {
     this.formulaListEl = null;
     this.constantListEl = null;
     this.unitResultEl = null;
+    this.graphExpression = "sin(x)";
+    this.graphXMin = "-10";
+    this.graphXMax = "10";
+    this.graphCanvas = null;
+    this.graphErrorEl = null;
+    this.elementQuery = "";
+    this.selectedElement = null;
+    this.periodicGridEl = null;
+    this.periodicDetailEl = null;
   }
 
   getViewType() {
@@ -18944,7 +19354,13 @@ class ReferenceView extends ItemView {
     });
 
     const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-ref-tabs" });
-    for (const [id, label] of [["formulas", "Formulas"], ["units", "Unit converter"], ["constants", "Constants"]]) {
+    for (const [id, label] of [
+      ["formulas", "Formulas"],
+      ["units", "Unit converter"],
+      ["graph", "Graph"],
+      ["elements", "Periodic table"],
+      ["constants", "Constants"],
+    ]) {
       const button = tabs.createEl("button", { text: label, cls: "qt-ref-tab" });
       if (this.tab === id) button.addClass("mod-cta");
       button.addEventListener("click", () => {
@@ -18954,9 +19370,173 @@ class ReferenceView extends ItemView {
     }
 
     if (this.tab === "units") this.renderUnits(root);
+    else if (this.tab === "graph") this.renderGraph(root);
+    else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
     else this.renderFormulas(root);
     el.scrollTop = top;
+  }
+
+  renderGraph(root) {
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "Plot y = f(x). Use x, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
+    });
+    const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
+    const expression = controls.createEl("input", {
+      cls: "qt-ref-search",
+      attr: { type: "text", placeholder: "sin(x)", "aria-label": "Expression to plot" },
+    });
+    expression.value = this.graphExpression;
+    expression.addEventListener("input", () => {
+      this.graphExpression = expression.value;
+      this.drawGraph();
+    });
+    for (const [key, label] of [["graphXMin", "Minimum x"], ["graphXMax", "Maximum x"]]) {
+      const field = controls.createEl("input", {
+        cls: "qt-ref-amount",
+        attr: { type: "number", step: "any", "aria-label": label },
+      });
+      field.value = this[key];
+      field.addEventListener("input", () => {
+        this[key] = field.value;
+        this.drawGraph();
+      });
+    }
+    this.graphCanvas = root.createEl("canvas", { cls: "qt-ref-canvas", attr: { "aria-label": "Graph of the expression" } });
+    this.graphErrorEl = root.createDiv({ cls: "qt-ref-note" });
+    this.drawGraph();
+  }
+
+  drawGraph() {
+    const canvas = this.graphCanvas;
+    if (!canvas) return;
+    const rawWidth = Number(canvas.clientWidth);
+    const width = Number.isFinite(rawWidth) && rawWidth > 0 ? Math.round(rawWidth) : 640;
+    const height = 320;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext ? canvas.getContext("2d") : null;
+    if (!ctx) return;
+    ctx.clearRect(0, 0, width, height);
+    let plot;
+    try {
+      plot = buildPlot(this.graphExpression, { xMin: this.graphXMin, xMax: this.graphXMax });
+    } catch (e) {
+      if (this.graphErrorEl) this.graphErrorEl.setText(e.message);
+      return;
+    }
+    if (this.graphErrorEl) this.graphErrorEl.setText("");
+    const px = (x) => ((x - plot.xMin) / (plot.xMax - plot.xMin)) * width;
+    const py = (y) => height - ((y - plot.yMin) / (plot.yMax - plot.yMin)) * height;
+    ctx.strokeStyle = "rgba(127, 127, 127, 0.22)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 8; i++) {
+      const x = (width * i) / 8;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    }
+    for (let i = 0; i <= 6; i++) {
+      const y = (height * i) / 6;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(127, 127, 127, 0.6)";
+    if (plot.xMin <= 0 && plot.xMax >= 0) {
+      ctx.beginPath();
+      ctx.moveTo(px(0), 0);
+      ctx.lineTo(px(0), height);
+      ctx.stroke();
+    }
+    if (plot.yMin <= 0 && plot.yMax >= 0) {
+      ctx.beginPath();
+      ctx.moveTo(0, py(0));
+      ctx.lineTo(width, py(0));
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "#5b8def";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    let drawing = false;
+    let lastY = null;
+    for (const point of plot.points) {
+      if (point.y === null) {
+        drawing = false;
+        lastY = null;
+        continue;
+      }
+      const x = px(point.x);
+      const y = py(point.y);
+      if (!drawing || (lastY !== null && Math.abs(y - lastY) > height * 0.8)) {
+        ctx.moveTo(x, y);
+        drawing = true;
+      } else {
+        ctx.lineTo(x, y);
+      }
+      lastY = y;
+    }
+    ctx.stroke();
+  }
+
+  renderPeriodic(root) {
+    const search = root.createEl("input", {
+      cls: "qt-ref-search",
+      attr: { type: "search", placeholder: "Search by name, symbol or atomic number" },
+    });
+    search.value = this.elementQuery;
+    search.addEventListener("input", () => {
+      this.elementQuery = search.value;
+      this.renderElementGrid();
+    });
+    this.periodicGridEl = root.createDiv({ cls: "qt-ref-periodic", attr: { role: "grid", "aria-label": "Periodic table" } });
+    this.periodicDetailEl = root.createDiv({ cls: "qt-ref-element-detail" });
+    this.renderElementGrid();
+    this.renderElementDetail();
+  }
+
+  renderElementGrid() {
+    const grid = this.periodicGridEl;
+    if (!grid) return;
+    grid.empty();
+    for (const element of searchElements(this.elementQuery)) {
+      const cell = grid.createEl("button", {
+        cls: `qt-ref-element is-${element.category}${this.selectedElement && this.selectedElement.z === element.z ? " is-selected" : ""}`,
+        attr: { "aria-label": `${element.name}, atomic number ${element.z}`, role: "gridcell" },
+      });
+      if (element.block === "f") {
+        const index = element.z <= 71 ? element.z - 57 : element.z - 89;
+        cell.style.gridColumn = String(3 + index);
+        cell.style.gridRow = element.z <= 71 ? "9" : "10";
+      } else {
+        cell.style.gridColumn = String(element.group);
+        cell.style.gridRow = String(element.period);
+      }
+      cell.createSpan({ cls: "qt-ref-element-number", text: String(element.z) });
+      cell.createSpan({ cls: "qt-ref-element-symbol", text: element.symbol });
+      cell.addEventListener("click", () => {
+        this.selectedElement = element;
+        this.render();
+      });
+    }
+    if (!searchElements(this.elementQuery).length) grid.createDiv({ cls: "qt-hint", text: "No elements match that search." });
+  }
+
+  renderElementDetail() {
+    const detail = this.periodicDetailEl;
+    if (!detail) return;
+    detail.empty();
+    const element = this.selectedElement;
+    if (!element) {
+      detail.createDiv({ cls: "qt-ref-note", text: "Tap an element to see its name, atomic mass and category." });
+      return;
+    }
+    detail.createEl("h3", { text: `${element.symbol} - ${element.name}` });
+    detail.createDiv({ cls: "qt-ref-note", text: `Atomic number ${element.z} - mass ${element.mass} - ${categoryLabel(element.category)}` });
+    detail.createDiv({ cls: "qt-ref-note", text: `Period ${element.period}, group ${element.group}, ${element.block}-block.` });
   }
 
   renderFormulas(root) {
@@ -21209,6 +21789,8 @@ const calendarNotes = require("./calendar-notes");
 const { CalendarView, StudySlotModal, parseScheduleBlock } = require("./calendar-view");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 const referenceData = require("./reference-data");
+const referenceElements = require("./reference-elements");
+const referenceGraph = require("./reference-graph");
 const { ReferenceView } = require("./reference-view");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const dailyQuiz = require("./daily-quiz");
@@ -21295,6 +21877,8 @@ QuestionTrackerPlugin.__test = {
   REFERENCE_TABS,
   renderReferenceSettings,
   referenceData,
+  referenceElements,
+  referenceGraph,
   ReferenceView,
   CALENDAR_TABS,
   cards,
