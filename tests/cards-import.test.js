@@ -905,3 +905,54 @@ test("plugin: import preview counts duplicates, update preserves history notes, 
   assert.match(app.created[0].text, /import_key: "gift:.*~copy-/);
   assert.match(app.created[0].text, /## Front\n\nQ\?/);
 });
+
+test("flashquiz: @mc, @sata and @tf blocks keep their correct choices", () => {
+  const text = `What is 2 + 2?\n@mc\n- [ ] 3\n- [x] 4\n- [ ] 5\n\nWhich are noble gases?\n@sata\n- [x] He\n- [x] Ne\n- [ ] O\n\nThe derivative of x^2 is 2x.\n@tf\n- [x] True\n- [ ] False\n`;
+  const parsed = importer.parseFlashQuizText(text, { sourcePath: "quiz.txt", deck: "Chem" });
+  assert.equal(parsed.cards.length, 3);
+  assert.equal(parsed.cards[0].front, "What is 2 + 2?");
+  assert.equal(parsed.cards[0].back, "4");
+  assert.equal(parsed.cards[1].front, "Which are noble gases?");
+  assert.equal(parsed.cards[1].back, "He · Ne", "sata keeps every checked option");
+  assert.equal(parsed.cards[2].back, "True");
+  assert.equal(parsed.skipped, 0);
+});
+
+test("flashquiz: an Answer line, plus/minus options and a missing answer", () => {
+  const parsed = importer.parseFlashQuizText(
+    "Capital of France?\n@mc\n+ Paris\n- Lyon\n\nUngraded?\n@mc\n- one\n- two\n\nTrue or false?\n@tf\nAnswer: false\n",
+    { sourcePath: "quiz.txt" }
+  );
+  assert.equal(parsed.cards.length, 2);
+  assert.equal(parsed.cards[0].back, "Paris");
+  assert.equal(parsed.cards[1].back, "False");
+  assert.equal(parsed.skipped, 1);
+});
+
+test("quizport: array and object shapes, index, object and text answers", () => {
+  const text = JSON.stringify({
+    title: "Bio",
+    questions: [
+      { question: "Powerhouse?", options: ["Nucleus", "Mitochondria"], correct: 1 },
+      { prompt: "DNA base?", answers: [{ text: "A", correct: false }, { text: "T", correct: true }] },
+      { question: "Enzyme?", answer: "Catalase" },
+    ],
+  });
+  const parsed = importer.parseQuizPortJson(text, { sourcePath: "quiz.json" });
+  assert.equal(parsed.cards.length, 3);
+  assert.equal(parsed.cards[0].deck, "Bio");
+  assert.equal(parsed.cards[0].back, "Mitochondria");
+  assert.equal(parsed.cards[1].back, "T");
+  assert.equal(parsed.cards[2].back, "Catalase");
+  assert.equal(importer.parseQuizPortJson("{not json", {}).errors.length, 1);
+});
+
+test("markdown quiz: headings are questions and checked boxes are answers", () => {
+  const text = `---\ntitle: Quiz\n---\n\n## Capital of France?\n- [ ] Lyon\n- [x] Paris\n\n### Noble gas?\n- [x] Helium\n- [ ] Oxygen\n\n## No answer\n- [ ] A\n- [ ] B\n`;
+  const parsed = importer.parseMarkdownQuiz(text, { sourcePath: "quiz.md" });
+  assert.equal(parsed.cards.length, 2);
+  assert.equal(parsed.cards[0].front, "Capital of France?");
+  assert.equal(parsed.cards[0].back, "Paris");
+  assert.equal(parsed.cards[1].back, "Helium");
+  assert.equal(parsed.skipped, 1);
+});

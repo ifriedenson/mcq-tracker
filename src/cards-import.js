@@ -14,7 +14,7 @@ const { Modal, Notice } = require("obsidian");
 const { hashString, localDate, str } = require("./util");
 const { parseCloze } = require("./cards");
 
-const IMPORT_TYPES = ["spaced", "mochi", "crowdanki", "anki", "apkg", "quizlet", "gift", "moodlexml", "qti", "kahoot", "blooket", "gimkit", "csv"];
+const IMPORT_TYPES = ["spaced", "mochi", "crowdanki", "anki", "apkg", "quizlet", "gift", "moodlexml", "qti", "flashquiz", "quizport", "mdquiz", "kahoot", "blooket", "gimkit", "csv"];
 const QUESTION_SET_TYPES = ["kahoot", "blooket", "gimkit"];
 
 function stripFrontmatter(text) {
@@ -1052,6 +1052,288 @@ function parseCrowdAnkiJson(text, options) {
   return { cards, skipped, errors, source, format: "crowdanki" };
 }
 
+/* ---- FlashQuiz, QuizPort and Markdown checkbox quizzes */
+
+const FLASHQUIZ_TYPES = { mc: "single", sata: "multiple", tf: "truefalse" };
+
+/** One FlashQuiz option: `- [x] text`, `+ text` (correct) or `- text` (wrong). */
+function flashQuizOption(line) {
+  const boxed = /^\s*[-*+]\s*\[([ xX])\]\s*(.+?)\s*$/.exec(line);
+  if (boxed) return { text: boxed[2].trim(), correct: boxed[1].toLowerCase() === "x" };
+  const plus = /^\s*\+\s+(.+?)\s*$/.exec(line);
+  if (plus) return { text: plus[1].trim(), correct: true };
+  const minus = /^\s*-\s+(.+?)\s*$/.exec(line);
+  if (minus) return { text: minus[1].trim(), correct: false };
+  return null;
+}
+
+/**
+ * FlashQuiz text: a prompt, then a type tag (`@mc`, `@sata`, `@tf`) and its
+ * options. Options may be checked boxes or `+`/`-` lines, and an `Answer:`
+ * line is accepted when the export does not mark a choice. `@sata` allows
+ * more than one correct option; `@mc` and `@tf` take one.
+ */
+function parseFlashQuizText(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "FlashQuiz text");
+  const deck = str(opts.deck).trim() || "Imported";
+  const body = str(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  const blocks = [];
+  let prompt = [];
+  let block = null;
+  const finish = () => {
+    if (block) blocks.push(block);
+    block = null;
+  };
+  for (const line of body.split("\n")) {
+    const tag = /^\s*@(mc|sata|tf)\b/i.exec(line);
+    if (tag) {
+      finish();
+      block = { type: tag[1].toLowerCase(), prompt: prompt.join("\n").trim(), options: [], answer: "" };
+      prompt = [];
+      continue;
+    }
+    if (block) {
+      const option = flashQuizOption(line);
+      if (option) {
+        block.options.push(option);
+        continue;
+      }
+      const answer = /^\s*(?:answer|correct)\s*:\s*(.+?)\s*$/i.exec(line);
+      if (answer) {
+        block.answer = answer[1].trim();
+        continue;
+      }
+      if (!line.trim()) continue;
+      finish();
+      prompt.push(line);
+      continue;
+    }
+    prompt.push(line);
+  }
+  finish();
+
+  const cards = [];
+  let skipped = 0;
+  for (let index = 0; index < blocks.length; index++) {
+    const item = blocks[index];
+    const front = str(item.prompt).trim();
+    if (!front) {
+      skipped++;
+      continue;
+    }
+    let choices = item.options.slice();
+    if (item.type === "tf" && !choices.length) {
+      choices = [
+        { text: "True", correct: false },
+        { text: "False", correct: false },
+      ];
+    }
+    let correct = choices.filter((choice) => choice.correct).map((choice) => choice.text);
+    if (!correct.length && item.answer) {
+      const answer = item.answer.trim();
+      const byText = choices.find((choice) => choice.text.toLowerCase() === answer.toLowerCase());
+      if (byText) correct = [byText.text];
+      else if (/^[A-Ha-h]$/.test(answer)) {
+        const at = answer.toUpperCase().charCodeAt(0) - 65;
+        if (choices[at]) correct = [choices[at].text];
+      } else if (item.type === "tf" && /^(true|t|yes)$/i.test(answer)) correct = ["True"];
+      else if (item.type === "tf" && /^(false|f|no)$/i.test(answer)) correct = ["False"];
+      else if (!choices.length) correct = [answer];
+    }
+    if (!correct.length) {
+      skipped++;
+      continue;
+    }
+    const back = [...new Set(correct)].join(" · ");
+    cards.push({
+      kind: "card",
+      cardType: "basic",
+      deck,
+      front,
+      back,
+      tags: [],
+      importSource: source,
+      importKey: `flashquiz:${hashString(source + "|" + index + "|" + front + "|" + back)}`,
+    });
+  }
+  return { cards, skipped, errors: [], source, format: "flashquiz" };
+}
+
+function quizPortText(value) {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object") return str(value.text || value.label || value.answer || value.option).trim();
+  return "";
+}
+
+function quizPortOptions(item) {
+  const raw = item.answers || item.options || item.choices || item.responses;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((value) => ({ text: quizPortText(value), correct: !!(value && typeof value === "object" && value.correct === true) }))
+    .filter((option) => option.text);
+}
+
+function quizPortCorrect(value, choices) {
+  if (value === undefined || value === null || value === "") return [];
+  const wanted = Array.isArray(value) ? value : [value];
+  const out = [];
+  for (const raw of wanted) {
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      const n = Math.round(raw);
+      const at = n >= 0 && n < choices.length ? n : n >= 1 && n <= choices.length ? n - 1 : -1;
+      if (at >= 0) out.push(choices[at].text);
+    } else if (typeof raw === "string") {
+      const text = raw.trim();
+      if (!text) continue;
+      const byText = choices.find((choice) => choice.text.toLowerCase() === text.toLowerCase());
+      if (byText) out.push(byText.text);
+      else if (/^[A-Ha-h]$/.test(text)) {
+        const at = text.toUpperCase().charCodeAt(0) - 65;
+        if (choices[at]) out.push(choices[at].text);
+      } else if (/^\d+$/.test(text)) {
+        const n = Number(text);
+        const at = n >= 0 && n < choices.length ? n : n >= 1 && n <= choices.length ? n - 1 : -1;
+        if (at >= 0) out.push(choices[at].text);
+      } else if (!choices.length) out.push(text);
+    }
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * QuizPort JSON: a question array, or an object with a `questions` array.
+ * Choices may be strings or `{ text, correct }` objects. `correct`,
+ * `correctAnswer`, `answer` and `key` accept an index, a letter, choice text
+ * or an array of those; a plain string with no choices becomes a short-answer
+ * card.
+ */
+function parseQuizPortJson(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "QuizPort JSON");
+  let data;
+  try {
+    data = JSON.parse(str(text));
+  } catch (e) {
+    return { cards: [], skipped: 0, errors: ["That file is not valid QuizPort JSON."], source, format: "quizport" };
+  }
+  const list = Array.isArray(data)
+    ? data
+    : ["questions", "quiz", "items"].reduce((found, key) => (found.length ? found : Array.isArray(data && data[key]) ? data[key] : []), []);
+  const deck = str(opts.deck).trim() || str(data && (data.deck || data.title)).trim() || "Imported";
+  const cards = [];
+  let skipped = 0;
+  if (!list.length) return { cards, skipped: 1, errors: ["No questions array was found in that JSON file."], source, format: "quizport" };
+  list.forEach((item, index) => {
+    if (!item || typeof item !== "object") {
+      skipped++;
+      return;
+    }
+    const front = str(item.question || item.prompt || item.text || item.q || item.title).trim();
+    if (!front) {
+      skipped++;
+      return;
+    }
+    const choices = quizPortOptions(item);
+    const marked = choices.filter((choice) => choice.correct).map((choice) => choice.text);
+    const referenced = quizPortCorrect(
+      item.correct !== undefined ? item.correct : item.correctAnswer !== undefined ? item.correctAnswer : item.correct_answer !== undefined ? item.correct_answer : item.answer !== undefined ? item.answer : item.key,
+      choices
+    );
+    const back = [...new Set([...marked, ...referenced])].join(" · ");
+    if (!back) {
+      skipped++;
+      return;
+    }
+    cards.push({
+      kind: "card",
+      cardType: "basic",
+      deck,
+      front,
+      back,
+      tags: [],
+      importSource: source,
+      importKey: `quizport:${hashString(source + "|" + index + "|" + front + "|" + back)}`,
+    });
+  });
+  return { cards, skipped, errors: [], source, format: "quizport" };
+}
+
+/**
+ * Markdown checkbox quiz: each `##` or `###` heading is a question, and the
+ * `- [ ]` / `- [x]` lines under it are the choices. More than one checked box
+ * is allowed. An `Answer:` line is accepted when no box is checked.
+ */
+function parseMarkdownQuiz(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "Markdown quiz");
+  const deck = str(opts.deck).trim() || "Imported";
+  const body = stripFrontmatter(str(text)).replace(/\r\n?/g, "\n");
+  const blocks = [];
+  let current = null;
+  const finish = () => {
+    if (current) blocks.push(current);
+    current = null;
+  };
+  for (const line of body.split("\n")) {
+    const heading = /^#{2,6}\s+(.+?)\s*#*\s*$/.exec(line);
+    if (heading) {
+      finish();
+      current = { question: heading[1].trim(), options: [], answer: "" };
+      continue;
+    }
+    if (!current) continue;
+    if (/^\s*-{3,}\s*$/.test(line)) {
+      finish();
+      continue;
+    }
+    const boxed = /^\s*[-*+]\s*\[([ xX])\]\s*(.+?)\s*$/.exec(line);
+    if (boxed) {
+      current.options.push({ text: boxed[2].trim(), correct: boxed[1].toLowerCase() === "x" });
+      continue;
+    }
+    const answer = /^\s*(?:answer|correct)\s*:\s*(.+?)\s*$/i.exec(line);
+    if (answer) current.answer = answer[1].trim();
+  }
+  finish();
+
+  const cards = [];
+  let skipped = 0;
+  for (let index = 0; index < blocks.length; index++) {
+    const item = blocks[index];
+    const front = item.question.trim();
+    if (!front || !item.options.length) {
+      skipped++;
+      continue;
+    }
+    let correct = item.options.filter((option) => option.correct).map((option) => option.text);
+    if (!correct.length && item.answer) {
+      const found = item.options.find((option) => option.text.toLowerCase() === item.answer.toLowerCase());
+      if (found) correct = [found.text];
+      else if (/^[A-Ha-h]$/.test(item.answer)) {
+        const at = item.answer.toUpperCase().charCodeAt(0) - 65;
+        if (item.options[at]) correct = [item.options[at].text];
+      }
+    }
+    if (!correct.length) {
+      skipped++;
+      continue;
+    }
+    const back = [...new Set(correct)].join(" · ");
+    cards.push({
+      kind: "card",
+      cardType: "basic",
+      deck,
+      front,
+      back,
+      tags: [],
+      importSource: source,
+      importKey: `mdquiz:${hashString(source + "|" + index + "|" + front + "|" + back)}`,
+    });
+  }
+  return { cards, skipped, errors: [], source, format: "mdquiz" };
+}
+
 /* ---- Quizlet */
 
 function cleanQuizletField(value) {
@@ -1762,6 +2044,9 @@ class CardImportModal extends Modal {
     type.createEl("option", { text: "Moodle GIFT (.txt or .gift)", value: "gift" });
     type.createEl("option", { text: "Moodle XML quiz bank (.xml)", value: "moodlexml" });
     type.createEl("option", { text: "QTI quiz bank (.xml)", value: "qti" });
+    type.createEl("option", { text: "FlashQuiz text (@mc / @sata / @tf)", value: "flashquiz" });
+    type.createEl("option", { text: "QuizPort JSON (.json)", value: "quizport" });
+    type.createEl("option", { text: "Markdown checkbox quiz (.md)", value: "mdquiz" });
     type.createEl("option", { text: "Generic CSV / TSV (choose columns)", value: "csv" });
     type.createEl("option", { text: "Kahoot spreadsheet (CSV)", value: "kahoot" });
     type.createEl("option", { text: "Blooket spreadsheet (CSV)", value: "blooket" });
@@ -1818,13 +2103,13 @@ class CardImportModal extends Modal {
         folders.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
         for (const folder of folders) source.createEl("option", { text: folder || "Whole vault", value: folder });
       } else {
-        const pattern = this.type === "quizlet" ? /\.(txt|tsv|csv|pdf)$/i : /\.(txt|tsv|csv|gift|xml|json|apkg)$/i;
+        const pattern = this.type === "quizlet" ? /\.(txt|tsv|csv|pdf)$/i : /\.(txt|tsv|csv|gift|xml|json|apkg|md)$/i;
         const candidates = (files || []).filter((f) => pattern.test(f.path || ""));
-        const missing = this.type === "quizlet" ? "No .txt, .csv or .pdf files found" : "No .txt, .tsv, .csv, .gift, .xml, .json or .apkg files found";
+        const missing = this.type === "quizlet" ? "No .txt, .csv or .pdf files found" : "No .txt, .tsv, .csv, .gift, .xml, .json, .apkg or .md files found";
         if (!candidates.length) source.createEl("option", { text: missing, value: "" });
         for (const f of candidates) source.createEl("option", { text: f.path, value: f.path });
       }
-      const sourceLabels = { spaced: "Folder to scan", mochi: "Mochi Markdown folder", crowdanki: "CrowdAnki JSON file", quizlet: "Quizlet text export or PDF", anki: "Anki text export", apkg: "Anki package", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
+      const sourceLabels = { spaced: "Folder to scan", mochi: "Mochi Markdown folder", crowdanki: "CrowdAnki JSON file", quizlet: "Quizlet text export or PDF", anki: "Anki text export", apkg: "Anki package", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", flashquiz: "FlashQuiz text file", quizport: "QuizPort JSON file", mdquiz: "Markdown quiz note", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
       sourceLabel.setText(sourceLabels[this.type] || "Import file");
     };
     refreshOptions();
@@ -1975,6 +2260,9 @@ class CardImportModal extends Modal {
       if (this.type === "gift") return giftExportHint();
       if (this.type === "moodlexml") return "Moodle XML: export the course question bank as Moodle XML, then save the .xml file in this vault. Multiple choice, true/false, short answer and numerical questions are read; matching, essay, description and cloze questions are skipped.";
       if (this.type === "qti") return "QTI: export the quiz bank as QTI XML, then save the .xml file in this vault. QTI 1.2 and QTI 2.1 multiple-choice items are read, including response labels and correct-response identifiers.";
+      if (this.type === "flashquiz") return "FlashQuiz: save the quiz text as a .txt or .md file in this vault. A prompt is followed by @mc, @sata or @tf and its options; mark correct choices with [x] or +, or add an Answer: line.";
+      if (this.type === "quizport") return "QuizPort: save the quiz .json in this vault. A question array, or an object with a questions array, is read; choices may be strings or { text, correct } objects, and correct accepts an index, a letter or the choice text.";
+      if (this.type === "mdquiz") return "Markdown quiz: each ## or ### heading is a question and the - [ ] / - [x] lines under it are the choices. More than one box may be checked; an Answer: line works when no box is checked.";
       if (this.type === "csv") return "Read a CSV or TSV with a header row. Front/term/question and Back/definition/answer columns are detected automatically; check or change the mapping, then import. Mappings are remembered for the same header layout.";
       if (this.type === "anki") return ankiExportHint() + " To bring in a whole package with its notes and basic scheduling metadata, choose Anki package (.apkg) instead.";
       if (this.type === "apkg") return "Anki: File → Export → Anki Deck Package (.apkg), save it in this vault, then choose it here. Notes, decks, tags, cloze cards and basic review dates are read; images and audio are not imported. Newer zstd-compressed packages are rejected with a text-export hint.";
@@ -2173,7 +2461,13 @@ class CardImportModal extends Modal {
                       ? await p.importCardsFromCsv(path, { ...options, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked })
                       : QUESTION_SET_TYPES.includes(this.type)
                         ? await p.importCardsFromQuestionSet(path, this.type, options)
-                        : this.type === "gift"
+                        : this.type === "flashquiz"
+                          ? await p.importCardsFromFlashQuiz(path, options)
+                          : this.type === "quizport"
+                            ? await p.importCardsFromQuizPort(path, options)
+                            : this.type === "mdquiz"
+                              ? await p.importCardsFromMarkdownQuiz(path, options)
+                              : this.type === "gift"
                           ? await p.importCardsFromGift(path, options)
                           : this.type === "moodlexml" || this.type === "qti"
                             ? await p.importCardsFromLmsXml(path, this.type, options)
@@ -2290,6 +2584,9 @@ module.exports = {
   parseMoodleXml,
   parseQtiXml,
   parseLmsXml,
+  parseFlashQuizText,
+  parseQuizPortJson,
+  parseMarkdownQuiz,
   parseMochiMarkdown,
   parseCrowdAnkiJson,
   parseQuizletText,

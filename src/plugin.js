@@ -54,7 +54,7 @@ const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entry
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
-const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
+const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseFlashQuizText, parseGiftText, parseMarkdownQuiz, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizPortJson, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
 const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
@@ -3644,6 +3644,42 @@ class QuestionTrackerPlugin extends Plugin {
     return this.importParsedCards(parsed.cards, { ...opts, deck: String(opts.deck || "").trim() || file.basename, errors: parsed.errors });
   }
 
+  /** Import a FlashQuiz text file with @mc, @sata and @tf blocks. */
+  async importCardsFromFlashQuiz(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    if (!/\.(txt|md)$/i.test(String(path || ""))) throw new Error("Choose the .txt or .md FlashQuiz export.");
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That file is not in the vault.");
+    const text = await this.app.vault.cachedRead(file);
+    const parsed = parseFlashQuizText(text, { sourcePath: file.path, deck: opts.deck });
+    return this.importParsedCards(parsed.cards, { ...opts, deck: String(opts.deck || "").trim() || file.basename, errors: parsed.errors });
+  }
+
+  /** Import a QuizPort JSON quiz. */
+  async importCardsFromQuizPort(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    if (!/\.json$/i.test(String(path || ""))) throw new Error("Choose the .json QuizPort export.");
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That file is not in the vault.");
+    const text = await this.app.vault.cachedRead(file);
+    const parsed = parseQuizPortJson(text, { sourcePath: file.path, deck: opts.deck });
+    return this.importParsedCards(parsed.cards, { ...opts, deck: String(opts.deck || "").trim() || file.basename, errors: parsed.errors });
+  }
+
+  /** Import a Markdown note whose headings are questions and checkboxes are choices. */
+  async importCardsFromMarkdownQuiz(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    if (!/\.md$/i.test(String(path || ""))) throw new Error("Choose the .md Markdown quiz note.");
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That file is not in the vault.");
+    const text = await this.app.vault.cachedRead(file);
+    const parsed = parseMarkdownQuiz(text, { sourcePath: file.path, deck: opts.deck });
+    return this.importParsedCards(parsed.cards, { ...opts, deck: String(opts.deck || "").trim() || file.basename, errors: parsed.errors });
+  }
+
   /** Import a Quizlet text/CSV export. Quizlet has no deck field, so the fallback deck is used. */
   async importCardsFromQuizlet(path, options) {
     if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
@@ -3862,6 +3898,9 @@ class QuestionTrackerPlugin extends Plugin {
         else if (kind === "qti") add(parseQtiXml(text, base));
         else if (kind === "crowdanki") add(parseCrowdAnkiJson(text, base));
         else if (kind === "quizlet") add(parseQuizletText(text, base));
+        else if (kind === "flashquiz") add(parseFlashQuizText(text, base));
+        else if (kind === "quizport") add(parseQuizPortJson(text, base));
+        else if (kind === "mdquiz") add(parseMarkdownQuiz(text, base));
         else if (["kahoot", "blooket", "gimkit"].includes(kind)) add(parseQuestionSetText(text, { ...base, format: kind }));
         else throw new Error(`Unsupported import format: ${kind || "none"}.`);
       }
