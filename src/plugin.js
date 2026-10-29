@@ -64,6 +64,8 @@ const { AI_WRITE_STORAGE_KEY, appendAiWrite, latestAiWrite, makeAiWriteRecord, n
 const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
+const { WeakSpotModal } = require("./weak-spot-modal");
+const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
 
@@ -243,6 +245,7 @@ class QuestionTrackerPlugin extends Plugin {
         return true;
       },
     });
+    this.addCommand({ id: "weak-spot-generate", name: "AI: generate practice from a weak spot", callback: () => this.openWeakSpotGenerate() });
     this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
     this.addCommand({
       id: "cards-grade-pending",
@@ -1842,6 +1845,49 @@ class QuestionTrackerPlugin extends Plugin {
       return;
     }
     new TranscriptPracticeModal(this.app, this, { path: target }, () => this.refreshViews()).open();
+  }
+
+  weakSpotChoices() {
+    return weakSpotRows(this.getQuestions())
+      .slice(0, 8)
+      .map((row) => ({ ...row, course: str(row.course).trim() }));
+  }
+
+  openWeakSpotGenerate(onDone) {
+    if (!this.settings.ai.enabled) {
+      new Notice("Turn on AI features under Settings, Global, Modules, then choose a provider under MCQ Tracker, AI.");
+      return null;
+    }
+    const modal = new WeakSpotModal(this.app, this, onDone);
+    modal.open();
+    return modal;
+  }
+
+  /** Draft original questions or cards for one weak skill. This method writes nothing. */
+  async generateWeakSpotPractice(options) {
+    const opts = options || {};
+    if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
+    const rows = weakSpotRows(this.getQuestions());
+    const row = (opts.skill && rows.find((item) => item.value === opts.skill)) || pickWeakSpot(this.getQuestions());
+    if (!row) throw new Error("Answer at least one question first so the plugin can find a weak spot.");
+    const kind = opts.kind === "cards" ? "cards" : "questions";
+    if (kind === "questions" && this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
+    if (kind === "cards" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    const count = Math.max(1, Math.min(20, Math.round(Number(opts.count) || (kind === "cards" ? 8 : 5))));
+    const prompt = buildWeakSpotPrompt({ skill: row.value, course: opts.course, kind, count });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: kind === "questions" ? 3500 : 2500 });
+    const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
+    return {
+      kind,
+      sourcePath: "",
+      title: `Weak spot: ${row.value}`,
+      course: str(opts.course).trim(),
+      skill: row.value,
+      items: kind === "questions" ? parsed.questions : parsed.cards,
+      errors: [],
+      ai: true,
+      model: this.aiModelLabel(),
+    };
   }
 
   /** Read one note and describe whether it is a transcript. */

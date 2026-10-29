@@ -22569,6 +22569,8 @@ const { AI_WRITE_STORAGE_KEY, appendAiWrite, latestAiWrite, makeAiWriteRecord, n
 const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
+const { WeakSpotModal } = require("./weak-spot-modal");
+const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
 
@@ -22748,6 +22750,7 @@ class QuestionTrackerPlugin extends Plugin {
         return true;
       },
     });
+    this.addCommand({ id: "weak-spot-generate", name: "AI: generate practice from a weak spot", callback: () => this.openWeakSpotGenerate() });
     this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
     this.addCommand({
       id: "cards-grade-pending",
@@ -24347,6 +24350,49 @@ class QuestionTrackerPlugin extends Plugin {
       return;
     }
     new TranscriptPracticeModal(this.app, this, { path: target }, () => this.refreshViews()).open();
+  }
+
+  weakSpotChoices() {
+    return weakSpotRows(this.getQuestions())
+      .slice(0, 8)
+      .map((row) => ({ ...row, course: str(row.course).trim() }));
+  }
+
+  openWeakSpotGenerate(onDone) {
+    if (!this.settings.ai.enabled) {
+      new Notice("Turn on AI features under Settings, Global, Modules, then choose a provider under MCQ Tracker, AI.");
+      return null;
+    }
+    const modal = new WeakSpotModal(this.app, this, onDone);
+    modal.open();
+    return modal;
+  }
+
+  /** Draft original questions or cards for one weak skill. This method writes nothing. */
+  async generateWeakSpotPractice(options) {
+    const opts = options || {};
+    if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
+    const rows = weakSpotRows(this.getQuestions());
+    const row = (opts.skill && rows.find((item) => item.value === opts.skill)) || pickWeakSpot(this.getQuestions());
+    if (!row) throw new Error("Answer at least one question first so the plugin can find a weak spot.");
+    const kind = opts.kind === "cards" ? "cards" : "questions";
+    if (kind === "questions" && this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
+    if (kind === "cards" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    const count = Math.max(1, Math.min(20, Math.round(Number(opts.count) || (kind === "cards" ? 8 : 5))));
+    const prompt = buildWeakSpotPrompt({ skill: row.value, course: opts.course, kind, count });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: kind === "questions" ? 3500 : 2500 });
+    const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
+    return {
+      kind,
+      sourcePath: "",
+      title: `Weak spot: ${row.value}`,
+      course: str(opts.course).trim(),
+      skill: row.value,
+      items: kind === "questions" ? parsed.questions : parsed.cards,
+      errors: [],
+      ai: true,
+      model: this.aiModelLabel(),
+    };
   }
 
   /** Read one note and describe whether it is a transcript. */
@@ -32979,6 +33025,223 @@ module.exports = {
 };
 };
 
+/* ---- src/weak-spot.js ---- */
+__defs["weak-spot"] = function (module, exports, require) {
+/*
+ * Weak-spot targeted generation.
+ *
+ * The prompt contains only a skill name, an optional course and the requested
+ * format; it does not send question notes, answers or personal notes. The
+ * learner still previews every item before anything is written, and confirmed
+ * writes go through the existing AI write journal.
+ */
+const { computeStats, weakestRow } = require("./stats");
+const { str } = require("./util");
+
+const WEAK_SPOT_MIN_ATTEMPTS = 3;
+
+function weakSpotRows(questions) {
+  return computeStats(Array.isArray(questions) ? questions : [], "skill").filter((row) => row.accuracy !== null);
+}
+
+function pickWeakSpot(questions) {
+  return weakestRow(weakSpotRows(questions), WEAK_SPOT_MIN_ATTEMPTS);
+}
+
+function buildWeakSpotPrompt(options) {
+  const o = options || {};
+  const kind = o.kind === "cards" ? "cards" : "questions";
+  const count = Math.max(1, Math.min(20, Math.round(Number(o.count) || (kind === "cards" ? 8 : 5))));
+  const skill = str(o.skill).trim() || "the weakest skill";
+  const course = str(o.course).trim();
+  const system =
+    "You write original study material for a student. Use the named skill only. Do not copy an existing question or claim the source of an item. " +
+    "Answers and explanations must be correct and self-contained.";
+  if (kind === "cards") {
+    return {
+      system,
+      user: [
+        `Write ${count} flashcards for the skill: ${skill}.`,
+        course ? `Course: ${course}` : "",
+        "Return only a JSON object in this exact shape:",
+        '{"cards":[{"front":"prompt or term","back":"answer or definition"}]}',
+        "Keep each side short and unambiguous. Do not include a source note or file path.",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    };
+  }
+  return {
+    system,
+    user: [
+      `Write ${count} original multiple-choice questions for the skill: ${skill}.`,
+      course ? `Course: ${course}` : "",
+      "Return only a JSON object in this exact shape:",
+      '{"questions":[{"question":"the question","choices":["choice A","choice B","choice C","choice D"],"answer":"B","explanation":"why B is right and the others are wrong"}]}',
+      "Use exactly four choices and a single letter answer from A to D. Keep the explanation under 500 characters.",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+
+module.exports = {
+  WEAK_SPOT_MIN_ATTEMPTS,
+  buildWeakSpotPrompt,
+  pickWeakSpot,
+  weakSpotRows,
+};
+};
+
+/* ---- src/weak-spot-modal.js ---- */
+__defs["weak-spot-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { str } = require("./util");
+
+/** Preview-then-write generation for the learner's weakest practised skill. */
+class WeakSpotModal extends Modal {
+  constructor(app, plugin, onDone) {
+    super(app);
+    this.plugin = plugin;
+    this.onDone = onDone || (() => {});
+    this.rows = [];
+    this.skill = "";
+    this.kind = "questions";
+    this.count = 5;
+    this.deck = "";
+    this.folder = "";
+    this.generated = null;
+    this.busy = false;
+    this.error = "";
+  }
+
+  onOpen() {
+    this.modalEl.addClass("qt-transcript-modal");
+    this.rows = this.plugin.weakSpotChoices();
+    this.skill = this.rows[0] ? this.rows[0].value : "";
+    this.folder = str(this.plugin.settings.questionFolder).trim() || "Questions";
+    this.deck = this.plugin.settings.cards.defaultDeck || "General";
+    this.render();
+  }
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Generate practice from a weak spot" });
+    if (this.error) el.createEl("p", { cls: "qt-error", text: this.error });
+    if (!this.rows.length) {
+      el.createEl("p", { cls: "qt-hint", text: "Answer at least one question first, then come back. The weakest practised skills appear here." });
+      el.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
+      return;
+    }
+    if (this.generated && this.generated.items.length) return this.renderPreview(el);
+    if (this.busy) {
+      el.createEl("p", { cls: "qt-hint", text: "Drafting original practice items..." });
+      return;
+    }
+
+    const skillWrap = el.createDiv({ cls: "qt-field" });
+    skillWrap.createEl("label", { text: "Weak spot" });
+    const skill = skillWrap.createEl("select", { cls: "qt-select" });
+    for (const row of this.rows) {
+      const pct = Math.round((row.accuracy || 0) * 100);
+      skill.createEl("option", { value: row.value, text: `${row.value} (${pct}%, ${row.attempts} attempts)` });
+    }
+    skill.value = this.skill;
+    skill.addEventListener("change", () => (this.skill = skill.value));
+
+    const kindWrap = el.createDiv({ cls: "qt-field" });
+    kindWrap.createEl("label", { text: "What should it make?" });
+    const kind = kindWrap.createEl("select", { cls: "qt-select" });
+    kind.createEl("option", { value: "questions", text: "Multiple-choice questions" });
+    kind.createEl("option", { value: "cards", text: "Flashcards" });
+    kind.value = this.kind;
+    kind.addEventListener("change", () => {
+      this.kind = kind.value;
+      this.count = this.kind === "cards" ? 8 : 5;
+      this.render();
+    });
+
+    const countWrap = el.createDiv({ cls: "qt-field" });
+    countWrap.createEl("label", { text: "How many?" });
+    const count = countWrap.createEl("select", { cls: "qt-select" });
+    for (const n of [5, 8, 10, 12, 15, 20]) count.createEl("option", { value: String(n), text: `${n} items` });
+    count.value = String(this.count);
+    count.addEventListener("change", () => (this.count = Number(count.value)));
+
+    el.createDiv({
+      cls: "qt-hint",
+      text: "Only the skill name, optional course and format are sent. No question text or notes are included. Review the draft before anything is written.",
+    });
+
+    const row = el.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
+    const go = row.createEl("button", { text: "Draft items", cls: "mod-cta qt-grow" });
+    go.addEventListener("click", () => this.generate());
+  }
+
+  renderPreview(el) {
+    const g = this.generated;
+    el.createEl("h4", { text: `Ready to write ${g.items.length} ${g.kind === "questions" ? "question" : "card"}${g.items.length === 1 ? "" : "s"}` });
+    const list = el.createEl("ul", { cls: "qt-extract-preview" });
+    for (const item of g.items.slice(0, 20)) {
+      list.createEl("li", { text: g.kind === "questions" ? `${item.question} (answer ${item.answer})` : `${item.front} → ${item.back}` });
+    }
+    if (g.items.length > 20) el.createEl("p", { cls: "qt-hint", text: `…and ${g.items.length - 20} more.` });
+    el.createDiv({ cls: "qt-hint", text: "These items were generated for a weak spot, not copied from a note. The files can be undone with AI: undo the last generated notes." });
+    const row = el.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => {
+      this.generated = null;
+      this.render();
+    });
+    row.createEl("button", { text: "Create these", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.write());
+  }
+
+  async generate() {
+    if (this.busy) return;
+    this.busy = true;
+    this.error = "";
+    this.render();
+    try {
+      this.generated = await this.plugin.generateWeakSpotPractice({
+        skill: this.skill,
+        kind: this.kind,
+        count: this.count,
+        course: (this.rows.find((row) => row.value === this.skill) || {}).course || "",
+      });
+      if (!this.generated.items.length) this.error = "The AI returned no usable items. Try again or pick another weak spot.";
+    } catch (e) {
+      this.error = str(e && e.message ? e.message : e) || "Could not generate practice items.";
+    }
+    this.busy = false;
+    this.render();
+  }
+
+  async write() {
+    if (this.busy || !this.generated) return;
+    this.busy = true;
+    this.render();
+    try {
+      const result = await this.plugin.writeTranscriptPractice(this.generated, { deck: this.deck, folder: this.folder });
+      const made = result.created || 0;
+      new Notice(made ? `Created ${made} ${this.generated.kind === "questions" ? "question" : "card"}${made === 1 ? "" : "s"}.` : "Nothing new was written.", 6000);
+      this.close();
+      this.onDone(result);
+    } catch (e) {
+      this.error = str(e && e.message ? e.message : e) || "Could not write the generated items.";
+      this.busy = false;
+      this.render();
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = { WeakSpotModal };
+};
+
 /* ---- src/welcome.js ---- */
 __defs["welcome"] = function (module, exports, require) {
 /* First-run guide data and per-device onboarding state. Nothing here touches a vault note. */
@@ -33308,6 +33571,8 @@ const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
 const aiWrites = require("./ai-writes");
+const weakSpot = require("./weak-spot");
+const { WeakSpotModal } = require("./weak-spot-modal");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
@@ -33416,6 +33681,8 @@ QuestionTrackerPlugin.__test = {
   tutorPresets,
   aiContext,
   aiWrites,
+  weakSpot,
+  WeakSpotModal,
   OpenCodeManager,
   MAX_OPENCODE_MAJOR,
   opencodeMajor,

@@ -454,6 +454,10 @@ Three default-off toggles under **Settings → MCQ Tracker → AI → Study cont
 
 **Generate practice from this lecture** still shows a preview and writes only when you press **Create these**. The files it creates are also recorded in a device-local undo journal. Run **AI: undo the last generated practice notes** to remove the notes created by the most recent confirmed AI generation. The journal stores paths, not note contents, is capped at 20 records, and is never synced. Heading-based card extraction without AI is not recorded. AI course-note summaries use the same command: the summary is wrapped in markers when the note is created, and undo removes only that summary block plus its `ai_summary`/`ai_model` properties, keeping the extracted page text. Older course notes without those markers are not changed.
 
+### Generating practice from a weak spot
+
+Run **AI: generate practice from a weak spot** to open a preview-first generator. Pick one of your weakest practised skills, choose multiple-choice questions or flashcards, and review every draft item before pressing **Create these**. Only the skill name, optional course, format and count are sent; question text, answers and notes are not included. Confirmed items go to the normal question folder or deck and can be removed with **AI: undo the last generated notes**.
+
 ### What is disclosed and sent
 
 - **Network use:** requests to your chosen AI provider; requests to `api.github.com` and `github.com` only to set up OpenCode, which happens the first time you choose the OpenCode backend (the plugin shows what it will download, from where, and where it will go, and asks you to confirm first; if you say no it won't ask again) or when you press **Download and install**; and local requests to the OpenCode server on your own computer.
