@@ -29,6 +29,45 @@ test("analytics levels stay at zero without activity and scale with minutes", ()
   assert.equal(T.activityLevel({ minutes: 0, attempts: 20 }), 4);
 });
 
+test("analytics calibration reports accuracy at each confidence level", () => {
+  const questions = [
+    q("Q/a.md", {
+      history: [
+        "2026-10-20|correct|10|A|1|",
+        "2026-10-21|incorrect|10|B|1|",
+        "2026-10-22|correct|10|C|2|",
+        "2026-10-23|correct|10|C||",
+        "2026-10-24|incorrect|10|D|x|",
+      ],
+    }),
+  ];
+  const calibration = T.buildCalibration(questions, ["Guess", "Unsure", "Sure"]);
+  assert.equal(calibration.total, 3);
+  assert.deepEqual(calibration.buckets.map((b) => b.label), ["Guess", "Unsure", "Sure"]);
+  assert.equal(calibration.buckets[0].attempts, 2);
+  assert.equal(calibration.buckets[0].correct, 1);
+  assert.equal(calibration.buckets[0].accuracy, 0.5);
+  assert.equal(calibration.buckets[1].accuracy, 1);
+  assert.equal(calibration.buckets[2].attempts, 0);
+  assert.equal(calibration.buckets[2].accuracy, null);
+});
+
+test("analytics retention counts review attempts but not each question's first try", () => {
+  const question = q("Q/a.md", {
+    history: [
+      "2026-10-01|incorrect|10|A|1|",
+      "2026-10-08|correct|10|A|1|",
+      "2026-10-09|incorrect|10|B|1|",
+    ],
+  });
+  const retention = T.buildRetention([question], "2026-10-28", 8);
+  assert.equal(retention.weeks.length, 8);
+  assert.equal(retention.attempts, 2);
+  assert.equal(retention.correct, 1);
+  assert.equal(retention.accuracy, 0.5);
+  assert.equal(retention.weeks.reduce((n, week) => n + week.attempts, 0), 2);
+});
+
 test("analytics dashboard reports accuracy, due cards, course time and the weakest skill", () => {
   const today = "2026-10-28";
   const questions = [
@@ -63,4 +102,6 @@ test("analytics dashboard reports accuracy, due cards, course time and the weake
   assert.deepEqual(d.byCourse, [["Biology", 40], ["Chemistry", 25]]);
   assert.equal(d.weak.value, "grammar");
   assert.ok(d.skills.some((r) => r.value === "vocab" && r.accuracy === 1));
+  assert.equal(d.calibration.total, 1);
+  assert.equal(d.retention.attempts, 0);
 });

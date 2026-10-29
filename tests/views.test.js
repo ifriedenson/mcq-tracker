@@ -86,6 +86,8 @@ test("insights overview: shows the study heatmap, course time and weak skills", 
   assert.ok(texts.includes("Overview"));
   assert.ok(texts.includes("Study heatmap"));
   assert.ok(texts.includes("Study time by course"));
+  assert.ok(texts.includes("Confidence calibration"));
+  assert.ok(texts.includes("Retention trend"));
   assert.ok(texts.includes("Weak spots"));
   assert.ok(texts.includes("Study today"));
   assert.ok(texts.some((t) => /65 logged minutes/.test(t)));

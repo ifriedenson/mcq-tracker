@@ -2,7 +2,7 @@
 const { fmtPct } = require("./stats");
 const { fmtClock } = require("./util");
 
-const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "weak", "courses", "exam"];
+const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "calibration", "retention", "weak", "courses", "exam"];
 const ALIASES = {
   overview: "overview",
   dashboard: "overview",
@@ -11,6 +11,11 @@ const ALIASES = {
   summary: "stats",
   heatmap: "heatmap",
   activity: "heatmap",
+  calibration: "calibration",
+  confidence: "calibration",
+  retention: "retention",
+  retain: "retention",
+  trend: "retention",
   weak: "weak",
   skills: "weak",
   courses: "courses",
@@ -23,6 +28,8 @@ const LABELS = {
   overview: "Study dashboard",
   stats: "Study stats",
   heatmap: "Study heatmap",
+  calibration: "Confidence calibration",
+  retention: "Retention trend",
   weak: "Weak spots",
   courses: "Study time by course",
   exam: "Next exam",
@@ -88,6 +95,49 @@ function renderHeatmap(container, data) {
   legend.createSpan({ cls: "qt-hint", text: "Less" });
   for (let i = 0; i < 5; i++) legend.createSpan({ cls: `qt-dash-day is-level-${i}` });
   legend.createSpan({ cls: "qt-hint", text: "More" });
+}
+
+function renderCalibration(container, data) {
+  heading(container, "Confidence calibration");
+  const calibration = data.calibration;
+  if (!calibration || !calibration.total) {
+    container.createDiv({ cls: "qt-hint", text: "No confidence ratings yet. Rate how sure you are when you answer." });
+    return;
+  }
+  const list = container.createDiv({ cls: "qt-ins-list" });
+  for (const bucket of calibration.buckets) {
+    const line = list.createDiv({ cls: "qt-ins-row qt-cal-row" });
+    const main = line.createDiv({ cls: "qt-ins-main" });
+    main.createDiv({ cls: "qt-ins-name", text: bucket.label });
+    main.createDiv({ cls: "qt-hint", text: `${bucket.attempts} attempt${bucket.attempts === 1 ? "" : "s"} at this level` });
+    const meter = line.createDiv({ cls: "qt-ins-meter" });
+    const band = bucket.accuracy === null ? "" : bucket.accuracy < 0.6 ? "is-low" : bucket.accuracy < 0.8 ? "is-mid" : "is-high";
+    meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((bucket.accuracy || 0) * 100)}%` });
+    line.createSpan({ cls: "qt-ins-pct", text: fmtPct(bucket.accuracy) });
+  }
+  container.createDiv({ cls: "qt-hint", text: "Bars show how often you were right when you chose each confidence level." });
+}
+
+function renderRetention(container, data) {
+  heading(container, "Retention trend");
+  const retention = data.retention;
+  if (!retention || !retention.attempts) {
+    container.createDiv({ cls: "qt-hint", text: "No repeat attempts yet. Retention shows up after you revisit a question." });
+    return;
+  }
+  const chart = container.createDiv({ cls: "qt-trend" });
+  for (const week of retention.weeks) {
+    const column = chart.createDiv({ cls: "qt-trend-col" });
+    column.setAttr("title", week.attempts ? `${week.start}: ${fmtPct(week.accuracy)} of ${week.attempts} review attempts` : `${week.start}: no review attempts`);
+    const bar = column.createDiv({ cls: "qt-trend-bar" });
+    const band = week.accuracy === null ? "" : week.accuracy < 0.6 ? "is-low" : week.accuracy < 0.8 ? "is-mid" : "is-high";
+    bar.createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((week.accuracy || 0) * 100)}%` });
+    column.createDiv({ cls: "qt-hint qt-trend-lab", text: week.accuracy === null ? "" : fmtPct(week.accuracy) });
+  }
+  container.createDiv({
+    cls: "qt-hint",
+    text: `${fmtPct(retention.accuracy)} over ${retention.attempts} review attempt${retention.attempts === 1 ? "" : "s"}. The first try on each question is excluded.`,
+  });
 }
 
 function renderWeak(container, data, hooks) {
@@ -166,6 +216,8 @@ function renderDashboardEmbed(container, data, options, hooks) {
   const show = (id) => metric === "overview" || metric === id;
   if (show("stats")) renderStats(container, data);
   if (show("heatmap")) renderHeatmap(container, data);
+  if (show("calibration")) renderCalibration(container, data);
+  if (show("retention")) renderRetention(container, data);
   if (show("weak")) renderWeak(container, data, hooks);
   if (show("courses")) renderCourses(container, data);
   if (show("exam")) renderExam(container, data);
@@ -175,5 +227,7 @@ module.exports = {
   DASHBOARD_METRICS,
   LABELS,
   parseDashboardBlock,
+  renderCalibration,
   renderDashboardEmbed,
+  renderRetention,
 };

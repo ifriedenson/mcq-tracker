@@ -5,6 +5,7 @@ const { fmtClock, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
+const { renderCalibration, renderRetention } = require("./analytics-embed");
 
 /* ------------------------------------------- weak spots and error log */
 
@@ -86,6 +87,7 @@ class InsightsView extends ItemView {
       questions,
       cards,
       studyLog: p.settings.studyLog,
+      confidenceLabels: p.settings.confidenceLabels,
       today: new Date(),
     });
     const o = data.overall;
@@ -130,6 +132,9 @@ class InsightsView extends ItemView {
     legend.createSpan({ cls: "qt-hint", text: "Less" });
     for (let i = 0; i < 5; i++) legend.createSpan({ cls: `qt-dash-day is-level-${i}` });
     legend.createSpan({ cls: "qt-hint", text: "More" });
+
+    renderCalibration(root, data);
+    renderRetention(root, data);
 
     root.createEl("h3", { cls: "qt-today-section", text: "Weak spots" });
     const tried = data.skills.filter((r) => r.accuracy !== null).slice(0, 5);

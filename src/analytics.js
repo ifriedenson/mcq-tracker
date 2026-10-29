@@ -23,6 +23,68 @@ function courseMatches(value, course) {
   return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
 }
 
+const DEFAULT_CONFIDENCE_LABELS = ["Guessing", "Unsure", "Confident"];
+
+function confidenceLabelsOf(labels) {
+  const source = Array.isArray(labels) ? labels : [];
+  return DEFAULT_CONFIDENCE_LABELS.map((fallback, index) => String(source[index] || fallback).trim() || fallback);
+}
+
+/** Accuracy at each stated confidence level. Empty confidence (timed tests) is ignored. */
+function buildCalibration(questions, labels) {
+  const buckets = confidenceLabelsOf(labels).map((label, index) => ({ confidence: index + 1, label, attempts: 0, correct: 0, accuracy: null }));
+  let total = 0;
+  for (const q of questions || []) {
+    for (const entry of parseHistory(q.fm && q.fm.history)) {
+      const confidence = Math.round(Number(entry.conf));
+      if (!Number.isFinite(confidence) || confidence < 1 || confidence > 3) continue;
+      const bucket = buckets[confidence - 1];
+      bucket.attempts++;
+      total++;
+      if (entry.result === "correct") bucket.correct++;
+    }
+  }
+  for (const bucket of buckets) bucket.accuracy = bucket.attempts ? bucket.correct / bucket.attempts : null;
+  return { buckets, total };
+}
+
+/** Accuracy on repeat attempts only: the first attempt on a question is learning, later ones are retention. */
+function buildRetention(questions, today, weeks) {
+  const count = Math.max(1, Math.min(26, Math.round(Number(weeks) || 8)));
+  const todayKey = normalizeDay(today);
+  const now = new Date(`${todayKey}T00:00:00`);
+  const first = mondayOf(now);
+  first.setDate(first.getDate() - 7 * (count - 1));
+  const rows = Array.from({ length: count }, (_value, index) => {
+    const start = addDays(first, index * 7);
+    return { start: dayKey(start), attempts: 0, correct: 0, accuracy: null };
+  });
+  for (const q of questions || []) {
+    const entries = parseHistory(q.fm && q.fm.history)
+      .filter((entry) => {
+        const day = String(entry.when || "").slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(day) && day <= todayKey;
+      })
+      .sort((a, b) => String(a.when).localeCompare(String(b.when)));
+    for (let index = 1; index < entries.length; index++) {
+      const day = String(entries[index].when).slice(0, 10);
+      const weekIndex = Math.round((mondayOf(new Date(`${day}T00:00:00`)) - first) / (7 * 86400000));
+      if (weekIndex < 0 || weekIndex >= count) continue;
+      const row = rows[weekIndex];
+      row.attempts++;
+      if (entries[index].result === "correct") row.correct++;
+    }
+  }
+  let attempts = 0;
+  let correct = 0;
+  for (const row of rows) {
+    row.accuracy = row.attempts ? row.correct / row.attempts : null;
+    attempts += row.attempts;
+    correct += row.correct;
+  }
+  return { weeks: rows, attempts, correct, accuracy: attempts ? correct / attempts : null };
+}
+
 function normalizeDay(value) {
   if (value instanceof Date) return dayKey(value);
   const text = String(value || "").slice(0, 10);
@@ -109,6 +171,8 @@ function buildDashboard(options) {
     ? { ...studyLog, sessions: (studyLog.sessions || []).filter((session) => courseMatches(session.course, course)) }
     : studyLog;
   const stats = computeStats(scopedQuestions, "skill");
+  const calibration = buildCalibration(scopedQuestions, opts.confidenceLabels);
+  const retention = buildRetention(scopedQuestions, today, opts.retentionWeeks || 8);
   const overall = overallStats(scopedQuestions);
   const study = studySummary(scopedLog, today);
   const cardStats = {
@@ -124,6 +188,8 @@ function buildDashboard(options) {
     cardStats,
     weak: weakestRow(stats),
     skills: stats.slice(0, 8),
+    calibration,
+    retention,
     heatmap: buildHeatmap(scopedLog.sessions, scopedQuestions, today, opts.weeks || 12),
     byCourse: Object.entries(study.byCourse).sort((a, b) => b[1] - a[1]).slice(0, 6),
     exams: Array.isArray(opts.exams) ? opts.exams : [],
@@ -133,8 +199,11 @@ function buildDashboard(options) {
 module.exports = {
   activityByDay,
   activityLevel,
+  buildCalibration,
   buildDashboard,
   buildHeatmap,
+  buildRetention,
+  confidenceLabelsOf,
   courseKey,
   courseMatches,
   dayKey,

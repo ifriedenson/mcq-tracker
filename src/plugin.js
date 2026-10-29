@@ -1222,6 +1222,7 @@ class QuestionTrackerPlugin extends Plugin {
         questions: this.getQuestions(),
         cards: this.getCards ? this.getCards() : [],
         studyLog: this.settings.studyLog,
+        confidenceLabels: this.settings.confidenceLabels,
         today: new Date(),
         course: opts.course,
         weeks: opts.weeks,

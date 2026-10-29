@@ -497,7 +497,9 @@ Build on the existing timed test.
 
 **Shipped in 1.32.0:** the `mcq-dashboard` block embeds the overview or one section (`stats`, `heatmap`, `weak`, `courses`, `exam`) in any note, with optional course scoping, a week count and a custom title. It reuses the same local model as Insights and has a Refresh button.
 
-**Still open for §5.12:** confidence calibration, the retention trend line, a grade snapshot, and extra per-domain/per-difficulty breakdown controls.
+**Shipped in 1.33.0:** Insights and the `mcq-dashboard` block now show **confidence calibration** (accuracy at each confidence label, sourced from the existing history field) and a **retention trend** built from repeat attempts. The first attempt on each question is excluded, so the trend measures recall after learning rather than first-pass accuracy. Both reuse the local analytics model, add no new storage, and support course scoping in embeds.
+
+**Still open for §5.12:** a grade snapshot and extra per-domain/per-difficulty breakdown controls.
 
 ### 5.13 Source ingestion  — **M–L**
 
@@ -2227,7 +2229,9 @@ Build on the existing timed test.
 
 **Shipped in 1.32.0:** the `mcq-dashboard` block embeds the overview or one section (`stats`, `heatmap`, `weak`, `courses`, `exam`) in any note, with optional course scoping, a week count and a custom title. It reuses the same local model as Insights and has a Refresh button.
 
-**Still open for §5.12:** confidence calibration, the retention trend line, a grade snapshot, and extra per-domain/per-difficulty breakdown controls.
+**Shipped in 1.33.0:** Insights and the `mcq-dashboard` block now show **confidence calibration** (accuracy at each confidence label, sourced from the existing history field) and a **retention trend** built from repeat attempts. The first attempt on each question is excluded, so the trend measures recall after learning rather than first-pass accuracy. Both reuse the local analytics model, add no new storage, and support course scoping in embeds.
+
+**Still open for §5.12:** a grade snapshot and extra per-domain/per-difficulty breakdown controls.
 
 ### 5.13 Source ingestion  — **M–L**
 

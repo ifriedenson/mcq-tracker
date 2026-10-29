@@ -42,6 +42,68 @@ function courseMatches(value, course) {
   return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
 }
 
+const DEFAULT_CONFIDENCE_LABELS = ["Guessing", "Unsure", "Confident"];
+
+function confidenceLabelsOf(labels) {
+  const source = Array.isArray(labels) ? labels : [];
+  return DEFAULT_CONFIDENCE_LABELS.map((fallback, index) => String(source[index] || fallback).trim() || fallback);
+}
+
+/** Accuracy at each stated confidence level. Empty confidence (timed tests) is ignored. */
+function buildCalibration(questions, labels) {
+  const buckets = confidenceLabelsOf(labels).map((label, index) => ({ confidence: index + 1, label, attempts: 0, correct: 0, accuracy: null }));
+  let total = 0;
+  for (const q of questions || []) {
+    for (const entry of parseHistory(q.fm && q.fm.history)) {
+      const confidence = Math.round(Number(entry.conf));
+      if (!Number.isFinite(confidence) || confidence < 1 || confidence > 3) continue;
+      const bucket = buckets[confidence - 1];
+      bucket.attempts++;
+      total++;
+      if (entry.result === "correct") bucket.correct++;
+    }
+  }
+  for (const bucket of buckets) bucket.accuracy = bucket.attempts ? bucket.correct / bucket.attempts : null;
+  return { buckets, total };
+}
+
+/** Accuracy on repeat attempts only: the first attempt on a question is learning, later ones are retention. */
+function buildRetention(questions, today, weeks) {
+  const count = Math.max(1, Math.min(26, Math.round(Number(weeks) || 8)));
+  const todayKey = normalizeDay(today);
+  const now = new Date(`${todayKey}T00:00:00`);
+  const first = mondayOf(now);
+  first.setDate(first.getDate() - 7 * (count - 1));
+  const rows = Array.from({ length: count }, (_value, index) => {
+    const start = addDays(first, index * 7);
+    return { start: dayKey(start), attempts: 0, correct: 0, accuracy: null };
+  });
+  for (const q of questions || []) {
+    const entries = parseHistory(q.fm && q.fm.history)
+      .filter((entry) => {
+        const day = String(entry.when || "").slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(day) && day <= todayKey;
+      })
+      .sort((a, b) => String(a.when).localeCompare(String(b.when)));
+    for (let index = 1; index < entries.length; index++) {
+      const day = String(entries[index].when).slice(0, 10);
+      const weekIndex = Math.round((mondayOf(new Date(`${day}T00:00:00`)) - first) / (7 * 86400000));
+      if (weekIndex < 0 || weekIndex >= count) continue;
+      const row = rows[weekIndex];
+      row.attempts++;
+      if (entries[index].result === "correct") row.correct++;
+    }
+  }
+  let attempts = 0;
+  let correct = 0;
+  for (const row of rows) {
+    row.accuracy = row.attempts ? row.correct / row.attempts : null;
+    attempts += row.attempts;
+    correct += row.correct;
+  }
+  return { weeks: rows, attempts, correct, accuracy: attempts ? correct / attempts : null };
+}
+
 function normalizeDay(value) {
   if (value instanceof Date) return dayKey(value);
   const text = String(value || "").slice(0, 10);
@@ -128,6 +190,8 @@ function buildDashboard(options) {
     ? { ...studyLog, sessions: (studyLog.sessions || []).filter((session) => courseMatches(session.course, course)) }
     : studyLog;
   const stats = computeStats(scopedQuestions, "skill");
+  const calibration = buildCalibration(scopedQuestions, opts.confidenceLabels);
+  const retention = buildRetention(scopedQuestions, today, opts.retentionWeeks || 8);
   const overall = overallStats(scopedQuestions);
   const study = studySummary(scopedLog, today);
   const cardStats = {
@@ -143,6 +207,8 @@ function buildDashboard(options) {
     cardStats,
     weak: weakestRow(stats),
     skills: stats.slice(0, 8),
+    calibration,
+    retention,
     heatmap: buildHeatmap(scopedLog.sessions, scopedQuestions, today, opts.weeks || 12),
     byCourse: Object.entries(study.byCourse).sort((a, b) => b[1] - a[1]).slice(0, 6),
     exams: Array.isArray(opts.exams) ? opts.exams : [],
@@ -152,8 +218,11 @@ function buildDashboard(options) {
 module.exports = {
   activityByDay,
   activityLevel,
+  buildCalibration,
   buildDashboard,
   buildHeatmap,
+  buildRetention,
+  confidenceLabelsOf,
   courseKey,
   courseMatches,
   dayKey,
@@ -167,7 +236,7 @@ __defs["analytics-embed"] = function (module, exports, require) {
 const { fmtPct } = require("./stats");
 const { fmtClock } = require("./util");
 
-const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "weak", "courses", "exam"];
+const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "calibration", "retention", "weak", "courses", "exam"];
 const ALIASES = {
   overview: "overview",
   dashboard: "overview",
@@ -176,6 +245,11 @@ const ALIASES = {
   summary: "stats",
   heatmap: "heatmap",
   activity: "heatmap",
+  calibration: "calibration",
+  confidence: "calibration",
+  retention: "retention",
+  retain: "retention",
+  trend: "retention",
   weak: "weak",
   skills: "weak",
   courses: "courses",
@@ -188,6 +262,8 @@ const LABELS = {
   overview: "Study dashboard",
   stats: "Study stats",
   heatmap: "Study heatmap",
+  calibration: "Confidence calibration",
+  retention: "Retention trend",
   weak: "Weak spots",
   courses: "Study time by course",
   exam: "Next exam",
@@ -253,6 +329,49 @@ function renderHeatmap(container, data) {
   legend.createSpan({ cls: "qt-hint", text: "Less" });
   for (let i = 0; i < 5; i++) legend.createSpan({ cls: `qt-dash-day is-level-${i}` });
   legend.createSpan({ cls: "qt-hint", text: "More" });
+}
+
+function renderCalibration(container, data) {
+  heading(container, "Confidence calibration");
+  const calibration = data.calibration;
+  if (!calibration || !calibration.total) {
+    container.createDiv({ cls: "qt-hint", text: "No confidence ratings yet. Rate how sure you are when you answer." });
+    return;
+  }
+  const list = container.createDiv({ cls: "qt-ins-list" });
+  for (const bucket of calibration.buckets) {
+    const line = list.createDiv({ cls: "qt-ins-row qt-cal-row" });
+    const main = line.createDiv({ cls: "qt-ins-main" });
+    main.createDiv({ cls: "qt-ins-name", text: bucket.label });
+    main.createDiv({ cls: "qt-hint", text: `${bucket.attempts} attempt${bucket.attempts === 1 ? "" : "s"} at this level` });
+    const meter = line.createDiv({ cls: "qt-ins-meter" });
+    const band = bucket.accuracy === null ? "" : bucket.accuracy < 0.6 ? "is-low" : bucket.accuracy < 0.8 ? "is-mid" : "is-high";
+    meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((bucket.accuracy || 0) * 100)}%` });
+    line.createSpan({ cls: "qt-ins-pct", text: fmtPct(bucket.accuracy) });
+  }
+  container.createDiv({ cls: "qt-hint", text: "Bars show how often you were right when you chose each confidence level." });
+}
+
+function renderRetention(container, data) {
+  heading(container, "Retention trend");
+  const retention = data.retention;
+  if (!retention || !retention.attempts) {
+    container.createDiv({ cls: "qt-hint", text: "No repeat attempts yet. Retention shows up after you revisit a question." });
+    return;
+  }
+  const chart = container.createDiv({ cls: "qt-trend" });
+  for (const week of retention.weeks) {
+    const column = chart.createDiv({ cls: "qt-trend-col" });
+    column.setAttr("title", week.attempts ? `${week.start}: ${fmtPct(week.accuracy)} of ${week.attempts} review attempts` : `${week.start}: no review attempts`);
+    const bar = column.createDiv({ cls: "qt-trend-bar" });
+    const band = week.accuracy === null ? "" : week.accuracy < 0.6 ? "is-low" : week.accuracy < 0.8 ? "is-mid" : "is-high";
+    bar.createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((week.accuracy || 0) * 100)}%` });
+    column.createDiv({ cls: "qt-hint qt-trend-lab", text: week.accuracy === null ? "" : fmtPct(week.accuracy) });
+  }
+  container.createDiv({
+    cls: "qt-hint",
+    text: `${fmtPct(retention.accuracy)} over ${retention.attempts} review attempt${retention.attempts === 1 ? "" : "s"}. The first try on each question is excluded.`,
+  });
 }
 
 function renderWeak(container, data, hooks) {
@@ -331,6 +450,8 @@ function renderDashboardEmbed(container, data, options, hooks) {
   const show = (id) => metric === "overview" || metric === id;
   if (show("stats")) renderStats(container, data);
   if (show("heatmap")) renderHeatmap(container, data);
+  if (show("calibration")) renderCalibration(container, data);
+  if (show("retention")) renderRetention(container, data);
   if (show("weak")) renderWeak(container, data, hooks);
   if (show("courses")) renderCourses(container, data);
   if (show("exam")) renderExam(container, data);
@@ -340,7 +461,9 @@ module.exports = {
   DASHBOARD_METRICS,
   LABELS,
   parseDashboardBlock,
+  renderCalibration,
   renderDashboardEmbed,
+  renderRetention,
 };
 };
 
@@ -12985,6 +13108,7 @@ const { fmtClock, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
+const { renderCalibration, renderRetention } = require("./analytics-embed");
 
 /* ------------------------------------------- weak spots and error log */
 
@@ -13066,6 +13190,7 @@ class InsightsView extends ItemView {
       questions,
       cards,
       studyLog: p.settings.studyLog,
+      confidenceLabels: p.settings.confidenceLabels,
       today: new Date(),
     });
     const o = data.overall;
@@ -13110,6 +13235,9 @@ class InsightsView extends ItemView {
     legend.createSpan({ cls: "qt-hint", text: "Less" });
     for (let i = 0; i < 5; i++) legend.createSpan({ cls: `qt-dash-day is-level-${i}` });
     legend.createSpan({ cls: "qt-hint", text: "More" });
+
+    renderCalibration(root, data);
+    renderRetention(root, data);
 
     root.createEl("h3", { cls: "qt-today-section", text: "Weak spots" });
     const tried = data.skills.filter((r) => r.accuracy !== null).slice(0, 5);
@@ -16660,6 +16788,7 @@ class QuestionTrackerPlugin extends Plugin {
         questions: this.getQuestions(),
         cards: this.getCards ? this.getCards() : [],
         studyLog: this.settings.studyLog,
+        confidenceLabels: this.settings.confidenceLabels,
         today: new Date(),
         course: opts.course,
         weeks: opts.weeks,
@@ -23746,6 +23875,8 @@ QuestionTrackerPlugin.__test = {
   analytics,
   buildDashboard: analytics.buildDashboard,
   buildHeatmap: analytics.buildHeatmap,
+  buildCalibration: analytics.buildCalibration,
+  buildRetention: analytics.buildRetention,
   activityLevel: analytics.activityLevel,
   analyticsEmbed,
   parseDashboardBlock: analyticsEmbed.parseDashboardBlock,

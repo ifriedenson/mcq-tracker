@@ -10,6 +10,8 @@ const q = (path, fm) => ({ file: { path, basename: path.split("/").pop().replace
 test("dashboard embeds parse metric, weeks, course and title", () => {
   const opts = T.parseDashboardBlock("metric: Heatmap\nweeks: 52\ncourse: Biology\ntitle: Bio dashboard");
   assert.deepEqual(opts, { metric: "heatmap", weeks: 26, course: "Biology", title: "Bio dashboard" });
+  assert.equal(T.parseDashboardBlock("metric: Confidence").metric, "calibration");
+  assert.equal(T.parseDashboardBlock("metric: trend").metric, "retention");
   assert.equal(T.parseDashboardBlock("metric: unknown").metric, "overview");
   assert.equal(T.parseDashboardBlock("weeks: nope").weeks, 12);
   assert.deepEqual(T.parseDashboardBlock(""), { metric: "overview", weeks: 12, course: "", title: "" });
@@ -42,7 +44,13 @@ test("dashboard course scoping filters questions, cards and study sessions", () 
 
 test("dashboard embed draws only the requested metric and keeps the empty state honest", () => {
   const data = T.buildDashboard({
-    questions: [q("Q/bio.md", { course: "Biology", attempts: 2, correct_count: 1, skill: "cells" })],
+    questions: [q("Q/bio.md", {
+      course: "Biology",
+      attempts: 2,
+      correct_count: 1,
+      skill: "cells",
+      history: ["2026-10-26|correct|10|A|1|", "2026-10-27|incorrect|10|B|2|"],
+    })],
     cards: [],
     studyLog: { sessions: [{ date: "2026-10-27", minutes: 20, course: "Biology" }], dailyGoalMinutes: 60 },
     today: "2026-10-28",
@@ -54,6 +62,17 @@ test("dashboard embed draws only the requested metric and keeps the empty state 
   assert.ok(heatText.includes("Study heatmap"));
   assert.ok(!heatText.includes("Attempts"));
   assert.ok(!heatText.includes("Weak spots"));
+
+  const calibration = makeDom();
+  T.renderDashboardEmbed(calibration.root, data, { metric: "calibration" });
+  assert.ok(calibration.texts().includes("Confidence calibration"));
+  assert.ok(calibration.texts().includes("Guessing"));
+  assert.ok(!calibration.texts().includes("Retention trend"));
+
+  const retention = makeDom();
+  T.renderDashboardEmbed(retention.root, data, { metric: "retention" });
+  assert.ok(retention.texts().includes("Retention trend"));
+  assert.ok(!retention.texts().includes("Confidence calibration"));
 
   const empty = makeDom();
   T.renderDashboardEmbed(empty.root, T.buildDashboard({ today: "2026-10-28" }), { metric: "stats", course: "History" });
