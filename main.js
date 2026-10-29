@@ -16,6 +16,149 @@ function __require(name) {
   return name.startsWith("./") ? __load(name.slice(2).replace(/\.js$/, "")) : require(name);
 }
 
+/* ---- src/ai-context.js ---- */
+__defs["ai-context"] = function (module, exports, require) {
+/*
+ * Read-only study context for the assistant.
+ *
+ * These toggles are deliberately aggregate: counts, accuracy and the next exam.
+ * Note bodies, question text, answers and personal notes are never included
+ * here. A chat only receives this text when the learner has enabled the
+ * matching toggle and AI features; nothing is built or sent otherwise.
+ */
+const { isDue } = require("./filters");
+const { examCountdown, upcomingExams } = require("./calendar-model");
+const { localDate, str } = require("./util");
+
+const DEFAULT_AI_CONTEXT = { stats: false, due: false, exams: false };
+const CONTEXT_KEYS = ["stats", "due", "exams"];
+
+function normalizeAiContext(value) {
+  const saved = value && typeof value === "object" ? value : {};
+  const out = {};
+  for (const key of CONTEXT_KEYS) out[key] = saved[key] === true;
+  return out;
+}
+
+function anyContext(value) {
+  const context = normalizeAiContext(value);
+  return CONTEXT_KEYS.some((key) => context[key]);
+}
+
+function percent(correct, attempts) {
+  if (!attempts) return "0%";
+  return `${Math.round((correct / attempts) * 100)}%`;
+}
+
+function questionList(plugin) {
+  try {
+    return plugin && typeof plugin.getQuestions === "function" ? plugin.getQuestions() : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function cardList(plugin) {
+  try {
+    return plugin && typeof plugin.getCards === "function" ? plugin.getCards() : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function weakestSkill(questions) {
+  const groups = new Map();
+  for (const question of questions) {
+    const fm = (question && question.fm) || {};
+    const skill = str(fm.skill).trim();
+    const attempts = Number(fm.attempts) || 0;
+    if (!skill || attempts < 3) continue;
+    const group = groups.get(skill) || { attempts: 0, correct: 0 };
+    group.attempts += attempts;
+    group.correct += Number(fm.correct_count) || 0;
+    groups.set(skill, group);
+  }
+  let weakest = null;
+  for (const [skill, group] of groups) {
+    const accuracy = group.correct / group.attempts;
+    if (!weakest || accuracy < weakest.accuracy) weakest = { skill, ...group, accuracy };
+  }
+  return weakest;
+}
+
+function buildStudyContext(plugin, options, now) {
+  const context = normalizeAiContext(options);
+  if (!anyContext(context)) return "";
+  const today = localDate();
+  const questions = questionList(plugin);
+  const lines = ["READ-ONLY STUDY CONTEXT (aggregate vault properties only; no note text is included)."];
+
+  if (context.stats) {
+    let attempts = 0;
+    let correct = 0;
+    let attempted = 0;
+    for (const question of questions) {
+      const fm = (question && question.fm) || {};
+      const n = Number(fm.attempts) || 0;
+      if (!n) continue;
+      attempted++;
+      attempts += n;
+      correct += Number(fm.correct_count) || 0;
+    }
+    lines.push(
+      `Practice: ${questions.length} question${questions.length === 1 ? "" : "s"}; ${attempted} attempted; ` +
+        `${attempts} attempt${attempts === 1 ? "" : "s"}; accuracy ${percent(correct, attempts)}.`,
+    );
+    const weakest = weakestSkill(questions);
+    if (weakest) {
+      lines.push(
+        `Weakest skill with at least 3 attempts: ${weakest.skill} (${percent(weakest.correct, weakest.attempts)}, ` +
+          `${weakest.attempts} attempt${weakest.attempts === 1 ? "" : "s"}).`,
+      );
+    }
+  }
+
+  if (context.due) {
+    const due = questions.filter((question) => isDue((question && question.fm) || {}, today)).length;
+    const unseen = questions.filter((question) => !Number(((question && question.fm) || {}).attempts)).length;
+    const cards = cardList(plugin);
+    const dueCards = cards.filter((card) => {
+      const fm = (card && card.fm) || {};
+      return Number(fm.attempts) > 0 && str(fm.next_review).slice(0, 10) && str(fm.next_review).slice(0, 10) <= today;
+    }).length;
+    const newCards = cards.filter((card) => !Number(((card && card.fm) || {}).attempts)).length;
+    lines.push(
+      `Due today: ${due} question${due === 1 ? "" : "s"} (${unseen} unseen), ` +
+        `${dueCards} card${dueCards === 1 ? "" : "s"} due (${newCards} new).`,
+    );
+  }
+
+  if (context.exams) {
+    const events = typeof plugin.calendarEvents === "function" ? plugin.calendarEvents() : [];
+    const exam = upcomingExams(events || [], now || new Date(), 1)[0];
+    if (exam) {
+      lines.push(
+        `Next exam: ${str(exam.summary) || "Exam"} on ${exam.dateKey || "an unscheduled date"} ` +
+          `(${examCountdown(exam, now || new Date())}).`,
+      );
+    } else {
+      lines.push("No upcoming exam is currently loaded in the calendar.");
+    }
+  }
+
+  lines.push("Use this context only when it helps; do not claim access to any note text.");
+  return lines.join("\n");
+}
+
+module.exports = {
+  CONTEXT_KEYS,
+  DEFAULT_AI_CONTEXT,
+  anyContext,
+  buildStudyContext,
+  normalizeAiContext,
+};
+};
+
 /* ---- src/analytics.js ---- */
 __defs["analytics"] = function (module, exports, require) {
 const { isDue } = require("./filters");
@@ -11154,6 +11297,7 @@ const DEFAULT_SETTINGS = {
     agent: "",
     mode: "tutor",
     tutorRole: "private", // "private" | "socratic" | "language"
+    context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
     sessionId: "",
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
@@ -19243,7 +19387,7 @@ function buildTutorContext(r, notesText, confLabels, mode, tutorRole) {
   return lines.join("\n");
 }
 
-function buildGeneralContext(app, mode, tutorRole) {
+function buildGeneralContext(app, mode, tutorRole, studyContext) {
   let base = "";
   try {
     base = (app.vault.adapter && app.vault.adapter.basePath) || "";
@@ -19263,6 +19407,7 @@ function buildGeneralContext(app, mode, tutorRole) {
     "Never change the tracking properties unless explicitly told to. Keep the format above when creating or editing notes.",
     base ? `The vault folder on disk is: ${base}` : "",
     mode === "tutor" ? "File editing is disabled in this chat; answer from the conversation only." : "You may read and edit files in the vault when asked.",
+    ...(str(studyContext).trim() ? ["", str(studyContext).trim()] : []),
     "",
     commandReference(),
   ].filter(Boolean).join("\n");
@@ -22328,6 +22473,7 @@ const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
 const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { normalizeTutorRole } = require("./tutor-presets");
+const { normalizeAiContext } = require("./ai-context");
 const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
@@ -22701,6 +22847,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys) });
     this.settings.localOcr = normalizeLocalOcr(saved.localOcr);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
+    this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
     // 0.2.0 saved settings had no `managed` flag: move those users to the automatic setup.
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
@@ -25718,6 +25865,7 @@ const { API_PRESETS } = require("./api-client");
 const { QUICK_START_URL, aiReady, emptyState } = require("./empty-state");
 const { groupIssues } = require("./importer");
 const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
+const { anyContext, buildStudyContext } = require("./ai-context");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 const { STUDY_SKIN_LABELS, normalizeStudySkin, resolveStudySkin, studyAttemptForChoice, studyAttemptForFlip, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
 
@@ -26882,8 +27030,12 @@ class PracticeView extends ItemView {
         p.settings.ai.tutorRole = id;
         p.save();
       },
-      buildContext: (mode) => buildGeneralContext(this.app, mode, p.settings.ai.tutorRole),
+      buildContext: (mode) =>
+        buildGeneralContext(this.app, mode, p.settings.ai.tutorRole, buildStudyContext(p, p.settings.ai.context)),
       quick: p.backend() === "api" ? [] : [
+        ...(anyContext(p.settings.ai.context)
+          ? [{ label: "What should I study now?", prompt: "Using the study context, tell me what to study next and why. Be specific and brief." }]
+          : []),
         { label: "Notes missing answers", prompt: "List the question notes whose answer property is empty or missing." },
         { label: "Weakest skills", prompt: "Look at my question notes' attempts and correct_count and tell me which skills I am weakest at." },
         { label: "Create a question note", prompt: "I will paste a question with its choices, answer and rationale. Create a correctly formatted question note for it in the vault." },
@@ -29802,6 +29954,7 @@ const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-s
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
+const { normalizeAiContext } = require("./ai-context");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -30133,6 +30286,30 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       cls: "setting-item-description",
       text: `Tutor commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}. Type one at the start of a chat message to steer the next reply.`,
     });
+    new Setting(containerEl).setName("Study context (read-only)").setHeading();
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Optional aggregate context for the AI assistant: counts, accuracy, weakest skill and the next exam. No note text, question text or answers are included. Everything is off by default, and nothing is sent unless AI features are on and you send a message.",
+    });
+    const aiContext = normalizeAiContext(ai.context);
+    const contextOptions = [
+      { key: "stats", name: "Practice statistics", desc: "Question and attempt counts, accuracy and the weakest skill with at least three attempts." },
+      { key: "due", name: "Due work", desc: "Due and unseen question counts, plus due and new card counts." },
+      { key: "exams", name: "Next exam", desc: "The next upcoming calendar exam, its date and countdown." },
+    ];
+    for (const item of contextOptions) {
+      new Setting(containerEl)
+        .setName(item.name)
+        .setDesc(item.desc)
+        .addToggle((t) =>
+          t.setValue(aiContext[item.key] === true).onChange(async (v) => {
+            ai.context = normalizeAiContext(ai.context);
+            ai.context[item.key] = v;
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
+        );
+    }
     if (Platform.isDesktopApp) {
       new Setting(containerEl)
         .setName("AI backend")
@@ -32944,6 +33121,7 @@ const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
+const aiContext = require("./ai-context");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
@@ -33050,6 +33228,7 @@ QuestionTrackerPlugin.__test = {
   apiTurns,
   ChatPanel,
   tutorPresets,
+  aiContext,
   OpenCodeManager,
   MAX_OPENCODE_MAJOR,
   opencodeMajor,

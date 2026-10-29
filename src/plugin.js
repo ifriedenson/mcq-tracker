@@ -59,6 +59,7 @@ const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
 const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { normalizeTutorRole } = require("./tutor-presets");
+const { normalizeAiContext } = require("./ai-context");
 const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
@@ -432,6 +433,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys) });
     this.settings.localOcr = normalizeLocalOcr(saved.localOcr);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
+    this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
     // 0.2.0 saved settings had no `managed` flag: move those users to the automatic setup.
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;

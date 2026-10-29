@@ -19,6 +19,7 @@ const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
+const aiContext = require("./ai-context");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
@@ -125,6 +126,7 @@ QuestionTrackerPlugin.__test = {
   apiTurns,
   ChatPanel,
   tutorPresets,
+  aiContext,
   OpenCodeManager,
   MAX_OPENCODE_MAJOR,
   opencodeMajor,

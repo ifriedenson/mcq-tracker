@@ -96,7 +96,7 @@ function buildTutorContext(r, notesText, confLabels, mode, tutorRole) {
   return lines.join("\n");
 }
 
-function buildGeneralContext(app, mode, tutorRole) {
+function buildGeneralContext(app, mode, tutorRole, studyContext) {
   let base = "";
   try {
     base = (app.vault.adapter && app.vault.adapter.basePath) || "";
@@ -116,6 +116,7 @@ function buildGeneralContext(app, mode, tutorRole) {
     "Never change the tracking properties unless explicitly told to. Keep the format above when creating or editing notes.",
     base ? `The vault folder on disk is: ${base}` : "",
     mode === "tutor" ? "File editing is disabled in this chat; answer from the conversation only." : "You may read and edit files in the vault when asked.",
+    ...(str(studyContext).trim() ? ["", str(studyContext).trim()] : []),
     "",
     commandReference(),
   ].filter(Boolean).join("\n");

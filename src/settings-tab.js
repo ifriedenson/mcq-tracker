@@ -16,6 +16,7 @@ const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-s
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
+const { normalizeAiContext } = require("./ai-context");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -347,6 +348,30 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       cls: "setting-item-description",
       text: `Tutor commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}. Type one at the start of a chat message to steer the next reply.`,
     });
+    new Setting(containerEl).setName("Study context (read-only)").setHeading();
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Optional aggregate context for the AI assistant: counts, accuracy, weakest skill and the next exam. No note text, question text or answers are included. Everything is off by default, and nothing is sent unless AI features are on and you send a message.",
+    });
+    const aiContext = normalizeAiContext(ai.context);
+    const contextOptions = [
+      { key: "stats", name: "Practice statistics", desc: "Question and attempt counts, accuracy and the weakest skill with at least three attempts." },
+      { key: "due", name: "Due work", desc: "Due and unseen question counts, plus due and new card counts." },
+      { key: "exams", name: "Next exam", desc: "The next upcoming calendar exam, its date and countdown." },
+    ];
+    for (const item of contextOptions) {
+      new Setting(containerEl)
+        .setName(item.name)
+        .setDesc(item.desc)
+        .addToggle((t) =>
+          t.setValue(aiContext[item.key] === true).onChange(async (v) => {
+            ai.context = normalizeAiContext(ai.context);
+            ai.context[item.key] = v;
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
+        );
+    }
     if (Platform.isDesktopApp) {
       new Setting(containerEl)
         .setName("AI backend")

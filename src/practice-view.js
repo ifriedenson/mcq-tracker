@@ -11,6 +11,7 @@ const { API_PRESETS } = require("./api-client");
 const { QUICK_START_URL, aiReady, emptyState } = require("./empty-state");
 const { groupIssues } = require("./importer");
 const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
+const { anyContext, buildStudyContext } = require("./ai-context");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 const { STUDY_SKIN_LABELS, normalizeStudySkin, resolveStudySkin, studyAttemptForChoice, studyAttemptForFlip, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
 
@@ -1175,8 +1176,12 @@ class PracticeView extends ItemView {
         p.settings.ai.tutorRole = id;
         p.save();
       },
-      buildContext: (mode) => buildGeneralContext(this.app, mode, p.settings.ai.tutorRole),
+      buildContext: (mode) =>
+        buildGeneralContext(this.app, mode, p.settings.ai.tutorRole, buildStudyContext(p, p.settings.ai.context)),
       quick: p.backend() === "api" ? [] : [
+        ...(anyContext(p.settings.ai.context)
+          ? [{ label: "What should I study now?", prompt: "Using the study context, tell me what to study next and why. Be specific and brief." }]
+          : []),
         { label: "Notes missing answers", prompt: "List the question notes whose answer property is empty or missing." },
         { label: "Weakest skills", prompt: "Look at my question notes' attempts and correct_count and tell me which skills I am weakest at." },
         { label: "Create a question note", prompt: "I will paste a question with its choices, answer and rationale. Create a correctly formatted question note for it in the vault." },

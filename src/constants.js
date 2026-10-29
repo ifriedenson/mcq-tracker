@@ -61,6 +61,7 @@ const DEFAULT_SETTINGS = {
     agent: "",
     mode: "tutor",
     tutorRole: "private", // "private" | "socratic" | "language"
+    context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
     sessionId: "",
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
