@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, and the PDF annotation sidecar shipped in 1.27.0. The next unblocked work is the visual PDF pen/highlighter overlay or the remaining deferred items; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, and the first-run welcome guide shipped in 1.28.0. The next unblocked work is the visual PDF pen/highlighter overlay or the remaining deferred items; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), and the October 28 idea backlog (§5.22). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -22,7 +22,7 @@
 - **Coverage:** preview duplicate detection, history preservation on update, and distinct keys on copy.
 - **No third-party code was added.** The plugin remains MIT.
 
-**Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0; the visual pen/highlighter overlay remains the next PDF-editor slice. A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review).
+**Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, and the welcome guide with presets and local onboarding state shipped in 1.28.0. The visual pen/highlighter overlay remains the next PDF-editor slice. A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review).
 
 **Recently completed (1.24.0):** Import preview, report and duplicate update/copy. Previous release 1.23.0 added Mochi and CrowdAnki import.
 
@@ -894,6 +894,8 @@ Use short step cards, each with a working button:
 - The welcome is usable on desktop and mobile and with the keyboard alone.
 - No network request is made until the user clicks an external feedback or donation link.
 
+**Implemented in 1.28.0:** the three-step welcome guide, six module presets, live module switches, working how-to buttons, local-only dismissal and step progress, an **Open welcome guide** command and a Global → About entry point. The optional survey and donation links remain deliberately deferred.
+
 **Risks:** onboarding fatigue, instructions going stale after UI changes, survey or donation pressure, and privacy concerns. Mitigate with a short three-step flow, a single dismissible guide, current screenshots/names, clear skip controls, and local-only onboarding state.
 
 ---
@@ -1194,8 +1196,8 @@ These are **research and specification items**, not implementation work. The AP 
 - [ ] OCR for image-only scans, with a local option and an opt-in BYOK vision/OCR option; show confidence and let the user correct text (§5.13.1)
 - [ ] Auto-classify a scanned document as MCQ, FRQ, mixed, cards or notes, then route it through the existing importers (§5.13.1)
 - [ ] Provenance links from generated items back to the source PDF page (§5.13.1)
-- [ ] First-run welcome screen with presets, module toggles and a short how-to guide (§5.21)
-- [ ] Reopen the welcome from a command and settings, and remember dismissal per device (§5.21)
+- [x] First-run welcome screen with presets, module toggles and a short how-to guide (§5.21) — shipped in 1.28.0
+- [x] Reopen the welcome from a command and settings, and remember dismissal per device (§5.21) — shipped in 1.28.0
 - [ ] Optional feedback survey and donation links, added later and never gating features (§5.21)
 - [ ] Remaining interop and CSV export (§5.15)
 - [ ] Pronunciation feedback for language learners (optional)

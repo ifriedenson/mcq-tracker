@@ -54,6 +54,8 @@ const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSes
 const referenceData = require("./reference-data");
 const pdfAnnotations = require("./pdf-annotations");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
+const welcome = require("./welcome");
+const { WelcomeModal } = require("./welcome-modal");
 const referenceElements = require("./reference-elements");
 const referenceGraph = require("./reference-graph");
 const { ReferenceView } = require("./reference-view");
@@ -144,6 +146,8 @@ QuestionTrackerPlugin.__test = {
   referenceData,
   pdfAnnotations,
   PdfAnnotationModal,
+  welcome,
+  WelcomeModal,
   referenceElements,
   referenceGraph,
   ReferenceView,

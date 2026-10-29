@@ -15,6 +15,8 @@ const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const { sidecarPathFor } = require("./pdf-annotations");
+const { WelcomeModal } = require("./welcome-modal");
+const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, visibleEvents } = require("./calendar-model");
@@ -83,6 +85,7 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.manager = new OpenCodeManager(this);
     this.app.workspace.onLayoutReady(() => {
+      if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
       const ai = this.settings.ai;
       if (Platform.isDesktopApp && ai.enabled && ai.managed && ai.preStart && this.backend() === "opencode") {
         this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
@@ -112,6 +115,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshRibbon();
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
+    this.addCommand({ id: "open-welcome", name: "Open welcome guide", callback: () => this.openWelcome() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
@@ -545,6 +549,61 @@ class QuestionTrackerPlugin extends Plugin {
     } else {
       new Notice("Open Settings, then MCQ Tracker, to continue.");
     }
+  }
+
+  openWelcome() {
+    new WelcomeModal(this.app, this).open();
+  }
+
+  welcomeModuleOn(id) {
+    if (id === "mcq") return this.mcqEnabled();
+    if (id === "cards") return this.cardsEnabled();
+    if (id === "calendar") return this.calendarEnabled();
+    if (id === "reference") return this.referenceEnabled();
+    return !!this.settings.ai.enabled;
+  }
+
+  async setWelcomeModule(id, enabled) {
+    if (id === "mcq") {
+      this.settings.mcqEnabled = enabled === true;
+      await this.save();
+      await this.onMcqToggled();
+    } else if (id === "cards") {
+      this.settings.cards.enabled = enabled === true;
+      await this.save();
+      await this.onCardsToggled();
+    } else if (id === "calendar") {
+      this.settings.calendar.enabled = enabled === true;
+      await this.save();
+      await this.onCalendarToggled();
+    } else if (id === "reference") {
+      this.settings.reference.enabled = enabled === true;
+      await this.save();
+      await this.onReferenceToggled();
+    } else if (id === "ai") {
+      this.settings.ai.enabled = enabled === true;
+      await this.save();
+      this.refreshViews();
+    }
+    this.refreshRibbon();
+  }
+
+  async applyWelcomePreset(id) {
+    const preset = WELCOME_PRESETS.find((p) => p.id === id);
+    if (!preset) return null;
+    const m = preset.modules;
+    this.settings.mcqEnabled = m.mcq === true;
+    this.settings.cards.enabled = m.cards === true;
+    this.settings.calendar.enabled = m.calendar === true;
+    this.settings.ai.enabled = m.ai === true;
+    this.settings.reference.enabled = m.reference === true;
+    await this.save();
+    await this.onMcqToggled();
+    await this.onCardsToggled();
+    await this.onCalendarToggled();
+    await this.onReferenceToggled();
+    this.refreshViews();
+    return preset;
   }
 
   openPdfImport() {

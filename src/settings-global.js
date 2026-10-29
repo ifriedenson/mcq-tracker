@@ -4,11 +4,12 @@
  * whole plugin. Each module keeps its own detailed settings on its own page.
  */
 const { Setting } = require("obsidian");
-const { renderSettingsTabs } = require("./settings-ui");
+const { openExternal, renderSettingsTabs } = require("./settings-ui");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
   { id: "general", label: "General", icon: "sliders-horizontal" },
+  { id: "about", label: "About", icon: "info" },
 ];
 
 function renderGlobalSettings(containerEl, plugin, redisplay, activeTab, setTab) {
@@ -23,6 +24,7 @@ function renderGlobalSettings(containerEl, plugin, redisplay, activeTab, setTab)
 
   const section = containerEl.createDiv({ cls: "qt-settings-section" });
   if (current === "general") return renderGeneral(section, plugin, redisplay);
+  if (current === "about") return renderGlobalAbout(section, plugin);
   return renderModules(section, plugin, redisplay);
 }
 
@@ -99,6 +101,24 @@ function renderModules(containerEl, plugin, redisplay) {
     cls: "setting-item-description",
     text: "The settings for a module stay on its own page: MCQ Tracker, Cards, Calendar and Reference.",
   });
+}
+
+function renderGlobalAbout(containerEl, plugin) {
+  new Setting(containerEl).setName("Getting started").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "The welcome guide explains the main workflows, lets you choose a starting set of modules, and can be reopened at any time.",
+  });
+  new Setting(containerEl)
+    .setName("Welcome guide")
+    .setDesc("Open the guided setup and how-to again. It never blocks startup and stores its progress only on this device.")
+    .addButton((b) => b.setButtonText("Open welcome guide").onClick(() => plugin.openWelcome()));
+  new Setting(containerEl)
+    .setName("Quick start and documentation")
+    .setDesc("The README covers question-note formats, imports, cards, the calendar and reference tools.")
+    .addButton((b) => b.setButtonText("Open README").onClick(() => openExternal("https://github.com/ifriedenson/mcq-tracker#readme")));
+  const version = (plugin.manifest && plugin.manifest.version) || "";
+  new Setting(containerEl).setName("Version").setDesc(version ? `MCQ Tracker ${version}` : "MCQ Tracker");
 }
 
 function renderGeneral(containerEl, plugin, redisplay) {

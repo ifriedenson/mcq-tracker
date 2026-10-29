@@ -3379,3 +3379,131 @@
     height: 240px;
   }
 }
+
+/* First-run welcome guide. Theme variables only, and a phone-friendly single column. */
+.qt-welcome {
+  margin: 0 auto;
+  max-width: 44rem;
+  width: 100%;
+}
+
+.qt-welcome-progress {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.qt-welcome h2 {
+  margin: 0 0 6px;
+}
+
+.qt-welcome h3 {
+  margin: 16px 0 6px;
+}
+
+.qt-welcome-lead {
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin: 0 0 12px;
+}
+
+.qt-welcome-list {
+  line-height: 1.6;
+  margin: 0 0 16px;
+  padding-left: 1.2rem;
+}
+
+.qt-welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.qt-welcome-actions button {
+  min-height: 2.75rem;
+}
+
+.qt-welcome-presets {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.qt-welcome-preset {
+  align-items: flex-start;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  color: var(--text-normal);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 2.75rem;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.qt-welcome-preset:hover {
+  border-color: var(--interactive-accent);
+}
+
+.qt-welcome-preset-desc {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.qt-welcome-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.qt-welcome-step {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+}
+
+.qt-welcome-check {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.qt-welcome-check.is-done {
+  color: var(--interactive-accent);
+}
+
+.qt-welcome-step-body {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.qt-welcome-step-button {
+  justify-self: start;
+  min-height: 2.25rem;
+}
+
+@media (max-width: 480px) {
+  .qt-welcome-presets {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qt-welcome-actions {
+    flex-direction: column;
+  }
+
+  .qt-welcome-actions button {
+    width: 100%;
+  }
+}

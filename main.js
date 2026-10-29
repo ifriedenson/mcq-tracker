@@ -14759,6 +14759,8 @@ const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const { sidecarPathFor } = require("./pdf-annotations");
+const { WelcomeModal } = require("./welcome-modal");
+const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, visibleEvents } = require("./calendar-model");
@@ -14827,6 +14829,7 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.manager = new OpenCodeManager(this);
     this.app.workspace.onLayoutReady(() => {
+      if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
       const ai = this.settings.ai;
       if (Platform.isDesktopApp && ai.enabled && ai.managed && ai.preStart && this.backend() === "opencode") {
         this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
@@ -14856,6 +14859,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshRibbon();
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
+    this.addCommand({ id: "open-welcome", name: "Open welcome guide", callback: () => this.openWelcome() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
@@ -15289,6 +15293,61 @@ class QuestionTrackerPlugin extends Plugin {
     } else {
       new Notice("Open Settings, then MCQ Tracker, to continue.");
     }
+  }
+
+  openWelcome() {
+    new WelcomeModal(this.app, this).open();
+  }
+
+  welcomeModuleOn(id) {
+    if (id === "mcq") return this.mcqEnabled();
+    if (id === "cards") return this.cardsEnabled();
+    if (id === "calendar") return this.calendarEnabled();
+    if (id === "reference") return this.referenceEnabled();
+    return !!this.settings.ai.enabled;
+  }
+
+  async setWelcomeModule(id, enabled) {
+    if (id === "mcq") {
+      this.settings.mcqEnabled = enabled === true;
+      await this.save();
+      await this.onMcqToggled();
+    } else if (id === "cards") {
+      this.settings.cards.enabled = enabled === true;
+      await this.save();
+      await this.onCardsToggled();
+    } else if (id === "calendar") {
+      this.settings.calendar.enabled = enabled === true;
+      await this.save();
+      await this.onCalendarToggled();
+    } else if (id === "reference") {
+      this.settings.reference.enabled = enabled === true;
+      await this.save();
+      await this.onReferenceToggled();
+    } else if (id === "ai") {
+      this.settings.ai.enabled = enabled === true;
+      await this.save();
+      this.refreshViews();
+    }
+    this.refreshRibbon();
+  }
+
+  async applyWelcomePreset(id) {
+    const preset = WELCOME_PRESETS.find((p) => p.id === id);
+    if (!preset) return null;
+    const m = preset.modules;
+    this.settings.mcqEnabled = m.mcq === true;
+    this.settings.cards.enabled = m.cards === true;
+    this.settings.calendar.enabled = m.calendar === true;
+    this.settings.ai.enabled = m.ai === true;
+    this.settings.reference.enabled = m.reference === true;
+    await this.save();
+    await this.onMcqToggled();
+    await this.onCardsToggled();
+    await this.onCalendarToggled();
+    await this.onReferenceToggled();
+    this.refreshViews();
+    return preset;
   }
 
   openPdfImport() {
@@ -20079,11 +20138,12 @@ __defs["settings-global"] = function (module, exports, require) {
  * whole plugin. Each module keeps its own detailed settings on its own page.
  */
 const { Setting } = require("obsidian");
-const { renderSettingsTabs } = require("./settings-ui");
+const { openExternal, renderSettingsTabs } = require("./settings-ui");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
   { id: "general", label: "General", icon: "sliders-horizontal" },
+  { id: "about", label: "About", icon: "info" },
 ];
 
 function renderGlobalSettings(containerEl, plugin, redisplay, activeTab, setTab) {
@@ -20098,6 +20158,7 @@ function renderGlobalSettings(containerEl, plugin, redisplay, activeTab, setTab)
 
   const section = containerEl.createDiv({ cls: "qt-settings-section" });
   if (current === "general") return renderGeneral(section, plugin, redisplay);
+  if (current === "about") return renderGlobalAbout(section, plugin);
   return renderModules(section, plugin, redisplay);
 }
 
@@ -20174,6 +20235,24 @@ function renderModules(containerEl, plugin, redisplay) {
     cls: "setting-item-description",
     text: "The settings for a module stay on its own page: MCQ Tracker, Cards, Calendar and Reference.",
   });
+}
+
+function renderGlobalAbout(containerEl, plugin) {
+  new Setting(containerEl).setName("Getting started").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "The welcome guide explains the main workflows, lets you choose a starting set of modules, and can be reopened at any time.",
+  });
+  new Setting(containerEl)
+    .setName("Welcome guide")
+    .setDesc("Open the guided setup and how-to again. It never blocks startup and stores its progress only on this device.")
+    .addButton((b) => b.setButtonText("Open welcome guide").onClick(() => plugin.openWelcome()));
+  new Setting(containerEl)
+    .setName("Quick start and documentation")
+    .setDesc("The README covers question-note formats, imports, cards, the calendar and reference tools.")
+    .addButton((b) => b.setButtonText("Open README").onClick(() => openExternal("https://github.com/ifriedenson/mcq-tracker#readme")));
+  const version = (plugin.manifest && plugin.manifest.version) || "";
+  new Setting(containerEl).setName("Version").setDesc(version ? `MCQ Tracker ${version}` : "MCQ Tracker");
 }
 
 function renderGeneral(containerEl, plugin, redisplay) {
@@ -22115,6 +22194,298 @@ module.exports = {
 };
 };
 
+/* ---- src/welcome.js ---- */
+__defs["welcome"] = function (module, exports, require) {
+/* First-run guide data and per-device onboarding state. Nothing here touches a vault note. */
+
+const WELCOME_STORAGE_KEY = "mcqTrackerWelcome";
+
+const WELCOME_MODULE_INFO = [
+  { id: "mcq", label: "MCQ Tracker", description: "Practice questions from your notes, weak spots, timed tests and file import." },
+  { id: "cards", label: "Cards", description: "Flashcards, vocabulary, cloze and image-occlusion cards with spaced review." },
+  { id: "calendar", label: "Calendar", description: "Classes and exams from an .ics schedule, countdowns and class notes." },
+  { id: "ai", label: "AI features", description: "Optional tutor chat, AI grading and document import. Nothing is sent until you turn it on and add a key." },
+  { id: "reference", label: "Reference", description: "A local formula sheet, constants, unit converter, graph plotter and periodic table." },
+];
+
+const WELCOME_PRESETS = [
+  {
+    id: "sat",
+    label: "SAT / AP-style prep",
+    description: "Practice questions and review. Cards, calendar and AI stay off until you want them.",
+    modules: { mcq: true, cards: false, calendar: false, ai: false, reference: false },
+  },
+  {
+    id: "university",
+    label: "University courses",
+    description: "Questions, cards and the calendar. AI and Reference stay off.",
+    modules: { mcq: true, cards: true, calendar: true, ai: false, reference: false },
+  },
+  {
+    id: "language",
+    label: "Language learning",
+    description: "Questions and vocabulary cards. Calendar, AI and Reference stay off.",
+    modules: { mcq: true, cards: true, calendar: false, ai: false, reference: false },
+  },
+  {
+    id: "stem",
+    label: "STEM problem sets",
+    description: "Questions and the local Reference panel. Cards, calendar and AI stay off.",
+    modules: { mcq: true, cards: false, calendar: false, ai: false, reference: true },
+  },
+  {
+    id: "flashcards",
+    label: "Just flashcards",
+    description: "Cards only. Questions, calendar, AI and Reference stay off.",
+    modules: { mcq: false, cards: true, calendar: false, ai: false, reference: false },
+  },
+  {
+    id: "off",
+    label: "Everything off",
+    description: "Start quiet; turn modules on later under Settings, Global, Modules.",
+    modules: { mcq: false, cards: false, calendar: false, ai: false, reference: false },
+  },
+];
+
+const WELCOME_STEPS = [
+  { id: "import", title: "Get questions in", body: "Import a PDF, PowerPoint, Word file or other document, or make a question note.", button: "Import questions", action: "import" },
+  { id: "practice", title: "Practice", body: "Open the practice view, choose filters, or start a short Quick Practice session.", button: "Open practice", action: "practice" },
+  { id: "today", title: "Review what is due", body: "Today shows due questions, cards and the next class in one place.", button: "Open Today", action: "today" },
+  { id: "card", title: "Add cards (optional)", body: "Create a flashcard, vocabulary item or cloze card in a deck you choose.", button: "Create a card", action: "card" },
+  { id: "calendar", title: "Add your schedule (optional)", body: "Import an .ics file or calendar link, then open the month or day view.", button: "Open calendar", action: "calendar" },
+  { id: "settings", title: "Find settings later", body: "Settings has Global, MCQ Tracker, Cards, Calendar and Reference groups, each with its own tabs.", button: "Open settings", action: "settings" },
+];
+
+function emptyWelcomeState() {
+  return { seenVersion: "", dismissed: false, completed: [] };
+}
+
+function normalizeWelcomeState(value) {
+  const src = value && typeof value === "object" ? value : {};
+  const completed = Array.isArray(src.completed) ? src.completed.filter((id) => WELCOME_STEPS.some((step) => step.id === id)) : [];
+  return {
+    seenVersion: String(src.seenVersion || ""),
+    dismissed: src.dismissed === true,
+    completed: [...new Set(completed)],
+  };
+}
+
+function loadWelcomeState(app) {
+  try {
+    const raw = app && app.loadLocalStorage ? app.loadLocalStorage(WELCOME_STORAGE_KEY) : null;
+    return normalizeWelcomeState(raw);
+  } catch (e) {
+    return emptyWelcomeState();
+  }
+}
+
+function saveWelcomeState(app, state) {
+  if (!app || !app.saveLocalStorage) return;
+  app.saveLocalStorage(WELCOME_STORAGE_KEY, normalizeWelcomeState(state));
+}
+
+function welcomeShouldShow(app) {
+  return !loadWelcomeState(app).seenVersion;
+}
+
+function markWelcomeSeen(app, version) {
+  const state = loadWelcomeState(app);
+  state.seenVersion = String(version || "seen");
+  state.dismissed = true;
+  saveWelcomeState(app, state);
+  return state;
+}
+
+function markWelcomeStep(app, stepId) {
+  const state = loadWelcomeState(app);
+  if (WELCOME_STEPS.some((step) => step.id === stepId) && !state.completed.includes(stepId)) {
+    state.completed.push(stepId);
+    saveWelcomeState(app, state);
+  }
+  return state;
+}
+
+function moduleSummary(modules) {
+  const on = WELCOME_MODULE_INFO.filter((m) => modules && modules[m.id]).map((m) => m.label);
+  return on.length ? on.join(", ") : "All modules off";
+}
+
+module.exports = {
+  WELCOME_MODULE_INFO,
+  WELCOME_PRESETS,
+  WELCOME_STEPS,
+  WELCOME_STORAGE_KEY,
+  emptyWelcomeState,
+  loadWelcomeState,
+  markWelcomeSeen,
+  markWelcomeStep,
+  moduleSummary,
+  normalizeWelcomeState,
+  saveWelcomeState,
+  welcomeShouldShow,
+};
+};
+
+/* ---- src/welcome-modal.js ---- */
+__defs["welcome-modal"] = function (module, exports, require) {
+const { Modal, Setting } = require("obsidian");
+const { QUICK_START_URL } = require("./empty-state");
+const { openExternal } = require("./settings-ui");
+const {
+  WELCOME_MODULE_INFO,
+  WELCOME_PRESETS,
+  WELCOME_STEPS,
+  loadWelcomeState,
+  markWelcomeSeen,
+  markWelcomeStep,
+} = require("./welcome");
+
+class WelcomeModal extends Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+    this.step = 0;
+    this.state = loadWelcomeState(app);
+  }
+
+  onOpen() {
+    this.modalEl.addClass("qt-welcome-modal");
+    this.render();
+  }
+
+  onClose() {
+    markWelcomeSeen(this.app, this.plugin.manifest && this.plugin.manifest.version);
+    this.contentEl.empty();
+  }
+
+  finish() {
+    markWelcomeSeen(this.app, this.plugin.manifest && this.plugin.manifest.version);
+    this.close();
+  }
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    const card = el.createDiv({ cls: "qt-welcome" });
+    card.createDiv({ cls: "qt-welcome-progress", text: `Step ${this.step + 1} of 3` });
+    if (this.step === 0) this.renderWelcome(card);
+    else if (this.step === 1) this.renderModules(card);
+    else this.renderGuide(card);
+  }
+
+  renderWelcome(card) {
+    card.createEl("h2", { text: "Welcome to MCQ Tracker" });
+    card.createEl("p", {
+      cls: "qt-welcome-lead",
+      text: "Practice like the exam, review with spaced repetition, and optionally manage flashcards, a course calendar and local reference tools.",
+    });
+    const list = card.createEl("ul", { cls: "qt-welcome-list" });
+    for (const item of [
+      ["Practice questions", "Multiple choice, student-produced responses and timed tests."],
+      ["Flashcards and vocabulary", "Decks, cloze and image occlusion, using the same review schedule."],
+      ["Calendar and exams", "Classes, countdowns and study sessions from free periods."],
+    ]) {
+      const li = list.createEl("li");
+      li.createEl("strong", { text: item[0] + ". " });
+      li.createSpan({ text: item[1] });
+    }
+    const row = card.createDiv({ cls: "qt-welcome-actions" });
+    row.createEl("button", { text: "Get started", cls: "mod-cta qt-primary" }).addEventListener("click", () => {
+      this.step = 1;
+      this.render();
+    });
+    row.createEl("button", { text: "Skip for now" }).addEventListener("click", () => this.finish());
+    card
+      .createEl("button", { text: "Read the quick start guide", cls: "qt-link" })
+      .addEventListener("click", () => openExternal(QUICK_START_URL));
+  }
+
+  renderModules(card) {
+    card.createEl("h2", { text: "Choose what you need" });
+    card.createEl("p", {
+      cls: "qt-welcome-lead",
+      text: "Pick a starting point, then adjust any switch. Turning a module off hides its views and buttons, but never deletes notes, cards, schedules or settings.",
+    });
+    const presets = card.createDiv({ cls: "qt-welcome-presets" });
+    for (const preset of WELCOME_PRESETS) {
+      const button = presets.createEl("button", { cls: "qt-welcome-preset" });
+      button.createEl("strong", { text: preset.label });
+      button.createDiv({ cls: "qt-welcome-preset-desc", text: preset.description });
+      button.addEventListener("click", async () => {
+        await this.plugin.applyWelcomePreset(preset.id);
+        this.render();
+      });
+    }
+
+    card.createEl("h3", { text: "Modules" });
+    for (const info of WELCOME_MODULE_INFO) {
+      new Setting(card)
+        .setName(info.label)
+        .setDesc(info.description)
+        .addToggle((toggle) =>
+          toggle.setValue(this.plugin.welcomeModuleOn(info.id)).onChange(async (value) => {
+            await this.plugin.setWelcomeModule(info.id, value);
+          })
+        );
+    }
+    const row = card.createDiv({ cls: "qt-welcome-actions" });
+    row.createEl("button", { text: "Back" }).addEventListener("click", () => {
+      this.step = 0;
+      this.render();
+    });
+    row.createEl("button", { text: "Continue", cls: "mod-cta qt-primary" }).addEventListener("click", () => {
+      this.step = 2;
+      this.render();
+    });
+    card
+      .createEl("button", { text: "Open Settings, Global, Modules", cls: "qt-link" })
+      .addEventListener("click", () => this.plugin.openSettings());
+  }
+
+  renderGuide(card) {
+    card.createEl("h2", { text: "How to use it" });
+    card.createEl("p", { cls: "qt-welcome-lead", text: "These are the main workflows. You can reopen this guide from the command palette or Settings, Global, About." });
+    const list = card.createDiv({ cls: "qt-welcome-steps" });
+    for (const step of WELCOME_STEPS) {
+      const item = list.createDiv({ cls: "qt-welcome-step" });
+      const done = this.state.completed.includes(step.id);
+      item.createSpan({ cls: `qt-welcome-check${done ? " is-done" : ""}`, text: done ? "Done" : "To do" });
+      item.createEl("strong", { text: step.title });
+      item.createDiv({ cls: "qt-welcome-step-body", text: step.body });
+      item.createEl("button", { text: step.button, cls: "qt-welcome-step-button" }).addEventListener("click", () => {
+        markWelcomeStep(this.app, step.id);
+        this.state = loadWelcomeState(this.app);
+        this.finish();
+        this.runAction(step.action);
+      });
+    }
+    const row = card.createDiv({ cls: "qt-welcome-actions" });
+    row.createEl("button", { text: "Back" }).addEventListener("click", () => {
+      this.step = 1;
+      this.render();
+    });
+    row.createEl("button", { text: "Open practice", cls: "mod-cta qt-primary" }).addEventListener("click", () => {
+      this.finish();
+      this.plugin.activateView();
+    });
+    row.createEl("button", { text: "Reopen this guide later", cls: "qt-link" }).addEventListener("click", () => this.finish());
+  }
+
+  runAction(action) {
+    if (action === "import") this.plugin.openPdfImport();
+    else if (action === "practice") this.plugin.activateView();
+    else if (action === "today") this.plugin.activateToday();
+    else if (action === "card") this.plugin.openNewCard();
+    else if (action === "calendar") this.plugin.activateCalendar();
+    else if (action === "settings") this.plugin.openSettings();
+  }
+}
+
+module.exports = {
+  WelcomeModal,
+};
+};
+
 /* ---- src/main.js ---- */
 __defs["main"] = function (module, exports, require) {
 /*
@@ -22172,6 +22543,8 @@ const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSes
 const referenceData = require("./reference-data");
 const pdfAnnotations = require("./pdf-annotations");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
+const welcome = require("./welcome");
+const { WelcomeModal } = require("./welcome-modal");
 const referenceElements = require("./reference-elements");
 const referenceGraph = require("./reference-graph");
 const { ReferenceView } = require("./reference-view");
@@ -22262,6 +22635,8 @@ QuestionTrackerPlugin.__test = {
   referenceData,
   pdfAnnotations,
   PdfAnnotationModal,
+  welcome,
+  WelcomeModal,
   referenceElements,
   referenceGraph,
   ReferenceView,

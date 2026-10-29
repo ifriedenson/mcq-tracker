@@ -20,8 +20,8 @@ async function setup(saved) {
 
 test("settings: Global sits beside MCQ Tracker, Cards, Calendar and Reference and has its own tabs", () => {
   assert.deepEqual(T.SETTINGS_MODULES.map((m) => m.id), ["global", "mcq", "cards", "calendar", "reference"]);
-  assert.deepEqual(T.GLOBAL_TABS.map((t) => t.id), ["modules", "general"]);
-  assert.deepEqual(T.GLOBAL_TABS.map((t) => t.label), ["Modules", "General"]);
+  assert.deepEqual(T.GLOBAL_TABS.map((t) => t.id), ["modules", "general", "about"]);
+  assert.deepEqual(T.GLOBAL_TABS.map((t) => t.label), ["Modules", "General", "About"]);
   assert.deepEqual(T.CARDS_TABS.map((t) => t.id), ["decks", "review", "about"]);
   assert.deepEqual(T.REFERENCE_TABS.map((t) => t.id), ["tools", "about"]);
 });

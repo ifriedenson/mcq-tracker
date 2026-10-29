@@ -30,6 +30,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Import questions from a file:** an AI agent (or your own AI key) turns a PDF, PowerPoint deck, Word file, OpenDocument, HTML, RTF, Markdown, CSV or text file into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from your files](#import-questions-from-your-files)).
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
 - **Cards and vocabulary (optional module, off by default).** Create flashcards, reversed cards, cloze cards, image occlusion cards and vocabulary notes as ordinary Markdown notes. Organize them into decks, inherit a course tag from a deck or folder, and review them with Again/Hard/Good/Easy using the same ladder or FSRS schedule as your questions (see [Cards and vocabulary](#cards-and-vocabulary-optional-module-off-by-default)).
+- **First-run welcome guide.** A short three-step guide on first install: what the plugin does, a preset chooser that sets the real module switches, and buttons for import, practice, Today, cards, calendar and settings. It is shown once per device, never blocks startup, stores progress locally and can be reopened from the command palette or Settings, Global, About.
 - **Modules you can switch off.** Settings, Global has an on/off switch for each module (MCQ Tracker, Cards, Calendar and AI features) plus the plugin-wide options, so the parts you don't use stay out of the way.
 - **Reference (optional module, off by default).** A local formula sheet, constants list and unit converter in one view. It works offline, adds no data to your vault, and can be hidden automatically while a timed test is running. See [Reference](#reference-optional-module-off-by-default).
 - **Calendar (optional module, off by default).** Import an `.ics` schedule from a file or a public feed, see classes and exams in a month grid, day timeline, live countdown and upcoming-exam countdowns, and create a note for a class in one click. Free periods can start a short Quick Practice session (see [Calendar](#calendar-optional-module-off-by-default)).
@@ -40,6 +41,12 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 2. Open the practice view from the ribbon (graduation cap icon). With no questions in your vault yet, it offers **Import files**.
 3. Press **Import files**. The first time, you'll choose how to connect an AI model (your own API key, or OpenCode on desktop), then pick a file and a new folder name. See [Import questions from your files](#import-questions-from-your-files).
 4. When the import finishes, press **Practice all** to start. Already have question notes? Add a `question_id` property to each (see [What counts as a question](#what-counts-as-a-question)) and the practice view finds them.
+
+## Welcome guide
+
+On a fresh install, **MCQ Tracker** opens a welcome guide after the workspace is ready. Choose a preset such as **SAT / AP-style prep**, **University courses**, **Language learning**, **STEM problem sets**, **Just flashcards** or **Everything off**; the result is written to the ordinary module switches, so Settings, Global, Modules shows the same state. A module that is off keeps its notes, cards, schedules and settings.
+
+The how-to section has working buttons for importing questions, opening practice, opening Today, creating a card, opening the calendar and opening settings. It also records optional step checks on this device only. Reopen it any time with **Open welcome guide**, or from **Settings, Global, About**. The feedback survey and donation links are intentionally not part of this release; no network request is made by the welcome.
 
 ## Install
 
