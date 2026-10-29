@@ -246,7 +246,7 @@ This is a **link index, not a content dump**. The plugin stores only titles, sho
 
 When Today's **Next exam** is an AP course, it shows one saved resource for that course. Fresh links come first, practice material is preferred, and a stale link is labelled rather than hidden. **Open resource** goes straight to the note; if none is saved yet, save one from Reference → AP resources.
 
-**Attach to exam** binds that note to the exact calendar exam by writing `exam_uid`, `exam_date` and `exam_title`. An explicitly attached note wins over a generic course match on later visits, and the row changes to **Attached resource**. The binding lives in ordinary frontmatter; delete or edit those properties to detach it.
+**Attach to exam** binds that note to the exact calendar exam by writing `exam_uid`, `exam_date` and `exam_title`. An explicitly attached note wins over a generic course match on later visits, and the row changes to **Attached resource**. The calendar's **Upcoming exams** panel then shows **Attached: <note>** under that exam with an **Open** action. **Detach from exam** on Today removes the binding; you can also edit or delete the three properties by hand.
 
 ## Reference (optional module, off by default)
 

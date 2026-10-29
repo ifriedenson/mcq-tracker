@@ -111,6 +111,49 @@ test("today: the next AP exam shows one saved resource and opens it", async () =
   assert.deepEqual(app.opened, [resourcePath]);
 });
 
+test("today: an attached resource can be detached from its exam", async () => {
+  const now = new Date();
+  const examStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 9, 0);
+  const examEnd = new Date(examStart.getTime() + 2 * 60 * 60 * 1000);
+  const resourcePath = "AP resources/AP Biology/Released free-response questions.md";
+  const app = makeApp([
+    {
+      path: resourcePath,
+      fm: {
+        type: "ap_resource",
+        ap_course: "ap-biology",
+        course: "AP Biology",
+        resource_type: "practice",
+        source_url: "https://apcentral.collegeboard.org/courses/ap-biology/exam/past-exam-questions",
+        checked_on: dayKey(now),
+        official: true,
+        exam_uid: "exam",
+        exam_date: dayKey(examStart),
+        exam_title: "AP Biology Exam",
+      },
+      text: "An official AP resource link.",
+    },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.calendar.enabled = true;
+  plugin.settings.reference.enabled = true;
+  plugin.calendarEvents = () => [
+    { uid: "exam", summary: "AP Biology Exam", allDay: false, dtstart: examStart, dtend: examEnd, dateKey: dayKey(examStart) },
+  ];
+  const dom = makeDom();
+  const view = new T.TodayView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  assert.ok(dom.texts().some((text) => text.includes("Attached resource")));
+  await dom.click("Detach from exam");
+  assert.equal(app.files[0].fm.exam_uid, undefined, "the binding is removed from frontmatter");
+  assert.ok(dom.texts().some((text) => text.includes("Saved resource")));
+  assert.ok(dom.texts().includes("Attach to exam"), "the note can be attached again");
+});
+
 test("today: a stale saved resource is labelled instead of hidden", async () => {
   const now = new Date();
   const examStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 9, 0);

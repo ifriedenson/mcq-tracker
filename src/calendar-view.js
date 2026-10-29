@@ -28,6 +28,7 @@ const {
   parseClassDetails,
   weekdayLabels,
 } = require("./calendar-model");
+const { isAttachedToExam, recommendApResource, resourceTitle } = require("./ap-exam-resources");
 
 
 function detailsOf(event) {
@@ -537,7 +538,8 @@ class CalendarView extends ItemView {
     const panel = container.createDiv({ cls: "uni-exam-panel" });
     panel.createDiv({ cls: "uni-exam-panel-title", text: "Upcoming exams" });
     for (const exam of exams) {
-      const row = panel.createEl("button", { cls: "uni-exam-row" });
+      const item = panel.createDiv({ cls: "uni-exam-item" });
+      const row = item.createEl("button", { cls: "uni-exam-row" });
       const name = str(exam.summary) || "Exam";
       row.setAttr("aria-label", `Open note for ${name}`);
       row.createDiv({ cls: "uni-exam-name", text: name });
@@ -551,7 +553,32 @@ class CalendarView extends ItemView {
           .then(() => this.plugin.refreshCalendarViews())
           .catch((err) => new Notice(str(err && err.message) || "Could not open the note."));
       });
+      const resource = this.attachedResource(exam);
+      if (!resource) continue;
+      const resourceRow = item.createDiv({ cls: "uni-exam-resource" });
+      resourceRow.createSpan({ cls: "uni-exam-resource-name", text: `Attached: ${resourceTitle(resource)}` });
+      const open = resourceRow.createEl("button", { cls: "uni-exam-resource-open", text: "Open" });
+      open.setAttr("aria-label", `Open the resource attached to ${name}`);
+      open.addEventListener("click", () => this.openResource(resource));
     }
+  }
+
+  /** Only an explicitly bound resource appears beside its exam; generic matches stay on Today. */
+  attachedResource(exam) {
+    const p = this.plugin;
+    if (!p.referenceEnabled || !p.referenceEnabled() || !p.getApResourceNotes) return null;
+    const picked = recommendApResource(exam, p.getApResourceNotes());
+    return picked && isAttachedToExam(picked, exam) ? picked : null;
+  }
+
+  openResource(entry) {
+    if (!this.app || !entry) return;
+    const file = this.app.vault.getAbstractFileByPath(entry.path);
+    if (file) {
+      this.app.workspace.getLeaf("tab").openFile(file);
+      return;
+    }
+    if (this.app.workspace.openLinkText) this.app.workspace.openLinkText(entry.path, "", false);
   }
 
   renderMonthHeader(card, title, mode) {

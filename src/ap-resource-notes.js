@@ -97,6 +97,15 @@ function attachFrontmatter(fm, exam) {
   };
 }
 
+/** Remove the exam binding without touching the resource's course or link. */
+function detachFrontmatter(fm) {
+  const next = { ...(fm || {}) };
+  delete next.exam_uid;
+  delete next.exam_date;
+  delete next.exam_title;
+  return next;
+}
+
 /** Build a link-only resource note. The body never contains AP material. */
 function buildApResourceNote(course, resource, unit, checkedOn) {
   if (!course || !resource || !resource.url) return null;
@@ -202,6 +211,7 @@ module.exports = {
   attachFrontmatter,
   buildApResourceNote,
   daysSince,
+  detachFrontmatter,
   entryFromFrontmatter,
   findApResourceNote,
   isStale,

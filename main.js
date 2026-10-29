@@ -1316,6 +1316,15 @@ function attachFrontmatter(fm, exam) {
   };
 }
 
+/** Remove the exam binding without touching the resource's course or link. */
+function detachFrontmatter(fm) {
+  const next = { ...(fm || {}) };
+  delete next.exam_uid;
+  delete next.exam_date;
+  delete next.exam_title;
+  return next;
+}
+
 /** Build a link-only resource note. The body never contains AP material. */
 function buildApResourceNote(course, resource, unit, checkedOn) {
   if (!course || !resource || !resource.url) return null;
@@ -1421,6 +1430,7 @@ module.exports = {
   attachFrontmatter,
   buildApResourceNote,
   daysSince,
+  detachFrontmatter,
   entryFromFrontmatter,
   findApResourceNote,
   isStale,
@@ -5435,6 +5445,7 @@ const {
   parseClassDetails,
   weekdayLabels,
 } = require("./calendar-model");
+const { isAttachedToExam, recommendApResource, resourceTitle } = require("./ap-exam-resources");
 
 
 function detailsOf(event) {
@@ -5944,7 +5955,8 @@ class CalendarView extends ItemView {
     const panel = container.createDiv({ cls: "uni-exam-panel" });
     panel.createDiv({ cls: "uni-exam-panel-title", text: "Upcoming exams" });
     for (const exam of exams) {
-      const row = panel.createEl("button", { cls: "uni-exam-row" });
+      const item = panel.createDiv({ cls: "uni-exam-item" });
+      const row = item.createEl("button", { cls: "uni-exam-row" });
       const name = str(exam.summary) || "Exam";
       row.setAttr("aria-label", `Open note for ${name}`);
       row.createDiv({ cls: "uni-exam-name", text: name });
@@ -5958,7 +5970,32 @@ class CalendarView extends ItemView {
           .then(() => this.plugin.refreshCalendarViews())
           .catch((err) => new Notice(str(err && err.message) || "Could not open the note."));
       });
+      const resource = this.attachedResource(exam);
+      if (!resource) continue;
+      const resourceRow = item.createDiv({ cls: "uni-exam-resource" });
+      resourceRow.createSpan({ cls: "uni-exam-resource-name", text: `Attached: ${resourceTitle(resource)}` });
+      const open = resourceRow.createEl("button", { cls: "uni-exam-resource-open", text: "Open" });
+      open.setAttr("aria-label", `Open the resource attached to ${name}`);
+      open.addEventListener("click", () => this.openResource(resource));
     }
+  }
+
+  /** Only an explicitly bound resource appears beside its exam; generic matches stay on Today. */
+  attachedResource(exam) {
+    const p = this.plugin;
+    if (!p.referenceEnabled || !p.referenceEnabled() || !p.getApResourceNotes) return null;
+    const picked = recommendApResource(exam, p.getApResourceNotes());
+    return picked && isAttachedToExam(picked, exam) ? picked : null;
+  }
+
+  openResource(entry) {
+    if (!this.app || !entry) return;
+    const file = this.app.vault.getAbstractFileByPath(entry.path);
+    if (file) {
+      this.app.workspace.getLeaf("tab").openFile(file);
+      return;
+    }
+    if (this.app.workspace.openLinkText) this.app.workspace.openLinkText(entry.path, "", false);
   }
 
   renderMonthHeader(card, title, mode) {
@@ -22138,7 +22175,7 @@ const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
-const { attachFrontmatter, buildApResourceNote, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
+const { attachFrontmatter, buildApResourceNote, detachFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -23476,6 +23513,21 @@ class QuestionTrackerPlugin extends Plugin {
       data.exam_title = next.exam_title;
     });
     return resourceNoteEntry({ ...fm, ...next }, path);
+  }
+
+  /** Removes the exam binding from a saved resource note. */
+  async detachApResourceFromExam(path) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    if (!this.app.fileManager || !this.app.fileManager.processFrontMatter) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    const next = detachFrontmatter(fm);
+    await this.app.fileManager.processFrontMatter(file, (data) => {
+      delete data.exam_uid;
+      delete data.exam_date;
+      delete data.exam_title;
+    });
+    return resourceNoteEntry(next, path);
   }
 
   async openApScore() {
@@ -31516,6 +31568,9 @@ class TodayView extends ItemView {
         if (!attached && p.attachApResourceToExam) {
           row.createEl("button", { text: "Attach to exam", cls: "qt-link" }).addEventListener("click", () => this.attachResource(resource, exam));
         }
+        if (attached && p.detachApResourceFromExam) {
+          row.createEl("button", { text: "Detach from exam", cls: "qt-link" }).addEventListener("click", () => this.detachResource(resource));
+        }
         row.createEl("button", { text: "Open resource", cls: "qt-link" }).addEventListener("click", () => this.openResource(resource));
       }
     }
@@ -31528,6 +31583,16 @@ class TodayView extends ItemView {
       this.render();
     } catch (err) {
       new Notice(err && err.message ? err.message : "Could not attach that resource.");
+    }
+  }
+
+  async detachResource(entry) {
+    if (!this.plugin.detachApResourceFromExam) return;
+    try {
+      await this.plugin.detachApResourceFromExam(entry.path);
+      this.render();
+    } catch (err) {
+      new Notice(err && err.message ? err.message : "Could not detach that resource.");
     }
   }
 

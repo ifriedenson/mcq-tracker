@@ -623,6 +623,44 @@ test("view: upcoming exams are restored with countdowns", async () => {
   assert.ok(row && row.meta.tag === "button", "exam rows are real buttons");
 });
 
+test("view: an exam's attached AP resource is shown with an open action", async () => {
+  const icsText = wrap(event({ uid: "final", summary: "AP Biology Exam", start: stamp(at(7, 9)), end: stamp(at(7, 11)) }));
+  const resourcePath = "AP resources/AP Biology/Released FRQs.md";
+  const app = makeApp([
+    { path: "schedule.ics", text: icsText, noFm: true },
+    {
+      path: resourcePath,
+      fm: {
+        type: "ap_resource",
+        ap_course: "ap-biology",
+        course: "AP Biology",
+        resource_type: "practice",
+        source_url: "https://apcentral.collegeboard.org/courses/ap-biology/exam/past-exam-questions",
+        checked_on: local(new Date()),
+        official: true,
+        exam_uid: "final",
+        exam_date: local(at(7, 9)),
+        exam_title: "AP Biology Exam",
+      },
+      text: "An official AP resource link.",
+    },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  await plugin.addCalendarFileSource("schedule.ics");
+  plugin.settings.calendar.enabled = true;
+  plugin.settings.reference.enabled = true;
+  const dom = makeDom();
+  const view = new T.CalendarView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  assert.ok(dom.texts().includes("Attached: Released FRQs"), "the attached resource appears beside its exam");
+  await dom.click("Open");
+  assert.deepEqual(app.opened, [resourcePath]);
+});
+
 test("view: free time opens a study-slot chooser with durations and a buffer", async () => {
   const icsText = wrap(
     event({ uid: "a", start: stamp(at(0, 9)), end: stamp(at(0, 10)) }),

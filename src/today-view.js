@@ -364,6 +364,9 @@ class TodayView extends ItemView {
         if (!attached && p.attachApResourceToExam) {
           row.createEl("button", { text: "Attach to exam", cls: "qt-link" }).addEventListener("click", () => this.attachResource(resource, exam));
         }
+        if (attached && p.detachApResourceFromExam) {
+          row.createEl("button", { text: "Detach from exam", cls: "qt-link" }).addEventListener("click", () => this.detachResource(resource));
+        }
         row.createEl("button", { text: "Open resource", cls: "qt-link" }).addEventListener("click", () => this.openResource(resource));
       }
     }
@@ -376,6 +379,16 @@ class TodayView extends ItemView {
       this.render();
     } catch (err) {
       new Notice(err && err.message ? err.message : "Could not attach that resource.");
+    }
+  }
+
+  async detachResource(entry) {
+    if (!this.plugin.detachApResourceFromExam) return;
+    try {
+      await this.plugin.detachApResourceFromExam(entry.path);
+      this.render();
+    } catch (err) {
+      new Notice(err && err.message ? err.message : "Could not detach that resource.");
     }
   }
 

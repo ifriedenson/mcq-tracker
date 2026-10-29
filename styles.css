@@ -1181,6 +1181,33 @@
   white-space: nowrap;
 }
 
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-item {
+  display: flex;
+  flex-direction: column;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-resource {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 8px 6px 14px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-resource-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-exam-resource-open {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  font-size: 0.72rem;
+}
+
 /* Study-slot chooser (it lives in a modal, outside the calendar container). */
 .uni-study-slot {
   display: flex;

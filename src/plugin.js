@@ -41,7 +41,7 @@ const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
-const { attachFrontmatter, buildApResourceNote, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
+const { attachFrontmatter, buildApResourceNote, detachFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -1379,6 +1379,21 @@ class QuestionTrackerPlugin extends Plugin {
       data.exam_title = next.exam_title;
     });
     return resourceNoteEntry({ ...fm, ...next }, path);
+  }
+
+  /** Removes the exam binding from a saved resource note. */
+  async detachApResourceFromExam(path) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    if (!this.app.fileManager || !this.app.fileManager.processFrontMatter) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    const next = detachFrontmatter(fm);
+    await this.app.fileManager.processFrontMatter(file, (data) => {
+      delete data.exam_uid;
+      delete data.exam_date;
+      delete data.exam_title;
+    });
+    return resourceNoteEntry(next, path);
   }
 
   async openApScore() {
