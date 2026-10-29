@@ -18,6 +18,7 @@ const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { CourseNotesModal } = require("./course-notes");
 const { DocumentReviewModal } = require("./document-review-modal");
+const { OcrModal } = require("./ocr-modal");
 const { PaperScannerModal } = require("./paper-scanner");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const { sidecarPathFor } = require("./pdf-annotations");
@@ -144,6 +145,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
     this.addCommand({ id: "paper-scanner", name: "Paper scanner: photos to PDF", callback: () => this.openPaperScanner() });
     this.addCommand({ id: "document-review", name: "Review a document for import", callback: () => this.openDocumentReview() });
+    this.addCommand({ id: "ocr-pdf", name: "OCR a scanned PDF with AI vision", callback: () => this.openOcr() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
     this.addCommand({
@@ -691,6 +693,10 @@ class QuestionTrackerPlugin extends Plugin {
 
   openDocumentReview(options) {
     new DocumentReviewModal(this.app, this, options).open();
+  }
+
+  openOcr(onDone) {
+    new OcrModal(this.app, this, onDone).open();
   }
 
   openPaperScanner(onDone) {
@@ -1993,6 +1999,14 @@ class QuestionTrackerPlugin extends Plugin {
       return text;
     }
     return new ApiClient(ai).chat(system, [{ role: "user", content: user }], opts);
+  }
+
+  /** Opt-in image request for OCR. Only Direct AI can receive page images. */
+  async aiVision(system, prompt, images, opts) {
+    const ai = this.settings.ai;
+    if (!ai.enabled) throw new Error("Turn on AI features in the plugin settings first.");
+    if (this.backend() !== "api") throw new Error("Vision OCR needs the Direct AI backend; OpenCode cannot receive page images through this plugin.");
+    return new ApiClient(ai).vision(system, prompt, images, opts);
   }
 
   gradeCardWithAi(card, typed, strictness) {

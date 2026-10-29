@@ -2210,6 +2210,14 @@
   margin-top: 10px;
 }
 
+.qt-ocr-text {
+  width: 100%;
+  min-height: 140px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+  line-height: 1.45;
+}
+
 .qt-imp-list {
   max-height: 46vh;
   overflow-y: auto;

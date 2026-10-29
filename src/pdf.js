@@ -326,6 +326,35 @@ function slugId(s) {
   return str(s).toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "Q";
 }
 
+/** Renders selected PDF pages to PNG for an explicit OCR request. */
+async function renderPdfPagesAsPng(buf, spec, progress, scale) {
+  if (typeof loadPdfJs !== "function") throw new Error("This version of Obsidian can't read PDFs from plugins.");
+  const pdfjs = await loadPdfJs();
+  let doc;
+  try {
+    doc = await pdfjs.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+  } catch (e) {
+    throw new Error("I couldn't open that PDF. It may be damaged or password protected.");
+  }
+  try {
+    const wanted = parsePageRange(spec, doc.numPages);
+    const pages = [];
+    for (let i = 0; i < wanted.length; i++) {
+      const n = wanted[i];
+      if (progress) progress(`Rendering page ${n} (${i + 1} of ${wanted.length})...`);
+      const page = await doc.getPage(n);
+      const { canvas } = await renderPage(page, Math.max(0.5, Number(scale) || 1.5));
+      const png = await canvasToPng(canvas);
+      canvas.width = 0;
+      canvas.height = 0;
+      pages.push({ n, png });
+    }
+    return { pages, total: doc.numPages };
+  } finally {
+    if (doc && typeof doc.destroy === "function") await doc.destroy().catch(() => {});
+  }
+}
+
 module.exports = {
   parsePageRange,
   matMul,
@@ -338,6 +367,7 @@ module.exports = {
   canvasToPng,
   cropToPng,
   readPdfPages,
+  renderPdfPagesAsPng,
   chunkPages,
   chunkText,
   slugId,

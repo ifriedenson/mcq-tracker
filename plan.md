@@ -1211,7 +1211,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Local course-notes import for PDF, slide, Word and text sources, with page/slide headings, source links and optional PDF figure copying (§5.13) — shipped in 1.43.0
 - [x] Optional AI summary and key-terms section for course notes, marked with the model and preserved when the summary fails (§5.13) — shipped in 1.44.0; OCR and auto-classification remain
 - [x] Paper scanner: camera or photos → crop, rotate, reorder → one PDF saved in the vault (§5.13.1) — shipped in 1.46.0; OCR and automatic item classification remain
-- [ ] OCR for image-only scans, with a local option and an opt-in BYOK vision/OCR option; show confidence and let the user correct text (§5.13.1)
+- [x] OCR for image-only scans: opt-in BYOK vision path shipped in 1.48.0 with editable per-page text and a Markdown OCR note; a bundled local OCR engine remains (licence review)
 - [x] Auto-classify a text document as MCQ, FRQ, mixed, cards or notes, then route it through the existing importers (§5.13.1) — shipped in 1.47.0; OCR for image-only scans remains
 - [x] Provenance links from generated items back to the source PDF page (§5.13.1) — shared with 1.36.0
 - [x] First-run welcome screen with presets, module toggles and a short how-to guide (§5.21) — shipped in 1.28.0

@@ -42,6 +42,71 @@ class ApiClient {
       model: str(a.model).trim(),
     };
   }
+  async vision(system, prompt, images, opts) {
+    const { preset, base, key, model } = this.cfg();
+    if (!base) throw new Error("Add a base URL in the plugin settings.");
+    if (!model) throw new Error("Add a model name in the plugin settings.");
+    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    const list = (Array.isArray(images) ? images : []).filter((image) => image && image.data);
+    if (!list.length) throw new Error("There are no page images to send.");
+
+    let url, headers, body;
+    if (preset.kind === "anthropic") {
+      url = `${base}/v1/messages`;
+      headers = { "x-api-key": key, "anthropic-version": "2023-06-01" };
+      body = {
+        model,
+        max_tokens: (opts && opts.maxTokens) || 1800,
+        system,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              ...list.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mime || "image/png", data: image.data } })),
+            ],
+          },
+        ],
+      };
+    } else {
+      url = `${base}/chat/completions`;
+      headers = key ? { Authorization: `Bearer ${key}` } : {};
+      body = {
+        model,
+        messages: [
+          { role: "system", content: system },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              ...list.map((image) => ({ type: "image_url", image_url: { url: `data:${image.mime || "image/png"};base64,${image.data}` } })),
+            ],
+          },
+        ],
+      };
+    }
+    const r = await requestUrl({ url, method: "POST", headers, contentType: "application/json", body: JSON.stringify(body), throw: false });
+    let data = null;
+    try {
+      data = r.json;
+    } catch (e) {
+      /* not JSON */
+    }
+    if (r.status >= 400) {
+      const em = data && data.error ? data.error.message || data.error : r.text;
+      throw new Error(`HTTP ${r.status}: ${str(typeof em === "string" ? em : JSON.stringify(em)).slice(0, 300)}`);
+    }
+    let text = "";
+    if (preset.kind === "anthropic") {
+      text = ((data && data.content) || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+    } else {
+      const c = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+      text = Array.isArray(c) ? c.map((x) => x.text || "").join("") : str(c);
+    }
+    if (!text.trim()) throw new Error("The provider returned an empty reply.");
+    return text;
+  }
+
   async chat(system, messages, opts) {
     const { preset, base, key, model } = this.cfg();
     if (!base) throw new Error("Add a base URL in the plugin settings.");

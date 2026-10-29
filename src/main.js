@@ -51,6 +51,8 @@ const courseNotes = require("./course-notes");
 const paperScanner = require("./paper-scanner");
 const documentClassify = require("./document-classify");
 const { DocumentReviewModal } = require("./document-review-modal");
+const ocr = require("./ocr");
+const { OcrModal } = require("./ocr-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
 const { loadQuestionData } = require("./view-helpers");
 const offline = require("./offline");
@@ -219,6 +221,8 @@ QuestionTrackerPlugin.__test = {
   paperScanner,
   documentClassify,
   DocumentReviewModal,
+  ocr,
+  OcrModal,
   documents,
   QUICK_START_URL,
   aiReady,
