@@ -1246,6 +1246,19 @@ class PracticeView extends ItemView {
       });
     }
 
+    // ---- where this question came from (and a quick way back on a miss)
+    const source = p.sourceInfo ? p.sourceInfo(r.fm, path) : null;
+    if (source && source.has) {
+      const sourceRow = root.createDiv({ cls: "qt-source" });
+      sourceRow.createSpan({ cls: "qt-source-label", text: "Source" });
+      sourceRow.createSpan({ cls: "qt-source-name", text: source.detail });
+      if (!r.correct) {
+        const reread = sourceRow.createEl("button", { text: "Reread this", cls: "qt-link" });
+        reread.setAttr("aria-label", `Reread the source${source.page ? ` at page ${source.page}` : ""}`);
+        reread.addEventListener("click", () => p.openSource(r.fm, path));
+      }
+    }
+
     // ---- review: the question and choices again, with your pick and the key marked
     const rv = root.createDiv({ cls: "qt-review" });
     this.md(r.sections.question || "", rv.createDiv({ cls: "qt-stem" }), path);

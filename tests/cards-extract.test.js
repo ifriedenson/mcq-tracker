@@ -113,6 +113,7 @@ test("plugin: previews and extracts cards from a note, then stamps the opt-in", 
   assert.equal(preview.cards.length, 7);
   assert.equal(preview.deck, "Biology");
   assert.equal(preview.course, "BIOL 201");
+  assert.ok(preview.cards.every((card) => card.sourceNote === "Courses/Bio/lecture.md"));
   assert.equal(app.created, undefined, "preview writes nothing");
 
   const result = await plugin.extractCardsFromNote("Courses/Bio/lecture.md", { deck: "Biology", course: "BIOL 201" });
@@ -120,6 +121,7 @@ test("plugin: previews and extracts cards from a note, then stamps the opt-in", 
   assert.equal(app.created.length, 7);
   assert.match(app.created[0].text, /import_format: "outline"/);
   assert.match(app.created[0].text, /import_source: "Courses\/Bio\/lecture.md"/);
+  assert.match(app.created[0].text, /source_note: "Courses\/Bio\/lecture.md"/);
   assert.match(app.created[0].text, /deck: "Biology"/);
   assert.match(app.created[0].text, /course: "BIOL 201"/);
   assert.equal(app.files.find((f) => f.path === "Courses/Bio/lecture.md").fm.flashcards, true);

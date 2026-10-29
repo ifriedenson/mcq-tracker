@@ -48,6 +48,7 @@ const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
 const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { normalizeTutorRole } = require("./tutor-presets");
+const { findSourceFile, sourceOf } = require("./provenance");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -1186,6 +1187,35 @@ class QuestionTrackerPlugin extends Plugin {
     return nextStatus;
   }
 
+  /** Provenance for a question, with a fallback to the older plain `source` name. */
+  sourceInfo(fm, notePath) {
+    const direct = sourceOf(fm);
+    if (direct.has) return direct;
+    const file = findSourceFile(this.app.vault.getFiles(), fm, notePath);
+    return file ? sourceOf({ ...(fm || {}), source_pdf: file.path }) : direct;
+  }
+
+  /** Open the source note or the exact PDF page. */
+  async openSource(fm, notePath) {
+    const source = this.sourceInfo(fm, notePath);
+    if (!source.has) {
+      new Notice("This note has no source link. Imported questions get one automatically.");
+      return false;
+    }
+    const target = source.link.replace(/^\[\[|\]\]$/g, "");
+    if (this.app.workspace.openLinkText) {
+      await this.app.workspace.openLinkText(target, notePath || "", false);
+      return true;
+    }
+    const file = source.path ? this.app.vault.getAbstractFileByPath(source.path) : null;
+    if (file instanceof TFile) {
+      await this.app.workspace.getLeaf("tab").openFile(file);
+      return true;
+    }
+    new Notice("The source is not in this vault.");
+    return false;
+  }
+
   async openAssignmentNote(assignment) {
     if (!assignment) return;
     const file = assignment.file || this.app.vault.getAbstractFileByPath(assignment.path);
@@ -1301,7 +1331,9 @@ class QuestionTrackerPlugin extends Plugin {
     const course = str(opts.course).trim() || str(fm.course).trim() || courseForFolder(this.settings, file.path) || "";
     const tags = Array.isArray(fm.tags) ? fm.tags : [];
     const parsed = extractCardsFromMarkdown(text, { sourcePath: file.path, deck, course, tags });
-    return { ...parsed, file, fm, deck, course, flashcards: flag };
+    // Keep a durable link to the lecture or source note, not just the import label.
+    const cards = parsed.cards.map((card) => ({ ...card, sourceNote: file.path }));
+    return { ...parsed, cards, file, fm, deck, course, flashcards: flag };
   }
 
   /** Write previewed extraction cards. The note is stamped after the first successful write. */

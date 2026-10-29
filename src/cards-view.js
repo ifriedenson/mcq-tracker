@@ -618,6 +618,15 @@ class CardView extends ItemView {
       this.md(card.body.example, answer.createDiv({ cls: "qt-cards-example" }), card.file.path);
     }
 
+    const source = this.plugin.sourceInfo ? this.plugin.sourceInfo(card.fm, card.file.path) : null;
+    if (source && source.has) {
+      const sourceRow = root.createDiv({ cls: "qt-source" });
+      sourceRow.createSpan({ cls: "qt-source-label", text: "Source" });
+      sourceRow.createSpan({ cls: "qt-source-name", text: source.detail });
+      const openSource = sourceRow.createEl("button", { text: "Reread source", cls: "qt-link" });
+      openSource.addEventListener("click", () => this.plugin.openSource(card.fm, card.file.path));
+    }
+
     const ratings = root.createDiv({ cls: "qt-cards-ratings" });
     const buttons = [
       ["again", "Again", "1"],

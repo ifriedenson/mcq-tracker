@@ -5,6 +5,7 @@ const { TRACKING_DEFAULTS } = require("./constants");
 const { HEAD_ALIASES, extractRationale, fillDefaults, parseSections } = require("./notes");
 const { chunkText } = require("./pdf");
 const { officialIdOf } = require("./filters");
+const { normalizePage, sourceLink } = require("./provenance");
 
 /* ---- checking imported notes */
 
@@ -83,6 +84,7 @@ function buildReportMarkdown(folder, issues, dupes, date) {
 const KNOWN_PROPS = new Set([
   "question_id", "official_question_id", "source_question_id", "pdf_question_id", "original_id", "number", "test", "course", "section", "domain", "skill", "unit", "difficulty", "source",
   "stimulus_id", "question_type", "choices", "answer", "answer_source", "explanation_source", "ai_model", "ai_generated",
+  "source_pdf", "source_document", "source_note", "source_file", "source_page", "source_heading", "source_link", "source_scan_id", "scan_date", "ocr_source", "ocr_confidence",
   ...Object.keys(TRACKING_DEFAULTS),
 ]);
 
@@ -95,6 +97,7 @@ answer: B
 answer_source: pdf
 explanation_source: pdf
 stimulus_id: PREFIX-S01
+source_page: 3
 ---
 
 ## Stimulus
@@ -127,6 +130,7 @@ const IMPORT_RULES = `Rules:
 - Layout of question-bank documents: a question often starts with a line like "Question ID: 37e5c794", then a small table of labels, then "Question" followed by the question text, then the choices (sometimes under a heading called "Answer"), then "Correct Answer: D", then "Rationale". Everything from the start of the question text up to the first choice is the question: keep both the sentence with the blank (leave the blank as written, for example ______) and the instruction sentence after it ("Which choice completes the text..."). The choices go under "## Answer Choices", the correct letter goes in "answer", and the "Rationale" or "Explanation" text is the explanation.
 - Answer: if the document shows the correct answer anywhere (for example an answer key at the end), use it and set answer_source: pdf. If the document does NOT show it, work the question out carefully yourself, give your best answer, and set answer_source: ai. For a multiple-choice answer use just the letter.
 - Explanation: if the document gives one, copy it and set explanation_source: pdf. Otherwise write a short, correct explanation of why the answer is right (and why the others are wrong) and set explanation_source: ai.
+- source_page: the page or slide number where the question begins, taken from the '--- Page N ---' marker. Use a number, or a range like 3-4 when a question spans pages. Leave it out if you cannot tell. Do not invent a page. The plugin adds the source file path and link itself.
 - Do not write any "AI-generated" notice yourself. The plugin adds it.
 - Never put a line starting with # inside the question, passage, choices or explanation.
 - Properties from the document: besides the ones in the example, add a line for every piece of information the document shows for that question, or for the whole document (a title page or running header that names the test, for example). Leave a line out when the document does not show it, and never guess a value. Copy values exactly as written, except difficulty, which you write in lower case (easy, medium or hard):
@@ -321,6 +325,29 @@ function finalizeNote(text, meta, qid, stamp) {
   }
   const stimId = stamp.stimId !== undefined ? stamp.stimId : src.stimulus_id;
   if (stimId && str(sec.stimulus).trim()) fm.stimulus_id = str(stimId);
+
+  // Provenance: keep an explicit source if the note already names one, otherwise
+  // use the copied file the import modal passes in. The page is optional.
+  const sourcePath = str(stamp.sourcePath || src.source_pdf || src.source_document || src.source_note || "").replace(/^\/+|\/+$/g, "");
+  const page = normalizePage(src.source_page || src.pdf_page || src.page || stamp.sourcePage);
+  const heading = str(src.source_heading || src.source_heading_text || "").trim();
+  if (sourcePath) {
+    if (stamp.sourceKind === "pdf" || /\.pdf$/i.test(sourcePath)) fm.source_pdf = sourcePath;
+    else fm.source_document = sourcePath;
+    if (page) fm.source_page = page;
+    if (heading) fm.source_heading = heading;
+    fm.source_link = sourceLink(sourcePath, page, heading);
+  } else if (src.source_pdf || src.source_document || src.source_note) {
+    if (src.source_pdf) fm.source_pdf = str(src.source_pdf);
+    if (src.source_document) fm.source_document = str(src.source_document);
+    if (src.source_note) fm.source_note = str(src.source_note);
+    if (page) fm.source_page = page;
+    if (heading) fm.source_heading = heading;
+    fm.source_link = str(src.source_link) || sourceLink(fm.source_pdf || fm.source_document || fm.source_note, page, heading);
+  }
+  for (const k of ["source_scan_id", "scan_date", "ocr_source", "ocr_confidence"]) {
+    if (src[k] !== undefined && src[k] !== null && str(src[k]).trim() !== "") fm[k] = src[k];
+  }
 
   const type = sec.choices.length ? "mcq" : "spr";
   fm.question_type = type;

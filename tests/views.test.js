@@ -32,6 +32,40 @@ function makeView(Cls, plugin, app, dom) {
   return v;
 }
 
+test("practice result: shows the source and lets a miss reread the exact page", async () => {
+  const { app, plugin, dom } = await setup();
+  const file = app.files.find((f) => f.path === "Questions/sat/Q1.md");
+  file.fm.source_pdf = "Papers/Exam.pdf";
+  file.fm.source_page = 4;
+  let opened = null;
+  plugin.openSource = async (fm, path) => {
+    opened = { fm, path };
+    return true;
+  };
+  const v = makeView(T.PracticeView, plugin, app, dom);
+  v.state = "result";
+  v.result = {
+    file,
+    correct: false,
+    chosen: "A",
+    key: "B",
+    mode: "mcq",
+    seconds: 12,
+    summary: { streak: 0, correctCount: 2, attempts: 6, nextReview: "tomorrow" },
+    errorType: "",
+    flagged: false,
+    sections: T.parseSections(file.text),
+    fm: file.fm,
+    conf: 1,
+  };
+  v.render();
+  assert.ok(dom.texts().includes("Source"));
+  assert.ok(dom.texts().some((text) => /Exam\.pdf · page 4/.test(text)));
+  await dom.click("Reread this");
+  assert.equal(opened.path, "Questions/sat/Q1.md");
+  assert.equal(opened.fm.source_page, 4);
+});
+
 test("practice view: shows and clears the practice-this-note-only banner", async () => {
   const { app, plugin, dom } = await setup();
   plugin.settings.practicePath = "Questions/sat/Q1.md";

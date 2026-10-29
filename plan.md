@@ -1206,11 +1206,12 @@ These are **research and specification items**, not implementation work. The AP 
 
 ### Phase 7: Ingestion, interop, polish
 
-- [ ] Source ingestion extensions, provenance links, transcript-to-practice flow (§5.13, §5.14)
+- [x] Provenance links on imported questions and extracted cards, with a source action on a miss (§5.13, §5.14) — shipped in 1.36.0
+- [ ] Source ingestion extensions and transcript-to-practice flow (§5.13, §5.14)
 - [ ] Paper scanner: camera or photos → crop/reorder → one PDF saved in the vault (§5.13.1)
 - [ ] OCR for image-only scans, with a local option and an opt-in BYOK vision/OCR option; show confidence and let the user correct text (§5.13.1)
 - [ ] Auto-classify a scanned document as MCQ, FRQ, mixed, cards or notes, then route it through the existing importers (§5.13.1)
-- [ ] Provenance links from generated items back to the source PDF page (§5.13.1)
+- [x] Provenance links from generated items back to the source PDF page (§5.13.1) — shared with 1.36.0
 - [x] First-run welcome screen with presets, module toggles and a short how-to guide (§5.21) — shipped in 1.28.0
 - [x] Reopen the welcome from a command and settings, and remember dismissal per device (§5.21) — shipped in 1.28.0
 - [ ] Optional feedback survey and donation links, added later and never gating features (§5.21)
@@ -2568,7 +2569,8 @@ Names are proposals; keep existing ones unchanged.
 
 ### Phase 7: Ingestion, interop, polish
 
-- [ ] Source ingestion extensions, provenance links, transcript-to-practice flow (§5.13, §5.14)
+- [x] Provenance links on imported questions and extracted cards, with a source action on a miss (§5.13, §5.14) — shipped in 1.36.0
+- [ ] Source ingestion extensions and transcript-to-practice flow (§5.13, §5.14)
 - [ ] Remaining interop and CSV export (§5.15)
 - [ ] Pronunciation feedback for language learners (optional)
 - [ ] Handwritten-work photo grading (optional, vision models)

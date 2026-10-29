@@ -48,6 +48,43 @@ test("older property names for the id are saved as official_question_id", () => 
   }
 });
 
+test("provenance: imported notes keep the copied source, its page and a PDF page link", () => {
+  const out = T.finalizeNote(
+    NOTE("source_page: 3"),
+    {},
+    "X-Q01",
+    { ...STAMP, sourcePath: "Questions/Test 1/Test 1.pdf", sourceKind: "pdf" }
+  );
+  const { fm } = T.parseNote(out);
+  assert.equal(fm.source_pdf, "Questions/Test 1/Test 1.pdf");
+  assert.equal(fm.source_page, 3);
+  assert.equal(fm.source_link, "[[Questions/Test 1/Test 1.pdf#page=3]]");
+  assert.equal(fm.source_document, undefined);
+
+  const slide = T.finalizeNote(NOTE("source_page: 4"), {}, "X-Q02", {
+    ...STAMP,
+    sourcePath: "Questions/Test 1/Deck.pptx",
+    sourceKind: "pptx",
+  });
+  assert.equal(T.parseNote(slide).fm.source_document, "Questions/Test 1/Deck.pptx");
+});
+
+test("provenance: source lookup accepts links, old source names and headings", () => {
+  const p = T.provenance;
+  assert.equal(p.normalizePage("page 12"), 12);
+  assert.equal(p.normalizePage("3-4"), "3-4");
+  assert.equal(p.sourceLink("Papers/Exam.pdf", 12), "[[Papers/Exam.pdf#page=12]]");
+  assert.equal(p.sourceLink("Notes/Lecture.md", "", "Key idea"), "[[Notes/Lecture.md#Key idea]]");
+  const info = p.sourceOf({ source_pdf: "[[Papers/Exam.pdf#page=12]]", source_page: 12 });
+  assert.equal(info.path, "Papers/Exam.pdf");
+  assert.match(info.detail, /Exam\.pdf · page 12/);
+  const files = [
+    { path: "Questions/Test 1/Test 1.pdf", basename: "Test 1" },
+    { path: "Elsewhere/Test 1.pdf", basename: "Test 1" },
+  ];
+  assert.equal(p.findSourceFile(files, { source: "Test 1" }, "Questions/Test 1/Q1.md").path, "Questions/Test 1/Test 1.pdf");
+});
+
 test("test, section, domain and skill come from the PDF; difficulty is lower-cased", () => {
   const fmText = "test: SAT\nsection: Reading and Writing\ndomain: Standard English Conventions\nskill: Form, Structure, and Sense\ndifficulty: Hard";
   const { fm } = T.parseNote(T.finalizeNote(NOTE(fmText), {}, "X-Q01", STAMP));

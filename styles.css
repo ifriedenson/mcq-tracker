@@ -2363,6 +2363,31 @@
   cursor: pointer;
 }
 
+/* ---- where this item came from ---- */
+
+.qt-source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-source-label {
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.qt-source-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 480px) {
   .qt-ins-row {
     grid-template-columns: minmax(0, 1fr) auto;

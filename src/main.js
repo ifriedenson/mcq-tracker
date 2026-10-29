@@ -71,6 +71,7 @@ const { ReferenceView } = require("./reference-view");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const dailyQuiz = require("./daily-quiz");
 const { renderDailySettings } = require("./daily-quiz-settings");
+const provenance = require("./provenance");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
@@ -176,6 +177,7 @@ QuestionTrackerPlugin.__test = {
   referenceGraph,
   ReferenceView,
   assignments,
+  provenance,
   AssignmentsView,
   AssignmentModal,
   renderAssignmentsSettings,

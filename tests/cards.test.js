@@ -233,6 +233,63 @@ test("cards: answer mode and strictness resolve from the card, deck and global d
   assert.equal(own.gradingStrictness, "standard");
 });
 
+test("cards: a card note keeps a durable source note, heading and page", () => {
+  const made = cards.cardNote({
+    deck: "Biology",
+    front: "What is a cell?",
+    back: "The basic unit of life.",
+    sourceNote: "Courses/Bio/lecture.md",
+    sourceHeading: "Cell theory",
+  });
+  assert.match(made.text, /source_note: "Courses\/Bio\/lecture.md"/);
+  assert.match(made.text, /source_heading: "Cell theory"/);
+  const pdf = cards.cardNote({
+    deck: "Biology",
+    front: "Label the organelle.",
+    back: "Nucleus",
+    sourcePdf: "Papers/Exam.pdf",
+    sourcePage: "4",
+    sourceLink: "[[Papers/Exam.pdf#page=4]]",
+  });
+  assert.match(pdf.text, /source_pdf: "Papers\/Exam\.pdf"/);
+  assert.match(pdf.text, /source_page: "4"/);
+  assert.match(pdf.text, /source_link: "\[\[Papers\/Exam\.pdf#page=4\]\]"/);
+});
+
+test("cards view: a card shows its source and opens it again", async () => {
+  const note = {
+    path: "Courses/Bio/cell.md",
+    noFm: true,
+    fm: {
+      card_id: "cell",
+      item_type: "card",
+      deck: "Biology",
+      source_note: "Courses/Bio/lecture.md",
+      source_heading: "Cell theory",
+    },
+    text: CARD_NOTE({}, "## Front\nWhat is a cell?\n\n## Back\nThe basic unit of life."),
+  };
+  const { app, plugin } = await setup([note]);
+  plugin.settings.cards.reviewLimit = 1;
+  let opened = null;
+  plugin.openSource = async (fm, path) => {
+    opened = { fm, path };
+    return true;
+  };
+  const card = plugin.getCards()[0];
+  const dom = makeDom();
+  const view = new T.CardView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  await view.reviewCard(card);
+  await dom.click("Show answer");
+  assert.ok(dom.texts().includes("Source"));
+  assert.ok(dom.texts().some((text) => /lecture\.md · Cell theory/.test(text)));
+  await dom.click("Reread source");
+  assert.equal(opened.path, "Courses/Bio/cell.md");
+  assert.equal(opened.fm.source_note, "Courses/Bio/lecture.md");
+});
+
 test("cards: answer-mode properties and accepted variants are written and parsed", () => {
   const made = cards.cardNote({
     deck: "Biology",

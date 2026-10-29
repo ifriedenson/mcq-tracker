@@ -401,6 +401,11 @@ function cardNote(input, now) {
   if (data.importBatch) lines.push(`import_batch: ${yamlString(data.importBatch)}`);
   if (data.importSourceUrl) lines.push(`import_source_url: ${yamlString(data.importSourceUrl)}`);
   if (data.importKey) lines.push(`import_key: ${yamlString(data.importKey)}`);
+  if (data.sourcePdf) lines.push(`source_pdf: ${yamlString(data.sourcePdf)}`);
+  if (data.sourceNote) lines.push(`source_note: ${yamlString(data.sourceNote)}`);
+  if (data.sourcePage) lines.push(`source_page: ${yamlString(data.sourcePage)}`);
+  if (data.sourceHeading) lines.push(`source_heading: ${yamlString(data.sourceHeading)}`);
+  if (data.sourceLink) lines.push(`source_link: ${yamlString(data.sourceLink)}`);
   if (data.questionSet) lines.push(`question_set: ${yamlString(data.questionSet)}`);
   const choices = Array.isArray(data.choices) ? data.choices : [];
   for (let i = 0; i < choices.length; i++) {

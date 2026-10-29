@@ -319,7 +319,12 @@ class PdfImportModal extends Modal {
     this.status("Checking the notes...");
     await sleep(1500);
     const model2 = str(ai.model).trim() || modelFromMessages(msgs) || "the AI model set up in OpenCode";
-    const result = await this.finishAgentNotes(folder, sourceName, { model: model2, date: localDate() });
+    const result = await this.finishAgentNotes(folder, sourceName, {
+      model: model2,
+      date: localDate(),
+      sourcePath,
+      sourceKind: kind,
+    });
     try {
       await this.app.vault.adapter.remove(textPath);
     } catch (e) {
@@ -646,12 +651,12 @@ class PdfImportModal extends Modal {
     el.createEl("h3", { text: "Creating notes" });
     this.statusEl = el.createDiv({ cls: "qt-hint", text: "Working..." });
     try {
-      const { folder, prefix } = this.ctx;
+      const { folder, prefix, sourcePath, kind } = this.ctx;
       const nums = chosen.map((q) => q.fm.number);
       const useNums = nums.every((n) => Number.isFinite(Number(n)) && n !== null && n !== "" && n !== undefined) && new Set(nums.map(Number)).size === nums.length;
       const stimIds = new Map();
       const meta = Object.assign({}, this.meta, { source: this.source });
-      const stamp = { model: this.modelLabel(), date: localDate() };
+      const stamp = { model: this.modelLabel(), date: localDate(), sourcePath, sourceKind: kind };
       const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [] };
       const existingIds = indexOfficialIds(this.plugin.getQuestions(), folder);
       const seenIds = new Map();

@@ -5420,6 +5420,11 @@ function cardNote(input, now) {
   if (data.importBatch) lines.push(`import_batch: ${yamlString(data.importBatch)}`);
   if (data.importSourceUrl) lines.push(`import_source_url: ${yamlString(data.importSourceUrl)}`);
   if (data.importKey) lines.push(`import_key: ${yamlString(data.importKey)}`);
+  if (data.sourcePdf) lines.push(`source_pdf: ${yamlString(data.sourcePdf)}`);
+  if (data.sourceNote) lines.push(`source_note: ${yamlString(data.sourceNote)}`);
+  if (data.sourcePage) lines.push(`source_page: ${yamlString(data.sourcePage)}`);
+  if (data.sourceHeading) lines.push(`source_heading: ${yamlString(data.sourceHeading)}`);
+  if (data.sourceLink) lines.push(`source_link: ${yamlString(data.sourceLink)}`);
   if (data.questionSet) lines.push(`question_set: ${yamlString(data.questionSet)}`);
   const choices = Array.isArray(data.choices) ? data.choices : [];
   for (let i = 0; i < choices.length; i++) {
@@ -8547,6 +8552,15 @@ class CardView extends ItemView {
     if (card.body.example) {
       answer.createDiv({ cls: "qt-cards-answer-label", text: "Example" });
       this.md(card.body.example, answer.createDiv({ cls: "qt-cards-example" }), card.file.path);
+    }
+
+    const source = this.plugin.sourceInfo ? this.plugin.sourceInfo(card.fm, card.file.path) : null;
+    if (source && source.has) {
+      const sourceRow = root.createDiv({ cls: "qt-source" });
+      sourceRow.createSpan({ cls: "qt-source-label", text: "Source" });
+      sourceRow.createSpan({ cls: "qt-source-name", text: source.detail });
+      const openSource = sourceRow.createEl("button", { text: "Reread source", cls: "qt-link" });
+      openSource.addEventListener("click", () => this.plugin.openSource(card.fm, card.file.path));
     }
 
     const ratings = root.createDiv({ cls: "qt-cards-ratings" });
@@ -13557,7 +13571,12 @@ class PdfImportModal extends Modal {
     this.status("Checking the notes...");
     await sleep(1500);
     const model2 = str(ai.model).trim() || modelFromMessages(msgs) || "the AI model set up in OpenCode";
-    const result = await this.finishAgentNotes(folder, sourceName, { model: model2, date: localDate() });
+    const result = await this.finishAgentNotes(folder, sourceName, {
+      model: model2,
+      date: localDate(),
+      sourcePath,
+      sourceKind: kind,
+    });
     try {
       await this.app.vault.adapter.remove(textPath);
     } catch (e) {
@@ -13884,12 +13903,12 @@ class PdfImportModal extends Modal {
     el.createEl("h3", { text: "Creating notes" });
     this.statusEl = el.createDiv({ cls: "qt-hint", text: "Working..." });
     try {
-      const { folder, prefix } = this.ctx;
+      const { folder, prefix, sourcePath, kind } = this.ctx;
       const nums = chosen.map((q) => q.fm.number);
       const useNums = nums.every((n) => Number.isFinite(Number(n)) && n !== null && n !== "" && n !== undefined) && new Set(nums.map(Number)).size === nums.length;
       const stimIds = new Map();
       const meta = Object.assign({}, this.meta, { source: this.source });
-      const stamp = { model: this.modelLabel(), date: localDate() };
+      const stamp = { model: this.modelLabel(), date: localDate(), sourcePath, sourceKind: kind };
       const result = { made: 0, ai: 0, noAnswer: 0, skipped: [], images: 0, ids: [], dupes: [], issues: [] };
       const existingIds = indexOfficialIds(this.plugin.getQuestions(), folder);
       const seenIds = new Map();
@@ -13963,6 +13982,7 @@ const { TRACKING_DEFAULTS } = require("./constants");
 const { HEAD_ALIASES, extractRationale, fillDefaults, parseSections } = require("./notes");
 const { chunkText } = require("./pdf");
 const { officialIdOf } = require("./filters");
+const { normalizePage, sourceLink } = require("./provenance");
 
 /* ---- checking imported notes */
 
@@ -14041,6 +14061,7 @@ function buildReportMarkdown(folder, issues, dupes, date) {
 const KNOWN_PROPS = new Set([
   "question_id", "official_question_id", "source_question_id", "pdf_question_id", "original_id", "number", "test", "course", "section", "domain", "skill", "unit", "difficulty", "source",
   "stimulus_id", "question_type", "choices", "answer", "answer_source", "explanation_source", "ai_model", "ai_generated",
+  "source_pdf", "source_document", "source_note", "source_file", "source_page", "source_heading", "source_link", "source_scan_id", "scan_date", "ocr_source", "ocr_confidence",
   ...Object.keys(TRACKING_DEFAULTS),
 ]);
 
@@ -14053,6 +14074,7 @@ answer: B
 answer_source: pdf
 explanation_source: pdf
 stimulus_id: PREFIX-S01
+source_page: 3
 ---
 
 ## Stimulus
@@ -14085,6 +14107,7 @@ const IMPORT_RULES = `Rules:
 - Layout of question-bank documents: a question often starts with a line like "Question ID: 37e5c794", then a small table of labels, then "Question" followed by the question text, then the choices (sometimes under a heading called "Answer"), then "Correct Answer: D", then "Rationale". Everything from the start of the question text up to the first choice is the question: keep both the sentence with the blank (leave the blank as written, for example ______) and the instruction sentence after it ("Which choice completes the text..."). The choices go under "## Answer Choices", the correct letter goes in "answer", and the "Rationale" or "Explanation" text is the explanation.
 - Answer: if the document shows the correct answer anywhere (for example an answer key at the end), use it and set answer_source: pdf. If the document does NOT show it, work the question out carefully yourself, give your best answer, and set answer_source: ai. For a multiple-choice answer use just the letter.
 - Explanation: if the document gives one, copy it and set explanation_source: pdf. Otherwise write a short, correct explanation of why the answer is right (and why the others are wrong) and set explanation_source: ai.
+- source_page: the page or slide number where the question begins, taken from the '--- Page N ---' marker. Use a number, or a range like 3-4 when a question spans pages. Leave it out if you cannot tell. Do not invent a page. The plugin adds the source file path and link itself.
 - Do not write any "AI-generated" notice yourself. The plugin adds it.
 - Never put a line starting with # inside the question, passage, choices or explanation.
 - Properties from the document: besides the ones in the example, add a line for every piece of information the document shows for that question, or for the whole document (a title page or running header that names the test, for example). Leave a line out when the document does not show it, and never guess a value. Copy values exactly as written, except difficulty, which you write in lower case (easy, medium or hard):
@@ -14279,6 +14302,29 @@ function finalizeNote(text, meta, qid, stamp) {
   }
   const stimId = stamp.stimId !== undefined ? stamp.stimId : src.stimulus_id;
   if (stimId && str(sec.stimulus).trim()) fm.stimulus_id = str(stimId);
+
+  // Provenance: keep an explicit source if the note already names one, otherwise
+  // use the copied file the import modal passes in. The page is optional.
+  const sourcePath = str(stamp.sourcePath || src.source_pdf || src.source_document || src.source_note || "").replace(/^\/+|\/+$/g, "");
+  const page = normalizePage(src.source_page || src.pdf_page || src.page || stamp.sourcePage);
+  const heading = str(src.source_heading || src.source_heading_text || "").trim();
+  if (sourcePath) {
+    if (stamp.sourceKind === "pdf" || /\.pdf$/i.test(sourcePath)) fm.source_pdf = sourcePath;
+    else fm.source_document = sourcePath;
+    if (page) fm.source_page = page;
+    if (heading) fm.source_heading = heading;
+    fm.source_link = sourceLink(sourcePath, page, heading);
+  } else if (src.source_pdf || src.source_document || src.source_note) {
+    if (src.source_pdf) fm.source_pdf = str(src.source_pdf);
+    if (src.source_document) fm.source_document = str(src.source_document);
+    if (src.source_note) fm.source_note = str(src.source_note);
+    if (page) fm.source_page = page;
+    if (heading) fm.source_heading = heading;
+    fm.source_link = str(src.source_link) || sourceLink(fm.source_pdf || fm.source_document || fm.source_note, page, heading);
+  }
+  for (const k of ["source_scan_id", "scan_date", "ocr_source", "ocr_confidence"]) {
+    if (src[k] !== undefined && src[k] !== null && str(src[k]).trim() !== "") fm[k] = src[k];
+  }
 
   const type = sec.choices.length ? "mcq" : "spr";
   fm.question_type = type;
@@ -16872,6 +16918,7 @@ const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
 const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { normalizeTutorRole } = require("./tutor-presets");
+const { findSourceFile, sourceOf } = require("./provenance");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -18010,6 +18057,35 @@ class QuestionTrackerPlugin extends Plugin {
     return nextStatus;
   }
 
+  /** Provenance for a question, with a fallback to the older plain `source` name. */
+  sourceInfo(fm, notePath) {
+    const direct = sourceOf(fm);
+    if (direct.has) return direct;
+    const file = findSourceFile(this.app.vault.getFiles(), fm, notePath);
+    return file ? sourceOf({ ...(fm || {}), source_pdf: file.path }) : direct;
+  }
+
+  /** Open the source note or the exact PDF page. */
+  async openSource(fm, notePath) {
+    const source = this.sourceInfo(fm, notePath);
+    if (!source.has) {
+      new Notice("This note has no source link. Imported questions get one automatically.");
+      return false;
+    }
+    const target = source.link.replace(/^\[\[|\]\]$/g, "");
+    if (this.app.workspace.openLinkText) {
+      await this.app.workspace.openLinkText(target, notePath || "", false);
+      return true;
+    }
+    const file = source.path ? this.app.vault.getAbstractFileByPath(source.path) : null;
+    if (file instanceof TFile) {
+      await this.app.workspace.getLeaf("tab").openFile(file);
+      return true;
+    }
+    new Notice("The source is not in this vault.");
+    return false;
+  }
+
   async openAssignmentNote(assignment) {
     if (!assignment) return;
     const file = assignment.file || this.app.vault.getAbstractFileByPath(assignment.path);
@@ -18125,7 +18201,9 @@ class QuestionTrackerPlugin extends Plugin {
     const course = str(opts.course).trim() || str(fm.course).trim() || courseForFolder(this.settings, file.path) || "";
     const tags = Array.isArray(fm.tags) ? fm.tags : [];
     const parsed = extractCardsFromMarkdown(text, { sourcePath: file.path, deck, course, tags });
-    return { ...parsed, file, fm, deck, course, flashcards: flag };
+    // Keep a durable link to the lecture or source note, not just the import label.
+    const cards = parsed.cards.map((card) => ({ ...card, sourceNote: file.path }));
+    return { ...parsed, cards, file, fm, deck, course, flashcards: flag };
   }
 
   /** Write previewed extraction cards. The note is stamped after the first successful write. */
@@ -20706,6 +20784,19 @@ class PracticeView extends ItemView {
       });
     }
 
+    // ---- where this question came from (and a quick way back on a miss)
+    const source = p.sourceInfo ? p.sourceInfo(r.fm, path) : null;
+    if (source && source.has) {
+      const sourceRow = root.createDiv({ cls: "qt-source" });
+      sourceRow.createSpan({ cls: "qt-source-label", text: "Source" });
+      sourceRow.createSpan({ cls: "qt-source-name", text: source.detail });
+      if (!r.correct) {
+        const reread = sourceRow.createEl("button", { text: "Reread this", cls: "qt-link" });
+        reread.setAttr("aria-label", `Reread the source${source.page ? ` at page ${source.page}` : ""}`);
+        reread.addEventListener("click", () => p.openSource(r.fm, path));
+      }
+    }
+
     // ---- review: the question and choices again, with your pick and the key marked
     const rv = root.createDiv({ cls: "qt-review" });
     this.md(r.sections.question || "", rv.createDiv({ cls: "qt-stem" }), path);
@@ -20839,6 +20930,146 @@ class PracticeView extends ItemView {
 
 module.exports = {
   PracticeView,
+};
+};
+
+/* ---- src/provenance.js ---- */
+__defs["provenance"] = function (module, exports, require) {
+/*
+ * Local provenance for imported questions and cards.
+ *
+ * The source is stored as a vault path plus optional page/heading, and also as
+ * a normal Obsidian link (`[[file.pdf#page=3]]`). The link is what opens the
+ * exact page in Obsidian/PDF++; the path is what tools and a later reader can
+ * use without parsing Markdown.
+ */
+const { str } = require("./util");
+
+const SOURCE_PROPS = [
+  "source_pdf",
+  "source_document",
+  "source_note",
+  "source_file",
+  "source_page",
+  "source_heading",
+  "source_link",
+  "source_scan_id",
+  "scan_date",
+  "ocr_source",
+  "ocr_confidence",
+];
+
+function cleanPath(value) {
+  let s = str(value).trim();
+  const wiki = s.match(/^\[\[([^\]]+)\]\]$/);
+  if (wiki) s = wiki[1].split("|")[0];
+  s = s.split("|")[0].split("#")[0].trim();
+  return s.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+}
+
+function normalizePage(value) {
+  const s = str(value).trim().replace(/^page\s*/i, "");
+  if (!s) return "";
+  const m = s.match(/^(\d+)(?:\s*[-–—]\s*(\d+))?$/);
+  if (m) {
+    const a = Number(m[1]);
+    if (!m[2]) return a >= 1 ? a : "";
+    const b = Number(m[2]);
+    return a >= 1 && b >= a ? `${a}-${b}` : a >= 1 ? a : "";
+  }
+  return s.slice(0, 40);
+}
+
+function headingPart(value) {
+  return str(value).trim().replace(/^#+\s*/, "").replace(/\|/g, "-");
+}
+
+/** The inner target of an Obsidian link. `page` wins over `heading` for PDFs. */
+function sourceTarget(path, page, heading) {
+  const clean = cleanPath(path);
+  if (!clean) return "";
+  const p = normalizePage(page);
+  const h = headingPart(heading);
+  if (p && /\.pdf$/i.test(clean)) return `${clean}#page=${p}`;
+  if (h) return `${clean}#${h}`;
+  return clean;
+}
+
+function sourceLink(path, page, heading) {
+  const target = sourceTarget(path, page, heading);
+  return target ? `[[${target}]]` : "";
+}
+
+function sourceLabel(path) {
+  return cleanPath(path).split("/").pop() || "source";
+}
+
+function hasSource(fm) {
+  if (!fm) return false;
+  return SOURCE_PROPS.some((k) => str(fm[k]).trim());
+}
+
+/** Normalize any stored provenance, including links and the older plain `source` name. */
+function sourceOf(fm) {
+  const f = fm || {};
+  const explicitLink = str(f.source_link).trim();
+  const path = cleanPath(f.source_pdf || f.source_document || f.source_note || f.source_file || f.source_path || "");
+  const page = normalizePage(f.source_page || f.pdf_page || f.page);
+  const heading = str(f.source_heading || f.source_heading_text || "").trim();
+  const link = explicitLink || sourceLink(path, page, heading);
+  const label = sourceLabel(path);
+  const detail = [label, page ? `page ${page}` : "", heading && !page ? heading : ""].filter(Boolean).join(" · ") || link;
+  return {
+    path,
+    page,
+    heading,
+    link,
+    label,
+    detail,
+    has: !!(path || link),
+    pdf: /\.pdf$/i.test(path),
+  };
+}
+
+/** Find the copied source file when the note only has the older `source` basename. */
+function findSourceFile(files, fm, notePath) {
+  const list = Array.isArray(files) ? files : [];
+  const f = fm || {};
+  const explicit = cleanPath(f.source_pdf || f.source_document || f.source_note || f.source_file);
+  if (explicit) {
+    const exact = list.find((file) => cleanPath(file.path) === explicit);
+    if (exact) return exact;
+    const byName = list.find((file) => str(file.basename).toLowerCase() === explicit.toLowerCase());
+    if (byName) return byName;
+  }
+  const name = str(f.source || f.source_name).trim();
+  if (!name) return null;
+  const clean = name.replace(/^.*\//, "").replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+  const folder = str(notePath).includes("/") ? str(notePath).slice(0, str(notePath).lastIndexOf("/")) : "";
+  const matches = list.filter((file) => {
+    const base = str(file.basename || file.path).replace(/^.*\//, "").replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+    return base === clean;
+  });
+  if (!matches.length) return null;
+  const sameFolder = matches.find((file) => {
+    const p = str(file.path);
+    const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+    return dir === folder;
+  });
+  return sameFolder || matches[0];
+}
+
+module.exports = {
+  SOURCE_PROPS,
+  cleanPath,
+  findSourceFile,
+  hasSource,
+  headingPart,
+  normalizePage,
+  sourceLabel,
+  sourceLink,
+  sourceOf,
+  sourceTarget,
 };
 };
 
@@ -25265,6 +25496,7 @@ const { ReferenceView } = require("./reference-view");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const dailyQuiz = require("./daily-quiz");
 const { renderDailySettings } = require("./daily-quiz-settings");
+const provenance = require("./provenance");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
@@ -25370,6 +25602,7 @@ QuestionTrackerPlugin.__test = {
   referenceGraph,
   ReferenceView,
   assignments,
+  provenance,
   AssignmentsView,
   AssignmentModal,
   renderAssignmentsSettings,
