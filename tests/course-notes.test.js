@@ -45,6 +45,35 @@ test("course notes: falls back to a page label and keeps text-only note wording"
   assert.equal(note.title, "Chapter");
 });
 
+test("course notes: AI summary is marked, placed before page sections, and strips fences", () => {
+  const summary = courseNotes.parseCourseSummary(
+    "```markdown\n## Summary\n- Cells divide by mitosis.\n- Meiosis makes gametes.\n\n## Key terms\n- **Mitosis** — division for growth.\n```"
+  );
+  assert.match(summary, /^## Summary/m);
+  assert.match(summary, /^## Key terms/m);
+  assert.doesNotMatch(summary, /```/);
+  const note = courseNotes.buildCourseNote(PAGES, {
+    sourceName: "Cells",
+    sourcePageCount: 2,
+    importedOn: "2026-10-29",
+    summary,
+    summaryModel: "test-model",
+  });
+  assert.match(note.text, /^ai_summary: true$/m);
+  assert.match(note.text, /^ai_model: "test-model"$/m);
+  assert.ok(note.text.indexOf("## Summary") < note.text.indexOf("## Mitosis phases"));
+  assert.match(note.text, /The AI summary may be wrong/);
+});
+
+test("course notes: summary prompt includes metadata and clips very long documents", () => {
+  const pages = [{ n: 1, text: "x".repeat(15000) }];
+  const prompt = courseNotes.buildCourseSummaryPrompt({ title: "Long chapter", course: "BIO 101", pages });
+  assert.match(prompt.system, /three sections|two sections/i);
+  assert.match(prompt.user, /Document: Long chapter/);
+  assert.match(prompt.user, /Course: BIO 101/);
+  assert.match(prompt.user, /Text truncated for the summary/);
+});
+
 test("course notes: PDF figure markers become embedded images", () => {
   const note = courseNotes.buildCourseNote(
     [{ n: 2, text: "Cell structure\n[FIGURE page 2: ![[Course notes/images/cell-fig1.png]]]\nNucleus" }],

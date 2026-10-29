@@ -1208,7 +1208,8 @@ These are **research and specification items**, not implementation work. The AP 
 
 - [x] Provenance links on imported questions and extracted cards, with a source action on a miss (§5.13, §5.14) — shipped in 1.36.0
 - [x] Transcript-to-practice flow: detect transcript notes, draft cards or questions with a preview, and keep the source note link (§5.13, §5.14) — shipped in 1.37.0
-- [x] Local course-notes import for PDF, slide, Word and text sources, with page/slide headings, source links and optional PDF figure copying (§5.13) — shipped in 1.43.0; AI summaries, OCR and auto-classification remain
+- [x] Local course-notes import for PDF, slide, Word and text sources, with page/slide headings, source links and optional PDF figure copying (§5.13) — shipped in 1.43.0
+- [x] Optional AI summary and key-terms section for course notes, marked with the model and preserved when the summary fails (§5.13) — shipped in 1.44.0; OCR and auto-classification remain
 - [ ] Paper scanner: camera or photos → crop/reorder → one PDF saved in the vault (§5.13.1)
 - [ ] OCR for image-only scans, with a local option and an opt-in BYOK vision/OCR option; show confidence and let the user correct text (§5.13.1)
 - [ ] Auto-classify a scanned document as MCQ, FRQ, mixed, cards or notes, then route it through the existing importers (§5.13.1)
@@ -2576,7 +2577,8 @@ Names are proposals; keep existing ones unchanged.
 
 - [x] Provenance links on imported questions and extracted cards, with a source action on a miss (§5.13, §5.14) — shipped in 1.36.0
 - [x] Transcript-to-practice flow: detect transcript notes, draft cards or questions with a preview, and keep the source note link (§5.13, §5.14) — shipped in 1.37.0
-- [x] Local course-notes import for PDF, slide, Word and text sources, with page/slide headings, source links and optional PDF figure copying (§5.13) — shipped in 1.43.0; AI summaries, OCR and auto-classification remain
+- [x] Local course-notes import for PDF, slide, Word and text sources, with page/slide headings, source links and optional PDF figure copying (§5.13) — shipped in 1.43.0
+- [x] Optional AI summary and key-terms section for course notes, marked with the model and preserved when the summary fails (§5.13) — shipped in 1.44.0; OCR and auto-classification remain
 - [x] CSV export of a per-note summary and full attempt history for outside analysis (§5.15) — shipped in 1.38.0
 - [x] Anki plain-text export with deck, note type and tag columns (§5.15) — shipped in 1.39.0
 - [x] Documented property schema and Dataview examples in [docs/property-schema.md](docs/property-schema.md) (§5.15) — shipped in 1.39.0
