@@ -73,7 +73,26 @@ class TodayView extends ItemView {
       card.createEl("button", { text: "Open practice view", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.activateView());
     }
 
+    this.renderCards(root);
     this.renderNext(root, now);
+  }
+
+  renderCards(root) {
+    const p = this.plugin;
+    if (!p.cardsEnabled || !p.cardsEnabled()) return;
+    const cards = p.getCards ? p.getCards() : [];
+    const due = cards.filter((c) => !Number(c.fm.attempts) || (!!c.fm.next_review && String(c.fm.next_review).slice(0, 10) <= fmtDate(new Date()))).length;
+    root.createEl("h3", { cls: "qt-today-section", text: "Cards" });
+    const card = root.createDiv({ cls: "qt-today-card" });
+    card.createDiv({ cls: "qt-today-kicker", text: due ? "Ready to review" : "All caught up" });
+    card.createDiv({
+      cls: "qt-today-title",
+      text: due ? `${due} card${due === 1 ? "" : "s"} due or new` : `${cards.length} card${cards.length === 1 ? "" : "s"} in your decks`,
+    });
+    card.createDiv({ cls: "qt-today-meta", text: "Flashcards and vocabulary share the same review schedule as your questions." });
+    const row = card.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: due ? "Review cards" : "Open cards", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.activateCards());
+    if (due) row.createEl("button", { text: "New card" }).addEventListener("click", () => p.openNewCard());
   }
 
   renderNext(root, now) {

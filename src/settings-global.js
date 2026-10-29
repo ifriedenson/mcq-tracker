@@ -48,6 +48,18 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Cards and vocabulary")
+    .setDesc("Flashcards and vocabulary notes with decks, course tags and the same spaced review as your questions. Off by default; its own settings are under Cards.")
+    .addToggle((t) =>
+      t.setValue(plugin.cardsEnabled()).onChange(async (v) => {
+        st.cards.enabled = v;
+        await plugin.save();
+        await plugin.onCardsToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Calendar")
     .setDesc("A class and exam calendar from .ics schedules, with countdowns, one-click class notes and study time from free periods. Off by default; its own settings are under Calendar.")
     .addToggle((t) =>
@@ -73,7 +85,7 @@ function renderModules(containerEl, plugin, redisplay) {
 
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "The settings for a module stay on its own page: MCQ Tracker and Calendar.",
+    text: "The settings for a module stay on its own page: MCQ Tracker, Cards and Calendar.",
   });
 }
 

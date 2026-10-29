@@ -3,6 +3,7 @@
 const VIEW_TYPE = "question-tracker-view";
 const VIEW_TYPE_TODAY = "question-tracker-today";
 const VIEW_TYPE_CALENDAR = "question-tracker-calendar";
+const VIEW_TYPE_CARDS = "question-tracker-cards";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -69,6 +70,14 @@ const DEFAULT_SETTINGS = {
   testSession: null, // a timed test in progress, so it survives closing Obsidian
   quickDefaults: { count: 5, minutes: 5 },
   quickSession: null, // a Quick Practice queue in progress, so it survives closing Obsidian
+  cards: {
+    enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off
+    newCardFolder: "Cards", // where new cards go when their deck has no folder
+    defaultDeck: "General",
+    reviewLimit: 20,
+    order: "due", // "due" (due + new) | "all"
+    decks: [], // [{ name, folder, course }]
+  },
 };
 
 // Tracking properties every question note should have.
@@ -101,6 +110,7 @@ module.exports = {
   VIEW_TYPE,
   VIEW_TYPE_TODAY,
   VIEW_TYPE_CALENDAR,
+  VIEW_TYPE_CARDS,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,

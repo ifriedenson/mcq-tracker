@@ -2440,3 +2440,226 @@
     min-height: 60px;
   }
 }
+
+/* ---- Cards ------------------------------------------------------------- */
+/* Scoped under .qt-cards so the module cannot alter another plugin's styles. */
+.qt-cards h2 {
+  margin: 0;
+}
+
+.qt-cards-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.qt-cards-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qt-cards-filter-label {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.qt-cards-heading {
+  margin: 8px 0 0;
+  font-size: 1rem;
+}
+
+.qt-cards-start,
+.qt-cards-show {
+  min-height: 52px;
+  font-size: 1rem;
+}
+
+.qt-cards-list {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+}
+
+.qt-cards-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.qt-cards-row:last-child {
+  border-bottom: none;
+}
+
+.qt-cards-row-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.qt-cards-row-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qt-cards-row-meta {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+.qt-cards-due {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.qt-cards-due.is-due {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.qt-cards-top {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.qt-cards-progress {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+
+.qt-cards-box {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-l);
+  padding: 18px 18px 20px;
+}
+
+.qt-cards-cardhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.qt-cards-deck,
+.qt-cards-course,
+.qt-cards-kind {
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 9px;
+}
+
+.qt-cards-deck {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.qt-cards-course {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.qt-cards-kind {
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-faint);
+}
+
+.qt-cards-lang {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  margin-bottom: 8px;
+}
+
+.qt-cards-term {
+  font-size: 1.35rem;
+  font-weight: 650;
+  line-height: 1.35;
+  min-height: 3rem;
+}
+
+.qt-cards-answer {
+  border-color: var(--interactive-accent);
+}
+
+.qt-cards-answer-label {
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.qt-cards-answer-label + .qt-cards-back,
+.qt-cards-answer-label + .qt-cards-example {
+  margin-bottom: 12px;
+}
+
+.qt-cards-back {
+  font-size: 1.05rem;
+}
+
+.qt-cards-example {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.qt-cards-ratings {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.qt-cards-rate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 52px;
+  border-radius: var(--radius-m);
+}
+
+.qt-cards-rate-label {
+  font-weight: 600;
+}
+
+.qt-cards-rate-key {
+  color: var(--text-faint);
+  font-size: 0.7rem;
+}
+
+.qt-cards-rate-again {
+  border-color: var(--text-error);
+}
+
+.qt-cards-rate-good {
+  border-color: var(--interactive-accent);
+}
+
+.qt-cards-summary {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 480px) {
+  .qt-cards-ratings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-cards-term {
+    font-size: 1.2rem;
+  }
+}

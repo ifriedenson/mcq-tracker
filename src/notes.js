@@ -147,9 +147,29 @@ function applyAttempt(fm, a, intervals, options) {
   if (opts.attemptId) fm.last_attempt_id = opts.attemptId;
   const iv = intervals && intervals.length ? intervals : DEFAULT_SETTINGS.intervals;
   const prev = Number(fm.streak) || 0;
-  const streak = a.correct ? (a.conf === 1 ? prev : prev + 1) : 0;
+  // Cards rate themselves explicitly. Hard keeps the current rung without
+  // advancing it; Easy jumps one rung past Good.
+  const grade = ["again", "hard", "good", "easy"].includes(str(opts.grade || a.grade).toLowerCase())
+    ? str(opts.grade || a.grade).toLowerCase()
+    : "";
+  const streak = grade
+    ? grade === "again"
+      ? 0
+      : grade === "hard"
+        ? prev
+        : prev + 1
+    : a.correct
+      ? a.conf === 1
+        ? prev
+        : prev + 1
+      : 0;
   let days;
-  if (!a.correct) days = 1;
+  if (grade) {
+    if (grade === "again") days = 1;
+    else if (grade === "hard") days = 2;
+    else if (grade === "easy") days = iv[Math.min(Math.max(streak, 1), iv.length - 1)];
+    else days = iv[Math.min(Math.max(streak, 1) - 1, iv.length - 1)];
+  } else if (!a.correct) days = 1;
   else if (a.conf === 1) days = 2;
   else days = iv[Math.min(Math.max(streak, 1) - 1, iv.length - 1)];
 
@@ -191,6 +211,7 @@ function applyAttempt(fm, a, intervals, options) {
     // Switching back to the ladder is lossless: keep the FSRS state for later.
     fm.scheduler = "ladder";
   }
+  if (grade) fm.last_card_rating = grade;
 
   return {
     streak,
@@ -203,6 +224,7 @@ function applyAttempt(fm, a, intervals, options) {
     fsrsDays: fsrsReview ? fsrsReview.days : 0,
     fsrsReplayed: fsrsReview ? fsrsReview.replayed : 0,
     fsrsError,
+    grade,
     attemptId: opts.attemptId || "",
   };
 }

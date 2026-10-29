@@ -24,7 +24,8 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Notes box** on the result screen, saved into the note.
 - **Import questions from a PDF:** an AI agent (or your own AI key) turns a PDF into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from a PDF](#import-questions-from-a-pdf)).
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
-- **Modules you can switch off.** Settings, Global has an on/off switch for each module (MCQ Tracker, Calendar and AI features) plus the plugin-wide options, so the parts you don't use stay out of the way.
+- **Cards and vocabulary (optional module, off by default).** Create flashcards, reversed cards, cloze cards and vocabulary notes as ordinary Markdown notes. Organize them into decks, inherit a course tag from a deck or folder, and review them with Again/Hard/Good/Easy using the same ladder or FSRS schedule as your questions (see [Cards and vocabulary](#cards-and-vocabulary-optional-module-off-by-default)).
+- **Modules you can switch off.** Settings, Global has an on/off switch for each module (MCQ Tracker, Cards, Calendar and AI features) plus the plugin-wide options, so the parts you don't use stay out of the way.
 - **Calendar (optional module, off by default).** Import an `.ics` schedule from a file or a public feed, see classes and exams in a month grid, day timeline, live countdown and upcoming-exam countdowns, and create a note for a class in one click. Free periods can start a short Quick Practice session (see [Calendar](#calendar-optional-module-off-by-default)).
 
 ## Quick start
@@ -117,6 +118,9 @@ Each `history` entry is stored as `date|result|seconds|answer|confidence|error_t
 - Quick Practice
 - Open Today
 - Retry saving offline practice results
+- Open cards
+- Create a flashcard or vocabulary card
+- Cards: tag cards with their folder's course
 - Open calendar
 - Calendar: add an .ics schedule
 - Calendar: create or open the note for the next class
@@ -149,6 +153,36 @@ Turn on **Calendar** under Settings, Global, Modules (or **Enable the calendar m
 - **Export.** **Calendar: export the visible schedule to .ics** writes `schedule-export.ics` in the vault root.
 
 The class-detail parsing, the `.ics` parser and the calendar presentation are adapted from [University Schedule and Calendar](https://github.com/Cesemess/obsidian-uni-calendar) (MIT, Cesemess). The month card, timeline and event cards keep that plugin's markup and stylesheet rules so the two calendars look the same; see [NOTICES.md](NOTICES.md) for the pinned version and the list of changes. Labels are English-only for now, and the note template is plain text rather than a visual builder.
+
+## Cards and vocabulary (optional module, off by default)
+
+Turn on **Cards** under Settings, Global, Modules. Cards are first-class notes, not a separate database: each one has its own `history`, `next_review` and—if you use FSRS—`srs` state, so the same scheduler handles questions and cards. The module is off by default and touches nothing until you create or review a card.
+
+- **Create a card** from the Cards view, the command palette, or Today. Choose a flashcard, reversed card, cloze card, or vocabulary item, and pick a deck. A deck can have a folder and a course; cards in that folder inherit the course. New cards go under **New card folder** (default `Cards`) in a subfolder named after the deck, unless the deck specifies its own folder.
+- **Review** by revealing the answer and rating **Again**, **Hard**, **Good**, or **Easy** (keys 1–4; Space or Enter flips). The rating maps directly to the simple ladder or FSRS. Reviews use the same offline outbox as question attempts, so a temporary vault or sync lock does not lose a rating.
+- **Decks** are managed under Settings, Cards, Decks: set a default deck, a folder and a course for each deck, add or remove decks, and see per-deck due/new counts. Cards with a `deck` property are grouped even if the deck has no settings entry; use **Save deck** to give it a folder or course.
+- **Course tags** can also come from the calendar's subject-to-folder map. Press **Tag courses from folders** in the Cards view (or use the command) to backfill missing `course` properties.
+- **Portable note format.** Each note stays readable and editable without the plugin:
+
+  ```markdown
+  ---
+  card_id: c-abc123
+  item_type: card        # card | vocab
+  deck: Spanish verbs
+  course: SPAN 101
+  card_type: basic       # basic | reversed | cloze
+  ---
+
+  ## Front
+  hablar
+
+  ## Back
+  to speak
+  ```
+
+  Vocabulary notes use `item_type: vocab`, `language`, optional `part_of_speech`, and `## Term`, `## Definition`, `## Example` sections. Cloze cards use `==highlighted text==` or `{{c1::highlighted text}}` in `## Front`.
+
+Cards share the scheduler selected under **Settings → MCQ Tracker → Review**. Switching between the simple ladder and FSRS stays lossless, and a card's first FSRS review is seeded from its existing history.
 
 ## Import questions from a PDF
 
@@ -218,11 +252,12 @@ The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRo
 
 ## Settings
 
-Settings are grouped by module, then by tab. **Global** has Modules and General; **MCQ Tracker** has Practice, Review, AI and About; **Calendar** has About, Schedules & Sync, Notes & Templates, Exclusions, Appearance & Colors, and Language & Region.
+Settings are grouped by module, then by tab. **Global** has Modules and General; **MCQ Tracker** has Practice, Review, AI and About; **Cards** has Decks, Review and About; **Calendar** has About, Schedules & Sync, Notes & Templates, Exclusions, Appearance & Colors, and Language & Region.
 
-- **Global → Modules** is one switch per module: **MCQ Tracker** (on by default), **Calendar** (off by default) and **AI features** (off by default). Turning a module off keeps its settings and your notes. It closes that module's open tabs and hides its ribbon button; using one of its commands anyway shows a notice that points back here.
+- **Global → Modules** is one switch per module: **MCQ Tracker** (on by default), **Cards and vocabulary** (off by default), **Calendar** (off by default) and **AI features** (off by default). Turning a module off keeps its settings and your notes. It closes that module's open tabs and hides its ribbon button; using one of its commands anyway shows a notice that points back here.
 - **Global → General** holds the plugin-wide options: whether the plugin shows its ribbon icons, and whether the practice view opens when Obsidian starts.
 - **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
+- **Cards** covers the default deck, the new-card folder, deck folders and course tags, cards per review session, and whether to review due-and-new or all cards.
 - The calendar's **Appearance & Colors** tab includes a maximum width setting (`0` fills the pane), class colors, break markers, and the study-slot buffer.
 
 ## Privacy

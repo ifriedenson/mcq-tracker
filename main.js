@@ -2687,6 +2687,1167 @@ module.exports = {
 };
 };
 
+/* ---- src/card-modal.js ---- */
+__defs["card-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { str } = require("./util");
+const { CARD_TYPES } = require("./cards");
+
+/** Create a basic, reversed, cloze, or vocabulary note in a chosen deck. */
+class CardModal extends Modal {
+  constructor(app, plugin, options, onDone) {
+    super(app);
+    this.plugin = plugin;
+    this.options = options || {};
+    this.onDone = onDone || (() => {});
+    this.kind = this.options.kind === "vocab" ? "vocab" : "card";
+    this.deck = str(this.options.deck || plugin.settings.cards.defaultDeck).trim();
+    this.course = str(this.options.course).trim();
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    const p = this.plugin;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: "New card" });
+
+    const kindWrap = contentEl.createDiv({ cls: "qt-field" });
+    kindWrap.createEl("label", { text: "Type" });
+    const kind = kindWrap.createEl("select", { cls: "dropdown" });
+    kind.createEl("option", { text: "Flashcard", value: "card" });
+    kind.createEl("option", { text: "Vocabulary", value: "vocab" });
+    kind.value = this.kind;
+
+    const typeWrap = contentEl.createDiv({ cls: "qt-field" });
+    typeWrap.createEl("label", { text: "Card style" });
+    const typeSel = typeWrap.createEl("select", { cls: "dropdown" });
+    cardTypeOptions(typeSel);
+    typeSel.value = "basic";
+    this.cardType = "basic";
+    typeSel.addEventListener("change", () => (this.cardType = typeSel.value));
+
+    const deckWrap = contentEl.createDiv({ cls: "qt-field" });
+    deckWrap.createEl("label", { text: "Deck" });
+    const deck = deckWrap.createEl("select", { cls: "dropdown" });
+    const decks = p.cardDecks().map((d) => d.name);
+    // Keep the preferred/default deck selectable even before it has a note or
+    // a saved deck entry.
+    if (this.deck && !decks.includes(this.deck)) decks.unshift(this.deck);
+    for (const name of decks) deck.createEl("option", { text: name, value: name });
+    deck.createEl("option", { text: "New deck…", value: "__new" });
+    if (decks.includes(this.deck)) deck.value = this.deck;
+
+    const newDeckWrap = contentEl.createDiv({ cls: "qt-field qt-hidden" });
+    newDeckWrap.createEl("label", { text: "New deck name" });
+    const newDeck = newDeckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Spanish verbs" } });
+
+    const courseWrap = contentEl.createDiv({ cls: "qt-field" });
+    courseWrap.createEl("label", { text: "Course (optional)" });
+    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
+    course.value = this.course;
+
+    const frontWrap = contentEl.createDiv({ cls: "qt-field" });
+    const frontLabel = frontWrap.createEl("label", { text: "Front" });
+    const front = frontWrap.createEl("textarea", { attr: { rows: "3", placeholder: "What should the card ask?" } });
+
+    const backWrap = contentEl.createDiv({ cls: "qt-field" });
+    const backLabel = backWrap.createEl("label", { text: "Back" });
+    const back = backWrap.createEl("textarea", { attr: { rows: "3", placeholder: "The answer" } });
+
+    const exampleWrap = contentEl.createDiv({ cls: "qt-field qt-hidden" });
+    exampleWrap.createEl("label", { text: "Example sentence (optional)" });
+    const example = exampleWrap.createEl("textarea", { attr: { rows: "2" } });
+
+    const metaWrap = contentDiv(contentEl, "qt-field qt-hidden");
+    metaWrap.createEl("label", { text: "Part of speech and language (optional)" });
+    const meta = metaWrap.createDiv({ cls: "qt-row" });
+    const pos = meta.createEl("input", { type: "text", attr: { placeholder: "noun" } });
+    const language = meta.createEl("input", { type: "text", attr: { placeholder: "Spanish" } });
+
+    const applyKind = () => {
+      const vocab = this.kind === "vocab";
+      frontLabel.setText(vocab ? "Term" : "Front");
+      backLabel.setText(vocab ? "Definition" : "Back");
+      exampleWrap.toggleClass("qt-hidden", !vocab);
+      metaWrap.toggleClass("qt-hidden", !vocab);
+      typeWrap.toggleClass("qt-hidden", vocab);
+      front.placeholder = vocab ? "The word" : this.cardType === "cloze" ? "The capital of France is ==Paris==." : "What should the card ask?";
+    };
+    kind.addEventListener("change", () => {
+      this.kind = kind.value;
+      applyKind();
+    });
+    const applyDeck = () => {
+      const isNew = deck.value === "__new";
+      newDeckWrap.toggleClass("qt-hidden", !isNew);
+      const cfg = p.cardDecks().find((d) => d.name === deck.value);
+      if (cfg && cfg.course) course.value = cfg.course;
+    };
+    deck.addEventListener("change", applyDeck);
+    applyKind();
+    applyDeck();
+
+    const row = contentEl.createDiv({ cls: "qt-row" });
+    const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
+    const save = row.createEl("button", { text: "Create card", cls: "mod-cta qt-grow" });
+    cancel.addEventListener("click", () => this.close());
+    save.addEventListener("click", async () => {
+      if (!str(front.value).trim() || !str(back.value).trim()) {
+        new Notice("A card needs both sides filled in.");
+        return;
+      }
+      let deckName = deck.value;
+      if (deckName === "__new") deckName = str(newDeck.value).trim();
+      if (!deckName) deckName = str(p.settings.cards.defaultDeck).trim() || "General";
+      save.disabled = true;
+      try {
+        const result = await p.createCard({
+          kind: this.kind,
+          cardType: this.cardType,
+          deck: deckName,
+          course: course.value,
+          front: front.value,
+          back: back.value,
+          example: example.value,
+          partOfSpeech: pos.value,
+          language: language.value,
+        });
+        this.close();
+        this.onDone(result);
+      } catch (e) {
+        save.disabled = false;
+        new Notice(str(e && e.message) || "Could not create the card.");
+      }
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+function contentDiv(parent, cls) {
+  return parent.createDiv({ cls });
+}
+
+/** A basic/reversed/cloze picker shown after the kind is chosen. */
+function cardTypeOptions(select) {
+  for (const type of CARD_TYPES) select.createEl("option", { text: type[0].toUpperCase() + type.slice(1), value: type });
+}
+
+module.exports = { CardModal, cardTypeOptions };
+};
+
+/* ---- src/cards.js ---- */
+__defs["cards"] = function (module, exports, require) {
+/*
+ * Cards and vocabulary: the note model, deck/course resolution and queue.
+ *
+ * A card is an ordinary Markdown note. Review state is written to the same
+ * tracking properties as questions, so one scheduler (the ladder or FSRS)
+ * handles both and no separate database is needed.
+ */
+const { str } = require("./util");
+const { isDue } = require("./filters");
+
+const CARD_TYPES = ["basic", "reversed", "cloze"];
+const CARD_GRADES = ["again", "hard", "good", "easy"];
+const CARD_ITEM_TYPES = ["card", "flashcard", "vocab", "vocabulary"];
+
+const GRADE_INFO = {
+  again: { label: "Again", correct: false, conf: 0, rating: 1 },
+  hard: { label: "Hard", correct: true, conf: 1, rating: 2 },
+  good: { label: "Good", correct: true, conf: 2, rating: 3 },
+  easy: { label: "Easy", correct: true, conf: 3, rating: 4 },
+};
+
+const normalizeFolder = (p) => str(p).trim().replace(/^\/+|\/+$/g, "");
+const lower = (v) => str(v).trim().toLowerCase();
+
+function normalizeDecks(list) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(list) ? list : []) {
+    if (!raw || typeof raw !== "object") continue;
+    const name = str(raw.name).trim();
+    if (!name) continue;
+    const key = lower(name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ name, folder: normalizeFolder(raw.folder), course: str(raw.course).trim() });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+/** Merges saved card settings into defaults without dropping new fields or user data. */
+function mergeCardSettings(saved, defaults) {
+  const base = Object.assign(
+    { enabled: false, newCardFolder: "Cards", defaultDeck: "General", reviewLimit: 20, order: "due", decks: [] },
+    defaults || {}
+  );
+  const src = saved && typeof saved === "object" ? saved : {};
+  const out = Object.assign({}, base, src);
+  out.enabled = src.enabled === true;
+  out.newCardFolder = normalizeFolder(src.newCardFolder === undefined ? base.newCardFolder : src.newCardFolder);
+  out.defaultDeck = str(src.defaultDeck === undefined ? base.defaultDeck : src.defaultDeck).trim();
+  out.reviewLimit = Math.min(100, Math.max(1, Math.round(Number(src.reviewLimit) || base.reviewLimit || 20)));
+  out.order = src.order === "all" ? "all" : "due";
+  out.decks = normalizeDecks(src.decks === undefined ? base.decks : src.decks);
+  return out;
+}
+
+function isCardNote(fm) {
+  if (!fm) return false;
+  const type = lower(fm.item_type || fm.type || fm.note_type);
+  if (CARD_ITEM_TYPES.includes(type)) return true;
+  // A card_id is enough, unless the note is also a question.
+  return !!(str(fm.card_id).trim() && !str(fm.question_id).trim());
+}
+
+function cardKind(fm) {
+  const type = lower(fm && (fm.item_type || fm.type || fm.note_type));
+  return type === "vocab" || type === "vocabulary" ? "vocab" : "card";
+}
+
+function deckConfig(settings, name) {
+  const key = lower(name);
+  return ((settings && settings.cards && settings.cards.decks) || []).find((d) => lower(d.name) === key) || null;
+}
+
+/** Effective deck: explicit property, then the deck whose folder contains the note, then the configured default. */
+function deckOf(fm, settings, path) {
+  const explicit = str(fm && fm.deck).trim();
+  if (explicit) return explicit;
+  const cards = (settings && settings.cards) || {};
+  const p = normalizeFolder(path);
+  let best = null;
+  for (const deck of cards.decks || []) {
+    const folder = normalizeFolder(deck.folder);
+    if (!folder || (p !== folder && !p.startsWith(folder + "/"))) continue;
+    if (!best || folder.length > best.folder.length) best = { name: deck.name, folder };
+  }
+  if (best) return best.name;
+  const root = normalizeFolder(cards.newCardFolder);
+  if (root && p.startsWith(root + "/")) {
+    const rest = p.slice(root.length + 1);
+    const first = rest.includes("/") ? rest.slice(0, rest.indexOf("/")) : "";
+    if (first) return first;
+  }
+  return str(cards.defaultDeck).trim() || "Unsorted";
+}
+
+/** Longest matching folder mapping wins, so a course subfolder can override its parent. */
+function courseForFolder(settings, path) {
+  const p = normalizeFolder(path);
+  let best = null;
+  const consider = (folder, course) => {
+    const f = normalizeFolder(folder);
+    const c = str(course).trim();
+    if (!f || !c || (p !== f && !p.startsWith(f + "/"))) return;
+    if (!best || f.length > best.folder.length) best = { folder: f, course: c };
+  };
+  for (const deck of ((settings && settings.cards && settings.cards.decks) || [])) consider(deck.folder, deck.course);
+  const subjectFolders = (settings && settings.calendar && settings.calendar.subjectFolders) || {};
+  for (const [course, folder] of Object.entries(subjectFolders)) consider(folder, course);
+  return best ? best.course : "";
+}
+
+/** Effective course tag: the note's own value, then its deck, then the folder mapping. */
+function courseOf(fm, settings, path, deckName) {
+  const own = str(fm && fm.course).trim();
+  if (own) return own;
+  const deck = deckConfig(settings, deckName || deckOf(fm, settings, path));
+  if (deck && deck.course) return deck.course;
+  return courseForFolder(settings, path);
+}
+
+/** Fill in the effective deck and course so views and filters agree. */
+function resolveCard(file, fm, settings) {
+  const deck = deckOf(fm, settings, file.path);
+  return { file, fm, deck, course: courseOf(fm, settings, file.path, deck), kind: cardKind(fm) };
+}
+
+function headingsOf(text) {
+  const out = {};
+  let current = null;
+  for (const line of str(text).replace(/\r\n/g, "\n").split("\n")) {
+    const m = line.match(/^#{1,3}\s+(.+?)\s*#*\s*$/);
+    if (m) {
+      current = m[1].toLowerCase().replace(/[*_`]/g, "").trim();
+      if (!out[current]) out[current] = [];
+      continue;
+    }
+    if (current) out[current].push(line);
+  }
+  return out;
+}
+
+function firstSection(headings, names) {
+  for (const name of names) {
+    const body = (headings[name] || []).join("\n").trim();
+    if (body) return body;
+  }
+  return "";
+}
+
+function cleanBody(text) {
+  return str(text).replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+}
+
+const CLOZE_RE = /==([^=\n]+)==|\{\{c?\d*::([\s\S]*?)\}\}/g;
+
+/** The visible prompt and the hidden deletions of a cloze card. */
+function parseCloze(text) {
+  const answers = [];
+  const prompt = str(text).replace(CLOZE_RE, (_m, a, b) => {
+    answers.push(str(a || b).trim());
+    return "[…]";
+  });
+  return { prompt: prompt.trim(), answers };
+}
+
+/**
+ * Reads the note's Markdown. Basic cards use Front/Back, vocab uses
+ * Term/Definition, and reversed cards swap the two at review time.
+ */
+function parseCardBody(text, fm) {
+  const h = headingsOf(cleanBody(text));
+  const kind = cardKind(fm);
+  if (kind === "vocab") {
+    const term = firstSection(h, ["term", "word", "front", "prompt"]) || str(fm.term || fm.word || fm.front).trim();
+    const definition =
+      firstSection(h, ["definition", "meaning", "back", "answer"]) || str(fm.definition || fm.meaning || fm.back).trim();
+    return {
+      kind,
+      cardType: "basic",
+      front: term,
+      back: definition,
+      prompt: term,
+      answer: definition,
+      example: firstSection(h, ["example", "example sentence", "usage"]) || str(fm.example).trim(),
+      partOfSpeech: firstSection(h, ["part of speech", "pos"]) || str(fm.part_of_speech || fm.pos).trim(),
+      language: str(fm.language || fm.lang).trim(),
+      notes: firstSection(h, ["notes"]),
+    };
+  }
+
+  let cardType = lower(fm && (fm.card_type || fm.card_type_name)) || "basic";
+  if (!CARD_TYPES.includes(cardType)) cardType = "basic";
+  let front = firstSection(h, ["front", "prompt", "question", "term"]) || str(fm.front || fm.prompt).trim();
+  let back = firstSection(h, ["back", "answer", "definition", "explanation"]) || str(fm.back || fm.answer).trim();
+
+  if (cardType === "cloze") {
+    const source = front || back || firstSection(h, ["text"]);
+    const parsed = parseCloze(source);
+    front = parsed.prompt;
+    back = parsed.answers.join(" · ");
+  } else if (cardType === "reversed") {
+    const t = front;
+    front = back;
+    back = t;
+  }
+
+  return {
+    kind,
+    cardType,
+    front,
+    back,
+    prompt: front,
+    answer: back,
+    example: firstSection(h, ["example"]),
+    partOfSpeech: "",
+    language: "",
+    notes: firstSection(h, ["notes"]),
+  };
+}
+
+function slugify(text, fallback) {
+  const s = str(text)
+    .replace(/[*_`#>[\]()]/g, "")
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60)
+    .replace(/[. ]+$/g, "");
+  return s || fallback || "Card";
+}
+
+function newCardId(now) {
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now.getTime() : Date.now();
+  return `c-${at.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+const yamlString = (v) => JSON.stringify(str(v));
+
+/** Builds a self-contained card note with tracking defaults and no hidden plugin state. */
+function cardNote(input, now) {
+  const data = input || {};
+  const kind = data.kind === "vocab" ? "vocab" : "card";
+  const deck = str(data.deck).trim() || "Unsorted";
+  const course = str(data.course).trim();
+  const cardType = kind === "vocab" ? "basic" : CARD_TYPES.includes(lower(data.cardType)) ? lower(data.cardType) : "basic";
+  const front = str(data.front).trim();
+  const back = str(data.back).trim();
+  const title = slugify(kind === "vocab" ? front : front, kind === "vocab" ? "Vocabulary" : "Card");
+  const lines = [
+    "---",
+    `card_id: ${yamlString(data.id || newCardId(now))}`,
+    `item_type: ${kind === "vocab" ? "vocab" : "card"}`,
+    `deck: ${yamlString(deck)}`,
+  ];
+  if (course) lines.push(`course: ${yamlString(course)}`);
+  if (kind === "vocab") {
+    if (data.partOfSpeech) lines.push(`part_of_speech: ${yamlString(data.partOfSpeech)}`);
+    if (data.language) lines.push(`language: ${yamlString(data.language)}`);
+  } else if (cardType !== "basic") {
+    lines.push(`card_type: ${cardType}`);
+  }
+  if (Array.isArray(data.tags) && data.tags.length) {
+    lines.push("tags:");
+    for (const tag of data.tags) if (str(tag).trim()) lines.push(`  - ${yamlString(String(tag).trim())}`);
+  }
+  lines.push(
+    'attempts: 0',
+    'correct_count: 0',
+    'streak: 0',
+    'next_review: ""',
+    'history: []',
+    '---',
+    '',
+  );
+  if (kind === "vocab") {
+    lines.push("## Term", "", front, "", "## Definition", "", back);
+    if (data.example) lines.push("", "## Example", "", str(data.example).trim());
+    if (data.notes) lines.push("", "## Notes", "", str(data.notes).trim());
+  } else {
+    lines.push("## Front", "", front, "", "## Back", "", back);
+    if (data.example) lines.push("", "## Example", "", str(data.example).trim());
+    if (data.notes) lines.push("", "## Notes", "", str(data.notes).trim());
+  }
+  return { text: lines.join("\n") + "\n", title, deck, course, kind, cardType };
+}
+
+/** What a score button writes. The explicit rating lets FSRS use all four grades. */
+function cardAttempt(grade, seconds) {
+  const key = CARD_GRADES.includes(lower(grade)) ? lower(grade) : "good";
+  const info = GRADE_INFO[key];
+  return {
+    correct: info.correct,
+    conf: info.conf,
+    rating: info.rating,
+    grade: key,
+    chosen: info.label,
+    seconds: Math.max(0, Math.round(Number(seconds) || 0)),
+  };
+}
+
+/** Due work first, then unseen cards. "all" keeps every card in the pool. */
+function cardQueue(cards, options) {
+  const opts = options || {};
+  const today = opts.today || "";
+  const deck = lower(opts.deck);
+  const course = lower(opts.course);
+  let pool = (cards || []).filter((c) => {
+    if (deck && deck !== "all" && lower(c.deck) !== deck) return false;
+    if (course && course !== "all" && lower(c.course) !== course) return false;
+    return opts.order === "all" || isDue(c.fm, today) || !Number(c.fm.attempts);
+  });
+  const rank = (c) => (isDue(c.fm, today) ? 0 : !Number(c.fm.attempts) ? 1 : 2);
+  pool = pool.slice().sort((a, b) => {
+    const r = rank(a) - rank(b);
+    if (r) return r;
+    if (rank(a) === 0) return str(a.fm.next_review).localeCompare(str(b.fm.next_review));
+    return str(a.fm.card_id).localeCompare(str(b.fm.card_id)) || a.file.path.localeCompare(b.file.path);
+  });
+  const limit = Math.max(1, Math.min(100, Math.round(Number(opts.limit) || 20)));
+  return pool.slice(0, limit);
+}
+
+function cardStats(cards, today) {
+  const list = Array.isArray(cards) ? cards : [];
+  return {
+    total: list.length,
+    due: list.filter((c) => isDue(c.fm, today)).length,
+    fresh: list.filter((c) => !Number(c.fm.attempts)).length,
+  };
+}
+
+/** Configured decks plus decks discovered in notes, with per-deck counts. */
+function deckSummary(cards, settings, today) {
+  const map = new Map();
+  const ensure = (name) => {
+    const key = lower(name);
+    if (!map.has(key)) {
+      const cfg = deckConfig(settings, name);
+      map.set(key, {
+        name: cfg ? cfg.name : name,
+        folder: cfg ? cfg.folder : "",
+        course: cfg ? cfg.course : "",
+        total: 0,
+        due: 0,
+        fresh: 0,
+      });
+    }
+    return map.get(key);
+  };
+  for (const deck of ((settings && settings.cards && settings.cards.decks) || [])) ensure(deck.name);
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const row = ensure(card.deck || "Unsorted");
+    row.total++;
+    if (isDue(card.fm, today)) row.due++;
+    if (!Number(card.fm.attempts)) row.fresh++;
+  }
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+}
+
+function courseOptions(cards) {
+  const set = new Set();
+  for (const card of Array.isArray(cards) ? cards : []) if (card.course) set.add(card.course);
+  return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
+module.exports = {
+  CARD_TYPES,
+  CARD_GRADES,
+  GRADE_INFO,
+  normalizeFolder,
+  normalizeDecks,
+  mergeCardSettings,
+  isCardNote,
+  cardKind,
+  deckConfig,
+  deckOf,
+  courseForFolder,
+  courseOf,
+  resolveCard,
+  parseCloze,
+  parseCardBody,
+  slugify,
+  newCardId,
+  cardNote,
+  cardAttempt,
+  cardQueue,
+  cardStats,
+  deckSummary,
+  courseOptions,
+};
+};
+
+/* ---- src/cards-settings.js ---- */
+__defs["cards-settings"] = function (module, exports, require) {
+const { Notice, Setting } = require("obsidian");
+const { localDate, str } = require("./util");
+const { deckSummary } = require("./cards");
+const { renderSettingsTabs } = require("./settings-ui");
+
+const CARDS_TABS = [
+  { id: "decks", label: "Decks", icon: "layers" },
+  { id: "review", label: "Review", icon: "repeat" },
+  { id: "about", label: "About", icon: "info" },
+];
+
+function renderCardsSettings(containerEl, plugin, redisplay, activeTab, setTab) {
+  const current = CARDS_TABS.some((t) => t.id === activeTab) ? activeTab : "decks";
+  renderSettingsTabs(
+    containerEl,
+    CARDS_TABS,
+    current,
+    (id) => (typeof setTab === "function" ? setTab(id) : redisplay()),
+    { className: "qt-settings-tabs", tabClass: "qt-settings-tab" }
+  );
+  const section = containerEl.createDiv({ cls: "qt-settings-section" });
+  if (!plugin.cardsEnabled()) {
+    section.createEl("p", {
+      cls: "setting-item-description",
+      text: "The Cards module is off. Turn it on under Global, Modules; these settings are kept while it is off.",
+    });
+  }
+  if (current === "review") return renderReview(section, plugin);
+  if (current === "about") return renderAbout(section, plugin);
+  renderDecks(section, plugin, redisplay);
+}
+
+function deckNames(plugin) {
+  return plugin.cardDecks().map((d) => d.name);
+}
+
+function renderDecks(containerEl, plugin, redisplay) {
+  const st = plugin.settings.cards;
+  const decks = deckSummary(plugin.getCards(), plugin.settings, localDate());
+
+  new Setting(containerEl).setName("Decks").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "A deck is a named group of cards. Give it a folder and a course, and every card in that folder inherits the course tag. Cards can also set deck and course themselves.",
+  });
+
+  new Setting(containerEl)
+    .setName("Default deck")
+    .setDesc("Used when a new card does not choose a deck, and for cards without their own deck property or folder match.")
+    .addDropdown((d) => {
+      const names = [...new Set([...deckNames(plugin), str(st.defaultDeck).trim()].filter(Boolean))];
+      d.addOption("", "No default");
+      for (const name of names) d.addOption(name, name);
+      d.setValue(st.defaultDeck || "").onChange(async (v) => {
+        st.defaultDeck = v;
+        await plugin.save();
+        redisplay();
+      });
+    });
+
+  new Setting(containerEl)
+    .setName("New card folder")
+    .setDesc("Where new cards go unless their deck has a folder. A deck without its own folder uses a subfolder here.")
+    .addText((t) =>
+      t.setPlaceholder("Cards").setValue(st.newCardFolder).onChange(async (v) => {
+        st.newCardFolder = str(v).trim().replace(/^\/+|\/+$/g, "");
+        await plugin.save();
+      })
+    );
+
+  if (!decks.length) {
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "No decks yet. Create one below, or use New card in the Cards view.",
+    });
+  }
+
+  for (const deck of decks) {
+    const configured = (st.decks || []).find((d) => d.name.toLowerCase() === deck.name.toLowerCase());
+    const bits = [`${deck.total} card${deck.total === 1 ? "" : "s"}`, `${deck.due} due`, `${deck.fresh} new`];
+    if (deck.course) bits.push(deck.course);
+    const s = new Setting(containerEl).setName(deck.name).setDesc(bits.join(" · "));
+    s.addText((t) =>
+      t
+        .setPlaceholder("Folder")
+        .setValue(deck.folder || "")
+        .onChange(async (v) => {
+          const cfg = ensureDeck(st, deck.name);
+          cfg.folder = str(v).trim().replace(/^\/+|\/+$/g, "");
+          await plugin.save();
+        })
+    );
+    s.addText((t) =>
+      t
+        .setPlaceholder("Course")
+        .setValue(deck.course || "")
+        .onChange(async (v) => {
+          const cfg = ensureDeck(st, deck.name);
+          cfg.course = str(v).trim();
+          await plugin.save();
+        })
+    );
+    if (configured) {
+      s.addButton((b) =>
+        b
+          .setButtonText("Delete")
+          .setWarning()
+          .onClick(async () => {
+            st.decks = (st.decks || []).filter((d) => d.name.toLowerCase() !== deck.name.toLowerCase());
+            if (st.defaultDeck.toLowerCase() === deck.name.toLowerCase()) st.defaultDeck = "";
+            await plugin.save();
+            redisplay();
+          })
+      );
+    } else {
+      s.addButton((b) =>
+        b.setButtonText("Save deck").onClick(async () => {
+          ensureDeck(st, deck.name);
+          await plugin.save();
+          redisplay();
+        })
+      );
+    }
+  }
+
+  new Setting(containerEl).setName("Add a deck").setHeading();
+  let name = "";
+  let folder = "";
+  let course = "";
+  new Setting(containerEl)
+    .setName("New deck")
+    .setDesc("The folder is optional. Without one, cards for this deck go under the new card folder.")
+    .addText((t) => t.setPlaceholder("Deck name").onChange((v) => (name = v)))
+    .addText((t) => t.setPlaceholder("Folder").onChange((v) => (folder = v)))
+    .addText((t) => t.setPlaceholder("Course").onChange((v) => (course = v)))
+    .addButton((b) =>
+      b.setButtonText("Add").onClick(async () => {
+        const n = str(name).trim();
+        if (!n) return new Notice("Give the deck a name first.");
+        const cfg = ensureDeck(st, n);
+        if (str(folder).trim()) cfg.folder = str(folder).trim().replace(/^\/+|\/+$/g, "");
+        if (str(course).trim()) cfg.course = str(course).trim();
+        if (!st.defaultDeck) st.defaultDeck = n;
+        await plugin.save();
+        redisplay();
+      })
+    );
+}
+
+function ensureDeck(st, name) {
+  st.decks = Array.isArray(st.decks) ? st.decks : [];
+  let cfg = st.decks.find((d) => d.name.toLowerCase() === str(name).trim().toLowerCase());
+  if (!cfg) {
+    cfg = { name: str(name).trim(), folder: "", course: "" };
+    st.decks.push(cfg);
+  }
+  return cfg;
+}
+
+function renderReview(containerEl, plugin) {
+  const st = plugin.settings.cards;
+  new Setting(containerEl).setName("Review").setHeading();
+  new Setting(containerEl)
+    .setName("Cards per session")
+    .setDesc("The most cards a review session will show.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.max = "100";
+      t.setValue(String(st.reviewLimit)).onChange(async (v) => {
+        const n = Math.round(Number(v));
+        if (Number.isFinite(n) && n > 0) {
+          st.reviewLimit = Math.min(100, n);
+          await plugin.save();
+        }
+      });
+    });
+
+  new Setting(containerEl)
+    .setName("What to review")
+    .setDesc("Due and new is the default. Review all also includes cards scheduled for later.")
+    .addDropdown((d) =>
+      d
+        .addOption("due", "Due and new cards")
+        .addOption("all", "All cards in the deck")
+        .setValue(st.order)
+        .onChange(async (v) => {
+          st.order = v === "all" ? "all" : "due";
+          await plugin.save();
+          plugin.refreshViews();
+        })
+    );
+
+  new Setting(containerEl)
+    .setName("Scheduler")
+    .setDesc("Cards use the scheduler chosen under MCQ Tracker, Review. A card reviewed with FSRS stores its memory state in the note, and switching back to the simple ladder is lossless.")
+    .addButton((b) => b.setButtonText("Open Cards view").onClick(() => plugin.activateCards()));
+
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Ratings map to the scheduler as Again, Hard, Good and Easy. A card's history stays in the note next to its question history.",
+  });
+}
+
+function renderAbout(containerEl, plugin) {
+  const version = (plugin.manifest && plugin.manifest.version) || "";
+  const card = containerEl.createDiv({ cls: "qt-settings-card" });
+  card.createEl("h3", { text: "Cards and vocabulary" });
+  card.createEl("p", {
+    cls: "setting-item-description",
+    text: "One Markdown note per card. Deck and course are ordinary properties, so cards stay readable, searchable and portable.",
+  });
+  card.createEl("pre", {
+    cls: "qt-settings-code",
+    text: `---
+card_id: c-abc123
+item_type: card        # card | vocab
+deck: Spanish verbs
+course: SPAN 101
+card_type: basic       # basic | reversed | cloze
+---
+
+## Front
+hablar
+
+## Back
+to speak`,
+  });
+  new Setting(containerEl)
+    .setName("Version")
+    .setDesc(version ? `Cards in MCQ Tracker ${version}.` : "MCQ Tracker")
+    .addButton((b) => b.setButtonText("Open Cards").onClick(() => plugin.activateCards()))
+    .addButton((b) => b.setButtonText("Create a card").onClick(() => plugin.openNewCard()));
+}
+
+module.exports = {
+  CARDS_TABS,
+  renderCardsSettings,
+};
+};
+
+/* ---- src/cards-view.js ---- */
+__defs["cards-view"] = function (module, exports, require) {
+const { ItemView, Notice, setIcon } = require("obsidian");
+const { VIEW_TYPE_CARDS } = require("./constants");
+const { localDate, str } = require("./util");
+const { cardQueue, cardStats, courseOptions, deckSummary, parseCardBody } = require("./cards");
+const { CardModal } = require("./card-modal");
+const { renderMarkdownInto } = require("./view-helpers");
+
+const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
+
+class CardView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this.state = "browse"; // browse | review | summary
+    this.deck = "";
+    this.course = "";
+    this.queue = [];
+    this.index = 0;
+    this.current = null;
+    this.revealed = false;
+    this.busy = false;
+    this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
+  }
+
+  getViewType() {
+    return VIEW_TYPE_CARDS;
+  }
+
+  getDisplayText() {
+    return "Cards";
+  }
+
+  getIcon() {
+    return "layers";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-root");
+    this.render();
+    // Keyboard review: space flips, 1-4 rate. Typing in a field is left alone.
+    if (typeof activeDocument.addEventListener === "function") {
+      this.registerDomEvent(activeDocument, "keydown", (ev) => this.onKey(ev));
+    }
+  }
+
+  md(markdown, el, path) {
+    renderMarkdownInto(this.app, markdown, el, path, this);
+  }
+
+  onKey(ev) {
+    if (this.state !== "review" || this.busy || !this.current) return;
+    const t = ev && ev.target;
+    if (t && /^(input|textarea|select)$/i.test(t.tagName || "")) return;
+    if (ev.key === " " || ev.key === "Enter") {
+      ev.preventDefault();
+      if (!this.revealed) this.reveal();
+      return;
+    }
+    const grade = REVIEW_KEYS[ev.key];
+    if (grade && this.revealed) {
+      ev.preventDefault();
+      this.rate(grade);
+    }
+  }
+
+  render() {
+    const p = this.plugin;
+    const el = this.contentEl;
+    el.empty();
+    const root = el.createDiv({ cls: "qt-wrap qt-cards" });
+    if (!p.cardsEnabled || !p.cardsEnabled()) return this.renderModuleOff(root);
+    root.createEl("h2", { text: "Cards" });
+
+    if (this.state === "review") return this.renderReview(root);
+    if (this.state === "summary") return this.renderSummary(root);
+    this.renderBrowse(root);
+  }
+
+  renderModuleOff(root) {
+    const card = root.createDiv({ cls: "qt-onboard-card" });
+    card.createEl("h3", { text: "Cards are off" });
+    card.createDiv({
+      cls: "qt-onboard-text",
+      text: "Flashcards and vocabulary are a separate module. Your notes are untouched; turn it on under Settings, Global, Modules.",
+    });
+    card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () =>
+      this.plugin.openSettings()
+    );
+  }
+
+  renderBrowse(root) {
+    const p = this.plugin;
+    const today = localDate();
+    const all = p.getCards();
+    const stats = cardStats(all, today);
+    const shown = p.filteredCards({ deck: this.deck, course: this.course });
+
+    const tools = root.createDiv({ cls: "qt-row qt-cards-tools" });
+    const add = tools.createEl("button", { text: "New card", cls: "mod-cta" });
+    add.addEventListener("click", () => this.openCardModal());
+    const sync = tools.createEl("button", { text: "Tag courses from folders" });
+    sync.addEventListener("click", async () => {
+      const n = await p.tagCardsByCourse();
+      new Notice(n ? `Tagged ${n} card${n === 1 ? "" : "s"} with a course.` : "Every card already has a course tag.");
+      this.render();
+    });
+
+    const summary = root.createDiv({ cls: "qt-cards-stats" });
+    summary.createSpan({ text: `${stats.total} card${stats.total === 1 ? "" : "s"}` });
+    summary.createSpan({ text: `${stats.due} due` });
+    summary.createSpan({ text: `${stats.fresh} new` });
+
+    this.renderDeckPicker(root, all, today);
+    this.renderCoursePicker(root, all);
+
+    if (!all.length) {
+      const empty = root.createDiv({ cls: "qt-onboard-card" });
+      empty.createEl("h3", { text: "No cards yet" });
+      empty.createDiv({
+        cls: "qt-onboard-text",
+        text: "Create a flashcard or a vocabulary note. Each card is a Markdown note with its own deck, course tag and review history.",
+      });
+      empty.createEl("button", { text: "Create the first card", cls: "mod-cta qt-primary" }).addEventListener("click", () =>
+        this.openCardModal()
+      );
+      return;
+    }
+
+    const dueHere = shown.filter((c) => !Number(c.fm.attempts) || str(c.fm.next_review).slice(0, 10) <= today).length;
+    const start = root.createEl("button", {
+      text: dueHere ? `Start review (${dueHere})` : "Review all cards",
+      cls: "mod-cta qt-primary qt-cards-start",
+    });
+    start.disabled = !shown.length;
+    start.addEventListener("click", () => this.startReview(dueHere ? "due" : "all"));
+
+    root.createEl("h3", { cls: "qt-cards-heading", text: "In this view" });
+    if (!shown.length) {
+      root.createDiv({ cls: "qt-hint", text: "No cards match this deck and course. Pick another deck or clear the course filter." });
+      return;
+    }
+    const list = root.createDiv({ cls: "qt-cards-list" });
+    const preview = shown
+      .slice()
+      .sort((a, b) => str(a.fm.next_review).localeCompare(str(b.fm.next_review)) || a.file.path.localeCompare(b.file.path))
+      .slice(0, 12);
+    for (const card of preview) {
+      const row = list.createDiv({ cls: "qt-cards-row" });
+      const main = row.createDiv({ cls: "qt-cards-row-main" });
+      main.createDiv({ cls: "qt-cards-row-title", text: str(card.fm.card_title || card.file.basename) });
+      const bits = [card.deck, card.course, card.kind === "vocab" ? "Vocabulary" : "Flashcard"].filter(Boolean);
+      main.createDiv({ cls: "qt-cards-row-meta", text: bits.join(" · ") });
+      const due = !Number(card.fm.attempts) ? "New" : str(card.fm.next_review).slice(0, 10) <= today ? "Due" : `Due ${str(card.fm.next_review).slice(0, 10)}`;
+      row.createSpan({ cls: `qt-cards-due${due === "Due" ? " is-due" : ""}`, text: due });
+      const open = row.createEl("button", { text: "Open", cls: "qt-link" });
+      open.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(card.file));
+    }
+    if (shown.length > preview.length) {
+      root.createDiv({ cls: "qt-hint", text: `Showing ${preview.length} of ${shown.length}. Start a review for the rest.` });
+    }
+  }
+
+  renderDeckPicker(root, cards, today) {
+    const decks = deckSummary(cards, this.plugin.settings, today);
+    const wrap = root.createDiv({ cls: "qt-cards-filter" });
+    wrap.createSpan({ cls: "qt-cards-filter-label", text: "Deck" });
+    const chips = wrap.createDiv({ cls: "qt-chips" });
+    const addChip = (label, value, count) => {
+      const b = chips.createEl("button", { text: count === undefined ? label : `${label} ${count}`, cls: "qt-chip" });
+      if ((this.deck || "") === value) b.addClass("is-selected");
+      b.addEventListener("click", () => {
+        this.deck = this.deck === value ? "" : value;
+        this.render();
+      });
+    };
+    addChip("All decks", "", undefined);
+    for (const deck of decks) addChip(deck.name, deck.name, deck.total);
+    if (!decks.length) chips.createSpan({ cls: "qt-hint", text: "No decks yet" });
+  }
+
+  renderCoursePicker(root, cards) {
+    const courses = courseOptions(cards);
+    if (!courses.length) return;
+    const wrap = root.createDiv({ cls: "qt-cards-filter" });
+    wrap.createSpan({ cls: "qt-cards-filter-label", text: "Course" });
+    const chips = wrap.createDiv({ cls: "qt-chips" });
+    const add = (label, value) => {
+      const b = chips.createEl("button", { text: label, cls: "qt-chip" });
+      if ((this.course || "") === value) b.addClass("is-selected");
+      b.addEventListener("click", () => {
+        this.course = this.course === value ? "" : value;
+        this.render();
+      });
+    };
+    add("All courses", "");
+    for (const course of courses) add(course, course);
+  }
+
+  openCardModal() {
+    new CardModal(
+      this.app,
+      this.plugin,
+      { deck: this.deck, course: this.course },
+      (result) => {
+        if (result && result.path) new Notice(`Created ${result.path}.`);
+        this.render();
+      }
+    ).open();
+  }
+
+  startReview(order) {
+    const p = this.plugin;
+    const pool = p.filteredCards({ deck: this.deck, course: this.course });
+    const queue = cardQueue(pool, {
+      today: localDate(),
+      order: order || p.settings.cards.order,
+      limit: p.settings.cards.reviewLimit,
+    });
+    if (!queue.length) {
+      new Notice("Nothing to review in this deck. Try another deck or review all cards.");
+      return;
+    }
+    this.queue = queue;
+    this.index = 0;
+    this.state = "review";
+    this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
+    this.showCard();
+  }
+
+  async showCard() {
+    const card = this.queue[this.index];
+    if (!card) return this.finish();
+    this.current = null;
+    this.revealed = false;
+    try {
+      const text = await this.app.vault.cachedRead(card.file);
+      this.current = { ...card, body: parseCardBody(text, card.fm) };
+    } catch (e) {
+      new Notice(`Could not read ${card.file.path}.`);
+      this.queue.splice(this.index, 1);
+      return this.showCard();
+    }
+    this.render();
+  }
+
+  reveal() {
+    if (!this.current) return;
+    this.revealed = true;
+    this.render();
+  }
+
+  async rate(grade) {
+    if (this.busy || !this.current) return;
+    this.busy = true;
+    const card = this.current;
+    try {
+      const summary = await this.plugin.recordCardReview(card, grade, 0);
+      if (summary && summary.queued) {
+        new Notice("Saved offline. This card review will be written when the vault is available.", 6000);
+      }
+      this.session.reviewed++;
+      this.session.grades[grade] = (this.session.grades[grade] || 0) + 1;
+      if (grade !== "again") this.session.correct++;
+      this.index++;
+      this.busy = false;
+      if (this.index >= this.queue.length) return this.finish();
+      await this.showCard();
+    } catch (e) {
+      this.busy = false;
+      new Notice(str(e && e.message) || "Could not save this review.");
+    }
+  }
+
+  finish() {
+    this.state = "summary";
+    this.current = null;
+    this.render();
+  }
+
+  renderReview(root) {
+    root.addClass("qt-cards-review");
+    const top = root.createDiv({ cls: "qt-row qt-cards-top" });
+    const back = top.createEl("button", { text: "Decks" });
+    back.addEventListener("click", () => {
+      this.state = "browse";
+      this.current = null;
+      this.render();
+    });
+    top.createDiv({
+      cls: "qt-cards-progress",
+      text: `${this.index + 1} / ${this.queue.length}`,
+    });
+    if (!this.current) {
+      root.createDiv({ cls: "qt-hint", text: "Loading card…" });
+      return;
+    }
+    const card = this.current;
+    const box = root.createDiv({ cls: "qt-cards-box" });
+    const head = box.createDiv({ cls: "qt-cards-cardhead" });
+    const chips = head.createDiv({ cls: "qt-chips" });
+    chips.createSpan({ cls: "qt-cards-deck", text: card.deck });
+    if (card.course) chips.createSpan({ cls: "qt-cards-course", text: card.course });
+    if (card.body.kind === "vocab") chips.createSpan({ cls: "qt-cards-kind", text: "Vocabulary" });
+    else if (card.body.cardType !== "basic") chips.createSpan({ cls: "qt-cards-kind", text: card.body.cardType });
+    const open = head.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": "Open note", title: "Open note" } });
+    setIcon(open, "file-text");
+    open.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(card.file));
+
+    const front = box.createDiv({ cls: "qt-cards-front" });
+    if (card.body.language || card.body.partOfSpeech) {
+      front.createDiv({ cls: "qt-cards-lang", text: [card.body.language, card.body.partOfSpeech].filter(Boolean).join(" · ") });
+    }
+    this.md(card.body.front || "*This card has no front.*", front.createDiv({ cls: "qt-cards-term" }), card.file.path);
+
+    if (!this.revealed) {
+      const show = root.createEl("button", { text: "Show answer", cls: "mod-cta qt-primary qt-cards-show" });
+      show.addEventListener("click", () => this.reveal());
+      root.createDiv({ cls: "qt-hint", text: "Space or Enter also flips the card." });
+      return;
+    }
+
+    const answer = root.createDiv({ cls: "qt-cards-box qt-cards-answer" });
+    answer.createDiv({ cls: "qt-cards-answer-label", text: card.body.kind === "vocab" ? "Definition" : "Answer" });
+    this.md(card.body.back || "*This card has no answer.*", answer.createDiv({ cls: "qt-cards-back" }), card.file.path);
+    if (card.body.example) {
+      answer.createDiv({ cls: "qt-cards-answer-label", text: "Example" });
+      this.md(card.body.example, answer.createDiv({ cls: "qt-cards-example" }), card.file.path);
+    }
+
+    const ratings = root.createDiv({ cls: "qt-cards-ratings" });
+    const buttons = [
+      ["again", "Again", "1"],
+      ["hard", "Hard", "2"],
+      ["good", "Good", "3"],
+      ["easy", "Easy", "4"],
+    ];
+    for (const [grade, label, key] of buttons) {
+      const b = ratings.createEl("button", { text: label, cls: `qt-cards-rate qt-cards-rate-${grade}` });
+      b.createSpan({ cls: "qt-cards-rate-key", text: key });
+      b.addEventListener("click", () => this.rate(grade));
+    }
+    root.createDiv({ cls: "qt-hint", text: "Rate how well you recalled it. 1 = again, 4 = easy." });
+  }
+
+  renderSummary(root) {
+    const s = this.session;
+    const box = root.createDiv({ cls: "qt-onboard-card" });
+    box.createEl("h3", { text: "Review complete" });
+    box.createDiv({
+      cls: "qt-onboard-text",
+      text: `${s.reviewed} card${s.reviewed === 1 ? "" : "s"} reviewed · ${s.correct} recalled.`,
+    });
+    const row = box.createDiv({ cls: "qt-row" });
+    row.createEl("span", { cls: "qt-cards-summary", text: `Again ${s.grades.again} · Hard ${s.grades.hard} · Good ${s.grades.good} · Easy ${s.grades.easy}` });
+    const again = box.createEl("button", { text: "Review again", cls: "mod-cta qt-primary" });
+    again.addEventListener("click", () => this.startReview("all"));
+    const back = box.createEl("button", { text: "Back to decks" });
+    back.addEventListener("click", () => {
+      this.state = "browse";
+      this.render();
+    });
+  }
+}
+
+module.exports = {
+  VIEW_TYPE_CARDS,
+  CardView,
+};
+};
+
 /* ---- src/chat-panel.js ---- */
 __defs["chat-panel"] = function (module, exports, require) {
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
@@ -2967,6 +4128,7 @@ __defs["constants"] = function (module, exports, require) {
 const VIEW_TYPE = "question-tracker-view";
 const VIEW_TYPE_TODAY = "question-tracker-today";
 const VIEW_TYPE_CALENDAR = "question-tracker-calendar";
+const VIEW_TYPE_CARDS = "question-tracker-cards";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -3033,6 +4195,14 @@ const DEFAULT_SETTINGS = {
   testSession: null, // a timed test in progress, so it survives closing Obsidian
   quickDefaults: { count: 5, minutes: 5 },
   quickSession: null, // a Quick Practice queue in progress, so it survives closing Obsidian
+  cards: {
+    enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off
+    newCardFolder: "Cards", // where new cards go when their deck has no folder
+    defaultDeck: "General",
+    reviewLimit: 20,
+    order: "due", // "due" (due + new) | "all"
+    decks: [], // [{ name, folder, course }]
+  },
 };
 
 // Tracking properties every question note should have.
@@ -3065,6 +4235,7 @@ module.exports = {
   VIEW_TYPE,
   VIEW_TYPE_TODAY,
   VIEW_TYPE_CALENDAR,
+  VIEW_TYPE_CARDS,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,
@@ -3804,6 +4975,25 @@ function renameFolderInSettings(st, oldPath, newPath) {
       changed = true;
     }
   }
+  if (st.cards) {
+    const cur = str(st.cards.newCardFolder).replace(/^\/+|\/+$/g, "");
+    if (cur) {
+      const next = renameFolderPath(cur, oldPath, newPath);
+      if (next !== cur) {
+        st.cards.newCardFolder = next;
+        changed = true;
+      }
+    }
+    for (const deck of st.cards.decks || []) {
+      const folder = str(deck.folder).replace(/^\/+|\/+$/g, "");
+      if (!folder) continue;
+      const next = renameFolderPath(folder, oldPath, newPath);
+      if (next !== folder) {
+        deck.folder = next;
+        changed = true;
+      }
+    }
+  }
   return changed;
 }
 
@@ -4059,7 +5249,12 @@ function reviewNote(fm, a, retention) {
   const now = a && a.now instanceof Date && !isNaN(a.now.getTime()) ? a.now : new Date();
   const ret = clampRetention(retention);
   const seeded = cardForNote(fm, now, ret);
-  const rating = gradeForAttempt(!!a.correct, a.conf, a.seconds, fm && fm.target_seconds);
+  // Cards have an explicit four-way rating. Questions derive one from correctness,
+  // confidence and speed instead.
+  const explicit = Number(a && a.rating);
+  const rating = Number.isInteger(explicit) && explicit >= 1 && explicit <= 4
+    ? explicit
+    : gradeForAttempt(!!a.correct, a.conf, a.seconds, fm && fm.target_seconds);
   const next = makeScheduler(ret).next(seeded.card, now, rating).card;
 
   // Notes store a date, not a time, so never schedule inside the same day.
@@ -7652,9 +8847,29 @@ function applyAttempt(fm, a, intervals, options) {
   if (opts.attemptId) fm.last_attempt_id = opts.attemptId;
   const iv = intervals && intervals.length ? intervals : DEFAULT_SETTINGS.intervals;
   const prev = Number(fm.streak) || 0;
-  const streak = a.correct ? (a.conf === 1 ? prev : prev + 1) : 0;
+  // Cards rate themselves explicitly. Hard keeps the current rung without
+  // advancing it; Easy jumps one rung past Good.
+  const grade = ["again", "hard", "good", "easy"].includes(str(opts.grade || a.grade).toLowerCase())
+    ? str(opts.grade || a.grade).toLowerCase()
+    : "";
+  const streak = grade
+    ? grade === "again"
+      ? 0
+      : grade === "hard"
+        ? prev
+        : prev + 1
+    : a.correct
+      ? a.conf === 1
+        ? prev
+        : prev + 1
+      : 0;
   let days;
-  if (!a.correct) days = 1;
+  if (grade) {
+    if (grade === "again") days = 1;
+    else if (grade === "hard") days = 2;
+    else if (grade === "easy") days = iv[Math.min(Math.max(streak, 1), iv.length - 1)];
+    else days = iv[Math.min(Math.max(streak, 1) - 1, iv.length - 1)];
+  } else if (!a.correct) days = 1;
   else if (a.conf === 1) days = 2;
   else days = iv[Math.min(Math.max(streak, 1) - 1, iv.length - 1)];
 
@@ -7696,6 +8911,7 @@ function applyAttempt(fm, a, intervals, options) {
     // Switching back to the ladder is lossless: keep the FSRS state for later.
     fm.scheduler = "ladder";
   }
+  if (grade) fm.last_card_rating = grade;
 
   return {
     streak,
@@ -7708,6 +8924,7 @@ function applyAttempt(fm, a, intervals, options) {
     fsrsDays: fsrsReview ? fsrsReview.days : 0,
     fsrsReplayed: fsrsReview ? fsrsReview.replayed : 0,
     fsrsError,
+    grade,
     attemptId: opts.attemptId || "",
   };
 }
@@ -9067,7 +10284,7 @@ module.exports = {
 __defs["plugin"] = function (module, exports, require) {
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -9076,7 +10293,7 @@ const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./moda
 const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { OpenCodeClient } = require("./opencode-client");
-const { sleep, hashString, localDate } = require("./util");
+const { sleep, hashString, localDate, ensureFolder } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
@@ -9084,6 +10301,9 @@ const { cleanSubjectTitle, mergeCalendarSettings, nextClassStatus, subjectKey, v
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
+const { CardView } = require("./cards-view");
+const { CardModal } = require("./card-modal");
+const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, resolveCard } = require("./cards");
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
@@ -9126,6 +10346,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_INSIGHTS, (leaf) => new InsightsView(leaf, this));
     this.registerView(VIEW_TYPE_TEST, (leaf) => new TestView(leaf, this));
     this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this));
+    this.registerView(VIEW_TYPE_CARDS, (leaf) => new CardView(leaf, this));
     this.ribbonButtons = {};
     this.ribbonAdded = {};
     this.refreshRibbon();
@@ -9169,6 +10390,9 @@ class QuestionTrackerPlugin extends Plugin {
       callback: () => this.openNextClassNote(),
     });
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
+    this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
+    this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
+    this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
 
     // Embeds: `uni-schedule` and `uni-calendar` are the block names existing University
     // Schedule and Calendar notes use, so those keep working. If that plugin is enabled
@@ -9305,6 +10529,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
+    this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
     // module switches and plugin-wide flags are always plain booleans
     this.settings.mcqEnabled = this.settings.mcqEnabled !== false;
@@ -9510,6 +10735,9 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TODAY)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_CARDS)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
   }
 
   /** Re-draws only the practice views that are showing the first-run screen (an import just finished). */
@@ -9552,6 +10780,11 @@ class QuestionTrackerPlugin extends Plugin {
     return this.settings.mcqEnabled !== false;
   }
 
+  /** Flashcards and vocabulary are opt-in. */
+  cardsEnabled() {
+    return !!(this.settings.cards && this.settings.cards.enabled);
+  }
+
   /** Adds one module's ribbon button, once, if ribbon buttons are on. */
   addModuleRibbon(id, icon, title, onClick) {
     if (!this.ribbonAdded) this.ribbonAdded = {};
@@ -9577,6 +10810,8 @@ class QuestionTrackerPlugin extends Plugin {
       this.removeModuleRibbon("today");
       this.removeModuleRibbon("mcq");
     }
+    if (this.cardsEnabled()) this.addModuleRibbon("cards", "layers", "Open cards", () => this.activateCards());
+    else this.removeModuleRibbon("cards");
     if (this.calendarEnabled()) this.addModuleRibbon("calendar", "calendar-days", "Open calendar", () => this.activateCalendar());
     else this.removeModuleRibbon("calendar");
   }
@@ -9587,11 +10822,14 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Says a module is off and points at settings. True when it is off, so callers can stop. */
   moduleOff(id) {
-    if (id === "calendar" ? this.calendarEnabled() : this.mcqEnabled()) return false;
+    const on = id === "calendar" ? this.calendarEnabled() : id === "cards" ? this.cardsEnabled() : this.mcqEnabled();
+    if (on) return false;
     new Notice(
       id === "calendar"
         ? "The calendar module is off. Turn it on in Settings, Global."
-        : "The MCQ Tracker module is off. Turn it on in Settings, Global."
+        : id === "cards"
+          ? "The Cards module is off. Turn it on in Settings, Global."
+          : "The MCQ Tracker module is off. Turn it on in Settings, Global."
     );
     this.openSettings();
     return true;
@@ -9609,6 +10847,15 @@ class QuestionTrackerPlugin extends Plugin {
     if (!this.mcqEnabled()) {
       this.detachModuleLeaves([VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_INSIGHTS, VIEW_TYPE_TEST]);
       this.pauseSession();
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onCardsToggled() {
+    this.refreshRibbon();
+    if (!this.cardsEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_CARDS]);
       return;
     }
     this.refreshViews();
@@ -9788,6 +11035,28 @@ class QuestionTrackerPlugin extends Plugin {
     }
   }
 
+  async activateCards() {
+    if (this.moduleOff("cards")) return null;
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_CARDS)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_CARDS, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
+  openNewCard(options) {
+    if (this.moduleOff("cards")) return;
+    new CardModal(this.app, this, options || {}, (result) => {
+      if (result && result.path) new Notice(`Created ${result.path}.`);
+      this.refreshViews();
+    }).open();
+  }
+
   async activateCalendar() {
     if (this.moduleOff("calendar")) return null;
     const ws = this.app.workspace;
@@ -9919,6 +11188,85 @@ class QuestionTrackerPlugin extends Plugin {
 
   filtered(questions) {
     return questions.filter((q) => matchSets(q.fm, [this.settings.filters, ...(this.settings.moreSets || [])], q.file.path));
+  }
+
+  /* ---- cards */
+
+  /** Every card or vocabulary note, with its effective deck and course. */
+  getCards() {
+    const out = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      if (isCardNote(fm)) out.push(resolveCard(file, fm, this.settings));
+    }
+    return out;
+  }
+
+  filteredCards(options) {
+    const opts = options || {};
+    const deck = String(opts.deck || "").trim().toLowerCase();
+    const course = String(opts.course || "").trim().toLowerCase();
+    return this.getCards().filter((card) => {
+      if (deck && deck !== "all" && card.deck.toLowerCase() !== deck) return false;
+      if (course && course !== "all" && card.course.toLowerCase() !== course) return false;
+      return true;
+    });
+  }
+
+  cardDecks() {
+    return deckSummary(this.getCards(), this.settings, localDate());
+  }
+
+  /** Write one card review through the same scheduler and offline outbox as questions. */
+  recordCardReview(card, grade, seconds) {
+    return this.recordAttempt(card.file, { ...cardAttempt(grade, seconds), now: new Date() });
+  }
+
+  /** Create a card note. The deck's folder, course and the note's own properties stay readable. */
+  async createCard(input) {
+    if (this.moduleOff("cards")) return null;
+    const data = input || {};
+    const st = this.settings.cards;
+    const deck = String(data.deck || st.defaultDeck || "General").trim() || "General";
+    let cfg = deckConfig(this.settings, deck);
+    if (!cfg) {
+      cfg = { name: deck, folder: "", course: "" };
+      st.decks = Array.isArray(st.decks) ? st.decks : [];
+      st.decks.push(cfg);
+      await this.save();
+    }
+    const deckFolder = deck.replace(/[\\/:*?"<>|]/g, " ").trim();
+    const root = String(st.newCardFolder || "").replace(/^\/+|\/+$/g, "");
+    const folder = cfg.folder || (root ? `${root}/${deckFolder}` : deckFolder);
+    const course =
+      String(data.course || "").trim() ||
+      cfg.course ||
+      courseForFolder(this.settings, `${folder}/${deckFolder}.md`);
+    const note = cardNote({ ...data, deck, course });
+    if (folder) await ensureFolder(this.app, folder);
+    let path = folder ? `${folder}/${note.title}.md` : `${note.title}.md`;
+    let n = 2;
+    while (this.app.vault.getAbstractFileByPath(path)) {
+      path = folder ? `${folder}/${note.title} ${n}.md` : `${note.title} ${n}.md`;
+      n++;
+    }
+    const file = await this.app.vault.create(path, note.text);
+    return { path, file, deck, course };
+  }
+
+  /** Backfill missing course tags from deck and calendar folder mappings. */
+  async tagCardsByCourse() {
+    if (this.moduleOff("cards")) return 0;
+    let n = 0;
+    for (const card of this.getCards()) {
+      if (String(card.fm.course || "").trim() || !card.course) continue;
+      const course = card.course;
+      await this.app.fileManager.processFrontMatter(card.file, (fm) => {
+        if (!String(fm.course || "").trim()) fm.course = course;
+      });
+      n++;
+    }
+    return n;
   }
 
   /* ---- presets */
@@ -11391,6 +12739,18 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Cards and vocabulary")
+    .setDesc("Flashcards and vocabulary notes with decks, course tags and the same spaced review as your questions. Off by default; its own settings are under Cards.")
+    .addToggle((t) =>
+      t.setValue(plugin.cardsEnabled()).onChange(async (v) => {
+        st.cards.enabled = v;
+        await plugin.save();
+        await plugin.onCardsToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Calendar")
     .setDesc("A class and exam calendar from .ics schedules, with countdowns, one-click class notes and study time from free periods. Off by default; its own settings are under Calendar.")
     .addToggle((t) =>
@@ -11416,7 +12776,7 @@ function renderModules(containerEl, plugin, redisplay) {
 
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "The settings for a module stay on its own page: MCQ Tracker and Calendar.",
+    text: "The settings for a module stay on its own page: MCQ Tracker, Cards and Calendar.",
   });
 }
 
@@ -11473,12 +12833,14 @@ const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
+const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
   { id: "mcq", label: "MCQ Tracker", icon: "list-checks" },
+  { id: "cards", label: "Cards", icon: "layers" },
   { id: "calendar", label: "Calendar", icon: "graduation-cap" },
 ];
 
@@ -11498,6 +12860,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     this.activeModule = "global";
     this.activeGlobalTab = "modules";
     this.activeMcqTab = "practice";
+    this.activeCardsTab = "decks";
     this.activeCalendarTab = "about";
   }
 
@@ -11517,6 +12880,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         this.activeGlobalTab,
         (id) => {
           this.activeGlobalTab = id;
+          this.display();
+        }
+      );
+      return;
+    }
+
+    if (this.activeModule === "cards") {
+      renderCardsSettings(
+        containerEl,
+        this.plugin,
+        () => this.display(),
+        this.activeCardsTab,
+        (id) => {
+          this.activeCardsTab = id;
           this.display();
         }
       );
@@ -12096,6 +13473,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 }
 
 module.exports = {
+  CARDS_TABS,
   GLOBAL_TABS,
   MCQ_TABS,
   QuestionTrackerSettingTab,
@@ -12469,7 +13847,26 @@ class TodayView extends ItemView {
       card.createEl("button", { text: "Open practice view", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.activateView());
     }
 
+    this.renderCards(root);
     this.renderNext(root, now);
+  }
+
+  renderCards(root) {
+    const p = this.plugin;
+    if (!p.cardsEnabled || !p.cardsEnabled()) return;
+    const cards = p.getCards ? p.getCards() : [];
+    const due = cards.filter((c) => !Number(c.fm.attempts) || (!!c.fm.next_review && String(c.fm.next_review).slice(0, 10) <= fmtDate(new Date()))).length;
+    root.createEl("h3", { cls: "qt-today-section", text: "Cards" });
+    const card = root.createDiv({ cls: "qt-today-card" });
+    card.createDiv({ cls: "qt-today-kicker", text: due ? "Ready to review" : "All caught up" });
+    card.createDiv({
+      cls: "qt-today-title",
+      text: due ? `${due} card${due === 1 ? "" : "s"} due or new` : `${cards.length} card${cards.length === 1 ? "" : "s"} in your decks`,
+    });
+    card.createDiv({ cls: "qt-today-meta", text: "Flashcards and vocabulary share the same review schedule as your questions." });
+    const row = card.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: due ? "Review cards" : "Open cards", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.activateCards());
+    if (due) row.createEl("button", { text: "New card" }).addEventListener("click", () => p.openNewCard());
   }
 
   renderNext(root, now) {
@@ -12645,8 +14042,11 @@ const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSess
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
 const { TodayView } = require("./today-view");
-const { GLOBAL_TABS, MCQ_TABS, QuestionTrackerSettingTab, SETTINGS_MODULES } = require("./settings-tab");
+const { CARDS_TABS, GLOBAL_TABS, MCQ_TABS, QuestionTrackerSettingTab, SETTINGS_MODULES } = require("./settings-tab");
 const { CALENDAR_TABS } = require("./calendar-settings");
+const cards = require("./cards");
+const { CardView } = require("./cards-view");
+const { CardModal } = require("./card-modal");
 const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
@@ -12734,7 +14134,11 @@ QuestionTrackerPlugin.__test = {
   SETTINGS_MODULES,
   GLOBAL_TABS,
   MCQ_TABS,
+  CARDS_TABS,
   CALENDAR_TABS,
+  cards,
+  CardView,
+  CardModal,
   renderSettingsTabs,
   FolderFilterSuggest,
   QuestionFolderModal,

@@ -757,7 +757,7 @@ Names are proposals; keep existing ones unchanged.
 
 ### Phase 2: Flashcards and vocab (priority)
 
-- [ ] Card and vocab item types, deck organization, course tagging (§5.7)
+- [x] Card and vocab item types, deck organization, course tagging (§5.7) — shipped in 1.12.0
 - [ ] Card syntax compatibility and importers: Spaced Repetition syntax, Anki, LearnKit-compatible (§5.15)
 - [ ] **Answer modes: flip, type, speak (via OS dictation first), with the cheap-first grading pipeline** (§5.17)
 - [ ] AI grader with strictness settings, override, and grade-later queue
@@ -2092,7 +2092,7 @@ Names are proposals; keep existing ones unchanged.
 
 ### Phase 2: Flashcards and vocab (priority)
 
-- [ ] Card and vocab item types, deck organization, course tagging (§5.7)
+- [x] Card and vocab item types, deck organization, course tagging (§5.7) — shipped in 1.12.0
 - [ ] Card syntax compatibility and importers: Spaced Repetition syntax, Anki, LearnKit-compatible (§5.15)
 - [ ] **Answer modes: flip, type, speak (via OS dictation first), with the cheap-first grading pipeline** (§5.17)
 - [ ] AI grader with strictness settings, override, and grade-later queue

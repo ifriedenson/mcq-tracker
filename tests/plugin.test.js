@@ -20,9 +20,9 @@ async function start(notes = NOTES) {
 
 test("the plugin starts and registers its views, commands and folder events", async () => {
   const { app, plugin } = await start();
-  assert.deepEqual(Object.keys(plugin.views).sort(), ["question-tracker-calendar", "question-tracker-insights", "question-tracker-test", "question-tracker-today", "question-tracker-view"]);
+  assert.deepEqual(Object.keys(plugin.views).sort(), ["question-tracker-calendar", "question-tracker-cards", "question-tracker-insights", "question-tracker-test", "question-tracker-today", "question-tracker-view"]);
   const ids = plugin.commands.map((c) => c.id);
-  for (const id of ["practice-folder", "practice-current-folder", "timed-test", "weak-spots", "error-log", "find-question", "rename-source-id", "open-practice-view", "open-today", "import-pdf", "open-calendar"]) {
+  for (const id of ["practice-folder", "practice-current-folder", "timed-test", "weak-spots", "error-log", "find-question", "rename-source-id", "open-practice-view", "open-today", "import-pdf", "open-calendar", "open-cards", "new-card", "tag-card-courses"]) {
     assert.ok(ids.includes(id), `missing command ${id}`);
   }
   assert.ok(app.handlers["ws:file-menu"], "file explorer menu");

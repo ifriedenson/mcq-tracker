@@ -145,7 +145,12 @@ function reviewNote(fm, a, retention) {
   const now = a && a.now instanceof Date && !isNaN(a.now.getTime()) ? a.now : new Date();
   const ret = clampRetention(retention);
   const seeded = cardForNote(fm, now, ret);
-  const rating = gradeForAttempt(!!a.correct, a.conf, a.seconds, fm && fm.target_seconds);
+  // Cards have an explicit four-way rating. Questions derive one from correctness,
+  // confidence and speed instead.
+  const explicit = Number(a && a.rating);
+  const rating = Number.isInteger(explicit) && explicit >= 1 && explicit <= 4
+    ? explicit
+    : gradeForAttempt(!!a.correct, a.conf, a.seconds, fm && fm.target_seconds);
   const next = makeScheduler(ret).next(seeded.card, now, rating).card;
 
   // Notes store a date, not a time, so never schedule inside the same day.

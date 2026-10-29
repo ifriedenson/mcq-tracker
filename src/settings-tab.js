@@ -8,12 +8,14 @@ const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
+const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
   { id: "mcq", label: "MCQ Tracker", icon: "list-checks" },
+  { id: "cards", label: "Cards", icon: "layers" },
   { id: "calendar", label: "Calendar", icon: "graduation-cap" },
 ];
 
@@ -33,6 +35,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     this.activeModule = "global";
     this.activeGlobalTab = "modules";
     this.activeMcqTab = "practice";
+    this.activeCardsTab = "decks";
     this.activeCalendarTab = "about";
   }
 
@@ -52,6 +55,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         this.activeGlobalTab,
         (id) => {
           this.activeGlobalTab = id;
+          this.display();
+        }
+      );
+      return;
+    }
+
+    if (this.activeModule === "cards") {
+      renderCardsSettings(
+        containerEl,
+        this.plugin,
+        () => this.display(),
+        this.activeCardsTab,
+        (id) => {
+          this.activeCardsTab = id;
           this.display();
         }
       );
@@ -631,6 +648,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 }
 
 module.exports = {
+  CARDS_TABS,
   GLOBAL_TABS,
   MCQ_TABS,
   QuestionTrackerSettingTab,

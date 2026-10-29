@@ -139,6 +139,25 @@ function renameFolderInSettings(st, oldPath, newPath) {
       changed = true;
     }
   }
+  if (st.cards) {
+    const cur = str(st.cards.newCardFolder).replace(/^\/+|\/+$/g, "");
+    if (cur) {
+      const next = renameFolderPath(cur, oldPath, newPath);
+      if (next !== cur) {
+        st.cards.newCardFolder = next;
+        changed = true;
+      }
+    }
+    for (const deck of st.cards.decks || []) {
+      const folder = str(deck.folder).replace(/^\/+|\/+$/g, "");
+      if (!folder) continue;
+      const next = renameFolderPath(folder, oldPath, newPath);
+      if (next !== folder) {
+        deck.folder = next;
+        changed = true;
+      }
+    }
+  }
   return changed;
 }
 

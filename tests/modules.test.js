@@ -18,16 +18,18 @@ async function setup(saved) {
   return { app, plugin };
 }
 
-test("settings: Global sits beside MCQ Tracker and Calendar and has its own tabs", () => {
-  assert.deepEqual(T.SETTINGS_MODULES.map((m) => m.id), ["global", "mcq", "calendar"]);
+test("settings: Global sits beside MCQ Tracker, Cards and Calendar and has its own tabs", () => {
+  assert.deepEqual(T.SETTINGS_MODULES.map((m) => m.id), ["global", "mcq", "cards", "calendar"]);
   assert.deepEqual(T.GLOBAL_TABS.map((t) => t.id), ["modules", "general"]);
   assert.deepEqual(T.GLOBAL_TABS.map((t) => t.label), ["Modules", "General"]);
+  assert.deepEqual(T.CARDS_TABS.map((t) => t.id), ["decks", "review", "about"]);
 });
 
 test("modules: MCQ Tracker is on by default, Calendar and AI are opt-in", async () => {
   const { plugin } = await setup();
   assert.equal(plugin.mcqEnabled(), true);
   assert.equal(plugin.calendarEnabled(), false);
+  assert.equal(plugin.cardsEnabled(), false, "Cards is opt-in");
   assert.equal(plugin.settings.ai.enabled, false);
   assert.equal(plugin.settings.showRibbonIcons, true);
   assert.equal(plugin.settings.openPracticeOnStartUp, false);
@@ -80,6 +82,22 @@ test("modules: an already-open practice tab says the module is off", async () =>
   view.render();
   assert.ok(dom.texts().some((t) => /MCQ Tracker is off/.test(t)));
   assert.ok(!dom.texts().some((t) => /No questions yet/.test(t)), "the first-run screen stays out of the way");
+});
+
+test("modules: Cards is opt-in, and switching it off closes its tab", async () => {
+  const { app, plugin } = await setup();
+  const detached = [];
+  app.workspace.detachLeavesOfType = (type) => detached.push(type);
+  assert.equal(plugin.cardsEnabled(), false);
+  await plugin.onCardsToggled();
+  assert.deepEqual(detached, ["question-tracker-cards"]);
+
+  plugin.settings.cards.enabled = true;
+  await plugin.onCardsToggled();
+  assert.deepEqual(detached, ["question-tracker-cards"], "turning it on closes nothing");
+  plugin.settings.cards.enabled = false;
+  await plugin.onCardsToggled();
+  assert.deepEqual(detached, ["question-tracker-cards", "question-tracker-cards"]);
 });
 
 test("modules: turning a module off closes its tabs, and on brings them back", async () => {

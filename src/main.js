@@ -23,8 +23,11 @@ const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSess
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
 const { TodayView } = require("./today-view");
-const { GLOBAL_TABS, MCQ_TABS, QuestionTrackerSettingTab, SETTINGS_MODULES } = require("./settings-tab");
+const { CARDS_TABS, GLOBAL_TABS, MCQ_TABS, QuestionTrackerSettingTab, SETTINGS_MODULES } = require("./settings-tab");
 const { CALENDAR_TABS } = require("./calendar-settings");
+const cards = require("./cards");
+const { CardView } = require("./cards-view");
+const { CardModal } = require("./card-modal");
 const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
@@ -112,7 +115,11 @@ QuestionTrackerPlugin.__test = {
   SETTINGS_MODULES,
   GLOBAL_TABS,
   MCQ_TABS,
+  CARDS_TABS,
   CALENDAR_TABS,
+  cards,
+  CardView,
+  CardModal,
   renderSettingsTabs,
   FolderFilterSuggest,
   QuestionFolderModal,

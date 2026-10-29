@@ -1,7 +1,7 @@
 "use strict";
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -10,7 +10,7 @@ const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./moda
 const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { OpenCodeClient } = require("./opencode-client");
-const { sleep, hashString, localDate } = require("./util");
+const { sleep, hashString, localDate, ensureFolder } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
@@ -18,6 +18,9 @@ const { cleanSubjectTitle, mergeCalendarSettings, nextClassStatus, subjectKey, v
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
+const { CardView } = require("./cards-view");
+const { CardModal } = require("./card-modal");
+const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, resolveCard } = require("./cards");
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
@@ -60,6 +63,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_INSIGHTS, (leaf) => new InsightsView(leaf, this));
     this.registerView(VIEW_TYPE_TEST, (leaf) => new TestView(leaf, this));
     this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this));
+    this.registerView(VIEW_TYPE_CARDS, (leaf) => new CardView(leaf, this));
     this.ribbonButtons = {};
     this.ribbonAdded = {};
     this.refreshRibbon();
@@ -103,6 +107,9 @@ class QuestionTrackerPlugin extends Plugin {
       callback: () => this.openNextClassNote(),
     });
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
+    this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
+    this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
+    this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
 
     // Embeds: `uni-schedule` and `uni-calendar` are the block names existing University
     // Schedule and Calendar notes use, so those keep working. If that plugin is enabled
@@ -239,6 +246,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
+    this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
     // module switches and plugin-wide flags are always plain booleans
     this.settings.mcqEnabled = this.settings.mcqEnabled !== false;
@@ -444,6 +452,9 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_TODAY)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_CARDS)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
   }
 
   /** Re-draws only the practice views that are showing the first-run screen (an import just finished). */
@@ -486,6 +497,11 @@ class QuestionTrackerPlugin extends Plugin {
     return this.settings.mcqEnabled !== false;
   }
 
+  /** Flashcards and vocabulary are opt-in. */
+  cardsEnabled() {
+    return !!(this.settings.cards && this.settings.cards.enabled);
+  }
+
   /** Adds one module's ribbon button, once, if ribbon buttons are on. */
   addModuleRibbon(id, icon, title, onClick) {
     if (!this.ribbonAdded) this.ribbonAdded = {};
@@ -511,6 +527,8 @@ class QuestionTrackerPlugin extends Plugin {
       this.removeModuleRibbon("today");
       this.removeModuleRibbon("mcq");
     }
+    if (this.cardsEnabled()) this.addModuleRibbon("cards", "layers", "Open cards", () => this.activateCards());
+    else this.removeModuleRibbon("cards");
     if (this.calendarEnabled()) this.addModuleRibbon("calendar", "calendar-days", "Open calendar", () => this.activateCalendar());
     else this.removeModuleRibbon("calendar");
   }
@@ -521,11 +539,14 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Says a module is off and points at settings. True when it is off, so callers can stop. */
   moduleOff(id) {
-    if (id === "calendar" ? this.calendarEnabled() : this.mcqEnabled()) return false;
+    const on = id === "calendar" ? this.calendarEnabled() : id === "cards" ? this.cardsEnabled() : this.mcqEnabled();
+    if (on) return false;
     new Notice(
       id === "calendar"
         ? "The calendar module is off. Turn it on in Settings, Global."
-        : "The MCQ Tracker module is off. Turn it on in Settings, Global."
+        : id === "cards"
+          ? "The Cards module is off. Turn it on in Settings, Global."
+          : "The MCQ Tracker module is off. Turn it on in Settings, Global."
     );
     this.openSettings();
     return true;
@@ -543,6 +564,15 @@ class QuestionTrackerPlugin extends Plugin {
     if (!this.mcqEnabled()) {
       this.detachModuleLeaves([VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_INSIGHTS, VIEW_TYPE_TEST]);
       this.pauseSession();
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onCardsToggled() {
+    this.refreshRibbon();
+    if (!this.cardsEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_CARDS]);
       return;
     }
     this.refreshViews();
@@ -722,6 +752,28 @@ class QuestionTrackerPlugin extends Plugin {
     }
   }
 
+  async activateCards() {
+    if (this.moduleOff("cards")) return null;
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_CARDS)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_CARDS, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
+  openNewCard(options) {
+    if (this.moduleOff("cards")) return;
+    new CardModal(this.app, this, options || {}, (result) => {
+      if (result && result.path) new Notice(`Created ${result.path}.`);
+      this.refreshViews();
+    }).open();
+  }
+
   async activateCalendar() {
     if (this.moduleOff("calendar")) return null;
     const ws = this.app.workspace;
@@ -853,6 +905,85 @@ class QuestionTrackerPlugin extends Plugin {
 
   filtered(questions) {
     return questions.filter((q) => matchSets(q.fm, [this.settings.filters, ...(this.settings.moreSets || [])], q.file.path));
+  }
+
+  /* ---- cards */
+
+  /** Every card or vocabulary note, with its effective deck and course. */
+  getCards() {
+    const out = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      if (isCardNote(fm)) out.push(resolveCard(file, fm, this.settings));
+    }
+    return out;
+  }
+
+  filteredCards(options) {
+    const opts = options || {};
+    const deck = String(opts.deck || "").trim().toLowerCase();
+    const course = String(opts.course || "").trim().toLowerCase();
+    return this.getCards().filter((card) => {
+      if (deck && deck !== "all" && card.deck.toLowerCase() !== deck) return false;
+      if (course && course !== "all" && card.course.toLowerCase() !== course) return false;
+      return true;
+    });
+  }
+
+  cardDecks() {
+    return deckSummary(this.getCards(), this.settings, localDate());
+  }
+
+  /** Write one card review through the same scheduler and offline outbox as questions. */
+  recordCardReview(card, grade, seconds) {
+    return this.recordAttempt(card.file, { ...cardAttempt(grade, seconds), now: new Date() });
+  }
+
+  /** Create a card note. The deck's folder, course and the note's own properties stay readable. */
+  async createCard(input) {
+    if (this.moduleOff("cards")) return null;
+    const data = input || {};
+    const st = this.settings.cards;
+    const deck = String(data.deck || st.defaultDeck || "General").trim() || "General";
+    let cfg = deckConfig(this.settings, deck);
+    if (!cfg) {
+      cfg = { name: deck, folder: "", course: "" };
+      st.decks = Array.isArray(st.decks) ? st.decks : [];
+      st.decks.push(cfg);
+      await this.save();
+    }
+    const deckFolder = deck.replace(/[\\/:*?"<>|]/g, " ").trim();
+    const root = String(st.newCardFolder || "").replace(/^\/+|\/+$/g, "");
+    const folder = cfg.folder || (root ? `${root}/${deckFolder}` : deckFolder);
+    const course =
+      String(data.course || "").trim() ||
+      cfg.course ||
+      courseForFolder(this.settings, `${folder}/${deckFolder}.md`);
+    const note = cardNote({ ...data, deck, course });
+    if (folder) await ensureFolder(this.app, folder);
+    let path = folder ? `${folder}/${note.title}.md` : `${note.title}.md`;
+    let n = 2;
+    while (this.app.vault.getAbstractFileByPath(path)) {
+      path = folder ? `${folder}/${note.title} ${n}.md` : `${note.title} ${n}.md`;
+      n++;
+    }
+    const file = await this.app.vault.create(path, note.text);
+    return { path, file, deck, course };
+  }
+
+  /** Backfill missing course tags from deck and calendar folder mappings. */
+  async tagCardsByCourse() {
+    if (this.moduleOff("cards")) return 0;
+    let n = 0;
+    for (const card of this.getCards()) {
+      if (String(card.fm.course || "").trim() || !card.course) continue;
+      const course = card.course;
+      await this.app.fileManager.processFrontMatter(card.file, (fm) => {
+        if (!String(fm.course || "").trim()) fm.course = course;
+      });
+      n++;
+    }
+    return n;
   }
 
   /* ---- presets */
