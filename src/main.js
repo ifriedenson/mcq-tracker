@@ -12,7 +12,7 @@ const { QuestionTrackerPlugin } = require("./plugin");
 const { API_SYSTEM, buildReportMarkdown, cacheIssues, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
 const { fmtDate, fmtDateTime } = require("./util");
 const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
-const { answerFromSection, applyAttempt, extractRationale, fillDefaults, gradeAnswer, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
+const { answerFromSection, applyAttempt, extractRationale, fillDefaults, findAnswerKey, gradeAnswer, inferMode, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
 const fsrs = require("./fsrs");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
@@ -21,6 +21,7 @@ const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
 const aiService = require("./ai-service");
+const mathRendering = require("./math-rendering");
 const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
 const cardWriteDiff = require("./card-write-diff");
@@ -70,7 +71,7 @@ const ocr = require("./ocr");
 const localOcr = require("./local-ocr");
 const { OcrModal } = require("./ocr-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
-const { loadQuestionData } = require("./view-helpers");
+const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
 const offline = require("./offline");
 const documents = require("./documents");
 const calendarIcs = require("./calendar-ics");
@@ -127,6 +128,8 @@ QuestionTrackerPlugin.__test = {
   parseSections,
   extractRationale,
   answerFromSection,
+  findAnswerKey,
+  inferMode,
   modelFromString,
   friendlyError,
   partsToTurns,
@@ -141,6 +144,8 @@ QuestionTrackerPlugin.__test = {
   tutorPresets,
   aiContext,
   aiService,
+  mathRendering,
+  renderMarkdownInto,
   noteContext,
   aiWriteGuard,
   cardWriteDiff,

@@ -576,6 +576,8 @@ Build on the existing timed test.
 - Confirm `\ce{...}` chemistry notation renders in the same places.
 - Add golden tests with math-heavy sample questions (fractions, matrices, integrals, chemical equations).
 
+**Automated audit shipped in 1.80.0:** every learner-facing surface uses `renderMarkdownInto`/Obsidian's `MarkdownRenderer`; answer choices are rendered as Markdown rather than plain list text. `src/math-rendering.js` adds a conservative render-time `\ce{}` fallback for simple formulas, charges and equations, and leaves complex mhchem syntax untouched. `tests/math-rendering.test.js` is the golden corpus for fractions, matrices, integrals, chemical formulas/equations, choices, explanations, code fences and the practice review path. The visual check on a real Obsidian window and test vault is still open and documented in `docs/math-rendering-audit.md`.
+
 **5.16.2 Chemistry structures**
 - Support `smiles` code blocks in stimuli and choices when the Chem plugin is installed. Show a clear message when it is not (and which plugin provides it).
 - Longer term, consider a built-in renderer only if integration proves unreliable.
@@ -1138,7 +1140,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Item-type model (§4.2)
 - [x] Append-only `history` with unique attempt ids, duplicate-safe retries, a merge helper and phone/desktop conflict tests (§5.19) — shipped in 1.76.0; the repair command also rebuilds counters and streak, while scheduling is left unchanged
 - [x] Test suite, CI, and quality gates for agent-written code (§8.5)
-- [ ] Math/chemistry rendering audit on a test vault (§5.16.1)
+- [ ] Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests and chemistry fallback shipped in 1.80.0; the visual Obsidian check remains
 - [ ] Mobile audit on real iOS and Android devices (§5.19)
 - [ ] Confirm licenses of anything to be reused (§9)
 - [ ] README, screenshots, and sample vault refresh (§10b)
@@ -2313,6 +2315,8 @@ Build on the existing timed test.
 - Confirm `\ce{...}` chemistry notation renders in the same places.
 - Add golden tests with math-heavy sample questions (fractions, matrices, integrals, chemical equations).
 
+**Automated audit shipped in 1.80.0:** every learner-facing surface uses `renderMarkdownInto`/Obsidian's `MarkdownRenderer`; answer choices are rendered as Markdown rather than plain list text. `src/math-rendering.js` adds a conservative render-time `\ce{}` fallback for simple formulas, charges and equations, and leaves complex mhchem syntax untouched. `tests/math-rendering.test.js` is the golden corpus for fractions, matrices, integrals, chemical formulas/equations, choices, explanations, code fences and the practice review path. The visual check on a real Obsidian window and test vault is still open and documented in `docs/math-rendering-audit.md`.
+
 **5.16.2 Chemistry structures**
 - Support `smiles` code blocks in stimuli and choices when the Chem plugin is installed. Show a clear message when it is not (and which plugin provides it).
 - Longer term, consider a built-in renderer only if integration proves unreliable.
@@ -2548,7 +2552,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Item-type model (§4.2)
 - [x] Append-only `history` with unique attempt ids, duplicate-safe retries, a merge helper and phone/desktop conflict tests (§5.19) — shipped in 1.76.0; the repair command also rebuilds counters and streak, while scheduling is left unchanged
 - [x] Test suite, CI, and quality gates for agent-written code (§8.5)
-- [ ] Math/chemistry rendering audit on a test vault (§5.16.1)
+- [ ] Math/chemistry rendering audit on a test vault (§5.16.1) — renderer audit, golden tests and chemistry fallback shipped in 1.80.0; the visual Obsidian check remains
 - [ ] Mobile audit on real iOS and Android devices (§5.19)
 - [ ] Confirm licenses of anything to be reused (§9)
 - [ ] README, screenshots, and sample vault refresh (§10b)

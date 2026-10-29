@@ -124,6 +124,10 @@ periodic-table dataset, calculator library or Desmos code is bundled. The formul
 and element facts use standard definitions; course and exam formula sheets can differ in
 rounding or notation.
 
+## Math and chemistry fallback
+
+`src/math-rendering.js` is original code written for this plugin. It rewrites a small, conservative subset of `\ce{...}` notation into ordinary MathJax at display time. No MathJax, mhchem, KaTeX or other renderer code is bundled, and complex chemistry is left for the user's mhchem setup.
+
 ## Not absorbed (yet)
 
 The product plan also names LearnKit as a future absorb source. It has **not** been copied

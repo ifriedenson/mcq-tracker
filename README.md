@@ -506,6 +506,12 @@ When the AI writes a multiple-choice answer, the plugin can make a second indepe
 - **Programs started:** only `opencode` (and, during a download, your system's `tar` or PowerShell to unpack it), and only on desktop.
 - **API key storage:** when Obsidian provides Secret Storage (1.11.4 and later), a Direct API key is saved there instead of `data.json`. Existing plain-text keys are moved into Secret Storage the next time the plugin loads, and the plain-text copy is removed. Secret Storage may be per device, so choose or create the secret on each device you use. On older Obsidian versions the key falls back to plain text in the plugin's `data.json` inside your vault; anyone who can read the vault can read it, so keep that file out of public repositories and shared vaults. A key you enter for OpenCode is saved in OpenCode's own `auth.json` outside your vault, with owner-only permissions.
 
+## Math and chemistry
+
+Fractions, exponents, matrices, integrals and other MathJax notation render in the question, stimulus, answer choices, explanation and review screen, in timed tests, cards and the AI chat. Answer choices go through the same Markdown renderer as the stem, not a plain-text label.
+
+Simple `\ce{...}` chemistry is made readable even without an mhchem setup: formulas such as `\ce{Ca(OH)2}`, charges such as `\ce{SO4^2-}`, and equations such as `\ce{2H2 + O2 -> 2H2O}` are converted at display time. More complex mhchem syntax, including labels, brackets and `\text{}`, is left exactly as written for an mhchem or Extended MathJax setup. Notes are never changed. The audit and the visual checklist are in [docs/math-rendering-audit.md](docs/math-rendering-audit.md).
+
 ## Settings
 
 Settings are grouped by module, then by tab. **Global** has Modules and General; **MCQ Tracker** has Practice, Review, Daily quiz, AI and About; **Cards** has Decks, Review and About; **Calendar** has About, Schedules & Sync, Notes & Templates, Exclusions, Appearance & Colors, and Language & Region.

@@ -2,16 +2,22 @@
 const { MarkdownRenderer } = require("obsidian");
 const { findAnswerKey, inferMode, parseSections } = require("./notes");
 const { str } = require("./util");
+const { prepareMathMarkdown } = require("./math-rendering");
 
 /* ----------------------------------------------------------------- plugin */
 
 /* ------------------------------------------------- shared view helpers */
 
 function renderMarkdownInto(app, markdown, el, sourcePath, component) {
-  const p = MarkdownRenderer.render
-    ? MarkdownRenderer.render(app, markdown, el, sourcePath, component)
-    : MarkdownRenderer.renderMarkdown(markdown, el, sourcePath, component);
-  Promise.resolve(p).catch(() => el.setText(markdown));
+  const source = prepareMathMarkdown(markdown);
+  try {
+    const p = MarkdownRenderer.render
+      ? MarkdownRenderer.render(app, source, el, sourcePath, component)
+      : MarkdownRenderer.renderMarkdown(source, el, sourcePath, component);
+    Promise.resolve(p).catch(() => el.setText(markdown));
+  } catch (e) {
+    el.setText(markdown);
+  }
 }
 
 /** Reads a question note and works out how to present and grade it. */
