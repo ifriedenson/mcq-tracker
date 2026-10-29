@@ -300,6 +300,8 @@ class InsightsView extends ItemView {
         cls: "qt-hint",
         text: `${row.course} · short in ${row.misses} of ${row.attempts} attempt${row.attempts === 1 ? "" : "s"}`,
       });
+      const go = line.createEl("button", { text: "Practice", cls: "qt-link" });
+      go.addEventListener("click", () => this.plugin.openFrqGrader(row.path ? { path: row.path } : undefined));
     }
     box.createEl("button", { cls: "mod-cta qt-primary", text: "Open AP FRQ practice" }).addEventListener("click", () => this.plugin.openFrqGrader());
   }

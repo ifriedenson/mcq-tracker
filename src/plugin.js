@@ -48,7 +48,7 @@ const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
 const { attachFrontmatter, attachStudySlotFrontmatter, buildApResourceNote, detachFrontmatter, detachStudySlotFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
-const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, frqCriterionWeakSpots, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
+const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, frqCriterionWeakSpots, frqReviewEntry, frqReviewQueue, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
@@ -1621,6 +1621,31 @@ class QuestionTrackerPlugin extends Plugin {
     return frqCriterionWeakSpots(await this.getFrqAttempts());
   }
 
+  /**
+   * FRQ prompts whose review date has arrived, scoped to one exam course when
+   * asked. This reads the summary already saved on each prompt note, so it can
+   * run from the synchronous study-plan path without reading note bodies.
+   */
+  getFrqReviewQueue(options) {
+    const opts = options || {};
+    if (this.moduleOff && this.moduleOff("reference")) return [];
+    const today = localDate();
+    const rows = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const entry = frqReviewEntry(fm, file.path, today);
+      if (!entry) continue;
+      if (opts.course) {
+        const matches =
+          examMatchesCourse({ summary: entry.course }, opts.course) ||
+          examMatchesCourse({ summary: entry.courseId }, opts.course);
+        if (!matches) continue;
+      }
+      rows.push(entry);
+    }
+    return frqReviewQueue(rows, { limit: opts.limit });
+  }
+
   /** Saves one graded attempt and records its summary on the prompt note. */
   async saveFrqAttempt(note, attempt) {
     const built = buildFrqAttemptNote(note, attempt, attempt && attempt.gradedOn);
@@ -2910,7 +2935,8 @@ class QuestionTrackerPlugin extends Plugin {
     const questions = this.getQuestions().filter((q) => matches(q.fm.course) || matches(q.fm.test));
     if (!questions.length) return null;
     const cards = this.cardsEnabled() ? this.getCards().filter((c) => matches(c.course || (c.fm && c.fm.course))) : [];
-    return buildStudyPlan(exam, questions, cards, { today: localDate(), course });
+    const frq = this.getFrqReviewQueue({ course });
+    return buildStudyPlan(exam, questions, cards, { today: localDate(), course, frq });
   }
 
   async startStudyPlan(plan, cram) {

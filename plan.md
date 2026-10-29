@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — 1.98.0 adds an optional second FRQ grading pass with per-criterion disagreement flags and an official/teacher rubric marker, building on 1.97.0's six-course AP FRQ pilot (self-grade plus optional AI grade, user-supplied prompts), 1.96.1's mixed-course written-trend isolation, and earlier work through 1.24.0. Remaining blocked items: the real-Obsidian visual/screenshot pass, a real-device mobile audit, TTS provider/mobile validation, and PDF form filling/full editor. Human-scored FRQ calibration remains a quality gate, not an implementation gate.
+**Status:** Implementation in progress — 1.99.0 routes missed FRQ rubric criteria into a score-based review schedule, the Today view and the next exam's study plan, on top of 1.98.0's optional second grading pass and official/teacher rubric marker and 1.97.0's six-course AP FRQ pilot (self-grade plus optional AI grade, user-supplied prompts), 1.96.1's mixed-course written-trend isolation, and earlier work through 1.24.0. Remaining blocked items: the real-Obsidian visual/screenshot pass, a real-device mobile audit, TTS provider/mobile validation, and PDF form filling/full editor. Human-scored FRQ calibration remains a quality gate, not an implementation gate.
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), the October 28 idea backlog (§5.22), and the Adaptive Practice parity audit (§5.23, Oct 29, 2026). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,7 +11,9 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Latest completed (1.98.0):** the AP FRQ grader now supports an optional second independent AI pass. It compares both passes criterion by criterion, reports disagreements without averaging them, and requires the learner to resolve them before saving. A pasted rubric can be marked `rubric_source: official`, and attempts record `second_pass` and `criteria_disagreed`. Saved missed criteria now appear in Insights → Weak spots. This closes the §5.5 second-pass, rubric-source and weak-spot visibility gaps for the six-course pilot.
+**Latest completed (1.99.0):** every saved FRQ attempt now writes `frq_review_interval` and `frq_next_review` to its prompt note. Below 60% returns in one day, 60–79% in three days, 80–89% in seven and 90%+ in fourteen; any missed rubric criterion caps the wait at three days. Due prompts appear in Today and in the next exam's study plan with a direct **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed.
+
+**Previously (1.98.0):** the AP FRQ grader added an optional second independent AI pass. It compares both passes criterion by criterion, reports disagreements without averaging them, and requires the learner to resolve them before saving. A pasted rubric can be marked `rubric_source: official`, and attempts record `second_pass` and `criteria_disagreed`. Saved missed criteria now appear in Insights → Weak spots. This closes the §5.5 second-pass, rubric-source and weak-spot visibility gaps for the six-course pilot.
 
 **Completed in 1.24.0: import preview, report and duplicate handling (§5.22.3).** Imports now stage a readable preview before writing, and duplicate keys no longer have only one outcome.
 
@@ -46,15 +48,15 @@
 | Import quality and reporting (§5.22.3) | **Done in 1.92.0** | Every import result lists each attempted card with its outcome and reason; CSV and question sets report exact skipped rows, and `.apkg` reports media counts and names. |
 | Direct AI agent with allow-listed tools (§5.18) | **Done** | `create_question`, `create_card` and one safe `update_section` proposal; review window, existing write roots and protected properties enforced. |
 | SMILES structure rendering (§5.16.2) | **Done in 1.91.0** | Local, original SVG renderer for a documented teaching subset; `smiles` code blocks in notes and a Structures tab in Reference. Invalid syntax reports an error rather than guessing. |
-| AP FRQ grader | **Done in 1.97.0 (pilot)** | Six owner-approved courses, user-supplied prompts and rubrics, self-grade plus optional AI grade, per-criterion feedback, quotes, override, attempt history and docs in `docs/ap-frq-practice.md`; 1.98.0 adds the second pass and official-rubric marker. |
-| FRQ scheduler and weak-spot feed | **Partial** | 1.98.0 adds an Insights list of missed FRQ criteria across saved attempts; routing those criteria into the shared scheduler, weak-spot generation or the study plan remains. |
+| AP FRQ grader | **Done in 1.97.0 (pilot)** | Six owner-approved courses, user-supplied prompts and rubrics, self-grade plus optional AI grade, per-criterion feedback, quotes, override, attempt history and docs in `docs/ap-frq-practice.md`; 1.98.0 added the second pass and official-rubric marker; 1.99.0 added prompt-level review scheduling and Today/study-plan routing. |
+| FRQ scheduler and study-plan feed | **Done in 1.99.0** | Saving an attempt writes `frq_review_interval` and `frq_next_review`; weak attempts and missed criteria return in 1–3 days, stronger attempts in 7–14. Today lists due prompts, the next exam's study plan includes the course's FRQ prompts with a **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed. Mixed MCQ/SPR/FRQ timed tests and handwriting photos remain separate gaps. |
 | Math/chemistry rendering audit | **Blocked — manual gate** | Renderer and golden tests are done; the remaining visual pass needs a real Obsidian window and cannot be completed in this cloud environment. |
 | Mobile audit | **Blocked** | No real iOS/Android device is available in this environment. |
 | TTS / audio commute | **Deferred** | Provider and mobile validation still missing. |
 | PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; true AcroForm filling needs an audited MIT PDF library and is not safe to approximate. |
 | README, screenshots, sample vault, license confirmation | **Partial — screenshots blocked** | README, NOTICES, `docs/license-audit.md` and `samples/sample-vault` exist. Screenshots still need a real Obsidian window. |
 
-**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.98.0. The items that remain `[~]` are explicitly gated: the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation; PDF form filling needs an audited MIT library. Human-scored FRQ calibration remains a quality gate, not an implementation gate. The duplicate roadmap later in this file is historical and has now been reconciled with this table; it does not override the table.
+**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.99.0. The items that remain `[~]` are explicitly gated: the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation; PDF form filling needs an audited MIT library. Human-scored FRQ calibration remains a quality gate, not an implementation gate. The duplicate roadmap later in this file is historical and has now been reconciled with this table; it does not override the table.
 
 **Adaptive Practice parity audit (Oct 29, 2026):** compared with Adaptive Practice 0.7.2. MCQ Tracker already has the broader study system; the meaningful gaps are generation from any note, per-note subtopic memory, a logged skip/fluency signal, adaptive session size and an optional local reminder. The Whetstone engine (AGPL) and the persistent vault index are non-goals. Full matrix and acceptance criteria: §5.23.
 
@@ -423,9 +425,9 @@ Effort key: **S** (days), **M** (1–3 weeks), **L** (1+ months). Estimates assu
   - Optional second grading pass; flag disagreement.
   - Store `graded_by` model and date with each grade.
 - **Official rubrics:** allow pasting official scoring guidelines and mark `rubric_source: official | ai`.
-- Feeds the scheduler as a 0–1 score and records which criteria were missed.
+- Uses the attempt percentage to set the next review date and records which rubric criteria were missed.
 
-**Implemented in 1.97.0–1.98.0 (AP pilot).** A user-supplied note can use `type: ap_frq`, `## Question`, optional `## Stimulus`, `## Rubric` and optional `## Sample Answer`. The grader scores one criterion at a time with quotes, confidence and `awarded / max`; the learner can override every line; an optional second pass flags criterion-level disagreement instead of averaging it; and `rubric_source: official | user` records a pasted official or teacher rubric. Attempt notes keep `graded_by`, `graded_on`, `criteria_missed`, `second_pass` and `criteria_disagreed`. Still open: mixed MCQ/SPR/FRQ timed tests, a 0–1 scheduler feed, study-plan routing and handwriting photos; Insights now lists missed criteria.
+**Implemented in 1.97.0–1.99.0 (AP pilot).** A user-supplied note can use `type: ap_frq`, `## Question`, optional `## Stimulus`, `## Rubric` and optional `## Sample Answer`. The grader scores one criterion at a time with quotes, confidence and `awarded / max`; the learner can override every line; an optional second pass flags criterion-level disagreement instead of averaging it; and `rubric_source: official | user` records a pasted official or teacher rubric. Attempt notes keep `graded_by`, `graded_on`, `criteria_missed`, `second_pass` and `criteria_disagreed`. Since 1.99.0 the prompt note also gets `frq_review_interval` and `frq_next_review`: below 60% returns in one day, 60–79% in three, 80–89% in seven and 90%+ in fourteen, with any missed criterion capped at three days. Today shows due prompts, the next exam's study plan includes the course's FRQ prompts and a **Practice FRQ** button, and each Insights weak-criterion row opens the prompt where it was missed. Still open: mixed MCQ/SPR/FRQ timed tests and handwriting photos.
 
 **Privacy:** the student's writing is sent to the provider. Off by default and disclosed.
 
@@ -878,7 +880,7 @@ Reuse the general FRQ model in §5.5 and add AP-specific structure.
 
 Shipped: `type: ap_frq` notes with `## Question`, optional `## Stimulus`, `## Rubric` and optional `## Sample Answer`; a **New FRQ note** creator with editable rubric presets for history DBQ/LEQ/SAQ, chemistry long/short, calculus and statistics; a grader that scores criterion by criterion, clamps every score to its maximum, shows `awarded / max`, flags low confidence and any point awarded without a quote, supports an optional second independent pass that reports per-criterion disagreement without averaging it away, lets the learner mark a pasted official or teacher-supplied rubric, and lets the learner override every line; self-grade mode with no network request; optional AI grading through the shared `frqGrading` feature and request limits; and saved attempts under `AP FRQ attempts/` plus `frq_last_*` properties on the prompt note.
 
-Still open: a human-scored agreement study and go/no-go evaluation, photo-of-handwriting grading, a rubric category taxonomy, and routing missed criteria into the scheduler or study plan; Insights lists the missed criteria, but that routing is not built. No claim of reader-level accuracy is made.
+Still open: a human-scored agreement study and go/no-go evaluation, photo-of-handwriting grading, and a rubric category taxonomy. Since 1.99.0, missed criteria drive the prompt's review date, appear in Today and the next exam's study plan, and link from Insights. No claim of reader-level accuracy is made.
 
 #### 5.20.2 AP score calculator
 
@@ -1271,7 +1273,7 @@ Names are proposals; keep existing ones unchanged.
 
 These are **research and specification items**, not implementation work. The AP FRQ grader is the owner's requested next idea after card import; the score calculator and resource hub are its natural companions.
 
-- [x] **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, score history, second pass and official-rubric marker shipped in 1.97.0–1.98.0 for six courses (§5.20); human-scored calibration remains a quality gate
+- [x] **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, score history, second pass, official-rubric marker and a scheduler/study-plan feed shipped in 1.97.0–1.99.0 for six courses (§5.20); human-scored calibration remains a quality gate
 - [x] **AP score calculator** — four 2027 profiles, weighted section and part inputs, editable practice cutoffs, incomplete estimates, a likely band and a reverse "what do I need?" calculation (§5.20) — shipped in 1.56.0
 - [x] **Saved AP practice-exam history** — save a complete result as an ordinary note, list attempts newest first, show the average and change from the previous attempt (§5.20.2) — shipped in 1.58.0; per-question FRQ history shipped in 1.95.0 and per-section trends in 1.96.0
 - [x] **AP resource hub** — one place for official AP Central/AP Classroom links, course and exam descriptions, released FRQs and scoring guidelines, AP Videos, and exam dates (§5.20) — link-only version shipped in 1.57.0; resource notes, course/unit tags and stale-link checks shipped in 1.59.0; calendar/Today integration shipped in 1.60.0–1.62.0
@@ -1283,7 +1285,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] **Resource link in the exam class note** — add the attached resource as a wikilink under a managed `## AP resources` heading, creating the note when needed and skipping duplicates (§5.20.3) — shipped in 1.64.0
 - [x] **Binding management in Reference** — label exam and study-block bindings on saved resource notes and detach either one without touching the other (§5.20.3) — shipped in 1.65.0
 - [x] **Research specification** — supported-course recommendation, rubric and score-profile schemas, evaluation plan, copyright/permissions questions, data model, UX flows, and acceptance tests ([spec](docs/ap-frq-grader-spec.md), §5.20)
-- [x] **Pilot gate passed** — the owner approved six courses and user-supplied prompts on 2026-10-29; 1.97.0 shipped the pilot and 1.98.0 added the second pass. The human-scored fixture set and go/no-go thresholds remain the gate for any accuracy claim.
+- [x] **Pilot gate passed** — the owner approved six courses and user-supplied prompts on 2026-10-29; 1.97.0 shipped the pilot, 1.98.0 added the second pass and 1.99.0 added the review schedule and study-plan feed. The human-scored fixture set and go/no-go thresholds remain the gate for any accuracy claim.
 
 ### Phase 3: Calendar and courses (priority)
 
@@ -1322,7 +1324,7 @@ These are **research and specification items**, not implementation work. The AP 
 
 ### Phase 5: FRQ and STEM
 
-- [x] **Typed FRQ, rubric grading, override and per-criterion feedback** (§5.5; AP-specific research in §5.20) — shipped in 1.97.0 for the six AP pilot courses; second pass and official/teacher rubric marker in 1.98.0. Mixed MCQ/SPR/FRQ timed tests and the scheduler/weak-spot feed remain open.
+- [x] **Typed FRQ, rubric grading, override and per-criterion feedback** (§5.5; AP-specific research in §5.20) — shipped in 1.97.0 for the six AP pilot courses; second pass and official/teacher rubric marker in 1.98.0, and the scheduler/study-plan feed in 1.99.0. Mixed MCQ/SPR/FRQ timed tests remain open.
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
@@ -2273,7 +2275,7 @@ Effort key: **S** (days), **M** (1–3 weeks), **L** (1+ months). Estimates assu
   - Optional second grading pass; flag disagreement.
   - Store `graded_by` model and date with each grade.
 - **Official rubrics:** allow pasting official scoring guidelines and mark `rubric_source: official | ai`.
-- Feeds the scheduler as a 0–1 score and records which criteria were missed.
+- Uses the attempt percentage to set the next review date and records which rubric criteria were missed.
 
 **Privacy:** the student's writing is sent to the provider. Off by default and disclosed.
 
@@ -2734,7 +2736,7 @@ Names are proposals; keep existing ones unchanged.
 
 ### Phase 5: FRQ and STEM
 
-- [x] **Typed FRQ, rubric grading, override and per-criterion feedback** (§5.5) — shipped in 1.97.0 for six AP courses; second pass in 1.98.0. Mixed timed-test FRQ items and the scheduler/weak-spot feed remain.
+- [x] **Typed FRQ, rubric grading, override and per-criterion feedback** (§5.5) — shipped in 1.97.0 for six AP courses; second pass in 1.98.0, and the scheduler/study-plan feed in 1.99.0. Mixed timed-test FRQ items remain.
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0

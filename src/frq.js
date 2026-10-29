@@ -754,6 +754,7 @@ function frqCriterionWeakSpots(attempts) {
         misses: 0,
       };
       row.misses += 1;
+      if (!row.path && entry.frqNote) row.path = str(entry.frqNote);
       map.set(key, row);
     }
   }
@@ -765,9 +766,82 @@ function frqCriterionWeakSpots(attempts) {
     .sort((a, b) => b.rate - a.rate || b.misses - a.misses || a.criterion.localeCompare(b.criterion));
 }
 
+function addIsoDays(key, days) {
+  const date = new Date(`${str(key).slice(0, 10)}T00:00:00`);
+  if (isNaN(date.getTime())) return "";
+  date.setDate(date.getDate() + Math.max(1, Math.round(Number(days) || 1)));
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * A prompt returns sooner after a weak attempt. Missing a rubric criterion
+ * caps the interval at three days even when the total score was high, because
+ * a single repeated omission is exactly what the next attempt should target.
+ */
+function frqReviewIntervalDays(percent, missed) {
+  const score = Number(percent);
+  const missedCount = Array.isArray(missed) ? missed.length : 0;
+  const days = !Number.isFinite(score) ? 1 : score >= 90 ? 14 : score >= 80 ? 7 : score >= 60 ? 3 : 1;
+  return missedCount ? Math.min(days, 3) : days;
+}
+
+/** One prompt's review state, derived from the summary saved on its note. */
+function frqReviewEntry(fm, path, today) {
+  if (!fm || fm.type !== FRQ_NOTE_TYPE) return null;
+  const day = normalizeDate(today) || localDate();
+  const attempts = Math.max(0, Number(fm.frq_attempts) || 0);
+  const percent = Number(fm.frq_last_percent);
+  const missed = Array.isArray(fm.frq_criteria_missed) ? fm.frq_criteria_missed.map((item) => str(item)).filter(Boolean) : [];
+  const gradedOn = normalizeDate(fm.frq_graded_on);
+  const intervalDays = frqReviewIntervalDays(percent, missed);
+  const savedNext = normalizeDate(fm.frq_next_review);
+  const nextReview = savedNext || (gradedOn ? addIsoDays(gradedOn, intervalDays) : "");
+  const due = attempts > 0 && (!nextReview || nextReview <= day);
+  return {
+    path: str(path),
+    courseId: str(fm.ap_course),
+    course: str(fm.course) || str(fm.ap_course),
+    title: str(fm.title) || str(path).split("/").pop().replace(/\.md$/i, ""),
+    attempts,
+    percent: Number.isFinite(percent) ? round1(percent) : null,
+    missed,
+    lastGradedOn: gradedOn,
+    nextReview,
+    intervalDays,
+    due,
+    state: attemptState(attempts, due, nextReview),
+  };
+}
+
+function attemptState(attempts, due, nextReview) {
+  if (!attempts) return "new";
+  return due ? "due" : nextReview ? "scheduled" : "due";
+}
+
+/** Due first, then unpractised prompts, then scheduled ones. */
+function frqReviewQueue(rows, options) {
+  const opts = options || {};
+  const rank = { due: 0, new: 1, scheduled: 2 };
+  const sorted = (Array.isArray(rows) ? rows : [])
+    .filter(Boolean)
+    .slice()
+    .sort(
+      (a, b) =>
+        (rank[a.state] === undefined ? 3 : rank[a.state]) - (rank[b.state] === undefined ? 3 : rank[b.state]) ||
+        str(a.nextReview).localeCompare(str(b.nextReview)) ||
+        str(a.course).localeCompare(str(b.course)) ||
+        str(a.title).localeCompare(str(b.title)),
+    );
+  const limit = opts.limit === undefined ? sorted.length : Math.max(0, Math.round(Number(opts.limit) || 0));
+  return limit ? sorted.slice(0, limit) : [];
+}
+
 /** Properties written back to the learner's FRQ note after an attempt. */
 function sourceFrontmatterUpdate(attempt, previousAttempts) {
   const count = Math.max(0, Number(previousAttempts) || 0) + 1;
+  const gradedOn = normalizeDate(attempt.gradedOn) || localDate();
+  const intervalDays = frqReviewIntervalDays(attempt.percent, attempt.missedLabels);
   return {
     frq_last_score: round1(attempt.earned),
     frq_last_max: round1(attempt.max),
@@ -775,8 +849,10 @@ function sourceFrontmatterUpdate(attempt, previousAttempts) {
     frq_last_rating: str(attempt.rating),
     frq_criteria_missed: Array.isArray(attempt.missedLabels) ? attempt.missedLabels : [],
     frq_graded_by: str(attempt.gradedBy) || "self",
-    frq_graded_on: normalizeDate(attempt.gradedOn) || localDate(),
+    frq_graded_on: gradedOn,
     frq_attempts: count,
+    frq_review_interval: intervalDays,
+    frq_next_review: addIsoDays(gradedOn, intervalDays),
   };
 }
 
@@ -795,8 +871,12 @@ module.exports = {
   compareFrqPasses,
   courseById,
   entryFromAttemptFrontmatter,
+  addIsoDays,
   frqAttemptTrend,
   frqCriterionWeakSpots,
+  frqReviewEntry,
+  frqReviewIntervalDays,
+  frqReviewQueue,
   gradeFrqWithAi,
   isFrqNote,
   normalizeDate,

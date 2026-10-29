@@ -67,9 +67,9 @@ Open **AP: open free-response practice and grader**, pick the prompt, and type t
 - **Self-grade** works offline and needs no AI. Set the points for each criterion; each input is capped at that criterion's maximum.
 - **AI grade** uses the Direct AI or OpenCode backend configured under Settings, AI. It sends the prompt, rubric, optional sample answer and your typed answer under the `frqGrading` feature. The reply must cover every rubric criterion, must quote the words that earned each point and cannot exceed a maximum. A low-confidence criterion, or a point awarded without a quote, flags the attempt for review. **Second pass** runs another independent pass and lists every criterion where the two passes disagree; it never averages them. Resolve the score you trust before saving.
 - **Rubric source** records whether the rubric is yours or a pasted official/teacher-supplied rubric (`rubric_source: official | user`). The plugin still bundles no AP rubric.
-- **Save attempt** writes a note under `AP FRQ attempts/` and updates the prompt note with `frq_last_score`, `frq_last_max`, `frq_last_percent`, `frq_criteria_missed`, `frq_graded_by`, `frq_graded_on` and `frq_attempts`. The modal lists recent attempts for the selected prompt.
+- **Save attempt** writes a note under `AP FRQ attempts/` and updates the prompt note with `frq_last_score`, `frq_last_max`, `frq_last_percent`, `frq_criteria_missed`, `frq_graded_by`, `frq_graded_on`, `frq_attempts`, `frq_review_interval` and `frq_next_review`. The modal lists recent attempts for the selected prompt.
 
-The total maps to a practice band: below 50% `again`, below 70% `hard`, below 85% `good`, otherwise `easy`. The band is a study signal, not an AP score prediction. **Insights → Weak spots** also lists the rubric criteria marked short across saved attempts, with the course and miss count.
+The total maps to a practice band: below 50% `again`, below 70% `hard`, below 85% `good`, otherwise `easy`. The band is a study signal, not an AP score prediction. It also sets the next review: below 60% returns in one day, 60–79% in three, 80–89% in seven and 90%+ in fourteen, and any missed rubric criterion caps the wait at three days. Due prompts appear in **Today** and in the next exam's study plan with a **Practice FRQ** button. **Insights → Weak spots** lists the rubric criteria marked short across saved attempts, with the course and miss count, and each row opens the prompt where it was missed.
 
 ## Privacy and trust
 
@@ -79,6 +79,6 @@ Self-grading makes no network request. AI grading is off until AI features are e
 
 - Human-scored agreement against released sample responses, the human-human baseline and the go/no-go thresholds in [ap-frq-grader-spec.md](ap-frq-grader-spec.md). There is no claim of reader-level accuracy.
 - Photo-of-handwriting grading.
-- A full rubric category taxonomy and a feed of missed criteria into weak spots or the study plan.
+- A full rubric category taxonomy. Missed criteria already schedule the prompt and appear in Today, the exam study plan and Insights.
 - Per-course review of rubric fidelity beyond the editable presets.
 - World-language writing, AP Seminar/Research performance tasks and AP courses outside the six pilot subjects.

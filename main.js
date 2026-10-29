@@ -17578,6 +17578,7 @@ function frqCriterionWeakSpots(attempts) {
         misses: 0,
       };
       row.misses += 1;
+      if (!row.path && entry.frqNote) row.path = str(entry.frqNote);
       map.set(key, row);
     }
   }
@@ -17589,9 +17590,82 @@ function frqCriterionWeakSpots(attempts) {
     .sort((a, b) => b.rate - a.rate || b.misses - a.misses || a.criterion.localeCompare(b.criterion));
 }
 
+function addIsoDays(key, days) {
+  const date = new Date(`${str(key).slice(0, 10)}T00:00:00`);
+  if (isNaN(date.getTime())) return "";
+  date.setDate(date.getDate() + Math.max(1, Math.round(Number(days) || 1)));
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * A prompt returns sooner after a weak attempt. Missing a rubric criterion
+ * caps the interval at three days even when the total score was high, because
+ * a single repeated omission is exactly what the next attempt should target.
+ */
+function frqReviewIntervalDays(percent, missed) {
+  const score = Number(percent);
+  const missedCount = Array.isArray(missed) ? missed.length : 0;
+  const days = !Number.isFinite(score) ? 1 : score >= 90 ? 14 : score >= 80 ? 7 : score >= 60 ? 3 : 1;
+  return missedCount ? Math.min(days, 3) : days;
+}
+
+/** One prompt's review state, derived from the summary saved on its note. */
+function frqReviewEntry(fm, path, today) {
+  if (!fm || fm.type !== FRQ_NOTE_TYPE) return null;
+  const day = normalizeDate(today) || localDate();
+  const attempts = Math.max(0, Number(fm.frq_attempts) || 0);
+  const percent = Number(fm.frq_last_percent);
+  const missed = Array.isArray(fm.frq_criteria_missed) ? fm.frq_criteria_missed.map((item) => str(item)).filter(Boolean) : [];
+  const gradedOn = normalizeDate(fm.frq_graded_on);
+  const intervalDays = frqReviewIntervalDays(percent, missed);
+  const savedNext = normalizeDate(fm.frq_next_review);
+  const nextReview = savedNext || (gradedOn ? addIsoDays(gradedOn, intervalDays) : "");
+  const due = attempts > 0 && (!nextReview || nextReview <= day);
+  return {
+    path: str(path),
+    courseId: str(fm.ap_course),
+    course: str(fm.course) || str(fm.ap_course),
+    title: str(fm.title) || str(path).split("/").pop().replace(/\.md$/i, ""),
+    attempts,
+    percent: Number.isFinite(percent) ? round1(percent) : null,
+    missed,
+    lastGradedOn: gradedOn,
+    nextReview,
+    intervalDays,
+    due,
+    state: attemptState(attempts, due, nextReview),
+  };
+}
+
+function attemptState(attempts, due, nextReview) {
+  if (!attempts) return "new";
+  return due ? "due" : nextReview ? "scheduled" : "due";
+}
+
+/** Due first, then unpractised prompts, then scheduled ones. */
+function frqReviewQueue(rows, options) {
+  const opts = options || {};
+  const rank = { due: 0, new: 1, scheduled: 2 };
+  const sorted = (Array.isArray(rows) ? rows : [])
+    .filter(Boolean)
+    .slice()
+    .sort(
+      (a, b) =>
+        (rank[a.state] === undefined ? 3 : rank[a.state]) - (rank[b.state] === undefined ? 3 : rank[b.state]) ||
+        str(a.nextReview).localeCompare(str(b.nextReview)) ||
+        str(a.course).localeCompare(str(b.course)) ||
+        str(a.title).localeCompare(str(b.title)),
+    );
+  const limit = opts.limit === undefined ? sorted.length : Math.max(0, Math.round(Number(opts.limit) || 0));
+  return limit ? sorted.slice(0, limit) : [];
+}
+
 /** Properties written back to the learner's FRQ note after an attempt. */
 function sourceFrontmatterUpdate(attempt, previousAttempts) {
   const count = Math.max(0, Number(previousAttempts) || 0) + 1;
+  const gradedOn = normalizeDate(attempt.gradedOn) || localDate();
+  const intervalDays = frqReviewIntervalDays(attempt.percent, attempt.missedLabels);
   return {
     frq_last_score: round1(attempt.earned),
     frq_last_max: round1(attempt.max),
@@ -17599,8 +17673,10 @@ function sourceFrontmatterUpdate(attempt, previousAttempts) {
     frq_last_rating: str(attempt.rating),
     frq_criteria_missed: Array.isArray(attempt.missedLabels) ? attempt.missedLabels : [],
     frq_graded_by: str(attempt.gradedBy) || "self",
-    frq_graded_on: normalizeDate(attempt.gradedOn) || localDate(),
+    frq_graded_on: gradedOn,
     frq_attempts: count,
+    frq_review_interval: intervalDays,
+    frq_next_review: addIsoDays(gradedOn, intervalDays),
   };
 }
 
@@ -17619,8 +17695,12 @@ module.exports = {
   compareFrqPasses,
   courseById,
   entryFromAttemptFrontmatter,
+  addIsoDays,
   frqAttemptTrend,
   frqCriterionWeakSpots,
+  frqReviewEntry,
+  frqReviewIntervalDays,
+  frqReviewQueue,
   gradeFrqWithAi,
   isFrqNote,
   normalizeDate,
@@ -22114,6 +22194,8 @@ class InsightsView extends ItemView {
         cls: "qt-hint",
         text: `${row.course} · short in ${row.misses} of ${row.attempts} attempt${row.attempts === 1 ? "" : "s"}`,
       });
+      const go = line.createEl("button", { text: "Practice", cls: "qt-link" });
+      go.addEventListener("click", () => this.plugin.openFrqGrader(row.path ? { path: row.path } : undefined));
     }
     box.createEl("button", { cls: "mod-cta qt-primary", text: "Open AP FRQ practice" }).addEventListener("click", () => this.plugin.openFrqGrader());
   }
@@ -28165,7 +28247,7 @@ const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
 const { attachFrontmatter, attachStudySlotFrontmatter, buildApResourceNote, detachFrontmatter, detachStudySlotFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
-const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, frqCriterionWeakSpots, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
+const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, frqCriterionWeakSpots, frqReviewEntry, frqReviewQueue, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
@@ -29738,6 +29820,31 @@ class QuestionTrackerPlugin extends Plugin {
     return frqCriterionWeakSpots(await this.getFrqAttempts());
   }
 
+  /**
+   * FRQ prompts whose review date has arrived, scoped to one exam course when
+   * asked. This reads the summary already saved on each prompt note, so it can
+   * run from the synchronous study-plan path without reading note bodies.
+   */
+  getFrqReviewQueue(options) {
+    const opts = options || {};
+    if (this.moduleOff && this.moduleOff("reference")) return [];
+    const today = localDate();
+    const rows = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const entry = frqReviewEntry(fm, file.path, today);
+      if (!entry) continue;
+      if (opts.course) {
+        const matches =
+          examMatchesCourse({ summary: entry.course }, opts.course) ||
+          examMatchesCourse({ summary: entry.courseId }, opts.course);
+        if (!matches) continue;
+      }
+      rows.push(entry);
+    }
+    return frqReviewQueue(rows, { limit: opts.limit });
+  }
+
   /** Saves one graded attempt and records its summary on the prompt note. */
   async saveFrqAttempt(note, attempt) {
     const built = buildFrqAttemptNote(note, attempt, attempt && attempt.gradedOn);
@@ -31027,7 +31134,8 @@ class QuestionTrackerPlugin extends Plugin {
     const questions = this.getQuestions().filter((q) => matches(q.fm.course) || matches(q.fm.test));
     if (!questions.length) return null;
     const cards = this.cardsEnabled() ? this.getCards().filter((c) => matches(c.course || (c.fm && c.fm.course))) : [];
-    return buildStudyPlan(exam, questions, cards, { today: localDate(), course });
+    const frq = this.getFrqReviewQueue({ course });
+    return buildStudyPlan(exam, questions, cards, { today: localDate(), course, frq });
   }
 
   async startStudyPlan(plan, cram) {
@@ -39238,6 +39346,8 @@ function buildStudyPlan(exam, questions, cards, options) {
   const attempted = list.filter((q) => Number(q.fm.attempts) > 0);
   const weak = weakSkillOf(list);
   const cardsDue = cardList.filter((c) => !Number(c.fm.attempts) || (!!c.fm.next_review && str(c.fm.next_review).slice(0, 10) <= today)).length;
+  const frq = Array.isArray(opts.frq) ? opts.frq.filter(Boolean) : [];
+  const frqDue = frq.filter((row) => row.due).length;
   const course = str(opts.course || (exam && exam.course) || "").trim() || (exam && str(exam.summary).replace(/\s*[-–—:]\s*(final|exam|midterm|test).*$/i, "").trim()) || "Your exam";
   return {
     exam,
@@ -39252,6 +39362,10 @@ function buildStudyPlan(exam, questions, cards, options) {
     weakSkill: weak ? weak.skill : "",
     weakAccuracy: weak ? weak.accuracy : null,
     cardsDue,
+    frq: frq.slice(),
+    frqDue,
+    frqTotal: frq.length,
+    frqNext: frq.find((row) => row.due) || frq.find((row) => row.state === "scheduled") || frq[0] || null,
     readiness: readinessScore(list, due, daysLeft),
     pool: list.slice(),
     cramPool: buildCramPool(list, today, opts.cramLimit || 40),
@@ -39867,7 +39981,8 @@ class TodayView extends ItemView {
     manage.createEl("button", { text: "Hidden items", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
     this.renderReminder(root, today, due, fresh);
-    this.renderStudyPlan(root);
+    const plan = this.renderStudyPlan(root);
+    this.renderFrqReview(root, plan);
     this.renderDaily(root, today);
     this.renderTasks(root, today, due, visible);
     this.renderFocus(root, today);
@@ -39924,24 +40039,69 @@ class TodayView extends ItemView {
 
   renderStudyPlan(root) {
     const p = this.plugin;
-    if (!p.studyPlan) return;
+    if (!p.studyPlan) return null;
     const plan = p.studyPlan();
-    if (!plan) return;
+    if (!plan) return null;
     root.createEl("h3", { cls: "qt-today-section", text: "Study plan" });
     const card = root.createDiv({ cls: "qt-today-card qt-plan-card" });
     card.createDiv({ cls: "qt-today-kicker", text: plan.daysLeft === 0 ? "Exam today" : `Next exam in ${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"}` });
     card.createDiv({ cls: "qt-today-title", text: plan.course });
     card.createDiv({
       cls: "qt-today-meta",
-      text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards`,
+      text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.frqTotal ? ` · ${plan.frqDue} FRQ due` : ""}`,
     });
     const evidence = [`${plan.attempted}/${plan.total} questions practised`];
     if (plan.accuracy !== null) evidence.push(`${Math.round(plan.accuracy * 100)}% accuracy`);
     if (plan.weakSkill) evidence.push(`weakest: ${plan.weakSkill}`);
     card.createDiv({ cls: "qt-toggle-hint", text: evidence.join(" · ") });
+    if (plan.frqTotal) {
+      const next = plan.frqNext;
+      card.createDiv({
+        cls: "qt-toggle-hint",
+        text: next
+          ? `FRQ: ${next.title} · ${next.missed.length ? `${next.missed.length} missed rubric line${next.missed.length === 1 ? "" : "s"}` : "no missed rubric lines"}`
+          : "FRQ prompts for this course are scheduled for later this week.",
+      });
+    }
     const row = card.createDiv({ cls: "qt-row qt-small-row" });
     row.createEl("button", { text: "Start 10 min", cls: "mod-cta" }).addEventListener("click", () => p.startStudyPlan(plan, false));
     row.createEl("button", { text: "Cram 10 min" }).addEventListener("click", () => p.startStudyPlan(plan, true));
+    if (plan.frqNext) {
+      row.createEl("button", { text: "Practice FRQ" }).addEventListener("click", () => p.openFrqGrader({ path: plan.frqNext.path }));
+    }
+    return plan;
+  }
+
+  /** Due FRQ prompts when the exam plan is not already showing them. */
+  renderFrqReview(root, plan) {
+    const p = this.plugin;
+    if (!p.getFrqReviewQueue || (plan && plan.frqTotal)) return;
+    let due = [];
+    try {
+      due = p.getFrqReviewQueue({}).filter((row) => row.due);
+    } catch (e) {
+      due = [];
+    }
+    if (!due.length) return;
+    root.createEl("h3", { cls: "qt-today-section", text: "FRQ review" });
+    const card = root.createDiv({ cls: "qt-today-card qt-frq-review" });
+    card.createDiv({
+      cls: "qt-today-kicker",
+      text: due.length === 1 ? "1 free-response prompt due" : `${due.length} free-response prompts due`,
+    });
+    card.createDiv({ cls: "qt-today-meta", text: "Weak attempts and missed rubric lines return in 1–3 days; stronger attempts wait longer." });
+    for (const row of due.slice(0, 3)) {
+      const line = card.createDiv({ cls: "qt-ins-row" });
+      const main = line.createDiv({ cls: "qt-ins-main" });
+      main.createDiv({ cls: "qt-ins-name", text: row.title });
+      main.createDiv({
+        cls: "qt-hint",
+        text: `${row.course} · ${row.percent === null ? "not scored" : `${Math.round(row.percent)}%`} · ${row.missed.length} missed rubric line${row.missed.length === 1 ? "" : "s"}`,
+      });
+      line.createEl("button", { text: "Practice", cls: "qt-link" }).addEventListener("click", () => p.openFrqGrader({ path: row.path }));
+    }
+    const actions = card.createDiv({ cls: "qt-row" });
+    actions.createEl("button", { text: "Open AP FRQ practice", cls: "mod-cta" }).addEventListener("click", () => p.openFrqGrader());
   }
 
   /** The opt-in daily quiz, with its own streak so it never competes with study-time streaks. */

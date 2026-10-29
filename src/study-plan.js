@@ -108,6 +108,8 @@ function buildStudyPlan(exam, questions, cards, options) {
   const attempted = list.filter((q) => Number(q.fm.attempts) > 0);
   const weak = weakSkillOf(list);
   const cardsDue = cardList.filter((c) => !Number(c.fm.attempts) || (!!c.fm.next_review && str(c.fm.next_review).slice(0, 10) <= today)).length;
+  const frq = Array.isArray(opts.frq) ? opts.frq.filter(Boolean) : [];
+  const frqDue = frq.filter((row) => row.due).length;
   const course = str(opts.course || (exam && exam.course) || "").trim() || (exam && str(exam.summary).replace(/\s*[-–—:]\s*(final|exam|midterm|test).*$/i, "").trim()) || "Your exam";
   return {
     exam,
@@ -122,6 +124,10 @@ function buildStudyPlan(exam, questions, cards, options) {
     weakSkill: weak ? weak.skill : "",
     weakAccuracy: weak ? weak.accuracy : null,
     cardsDue,
+    frq: frq.slice(),
+    frqDue,
+    frqTotal: frq.length,
+    frqNext: frq.find((row) => row.due) || frq.find((row) => row.state === "scheduled") || frq[0] || null,
     readiness: readinessScore(list, due, daysLeft),
     pool: list.slice(),
     cramPool: buildCramPool(list, today, opts.cramLimit || 40),

@@ -74,7 +74,8 @@ class TodayView extends ItemView {
     manage.createEl("button", { text: "Hidden items", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
     this.renderReminder(root, today, due, fresh);
-    this.renderStudyPlan(root);
+    const plan = this.renderStudyPlan(root);
+    this.renderFrqReview(root, plan);
     this.renderDaily(root, today);
     this.renderTasks(root, today, due, visible);
     this.renderFocus(root, today);
@@ -131,24 +132,69 @@ class TodayView extends ItemView {
 
   renderStudyPlan(root) {
     const p = this.plugin;
-    if (!p.studyPlan) return;
+    if (!p.studyPlan) return null;
     const plan = p.studyPlan();
-    if (!plan) return;
+    if (!plan) return null;
     root.createEl("h3", { cls: "qt-today-section", text: "Study plan" });
     const card = root.createDiv({ cls: "qt-today-card qt-plan-card" });
     card.createDiv({ cls: "qt-today-kicker", text: plan.daysLeft === 0 ? "Exam today" : `Next exam in ${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"}` });
     card.createDiv({ cls: "qt-today-title", text: plan.course });
     card.createDiv({
       cls: "qt-today-meta",
-      text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards`,
+      text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.frqTotal ? ` · ${plan.frqDue} FRQ due` : ""}`,
     });
     const evidence = [`${plan.attempted}/${plan.total} questions practised`];
     if (plan.accuracy !== null) evidence.push(`${Math.round(plan.accuracy * 100)}% accuracy`);
     if (plan.weakSkill) evidence.push(`weakest: ${plan.weakSkill}`);
     card.createDiv({ cls: "qt-toggle-hint", text: evidence.join(" · ") });
+    if (plan.frqTotal) {
+      const next = plan.frqNext;
+      card.createDiv({
+        cls: "qt-toggle-hint",
+        text: next
+          ? `FRQ: ${next.title} · ${next.missed.length ? `${next.missed.length} missed rubric line${next.missed.length === 1 ? "" : "s"}` : "no missed rubric lines"}`
+          : "FRQ prompts for this course are scheduled for later this week.",
+      });
+    }
     const row = card.createDiv({ cls: "qt-row qt-small-row" });
     row.createEl("button", { text: "Start 10 min", cls: "mod-cta" }).addEventListener("click", () => p.startStudyPlan(plan, false));
     row.createEl("button", { text: "Cram 10 min" }).addEventListener("click", () => p.startStudyPlan(plan, true));
+    if (plan.frqNext) {
+      row.createEl("button", { text: "Practice FRQ" }).addEventListener("click", () => p.openFrqGrader({ path: plan.frqNext.path }));
+    }
+    return plan;
+  }
+
+  /** Due FRQ prompts when the exam plan is not already showing them. */
+  renderFrqReview(root, plan) {
+    const p = this.plugin;
+    if (!p.getFrqReviewQueue || (plan && plan.frqTotal)) return;
+    let due = [];
+    try {
+      due = p.getFrqReviewQueue({}).filter((row) => row.due);
+    } catch (e) {
+      due = [];
+    }
+    if (!due.length) return;
+    root.createEl("h3", { cls: "qt-today-section", text: "FRQ review" });
+    const card = root.createDiv({ cls: "qt-today-card qt-frq-review" });
+    card.createDiv({
+      cls: "qt-today-kicker",
+      text: due.length === 1 ? "1 free-response prompt due" : `${due.length} free-response prompts due`,
+    });
+    card.createDiv({ cls: "qt-today-meta", text: "Weak attempts and missed rubric lines return in 1–3 days; stronger attempts wait longer." });
+    for (const row of due.slice(0, 3)) {
+      const line = card.createDiv({ cls: "qt-ins-row" });
+      const main = line.createDiv({ cls: "qt-ins-main" });
+      main.createDiv({ cls: "qt-ins-name", text: row.title });
+      main.createDiv({
+        cls: "qt-hint",
+        text: `${row.course} · ${row.percent === null ? "not scored" : `${Math.round(row.percent)}%`} · ${row.missed.length} missed rubric line${row.missed.length === 1 ? "" : "s"}`,
+      });
+      line.createEl("button", { text: "Practice", cls: "qt-link" }).addEventListener("click", () => p.openFrqGrader({ path: row.path }));
+    }
+    const actions = card.createDiv({ cls: "qt-row" });
+    actions.createEl("button", { text: "Open AP FRQ practice", cls: "mod-cta" }).addEventListener("click", () => p.openFrqGrader());
   }
 
   /** The opt-in daily quiz, with its own streak so it never competes with study-time streaks. */
