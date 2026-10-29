@@ -956,3 +956,55 @@ test("markdown quiz: headings are questions and checked boxes are answers", () =
   assert.equal(parsed.cards[1].back, "Helium");
   assert.equal(parsed.skipped, 1);
 });
+
+/* A minimal stored (uncompressed) ZIP, enough for the central-directory reader. */
+function storedZip(files) {
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const [name, text] of Object.entries(files)) {
+    const data = Buffer.from(text, "utf8");
+    const nameBuf = Buffer.from(name, "utf8");
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26);
+    locals.push(local, nameBuf, data);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(nameBuf.length, 28);
+    central.writeUInt32LE(offset, 42);
+    centrals.push(central, nameBuf);
+    offset += local.length + nameBuf.length + data.length;
+  }
+  const centralBuf = Buffer.concat(centrals);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(Object.keys(files).length, 8);
+  eocd.writeUInt16LE(Object.keys(files).length, 10);
+  eocd.writeUInt32LE(centralBuf.length, 12);
+  eocd.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, centralBuf, eocd]);
+}
+
+test("qti archive: a zipped Canvas/Blackboard bank is read from its .xml entries", () => {
+  const xml = `<?xml version="1.0"?><questestinterop><item title="Q1"><presentation><material><mattext>2 + 2?</mattext></material><response_lid ident="r1"><render_choice><response_label ident="a"><material><mattext>4</mattext></material></response_label><response_label ident="b"><material><mattext>5</mattext></material></response_label></render_choice></response_lid></presentation><resprocessing><respcondition><conditionvar><varequal respident="r1">a</varequal></conditionvar></respcondition></resprocessing></item></questestinterop>`;
+  const zip = storedZip({ "quiz/q1.xml": xml, "imsmanifest.xml": "<manifest/>" });
+  const parsed = T.qtiArchive.parseQtiArchive(zip, { sourcePath: "canvas.zip", deck: "Canvas" });
+  assert.equal(parsed.cards.length, 1);
+  assert.equal(parsed.cards[0].front, "2 + 2?");
+  assert.equal(parsed.cards[0].back, "4");
+  assert.equal(parsed.cards[0].deck, "Canvas");
+  assert.equal(parsed.errors.length, 0);
+});
+
+test("qti archive: an archive without a quiz XML reports a clear error", () => {
+  const zip = storedZip({ "imsmanifest.xml": "<manifest/>", "readme.txt": "nothing" });
+  assert.throws(() => T.qtiArchive.parseQtiArchive(zip, { sourcePath: "empty.zip" }), /no quiz \.xml file/);
+});

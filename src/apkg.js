@@ -43,7 +43,7 @@ function inflateRaw(data) {
   try {
     zlib = require("zlib");
   } catch (e) {
-    fail("Reading .apkg files needs desktop Obsidian because it uses the local decompressor. On mobile, export the deck as Anki text first.");
+    fail("Reading ZIP archives (.apkg and zipped QTI) needs desktop Obsidian because it uses the local decompressor. On mobile, export the deck or quiz as text or XML first.");
   }
   if (!zlib || typeof zlib.inflateRawSync !== "function") {
     fail("This Obsidian build cannot open .apkg files. Export the deck from Anki as Notes in Plain Text instead.");

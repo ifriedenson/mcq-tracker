@@ -3829,7 +3829,7 @@ function inflateRaw(data) {
   try {
     zlib = require("zlib");
   } catch (e) {
-    fail("Reading .apkg files needs desktop Obsidian because it uses the local decompressor. On mobile, export the deck as Anki text first.");
+    fail("Reading ZIP archives (.apkg and zipped QTI) needs desktop Obsidian because it uses the local decompressor. On mobile, export the deck or quiz as text or XML first.");
   }
   if (!zlib || typeof zlib.inflateRawSync !== "function") {
     fail("This Obsidian build cannot open .apkg files. Export the deck from Anki as Notes in Plain Text instead.");
@@ -12289,7 +12289,7 @@ class CardImportModal extends Modal {
     type.createEl("option", { text: "Quizlet text export or PDF test bank", value: "quizlet" });
     type.createEl("option", { text: "Moodle GIFT (.txt or .gift)", value: "gift" });
     type.createEl("option", { text: "Moodle XML quiz bank (.xml)", value: "moodlexml" });
-    type.createEl("option", { text: "QTI quiz bank (.xml)", value: "qti" });
+    type.createEl("option", { text: "QTI quiz bank (.xml or .zip)", value: "qti" });
     type.createEl("option", { text: "FlashQuiz text (@mc / @sata / @tf)", value: "flashquiz" });
     type.createEl("option", { text: "QuizPort JSON (.json)", value: "quizport" });
     type.createEl("option", { text: "Markdown checkbox quiz (.md)", value: "mdquiz" });
@@ -12349,9 +12349,9 @@ class CardImportModal extends Modal {
         folders.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
         for (const folder of folders) source.createEl("option", { text: folder || "Whole vault", value: folder });
       } else {
-        const pattern = this.type === "quizlet" ? /\.(txt|tsv|csv|pdf)$/i : /\.(txt|tsv|csv|gift|xml|json|apkg|md)$/i;
+        const pattern = this.type === "quizlet" ? /\.(txt|tsv|csv|pdf)$/i : /\.(txt|tsv|csv|gift|xml|json|apkg|md|zip)$/i;
         const candidates = (files || []).filter((f) => pattern.test(f.path || ""));
-        const missing = this.type === "quizlet" ? "No .txt, .csv or .pdf files found" : "No .txt, .tsv, .csv, .gift, .xml, .json, .apkg or .md files found";
+        const missing = this.type === "quizlet" ? "No .txt, .csv or .pdf files found" : "No .txt, .tsv, .csv, .gift, .xml, .json, .apkg, .md or .zip files found";
         if (!candidates.length) source.createEl("option", { text: missing, value: "" });
         for (const f of candidates) source.createEl("option", { text: f.path, value: f.path });
       }
@@ -12505,7 +12505,7 @@ class CardImportModal extends Modal {
       if (this.type === "crowdanki") return "CrowdAnki: export the deck as CrowdAnki JSON and save the .json file in the vault. Nested deck names, note fields, Anki tags and cloze models are read; review history is not exported by CrowdAnki.";
       if (this.type === "gift") return giftExportHint();
       if (this.type === "moodlexml") return "Moodle XML: export the course question bank as Moodle XML, then save the .xml file in this vault. Multiple choice, true/false, short answer and numerical questions are read; matching, essay, description and cloze questions are skipped.";
-      if (this.type === "qti") return "QTI: export the quiz bank as QTI XML, then save the .xml file in this vault. QTI 1.2 and QTI 2.1 multiple-choice items are read, including response labels and correct-response identifiers.";
+      if (this.type === "qti") return "QTI: save the .xml file, or the zipped QTI archive Canvas and Blackboard export, in this vault. QTI 1.2 and QTI 2.1 multiple-choice items are read, including response labels and correct-response identifiers. A .zip is read on desktop because it needs the local decompressor.";
       if (this.type === "flashquiz") return "FlashQuiz: save the quiz text as a .txt or .md file in this vault. A prompt is followed by @mc, @sata or @tf and its options; mark correct choices with [x] or +, or add an Answer: line.";
       if (this.type === "quizport") return "QuizPort: save the quiz .json in this vault. A question array, or an object with a questions array, is read; choices may be strings or { text, correct } objects, and correct accepts an index, a letter or the choice text.";
       if (this.type === "mdquiz") return "Markdown quiz: each ## or ### heading is a question and the - [ ] / - [x] lines under it are the choices. More than one box may be checked; an Answer: line works when no box is checked.";
@@ -29944,6 +29944,7 @@ const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cards
 const { CardExtractModal } = require("./cards-extract-modal");
 const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
+const { parseQtiArchive } = require("./qti-archive");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { cardUpdateDiff } = require("./card-write-diff");
@@ -33520,11 +33521,22 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const kind = String(format || "").toLowerCase();
     if (!["moodlexml", "qti"].includes(kind)) throw new Error(`Unsupported LMS format: ${kind || "none"}.`);
-    if (!/\.(xml|txt)$/i.test(String(path || ""))) {
-      throw new Error("Choose the .xml file exported by Moodle or your QTI quiz bank.");
+    const allowed = kind === "qti" ? /\.(xml|txt|zip)$/i : /\.(xml|txt)$/i;
+    if (!allowed.test(String(path || ""))) {
+      throw new Error(kind === "qti" ? "Choose the .xml or .zip file exported by your QTI quiz bank." : "Choose the .xml file exported by Moodle.");
     }
     const file = this.app.vault.getAbstractFileByPath(String(path || ""));
     if (!file) throw new Error("That file is not in the vault.");
+    if (kind === "qti" && /\.zip$/i.test(String(path || ""))) {
+      const bytes = await this.readVaultBytes(file);
+      const parsed = parseQtiArchive(bytes, { sourcePath: file.path, deck: opts.deck });
+      return this.importParsedCards(parsed.cards, {
+        ...opts,
+        deck: String(opts.deck || "").trim() || file.basename,
+        errors: parsed.errors,
+        skippedDetails: parsed.skipped ? [{ reason: `${parsed.skipped} QTI item${parsed.skipped === 1 ? "" : "s"} had no usable answer` }] : [],
+      });
+    }
     const text = await this.app.vault.cachedRead(file);
     const parsed = kind === "qti" ? parseQtiXml(text, { sourcePath: file.path, deck: opts.deck }) : parseMoodleXml(text, { sourcePath: file.path, deck: opts.deck });
     return this.importParsedCards(parsed.cards, { ...opts, deck: String(opts.deck || "").trim() || file.basename, errors: parsed.errors });
@@ -33772,6 +33784,10 @@ class QuestionTrackerPlugin extends Plugin {
         add(parseApkg(bytes, { sourcePath: file.path, deck: String(opts.deck || "").trim() || file.basename }));
       } else if (kind === "quizlet" && (opts.pdfData || /\.pdf$/i.test(String(path || "")))) {
         add(await this.parseQuizletPdfCards(path, { ...opts, progress: () => {} }));
+      } else if (kind === "qti" && /\.zip$/i.test(String(path || ""))) {
+        const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+        if (!file) throw new Error("That QTI archive is not in the vault.");
+        add(parseQtiArchive(await this.readVaultBytes(file), { sourcePath: file.path, deck: String(opts.deck || "").trim() || file.basename }));
       } else {
         const file = this.app.vault.getAbstractFileByPath(String(path || ""));
         if (!file) throw new Error("That file is not in the vault.");
@@ -36257,6 +36273,46 @@ module.exports = {
   sourceOf,
   sourceTarget,
 };
+};
+
+/* ---- src/qti-archive.js ---- */
+__defs["qti-archive"] = function (module, exports, require) {
+/*
+ * Zipped QTI banks. Canvas and Blackboard export a QTI quiz as a .zip whose
+ * question XML sits beside an imsmanifest.xml. This reads only the archive's
+ * XML entries with the existing local ZIP reader and parses each with the QTI
+ * parser; nothing is extracted to disk, and no new dependency is added.
+ */
+const { str } = require("./util");
+const { readZipEntries } = require("./apkg");
+const { parseQtiXml } = require("./cards-import");
+
+function parseQtiArchive(input, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "QTI archive");
+  const deck = str(opts.deck).trim() || "Imported";
+  const entries = readZipEntries(input);
+  const names = [...entries.keys()].filter(
+    (name) => /\.xml$/i.test(name) && !/(^|\/)imsmanifest\.xml$/i.test(name)
+  );
+  if (!names.length) throw new Error("That QTI archive has no quiz .xml file inside it.");
+  const cards = [];
+  const errors = [];
+  let skipped = 0;
+  for (const name of names) {
+    const parsed = parseQtiXml(entries.get(name).toString("utf8"), {
+      sourcePath: `${source} › ${name}`,
+      deck,
+    });
+    cards.push(...parsed.cards);
+    skipped += Math.max(0, Number(parsed.skipped) || 0);
+    if (Array.isArray(parsed.errors)) errors.push(...parsed.errors);
+  }
+  if (!cards.length) errors.push("No QTI questions with a correct answer were found in that archive.");
+  return { cards, skipped, errors, source, format: "qti" };
+}
+
+module.exports = { parseQtiArchive };
 };
 
 /* ---- src/quick-practice.js ---- */
@@ -44326,6 +44382,7 @@ const courseNotes = require("./course-notes");
 const paperScanner = require("./paper-scanner");
 const documentClassify = require("./document-classify");
 const conceptMastery = require("./concept-mastery");
+const qtiArchive = require("./qti-archive");
 const { DocumentReviewModal } = require("./document-review-modal");
 const ocr = require("./ocr");
 const { OcrModal } = require("./ocr-modal");
@@ -44560,6 +44617,7 @@ QuestionTrackerPlugin.__test = {
   paperScanner,
   documentClassify,
   conceptMastery,
+  qtiArchive,
   DocumentReviewModal,
   ocr,
   OcrModal,

@@ -58,6 +58,7 @@ const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cards
 const { CardExtractModal } = require("./cards-extract-modal");
 const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
+const { parseQtiArchive } = require("./qti-archive");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { cardUpdateDiff } = require("./card-write-diff");
@@ -3634,11 +3635,22 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const kind = String(format || "").toLowerCase();
     if (!["moodlexml", "qti"].includes(kind)) throw new Error(`Unsupported LMS format: ${kind || "none"}.`);
-    if (!/\.(xml|txt)$/i.test(String(path || ""))) {
-      throw new Error("Choose the .xml file exported by Moodle or your QTI quiz bank.");
+    const allowed = kind === "qti" ? /\.(xml|txt|zip)$/i : /\.(xml|txt)$/i;
+    if (!allowed.test(String(path || ""))) {
+      throw new Error(kind === "qti" ? "Choose the .xml or .zip file exported by your QTI quiz bank." : "Choose the .xml file exported by Moodle.");
     }
     const file = this.app.vault.getAbstractFileByPath(String(path || ""));
     if (!file) throw new Error("That file is not in the vault.");
+    if (kind === "qti" && /\.zip$/i.test(String(path || ""))) {
+      const bytes = await this.readVaultBytes(file);
+      const parsed = parseQtiArchive(bytes, { sourcePath: file.path, deck: opts.deck });
+      return this.importParsedCards(parsed.cards, {
+        ...opts,
+        deck: String(opts.deck || "").trim() || file.basename,
+        errors: parsed.errors,
+        skippedDetails: parsed.skipped ? [{ reason: `${parsed.skipped} QTI item${parsed.skipped === 1 ? "" : "s"} had no usable answer` }] : [],
+      });
+    }
     const text = await this.app.vault.cachedRead(file);
     const parsed = kind === "qti" ? parseQtiXml(text, { sourcePath: file.path, deck: opts.deck }) : parseMoodleXml(text, { sourcePath: file.path, deck: opts.deck });
     return this.importParsedCards(parsed.cards, { ...opts, deck: String(opts.deck || "").trim() || file.basename, errors: parsed.errors });
@@ -3886,6 +3898,10 @@ class QuestionTrackerPlugin extends Plugin {
         add(parseApkg(bytes, { sourcePath: file.path, deck: String(opts.deck || "").trim() || file.basename }));
       } else if (kind === "quizlet" && (opts.pdfData || /\.pdf$/i.test(String(path || "")))) {
         add(await this.parseQuizletPdfCards(path, { ...opts, progress: () => {} }));
+      } else if (kind === "qti" && /\.zip$/i.test(String(path || ""))) {
+        const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+        if (!file) throw new Error("That QTI archive is not in the vault.");
+        add(parseQtiArchive(await this.readVaultBytes(file), { sourcePath: file.path, deck: String(opts.deck || "").trim() || file.basename }));
       } else {
         const file = this.app.vault.getAbstractFileByPath(String(path || ""));
         if (!file) throw new Error("That file is not in the vault.");

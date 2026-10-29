@@ -2043,7 +2043,7 @@ class CardImportModal extends Modal {
     type.createEl("option", { text: "Quizlet text export or PDF test bank", value: "quizlet" });
     type.createEl("option", { text: "Moodle GIFT (.txt or .gift)", value: "gift" });
     type.createEl("option", { text: "Moodle XML quiz bank (.xml)", value: "moodlexml" });
-    type.createEl("option", { text: "QTI quiz bank (.xml)", value: "qti" });
+    type.createEl("option", { text: "QTI quiz bank (.xml or .zip)", value: "qti" });
     type.createEl("option", { text: "FlashQuiz text (@mc / @sata / @tf)", value: "flashquiz" });
     type.createEl("option", { text: "QuizPort JSON (.json)", value: "quizport" });
     type.createEl("option", { text: "Markdown checkbox quiz (.md)", value: "mdquiz" });
@@ -2103,9 +2103,9 @@ class CardImportModal extends Modal {
         folders.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
         for (const folder of folders) source.createEl("option", { text: folder || "Whole vault", value: folder });
       } else {
-        const pattern = this.type === "quizlet" ? /\.(txt|tsv|csv|pdf)$/i : /\.(txt|tsv|csv|gift|xml|json|apkg|md)$/i;
+        const pattern = this.type === "quizlet" ? /\.(txt|tsv|csv|pdf)$/i : /\.(txt|tsv|csv|gift|xml|json|apkg|md|zip)$/i;
         const candidates = (files || []).filter((f) => pattern.test(f.path || ""));
-        const missing = this.type === "quizlet" ? "No .txt, .csv or .pdf files found" : "No .txt, .tsv, .csv, .gift, .xml, .json, .apkg or .md files found";
+        const missing = this.type === "quizlet" ? "No .txt, .csv or .pdf files found" : "No .txt, .tsv, .csv, .gift, .xml, .json, .apkg, .md or .zip files found";
         if (!candidates.length) source.createEl("option", { text: missing, value: "" });
         for (const f of candidates) source.createEl("option", { text: f.path, value: f.path });
       }
@@ -2259,7 +2259,7 @@ class CardImportModal extends Modal {
       if (this.type === "crowdanki") return "CrowdAnki: export the deck as CrowdAnki JSON and save the .json file in the vault. Nested deck names, note fields, Anki tags and cloze models are read; review history is not exported by CrowdAnki.";
       if (this.type === "gift") return giftExportHint();
       if (this.type === "moodlexml") return "Moodle XML: export the course question bank as Moodle XML, then save the .xml file in this vault. Multiple choice, true/false, short answer and numerical questions are read; matching, essay, description and cloze questions are skipped.";
-      if (this.type === "qti") return "QTI: export the quiz bank as QTI XML, then save the .xml file in this vault. QTI 1.2 and QTI 2.1 multiple-choice items are read, including response labels and correct-response identifiers.";
+      if (this.type === "qti") return "QTI: save the .xml file, or the zipped QTI archive Canvas and Blackboard export, in this vault. QTI 1.2 and QTI 2.1 multiple-choice items are read, including response labels and correct-response identifiers. A .zip is read on desktop because it needs the local decompressor.";
       if (this.type === "flashquiz") return "FlashQuiz: save the quiz text as a .txt or .md file in this vault. A prompt is followed by @mc, @sata or @tf and its options; mark correct choices with [x] or +, or add an Answer: line.";
       if (this.type === "quizport") return "QuizPort: save the quiz .json in this vault. A question array, or an object with a questions array, is read; choices may be strings or { text, correct } objects, and correct accepts an index, a letter or the choice text.";
       if (this.type === "mdquiz") return "Markdown quiz: each ## or ### heading is a question and the - [ ] / - [x] lines under it are the choices. More than one box may be checked; an Answer: line works when no box is checked.";

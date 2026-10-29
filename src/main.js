@@ -77,6 +77,7 @@ const courseNotes = require("./course-notes");
 const paperScanner = require("./paper-scanner");
 const documentClassify = require("./document-classify");
 const conceptMastery = require("./concept-mastery");
+const qtiArchive = require("./qti-archive");
 const { DocumentReviewModal } = require("./document-review-modal");
 const ocr = require("./ocr");
 const { OcrModal } = require("./ocr-modal");
@@ -311,6 +312,7 @@ QuestionTrackerPlugin.__test = {
   paperScanner,
   documentClassify,
   conceptMastery,
+  qtiArchive,
   DocumentReviewModal,
   ocr,
   OcrModal,
