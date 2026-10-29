@@ -7283,6 +7283,7 @@ const DEFAULT_SETTINGS = {
   testSession: null, // a timed test in progress, so it survives closing Obsidian
   quickDefaults: { count: 5, minutes: 5 },
   quickSession: null, // a Quick Practice queue in progress, so it survives closing Obsidian
+  studyLog: { sessions: [], dailyGoalMinutes: 60, lastCourse: "" }, // focus sessions and manual study time
   dailyQuiz: {
     enabled: false, // opt-in; no command, card or notifications until it is on
     count: 5,
@@ -9039,6 +9040,263 @@ module.exports = {
   indexOfficialIds,
   findDuplicateIds,
   pickQuestion,
+};
+};
+
+/* ---- src/focus.js ---- */
+__defs["focus"] = function (module, exports, require) {
+/* Focus sessions and study-time totals. Pure helpers, so the UI and tests share one clock model. */
+
+const FOCUS_STORAGE_KEY = "mcqTrackerFocus";
+const MAX_FOCUS_MS = 4 * 3600 * 1000; // a session left open overnight should not become a 9-hour block
+const MAX_SESSIONS = 5000;
+const DEFAULT_STUDY_LOG = { sessions: [], dailyGoalMinutes: 60, lastCourse: "" };
+
+function str(value) {
+  return value === undefined || value === null ? "" : String(value);
+}
+
+function dayKey(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function addDays(key, n) {
+  const d = new Date(`${key}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return dayKey(d);
+}
+
+function startFocus(options, now) {
+  const at = Number(now) || Date.now();
+  const minutes = Math.max(1, Math.min(480, Math.round(Number(options && options.minutes) || 25)));
+  return {
+    id: `focus-${at.toString(36)}`,
+    course: str(options && options.course).trim(),
+    task: str(options && options.task).trim(),
+    targetMinutes: minutes,
+    startedAt: at,
+    runningSince: at,
+    accumulatedMs: 0,
+  };
+}
+
+function elapsedFocusMs(state, now) {
+  if (!state) return 0;
+  const at = Number(now) || Date.now();
+  const running = state.runningSince ? Math.max(0, at - Number(state.runningSince)) : 0;
+  return Math.min(MAX_FOCUS_MS, Math.max(0, Number(state.accumulatedMs) || 0) + running);
+}
+
+function pauseFocus(state, now) {
+  if (!state || !state.runningSince) return state;
+  const ms = elapsedFocusMs(state, now);
+  return Object.assign({}, state, { accumulatedMs: ms, runningSince: null });
+}
+
+function resumeFocus(state, now) {
+  if (!state || state.runningSince) return state;
+  return Object.assign({}, state, { runningSince: Number(now) || Date.now() });
+}
+
+function focusRemainingMs(state, now) {
+  const target = Math.max(1, Number(state && state.targetMinutes) || 25) * 60000;
+  return Math.max(0, target - elapsedFocusMs(state, now));
+}
+
+function formatFocusClock(ms) {
+  const seconds = Math.max(0, Math.round((Number(ms) || 0) / 1000));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+function finishFocus(state, now) {
+  if (!state) return null;
+  const at = Number(now) || Date.now();
+  const elapsed = elapsedFocusMs(state, at);
+  if (elapsed < 1000) return null;
+  return {
+    id: str(state.id) || `study-${at.toString(36)}`,
+    date: dayKey(at),
+    minutes: Math.max(1, Math.round(elapsed / 60000)),
+    seconds: Math.round(elapsed / 1000),
+    course: str(state.course).trim(),
+    note: str(state.task).trim(),
+    source: "focus",
+    startedAt: Number(state.startedAt) || at,
+    endedAt: at,
+  };
+}
+
+function normalizeStudyLog(saved) {
+  const src = saved && typeof saved === "object" ? saved : {};
+  const sessions = (Array.isArray(src.sessions) ? src.sessions : [])
+    .filter((s) => s && typeof s === "object" && /^\d{4}-\d{2}-\d{2}$/.test(str(s.date)))
+    .map((s) => ({
+      id: str(s.id) || `study-${Math.random().toString(36).slice(2, 9)}`,
+      date: str(s.date),
+      minutes: Math.max(1, Math.min(1440, Math.round(Number(s.minutes) || 0))),
+      course: str(s.course).trim(),
+      note: str(s.note).trim(),
+      source: s.source === "focus" ? "focus" : "manual",
+      startedAt: Number(s.startedAt) || 0,
+      endedAt: Number(s.endedAt) || 0,
+    }))
+    .slice(-MAX_SESSIONS);
+  const goal = Math.round(Number(src.dailyGoalMinutes));
+  return {
+    sessions,
+    dailyGoalMinutes: Number.isFinite(goal) ? Math.max(5, Math.min(480, goal)) : DEFAULT_STUDY_LOG.dailyGoalMinutes,
+    lastCourse: str(src.lastCourse).trim(),
+  };
+}
+
+function addStudySession(log, session) {
+  const base = normalizeStudyLog(log);
+  const date = str(session && session.date) || dayKey(new Date());
+  const minutes = Math.max(1, Math.min(1440, Math.round(Number(session && session.minutes) || 0)));
+  const next = {
+    id: str(session && session.id) || `study-${Date.now().toString(36)}`,
+    date,
+    minutes,
+    course: str(session && session.course).trim(),
+    note: str(session && session.note).trim(),
+    source: session && session.source === "focus" ? "focus" : "manual",
+    startedAt: Number(session && session.startedAt) || 0,
+    endedAt: Number(session && session.endedAt) || 0,
+  };
+  const sessions = base.sessions.concat(next).slice(-MAX_SESSIONS);
+  return {
+    sessions,
+    dailyGoalMinutes: base.dailyGoalMinutes,
+    lastCourse: next.course || base.lastCourse,
+  };
+}
+
+function studyStreak(sessions, today) {
+  const dates = new Set((sessions || []).map((s) => str(s.date)));
+  let cursor = dates.has(today) ? today : dates.has(addDays(today, -1)) ? addDays(today, -1) : "";
+  let streak = 0;
+  while (cursor && dates.has(cursor)) {
+    streak++;
+    cursor = addDays(cursor, -1);
+  }
+  return streak;
+}
+
+function studySummary(log, today) {
+  const normalized = normalizeStudyLog(log);
+  const day = str(today) || dayKey(new Date());
+  const weekStart = addDays(day, -6);
+  const sessions = normalized.sessions;
+  const todaySessions = sessions.filter((s) => s.date === day);
+  const todayMinutes = todaySessions.reduce((n, s) => n + s.minutes, 0);
+  const weekMinutes = sessions.filter((s) => s.date >= weekStart && s.date <= day).reduce((n, s) => n + s.minutes, 0);
+  const byCourse = {};
+  for (const s of sessions) {
+    const key = s.course || "No course";
+    byCourse[key] = (byCourse[key] || 0) + s.minutes;
+  }
+  const goal = normalized.dailyGoalMinutes;
+  return {
+    todayMinutes,
+    weekMinutes,
+    goalMinutes: goal,
+    goalPct: goal ? Math.min(100, Math.round((todayMinutes / goal) * 100)) : 0,
+    streak: studyStreak(sessions, day),
+    byCourse,
+    sessionsToday: todaySessions.length,
+  };
+}
+
+module.exports = {
+  DEFAULT_STUDY_LOG,
+  FOCUS_STORAGE_KEY,
+  MAX_FOCUS_MS,
+  addStudySession,
+  dayKey,
+  elapsedFocusMs,
+  finishFocus,
+  focusRemainingMs,
+  formatFocusClock,
+  normalizeStudyLog,
+  pauseFocus,
+  resumeFocus,
+  startFocus,
+  studyStreak,
+  studySummary,
+};
+};
+
+/* ---- src/focus-modal.js ---- */
+__defs["focus-modal"] = function (module, exports, require) {
+const { Modal, Notice, Setting } = require("obsidian");
+const { localDate } = require("./util");
+
+class FocusLogModal extends Modal {
+  constructor(app, plugin, options) {
+    super(app);
+    this.plugin = plugin;
+    this.date = (options && options.date) || localDate();
+    this.minutes = "30";
+    this.course = (options && options.course) || plugin.settings.studyLog.lastCourse || "";
+    this.note = "";
+  }
+
+  onOpen() {
+    this.modalEl.addClass("qt-focus-modal");
+    const el = this.contentEl;
+    el.createEl("h3", { text: "Log study time" });
+    el.createEl("p", {
+      cls: "setting-item-description",
+      text: "Add time you studied offline. The focus timer logs itself when you finish a session.",
+    });
+    new Setting(el).setName("Date").addText((t) => {
+      t.inputEl.type = "date";
+      t.setValue(this.date).onChange((v) => (this.date = v));
+    });
+    new Setting(el).setName("Minutes").addText((t) => {
+      t.inputEl.type = "number";
+      t.setValue(this.minutes).onChange((v) => (this.minutes = v));
+    });
+    new Setting(el).setName("Course").addText((t) =>
+      t.setPlaceholder("Optional").setValue(this.course).onChange((v) => (this.course = v))
+    );
+    new Setting(el).setName("Note").addText((t) =>
+      t.setPlaceholder("Optional").setValue(this.note).onChange((v) => (this.note = v))
+    );
+    const row = el.createDiv({ cls: "qt-row qt-focus-actions" });
+    row.createEl("button", { text: "Save time", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.save());
+    row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
+  }
+
+  async save() {
+    const minutes = Number(this.minutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      new Notice("Enter the number of minutes you studied.");
+      return;
+    }
+    await this.plugin.logStudySession({
+      date: this.date,
+      minutes,
+      course: this.course,
+      note: this.note,
+    });
+    this.close();
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = {
+  FocusLogModal,
 };
 };
 
@@ -14760,6 +15018,8 @@ const { PdfImportModal } = require("./import-modal");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const { sidecarPathFor } = require("./pdf-annotations");
 const { WelcomeModal } = require("./welcome-modal");
+const { FocusLogModal } = require("./focus-modal");
+const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
@@ -14820,6 +15080,7 @@ class QuestionTrackerPlugin extends Plugin {
     // The timer is kept per device (not in the synced settings). One that was running when the
     // app closed becomes paused, counting only up to the last heartbeat (time away isn't counted).
     this.session = this.readSession();
+    this.focus = this.readFocus();
     const s = this.session;
     if (s && s.runningSince) {
       s.elapsedMs += Math.max(0, (s.lastBeat || s.runningSince) - s.runningSince);
@@ -14860,6 +15121,8 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
     this.addCommand({ id: "open-welcome", name: "Open welcome guide", callback: () => this.openWelcome() });
+    this.addCommand({ id: "focus-start", name: "Focus: start a 25-minute session", callback: () => this.startFocusSession(25, this.settings.studyLog.lastCourse) });
+    this.addCommand({ id: "focus-log", name: "Focus: log study time", callback: () => this.openFocusLog() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
@@ -15113,6 +15376,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
     this.settings.reference = mergeReferenceSettings(saved.reference);
+    this.settings.studyLog = normalizeStudyLog(saved.studyLog);
     // module switches and plugin-wide flags are always plain booleans
     this.settings.mcqEnabled = this.settings.mcqEnabled !== false;
     this.settings.showRibbonIcons = this.settings.showRibbonIcons !== false;
@@ -16755,6 +17019,91 @@ class QuestionTrackerPlugin extends Plugin {
     const norm1 = (o) => JSON.stringify(FILTER_FIELDS.map(([k]) => [k, fvals(o, k).sort()]).filter((x) => x[1].length));
     const norm = (main, more) => JSON.stringify([main, ...(more || [])].filter(hasFilters).map(norm1).sort());
     return norm(pr.filters, pr.moreSets) !== norm(st.filters, st.moreSets) || (pr.mode || "smart") !== st.mode;
+  }
+
+  /* ---- focus timer and study log (timestamp-derived, survives reloads) */
+
+  readFocus() {
+    try {
+      const s = this.app.loadLocalStorage(FOCUS_STORAGE_KEY);
+      return s && typeof s === "object" && Number.isFinite(s.startedAt) && Number.isFinite(s.targetMinutes) ? s : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  writeFocus() {
+    try {
+      this.app.saveLocalStorage(FOCUS_STORAGE_KEY, this.focus || null);
+    } catch (e) {
+      /* the timer still works; it just will not survive a reload */
+    }
+  }
+
+  focusElapsedMs() {
+    return elapsedFocusMs(this.focus, Date.now());
+  }
+
+  startFocusSession(minutes, course, task) {
+    if (this.moduleOff("mcq")) return null;
+    if (this.focus) {
+      new Notice("Finish or discard the current focus session first.");
+      return null;
+    }
+    this.focus = startFocus({ minutes, course, task }, Date.now());
+    this.writeFocus();
+    this.refreshViews();
+    return this.focus;
+  }
+
+  pauseFocusSession() {
+    this.focus = pauseFocus(this.focus, Date.now());
+    this.writeFocus();
+    this.refreshViews();
+    return this.focus;
+  }
+
+  resumeFocusSession() {
+    this.focus = resumeFocus(this.focus, Date.now());
+    this.writeFocus();
+    this.refreshViews();
+    return this.focus;
+  }
+
+  async finishFocusSession() {
+    const session = finishFocus(this.focus, Date.now());
+    if (!session) {
+      new Notice("That session was too short to log.");
+      return null;
+    }
+    this.settings.studyLog = addStudySession(this.settings.studyLog, session);
+    this.focus = null;
+    this.writeFocus();
+    await this.save();
+    this.refreshViews();
+    return session;
+  }
+
+  discardFocusSession() {
+    this.focus = null;
+    this.writeFocus();
+    this.refreshViews();
+  }
+
+  async logStudySession(entry) {
+    this.settings.studyLog = addStudySession(this.settings.studyLog, entry);
+    await this.save();
+    this.refreshViews();
+    return this.settings.studyLog;
+  }
+
+  openFocusLog() {
+    if (this.moduleOff("mcq")) return;
+    new FocusLogModal(this.app, this).open();
+  }
+
+  studySummary(today) {
+    return studySummary(this.settings.studyLog, today);
   }
 
   /* ---- timer (survives reloads) */
@@ -20273,6 +20622,20 @@ function renderGeneral(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Daily study goal")
+    .setDesc("Minutes of focus and manually logged study per day. Used by the Today focus card and its streak.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.setValue(String(st.studyLog.dailyGoalMinutes));
+      t.onChange(async (v) => {
+        const n = Math.round(Number(v));
+        st.studyLog.dailyGoalMinutes = Number.isFinite(n) ? Math.max(5, Math.min(480, n)) : 60;
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    });
+
+  new Setting(containerEl)
     .setName("Open the practice view when Obsidian starts")
     .setDesc("Opens the practice view as soon as the workspace is ready, so you can start with one tap. Needs the MCQ Tracker module.")
     .addToggle((t) =>
@@ -21712,6 +22075,7 @@ const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
 const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
+const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus");
 
 /*
  * The phone-sized entry point: what is due, what is next, and one large
@@ -21739,6 +22103,7 @@ class TodayView extends ItemView {
     this.render();
     // Counts and the next event move while the tab stays open.
     this.registerInterval(activeWindow.setInterval(() => this.render(), 60000));
+    this.registerInterval(activeWindow.setInterval(() => this.tickFocus(), 1000));
   }
 
   render() {
@@ -21774,6 +22139,7 @@ class TodayView extends ItemView {
     manage.createEl("button", { text: "Known & excluded", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
     this.renderDaily(root, today);
+    this.renderFocus(root, today);
 
     if (visible.length) {
       const pool = due.length ? due : visible;
@@ -21915,6 +22281,57 @@ class TodayView extends ItemView {
     } finally {
       this.render();
     }
+  }
+
+  renderFocus(root, today) {
+    const p = this.plugin;
+    if (!p.studySummary) return;
+    const summary = p.studySummary(today);
+    root.createEl("h3", { cls: "qt-today-section", text: "Focus" });
+    const card = root.createDiv({ cls: "qt-today-card qt-focus-card" });
+    const focus = p.focus;
+    if (focus) {
+      card.createDiv({ cls: "qt-today-kicker", text: focus.course ? `Focus · ${focus.course}` : "Focus session" });
+      this.focusClockEl = card.createDiv({ cls: "qt-focus-clock" });
+      const row = card.createDiv({ cls: "qt-row qt-small-row" });
+      row.createEl("button", { text: focus.runningSince ? "Pause" : "Resume", cls: "mod-cta" }).addEventListener("click", () =>
+        focus.runningSince ? p.pauseFocusSession() : p.resumeFocusSession()
+      );
+      row.createEl("button", { text: "Finish & log" }).addEventListener("click", () => p.finishFocusSession());
+      row.createEl("button", { text: "Discard", cls: "qt-link" }).addEventListener("click", () => p.discardFocusSession());
+      this.tickFocus();
+    } else {
+      this.focusClockEl = null;
+      card.createDiv({ cls: "qt-today-kicker", text: "Focus session" });
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: `${summary.todayMinutes} / ${summary.goalMinutes} min today · ${summary.streak}-day streak`,
+      });
+      const course = card.createEl("input", { cls: "qt-focus-course", attr: { placeholder: "Course (optional)", "aria-label": "Course for this focus session" } });
+      course.value = p.settings.studyLog.lastCourse || "";
+      const row = card.createDiv({ cls: "qt-row qt-small-row" });
+      for (const minutes of [15, 25, 45]) {
+        row.createEl("button", { text: `Start ${minutes}`, cls: minutes === 25 ? "mod-cta" : "" }).addEventListener("click", () =>
+          p.startFocusSession(minutes, course.value)
+        );
+      }
+      row.createEl("button", { text: "Log study time", cls: "qt-link" }).addEventListener("click", () => p.openFocusLog());
+    }
+    if (summary.weekMinutes || summary.todayMinutes) {
+      card.createDiv({ cls: "qt-toggle-hint", text: `${summary.weekMinutes} min in the last 7 days · goal ${summary.goalPct}% today` });
+    }
+    const courses = Object.entries(summary.byCourse).filter(([name]) => name !== "No course").sort((a, b) => b[1] - a[1]).slice(0, 3);
+    if (courses.length) card.createDiv({ cls: "qt-toggle-hint", text: courses.map(([name, mins]) => `${name}: ${mins} min`).join(" · ") });
+  }
+
+  tickFocus() {
+    if (!this.focusClockEl) return;
+    const focus = this.plugin.focus;
+    if (!focus) return;
+    const left = focusRemainingMs(focus, Date.now());
+    const elapsed = elapsedFocusMs(focus, Date.now());
+    const text = left > 0 ? `${formatFocusClock(left)} left` : `${formatFocusClock(elapsed)} elapsed`;
+    this.focusClockEl.setText(`${formatFocusClock(elapsed)} · ${text}`);
   }
 
   renderNext(root, now) {
@@ -22544,6 +22961,8 @@ const referenceData = require("./reference-data");
 const pdfAnnotations = require("./pdf-annotations");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const welcome = require("./welcome");
+const focus = require("./focus");
+const { FocusLogModal } = require("./focus-modal");
 const { WelcomeModal } = require("./welcome-modal");
 const referenceElements = require("./reference-elements");
 const referenceGraph = require("./reference-graph");
@@ -22637,6 +23056,8 @@ QuestionTrackerPlugin.__test = {
   PdfAnnotationModal,
   welcome,
   WelcomeModal,
+  focus,
+  FocusLogModal,
   referenceElements,
   referenceGraph,
   ReferenceView,

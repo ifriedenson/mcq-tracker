@@ -7,6 +7,7 @@ const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
 const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
+const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus");
 
 /*
  * The phone-sized entry point: what is due, what is next, and one large
@@ -34,6 +35,7 @@ class TodayView extends ItemView {
     this.render();
     // Counts and the next event move while the tab stays open.
     this.registerInterval(activeWindow.setInterval(() => this.render(), 60000));
+    this.registerInterval(activeWindow.setInterval(() => this.tickFocus(), 1000));
   }
 
   render() {
@@ -69,6 +71,7 @@ class TodayView extends ItemView {
     manage.createEl("button", { text: "Known & excluded", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
     this.renderDaily(root, today);
+    this.renderFocus(root, today);
 
     if (visible.length) {
       const pool = due.length ? due : visible;
@@ -210,6 +213,57 @@ class TodayView extends ItemView {
     } finally {
       this.render();
     }
+  }
+
+  renderFocus(root, today) {
+    const p = this.plugin;
+    if (!p.studySummary) return;
+    const summary = p.studySummary(today);
+    root.createEl("h3", { cls: "qt-today-section", text: "Focus" });
+    const card = root.createDiv({ cls: "qt-today-card qt-focus-card" });
+    const focus = p.focus;
+    if (focus) {
+      card.createDiv({ cls: "qt-today-kicker", text: focus.course ? `Focus · ${focus.course}` : "Focus session" });
+      this.focusClockEl = card.createDiv({ cls: "qt-focus-clock" });
+      const row = card.createDiv({ cls: "qt-row qt-small-row" });
+      row.createEl("button", { text: focus.runningSince ? "Pause" : "Resume", cls: "mod-cta" }).addEventListener("click", () =>
+        focus.runningSince ? p.pauseFocusSession() : p.resumeFocusSession()
+      );
+      row.createEl("button", { text: "Finish & log" }).addEventListener("click", () => p.finishFocusSession());
+      row.createEl("button", { text: "Discard", cls: "qt-link" }).addEventListener("click", () => p.discardFocusSession());
+      this.tickFocus();
+    } else {
+      this.focusClockEl = null;
+      card.createDiv({ cls: "qt-today-kicker", text: "Focus session" });
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: `${summary.todayMinutes} / ${summary.goalMinutes} min today · ${summary.streak}-day streak`,
+      });
+      const course = card.createEl("input", { cls: "qt-focus-course", attr: { placeholder: "Course (optional)", "aria-label": "Course for this focus session" } });
+      course.value = p.settings.studyLog.lastCourse || "";
+      const row = card.createDiv({ cls: "qt-row qt-small-row" });
+      for (const minutes of [15, 25, 45]) {
+        row.createEl("button", { text: `Start ${minutes}`, cls: minutes === 25 ? "mod-cta" : "" }).addEventListener("click", () =>
+          p.startFocusSession(minutes, course.value)
+        );
+      }
+      row.createEl("button", { text: "Log study time", cls: "qt-link" }).addEventListener("click", () => p.openFocusLog());
+    }
+    if (summary.weekMinutes || summary.todayMinutes) {
+      card.createDiv({ cls: "qt-toggle-hint", text: `${summary.weekMinutes} min in the last 7 days · goal ${summary.goalPct}% today` });
+    }
+    const courses = Object.entries(summary.byCourse).filter(([name]) => name !== "No course").sort((a, b) => b[1] - a[1]).slice(0, 3);
+    if (courses.length) card.createDiv({ cls: "qt-toggle-hint", text: courses.map(([name, mins]) => `${name}: ${mins} min`).join(" · ") });
+  }
+
+  tickFocus() {
+    if (!this.focusClockEl) return;
+    const focus = this.plugin.focus;
+    if (!focus) return;
+    const left = focusRemainingMs(focus, Date.now());
+    const elapsed = elapsedFocusMs(focus, Date.now());
+    const text = left > 0 ? `${formatFocusClock(left)} left` : `${formatFocusClock(elapsed)} elapsed`;
+    this.focusClockEl.setText(`${formatFocusClock(elapsed)} · ${text}`);
   }
 
   renderNext(root, now) {

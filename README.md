@@ -30,6 +30,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Import questions from a file:** an AI agent (or your own AI key) turns a PDF, PowerPoint deck, Word file, OpenDocument, HTML, RTF, Markdown, CSV or text file into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from your files](#import-questions-from-your-files)).
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
 - **Cards and vocabulary (optional module, off by default).** Create flashcards, reversed cards, cloze cards, image occlusion cards and vocabulary notes as ordinary Markdown notes. Organize them into decks, inherit a course tag from a deck or folder, and review them with Again/Hard/Good/Easy using the same ladder or FSRS schedule as your questions (see [Cards and vocabulary](#cards-and-vocabulary-optional-module-off-by-default)).
+- **Focus timer and study log.** Start a 15, 25 or 45 minute session tied to a course, pause and resume it, and log the result. Manual study entry covers offline work. Today shows today's minutes against a configurable daily goal, the current streak, the last seven days and your top courses.
 - **First-run welcome guide.** A short three-step guide on first install: what the plugin does, a preset chooser that sets the real module switches, and buttons for import, practice, Today, cards, calendar and settings. It is shown once per device, never blocks startup, stores progress locally and can be reopened from the command palette or Settings, Global, About.
 - **Modules you can switch off.** Settings, Global has an on/off switch for each module (MCQ Tracker, Cards, Calendar and AI features) plus the plugin-wide options, so the parts you don't use stay out of the way.
 - **Reference (optional module, off by default).** A local formula sheet, constants list and unit converter in one view. It works offline, adds no data to your vault, and can be hidden automatically while a timed test is running. See [Reference](#reference-optional-module-off-by-default).
@@ -41,6 +42,12 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 2. Open the practice view from the ribbon (graduation cap icon). With no questions in your vault yet, it offers **Import files**.
 3. Press **Import files**. The first time, you'll choose how to connect an AI model (your own API key, or OpenCode on desktop), then pick a file and a new folder name. See [Import questions from your files](#import-questions-from-your-files).
 4. When the import finishes, press **Practice all** to start. Already have question notes? Add a `question_id` property to each (see [What counts as a question](#what-counts-as-a-question)) and the practice view finds them.
+
+## Focus timer and study log
+
+Open **Today** and use the **Focus** card to start a 15, 25 or 45 minute session. The timer is derived from timestamps, so pausing, closing Obsidian or switching devices does not lose the elapsed time; the running state is stored locally per device. Finishing writes a study session into the plugin's study log, and **Log study time** adds offline study manually with a date, minutes, course and note.
+
+Set the daily goal under **Settings, Global, General**. Study totals and streaks are local, and practice time already recorded on individual questions remains separate.
 
 ## Welcome guide
 

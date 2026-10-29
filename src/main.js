@@ -55,6 +55,8 @@ const referenceData = require("./reference-data");
 const pdfAnnotations = require("./pdf-annotations");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const welcome = require("./welcome");
+const focus = require("./focus");
+const { FocusLogModal } = require("./focus-modal");
 const { WelcomeModal } = require("./welcome-modal");
 const referenceElements = require("./reference-elements");
 const referenceGraph = require("./reference-graph");
@@ -148,6 +150,8 @@ QuestionTrackerPlugin.__test = {
   PdfAnnotationModal,
   welcome,
   WelcomeModal,
+  focus,
+  FocusLogModal,
   referenceElements,
   referenceGraph,
   ReferenceView,

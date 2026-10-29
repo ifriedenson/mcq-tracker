@@ -76,6 +76,7 @@ const DEFAULT_SETTINGS = {
   testSession: null, // a timed test in progress, so it survives closing Obsidian
   quickDefaults: { count: 5, minutes: 5 },
   quickSession: null, // a Quick Practice queue in progress, so it survives closing Obsidian
+  studyLog: { sessions: [], dailyGoalMinutes: 60, lastCourse: "" }, // focus sessions and manual study time
   dailyQuiz: {
     enabled: false, // opt-in; no command, card or notifications until it is on
     count: 5,

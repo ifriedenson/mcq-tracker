@@ -16,6 +16,8 @@ const { PdfImportModal } = require("./import-modal");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const { sidecarPathFor } = require("./pdf-annotations");
 const { WelcomeModal } = require("./welcome-modal");
+const { FocusLogModal } = require("./focus-modal");
+const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
@@ -76,6 +78,7 @@ class QuestionTrackerPlugin extends Plugin {
     // The timer is kept per device (not in the synced settings). One that was running when the
     // app closed becomes paused, counting only up to the last heartbeat (time away isn't counted).
     this.session = this.readSession();
+    this.focus = this.readFocus();
     const s = this.session;
     if (s && s.runningSince) {
       s.elapsedMs += Math.max(0, (s.lastBeat || s.runningSince) - s.runningSince);
@@ -116,6 +119,8 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
     this.addCommand({ id: "open-welcome", name: "Open welcome guide", callback: () => this.openWelcome() });
+    this.addCommand({ id: "focus-start", name: "Focus: start a 25-minute session", callback: () => this.startFocusSession(25, this.settings.studyLog.lastCourse) });
+    this.addCommand({ id: "focus-log", name: "Focus: log study time", callback: () => this.openFocusLog() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
@@ -369,6 +374,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
     this.settings.reference = mergeReferenceSettings(saved.reference);
+    this.settings.studyLog = normalizeStudyLog(saved.studyLog);
     // module switches and plugin-wide flags are always plain booleans
     this.settings.mcqEnabled = this.settings.mcqEnabled !== false;
     this.settings.showRibbonIcons = this.settings.showRibbonIcons !== false;
@@ -2011,6 +2017,91 @@ class QuestionTrackerPlugin extends Plugin {
     const norm1 = (o) => JSON.stringify(FILTER_FIELDS.map(([k]) => [k, fvals(o, k).sort()]).filter((x) => x[1].length));
     const norm = (main, more) => JSON.stringify([main, ...(more || [])].filter(hasFilters).map(norm1).sort());
     return norm(pr.filters, pr.moreSets) !== norm(st.filters, st.moreSets) || (pr.mode || "smart") !== st.mode;
+  }
+
+  /* ---- focus timer and study log (timestamp-derived, survives reloads) */
+
+  readFocus() {
+    try {
+      const s = this.app.loadLocalStorage(FOCUS_STORAGE_KEY);
+      return s && typeof s === "object" && Number.isFinite(s.startedAt) && Number.isFinite(s.targetMinutes) ? s : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  writeFocus() {
+    try {
+      this.app.saveLocalStorage(FOCUS_STORAGE_KEY, this.focus || null);
+    } catch (e) {
+      /* the timer still works; it just will not survive a reload */
+    }
+  }
+
+  focusElapsedMs() {
+    return elapsedFocusMs(this.focus, Date.now());
+  }
+
+  startFocusSession(minutes, course, task) {
+    if (this.moduleOff("mcq")) return null;
+    if (this.focus) {
+      new Notice("Finish or discard the current focus session first.");
+      return null;
+    }
+    this.focus = startFocus({ minutes, course, task }, Date.now());
+    this.writeFocus();
+    this.refreshViews();
+    return this.focus;
+  }
+
+  pauseFocusSession() {
+    this.focus = pauseFocus(this.focus, Date.now());
+    this.writeFocus();
+    this.refreshViews();
+    return this.focus;
+  }
+
+  resumeFocusSession() {
+    this.focus = resumeFocus(this.focus, Date.now());
+    this.writeFocus();
+    this.refreshViews();
+    return this.focus;
+  }
+
+  async finishFocusSession() {
+    const session = finishFocus(this.focus, Date.now());
+    if (!session) {
+      new Notice("That session was too short to log.");
+      return null;
+    }
+    this.settings.studyLog = addStudySession(this.settings.studyLog, session);
+    this.focus = null;
+    this.writeFocus();
+    await this.save();
+    this.refreshViews();
+    return session;
+  }
+
+  discardFocusSession() {
+    this.focus = null;
+    this.writeFocus();
+    this.refreshViews();
+  }
+
+  async logStudySession(entry) {
+    this.settings.studyLog = addStudySession(this.settings.studyLog, entry);
+    await this.save();
+    this.refreshViews();
+    return this.settings.studyLog;
+  }
+
+  openFocusLog() {
+    if (this.moduleOff("mcq")) return;
+    new FocusLogModal(this.app, this).open();
+  }
+
+  studySummary(today) {
+    return studySummary(this.settings.studyLog, today);
   }
 
   /* ---- timer (survives reloads) */

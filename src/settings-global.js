@@ -139,6 +139,20 @@ function renderGeneral(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Daily study goal")
+    .setDesc("Minutes of focus and manually logged study per day. Used by the Today focus card and its streak.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.setValue(String(st.studyLog.dailyGoalMinutes));
+      t.onChange(async (v) => {
+        const n = Math.round(Number(v));
+        st.studyLog.dailyGoalMinutes = Number.isFinite(n) ? Math.max(5, Math.min(480, n)) : 60;
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    });
+
+  new Setting(containerEl)
     .setName("Open the practice view when Obsidian starts")
     .setDesc("Opens the practice view as soon as the workspace is ready, so you can start with one tap. Needs the MCQ Tracker module.")
     .addToggle((t) =>
