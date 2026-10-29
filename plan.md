@@ -22,7 +22,7 @@
 - **Coverage:** preview duplicate detection, history preservation on update, and distinct keys on copy.
 - **No third-party code was added.** The plugin remains MIT.
 
-**Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0 and visual text boxes in 1.53.0; form filling and a fuller PDF editor remain future work. A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review).
+**Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0, visual text boxes in 1.53.0 and highlight regions in 1.54.0; form filling and a fuller PDF editor remain future work. The unofficial AP score calculator shipped in 1.56.0; the AP FRQ grader and resource hub remain behind the owner pilot gate (four-course pilot and rights review). A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated.
 
 **Recently completed (1.53.0):** visual text boxes on rendered PDF pages, placed, edited and erased in the same overlay as ink. Previous release 1.52.0 added the pen/highlighter overlay; 1.51.0 added two-way AnkiConnect sync.
 
@@ -813,6 +813,8 @@ Reuse the general FRQ model in §5.5 and add AP-specific structure.
 
 #### 5.20.2 AP score calculator
 
+**Implemented in 1.56.0:** the Reference tab ships four 2027 exam profiles (AP Biology, Calculus AB, English Language, U.S. History), weighted section and part inputs, editable cut scores, an explicit incomplete state, a likely band, and a reverse "what do I need?" calculation. Profiles link to the official AP Central exam page. FRQ score history and saved practice-exam notes remain future work.
+
 An **unofficial practice estimate**, never a prediction presented as an official College Board score.
 
 - **Inputs:** MCQ correct/raw score, FRQ points by question, section weights, exam form/year, and an optional custom curve. Support partial practice (MCQ only or one FRQ) with a clear "incomplete estimate" state.
@@ -1165,7 +1167,7 @@ Names are proposals; keep existing ones unchanged.
 These are **research and specification items**, not implementation work. The AP FRQ grader is the owner's requested next idea after card import; the score calculator and resource hub are its natural companions.
 
 - [ ] **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, and score history (§5.20)
-- [ ] **AP score calculator** — turn MCQ + FRQ practice results into an unofficial estimated 1–5, with section weights, year-specific profiles, and a reverse "what do I need?" calculator (§5.20)
+- [x] **AP score calculator** — four 2027 profiles, weighted section and part inputs, editable practice cutoffs, incomplete estimates, a likely band and a reverse "what do I need?" calculation (§5.20) — shipped in 1.56.0; saved practice-exam history remains
 - [ ] **AP resource hub** — one place for official AP Central/AP Classroom links, course and exam descriptions, released FRQs and scoring guidelines, AP Daily videos, and user-supplied third-party resources (§5.20)
 - [x] **Research specification** — supported-course recommendation, rubric and score-profile schemas, evaluation plan, copyright/permissions questions, data model, UX flows, and acceptance tests ([spec](docs/ap-frq-grader-spec.md), §5.20)
 - [ ] **Pilot gate** — approve the four-course pilot, build the human-scored fixture set, complete the rights review, and approve the go/no-go thresholds before implementation
@@ -2541,7 +2543,8 @@ Names are proposals; keep existing ones unchanged.
 - [x] Unified due queue model and Today/command list across cards, vocab and MCQs — interleaved mixed-review sessions shipped in 1.55.0
 - [x] Pending-grade visibility in Today and the Cards list, with per-card Review actions and a Grade now retry control (§5.17)
 - [ ] Optional TTS/audio — deferred; provider choice, mobile support and an audio-only commute mode still need validation. Exam-aware scheduling caps have landed (§4.3); see §5.22.4.
-- [x] **AP exam tools research** — FRQ grader, AP score calculator, and AP resource hub (§5.20); [spec](docs/ap-frq-grader-spec.md) complete. Implementation remains behind the pilot gate.
+- [x] **AP exam tools research** — FRQ grader, AP score calculator, and AP resource hub (§5.20); [spec](docs/ap-frq-grader-spec.md) complete.
+- [x] **AP score calculator** — four 2027 profiles, editable cutoffs and reverse planning in Reference (§5.20) — shipped in 1.56.0; saved practice-exam history remains
 
 ### Phase 3: Calendar and courses (priority)
 

@@ -4272,3 +4272,134 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+
+/* AP score estimator in Reference. */
+.qt-ap-controls {
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.qt-ap-label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.qt-ap-sections {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.qt-ap-section {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 10px 12px;
+}
+
+.qt-ap-section-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.qt-ap-weight,
+.qt-ap-max {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+.qt-ap-input-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin: 5px 0;
+}
+
+.qt-ap-input-row label {
+  color: var(--text-muted);
+  flex: 1;
+  font-size: 0.82rem;
+}
+
+.qt-ap-input-row input,
+.qt-ap-cutoff input {
+  max-width: 6rem;
+  min-height: 2rem;
+  text-align: right;
+}
+
+.qt-ap-cutoffs {
+  margin-top: 10px;
+}
+
+.qt-ap-cutoff-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.qt-ap-cutoff {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+}
+
+.qt-ap-result {
+  margin-top: 12px;
+}
+
+.qt-ap-result-card {
+  background: var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 12px;
+}
+
+.qt-ap-result-card h3 {
+  margin: 0 0 4px;
+}
+
+.qt-ap-big {
+  color: var(--text-accent);
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.qt-ap-breakdown,
+.qt-ap-reverse {
+  margin-top: 8px;
+}
+
+.qt-ap-breakdown-row {
+  border-bottom: 1px solid var(--background-modifier-border);
+  display: flex;
+  font-size: 0.82rem;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.qt-ap-breakdown-row:last-child {
+  border-bottom: 0;
+}
+
+.qt-ap-breakdown-value,
+.qt-ap-requirement {
+  color: var(--text-muted);
+}
+
+.qt-ap-requirement {
+  font-size: 0.82rem;
+  margin-top: 4px;
+}
+
+@media (max-width: 480px) {
+  .qt-ap-sections {
+    grid-template-columns: 1fr;
+  }
+}

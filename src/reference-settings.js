@@ -35,7 +35,7 @@ function renderTools(containerEl, plugin, redisplay) {
 
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "A local formula sheet, constants list and unit converter. No network request is made while it is open.",
+    text: "A local formula sheet, constants list, unit converter and AP score estimator. No network request is made while it is open.",
   });
 
   new Setting(containerEl)
@@ -75,6 +75,11 @@ function renderTools(containerEl, plugin, redisplay) {
     .setName("Open the reference panel")
     .setDesc("The formula sheet, unit converter and constants are all in one view.")
     .addButton((b) => b.setButtonText("Open Reference").onClick(() => plugin.activateReference()));
+
+  new Setting(containerEl)
+    .setName("AP score calculator")
+    .setDesc("An unofficial practice estimate for AP Biology, Calculus AB, English Language and U.S. History, with editable cut scores and a reverse what-do-I-need calculation.")
+    .addButton((b) => b.setButtonText("Open AP score").onClick(() => plugin.openApScore()));
 
   const card = containerEl.createDiv({ cls: "qt-settings-card" });
   card.createEl("h3", { text: "Bundled content" });

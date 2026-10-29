@@ -196,6 +196,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-assignments", name: "Open assignments and grades", callback: () => this.activateAssignments() });
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
+    this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
     this.addCommand({
@@ -1299,6 +1300,17 @@ class QuestionTrackerPlugin extends Plugin {
       return;
     }
     await this.app.workspace.getLeaf("tab").openFile(file);
+  }
+
+  async openApScore() {
+    const view = await this.activateReference();
+    if (!view) {
+      new Notice("Turn on the Reference module under Settings, Global, Modules to use the AP score calculator.");
+      return null;
+    }
+    view.tab = "ap";
+    view.render();
+    return view;
   }
 
   async activateReference() {

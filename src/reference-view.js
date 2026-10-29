@@ -13,6 +13,8 @@ const {
 } = require("./reference-data");
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
 const { buildPlot } = require("./reference-graph");
+const { openExternal } = require("./settings-ui");
+const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
 
 /*
  * A local-only reference panel. It deliberately contains no calculator engine,
@@ -23,7 +25,7 @@ class ReferenceView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
-    this.tab = "formulas"; // formulas | units | constants
+    this.tab = "formulas"; // formulas | units | graph | elements | constants | ap
     this.subject = (plugin.settings.reference && plugin.settings.reference.defaultSubject) || "all";
     this.query = "";
     this.constantQuery = "";
@@ -44,6 +46,11 @@ class ReferenceView extends ItemView {
     this.selectedElement = null;
     this.periodicGridEl = null;
     this.periodicDetailEl = null;
+    this.apCourse = AP_PROFILES[0].id;
+    this.apScores = {};
+    this.apCutoffs = { ...DEFAULT_CUTOFFS };
+    this.apTarget = "4";
+    this.apResultEl = null;
   }
 
   getViewType() {
@@ -82,7 +89,7 @@ class ReferenceView extends ItemView {
     root.createEl("h2", { text: "Reference" });
     root.createDiv({
       cls: "qt-ref-intro",
-      text: "Bundled formulas, constants and unit conversions. Everything is local and works offline.",
+      text: "Bundled formulas, constants, unit conversions and an unofficial AP score estimator. Everything is local and works offline.",
     });
 
     const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-ref-tabs" });
@@ -92,6 +99,7 @@ class ReferenceView extends ItemView {
       ["graph", "Graph"],
       ["elements", "Periodic table"],
       ["constants", "Constants"],
+      ["ap", "AP score"],
     ]) {
       const button = tabs.createEl("button", { text: label, cls: "qt-ref-tab" });
       if (this.tab === id) button.addClass("mod-cta");
@@ -105,6 +113,7 @@ class ReferenceView extends ItemView {
     else if (this.tab === "graph") this.renderGraph(root);
     else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
+    else if (this.tab === "ap") this.renderApScore(root);
     else this.renderFormulas(root);
     el.scrollTop = top;
   }
@@ -414,6 +423,122 @@ class ReferenceView extends ItemView {
       const body = row.createDiv({ cls: "qt-ref-constant-body" });
       body.createDiv({ cls: "qt-ref-constant-name", text: constant.name });
       body.createEl("code", { cls: "qt-ref-constant-value", text: `${constant.value} ${constant.unit}` });
+    }
+  }
+
+  renderApScore(root) {
+    const profile = profileById(this.apCourse);
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "An unofficial practice estimate, not a College Board score. Section weights and point values come from the official 2027 exam pages; cut scores are editable practice defaults because curves vary by year and form.",
+    });
+
+    const controls = root.createDiv({ cls: "qt-row qt-ap-controls" });
+    controls.createEl("label", { cls: "qt-ap-label", text: "Exam" });
+    const select = controls.createEl("select", { cls: "dropdown" });
+    for (const item of AP_PROFILES) select.createEl("option", { text: item.name, value: item.id });
+    select.value = profile.id;
+    select.addEventListener("change", () => {
+      this.apCourse = select.value;
+      this.apScores = {};
+      this.render();
+    });
+    const source = controls.createEl("button", { text: "Official exam page", cls: "qt-link" });
+    source.addEventListener("click", () => openExternal(profile.source));
+
+    const sections = root.createDiv({ cls: "qt-ap-sections" });
+    for (const section of profile.sections) {
+      const card = sections.createDiv({ cls: "qt-ap-section" });
+      const head = card.createDiv({ cls: "qt-ap-section-head" });
+      head.createEl("strong", { text: section.label });
+      head.createSpan({ cls: "qt-ap-weight", text: `${Math.round(Number(section.weight) * 100)}% of exam` });
+      const parts = section.parts && section.parts.length ? section.parts : [{ id: "score", label: `Correct (out of ${section.max})`, max: section.max }];
+      for (const part of parts) {
+        const row = card.createDiv({ cls: "qt-ap-input-row" });
+        row.createEl("label", { text: part.label });
+        const input = row.createEl("input", { type: "number", attr: { min: "0", max: String(part.max), step: "0.5", "aria-label": `${section.label}: ${part.label}` } });
+        const saved = this.apScores[section.id] && this.apScores[section.id][part.id];
+        input.value = saved === undefined ? "" : String(saved);
+        input.addEventListener("input", () => {
+          if (!this.apScores[section.id]) this.apScores[section.id] = {};
+          this.apScores[section.id][part.id] = input.value;
+          this.renderApResult();
+        });
+        row.createSpan({ cls: "qt-ap-max", text: `/ ${part.max}` });
+      }
+    }
+
+    const cutCard = root.createDiv({ cls: "qt-ap-section qt-ap-cutoffs" });
+    cutCard.createEl("strong", { text: "Practice cut scores" });
+    cutCard.createDiv({ cls: "qt-hint", text: "Percent of the weighted exam needed for each score. Replace these with a released scoring worksheet if you have one." });
+    const cutRow = cutCard.createDiv({ cls: "qt-ap-cutoff-row" });
+    for (const score of [5, 4, 3, 2]) {
+      const wrap = cutRow.createDiv({ cls: "qt-ap-cutoff" });
+      wrap.createSpan({ text: String(score) });
+      const input = wrap.createEl("input", { type: "number", attr: { min: "0", max: "100", step: "1", "aria-label": `Minimum percent for a ${score}` } });
+      input.value = String(this.apCutoffs[score]);
+      input.addEventListener("input", () => {
+        this.apCutoffs[score] = input.value;
+        this.renderApResult();
+      });
+    }
+
+    const reverse = root.createDiv({ cls: "qt-row qt-ap-controls" });
+    reverse.createEl("label", { cls: "qt-ap-label", text: "What do I need for a" });
+    const target = reverse.createEl("select", { cls: "dropdown" });
+    for (const score of [5, 4, 3, 2]) target.createEl("option", { text: String(score), value: String(score) });
+    target.value = this.apTarget;
+    target.addEventListener("change", () => {
+      this.apTarget = target.value;
+      this.renderApResult();
+    });
+    reverse.createEl("button", { text: "Reset cut scores", cls: "qt-link" }).addEventListener("click", () => {
+      this.apCutoffs = { ...DEFAULT_CUTOFFS };
+      this.render();
+    });
+
+    this.apResultEl = root.createDiv({ cls: "qt-ap-result" });
+    this.renderApResult();
+  }
+
+  renderApResult() {
+    const el = this.apResultEl;
+    if (!el) return;
+    el.empty();
+    const profile = profileById(this.apCourse);
+    const result = calculateApScore(profile, this.apScores, this.apCutoffs);
+    const card = el.createDiv({ cls: "qt-ap-result-card" });
+    if (!result || !result.complete) {
+      card.createEl("h3", { text: "Incomplete estimate" });
+      card.createDiv({ cls: "qt-hint", text: "Enter every section to get a score. You can still see the section breakdown below." });
+    } else {
+      card.createEl("h3", { text: `Estimated AP score: ${result.estimated}` });
+      card.createDiv({ cls: "qt-ap-big", text: `${result.composite}% weighted` });
+      const range = result.range && result.range[0] !== result.range[1] ? `${result.range[0]}–${result.range[1]}` : String(result.estimated);
+      card.createDiv({ cls: "qt-hint", text: `Likely band at ±4 composite points: ${range}. This is a study estimate, not an official score.` });
+    }
+
+    const breakdown = el.createDiv({ cls: "qt-ap-breakdown" });
+    for (const section of result.sections) {
+      const row = breakdown.createDiv({ cls: "qt-ap-breakdown-row" });
+      row.createSpan({ text: section.label });
+      row.createSpan({
+        cls: "qt-ap-breakdown-value",
+        text: section.complete ? `${formatReferenceNumber(section.earned)} / ${section.max} · ${Math.round(section.percent)}%` : `Not entered · max ${section.max}`,
+      });
+    }
+
+    const reverse = requiredForTarget(profile, this.apScores, this.apTarget, this.apCutoffs);
+    if (!reverse) return;
+    const plan = el.createDiv({ cls: "qt-ap-section qt-ap-reverse" });
+    plan.createEl("strong", { text: `To reach a ${reverse.target} (cutoff ${reverse.cutoff}%)` });
+    for (const item of reverse.requirements) {
+      let text;
+      if (item.possible === null) text = `${item.label}: ${item.reason}`;
+      else if (item.alreadyEnough) text = `${item.label}: already enough at the scores entered.`;
+      else if (!item.possible) text = `${item.label}: not possible with the other scores entered.`;
+      else text = `${item.label}: ${item.neededPercent}% · ${item.neededPoints} / ${item.max} points.`;
+      plan.createDiv({ cls: "qt-ap-requirement", text });
     }
   }
 }

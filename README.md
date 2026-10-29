@@ -43,7 +43,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Focus timer and study log.** Start a 15, 25 or 45 minute session tied to a course, pause and resume it, and log the result. Manual study entry covers offline work. Today shows today's minutes against a configurable daily goal, the current streak, the last seven days and your top courses.
 - **First-run welcome guide.** A short three-step guide on first install: what the plugin does, a preset chooser that sets the real module switches, and buttons for import, practice, Today, cards, calendar and settings. It is shown once per device, never blocks startup, stores progress locally and can be reopened from the command palette or Settings, Global, About.
 - **Modules you can switch off.** Settings, Global has an on/off switch for each module (MCQ Tracker, Cards, Calendar and AI features) plus the plugin-wide options, so the parts you don't use stay out of the way.
-- **Reference (optional module, off by default).** A local formula sheet, constants list and unit converter in one view. It works offline, adds no data to your vault, and can be hidden automatically while a timed test is running. See [Reference](#reference-optional-module-off-by-default).
+- **Reference (optional module, off by default).** A local formula sheet, constants list, unit converter and unofficial AP score estimator in one view. It works offline, adds no data to your vault, and can be hidden automatically while a timed test is running. See [Reference](#reference-optional-module-off-by-default).
 - **Calendar (optional module, off by default).** Import an `.ics` schedule from a file or a public feed, see classes and exams in a month grid, day timeline, live countdown and upcoming-exam countdowns, and create a note for a class in one click. Free periods can start a short Quick Practice session (see [Calendar](#calendar-optional-module-off-by-default)).
 - **Assignments and grades.** Keep assignments as ordinary notes with a course, type, due date, status and score. The gradebook shows weighted category grades, the score you need on the final, a credit-weighted GPA and the next tasks; Today adds a **Review N due items** task beside the nearest deadlines (see [Assignments, tasks and grades](#assignments-tasks-and-grades)).
 
@@ -227,6 +227,12 @@ Every practice and card review screen has **Known** and **Exclude** buttons besi
 - Find a question by ID
 - Import questions from a file
 - Rename old source_question_id properties to official_question_id (one-time clean-up for notes imported before the rename)
+
+## AP score calculator
+
+Open **Reference → AP score**, or run **Open AP score calculator**. Choose AP Biology, Calculus AB, English Language and Composition, or U.S. History, enter the points for each section, and get an unofficial weighted estimate. The 2027 section weights and point totals come from the official AP Central exam pages linked in the tab. Cut scores are editable practice defaults, not an official College Board curve, and the tab says so. If any section is blank, the result stays **Incomplete estimate** rather than treating missing work as zero.
+
+The **What do I need for a 4/5?** control holds the other sections fixed and shows the percentage and points required on each section, or that the target is not reachable with the entered scores. Nothing leaves the device.
 
 ## Reference (optional module, off by default)
 

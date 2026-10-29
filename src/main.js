@@ -80,6 +80,7 @@ const { WelcomeModal } = require("./welcome-modal");
 const referenceElements = require("./reference-elements");
 const referenceGraph = require("./reference-graph");
 const { ReferenceView } = require("./reference-view");
+const apScore = require("./ap-score");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const dailyQuiz = require("./daily-quiz");
 const { renderDailySettings } = require("./daily-quiz-settings");
@@ -171,6 +172,7 @@ QuestionTrackerPlugin.__test = {
   REFERENCE_TABS,
   renderReferenceSettings,
   referenceData,
+  apScore,
   pdfAnnotations,
   pdfInk,
   PdfAnnotationModal,
