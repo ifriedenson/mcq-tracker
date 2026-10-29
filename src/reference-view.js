@@ -61,6 +61,9 @@ class ReferenceView extends ItemView {
     this.apResourceCourse = AP_RESOURCE_COURSES[0].id;
     this.apHistoryEl = null;
     this.apSaving = false;
+    this.apResourceUnit = "";
+    this.apResourceNotesEl = null;
+    this.apResourceSaving = false;
   }
 
   getViewType() {
@@ -466,7 +469,11 @@ class ReferenceView extends ItemView {
     } catch (e) {
       entries = [];
     }
-    if (extra && !entries.some((entry) => entry.path === extra.path)) entries = [extra, ...entries];
+    if (extra) {
+      const index = entries.findIndex((entry) => entry.path === extra.path);
+      if (index >= 0) entries[index] = extra;
+      else entries = [extra, ...entries];
+    }
     this.renderApHistory(entries);
   }
 
@@ -496,6 +503,83 @@ class ReferenceView extends ItemView {
     }
   }
 
+  async saveApResource(course, resource, button) {
+    if (this.apResourceSaving) return;
+    if (!this.plugin.saveApResourceNote) {
+      new Notice("Saved resource notes are unavailable in this build.");
+      return;
+    }
+    this.apResourceSaving = true;
+    if (button) button.disabled = true;
+    try {
+      const saved = await this.plugin.saveApResourceNote(course, resource, this.apResourceUnit);
+      new Notice(saved.created ? `Saved ${saved.path}.` : `Already saved at ${saved.path}.`);
+      await this.loadApResourceNotes(saved.entry);
+    } catch (err) {
+      new Notice(err && err.message ? err.message : "Could not save this resource.");
+    } finally {
+      this.apResourceSaving = false;
+      if (button) button.disabled = false;
+    }
+  }
+
+  async loadApResourceNotes(extra) {
+    if (!this.apResourceNotesEl) return;
+    let entries = [];
+    try {
+      entries = (this.plugin.getApResourceNotes && this.plugin.getApResourceNotes()) || [];
+    } catch (e) {
+      entries = [];
+    }
+    if (extra) {
+      const index = entries.findIndex((entry) => entry.path === extra.path);
+      if (index >= 0) entries[index] = extra;
+      else entries = [extra, ...entries];
+    }
+    this.renderApResourceNotes(entries);
+  }
+
+  renderApResourceNotes(entries) {
+    const el = this.apResourceNotesEl;
+    if (!el) return;
+    el.empty();
+    if (!entries.length) {
+      el.createDiv({ cls: "qt-hint", text: "No saved resource notes yet. Save a link to keep its course, unit and checked date." });
+      return;
+    }
+    const stale = entries.filter((entry) => entry.stale).length;
+    const summary = el.createDiv({ cls: "qt-ap-saved-summary" });
+    summary.createSpan({ text: `${entries.length} saved${stale ? ` · ${stale} stale` : ""}` });
+    for (const entry of entries.slice(0, 12)) {
+      const row = el.createDiv({ cls: "qt-ap-saved-row" });
+      const text = row.createDiv({ cls: "qt-ap-saved-text" });
+      const title = entry.path.split("/").pop().replace(/\.md$/i, "");
+      text.createEl("strong", { text: title });
+      text.createDiv({ cls: "qt-hint", text: `${entry.course}${entry.unit ? ` · ${entry.unit}` : ""} · checked ${entry.checkedOn || "unknown"}` });
+      if (entry.stale) text.createSpan({ cls: "qt-ap-stale", text: `Stale${entry.ageDays === null ? "" : ` · ${entry.ageDays} days old`}` });
+      const actions = row.createDiv({ cls: "qt-row qt-ap-saved-actions" });
+      actions.createEl("button", { text: "Mark checked", cls: "qt-link" }).addEventListener("click", () => this.markApResourceChecked(entry));
+      actions.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => {
+        if (this.app && this.app.workspace && this.app.workspace.openLinkText) this.app.workspace.openLinkText(entry.path, "", false);
+      });
+    }
+  }
+
+  async markApResourceChecked(entry) {
+    if (!this.plugin.markApResourceChecked) return;
+    try {
+      const updated = await this.plugin.markApResourceChecked(entry.path);
+      if (!updated) {
+        new Notice("That resource note is no longer in the vault.");
+        return;
+      }
+      new Notice(`Checked ${updated.path}.`);
+      await this.loadApResourceNotes(updated);
+    } catch (err) {
+      new Notice(err && err.message ? err.message : "Could not update the checked date.");
+    }
+  }
+
   renderApResources(root) {
     const pack = resourcesForCourse(this.apResourceCourse);
     root.createDiv({
@@ -514,6 +598,11 @@ class ReferenceView extends ItemView {
     });
     const source = controls.createEl("button", { text: "Open course page", cls: "qt-link" });
     source.addEventListener("click", () => openExternal(pack.resources[0].url));
+    const unitWrap = controls.createDiv({ cls: "qt-ap-unit" });
+    unitWrap.createEl("label", { cls: "qt-ap-label", text: "Unit" });
+    const unit = unitWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Unit 3" } });
+    unit.value = this.apResourceUnit;
+    unit.addEventListener("input", () => (this.apResourceUnit = unit.value));
 
     const list = root.createDiv({ cls: "qt-ap-resource-list" });
     const actionLabels = {
@@ -530,7 +619,10 @@ class ReferenceView extends ItemView {
       head.createEl("strong", { text: resource.title });
       head.createSpan({ cls: "qt-ap-resource-type", text: resourceTypeLabel(resource.type) });
       card.createDiv({ cls: "qt-ap-resource-desc", text: resource.description });
-      card.createEl("button", { text: actionLabels[resource.type] || "Open link", cls: "qt-link" }).addEventListener("click", () =>
+      const actions = card.createDiv({ cls: "qt-row qt-ap-resource-actions" });
+      const save = actions.createEl("button", { text: "Save as note", cls: "qt-link" });
+      save.addEventListener("click", () => this.saveApResource(pack.course, resource, save));
+      actions.createEl("button", { text: actionLabels[resource.type] || "Open link", cls: "qt-link" }).addEventListener("click", () =>
         openExternal(resource.url),
       );
     }
@@ -538,6 +630,12 @@ class ReferenceView extends ItemView {
     const policy = root.createDiv({ cls: "qt-ap-policy" });
     for (const line of AP_RESOURCE_POLICY) policy.createDiv({ cls: "qt-hint", text: line });
     policy.createDiv({ cls: "qt-hint", text: `Checked ${pack.checkedOn}. Links can move; report a stale link rather than copying the page into your vault.` });
+
+    const saved = root.createDiv({ cls: "qt-ap-saved" });
+    saved.createEl("h4", { text: "Saved resource notes" });
+    saved.createDiv({ cls: "qt-hint", text: "Saved notes keep a course, optional unit, type, official URL and checked-on date. A link checked more than 180 days ago is marked stale." });
+    this.apResourceNotesEl = saved.createDiv({ cls: "qt-ap-saved-list" });
+    this.loadApResourceNotes();
   }
 
   renderApScore(root) {

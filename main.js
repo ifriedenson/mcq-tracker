@@ -1134,6 +1134,208 @@ module.exports = {
 };
 };
 
+/* ---- src/ap-resource-notes.js ---- */
+__defs["ap-resource-notes"] = function (module, exports, require) {
+/*
+ * Note-backed AP resources.
+ *
+ * A saved resource is a small Markdown note with a course, optional unit,
+ * resource type, official URL and checked-on date. The note stores no AP
+ * content: it points at the official page and records when the link was last
+ * checked. Course and unit tags make the note easy to find with Dataview or
+ * Obsidian search.
+ */
+const { localDate, str } = require("./util");
+const { AP_RESOURCE_COURSES } = require("./ap-resources");
+
+const AP_RESOURCE_NOTE_TYPE = "ap_resource";
+const AP_RESOURCE_FOLDER = "AP resources";
+const STALE_RESOURCE_DAYS = 180;
+
+function normalizeDate(value) {
+  const text = str(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const d = new Date(text);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function dayValue(date) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str(date));
+  if (!m) return null;
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+function daysSince(date, now) {
+  const from = dayValue(date);
+  if (from === null) return null;
+  const target = now instanceof Date ? now : new Date(now || Date.now());
+  if (Number.isNaN(target.getTime())) return null;
+  const to = Date.UTC(target.getFullYear(), target.getMonth(), target.getDate());
+  return Math.max(0, Math.floor((to - from) / 86400000));
+}
+
+function isStale(checkedOn, now, maxDays) {
+  const age = daysSince(checkedOn, now || new Date());
+  if (age === null) return true;
+  return age > (Number.isFinite(Number(maxDays)) ? Number(maxDays) : STALE_RESOURCE_DAYS);
+}
+
+function yamlScalar(value) {
+  const text = str(value);
+  if (text === "") return '""';
+  if (/^[A-Za-z0-9_./:-]+$/.test(text) && !/^(true|false|null|-?\d+(\.\d+)?)$/i.test(text)) return text;
+  return JSON.stringify(text);
+}
+
+function safeFilePart(value) {
+  return str(value)
+    .replace(/[\\/:*?"<>|#^\[\]{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+}
+
+function tagPart(value) {
+  return str(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function noteTags(course, unit) {
+  const tags = ["ap", tagPart(course.id)];
+  const unitTag = tagPart(unit);
+  if (unitTag) tags.push(/^unit-/.test(unitTag) ? unitTag : `unit-${unitTag}`);
+  return [...new Set(tags.filter(Boolean))];
+}
+
+function resourceNoteFrontmatter(course, resource, unit, checkedOn) {
+  return {
+    type: AP_RESOURCE_NOTE_TYPE,
+    ap_course: course.id,
+    course: course.name,
+    unit: str(unit).trim(),
+    resource_type: resource.type,
+    source_url: resource.url,
+    checked_on: normalizeDate(checkedOn) || localDate(),
+    official: true,
+    tags: noteTags(course, unit),
+  };
+}
+
+/** Build a link-only resource note. The body never contains AP material. */
+function buildApResourceNote(course, resource, unit, checkedOn) {
+  if (!course || !resource || !resource.url) return null;
+  const fm = resourceNoteFrontmatter(course, resource, unit, checkedOn);
+  const path = `${AP_RESOURCE_FOLDER}/${safeFilePart(course.name)}/${safeFilePart(resource.title) || "Resource"}.md`;
+  const lines = [];
+  lines.push("---");
+  for (const [key, value] of Object.entries(fm)) {
+    if (Array.isArray(value)) lines.push(`${key}: [${value.map(yamlScalar).join(", ")}]`);
+    else if (typeof value === "boolean" || typeof value === "number") lines.push(`${key}: ${value}`);
+    else lines.push(`${key}: ${yamlScalar(value)}`);
+  }
+  lines.push("---", "");
+  lines.push(`# ${resource.title}`, "");
+  lines.push("> An official AP resource link. This note is an index card, not a copy of the page.");
+  lines.push("");
+  lines.push(`- **Course:** ${course.name}`);
+  lines.push(`- **Unit:** ${fm.unit || "Not specified"}`);
+  lines.push(`- **Type:** ${resource.type}`);
+  lines.push(`- **Link:** ${resource.url}`);
+  lines.push(`- **Last checked:** ${fm.checked_on}`);
+  lines.push("");
+  lines.push("## Why this is here");
+  lines.push("");
+  lines.push(resource.description);
+  lines.push("");
+  lines.push("## Review checklist");
+  lines.push("");
+  lines.push("- [ ] Open the official page and confirm it still exists.");
+  lines.push("- [ ] Check the exam year and scoring details against your course.");
+  lines.push("- [ ] Update `checked_on` when you verify the link.");
+  lines.push("");
+  lines.push("## Notes");
+  lines.push("");
+  lines.push("Add your own summary or a link to related class notes here. Do not paste copyrighted AP prompts or rubrics into the vault.");
+  lines.push("");
+  return { path, title: resource.title, text: lines.join("\n"), frontmatter: fm, entry: entryFromFrontmatter(fm, path) };
+}
+
+function uniqueApResourcePath(note, exists) {
+  const has = typeof exists === "function" ? exists : () => false;
+  if (!has(note.path)) return note.path;
+  const base = note.path.replace(/\.md$/i, "");
+  let n = 2;
+  while (has(`${base} ${n}.md`)) n++;
+  return `${base} ${n}.md`;
+}
+
+function normalizeUrl(value) {
+  const text = str(value).trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text);
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch (e) {
+    return text.replace(/\/$/, "");
+  }
+}
+
+function entryFromFrontmatter(fm, path, now) {
+  if (!fm || fm.type !== AP_RESOURCE_NOTE_TYPE) return null;
+  const courseId = str(fm.ap_course);
+  const course = AP_RESOURCE_COURSES.find((item) => item.id === courseId) || AP_RESOURCE_COURSES[0];
+  const checkedOn = normalizeDate(fm.checked_on);
+  const ageDays = daysSince(checkedOn, now || new Date());
+  return {
+    path: str(path),
+    courseId: course.id,
+    course: str(fm.course) || course.name,
+    unit: str(fm.unit).trim(),
+    resourceType: str(fm.resource_type) || "resource",
+    sourceUrl: str(fm.source_url),
+    checkedOn,
+    ageDays,
+    stale: isStale(checkedOn, now || new Date()),
+  };
+}
+
+function sortApResourceNotes(entries) {
+  return (entries || [])
+    .filter(Boolean)
+    .slice()
+    .sort((a, b) => Number(b.stale) - Number(a.stale) || String(a.course).localeCompare(String(b.course)) || String(a.path).localeCompare(String(b.path)));
+}
+
+function findApResourceNote(entries, url) {
+  const wanted = normalizeUrl(url);
+  return (entries || []).find((entry) => normalizeUrl(entry.sourceUrl) === wanted) || null;
+}
+
+function markCheckedFrontmatter(fm, checkedOn) {
+  return { ...(fm || {}), checked_on: normalizeDate(checkedOn) || localDate() };
+}
+
+module.exports = {
+  AP_RESOURCE_FOLDER,
+  AP_RESOURCE_NOTE_TYPE,
+  STALE_RESOURCE_DAYS,
+  buildApResourceNote,
+  daysSince,
+  entryFromFrontmatter,
+  findApResourceNote,
+  isStale,
+  markCheckedFrontmatter,
+  normalizeUrl,
+  noteTags,
+  sortApResourceNotes,
+  uniqueApResourcePath,
+};
+};
+
 /* ---- src/ap-resources.js ---- */
 __defs["ap-resources"] = function (module, exports, require) {
 /*
@@ -21840,6 +22042,7 @@ const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
+const { buildApResourceNote, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -23122,6 +23325,46 @@ class QuestionTrackerPlugin extends Plugin {
       if (entry) entries.push(entry);
     }
     return sortApExamEntries(entries);
+  }
+
+  /** Saves one official AP link as a tagged note, or returns the existing note. */
+  async saveApResourceNote(course, resource, unit, checkedOn) {
+    const existing = findApResourceNote(this.getApResourceNotes(), resource && resource.url);
+    if (existing) return { ...existing, created: false };
+    const note = buildApResourceNote(course, resource, unit, checkedOn);
+    if (!note) throw new Error("That resource is missing an official link.");
+    const folder = note.path.replace(/\/[^/]+$/, "");
+    await ensureFolder(this.app, folder);
+    const path = uniqueApResourcePath(note, (candidate) => !!this.app.vault.getAbstractFileByPath(candidate));
+    const file = await this.app.vault.create(path, note.text);
+    return { file, path, frontmatter: note.frontmatter, entry: { ...note.entry, path }, created: true };
+  }
+
+  getApResourceNotes() {
+    const entries = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const entry = resourceNoteEntry(fm, file.path);
+      if (entry) entries.push(entry);
+    }
+    return sortApResourceNotes(entries);
+  }
+
+  /** Refreshes checked_on after the learner verifies a link. */
+  async markApResourceChecked(path, checkedOn) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    const next = markCheckedFrontmatter(fm, checkedOn);
+    if (this.app.fileManager && this.app.fileManager.processFrontMatter) {
+      await this.app.fileManager.processFrontMatter(file, (data) => {
+        data.checked_on = next.checked_on;
+      });
+    } else {
+      const text = await this.app.vault.read(file);
+      await this.app.vault.modify(file, text.replace(/^checked_on:.*$/m, `checked_on: ${next.checked_on}`));
+    }
+    return resourceNoteEntry({ ...fm, ...next }, path);
   }
 
   async openApScore() {
@@ -27999,6 +28242,9 @@ class ReferenceView extends ItemView {
     this.apResourceCourse = AP_RESOURCE_COURSES[0].id;
     this.apHistoryEl = null;
     this.apSaving = false;
+    this.apResourceUnit = "";
+    this.apResourceNotesEl = null;
+    this.apResourceSaving = false;
   }
 
   getViewType() {
@@ -28404,7 +28650,11 @@ class ReferenceView extends ItemView {
     } catch (e) {
       entries = [];
     }
-    if (extra && !entries.some((entry) => entry.path === extra.path)) entries = [extra, ...entries];
+    if (extra) {
+      const index = entries.findIndex((entry) => entry.path === extra.path);
+      if (index >= 0) entries[index] = extra;
+      else entries = [extra, ...entries];
+    }
     this.renderApHistory(entries);
   }
 
@@ -28434,6 +28684,83 @@ class ReferenceView extends ItemView {
     }
   }
 
+  async saveApResource(course, resource, button) {
+    if (this.apResourceSaving) return;
+    if (!this.plugin.saveApResourceNote) {
+      new Notice("Saved resource notes are unavailable in this build.");
+      return;
+    }
+    this.apResourceSaving = true;
+    if (button) button.disabled = true;
+    try {
+      const saved = await this.plugin.saveApResourceNote(course, resource, this.apResourceUnit);
+      new Notice(saved.created ? `Saved ${saved.path}.` : `Already saved at ${saved.path}.`);
+      await this.loadApResourceNotes(saved.entry);
+    } catch (err) {
+      new Notice(err && err.message ? err.message : "Could not save this resource.");
+    } finally {
+      this.apResourceSaving = false;
+      if (button) button.disabled = false;
+    }
+  }
+
+  async loadApResourceNotes(extra) {
+    if (!this.apResourceNotesEl) return;
+    let entries = [];
+    try {
+      entries = (this.plugin.getApResourceNotes && this.plugin.getApResourceNotes()) || [];
+    } catch (e) {
+      entries = [];
+    }
+    if (extra) {
+      const index = entries.findIndex((entry) => entry.path === extra.path);
+      if (index >= 0) entries[index] = extra;
+      else entries = [extra, ...entries];
+    }
+    this.renderApResourceNotes(entries);
+  }
+
+  renderApResourceNotes(entries) {
+    const el = this.apResourceNotesEl;
+    if (!el) return;
+    el.empty();
+    if (!entries.length) {
+      el.createDiv({ cls: "qt-hint", text: "No saved resource notes yet. Save a link to keep its course, unit and checked date." });
+      return;
+    }
+    const stale = entries.filter((entry) => entry.stale).length;
+    const summary = el.createDiv({ cls: "qt-ap-saved-summary" });
+    summary.createSpan({ text: `${entries.length} saved${stale ? ` · ${stale} stale` : ""}` });
+    for (const entry of entries.slice(0, 12)) {
+      const row = el.createDiv({ cls: "qt-ap-saved-row" });
+      const text = row.createDiv({ cls: "qt-ap-saved-text" });
+      const title = entry.path.split("/").pop().replace(/\.md$/i, "");
+      text.createEl("strong", { text: title });
+      text.createDiv({ cls: "qt-hint", text: `${entry.course}${entry.unit ? ` · ${entry.unit}` : ""} · checked ${entry.checkedOn || "unknown"}` });
+      if (entry.stale) text.createSpan({ cls: "qt-ap-stale", text: `Stale${entry.ageDays === null ? "" : ` · ${entry.ageDays} days old`}` });
+      const actions = row.createDiv({ cls: "qt-row qt-ap-saved-actions" });
+      actions.createEl("button", { text: "Mark checked", cls: "qt-link" }).addEventListener("click", () => this.markApResourceChecked(entry));
+      actions.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => {
+        if (this.app && this.app.workspace && this.app.workspace.openLinkText) this.app.workspace.openLinkText(entry.path, "", false);
+      });
+    }
+  }
+
+  async markApResourceChecked(entry) {
+    if (!this.plugin.markApResourceChecked) return;
+    try {
+      const updated = await this.plugin.markApResourceChecked(entry.path);
+      if (!updated) {
+        new Notice("That resource note is no longer in the vault.");
+        return;
+      }
+      new Notice(`Checked ${updated.path}.`);
+      await this.loadApResourceNotes(updated);
+    } catch (err) {
+      new Notice(err && err.message ? err.message : "Could not update the checked date.");
+    }
+  }
+
   renderApResources(root) {
     const pack = resourcesForCourse(this.apResourceCourse);
     root.createDiv({
@@ -28452,6 +28779,11 @@ class ReferenceView extends ItemView {
     });
     const source = controls.createEl("button", { text: "Open course page", cls: "qt-link" });
     source.addEventListener("click", () => openExternal(pack.resources[0].url));
+    const unitWrap = controls.createDiv({ cls: "qt-ap-unit" });
+    unitWrap.createEl("label", { cls: "qt-ap-label", text: "Unit" });
+    const unit = unitWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Unit 3" } });
+    unit.value = this.apResourceUnit;
+    unit.addEventListener("input", () => (this.apResourceUnit = unit.value));
 
     const list = root.createDiv({ cls: "qt-ap-resource-list" });
     const actionLabels = {
@@ -28468,7 +28800,10 @@ class ReferenceView extends ItemView {
       head.createEl("strong", { text: resource.title });
       head.createSpan({ cls: "qt-ap-resource-type", text: resourceTypeLabel(resource.type) });
       card.createDiv({ cls: "qt-ap-resource-desc", text: resource.description });
-      card.createEl("button", { text: actionLabels[resource.type] || "Open link", cls: "qt-link" }).addEventListener("click", () =>
+      const actions = card.createDiv({ cls: "qt-row qt-ap-resource-actions" });
+      const save = actions.createEl("button", { text: "Save as note", cls: "qt-link" });
+      save.addEventListener("click", () => this.saveApResource(pack.course, resource, save));
+      actions.createEl("button", { text: actionLabels[resource.type] || "Open link", cls: "qt-link" }).addEventListener("click", () =>
         openExternal(resource.url),
       );
     }
@@ -28476,6 +28811,12 @@ class ReferenceView extends ItemView {
     const policy = root.createDiv({ cls: "qt-ap-policy" });
     for (const line of AP_RESOURCE_POLICY) policy.createDiv({ cls: "qt-hint", text: line });
     policy.createDiv({ cls: "qt-hint", text: `Checked ${pack.checkedOn}. Links can move; report a stale link rather than copying the page into your vault.` });
+
+    const saved = root.createDiv({ cls: "qt-ap-saved" });
+    saved.createEl("h4", { text: "Saved resource notes" });
+    saved.createDiv({ cls: "qt-hint", text: "Saved notes keep a course, optional unit, type, official URL and checked-on date. A link checked more than 180 days ago is marked stale." });
+    this.apResourceNotesEl = saved.createDiv({ cls: "qt-ap-saved-list" });
+    this.loadApResourceNotes();
   }
 
   renderApScore(root) {
@@ -32253,6 +32594,7 @@ const { ReferenceView } = require("./reference-view");
 const apScore = require("./ap-score");
 const apResources = require("./ap-resources");
 const apExamHistory = require("./ap-exam-history");
+const apResourceNotes = require("./ap-resource-notes");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const dailyQuiz = require("./daily-quiz");
 const { renderDailySettings } = require("./daily-quiz-settings");
@@ -32347,6 +32689,7 @@ QuestionTrackerPlugin.__test = {
   apScore,
   apResources,
   apExamHistory,
+  apResourceNotes,
   pdfAnnotations,
   pdfInk,
   PdfAnnotationModal,

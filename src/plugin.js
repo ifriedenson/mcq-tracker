@@ -41,6 +41,7 @@ const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
 const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
+const { buildApResourceNote, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -1323,6 +1324,46 @@ class QuestionTrackerPlugin extends Plugin {
       if (entry) entries.push(entry);
     }
     return sortApExamEntries(entries);
+  }
+
+  /** Saves one official AP link as a tagged note, or returns the existing note. */
+  async saveApResourceNote(course, resource, unit, checkedOn) {
+    const existing = findApResourceNote(this.getApResourceNotes(), resource && resource.url);
+    if (existing) return { ...existing, created: false };
+    const note = buildApResourceNote(course, resource, unit, checkedOn);
+    if (!note) throw new Error("That resource is missing an official link.");
+    const folder = note.path.replace(/\/[^/]+$/, "");
+    await ensureFolder(this.app, folder);
+    const path = uniqueApResourcePath(note, (candidate) => !!this.app.vault.getAbstractFileByPath(candidate));
+    const file = await this.app.vault.create(path, note.text);
+    return { file, path, frontmatter: note.frontmatter, entry: { ...note.entry, path }, created: true };
+  }
+
+  getApResourceNotes() {
+    const entries = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const entry = resourceNoteEntry(fm, file.path);
+      if (entry) entries.push(entry);
+    }
+    return sortApResourceNotes(entries);
+  }
+
+  /** Refreshes checked_on after the learner verifies a link. */
+  async markApResourceChecked(path, checkedOn) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    const next = markCheckedFrontmatter(fm, checkedOn);
+    if (this.app.fileManager && this.app.fileManager.processFrontMatter) {
+      await this.app.fileManager.processFrontMatter(file, (data) => {
+        data.checked_on = next.checked_on;
+      });
+    } else {
+      const text = await this.app.vault.read(file);
+      await this.app.vault.modify(file, text.replace(/^checked_on:.*$/m, `checked_on: ${next.checked_on}`));
+    }
+    return resourceNoteEntry({ ...fm, ...next }, path);
   }
 
   async openApScore() {

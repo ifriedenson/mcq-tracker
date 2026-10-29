@@ -3841,6 +3841,80 @@
   margin: 2px 0 0;
 }
 
+/* Saved AP resource notes: link-only index cards with course/unit tags. */
+.qt-ap-unit {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.qt-ap-unit input {
+  min-width: 8rem;
+}
+
+.qt-ap-resource-actions {
+  gap: 8px;
+}
+
+.qt-ap-saved {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 16px;
+  padding-top: 10px;
+}
+
+.qt-ap-saved h4 {
+  margin: 0 0 4px;
+}
+
+.qt-ap-saved-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.qt-ap-saved-summary {
+  color: var(--text-muted);
+}
+
+.qt-ap-saved-row {
+  align-items: center;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 8px 10px;
+}
+
+.qt-ap-saved-text {
+  min-width: 0;
+}
+
+.qt-ap-saved-text strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.qt-ap-saved-text .qt-hint {
+  margin: 2px 0 0;
+}
+
+.qt-ap-stale {
+  background: var(--background-modifier-error);
+  border-radius: 999px;
+  color: var(--text-error);
+  display: inline-block;
+  font-size: 0.72rem;
+  margin-top: 4px;
+  padding: 1px 8px;
+}
+
+.qt-ap-saved-actions {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
 .qt-welcome-support-label {
   font-size: 0.82rem;
 }
