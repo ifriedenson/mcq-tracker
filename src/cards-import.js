@@ -15,7 +15,7 @@ const { Modal, Notice } = require("obsidian");
 const { hashString, localDate, str } = require("./util");
 const { parseCloze } = require("./cards");
 
-const IMPORT_TYPES = ["spaced", "anki", "quizlet", "gift", "kahoot", "blooket", "gimkit", "csv"];
+const IMPORT_TYPES = ["spaced", "anki", "quizlet", "gift", "moodlexml", "qti", "kahoot", "blooket", "gimkit", "csv"];
 const QUESTION_SET_TYPES = ["kahoot", "blooket", "gimkit"];
 
 function stripFrontmatter(text) {
@@ -722,6 +722,162 @@ function parseGiftText(text, options) {
   return { cards, skipped, errors: [], source };
 }
 
+/* ---- Moodle XML and QTI ---- */
+
+function xmlAttr(attrs, name) {
+  const match = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i").exec(str(attrs));
+  if (!match) return "";
+  return match[1] !== undefined ? match[1] : match[2];
+}
+
+function xmlSlice(value, tag) {
+  const match = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i").exec(str(value));
+  return match ? match[1] : "";
+}
+
+function xmlClean(value) {
+  const text = str(value).replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
+  return htmlToMarkdown(text, true);
+}
+
+function xmlTagText(value, tag) {
+  const inner = xmlSlice(value, tag);
+  return inner ? xmlClean(inner) : "";
+}
+
+/** Moodle XML: one <question> becomes one card, with correct <answer> blocks on the back. */
+function parseMoodleXml(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "Moodle XML quiz");
+  const deck = str(opts.deck).trim() || "Imported";
+  const body = str(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  const cards = [];
+  let skipped = 0;
+  let index = 0;
+  const questionRe = /<question\b([^>]*)>([\s\S]*?)<\/question>/gi;
+  let question;
+  while ((question = questionRe.exec(body))) {
+    const type = xmlAttr(question[1], "type").toLowerCase();
+    index++;
+    if (["category", "description", "essay", "matching", "cloze"].includes(type)) {
+      skipped++;
+      continue;
+    }
+    const name = xmlTagText(question[2], "name");
+    const front = xmlTagText(question[2], "questiontext") || name;
+    const correct = [];
+    const answerRe = /<answer\b([^>]*)>([\s\S]*?)<\/answer>/gi;
+    let answer;
+    while ((answer = answerRe.exec(question[2]))) {
+      const answerText = xmlTagText(answer[2], "text") || xmlClean(answer[2]);
+      if (!answerText) continue;
+      const hasFraction = /\bfraction\s*=/.test(answer[1]);
+      const fraction = Number(xmlAttr(answer[1], "fraction"));
+      const isCorrect = hasFraction ? fraction > 0 : ["shortanswer", "numerical", "truefalse"].includes(type);
+      if (isCorrect) correct.push(answerText);
+    }
+    if (!front || !correct.length) {
+      skipped++;
+      continue;
+    }
+    const back = [...new Set(correct)].join(" · ");
+    cards.push({
+      kind: "card",
+      cardType: "basic",
+      deck,
+      front,
+      back,
+      tags: [],
+      importSource: source,
+      importKey: `moodle:${hashString(source + "|" + index + "|" + front + "|" + back)}`,
+    });
+  }
+  return { cards, skipped, errors: [], source, format: "moodlexml" };
+}
+
+function qtiPrompt(block, fallback) {
+  const prompt = xmlTagText(block, "qti-prompt") || xmlTagText(block, "prompt");
+  if (prompt) return prompt;
+  const beforeChoices = block.split(/<(?:response_lid|response_label|qti-simple-choice)\b/i)[0] || block;
+  const materials = [...beforeChoices.matchAll(/<mattext\b[^>]*>([\s\S]*?)<\/mattext>/gi)];
+  return materials.length ? xmlClean(materials[0][1]) : fallback;
+}
+
+function qtiChoices(block) {
+  const choices = [];
+  const add = (attrs, inner) => {
+    const id = xmlAttr(attrs, "ident") || xmlAttr(attrs, "identifier");
+    const text = xmlTagText(inner, "mattext") || xmlClean(inner);
+    if (id && text) choices.push({ id, text });
+  };
+  let match;
+  const labelRe = /<response_label\b([^>]*)>([\s\S]*?)<\/response_label>/gi;
+  while ((match = labelRe.exec(block))) add(match[1], match[2]);
+  const choiceRe = /<qti-simple-choice\b([^>]*)>([\s\S]*?)<\/qti-simple-choice>/gi;
+  while ((match = choiceRe.exec(block))) add(match[1], match[2]);
+  return choices;
+}
+
+function qtiCorrectIds(block) {
+  const ids = [];
+  let match;
+  const equalRe = /<varequal\b[^>]*>([\s\S]*?)<\/varequal>/gi;
+  while ((match = equalRe.exec(block))) ids.push(xmlClean(match[1]));
+  const responseRe = /<qti-correct-response\b[^>]*>([\s\S]*?)<\/qti-correct-response>/gi;
+  while ((match = responseRe.exec(block))) {
+    const valueRe = /<qti-value\b[^>]*>([\s\S]*?)<\/qti-value>/gi;
+    let value;
+    while ((value = valueRe.exec(match[1]))) ids.push(xmlClean(value[1]));
+  }
+  return ids;
+}
+
+/** QTI 1.2 and QTI 2.1: match response identifiers to their visible choice text. */
+function parseQtiXml(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "QTI quiz");
+  const deck = str(opts.deck).trim() || "Imported";
+  const body = str(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  const cards = [];
+  let skipped = 0;
+  let index = 0;
+  const itemRe = /<(item|assessmentItem|qti-assessment-item)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+  let item;
+  while ((item = itemRe.exec(body))) {
+    index++;
+    const title = xmlAttr(item[2], "title") || xmlAttr(item[2], "identifier");
+    const front = qtiPrompt(item[3], title);
+    const choices = qtiChoices(item[3]);
+    const correct = qtiCorrectIds(item[3])
+      .map((id) => (choices.find((choice) => choice.id === id) || {}).text || id)
+      .filter(Boolean);
+    if (!front || !correct.length) {
+      skipped++;
+      continue;
+    }
+    const back = [...new Set(correct)].join(" · ");
+    cards.push({
+      kind: "card",
+      cardType: "basic",
+      deck,
+      front,
+      back,
+      tags: [],
+      importSource: source,
+      importKey: `qti:${hashString(source + "|" + index + "|" + front + "|" + back)}`,
+    });
+  }
+  return { cards, skipped, errors: [], source, format: "qti" };
+}
+
+function parseLmsXml(text, options) {
+  const opts = options || {};
+  const format = str(opts.format).toLowerCase();
+  if (format === "qti") return parseQtiXml(text, opts);
+  if (format === "moodlexml" || format === "moodle") return parseMoodleXml(text, opts);
+  return /<questestinterop|<qti-assessment-item|<assessmentItem/i.test(str(text)) ? parseQtiXml(text, opts) : parseMoodleXml(text, opts);
+}
+
 /* ---- Quizlet */
 
 function cleanQuizletField(value) {
@@ -981,6 +1137,8 @@ class CardImportModal extends Modal {
     type.createEl("option", { text: "Anki plain-text export", value: "anki" });
     type.createEl("option", { text: "Quizlet text export", value: "quizlet" });
     type.createEl("option", { text: "Moodle GIFT (.txt or .gift)", value: "gift" });
+    type.createEl("option", { text: "Moodle XML quiz bank (.xml)", value: "moodlexml" });
+    type.createEl("option", { text: "QTI quiz bank (.xml)", value: "qti" });
     type.createEl("option", { text: "Generic CSV / TSV (choose columns)", value: "csv" });
     type.createEl("option", { text: "Kahoot spreadsheet (CSV)", value: "kahoot" });
     type.createEl("option", { text: "Blooket spreadsheet (CSV)", value: "blooket" });
@@ -998,11 +1156,11 @@ class CardImportModal extends Modal {
         folders.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
         for (const folder of folders) source.createEl("option", { text: folder || "Whole vault", value: folder });
       } else {
-        const candidates = (files || []).filter((f) => /\.(txt|tsv|csv|gift)$/i.test(f.path || ""));
-        if (!candidates.length) source.createEl("option", { text: "No .txt, .tsv, .csv or .gift files found", value: "" });
+        const candidates = (files || []).filter((f) => /\.(txt|tsv|csv|gift|xml)$/i.test(f.path || ""));
+        if (!candidates.length) source.createEl("option", { text: "No .txt, .tsv, .csv, .gift or .xml files found", value: "" });
         for (const f of candidates) source.createEl("option", { text: f.path, value: f.path });
       }
-      const sourceLabels = { spaced: "Folder to scan", quizlet: "Quizlet text export", anki: "Anki text export", gift: "Moodle GIFT file", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
+      const sourceLabels = { spaced: "Folder to scan", quizlet: "Quizlet text export", anki: "Anki text export", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
       sourceLabel.setText(sourceLabels[this.type] || "Import file");
     };
     refreshOptions();
@@ -1126,6 +1284,8 @@ class CardImportModal extends Modal {
     const helpText = () => {
       if (this.type === "quizlet") return quizletExportHint();
       if (this.type === "gift") return giftExportHint();
+      if (this.type === "moodlexml") return "Moodle XML: export the course question bank as Moodle XML, then save the .xml file in this vault. Multiple choice, true/false, short answer and numerical questions are read; matching, essay, description and cloze questions are skipped.";
+      if (this.type === "qti") return "QTI: export the quiz bank as QTI XML, then save the .xml file in this vault. QTI 1.2 and QTI 2.1 multiple-choice items are read, including response labels and correct-response identifiers.";
       if (this.type === "csv") return "Read a CSV or TSV with a header row. Front/term/question and Back/definition/answer columns are detected automatically; check or change the mapping, then import. Mappings are remembered for the same header layout.";
       if (this.type === "anki") return ankiExportHint() + " Binary .apkg files are not opened; export the notes to text from Anki first.";
       if (QUESTION_SET_TYPES.includes(this.type)) {
@@ -1142,7 +1302,7 @@ class CardImportModal extends Modal {
     go.addEventListener("click", async () => {
       const path = source.value;
       if (this.type !== "spaced" && !path) {
-        new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet" : this.type === "anki" ? "Anki" : this.type === "gift" ? "Moodle GIFT" : this.type} file first.`);
+        new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet" : this.type === "anki" ? "Anki" : this.type === "gift" ? "Moodle GIFT" : this.type === "moodlexml" ? "Moodle XML" : this.type === "qti" ? "QTI" : this.type} file first.`);
         return;
       }
       if (this.type === "csv") {
@@ -1167,7 +1327,9 @@ class CardImportModal extends Modal {
                   ? await p.importCardsFromQuestionSet(path, this.type, { deck: deck.value, course: course.value })
                   : this.type === "gift"
                     ? await p.importCardsFromGift(path, { deck: deck.value, course: course.value })
-                    : await p.importCardsFromAnki(path, { deck: deck.value, course: course.value });
+                    : this.type === "moodlexml" || this.type === "qti"
+                      ? await p.importCardsFromLmsXml(path, this.type, { deck: deck.value, course: course.value })
+                      : await p.importCardsFromAnki(path, { deck: deck.value, course: course.value });
         const bits = [`Imported ${result.created} card${result.created === 1 ? "" : "s"}`];
         if (result.skipped) bits.push(`${result.skipped} already imported`);
         if (result.errors && result.errors.length) bits.push(`${result.errors.length} failed`);
@@ -1275,6 +1437,9 @@ module.exports = {
   splitDelimited,
   parseAnkiText,
   parseGiftText,
+  parseMoodleXml,
+  parseQtiXml,
+  parseLmsXml,
   parseQuizletText,
   parseQuestionSetText,
   parseSpacedRepetition,

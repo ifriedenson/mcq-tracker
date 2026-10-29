@@ -473,3 +473,93 @@ test("plugin: imports a Moodle GIFT file as ordinary card notes", async () => {
   assert.ok(app.created.every((card) => /import_key: "gift:/.test(card.text)));
   assert.ok(app.created.every((card) => /deck: "Moodle"/.test(card.text)));
 });
+
+test("moodle xml: multichoice, true/false, short answer and numerical; unsupported types are skipped", () => {
+  const text = `<?xml version="1.0"?>
+<quiz>
+<question type="category"><category><text>Default</text></category></question>
+<question type="multichoice">
+  <name><text>Capital</text></name>
+  <questiontext format="html"><text><![CDATA[What is the capital of <b>France</b>?]]></text></questiontext>
+  <answer fraction="100"><text>Paris</text></answer>
+  <answer fraction="0"><text>Lyon</text></answer>
+</question>
+<question type="truefalse">
+  <name><text>Sky</text></name>
+  <questiontext><text>The sky is blue.</text></questiontext>
+  <answer fraction="100"><text>true</text></answer>
+  <answer fraction="0"><text>false</text></answer>
+</question>
+<question type="shortanswer">
+  <name><text>Math</text></name>
+  <questiontext><text>2 + 2?</text></questiontext>
+  <answer fraction="100"><text>4</text></answer>
+</question>
+<question type="numerical">
+  <name><text>Half</text></name>
+  <questiontext><text>Half of 10?</text></questiontext>
+  <answer fraction="100"><text>5</text></answer>
+</question>
+<question type="matching"><questiontext><text>Match these</text></questiontext></question>
+</quiz>`;
+  const result = importer.parseMoodleXml(text, { sourcePath: "moodle.xml", deck: "Moodle" });
+  assert.equal(result.cards.length, 4);
+  assert.equal(result.cards[0].front, "What is the capital of **France**?");
+  assert.equal(result.cards[0].back, "Paris");
+  assert.equal(result.cards[1].back, "true");
+  assert.equal(result.cards[2].back, "4");
+  assert.equal(result.cards[3].back, "5");
+  assert.equal(result.skipped, 2);
+  assert.match(result.cards[0].importKey, /^moodle:/);
+});
+
+test("qti: QTI 1.2 response labels and QTI 2.1 simple choices map to the correct back", () => {
+  const qti12 = `<questestinterop><assessment><section>
+<item title="Capital">
+  <presentation>
+    <material><mattext>What is the capital of France?</mattext></material>
+    <response_lid ident="response1" rcardinality="Single"><render_choice>
+      <response_label ident="A"><material><mattext>Paris</mattext></material></response_label>
+      <response_label ident="B"><material><mattext>Lyon</mattext></material></response_label>
+    </render_choice></response_lid>
+  </presentation>
+  <resprocessing><respcondition><conditionvar><varequal respident="response1">A</varequal></conditionvar></respcondition></resprocessing>
+</item>
+</section></assessment></questestinterop>`;
+  const first = importer.parseQtiXml(qti12, { sourcePath: "quiz.xml", deck: "QTI" });
+  assert.equal(first.cards.length, 1);
+  assert.equal(first.cards[0].front, "What is the capital of France?");
+  assert.equal(first.cards[0].back, "Paris");
+  assert.match(first.cards[0].importKey, /^qti:/);
+
+  const qti21 = `<qti-assessment-item identifier="q2" title="Math">
+  <qti-item-body>
+    <qti-prompt>2 + 2?</qti-prompt>
+    <qti-simple-choice identifier="A">4</qti-simple-choice>
+    <qti-simple-choice identifier="B">5</qti-simple-choice>
+  </qti-item-body>
+  <qti-response-declaration identifier="RESPONSE" cardinality="single" base-type="identifier">
+    <qti-correct-response><qti-value>A</qti-value></qti-correct-response>
+  </qti-response-declaration>
+</qti-assessment-item>`;
+  const second = importer.parseQtiXml(qti21, { sourcePath: "quiz21.xml", deck: "QTI" });
+  assert.equal(second.cards.length, 1);
+  assert.equal(second.cards[0].front, "2 + 2?");
+  assert.equal(second.cards[0].back, "4");
+  assert.equal(importer.parseLmsXml(qti21).cards.length, 1);
+  assert.equal(importer.parseLmsXml("<quiz><question type=\"truefalse\"><questiontext><text>True?</text></questiontext><answer fraction=\"100\"><text>true</text></answer></question></quiz>").cards.length, 1);
+});
+
+test("plugin: imports a Moodle XML quiz bank as ordinary card notes", async () => {
+  const notes = [
+    {
+      path: "Imports/moodle.xml",
+      text: '<quiz><question type="multichoice"><name><text>Capital</text></name><questiontext><text>Capital of France?</text></questiontext><answer fraction="100"><text>Paris</text></answer><answer fraction="0"><text>Lyon</text></answer></question></quiz>',
+    },
+  ];
+  const { app, plugin } = await setup(notes);
+  const result = await plugin.importCardsFromLmsXml("Imports/moodle.xml", "moodlexml", { deck: "Moodle" });
+  assert.equal(result.created, 1);
+  assert.match(app.created[0].text, /import_key: "moodle:/);
+  assert.match(app.created[0].text, /deck: "Moodle"/);
+});

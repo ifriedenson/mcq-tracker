@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — Moodle GIFT import shipped in 1.21.0; next unblocked backlog items are Moodle XML/QTI and Mochi/CrowdAnki import (§5.22.3). Audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — Moodle XML and QTI import shipped in 1.22.0; next unblocked backlog items are Mochi/CrowdAnki import and the full import report (§5.22.3). Audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), and the October 28 idea backlog (§5.22). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,19 +11,19 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Completed: Moodle GIFT import (§5.22.3).** GIFT is now an import source in the Cards module, using the same card notes, deck tagging and dedupe keys as every other importer.
+**Completed: Moodle XML and QTI import (§5.22.3).** University quiz banks now import through the same card path as every other source, with no new storage format or scheduler.
 
 **What shipped**
 
-- **Moodle GIFT text:** multiple choice, true/false, short answer and numeric answers, optional `::question name::` prefixes, escaped characters, feedback sections and HTML-to-Markdown conversion.
-- **One card per question:** the correct answer(s) go on the back; matching questions are skipped explicitly because a single card cannot represent a pair set honestly.
-- **Normal import path:** GIFT files sit beside Anki and Quizlet in the import dialog, accept a fallback deck and course, and write `import_key` / source properties so re-importing the same file skips duplicates.
-- **Coverage:** mixed-format parsing, feedback stripping, escaped delimiters, skipped matching questions, and a plugin-level import test.
+- **Moodle XML:** multiple choice, true/false, short answer and numerical questions; HTML and CDATA question text is cleaned for Markdown, and matching, essay, description and cloze questions are skipped explicitly.
+- **QTI:** QTI 1.2 `response_label` / `varequal` items and QTI 2.1 `qti-simple-choice` / `qti-correct-response` items, mapping response identifiers to visible choice text.
+- **Normal import path:** both formats accept a fallback deck and course, write `import_key` and source properties, and reuse the existing duplicate skip.
+- **Coverage:** Moodle XML question types, CDATA and HTML text, QTI 1.2 and 2.1 identifiers, auto-detection between the two XML families, and a plugin-level import test.
 - **No third-party code was added.** The plugin remains MIT.
 
-**Next:** Moodle XML/QTI and Mochi/CrowdAnki remain queued in §5.22.3. Audio-only commute mode is still deferred until TTS provider and mobile support are validated. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review).
+**Next:** Mochi/CrowdAnki import and the full import report remain queued in §5.22.3. Audio-only commute mode is still deferred until TTS provider and mobile support are validated. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review).
 
-**Recently completed (1.21.0):** Moodle GIFT import. Previous release 1.20.0 added tutor roles and commands.
+**Recently completed (1.22.0):** Moodle XML and QTI import. Previous release 1.21.0 added Moodle GIFT import.
 
 ---
 
@@ -959,7 +959,7 @@ The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced R
 | **Other Obsidian plugins** | Spaced Repetition (`Q::A`, multiline `?`, cloze, `#flashcards`), Obsidian_to_Anki custom syntax, Mochi `#card` with `---`, Flashcards (Colucci), Yanki, FlashCard, Syro | One-click **Migrate from X** with preview. Read documented syntax only; do not copy GPL code. |
 | **Other apps** | Mochi, Memrise, Cram, Knowt, Brainscape, RemNote, Notion tables | Mostly via CSV. Confirm Mochi's current format before promising native `.mochi` import. |
 | **More Anki variants** | `.apkg` (new and old), Anki text, CrowdAnki JSON, AnkiWeb shared decks | The plan already lists `.apkg`, AnkiConnect and LearnKit formats as remaining. Add text, CrowdAnki and shared decks; preserve scheduling and media where possible. |
-| **LMS quiz banks** | Moodle XML, GIFT, QTI (Canvas, Blackboard) | Fits university users. **GIFT shipped in 1.21.0**; Moodle XML and QTI remain. Formats above are from memory; **Verify** current specifications. |
+| **LMS quiz banks** | Moodle XML, GIFT, QTI (Canvas, Blackboard) | Fits university users. **GIFT, Moodle XML and QTI shipped in 1.21.0–1.22.0**; Canvas/Blackboard-specific variants remain. Formats above are from memory; **Verify** current specifications. |
 | **Exam / quiz formats** | FlashQuiz `@mc`/`@sata`/`@tf`, VCE via converter, QuizPort JSON, Markdown checkbox quizzes | CBT Exam Simulator and QuizPort are references. **Verify** the VCE converter's license separately. |
 | **Export** | Anki text, CSV, Markdown, JSON, Mochi `.mochi`; `.apkg` export is a known gap | Round-trip where practical so users can leave with their cards. |
 | **Import quality** | Dry-run preview, report (created, skipped, duplicates, media failures), duplicate detection, source attribution | Apply to every importer, including existing ones. |
@@ -970,7 +970,7 @@ The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced R
 
 #### 5.22.4 Smaller study-flow ideas — **partly implemented in 1.17.0 and 1.18.0**
 
-**Implemented in 1.17.0:** rule-based extraction from headings, definitions, sentences, two-column tables, highlights and cloze marks; the `flashcards: true|false` per-note opt-in with preview; and **Practice this note only**. **Implemented in 1.18.0:** the opt-in daily quiz with its own streak, and optional exam question ranges in timed tests. **Implemented in 1.19.0:** image occlusion cards with one card per mask. **Implemented in 1.20.0:** Private Tutor, Socratic Tutor and Language Partner roles plus `/guide`, `/quiz`, `/confuse`, `/gap`, `/predict`, `/feynman` and `/mock` across both chat backends. **Implemented in 1.21.0:** Moodle GIFT import for multiple choice, true/false, short answer and numeric questions. Audio-only commute mode remains queued because TTS is deferred.
+**Implemented in 1.17.0:** rule-based extraction from headings, definitions, sentences, two-column tables, highlights and cloze marks; the `flashcards: true|false` per-note opt-in with preview; and **Practice this note only**. **Implemented in 1.18.0:** the opt-in daily quiz with its own streak, and optional exam question ranges in timed tests. **Implemented in 1.19.0:** image occlusion cards with one card per mask. **Implemented in 1.20.0:** Private Tutor, Socratic Tutor and Language Partner roles plus `/guide`, `/quiz`, `/confuse`, `/gap`, `/predict`, `/feynman` and `/mock` across both chat backends. **Implemented in 1.21.0:** Moodle GIFT import. **Implemented in 1.22.0:** Moodle XML and QTI quiz-bank import. Audio-only commute mode remains queued because TTS is deferred.
 
 - **Rule-based card extraction (no AI).** Build Q/A pairs from headings, "X means…" sentences, colon and bullet definitions, two-column tables, highlights and existing cloze marks. AI can improve or expand the result, but the rule-based path must work with AI off. *(Source: FlashCard plugin.)*
 - **Per-note auto-card opt in/out.** A `flashcards: true|false` property so a lecture note is never scraped into cards by surprise. Pair it with a preview before writing.
@@ -1068,7 +1068,7 @@ These are in addition to §11.
 6. **Image occlusion and audio-only commute mode** — card depth once TTS/provider support is validated.
 7. **Reference panel** — useful but optional; keep it out of timed tests by default.
 8. **PDF editor** — integrate first; build only if integration is inadequate.
-9. **More import formats** (Mochi, Moodle XML/QTI, CrowdAnki) — GIFT is implemented; after generic CSV proves the pipeline.
+9. **More import formats** (Mochi, CrowdAnki) — GIFT, Moodle XML and QTI are implemented; after generic CSV proves the pipeline.
 10. **Standalone mobile prep** — keep the core portable now; start the app only when the trigger is met.
 
 ---
@@ -1131,6 +1131,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Image occlusion cards, one card per mask (§5.7, §5.22.4) — shipped in 1.19.0
 - [x] Tutor role presets and slash commands (§5.18, §5.22.4) — shipped in 1.20.0
 - [x] Moodle GIFT import (§5.22.3) — shipped in 1.21.0
+- [x] Moodle XML and QTI import (§5.22.3) — shipped in 1.22.0
 - [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — .apkg, AnkiConnect and LearnKit formats remain
 - [x] Answer modes: flip, type and speak via OS dictation, with the deterministic cheap-first grading pipeline (§5.17)
 - [x] AI fallback for typed answers that the local grader cannot settle, using the shared AI layer and a validated structured verdict (§5.17)

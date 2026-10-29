@@ -22,7 +22,7 @@ const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, rem
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
-const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseGenericCsv, parseGiftText, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
+const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseGenericCsv, parseGiftText, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
@@ -1480,6 +1480,22 @@ class QuestionTrackerPlugin extends Plugin {
     if (!file) throw new Error("That file is not in the vault.");
     const text = await this.app.vault.cachedRead(file);
     const parsed = parseGiftText(text, { sourcePath: file.path, deck: opts.deck });
+    return this.importParsedCards(parsed.cards, { ...opts, deck: String(opts.deck || "").trim() || file.basename, errors: parsed.errors });
+  }
+
+  /** Import a Moodle XML or QTI quiz bank. Each question becomes a basic card. */
+  async importCardsFromLmsXml(path, format, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    const kind = String(format || "").toLowerCase();
+    if (!["moodlexml", "qti"].includes(kind)) throw new Error(`Unsupported LMS format: ${kind || "none"}.`);
+    if (!/\.(xml|txt)$/i.test(String(path || ""))) {
+      throw new Error("Choose the .xml file exported by Moodle or your QTI quiz bank.");
+    }
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That file is not in the vault.");
+    const text = await this.app.vault.cachedRead(file);
+    const parsed = kind === "qti" ? parseQtiXml(text, { sourcePath: file.path, deck: opts.deck }) : parseMoodleXml(text, { sourcePath: file.path, deck: opts.deck });
     return this.importParsedCards(parsed.cards, { ...opts, deck: String(opts.deck || "").trim() || file.basename, errors: parsed.errors });
   }
 
