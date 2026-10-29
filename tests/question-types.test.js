@@ -55,6 +55,11 @@ test("a question's mode follows its declared type, then its key and choices", ()
   assert.equal(T.inferMode("select-all-that-apply", "A, C", choices), "multi");
   assert.equal(T.inferMode("", "A, C", choices), "multi");
   assert.equal(T.inferMode("mcq", "A, C", choices), "multi");
+  const six = ["A", "B", "C", "D", "E", "F"].map((letter) => ({ letter, text: letter }));
+  assert.equal(T.inferMode("", "F", six), "mcq");
+  assert.equal(T.inferMode("", "F", choices), "mcq");
+  assert.equal(T.inferMode("", "1", []), "self");
+  assert.equal(T.inferMode("", "0", []), "self");
   assert.equal(T.inferMode("", "B", choices), "mcq");
   assert.equal(T.inferMode("", "", choices), "self");
 });

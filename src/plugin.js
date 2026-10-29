@@ -4406,6 +4406,8 @@ class QuestionTrackerPlugin extends Plugin {
               scheduler: this.settings.scheduler,
               fsrsRetention: this.settings.fsrsRetention,
               attemptId: entry.id,
+              leechThreshold: this.settings.leechThreshold,
+              leechAction: this.settings.leechAction,
               examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
             });
             if (entry.errorType) setAttemptError(fm, entry.id, entry.errorType);

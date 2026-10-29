@@ -25054,7 +25054,10 @@ function inferMode(declared, key, choices) {
   if (/true[ _-]?false|boolean|(^|\W)tf(\W|$)/.test(d)) return "tf";
   if (/mcq|multiple|choice|select/.test(d)) return parseChoiceSet(key).length > 1 ? "multi" : letter ? "mcq" : "self";
   if (parseChoiceSet(key).length > 1) return "multi";
-  if (isTrueFalseChoices(list) || normalizeTrueFalse(key, list)) return "tf";
+  if (isTrueFalseChoices(list)) return "tf";
+  // Only a full word infers true/false without choices: a bare "F" is a
+  // normal multiple-choice key, and "1" is a numeric answer.
+  if (!list.length && /^(true|false|yes|no)$/i.test(str(key).trim())) return "tf";
   if (letter) return "mcq";
   return "self";
 }
@@ -34572,6 +34575,8 @@ class QuestionTrackerPlugin extends Plugin {
               scheduler: this.settings.scheduler,
               fsrsRetention: this.settings.fsrsRetention,
               attemptId: entry.id,
+              leechThreshold: this.settings.leechThreshold,
+              leechAction: this.settings.leechAction,
               examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
             });
             if (entry.errorType) setAttemptError(fm, entry.id, entry.errorType);
