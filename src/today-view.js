@@ -70,6 +70,7 @@ class TodayView extends ItemView {
     const manage = root.createDiv({ cls: "qt-row qt-small-row" });
     manage.createEl("button", { text: "Known & excluded", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
+    this.renderStudyPlan(root);
     this.renderDaily(root, today);
     this.renderFocus(root, today);
 
@@ -97,6 +98,28 @@ class TodayView extends ItemView {
     this.renderDueQueue(root);
     this.renderCards(root);
     this.renderNext(root, now);
+  }
+
+  renderStudyPlan(root) {
+    const p = this.plugin;
+    if (!p.studyPlan) return;
+    const plan = p.studyPlan();
+    if (!plan) return;
+    root.createEl("h3", { cls: "qt-today-section", text: "Study plan" });
+    const card = root.createDiv({ cls: "qt-today-card qt-plan-card" });
+    card.createDiv({ cls: "qt-today-kicker", text: plan.daysLeft === 0 ? "Exam today" : `Next exam in ${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"}` });
+    card.createDiv({ cls: "qt-today-title", text: plan.course });
+    card.createDiv({
+      cls: "qt-today-meta",
+      text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards`,
+    });
+    const evidence = [`${plan.attempted}/${plan.total} questions practised`];
+    if (plan.accuracy !== null) evidence.push(`${Math.round(plan.accuracy * 100)}% accuracy`);
+    if (plan.weakSkill) evidence.push(`weakest: ${plan.weakSkill}`);
+    card.createDiv({ cls: "qt-toggle-hint", text: evidence.join(" · ") });
+    const row = card.createDiv({ cls: "qt-row qt-small-row" });
+    row.createEl("button", { text: "Start 10 min", cls: "mod-cta" }).addEventListener("click", () => p.startStudyPlan(plan, false));
+    row.createEl("button", { text: "Cram 10 min" }).addEventListener("click", () => p.startStudyPlan(plan, true));
   }
 
   /** The opt-in daily quiz, with its own streak so it never competes with study-time streaks. */

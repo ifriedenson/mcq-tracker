@@ -25,6 +25,7 @@ const MODES = [
   ["due", "Due for review"],
   ["unseen", "Never attempted"],
   ["missed", "Missed last time"],
+  ["cram", "Cram: most-missed first"],
   ["flagged", "Flagged"],
   ["random", "Pure random"],
 ];

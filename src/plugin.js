@@ -21,7 +21,8 @@ const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normali
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { cleanSubjectTitle, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, visibleEvents } = require("./calendar-model");
+const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { buildStudyPlan } = require("./study-plan");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
@@ -121,6 +122,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-welcome", name: "Open welcome guide", callback: () => this.openWelcome() });
     this.addCommand({ id: "focus-start", name: "Focus: start a 25-minute session", callback: () => this.startFocusSession(25, this.settings.studyLog.lastCourse) });
     this.addCommand({ id: "focus-log", name: "Focus: log study time", callback: () => this.openFocusLog() });
+    this.addCommand({ id: "study-plan", name: "Study plan: start for the next exam", callback: () => this.startNextExamPlan() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
@@ -1228,6 +1230,48 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (result.created) new Notice(`Created ${result.path}.`);
     return result;
+  }
+
+  /** The next exam's plan, scoped to matching question and card courses. */
+  studyPlan() {
+    if (!this.calendarEnabled()) return null;
+    const exam = upcomingExams(this.calendarEvents(), new Date(), 1)[0];
+    if (!exam) return null;
+    const title = cleanSubjectTitle(exam.summary) || str(exam.summary);
+    const course =
+      str(exam.course).trim() ||
+      title.replace(/\s*[-–—:]\s*(final|midterm|exam|test|quiz|assessment)\b.*$/i, "").replace(/\s+(final|midterm|exam|test|quiz|assessment)(\s+exam)?\s*$/i, "").trim() ||
+      title;
+    const matches = (value) => !!str(value).trim() && examMatchesCourse({ summary: value }, course);
+    const questions = this.getQuestions().filter((q) => matches(q.fm.course) || matches(q.fm.test));
+    if (!questions.length) return null;
+    const cards = this.cardsEnabled() ? this.getCards().filter((c) => matches(c.course || (c.fm && c.fm.course))) : [];
+    return buildStudyPlan(exam, questions, cards, { today: localDate(), course });
+  }
+
+  async startStudyPlan(plan, cram) {
+    if (this.moduleOff("mcq")) return null;
+    if (!plan) return null;
+    const pool = cram ? plan.cramPool : plan.pool;
+    if (!pool || !pool.length) {
+      new Notice("There are no questions in this study plan yet.");
+      return null;
+    }
+    return this.startQuickPractice({
+      minutes: 10,
+      pool,
+      mode: cram ? "cram" : "smart",
+      label: `${cram ? "Cram" : "Study plan"}: ${plan.course}`,
+    });
+  }
+
+  async startNextExamPlan() {
+    const plan = this.studyPlan();
+    if (!plan) {
+      new Notice("Add a matching course exam and question notes to build a study plan.");
+      return null;
+    }
+    return this.startStudyPlan(plan, false);
   }
 
   /** A free period from the calendar becomes a one-tap Quick Practice session. */

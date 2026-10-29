@@ -7232,6 +7232,7 @@ const MODES = [
   ["due", "Due for review"],
   ["unseen", "Never attempted"],
   ["missed", "Missed last time"],
+  ["cram", "Cram: most-missed first"],
   ["flagged", "Flagged"],
   ["random", "Pure random"],
 ];
@@ -8790,6 +8791,7 @@ const MODE_PRED = {
   due: (fm, today) => isDue(fm, today),
   unseen: (fm) => !Number(fm.attempts),
   missed: (fm) => fm.result === "incorrect",
+  cram: () => true,
   flagged: (fm) => fm.flagged === true,
 };
 
@@ -9004,6 +9006,7 @@ function pickQuestion(pool, mode, today, recent, rnd) {
       break;
     }
   }
+  if (mode === "cram") return items[0]; // the planner already put the most-missed item first
   const targetRank = mode === "adaptive" ? adaptiveTargetRank(items) : 0;
   const w = items.map((q) => {
     if (mode === "smart") return weightOf(q.fm, today);
@@ -15023,7 +15026,8 @@ const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normali
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { cleanSubjectTitle, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, visibleEvents } = require("./calendar-model");
+const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { buildStudyPlan } = require("./study-plan");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
@@ -15123,6 +15127,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-welcome", name: "Open welcome guide", callback: () => this.openWelcome() });
     this.addCommand({ id: "focus-start", name: "Focus: start a 25-minute session", callback: () => this.startFocusSession(25, this.settings.studyLog.lastCourse) });
     this.addCommand({ id: "focus-log", name: "Focus: log study time", callback: () => this.openFocusLog() });
+    this.addCommand({ id: "study-plan", name: "Study plan: start for the next exam", callback: () => this.startNextExamPlan() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
@@ -16230,6 +16235,48 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (result.created) new Notice(`Created ${result.path}.`);
     return result;
+  }
+
+  /** The next exam's plan, scoped to matching question and card courses. */
+  studyPlan() {
+    if (!this.calendarEnabled()) return null;
+    const exam = upcomingExams(this.calendarEvents(), new Date(), 1)[0];
+    if (!exam) return null;
+    const title = cleanSubjectTitle(exam.summary) || str(exam.summary);
+    const course =
+      str(exam.course).trim() ||
+      title.replace(/\s*[-–—:]\s*(final|midterm|exam|test|quiz|assessment)\b.*$/i, "").replace(/\s+(final|midterm|exam|test|quiz|assessment)(\s+exam)?\s*$/i, "").trim() ||
+      title;
+    const matches = (value) => !!str(value).trim() && examMatchesCourse({ summary: value }, course);
+    const questions = this.getQuestions().filter((q) => matches(q.fm.course) || matches(q.fm.test));
+    if (!questions.length) return null;
+    const cards = this.cardsEnabled() ? this.getCards().filter((c) => matches(c.course || (c.fm && c.fm.course))) : [];
+    return buildStudyPlan(exam, questions, cards, { today: localDate(), course });
+  }
+
+  async startStudyPlan(plan, cram) {
+    if (this.moduleOff("mcq")) return null;
+    if (!plan) return null;
+    const pool = cram ? plan.cramPool : plan.pool;
+    if (!pool || !pool.length) {
+      new Notice("There are no questions in this study plan yet.");
+      return null;
+    }
+    return this.startQuickPractice({
+      minutes: 10,
+      pool,
+      mode: cram ? "cram" : "smart",
+      label: `${cram ? "Cram" : "Study plan"}: ${plan.course}`,
+    });
+  }
+
+  async startNextExamPlan() {
+    const plan = this.studyPlan();
+    if (!plan) {
+      new Notice("Add a matching course exam and question notes to build a study plan.");
+      return null;
+    }
+    return this.startStudyPlan(plan, false);
   }
 
   /** A free period from the calendar becomes a one-tap Quick Practice session. */
@@ -21693,6 +21740,149 @@ module.exports = {
 };
 };
 
+/* ---- src/study-plan.js ---- */
+__defs["study-plan"] = function (module, exports, require) {
+/* Exam-scoped study plans. The planner only reads existing question/card state. */
+
+function str(value) {
+  return value === undefined || value === null ? "" : String(value);
+}
+
+function dateKey(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function addDays(key, n) {
+  const d = new Date(`${key}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return dateKey(d);
+}
+
+function daysBetween(fromKey, toKey) {
+  const a = new Date(`${fromKey}T00:00:00`).getTime();
+  const b = new Date(`${toKey}T00:00:00`).getTime();
+  return Math.max(0, Math.round((b - a) / 86400000));
+}
+
+function isDueQuestion(q, today) {
+  return Number(q.fm.attempts) > 0 && !!q.fm.next_review && str(q.fm.next_review).slice(0, 10) <= today;
+}
+
+function accuracyOf(questions) {
+  let attempts = 0;
+  let correct = 0;
+  for (const q of questions) {
+    attempts += Number(q.fm.attempts) || 0;
+    correct += Math.min(Number(q.fm.correct_count) || 0, Number(q.fm.attempts) || 0);
+  }
+  return attempts ? correct / attempts : null;
+}
+
+/** Lowest-accuracy attempted skill with at least two attempts; falls back to any attempted skill. */
+function weakSkillOf(questions) {
+  const rows = new Map();
+  for (const q of questions) {
+    const skill = str(q.fm.skill).trim() || "Unspecified";
+    const attempts = Number(q.fm.attempts) || 0;
+    if (!attempts) continue;
+    const row = rows.get(skill) || { skill, attempts: 0, correct: 0 };
+    row.attempts += attempts;
+    row.correct += Math.min(Number(q.fm.correct_count) || 0, attempts);
+    rows.set(skill, row);
+  }
+  const list = [...rows.values()]
+    .map((r) => ({ ...r, accuracy: r.correct / r.attempts }))
+    .sort((a, b) => a.accuracy - b.accuracy || b.attempts - a.attempts);
+  return list.find((r) => r.attempts >= 2) || list[0] || null;
+}
+
+function readinessScore(questions, due, daysLeft) {
+  const total = questions.length;
+  if (!total) return 0;
+  const seen = questions.filter((q) => Number(q.fm.attempts) > 0).length;
+  const attempts = questions.reduce((n, q) => n + (Number(q.fm.attempts) || 0), 0);
+  const correct = questions.reduce((n, q) => n + Math.min(Number(q.fm.correct_count) || 0, Number(q.fm.attempts) || 0), 0);
+  const accuracy = attempts ? correct / attempts : 0;
+  const coverage = seen / total;
+  const backlog = due / Math.max(1, total);
+  const urgency = daysLeft <= 2 ? 0.04 : 0;
+  return Math.max(0, Math.min(100, Math.round(100 * (0.5 * accuracy + 0.32 * coverage + 0.18 * (1 - backlog)) - urgency * 100)));
+}
+
+/** Most-missed and due first; long-interval reviews are skipped unless the item was missed. */
+function buildCramPool(questions, today, limit) {
+  const horizon = addDays(today, 30);
+  const scored = [];
+  for (const q of questions) {
+    const fm = q.fm || {};
+    const attempts = Number(fm.attempts) || 0;
+    const correct = Math.min(Number(fm.correct_count) || 0, attempts);
+    const accuracy = attempts ? correct / attempts : null;
+    const due = isDueQuestion(q, today);
+    const missed = fm.result === "incorrect";
+    const unseen = attempts === 0;
+    const future = str(fm.next_review).slice(0, 10);
+    if (future && future > horizon && !missed && !fm.flagged) continue;
+    let score = 0;
+    if (missed) score += 50;
+    if (due) score += 30;
+    if (unseen) score += 15;
+    if (fm.flagged === true) score += 10;
+    if (accuracy !== null) score += Math.round((1 - accuracy) * 20);
+    scored.push({ q, score });
+  }
+  scored.sort((a, b) => b.score - a.score || str(a.q.file.path).localeCompare(str(b.q.file.path)));
+  const n = Math.max(1, Math.min(200, Math.round(Number(limit) || 40)));
+  return scored.slice(0, n).map((row) => row.q);
+}
+
+function buildStudyPlan(exam, questions, cards, options) {
+  const opts = options || {};
+  const today = opts.today || dateKey(new Date());
+  const examDay = str(opts.examDate || (exam && exam.dateKey) || (exam && exam.dtstart && dateKey(exam.dtstart)) || today).slice(0, 10);
+  const daysLeft = daysBetween(today, examDay);
+  const list = Array.isArray(questions) ? questions : [];
+  const cardList = Array.isArray(cards) ? cards : [];
+  const due = list.filter((q) => isDueQuestion(q, today)).length;
+  const fresh = list.filter((q) => !Number(q.fm.attempts)).length;
+  const attempted = list.filter((q) => Number(q.fm.attempts) > 0);
+  const weak = weakSkillOf(list);
+  const cardsDue = cardList.filter((c) => !Number(c.fm.attempts) || (!!c.fm.next_review && str(c.fm.next_review).slice(0, 10) <= today)).length;
+  const course = str(opts.course || (exam && exam.course) || "").trim() || (exam && str(exam.summary).replace(/\s*[-–—:]\s*(final|exam|midterm|test).*$/i, "").trim()) || "Your exam";
+  return {
+    exam,
+    course,
+    examDay,
+    daysLeft,
+    total: list.length,
+    due,
+    fresh,
+    attempted: attempted.length,
+    accuracy: accuracyOf(list),
+    weakSkill: weak ? weak.skill : "",
+    weakAccuracy: weak ? weak.accuracy : null,
+    cardsDue,
+    readiness: readinessScore(list, due, daysLeft),
+    pool: list.slice(),
+    cramPool: buildCramPool(list, today, opts.cramLimit || 40),
+  };
+}
+
+module.exports = {
+  accuracyOf,
+  addDays,
+  buildCramPool,
+  buildStudyPlan,
+  daysBetween,
+  isDueQuestion,
+  readinessScore,
+  weakSkillOf,
+};
+};
+
 /* ---- src/study-skin.js ---- */
 __defs["study-skin"] = function (module, exports, require) {
 /*
@@ -22138,6 +22328,7 @@ class TodayView extends ItemView {
     const manage = root.createDiv({ cls: "qt-row qt-small-row" });
     manage.createEl("button", { text: "Known & excluded", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
+    this.renderStudyPlan(root);
     this.renderDaily(root, today);
     this.renderFocus(root, today);
 
@@ -22165,6 +22356,28 @@ class TodayView extends ItemView {
     this.renderDueQueue(root);
     this.renderCards(root);
     this.renderNext(root, now);
+  }
+
+  renderStudyPlan(root) {
+    const p = this.plugin;
+    if (!p.studyPlan) return;
+    const plan = p.studyPlan();
+    if (!plan) return;
+    root.createEl("h3", { cls: "qt-today-section", text: "Study plan" });
+    const card = root.createDiv({ cls: "qt-today-card qt-plan-card" });
+    card.createDiv({ cls: "qt-today-kicker", text: plan.daysLeft === 0 ? "Exam today" : `Next exam in ${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"}` });
+    card.createDiv({ cls: "qt-today-title", text: plan.course });
+    card.createDiv({
+      cls: "qt-today-meta",
+      text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards`,
+    });
+    const evidence = [`${plan.attempted}/${plan.total} questions practised`];
+    if (plan.accuracy !== null) evidence.push(`${Math.round(plan.accuracy * 100)}% accuracy`);
+    if (plan.weakSkill) evidence.push(`weakest: ${plan.weakSkill}`);
+    card.createDiv({ cls: "qt-toggle-hint", text: evidence.join(" · ") });
+    const row = card.createDiv({ cls: "qt-row qt-small-row" });
+    row.createEl("button", { text: "Start 10 min", cls: "mod-cta" }).addEventListener("click", () => p.startStudyPlan(plan, false));
+    row.createEl("button", { text: "Cram 10 min" }).addEventListener("click", () => p.startStudyPlan(plan, true));
   }
 
   /** The opt-in daily quiz, with its own streak so it never competes with study-time streaks. */
@@ -22962,6 +23175,7 @@ const pdfAnnotations = require("./pdf-annotations");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const welcome = require("./welcome");
 const focus = require("./focus");
+const studyPlan = require("./study-plan");
 const { FocusLogModal } = require("./focus-modal");
 const { WelcomeModal } = require("./welcome-modal");
 const referenceElements = require("./reference-elements");
@@ -23057,6 +23271,7 @@ QuestionTrackerPlugin.__test = {
   welcome,
   WelcomeModal,
   focus,
+  studyPlan,
   FocusLogModal,
   referenceElements,
   referenceGraph,

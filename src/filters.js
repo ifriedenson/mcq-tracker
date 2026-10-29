@@ -15,6 +15,7 @@ const MODE_PRED = {
   due: (fm, today) => isDue(fm, today),
   unseen: (fm) => !Number(fm.attempts),
   missed: (fm) => fm.result === "incorrect",
+  cram: () => true,
   flagged: (fm) => fm.flagged === true,
 };
 
@@ -229,6 +230,7 @@ function pickQuestion(pool, mode, today, recent, rnd) {
       break;
     }
   }
+  if (mode === "cram") return items[0]; // the planner already put the most-missed item first
   const targetRank = mode === "adaptive" ? adaptiveTargetRank(items) : 0;
   const w = items.map((q) => {
     if (mode === "smart") return weightOf(q.fm, today);
