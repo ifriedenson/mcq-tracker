@@ -1217,7 +1217,9 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Reopen the welcome from a command and settings, and remember dismissal per device (§5.21) — shipped in 1.28.0
 - [ ] Optional feedback survey and donation links, added later and never gating features (§5.21)
 - [x] CSV export of a per-note summary and full attempt history for outside analysis (§5.15) — shipped in 1.38.0
-- [ ] Remaining interop: Anki export/sync, a documented property schema and Dataview examples (§5.15)
+- [x] Anki plain-text export with deck, note type and tag columns (§5.15) — shipped in 1.39.0
+- [x] Documented property schema and Dataview examples in [docs/property-schema.md](docs/property-schema.md) (§5.15) — shipped in 1.39.0
+- [ ] Optional AnkiConnect sync and `.apkg` import (§5.15)
 - [ ] Pronunciation feedback for language learners (optional)
 - [ ] Handwritten-work photo grading (optional, vision models)
 
@@ -2575,7 +2577,9 @@ Names are proposals; keep existing ones unchanged.
 - [x] Transcript-to-practice flow: detect transcript notes, draft cards or questions with a preview, and keep the source note link (§5.13, §5.14) — shipped in 1.37.0
 - [ ] Source ingestion extensions beyond the existing document import, such as lecture-slide and textbook-chapter course notes (§5.13)
 - [x] CSV export of a per-note summary and full attempt history for outside analysis (§5.15) — shipped in 1.38.0
-- [ ] Remaining interop: Anki export/sync, a documented property schema and Dataview examples (§5.15)
+- [x] Anki plain-text export with deck, note type and tag columns (§5.15) — shipped in 1.39.0
+- [x] Documented property schema and Dataview examples in [docs/property-schema.md](docs/property-schema.md) (§5.15) — shipped in 1.39.0
+- [ ] Optional AnkiConnect sync and `.apkg` import (§5.15)
 - [ ] Pronunciation feedback for language learners (optional)
 - [ ] Handwritten-work photo grading (optional, vision models)
 - [ ] Long-term standalone mobile product discovery (§10c); do not split the

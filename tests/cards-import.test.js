@@ -292,6 +292,33 @@ test("question-set export: round-trips choices to each platform layout", () => {
   assert.equal(importer.cardsToQuizlet([card]), "Which one?\tB\n");
 });
 
+test("Anki export: round-trips decks, tags, basic cards and cloze markers", () => {
+  const basic = {
+    fm: { card_id: "q1", deck: "Biology", tags: ["exam prep"] },
+    body: { front: "Which one?", back: "B" },
+  };
+  const cloze = {
+    fm: { card_id: "c1", deck: "Biology", card_type: "cloze" },
+    body: { cardType: "cloze", front: "The capital is […].", back: "Paris" },
+  };
+
+  const text = importer.cardsToAnki([basic, cloze]);
+  assert.match(text, /^#separator:tab/);
+  assert.match(text, /^#notetype column:1/m);
+  assert.match(text, /^#deck column:2/m);
+  assert.match(text, /^#tags column:5/m);
+
+  const parsed = importer.parseAnkiText(text, { deck: "Fallback" });
+  assert.equal(parsed.cards.length, 2);
+  assert.equal(parsed.cards[0].front, "Which one?");
+  assert.equal(parsed.cards[0].back, "B");
+  assert.equal(parsed.cards[0].deck, "Biology");
+  assert.deepEqual(parsed.cards[0].tags, ["exam_prep"]);
+  assert.equal(parsed.cards[1].cardType, "cloze");
+  assert.equal(parsed.cards[1].back, "Paris");
+  assert.match(parsed.cards[1].front, /\{\{c1::Paris\}\}/);
+});
+
 test("card notes keep question-set properties in frontmatter", () => {
   const note = T.cards.cardNote({
     front: "Which one?",
@@ -333,6 +360,24 @@ test("plugin: exports the filtered cards to a CSV file", async () => {
   assert.ok(exported);
   assert.match(exported.text, /^Question,Answer 1,Answer 2,Answer 3,Answer 4,Time limit \(seconds\),Correct answer\(s\)/);
   assert.match(exported.text, /Which one\?,A,B,C,D,20,2/);
+});
+
+test("plugin: exports the filtered cards as an Anki text file", async () => {
+  const notes = [
+    {
+      path: "Cards/Biology/Q.md",
+      fm: { card_id: "q1", item_type: "card", deck: "Biology" },
+      text: "## Front\nWhich one?\n\n## Back\nB",
+    },
+  ];
+  const { app, plugin } = await setup(notes);
+  const result = await plugin.exportCards("anki", { deck: "Biology" });
+  assert.match(result.path, /^Cards\/exports\/Biology anki .*\.txt$/);
+  assert.equal(result.count, 1);
+  const exported = app.created.find((file) => file.path === result.path);
+  assert.ok(exported);
+  assert.match(exported.text, /^#separator:tab/);
+  assert.match(exported.text, /\tBiology\tWhich one\?\tB\t/);
 });
 
 test("generic CSV: detects delimiter, header columns, tags and skipped rows", () => {

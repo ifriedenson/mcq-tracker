@@ -485,6 +485,43 @@ function cardsToQuizlet(cards) {
   return rows.length ? rows.join("\n") + "\n" : "";
 }
 
+/**
+ * Anki plain text. The header names the notetype, deck and tag columns, so
+ * File → Import rebuilds decks and tags instead of dumping every note into
+ * one deck. Cloze cards keep their {{c1::…}} markers. Media stays in the
+ * vault; the text export cannot carry images or audio.
+ */
+function cardsToAnki(cards) {
+  const rows = [];
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const fm = (card && card.fm) || {};
+    const body = (card && card.body) || {};
+    const deck = oneLine(fm.deck) || "Imported";
+    const tagSource = Array.isArray(fm.tags) ? fm.tags : str(fm.tags).split(/[,;]+|\s+/);
+    const tags = tagSource
+      .map((tag) => oneLine(tag).replace(/\s+/g, "_"))
+      .filter(Boolean)
+      .join(" ");
+    const cloze = /cloze/i.test(str(fm.card_type)) || /cloze/i.test(str(body.cardType));
+    const answers = str(body.back)
+      .split(" · ")
+      .map((answer) => oneLine(answer))
+      .filter(Boolean);
+    if (cloze && answers.length && str(body.front).includes("[…]")) {
+      let next = 0;
+      const field = oneLine(body.front).replace(/\[…\]/g, () => `{{c1::${answers[next++] || "…"}}}`);
+      rows.push(["Cloze", deck, field, "", tags]);
+      continue;
+    }
+    const row = exportCardRow(card);
+    if (!row.question || !row.choices.length) continue;
+    rows.push(["Basic", deck, row.question, oneLine(row.choices[row.correct[0] - 1] || row.choices[0]), tags]);
+  }
+  if (!rows.length) return "";
+  const header = ["#separator:tab", "#html:false", "#notetype column:1", "#deck column:2", "#tags column:5"];
+  return header.concat(rows.map((row) => row.join("\t"))).join("\n") + "\n";
+}
+
 /** CSV in the layout each platform's spreadsheet importer expects. */
 function cardsToQuestionSet(format, cards) {
   const kind = str(format).toLowerCase();
@@ -1234,6 +1271,18 @@ function ankiExportHint() {
   return "Anki: File → Export → Notes in Plain Text, include the deck column if you want decks kept.";
 }
 
+/** How to load the file this plugin writes back into Anki. */
+function ankiFileHint() {
+  return "Anki: File → Import, choose this .txt and keep the detected fields. Deck, Basic/Cloze note type and tags are in the header. Images and audio stay in the vault and are not bundled.";
+}
+
+/** Pick the right help line for whichever export format the dialog shows. */
+function cardsExportHint(format) {
+  if (format === "quizlet") return quizletExportHint();
+  if (format === "anki") return ankiFileHint();
+  return questionSetExportHint(format);
+}
+
 /** Quizlet has no deck or file metadata, so point at its exact copy settings. */
 function quizletExportHint() {
   return "Quizlet: open the set → Export, use Tab between term and definition and New line between cards, then save the copied text as a .txt or .csv file in this vault.";
@@ -1551,13 +1600,14 @@ class CardExportModal extends Modal {
     wrap.createEl("label", { text: "Format" });
     const format = wrap.createEl("select", { cls: "dropdown" });
     format.createEl("option", { text: "Quizlet text", value: "quizlet" });
+    format.createEl("option", { text: "Anki text", value: "anki" });
     format.createEl("option", { text: "Kahoot CSV", value: "kahoot" });
     format.createEl("option", { text: "Blooket CSV", value: "blooket" });
     format.createEl("option", { text: "Gimkit CSV", value: "gimkit" });
     format.value = this.format;
 
     const help = contentEl.createEl("p", { cls: "setting-item-description" });
-    const setHelp = () => help.setText(questionSetExportHint(this.format));
+    const setHelp = () => help.setText(cardsExportHint(this.format));
     format.addEventListener("change", () => {
       this.format = format.value;
       setHelp();
@@ -1618,8 +1668,11 @@ module.exports = {
   parseQuestionSetText,
   parseSpacedRepetition,
   cardsToQuizlet,
+  cardsToAnki,
   cardsToQuestionSet,
   ankiExportHint,
+  ankiFileHint,
+  cardsExportHint,
   quizletExportHint,
   giftExportHint,
   questionSetExportHint,
