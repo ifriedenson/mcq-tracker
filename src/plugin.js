@@ -16,6 +16,7 @@ const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-cl
 const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
+const { CourseNotesModal } = require("./course-notes");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const { sidecarPathFor } = require("./pdf-annotations");
 const { WelcomeModal } = require("./welcome-modal");
@@ -138,6 +139,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-dashboard", name: "Open analytics dashboard", callback: () => this.activateInsights("overview") });
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
     this.addCommand({
@@ -677,6 +679,10 @@ class QuestionTrackerPlugin extends Plugin {
       return;
     }
     new PdfImportModal(this.app, this).open();
+  }
+
+  openCourseNotesImport(onDone) {
+    new CourseNotesModal(this.app, this, onDone).open();
   }
 
   openPdfAnnotation(pdfPath) {
