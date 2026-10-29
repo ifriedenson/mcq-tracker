@@ -6,6 +6,7 @@ const { fmtDate } = require("./util");
 const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
+const { recommendApResource, resourceTitle } = require("./ap-exam-resources");
 const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
 const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus");
 const { buildDailyTasks } = require("./assignments");
@@ -352,7 +353,26 @@ class TodayView extends ItemView {
       card.createDiv({ cls: "qt-today-kicker", text: "Next exam" });
       card.createDiv({ cls: "qt-today-title", text: cleanSubjectTitle(exam.summary) || exam.summary || "Exam" });
       card.createDiv({ cls: "qt-today-meta", text: `${formatDateValue(settings.dateFormat, exam.dateKey)} · ${examCountdown(exam, now)}` });
+      const resource =
+        p.referenceEnabled && p.referenceEnabled() && p.getApResourceNotes
+          ? recommendApResource(exam, p.getApResourceNotes())
+          : null;
+      if (resource) {
+        const row = card.createDiv({ cls: "qt-today-resource" });
+        row.createDiv({ cls: "qt-today-meta", text: `${resource.stale ? "Saved resource (stale)" : "Saved resource"}: ${resourceTitle(resource)}` });
+        row.createEl("button", { text: "Open resource", cls: "qt-link" }).addEventListener("click", () => this.openResource(resource));
+      }
     }
+  }
+
+  openResource(entry) {
+    if (!this.app || !entry) return;
+    const file = this.app.vault.getAbstractFileByPath(entry.path);
+    if (file) {
+      this.app.workspace.getLeaf("tab").openFile(file);
+      return;
+    }
+    if (this.app.workspace.openLinkText) this.app.workspace.openLinkText(entry.path, "", false);
   }
 }
 

@@ -3915,6 +3915,17 @@
   gap: 6px;
 }
 
+/* Today: the next AP exam points at one saved, course-matched resource. */
+.qt-today-resource {
+  align-items: center;
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
 .qt-welcome-support-label {
   font-size: 0.82rem;
 }

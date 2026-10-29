@@ -244,6 +244,8 @@ This is a **link index, not a content dump**. The plugin stores only titles, sho
 
 **Save as note** writes a small note under **AP resources/<course>/** with the course, optional unit, resource type, official URL and checked-on date, plus tags such as `ap`, `ap-biology` and `unit-3`. The saved-resource list warns when a link was checked more than 180 days ago; **Mark checked** refreshes the date after you verify the official page. The note is ordinary Markdown, so Dataview, search and backlinks work on it. It contains no AP material.
 
+When Today's **Next exam** is an AP course, it shows one saved resource for that course. Fresh links come first, practice material is preferred, and a stale link is labelled rather than hidden. **Open resource** goes straight to the note; if none is saved yet, save one from Reference → AP resources.
+
 ## Reference (optional module, off by default)
 
 Turn it on under **Settings, Global, Modules**, then open **Reference** from the ribbon or the command palette. The view has seven tabs:
@@ -254,7 +256,7 @@ Turn it on under **Settings, Global, Modules**, then open **Reference** from the
 - **Periodic table** — all 118 elements in a tap-to-open grid, with atomic number, approximate mass, category, period and group.
 - **Constants** — common physical and chemical constants with units.
 - **AP score** — an unofficial weighted score estimate for four AP courses, with editable practice cutoffs and reverse planning.
-- **AP resources** — official AP Central, AP Students and AP Classroom links for each supported course.
+- **AP resources** — official AP Central, AP Students and AP Classroom links for each supported course, with saved notes and a next-exam recommendation on Today.
 
 The graph parser only accepts the listed names and operators; an unknown name or a pasted script is rejected rather than evaluated. The periodic table data is a factual compilation written for this plugin, not a third-party dataset. The panel is local: it does not read notes, call a model or make a network request. **Hide while a timed test is running** is on by default, so it stays out of a closed-book section; turn it off under Settings, Reference if your test allows a reference sheet. Formulas are study aids, not official exam material; check the sheet supplied with your course and exam year.
 

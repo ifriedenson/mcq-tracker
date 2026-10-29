@@ -1134,6 +1134,80 @@ module.exports = {
 };
 };
 
+/* ---- src/ap-exam-resources.js ---- */
+__defs["ap-exam-resources"] = function (module, exports, require) {
+/*
+ * Pick one saved AP resource to show beside the next AP exam.
+ *
+ * Matching is deliberately conservative: the exam title must contain a
+ * supported AP course name. Saved notes are then filtered by that course, with
+ * fresh links before stale ones and practice material before general pages.
+ * Nothing here fetches a URL or copies AP content.
+ */
+const { courseMatches } = require("./analytics");
+const { cleanSubjectTitle } = require("./calendar-model");
+const { AP_RESOURCE_COURSES } = require("./ap-resources");
+const { str } = require("./util");
+
+const RESOURCE_PRIORITY = {
+  practice: 0,
+  exam: 1,
+  course: 2,
+  students: 3,
+  account: 4,
+  calendar: 5,
+};
+
+function examTitle(exam) {
+  const raw = [exam && exam.course, exam && (exam.summary || exam.title)].filter(Boolean).join(" ");
+  return cleanSubjectTitle(raw) || str(raw).trim();
+}
+
+function apCourseForExam(exam) {
+  const title = examTitle(exam);
+  if (!title) return null;
+  return (
+    AP_RESOURCE_COURSES.find((course) => courseMatches(title, course.name) || courseMatches(title, course.id)) || null
+  );
+}
+
+function resourceTitle(entry) {
+  const file = str(entry && entry.path).split("/").pop() || "";
+  return file.replace(/\.md$/i, "") || "Resource";
+}
+
+function rankApResources(entries) {
+  return (entries || [])
+    .filter(Boolean)
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(!!a.stale) - Number(!!b.stale) ||
+        (RESOURCE_PRIORITY[a.resourceType] ?? 9) - (RESOURCE_PRIORITY[b.resourceType] ?? 9) ||
+        String(b.checkedOn || "").localeCompare(String(a.checkedOn || "")) ||
+        String(a.path || "").localeCompare(String(b.path || "")),
+    );
+}
+
+function recommendApResource(exam, entries) {
+  const course = apCourseForExam(exam);
+  if (!course) return null;
+  const matching = (entries || []).filter(
+    (entry) => entry && (entry.courseId === course.id || courseMatches(entry.course, course.name)),
+  );
+  return rankApResources(matching)[0] || null;
+}
+
+module.exports = {
+  RESOURCE_PRIORITY,
+  apCourseForExam,
+  examTitle,
+  rankApResources,
+  recommendApResource,
+  resourceTitle,
+};
+};
+
 /* ---- src/ap-resource-notes.js ---- */
 __defs["ap-resource-notes"] = function (module, exports, require) {
 /*
@@ -31047,6 +31121,7 @@ const { fmtDate } = require("./util");
 const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
+const { recommendApResource, resourceTitle } = require("./ap-exam-resources");
 const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
 const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus");
 const { buildDailyTasks } = require("./assignments");
@@ -31393,7 +31468,26 @@ class TodayView extends ItemView {
       card.createDiv({ cls: "qt-today-kicker", text: "Next exam" });
       card.createDiv({ cls: "qt-today-title", text: cleanSubjectTitle(exam.summary) || exam.summary || "Exam" });
       card.createDiv({ cls: "qt-today-meta", text: `${formatDateValue(settings.dateFormat, exam.dateKey)} · ${examCountdown(exam, now)}` });
+      const resource =
+        p.referenceEnabled && p.referenceEnabled() && p.getApResourceNotes
+          ? recommendApResource(exam, p.getApResourceNotes())
+          : null;
+      if (resource) {
+        const row = card.createDiv({ cls: "qt-today-resource" });
+        row.createDiv({ cls: "qt-today-meta", text: `${resource.stale ? "Saved resource (stale)" : "Saved resource"}: ${resourceTitle(resource)}` });
+        row.createEl("button", { text: "Open resource", cls: "qt-link" }).addEventListener("click", () => this.openResource(resource));
+      }
     }
+  }
+
+  openResource(entry) {
+    if (!this.app || !entry) return;
+    const file = this.app.vault.getAbstractFileByPath(entry.path);
+    if (file) {
+      this.app.workspace.getLeaf("tab").openFile(file);
+      return;
+    }
+    if (this.app.workspace.openLinkText) this.app.workspace.openLinkText(entry.path, "", false);
   }
 }
 
@@ -32595,6 +32689,7 @@ const apScore = require("./ap-score");
 const apResources = require("./ap-resources");
 const apExamHistory = require("./ap-exam-history");
 const apResourceNotes = require("./ap-resource-notes");
+const apExamResources = require("./ap-exam-resources");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const dailyQuiz = require("./daily-quiz");
 const { renderDailySettings } = require("./daily-quiz-settings");
@@ -32690,6 +32785,7 @@ QuestionTrackerPlugin.__test = {
   apResources,
   apExamHistory,
   apResourceNotes,
+  apExamResources,
   pdfAnnotations,
   pdfInk,
   PdfAnnotationModal,
