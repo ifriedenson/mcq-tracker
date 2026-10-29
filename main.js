@@ -5916,6 +5916,7 @@ const DEFAULT_SETTINGS = {
   filters: {},
   moreSets: [], // extra filter sets, OR'd with `filters`
   mode: "smart",
+  studySkin: "off", // "off" | "flip" | "choice": an extra way to review the same MCQ notes
   activePreset: "",
   folderFilterStyle: "auto", // "auto" (search box when there are many folders) | "buttons" | "search"
   testDefaults: { count: 10, minutes: 12 },
@@ -12628,6 +12629,7 @@ const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, pa
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, resolveCard } = require("./cards");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
+const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./study-skin");
 const { StudyStatusModal } = require("./study-status-modal");
 const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
@@ -12707,6 +12709,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "timed-test", name: "Start a timed test", callback: () => this.activateTest() });
     this.addCommand({ id: "open-today", name: "Open Today", callback: () => this.activateToday() });
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
+    this.addCommand({ id: "study-skin", name: "Open study cards", callback: () => this.openStudySkin() });
     this.addCommand({
       id: "retry-pending-attempts",
       name: "Retry saving offline practice results",
@@ -13008,6 +13011,21 @@ class QuestionTrackerPlugin extends Plugin {
     const view = await this.activateView();
     if (view && view.startQuickSetup) view.startQuickSetup();
     return view;
+  }
+
+  /** Opens the optional Quizlet-style skin over the same MCQ notes. */
+  async openStudySkin(skin) {
+    if (!studySkinEnabled(this.settings) && !skin) {
+      new Notice("Study cards are off. Turn them on under Settings, MCQ Tracker, Practice.");
+      return null;
+    }
+    const view = await this.activateView();
+    if (view && view.startStudySkin) await view.startStudySkin(skin || this.settings.studySkin);
+    return view;
+  }
+
+  studySkinLabel() {
+    return STUDY_SKIN_LABELS[normalizeStudySkin(this.settings.studySkin)] || STUDY_SKIN_LABELS.off;
   }
 
   /** One-time: notes imported before the rename have source_question_id. */
@@ -14328,6 +14346,7 @@ const { QUICK_START_URL, aiReady, emptyState } = require("./empty-state");
 const { groupIssues } = require("./importer");
 const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
+const { STUDY_SKIN_LABELS, normalizeStudySkin, resolveStudySkin, studyAttemptForChoice, studyAttemptForFlip, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
 
 class PracticeView extends ItemView {
   constructor(leaf, plugin) {
@@ -14346,6 +14365,7 @@ class PracticeView extends ItemView {
     this.generalHistory = [];
     this.timerEl = null;
     this.quickSession = null;
+    this.study = null;
   }
 
   getViewType() {
@@ -14474,6 +14494,116 @@ class PracticeView extends ItemView {
 
   startQuickSetup() {
     this.state = "quick-setup";
+    this.render();
+  }
+
+  /** The optional Quizlet-style skin: same filtered MCQ notes, same scheduler. */
+  async startStudySkin(skinOverride) {
+    const p = this.plugin;
+    const skin = normalizeStudySkin(skinOverride || p.settings.studySkin);
+    if (skin === "off") {
+      new Notice("Study cards are off. Turn them on under Settings, MCQ Tracker, Practice.");
+      return;
+    }
+    const pool = p.filtered(p.getQuestions());
+    const queue = buildQuickQueue(pool, p.settings.mode, fmtDate(new Date()), 20);
+    if (!queue.length) {
+      new Notice("No questions match your current filters.");
+      return;
+    }
+    if (this.quickSession) {
+      this.quickSession = null;
+      p.settings.quickSession = null;
+      await p.save();
+    }
+    p.clearSession();
+    this.study = {
+      skin,
+      paths: queue.map((q) => q.file.path),
+      index: -1,
+      card: null,
+      currentSkin: skin,
+      revealed: false,
+      sel: "",
+      recorded: false,
+      summary: null,
+      startedAt: 0,
+      recalled: 0,
+      reviewed: 0,
+    };
+    this.state = "study";
+    await this.nextStudyCard();
+  }
+
+  async nextStudyCard() {
+    const st = this.study;
+    if (!st) {
+      this.state = "idle";
+      this.render();
+      return;
+    }
+    const p = this.plugin;
+    for (let i = st.index + 1; i < st.paths.length; i++) {
+      const q = p.getQuestions().find((x) => x.file.path === st.paths[i]);
+      if (!q) continue;
+      try {
+        st.card = await loadQuestionData(p, q);
+        st.index = i;
+        st.currentSkin = resolveStudySkin(st.skin, st.card);
+        st.revealed = false;
+        st.sel = "";
+        st.recorded = false;
+        st.summary = null;
+        st.startedAt = Date.now();
+        this.render();
+        return;
+      } catch (e) {
+        // The note vanished between building the queue and opening it.
+      }
+    }
+    st.index = st.paths.length;
+    this.state = "study-summary";
+    this.render();
+  }
+
+  async revealStudyAnswer() {
+    const st = this.study;
+    if (!st || !st.card || st.revealed) return;
+    if (st.currentSkin === "choice" && !st.sel) {
+      new Notice("Choose an answer first.");
+      return;
+    }
+    if (st.currentSkin === "choice") await this.recordStudy("choice");
+    else {
+      st.revealed = true;
+      this.render();
+    }
+  }
+
+  async recordStudy(rating) {
+    const st = this.study;
+    if (!st || !st.card || st.recorded) return;
+    const seconds = studySeconds(st.startedAt, Date.now());
+    const attempt =
+      rating === "choice"
+        ? studyAttemptForChoice(st.sel, st.card.key, seconds, st.card.mode === "self")
+        : studyAttemptForFlip(rating === "known", seconds);
+    try {
+      const summary = await this.plugin.recordAttempt(st.card.file, attempt);
+      st.summary = summary;
+      st.recorded = true;
+      st.revealed = true;
+      st.reviewed++;
+      if (attempt.correct) st.recalled++;
+      this.render();
+    } catch (e) {
+      new Notice(str(e && e.message) || "Could not save this review.", 6000);
+    }
+  }
+
+  endStudy() {
+    this.study = null;
+    this.state = "idle";
     this.render();
   }
 
@@ -14612,6 +14742,8 @@ class PracticeView extends ItemView {
     if (this.state === "question") this.renderQuestion(root);
     else if (this.state === "result") this.renderResult(root);
     else if (this.state === "chat") this.renderChat(root);
+    else if (this.state === "study") this.renderStudy(root);
+    else if (this.state === "study-summary") this.renderStudySummary(root);
     else if (this.state === "quick-setup") this.renderQuickSetup(root);
     else if (this.state === "ai-setup") this.renderAiSetup(root);
     else this.renderIdle(root);
@@ -14791,6 +14923,7 @@ class PracticeView extends ItemView {
     const tools = root.createDiv({ cls: "qt-row qt-small-row" });
     tools.createEl("button", { text: "Today" }).addEventListener("click", () => p.activateToday());
     tools.createEl("button", { text: "Quick Practice" }).addEventListener("click", () => this.startQuickSetup());
+    if (studySkinEnabled(st)) tools.createEl("button", { text: "Study cards" }).addEventListener("click", () => this.startStudySkin());
     tools.createEl("button", { text: "Timed test" }).addEventListener("click", () => p.activateTest());
     tools.createEl("button", { text: "Weak spots & errors" }).addEventListener("click", () => p.activateInsights("weak"));
 
@@ -14974,6 +15107,111 @@ class PracticeView extends ItemView {
     };
     draw();
     card.createEl("button", { text: "Back" }).addEventListener("click", back);
+  }
+
+  renderStudy(root) {
+    const st = this.study;
+    const card = st && st.card;
+    root.addClass("qt-study");
+    const bar = root.createDiv({ cls: "qt-study-bar" });
+    const meta = bar.createDiv({ cls: "qt-study-meta" });
+    meta.createSpan({ cls: "qt-study-mode", text: (st && STUDY_SKIN_LABELS[st.currentSkin]) || "Study cards" });
+    if (st) meta.createSpan({ cls: "qt-study-progress", text: studyProgress(st.index, st.paths.length) });
+    const tools = bar.createDiv({ cls: "qt-study-tools" });
+    if (card) {
+      const open = tools.createEl("button", { text: "Open note", cls: "qt-link" });
+      open.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(card.file));
+    }
+    const end = tools.createEl("button", { text: "End", cls: "qt-link" });
+    end.addEventListener("click", () => this.endStudy());
+
+    if (!card) {
+      root.createDiv({ cls: "qt-hint", text: "This study session has no cards left." });
+      return;
+    }
+
+    const path = card.file.path;
+    const box = root.createDiv({ cls: "qt-study-card" });
+    if (card.sections.stimulus) this.md(card.sections.stimulus, box.createDiv({ cls: "qt-study-stimulus" }), path);
+    this.md(
+      card.sections.question || "*No `## Question` section found in this note.*",
+      box.createDiv({ cls: "qt-stem qt-study-question" }),
+      path
+    );
+
+    if (st.currentSkin === "choice") {
+      const choices = card.sections.choices || [];
+      const key = str(card.key).toUpperCase();
+      const picked = str(st.sel).toUpperCase();
+      const list = box.createDiv({ cls: "qt-answers qt-study-choices" });
+      for (const c of choices) {
+        const isKey = st.revealed && c.letter === key;
+        const isMine = st.revealed && c.letter === picked;
+        const row = list.createEl("button", { text: c.letter, cls: "qt-choice qt-study-choice" });
+        if (isKey) row.addClass("is-key");
+        if (isMine && !isKey) row.addClass("is-miss");
+        if (isMine) row.addClass("is-mine");
+        if (!st.revealed && picked === c.letter) row.addClass("is-selected");
+        if (st.revealed) row.disabled = true;
+        this.md(c.text, row.createDiv({ cls: "qt-choice-text" }), path);
+        if (isKey || isMine) {
+          const tag = isKey && isMine ? "Your answer · correct" : isKey ? "Correct answer" : "Your answer";
+          row.createSpan({ cls: "qt-tag", text: tag });
+        }
+        if (!st.revealed) {
+          row.addEventListener("click", () => {
+            st.sel = c.letter;
+            this.render();
+          });
+        }
+      }
+      if (!st.revealed) box.createDiv({ cls: "qt-hint", text: "Choose one, then reveal the answer." });
+    }
+
+    if (!st.revealed) {
+      const actions = box.createDiv({ cls: "qt-row qt-study-actions" });
+      const show = actions.createEl("button", { text: "Show answer", cls: "mod-cta qt-grow" });
+      show.addEventListener("click", () => this.revealStudyAnswer());
+      const skip = actions.createEl("button", { text: "Skip", cls: "qt-grow" });
+      skip.addEventListener("click", () => this.nextStudyCard());
+      return;
+    }
+
+    const answer = card.sections.answer || (card.key ? `**Correct answer: ${card.key}**` : "");
+    const answerBox = box.createDiv({ cls: "qt-study-answer" });
+    if (answer) this.md(answer, answerBox.createDiv({ cls: "qt-stem" }), path);
+    else answerBox.createDiv({ cls: "qt-hint", text: "This note has no answer key or explanation." });
+
+    if (st.recorded) {
+      const summary = st.summary || {};
+      const next = summary.nextReview ? ` · next review ${summary.nextReview}` : "";
+      box.createDiv({
+        cls: "qt-study-recorded",
+        text: `${summary.queued ? "Saved offline" : "Recorded"}${next}`,
+      });
+      const actions = box.createDiv({ cls: "qt-row qt-study-actions" });
+      actions.createEl("button", { text: "Next card", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.nextStudyCard());
+      return;
+    }
+
+    const actions = box.createDiv({ cls: "qt-row qt-study-actions" });
+    const again = actions.createEl("button", { text: "Still learning", cls: "qt-grow qt-study-again" });
+    again.addEventListener("click", () => this.recordStudy("still"));
+    const known = actions.createEl("button", { text: "Known", cls: "mod-cta qt-grow qt-study-known" });
+    known.addEventListener("click", () => this.recordStudy("known"));
+  }
+
+  renderStudySummary(root) {
+    const st = this.study;
+    const reviewed = st ? st.reviewed : 0;
+    const recalled = st ? st.recalled : 0;
+    root.addClass("qt-study");
+    root.createEl("h3", { text: "Study cards complete" });
+    root.createDiv({ cls: "qt-count", text: `${recalled} of ${reviewed} recalled` });
+    root.createDiv({ cls: "qt-hint", text: "This session used the same review history and scheduler as normal practice." });
+    const actions = root.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Back to practice", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.endStudy());
+    actions.createEl("button", { text: "Study again", cls: "qt-grow" }).addEventListener("click", () => this.startStudySkin(st && st.skin));
   }
 
   renderQuickSetup(root) {
@@ -15670,6 +15908,7 @@ const { renderCalendarSettings } = require("./calendar-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
+const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -15897,6 +16136,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     }
 
     if (this.activeMcqTab === "practice") {
+    new Setting(containerEl)
+      .setName("Study cards skin")
+      .setDesc("An optional Quizlet-style view over the same question notes. Off by default. Flip cards show the question first; choice cards let you pick a choice and then reveal the answer. Reviews use the normal scheduler and history.")
+      .addDropdown((d) => {
+        for (const [id, label] of Object.entries(STUDY_SKIN_LABELS)) d.addOption(id, label);
+        d.setValue(normalizeStudySkin(st.studySkin))
+          .onChange(async (v) => {
+            st.studySkin = normalizeStudySkin(v);
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          });
+      });
+
     new Setting(containerEl)
       .setName("Explanation after answering")
       .setDesc("Whether the explanation starts open or closed on the result screen. You can always show or hide it with the button.")
@@ -16624,6 +16876,90 @@ module.exports = {
 };
 };
 
+/* ---- src/study-skin.js ---- */
+__defs["study-skin"] = function (module, exports, require) {
+/*
+ * The Quizlet-style study skin is a presentation over the same MCQ notes.
+ * It deliberately does not own a queue or a scheduler: the practice view
+ * builds the queue from the normal filters, and these helpers turn a card
+ * rating into the same attempt object that normal practice writes.
+ */
+const { str } = require("./util");
+
+const STUDY_SKINS = ["off", "flip", "choice"];
+const STUDY_SKIN_LABELS = {
+  off: "Off",
+  flip: "Flip cards",
+  choice: "Choice cards",
+};
+
+function normalizeStudySkin(value) {
+  const skin = str(value).trim().toLowerCase();
+  return STUDY_SKINS.includes(skin) ? skin : "off";
+}
+
+function studySkinEnabled(settings) {
+  return normalizeStudySkin(settings && settings.studySkin) !== "off";
+}
+
+/** Choice mode needs choices and a key; anything else falls back to a flip card. */
+function resolveStudySkin(skin, card) {
+  const requested = normalizeStudySkin(skin);
+  if (requested !== "choice") return requested === "flip" ? "flip" : "off";
+  const choices = card && card.sections && Array.isArray(card.sections.choices) ? card.sections.choices : [];
+  const hasKey = !!(card && str(card.key).trim());
+  const canChoose = !!card && card.mode === "mcq" && hasKey && choices.length > 0;
+  return canChoose ? "choice" : "flip";
+}
+
+function studySeconds(startedAt, now) {
+  const start = Number(startedAt) || 0;
+  const end = Number(now) || Date.now();
+  return Math.max(1, Math.round((end - start) / 1000));
+}
+
+/** A flip card is recall: Known counts as correct, Still learning as a miss. */
+function studyAttemptForFlip(known, seconds) {
+  const correct = known === true;
+  return {
+    correct,
+    chosen: correct ? "known" : "still learning",
+    conf: correct ? 3 : 0,
+    seconds: Math.max(1, Math.round(Number(seconds) || 1)),
+  };
+}
+
+/** A choice card records the selected letter exactly like normal practice. */
+function studyAttemptForChoice(chosen, key, seconds, selfGraded) {
+  const picked = str(chosen).trim();
+  const correct = selfGraded ? picked === "correct" : !!picked && picked.toUpperCase() === str(key).trim().toUpperCase();
+  return {
+    correct,
+    chosen: picked,
+    conf: correct ? 2 : 0,
+    seconds: Math.max(1, Math.round(Number(seconds) || 1)),
+  };
+}
+
+function studyProgress(index, total) {
+  const at = Math.max(0, Number(index) || 0) + 1;
+  const count = Math.max(0, Number(total) || 0);
+  return `${Math.min(at, count)} / ${count}`;
+}
+
+module.exports = {
+  STUDY_SKINS,
+  STUDY_SKIN_LABELS,
+  normalizeStudySkin,
+  studySkinEnabled,
+  resolveStudySkin,
+  studySeconds,
+  studyAttemptForFlip,
+  studyAttemptForChoice,
+  studyProgress,
+};
+};
+
 /* ---- src/study-status.js ---- */
 __defs["study-status"] = function (module, exports, require) {
 /*
@@ -17286,6 +17622,7 @@ const cardGradingAi = require("./card-grading-ai");
 const cardGradeQueue = require("./card-grade-queue");
 const { buildDueQueue, DueQueueModal } = require("./due-queue");
 const studyStatus = require("./study-status");
+const studySkin = require("./study-skin");
 const { StudyStatusModal } = require("./study-status-modal");
 const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
@@ -17385,6 +17722,7 @@ QuestionTrackerPlugin.__test = {
   buildDueQueue,
   DueQueueModal,
   studyStatus,
+  studySkin,
   StudyStatusModal,
   CardView,
   CardModal,

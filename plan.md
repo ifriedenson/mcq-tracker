@@ -11,19 +11,19 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Completed: Known, Exclude and the hidden-item manager (§5.22.1).** A question or card can now be hidden without deleting it or pretending it was answered. Known is a timed snooze; Exclude is permanent until restored. Both are note-level properties, so the scheduler and history stay untouched.
+**Completed: Quizlet-style MCQ study cards (§5.22.2).** The same question notes can now be reviewed as flip cards or choice cards without creating a second note, deck or scheduler. Both skins write ordinary attempts, so `history`, `next_review`, analytics and the due queue stay unified.
 
 **What shipped**
 
-- **Known** and **Exclude** actions on the practice answer screen, the result screen and every card review, plus an Undo button in the confirmation notice.
-- A configurable **Known snooze (days)** setting (14 by default), and readable `study_status`, `known_days`, `known_until`, `excluded_on` and `excluded_reason` properties.
-- Hidden items are filtered from practice, Quick Practice, timed tests, card queues, deck counts, Today and the merged due queue; exports intentionally still include them.
-- **Manage known and excluded items** (Settings, Today and the command palette) with title/type/course/deck search, a course filter, Open and Restore.
-- Coverage for expiry, malformed dates, exact Undo snapshots, queue agreement across questions/cards, property writes, and both review-screen actions.
+- **Flip cards** show the passage and question, then reveal the answer and explanation. **Still learning** records a miss; **Known** records a correct recall.
+- **Choice cards** let the learner pick a letter before revealing the marked answer and explanation; the chosen letter is recorded exactly as in normal practice.
+- The skin uses the current filters, pick mode, hidden-item rules and 20-card session cap. Questions without choices or a key fall back to flip cards.
+- **Off by default**; the setting is under Settings, MCQ Tracker, Practice, and turns on a **Study cards** button and command without changing the normal practice screen.
+- Coverage includes default-off behavior, no duplicate notes, flip and choice flows, fallback rules, attempt mapping, progress and summary.
 
-**Next:** Phase 2b's AP FRQ grader, score calculator and resource tools are blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred. The October 28 idea backlog in §5.22 is captured but **unscheduled**; the owner should rank it before implementation resumes. Nothing in that backlog changes the AP pilot gate.
+**Next:** The next unblocked backlog item is the generic CSV/TSV importer (§5.22.3), followed by the rest of the October 28 list. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred.
 
-**Recently completed (1.14.0):** Known/Exclude item control (§5.22.1). Previous release 1.13.0 added AI-graded typed review and deck import.
+**Recently completed (1.15.0):** Quizlet-style study cards (§5.22.2). Previous release 1.14.0 added Known/Exclude item controls.
 
 ---
 
@@ -933,9 +933,11 @@ Use short step cards, each with a working button:
 
 **Acceptance criteria:** excluding an item removes it from every queue and restores it from the Excluded list; a Known item disappears for exactly the configured period and returns in the chosen state; a skip never increments incorrect attempts or breaks a streak by default; the action is undoable and writes a readable property; excluded notes stay in the vault.
 
-#### 5.22.2 Quizlet-style MCQ study skin — **M**
+#### 5.22.2 Quizlet-style MCQ study skin — **Implemented in 1.15.0**
 
 **Source:** the same student request: use MCQ notes in a flashcard format, similar to a Quizlet set, while keeping Bluebook-style practice primary.
+
+**Shipped in 1.15.0:** Both readings are available as an opt-in skin under Settings, MCQ Tracker, Practice: flip cards with Still learning/Known, and choice cards with the selected letter recorded. No new note syntax or parallel queue. Learn/Test/Match variants remain deferred.
 
 - **Same notes, two skins.** This is a view over existing MCQ notes, not a second note format or duplicate deck. One note can be practised as an exam question or a flashcard.
 - **Confirm the reading first:** **(A) flip card** — stem and stimulus on the front, correct answer and explanation on the back, learner marks known/still learning; **(B) card with choices** — tap a choice, then flip to reveal the answer and explanation.

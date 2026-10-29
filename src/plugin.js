@@ -25,6 +25,7 @@ const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, pa
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, resolveCard } = require("./cards");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
+const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./study-skin");
 const { StudyStatusModal } = require("./study-status-modal");
 const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
@@ -104,6 +105,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "timed-test", name: "Start a timed test", callback: () => this.activateTest() });
     this.addCommand({ id: "open-today", name: "Open Today", callback: () => this.activateToday() });
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
+    this.addCommand({ id: "study-skin", name: "Open study cards", callback: () => this.openStudySkin() });
     this.addCommand({
       id: "retry-pending-attempts",
       name: "Retry saving offline practice results",
@@ -405,6 +407,21 @@ class QuestionTrackerPlugin extends Plugin {
     const view = await this.activateView();
     if (view && view.startQuickSetup) view.startQuickSetup();
     return view;
+  }
+
+  /** Opens the optional Quizlet-style skin over the same MCQ notes. */
+  async openStudySkin(skin) {
+    if (!studySkinEnabled(this.settings) && !skin) {
+      new Notice("Study cards are off. Turn them on under Settings, MCQ Tracker, Practice.");
+      return null;
+    }
+    const view = await this.activateView();
+    if (view && view.startStudySkin) await view.startStudySkin(skin || this.settings.studySkin);
+    return view;
+  }
+
+  studySkinLabel() {
+    return STUDY_SKIN_LABELS[normalizeStudySkin(this.settings.studySkin)] || STUDY_SKIN_LABELS.off;
   }
 
   /** One-time: notes imported before the rename have source_question_id. */

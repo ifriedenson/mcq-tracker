@@ -11,6 +11,7 @@ const { renderCalendarSettings } = require("./calendar-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
+const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -238,6 +239,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     }
 
     if (this.activeMcqTab === "practice") {
+    new Setting(containerEl)
+      .setName("Study cards skin")
+      .setDesc("An optional Quizlet-style view over the same question notes. Off by default. Flip cards show the question first; choice cards let you pick a choice and then reveal the answer. Reviews use the normal scheduler and history.")
+      .addDropdown((d) => {
+        for (const [id, label] of Object.entries(STUDY_SKIN_LABELS)) d.addOption(id, label);
+        d.setValue(normalizeStudySkin(st.studySkin))
+          .onChange(async (v) => {
+            st.studySkin = normalizeStudySkin(v);
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          });
+      });
+
     new Setting(containerEl)
       .setName("Explanation after answering")
       .setDesc("Whether the explanation starts open or closed on the result screen. You can always show or hide it with the button.")

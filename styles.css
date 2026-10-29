@@ -2860,6 +2860,89 @@
   margin-left: 10px;
 }
 
+/* Optional Quizlet-style study skin. Same-note review, not a second deck. */
+.qt-study {
+  max-width: 760px;
+  margin: 0 auto;
+  padding-bottom: 30px;
+}
+
+.qt-study-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0 12px;
+}
+
+.qt-study-meta,
+.qt-study-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.qt-study-mode {
+  font-weight: 600;
+}
+
+.qt-study-progress {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.qt-study-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 260px;
+  padding: 22px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-l);
+  background: var(--background-secondary);
+}
+
+.qt-study-stimulus {
+  max-height: 38vh;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-radius: var(--radius-m);
+  background: var(--background-primary-alt);
+  font-family: Georgia, "Times New Roman", Times, serif;
+  line-height: 1.55;
+}
+
+.qt-study-question {
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.qt-study-choice {
+  justify-content: flex-start;
+}
+
+.qt-study-answer {
+  padding-top: 12px;
+  border-top: 2px dashed var(--background-modifier-border);
+}
+
+.qt-study-actions {
+  margin-top: 4px;
+}
+
+.qt-study-recorded {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.qt-study-again {
+  border-color: var(--text-error);
+}
+
+.qt-study-known {
+  border-color: var(--interactive-accent);
+}
+
 .qt-due-list {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);

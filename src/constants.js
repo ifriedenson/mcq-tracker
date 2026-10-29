@@ -65,6 +65,7 @@ const DEFAULT_SETTINGS = {
   filters: {},
   moreSets: [], // extra filter sets, OR'd with `filters`
   mode: "smart",
+  studySkin: "off", // "off" | "flip" | "choice": an extra way to review the same MCQ notes
   activePreset: "",
   folderFilterStyle: "auto", // "auto" (search box when there are many folders) | "buttons" | "search"
   testDefaults: { count: 10, minutes: 12 },

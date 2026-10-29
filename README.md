@@ -22,6 +22,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Practice from your files.** Right-click any folder that holds questions and choose **Practice this folder**, or use the commands. Find any question by its official ID.
 - **Pick modes:** smart weighted mix, adaptive difficulty, due for review, never attempted, missed, flagged, or pure random. Adaptive difficulty favors questions near the learner's current level based on past accuracy and streaks.
 - **Quick Practice:** start a 2, 5, or 10 minute session, or a 5, 10, or 20 question session, using your current filters. It saves the queue so you can resume after closing Obsidian.
+- **Study cards (optional, off by default).** Review the same MCQ notes as flip cards or choice cards, using your current filters and the same scheduler. No duplicate notes or second deck.
 - **Today:** a phone-sized start screen with due and new counts, the next class or exam, and one **Start 5 minutes** button that opens Quick Practice.
 - **Notes box** on the result screen, saved into the note.
 - **Import questions from a file:** an AI agent (or your own AI key) turns a PDF, PowerPoint deck, Word file, OpenDocument, HTML, RTF, Markdown, CSV or text file into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from your files](#import-questions-from-your-files)).
@@ -118,6 +119,15 @@ Every practice and card review screen has **Known** and **Exclude** buttons besi
 - The confirmation notice has an **Undo** button. You can also open **Manage known and excluded items** from the notice, Settings → MCQ Tracker → Review, Today, or the command palette to search the list, filter by course, open a note, or restore it.
 - Hiding an item never records a wrong answer, changes its streak or changes its schedule. Excluded notes stay in the vault, are included in exports, and are still found by search and Dataview.
 
+### Study cards (optional)
+
+**Settings → MCQ Tracker → Practice → Study cards skin** adds a Quizlet-style way to review the same question notes. It is **off by default**; turning it on adds a **Study cards** button to the practice home screen and the command **Open study cards**.
+
+- **Flip cards** show the passage and question first. **Show answer** reveals the answer and explanation; **Still learning** records a miss and **Known** records a correct recall, so the next review is scheduled exactly as in normal practice.
+- **Choice cards** show the answer choices. Pick one, press **Show answer**, and the correct choice and your choice are marked. The selected letter is written to the same `history` and attempt properties as ordinary practice.
+- A session uses the current filters, pick mode, hidden-item rules and scheduler, and is capped at 20 cards. A question with no choices or no answer key automatically falls back to a flip card.
+- The skin never creates or changes a second note, deck or scheduler. Turning it off restores the practice home screen unchanged.
+
 ### Commands
 
 - Open practice view
@@ -129,6 +139,7 @@ Every practice and card review screen has **Known** and **Exclude** buttons besi
 - Practice the folder of this note
 - Start a timed test
 - Quick Practice
+- Open study cards
 - Open Today
 - Retry saving offline practice results
 - Open cards
@@ -289,7 +300,7 @@ Settings are grouped by module, then by tab. **Global** has Modules and General;
 
 - **Global → Modules** is one switch per module: **MCQ Tracker** (on by default), **Cards and vocabulary** (off by default), **Calendar** (off by default) and **AI features** (off by default). Turning a module off keeps its settings and your notes. It closes that module's open tabs and hides its ribbon button; using one of its commands anyway shows a notice that points back here.
 - **Global → General** holds the plugin-wide options: whether the plugin shows its ribbon icons, and whether the practice view opens when Obsidian starts.
-- **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, the Known snooze length and manager, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
+- **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, the Known snooze length and manager, the optional study-cards skin, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
 - **Cards** covers the default deck, the new-card folder, deck folders and course tags, cards per review session, answer mode, grading strictness, the optional AI fallback for typed answers, and whether to review due-and-new or all cards.
 - The calendar's **Appearance & Colors** tab includes a maximum width setting (`0` fills the pane), class colors, break markers, and the study-slot buffer.
 
