@@ -33,6 +33,8 @@ const cardGrading = require("./card-grading");
 const cardGradingAi = require("./card-grading-ai");
 const cardGradeQueue = require("./card-grade-queue");
 const { buildDueQueue, DueQueueModal } = require("./due-queue");
+const studyStatus = require("./study-status");
+const { StudyStatusModal } = require("./study-status-modal");
 const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
@@ -130,6 +132,8 @@ QuestionTrackerPlugin.__test = {
   cardGradeQueue,
   buildDueQueue,
   DueQueueModal,
+  studyStatus,
+  StudyStatusModal,
   CardView,
   CardModal,
   renderSettingsTabs,

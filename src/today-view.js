@@ -4,6 +4,7 @@ const { VIEW_TYPE_TODAY } = require("./constants");
 const { pendingGradeCounts } = require("./card-grade-queue");
 const { fmtDate } = require("./util");
 const { isDue } = require("./filters");
+const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
 
 /*
@@ -54,12 +55,20 @@ class TodayView extends ItemView {
 
     const questions = p.getQuestions();
     const today = fmtDate(now);
-    const due = questions.filter((q) => isDue(q.fm, today));
-    const fresh = questions.filter((q) => !Number(q.fm.attempts));
-    root.createDiv({ cls: "qt-today-count", text: `${due.length} due · ${fresh.length} new · ${questions.length} question${questions.length === 1 ? "" : "s"}` });
+    const visible = questions.filter((q) => isStudyable(q.fm, today));
+    const hidden = questions.length - visible.length;
+    const due = visible.filter((q) => isDue(q.fm, today));
+    const fresh = visible.filter((q) => !Number(q.fm.attempts));
+    const hiddenText = hidden ? ` · ${hidden} hidden` : "";
+    root.createDiv({
+      cls: "qt-today-count",
+      text: `${due.length} due · ${fresh.length} new · ${visible.length} question${visible.length === 1 ? "" : "s"}${hiddenText}`,
+    });
+    const manage = root.createDiv({ cls: "qt-row qt-small-row" });
+    manage.createEl("button", { text: "Known & excluded", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
-    if (questions.length) {
-      const pool = due.length ? due : questions;
+    if (visible.length) {
+      const pool = due.length ? due : visible;
       const mode = due.length ? "due" : "smart";
       const label = due.length ? "questions due today" : "available questions";
       const start = root.createEl("button", { text: "Start 5 minutes", cls: "mod-cta qt-primary qt-today-start" });
@@ -69,9 +78,14 @@ class TodayView extends ItemView {
       more.createEl("button", { text: "Open practice view" }).addEventListener("click", () => p.activateView());
     } else {
       const card = root.createDiv({ cls: "qt-today-card" });
-      card.createEl("h3", { text: "No questions yet" });
-      card.createDiv({ cls: "qt-today-meta", text: "Add notes with a question_id property, or import questions from a file." });
-      card.createEl("button", { text: "Open practice view", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.activateView());
+      card.createEl("h3", { text: hidden ? "All questions are hidden" : "No questions yet" });
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: hidden ? "Known and Excluded items are not in the practice queue. Restore them whenever you want them back." : "Add notes with a question_id property, or import questions from a file.",
+      });
+      card
+        .createEl("button", { text: hidden ? "Manage known and excluded items" : "Open practice view", cls: "mod-cta qt-primary" })
+        .addEventListener("click", () => (hidden ? p.openStudyStatusManager() : p.activateView()));
     }
 
     this.renderDueQueue(root);
@@ -111,7 +125,10 @@ class TodayView extends ItemView {
     const cards = p.getCards ? p.getCards() : [];
     const pending = p.pendingCardGrades ? p.pendingCardGrades() : [];
     const pendingByPath = pendingGradeCounts(pending);
-    const due = cards.filter((c) => !Number(c.fm.attempts) || (!!c.fm.next_review && String(c.fm.next_review).slice(0, 10) <= fmtDate(new Date()))).length;
+    const today = fmtDate(new Date());
+    const due = cards.filter(
+      (c) => isStudyable(c.fm, today) && (!Number(c.fm.attempts) || (!!c.fm.next_review && String(c.fm.next_review).slice(0, 10) <= today))
+    ).length;
     root.createEl("h3", { cls: "qt-today-section", text: "Cards" });
     const card = root.createDiv({ cls: "qt-today-card" });
     card.createDiv({ cls: "qt-today-kicker", text: due ? "Ready to review" : "All caught up" });

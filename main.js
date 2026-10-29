@@ -3318,6 +3318,7 @@ __defs["cards"] = function (module, exports, require) {
  */
 const { str } = require("./util");
 const { isDue } = require("./filters");
+const { isStudyable } = require("./study-status");
 const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictness, parseVariants } = require("./card-grading");
 
 const CARD_TYPES = ["basic", "reversed", "cloze"];
@@ -3686,6 +3687,7 @@ function cardQueue(cards, options) {
   let pool = (cards || []).filter((c) => {
     if (deck && deck !== "all" && lower(c.deck) !== deck) return false;
     if (course && course !== "all" && lower(c.course) !== course) return false;
+    if (!isStudyable(c.fm, today)) return false;
     return opts.order === "all" || isDue(c.fm, today) || !Number(c.fm.attempts);
   });
   const rank = (c) => (isDue(c.fm, today) ? 0 : !Number(c.fm.attempts) ? 1 : 2);
@@ -3703,8 +3705,8 @@ function cardStats(cards, today) {
   const list = Array.isArray(cards) ? cards : [];
   return {
     total: list.length,
-    due: list.filter((c) => isDue(c.fm, today)).length,
-    fresh: list.filter((c) => !Number(c.fm.attempts)).length,
+    due: list.filter((c) => isStudyable(c.fm, today) && isDue(c.fm, today)).length,
+    fresh: list.filter((c) => isStudyable(c.fm, today) && !Number(c.fm.attempts)).length,
   };
 }
 
@@ -3730,6 +3732,7 @@ function deckSummary(cards, settings, today) {
   for (const card of Array.isArray(cards) ? cards : []) {
     const row = ensure(card.deck || "Unsorted");
     row.total++;
+    if (!isStudyable(card.fm, today)) continue;
     if (isDue(card.fm, today)) row.due++;
     if (!Number(card.fm.attempts)) row.fresh++;
   }
@@ -5381,6 +5384,36 @@ class CardView extends ItemView {
     }
   }
 
+  async setCurrentStudyStatus(status) {
+    const p = this.plugin;
+    const card = this.current;
+    if (!card || this.busy) return;
+    if (status === "excluded") {
+      const ok = await p.askConfirm(
+        "Exclude this card?",
+        "It will be skipped by card reviews and the due queue. The note stays in your vault, and you can restore it from Settings, MCQ Tracker, Review, Manage known and excluded items.",
+        "Exclude"
+      );
+      if (!ok) return;
+    }
+    try {
+      const summary = await p.setStudyStatus(card.file, status);
+      p.notifyStudyStatusChange(summary, card.file, summary && summary.previous);
+      if (this.pendingGradeId) p.discardPendingCardGrade(this.pendingGradeId);
+      this.queue.splice(this.index, 1);
+      if (!this.queue.length) {
+        this.state = "browse";
+        this.current = null;
+        this.render();
+        return;
+      }
+      this.index = Math.min(this.index, this.queue.length - 1);
+      await this.showCard();
+    } catch (e) {
+      new Notice(str(e && e.message) || "Could not update this card.", 6000);
+    }
+  }
+
   finish() {
     this.state = "summary";
     this.current = null;
@@ -5498,6 +5531,11 @@ class CardView extends ItemView {
       b.createSpan({ cls: "qt-cards-rate-key", text: key });
       b.addEventListener("click", () => this.rate(grade));
     }
+    const manage = root.createDiv({ cls: "qt-row qt-cards-manage" });
+    const known = manage.createEl("button", { text: `Known ${this.plugin.settings.knownDays || 14}d`, cls: "qt-link" });
+    known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
+    const exclude = manage.createEl("button", { text: "Exclude", cls: "qt-link qt-status-exclude" });
+    exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));
     root.createDiv({
       cls: "qt-hint",
       text: this.aiChecking
@@ -5850,6 +5888,7 @@ const DEFAULT_SETTINGS = {
   fsrsRetention: 0.9, // desired recall probability when FSRS is on (0.85-0.95)
   errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed"],
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
+  knownDays: 14, // default snooze length for the Known button
   autoPauseOnMobile: true,
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   ai: {
@@ -6299,6 +6338,7 @@ __defs["due-queue"] = function (module, exports, require) {
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const { isDue } = require("./filters");
+const { isStudyable } = require("./study-status");
 
 function dueDateOf(fm) {
   return str(fm && fm.next_review).slice(0, 10);
@@ -6320,6 +6360,7 @@ function metaOf(type, source) {
 
 function rowFor(type, source, today) {
   const fm = source.fm || {};
+  if (!isStudyable(fm, today)) return null;
   const isNew = !Number(fm.attempts);
   const dueDate = dueDateOf(fm);
   if (!isNew && !isDue(fm, today)) return null;
@@ -7055,8 +7096,10 @@ module.exports = {
 __defs["filters"] = function (module, exports, require) {
 const { str } = require("./util");
 const { FILTER_FIELDS } = require("./constants");
+const { isStudyable } = require("./study-status");
 
 function isDue(fm, today) {
+  if (!isStudyable(fm, today)) return false;
   return Number(fm.attempts) > 0 && !!fm.next_review && str(fm.next_review).slice(0, 10) <= today;
 }
 
@@ -7271,6 +7314,7 @@ function adaptiveTargetRank(items) {
 function pickQuestion(pool, mode, today, recent, rnd) {
   rnd = rnd || Math.random;
   let items = pool.filter((q) => (MODE_PRED[mode] || MODE_PRED.smart)(q.fm, today));
+  items = items.filter((q) => isStudyable(q.fm, today));
   if (!items.length) return null;
   const tiers = [recent || [], (recent || []).slice(-1), []];
   for (const ex of tiers) {
@@ -12570,7 +12614,7 @@ const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSetting
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
-const { sleep, hashString, localDate, ensureFolder } = require("./util");
+const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
@@ -12583,6 +12627,8 @@ const { CardModal } = require("./card-modal");
 const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, resolveCard } = require("./cards");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
+const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
+const { StudyStatusModal } = require("./study-status-modal");
 const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
 
@@ -12696,6 +12742,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
     this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
+    this.addCommand({ id: "manage-study-status", name: "Manage known and excluded items", callback: () => this.openStudyStatusManager() });
 
     // Embeds: `uni-schedule` and `uni-calendar` are the block names existing University
     // Schedule and Calendar notes use, so those keep working. If that plugin is enabled
@@ -13475,6 +13522,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (filter === "course" && course) {
       const key = subjectKey(cleanSubjectTitle(course));
       return questions.filter((q) => {
+        if (!isStudyable(q.fm, localDate())) return false;
         const values = [q.fm.course, q.fm.test].map((v) => subjectKey(cleanSubjectTitle(v)));
         return values.includes(key);
       });
@@ -13524,8 +13572,15 @@ class QuestionTrackerPlugin extends Plugin {
     return out;
   }
 
-  filtered(questions) {
-    return questions.filter((q) => matchSets(q.fm, [this.settings.filters, ...(this.settings.moreSets || [])], q.file.path));
+  filtered(questions, options) {
+    const opts = options || {};
+    const includeHidden = opts.includeHidden === true;
+    const today = opts.today || localDate();
+    return questions.filter(
+      (q) =>
+        (includeHidden || isStudyable(q.fm, today)) &&
+        matchSets(q.fm, [this.settings.filters, ...(this.settings.moreSets || [])], q.file.path)
+    );
   }
 
   /* ---- cards */
@@ -13544,7 +13599,10 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const deck = String(opts.deck || "").trim().toLowerCase();
     const course = String(opts.course || "").trim().toLowerCase();
+    const includeHidden = opts.includeHidden === true;
+    const today = opts.today || localDate();
     return this.getCards().filter((card) => {
+      if (!includeHidden && !isStudyable(card.fm, today)) return false;
       if (deck && deck !== "all" && card.deck.toLowerCase() !== deck) return false;
       if (course && course !== "all" && card.course.toLowerCase() !== course) return false;
       return true;
@@ -13830,7 +13888,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!["quizlet", "kahoot", "blooket", "gimkit"].includes(kind)) {
       throw new Error(`Unsupported export format: ${kind}.`);
     }
-    const cards = this.filteredCards({ deck: opts.deck, course: opts.course });
+    const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
     if (!cards.length) throw new Error("No cards match the current deck and course filter.");
     const records = [];
     const warnings = [];
@@ -14132,6 +14190,98 @@ class QuestionTrackerPlugin extends Plugin {
     await this.app.fileManager.processFrontMatter(file, (fm) => setLastErrorType(fm, type));
   }
 
+  /** Mark a question or card Known for a snooze, Exclude it, or restore it. */
+  async setStudyStatus(file, status, options) {
+    const opts = options || {};
+    let summary;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      summary = updateStudyStatus(fm, status, {
+        now: opts.now || new Date(),
+        days: opts.days === undefined ? this.settings.knownDays : opts.days,
+        reason: opts.reason,
+      });
+    });
+    this.refreshViews();
+    return summary;
+  }
+
+  studyStatusNotice(summary) {
+    if (!summary) return "Study status updated.";
+    if (summary.status === "known") return `Known for ${summary.days} days (until ${summary.until}).`;
+    if (summary.status === "excluded") return "Excluded from practice. Restore it from Manage known and excluded items.";
+    return "Restored to practice.";
+  }
+
+  /** Put back the exact status properties captured before a Known or Exclude action. */
+  async restoreStudyStatusSnapshot(file, snapshot) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => applyStudyStatusSnapshot(fm, snapshot));
+    this.refreshViews();
+  }
+
+  /** Show the usual confirmation, plus an Undo button when there is a previous state. */
+  notifyStudyStatusChange(summary, file, previous) {
+    const notice = new Notice(this.studyStatusNotice(summary), 7000);
+    if (!file || !previous) return notice;
+    const undo = notice.noticeEl.createEl("button", { text: "Undo", cls: "qt-notice-undo" });
+    undo.addEventListener("click", async () => {
+      undo.disabled = true;
+      try {
+        await this.restoreStudyStatusSnapshot(file, previous);
+        new Notice("Restored the previous study status.", 4000);
+      } catch (e) {
+        new Notice(str(e && e.message) || "Could not undo that change.", 6000);
+      } finally {
+        notice.hide();
+      }
+    });
+    return notice;
+  }
+
+  studyStatusItems() {
+    const today = localDate();
+    const out = [];
+    for (const q of this.getQuestions()) {
+      const status = statusOf(q.fm, today);
+      if (status === "active") continue;
+      out.push({
+        type: "Question",
+        file: q.file,
+        title: str(q.fm.question_id || q.file.basename),
+        course: str(q.fm.course),
+        meta: [q.fm.course, q.fm.skill].filter(Boolean).join(" · "),
+        status,
+        summary: studyStatusSummary(q.fm, today),
+        fm: q.fm,
+      });
+    }
+    for (const card of this.getCards()) {
+      const status = statusOf(card.fm, today);
+      if (status === "active") continue;
+      out.push({
+        type: card.kind === "vocab" ? "Vocabulary" : "Card",
+        file: card.file,
+        title: str(card.fm.card_title || card.file.basename),
+        course: str(card.course),
+        deck: str(card.deck),
+        meta: [card.deck, card.course].filter(Boolean).join(" · "),
+        status,
+        summary: studyStatusSummary(card.fm, today),
+        fm: card.fm,
+      });
+    }
+    return out.sort((a, b) =>
+      a.status === b.status
+        ? a.title.localeCompare(b.title, undefined, { numeric: true })
+        : a.status === "excluded"
+          ? -1
+          : 1
+    );
+  }
+
+  openStudyStatusManager() {
+    new StudyStatusModal(this.app, this).open();
+  }
+
   async toggleFlag(file) {
     let now = false;
     await this.app.fileManager.processFrontMatter(file, (fm) => {
@@ -14362,6 +14512,27 @@ class PracticeView extends ItemView {
     if (!q) return this.finishQuick("A question in this session is no longer available.");
     await this.loadQuestion(q, true);
     this.render();
+  }
+
+  async setCurrentStudyStatus(status) {
+    const p = this.plugin;
+    const file = this.current ? this.current.file : this.result && this.result.file;
+    if (!file) return;
+    if (status === "excluded") {
+      const ok = await p.askConfirm(
+        "Exclude this item?",
+        "It will be skipped by practice, Quick Practice, timed tests and the due queue. The note stays in your vault, and you can restore it from Settings, MCQ Tracker, Review, Manage known and excluded items.",
+        "Exclude"
+      );
+      if (!ok) return;
+    }
+    try {
+      const summary = await p.setStudyStatus(file, status);
+      p.notifyStudyStatusChange(summary, file, summary && summary.previous);
+      await this.next();
+    } catch (e) {
+      new Notice(str(e && e.message) || "Could not update this item.", 6000);
+    }
   }
 
   async finishQuick(message) {
@@ -14896,6 +15067,12 @@ class PracticeView extends ItemView {
     const fl = ctl.createDiv({ cls: "qt-foot-left" });
     const skip = fl.createEl("button", { text: "Skip (don't log)" });
     skip.addEventListener("click", () => this.next());
+    const known = fl.createEl("button", { text: `Known ${p.settings.knownDays || 14}d`, cls: "qt-status-btn" });
+    known.setAttr("title", "Hide this question for a while, then return it as due.");
+    known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
+    const exclude = fl.createEl("button", { text: "Exclude", cls: "qt-status-btn qt-status-exclude" });
+    exclude.setAttr("title", "Keep the note but skip it in every practice queue.");
+    exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));
     const end = fl.createEl("button", { text: "End" });
     end.addEventListener("click", () => {
       if (this.quickSession) this.finishQuick("Quick Practice ended.");
@@ -15088,6 +15265,10 @@ class PracticeView extends ItemView {
       r.flagged = await p.toggleFlag(r.file);
       paintFlag();
     });
+    const known = acts.createEl("button", { text: `Known ${p.settings.knownDays || 14}d` });
+    known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
+    const exclude = acts.createEl("button", { text: "Exclude" });
+    exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));
     const topNext = acts.createEl("button", { text: "Next question", cls: "mod-cta" });
     if (this.quickSession) topNext.setText("Next quick question");
     topNext.addEventListener("click", () => this.next());
@@ -15619,6 +15800,25 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           }
         })
       );
+
+    new Setting(containerEl)
+      .setName("Known snooze (days)")
+      .setDesc("How long the Known button hides a question or card before it returns as due. You can still use the note property for a different period.")
+      .addText((t) =>
+        t.setValue(String(st.knownDays || 14)).onChange(async (v) => {
+          const n = parseInt(v, 10);
+          if (n > 0) {
+            st.knownDays = n;
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          }
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Known and excluded items")
+      .setDesc("Review and restore questions or cards that are hidden from practice.")
+      .addButton((b) => b.setButtonText("Manage").onClick(() => this.plugin.openStudyStatusManager()));
 
     new Setting(containerEl)
       .setName("Scheduler")
@@ -16424,6 +16624,294 @@ module.exports = {
 };
 };
 
+/* ---- src/study-status.js ---- */
+__defs["study-status"] = function (module, exports, require) {
+/*
+ * Known and Exclude are note-level study controls, not scheduler state.
+ *
+ * - known: hide the item for a number of days, then it returns as due.
+ * - excluded: keep the note but remove it from every practice queue.
+ *
+ * The properties are intentionally readable and Dataview-friendly:
+ *   study_status: active | known | excluded
+ *   known_until: YYYY-MM-DD
+ *   known_days: number
+ *   excluded_on: YYYY-MM-DD
+ *   excluded_reason: short text
+ */
+const { addDays, fmtDate, localDate, str } = require("./util");
+
+const DEFAULT_KNOWN_DAYS = 14;
+const MAX_KNOWN_DAYS = 3650;
+const STUDY_STATUSES = ["active", "known", "excluded"];
+const STATUS_PROPS = ["study_status", "known_days", "known_until", "excluded_on", "excluded_reason"];
+
+/** Capture only the readable status properties so an action can be undone exactly. */
+function snapshotStudyStatus(fm) {
+  const snapshot = {};
+  for (const key of STATUS_PROPS) {
+    if (fm && fm[key] !== undefined) snapshot[key] = fm[key];
+  }
+  return snapshot;
+}
+
+/** Restore a snapshot in place, removing any status properties that were not there before. */
+function restoreStudyStatus(fm, snapshot) {
+  for (const key of STATUS_PROPS) delete fm[key];
+  if (!snapshot) return;
+  for (const key of STATUS_PROPS) {
+    if (snapshot[key] !== undefined) fm[key] = snapshot[key];
+  }
+}
+
+function normalizeStatus(value) {
+  const s = str(value).trim().toLowerCase();
+  return s === "known" || s === "excluded" ? s : "active";
+}
+
+function normalizeDays(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return Math.max(1, Math.round(Number(fallback) || DEFAULT_KNOWN_DAYS));
+  return Math.min(MAX_KNOWN_DAYS, Math.max(1, Math.round(n)));
+}
+
+function dateKey(value) {
+  const s = str(value).trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
+}
+
+/** The effective status today. An expired Known item becomes active again. */
+function statusOf(fm, today) {
+  const raw = normalizeStatus(fm && fm.study_status);
+  if (raw === "excluded") return "excluded";
+  if (raw === "known") {
+    const until = dateKey(fm && fm.known_until);
+    const day = dateKey(today) || localDate();
+    if (until && until > day) return "known";
+  }
+  return "active";
+}
+
+function isStudyable(fm, today) {
+  return statusOf(fm, today) === "active";
+}
+
+/** Mutates `fm` inside processFrontMatter. Returns what the UI should announce. */
+function setStudyStatus(fm, status, options) {
+  const opts = options || {};
+  const next = normalizeStatus(status);
+  const now = opts.now instanceof Date && !isNaN(opts.now.getTime()) ? opts.now : new Date();
+  const day = fmtDate(now);
+  const previous = snapshotStudyStatus(fm);
+
+  if (next === "known") {
+    const days = normalizeDays(opts.days, DEFAULT_KNOWN_DAYS);
+    const until = fmtDate(addDays(now, days));
+    fm.study_status = "known";
+    fm.known_days = days;
+    fm.known_until = until;
+    delete fm.excluded_on;
+    delete fm.excluded_reason;
+    return { status: "known", days, until, on: day, previous };
+  }
+
+  if (next === "excluded") {
+    fm.study_status = "excluded";
+    fm.excluded_on = day;
+    fm.excluded_reason = str(opts.reason || "manual").trim().slice(0, 200) || "manual";
+    delete fm.known_days;
+    delete fm.known_until;
+    return { status: "excluded", on: day, reason: fm.excluded_reason, previous };
+  }
+
+  delete fm.study_status;
+  delete fm.known_days;
+  delete fm.known_until;
+  delete fm.excluded_on;
+  delete fm.excluded_reason;
+  return { status: "active", on: day, previous };
+}
+
+function studyStatusSummary(fm, today) {
+  const status = statusOf(fm, today);
+  if (status === "excluded") {
+    const on = dateKey(fm && fm.excluded_on);
+    return on ? `Excluded on ${on}` : "Excluded";
+  }
+  if (status === "known") {
+    const until = dateKey(fm && fm.known_until);
+    return until ? `Known until ${until}` : "Known";
+  }
+  return "";
+}
+
+function statusLabel(status) {
+  const s = normalizeStatus(status);
+  return s === "excluded" ? "Excluded" : s === "known" ? "Known" : "Active";
+}
+
+module.exports = {
+  DEFAULT_KNOWN_DAYS,
+  MAX_KNOWN_DAYS,
+  STUDY_STATUSES,
+  STATUS_PROPS,
+  snapshotStudyStatus,
+  restoreStudyStatus,
+  normalizeStatus,
+  normalizeDays,
+  dateKey,
+  statusOf,
+  isStudyable,
+  setStudyStatus,
+  studyStatusSummary,
+  statusLabel,
+};
+};
+
+/* ---- src/study-status-modal.js ---- */
+__defs["study-status-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { str } = require("./util");
+
+class StudyStatusModal extends Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+    this.items = [];
+    this.query = "";
+    this.course = "all";
+    this.listEl = null;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("qt-status-modal");
+    contentEl.createEl("h3", { text: "Known and excluded items" });
+    contentEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Known items return to the due queue when their snooze ends. Excluded items stay in your vault but are skipped by practice, Quick Practice, timed tests and the due queue.",
+    });
+
+    this.items = this.plugin.studyStatusItems();
+    if (!this.items.length) {
+      contentEl.createDiv({
+        cls: "qt-hint",
+        text: "Nothing is marked Known or Excluded right now. Use the buttons on a practice or card review screen to hide something.",
+      });
+      this.addDone(contentEl);
+      return;
+    }
+
+    const controls = contentEl.createDiv({ cls: "qt-status-controls" });
+    const search = controls.createEl("input", {
+      type: "search",
+      cls: "qt-status-search",
+      placeholder: "Search title, course, deck or type",
+    });
+    search.value = this.query;
+    search.addEventListener("input", () => {
+      this.query = search.value;
+      this.renderRows();
+    });
+
+    const courses = [...new Set(this.items.map((item) => str(item.course).trim()).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true })
+    );
+    if (courses.length > 1) {
+      const select = controls.createEl("select", { cls: "dropdown qt-status-course" });
+      const all = select.createEl("option", { text: "All courses" });
+      all.value = "all";
+      for (const course of courses) {
+        const option = select.createEl("option", { text: course });
+        option.value = course;
+      }
+      select.value = this.course;
+      select.addEventListener("change", () => {
+        this.course = select.value;
+        this.renderRows();
+      });
+    }
+
+    this.listEl = contentEl.createDiv({ cls: "qt-status-groups" });
+    this.renderRows();
+    this.addDone(contentEl);
+  }
+
+  addDone(container) {
+    const done = container.createEl("button", { text: "Done", cls: "qt-done" });
+    done.addEventListener("click", () => this.close());
+  }
+
+  renderRows() {
+    if (!this.listEl) return;
+    this.listEl.empty();
+    const query = this.query.trim().toLowerCase();
+    const course = this.course;
+    const visible = this.items.filter((item) => {
+      if (course !== "all" && str(item.course) !== course) return false;
+      if (!query) return true;
+      return [item.title, item.type, item.course, item.deck, item.meta, item.summary]
+        .map((value) => str(value).toLowerCase())
+        .some((value) => value.includes(query));
+    });
+
+    if (!visible.length) {
+      this.listEl.createDiv({ cls: "qt-hint", text: "No hidden items match that search or course." });
+      return;
+    }
+
+    for (const [status, label] of [
+      ["excluded", "Excluded"],
+      ["known", "Known"],
+    ]) {
+      const rows = visible.filter((item) => item.status === status);
+      if (!rows.length) continue;
+      this.listEl.createEl("h4", { text: `${label} (${rows.length})` });
+      const list = this.listEl.createDiv({ cls: "qt-status-list" });
+      for (const item of rows) {
+        const row = list.createDiv({ cls: `qt-status-row qt-status-${status}` });
+        const main = row.createDiv({ cls: "qt-status-main" });
+        main.createDiv({ cls: "qt-status-title", text: str(item.title) });
+        const bits = [item.type, item.meta, item.summary].filter(Boolean);
+        main.createDiv({ cls: "qt-status-meta", text: bits.join(" · ") });
+
+        const open = row.createEl("button", { text: "Open", cls: "qt-link" });
+        open.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(item.file));
+
+        const restore = row.createEl("button", { text: "Restore", cls: "mod-cta" });
+        restore.addEventListener("click", () => this.restore(item, restore));
+      }
+    }
+  }
+
+  async restore(item, button) {
+    if (!item || !item.file) return;
+    if (button) button.disabled = true;
+    try {
+      await this.plugin.setStudyStatus(item.file, "active");
+      new Notice(`${str(item.title) || "Item"} is back in practice.`);
+      this.items = this.plugin.studyStatusItems();
+      if (!this.items.length) {
+        this.onOpen();
+        return;
+      }
+      this.course = "all";
+      this.renderRows();
+    } catch (e) {
+      if (button) button.disabled = false;
+      new Notice(str(e && e.message) || "Could not restore that item.");
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = { StudyStatusModal };
+};
+
 /* ---- src/today-view.js ---- */
 __defs["today-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
@@ -16431,6 +16919,7 @@ const { VIEW_TYPE_TODAY } = require("./constants");
 const { pendingGradeCounts } = require("./card-grade-queue");
 const { fmtDate } = require("./util");
 const { isDue } = require("./filters");
+const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
 
 /*
@@ -16481,12 +16970,20 @@ class TodayView extends ItemView {
 
     const questions = p.getQuestions();
     const today = fmtDate(now);
-    const due = questions.filter((q) => isDue(q.fm, today));
-    const fresh = questions.filter((q) => !Number(q.fm.attempts));
-    root.createDiv({ cls: "qt-today-count", text: `${due.length} due · ${fresh.length} new · ${questions.length} question${questions.length === 1 ? "" : "s"}` });
+    const visible = questions.filter((q) => isStudyable(q.fm, today));
+    const hidden = questions.length - visible.length;
+    const due = visible.filter((q) => isDue(q.fm, today));
+    const fresh = visible.filter((q) => !Number(q.fm.attempts));
+    const hiddenText = hidden ? ` · ${hidden} hidden` : "";
+    root.createDiv({
+      cls: "qt-today-count",
+      text: `${due.length} due · ${fresh.length} new · ${visible.length} question${visible.length === 1 ? "" : "s"}${hiddenText}`,
+    });
+    const manage = root.createDiv({ cls: "qt-row qt-small-row" });
+    manage.createEl("button", { text: "Known & excluded", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
-    if (questions.length) {
-      const pool = due.length ? due : questions;
+    if (visible.length) {
+      const pool = due.length ? due : visible;
       const mode = due.length ? "due" : "smart";
       const label = due.length ? "questions due today" : "available questions";
       const start = root.createEl("button", { text: "Start 5 minutes", cls: "mod-cta qt-primary qt-today-start" });
@@ -16496,9 +16993,14 @@ class TodayView extends ItemView {
       more.createEl("button", { text: "Open practice view" }).addEventListener("click", () => p.activateView());
     } else {
       const card = root.createDiv({ cls: "qt-today-card" });
-      card.createEl("h3", { text: "No questions yet" });
-      card.createDiv({ cls: "qt-today-meta", text: "Add notes with a question_id property, or import questions from a file." });
-      card.createEl("button", { text: "Open practice view", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.activateView());
+      card.createEl("h3", { text: hidden ? "All questions are hidden" : "No questions yet" });
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: hidden ? "Known and Excluded items are not in the practice queue. Restore them whenever you want them back." : "Add notes with a question_id property, or import questions from a file.",
+      });
+      card
+        .createEl("button", { text: hidden ? "Manage known and excluded items" : "Open practice view", cls: "mod-cta qt-primary" })
+        .addEventListener("click", () => (hidden ? p.openStudyStatusManager() : p.activateView()));
     }
 
     this.renderDueQueue(root);
@@ -16538,7 +17040,10 @@ class TodayView extends ItemView {
     const cards = p.getCards ? p.getCards() : [];
     const pending = p.pendingCardGrades ? p.pendingCardGrades() : [];
     const pendingByPath = pendingGradeCounts(pending);
-    const due = cards.filter((c) => !Number(c.fm.attempts) || (!!c.fm.next_review && String(c.fm.next_review).slice(0, 10) <= fmtDate(new Date()))).length;
+    const today = fmtDate(new Date());
+    const due = cards.filter(
+      (c) => isStudyable(c.fm, today) && (!Number(c.fm.attempts) || (!!c.fm.next_review && String(c.fm.next_review).slice(0, 10) <= today))
+    ).length;
     root.createEl("h3", { cls: "qt-today-section", text: "Cards" });
     const card = root.createDiv({ cls: "qt-today-card" });
     card.createDiv({ cls: "qt-today-kicker", text: due ? "Ready to review" : "All caught up" });
@@ -16780,6 +17285,8 @@ const cardGrading = require("./card-grading");
 const cardGradingAi = require("./card-grading-ai");
 const cardGradeQueue = require("./card-grade-queue");
 const { buildDueQueue, DueQueueModal } = require("./due-queue");
+const studyStatus = require("./study-status");
+const { StudyStatusModal } = require("./study-status-modal");
 const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
 const { PdfImportModal } = require("./import-modal");
@@ -16877,6 +17384,8 @@ QuestionTrackerPlugin.__test = {
   cardGradeQueue,
   buildDueQueue,
   DueQueueModal,
+  studyStatus,
+  StudyStatusModal,
   CardView,
   CardModal,
   renderSettingsTabs,

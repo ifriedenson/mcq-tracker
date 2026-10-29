@@ -143,6 +143,25 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Known snooze (days)")
+      .setDesc("How long the Known button hides a question or card before it returns as due. You can still use the note property for a different period.")
+      .addText((t) =>
+        t.setValue(String(st.knownDays || 14)).onChange(async (v) => {
+          const n = parseInt(v, 10);
+          if (n > 0) {
+            st.knownDays = n;
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          }
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Known and excluded items")
+      .setDesc("Review and restore questions or cards that are hidden from practice.")
+      .addButton((b) => b.setButtonText("Manage").onClick(() => this.plugin.openStudyStatusManager()));
+
+    new Setting(containerEl)
       .setName("Scheduler")
       .setDesc(
         "Simple ladder uses fixed intervals. FSRS schedules each question from an estimated memory state and your target recall. " +

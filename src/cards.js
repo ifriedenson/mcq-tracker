@@ -8,6 +8,7 @@
  */
 const { str } = require("./util");
 const { isDue } = require("./filters");
+const { isStudyable } = require("./study-status");
 const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictness, parseVariants } = require("./card-grading");
 
 const CARD_TYPES = ["basic", "reversed", "cloze"];
@@ -376,6 +377,7 @@ function cardQueue(cards, options) {
   let pool = (cards || []).filter((c) => {
     if (deck && deck !== "all" && lower(c.deck) !== deck) return false;
     if (course && course !== "all" && lower(c.course) !== course) return false;
+    if (!isStudyable(c.fm, today)) return false;
     return opts.order === "all" || isDue(c.fm, today) || !Number(c.fm.attempts);
   });
   const rank = (c) => (isDue(c.fm, today) ? 0 : !Number(c.fm.attempts) ? 1 : 2);
@@ -393,8 +395,8 @@ function cardStats(cards, today) {
   const list = Array.isArray(cards) ? cards : [];
   return {
     total: list.length,
-    due: list.filter((c) => isDue(c.fm, today)).length,
-    fresh: list.filter((c) => !Number(c.fm.attempts)).length,
+    due: list.filter((c) => isStudyable(c.fm, today) && isDue(c.fm, today)).length,
+    fresh: list.filter((c) => isStudyable(c.fm, today) && !Number(c.fm.attempts)).length,
   };
 }
 
@@ -420,6 +422,7 @@ function deckSummary(cards, settings, today) {
   for (const card of Array.isArray(cards) ? cards : []) {
     const row = ensure(card.deck || "Unsorted");
     row.total++;
+    if (!isStudyable(card.fm, today)) continue;
     if (isDue(card.fm, today)) row.due++;
     if (!Number(card.fm.attempts)) row.fresh++;
   }

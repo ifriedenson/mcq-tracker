@@ -2,7 +2,7 @@
 
 **Status:** Implementation in progress — exam-aware scheduling caps implemented; next: owner pilot gate for AP tools (Phase 2b)
 **Prepared:** October 27, 2026
-**Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), and agent-driven quality gates (§8.5). Roadmap re-ordered (§7).
+**Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), and the October 28 idea backlog (§5.22). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
 
 > **How to read the license notes.** License information below comes from each plugin's community page, README, or a stats/index site as seen during research on Oct 27, 2026. Items marked **Verify** were not confirmed. Before copying any code, open the repo's `LICENSE` file and `package.json` yourself. MIT allows reuse if you keep the copyright and license notice. This is not legal advice.
@@ -11,18 +11,19 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Completed: exam-aware scheduling caps (§4.3, §5.8).** Questions and cards now get an earlier review when their course has an upcoming exam. The cap is applied after the ladder or FSRS and never extends an interval; matching uses the exam summary and the course name/code, so "MATH 221 Final" matches "MATH 221 - Linear Algebra" without matching "Precalculus" to "Calculus".
+**Completed: Known, Exclude and the hidden-item manager (§5.22.1).** A question or card can now be hidden without deleting it or pretending it was answered. Known is a timed snooze; Exclude is permanent until restored. Both are note-level properties, so the scheduler and history stay untouched.
 
 **What shipped**
 
-- `next_review` is capped to the day before the matching exam (today when the exam is today).
-- `exam_cap`, `exam_cap_name` and `exam_cap_exam_date` record the applied cap; items with no course or no matching exam are unchanged.
-- The practice result screen explains when a cap moved the date.
-- Coverage includes ladder and FSRS, no exam, an exam after the computed due date, an exam before it, exam day, two exams for one course, unknown courses and card reviews.
+- **Known** and **Exclude** actions on the practice answer screen, the result screen and every card review, plus an Undo button in the confirmation notice.
+- A configurable **Known snooze (days)** setting (14 by default), and readable `study_status`, `known_days`, `known_until`, `excluded_on` and `excluded_reason` properties.
+- Hidden items are filtered from practice, Quick Practice, timed tests, card queues, deck counts, Today and the merged due queue; exports intentionally still include them.
+- **Manage known and excluded items** (Settings, Today and the command palette) with title/type/course/deck search, a course filter, Open and Restore.
+- Coverage for expiry, malformed dates, exact Undo snapshots, queue agreement across questions/cards, property writes, and both review-screen actions.
 
-**Next:** Phase 2b's AP FRQ grader, score calculator and resource tools are blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred. No further unblocked implementation is queued in this plan until that gate is approved.
+**Next:** Phase 2b's AP FRQ grader, score calculator and resource tools are blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred. The October 28 idea backlog in §5.22 is captured but **unscheduled**; the owner should rank it before implementation resumes. Nothing in that backlog changes the AP pilot gate.
 
-**Recently completed (unreleased):** pending-grade visibility in Today and the Cards list, with per-card Review actions and a Grade now retry control (§5.17).
+**Recently completed (1.14.0):** Known/Exclude item control (§5.22.1). Previous release 1.13.0 added AI-graded typed review and deck import.
 
 ---
 
@@ -896,6 +897,176 @@ Use short step cards, each with a working button:
 
 ---
 
+### 5.22 October 28 idea backlog (captured, unscheduled) — **S–L depending on item**
+
+**Why this section exists.** On October 28, 2026 the owner supplied a second research dump: a student conversation about skipping known questions and a Quizlet-style study mode, a long list of flashcard and question sources, MIT-licensed plugins worth auditing, reference-tool ideas, and a standalone-mobile cost sketch. This section captures only ideas that are **not already specified elsewhere**. Everything here is **captured, not approved**: assign it to a phase only after the owner ranks it. The AP pilot gate (§5.20) still governs AP-specific work.
+
+**Already covered — do not duplicate**
+
+| Idea | Where it already lives |
+|---|---|
+| AI tutor, Socratic mode, quick actions, slash commands | §5.18 |
+| Flashcards, vocabulary, decks, typed/spoken answers, AI grading, pending grades | §5.7, §5.17 |
+| Analytics dashboard, heatmaps, accuracy, retention, streaks | §5.12 |
+| Calendar, courses, exams, study blocks, exam-aware caps | §5.8, §4.3 |
+| AI question generation, weak-spot targeting, blind verification | §5.3, §5.4 |
+| FRQ grading and AP exam tools | §5.5, §5.20 |
+| Transcription and PDF/paper ingestion | §5.13, §5.13.1 |
+| Formula sheet and basic calculator panel | §5.16.8 |
+| Study time, focus timer and daily goals | §5.10 |
+| Standalone mobile decision, packaging and monetization | §10c |
+
+#### 5.22.1 Known, Exclude, suspend and bury — **Implemented in 1.14.0 (suspend/bury deferred)**
+
+**Source:** a direct student request: a button to skip or exclude a question from future use because the learner already knows it, as Quizlet allows. Do this before the larger poll items because it is small, visible and requested.
+
+**Shipped in 1.14.0:** Known and Exclude on practice and card review, a configurable snooze, exact Undo, readable status properties, and a searchable/course-filtered manager with Restore. Known/Exclude do not record an attempt or alter history. Suspend, bury and per-course snooze defaults remain deferred.
+
+- **Known (timed snooze)** and **Exclude (permanent)** are two separate actions, not one button with hidden behaviour.
+- **Known** hides the item for a configurable number of days (`known_days`, default 14, optionally per course). When the snooze ends the item returns as **due** by default, not as new; make that a setting.
+- **Exclude** removes the item from practice, Quick Practice, timed tests, the due queue and generated plans. Provide an **Excluded** list with search, course filter, restore and an undo toast.
+- **A skip is not a wrong answer.** Record a distinct `skipped` or `known` event, never `incorrect`. It must not reset the streak or count against accuracy unless the user explicitly enables that.
+- **Suspend** (hidden until restored) and **bury** (hidden until the next day or session) are optional advanced states; map them to Anki semantics only after Known/Exclude works.
+- **Readable properties:** `study_status: active|known|excluded`, `known_until`, `excluded_on`, `excluded_reason`. Keep history append-only and Dataview-friendly.
+- **Surfaces:** practice, review, card history, Today and an excluded-items manager. A skip action should be one tap; disable it during timed tests if exam realism is preferred.
+- **Open decisions:** whether Known counts toward accuracy/streaks; whether a snoozed item returns as new or due; whether Exclude is allowed in timed tests; whether defaults are per item or per course.
+
+**Acceptance criteria:** excluding an item removes it from every queue and restores it from the Excluded list; a Known item disappears for exactly the configured period and returns in the chosen state; a skip never increments incorrect attempts or breaks a streak by default; the action is undoable and writes a readable property; excluded notes stay in the vault.
+
+#### 5.22.2 Quizlet-style MCQ study skin — **M**
+
+**Source:** the same student request: use MCQ notes in a flashcard format, similar to a Quizlet set, while keeping Bluebook-style practice primary.
+
+- **Same notes, two skins.** This is a view over existing MCQ notes, not a second note format or duplicate deck. One note can be practised as an exam question or a flashcard.
+- **Confirm the reading first:** **(A) flip card** — stem and stimulus on the front, correct answer and explanation on the back, learner marks known/still learning; **(B) card with choices** — tap a choice, then flip to reveal the answer and explanation.
+- **Modes to consider:** flashcards with known/still learning, Learn (adaptive order), Test (scored set), Match (term/definition pairing). Verify Quizlet's current UI before copying vocabulary or layout.
+- **Reuse the existing queue, filters, scheduler and analytics.** A session writes the same attempt/history properties as normal practice so one scheduler still owns everything.
+- **Off by default**, clearly labelled as an extra study mode, not a replacement for exam-style practice. No new note syntax: pure flashcards remain the Cards module.
+
+**Acceptance criteria:** the same MCQ note can be reviewed in exam mode and Quizlet mode without duplication; answers write normal attempt/history properties and feed the same due queue; the mode is off by default and does not change the existing practice screen; flip-card and choice-card flows are both tested before release.
+
+#### 5.22.3 Import breadth and import quality — **M–L, split by format**
+
+The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced Repetition to varying degrees. Add the following, in this order.
+
+| Source family | Formats to add | Notes |
+|---|---|---|
+| **Generic CSV / TSV** | Header detection, delimiter/quote detection, column mapping, saved presets, preview | **Highest payoff.** One importer covers Brainscape, Cram, RemNote, Memrise, Sheets/Excel and most Quizlet exports. Do this before app-specific importers. |
+| **Other Obsidian plugins** | Spaced Repetition (`Q::A`, multiline `?`, cloze, `#flashcards`), Obsidian_to_Anki custom syntax, Mochi `#card` with `---`, Flashcards (Colucci), Yanki, FlashCard, Syro | One-click **Migrate from X** with preview. Read documented syntax only; do not copy GPL code. |
+| **Other apps** | Mochi, Memrise, Cram, Knowt, Brainscape, RemNote, Notion tables | Mostly via CSV. Confirm Mochi's current format before promising native `.mochi` import. |
+| **More Anki variants** | `.apkg` (new and old), Anki text, CrowdAnki JSON, AnkiWeb shared decks | The plan already lists `.apkg`, AnkiConnect and LearnKit formats as remaining. Add text, CrowdAnki and shared decks; preserve scheduling and media where possible. |
+| **LMS quiz banks** | Moodle XML, GIFT, QTI (Canvas, Blackboard) | Fits university users. Formats above are from memory; **Verify** current specifications. |
+| **Exam / quiz formats** | FlashQuiz `@mc`/`@sata`/`@tf`, VCE via converter, QuizPort JSON, Markdown checkbox quizzes | CBT Exam Simulator and QuizPort are references. **Verify** the VCE converter's license separately. |
+| **Export** | Anki text, CSV, Markdown, JSON, Mochi `.mochi`; `.apkg` export is a known gap | Round-trip where practical so users can leave with their cards. |
+| **Import quality** | Dry-run preview, report (created, skipped, duplicates, media failures), duplicate detection, source attribution | Apply to every importer, including existing ones. |
+
+**Rules:** prefer files users export themselves; do not scrape Quizlet, Kahoot, Blooket, Gimkit, Canvas or AnkiWeb, and review each service's terms before any unofficial API. Normalize every importer into the existing note format and scheduler; no parallel card database. Dedupe by official ID, normalized text and page/image hash; re-import offers **skip**, **update** or **create copy**. Stage the import, show the report, then commit in one batch; never half-write. Write `import_source`, `import_format`, `imported_on`, `import_batch` and `import_source_url`. Tell users they are responsible for imported content and that no copyrighted question banks are bundled. Keep one small, legally usable fixture per format in CI.
+
+**Acceptance criteria:** a generic CSV with a header imports by mapped columns and reports skipped rows; a same-length, same-prefix file edit is detected before re-import; re-importing the same deck does not duplicate by default; every imported item carries source properties and enters the normal due queue; a failed row or media file is reported without blocking the batch.
+
+#### 5.22.4 Smaller study-flow ideas
+
+- **Rule-based card extraction (no AI).** Build Q/A pairs from headings, "X means…" sentences, colon and bullet definitions, two-column tables, highlights and existing cloze marks. AI can improve or expand the result, but the rule-based path must work with AI off. *(Source: FlashCard plugin.)*
+- **Per-note auto-card opt in/out.** A `flashcards: true|false` property so a lecture note is never scraped into cards by surprise. Pair it with a preview before writing.
+- **Practice this note only.** Scope a session to one note or one heading, useful after a lecture and for debugging a question. Reuse the existing filter machinery; do not add a second queue.
+- **Daily quiz plus streak.** Generate a small daily MCQ set from chosen folders, with a streak separate from study-time streaks. *(Source: VaultQuiz.)* Keep it opt-in and local; no notification spam.
+- **Exam question range.** Run questions 1–20 (or any range) from a larger set for Bluebook-style section practice. *(Source: CBT Exam Simulator.)* Add it to timed-test blueprints (§5.6).
+- **Tutor role presets.** Private Tutor, Socratic Tutor and Language Partner roles, plus `/guide`, `/quiz`, `/confuse`, `/gap`, `/predict`, `/feynman` and `/mock` commands. This extends §5.18; it is not a second assistant.
+- **Image occlusion cards.** One card per mask on a diagram, useful for anatomy, biology and maps. Add it to the card types in §5.7. LearnKit, Osteon, Flashcard Studio and Decks are references; verify their licenses, and note that LearnKit's Anki import currently skips occlusion cards.
+- **Audio-only commute mode.** Read due cards, questions and explanations aloud in a hands-free queue, with sentence highlighting and optional caching. TTS is deferred in Phase 2; this is the UX to evaluate when it returns. Provider (API) voices are the realistic route on Android because a plugin cannot rely on a system speech engine there. *(Sources: Voice Aloud, Murmur, Voice Notes, Apple TTS.)*
+- **Ask-before-build UI gate.** For an ambiguous UI request, collect a screenshot, sketch or reference before changing the UI; ask and get answers first. This applies especially to the Quizlet-style skin (§5.22.2) and the reference panel (§5.22.5).
+- **PDF editor.** Decide between integrating an existing MIT PDF plugin and building a small annotator. The useful scope is pen/highlighter, text boxes, form filling, highlights with notes, and a sidecar `annotations.md` keyed by a file hash. Desktop-first; mobile editing is limited. This is **not** near-term and should not delay scanning (§5.13.1), which already covers capture-to-PDF. *(Candidates: Pdftion, Freedraw PDF, PDF Writer, Handwritten Notes, PDF Editor, PDF Ink, Local PDF Annotator.)*
+
+#### 5.22.5 Reference panel — **M; optional module**
+
+One optional **Reference** module (off by default) for tools students expect beside practice. It must match the exam: hide or restrict tools in closed-book, no-calculator or no-reference sections.
+
+- **Graphing calculator.** Recommended route: **JSXGraph**, dual-licensed LGPL/MIT and usable under the MIT option, including commercially. It covers functions, geometry, vector fields, charts and touch input. Math Plotter, Plot Vectors and Graphs, and Excalidraw Math Plotter are MIT references.
+- **Desmos is not the default.** The free personal Desmos API key is non-commercial, and the observed Obsidian Desmos plugin is GPL-3.0. Do not bundle Desmos code or build a paid feature on a personal key. If users want it, follow the **Live Plots** pattern: load it with the user's own key, disclose the restriction, and keep it optional. Revisit only with a Desmos partnership.
+- **Periodic table.** The MIT Periodic Table plugin is desktop-only. Build a small mobile-friendly tap-to-open table in the panel. Check the dataset's license before bundling it.
+- **Calculators, units and math input.** Unit Converter (MIT), Symbat (MIT, Numbat-based), Valnote Calculator (MIT), LaTeX Math (MIT, SymPy), MathLive (MIT, optional OCR needs a key). Calc Craft is Apache-2.0: permissive, but keep its NOTICE and isolate it if the repo must stay purely MIT.
+- **One-screen references.** Unit circle, trig identities, codon table, Punnett square, constants and formula sheets. Per-course and per-exam visibility. Formula sheets already exist in §5.16.8; this extends them.
+
+**Acceptance criteria:** the panel is off by default and can be hidden per timed-test section; the graphing tool works without a network call and without a Desmos key; the periodic table and references work at phone width; every bundled dataset or library has its license recorded in `NOTICES.md`.
+
+#### 5.22.6 License guardrails and candidate audit
+
+**Decision (owner):** the plugin stays **MIT** so it can be monetized later. MIT allows charging for the software; it also allows anyone to fork and redistribute it, so plan to charge for things the MIT code does not hand out: hosted AI credits, sync/backup, a standalone app, original content packs, or support. This is not legal advice.
+
+| Category | Rule |
+|---|---|
+| **Allowed to copy or bundle** | MIT, BSD, ISC and 0BSD code. Keep the copyright and license text in `NOTICES.md` and in copied file headers. |
+| **Apache-2.0** | Permissive, but keep its license and NOTICE. If the repo must stay purely MIT, isolate Apache code or skip it. |
+| **Dual-licensed** | Use the MIT option where offered (for example JSXGraph, LGPL or MIT). |
+| **GPL / AGPL / LGPL** | Do not bundle into `main.js`. Reported examples: Obsidian_to_Anki (GPL-3.0), Obsidian Desmos (GPL-3.0), Talking Cards (GPL-3.0), Whetstone engine (AGPL). **Verify** each. |
+| **MPL-2.0** | File-level copyleft. Avoid copying files into this codebase; the Cloze plugin is the example to check. |
+| **Non-commercial / no-derivatives / proprietary** | Do not copy. Examples: Yiji Study's question bank (CC BY-NC-ND), ExamForge (proprietary), the free personal Desmos key. |
+| **No license shown** | Treat as all rights reserved. Do not copy. |
+| **"MIT with donation request"** | Read the exact text before reuse; Obsidian Scribe is the example. |
+
+**Also check:** bundled dependencies and data (fonts, icons, element datasets, question banks, zstd decoders, drawing libraries) each have their own license; sample packs must be original; import services require a terms review; `CONTRIBUTING.md` should state that contributions are MIT; CI should fail on a disallowed license (§8.5); still **Verify** ts-fsrs, Chem/RDKit, Ketcher, Latex Suite, PDF++, and every candidate below. Before any paid tier, re-read Obsidian's directory and developer policies on payments, accounts, network use and licensing, and disclose them in the README.
+
+**New candidates worth auditing** (directory/repo licenses as reported on Oct 28, 2026; open each repo before copying)
+
+| Candidate | Why it matters | License note |
+|---|---|---|
+| **FlashCard** (Ansu Samanta) | Suspend/skip separate from Again, deck screen, review UI, import report, dashboard | MIT per directory; verify repo and zstd decoder provenance |
+| **Syro**, **SFC Flashcards**, **Star InfoLearn** | Spaced repetition plus incremental reading; FSRS; four item types on one schedule | MIT per directory; verify |
+| **CBT Exam Simulator**, **QuizPort**, **Note Quiz Engine**, **Simple Quiz**, **Omniscient** | Exam ranges and `@mc`/`@sata`/`@tf`; JSON quizzes; Markdown-checkbox quizzes; keyboard sessions | MIT; CQuiz license not shown |
+| **AI Study Buddy**, **Deep Notes**, **Feynman Learning** | Tutor role presets, Socratic questions, gap analysis | MIT per directory; verify |
+| **LLM Test Gen**, **Flashcard Generator**, **VaultQuiz** | Generation and grading from notes; daily quiz plus streak | MIT per directory; verify |
+| **Whisper** (nikdanilov), **Voice Aloud**, **Murmur**, **Voice Notes**, **Apple TTS** | Transcription and read-aloud/commute mode | MIT; platform support differs and Android system speech is limited |
+| **Better Task**, **Study Vault**, **Tag Timer**, **Study Tracker** | Exam task spread, course exams, timers, study streaks | MIT per directory; verify |
+| **JSXGraph**, **Math Plotter**, **Plot Vectors and Graphs**, **Excalidraw Math Plotter** | Graphing and math figures | JSXGraph MIT option; others MIT |
+| **Periodic Table**, **Unit Converter**, **Symbat**, **Valnote Calculator**, **LaTeX Math**, **MathLive** | Reference panel tools | MIT; **Calc Craft** is Apache-2.0 |
+| **Pdftion**, **Freedraw PDF**, **PDF Writer**, **Handwritten Notes**, **PDF Editor**, **PDF Ink**, **Local PDF Annotator** | PDF editing and annotation routes | MIT; desktop/mobile support differs |
+| **LearnKit**, **Osteon**, **Flashcard Studio**, **Decks** | Image occlusion | MIT or Verify; check each |
+| **Mochi Cards Exporter**, **Yanki** | Mochi and Anki interop | Verify |
+| **Do not copy:** Obsidian_to_Anki, Cloze, Desmos, Talking Cards, Yiji Study, ExamForge | GPL/MPL/proprietary/non-commercial/ND | See the table above |
+
+#### 5.22.7 Standalone mobile prep checklist
+
+§10c remains the product decision and monetization record. This is cheap preparation so a future app is not a rewrite.
+
+- **Keep the core pure.** Item model, note parsers, scheduler, grading, import parsers and the AI service layer must not import Obsidian APIs or Node `fs`, so a React Native app can reuse them.
+- **Treat the note format as a contract.** Markdown plus frontmatter, a documented property schema, and append-only history (§5.19) so phone and desktop merge safely.
+- **Budget for a renderer.** The app cannot reuse Obsidian's Markdown or math rendering. Plan for Markdown plus KaTeX in a WebView; the rendering audit in §5.16.1 carries over.
+- **Choose storage and sync early.** Try **Study Bundles** first (a zip of Markdown questions/cards/history that users import/export), then a user-chosen synced folder, then your own paid sync backend. Do not assume Obsidian Sync is available.
+- **Keys and AI.** BYOK keys go in secure storage; a managed AI tier needs a backend, accounts and store billing rules.
+- **Naming.** Do not use "Obsidian" in the app name or logo.
+- **Pick a measurable trigger.** For example, repeated requests from users who do not use Obsidian, or a retention/download threshold. Do not start on enthusiasm alone.
+- **Costs to re-check:** Apple Developer Program about $99/year; Google Play about $25 one-time; Expo EAS builds iOS from Windows but its free allowance changes; store commission is generally 15% for small developers and 30% above the threshold, with digital goods usually requiring in-app purchase; external payment links are in legal flux. A web/PWA test avoids store fees and review cycles.
+- **License fit.** The MIT core can be reused. Everything excluded in §5.22.6 stays excluded, including GPL code and the non-commercial Desmos key. Check every mobile dependency's license in CI.
+
+#### 5.22.8 New open questions
+
+These are in addition to §11.
+
+1. **Known vs exclude:** Is a timed snooze enough, or is permanent exclusion the main request? When a snooze ends, does the item return as due or new? Does it count toward accuracy and streaks?
+2. **Quizlet-style MCQs:** Reading A (flip card) or reading B (card with choices)? Get the student's example set or a sketch before building.
+3. **PDF editor:** Integrate an existing MIT plugin, build a small annotator, or skip it for now?
+4. **Analytics:** Given the student vote, should a minimal all-progress view ship earlier than Phase 6?
+5. **Import formats:** Confirm Mochi's current format and the current Moodle/GIFT/QTI specifications. Which format comes first after generic CSV?
+6. **Desmos:** Confirm JSXGraph as the only built-in graphing route. The personal Desmos key is non-commercial and conflicts with the MIT-and-chargeable decision.
+7. **Reference panel:** Which tools ship first (graphing, periodic table, formula sheet, unit converter), and which sections hide them?
+8. **Mobile:** What measurable signal starts the standalone app, and should a PWA/web test come first? Is Study Bundles enough for the first sync story?
+9. **Licensing:** Who verifies each candidate's `LICENSE` and `package.json` before any code is copied? Add that owner to the release checklist.
+
+#### 5.22.9 Suggested order (advisory, not approved)
+
+1. **Known and Exclude** — small, direct student request, improves every queue.
+2. **Generic CSV/TSV import plus import report and dedupe** — highest reach for the least format-specific work.
+3. **Quizlet-style MCQ skin** — reuses existing notes and the existing queue.
+4. **Rule-based card extraction, per-note opt-in, practice-this-note-only** — creation and control without AI.
+5. **Daily quiz/streak, exam question range, tutor role presets** — small study-flow wins.
+6. **Image occlusion and audio-only commute mode** — card depth once TTS/provider support is validated.
+7. **Reference panel** — useful but optional; keep it out of timed tests by default.
+8. **PDF editor** — integrate first; build only if integration is inadequate.
+9. **More import formats** (Mochi, Moodle/GIFT/QTI, Anki text/CrowdAnki) — after generic CSV proves the pipeline.
+10. **Standalone mobile prep** — keep the core portable now; start the app only when the trigger is met.
+
+---
+
 ## 6. Property schema (draft)
 
 Names are proposals; keep existing ones unchanged.
@@ -915,6 +1086,9 @@ Names are proposals; keep existing ones unchanged.
 | Cards/vocab | `item_type: card\|vocab`, `language`, `part_of_speech`, `audio` |
 | Card answer modes | `answer_mode: flip\|type\|speak`, `accepted_variants`, `grading_strictness: strict\|standard\|lenient`, `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by`, `graded_on`, `grade_status: pending\|graded`, `grade_attempt_id`, `grade_confidence` |
 | Math / STEM | `tolerance`, `tolerance_type`, `sig_figs`, `units`, `accepted_answers`, `variables`, `answer_formula`, `variant_seed`, `calculator: allowed\|none`, `formula_sheet` |
+| Item control | `study_status: active\|known\|excluded`, `known_until`, `excluded_on`, `excluded_reason` |
+| Import provenance | `import_source`, `import_format`, `imported_on`, `import_batch`, `import_source_url` |
+| Note opt-in | `flashcards: true\|false`, `quiz: true\|false` |
 
 **Principle:** if a note can be understood without the plugin, the properties are well-named. Avoid storing large blobs in frontmatter.
 
@@ -955,7 +1129,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Self-grade fallback when AI grading is off or the queue is discarded, recorded as `graded_by: self` (§5.17)
 - [x] Unified due queue model and Today/command list across cards, vocab and MCQs — interleaved mixed-review sessions remain
 - [x] Pending-grade visibility in Today and the Cards list, with per-card Review actions and a Grade now retry control (§5.17)
-- [ ] Optional TTS/audio — deferred until exam-aware scheduling caps land; provider choice and mobile support still need validation.
+- [ ] Optional TTS/audio — deferred; provider choice, mobile support and an audio-only commute mode still need validation. Exam-aware scheduling caps have landed (§4.3); see §5.22.4.
 
 ### Phase 2b: AP exam tools (research next; highly wanted)
 
@@ -972,9 +1146,9 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Course registry, folder mapping, `.ics` import, per-class notes (§5.8)
 - [x] Month grid, daily timeline, live countdown, mobile Today and Upcoming views
 - [x] Exam model, exam countdowns, SAT/AP-style non-semester exam events
-- [ ] **Exam-aware scheduling caps (§4.3)** — next implementation. Cap ladder and FSRS due dates before a matching exam; never extend an interval; leave unknown courses untouched.
-  - [ ] Apply the cap after ladder/FSRS scheduling and explain it in the result summary.
-  - [ ] Test ladder, FSRS, no exam, exam after the due date, exam before it, exam day, two exams for one course, and unknown courses.
+- [x] **Exam-aware scheduling caps (§4.3)** — shipped. Cap ladder and FSRS due dates before a matching exam; never extend an interval; leave unknown courses untouched.
+  - [x] Apply the cap after ladder/FSRS scheduling and explain it in the result summary.
+  - [x] Test ladder, FSRS, no exam, exam after the due date, exam before it, exam day, two exams for one course, and unknown courses.
 - [x] Suggested study blocks in free gaps
 - [x] Filtered `.ics` export
 
@@ -1013,6 +1187,8 @@ These are **research and specification items**, not implementation work. The AP 
 - [ ] Remaining interop and CSV export (§5.15)
 - [ ] Pronunciation feedback for language learners (optional)
 - [ ] Handwritten-work photo grading (optional, vision models)
+
+**Unscheduled backlog.** The October 28 ideas in §5.22 are intentionally not assigned to a phase. Promote them individually after the owner ranks them; §5.22.9 is an advisory order, not a commitment.
 
 ---
 
@@ -2272,6 +2448,9 @@ Names are proposals; keep existing ones unchanged.
 | Cards/vocab | `item_type: card\|vocab`, `language`, `part_of_speech`, `audio` |
 | Card answer modes | `answer_mode: flip\|type\|speak`, `accepted_variants`, `grading_strictness: strict\|standard\|lenient`, `last_typed_answer`, `last_verdict`, `verdict_override`, `graded_by`, `graded_on` |
 | Math / STEM | `tolerance`, `tolerance_type`, `sig_figs`, `units`, `accepted_answers`, `variables`, `answer_formula`, `variant_seed`, `calculator: allowed\|none`, `formula_sheet` |
+| Item control | `study_status: active\|known\|excluded`, `known_until`, `excluded_on`, `excluded_reason` |
+| Import provenance | `import_source`, `import_format`, `imported_on`, `import_batch`, `import_source_url` |
+| Note opt-in | `flashcards: true\|false`, `quiz: true\|false` |
 
 **Principle:** if a note can be understood without the plugin, the properties are well-named. Avoid storing large blobs in frontmatter.
 
@@ -2310,7 +2489,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] AI grader with strictness settings, override, and grade-later queue
 - [x] Unified due queue model and Today/command list across cards, vocab and MCQs — interleaved mixed-review sessions remain
 - [x] Pending-grade visibility in Today and the Cards list, with per-card Review actions and a Grade now retry control (§5.17)
-- [ ] Optional TTS/audio — deferred until exam-aware scheduling caps land; provider choice and mobile support still need validation.
+- [ ] Optional TTS/audio — deferred; provider choice, mobile support and an audio-only commute mode still need validation. Exam-aware scheduling caps have landed (§4.3); see §5.22.4.
 - [x] **AP exam tools research** — FRQ grader, AP score calculator, and AP resource hub (§5.20); [spec](docs/ap-frq-grader-spec.md) complete. Implementation remains behind the pilot gate.
 
 ### Phase 3: Calendar and courses (priority)
@@ -2318,9 +2497,9 @@ Names are proposals; keep existing ones unchanged.
 - [x] Course registry, folder mapping, `.ics` import, per-class notes (§5.8)
 - [x] Month grid, daily timeline, live countdown, mobile Today and Upcoming views
 - [x] Exam model, exam countdowns, SAT/AP-style non-semester exam events
-- [ ] **Exam-aware scheduling caps (§4.3)** — next implementation. Cap ladder and FSRS due dates before a matching exam; never extend an interval; leave unknown courses untouched.
-  - [ ] Apply the cap after ladder/FSRS scheduling and explain it in the result summary.
-  - [ ] Test ladder, FSRS, no exam, exam after the due date, exam before it, exam day, two exams for one course, and unknown courses.
+- [x] **Exam-aware scheduling caps (§4.3)** — shipped. Cap ladder and FSRS due dates before a matching exam; never extend an interval; leave unknown courses untouched.
+  - [x] Apply the cap after ladder/FSRS scheduling and explain it in the result summary.
+  - [x] Test ladder, FSRS, no exam, exam after the due date, exam before it, exam day, two exams for one course, and unknown courses.
 - [x] Suggested study blocks in free gaps
 - [x] Filtered `.ics` export
 

@@ -2793,6 +2793,73 @@
   box-shadow: 0 0 0 1px var(--interactive-accent);
 }
 
+.qt-status-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 6px;
+}
+
+.qt-status-search {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.qt-status-course {
+  flex: 0 1 190px;
+}
+
+.qt-status-groups h4 {
+  margin: 14px 0 6px;
+}
+
+.qt-status-list {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+}
+
+.qt-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.qt-status-row:last-child {
+  border-bottom: none;
+}
+
+.qt-status-row.qt-status-excluded {
+  border-left: 3px solid var(--text-error);
+}
+
+.qt-status-row.qt-status-known {
+  border-left: 3px solid var(--text-accent);
+}
+
+.qt-status-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.qt-status-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qt-status-meta {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.qt-notice-undo {
+  margin-left: 10px;
+}
+
 .qt-due-list {
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);

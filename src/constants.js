@@ -37,6 +37,7 @@ const DEFAULT_SETTINGS = {
   fsrsRetention: 0.9, // desired recall probability when FSRS is on (0.85-0.95)
   errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed"],
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
+  knownDays: 14, // default snooze length for the Known button
   autoPauseOnMobile: true,
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   ai: {

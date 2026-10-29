@@ -46,6 +46,24 @@ test("today: shows due/new counts and starts a five-minute session with due ques
   assert.equal(call.pool[0].file.path, "Questions/due.md");
 });
 
+test("today: hidden questions are not counted as due, new or available", async () => {
+  const app = makeApp([{ path: "Questions/hidden.md", fm: { answer: "C", study_status: "excluded" } }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  let opened = 0;
+  plugin.openStudyStatusManager = () => opened++;
+  const dom = makeDom();
+  const view = new T.TodayView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  assert.ok(dom.texts().includes("0 due · 0 new · 0 questions · 1 hidden"));
+  assert.ok(dom.texts().includes("All questions are hidden"));
+  await dom.click("Manage known and excluded items");
+  assert.equal(opened, 1);
+});
+
 test("today: falls back to all questions when none are due", async () => {
   const app = makeApp([{ path: "Questions/new.md", fm: { answer: "C" } }]);
   const plugin = new QT(app);

@@ -9,6 +9,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Timer** with pause. It survives closing the app, and on mobile it can pause itself when you switch apps.
 - **Review after answering.** See the question and choices again with your pick and the correct answer marked, plus an explanation you can show or hide (the default is a setting).
 - **Spaced review.** Correct answers come back after 1, 3, 7, 21, then 60 days (editable). Misses come back tomorrow.
+- **Known and Exclude.** Hide a question or card you already know for a configurable snooze, or exclude it from every queue without deleting the note. Both actions are undoable, and **Manage known and excluded items** lists, searches, filters and restores them.
 - **Exam-aware review.** When the calendar is on and an upcoming exam matches a question's or card's course, the next review is brought forward to the day before the exam. It never extends an interval, and items without a matching course or exam are unchanged.
 - **Optional FSRS scheduling.** Turn on a memory-model scheduler in settings. It estimates difficulty and stability per question, aims for your chosen recall probability, and replays existing history once so you do not start from zero. The simple 1/3/7/21/60-day ladder remains the default and switching back is lossless.
 - **Offline-tolerant results.** If a note cannot be written for a moment (a sync lock, a removable drive, or a mobile storage hiccup), the attempt is kept in a local outbox. The result screen still works, error tags stay attached, and the queue is retried on startup, when the device comes back online, and with **Retry saving offline practice results**.
@@ -86,7 +87,7 @@ Which choice best describes the relationship between the two texts?
 - The answer key is read from the `answer` property, or from a line like `Correct Answer: B` in the `## Answer` section.
 - `question_type` can be `mcq`, `spr` (student-produced response), or anything else for self-grading. Free text such as "Multiple choice (4 choices)" is understood too.
 - Properties the plugin reads: `course, test, section, domain, skill, unit, difficulty, question_type, choices, answer, target_seconds, stimulus_id`.
-- Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, next_review, last_attempt_id, srs, scheduler, history`. `srs` and `scheduler` are populated when FSRS schedules a review (`srs` may be empty if you add tracking properties to notes first).
+- Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, next_review, last_attempt_id, srs, scheduler, history`, plus the Known/Exclude fields `study_status, known_days, known_until, excluded_on, excluded_reason` when you use those actions. `srs` and `scheduler` are populated when FSRS schedules a review (`srs` may be empty if you add tracking properties to notes first).
 
 Run the command **Add missing tracking properties to all question notes** to add the writable properties to notes that don't have them yet.
 
@@ -96,7 +97,7 @@ Run the command **Add missing tracking properties to all question notes** to add
 2. Pick a preset or set filters. The **Folder** filter lists every folder that holds questions; picking a folder also includes its sub folders. Tap several values to allow any of them. Tap **+ Add another set (OR)** to combine groups, for example "Unit 3 or 4 of a history course" OR "SAT, Reading and Writing, Inferences".
 3. Choose how to pick questions and press **Start**. Or press **Timed test** or **Weak spots & errors** on the same screen.
 4. Choose an answer, say how sure you are, and **Submit**.
-5. On the result screen you can review the question, show or hide the explanation, tag why you missed it, write notes, flag the question, open the note, or ask the AI. Press **Next question** to continue.
+5. On the result screen you can review the question, show or hide the explanation, tag why you missed it, write notes, flag the question, open the note, or ask the AI. Press **Next question** to continue. **Known** and **Exclude** are beside the answer controls and stay available after you answer.
 
 ### Review scheduling
 
@@ -107,6 +108,15 @@ To use **FSRS** instead, open **Settings → MCQ Tracker → Review → Schedule
 When an upcoming calendar exam matches the note's `course`, the scheduled `next_review` is capped to the day before the exam (or today when the exam is today). The cap is applied after the ladder or FSRS and never lengthens an interval. The applied date, exam name and exam date are recorded in `exam_cap`, `exam_cap_name` and `exam_cap_exam_date`; items with no course or no matching exam are left alone. The result screen explains when a cap moved the date.
 
 Each `history` entry is stored as `date|result|seconds|answer|confidence|error_type`.
+
+### Known and excluded items
+
+Every practice and card review screen has **Known** and **Exclude** buttons beside the answer controls. They hide an item without deleting its note or changing its review history:
+
+- **Known** hides the item for **Known snooze (days)** (14 by default; Settings → MCQ Tracker → Review). It returns to the due queue on that date. The note keeps `study_status: known`, `known_days` and `known_until`.
+- **Exclude** removes the item from practice, Quick Practice, timed tests, card reviews and the merged due queue until you restore it. The note keeps `study_status: excluded`, `excluded_on` and `excluded_reason`.
+- The confirmation notice has an **Undo** button. You can also open **Manage known and excluded items** from the notice, Settings → MCQ Tracker → Review, Today, or the command palette to search the list, filter by course, open a note, or restore it.
+- Hiding an item never records a wrong answer, changes its streak or changes its schedule. Excluded notes stay in the vault, are included in exports, and are still found by search and Dataview.
 
 ### Commands
 
@@ -279,7 +289,7 @@ Settings are grouped by module, then by tab. **Global** has Modules and General;
 
 - **Global → Modules** is one switch per module: **MCQ Tracker** (on by default), **Cards and vocabulary** (off by default), **Calendar** (off by default) and **AI features** (off by default). Turning a module off keeps its settings and your notes. It closes that module's open tabs and hides its ribbon button; using one of its commands anyway shows a notice that points back here.
 - **Global → General** holds the plugin-wide options: whether the plugin shows its ribbon icons, and whether the practice view opens when Obsidian starts.
-- **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
+- **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, the Known snooze length and manager, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
 - **Cards** covers the default deck, the new-card folder, deck folders and course tags, cards per review session, answer mode, grading strictness, the optional AI fallback for typed answers, and whether to review due-and-new or all cards.
 - The calendar's **Appearance & Colors** tab includes a maximum width setting (`0` fills the pane), class colors, break markers, and the study-slot buffer.
 

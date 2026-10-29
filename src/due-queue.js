@@ -9,6 +9,7 @@
 const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const { isDue } = require("./filters");
+const { isStudyable } = require("./study-status");
 
 function dueDateOf(fm) {
   return str(fm && fm.next_review).slice(0, 10);
@@ -30,6 +31,7 @@ function metaOf(type, source) {
 
 function rowFor(type, source, today) {
   const fm = source.fm || {};
+  if (!isStudyable(fm, today)) return null;
   const isNew = !Number(fm.attempts);
   const dueDate = dueDateOf(fm);
   if (!isNew && !isDue(fm, today)) return null;

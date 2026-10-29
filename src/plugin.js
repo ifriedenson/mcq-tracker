@@ -11,7 +11,7 @@ const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSetting
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
-const { sleep, hashString, localDate, ensureFolder } = require("./util");
+const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
@@ -24,6 +24,8 @@ const { CardModal } = require("./card-modal");
 const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, resolveCard } = require("./cards");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
+const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
+const { StudyStatusModal } = require("./study-status-modal");
 const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
 
@@ -137,6 +139,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
     this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
+    this.addCommand({ id: "manage-study-status", name: "Manage known and excluded items", callback: () => this.openStudyStatusManager() });
 
     // Embeds: `uni-schedule` and `uni-calendar` are the block names existing University
     // Schedule and Calendar notes use, so those keep working. If that plugin is enabled
@@ -916,6 +919,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (filter === "course" && course) {
       const key = subjectKey(cleanSubjectTitle(course));
       return questions.filter((q) => {
+        if (!isStudyable(q.fm, localDate())) return false;
         const values = [q.fm.course, q.fm.test].map((v) => subjectKey(cleanSubjectTitle(v)));
         return values.includes(key);
       });
@@ -965,8 +969,15 @@ class QuestionTrackerPlugin extends Plugin {
     return out;
   }
 
-  filtered(questions) {
-    return questions.filter((q) => matchSets(q.fm, [this.settings.filters, ...(this.settings.moreSets || [])], q.file.path));
+  filtered(questions, options) {
+    const opts = options || {};
+    const includeHidden = opts.includeHidden === true;
+    const today = opts.today || localDate();
+    return questions.filter(
+      (q) =>
+        (includeHidden || isStudyable(q.fm, today)) &&
+        matchSets(q.fm, [this.settings.filters, ...(this.settings.moreSets || [])], q.file.path)
+    );
   }
 
   /* ---- cards */
@@ -985,7 +996,10 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const deck = String(opts.deck || "").trim().toLowerCase();
     const course = String(opts.course || "").trim().toLowerCase();
+    const includeHidden = opts.includeHidden === true;
+    const today = opts.today || localDate();
     return this.getCards().filter((card) => {
+      if (!includeHidden && !isStudyable(card.fm, today)) return false;
       if (deck && deck !== "all" && card.deck.toLowerCase() !== deck) return false;
       if (course && course !== "all" && card.course.toLowerCase() !== course) return false;
       return true;
@@ -1271,7 +1285,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!["quizlet", "kahoot", "blooket", "gimkit"].includes(kind)) {
       throw new Error(`Unsupported export format: ${kind}.`);
     }
-    const cards = this.filteredCards({ deck: opts.deck, course: opts.course });
+    const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
     if (!cards.length) throw new Error("No cards match the current deck and course filter.");
     const records = [];
     const warnings = [];
@@ -1571,6 +1585,98 @@ class QuestionTrackerPlugin extends Plugin {
 
   async setErrorType(file, type) {
     await this.app.fileManager.processFrontMatter(file, (fm) => setLastErrorType(fm, type));
+  }
+
+  /** Mark a question or card Known for a snooze, Exclude it, or restore it. */
+  async setStudyStatus(file, status, options) {
+    const opts = options || {};
+    let summary;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      summary = updateStudyStatus(fm, status, {
+        now: opts.now || new Date(),
+        days: opts.days === undefined ? this.settings.knownDays : opts.days,
+        reason: opts.reason,
+      });
+    });
+    this.refreshViews();
+    return summary;
+  }
+
+  studyStatusNotice(summary) {
+    if (!summary) return "Study status updated.";
+    if (summary.status === "known") return `Known for ${summary.days} days (until ${summary.until}).`;
+    if (summary.status === "excluded") return "Excluded from practice. Restore it from Manage known and excluded items.";
+    return "Restored to practice.";
+  }
+
+  /** Put back the exact status properties captured before a Known or Exclude action. */
+  async restoreStudyStatusSnapshot(file, snapshot) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => applyStudyStatusSnapshot(fm, snapshot));
+    this.refreshViews();
+  }
+
+  /** Show the usual confirmation, plus an Undo button when there is a previous state. */
+  notifyStudyStatusChange(summary, file, previous) {
+    const notice = new Notice(this.studyStatusNotice(summary), 7000);
+    if (!file || !previous) return notice;
+    const undo = notice.noticeEl.createEl("button", { text: "Undo", cls: "qt-notice-undo" });
+    undo.addEventListener("click", async () => {
+      undo.disabled = true;
+      try {
+        await this.restoreStudyStatusSnapshot(file, previous);
+        new Notice("Restored the previous study status.", 4000);
+      } catch (e) {
+        new Notice(str(e && e.message) || "Could not undo that change.", 6000);
+      } finally {
+        notice.hide();
+      }
+    });
+    return notice;
+  }
+
+  studyStatusItems() {
+    const today = localDate();
+    const out = [];
+    for (const q of this.getQuestions()) {
+      const status = statusOf(q.fm, today);
+      if (status === "active") continue;
+      out.push({
+        type: "Question",
+        file: q.file,
+        title: str(q.fm.question_id || q.file.basename),
+        course: str(q.fm.course),
+        meta: [q.fm.course, q.fm.skill].filter(Boolean).join(" · "),
+        status,
+        summary: studyStatusSummary(q.fm, today),
+        fm: q.fm,
+      });
+    }
+    for (const card of this.getCards()) {
+      const status = statusOf(card.fm, today);
+      if (status === "active") continue;
+      out.push({
+        type: card.kind === "vocab" ? "Vocabulary" : "Card",
+        file: card.file,
+        title: str(card.fm.card_title || card.file.basename),
+        course: str(card.course),
+        deck: str(card.deck),
+        meta: [card.deck, card.course].filter(Boolean).join(" · "),
+        status,
+        summary: studyStatusSummary(card.fm, today),
+        fm: card.fm,
+      });
+    }
+    return out.sort((a, b) =>
+      a.status === b.status
+        ? a.title.localeCompare(b.title, undefined, { numeric: true })
+        : a.status === "excluded"
+          ? -1
+          : 1
+    );
+  }
+
+  openStudyStatusManager() {
+    new StudyStatusModal(this.app, this).open();
   }
 
   async toggleFlag(file) {

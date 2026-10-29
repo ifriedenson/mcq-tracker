@@ -1,8 +1,10 @@
 "use strict";
 const { str } = require("./util");
 const { FILTER_FIELDS } = require("./constants");
+const { isStudyable } = require("./study-status");
 
 function isDue(fm, today) {
+  if (!isStudyable(fm, today)) return false;
   return Number(fm.attempts) > 0 && !!fm.next_review && str(fm.next_review).slice(0, 10) <= today;
 }
 
@@ -217,6 +219,7 @@ function adaptiveTargetRank(items) {
 function pickQuestion(pool, mode, today, recent, rnd) {
   rnd = rnd || Math.random;
   let items = pool.filter((q) => (MODE_PRED[mode] || MODE_PRED.smart)(q.fm, today));
+  items = items.filter((q) => isStudyable(q.fm, today));
   if (!items.length) return null;
   const tiers = [recent || [], (recent || []).slice(-1), []];
   for (const ex of tiers) {

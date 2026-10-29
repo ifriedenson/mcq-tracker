@@ -442,6 +442,36 @@ class CardView extends ItemView {
     }
   }
 
+  async setCurrentStudyStatus(status) {
+    const p = this.plugin;
+    const card = this.current;
+    if (!card || this.busy) return;
+    if (status === "excluded") {
+      const ok = await p.askConfirm(
+        "Exclude this card?",
+        "It will be skipped by card reviews and the due queue. The note stays in your vault, and you can restore it from Settings, MCQ Tracker, Review, Manage known and excluded items.",
+        "Exclude"
+      );
+      if (!ok) return;
+    }
+    try {
+      const summary = await p.setStudyStatus(card.file, status);
+      p.notifyStudyStatusChange(summary, card.file, summary && summary.previous);
+      if (this.pendingGradeId) p.discardPendingCardGrade(this.pendingGradeId);
+      this.queue.splice(this.index, 1);
+      if (!this.queue.length) {
+        this.state = "browse";
+        this.current = null;
+        this.render();
+        return;
+      }
+      this.index = Math.min(this.index, this.queue.length - 1);
+      await this.showCard();
+    } catch (e) {
+      new Notice(str(e && e.message) || "Could not update this card.", 6000);
+    }
+  }
+
   finish() {
     this.state = "summary";
     this.current = null;
@@ -559,6 +589,11 @@ class CardView extends ItemView {
       b.createSpan({ cls: "qt-cards-rate-key", text: key });
       b.addEventListener("click", () => this.rate(grade));
     }
+    const manage = root.createDiv({ cls: "qt-row qt-cards-manage" });
+    const known = manage.createEl("button", { text: `Known ${this.plugin.settings.knownDays || 14}d`, cls: "qt-link" });
+    known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
+    const exclude = manage.createEl("button", { text: "Exclude", cls: "qt-link qt-status-exclude" });
+    exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));
     root.createDiv({
       cls: "qt-hint",
       text: this.aiChecking

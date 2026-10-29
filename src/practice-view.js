@@ -198,6 +198,27 @@ class PracticeView extends ItemView {
     this.render();
   }
 
+  async setCurrentStudyStatus(status) {
+    const p = this.plugin;
+    const file = this.current ? this.current.file : this.result && this.result.file;
+    if (!file) return;
+    if (status === "excluded") {
+      const ok = await p.askConfirm(
+        "Exclude this item?",
+        "It will be skipped by practice, Quick Practice, timed tests and the due queue. The note stays in your vault, and you can restore it from Settings, MCQ Tracker, Review, Manage known and excluded items.",
+        "Exclude"
+      );
+      if (!ok) return;
+    }
+    try {
+      const summary = await p.setStudyStatus(file, status);
+      p.notifyStudyStatusChange(summary, file, summary && summary.previous);
+      await this.next();
+    } catch (e) {
+      new Notice(str(e && e.message) || "Could not update this item.", 6000);
+    }
+  }
+
   async finishQuick(message) {
     this.plugin.clearSession();
     this.plugin.settings.quickSession = null;
@@ -730,6 +751,12 @@ class PracticeView extends ItemView {
     const fl = ctl.createDiv({ cls: "qt-foot-left" });
     const skip = fl.createEl("button", { text: "Skip (don't log)" });
     skip.addEventListener("click", () => this.next());
+    const known = fl.createEl("button", { text: `Known ${p.settings.knownDays || 14}d`, cls: "qt-status-btn" });
+    known.setAttr("title", "Hide this question for a while, then return it as due.");
+    known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
+    const exclude = fl.createEl("button", { text: "Exclude", cls: "qt-status-btn qt-status-exclude" });
+    exclude.setAttr("title", "Keep the note but skip it in every practice queue.");
+    exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));
     const end = fl.createEl("button", { text: "End" });
     end.addEventListener("click", () => {
       if (this.quickSession) this.finishQuick("Quick Practice ended.");
@@ -922,6 +949,10 @@ class PracticeView extends ItemView {
       r.flagged = await p.toggleFlag(r.file);
       paintFlag();
     });
+    const known = acts.createEl("button", { text: `Known ${p.settings.knownDays || 14}d` });
+    known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
+    const exclude = acts.createEl("button", { text: "Exclude" });
+    exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));
     const topNext = acts.createEl("button", { text: "Next question", cls: "mod-cta" });
     if (this.quickSession) topNext.setText("Next quick question");
     topNext.addEventListener("click", () => this.next());
