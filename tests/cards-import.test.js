@@ -432,3 +432,44 @@ test("plugin: an explicit CSV mapping is not replaced by a saved preset", async 
   const preview = await plugin.previewCardsCsv("imports/swapped.csv", { hasHeader: true });
   assert.equal(preview.cards[0].front, "hola", "the saved mapping keeps the reversed column choice");
 });
+
+test("gift: multiple choice, true/false, short answer, escaped text and feedback", () => {
+  const text = `::Capital::What is the capital of France?{=Paris ~Lyon ~Marseille}
+
+::Sky::The sky is blue.{TRUE}
+
+Short answer: what is 2 + 2?{=4}
+
+Escaped answer?{=a \\= b ~wrong}
+
+Feedback question?{=Right ~Wrong #### because Right is correct}
+
+Matching question?{=A -> B =C -> D}
+`;
+  const result = importer.parseGiftText(text, { sourcePath: "moodle.gift", deck: "Moodle" });
+  assert.equal(result.cards.length, 5);
+  assert.equal(result.cards[0].front, "What is the capital of France?");
+  assert.equal(result.cards[0].back, "Paris");
+  assert.equal(result.cards[0].deck, "Moodle");
+  assert.match(result.cards[0].importKey, /^gift:/);
+  assert.equal(result.cards[1].back, "TRUE");
+  assert.equal(result.cards[2].back, "4");
+  assert.equal(result.cards[3].back, "a = b");
+  assert.equal(result.cards[4].back, "Right");
+  assert.equal(result.skipped, 1, "matching questions are skipped explicitly");
+});
+
+test("plugin: imports a Moodle GIFT file as ordinary card notes", async () => {
+  const notes = [
+    {
+      path: "Imports/moodle.gift",
+      text: "::Capital::What is the capital of France?{=Paris ~Lyon}\n\n2 + 2?{=4}\n",
+    },
+  ];
+  const { app, plugin } = await setup(notes);
+  const result = await plugin.importCardsFromGift("Imports/moodle.gift", { deck: "Moodle" });
+  assert.equal(result.created, 2);
+  assert.equal(app.created.length, 2);
+  assert.ok(app.created.every((card) => /import_key: "gift:/.test(card.text)));
+  assert.ok(app.created.every((card) => /deck: "Moodle"/.test(card.text)));
+});

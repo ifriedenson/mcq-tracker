@@ -15,7 +15,7 @@ const { Modal, Notice } = require("obsidian");
 const { hashString, localDate, str } = require("./util");
 const { parseCloze } = require("./cards");
 
-const IMPORT_TYPES = ["spaced", "anki", "quizlet", "kahoot", "blooket", "gimkit", "csv"];
+const IMPORT_TYPES = ["spaced", "anki", "quizlet", "gift", "kahoot", "blooket", "gimkit", "csv"];
 const QUESTION_SET_TYPES = ["kahoot", "blooket", "gimkit"];
 
 function stripFrontmatter(text) {
@@ -595,6 +595,133 @@ function parseAnkiText(text, options) {
   return { cards, skipped: 0, source };
 }
 
+/* ---- Moodle GIFT */
+
+function giftUnescape(value) {
+  let out = "";
+  const text = str(value);
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "\\" && i + 1 < text.length) {
+      out += text[i + 1];
+      i++;
+    } else {
+      out += text[i];
+    }
+  }
+  return out;
+}
+
+function giftUnescapedAt(text, index, char) {
+  let slashes = 0;
+  for (let i = index - 1; i >= 0 && text[i] === "\\"; i--) slashes++;
+  return slashes % 2 === 0;
+}
+
+function giftBraceBlock(text) {
+  const open = [...text].findIndex((char, i) => char === "{" && giftUnescapedAt(text, i, "{"));
+  if (open < 0) return null;
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    if (!giftUnescapedAt(text, i, text[i])) continue;
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") {
+      depth--;
+      if (depth === 0) return { question: text.slice(0, open), block: text.slice(open + 1, i), end: i };
+    }
+  }
+  return null;
+}
+
+/** Correct answers only; wrong choices are useful in Moodle but not as a card back. */
+function giftAnswers(block) {
+  let text = str(block).split("####")[0].trim();
+  if (!text) return [];
+  if (/^(true|false|t|f)$/i.test(text)) return [{ correct: true, text: text.toUpperCase() }];
+  if (text.startsWith("#")) {
+    const numeric = /^#\s*([^:}]+)/.exec(text);
+    return numeric ? [{ correct: true, text: giftUnescape(numeric[1]).trim() }] : [];
+  }
+  // Matching pairs (`=left -> right`) are not cards yet; skip them rather than guess.
+  if (text.includes("->")) return [];
+
+  const answers = [];
+  let current = "";
+  let correct = false;
+  let marked = false;
+  const push = () => {
+    const value = htmlToMarkdown(giftUnescape(current), true).trim();
+    if (marked && correct && value) answers.push({ correct, text: value });
+    current = "";
+  };
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === "\\" && i + 1 < text.length) {
+      current += char + text[i + 1];
+      i++;
+      continue;
+    }
+    if (char === "=" || char === "~") {
+      push();
+      correct = char === "=";
+      marked = true;
+      continue;
+    }
+    current += char;
+  }
+  push();
+  return answers;
+}
+
+/**
+ * Moodle GIFT: one question per blank-line-separated block, with an optional
+ * `::name::` prefix and answers in braces. Supports multiple choice, true/false,
+ * short answer and numeric answers. Matching questions are skipped explicitly.
+ */
+function parseGiftText(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "Moodle GIFT file");
+  const deck = str(opts.deck).trim() || "Imported";
+  const body = str(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  const cards = [];
+  let skipped = 0;
+  const blocks = body.split(/\n\s*\n+/);
+  for (let index = 0; index < blocks.length; index++) {
+    let block = blocks[index].replace(/^\s*\/\/.*$/gm, "").trim();
+    if (!block) continue;
+    let name = "";
+    if (block.startsWith("::")) {
+      const end = block.indexOf("::", 2);
+      if (end > 0) {
+        name = giftUnescape(block.slice(2, end)).trim();
+        block = block.slice(end + 2).trim();
+      }
+    }
+    const parsed = giftBraceBlock(block);
+    if (!parsed) {
+      skipped++;
+      continue;
+    }
+    const front = htmlToMarkdown(giftUnescape(parsed.question), true).trim() || name;
+    const answers = giftAnswers(parsed.block);
+    if (!front || !answers.length) {
+      skipped++;
+      continue;
+    }
+    const back = answers.map((answer) => answer.text).join(" · ");
+    cards.push({
+      kind: "card",
+      cardType: "basic",
+      deck,
+      front,
+      back,
+      tags: [],
+      importSource: source,
+      importKey: `gift:${hashString(source + "|" + index + "|" + front + "|" + back)}`,
+    });
+  }
+  return { cards, skipped, errors: [], source };
+}
+
 /* ---- Quizlet */
 
 function cleanQuizletField(value) {
@@ -826,6 +953,10 @@ function quizletExportHint() {
   return "Quizlet: open the set → Export, use Tab between term and definition and New line between cards, then save the copied text as a .txt or .csv file in this vault.";
 }
 
+function giftExportHint() {
+  return "Moodle GIFT: save the course's GIFT text as a .txt or .gift file in this vault. Each question needs an answer block in braces, for example ::Capital::What is the capital of France?{=Paris ~Lyon ~Marseille}.";
+}
+
 class CardImportModal extends Modal {
   constructor(app, plugin, options, onDone) {
     super(app);
@@ -849,6 +980,7 @@ class CardImportModal extends Modal {
     type.createEl("option", { text: "Spaced Repetition notes in this vault", value: "spaced" });
     type.createEl("option", { text: "Anki plain-text export", value: "anki" });
     type.createEl("option", { text: "Quizlet text export", value: "quizlet" });
+    type.createEl("option", { text: "Moodle GIFT (.txt or .gift)", value: "gift" });
     type.createEl("option", { text: "Generic CSV / TSV (choose columns)", value: "csv" });
     type.createEl("option", { text: "Kahoot spreadsheet (CSV)", value: "kahoot" });
     type.createEl("option", { text: "Blooket spreadsheet (CSV)", value: "blooket" });
@@ -866,11 +998,11 @@ class CardImportModal extends Modal {
         folders.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
         for (const folder of folders) source.createEl("option", { text: folder || "Whole vault", value: folder });
       } else {
-        const candidates = (files || []).filter((f) => /\.(txt|tsv|csv)$/i.test(f.path || ""));
-        if (!candidates.length) source.createEl("option", { text: "No .txt, .tsv or .csv files found", value: "" });
+        const candidates = (files || []).filter((f) => /\.(txt|tsv|csv|gift)$/i.test(f.path || ""));
+        if (!candidates.length) source.createEl("option", { text: "No .txt, .tsv, .csv or .gift files found", value: "" });
         for (const f of candidates) source.createEl("option", { text: f.path, value: f.path });
       }
-      const sourceLabels = { spaced: "Folder to scan", quizlet: "Quizlet text export", anki: "Anki text export", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
+      const sourceLabels = { spaced: "Folder to scan", quizlet: "Quizlet text export", anki: "Anki text export", gift: "Moodle GIFT file", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
       sourceLabel.setText(sourceLabels[this.type] || "Import file");
     };
     refreshOptions();
@@ -993,6 +1125,7 @@ class CardImportModal extends Modal {
     const help = contentEl.createEl("p", { cls: "setting-item-description" });
     const helpText = () => {
       if (this.type === "quizlet") return quizletExportHint();
+      if (this.type === "gift") return giftExportHint();
       if (this.type === "csv") return "Read a CSV or TSV with a header row. Front/term/question and Back/definition/answer columns are detected automatically; check or change the mapping, then import. Mappings are remembered for the same header layout.";
       if (this.type === "anki") return ankiExportHint() + " Binary .apkg files are not opened; export the notes to text from Anki first.";
       if (QUESTION_SET_TYPES.includes(this.type)) {
@@ -1009,7 +1142,7 @@ class CardImportModal extends Modal {
     go.addEventListener("click", async () => {
       const path = source.value;
       if (this.type !== "spaced" && !path) {
-        new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet" : this.type === "anki" ? "Anki" : this.type} file first.`);
+        new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet" : this.type === "anki" ? "Anki" : this.type === "gift" ? "Moodle GIFT" : this.type} file first.`);
         return;
       }
       if (this.type === "csv") {
@@ -1032,7 +1165,9 @@ class CardImportModal extends Modal {
                 ? await p.importCardsFromCsv(path, { deck: deck.value, course: course.value, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked })
                 : QUESTION_SET_TYPES.includes(this.type)
                   ? await p.importCardsFromQuestionSet(path, this.type, { deck: deck.value, course: course.value })
-                  : await p.importCardsFromAnki(path, { deck: deck.value, course: course.value });
+                  : this.type === "gift"
+                    ? await p.importCardsFromGift(path, { deck: deck.value, course: course.value })
+                    : await p.importCardsFromAnki(path, { deck: deck.value, course: course.value });
         const bits = [`Imported ${result.created} card${result.created === 1 ? "" : "s"}`];
         if (result.skipped) bits.push(`${result.skipped} already imported`);
         if (result.errors && result.errors.length) bits.push(`${result.errors.length} failed`);
@@ -1139,6 +1274,7 @@ module.exports = {
   htmlToMarkdown,
   splitDelimited,
   parseAnkiText,
+  parseGiftText,
   parseQuizletText,
   parseQuestionSetText,
   parseSpacedRepetition,
@@ -1146,6 +1282,7 @@ module.exports = {
   cardsToQuestionSet,
   ankiExportHint,
   quizletExportHint,
+  giftExportHint,
   questionSetExportHint,
   CardImportModal,
   CardExportModal,
