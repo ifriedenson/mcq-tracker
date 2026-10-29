@@ -16,6 +16,260 @@ function __require(name) {
   return name.startsWith("./") ? __load(name.slice(2).replace(/\.js$/, "")) : require(name);
 }
 
+/* ---- src/agent-edit-review.js ---- */
+__defs["agent-edit-review"] = function (module, exports, require) {
+/*
+ * Pure helpers for reviewing an OpenCode agent's file edits.
+ *
+ * The plugin snapshots the notes the agent may edit, lets the agent work, then
+ * compares the after-state with the snapshot. The chat panel reverts those
+ * changes immediately and only writes back the files the learner approves.
+ * Keeping the comparison here makes the safety rule testable without Obsidian.
+ */
+const { pathInside } = require("./ai-write-guard");
+const { str } = require("./util");
+
+function normalizeText(value) {
+  if (value === null || value === undefined) return null;
+  return String(value).replace(/\r\n?/g, "\n");
+}
+
+function isMarkdownPath(path) {
+  return /\.md$/i.test(str(path));
+}
+
+/** Files the agent may touch: configured write folders, plus explicitly reviewed open notes. */
+function isReviewablePath(path, roots) {
+  if (!isMarkdownPath(path)) return false;
+  return (Array.isArray(roots) ? roots : []).some((root) => pathInside(path, root));
+}
+
+function statusFor(before, after) {
+  if (before === null && after === null) return "unchanged";
+  if (before === null) return "added";
+  if (after === null) return "deleted";
+  return "modified";
+}
+
+function splitLines(value) {
+  return value === null ? [] : String(value).split("\n");
+}
+
+/**
+ * A compact, readable diff. It trims the unchanged prefix and suffix, then
+ * lists the changed block. Very large edits are shortened in the middle so a
+ * modal cannot freeze on a whole-file rewrite.
+ */
+function diffPreview(before, after, maxLines) {
+  const oldText = normalizeText(before);
+  const newText = normalizeText(after);
+  if (oldText === newText) return { lines: [], added: 0, removed: 0, truncated: false };
+  const a = splitLines(oldText);
+  const b = splitLines(newText);
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const removed = a.slice(start, endA);
+  const added = b.slice(start, endB);
+  const raw = [];
+  if (start > 0) raw.push({ kind: "context", text: a[start - 1], oldNo: start, newNo: start });
+  for (let i = 0; i < removed.length; i++) raw.push({ kind: "del", text: removed[i], oldNo: start + i + 1, newNo: null });
+  for (let i = 0; i < added.length; i++) raw.push({ kind: "add", text: added[i], oldNo: null, newNo: start + i + 1 });
+  if (endA < a.length) raw.push({ kind: "context", text: a[endA], oldNo: endA + 1, newNo: endB + 1 });
+  const limit = Math.max(4, Math.round(Number(maxLines) || 80));
+  const truncated = raw.length > limit;
+  let lines = raw;
+  if (truncated) {
+    const half = Math.floor(limit / 2);
+    lines = raw.slice(0, half).concat([{ kind: "meta", text: `... ${raw.length - limit} more changed lines ...`, oldNo: null, newNo: null }], raw.slice(-half));
+  }
+  return { lines, added: added.length, removed: removed.length, truncated };
+}
+
+function changeFor(path, before, after) {
+  const oldText = normalizeText(before);
+  const newText = normalizeText(after);
+  return {
+    path: str(path),
+    status: oldText === newText ? "unchanged" : statusFor(oldText, newText),
+    before: oldText,
+    after: newText,
+    diff: diffPreview(oldText, newText),
+  };
+}
+
+/** Compare two path -> text maps. A missing key means the file did not exist. */
+function compareSnapshots(beforeMap, afterMap) {
+  const before = beforeMap instanceof Map ? beforeMap : new Map(Object.entries(beforeMap || {}));
+  const after = afterMap instanceof Map ? afterMap : new Map(Object.entries(afterMap || {}));
+  const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
+  const changes = [];
+  for (const path of paths) {
+    const oldText = before.has(path) ? normalizeText(before.get(path)) : null;
+    const newText = after.has(path) ? normalizeText(after.get(path)) : null;
+    if (oldText === newText) continue;
+    changes.push(changeFor(path, oldText, newText));
+  }
+  return changes;
+}
+
+function summarize(changes) {
+  const list = Array.isArray(changes) ? changes : [];
+  const counts = { added: 0, modified: 0, deleted: 0 };
+  for (const change of list) if (counts[change.status] !== undefined) counts[change.status]++;
+  return { ...counts, total: list.length };
+}
+
+function selectedChanges(changes, selectedPaths) {
+  const wanted = selectedPaths instanceof Set ? selectedPaths : new Set(Array.isArray(selectedPaths) ? selectedPaths : []);
+  return (Array.isArray(changes) ? changes : []).filter((change) => wanted.has(change.path));
+}
+
+module.exports = {
+  changeFor,
+  compareSnapshots,
+  diffPreview,
+  isMarkdownPath,
+  isReviewablePath,
+  normalizeText,
+  selectedChanges,
+  statusFor,
+  summarize,
+};
+};
+
+/* ---- src/agent-edit-review-modal.js ---- */
+__defs["agent-edit-review-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { summarize } = require("./agent-edit-review");
+
+const STATUS_LABELS = {
+  added: "New note",
+  modified: "Changed",
+  deleted: "Deleted",
+};
+
+class AgentEditReviewModal extends Modal {
+  constructor(app, plugin, changes, onDone) {
+    super(app);
+    this.plugin = plugin;
+    this.changes = Array.isArray(changes) ? changes : [];
+    this.onDone = onDone;
+    this.applying = false;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("qt-agent-review");
+    contentEl.createEl("h3", { text: "Review agent edits" });
+    contentEl.createEl("p", {
+      cls: "setting-item-description",
+      text:
+        "OpenCode's edits are paused and have been removed from your notes. Nothing is saved until you press Apply selected. " +
+        "Close this window or choose Discard to keep the notes unchanged.",
+    });
+    const summary = summarize(this.changes);
+    contentEl.createEl("p", {
+      cls: "qt-hint",
+      text: `${summary.total} note${summary.total === 1 ? "" : "s"} changed: ${summary.added} added, ${summary.modified} modified, ${summary.deleted} deleted.`,
+    });
+
+    this.boxes = new Map();
+    for (const change of this.changes) {
+      const wrap = contentEl.createDiv({ cls: "qt-agent-file" });
+      const head = wrap.createDiv({ cls: "qt-agent-file-head" });
+      const check = head.createEl("input", { type: "checkbox", attr: { "aria-label": `Apply ${change.path}` } });
+      check.checked = true;
+      this.boxes.set(change.path, check);
+      const label = head.createSpan({ cls: "qt-agent-file-name", text: change.path });
+      label.title = change.path;
+      head.createSpan({ cls: `qt-agent-status is-${change.status}`, text: STATUS_LABELS[change.status] || change.status });
+      const counts = change.diff.added || change.diff.removed ? ` +${change.diff.added} -${change.diff.removed}` : "";
+      if (counts) head.createSpan({ cls: "qt-agent-count", text: counts.trim() });
+
+      const details = wrap.createEl("details", { cls: "qt-agent-details" });
+      details.createEl("summary", { text: change.diff.lines.length ? "Show diff" : "No text changes" });
+      if (change.diff.lines.length) {
+        const pre = details.createEl("pre", { cls: "qt-agent-diff" });
+        for (const line of change.diff.lines) {
+          const row = pre.createDiv({ cls: `qt-diff-${line.kind}` });
+          const marker = line.kind === "add" ? "+" : line.kind === "del" ? "-" : " ";
+          row.setText(`${marker}${line.text === "" ? " " : line.text}`);
+        }
+      }
+    }
+
+    const row = contentEl.createDiv({ cls: "qt-row" });
+    const discard = row.createEl("button", { text: "Discard all", cls: "qt-grow" });
+    discard.addEventListener("click", () => this.close());
+    const apply = row.createEl("button", { text: "Apply selected", cls: "mod-cta qt-grow" });
+    apply.addEventListener("click", () => this.apply());
+    this.applyButton = apply;
+  }
+
+  selectedPaths() {
+    const out = [];
+    for (const [path, box] of this.boxes || []) if (box && box.checked) out.push(path);
+    return out;
+  }
+
+  async apply() {
+    if (this.applying || !this.plugin || typeof this.plugin.applyAgentEdits !== "function") return;
+    const paths = this.selectedPaths();
+    if (!paths.length) {
+      this.close();
+      return;
+    }
+    this.applying = true;
+    if (this.applyButton) {
+      this.applyButton.disabled = true;
+      this.applyButton.setText("Applying...");
+    }
+    try {
+      const result = await this.plugin.applyAgentEdits(this.changes, paths);
+      const applied = (result && result.applied) || [];
+      const conflicts = (result && result.conflicts) || [];
+      if (applied.length) {
+        new Notice(
+          `Applied agent edits to ${applied.length} note${applied.length === 1 ? "" : "s"}. Use "AI: undo the last agent edits" to reverse them.`,
+          8000
+        );
+      }
+      if (conflicts.length) {
+        new Notice(
+          `Skipped ${conflicts.length} note${conflicts.length === 1 ? "" : "s"} because they changed after the agent finished. Apply them again if you still want them.`,
+          10000
+        );
+      }
+      if (this.onDone) this.onDone(result);
+      this.close();
+    } catch (e) {
+      if (this.applyButton) {
+        this.applyButton.disabled = false;
+        this.applyButton.setText("Apply selected");
+      }
+      new Notice(`Could not apply the agent edits: ${e && e.message ? e.message : e}`, 10000);
+    } finally {
+      this.applying = false;
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = {
+  AgentEditReviewModal,
+};
+};
+
 /* ---- src/agent-write-guard.js ---- */
 __defs["agent-write-guard"] = function (module, exports, require) {
 /*
@@ -11805,6 +12059,7 @@ const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
 const { buildCurrentNoteContext } = require("./note-context");
+const { AgentEditReviewModal } = require("./agent-edit-review-modal");
 
 class ChatPanel {
   /**
@@ -11958,7 +12213,9 @@ class ChatPanel {
     }
     this.hint.setText(
       (this.ai.mode === "agent"
-        ? "Agent mode: OpenCode may read and edit files in its working folder. Edits that need approval in your OpenCode permissions will wait until you press Stop."
+        ? this.ai.reviewAgentEdits === false
+          ? "Agent mode: OpenCode may read and edit files immediately. Edit review is turned off in settings."
+          : "Agent mode: OpenCode can read the vault. Edits to your question, card and deck notes, plus the current note, are paused for your review before they are applied."
         : "Tutor mode: file-editing tools are switched off for this chat.") + suffix
     );
   }
@@ -12029,6 +12286,18 @@ class ChatPanel {
     if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote);
     const plugin = this.view.plugin;
     const ai = this.ai;
+    const reviewAgent = ai.mode === "agent" && ai.reviewAgentEdits !== false;
+    let baseline = null;
+    if (reviewAgent && typeof plugin.captureAgentBaseline === "function") {
+      const active = plugin.app && plugin.app.workspace && plugin.app.workspace.getActiveFile ? plugin.app.workspace.getActiveFile() : null;
+      try {
+        baseline = await plugin.captureAgentBaseline([this.opts.sourcePath, active && active.path]);
+      } catch (e) {
+        this.error = `Could not prepare the agent edit review, so nothing was sent. ${str(e && e.message ? e.message : e)}`;
+        this.draw();
+        return;
+      }
+    }
     const guard = ai.mode === "agent" && typeof plugin.snapshotProtectedState === "function" ? plugin.snapshotProtectedState() : null;
     this.error = "";
     this.input.value = "";
@@ -12084,9 +12353,26 @@ class ChatPanel {
           new Notice("Could not verify protected review state after the agent reply.", 7000);
         }
       }
+      let staged = [];
+      if (baseline && typeof plugin.stageAgentEdits === "function") {
+        try {
+          staged = await plugin.stageAgentEdits(baseline);
+        } catch (e) {
+          this.error = `Could not stage the agent's edits: ${str(e && e.message ? e.message : e)}`;
+          new Notice(this.error, 10000);
+        }
+      }
       this.setBusy(false);
       if (sid) await this.refresh(sid);
       else this.draw();
+      if (staged.length) {
+        new AgentEditReviewModal(this.view.app, plugin, staged).open();
+        if (this.status) {
+          this.status.setText(
+            `Agent changes to ${staged.length} note${staged.length === 1 ? "" : "s"} are paused. Review them before applying.`
+          );
+        }
+      }
     }
   }
 
@@ -12392,6 +12678,7 @@ const DEFAULT_SETTINGS = {
     model: "",
     agent: "",
     mode: "tutor",
+    reviewAgentEdits: true, // agent mode: pause file edits and show a diff before applying them
     tutorRole: "private", // "private" | "socratic" | "language"
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
     verification: "mark", // after AI writes an answer: "mark" mismatches for review, or "drop" them
@@ -25565,8 +25852,9 @@ const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
 const { computedVerification } = require("./computed-verification");
-const { assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
+const { allowedWriteRoots, assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
 const agentWriteGuard = require("./agent-write-guard");
+const agentEditReview = require("./agent-edit-review");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
@@ -25637,6 +25925,7 @@ class QuestionTrackerPlugin extends Plugin {
     this._calendarCache = null;
     this._pendingCardGradeFlush = null;
     this._aiRun = { startedAt: 0, requests: 0 };
+    this.agentEditUndo = null;
     // Calendar notes are resolved by their durable UID/date properties, so any
     // create/delete/rename (or frontmatter edit) invalidates the shared index.
     const invalidateNotes = () => this.invalidateCalendarNotes();
@@ -25697,6 +25986,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated notes", callback: () => this.undoLastAiWriteCommand() });
+    this.addCommand({ id: "ai-undo-agent-edits", name: "AI: undo the last agent edits", callback: () => this.undoLastAgentEditCommand() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
     this.addCommand({ id: "paper-scanner", name: "Paper scanner: photos to PDF", callback: () => this.openPaperScanner() });
     this.addCommand({ id: "document-review", name: "Review a document for import", callback: () => this.openDocumentReview() });
@@ -27519,6 +27809,123 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (restored.length) this.refreshViews();
     return restored;
+  }
+
+  /** Folders whose markdown files an agent request can change. */
+  agentReviewRoots() {
+    return allowedWriteRoots(this.settings);
+  }
+
+  /**
+   * Read the notes the agent may edit before a request. Open notes outside the
+   * normal write folders are included when passed explicitly.
+   */
+  async captureAgentBaseline(extraPaths) {
+    const roots = this.agentReviewRoots();
+    const baseline = new Map();
+    const read = async (file) => {
+      if (!(file instanceof TFile) || !agentEditReview.isMarkdownPath(file.path) || baseline.has(file.path)) return;
+      baseline.set(file.path, await this.app.vault.cachedRead(file));
+    };
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (agentEditReview.isReviewablePath(file.path, roots)) await read(file);
+    }
+    for (const path of Array.isArray(extraPaths) ? extraPaths : []) {
+      const file = this.app.vault.getAbstractFileByPath(str(path).trim());
+      if (file instanceof TFile) await read(file);
+    }
+    return baseline;
+  }
+
+  /** Revert the agent's writes and return them for per-file approval. */
+  async stageAgentEdits(baseline) {
+    if (!(baseline instanceof Map)) return [];
+    const roots = this.agentReviewRoots();
+    const current = new Map();
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (!(file instanceof TFile)) continue;
+      if (!baseline.has(file.path) && !agentEditReview.isReviewablePath(file.path, roots)) continue;
+      current.set(file.path, await this.app.vault.cachedRead(file));
+    }
+    const changes = agentEditReview.compareSnapshots(baseline, current);
+    if (!changes.length) return [];
+    for (const change of changes) {
+      if (change.status === "added") await this.trashAgentFile(change.path);
+      else if (change.status === "modified") {
+        const file = this.app.vault.getAbstractFileByPath(change.path);
+        if (file instanceof TFile) await this.app.vault.modify(file, change.before);
+      } else if (change.status === "deleted") {
+        await this.writeAgentFile(change.path, change.before);
+      }
+    }
+    this.refreshViews();
+    return changes;
+  }
+
+  async writeAgentFile(path, text) {
+    const found = this.app.vault.getAbstractFileByPath(path);
+    if (found instanceof TFile) {
+      await this.app.vault.modify(found, text);
+      return found;
+    }
+    const dir = path.includes("/") ? path.replace(/\/[^/]*$/, "") : "";
+    if (dir) await ensureFolder(this.app, dir);
+    return this.app.vault.create(path, text);
+  }
+
+  async trashAgentFile(path) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return false;
+    await this.app.fileManager.trashFile(file);
+    return true;
+  }
+
+  /** Write only the files the learner selected in the agent review. */
+  async applyAgentEdits(changes, selectedPaths) {
+    const selected = agentEditReview.selectedChanges(changes, selectedPaths);
+    const applied = [];
+    const conflicts = [];
+    for (const change of selected) {
+      const file = this.app.vault.getAbstractFileByPath(change.path);
+      const current = file instanceof TFile ? await this.app.vault.cachedRead(file) : null;
+      if (agentEditReview.normalizeText(current) !== change.before) {
+        conflicts.push(change.path);
+        continue;
+      }
+      if (change.after === null) await this.trashAgentFile(change.path);
+      else await this.writeAgentFile(change.path, change.after);
+      applied.push(change.path);
+    }
+    if (applied.length) {
+      this.agentEditUndo = selected.filter((change) => applied.includes(change.path));
+      this.refreshViews();
+    }
+    return { applied, conflicts };
+  }
+
+  /** Reverse the last applied agent review. */
+  async undoLastAgentEdit() {
+    const changes = Array.isArray(this.agentEditUndo) ? this.agentEditUndo : [];
+    if (!changes.length) return { restored: 0, paths: [] };
+    const paths = [];
+    for (const change of changes) {
+      if (change.before === null) await this.trashAgentFile(change.path);
+      else await this.writeAgentFile(change.path, change.before);
+      paths.push(change.path);
+    }
+    this.agentEditUndo = null;
+    this.refreshViews();
+    return { restored: paths.length, paths };
+  }
+
+  async undoLastAgentEditCommand() {
+    const result = await this.undoLastAgentEdit();
+    if (!result.restored) {
+      new Notice("No applied agent edits to undo.");
+      return result;
+    }
+    new Notice(`Undid agent edits in ${result.restored} note${result.restored === 1 ? "" : "s"}.`, 7000);
+    return result;
   }
 
   /** Ask one independent question, without showing the stored key. */
@@ -34589,6 +34996,17 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           await this.plugin.save();
         })
       );
+    new Setting(containerEl)
+      .setName("Review agent edits before applying")
+      .setDesc(
+        "Agent mode only. The plugin pauses edits to your question, card and deck notes plus the current note, shows a diff, and writes only the files you approve. Closing the review discards the agent's changes. On by default."
+      )
+      .addToggle((t) =>
+        t.setValue(ai.reviewAgentEdits !== false).onChange(async (v) => {
+          ai.reviewAgentEdits = v;
+          await this.plugin.save();
+        })
+      );
     new Setting(containerEl).setName("Test connection").addButton((b) =>
       b.setButtonText("Test").onClick(async () => {
         if (ai.managed && !this.plugin.manager.isRunning()) {
@@ -37505,6 +37923,8 @@ const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
 const cardWriteDiff = require("./card-write-diff");
 const agentWriteGuard = require("./agent-write-guard");
+const agentEditReview = require("./agent-edit-review");
+const { AgentEditReviewModal } = require("./agent-edit-review-modal");
 const secretKeys = require("./secret-keys");
 const history = require("./history");
 const testSections = require("./exam-sections");
@@ -37632,6 +38052,8 @@ QuestionTrackerPlugin.__test = {
   aiWriteGuard,
   cardWriteDiff,
   agentWriteGuard,
+  agentEditReview,
+  AgentEditReviewModal,
   secretKeys,
   history,
   testSections,

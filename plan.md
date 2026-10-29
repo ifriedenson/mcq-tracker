@@ -631,6 +631,9 @@ Build on the existing timed test.
 
 **Shipped in 1.86.0:** OCR is now AI-vision only. The optional desktop OCR command adapter was removed, eliminating the plugin's direct `child_process` and `fs` usage while OpenCode keeps its lazy desktop-only setup path and automatic download. The plugin still enumerates the vault through Obsidian's API because import, filters, calendar and study views need the index.
 
+**Shipped in 1.87.0:** Agent mode now pauses its file edits for review. Before a request the plugin snapshots the question, card, deck and current notes; after the agent finishes it reverts those writes and shows a per-file diff. Only checked files are written back, closing the review discards everything, files edited during review are reported as conflicts instead of overwritten, and **AI: undo the last agent edits** restores the previous contents. Covered by `tests/agent-edit-review.test.js`.
+
+
 
 **5.16.9 Subject-aware analytics**
 - Track errors by type common to STEM: setup error, algebra/arithmetic slip, unit error, sign error, wrong formula, concept gap. Extend the existing mistake-type labels (users can already add their own).
@@ -1224,7 +1227,8 @@ These are **research and specification items**, not implementation work. The AP 
   - [x] Code-level AI write guard: destination allow-list, protected tracking properties, and untrusted-data boundaries for lecture/PDF prompts — shipped in 1.72.0
   - [x] Field-level diff and review confirmation for existing-card imports (§5.22.3) — shipped in 1.73.0
   - [x] Agent-mode protected-state snapshot and restore, so review history survives an agent edit (§5.18) — shipped in 1.74.0
-  - [ ] Pre-write diff and confirmation for agent edits, plus the remaining bulk-update paths
+  - [x] Agent-edit diff review, per-file approval and undo (§5.18) — shipped in 1.87.0
+  - [ ] Remaining bulk-update paths (existing-card imports already have a field diff)
 - [ ] AI question and card generation in plugin formats (§5.3)
   - [x] Preview-first weak-spot generation for questions and cards, with no note text sent and undo through the AI write journal (§5.3) — shipped in 1.69.0
 - [x] Blind verification pass for generated and imported answers (§5.4) — shipped in 1.70.0: an independent call solves each AI-written multiple-choice answer without the key, mismatches are flagged or dropped, and `verified`/`verified_by`/`verified_on` plus a visible banner are written.
@@ -2387,6 +2391,9 @@ Build on the existing timed test.
 **Shipped in 1.85.0:** the Reference view has a local **Calculator** tab with Basic and Scientific keypads, a typed expression field, Enter-to-evaluate and Escape-to-clear. It uses the restricted expression evaluator (no `eval`), supports powers, roots, logs, trigonometry, `pi` and `e`, rejects non-finite results instead of showing `Infinity`, and adds no network request. The calculator is on by default, can be turned off in Settings, Reference, Tools, and is hidden during a timed test unless the learner explicitly allows it. Covered by `tests/calculator.test.js`.
 
 **Shipped in 1.86.0:** OCR is now AI-vision only. The optional desktop OCR command adapter was removed, eliminating the plugin's direct `child_process` and `fs` usage while OpenCode keeps its lazy desktop-only setup path and automatic download. The plugin still enumerates the vault through Obsidian's API because import, filters, calendar and study views need the index.
+
+**Shipped in 1.87.0:** Agent mode now pauses its file edits for review. Before a request the plugin snapshots the question, card, deck and current notes; after the agent finishes it reverts those writes and shows a per-file diff. Only checked files are written back, closing the review discards everything, files edited during review are reported as conflicts instead of overwritten, and **AI: undo the last agent edits** restores the previous contents. Covered by `tests/agent-edit-review.test.js`.
+
 
 
 **5.16.9 Subject-aware analytics**

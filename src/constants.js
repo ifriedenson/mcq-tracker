@@ -61,6 +61,7 @@ const DEFAULT_SETTINGS = {
     model: "",
     agent: "",
     mode: "tutor",
+    reviewAgentEdits: true, // agent mode: pause file edits and show a diff before applying them
     tutorRole: "private", // "private" | "socratic" | "language"
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
     verification: "mark", // after AI writes an answer: "mark" mismatches for review, or "drop" them

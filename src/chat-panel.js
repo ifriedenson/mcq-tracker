@@ -5,6 +5,7 @@ const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
 const { buildCurrentNoteContext } = require("./note-context");
+const { AgentEditReviewModal } = require("./agent-edit-review-modal");
 
 class ChatPanel {
   /**
@@ -158,7 +159,9 @@ class ChatPanel {
     }
     this.hint.setText(
       (this.ai.mode === "agent"
-        ? "Agent mode: OpenCode may read and edit files in its working folder. Edits that need approval in your OpenCode permissions will wait until you press Stop."
+        ? this.ai.reviewAgentEdits === false
+          ? "Agent mode: OpenCode may read and edit files immediately. Edit review is turned off in settings."
+          : "Agent mode: OpenCode can read the vault. Edits to your question, card and deck notes, plus the current note, are paused for your review before they are applied."
         : "Tutor mode: file-editing tools are switched off for this chat.") + suffix
     );
   }
@@ -229,6 +232,18 @@ class ChatPanel {
     if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote);
     const plugin = this.view.plugin;
     const ai = this.ai;
+    const reviewAgent = ai.mode === "agent" && ai.reviewAgentEdits !== false;
+    let baseline = null;
+    if (reviewAgent && typeof plugin.captureAgentBaseline === "function") {
+      const active = plugin.app && plugin.app.workspace && plugin.app.workspace.getActiveFile ? plugin.app.workspace.getActiveFile() : null;
+      try {
+        baseline = await plugin.captureAgentBaseline([this.opts.sourcePath, active && active.path]);
+      } catch (e) {
+        this.error = `Could not prepare the agent edit review, so nothing was sent. ${str(e && e.message ? e.message : e)}`;
+        this.draw();
+        return;
+      }
+    }
     const guard = ai.mode === "agent" && typeof plugin.snapshotProtectedState === "function" ? plugin.snapshotProtectedState() : null;
     this.error = "";
     this.input.value = "";
@@ -284,9 +299,26 @@ class ChatPanel {
           new Notice("Could not verify protected review state after the agent reply.", 7000);
         }
       }
+      let staged = [];
+      if (baseline && typeof plugin.stageAgentEdits === "function") {
+        try {
+          staged = await plugin.stageAgentEdits(baseline);
+        } catch (e) {
+          this.error = `Could not stage the agent's edits: ${str(e && e.message ? e.message : e)}`;
+          new Notice(this.error, 10000);
+        }
+      }
       this.setBusy(false);
       if (sid) await this.refresh(sid);
       else this.draw();
+      if (staged.length) {
+        new AgentEditReviewModal(this.view.app, plugin, staged).open();
+        if (this.status) {
+          this.status.setText(
+            `Agent changes to ${staged.length} note${staged.length === 1 ? "" : "s"} are paused. Review them before applying.`
+          );
+        }
+      }
     }
   }
 

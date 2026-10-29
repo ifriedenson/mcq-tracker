@@ -30,8 +30,9 @@ const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
 const { computedVerification } = require("./computed-verification");
-const { assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
+const { allowedWriteRoots, assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
 const agentWriteGuard = require("./agent-write-guard");
+const agentEditReview = require("./agent-edit-review");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
@@ -102,6 +103,7 @@ class QuestionTrackerPlugin extends Plugin {
     this._calendarCache = null;
     this._pendingCardGradeFlush = null;
     this._aiRun = { startedAt: 0, requests: 0 };
+    this.agentEditUndo = null;
     // Calendar notes are resolved by their durable UID/date properties, so any
     // create/delete/rename (or frontmatter edit) invalidates the shared index.
     const invalidateNotes = () => this.invalidateCalendarNotes();
@@ -162,6 +164,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated notes", callback: () => this.undoLastAiWriteCommand() });
+    this.addCommand({ id: "ai-undo-agent-edits", name: "AI: undo the last agent edits", callback: () => this.undoLastAgentEditCommand() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
     this.addCommand({ id: "paper-scanner", name: "Paper scanner: photos to PDF", callback: () => this.openPaperScanner() });
     this.addCommand({ id: "document-review", name: "Review a document for import", callback: () => this.openDocumentReview() });
@@ -1984,6 +1987,123 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (restored.length) this.refreshViews();
     return restored;
+  }
+
+  /** Folders whose markdown files an agent request can change. */
+  agentReviewRoots() {
+    return allowedWriteRoots(this.settings);
+  }
+
+  /**
+   * Read the notes the agent may edit before a request. Open notes outside the
+   * normal write folders are included when passed explicitly.
+   */
+  async captureAgentBaseline(extraPaths) {
+    const roots = this.agentReviewRoots();
+    const baseline = new Map();
+    const read = async (file) => {
+      if (!(file instanceof TFile) || !agentEditReview.isMarkdownPath(file.path) || baseline.has(file.path)) return;
+      baseline.set(file.path, await this.app.vault.cachedRead(file));
+    };
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (agentEditReview.isReviewablePath(file.path, roots)) await read(file);
+    }
+    for (const path of Array.isArray(extraPaths) ? extraPaths : []) {
+      const file = this.app.vault.getAbstractFileByPath(str(path).trim());
+      if (file instanceof TFile) await read(file);
+    }
+    return baseline;
+  }
+
+  /** Revert the agent's writes and return them for per-file approval. */
+  async stageAgentEdits(baseline) {
+    if (!(baseline instanceof Map)) return [];
+    const roots = this.agentReviewRoots();
+    const current = new Map();
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (!(file instanceof TFile)) continue;
+      if (!baseline.has(file.path) && !agentEditReview.isReviewablePath(file.path, roots)) continue;
+      current.set(file.path, await this.app.vault.cachedRead(file));
+    }
+    const changes = agentEditReview.compareSnapshots(baseline, current);
+    if (!changes.length) return [];
+    for (const change of changes) {
+      if (change.status === "added") await this.trashAgentFile(change.path);
+      else if (change.status === "modified") {
+        const file = this.app.vault.getAbstractFileByPath(change.path);
+        if (file instanceof TFile) await this.app.vault.modify(file, change.before);
+      } else if (change.status === "deleted") {
+        await this.writeAgentFile(change.path, change.before);
+      }
+    }
+    this.refreshViews();
+    return changes;
+  }
+
+  async writeAgentFile(path, text) {
+    const found = this.app.vault.getAbstractFileByPath(path);
+    if (found instanceof TFile) {
+      await this.app.vault.modify(found, text);
+      return found;
+    }
+    const dir = path.includes("/") ? path.replace(/\/[^/]*$/, "") : "";
+    if (dir) await ensureFolder(this.app, dir);
+    return this.app.vault.create(path, text);
+  }
+
+  async trashAgentFile(path) {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return false;
+    await this.app.fileManager.trashFile(file);
+    return true;
+  }
+
+  /** Write only the files the learner selected in the agent review. */
+  async applyAgentEdits(changes, selectedPaths) {
+    const selected = agentEditReview.selectedChanges(changes, selectedPaths);
+    const applied = [];
+    const conflicts = [];
+    for (const change of selected) {
+      const file = this.app.vault.getAbstractFileByPath(change.path);
+      const current = file instanceof TFile ? await this.app.vault.cachedRead(file) : null;
+      if (agentEditReview.normalizeText(current) !== change.before) {
+        conflicts.push(change.path);
+        continue;
+      }
+      if (change.after === null) await this.trashAgentFile(change.path);
+      else await this.writeAgentFile(change.path, change.after);
+      applied.push(change.path);
+    }
+    if (applied.length) {
+      this.agentEditUndo = selected.filter((change) => applied.includes(change.path));
+      this.refreshViews();
+    }
+    return { applied, conflicts };
+  }
+
+  /** Reverse the last applied agent review. */
+  async undoLastAgentEdit() {
+    const changes = Array.isArray(this.agentEditUndo) ? this.agentEditUndo : [];
+    if (!changes.length) return { restored: 0, paths: [] };
+    const paths = [];
+    for (const change of changes) {
+      if (change.before === null) await this.trashAgentFile(change.path);
+      else await this.writeAgentFile(change.path, change.before);
+      paths.push(change.path);
+    }
+    this.agentEditUndo = null;
+    this.refreshViews();
+    return { restored: paths.length, paths };
+  }
+
+  async undoLastAgentEditCommand() {
+    const result = await this.undoLastAgentEdit();
+    if (!result.restored) {
+      new Notice("No applied agent edits to undo.");
+      return result;
+    }
+    new Notice(`Undid agent edits in ${result.restored} note${result.restored === 1 ? "" : "s"}.`, 7000);
+    return result;
   }
 
   /** Ask one independent question, without showing the stored key. */

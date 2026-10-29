@@ -677,6 +677,17 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           await this.plugin.save();
         })
       );
+    new Setting(containerEl)
+      .setName("Review agent edits before applying")
+      .setDesc(
+        "Agent mode only. The plugin pauses edits to your question, card and deck notes plus the current note, shows a diff, and writes only the files you approve. Closing the review discards the agent's changes. On by default."
+      )
+      .addToggle((t) =>
+        t.setValue(ai.reviewAgentEdits !== false).onChange(async (v) => {
+          ai.reviewAgentEdits = v;
+          await this.plugin.save();
+        })
+      );
     new Setting(containerEl).setName("Test connection").addButton((b) =>
       b.setButtonText("Test").onClick(async () => {
         if (ai.managed && !this.plugin.manager.isRunning()) {

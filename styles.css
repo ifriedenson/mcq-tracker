@@ -1682,6 +1682,97 @@
   resize: vertical;
 }
 
+/* ---- agent edit review ---- */
+
+.qt-agent-review {
+  max-width: min(760px, 94vw);
+}
+
+.qt-agent-file {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 10px 0;
+  padding: 8px 10px;
+}
+
+.qt-agent-file-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-agent-file-name {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+  overflow-wrap: anywhere;
+}
+
+.qt-agent-status,
+.qt-agent-count {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.qt-agent-status.is-added {
+  color: var(--text-success);
+}
+
+.qt-agent-status.is-deleted {
+  color: var(--text-error);
+}
+
+.qt-agent-details {
+  margin-top: 6px;
+}
+
+.qt-agent-diff {
+  max-height: 36vh;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  background: var(--background-primary);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.45;
+}
+
+.qt-agent-diff > div {
+  font-family: var(--font-monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0 4px;
+}
+
+.qt-agent-diff .qt-diff-add {
+  background: var(--background-modifier-success);
+  color: var(--text-normal);
+}
+
+.qt-agent-diff .qt-diff-del {
+  background: var(--background-modifier-error);
+  color: var(--text-normal);
+}
+
+.qt-agent-diff .qt-diff-context {
+  color: var(--text-muted);
+}
+
+.qt-agent-diff .qt-diff-meta {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+@media (max-width: 480px) {
+  .qt-agent-review {
+    max-width: 100%;
+  }
+
+  .qt-agent-file-head {
+    align-items: flex-start;
+  }
+}
+
 /* ---- passage / stimulus ---- */
 
 .qt-stimulus {
