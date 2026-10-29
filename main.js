@@ -19660,7 +19660,7 @@ __defs["pdf-annotations"] = function (module, exports, require) {
  * old notes to a different document.
  */
 
-const { normalizeInkStrokes } = require("./pdf-ink");
+const { normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
 
 const ANNOTATION_BLOCK = "mcq-pdf-annotations";
 const ANNOTATION_TYPES = ["highlight", "note", "text", "form", "pen"];
@@ -19706,7 +19706,8 @@ function normalizeAnnotation(input) {
   const note = str(src.note).trim();
   const text = str(src.text).trim();
   const strokes = type === "pen" ? normalizeInkStrokes(src.strokes) : [];
-  if (!quote && !note && !text && !strokes.length) throw new Error("Add a quote, note or text, or draw some ink, for the annotation.");
+  const boxes = type === "text" ? normalizeTextBoxes(src.boxes) : [];
+  if (!quote && !note && !text && !strokes.length && !boxes.length) throw new Error("Add a quote, note or text, or draw some ink, for the annotation.");
   const out = {
     id: str(src.id).trim() || newAnnotationId(),
     page,
@@ -19718,6 +19719,7 @@ function normalizeAnnotation(input) {
     createdAt: str(src.createdAt).trim() || new Date().toISOString(),
   };
   if (type === "pen") out.strokes = strokes;
+  if (type === "text" && boxes.length) out.boxes = boxes;
   return out;
 }
 
@@ -19748,6 +19750,9 @@ function annotationSummary(annotation) {
   if (annotation.note) bits.push(annotation.note.replace(/\s+/g, " ").slice(0, 200));
   if (Array.isArray(annotation.strokes) && annotation.strokes.length) {
     bits.push(`${annotation.strokes.length} ink stroke${annotation.strokes.length === 1 ? "" : "s"}`);
+  }
+  if (Array.isArray(annotation.boxes) && annotation.boxes.length) {
+    bits.push(`${annotation.boxes.length} text box${annotation.boxes.length === 1 ? "" : "es"}`);
   }
   return bits.join(" - ") || "(no text)";
 }
@@ -19836,6 +19841,8 @@ const INK_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
 const INK_TOOLS = ["pen", "highlighter"];
 const MAX_INK_POINTS = 4000;
 const MAX_INK_STROKES = 200;
+const MAX_TEXT_BOXES = 100;
+const MAX_TEXT_LENGTH = 2000;
 const INK_COLOR_HEX = {
   yellow: "#f2c94c",
   green: "#6fcf97",
@@ -19900,6 +19907,40 @@ function normalizeInkStrokes(list) {
     if (out.length >= MAX_INK_STROKES) break;
   }
   return out;
+}
+
+/** A text box placed on a page; x/y are the top-left corner in page coordinates. */
+function normalizeTextBox(input) {
+  const src = input && typeof input === "object" ? input : {};
+  const text = str(src.text).replace(/\r\n?/g, "\n").trim().slice(0, MAX_TEXT_LENGTH);
+  if (!text) return null;
+  const width = clamp(Number(src.width) || 0.36, 0.06, 0.95);
+  const height = clamp(Number(src.height) || 0.12, 0.04, 0.95);
+  const size = clamp(Number(src.size) || 0.016, 0.008, 0.05);
+  const color = INK_COLORS.includes(str(src.color)) ? str(src.color) : "blue";
+  const x = clamp(Number(src.x) || 0, 0, 1 - width);
+  const y = clamp(Number(src.y) || 0, 0, 1 - height);
+  return { text, x: round(x, 4), y: round(y, 4), width: round(width, 4), height: round(height, 4), size: round(size, 4), color };
+}
+
+function normalizeTextBoxes(list) {
+  const out = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    const box = normalizeTextBox(raw);
+    if (box) out.push(box);
+    if (out.length >= MAX_TEXT_BOXES) break;
+  }
+  return out;
+}
+
+function boxAt(boxes, point) {
+  const list = Array.isArray(boxes) ? boxes : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const box = list[i];
+    if (!box) continue;
+    if (point[0] >= box.x && point[0] <= box.x + box.width && point[1] >= box.y && point[1] <= box.y + box.height) return box;
+  }
+  return null;
 }
 
 /** Distance from a point to a line segment, all in normalized page coordinates. */
@@ -19993,6 +20034,9 @@ module.exports = {
   INK_TOOLS,
   MAX_INK_POINTS,
   MAX_INK_STROKES,
+  MAX_TEXT_BOXES,
+  MAX_TEXT_LENGTH,
+  boxAt,
   drawInkSegment,
   drawInkStrokes,
   eraseStrokesAt,
@@ -20000,6 +20044,8 @@ module.exports = {
   normalizeInkStroke,
   normalizeInkStrokes,
   normalizePoint,
+  normalizeTextBox,
+  normalizeTextBoxes,
   pointToSegmentDistance,
   clamp,
 };
@@ -20010,9 +20056,9 @@ __defs["pdf-ink-modal"] = function (module, exports, require) {
 const { Modal, Notice, Setting, TFile } = require("obsidian");
 const { renderPdfPagesAsPng } = require("./pdf");
 const { hashBytes, parseAnnotationFile, removeAnnotation, sidecarPathFor, upsertAnnotation } = require("./pdf-annotations");
-const { INK_COLORS, INK_TOOLS, MAX_INK_POINTS, clamp, drawInkSegment, drawInkStrokes, eraseStrokesAt, normalizeInkStroke, normalizeInkStrokes } = require("./pdf-ink");
+const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MAX_INK_POINTS, boxAt, clamp, drawInkSegment, drawInkStrokes, eraseStrokesAt, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes } = require("./pdf-ink");
 
-const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", eraser: "Eraser" };
+const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", text: "Text box", eraser: "Eraser" };
 const COLOR_LABELS = { yellow: "Yellow", green: "Green", blue: "Blue", red: "Red", purple: "Purple", gray: "Gray" };
 const SIZE_PRESETS = {
   thin: { pen: 0.0018, highlighter: 0.012 },
@@ -20024,6 +20070,45 @@ const ERASER_RADIUS = 0.012;
 function clampPage(value, total) {
   const n = Math.round(Number(value) || 1);
   return Math.max(1, total > 0 ? Math.min(total, n) : n);
+}
+
+class TextBoxPromptModal extends Modal {
+  constructor(app, options, onDone) {
+    super(app);
+    this.options = options || {};
+    this.onDone = onDone || (() => {});
+    this.textEl = null;
+  }
+
+  onOpen() {
+    this.modalEl.addClass("qt-pdf-ink-prompt");
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: this.options.title || "Text box" });
+    el.createEl("p", {
+      cls: "setting-item-description",
+      text: "This text is saved in the PDF's annotation sidecar at the place you clicked.",
+    });
+    this.textEl = el.createEl("textarea", { cls: "qt-pdf-ink-textarea" });
+    this.textEl.rows = 5;
+    this.textEl.value = this.options.text || "";
+    const row = el.createDiv({ cls: "qt-row qt-pdf-ink-actions" });
+    const save = row.createEl("button", { text: "Save", cls: "mod-cta qt-grow" });
+    save.addEventListener("click", () => this.commit());
+    const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
+    cancel.addEventListener("click", () => this.close());
+    this.textEl.focus();
+  }
+
+  commit() {
+    const value = this.textEl ? this.textEl.value : "";
+    this.close();
+    this.onDone(value);
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
 }
 
 /* A canvas overlay on top of a rendered PDF page. */
@@ -20039,6 +20124,9 @@ class PdfInkModal extends Modal {
     this.size = "medium";
     this.strokes = [];
     this.inkId = "";
+    this.textBoxes = [];
+    this.textId = "";
+    this.history = [];
     this.currentHash = "";
     this.savedHash = "";
     this.sidecarPath = "";
@@ -20104,7 +20192,7 @@ class PdfInkModal extends Modal {
     el.createEl("h3", { text: "Draw on a PDF" });
     el.createEl("p", {
       cls: "setting-item-description",
-      text: "Pen and highlighter strokes are saved in the PDF's annotation sidecar. They are stored as page coordinates, so they stay in place at any zoom or on another device. Text boxes and quoted highlights remain available in Add a PDF annotation.",
+      text: "Pen, highlighter and text-box edits are saved in the PDF's annotation sidecar. They are stored as page coordinates, so they stay in place at any zoom or on another device. Quoted highlights and page notes remain available in Add a PDF annotation.",
     });
 
     const files = this.pdfFiles();
@@ -20142,9 +20230,9 @@ class PdfInkModal extends Modal {
     next.addEventListener("click", () => this.stepPage(1));
 
     new Setting(el).setName("Tool").addDropdown((d) => {
-      for (const tool of [...INK_TOOLS, "eraser"]) d.addOption(tool, TOOL_LABELS[tool]);
+      for (const tool of [...INK_TOOLS, "text", "eraser"]) d.addOption(tool, TOOL_LABELS[tool]);
       d.setValue(this.tool).onChange((v) => {
-        this.tool = INK_TOOLS.includes(v) || v === "eraser" ? v : "pen";
+        this.tool = INK_TOOLS.includes(v) || v === "text" || v === "eraser" ? v : "pen";
         if (this.tool === "highlighter" && this.color === "blue") this.color = "yellow";
       });
     });
@@ -20195,6 +20283,7 @@ class PdfInkModal extends Modal {
       if (!rendered.pages.length) throw new Error("That page could not be rendered.");
       this.total = Math.max(0, Number(rendered.total) || 0);
       this.currentHash = hash;
+      this.history = [];
       await this.loadSidecar();
       if (token !== this.loadToken) return;
       await this.showPage(rendered.pages[0].png);
@@ -20215,6 +20304,8 @@ class PdfInkModal extends Modal {
     this.sidecarPath = sidecarPathFor(this.pdfPath);
     this.strokes = [];
     this.inkId = "";
+    this.textBoxes = [];
+    this.textId = "";
     this.savedHash = "";
     const existing = this.app.vault.getAbstractFileByPath(this.sidecarPath);
     if (!existing) return;
@@ -20227,9 +20318,15 @@ class PdfInkModal extends Modal {
     }
     this.savedHash = parsed.pdfHash || "";
     const ink = (parsed.annotations || []).find((a) => a.page === Number(this.page) && a.type === "pen" && Array.isArray(a.strokes) && a.strokes.length);
-    if (!ink) return;
-    this.inkId = ink.id;
-    this.strokes = normalizeInkStrokes(ink.strokes);
+    if (ink) {
+      this.inkId = ink.id;
+      this.strokes = normalizeInkStrokes(ink.strokes);
+    }
+    const textLayer = (parsed.annotations || []).find((a) => a.page === Number(this.page) && a.type === "text" && Array.isArray(a.boxes) && a.boxes.length);
+    if (textLayer) {
+      this.textId = textLayer.id;
+      this.textBoxes = normalizeTextBoxes(textLayer.boxes);
+    }
   }
 
   async showPage(png) {
@@ -20280,11 +20377,17 @@ class PdfInkModal extends Modal {
         }
       }
       const point = pointAt(event);
+      if (this.tool === "text") {
+        this.editTextBox(point, boxAt(this.textBoxes, point));
+        return;
+      }
       if (this.tool === "eraser") {
+        this.pushHistory();
         this.erasing = true;
         this.eraseAt(point);
         return;
       }
+      this.pushHistory();
       const stroke = normalizeInkStroke({
         tool: this.tool,
         color: this.color,
@@ -20331,6 +20434,13 @@ class PdfInkModal extends Modal {
   }
 
   eraseAt(point) {
+    const hitBox = boxAt(this.textBoxes, point);
+    if (hitBox) {
+      this.textBoxes = this.textBoxes.filter((box) => box !== hitBox);
+      this.touch();
+      this.redraw();
+      return;
+    }
     const next = eraseStrokesAt(this.strokes, point, ERASER_RADIUS);
     if (next.length === this.strokes.length) return;
     this.strokes = next;
@@ -20346,21 +20456,65 @@ class PdfInkModal extends Modal {
   redraw() {
     if (!this.ctx || !this.canvas) return;
     drawInkStrokes(this.ctx, this.strokes, this.canvas.width, this.canvas.height);
+    drawTextBoxes(this.ctx, this.textBoxes, this.canvas.width, this.canvas.height);
+  }
+
+  snapshot() {
+    return {
+      strokes: this.strokes.map((stroke) => ({ ...stroke, points: stroke.points.map((point) => point.slice()) })),
+      textBoxes: this.textBoxes.map((box) => ({ ...box })),
+    };
+  }
+
+  pushHistory() {
+    this.history.push(this.snapshot());
+    if (this.history.length > 50) this.history.shift();
   }
 
   undo() {
-    if (!this.strokes.length) return;
-    this.strokes.pop();
+    const previous = this.history.pop();
+    if (!previous) return;
+    this.strokes = previous.strokes;
+    this.textBoxes = previous.textBoxes;
     this.touch();
     this.redraw();
   }
 
   clear() {
-    if (!this.strokes.length) return;
+    if (!this.strokes.length && !this.textBoxes.length) return;
+    this.pushHistory();
     this.strokes = [];
-    // Keep inkId: saving an empty page must remove the existing annotation.
+    this.textBoxes = [];
+    // Keep inkId/textId: saving an empty page must remove the existing layers.
     this.touch();
     this.redraw();
+  }
+
+  editTextBox(point, existing) {
+    new TextBoxPromptModal(
+      this.app,
+      { title: existing ? "Edit text box" : "Add text box", text: existing ? existing.text : "" },
+      (value) => {
+        const text = String(value || "").trim();
+        if (existing) {
+          const index = this.textBoxes.indexOf(existing);
+          if (index < 0) return;
+          this.pushHistory();
+          if (!text) this.textBoxes.splice(index, 1);
+          else existing.text = text;
+          this.touch();
+          this.redraw();
+          return;
+        }
+        if (!text) return;
+        const box = normalizeTextBox({ text, x: point[0], y: point[1], width: 0.36, height: 0.12, size: 0.016, color: this.color });
+        if (!box) return;
+        this.pushHistory();
+        this.textBoxes.push(box);
+        this.touch();
+        this.redraw();
+      }
+    ).open();
   }
 
   async goToPage(value) {
@@ -20388,15 +20542,16 @@ class PdfInkModal extends Modal {
   async save(options) {
     const opts = options || {};
     if (this.busy) return false;
-    if (!this.strokes.length && !this.inkId) {
-      this.setStatus("Draw something first.");
+    const seq = this.editSeq;
+    const page = this.page;
+    const strokes = normalizeInkStrokes(this.strokes);
+    const boxes = normalizeTextBoxes(this.textBoxes);
+    if (!strokes.length && !this.inkId && !boxes.length && !this.textId) {
+      this.setStatus("Draw something or add a text box first.");
       return false;
     }
     this.busy = true;
     this.setStatus("Saving…");
-    const seq = this.editSeq;
-    const page = this.page;
-    const strokes = normalizeInkStrokes(this.strokes);
     try {
       const file = this.app.vault.getAbstractFileByPath(this.pdfPath);
       if (!file || !(file instanceof TFile)) throw new Error("That PDF is no longer in the vault.");
@@ -20405,33 +20560,39 @@ class PdfInkModal extends Modal {
       const path = sidecarPathFor(this.pdfPath);
       const existing = this.app.vault.getAbstractFileByPath(path);
       const oldText = existing ? await this.app.vault.cachedRead(existing) : "";
-      let result;
+      const meta = { pdfPath: this.pdfPath, pdfHash: hash };
+      let nextText = oldText;
+      let inkId = this.inkId;
+      let textId = this.textId;
       if (strokes.length) {
-        result = upsertAnnotation(
-          oldText,
-          {
-            id: this.inkId || undefined,
-            page,
-            type: "pen",
-            color: this.color,
-            strokes,
-          },
-          { pdfPath: this.pdfPath, pdfHash: hash }
-        );
-      } else if (this.inkId) {
-        result = removeAnnotation(oldText, this.inkId, { pdfPath: this.pdfPath, pdfHash: hash });
-      } else {
-        this.setStatus("Draw something first.");
-        return false;
+        const result = upsertAnnotation(nextText, { id: inkId || undefined, page, type: "pen", color: this.color, strokes }, meta);
+        nextText = result.text;
+        const savedInk = (result.annotations || []).find((a) => a.page === page && a.type === "pen" && Array.isArray(a.strokes) && a.strokes.length);
+        inkId = savedInk ? savedInk.id : "";
+      } else if (inkId) {
+        nextText = removeAnnotation(nextText, inkId, meta).text;
+        inkId = "";
       }
-      if (existing) await this.app.vault.modify(existing, result.text);
-      else await this.app.vault.create(path, result.text);
+      if (boxes.length) {
+        const result = upsertAnnotation(nextText, { id: textId || undefined, page, type: "text", color: this.color, boxes }, meta);
+        nextText = result.text;
+        const savedText = (result.annotations || []).find((a) => a.page === page && a.type === "text" && Array.isArray(a.boxes) && a.boxes.length);
+        textId = savedText ? savedText.id : "";
+      } else if (textId) {
+        nextText = removeAnnotation(nextText, textId, meta).text;
+        textId = "";
+      }
+      if (existing) await this.app.vault.modify(existing, nextText);
+      else await this.app.vault.create(path, nextText);
       this.sidecarPath = path;
       this.savedHash = hash;
-      const ink = (result.annotations || []).find((a) => a.page === page && a.type === "pen" && Array.isArray(a.strokes) && a.strokes.length);
-      this.inkId = ink ? ink.id : "";
+      this.inkId = inkId;
+      this.textId = textId;
       this.dirty = this.editSeq !== seq;
-      this.setStatus(strokes.length ? `Saved ${strokes.length} stroke${strokes.length === 1 ? "" : "s"} on page ${page}.` : `Removed the ink from page ${page}.`);
+      const bits = [];
+      if (strokes.length) bits.push(`${strokes.length} stroke${strokes.length === 1 ? "" : "s"}`);
+      if (boxes.length) bits.push(`${boxes.length} text box${boxes.length === 1 ? "" : "es"}`);
+      this.setStatus(bits.length ? `Saved ${bits.join(" and ")} on page ${page}.` : `Removed the overlay from page ${page}.`);
       if (opts.close && !this.dirty) this.close();
       return true;
     } catch (e) {
@@ -20443,7 +20604,58 @@ class PdfInkModal extends Modal {
   }
 }
 
-module.exports = { PdfInkModal };
+function wrapTextLines(ctx, text, maxWidth) {
+  const lines = [];
+  for (const paragraph of String(text || "").split("\n")) {
+    if (!paragraph) {
+      lines.push("");
+      continue;
+    }
+    let line = "";
+    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+      const test = line ? `${line} ${word}` : word;
+      if (line && ctx.measureText(test).width > maxWidth) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
+function drawTextBoxes(ctx, boxes, width, height) {
+  if (!ctx) return;
+  for (const box of Array.isArray(boxes) ? boxes : []) {
+    const x = box.x * width;
+    const y = box.y * height;
+    const boxWidth = Math.max(4, box.width * width);
+    const boxHeight = Math.max(4, box.height * height);
+    const fontSize = Math.max(9, box.size * width);
+    ctx.save();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.fillRect(x, y, boxWidth, boxHeight);
+    ctx.strokeStyle = INK_COLOR_HEX[box.color] || INK_COLOR_HEX.blue;
+    ctx.lineWidth = Math.max(1, width * 0.0015);
+    ctx.strokeRect(x, y, boxWidth, boxHeight);
+    ctx.beginPath();
+    ctx.rect(x + 3, y + 3, Math.max(1, boxWidth - 6), Math.max(1, boxHeight - 6));
+    ctx.clip();
+    ctx.fillStyle = "#1f1f1f";
+    ctx.font = `${fontSize}px Arial, sans-serif`;
+    ctx.textBaseline = "top";
+    const lines = wrapTextLines(ctx, box.text, Math.max(8, boxWidth - 8));
+    const lineHeight = fontSize * 1.3;
+    for (let i = 0; i < lines.length && i * lineHeight < boxHeight - 6; i++) {
+      ctx.fillText(lines[i], x + 4, y + 4 + i * lineHeight);
+    }
+    ctx.restore();
+  }
+}
+
+module.exports = { PdfInkModal, TextBoxPromptModal };
 };
 
 /* ---- src/plugin.js ---- */

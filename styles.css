@@ -4152,3 +4152,14 @@
     padding: 4px;
   }
 }
+
+.qt-pdf-ink-prompt {
+  width: min(92vw, 620px);
+}
+
+.qt-pdf-ink-textarea {
+  font-family: var(--font-text);
+  min-height: 8rem;
+  resize: vertical;
+  width: 100%;
+}

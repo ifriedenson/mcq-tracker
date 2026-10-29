@@ -79,3 +79,26 @@ test("pdf ink: the plugin registers the drawing command and the modal entry poin
   assert.equal(typeof plugin.openPdfInk, "function");
   assert.equal(typeof T.PdfInkModal, "function");
 });
+
+test("pdf ink: text boxes clamp to the page, keep newlines and hit-test by rectangle", () => {
+  const box = ink.normalizeTextBox({ text: "  First line\nSecond line  ", x: 0.99, y: 0.99, width: 0.4, height: 0.2, size: 9, color: "green" });
+  assert.equal(box.text, "First line\nSecond line");
+  assert.equal(box.width, 0.4);
+  assert.equal(box.height, 0.2);
+  assert.equal(box.x, 0.6);
+  assert.equal(box.y, 0.8);
+  assert.equal(box.size, 0.05);
+  assert.equal(box.color, "green");
+  assert.equal(ink.normalizeTextBox({ text: "   " }), null);
+  assert.equal(ink.boxAt([box], [0.7, 0.85]), box);
+  assert.equal(ink.boxAt([box], [0.1, 0.1]), null);
+});
+
+test("pdf annotations: text boxes round-trip through the sidecar", () => {
+  const box = ink.normalizeTextBox({ text: "Remember this", x: 0.2, y: 0.3, width: 0.35, height: 0.12, color: "purple" });
+  const saved = pdf.upsertAnnotation("", { page: 4, type: "text", color: "purple", boxes: [box] }, { pdfPath: "Papers/Exam.pdf", pdfHash: "hash" });
+  assert.match(saved.text, /1 text box/);
+  const parsed = pdf.parseAnnotationFile(saved.text);
+  assert.equal(parsed.annotations[0].type, "text");
+  assert.deepEqual(parsed.annotations[0].boxes, [box]);
+});

@@ -12,6 +12,8 @@ const INK_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
 const INK_TOOLS = ["pen", "highlighter"];
 const MAX_INK_POINTS = 4000;
 const MAX_INK_STROKES = 200;
+const MAX_TEXT_BOXES = 100;
+const MAX_TEXT_LENGTH = 2000;
 const INK_COLOR_HEX = {
   yellow: "#f2c94c",
   green: "#6fcf97",
@@ -76,6 +78,40 @@ function normalizeInkStrokes(list) {
     if (out.length >= MAX_INK_STROKES) break;
   }
   return out;
+}
+
+/** A text box placed on a page; x/y are the top-left corner in page coordinates. */
+function normalizeTextBox(input) {
+  const src = input && typeof input === "object" ? input : {};
+  const text = str(src.text).replace(/\r\n?/g, "\n").trim().slice(0, MAX_TEXT_LENGTH);
+  if (!text) return null;
+  const width = clamp(Number(src.width) || 0.36, 0.06, 0.95);
+  const height = clamp(Number(src.height) || 0.12, 0.04, 0.95);
+  const size = clamp(Number(src.size) || 0.016, 0.008, 0.05);
+  const color = INK_COLORS.includes(str(src.color)) ? str(src.color) : "blue";
+  const x = clamp(Number(src.x) || 0, 0, 1 - width);
+  const y = clamp(Number(src.y) || 0, 0, 1 - height);
+  return { text, x: round(x, 4), y: round(y, 4), width: round(width, 4), height: round(height, 4), size: round(size, 4), color };
+}
+
+function normalizeTextBoxes(list) {
+  const out = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    const box = normalizeTextBox(raw);
+    if (box) out.push(box);
+    if (out.length >= MAX_TEXT_BOXES) break;
+  }
+  return out;
+}
+
+function boxAt(boxes, point) {
+  const list = Array.isArray(boxes) ? boxes : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const box = list[i];
+    if (!box) continue;
+    if (point[0] >= box.x && point[0] <= box.x + box.width && point[1] >= box.y && point[1] <= box.y + box.height) return box;
+  }
+  return null;
 }
 
 /** Distance from a point to a line segment, all in normalized page coordinates. */
@@ -169,6 +205,9 @@ module.exports = {
   INK_TOOLS,
   MAX_INK_POINTS,
   MAX_INK_STROKES,
+  MAX_TEXT_BOXES,
+  MAX_TEXT_LENGTH,
+  boxAt,
   drawInkSegment,
   drawInkStrokes,
   eraseStrokesAt,
@@ -176,6 +215,8 @@ module.exports = {
   normalizeInkStroke,
   normalizeInkStrokes,
   normalizePoint,
+  normalizeTextBox,
+  normalizeTextBoxes,
   pointToSegmentDistance,
   clamp,
 };
