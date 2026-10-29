@@ -30,6 +30,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
 - **Cards and vocabulary (optional module, off by default).** Create flashcards, reversed cards, cloze cards, image occlusion cards and vocabulary notes as ordinary Markdown notes. Organize them into decks, inherit a course tag from a deck or folder, and review them with Again/Hard/Good/Easy using the same ladder or FSRS schedule as your questions (see [Cards and vocabulary](#cards-and-vocabulary-optional-module-off-by-default)).
 - **Modules you can switch off.** Settings, Global has an on/off switch for each module (MCQ Tracker, Cards, Calendar and AI features) plus the plugin-wide options, so the parts you don't use stay out of the way.
+- **Reference (optional module, off by default).** A local formula sheet, constants list and unit converter in one view. It works offline, adds no data to your vault, and can be hidden automatically while a timed test is running. See [Reference](#reference-optional-module-off-by-default).
 - **Calendar (optional module, off by default).** Import an `.ics` schedule from a file or a public feed, see classes and exams in a month grid, day timeline, live countdown and upcoming-exam countdowns, and create a note for a class in one click. Free periods can start a short Quick Practice session (see [Calendar](#calendar-optional-module-off-by-default)).
 
 ## Quick start
@@ -163,6 +164,16 @@ Every practice and card review screen has **Known** and **Exclude** buttons besi
 - Find a question by ID
 - Import questions from a file
 - Rename old source_question_id properties to official_question_id (one-time clean-up for notes imported before the rename)
+
+## Reference (optional module, off by default)
+
+Turn it on under **Settings, Global, Modules**, then open **Reference** from the ribbon or the command palette. The view has three tabs:
+
+- **Formulas** — searchable formulas for math, physics, chemistry and biology, with a subject filter.
+- **Unit converter** — length, mass, volume, temperature, time, speed, energy, pressure, angle and digital data.
+- **Constants** — common physical and chemical constants with units.
+
+The panel is local: it does not read notes, call a model or make a network request. **Hide while a timed test is running** is on by default, so it stays out of a closed-book section; turn it off under Settings, Reference if your test allows a reference sheet. Formulas are study aids, not official exam material; check the sheet supplied with your course and exam year.
 
 ## Calendar (optional module, off by default)
 

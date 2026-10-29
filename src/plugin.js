@@ -1,7 +1,7 @@
 "use strict";
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -20,6 +20,8 @@ const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normali
 const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
 const { CardView } = require("./cards-view");
+const { ReferenceView } = require("./reference-view");
+const { mergeReferenceSettings } = require("./reference-data");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
@@ -102,6 +104,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_TEST, (leaf) => new TestView(leaf, this));
     this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this));
     this.registerView(VIEW_TYPE_CARDS, (leaf) => new CardView(leaf, this));
+    this.registerView(VIEW_TYPE_REFERENCE, (leaf) => new ReferenceView(leaf, this));
     this.ribbonButtons = {};
     this.ribbonAdded = {};
     this.refreshRibbon();
@@ -148,6 +151,7 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
+    this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
     this.addCommand({
@@ -351,6 +355,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
+    this.settings.reference = mergeReferenceSettings(saved.reference);
     // module switches and plugin-wide flags are always plain booleans
     this.settings.mcqEnabled = this.settings.mcqEnabled !== false;
     this.settings.showRibbonIcons = this.settings.showRibbonIcons !== false;
@@ -585,6 +590,9 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_CARDS)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_REFERENCE)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
   }
 
   /** Re-draws only the practice views that are showing the first-run screen (an import just finished). */
@@ -632,6 +640,17 @@ class QuestionTrackerPlugin extends Plugin {
     return !!(this.settings.cards && this.settings.cards.enabled);
   }
 
+  /** The local formula sheet and unit converter are opt-in. */
+  referenceEnabled() {
+    return !!(this.settings.reference && this.settings.reference.enabled);
+  }
+
+  /** A saved timed test is still in progress (the test view is the only writer of testSession). */
+  timedTestRunning() {
+    const s = this.settings.testSession;
+    return !!(s && typeof s === "object" && Array.isArray(s.items) && Number.isFinite(s.deadline));
+  }
+
   /** Adds one module's ribbon button, once, if ribbon buttons are on. */
   addModuleRibbon(id, icon, title, onClick) {
     if (!this.ribbonAdded) this.ribbonAdded = {};
@@ -661,6 +680,8 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("cards");
     if (this.calendarEnabled()) this.addModuleRibbon("calendar", "calendar-days", "Open calendar", () => this.activateCalendar());
     else this.removeModuleRibbon("calendar");
+    if (this.referenceEnabled()) this.addModuleRibbon("reference", "book-open", "Open Reference", () => this.activateReference());
+    else this.removeModuleRibbon("reference");
   }
 
   setupCalendarRibbon() {
@@ -669,14 +690,23 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Says a module is off and points at settings. True when it is off, so callers can stop. */
   moduleOff(id) {
-    const on = id === "calendar" ? this.calendarEnabled() : id === "cards" ? this.cardsEnabled() : this.mcqEnabled();
+    const on =
+      id === "calendar"
+        ? this.calendarEnabled()
+        : id === "cards"
+          ? this.cardsEnabled()
+          : id === "reference"
+            ? this.referenceEnabled()
+            : this.mcqEnabled();
     if (on) return false;
     new Notice(
       id === "calendar"
         ? "The calendar module is off. Turn it on in Settings, Global."
         : id === "cards"
           ? "The Cards module is off. Turn it on in Settings, Global."
-          : "The MCQ Tracker module is off. Turn it on in Settings, Global."
+          : id === "reference"
+            ? "The Reference module is off. Turn it on in Settings, Global."
+            : "The MCQ Tracker module is off. Turn it on in Settings, Global."
     );
     this.openSettings();
     return true;
@@ -708,7 +738,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshViews();
   }
 
-  async onCalendarToggled() {
+  async  onCalendarToggled() {
     this.invalidateCalendar();
     this.refreshRibbon();
     if (!this.calendarEnabled()) {
@@ -717,6 +747,15 @@ class QuestionTrackerPlugin extends Plugin {
     }
     await this.refreshCalendarFileSources();
     this.refreshCalendarViews();
+  }
+
+  async onReferenceToggled() {
+    this.refreshRibbon();
+    if (!this.referenceEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_REFERENCE]);
+      return;
+    }
+    this.refreshViews();
   }
 
   onGlobalSettingsChanged() {
@@ -897,6 +936,24 @@ class QuestionTrackerPlugin extends Plugin {
     if (!leaf) {
       leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
       await leaf.setViewState({ type: VIEW_TYPE_CARDS, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
+  async activateReference() {
+    if (this.moduleOff("reference")) return null;
+    if (this.settings.reference.hideDuringTests !== false && this.timedTestRunning()) {
+      new Notice("The Reference panel is hidden while a timed test is running. Change this under Settings, Reference.");
+      return null;
+    }
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_REFERENCE)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_REFERENCE, active: true });
     }
     if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
     await ws.revealLeaf(leaf);

@@ -18,11 +18,12 @@ async function setup(saved) {
   return { app, plugin };
 }
 
-test("settings: Global sits beside MCQ Tracker, Cards and Calendar and has its own tabs", () => {
-  assert.deepEqual(T.SETTINGS_MODULES.map((m) => m.id), ["global", "mcq", "cards", "calendar"]);
+test("settings: Global sits beside MCQ Tracker, Cards, Calendar and Reference and has its own tabs", () => {
+  assert.deepEqual(T.SETTINGS_MODULES.map((m) => m.id), ["global", "mcq", "cards", "calendar", "reference"]);
   assert.deepEqual(T.GLOBAL_TABS.map((t) => t.id), ["modules", "general"]);
   assert.deepEqual(T.GLOBAL_TABS.map((t) => t.label), ["Modules", "General"]);
   assert.deepEqual(T.CARDS_TABS.map((t) => t.id), ["decks", "review", "about"]);
+  assert.deepEqual(T.REFERENCE_TABS.map((t) => t.id), ["tools", "about"]);
 });
 
 test("modules: MCQ Tracker is on by default, Calendar and AI are opt-in", async () => {
@@ -30,6 +31,7 @@ test("modules: MCQ Tracker is on by default, Calendar and AI are opt-in", async 
   assert.equal(plugin.mcqEnabled(), true);
   assert.equal(plugin.calendarEnabled(), false);
   assert.equal(plugin.cardsEnabled(), false, "Cards is opt-in");
+  assert.equal(plugin.referenceEnabled(), false, "Reference is opt-in");
   assert.equal(plugin.settings.ai.enabled, false);
   assert.equal(plugin.settings.showRibbonIcons, true);
   assert.equal(plugin.settings.openPracticeOnStartUp, false);

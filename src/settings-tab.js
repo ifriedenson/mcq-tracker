@@ -11,6 +11,7 @@ const { renderCalendarSettings } = require("./calendar-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
+const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
@@ -20,6 +21,7 @@ const SETTINGS_MODULES = [
   { id: "mcq", label: "MCQ Tracker", icon: "list-checks" },
   { id: "cards", label: "Cards", icon: "layers" },
   { id: "calendar", label: "Calendar", icon: "graduation-cap" },
+  { id: "reference", label: "Reference", icon: "book-open" },
 ];
 
 const MCQ_TABS = [
@@ -41,6 +43,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     this.activeMcqTab = "practice";
     this.activeCardsTab = "decks";
     this.activeCalendarTab = "about";
+    this.activeReferenceTab = "tools";
   }
 
   display() {
@@ -87,6 +90,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         this.activeCalendarTab,
         (id) => {
           this.activeCalendarTab = id;
+          this.display();
+        }
+      );
+      return;
+    }
+
+    if (this.activeModule === "reference") {
+      renderReferenceSettings(
+        containerEl,
+        this.plugin,
+        () => this.display(),
+        this.activeReferenceTab,
+        (id) => {
+          this.activeReferenceTab = id;
           this.display();
         }
       );
@@ -704,6 +721,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 
 module.exports = {
   CARDS_TABS,
+  REFERENCE_TABS,
   GLOBAL_TABS,
   MCQ_TABS,
   QuestionTrackerSettingTab,

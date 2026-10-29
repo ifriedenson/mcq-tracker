@@ -3125,3 +3125,159 @@
     font-size: 1.2rem;
   }
 }
+
+/* Reference module: every rule is scoped under .qt-ref. */
+.qt-ref h2 {
+  margin-bottom: 4px;
+}
+
+.qt-ref-intro {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+}
+
+.qt-ref-tabs {
+  margin-bottom: 14px;
+}
+
+.qt-ref-search,
+.qt-ref-amount,
+.qt-ref-unit {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  font-size: 0.9rem;
+  padding: 7px 9px;
+}
+
+.qt-ref-search {
+  box-sizing: border-box;
+  margin-bottom: 10px;
+  width: 100%;
+}
+
+.qt-ref-subjects {
+  margin-bottom: 12px;
+}
+
+.qt-ref-subject,
+.qt-ref-tab {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+  padding: 5px 9px;
+}
+
+.qt-ref-formula-list,
+.qt-ref-constant-list {
+  display: grid;
+  gap: 8px;
+}
+
+.qt-ref-formula,
+.qt-ref-constant,
+.qt-ref-converter {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 10px 12px;
+}
+
+.qt-ref-formula-head {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.qt-ref-badge {
+  background: var(--background-primary);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  text-transform: capitalize;
+}
+
+.qt-ref-equation,
+.qt-ref-constant-value {
+  display: block;
+  font-size: 0.9rem;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.qt-ref-note {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-top: 6px;
+}
+
+.qt-ref-converter {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-ref-amount {
+  max-width: 110px;
+}
+
+.qt-ref-unit {
+  max-width: 100%;
+}
+
+.qt-ref-arrow {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.qt-ref-result {
+  color: var(--text-normal);
+  flex-basis: 100%;
+  font-size: 1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.qt-ref-constant {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+}
+
+.qt-ref-symbol {
+  color: var(--interactive-accent);
+  min-width: 54px;
+}
+
+.qt-ref-constant-body {
+  min-width: 0;
+}
+
+.qt-ref-constant-name {
+  font-size: 0.86rem;
+}
+
+@media (max-width: 480px) {
+  .qt-ref-converter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .qt-ref-amount,
+  .qt-ref-unit {
+    max-width: none;
+    width: 100%;
+  }
+
+  .qt-ref-arrow {
+    display: none;
+  }
+}

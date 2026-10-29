@@ -99,6 +99,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Bundled Reference content
+
+The Reference module's formula list, constants and unit factors in `src/reference-data.js` are
+written for this plugin. No third-party formula-sheet PDF, periodic-table dataset, calculator
+library or Desmos code is bundled. The formulas and constants use standard definitions; course
+and exam formula sheets can differ in rounding or notation.
+
 ## Not absorbed (yet)
 
 The product plan also names LearnKit as a future absorb source. It has **not** been copied
