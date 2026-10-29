@@ -15,7 +15,7 @@ const { Modal, Notice } = require("obsidian");
 const { hashString, localDate, str } = require("./util");
 const { parseCloze } = require("./cards");
 
-const IMPORT_TYPES = ["spaced", "anki", "quizlet", "gift", "moodlexml", "qti", "kahoot", "blooket", "gimkit", "csv"];
+const IMPORT_TYPES = ["spaced", "mochi", "crowdanki", "anki", "quizlet", "gift", "moodlexml", "qti", "kahoot", "blooket", "gimkit", "csv"];
 const QUESTION_SET_TYPES = ["kahoot", "blooket", "gimkit"];
 
 function stripFrontmatter(text) {
@@ -878,6 +878,136 @@ function parseLmsXml(text, options) {
   return /<questestinterop|<qti-assessment-item|<assessmentItem/i.test(str(text)) ? parseQtiXml(text, opts) : parseMoodleXml(text, opts);
 }
 
+/* ---- Mochi and CrowdAnki */
+
+/** Mochi Markdown export: one file per card, with sides separated by --- or ***. */
+function parseMochiMarkdown(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "Mochi Markdown");
+  const deck = str(opts.deck).trim() || "Imported";
+  const body = stripFrontmatter(text).replace(/\r\n?/g, "\n");
+  const parts = [];
+  let current = [];
+  for (const line of body.split("\n")) {
+    if (/^\s*(?:-{3,}|\*{3,})\s*$/.test(line)) {
+      if (current.some((part) => part.trim())) parts.push(current.join("\n"));
+      current = [];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.some((part) => part.trim())) parts.push(current.join("\n"));
+  const sides = parts
+    .map((part) => part.replace(/(^|\s)#card(?:\/[^\s#]+)?/gi, "$1").trim())
+    .filter(Boolean);
+  if (sides.length < 2) return { cards: [], skipped: 1, errors: [], source, format: "mochi" };
+  const front = sides[0];
+  const back = sides.slice(1).join("\n\n");
+  return {
+    cards: [
+      {
+        kind: "card",
+        cardType: "basic",
+        deck,
+        front,
+        back,
+        tags: [],
+        importSource: source,
+        importKey: `mochi:${hashString(source + "|" + front + "|" + back)}`,
+      },
+    ],
+    skipped: 0,
+    errors: [],
+    source,
+    format: "mochi",
+  };
+}
+
+function crowdAnkiFields(note) {
+  const fields = note && note.fields;
+  if (Array.isArray(fields)) return fields.map((field) => str(field));
+  if (fields && typeof fields === "object") return Object.values(fields).map((field) => str(field));
+  return [];
+}
+
+function crowdAnkiTags(note) {
+  const tags = note && note.tags;
+  if (Array.isArray(tags)) return tags.map((tag) => str(tag).trim()).filter(Boolean);
+  return str(tags).split(/\s+/).map((tag) => tag.trim()).filter(Boolean);
+}
+
+/**
+ * CrowdAnki JSON: decks nest through `children`, notes carry HTML fields and an
+ * Anki model name. The first two fields become the card; extra fields are kept
+ * on the back so a basic/cloze deck does not lose content silently.
+ */
+function parseCrowdAnkiJson(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "CrowdAnki JSON");
+  const fallbackDeck = str(opts.deck).trim() || "Imported";
+  let data;
+  try {
+    data = JSON.parse(str(text));
+  } catch (e) {
+    return { cards: [], skipped: 0, errors: ["That file is not valid CrowdAnki JSON."], source, format: "crowdanki" };
+  }
+  const cards = [];
+  const errors = [];
+  let skipped = 0;
+
+  const walk = (node, path) => {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child, path);
+      return;
+    }
+    if (typeof node !== "object") return;
+    const name = str(node.name).trim();
+    const next = name ? [...path, name] : path;
+    const notes = Array.isArray(node.notes) ? node.notes : [];
+    for (const note of notes) {
+      const fields = crowdAnkiFields(note);
+      if (!fields.length || !fields[0]) {
+        skipped++;
+        continue;
+      }
+      const model = str((note && (note.modelName || note.model)) || "").toLowerCase();
+      let front = htmlToMarkdown(fields[0], true);
+      let back = htmlToMarkdown(fields.slice(1).filter(Boolean).join("\n\n"), true);
+      let cardType = "basic";
+      if (/cloze/.test(model)) {
+        const answers = parseCloze(front).answers;
+        if (answers.length) {
+          cardType = "cloze";
+          back = answers.join(" · ");
+        }
+      } else if (/revers/.test(model)) {
+        cardType = "reversed";
+      }
+      if (!front || !back) {
+        skipped++;
+        continue;
+      }
+      const deck = next.length ? next.join("::") : fallbackDeck;
+      const guid = str(note && (note.guid || note.noteId)).trim();
+      cards.push({
+        kind: "card",
+        cardType,
+        deck,
+        front,
+        back,
+        tags: crowdAnkiTags(note),
+        importSource: source,
+        importKey: `crowdanki:${guid || hashString(source + "|" + cards.length + "|" + front + "|" + back)}`,
+      });
+    }
+    for (const child of Array.isArray(node.children) ? node.children : []) walk(child, next);
+  };
+
+  walk(data, []);
+  return { cards, skipped, errors, source, format: "crowdanki" };
+}
+
 /* ---- Quizlet */
 
 function cleanQuizletField(value) {
@@ -1134,6 +1264,8 @@ class CardImportModal extends Modal {
     typeWrap.createEl("label", { text: "Source" });
     const type = typeWrap.createEl("select", { cls: "dropdown" });
     type.createEl("option", { text: "Spaced Repetition notes in this vault", value: "spaced" });
+    type.createEl("option", { text: "Mochi Markdown folder", value: "mochi" });
+    type.createEl("option", { text: "CrowdAnki JSON export", value: "crowdanki" });
     type.createEl("option", { text: "Anki plain-text export", value: "anki" });
     type.createEl("option", { text: "Quizlet text export", value: "quizlet" });
     type.createEl("option", { text: "Moodle GIFT (.txt or .gift)", value: "gift" });
@@ -1151,16 +1283,16 @@ class CardImportModal extends Modal {
     const refreshOptions = () => {
       source.empty();
       const files = p.app.vault.getAllLoadedFiles ? p.app.vault.getAllLoadedFiles() : p.app.vault.getMarkdownFiles();
-      if (this.type === "spaced") {
+      if (this.type === "spaced" || this.type === "mochi") {
         const folders = ["", ...new Set((files || []).map((f) => f.parent && f.parent.path).filter((x) => x && x !== "/"))];
         folders.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
         for (const folder of folders) source.createEl("option", { text: folder || "Whole vault", value: folder });
       } else {
-        const candidates = (files || []).filter((f) => /\.(txt|tsv|csv|gift|xml)$/i.test(f.path || ""));
-        if (!candidates.length) source.createEl("option", { text: "No .txt, .tsv, .csv, .gift or .xml files found", value: "" });
+        const candidates = (files || []).filter((f) => /\.(txt|tsv|csv|gift|xml|json)$/i.test(f.path || ""));
+        if (!candidates.length) source.createEl("option", { text: "No .txt, .tsv, .csv, .gift, .xml or .json files found", value: "" });
         for (const f of candidates) source.createEl("option", { text: f.path, value: f.path });
       }
-      const sourceLabels = { spaced: "Folder to scan", quizlet: "Quizlet text export", anki: "Anki text export", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
+      const sourceLabels = { spaced: "Folder to scan", mochi: "Mochi Markdown folder", crowdanki: "CrowdAnki JSON file", quizlet: "Quizlet text export", anki: "Anki text export", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
       sourceLabel.setText(sourceLabels[this.type] || "Import file");
     };
     refreshOptions();
@@ -1283,6 +1415,8 @@ class CardImportModal extends Modal {
     const help = contentEl.createEl("p", { cls: "setting-item-description" });
     const helpText = () => {
       if (this.type === "quizlet") return quizletExportHint();
+      if (this.type === "mochi") return "Mochi: export the deck as Markdown, unzip it into a vault folder, then choose that folder. Each card file uses --- or *** between its sides; the folder name supplies the deck unless you enter a fallback deck.";
+      if (this.type === "crowdanki") return "CrowdAnki: export the deck as CrowdAnki JSON and save the .json file in the vault. Nested deck names, note fields, Anki tags and cloze models are read; review history is not exported by CrowdAnki.";
       if (this.type === "gift") return giftExportHint();
       if (this.type === "moodlexml") return "Moodle XML: export the course question bank as Moodle XML, then save the .xml file in this vault. Multiple choice, true/false, short answer and numerical questions are read; matching, essay, description and cloze questions are skipped.";
       if (this.type === "qti") return "QTI: export the quiz bank as QTI XML, then save the .xml file in this vault. QTI 1.2 and QTI 2.1 multiple-choice items are read, including response labels and correct-response identifiers.";
@@ -1302,7 +1436,7 @@ class CardImportModal extends Modal {
     go.addEventListener("click", async () => {
       const path = source.value;
       if (this.type !== "spaced" && !path) {
-        new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet" : this.type === "anki" ? "Anki" : this.type === "gift" ? "Moodle GIFT" : this.type === "moodlexml" ? "Moodle XML" : this.type === "qti" ? "QTI" : this.type} file first.`);
+        new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet" : this.type === "anki" ? "Anki" : this.type === "gift" ? "Moodle GIFT" : this.type === "moodlexml" ? "Moodle XML" : this.type === "qti" ? "QTI" : this.type === "mochi" ? "Mochi folder" : this.type === "crowdanki" ? "CrowdAnki JSON" : this.type} file first.`);
         return;
       }
       if (this.type === "csv") {
@@ -1319,7 +1453,11 @@ class CardImportModal extends Modal {
         const result =
           this.type === "spaced"
             ? await p.importCardsFromFolder(path, { deck: deck.value, course: course.value })
-            : this.type === "quizlet"
+            : this.type === "mochi"
+              ? await p.importCardsFromMochi(path, { deck: deck.value, course: course.value })
+              : this.type === "crowdanki"
+                ? await p.importCardsFromCrowdAnki(path, { deck: deck.value, course: course.value })
+                : this.type === "quizlet"
               ? await p.importCardsFromQuizlet(path, { deck: deck.value, course: course.value })
               : this.type === "csv"
                 ? await p.importCardsFromCsv(path, { deck: deck.value, course: course.value, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked })
@@ -1440,6 +1578,8 @@ module.exports = {
   parseMoodleXml,
   parseQtiXml,
   parseLmsXml,
+  parseMochiMarkdown,
+  parseCrowdAnkiJson,
   parseQuizletText,
   parseQuestionSetText,
   parseSpacedRepetition,

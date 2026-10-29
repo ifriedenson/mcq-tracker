@@ -563,3 +563,65 @@ test("plugin: imports a Moodle XML quiz bank as ordinary card notes", async () =
   assert.match(app.created[0].text, /import_key: "moodle:/);
   assert.match(app.created[0].text, /deck: "Moodle"/);
 });
+
+test("mochi: Markdown sides, *** separators and #card tags", () => {
+  const first = importer.parseMochiMarkdown("#card\nhola\n---\nhello", { sourcePath: "Mochi/Spanish/hola.md", deck: "Spanish" });
+  assert.equal(first.cards.length, 1);
+  assert.equal(first.cards[0].front, "hola");
+  assert.equal(first.cards[0].back, "hello");
+  assert.equal(first.cards[0].deck, "Spanish");
+  assert.match(first.cards[0].importKey, /^mochi:/);
+
+  const second = importer.parseMochiMarkdown("Question\n***\nFirst side\n\nSecond side", { sourcePath: "Mochi/q.md" });
+  assert.equal(second.cards.length, 1);
+  assert.equal(second.cards[0].back, "First side\n\nSecond side");
+  assert.equal(importer.parseMochiMarkdown("just one side", { sourcePath: "Mochi/one.md" }).skipped, 1);
+});
+
+test("plugin: imports a folder of Mochi Markdown files using the folder as the deck", async () => {
+  const notes = [
+    { path: "Mochi/Spanish/hola.md", text: "hola\n---\nhello\n" },
+    { path: "Mochi/Spanish/one-sided.md", text: "no separator here" },
+  ];
+  const { app, plugin } = await setup(notes);
+  const result = await plugin.importCardsFromMochi("Mochi", {});
+  assert.equal(result.created, 1);
+  assert.match(app.created[0].text, /deck: "Spanish"/);
+  assert.match(app.created[0].text, /import_key: "mochi:/);
+});
+
+test("crowdanki: nested decks, HTML fields, tags, cloze and a plugin import", async () => {
+  const data = {
+    name: "Languages",
+    notes: [{ guid: "root-note", modelName: "Basic", fields: ["Root front", "Root back"] }],
+    children: [
+      {
+        name: "Spanish",
+        notes: [
+          {
+            guid: "spanish-note",
+            modelName: "Basic",
+            fields: ["<b>hola</b>", "hello"],
+            tags: ["greeting"],
+          },
+          { guid: "cloze-note", modelName: "Cloze", fields: ["The capital is {{c1::Paris}}."] },
+        ],
+      },
+    ],
+  };
+  const parsed = importer.parseCrowdAnkiJson(JSON.stringify(data), { sourcePath: "Languages.json" });
+  assert.equal(parsed.cards.length, 3);
+  assert.equal(parsed.cards[0].deck, "Languages");
+  assert.equal(parsed.cards[1].deck, "Languages::Spanish");
+  assert.equal(parsed.cards[1].front, "**hola**");
+  assert.deepEqual(parsed.cards[1].tags, ["greeting"]);
+  assert.equal(parsed.cards[2].cardType, "cloze");
+  assert.equal(parsed.cards[2].back, "Paris");
+  assert.match(parsed.cards[1].importKey, /^crowdanki:spanish-note$/);
+
+  const { app, plugin } = await setup([{ path: "Imports/Languages.json", text: JSON.stringify(data) }]);
+  const result = await plugin.importCardsFromCrowdAnki("Imports/Languages.json", {});
+  assert.equal(result.created, 3);
+  assert.match(app.created[0].text, /import_key: "crowdanki:root-note"/);
+  assert.match(app.created[1].text, /deck: "Languages::Spanish"/);
+});

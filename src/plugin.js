@@ -22,7 +22,7 @@ const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, rem
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
-const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseGenericCsv, parseGiftText, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
+const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
@@ -1480,6 +1480,42 @@ class QuestionTrackerPlugin extends Plugin {
     if (!file) throw new Error("That file is not in the vault.");
     const text = await this.app.vault.cachedRead(file);
     const parsed = parseGiftText(text, { sourcePath: file.path, deck: opts.deck });
+    return this.importParsedCards(parsed.cards, { ...opts, deck: String(opts.deck || "").trim() || file.basename, errors: parsed.errors });
+  }
+
+  /** Import a folder of Mochi Markdown cards, one file per card split by ---. */
+  async importCardsFromMochi(folder, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    const root = String(folder || "").replace(/^\/+|\/+$/g, "");
+    const files = this.app.vault.getMarkdownFiles().filter((file) => !root || file.path === root || file.path.startsWith(root + "/"));
+    const cards = [];
+    const errors = [];
+    for (const file of files) {
+      if (isCardNote(this.app.metadataCache.getFileCache(file)?.frontmatter)) continue;
+      try {
+        const text = await this.app.vault.cachedRead(file);
+        const folder = String(file.path || "").split("/").slice(0, -1).join("/");
+        const deck = String(opts.deck || "").trim() || (folder ? folder.split("/").pop() : "Imported");
+        const parsed = parseMochiMarkdown(text, { sourcePath: file.path, deck });
+        cards.push(...parsed.cards);
+        if (!parsed.cards.length) errors.push(`${file.path}: no front/back separator found`);
+      } catch (e) {
+        errors.push(`${file.path}: ${String((e && e.message) || e)}`);
+      }
+    }
+    return this.importParsedCards(cards, { ...opts, errors });
+  }
+
+  /** Import a CrowdAnki JSON export. */
+  async importCardsFromCrowdAnki(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    if (!/\.json$/i.test(String(path || ""))) throw new Error("Choose the .json file exported by CrowdAnki.");
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That file is not in the vault.");
+    const text = await this.app.vault.cachedRead(file);
+    const parsed = parseCrowdAnkiJson(text, { sourcePath: file.path, deck: opts.deck });
     return this.importParsedCards(parsed.cards, { ...opts, deck: String(opts.deck || "").trim() || file.basename, errors: parsed.errors });
   }
 
