@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.50.0 phase adds desktop `.apkg` import; the next unblocked interop work is bidirectional AnkiConnect sync, and the visual PDF pen/highlighter overlay remains open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.51.0 phase adds two-way AnkiConnect sync on top of 1.50.0's desktop `.apkg` import, and the visual PDF pen/highlighter overlay remains open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), and the October 28 idea backlog (§5.22). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -24,7 +24,7 @@
 
 **Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay remains the next PDF-editor slice. A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review).
 
-**Recently completed (1.50.0):** `.apkg` import through a local ZIP/SQLite reader, with decks, tags, basic/reversed/cloze cards and Anki scheduling metadata. Previous release 1.49.0 added the desktop local OCR adapter; 1.48.0 added opt-in vision OCR.
+**Recently completed (1.51.0):** two-way AnkiConnect sync with note-ID mapping, content hashes, pull-back of Anki edits, and conflict reporting/policy. Previous release 1.50.0 added `.apkg` import; 1.49.0 added the desktop local OCR adapter.
 
 ---
 
@@ -554,7 +554,7 @@ Build on the existing timed test.
 
 ### 5.15 Interop and import/export  — **M**
 
-- **Anki:** import/export through LearnKit-compatible formats, plain text, and an optional AnkiConnect push (Yanki and Auto Anki show demand). `.apkg` import shipped in 1.50.0; bidirectional AnkiConnect sync remains.
+- **Anki:** import/export through LearnKit-compatible formats, plain text, and an optional AnkiConnect push (Yanki and Auto Anki show demand). `.apkg` import shipped in 1.50.0 and two-way AnkiConnect sync shipped in 1.51.0.
 - **Spaced Repetition card syntax:** read-only support to import existing decks.
 - **CSV export** of results for outside analysis.
 - **Dataview-friendly properties** so power users can build their own views.
@@ -975,7 +975,7 @@ The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced R
 | **Generic CSV / TSV** | Header detection, delimiter/quote detection, column mapping, saved presets, preview | **Highest payoff.** One importer covers Brainscape, Cram, RemNote, Memrise, Sheets/Excel and most Quizlet exports. Do this before app-specific importers. |
 | **Other Obsidian plugins** | Spaced Repetition (`Q::A`, multiline `?`, cloze, `#flashcards`), Obsidian_to_Anki custom syntax, Mochi `#card` with `---`, Flashcards (Colucci), Yanki, FlashCard, Syro | **Mochi Markdown import shipped in 1.23.0.** One-click **Migrate from X** with preview. Read documented syntax only; do not copy GPL code. |
 | **Other apps** | Mochi, Memrise, Cram, Knowt, Brainscape, RemNote, Notion tables | Mostly via CSV. Confirm Mochi's current format before promising native `.mochi` import. |
-| **More Anki variants** | `.apkg` (new and old), Anki text, CrowdAnki JSON, AnkiWeb shared decks | **CrowdAnki JSON shipped in 1.23.0.** `.apkg`, AnkiConnect and LearnKit remain; preserve scheduling and media where possible. |
+| **More Anki variants** | `.apkg` (new and old), Anki text, CrowdAnki JSON, AnkiWeb shared decks | **CrowdAnki JSON shipped in 1.23.0, desktop `.apkg` import in 1.50.0, and two-way AnkiConnect sync in 1.51.0. LearnKit remains; preserve scheduling and media where possible.** |
 | **LMS quiz banks** | Moodle XML, GIFT, QTI (Canvas, Blackboard) | Fits university users. **GIFT, Moodle XML and QTI shipped in 1.21.0–1.22.0**; Canvas/Blackboard-specific variants remain. Formats above are from memory; **Verify** current specifications. |
 | **Exam / quiz formats** | FlashQuiz `@mc`/`@sata`/`@tf`, VCE via converter, QuizPort JSON, Markdown checkbox quizzes | CBT Exam Simulator and QuizPort are references. **Verify** the VCE converter's license separately. |
 | **Export** | Anki text, CSV, Markdown, JSON, Mochi `.mochi`; `.apkg` export is a known gap | Round-trip where practical so users can leave with their cards. |
@@ -1151,7 +1151,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Moodle XML and QTI import (§5.22.3) — shipped in 1.22.0
 - [x] Mochi Markdown and CrowdAnki JSON import (§5.22.3) — shipped in 1.23.0
 - [x] Import preview, report and duplicate update/copy (§5.22.3) — shipped in 1.24.0
-- [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — .apkg, bidirectional AnkiConnect sync and LearnKit formats remain
+- [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — desktop `.apkg` import shipped in 1.50.0 and two-way AnkiConnect sync in 1.51.0; LearnKit formats remain
 - [x] Answer modes: flip, type and speak via OS dictation, with the deterministic cheap-first grading pipeline (§5.17)
 - [x] AI fallback for typed answers that the local grader cannot settle, using the shared AI layer and a validated structured verdict (§5.17)
 - [x] Durable grade-later queue for offline, slow or over-budget grading, with batch retry, idempotency and a pending-grade badge (§5.17)
@@ -1222,7 +1222,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Documented property schema and Dataview examples in [docs/property-schema.md](docs/property-schema.md) (§5.15) — shipped in 1.39.0
 - [x] Optional AnkiConnect push to a running Anki desktop, with duplicate reporting (§5.15) — shipped in 1.40.0
 - [x] Optional `.apkg` import through a local ZIP/SQLite reader, with scheduling metadata (§5.15) — shipped in 1.50.0
-- [ ] Bidirectional AnkiConnect sync (§5.15)
+- [x] Bidirectional AnkiConnect sync with note-ID mapping, content hashes and conflict handling (§5.15) — shipped in 1.51.0
 - [ ] Pronunciation feedback for language learners (optional)
 - [ ] Handwritten-work photo grading (optional, vision models)
 
@@ -2532,7 +2532,7 @@ Names are proposals; keep existing ones unchanged.
 ### Phase 2: Flashcards and vocab (priority)
 
 - [x] Card and vocab item types, deck organization, course tagging (§5.7) — shipped in 1.12.0
-- [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — .apkg, bidirectional AnkiConnect sync and LearnKit formats remain
+- [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — desktop `.apkg` import shipped in 1.50.0 and two-way AnkiConnect sync in 1.51.0; LearnKit formats remain
 - [x] Answer modes: flip, type and speak via OS dictation, with the deterministic cheap-first grading pipeline (§5.17) — AI fallback remains
 - [x] AI grader with strictness settings, override, and grade-later queue
 - [x] Unified due queue model and Today/command list across cards, vocab and MCQs — interleaved mixed-review sessions remain
@@ -2584,7 +2584,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Anki plain-text export with deck, note type and tag columns (§5.15) — shipped in 1.39.0
 - [x] Documented property schema and Dataview examples in [docs/property-schema.md](docs/property-schema.md) (§5.15) — shipped in 1.39.0
 - [x] Optional AnkiConnect push to a running Anki desktop, with duplicate reporting (§5.15) — shipped in 1.40.0
-- [ ] Optional `.apkg` import and bidirectional AnkiConnect sync (§5.15)
+- [x] Optional `.apkg` import and bidirectional AnkiConnect sync (§5.15) — shipped in 1.50.0 and 1.51.0
 - [ ] Pronunciation feedback for language learners (optional)
 - [ ] Handwritten-work photo grading (optional, vision models)
 - [ ] Long-term standalone mobile product discovery (§10c); do not split the

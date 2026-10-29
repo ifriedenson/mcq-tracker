@@ -14,6 +14,9 @@ test("AnkiConnect: defaults are off and malformed addresses fall back to loopbac
   assert.equal(anki.normalizeAnkiConnect({ url: "localhost:8765" }).url, "http://127.0.0.1:8765");
   assert.equal(anki.normalizeAnkiConnect({ enabled: true, deck: "  Spanish  " }).enabled, true);
   assert.equal(anki.normalizeAnkiConnect({ enabled: true, deck: "  Spanish  " }).deck, "Spanish");
+  assert.equal(anki.normalizeAnkiConnect({}).conflict, "report");
+  assert.equal(anki.normalizeAnkiConnect({ conflict: "anki" }).conflict, "anki");
+  assert.equal(anki.normalizeAnkiConnect({ conflict: "wizard" }).conflict, "report");
 });
 
 test("AnkiConnect: builds Basic and Cloze notes with decks, tags and a media warning", () => {
@@ -104,7 +107,7 @@ test("plugin: pushes the filtered cards to AnkiConnect and honours the opt-in", 
   plugin.settings.cards.enabled = true;
   plugin.settings.cards.ankiConnect = { enabled: false, url: "http://127.0.0.1:8765", deck: "" };
 
-  await assert.rejects(() => plugin.pushCardsToAnki({ deck: "Biology" }), /Turn on AnkiConnect push/);
+  await assert.rejects(() => plugin.pushCardsToAnki({ deck: "Biology" }), /Turn on AnkiConnect sync/);
 
   plugin.settings.cards.ankiConnect.enabled = true;
   const actions = [];
@@ -121,7 +124,255 @@ test("plugin: pushes the filtered cards to AnkiConnect and honours the opt-in", 
     assert.equal(result.added, 1);
     assert.equal(result.duplicates, 0);
     assert.equal(result.count, 1);
+    assert.equal(app.files[0].fm.anki_note_id, "123");
+    assert.ok(app.files[0].fm.anki_synced_hash);
     assert.deepEqual(actions, ["createDeck", "canAddNotes", "addNotes"]);
+  } finally {
+    obsidian.requestImpl = previous;
+  }
+});
+
+test("AnkiConnect: sync records normalize tags and choose push, pull or conflict", () => {
+  const local = anki.syncRecord({ front: "Q", back: "A", deck: "D", tags: ["b", "a"], type: "Basic" });
+  assert.deepEqual(local.tags, ["a", "b"]);
+  const hash = anki.syncHash(local);
+  assert.equal(anki.syncDecision(local, local, { local: hash, remote: hash }).action, "none");
+
+  const remote = anki.remoteSyncRecord(
+    {
+      noteId: 1,
+      cards: [2],
+      modelName: "Basic",
+      fields: { Front: { value: "Q", order: 0 }, Back: { value: "A", order: 1 } },
+      tags: ["a", "b"],
+    },
+    { cardId: 2, deckName: "D", modelName: "Basic", ord: 0, due: 3, interval: 4, reps: 5, lapses: 6 }
+  );
+  assert.equal(remote.front, "Q");
+  assert.equal(remote.back, "A");
+  assert.equal(remote.deck, "D");
+  assert.equal(remote.cardId, "2");
+  assert.equal(remote.interval, 4);
+
+  const baseline = { local: hash, remote: hash };
+  const localChanged = anki.syncRecord({ ...local, back: "B" });
+  const remoteChanged = anki.syncRecord({ ...local, back: "C" });
+  assert.equal(anki.syncDecision(localChanged, local, baseline).action, "push");
+  assert.equal(anki.syncDecision(local, remoteChanged, baseline).action, "pull");
+  assert.equal(anki.syncDecision(localChanged, remoteChanged, baseline).action, "conflict");
+});
+
+test("plugin: sync pushes a new card, then pulls a linked Anki edit without losing history", async () => {
+  const notes = [
+    {
+      path: "Cards/Biology/Q.md",
+      noFm: true,
+      fm: {
+        card_id: "q1",
+        item_type: "card",
+        deck: "Biology",
+        attempts: 3,
+        history: ["2026-10-01 10:00 | correct | 20 | B | 2 | "],
+      },
+      text: "---\ncard_id: q1\nitem_type: card\ndeck: Biology\n---\n\n## Front\nWhich one?\n\n## Back\nB\n\n## Notes\nKeep this note\n",
+    },
+  ];
+  const app = makeApp(notes);
+  app.files[0].fm = { ...notes[0].fm };
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  plugin.settings.cards.ankiConnect = { enabled: true, url: "http://127.0.0.1:8765", deck: "", conflict: "report" };
+
+  let remoteBack = "B";
+  const previous = obsidian.requestImpl;
+  obsidian.requestImpl = async (req) => {
+    const body = JSON.parse(req.body);
+    if (body.action === "canAddNotes") return { status: 200, json: { result: [true] } };
+    if (body.action === "addNotes") return { status: 200, json: { result: [123] } };
+    if (body.action === "notesInfo") {
+      return {
+        status: 200,
+        json: {
+          result: [
+            {
+              noteId: 123,
+              cards: [456],
+              modelName: "Basic",
+              tags: ["bio"],
+              fields: { Front: { value: "Which one?", order: 0 }, Back: { value: remoteBack, order: 1 } },
+            },
+          ],
+        },
+      };
+    }
+    if (body.action === "cardsInfo") {
+      return {
+        status: 200,
+        json: {
+          result: [
+            { cardId: 456, deckName: "Biology", modelName: "Basic", ord: 0, due: 5, interval: 7, reps: 8, lapses: 1 },
+          ],
+        },
+      };
+    }
+    return { status: 200, json: { result: 1 } };
+  };
+  try {
+    const pushed = await plugin.syncCardsWithAnki({});
+    assert.equal(pushed.pushed, 1);
+    assert.equal(app.files[0].fm.anki_note_id, "123");
+    assert.ok(app.files[0].fm.anki_synced_hash);
+    assert.ok(app.files[0].fm.anki_remote_hash);
+
+    remoteBack = "C";
+    const pulled = await plugin.syncCardsWithAnki({});
+    assert.equal(pulled.pulled, 1, JSON.stringify(pulled));
+    assert.match(app.files[0].text, /## Back\n\nC/);
+    assert.match(app.files[0].text, /Keep this note/);
+    assert.equal(app.files[0].fm.attempts, 3);
+    assert.equal(app.files[0].fm.history.length, 1);
+    assert.equal(app.files[0].fm.anki_reps, 8);
+    assert.equal(app.files[0].fm.anki_interval, 7);
+  } finally {
+    obsidian.requestImpl = previous;
+  }
+});
+
+test("plugin: a target deck does not make linked cards conflict on the next sync", async () => {
+  const notes = [
+    {
+      path: "Cards/Biology/Q.md",
+      noFm: true,
+      fm: { card_id: "q1", item_type: "card", deck: "Biology" },
+      text: "## Front\nWhich one?\n\n## Back\nB",
+    },
+  ];
+  const app = makeApp(notes);
+  app.files[0].fm = { ...notes[0].fm };
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  plugin.settings.cards.ankiConnect = { enabled: true, url: "http://127.0.0.1:8765", deck: "School::Biology", conflict: "report" };
+
+  const previous = obsidian.requestImpl;
+  obsidian.requestImpl = async (req) => {
+    const body = JSON.parse(req.body);
+    if (body.action === "canAddNotes") return { status: 200, json: { result: body.params.notes.map(() => true) } };
+    if (body.action === "addNotes") return { status: 200, json: { result: [123] } };
+    if (body.action === "notesInfo") {
+      return {
+        status: 200,
+        json: {
+          result: [
+            {
+              noteId: 123,
+              cards: [456],
+              modelName: "Basic",
+              tags: [],
+              fields: { Front: { value: "Which one?", order: 0 }, Back: { value: "B", order: 1 } },
+            },
+          ],
+        },
+      };
+    }
+    if (body.action === "cardsInfo") {
+      return {
+        status: 200,
+        json: {
+          result: [
+            { cardId: 456, deckName: "School::Biology", modelName: "Basic", ord: 0, due: 1, interval: 2, reps: 3, lapses: 0 },
+          ],
+        },
+      };
+    }
+    return { status: 200, json: { result: 1 } };
+  };
+  try {
+    const first = await plugin.syncCardsWithAnki({});
+    assert.equal(first.pushed, 1);
+    assert.equal(first.conflicts, 0, JSON.stringify(first));
+    const second = await plugin.syncCardsWithAnki({});
+    assert.equal(second.pushed, 0);
+    assert.equal(second.pulled, 0);
+    assert.equal(second.updated, 0);
+    assert.equal(second.conflicts, 0, JSON.stringify(second));
+  } finally {
+    obsidian.requestImpl = previous;
+  }
+});
+
+test("plugin: a card changed on both sides is reported, then an Anki policy can replace it", async () => {
+  const base = anki.syncHash(anki.syncRecord({ front: "Which one?", back: "B", deck: "Biology", tags: [], type: "Basic" }));
+  const notes = [
+    {
+      path: "Cards/Biology/Q.md",
+      noFm: true,
+      fm: {
+        card_id: "q1",
+        item_type: "card",
+        deck: "Biology",
+        attempts: 2,
+        anki_note_id: "123",
+        anki_card_id: "456",
+        anki_synced_hash: base,
+        anki_remote_hash: base,
+      },
+      text: "---\ncard_id: q1\nitem_type: card\ndeck: Biology\nattempts: 2\nanki_note_id: \"123\"\nanki_card_id: \"456\"\n---\n\n## Front\nWhich one?\n\n## Back\nLocal edit\n\n## Notes\nKeep this\n",
+    },
+  ];
+  const app = makeApp(notes);
+  app.files[0].fm = { ...notes[0].fm };
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  plugin.settings.cards.ankiConnect = { enabled: true, url: "http://127.0.0.1:8765", deck: "", conflict: "report" };
+
+  const previous = obsidian.requestImpl;
+  obsidian.requestImpl = async (req) => {
+    const body = JSON.parse(req.body);
+    if (body.action === "notesInfo") {
+      return {
+        status: 200,
+        json: {
+          result: [
+            {
+              noteId: 123,
+              cards: [456],
+              modelName: "Basic",
+              tags: [],
+              fields: { Front: { value: "Which one?", order: 0 }, Back: { value: "Anki edit", order: 1 } },
+            },
+          ],
+        },
+      };
+    }
+    if (body.action === "cardsInfo") {
+      return {
+        status: 200,
+        json: {
+          result: [
+            { cardId: 456, deckName: "Biology", modelName: "Basic", ord: 0, due: 1, interval: 2, reps: 3, lapses: 0 },
+          ],
+        },
+      };
+    }
+    return { status: 200, json: { result: 1 } };
+  };
+  try {
+    const reported = await plugin.syncCardsWithAnki({});
+    assert.equal(reported.conflicts, 1, JSON.stringify(reported));
+    assert.match(reported.warnings.join(" "), /changed in both/);
+    assert.match(app.files[0].text, /## Back\nLocal edit/);
+    assert.equal(app.files[0].fm.attempts, 2);
+
+    plugin.settings.cards.ankiConnect.conflict = "anki";
+    const resolved = await plugin.syncCardsWithAnki({});
+    assert.equal(resolved.conflicts, 0);
+    assert.equal(resolved.pulled, 1);
+    assert.match(app.files[0].text, /## Back\n\nAnki edit/);
+    assert.match(app.files[0].text, /Keep this/);
+    assert.equal(app.files[0].fm.attempts, 2);
   } finally {
     obsidian.requestImpl = previous;
   }

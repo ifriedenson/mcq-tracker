@@ -187,11 +187,11 @@ function renderDecks(containerEl, plugin, redisplay) {
   new Setting(containerEl).setName("AnkiConnect").setHeading();
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "Optional one-way push to a running Anki desktop with the AnkiConnect add-on. Nothing is sent until this is on. AnkiConnect listens on your computer only; this does not use AnkiWeb.",
+    text: "Optional two-way sync with a running Anki desktop and the AnkiConnect add-on. New cards are pushed, linked cards pull Anki edits, and cards changed on both sides are reported instead of overwritten. Nothing is sent until this is on. AnkiConnect listens on your computer only; this does not use AnkiWeb.",
   });
   new Setting(containerEl)
-    .setName("Enable AnkiConnect push")
-    .setDesc("Adds a Push to Anki command and button. Your notes stay in the vault either way.")
+    .setName("Enable AnkiConnect sync")
+    .setDesc("Adds Sync and Push to Anki commands and buttons. Your notes stay in the vault either way.")
     .addToggle((t) =>
       t.setValue(anki.enabled === true).onChange(async (v) => {
         anki.enabled = v;
@@ -221,9 +221,24 @@ function renderDecks(containerEl, plugin, redisplay) {
         })
     );
   new Setting(containerEl)
-    .setName("Push the current filter to Anki")
-    .setDesc("Uses the deck and course filter from the Cards view. Duplicate cards are reported and left alone.")
-    .addButton((b) => b.setButtonText("Push to Anki").onClick(() => plugin.openAnkiConnectPush()));
+    .setName("Conflicting edits")
+    .setDesc("When a linked card changed in both places, keep the local card and report it, push the local card, or pull Anki's version.")
+    .addDropdown((d) =>
+      d
+        .addOption("report", "Report and keep local")
+        .addOption("local", "Use the local card")
+        .addOption("anki", "Use Anki's version")
+        .setValue(anki.conflict || "report")
+        .onChange(async (v) => {
+          anki.conflict = v;
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Sync the current filter with Anki")
+    .setDesc("Pushes new cards and merges Anki edits into linked cards. Uses the deck and course filter from the Cards view.")
+    .addButton((b) => b.setButtonText("Sync with Anki").onClick(() => plugin.openAnkiConnectPush({ sync: true })))
+    .addButton((b) => b.setButtonText("Push only").onClick(() => plugin.openAnkiConnectPush()));
 }
 
 function ensureDeck(st, name) {

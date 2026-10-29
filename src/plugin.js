@@ -43,7 +43,7 @@ const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseGiftText, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
-const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, normalizeAnkiConnect } = require("./anki-connect");
+const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
@@ -248,6 +248,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
     this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
+    this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
     this.addCommand({ id: "manage-study-status", name: "Manage known and excluded items", callback: () => this.openStudyStatusManager() });
 
@@ -1358,7 +1359,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (this.moduleOff("cards")) return;
     const settings = normalizeAnkiConnect(this.settings.cards.ankiConnect);
     if (!settings.enabled) {
-      new Notice("Turn on AnkiConnect push under Settings, Cards, Decks first.");
+      new Notice("Turn on AnkiConnect sync under Settings, Cards, Decks first.");
       return;
     }
     new AnkiConnectModal(
@@ -1372,12 +1373,88 @@ class QuestionTrackerPlugin extends Plugin {
     ).open();
   }
 
-  /** Optional one-way push to a running AnkiConnect. Nothing leaves the device without this call. */
+  /** Record the Anki identity and the content both sides last agreed on. */
+  async stampAnkiCard(file, info) {
+    if (!(file instanceof TFile)) return false;
+    const data = info || {};
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      if (data.noteId !== undefined) fm.anki_note_id = String(data.noteId);
+      if (data.cardId !== undefined) fm.anki_card_id = String(data.cardId);
+      if (data.deck) fm.anki_deck = String(data.deck);
+      if (data.model) fm.anki_model = String(data.model);
+      if (data.ord !== undefined) fm.anki_ord = Math.max(0, Math.round(Number(data.ord) || 0));
+      if (data.due !== undefined) fm.anki_due = Math.round(Number(data.due) || 0);
+      if (data.interval !== undefined) fm.anki_interval = Math.max(0, Math.round(Number(data.interval) || 0));
+      if (data.reps !== undefined) fm.anki_reps = Math.max(0, Math.round(Number(data.reps) || 0));
+      if (data.lapses !== undefined) fm.anki_lapses = Math.max(0, Math.round(Number(data.lapses) || 0));
+      if (data.localHash) fm.anki_synced_hash = data.localHash;
+      if (data.remoteHash) fm.anki_remote_hash = data.remoteHash;
+      if (data.localHash || data.remoteHash) fm.anki_last_sync = new Date().toISOString();
+    });
+    return true;
+  }
+
+  /** Replace a card's body with Anki's version while keeping its history and ## Notes. */
+  async applyAnkiRemote(record, remote, options) {
+    const opts = options || {};
+    const fm = record.fm || {};
+    const cloze = remote.type === "Cloze";
+    let cardType = cloze ? "cloze" : str(fm.card_type).trim() || "basic";
+    if (!["basic", "reversed", "cloze"].includes(cardType)) cardType = "basic";
+    if (cloze) cardType = "cloze";
+    let front = str(remote.front).trim();
+    let back = str(remote.back).trim();
+    if (!cloze && cardType === "reversed") {
+      const swap = front;
+      front = back;
+      back = swap;
+    }
+    if (!front || !back) throw new Error("Anki returned a card without both sides; it was left unchanged.");
+    const generated = cardNote({
+      id: fm.card_id,
+      front,
+      back,
+      cardType,
+      deck: remote.deck || record.deck,
+      course: record.course,
+      tags: remote.tags,
+    });
+    const oldText = await this.app.vault.cachedRead(record.file);
+    const close = oldText.indexOf("\n---\n", 3);
+    if (close < 0) throw new Error("The existing card has no closing frontmatter fence.");
+    const body = noteBodyText(generated.text);
+    const notes = noteNotesSection(noteBodyText(oldText));
+    const merged = notes ? `${body.trimEnd()}\n\n${notes}\n` : body;
+    await this.app.vault.modify(record.file, oldText.slice(0, close + 5) + merged);
+    const remoteHash = syncHash(remote);
+    await this.app.fileManager.processFrontMatter(record.file, (next) => {
+      if (remote.deck && !opts.keepDeck) next.deck = remote.deck;
+      if (remote.tags && remote.tags.length) next.tags = remote.tags.slice();
+      else delete next.tags;
+      if (cardType !== "basic") next.card_type = cardType;
+      else delete next.card_type;
+      next.anki_note_id = String(record.fm.anki_note_id || "");
+      if (remote.cardId) next.anki_card_id = String(remote.cardId);
+      if (remote.deck) next.anki_deck = remote.deck;
+      if (remote.modelName) next.anki_model = remote.modelName;
+      if (remote.ord !== undefined) next.anki_ord = Math.max(0, Math.round(Number(remote.ord) || 0));
+      if (remote.due !== undefined) next.anki_due = Math.round(Number(remote.due) || 0);
+      if (remote.interval !== undefined) next.anki_interval = Math.max(0, Math.round(Number(remote.interval) || 0));
+      if (remote.reps !== undefined) next.anki_reps = Math.max(0, Math.round(Number(remote.reps) || 0));
+      if (remote.lapses !== undefined) next.anki_lapses = Math.max(0, Math.round(Number(remote.lapses) || 0));
+      next.anki_synced_hash = remoteHash;
+      next.anki_remote_hash = remoteHash;
+      next.anki_last_sync = new Date().toISOString();
+    });
+    return remoteHash;
+  }
+
+  /** Optional push. It also records note IDs so the next sync can pull changes. */
   async pushCardsToAnki(options) {
     if (this.moduleOff("cards")) throw new Error("Turn on the Cards module first.");
     const opts = options || {};
     const settings = normalizeAnkiConnect(this.settings.cards.ankiConnect);
-    if (!settings.enabled) throw new Error("Turn on AnkiConnect push under Settings, Cards, Decks first.");
+    if (!settings.enabled) throw new Error("Turn on AnkiConnect sync under Settings, Cards, Decks first.");
     const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
     if (!cards.length) throw new Error("No cards match the current deck and course filter.");
     const records = [];
@@ -1396,7 +1473,191 @@ class QuestionTrackerPlugin extends Plugin {
     });
     if (!built.notes.length) throw new Error("Nothing in this filter can be sent to Anki yet.");
     const result = await new AnkiConnectClient({ url: settings.url }).push(built.notes);
-    return { ...result, format: "ankiconnect", count: built.notes.length, warnings: [...warnings, ...built.warnings] };
+    const byPath = new Map(records.map((record) => [record.file.path, record]));
+    let stamped = 0;
+    for (let i = 0; i < result.acceptedIndexes.length; i++) {
+      const id = result.ids[i];
+      const note = built.notes[result.acceptedIndexes[i]];
+      const record = note && byPath.get(built.paths[result.acceptedIndexes[i]]);
+      if (id === null || id === undefined || !record) continue;
+      // A configured target deck is applied by the sync, not compared as a
+      // content edit. Stamp the same normalized deck the next sync will use,
+      // otherwise every card would look changed on both sides.
+      const local = localSyncRecord(record);
+      if (settings.deck) local.deck = "";
+      const localHash = syncHash(local);
+      await this.stampAnkiCard(record.file, {
+        noteId: id,
+        deck: note.deckName,
+        model: note.modelName,
+        localHash,
+        remoteHash: localHash,
+      });
+      stamped++;
+    }
+    return { ...result, stamped, format: "ankiconnect", count: built.notes.length, warnings: [...warnings, ...built.warnings] };
+  }
+
+  /** Push new cards and merge edits for cards already linked to Anki. */
+  async syncCardsWithAnki(options) {
+    if (this.moduleOff("cards")) throw new Error("Turn on the Cards module first.");
+    const opts = options || {};
+    const settings = normalizeAnkiConnect(this.settings.cards.ankiConnect);
+    if (!settings.enabled) throw new Error("Turn on AnkiConnect sync under Settings, Cards, Decks first.");
+    const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
+    if (!cards.length) throw new Error("No cards match the current deck and course filter.");
+    const records = [];
+    const errors = [];
+    const warnings = [];
+    for (const card of cards) {
+      try {
+        const text = await this.app.vault.cachedRead(card.file);
+        records.push({ ...card, body: parseCardBody(text, card.fm) });
+      } catch (e) {
+        errors.push(`${card.file.path}: ${String((e && e.message) || e)}`);
+      }
+    }
+    const client = new AnkiConnectClient({ url: settings.url });
+    const unlinked = records.filter((record) => !str(record.fm && record.fm.anki_note_id).trim());
+    let pushed = 0;
+    let duplicates = 0;
+    if (unlinked.length) {
+      const built = buildAnkiNotes(unlinked, {
+        deck: opts.targetDeck || settings.deck,
+        defaultDeck: this.settings.cards.defaultDeck,
+      });
+      const result = await client.push(built.notes);
+      duplicates += result.duplicates;
+      warnings.push(...built.warnings);
+      const byPath = new Map(unlinked.map((record) => [record.file.path, record]));
+      for (let i = 0; i < result.acceptedIndexes.length; i++) {
+        const noteId = result.ids[i];
+        const note = built.notes[result.acceptedIndexes[i]];
+        const record = note && byPath.get(built.paths[result.acceptedIndexes[i]]);
+        if (noteId === null || noteId === undefined || !record) continue;
+        const local = localSyncRecord(record);
+        if (settings.deck) local.deck = "";
+        const localHash = syncHash(local);
+        await this.stampAnkiCard(record.file, {
+          noteId,
+          deck: note.deckName,
+          model: note.modelName,
+          localHash,
+          remoteHash: localHash,
+        });
+        pushed++;
+      }
+    }
+
+    const linked = records.filter((record) => str(record.fm && record.fm.anki_note_id).trim());
+    let pulled = 0;
+    let updated = 0;
+    let conflicts = 0;
+    let skipped = duplicates;
+    if (linked.length) {
+      const notes = await client.notesInfo(linked.map((record) => record.fm.anki_note_id));
+      const noteById = new Map(notes.map((note) => [str(note && note.noteId), note]));
+      const cardIds = [];
+      for (const note of notes) for (const id of (Array.isArray(note.cards) ? note.cards : [])) cardIds.push(id);
+      const cardInfos = await client.cardsInfo(cardIds);
+      const cardById = new Map(cardInfos.map((card) => [str(card && card.cardId), card]));
+      for (const record of linked) {
+        const noteId = str(record.fm.anki_note_id).trim();
+        const note = noteById.get(noteId);
+        if (!note) {
+          skipped++;
+          warnings.push(`${record.file.path}: the Anki note ${noteId} was not found.`);
+          continue;
+        }
+        const noteCards = Array.isArray(note.cards) ? note.cards : [];
+        const cardId = str(record.fm.anki_card_id).trim() || str(noteCards[0]);
+        const card = cardById.get(cardId) || cardById.get(str(noteCards[0])) || null;
+        const remote = remoteSyncRecord(note, card);
+        if (!remote.front || !remote.back) {
+          skipped++;
+          warnings.push(`${record.file.path}: Anki returned an empty card and it was left unchanged.`);
+          continue;
+        }
+        let local = localSyncRecord(record);
+        // Older or partial Anki replies can omit the deck; keep the local name
+        // rather than treating that omission as a deck move.
+        if (!remote.deck) remote.deck = local.deck;
+        if (settings.deck) {
+          local = { ...local, deck: "" };
+          remote.deck = "";
+        }
+        const decision = syncDecision(local, remote, {
+          local: str(record.fm.anki_synced_hash).trim(),
+          remote: str(record.fm.anki_remote_hash).trim(),
+        });
+        let action = decision.action;
+        if (action === "conflict" && settings.conflict === "local") action = "push";
+        if (action === "conflict" && settings.conflict === "anki") action = "pull";
+        if (action === "conflict") {
+          conflicts++;
+          warnings.push(`${record.file.path}: changed in both Obsidian and Anki; kept the local card.`);
+          continue;
+        }
+        try {
+          if (action === "none") {
+            await this.stampAnkiCard(record.file, {
+              noteId,
+              cardId,
+              deck: remote.deck,
+              model: remote.modelName,
+              ord: remote.ord,
+              due: remote.due,
+              interval: remote.interval,
+              reps: remote.reps,
+              lapses: remote.lapses,
+              localHash: decision.localHash,
+              remoteHash: decision.remoteHash,
+            });
+          } else if (action === "push") {
+            const built = buildAnkiNotes([record], {
+              deck: opts.targetDeck || settings.deck,
+              defaultDeck: this.settings.cards.defaultDeck,
+            });
+            if (!built.notes.length) {
+              skipped++;
+              continue;
+            }
+            await client.updateNote(noteId, cardId, built.notes[0]);
+            updated++;
+            await this.stampAnkiCard(record.file, {
+              noteId,
+              cardId,
+              deck: remote.deck,
+              model: remote.modelName,
+              ord: remote.ord,
+              due: remote.due,
+              interval: remote.interval,
+              reps: remote.reps,
+              lapses: remote.lapses,
+              localHash: decision.localHash,
+              remoteHash: decision.localHash,
+            });
+          } else if (action === "pull") {
+            await this.applyAnkiRemote(record, remote, { keepDeck: !!opts.targetDeck || !!settings.deck });
+            pulled++;
+          }
+        } catch (e) {
+          errors.push(`${record.file.path}: ${String((e && e.message) || e)}`);
+        }
+      }
+    }
+    return {
+      pushed,
+      pulled,
+      updated,
+      conflicts,
+      skipped,
+      duplicates,
+      errors,
+      warnings,
+      total: records.length,
+      format: "ankiconnect-sync",
+    };
   }
 
   openCardExtract(path, options, onDone) {

@@ -334,11 +334,15 @@ function parseCardBody(text, fm) {
     };
   }
 
+  let rawFront = front;
+  let rawBack = back;
   if (cardType === "cloze") {
     const source = front || back || firstSection(h, ["text"]);
     const parsed = parseCloze(source);
+    rawFront = source;
     front = parsed.prompt;
     back = parsed.answers.join(" · ");
+    rawBack = back;
   } else if (cardType === "reversed") {
     const t = front;
     front = back;
@@ -350,6 +354,8 @@ function parseCardBody(text, fm) {
     cardType,
     front,
     back,
+    rawFront,
+    rawBack,
     prompt: front,
     answer: back,
     example: firstSection(h, ["example"]),

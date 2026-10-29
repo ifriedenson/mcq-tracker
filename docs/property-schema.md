@@ -119,7 +119,9 @@ update the existing note instead of creating a duplicate.
 | `ai_generated`, `ai_model` | string | Marks AI-written content and records the model. |
 | `anki_note_id`, `anki_card_id`, `anki_guid` | string | The source note, card and GUID from an imported `.apkg`, used by later syncs. |
 | `anki_deck`, `anki_model`, `anki_ord` | string/number | The source deck, model name and card ordinal. |
-| `anki_due`, `anki_interval`, `anki_reps`, `anki_lapses` | number | Anki's scheduling fields at import time; kept as metadata rather than translated into a different scheduler. |
+| `anki_due`, `anki_interval`, `anki_reps`, `anki_lapses` | number | Anki's scheduling fields at import or sync time; kept as metadata rather than translated into a different scheduler. |
+| `anki_synced_hash`, `anki_remote_hash` | string | Content hashes from the last successful sync; they let a later sync tell a local edit from an Anki edit. |
+| `anki_last_sync` | string | ISO timestamp of the last successful AnkiConnect exchange. |
 
 ## Dataview examples
 
