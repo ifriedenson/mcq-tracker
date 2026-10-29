@@ -627,6 +627,8 @@ Build on the existing timed test.
 - **Setting to hide it in timed tests** to match closed-book exams, or show a specific exam-provided sheet.
 - Optional **calculator panel** with modes (basic, scientific). Allow disabling during no-calculator sections.
 
+**Shipped in 1.85.0:** the Reference view has a local **Calculator** tab with Basic and Scientific keypads, a typed expression field, Enter-to-evaluate and Escape-to-clear. It uses the restricted expression evaluator (no `eval`), supports powers, roots, logs, trigonometry, `pi` and `e`, rejects non-finite results instead of showing `Infinity`, and adds no network request. The calculator is on by default, can be turned off in Settings, Reference, Tools, and is hidden during a timed test unless the learner explicitly allows it. Covered by `tests/calculator.test.js`.
+
 **5.16.9 Subject-aware analytics**
 - Track errors by type common to STEM: setup error, algebra/arithmetic slip, unit error, sign error, wrong formula, concept gap. Extend the existing mistake-type labels (users can already add their own).
 
@@ -1233,6 +1235,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
 - [x] Imported PDF figures and normal Obsidian embeds display in practice, timed tests and reviews (§5.16.7) — shipped in 1.84.0
+- [x] Local Basic/Scientific calculator in Reference, with a timed-test guard (§5.16.8) — shipped in 1.85.0
 - [ ] Math, chemistry, and physics: SMILES integration and formula sheets (§5.16)
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
@@ -2378,6 +2381,8 @@ Build on the existing timed test.
 - **Setting to hide it in timed tests** to match closed-book exams, or show a specific exam-provided sheet.
 - Optional **calculator panel** with modes (basic, scientific). Allow disabling during no-calculator sections.
 
+**Shipped in 1.85.0:** the Reference view has a local **Calculator** tab with Basic and Scientific keypads, a typed expression field, Enter-to-evaluate and Escape-to-clear. It uses the restricted expression evaluator (no `eval`), supports powers, roots, logs, trigonometry, `pi` and `e`, rejects non-finite results instead of showing `Infinity`, and adds no network request. The calculator is on by default, can be turned off in Settings, Reference, Tools, and is hidden during a timed test unless the learner explicitly allows it. Covered by `tests/calculator.test.js`.
+
 **5.16.9 Subject-aware analytics**
 - Track errors by type common to STEM: setup error, algebra/arithmetic slip, unit error, sign error, wrong formula, concept gap. Extend the existing mistake-type labels (users can already add their own).
 
@@ -2627,6 +2632,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
 - [x] Imported PDF figures and normal Obsidian embeds display in practice, timed tests and reviews (§5.16.7) — shipped in 1.84.0
+- [x] Local Basic/Scientific calculator in Reference, with a timed-test guard (§5.16.8) — shipped in 1.85.0
 - [ ] Math, chemistry, and physics: SMILES integration and formula sheets (§5.16)
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 

@@ -12,6 +12,8 @@
 const DEFAULT_REFERENCE_SETTINGS = {
   enabled: false, // optional module; nothing is added to the workspace until this is on
   hideDuringTests: true, // a timed test should not have a reference panel beside it
+  hideCalculatorDuringTests: true, // even when the panel is allowed, a no-calculator section hides the calculator
+  calculator: true, // the local calculator tab is available when Reference is on
   defaultSubject: "all", // "all" | math | physics | chemistry | biology
 };
 
@@ -622,6 +624,8 @@ function mergeReferenceSettings(saved) {
   return {
     enabled: src.enabled === true,
     hideDuringTests: src.hideDuringTests !== false,
+    hideCalculatorDuringTests: src.hideCalculatorDuringTests !== false,
+    calculator: src.calculator !== false,
     defaultSubject: REFERENCE_SUBJECTS.some((s) => s.id === subject) ? subject : "all",
   };
 }

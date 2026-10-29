@@ -35,7 +35,7 @@ function renderTools(containerEl, plugin, redisplay) {
 
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "A local formula sheet, constants list, unit converter and AP score estimator. No network request is made while it is open.",
+    text: "A local formula sheet, constants list, unit converter, calculator and AP score estimator. No network request is made while it is open.",
   });
 
   new Setting(containerEl)
@@ -56,6 +56,26 @@ function renderTools(containerEl, plugin, redisplay) {
     .addToggle((t) =>
       t.setValue(st.reference.hideDuringTests !== false).onChange(async (v) => {
         st.reference.hideDuringTests = v;
+        await plugin.save();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Calculator panel")
+    .setDesc("Adds a local Basic and Scientific calculator tab. It uses the restricted arithmetic evaluator and never calls a model or a website.")
+    .addToggle((t) =>
+      t.setValue(st.reference.calculator !== false).onChange(async (v) => {
+        st.reference.calculator = v;
+        await plugin.save();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Hide calculator during timed tests")
+    .setDesc("Keeps the calculator out of a timed test even when you allow the rest of the Reference panel. Turn this off only for practice sections that permit a calculator.")
+    .addToggle((t) =>
+      t.setValue(st.reference.hideCalculatorDuringTests !== false).onChange(async (v) => {
+        st.reference.hideCalculatorDuringTests = v;
         await plugin.save();
       })
     );
@@ -90,7 +110,7 @@ function renderTools(containerEl, plugin, redisplay) {
   card.createEl("h3", { text: "Bundled content" });
   card.createEl("p", {
     cls: "setting-item-description",
-    text: `${FORMULAS.length} formulas across ${REFERENCE_SUBJECTS.length - 1} subjects, ${CONSTANTS.length} constants, ${UNIT_CATEGORIES.length} unit categories and all ${ELEMENTS.length} elements.`,
+    text: `${FORMULAS.length} formulas across ${REFERENCE_SUBJECTS.length - 1} subjects, ${CONSTANTS.length} constants, ${UNIT_CATEGORIES.length} unit categories, all ${ELEMENTS.length} elements, and an offline calculator.`,
   });
   card.createEl("p", {
     cls: "setting-item-description",

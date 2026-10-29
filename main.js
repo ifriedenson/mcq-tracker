@@ -4550,6 +4550,78 @@ class AssignmentsView extends ItemView {
 module.exports = { VIEW_TYPE_ASSIGNMENTS, AssignmentsView };
 };
 
+/* ---- src/calculator.js ---- */
+__defs["calculator"] = function (module, exports, require) {
+/*
+ * Local calculator for the Reference panel.
+ *
+ * Expressions go through the restricted evaluator used by parameterized
+ * questions. There is no eval, no Function, and no network request.
+ */
+const { str } = require("./util");
+const { evaluateExpression } = require("./parameterized");
+
+const CALCULATOR_MODES = ["basic", "scientific"];
+
+const BASIC_KEYS = [
+  ["7", "8", "9", "/"],
+  ["4", "5", "6", "*"],
+  ["1", "2", "3", "-"],
+  ["0", ".", "=", "+"],
+  ["C", "⌫"],
+];
+
+const SCIENTIFIC_KEYS = [
+  ["(", ")", "^", "sqrt("],
+  ["sin(", "cos(", "tan(", "ln("],
+  ["log(", "pi", "e", "%"],
+];
+
+function normalizeCalculatorMode(value) {
+  return CALCULATOR_MODES.includes(str(value).trim().toLowerCase()) ? str(value).trim().toLowerCase() : "basic";
+}
+
+/** Evaluate one expression and return a display-ready result or a readable error. */
+function evaluateCalculator(expression) {
+  const text = str(expression).trim();
+  if (!text) return { ok: false, value: null, text: "", error: "Enter a calculation." };
+  try {
+    const value = evaluateExpression(text);
+    if (!Number.isFinite(value)) return { ok: false, value: null, text: "", error: "That result is not a finite number." };
+    return { ok: true, value, text: formatCalculatorValue(value), error: "" };
+  } catch (e) {
+    return { ok: false, value: null, text: "", error: str(e && e.message ? e.message : e) || "That expression is not valid." };
+  }
+}
+
+function formatCalculatorValue(value) {
+  if (!Number.isFinite(value)) return "";
+  const rounded = Number(value.toPrecision(12));
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+/** Apply a keypad token to the expression. `=` is handled by the view. */
+function appendCalculatorToken(expression, token) {
+  const current = str(expression);
+  if (token === "C") return "";
+  if (token === "⌫") return current.slice(0, -1);
+  if (token === "+/-") return current.startsWith("-") ? current.slice(1) : `-${current}`;
+  if (!token) return current;
+  if (!current && /^[*/^%)]/.test(token)) return current;
+  return current + token;
+}
+
+module.exports = {
+  BASIC_KEYS,
+  CALCULATOR_MODES,
+  SCIENTIFIC_KEYS,
+  appendCalculatorToken,
+  evaluateCalculator,
+  formatCalculatorValue,
+  normalizeCalculatorMode,
+};
+};
+
 /* ---- src/calendar-ics.js ---- */
 __defs["calendar-ics"] = function (module, exports, require) {
 /*
@@ -31381,6 +31453,8 @@ __defs["reference-data"] = function (module, exports, require) {
 const DEFAULT_REFERENCE_SETTINGS = {
   enabled: false, // optional module; nothing is added to the workspace until this is on
   hideDuringTests: true, // a timed test should not have a reference panel beside it
+  hideCalculatorDuringTests: true, // even when the panel is allowed, a no-calculator section hides the calculator
+  calculator: true, // the local calculator tab is available when Reference is on
   defaultSubject: "all", // "all" | math | physics | chemistry | biology
 };
 
@@ -31991,6 +32065,8 @@ function mergeReferenceSettings(saved) {
   return {
     enabled: src.enabled === true,
     hideDuringTests: src.hideDuringTests !== false,
+    hideCalculatorDuringTests: src.hideCalculatorDuringTests !== false,
+    calculator: src.calculator !== false,
     defaultSubject: REFERENCE_SUBJECTS.some((s) => s.id === subject) ? subject : "all",
   };
 }
@@ -32448,7 +32524,7 @@ function renderTools(containerEl, plugin, redisplay) {
 
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "A local formula sheet, constants list, unit converter and AP score estimator. No network request is made while it is open.",
+    text: "A local formula sheet, constants list, unit converter, calculator and AP score estimator. No network request is made while it is open.",
   });
 
   new Setting(containerEl)
@@ -32469,6 +32545,26 @@ function renderTools(containerEl, plugin, redisplay) {
     .addToggle((t) =>
       t.setValue(st.reference.hideDuringTests !== false).onChange(async (v) => {
         st.reference.hideDuringTests = v;
+        await plugin.save();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Calculator panel")
+    .setDesc("Adds a local Basic and Scientific calculator tab. It uses the restricted arithmetic evaluator and never calls a model or a website.")
+    .addToggle((t) =>
+      t.setValue(st.reference.calculator !== false).onChange(async (v) => {
+        st.reference.calculator = v;
+        await plugin.save();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Hide calculator during timed tests")
+    .setDesc("Keeps the calculator out of a timed test even when you allow the rest of the Reference panel. Turn this off only for practice sections that permit a calculator.")
+    .addToggle((t) =>
+      t.setValue(st.reference.hideCalculatorDuringTests !== false).onChange(async (v) => {
+        st.reference.hideCalculatorDuringTests = v;
         await plugin.save();
       })
     );
@@ -32503,7 +32599,7 @@ function renderTools(containerEl, plugin, redisplay) {
   card.createEl("h3", { text: "Bundled content" });
   card.createEl("p", {
     cls: "setting-item-description",
-    text: `${FORMULAS.length} formulas across ${REFERENCE_SUBJECTS.length - 1} subjects, ${CONSTANTS.length} constants, ${UNIT_CATEGORIES.length} unit categories and all ${ELEMENTS.length} elements.`,
+    text: `${FORMULAS.length} formulas across ${REFERENCE_SUBJECTS.length - 1} subjects, ${CONSTANTS.length} constants, ${UNIT_CATEGORIES.length} unit categories, all ${ELEMENTS.length} elements, and an offline calculator.`,
   });
   card.createEl("p", {
     cls: "setting-item-description",
@@ -32552,6 +32648,7 @@ const {
 } = require("./reference-data");
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
 const { buildPlot } = require("./reference-graph");
+const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
 const {
@@ -32563,15 +32660,15 @@ const {
 const { apExamTrend } = require("./ap-exam-history");
 
 /*
- * A local-only reference panel. It deliberately contains no calculator engine,
- * network request or third-party dataset: formulas and constants are static text,
- * and the converter is a pure multiplication/offset table.
+ * A local-only reference panel. It contains no network request or third-party
+ * dataset: formulas and constants are static text, the converter is a pure
+ * multiplication/offset table, and the calculator uses the restricted evaluator.
  */
 class ReferenceView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
-    this.tab = "formulas"; // formulas | units | graph | elements | constants | ap | resources
+    this.tab = "formulas"; // formulas | units | calculator | graph | elements | constants | ap | resources
     this.subject = (plugin.settings.reference && plugin.settings.reference.defaultSubject) || "all";
     this.query = "";
     this.constantQuery = "";
@@ -32588,6 +32685,13 @@ class ReferenceView extends ItemView {
     this.graphXMax = "10";
     this.graphCanvas = null;
     this.graphErrorEl = null;
+    this.calculatorMode = "basic";
+    this.calculatorExpression = "";
+    this.calculatorResult = "";
+    this.calculatorError = "";
+    this.calculatorExpressionEl = null;
+    this.calculatorResultEl = null;
+    this.calculatorErrorEl = null;
     this.elementQuery = "";
     this.selectedElement = null;
     this.periodicGridEl = null;
@@ -32641,13 +32745,14 @@ class ReferenceView extends ItemView {
     root.createEl("h2", { text: "Reference" });
     root.createDiv({
       cls: "qt-ref-intro",
-      text: "Bundled formulas, constants, unit conversions and an unofficial AP score estimator. Everything is local and works offline.",
+      text: "Bundled formulas, constants, unit conversions, a local calculator and an unofficial AP score estimator. Everything is local and works offline.",
     });
 
     const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-ref-tabs" });
     for (const [id, label] of [
       ["formulas", "Formulas"],
       ["units", "Unit converter"],
+      ["calculator", "Calculator"],
       ["graph", "Graph"],
       ["elements", "Periodic table"],
       ["constants", "Constants"],
@@ -32663,6 +32768,7 @@ class ReferenceView extends ItemView {
     }
 
     if (this.tab === "units") this.renderUnits(root);
+    else if (this.tab === "calculator") this.renderCalculator(root);
     else if (this.tab === "graph") this.renderGraph(root);
     else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
@@ -32670,6 +32776,101 @@ class ReferenceView extends ItemView {
     else if (this.tab === "resources") this.renderApResources(root);
     else this.renderFormulas(root);
     el.scrollTop = top;
+  }
+
+  renderCalculator(root) {
+    const settings = this.plugin.settings.reference || {};
+    if (settings.calculator === false) {
+      root.createDiv({ cls: "qt-ref-note", text: "The calculator is turned off under Settings, Reference, Tools." });
+      return;
+    }
+    if (this.plugin.timedTestRunning() && settings.hideCalculatorDuringTests !== false) {
+      root.createDiv({
+        cls: "qt-ref-note",
+        text: "The calculator is hidden while a timed test is running, so a no-calculator section stays closed-book. You can change this under Settings, Reference, Tools.",
+      });
+      return;
+    }
+
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "A local calculator. Basic mode has the four operations; scientific mode adds powers, parentheses, roots, logarithms, trigonometry, pi and e. Nothing is sent anywhere.",
+    });
+
+    const modes = root.createDiv({ cls: "qt-row qt-ref-calculator-modes" });
+    for (const mode of ["basic", "scientific"]) {
+      const button = modes.createEl("button", { text: mode === "basic" ? "Basic" : "Scientific", cls: "qt-ref-tab" });
+      if (this.calculatorMode === mode) button.addClass("mod-cta");
+      button.addEventListener("click", () => {
+        this.calculatorMode = mode;
+        this.render();
+      });
+    }
+
+    const display = root.createDiv({ cls: "qt-calc-display" });
+    const input = display.createEl("input", {
+      cls: "qt-calc-input",
+      attr: { type: "text", inputmode: "decimal", placeholder: "0", "aria-label": "Calculator expression" },
+    });
+    input.value = this.calculatorExpression;
+    this.calculatorExpressionEl = input;
+    this.calculatorResultEl = display.createDiv({ cls: "qt-calc-result", attr: { "aria-live": "polite" } });
+    this.calculatorErrorEl = display.createDiv({ cls: "qt-calc-error", attr: { "aria-live": "polite" } });
+    input.addEventListener("input", () => {
+      this.calculatorExpression = input.value;
+      this.calculatorResult = "";
+      this.calculatorError = "";
+      this.paintCalculator();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.calculatorEquals();
+      } else if (event.key === "Escape") {
+        this.calculatorExpression = "";
+        this.calculatorResult = "";
+        this.calculatorError = "";
+        this.paintCalculator();
+      }
+    });
+
+    const pad = root.createDiv({ cls: "qt-calc-pad" });
+    const rows = [...BASIC_KEYS, ...(this.calculatorMode === "scientific" ? SCIENTIFIC_KEYS : [])];
+    for (const row of rows) {
+      const rowEl = pad.createDiv({ cls: "qt-calc-row" });
+      for (const token of row) {
+        const button = rowEl.createEl("button", { text: token, cls: "qt-calc-key" });
+        if (token === "=") button.addClass("mod-cta");
+        button.addEventListener("click", () => this.pressCalculator(token));
+      }
+    }
+    this.paintCalculator();
+  }
+
+  paintCalculator() {
+    if (this.calculatorExpressionEl && this.calculatorExpressionEl.value !== this.calculatorExpression) {
+      this.calculatorExpressionEl.value = this.calculatorExpression;
+    }
+    if (this.calculatorResultEl) this.calculatorResultEl.setText(this.calculatorResult ? `= ${this.calculatorResult}` : "");
+    if (this.calculatorErrorEl) this.calculatorErrorEl.setText(this.calculatorError);
+  }
+
+  pressCalculator(token) {
+    if (token === "=") {
+      this.calculatorEquals();
+      return;
+    }
+    this.calculatorExpression = appendCalculatorToken(this.calculatorExpression, token);
+    this.calculatorResult = "";
+    this.calculatorError = "";
+    this.paintCalculator();
+  }
+
+  calculatorEquals() {
+    const result = evaluateCalculator(this.calculatorExpression);
+    this.calculatorResult = result.text;
+    this.calculatorError = result.ok ? "" : result.error;
+    this.paintCalculator();
   }
 
   renderGraph(root) {
@@ -37525,6 +37726,7 @@ const weakSpot = require("./weak-spot");
 const answerVerification = require("./answer-verification");
 const computedVerification = require("./computed-verification");
 const figures = require("./figures");
+const calculator = require("./calculator");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
@@ -37652,6 +37854,7 @@ QuestionTrackerPlugin.__test = {
   answerVerification,
   computedVerification,
   figures,
+  calculator,
   WeakSpotModal,
   OpenCodeManager,
   MAX_OPENCODE_MAJOR,
