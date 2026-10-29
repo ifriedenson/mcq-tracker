@@ -976,6 +976,17 @@ class PracticeView extends ItemView {
     const fm = q.fm;
     const paused = !p.isRunning();
     const path = q.file.path;
+    const verification = str(fm.verification).toLowerCase();
+    if (verification === "mismatch" || verification === "error") {
+      const check = root.createDiv({ cls: "qt-verify-banner" });
+      check.createSpan({ text: verification === "mismatch" ? "Answer check failed. " : "Answer check did not finish. " });
+      check.createSpan({
+        text:
+          verification === "mismatch"
+            ? `An independent AI pass chose ${str(fm.verified_answer).trim() || "a different answer"}, but this note says ${str(fm.answer).trim() || "no answer"}.`
+            : "This answer has not been checked against a second answer.",
+      });
+    }
     root.addClass("qt-exam");
     root.addClass("qt-wide");
 

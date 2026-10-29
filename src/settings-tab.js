@@ -17,6 +17,7 @@ const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
+const { normalizeVerificationMode } = require("./answer-verification");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -348,6 +349,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       cls: "setting-item-description",
       text: `Tutor commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}. Type one at the start of a chat message to steer the next reply.`,
     });
+    new Setting(containerEl)
+      .setName("Check AI-written answers")
+      .setDesc("After the AI writes a multiple-choice answer, a second independent call solves the question without seeing the key. Flag a disagreement for review, or drop that item.")
+      .addDropdown((d) =>
+        d
+          .addOption("mark", "Flag mismatches for review")
+          .addOption("drop", "Drop mismatched items")
+          .setValue(normalizeVerificationMode(ai.verification))
+          .onChange(async (v) => {
+            ai.verification = normalizeVerificationMode(v);
+            await this.plugin.save();
+          })
+      );
     new Setting(containerEl).setName("Study context (read-only)").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",

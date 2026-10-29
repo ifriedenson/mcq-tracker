@@ -6,6 +6,7 @@ const { HEAD_ALIASES, extractRationale, fillDefaults, parseSections } = require(
 const { chunkText } = require("./pdf");
 const { officialIdOf } = require("./filters");
 const { normalizePage, sourceLink } = require("./provenance");
+const { verificationBanner, verificationFields } = require("./answer-verification");
 
 /* ---- checking imported notes */
 
@@ -367,9 +368,20 @@ function finalizeNote(text, meta, qid, stamp) {
     fm.ai_model = stamp.model;
     fm.ai_generated = stamp.date;
   }
+  const verification = stamp.verification && typeof stamp.verification === "object" ? stamp.verification : null;
+  if (verification) {
+    Object.assign(fm, verificationFields(verification));
+    if (verification.status === "mismatch" || verification.status === "error") fm.needs_review = true;
+  } else if (ai) {
+    fm.verified = false;
+    fm.verification = "unchecked";
+  }
   fillDefaults(fm);
 
-  let cleaned = body.replace(/^\s*> \[!warning\] AI-generated[^\n]*(?:\n>[^\n]*)*\n+/i, "").trim();
+  let cleaned = body
+    .replace(/^\s*> \[!warning\] AI-generated[^\n]*(?:\n>[^\n]*)*\n+/i, "")
+    .replace(/^> \[!warning\] Answer check (?:failed|did not finish)[^\n]*(?:\n>[^\n]*)*\n*/m, "")
+    .trim();
   let notice = "";
   if (ai) {
     const what = f.aiAnswer && f.aiExp ? "answer and explanation" : f.aiAnswer ? "answer" : "explanation";
@@ -377,7 +389,8 @@ function finalizeNote(text, meta, qid, stamp) {
       `> [!warning] AI-generated ${what}\n` +
       `> Written by ${stamp.model} on ${stamp.date}${f.aiAnswer ? ", because the document did not show the answer" : ""}. Check it before you rely on it.\n\n`;
   }
-  return `---\n${stringifyYaml(fm).trimEnd()}\n---\n\n${notice}${cleaned}\n`;
+  const check = verification ? verificationBanner(verification) : "";
+  return `---\n${stringifyYaml(fm).trimEnd()}\n---\n\n${notice}${check}${cleaned}\n`;
 }
 
 async function ensureProviders(oc) {

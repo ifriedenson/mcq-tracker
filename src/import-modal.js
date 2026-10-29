@@ -401,8 +401,21 @@ class PdfImportModal extends Modal {
         result.skipped.push(`${base}: no "## Question" section`);
         continue;
       }
-      const out = finalizeNote(text, meta, base, stamp);
       const f = this.app.vault.getAbstractFileByPath(path);
+      const pre = aiFlags(parsed.fm, parsed.sec);
+      let verification = null;
+      if (pre.aiAnswer && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
+        const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: str(parsed.fm.answer) };
+        await this.plugin.verifyDraftQuestions([draft]);
+        verification = draft.verification;
+        if (verification && verification.drop) {
+          if (f instanceof TFile) await this.app.vault.delete(f);
+          else await this.app.vault.adapter.remove(path);
+          result.skipped.push(`${base}: answer check failed`);
+          continue;
+        }
+      }
+      const out = finalizeNote(text, meta, base, { ...stamp, verification });
       if (f instanceof TFile) await this.app.vault.modify(f, out);
       else await this.app.vault.adapter.write(path, out);
       const fin = parseNote(out);
@@ -579,7 +592,26 @@ class PdfImportModal extends Modal {
     }
     if (this.closed) return;
     this.items = mergeNotes(blocks);
+    await this.verifyAiAnswers();
+    if (this.closed) return;
     this.showReview();
+  }
+
+  /** Blind-check answers the AI wrote before the review list is shown. */
+  async verifyAiAnswers() {
+    if (!this.plugin.settings.ai.enabled || typeof this.plugin.verifyDraftQuestions !== "function") return;
+    const candidates = this.items.filter((q) => {
+      const f = aiFlags(q.fm, q.sec);
+      return f.aiAnswer && q.sec.choices.length > 0;
+    });
+    if (!candidates.length) return;
+    this.status(`Checking ${candidates.length} AI-written answer${candidates.length === 1 ? "" : "s"} without showing the key...`);
+    const drafts = candidates.map((q) => ({ question: q.sec.question, choices: q.sec.choices, answer: str(q.fm.answer) }));
+    await this.plugin.verifyDraftQuestions(drafts);
+    candidates.forEach((q, i) => {
+      q.verification = drafts[i].verification;
+      if (q.verification && q.verification.drop) q.include = false;
+    });
   }
 
   showError(msg) {
@@ -633,6 +665,8 @@ class PdfImportModal extends Modal {
       const tags = [q.sec.choices.length ? `${q.sec.choices.length} choices` : "no answer choices"];
       tags.push(!f.hasAnswer ? "no answer" : f.aiAnswer ? `answer ${str(q.fm.answer)} (written by AI)` : `answer ${str(q.fm.answer)} (from the file)`);
       if (f.aiExp) tags.push("explanation written by AI");
+      const v = q.verification;
+      if (v) tags.push(v.status === "match" ? "answer checked" : v.status === "mismatch" ? `answer check failed: AI chose ${v.answer}` : "answer check did not finish");
       if (str(q.sec.stimulus).trim()) tags.push("has passage");
       if (/!\[\[/.test(q.text)) tags.push("has picture");
       if (/\[Figure not captured\]/i.test(q.sec.stimulus)) tags.push("figure missing");
@@ -668,6 +702,10 @@ class PdfImportModal extends Modal {
       const seenIds = new Map();
       for (let i = 0; i < chosen.length; i++) {
         const q = chosen[i];
+        if (q.verification && q.verification.drop) {
+          result.skipped.push(`${q.fm.number || i + 1}: answer check failed`);
+          continue;
+        }
         const oid = officialIdOf(q.fm);
         const other = oid && (existingIds.get(oid) || seenIds.get(oid));
         if (other) {
@@ -685,7 +723,7 @@ class PdfImportModal extends Modal {
         }
         let path = normalizePath(`${folder}/${qid}.md`);
         for (let k = 2; this.app.vault.getAbstractFileByPath(path); k++) path = normalizePath(`${folder}/${qid}-${k}.md`);
-        const out = finalizeNote(q.text, meta, qid, { ...stamp, stimId });
+        const out = finalizeNote(q.text, meta, qid, { ...stamp, stimId, verification: q.verification });
         await this.app.vault.create(path, out);
         if (oid) seenIds.set(oid, path);
         const fin = parseNote(out);

@@ -92,6 +92,13 @@ class WeakSpotModal extends Modal {
       list.createEl("li", { text: g.kind === "questions" ? `${item.question} (answer ${item.answer})` : `${item.front} → ${item.back}` });
     }
     if (g.items.length > 20) el.createEl("p", { cls: "qt-hint", text: `…and ${g.items.length - 20} more.` });
+    if (g.verification) {
+      const v = g.verification;
+      const bits = [`Checked ${v.checked} AI-written answer${v.checked === 1 ? "" : "s"} without showing the key.`];
+      if (v.dropped) bits.push(`${v.dropped} mismatch${v.dropped === 1 ? " was" : "es were"} dropped by your setting.`);
+      if (v.failed) bits.push(`${v.failed} check${v.failed === 1 ? "" : "s"} could not finish and will be marked for review.`);
+      el.createDiv({ cls: "qt-hint", text: bits.join(" ") });
+    }
     el.createDiv({ cls: "qt-hint", text: "These items were generated for a weak spot, not copied from a note. The files can be undone with AI: undo the last generated notes." });
     const row = el.createDiv({ cls: "qt-row" });
     row.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => {

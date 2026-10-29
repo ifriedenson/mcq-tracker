@@ -62,6 +62,7 @@ const DEFAULT_SETTINGS = {
     mode: "tutor",
     tutorRole: "private", // "private" | "socratic" | "language"
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
+    verification: "mark", // after AI writes an answer: "mark" mismatches for review, or "drop" them
     sessionId: "",
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".

@@ -1166,6 +1166,129 @@ module.exports = {
 };
 };
 
+/* ---- src/answer-verification.js ---- */
+__defs["answer-verification"] = function (module, exports, require) {
+/*
+ * Blind answer verification.
+ *
+ * The checker sees the question and choices but never the stored answer or
+ * explanation, so it cannot simply agree with the key. The returned letter is
+ * compared with the key already in the note. Nothing is written here.
+ */
+const { str } = require("./util");
+
+const VERIFICATION_MODES = ["mark", "drop"];
+
+function normalizeVerificationMode(value) {
+  return str(value).trim().toLowerCase() === "drop" ? "drop" : "mark";
+}
+
+function buildBlindVerificationPrompt(data) {
+  const d = data || {};
+  const choices = Array.isArray(d.choices) ? d.choices : [];
+  return {
+    system:
+      "You are an independent exam answer checker. Solve the question yourself from the question and choices. " +
+      "Do not assume any answer is correct and do not ask for the answer key. Return only JSON.",
+    user: [
+      "QUESTION:",
+      str(d.question).trim(),
+      "",
+      "CHOICES:",
+      ...choices.map((choice, index) => {
+        const letter = str(choice && choice.letter ? choice.letter : "ABCDEFGH"[index]).trim().toUpperCase();
+        const text = choice && choice.text !== undefined ? choice.text : choice;
+        return `${letter}. ${str(text).trim()}`;
+      }),
+      "",
+      'Return {"answer":"B","confidence":"high|medium|low","reason":"one short sentence"}.',
+      "Use exactly one letter from A to the last choice.",
+    ].join("\n"),
+  };
+}
+
+/** Read the first usable letter answer from a model reply, tolerating fences and a short preface. */
+function parseBlindVerification(reply) {
+  const text = str(reply)
+    .replace(/```(?:json|javascript|js)?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  let answer = "";
+  const json = /\{[\s\S]*\}/.exec(text);
+  if (json) {
+    try {
+      const parsed = JSON.parse(json[0]);
+      answer = str(parsed && parsed.answer).trim().toUpperCase().slice(0, 1);
+    } catch (e) {
+      /* fall through to a plain letter */
+    }
+  }
+  if (!/^[A-H]$/.test(answer)) {
+    const match = /\b(?:answer|correct answer)\s*(?:is|:)?\s*([A-H])\b/i.exec(text);
+    answer = match ? match[1].toUpperCase() : "";
+  }
+  const confidence = (/\b(high|medium|low)\b/i.exec(text) || [])[1];
+  return { answer, confidence: confidence ? confidence.toLowerCase() : "", raw: text };
+}
+
+/** The properties recorded after a check. `verified` is false for a mismatch or an unfinished check. */
+function verificationFields(verification) {
+  const v = verification || {};
+  const out = {
+    verified: v.status === "match",
+    verified_by: str(v.model).trim() || "AI",
+    verified_on: str(v.date).trim(),
+    verification: str(v.status).trim() || "unchecked",
+  };
+  if (str(v.answer).trim()) out.verified_answer = str(v.answer).trim().toUpperCase();
+  return out;
+}
+
+/** A visible warning block for a disagreement or an unfinished check. */
+function verificationBanner(verification) {
+  const v = verification || {};
+  if (v.status === "mismatch") {
+    return (
+      "> [!warning] Answer check failed\n" +
+      `> An independent AI pass chose ${str(v.answer).trim() || "a different answer"}, but this note's answer is ${str(v.key).trim() || "not set"}. This note is marked for review.\n\n`
+    );
+  }
+  if (v.status === "error") {
+    return (
+      "> [!warning] Answer check did not finish\n" +
+      `> ${str(v.error).trim() || "The independent check could not complete."} This note has not been checked against a second answer.\n\n`
+    );
+  }
+  return "";
+}
+
+/** Removes an earlier verification banner without touching an AI-generated notice. */
+function stripVerificationBanner(text) {
+  return str(text).replace(/^> \[!warning\] Answer check (?:failed|did not finish)[^\n]*(?:\n>[^\n]*)*\n*/m, "");
+}
+
+/** Places a verification banner directly after the YAML, replacing an older one. */
+function addVerificationBanner(text, verification) {
+  const clean = stripVerificationBanner(text);
+  const banner = verificationBanner(verification);
+  if (!banner) return clean;
+  const front = /^---\n[\s\S]*?\n---\n*/.exec(clean);
+  if (front) return clean.slice(0, front[0].length) + banner + clean.slice(front[0].length).replace(/^\n+/, "");
+  return banner + clean;
+}
+
+module.exports = {
+  VERIFICATION_MODES,
+  addVerificationBanner,
+  buildBlindVerificationPrompt,
+  normalizeVerificationMode,
+  parseBlindVerification,
+  stripVerificationBanner,
+  verificationBanner,
+  verificationFields,
+};
+};
+
 /* ---- src/ap-exam-history.js ---- */
 __defs["ap-exam-history"] = function (module, exports, require) {
 /*
@@ -11374,6 +11497,7 @@ const DEFAULT_SETTINGS = {
     mode: "tutor",
     tutorRole: "private", // "private" | "socratic" | "language"
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
+    verification: "mark", // after AI writes an answer: "mark" mismatches for review, or "drop" them
     sessionId: "",
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
@@ -16843,8 +16967,21 @@ class PdfImportModal extends Modal {
         result.skipped.push(`${base}: no "## Question" section`);
         continue;
       }
-      const out = finalizeNote(text, meta, base, stamp);
       const f = this.app.vault.getAbstractFileByPath(path);
+      const pre = aiFlags(parsed.fm, parsed.sec);
+      let verification = null;
+      if (pre.aiAnswer && parsed.sec.choices.length && typeof this.plugin.verifyDraftQuestions === "function") {
+        const draft = { question: parsed.sec.question, choices: parsed.sec.choices, answer: str(parsed.fm.answer) };
+        await this.plugin.verifyDraftQuestions([draft]);
+        verification = draft.verification;
+        if (verification && verification.drop) {
+          if (f instanceof TFile) await this.app.vault.delete(f);
+          else await this.app.vault.adapter.remove(path);
+          result.skipped.push(`${base}: answer check failed`);
+          continue;
+        }
+      }
+      const out = finalizeNote(text, meta, base, { ...stamp, verification });
       if (f instanceof TFile) await this.app.vault.modify(f, out);
       else await this.app.vault.adapter.write(path, out);
       const fin = parseNote(out);
@@ -17021,7 +17158,26 @@ class PdfImportModal extends Modal {
     }
     if (this.closed) return;
     this.items = mergeNotes(blocks);
+    await this.verifyAiAnswers();
+    if (this.closed) return;
     this.showReview();
+  }
+
+  /** Blind-check answers the AI wrote before the review list is shown. */
+  async verifyAiAnswers() {
+    if (!this.plugin.settings.ai.enabled || typeof this.plugin.verifyDraftQuestions !== "function") return;
+    const candidates = this.items.filter((q) => {
+      const f = aiFlags(q.fm, q.sec);
+      return f.aiAnswer && q.sec.choices.length > 0;
+    });
+    if (!candidates.length) return;
+    this.status(`Checking ${candidates.length} AI-written answer${candidates.length === 1 ? "" : "s"} without showing the key...`);
+    const drafts = candidates.map((q) => ({ question: q.sec.question, choices: q.sec.choices, answer: str(q.fm.answer) }));
+    await this.plugin.verifyDraftQuestions(drafts);
+    candidates.forEach((q, i) => {
+      q.verification = drafts[i].verification;
+      if (q.verification && q.verification.drop) q.include = false;
+    });
   }
 
   showError(msg) {
@@ -17075,6 +17231,8 @@ class PdfImportModal extends Modal {
       const tags = [q.sec.choices.length ? `${q.sec.choices.length} choices` : "no answer choices"];
       tags.push(!f.hasAnswer ? "no answer" : f.aiAnswer ? `answer ${str(q.fm.answer)} (written by AI)` : `answer ${str(q.fm.answer)} (from the file)`);
       if (f.aiExp) tags.push("explanation written by AI");
+      const v = q.verification;
+      if (v) tags.push(v.status === "match" ? "answer checked" : v.status === "mismatch" ? `answer check failed: AI chose ${v.answer}` : "answer check did not finish");
       if (str(q.sec.stimulus).trim()) tags.push("has passage");
       if (/!\[\[/.test(q.text)) tags.push("has picture");
       if (/\[Figure not captured\]/i.test(q.sec.stimulus)) tags.push("figure missing");
@@ -17110,6 +17268,10 @@ class PdfImportModal extends Modal {
       const seenIds = new Map();
       for (let i = 0; i < chosen.length; i++) {
         const q = chosen[i];
+        if (q.verification && q.verification.drop) {
+          result.skipped.push(`${q.fm.number || i + 1}: answer check failed`);
+          continue;
+        }
         const oid = officialIdOf(q.fm);
         const other = oid && (existingIds.get(oid) || seenIds.get(oid));
         if (other) {
@@ -17127,7 +17289,7 @@ class PdfImportModal extends Modal {
         }
         let path = normalizePath(`${folder}/${qid}.md`);
         for (let k = 2; this.app.vault.getAbstractFileByPath(path); k++) path = normalizePath(`${folder}/${qid}-${k}.md`);
-        const out = finalizeNote(q.text, meta, qid, { ...stamp, stimId });
+        const out = finalizeNote(q.text, meta, qid, { ...stamp, stimId, verification: q.verification });
         await this.app.vault.create(path, out);
         if (oid) seenIds.set(oid, path);
         const fin = parseNote(out);
@@ -17179,6 +17341,7 @@ const { HEAD_ALIASES, extractRationale, fillDefaults, parseSections } = require(
 const { chunkText } = require("./pdf");
 const { officialIdOf } = require("./filters");
 const { normalizePage, sourceLink } = require("./provenance");
+const { verificationBanner, verificationFields } = require("./answer-verification");
 
 /* ---- checking imported notes */
 
@@ -17540,9 +17703,20 @@ function finalizeNote(text, meta, qid, stamp) {
     fm.ai_model = stamp.model;
     fm.ai_generated = stamp.date;
   }
+  const verification = stamp.verification && typeof stamp.verification === "object" ? stamp.verification : null;
+  if (verification) {
+    Object.assign(fm, verificationFields(verification));
+    if (verification.status === "mismatch" || verification.status === "error") fm.needs_review = true;
+  } else if (ai) {
+    fm.verified = false;
+    fm.verification = "unchecked";
+  }
   fillDefaults(fm);
 
-  let cleaned = body.replace(/^\s*> \[!warning\] AI-generated[^\n]*(?:\n>[^\n]*)*\n+/i, "").trim();
+  let cleaned = body
+    .replace(/^\s*> \[!warning\] AI-generated[^\n]*(?:\n>[^\n]*)*\n+/i, "")
+    .replace(/^> \[!warning\] Answer check (?:failed|did not finish)[^\n]*(?:\n>[^\n]*)*\n*/m, "")
+    .trim();
   let notice = "";
   if (ai) {
     const what = f.aiAnswer && f.aiExp ? "answer and explanation" : f.aiAnswer ? "answer" : "explanation";
@@ -17550,7 +17724,8 @@ function finalizeNote(text, meta, qid, stamp) {
       `> [!warning] AI-generated ${what}\n` +
       `> Written by ${stamp.model} on ${stamp.date}${f.aiAnswer ? ", because the document did not show the answer" : ""}. Check it before you rely on it.\n\n`;
   }
-  return `---\n${stringifyYaml(fm).trimEnd()}\n---\n\n${notice}${cleaned}\n`;
+  const check = verification ? verificationBanner(verification) : "";
+  return `---\n${stringifyYaml(fm).trimEnd()}\n---\n\n${notice}${check}${cleaned}\n`;
 }
 
 async function ensureProviders(oc) {
@@ -22533,7 +22708,8 @@ const { WelcomeModal } = require("./welcome-modal");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
-const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
+const { applyAttempt, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setLastErrorType } = require("./notes");
+const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
 const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
@@ -22751,6 +22927,23 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "weak-spot-generate", name: "AI: generate practice from a weak spot", callback: () => this.openWeakSpotGenerate() });
+    this.addCommand({
+      id: "verify-answer-ai",
+      name: "AI: verify the answer for this note",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        const fm = file && this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (!file || !fm || fm.question_id === undefined || fm.question_id === null || fm.question_id === "") return false;
+        if (!checking) {
+          this.verifyAnswerWithAi(file.path)
+            .then((result) => {
+              if (result) new Notice(result.match ? "The AI agrees with the stored answer." : `The AI chose ${result.answer}; the note says ${result.key}. Marked for review.`, 7000);
+            })
+            .catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not verify that answer.", 7000));
+        }
+        return true;
+      },
+    });
     this.addCommand({ id: "tag-card-courses", name: "Cards: tag cards with their folder's course", callback: () => this.tagCardsByCourse() });
     this.addCommand({
       id: "cards-grade-pending",
@@ -22944,6 +23137,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.localOcr = normalizeLocalOcr(saved.localOcr);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
     this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
+    this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
     // 0.2.0 saved settings had no `managed` flag: move those users to the automatic setup.
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
@@ -24382,17 +24576,116 @@ class QuestionTrackerPlugin extends Plugin {
     const prompt = buildWeakSpotPrompt({ skill: row.value, course: opts.course, kind, count });
     const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: kind === "questions" ? 3500 : 2500 });
     const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
+    const items = kind === "questions" ? parsed.questions : parsed.cards;
+    const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : null;
     return {
       kind,
       sourcePath: "",
       title: `Weak spot: ${row.value}`,
       course: str(opts.course).trim(),
       skill: row.value,
-      items: kind === "questions" ? parsed.questions : parsed.cards,
+      items: items.filter((item) => !(item.verification && item.verification.drop)),
+      verification,
       errors: [],
       ai: true,
       model: this.aiModelLabel(),
     };
+  }
+
+  /** Ask one independent question, without showing the stored key. */
+  async verifyQuestionDraft(item) {
+    const data = item || {};
+    const key = str(data.answer).trim().toUpperCase();
+    if (!/^[A-H]$/.test(key)) throw new Error("Only multiple-choice items with a letter answer can be checked.");
+    if (!Array.isArray(data.choices) || !data.choices.length) throw new Error("This item has no answer choices to check.");
+    const prompt = buildBlindVerificationPrompt({ question: data.question, choices: data.choices });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: 800 });
+    const verdict = parseBlindVerification(reply);
+    if (!verdict.answer) throw new Error("The AI did not return a usable answer letter.");
+    return { match: verdict.answer === key, answer: verdict.answer, key, confidence: verdict.confidence };
+  }
+
+  /**
+   * Runs the blind check over generated or imported drafts. A mismatch is
+   * marked for review, or dropped when the user chose that setting.
+   */
+  async verifyDraftQuestions(items) {
+    const list = Array.isArray(items) ? items : [];
+    const mode = normalizeVerificationMode(this.settings.ai.verification);
+    const model = this.aiModelLabel();
+    const date = localDate();
+    let checked = 0;
+    let dropped = 0;
+    let failed = 0;
+    for (const item of list) {
+      if (!item || typeof item !== "object") continue;
+      if (!Array.isArray(item.choices) || !item.choices.length || !str(item.answer).trim()) {
+        item.verification = { status: "unchecked", match: null, answer: "", key: str(item.answer).trim(), model, date, drop: false };
+        continue;
+      }
+      try {
+        const result = await this.verifyQuestionDraft(item);
+        const status = result.match ? "match" : "mismatch";
+        item.verification = {
+          status,
+          match: result.match,
+          answer: result.answer,
+          key: result.key,
+          confidence: result.confidence,
+          model,
+          date,
+          drop: !result.match && mode === "drop",
+        };
+        checked++;
+        if (item.verification.drop) dropped++;
+      } catch (e) {
+        item.verification = {
+          status: "error",
+          match: null,
+          answer: "",
+          key: str(item.answer).trim(),
+          error: str(e && e.message ? e.message : e),
+          model,
+          date,
+          drop: false,
+        };
+        failed++;
+      }
+    }
+    return { checked, dropped, failed, mode };
+  }
+
+  /** Compare a blind AI answer with the note's stored key and record the result. */
+  async verifyAnswerWithAi(path) {
+    if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
+    const file = this.app.vault.getAbstractFileByPath(str(path).trim());
+    if (!(file instanceof TFile)) throw new Error("That note is not in the vault.");
+    const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    if (fm.question_id === undefined || fm.question_id === null || fm.question_id === "") throw new Error("Only question notes can be verified.");
+    const sections = parseSections(await this.app.vault.cachedRead(file));
+    const key = str(findAnswerKey(fm, sections)).trim().toUpperCase();
+    if (!key) throw new Error("This note has no stored answer to compare.");
+    const result = await this.verifyQuestionDraft({ question: sections.question, choices: sections.choices, answer: key });
+    const verification = {
+      status: result.match ? "match" : "mismatch",
+      match: result.match,
+      answer: result.answer,
+      key,
+      confidence: result.confidence,
+      model: this.aiModelLabel(),
+      date: localDate(),
+    };
+    await this.app.fileManager.processFrontMatter(file, (data) => {
+      Object.assign(data, verificationFields(verification));
+      delete data.answer_verified;
+      delete data.answer_verified_on;
+      delete data.answer_verified_model;
+      delete data.answer_verification;
+      if (!result.match) data.needs_review = true;
+    });
+    await this.app.vault.modify(file, addVerificationBanner(await this.app.vault.cachedRead(file), verification));
+    this.refreshViews();
+    return { ...verification, path: file.path };
   }
 
   /** Read one note and describe whether it is a transcript. */
@@ -24447,11 +24740,14 @@ class QuestionTrackerPlugin extends Plugin {
         : buildTranscriptCardPrompt({ title: info.title, course, text: info.text, count });
     const reply = await this.aiComplete(prompt.system, prompt.user, { maxTokens: kind === "questions" ? 4000 : 3000 });
     const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
+    const items = kind === "questions" ? parsed.questions : parsed.cards;
+    const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : null;
     return {
       ...base,
       ai: true,
       model: this.aiModelLabel(),
-      items: kind === "questions" ? parsed.questions : parsed.cards,
+      items: items.filter((item) => !(item.verification && item.verification.drop)),
+      verification,
     };
   }
 
@@ -24509,7 +24805,7 @@ class QuestionTrackerPlugin extends Plugin {
           item,
           { course: g.course, source: g.title },
           qid,
-          { model: g.model || this.aiModelLabel(), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note" }
+          { model: g.model || this.aiModelLabel(), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note", verification: item.verification }
         );
         await this.app.vault.create(path, note);
         paths.push(path);
@@ -27061,6 +27357,17 @@ class PracticeView extends ItemView {
     const fm = q.fm;
     const paused = !p.isRunning();
     const path = q.file.path;
+    const verification = str(fm.verification).toLowerCase();
+    if (verification === "mismatch" || verification === "error") {
+      const check = root.createDiv({ cls: "qt-verify-banner" });
+      check.createSpan({ text: verification === "mismatch" ? "Answer check failed. " : "Answer check did not finish. " });
+      check.createSpan({
+        text:
+          verification === "mismatch"
+            ? `An independent AI pass chose ${str(fm.verified_answer).trim() || "a different answer"}, but this note says ${str(fm.answer).trim() || "no answer"}.`
+            : "This answer has not been checked against a second answer.",
+      });
+    }
     root.addClass("qt-exam");
     root.addClass("qt-wide");
 
@@ -30186,6 +30493,7 @@ const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
+const { normalizeVerificationMode } = require("./answer-verification");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -30517,6 +30825,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       cls: "setting-item-description",
       text: `Tutor commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}. Type one at the start of a chat message to steer the next reply.`,
     });
+    new Setting(containerEl)
+      .setName("Check AI-written answers")
+      .setDesc("After the AI writes a multiple-choice answer, a second independent call solves the question without seeing the key. Flag a disagreement for review, or drop that item.")
+      .addDropdown((d) =>
+        d
+          .addOption("mark", "Flag mismatches for review")
+          .addOption("drop", "Drop mismatched items")
+          .setValue(normalizeVerificationMode(ai.verification))
+          .onChange(async (v) => {
+            ai.verification = normalizeVerificationMode(v);
+            await this.plugin.save();
+          })
+      );
     new Setting(containerEl).setName("Study context (read-only)").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",
@@ -33188,6 +33509,13 @@ class WeakSpotModal extends Modal {
       list.createEl("li", { text: g.kind === "questions" ? `${item.question} (answer ${item.answer})` : `${item.front} → ${item.back}` });
     }
     if (g.items.length > 20) el.createEl("p", { cls: "qt-hint", text: `…and ${g.items.length - 20} more.` });
+    if (g.verification) {
+      const v = g.verification;
+      const bits = [`Checked ${v.checked} AI-written answer${v.checked === 1 ? "" : "s"} without showing the key.`];
+      if (v.dropped) bits.push(`${v.dropped} mismatch${v.dropped === 1 ? " was" : "es were"} dropped by your setting.`);
+      if (v.failed) bits.push(`${v.failed} check${v.failed === 1 ? "" : "s"} could not finish and will be marked for review.`);
+      el.createDiv({ cls: "qt-hint", text: bits.join(" ") });
+    }
     el.createDiv({ cls: "qt-hint", text: "These items were generated for a weak spot, not copied from a note. The files can be undone with AI: undo the last generated notes." });
     const row = el.createDiv({ cls: "qt-row" });
     row.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => {
@@ -33572,6 +33900,7 @@ const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
 const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
+const answerVerification = require("./answer-verification");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
@@ -33682,6 +34011,7 @@ QuestionTrackerPlugin.__test = {
   aiContext,
   aiWrites,
   weakSpot,
+  answerVerification,
   WeakSpotModal,
   OpenCodeManager,
   MAX_OPENCODE_MAJOR,

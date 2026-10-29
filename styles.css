@@ -1481,6 +1481,16 @@
 
 /* result screen */
 
+.qt-verify-banner {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-left: 3px solid var(--text-warning);
+  background: rgba(var(--color-orange-rgb, 255, 145, 0), 0.12);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  line-height: 1.45;
+}
+
 .qt-banner {
   border-radius: var(--radius-m);
   padding: 14px;

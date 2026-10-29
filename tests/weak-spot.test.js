@@ -40,9 +40,12 @@ test("plugin: weak-spot generation previews items, writes them and records undo"
   await plugin.onload();
   plugin.settings.ai.enabled = true;
   let asked = null;
+  let calls = 0;
   plugin.aiComplete = async (system, user) => {
-    asked = { system, user };
-    return '{"questions":[{"question":"What is 2x when x is 3?","choices":["3","6","9","12"],"answer":"B","explanation":"2 × 3 = 6."}]}';
+    if (++calls === 1) asked = { system, user };
+    return calls === 1
+      ? '{"questions":[{"question":"What is 2x when x is 3?","choices":["3","6","9","12"],"answer":"B","explanation":"2 × 3 = 6."}]}'
+      : '{"answer":"B","confidence":"high"}';
   };
 
   const draft = await plugin.generateWeakSpotPractice({ skill: "Algebra", kind: "questions", count: 1, course: "Algebra II" });

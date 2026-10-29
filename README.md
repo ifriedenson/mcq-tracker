@@ -456,7 +456,11 @@ Three default-off toggles under **Settings → MCQ Tracker → AI → Study cont
 
 ### Generating practice from a weak spot
 
-Run **AI: generate practice from a weak spot** to open a preview-first generator. Pick one of your weakest practised skills, choose multiple-choice questions or flashcards, and review every draft item before pressing **Create these**. Only the skill name, optional course, format and count are sent; question text, answers and notes are not included. Confirmed items go to the normal question folder or deck and can be removed with **AI: undo the last generated notes**.
+Run **AI: generate practice from a weak spot** to open a preview-first generator. Pick one of your weakest practised skills, choose multiple-choice questions or flashcards, and review every draft item before pressing **Create these**. Only the skill name, optional course, format and count are sent; question text, answers and notes are not included. Confirmed items go to the normal question folder or deck and can be removed with **AI: undo the last generated notes**. Every generated multiple-choice answer is also checked by a second call that does not see the key; the preview says how many were checked and dropped.
+
+### Checking AI-written answers
+
+When the AI writes a multiple-choice answer, the plugin can make a second independent call that sees the question and choices but never the stored key or explanation. A disagreement is marked `needs_review: true`, gets a visible warning banner in the note and in practice, and records `verified: false`, `verified_by` and `verified_on`. Choose **Flag mismatches for review** (the default) or **Drop mismatched items** under **Settings → MCQ Tracker → AI**. The same check runs on AI-written PDF-import answers and on questions generated from a weak spot or a lecture. You can also run **AI: verify the answer for this note** at any time. Answers with no letter key, such as free-response items, are recorded as unchecked rather than silently treated as verified.
 
 ### What is disclosed and sent
 
