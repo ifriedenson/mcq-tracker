@@ -3625,7 +3625,7 @@ class QuestionTrackerPlugin extends Plugin {
   async importCardsFromQuizlet(path, options) {
     if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
     const opts = options || {};
-    if (/\.pdf$/i.test(String(path || ""))) return this.importCardsFromQuizletPdf(path, opts);
+    if (opts.pdfData || /\.pdf$/i.test(String(path || ""))) return this.importCardsFromQuizletPdf(path, opts);
     const file = this.app.vault.getAbstractFileByPath(String(path || ""));
     if (!file) throw new Error("That file is not in the vault.");
     const text = await this.app.vault.cachedRead(file);
@@ -3636,15 +3636,28 @@ class QuestionTrackerPlugin extends Plugin {
   /** Read a text-based Quizlet PDF into card records, without writing anything. */
   async parseQuizletPdfCards(path, options) {
     const opts = options || {};
-    if (!/\.pdf$/i.test(String(path || ""))) throw new Error("Choose the .pdf file printed from Quizlet.");
-    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
-    if (!file) throw new Error("That PDF is not in the vault. Add it to the vault first, then choose it here.");
-    const bytes = await this.readVaultBytes(file);
-    const read = await readPdfPages(bytes, String(opts.pages || ""), opts.progress || (() => {}));
+    const name = String(opts.pdfName || path || "").trim();
+    if (!/\.pdf$/i.test(name)) throw new Error("Choose the .pdf file printed from Quizlet.");
+    const { pdfData, pdfName, ...rest } = opts;
+    let bytes;
+    let sourcePath;
+    let baseName;
+    if (pdfData) {
+      bytes = Buffer.isBuffer(pdfData) ? pdfData : Buffer.from(pdfData);
+      sourcePath = name;
+      baseName = name.replace(/^.*\//, "").replace(/\.pdf$/i, "");
+    } else {
+      const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+      if (!file) throw new Error("That PDF is not in the vault. Choose it from this device instead, or add it to the vault.");
+      bytes = await this.readVaultBytes(file);
+      sourcePath = file.path;
+      baseName = file.basename;
+    }
+    const read = await readPdfPages(bytes, String(rest.pages || ""), rest.progress || (() => {}));
     return parseQuizletPdf(read.pages, {
-      ...opts,
-      sourcePath: file.path,
-      deck: String(opts.deck || "").trim() || file.basename,
+      ...rest,
+      sourcePath,
+      deck: String(rest.deck || "").trim() || baseName,
     });
   }
 
@@ -3812,7 +3825,7 @@ class QuestionTrackerPlugin extends Plugin {
         if (!file) throw new Error("That .apkg file is not in the vault.");
         const bytes = await this.readVaultBytes(file);
         add(parseApkg(bytes, { sourcePath: file.path, deck: String(opts.deck || "").trim() || file.basename }));
-      } else if (kind === "quizlet" && /\.pdf$/i.test(String(path || ""))) {
+      } else if (kind === "quizlet" && (opts.pdfData || /\.pdf$/i.test(String(path || "")))) {
         add(await this.parseQuizletPdfCards(path, { ...opts, progress: () => {} }));
       } else {
         const file = this.app.vault.getAbstractFileByPath(String(path || ""));

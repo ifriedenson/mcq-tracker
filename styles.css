@@ -4907,6 +4907,12 @@
   font-weight: 600;
   text-transform: capitalize;
 }
+.qt-device-pdf {
+  padding-top: 2px;
+}
+.qt-device-pdf .qt-row {
+  flex-wrap: wrap;
+}
 .qt-import-preview {
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;

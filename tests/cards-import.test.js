@@ -284,6 +284,54 @@ test("plugin: a Quizlet PDF delegates to the card writer and records its format"
   assert.match(app.created[0].text, /course: "SPAN 101"/);
 });
 
+test("plugin: a device Quizlet PDF passes its bytes and name through preview and import", async () => {
+  const { app, plugin } = await setup([]);
+  const calls = [];
+  plugin.parseQuizletPdfCards = async (path, options) => {
+    calls.push({ path, options });
+    return {
+      cards: [
+        {
+          kind: "card",
+          cardType: "basic",
+          deck: "Spanish",
+          front: "hola",
+          back: "hello",
+          tags: [],
+          importSource: "device-set.pdf",
+          importFormat: "quizlet-pdf",
+          importedOn: "2026-10-29",
+          importKey: "quizlet-pdf:device",
+          sourcePage: "1",
+        },
+      ],
+      errors: [],
+      warnings: [],
+      skipped: 0,
+      questions: 0,
+      totalPages: 1,
+    };
+  };
+  const bytes = new Uint8Array([37, 80, 68, 70]).buffer;
+  const preview = await plugin.previewCardsImport("quizlet", "device-set.pdf", {
+    deck: "Spanish",
+    pdfData: bytes,
+    pdfName: "device-set.pdf",
+  });
+  assert.equal(preview.total, 1);
+  assert.equal(calls[0].path, "device-set.pdf");
+  assert.equal(calls[0].options.pdfName, "device-set.pdf");
+  assert.ok(calls[0].options.pdfData);
+
+  const result = await plugin.importCardsFromQuizlet("device-set.pdf", {
+    deck: "Spanish",
+    pdfData: bytes,
+    pdfName: "device-set.pdf",
+  });
+  assert.equal(result.created, 1);
+  assert.match(app.created[0].text, /import_source: "device-set.pdf"/);
+});
+
 test("plugin: imports an Anki text export and rejects a binary package", async () => {
   const notes = [
     {

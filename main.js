@@ -11981,6 +11981,7 @@ class CardImportModal extends Modal {
     this.csvMapping = null;
     this.preview = null;
     this.reviewedUpdates = false;
+    this.devicePdf = null;
   }
 
   onOpen() {
@@ -12010,6 +12011,45 @@ class CardImportModal extends Modal {
     const sourceWrap = contentEl.createDiv({ cls: "qt-field" });
     const sourceLabel = sourceWrap.createEl("label", { text: "Folder" });
     const source = sourceWrap.createEl("select", { cls: "dropdown" });
+
+    const deviceWrap = contentEl.createDiv({ cls: "qt-field qt-device-pdf" });
+    deviceWrap.createEl("label", { text: "Or choose a PDF from this device" });
+    const deviceRow = deviceWrap.createDiv({ cls: "qt-row" });
+    const chooseDevice = deviceRow.createEl("button", { text: "Choose PDF from device...", cls: "qt-grow" });
+    const clearDevice = deviceRow.createEl("button", { text: "Use a vault file", cls: "qt-grow" });
+    const deviceNote = deviceWrap.createDiv({ cls: "qt-hint" });
+    const deviceInput = createEl("input", { type: "file", attr: { accept: ".pdf,application/pdf" } });
+    deviceInput.hidden = true;
+    deviceWrap.appendChild(deviceInput);
+    const updateDevice = () => {
+      const on = this.type === "quizlet";
+      deviceWrap.toggleClass("qt-hidden", !on);
+      sourceWrap.toggleClass("qt-hidden", on && !!this.devicePdf);
+      clearDevice.disabled = !this.devicePdf;
+      deviceNote.setText(
+        this.devicePdf
+          ? `Using ${this.devicePdf.name}. It is read on this device and is not copied into the vault.`
+          : "Choose a PDF printed from Quizlet. It is read locally, not uploaded, and not added to the vault. Scanned PDFs need OCR first."
+      );
+    };
+    chooseDevice.addEventListener("click", () => deviceInput.click());
+    clearDevice.addEventListener("click", () => {
+      this.devicePdf = null;
+      this.preview = null;
+      deviceInput.value = "";
+      updateDevice();
+      renderDiffPreview(null);
+      if (this.type === "quizlet") renderCardPreview(null);
+    });
+    deviceInput.addEventListener("change", () => {
+      this.devicePdf = deviceInput.files && deviceInput.files[0] ? deviceInput.files[0] : null;
+      this.preview = null;
+      updateDevice();
+      renderDiffPreview(null);
+      if (this.type === "quizlet") renderCardPreview(null);
+      deviceInput.value = "";
+    });
+    updateDevice();
     const refreshOptions = () => {
       source.empty();
       const files = p.app.vault.getAllLoadedFiles ? p.app.vault.getAllLoadedFiles() : p.app.vault.getMarkdownFiles();
@@ -12032,6 +12072,9 @@ class CardImportModal extends Modal {
       this.csvParsed = null;
       this.csvMapping = null;
       this.preview = null;
+      this.devicePdf = null;
+      deviceInput.value = "";
+      updateDevice();
       if (this.type === "csv") {
         csvGrid.empty();
         csvPreview.empty();
@@ -12042,7 +12085,10 @@ class CardImportModal extends Modal {
       this.type = type.value;
       this.csvParsed = null;
       this.csvMapping = null;
+      this.devicePdf = null;
+      deviceInput.value = "";
       refreshOptions();
+      updateDevice();
       help.setText(helpText());
       toggleCsvControls();
       renderCardPreview(null);
@@ -12162,7 +12208,7 @@ class CardImportModal extends Modal {
     const help = contentEl.createEl("p", { cls: "setting-item-description" });
     const helpText = () => {
       if (this.type === "quizlet") {
-        return quizletExportHint() + " A PDF printed from Quizlet is also read: choose Print, use the Flashcard or Test view with the answer key included, save the PDF in this vault, and pick it here. Scanned PDFs must be OCR'd first.";
+        return quizletExportHint() + " A PDF printed from Quizlet is also read from its text layer: choose Print, use the Flashcard or Test view with the answer key included, then pick the PDF from the vault or use Choose PDF from device. Scanned PDFs must be OCR'd first.";
       }
       if (this.type === "mochi") return "Mochi: export the deck as Markdown, unzip it into a vault folder, then choose that folder. Each card file uses --- or *** between its sides; the folder name supplies the deck unless you enter a fallback deck.";
       if (this.type === "crowdanki") return "CrowdAnki: export the deck as CrowdAnki JSON and save the .json file in the vault. Nested deck names, note fields, Anki tags and cloze models are read; review history is not exported by CrowdAnki.";
@@ -12257,7 +12303,17 @@ class CardImportModal extends Modal {
       this.reviewedUpdates = false;
       renderDiffPreview(this.preview);
     });
-    const isQuizletPdf = () => this.type === "quizlet" && /\.pdf$/i.test(String(source.value || ""));
+    const isQuizletPdf = () => this.type === "quizlet" && (!!this.devicePdf || /\.pdf$/i.test(String(source.value || "")));
+    const readDevicePdf = () => {
+      if (!this.devicePdf) return Promise.resolve(null);
+      if (typeof this.devicePdf.arrayBuffer === "function") return this.devicePdf.arrayBuffer();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error || new Error("That PDF could not be read."));
+        reader.readAsArrayBuffer(this.devicePdf);
+      });
+    };
     const renderCardPreview = (parsed) => {
       cardPreview.empty();
       if (!isQuizletPdf() || !parsed || !Array.isArray(parsed.cards) || !parsed.cards.length) {
@@ -12277,7 +12333,7 @@ class CardImportModal extends Modal {
     };
     cancel.addEventListener("click", () => this.close());
     preview.addEventListener("click", async () => {
-      const path = source.value;
+      const path = this.devicePdf ? this.devicePdf.name : source.value;
       if (this.type === "csv") {
         await readCsv({ keepMapping: !!this.csvMapping, autoHeader: !this.csvMapping });
         return;
@@ -12289,7 +12345,12 @@ class CardImportModal extends Modal {
       preview.disabled = true;
       note.setText("Reading preview…");
       try {
-        const parsed = await p.previewCardsImport(this.type, path, { deck: deck.value, course: course.value });
+        const options = { deck: deck.value, course: course.value };
+        if (this.devicePdf) {
+          options.pdfData = await readDevicePdf();
+          options.pdfName = this.devicePdf.name;
+        }
+        const parsed = await p.previewCardsImport(this.type, path, options);
         this.preview = parsed;
         this.reviewedUpdates = false;
         renderDiffPreview(parsed);
@@ -12305,7 +12366,7 @@ class CardImportModal extends Modal {
       }
     });
     go.addEventListener("click", async () => {
-      const path = source.value;
+      const path = this.devicePdf ? this.devicePdf.name : source.value;
       if (this.type !== "spaced" && !path) {
         new Notice(`Choose a ${this.type === "quizlet" ? "Quizlet text or PDF" : this.type === "anki" ? "Anki" : this.type === "apkg" ? "Anki package" : this.type === "gift" ? "Moodle GIFT" : this.type === "moodlexml" ? "Moodle XML" : this.type === "qti" ? "QTI" : this.type === "mochi" ? "Mochi folder" : this.type === "crowdanki" ? "CrowdAnki JSON" : this.type} file first.`);
         return;
@@ -12333,6 +12394,10 @@ class CardImportModal extends Modal {
       note.setText("Reading and importing…");
       try {
         const options = { deck: deck.value, course: course.value, duplicateMode: duplicateMode.value };
+        if (this.devicePdf) {
+          options.pdfData = await readDevicePdf();
+          options.pdfName = this.devicePdf.name;
+        }
         const result =
           this.type === "spaced"
             ? await p.importCardsFromFolder(path, options)
@@ -32802,7 +32867,7 @@ class QuestionTrackerPlugin extends Plugin {
   async importCardsFromQuizlet(path, options) {
     if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
     const opts = options || {};
-    if (/\.pdf$/i.test(String(path || ""))) return this.importCardsFromQuizletPdf(path, opts);
+    if (opts.pdfData || /\.pdf$/i.test(String(path || ""))) return this.importCardsFromQuizletPdf(path, opts);
     const file = this.app.vault.getAbstractFileByPath(String(path || ""));
     if (!file) throw new Error("That file is not in the vault.");
     const text = await this.app.vault.cachedRead(file);
@@ -32813,15 +32878,28 @@ class QuestionTrackerPlugin extends Plugin {
   /** Read a text-based Quizlet PDF into card records, without writing anything. */
   async parseQuizletPdfCards(path, options) {
     const opts = options || {};
-    if (!/\.pdf$/i.test(String(path || ""))) throw new Error("Choose the .pdf file printed from Quizlet.");
-    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
-    if (!file) throw new Error("That PDF is not in the vault. Add it to the vault first, then choose it here.");
-    const bytes = await this.readVaultBytes(file);
-    const read = await readPdfPages(bytes, String(opts.pages || ""), opts.progress || (() => {}));
+    const name = String(opts.pdfName || path || "").trim();
+    if (!/\.pdf$/i.test(name)) throw new Error("Choose the .pdf file printed from Quizlet.");
+    const { pdfData, pdfName, ...rest } = opts;
+    let bytes;
+    let sourcePath;
+    let baseName;
+    if (pdfData) {
+      bytes = Buffer.isBuffer(pdfData) ? pdfData : Buffer.from(pdfData);
+      sourcePath = name;
+      baseName = name.replace(/^.*\//, "").replace(/\.pdf$/i, "");
+    } else {
+      const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+      if (!file) throw new Error("That PDF is not in the vault. Choose it from this device instead, or add it to the vault.");
+      bytes = await this.readVaultBytes(file);
+      sourcePath = file.path;
+      baseName = file.basename;
+    }
+    const read = await readPdfPages(bytes, String(rest.pages || ""), rest.progress || (() => {}));
     return parseQuizletPdf(read.pages, {
-      ...opts,
-      sourcePath: file.path,
-      deck: String(opts.deck || "").trim() || file.basename,
+      ...rest,
+      sourcePath,
+      deck: String(rest.deck || "").trim() || baseName,
     });
   }
 
@@ -32989,7 +33067,7 @@ class QuestionTrackerPlugin extends Plugin {
         if (!file) throw new Error("That .apkg file is not in the vault.");
         const bytes = await this.readVaultBytes(file);
         add(parseApkg(bytes, { sourcePath: file.path, deck: String(opts.deck || "").trim() || file.basename }));
-      } else if (kind === "quizlet" && /\.pdf$/i.test(String(path || ""))) {
+      } else if (kind === "quizlet" && (opts.pdfData || /\.pdf$/i.test(String(path || "")))) {
         add(await this.parseQuizletPdfCards(path, { ...opts, progress: () => {} }));
       } else {
         const file = this.app.vault.getAbstractFileByPath(String(path || ""));
