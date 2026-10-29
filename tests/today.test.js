@@ -170,6 +170,34 @@ test("today: pending typed answers are visible and can be retried", async () => 
   assert.equal(flushed, 1);
 });
 
+test("today: shows a review task and the nearest assignment deadline", async () => {
+  const today = dayKey(new Date());
+  const app = makeApp([
+    ...NOTES,
+    {
+      path: "Assignments/essay.md",
+      fm: { assignment: true, assignment_id: "essay", title: "Essay draft", course: "Biology", type: "essay", due: today, status: "todo" },
+      text: "---\nassignment: true\nassignment_id: essay\n---\n\n- [ ] Essay draft 📅 " + today + "\n",
+    },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  let opened = 0;
+  plugin.activateAssignments = async () => opened++;
+  const dom = makeDom();
+  const view = new T.TodayView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  const texts = dom.texts();
+  assert.ok(texts.includes("Tasks"));
+  assert.ok(texts.includes("Review 1 due item"));
+  assert.ok(texts.includes("Essay draft"));
+  await dom.click("Open Assignments");
+  assert.equal(opened, 1);
+});
+
 test("today: explains when the MCQ module is off", async () => {
   const { plugin, dom, view } = await setup();
   plugin.settings.mcqEnabled = false;

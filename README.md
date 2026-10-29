@@ -38,6 +38,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Modules you can switch off.** Settings, Global has an on/off switch for each module (MCQ Tracker, Cards, Calendar and AI features) plus the plugin-wide options, so the parts you don't use stay out of the way.
 - **Reference (optional module, off by default).** A local formula sheet, constants list and unit converter in one view. It works offline, adds no data to your vault, and can be hidden automatically while a timed test is running. See [Reference](#reference-optional-module-off-by-default).
 - **Calendar (optional module, off by default).** Import an `.ics` schedule from a file or a public feed, see classes and exams in a month grid, day timeline, live countdown and upcoming-exam countdowns, and create a note for a class in one click. Free periods can start a short Quick Practice session (see [Calendar](#calendar-optional-module-off-by-default)).
+- **Assignments and grades.** Keep assignments as ordinary notes with a course, type, due date, status and score. The gradebook shows weighted category grades, the score you need on the final, a credit-weighted GPA and the next tasks; Today adds a **Review N due items** task beside the nearest deadlines (see [Assignments, tasks and grades](#assignments-tasks-and-grades)).
 
 ## Quick start
 
@@ -202,6 +203,8 @@ Every practice and card review screen has **Known** and **Exclude** buttons besi
 - Open Today
 - Retry saving offline practice results
 - Open cards
+- Open assignments and grades
+- Assignments: add an assignment
 - Create a flashcard or vocabulary card
 - Cards: create image occlusion cards
 - Cards: extract cards from this note
@@ -252,6 +255,40 @@ Turn on **Calendar** under Settings, Global, Modules (or **Enable the calendar m
 - **Export.** **Calendar: export the visible schedule to .ics** writes `schedule-export.ics` in the vault root.
 
 The class-detail parsing, the `.ics` parser and the calendar presentation are adapted from [University Schedule and Calendar](https://github.com/Cesemess/obsidian-uni-calendar) (MIT, Cesemess). The month card, timeline and event cards keep that plugin's markup and stylesheet rules so the two calendars look the same; see [NOTICES.md](NOTICES.md) for the pinned version and the list of changes. Labels are English-only for now, and the note template is plain text rather than a visual builder.
+
+## Assignments, tasks and grades
+
+**Settings, Global, Modules → Assignments** adds the gradebook, task list, ribbon button and commands. The module is on in the default setup and can be switched off without deleting notes or settings. Its own page under **Settings, Assignments** has the target grade, final weight, category weights and course credits.
+
+An assignment is a normal Markdown note. Create one from **Assignments: add an assignment**, or write the same properties yourself:
+
+```markdown
+---
+assignment: true
+assignment_id: a-essay-1
+title: Unit 4 essay
+course: Biology 201
+type: essay
+due: 2026-11-14
+weight: 1
+status: todo
+points: 100
+score: 87
+---
+
+# Unit 4 essay
+
+- [ ] Unit 4 essay 📅 2026-11-14
+
+## Notes
+```
+
+- `type` is one of `homework`, `quiz`, `test`, `exam`, `project` or `other`. It selects the weighted category.
+- `weight` orders assignments **inside** a category. Category weights (homework, quizzes, tests, exams, projects) are set on the Grading tab and are the percentages of the course grade. A course uses the categories that already have graded work, so an early-semester grade is not pulled down by categories that have not started.
+- `points` and `score` grade an assignment. A missing assignment counts as zero; submitted but ungraded work is left out until it has a score.
+- `due` is mirrored in the Tasks line as `📅`, so Tasks, Dataview and similar plugins can query the same note. `⏳` is accepted when reading an existing task. Checking the box marks the assignment submitted; **Mark done** in the gradebook does the same.
+- The **Courses** tab stores credits, a target grade and a final weight per course. A blank target or final weight uses the defaults on the Grading tab. The GPA is credit-weighted (`Σ grade points × credits / Σ credits`), with the unweighted GPA beside it. The **what do I need on the final** estimate assumes your current grade carries through the rest of the non-final work.
+- **Today** shows one **Tasks** card when there is due practice or an assignment deadline. The review task starts Quick Practice with the due questions; each assignment opens its note. No gradebook service, chart library or network request is involved, and none of this adds third-party code.
 
 ## Cards and vocabulary (optional module, off by default)
 

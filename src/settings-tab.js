@@ -12,6 +12,7 @@ const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
+const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
@@ -21,6 +22,7 @@ const SETTINGS_MODULES = [
   { id: "mcq", label: "MCQ Tracker", icon: "list-checks" },
   { id: "cards", label: "Cards", icon: "layers" },
   { id: "calendar", label: "Calendar", icon: "graduation-cap" },
+  { id: "assignments", label: "Assignments", icon: "clipboard-list" },
   { id: "reference", label: "Reference", icon: "book-open" },
 ];
 
@@ -43,6 +45,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     this.activeMcqTab = "practice";
     this.activeCardsTab = "decks";
     this.activeCalendarTab = "about";
+    this.activeAssignmentsTab = "grading";
     this.activeReferenceTab = "tools";
   }
 
@@ -90,6 +93,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         this.activeCalendarTab,
         (id) => {
           this.activeCalendarTab = id;
+          this.display();
+        }
+      );
+      return;
+    }
+
+    if (this.activeModule === "assignments") {
+      renderAssignmentsSettings(
+        containerEl,
+        this.plugin,
+        () => this.display(),
+        this.activeAssignmentsTab,
+        (id) => {
+          this.activeAssignmentsTab = id;
           this.display();
         }
       );
@@ -720,6 +737,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 }
 
 module.exports = {
+  ASSIGNMENTS_TABS,
   CARDS_TABS,
   REFERENCE_TABS,
   GLOBAL_TABS,

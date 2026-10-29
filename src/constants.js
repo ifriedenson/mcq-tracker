@@ -1,11 +1,13 @@
 "use strict";
 const { DEFAULT_REFERENCE_SETTINGS } = require("./reference-data");
+const { DEFAULT_ASSIGNMENT_SETTINGS } = require("./assignments");
 
 const VIEW_TYPE = "question-tracker-view";
 const VIEW_TYPE_TODAY = "question-tracker-today";
 const VIEW_TYPE_CALENDAR = "question-tracker-calendar";
 const VIEW_TYPE_CARDS = "question-tracker-cards";
 const VIEW_TYPE_REFERENCE = "question-tracker-reference";
+const VIEW_TYPE_ASSIGNMENTS = "question-tracker-assignments";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -89,6 +91,10 @@ const DEFAULT_SETTINGS = {
     lastCompleted: "",
   },
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
+  assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
+    categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
+    courses: [],
+  }),
   cards: {
     enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off
     newCardFolder: "Cards", // where new cards go when their deck has no folder
@@ -135,6 +141,7 @@ module.exports = {
   VIEW_TYPE_CALENDAR,
   VIEW_TYPE_CARDS,
   VIEW_TYPE_REFERENCE,
+  VIEW_TYPE_ASSIGNMENTS,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,

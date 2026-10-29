@@ -24,7 +24,11 @@ const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSess
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
 const { TodayView } = require("./today-view");
-const { CARDS_TABS, GLOBAL_TABS, MCQ_TABS, QuestionTrackerSettingTab, SETTINGS_MODULES } = require("./settings-tab");
+const { ASSIGNMENTS_TABS, CARDS_TABS, GLOBAL_TABS, MCQ_TABS, QuestionTrackerSettingTab, SETTINGS_MODULES } = require("./settings-tab");
+const assignments = require("./assignments");
+const { AssignmentsView } = require("./assignments-view");
+const { AssignmentModal } = require("./assignments-modal");
+const { renderAssignmentsSettings } = require("./assignments-settings");
 const { CALENDAR_TABS } = require("./calendar-settings");
 const cards = require("./cards");
 const { CardView } = require("./cards-view");
@@ -145,6 +149,7 @@ QuestionTrackerPlugin.__test = {
   SETTINGS_MODULES,
   GLOBAL_TABS,
   MCQ_TABS,
+  ASSIGNMENTS_TABS,
   CARDS_TABS,
   REFERENCE_TABS,
   renderReferenceSettings,
@@ -170,6 +175,10 @@ QuestionTrackerPlugin.__test = {
   referenceElements,
   referenceGraph,
   ReferenceView,
+  assignments,
+  AssignmentsView,
+  AssignmentModal,
+  renderAssignmentsSettings,
   CALENDAR_TABS,
   cards,
   cardsImport,

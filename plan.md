@@ -454,6 +454,8 @@ Build on the existing timed test.
 - **GPA view:** credit-weighted. Note: several consumer apps highlight weighted-credit support as a pain point, so make credit weighting first-class.
 - **Study-linked tasks:** "Review 20 due items" appears as a task in the daily view.
 
+**Shipped in 1.35.0:** assignment notes with course, type, due date, relative weight, status and score; Tasks-compatible `📅` lines; weighted categories (homework, quizzes, tests, exams, projects) with missing and ungraded handling; current letter grade; “what do I need on the final”; credit-weighted GPA with editable course credits; a gradebook/task view; Today’s **Review N due items** task beside the nearest deadlines; and an Assignments module switch plus settings tabs. All calculations are local and use no third-party code.
+
 ### 5.10 Focus timer and study time  — **S–M**
 
 **Ideas from:** Pomodoro Timer, Timebox, Gentle Pomodoro, Scrying Mirror (offline study logger, streaks).
@@ -1200,7 +1202,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Focus timer and study-time logging (§5.10) — shipped in 1.29.0
 - [x] Analytics dashboard (§5.12) — shipped in 1.31.0
 - [x] Embeddable analytics widgets (§5.12) — shipped in 1.32.0
-- [ ] Assignments, tasks, and grades (§5.9)
+- [x] Assignments, tasks, and grades (§5.9) — shipped in 1.35.0
 
 ### Phase 7: Ingestion, interop, polish
 
@@ -2186,6 +2188,8 @@ Build on the existing timed test.
 - **GPA view:** credit-weighted. Note: several consumer apps highlight weighted-credit support as a pain point, so make credit weighting first-class.
 - **Study-linked tasks:** "Review 20 due items" appears as a task in the daily view.
 
+**Shipped in 1.35.0:** assignment notes with course, type, due date, relative weight, status and score; Tasks-compatible `📅` lines; weighted categories (homework, quizzes, tests, exams, projects) with missing and ungraded handling; current letter grade; “what do I need on the final”; credit-weighted GPA with editable course credits; a gradebook/task view; Today’s **Review N due items** task beside the nearest deadlines; and an Assignments module switch plus settings tabs. All calculations are local and use no third-party code.
+
 ### 5.10 Focus timer and study time  — **S–M**
 
 **Ideas from:** Pomodoro Timer, Timebox, Gentle Pomodoro, Scrying Mirror (offline study logger, streaks).
@@ -2560,7 +2564,7 @@ Names are proposals; keep existing ones unchanged.
 - [ ] Focus timer and study-time logging (§5.10)
 - [x] Analytics dashboard (§5.12) — shipped in 1.31.0
 - [x] Embeddable analytics widgets (§5.12) — shipped in 1.32.0
-- [ ] Assignments, tasks, and grades (§5.9)
+- [x] Assignments, tasks, and grades (§5.9) — shipped in 1.35.0
 
 ### Phase 7: Ingestion, interop, polish
 

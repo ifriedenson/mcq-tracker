@@ -74,6 +74,18 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Assignments")
+    .setDesc("A gradebook and task list built from assignment notes: weighted course grades, what you need on the final, a credit-weighted GPA and Tasks-compatible due dates. Its settings are under Assignments.")
+    .addToggle((t) =>
+      t.setValue(plugin.assignmentsEnabled()).onChange(async (v) => {
+        st.assignments.enabled = v;
+        await plugin.save();
+        await plugin.onAssignmentsToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>
@@ -99,7 +111,7 @@ function renderModules(containerEl, plugin, redisplay) {
 
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "The settings for a module stay on its own page: MCQ Tracker, Cards, Calendar and Reference.",
+    text: "The settings for a module stay on its own page: MCQ Tracker, Cards, Calendar, Assignments and Reference.",
   });
 }
 

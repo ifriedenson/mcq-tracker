@@ -19,9 +19,9 @@ test("welcome: presets cover the six starting points and describe their modules"
   assert.deepEqual(welcome.WELCOME_PRESETS.map((p) => p.id), ["sat", "university", "language", "stem", "flashcards", "off"]);
   for (const preset of welcome.WELCOME_PRESETS) {
     assert.ok(preset.description.length > 20);
-    for (const key of ["mcq", "cards", "calendar", "ai", "reference"]) assert.equal(typeof preset.modules[key], "boolean");
+    for (const key of ["mcq", "cards", "calendar", "assignments", "ai", "reference"]) assert.equal(typeof preset.modules[key], "boolean");
   }
-  assert.match(welcome.moduleSummary(welcome.WELCOME_PRESETS[1].modules), /MCQ Tracker, Cards, Calendar/);
+  assert.match(welcome.moduleSummary(welcome.WELCOME_PRESETS[1].modules), /MCQ Tracker, Cards, Calendar, Assignments/);
   assert.equal(welcome.moduleSummary(welcome.WELCOME_PRESETS[5].modules), "All modules off");
 });
 
@@ -45,12 +45,17 @@ test("welcome: applying a preset changes the real module settings", async () => 
   assert.equal(plugin.mcqEnabled(), true);
   assert.equal(plugin.cardsEnabled(), true);
   assert.equal(plugin.calendarEnabled(), true);
+  assert.equal(plugin.assignmentsEnabled(), true);
   assert.equal(plugin.referenceEnabled(), false);
   assert.equal(plugin.settings.ai.enabled, false);
 
   await plugin.applyWelcomePreset("stem");
   assert.equal(plugin.cardsEnabled(), false);
+  assert.equal(plugin.assignmentsEnabled(), true);
   assert.equal(plugin.referenceEnabled(), true);
+
+  await plugin.applyWelcomePreset("off");
+  assert.equal(plugin.assignmentsEnabled(), false, "Everything off turns Assignments off too");
 
   await plugin.setWelcomeModule("cards", true);
   assert.equal(plugin.cardsEnabled(), true);

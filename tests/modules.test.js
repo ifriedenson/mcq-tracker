@@ -19,8 +19,9 @@ async function setup(saved) {
 }
 
 test("settings: Global sits beside MCQ Tracker, Cards, Calendar and Reference and has its own tabs", () => {
-  assert.deepEqual(T.SETTINGS_MODULES.map((m) => m.id), ["global", "mcq", "cards", "calendar", "reference"]);
+  assert.deepEqual(T.SETTINGS_MODULES.map((m) => m.id), ["global", "mcq", "cards", "calendar", "assignments", "reference"]);
   assert.deepEqual(T.GLOBAL_TABS.map((t) => t.id), ["modules", "general", "about"]);
+  assert.deepEqual(T.ASSIGNMENTS_TABS.map((t) => t.id), ["grading", "courses", "about"]);
   assert.deepEqual(T.GLOBAL_TABS.map((t) => t.label), ["Modules", "General", "About"]);
   assert.deepEqual(T.CARDS_TABS.map((t) => t.id), ["decks", "review", "about"]);
   assert.deepEqual(T.REFERENCE_TABS.map((t) => t.id), ["tools", "about"]);
@@ -32,6 +33,7 @@ test("modules: MCQ Tracker is on by default, Calendar and AI are opt-in", async 
   assert.equal(plugin.calendarEnabled(), false);
   assert.equal(plugin.cardsEnabled(), false, "Cards is opt-in");
   assert.equal(plugin.referenceEnabled(), false, "Reference is opt-in");
+  assert.equal(plugin.assignmentsEnabled(), true, "Assignments are part of the default setup");
   assert.equal(plugin.settings.ai.enabled, false);
   assert.equal(plugin.settings.showRibbonIcons, true);
   assert.equal(plugin.settings.openPracticeOnStartUp, false);
@@ -126,4 +128,17 @@ test("modules: turning a module off closes its tabs, and on brings them back", a
   await plugin.onMcqToggled();
   assert.equal(plugin.mcqEnabled(), true);
   assert.deepEqual(detached, [], "turning the module back on closes nothing");
+});
+
+test("modules: Assignments has its own switch and closes its tab when off", async () => {
+  const { app, plugin } = await setup();
+  const detached = [];
+  app.workspace.detachLeavesOfType = (type) => detached.push(type);
+  assert.equal(plugin.assignmentsEnabled(), true);
+  plugin.settings.assignments.enabled = false;
+  await plugin.onAssignmentsToggled();
+  assert.deepEqual(detached, ["question-tracker-assignments"]);
+  plugin.settings.assignments.enabled = true;
+  await plugin.onAssignmentsToggled();
+  assert.equal(plugin.assignmentsEnabled(), true);
 });

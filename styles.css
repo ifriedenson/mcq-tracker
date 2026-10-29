@@ -3666,3 +3666,225 @@
   padding: 7px 9px;
   width: 100%;
 }
+
+/* Assignments and grades. Theme variables only. */
+.qt-assignments {
+  display: grid;
+  gap: 10px;
+}
+
+.qt-assignment-gpa,
+.qt-assignment-empty,
+.qt-assignment-course {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 12px;
+}
+
+.qt-assignment-gpa-value {
+  color: var(--interactive-accent);
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.qt-assignment-courses {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+.qt-assignment-course {
+  display: grid;
+  gap: 8px;
+}
+
+.qt-assignment-course-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.qt-assignment-course-name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.qt-assignment-course-grade {
+  text-align: right;
+}
+
+.qt-assignment-letter {
+  color: var(--interactive-accent);
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.qt-assignment-categories {
+  border-top: 1px solid var(--background-modifier-border);
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+}
+
+.qt-assignment-category {
+  align-items: baseline;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.qt-assignment-category-name {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.qt-assignment-category-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.qt-assignment-target {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.qt-assignment-target.is-hard {
+  color: var(--text-error);
+}
+
+.qt-assignment-target.is-secured {
+  color: var(--text-success);
+}
+
+.qt-assignment-filters button.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.qt-assignment-tasks {
+  display: grid;
+  gap: 6px;
+}
+
+.qt-assignment-task {
+  align-items: center;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  display: flex;
+  gap: 8px;
+  padding: 9px 10px;
+}
+
+.qt-assignment-task.is-overdue {
+  border-left-color: var(--text-error);
+}
+
+.qt-assignment-task.is-today {
+  border-left-color: var(--interactive-accent);
+}
+
+.qt-assignment-task-main {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.qt-assignment-task-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qt-assignment-task-meta {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qt-assignment-status {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.qt-assignment-status.is-graded,
+.qt-assignment-status.is-submitted {
+  color: var(--text-success);
+}
+
+.qt-assignment-status.is-missing {
+  color: var(--text-error);
+}
+
+.qt-assignment-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.qt-tasks-card {
+  display: grid;
+  gap: 6px;
+}
+
+.qt-today-task {
+  align-items: center;
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.qt-today-task:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.qt-today-task-main {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.qt-today-task-title {
+  font-weight: 600;
+}
+
+.qt-today-task.is-review .qt-today-task-title {
+  color: var(--interactive-accent);
+}
+
+@media (max-width: 480px) {
+  .qt-assignment-task {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .qt-assignment-task-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .qt-today-task {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}

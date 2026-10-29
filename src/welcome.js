@@ -7,6 +7,7 @@ const WELCOME_MODULE_INFO = [
   { id: "mcq", label: "MCQ Tracker", description: "Practice questions from your notes, weak spots, timed tests and file import." },
   { id: "cards", label: "Cards", description: "Flashcards, vocabulary, cloze and image-occlusion cards with spaced review." },
   { id: "calendar", label: "Calendar", description: "Classes and exams from an .ics schedule, countdowns and class notes." },
+  { id: "assignments", label: "Assignments", description: "A local gradebook and task list: weighted course grades, final-score planning and a credit-weighted GPA." },
   { id: "ai", label: "AI features", description: "Optional tutor chat, AI grading and document import. Nothing is sent until you turn it on and add a key." },
   { id: "reference", label: "Reference", description: "A local formula sheet, constants, unit converter, graph plotter and periodic table." },
 ];
@@ -16,37 +17,37 @@ const WELCOME_PRESETS = [
     id: "sat",
     label: "SAT / AP-style prep",
     description: "Practice questions and review. Cards, calendar and AI stay off until you want them.",
-    modules: { mcq: true, cards: false, calendar: false, ai: false, reference: false },
+    modules: { mcq: true, cards: false, calendar: false, assignments: true, ai: false, reference: false },
   },
   {
     id: "university",
     label: "University courses",
     description: "Questions, cards and the calendar. AI and Reference stay off.",
-    modules: { mcq: true, cards: true, calendar: true, ai: false, reference: false },
+    modules: { mcq: true, cards: true, calendar: true, assignments: true, ai: false, reference: false },
   },
   {
     id: "language",
     label: "Language learning",
     description: "Questions and vocabulary cards. Calendar, AI and Reference stay off.",
-    modules: { mcq: true, cards: true, calendar: false, ai: false, reference: false },
+    modules: { mcq: true, cards: true, calendar: false, assignments: false, ai: false, reference: false },
   },
   {
     id: "stem",
     label: "STEM problem sets",
     description: "Questions and the local Reference panel. Cards, calendar and AI stay off.",
-    modules: { mcq: true, cards: false, calendar: false, ai: false, reference: true },
+    modules: { mcq: true, cards: false, calendar: false, assignments: true, ai: false, reference: true },
   },
   {
     id: "flashcards",
     label: "Just flashcards",
     description: "Cards only. Questions, calendar, AI and Reference stay off.",
-    modules: { mcq: false, cards: true, calendar: false, ai: false, reference: false },
+    modules: { mcq: false, cards: true, calendar: false, assignments: false, ai: false, reference: false },
   },
   {
     id: "off",
     label: "Everything off",
     description: "Start quiet; turn modules on later under Settings, Global, Modules.",
-    modules: { mcq: false, cards: false, calendar: false, ai: false, reference: false },
+    modules: { mcq: false, cards: false, calendar: false, assignments: false, ai: false, reference: false },
   },
 ];
 
@@ -56,7 +57,7 @@ const WELCOME_STEPS = [
   { id: "today", title: "Review what is due", body: "Today shows due questions, cards and the next class in one place.", button: "Open Today", action: "today" },
   { id: "card", title: "Add cards (optional)", body: "Create a flashcard, vocabulary item or cloze card in a deck you choose.", button: "Create a card", action: "card" },
   { id: "calendar", title: "Add your schedule (optional)", body: "Import an .ics file or calendar link, then open the month or day view.", button: "Open calendar", action: "calendar" },
-  { id: "settings", title: "Find settings later", body: "Settings has Global, MCQ Tracker, Cards, Calendar and Reference groups, each with its own tabs.", button: "Open settings", action: "settings" },
+  { id: "settings", title: "Find settings later", body: "Settings has Global, MCQ Tracker, Cards, Calendar, Assignments and Reference groups, each with its own tabs.", button: "Open settings", action: "settings" },
 ];
 
 function emptyWelcomeState() {

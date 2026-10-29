@@ -8,6 +8,7 @@ const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
 const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
 const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus");
+const { buildDailyTasks } = require("./assignments");
 
 /*
  * The phone-sized entry point: what is due, what is next, and one large
@@ -72,6 +73,7 @@ class TodayView extends ItemView {
 
     this.renderStudyPlan(root);
     this.renderDaily(root, today);
+    this.renderTasks(root, today, due, visible);
     this.renderFocus(root, today);
 
     if (visible.length) {
@@ -236,6 +238,40 @@ class TodayView extends ItemView {
     } finally {
       this.render();
     }
+  }
+
+  /** One small task card: due practice plus the nearest assignment deadlines. */
+  renderTasks(root, today, due, visible) {
+    const p = this.plugin;
+    if (!p.assignmentsEnabled || !p.assignmentsEnabled()) return;
+    const assignments = p.getAssignments ? p.getAssignments() : [];
+    const cardsDue =
+      p.cardsEnabled && p.cardsEnabled()
+        ? (p.getCards ? p.getCards() : []).filter(
+            (c) => isStudyable(c.fm, today) && (!Number(c.fm.attempts) || (!!c.fm.next_review && String(c.fm.next_review).slice(0, 10) <= today))
+          ).length
+        : 0;
+    const tasks = buildDailyTasks({ reviewCount: due.length + cardsDue, assignments, today });
+    if (!tasks.length) return;
+    root.createEl("h3", { cls: "qt-today-section", text: "Tasks" });
+    const card = root.createDiv({ cls: "qt-today-card qt-tasks-card" });
+    for (const task of tasks) {
+      const row = card.createDiv({ cls: `qt-today-task is-${task.kind}` });
+      const main = row.createDiv({ cls: "qt-today-task-main" });
+      main.createDiv({ cls: "qt-today-task-title", text: task.title });
+      main.createDiv({ cls: "qt-today-meta", text: task.meta });
+      if (task.kind === "review") {
+        if (due.length) {
+          row.createEl("button", { text: "Start 5 minutes", cls: "mod-cta" }).addEventListener("click", () =>
+            p.startQuickPractice({ minutes: 5, pool: due, mode: "due", label: "due today" })
+          );
+        }
+      } else if (task.assignment) {
+        row.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => p.openAssignmentNote(task.assignment));
+      }
+    }
+    const actions = card.createDiv({ cls: "qt-row qt-small-row" });
+    actions.createEl("button", { text: "Open Assignments" }).addEventListener("click", () => p.activateAssignments());
   }
 
   renderFocus(root, today) {

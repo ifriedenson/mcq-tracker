@@ -1,7 +1,7 @@
 "use strict";
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -9,6 +9,9 @@ const { TodayView } = require("./today-view");
 const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./modals");
 const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
+const { AssignmentsView } = require("./assignments-view");
+const { AssignmentModal } = require("./assignments-modal");
+const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskTitle } = require("./assignments");
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
@@ -116,6 +119,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this));
     this.registerView(VIEW_TYPE_CARDS, (leaf) => new CardView(leaf, this));
     this.registerView(VIEW_TYPE_REFERENCE, (leaf) => new ReferenceView(leaf, this));
+    this.registerView(VIEW_TYPE_ASSIGNMENTS, (leaf) => new AssignmentsView(leaf, this));
     this.ribbonButtons = {};
     this.ribbonAdded = {};
     this.refreshRibbon();
@@ -169,6 +173,8 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
+    this.addCommand({ id: "open-assignments", name: "Open assignments and grades", callback: () => this.activateAssignments() });
+    this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
@@ -379,6 +385,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
+    this.settings.assignments = normalizeAssignmentSettings(saved.assignments);
     this.settings.reference = mergeReferenceSettings(saved.reference);
     this.settings.studyLog = normalizeStudyLog(saved.studyLog);
     // module switches and plugin-wide flags are always plain booleans
@@ -571,6 +578,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (id === "mcq") return this.mcqEnabled();
     if (id === "cards") return this.cardsEnabled();
     if (id === "calendar") return this.calendarEnabled();
+    if (id === "assignments") return this.assignmentsEnabled();
     if (id === "reference") return this.referenceEnabled();
     return !!this.settings.ai.enabled;
   }
@@ -588,6 +596,10 @@ class QuestionTrackerPlugin extends Plugin {
       this.settings.calendar.enabled = enabled === true;
       await this.save();
       await this.onCalendarToggled();
+    } else if (id === "assignments") {
+      this.settings.assignments.enabled = enabled === true;
+      await this.save();
+      await this.onAssignmentsToggled();
     } else if (id === "reference") {
       this.settings.reference.enabled = enabled === true;
       await this.save();
@@ -608,11 +620,13 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.cards.enabled = m.cards === true;
     this.settings.calendar.enabled = m.calendar === true;
     this.settings.ai.enabled = m.ai === true;
+    this.settings.assignments.enabled = m.assignments === true;
     this.settings.reference.enabled = m.reference === true;
     await this.save();
     await this.onMcqToggled();
     await this.onCardsToggled();
     await this.onCalendarToggled();
+    await this.onAssignmentsToggled();
     await this.onReferenceToggled();
     this.refreshViews();
     return preset;
@@ -695,6 +709,9 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_REFERENCE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_ASSIGNMENTS)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
   }
 
   /** Re-draws only the practice views that are showing the first-run screen (an import just finished). */
@@ -747,6 +764,15 @@ class QuestionTrackerPlugin extends Plugin {
     return !!(this.settings.reference && this.settings.reference.enabled);
   }
 
+  /** Assignments and grades are on unless the module was turned off. */
+  assignmentsEnabled() {
+    return !!(this.settings.assignments && this.settings.assignments.enabled !== false);
+  }
+
+  assignmentSettings() {
+    return this.settings.assignments;
+  }
+
   /** A saved timed test is still in progress (the test view is the only writer of testSession). */
   timedTestRunning() {
     const s = this.settings.testSession;
@@ -784,6 +810,8 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("calendar");
     if (this.referenceEnabled()) this.addModuleRibbon("reference", "book-open", "Open Reference", () => this.activateReference());
     else this.removeModuleRibbon("reference");
+    if (this.assignmentsEnabled()) this.addModuleRibbon("assignments", "clipboard-list", "Open assignments and grades", () => this.activateAssignments());
+    else this.removeModuleRibbon("assignments");
   }
 
   setupCalendarRibbon() {
@@ -797,18 +825,22 @@ class QuestionTrackerPlugin extends Plugin {
         ? this.calendarEnabled()
         : id === "cards"
           ? this.cardsEnabled()
-          : id === "reference"
-            ? this.referenceEnabled()
-            : this.mcqEnabled();
+          : id === "assignments"
+            ? this.assignmentsEnabled()
+            : id === "reference"
+              ? this.referenceEnabled()
+              : this.mcqEnabled();
     if (on) return false;
     new Notice(
       id === "calendar"
         ? "The calendar module is off. Turn it on in Settings, Global."
         : id === "cards"
           ? "The Cards module is off. Turn it on in Settings, Global."
-          : id === "reference"
-            ? "The Reference module is off. Turn it on in Settings, Global."
-            : "The MCQ Tracker module is off. Turn it on in Settings, Global."
+          : id === "assignments"
+            ? "The Assignments module is off. Turn it on in Settings, Global."
+            : id === "reference"
+              ? "The Reference module is off. Turn it on in Settings, Global."
+              : "The MCQ Tracker module is off. Turn it on in Settings, Global."
     );
     this.openSettings();
     return true;
@@ -855,6 +887,15 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshRibbon();
     if (!this.referenceEnabled()) {
       this.detachModuleLeaves([VIEW_TYPE_REFERENCE]);
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onAssignmentsToggled() {
+    this.refreshRibbon();
+    if (!this.assignmentsEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_ASSIGNMENTS]);
       return;
     }
     this.refreshViews();
@@ -1043,6 +1084,116 @@ class QuestionTrackerPlugin extends Plugin {
     await ws.revealLeaf(leaf);
     if (leaf.view && leaf.view.render) leaf.view.render();
     return leaf.view;
+  }
+
+  async activateAssignments() {
+    if (this.moduleOff("assignments")) return null;
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_ASSIGNMENTS)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_ASSIGNMENTS, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
+  /* ---- assignments and grades */
+
+  /** Assignment notes are ordinary Markdown notes with `assignment: true`. */
+  getAssignments() {
+    const settings = this.assignmentSettings();
+    const out = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      if (!isAssignmentNote(fm)) continue;
+      out.push(parseAssignment(file, fm, "", settings));
+    }
+    return out;
+  }
+
+  assignmentStats(options) {
+    return assignmentStats(this.getAssignments(), this.assignmentSettings(), options || {});
+  }
+
+  openNewAssignment(options, onDone) {
+    if (this.moduleOff("assignments")) return;
+    new AssignmentModal(this.app, this, options || {}, (result) => {
+      if (result && result.path) new Notice(`Created ${result.path}.`);
+      this.refreshViews();
+      if (onDone) onDone(result);
+    }).open();
+  }
+
+  async createAssignment(data) {
+    if (this.moduleOff("assignments")) return null;
+    const settings = this.assignmentSettings();
+    const title = safeName(data.title) || "Assignment";
+    const folder = String(settings.folder || "").trim().replace(/^\/+|\/+$/g, "");
+    if (folder) await ensureFolder(this.app, folder);
+    const path = uniquePath(settings, title, (candidate) => !!this.app.vault.getAbstractFileByPath(candidate));
+    const text = assignmentMarkdown({ ...data, title, id: assignmentId(new Date()) }, new Date());
+    const file = await this.app.vault.create(path, text);
+    this.refreshViews();
+    return { file, path };
+  }
+
+  async updateAssignment(assignment, data) {
+    if (this.moduleOff("assignments")) return null;
+    const file = assignment && assignment.file ? assignment.file : this.app.vault.getAbstractFileByPath(assignment && assignment.path);
+    if (!file) throw new Error("That assignment note is no longer in the vault.");
+    const status = normalizeStatus(data.status || assignment.status);
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      fm.title = safeName(data.title) || fm.title || file.basename;
+      fm.course = String(data.course || "").trim();
+      fm.type = typeId(data.type || fm.type || "homework");
+      fm.category = categoryFor(fm.type, data.category);
+      if (data.due) fm.due = data.due;
+      else delete fm.due;
+      fm.status = status;
+      fm.weight = Math.max(0.01, Number(data.weight) || 1);
+      if (String(data.points || "").trim() === "") delete fm.points;
+      else fm.points = Number(data.points);
+      if (String(data.score || "").trim() === "") delete fm.score;
+      else fm.score = Number(data.score);
+      if (status === "submitted" || status === "graded") fm.submitted = fm.submitted || localDate();
+      else delete fm.submitted;
+    });
+    const text = await this.app.vault.read(file);
+    let next = updateTaskTitle(updateTaskDue(text, data.due), data.title);
+    next = updateTaskCheckbox(next, status === "submitted" || status === "graded");
+    if (next !== text) await this.app.vault.modify(file, next);
+    this.refreshViews();
+    return { file, path: file.path, assignment: parseAssignment(file, this.app.metadataCache.getFileCache(file)?.frontmatter || {}, next, this.assignmentSettings()) };
+  }
+
+  async setAssignmentStatus(assignment, status) {
+    if (this.moduleOff("assignments")) return null;
+    const file = assignment && assignment.file ? assignment.file : this.app.vault.getAbstractFileByPath(assignment && assignment.path);
+    if (!file) throw new Error("That assignment note is no longer in the vault.");
+    const nextStatus = normalizeStatus(status);
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      fm.status = nextStatus;
+      if (nextStatus === "submitted" || nextStatus === "graded") fm.submitted = fm.submitted || localDate();
+      else delete fm.submitted;
+    });
+    const text = await this.app.vault.read(file);
+    const next = updateTaskCheckbox(text, nextStatus === "submitted" || nextStatus === "graded");
+    if (next !== text) await this.app.vault.modify(file, next);
+    this.refreshViews();
+    return nextStatus;
+  }
+
+  async openAssignmentNote(assignment) {
+    if (!assignment) return;
+    const file = assignment.file || this.app.vault.getAbstractFileByPath(assignment.path);
+    if (!file) {
+      new Notice("That assignment note is no longer in the vault.");
+      return;
+    }
+    await this.app.workspace.getLeaf("tab").openFile(file);
   }
 
   async activateReference() {

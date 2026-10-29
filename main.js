@@ -624,6 +624,1197 @@ module.exports = {
 };
 };
 
+/* ---- src/assignments.js ---- */
+__defs["assignments"] = function (module, exports, require) {
+/*
+ * Assignments, weighted course grades and the credit-weighted GPA.
+ *
+ * Everything here is local and note-based. An assignment is an ordinary note
+ * with `assignment: true`; its due date is also written as a Tasks line
+ * (`- [ ] Essay 📅 2026-11-01`) so Tasks, Dataview and similar plugins can see
+ * it. The frontmatter stays the source of truth for grades.
+ */
+const { addDays, fmtDate, localDate, str } = require("./util");
+const { stringifyYaml } = require("obsidian");
+
+const ASSIGNMENT_TYPES = [
+  { id: "homework", label: "Homework", category: "homework" },
+  { id: "quiz", label: "Quiz", category: "quiz" },
+  { id: "test", label: "Test", category: "test" },
+  { id: "exam", label: "Exam", category: "exam" },
+  { id: "project", label: "Project or paper", category: "project" },
+  { id: "other", label: "Other", category: "other" },
+];
+
+const ASSIGNMENT_CATEGORIES = [
+  { id: "homework", label: "Homework", weight: 25 },
+  { id: "quiz", label: "Quizzes", weight: 20 },
+  { id: "test", label: "Tests", weight: 25 },
+  { id: "exam", label: "Exams", weight: 20 },
+  { id: "project", label: "Projects and papers", weight: 10 },
+  { id: "other", label: "Other", weight: 0 },
+];
+
+const ASSIGNMENT_STATUSES = [
+  { id: "todo", label: "To do" },
+  { id: "in-progress", label: "In progress" },
+  { id: "submitted", label: "Submitted" },
+  { id: "graded", label: "Graded" },
+  { id: "missing", label: "Missing" },
+  { id: "excused", label: "Excused" },
+];
+
+const DEFAULT_ASSIGNMENT_SETTINGS = {
+  enabled: true,
+  folder: "Assignments",
+  targetGrade: 90,
+  finalWeight: 20,
+  categories: ASSIGNMENT_CATEGORIES.map((c) => ({ ...c })),
+  courses: [],
+};
+
+const TYPE_ALIASES = {
+  assignment: "homework",
+  hw: "homework",
+  reading: "homework",
+  worksheet: "homework",
+  "problem-set": "homework",
+  problemset: "homework",
+  quiz: "quiz",
+  check: "quiz",
+  "check-in": "quiz",
+  test: "test",
+  midterm: "test",
+  "mid-term": "test",
+  exam: "exam",
+  final: "exam",
+  project: "project",
+  paper: "project",
+  essay: "project",
+  lab: "project",
+  report: "project",
+};
+
+const LETTER_POINTS = {
+  "A+": 4.0, A: 4.0, "A-": 3.7,
+  "B+": 3.3, B: 3.0, "B-": 2.7,
+  "C+": 2.3, C: 2.0, "C-": 1.7,
+  "D+": 1.3, D: 1.0, "D-": 0.7,
+  F: 0,
+};
+
+const LETTER_PERCENT = {
+  "A+": 98, A: 95, "A-": 90,
+  "B+": 87, B: 83, "B-": 80,
+  "C+": 77, C: 73, "C-": 70,
+  "D+": 67, D: 63, "D-": 60,
+  F: 50,
+};
+
+function num(value, fallback) {
+  if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function pct(value) {
+  return value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Math.round(Number(value) * 10) / 10;
+}
+
+function normalizeDate(value) {
+  const raw = str(value).trim();
+  const iso = raw.match(/(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const slash = raw.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (slash) return `${slash[1]}-${String(slash[2]).padStart(2, "0")}-${String(slash[3]).padStart(2, "0")}`;
+  return "";
+}
+
+function dayDiff(from, to) {
+  if (!from || !to) return null;
+  const a = new Date(`${from}T00:00:00`).getTime();
+  const b = new Date(`${to}T00:00:00`).getTime();
+  if (isNaN(a) || isNaN(b)) return null;
+  return Math.round((b - a) / 86400000);
+}
+
+function normalizeStatus(value, checked) {
+  const raw = str(value).trim().toLowerCase().replace(/\s+/g, "-");
+  if (!raw) return checked ? "submitted" : "todo";
+  if (raw === "done" || raw === "complete" || raw === "completed") return "submitted";
+  if (raw === "not-started" || raw === "notstarted" || raw === "open") return "todo";
+  if (raw === "in-progress" || raw === "inprogress" || raw === "doing") return "in-progress";
+  if (ASSIGNMENT_STATUSES.some((s) => s.id === raw)) return raw;
+  return checked ? "submitted" : "todo";
+}
+
+function statusLabel(status) {
+  const row = ASSIGNMENT_STATUSES.find((s) => s.id === status);
+  return row ? row.label : "To do";
+}
+
+function isDone(status) {
+  return status === "submitted" || status === "graded" || status === "missing" || status === "excused";
+}
+
+function isOpen(status) {
+  return status === "todo" || status === "in-progress";
+}
+
+function typeId(value) {
+  const raw = str(value).trim().toLowerCase().replace(/\s+/g, "-");
+  if (!raw) return "homework";
+  if (ASSIGNMENT_TYPES.some((t) => t.id === raw)) return raw;
+  return TYPE_ALIASES[raw] || "other";
+}
+
+function typeLabel(type) {
+  const row = ASSIGNMENT_TYPES.find((t) => t.id === type);
+  return row ? row.label : "Assignment";
+}
+
+function categoryFor(type, explicit) {
+  const wanted = str(explicit).trim().toLowerCase();
+  if (ASSIGNMENT_CATEGORIES.some((c) => c.id === wanted)) return wanted;
+  const row = ASSIGNMENT_TYPES.find((t) => t.id === typeId(type));
+  return row ? row.category : "other";
+}
+
+/** A Tasks-style line: `- [ ] Title 📅 2026-11-01`. */
+function taskLineOf(text) {
+  for (const line of str(text).split("\n")) {
+    const m = line.match(/^\s*[-*+]\s*\[([ xX])\]\s+(.+?)\s*$/);
+    if (m) {
+      const due = dueFromTask(m[2]);
+      return { checked: /x/i.test(m[1]), title: stripTaskMeta(m[2]), due, raw: m[2].trim() };
+    }
+  }
+  return null;
+}
+
+/** Tasks uses 📅 for due and ⏳ for scheduled. Due wins when both are present. */
+function dueFromTask(line) {
+  const raw = str(line);
+  const due = raw.match(/📅\s*(\d{4}-\d{1,2}-\d{1,2})/u);
+  if (due) return normalizeDate(due[1]);
+  const scheduled = raw.match(/⏳\s*(\d{4}-\d{1,2}-\d{1,2})/u);
+  return scheduled ? normalizeDate(scheduled[1]) : "";
+}
+
+function stripTaskMeta(line) {
+  return str(line)
+    .replace(/[📅⏳🛫🔁✅]\s*\d{4}-\d{1,2}-\d{1,2}/gu, "")
+    .replace(/🔁\s*[^#]+/gu, "")
+    .replace(/\s+#[^\s]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isAssignmentNote(fm) {
+  if (!fm || typeof fm !== "object") return false;
+  return fm.assignment === true || str(fm.assignment).toLowerCase() === "true" || !!str(fm.assignment_id).trim();
+}
+
+function normalizeCategories(value) {
+  const saved = Array.isArray(value) ? value : [];
+  return ASSIGNMENT_CATEGORIES.map((def) => {
+    const row = saved.find((x) => x && x.id === def.id);
+    return { id: def.id, label: def.label, weight: clamp(num(row && row.weight, def.weight), 0, 100) };
+  });
+}
+
+function normalizeCourses(value) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(value) ? value : []) {
+    const name = str(raw && raw.name).trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      name,
+      credits: clamp(num(raw.credits, 3), 0, 30),
+      target: raw.target === null || raw.target === undefined || raw.target === "" ? null : clamp(num(raw.target, 90), 0, 100),
+      finalWeight: raw.finalWeight === null || raw.finalWeight === undefined || raw.finalWeight === "" ? null : clamp(num(raw.finalWeight, 20), 0, 100),
+    });
+  }
+  return out;
+}
+
+function normalizeAssignmentSettings(value) {
+  const src = value && typeof value === "object" ? value : {};
+  return {
+    enabled: src.enabled !== false,
+    folder: str(src.folder).trim() || DEFAULT_ASSIGNMENT_SETTINGS.folder,
+    targetGrade: clamp(num(src.targetGrade, DEFAULT_ASSIGNMENT_SETTINGS.targetGrade), 0, 100),
+    finalWeight: clamp(num(src.finalWeight, DEFAULT_ASSIGNMENT_SETTINGS.finalWeight), 0, 100),
+    categories: normalizeCategories(src.categories),
+    courses: normalizeCourses(src.courses),
+  };
+}
+
+function courseConfig(settings, course) {
+  const key = str(course).trim().toLowerCase();
+  if (!key) return null;
+  const row = (settings && settings.courses ? settings.courses : []).find((c) => str(c.name).trim().toLowerCase() === key);
+  return row || null;
+}
+
+function courseTarget(settings, course) {
+  const cfg = courseConfig(settings, course);
+  return cfg && Number.isFinite(cfg.target) ? cfg.target : settings.targetGrade;
+}
+
+function courseFinalWeight(settings, course) {
+  const cfg = courseConfig(settings, course);
+  return cfg && Number.isFinite(cfg.finalWeight) ? cfg.finalWeight : settings.finalWeight;
+}
+
+function courseCredits(settings, course) {
+  const cfg = courseConfig(settings, course);
+  return cfg && Number.isFinite(cfg.credits) ? cfg.credits : 3;
+}
+
+function letterForPercent(percent) {
+  if (percent === null || percent === undefined) return "-";
+  const p = Number(percent);
+  if (p >= 93) return "A";
+  if (p >= 90) return "A-";
+  if (p >= 87) return "B+";
+  if (p >= 83) return "B";
+  if (p >= 80) return "B-";
+  if (p >= 77) return "C+";
+  if (p >= 73) return "C";
+  if (p >= 70) return "C-";
+  if (p >= 67) return "D+";
+  if (p >= 63) return "D";
+  if (p >= 60) return "D-";
+  return "F";
+}
+
+function gpaPointsFor(percent) {
+  return LETTER_POINTS[letterForPercent(percent)] || 0;
+}
+
+function letterToPercent(value) {
+  return LETTER_PERCENT[str(value).trim().toUpperCase()] || null;
+}
+
+/** The final score a course needs to reach its target. null when there is no current grade. */
+function neededOnFinal(current, target, finalWeight) {
+  if (current === null || current === undefined || str(current).trim() === "") return null;
+  if (target === null || target === undefined || str(target).trim() === "") return null;
+  if (finalWeight === null || finalWeight === undefined || str(finalWeight).trim() === "") return null;
+  const c = Number(current);
+  const t = Number(target);
+  const f = Number(finalWeight);
+  if (!Number.isFinite(c) || !Number.isFinite(t) || !Number.isFinite(f) || f <= 0 || f >= 100) return null;
+  return Math.round(((t - c * (1 - f / 100)) / (f / 100)) * 10) / 10;
+}
+
+function scoreOf(fm) {
+  const points = num(fm.points, num(fm.points_possible, 0));
+  const earned = num(fm.score, num(fm.points_earned, num(fm.earned, null)));
+  const direct = num(fm.percent, null);
+  let percent = direct;
+  if (percent === null && fm.grade !== undefined && fm.grade !== null && str(fm.grade).trim() !== "") {
+    const grade = str(fm.grade).trim();
+    percent = num(grade, null);
+    if (percent === null) percent = letterToPercent(grade);
+  }
+  if (percent === null && earned !== null && points > 0) percent = (earned / points) * 100;
+  return {
+    points: points > 0 ? points : null,
+    earned,
+    percent: percent === null ? null : clamp(percent, 0, 100),
+  };
+}
+
+function parseAssignment(file, fm, text, settings) {
+  const source = fm && typeof fm === "object" ? fm : {};
+  const task = taskLineOf(text);
+  const type = typeId(source.type || source.assignment_type);
+  const status = normalizeStatus(source.status, task && task.checked);
+  const due = normalizeDate(source.due || source.due_date || source.deadline || (task && task.due));
+  const title = str(source.title || source.name).trim() || (task && task.title) || (file && file.basename) || "Assignment";
+  const score = scoreOf(source);
+  const graded = status === "missing" || (status !== "excused" && score.percent !== null);
+  const percent = status === "missing" ? 0 : graded ? score.percent : null;
+  return {
+    id: str(source.assignment_id).trim() || (file && file.path) || title,
+    file,
+    title,
+    course: str(source.course).trim(),
+    type,
+    typeLabel: typeLabel(type),
+    category: categoryFor(type, source.category),
+    due,
+    weight: Math.max(0.01, num(source.weight, 1)),
+    status,
+    statusLabel: statusLabel(status),
+    done: isDone(status),
+    open: isOpen(status),
+    graded: status !== "excused" && percent !== null,
+    percent: status === "excused" ? null : percent,
+    earned: score.earned,
+    points: score.points,
+    text: str(text),
+    fm: source,
+  };
+}
+
+function weightedAverage(rows, valueKey, weightKey) {
+  let total = 0;
+  let weight = 0;
+  for (const row of rows) {
+    const v = Number(row[valueKey]);
+    const w = Math.max(0, Number(row[weightKey]) || 0);
+    if (!Number.isFinite(v) || w <= 0) continue;
+    total += v * w;
+    weight += w;
+  }
+  return weight ? { value: total / weight, weight } : { value: null, weight: 0 };
+}
+
+function courseRow(settings, course, assignments) {
+  const list = assignments.filter((a) => a.course && a.course.toLowerCase() === course.toLowerCase());
+  const categories = settings.categories.map((cat) => {
+    const rows = list.filter((a) => a.category === cat.id && a.status !== "excused");
+    const graded = rows.filter((a) => a.percent !== null);
+    const average = weightedAverage(
+      graded.map((a) => ({ percent: a.percent, weight: a.weight })),
+      "percent",
+      "weight"
+    );
+    return {
+      id: cat.id,
+      label: cat.label,
+      weight: cat.weight,
+      percent: pct(average.value),
+      assignments: rows.length,
+      graded: graded.length,
+    };
+  });
+  const counted = categories.filter((c) => c.percent !== null && c.weight > 0);
+  let current = null;
+  if (counted.length) {
+    const average = weightedAverage(counted.map((c) => ({ percent: c.percent, weight: c.weight })), "percent", "weight");
+    current = pct(average.value);
+  } else {
+    // A course can use assignments without category weights. In that case the
+    // assignment weights are still meaningful, so use them as a fallback.
+    const graded = list.filter((a) => a.percent !== null && a.status !== "excused");
+    const average = weightedAverage(graded.map((a) => ({ percent: a.percent, weight: a.weight })), "percent", "weight");
+    if (average.value !== null) current = pct(average.value);
+  }
+  const target = courseTarget(settings, course);
+  const finalWeight = courseFinalWeight(settings, course);
+  return {
+    course,
+    credits: courseCredits(settings, course),
+    current,
+    letter: letterForPercent(current),
+    gpaPoints: current === null ? null : gpaPointsFor(current),
+    target,
+    finalWeight,
+    neededFinal: current === null ? null : neededOnFinal(current, target, finalWeight),
+    total: list.length,
+    open: list.filter((a) => a.open).length,
+    graded: list.filter((a) => a.percent !== null).length,
+    categories,
+  };
+}
+
+function assignmentStats(assignments, settings, options) {
+  const opts = options || {};
+  const today = normalizeDate(opts.today) || localDate();
+  const list = Array.isArray(assignments) ? assignments : [];
+  const names = [];
+  const seen = new Set();
+  const add = (name) => {
+    const clean = str(name).trim();
+    if (!clean) return;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    names.push(clean);
+  };
+  for (const course of (settings && settings.courses) || []) add(course.name);
+  for (const a of list) add(a.course);
+  const courses = names.map((name) => courseRow(settings, name, list)).sort((a, b) => a.course.localeCompare(b.course, undefined, { numeric: true }));
+  const gradedCourses = courses.filter((c) => c.current !== null && c.credits > 0);
+  const creditTotal = gradedCourses.reduce((n, c) => n + c.credits, 0);
+  const pointTotal = gradedCourses.reduce((n, c) => n + c.gpaPoints * c.credits, 0);
+  const gpa = creditTotal ? Math.round((pointTotal / creditTotal) * 100) / 100 : null;
+  const unweighted = gradedCourses.length
+    ? Math.round((gradedCourses.reduce((n, c) => n + c.gpaPoints, 0) / gradedCourses.length) * 100) / 100
+    : null;
+  return {
+    today,
+    assignments: list,
+    courses,
+    gpa,
+    unweightedGpa: unweighted,
+    credits: creditTotal,
+    gradedCourses: gradedCourses.length,
+    summary: {
+      total: list.length,
+      open: list.filter((a) => a.open).length,
+      overdue: list.filter((a) => a.open && a.due && a.due < today).length,
+      dueToday: list.filter((a) => a.open && a.due === today).length,
+      graded: list.filter((a) => a.percent !== null).length,
+    },
+  };
+}
+
+function dueState(assignment, today) {
+  if (!assignment || !assignment.due) return { id: "no-date", label: "No date", days: null };
+  const days = dayDiff(today, assignment.due);
+  if (days === null) return { id: "no-date", label: assignment.due, days: null };
+  if (days < 0) return { id: "overdue", label: `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} overdue`, days };
+  if (days === 0) return { id: "today", label: "Due today", days };
+  if (days === 1) return { id: "soon", label: "Due tomorrow", days };
+  if (days <= 7) return { id: "soon", label: `Due in ${days} days`, days };
+  return { id: "upcoming", label: assignment.due, days };
+}
+
+function assignmentTasks(assignments, options) {
+  const opts = options || {};
+  const today = normalizeDate(opts.today) || localDate();
+  const days = Math.max(0, num(opts.days, 14));
+  return (Array.isArray(assignments) ? assignments : [])
+    .filter((a) => a.open && a.due)
+    .map((a) => ({ assignment: a, state: dueState(a, today) }))
+    .filter((row) => row.state.id === "overdue" || row.state.id === "today" || (row.state.days !== null && row.state.days >= 0 && row.state.days <= days))
+    .sort((a, b) => a.assignment.due.localeCompare(b.assignment.due) || a.assignment.title.localeCompare(b.assignment.title));
+}
+
+/** The mixed task card in Today: a review task first, then the nearest assignment deadlines. */
+function buildDailyTasks(input) {
+  const opts = input || {};
+  const today = normalizeDate(opts.today) || localDate();
+  const review = Math.max(0, num(opts.reviewCount, 0));
+  const rows = [];
+  if (review > 0) {
+    rows.push({
+      id: "review",
+      kind: "review",
+      title: `Review ${review} due item${review === 1 ? "" : "s"}`,
+      meta: "Questions and cards due today",
+      minutes: 5,
+    });
+  }
+  for (const row of assignmentTasks(opts.assignments || [], { today, days: opts.days === undefined ? 7 : opts.days }).slice(0, opts.assignmentLimit === undefined ? 3 : opts.assignmentLimit)) {
+    rows.push({
+      id: `assignment-${row.assignment.id}`,
+      kind: "assignment",
+      title: row.assignment.title,
+      meta: [row.assignment.course, row.state.label].filter(Boolean).join(" · "),
+      assignment: row.assignment,
+    });
+  }
+  return rows;
+}
+
+function assignmentId(now) {
+  const date = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  return `a-${date.getTime().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function safeName(value) {
+  return str(value)
+    .replace(/[\\/:*?"<>|#^[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 90);
+}
+
+function taskMarkdown(title, due) {
+  const clean = stripTaskMeta(safeName(title)) || "Assignment";
+  return `- [ ] ${clean}${due ? ` 📅 ${due}` : ""}`;
+}
+
+function assignmentMarkdown(data, now) {
+  const opts = data || {};
+  const date = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  const title = safeName(opts.title) || "Assignment";
+  const type = typeId(opts.type);
+  const due = normalizeDate(opts.due);
+  const status = normalizeStatus(opts.status, false);
+  const fm = {
+    assignment: true,
+    assignment_id: str(opts.id).trim() || assignmentId(date),
+    title,
+    course: str(opts.course).trim(),
+    type,
+    category: categoryFor(type, opts.category),
+    due,
+    weight: Math.max(0.01, num(opts.weight, 1)),
+    status,
+    points: opts.points === undefined || opts.points === "" ? "" : num(opts.points, ""),
+    score: opts.score === undefined || opts.score === "" ? "" : num(opts.score, ""),
+    created: fmtDate(date),
+  };
+  if (status === "submitted" || status === "graded") fm.submitted = fmtDate(date);
+  return `---\n${stringifyYaml(fm)}---\n\n# ${title}\n\n${taskMarkdown(title, due)}\n\n## Notes\n\n`;
+}
+
+function updateTaskCheckbox(text, checked) {
+  return str(text).replace(/^(\s*[-*+]\s*)\[([ xX])\]/m, `$1[${checked ? "x" : " "}]`);
+}
+
+function updateTaskTitle(text, title) {
+  const clean = stripTaskMeta(safeName(title));
+  if (!clean) return str(text);
+  return str(text).replace(
+    /^(\s*[-*+]\s+\[[ xX]\]\s+)(.*?)(?=\s*(?:📅|⏳)|\s*$)/m,
+    `$1${clean}`
+  );
+}
+
+function updateTaskDue(text, due) {
+  const date = normalizeDate(due);
+  const startsWithTask = /^\s*[-*+]\s+\[[ xX]\]/m.test(str(text));
+  if (!startsWithTask) return str(text);
+  return str(text).replace(
+    /^(\s*[-*+]\s+\[[ xX]\]\s+.*?)(?:\s*(?:📅|⏳)\s*\d{4}-\d{1,2}-\d{1,2})?$/m,
+    (line, prefix) => (date ? `${prefix} 📅 ${date}` : prefix)
+  );
+}
+
+function statusAfterCheckbox(status, checked) {
+  if (checked && isOpen(status)) return "submitted";
+  if (!checked && (status === "submitted" || status === "graded")) return "todo";
+  return status;
+}
+
+function uniquePath(settings, title, exists) {
+  const folder = str(settings.folder).trim().replace(/^\/+|\/+$/g, "");
+  const base = safeName(title) || "Assignment";
+  const has = typeof exists === "function" ? exists : () => false;
+  let candidate = `${folder ? folder + "/" : ""}${base}.md`;
+  let n = 2;
+  while (has(candidate)) {
+    candidate = `${folder ? folder + "/" : ""}${base} ${n}.md`;
+    n++;
+  }
+  return candidate;
+}
+
+module.exports = {
+  ASSIGNMENT_TYPES,
+  ASSIGNMENT_CATEGORIES,
+  ASSIGNMENT_STATUSES,
+  DEFAULT_ASSIGNMENT_SETTINGS,
+  assignmentId,
+  assignmentMarkdown,
+  assignmentStats,
+  assignmentTasks,
+  buildDailyTasks,
+  categoryFor,
+  courseConfig,
+  courseCredits,
+  courseFinalWeight,
+  courseTarget,
+  dueFromTask,
+  dueState,
+  gpaPointsFor,
+  isAssignmentNote,
+  isDone,
+  isOpen,
+  letterForPercent,
+  letterToPercent,
+  neededOnFinal,
+  normalizeAssignmentSettings,
+  normalizeDate,
+  normalizeStatus,
+  parseAssignment,
+  safeName,
+  scoreOf,
+  statusAfterCheckbox,
+  statusLabel,
+  stripTaskMeta,
+  taskLineOf,
+  taskMarkdown,
+  typeId,
+  typeLabel,
+  uniquePath,
+  updateTaskCheckbox,
+  updateTaskDue,
+  updateTaskTitle,
+};
+};
+
+/* ---- src/assignments-modal.js ---- */
+__defs["assignments-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { localDate, str } = require("./util");
+const { ASSIGNMENT_STATUSES, ASSIGNMENT_TYPES, normalizeDate } = require("./assignments");
+
+/** Create or edit one assignment note. */
+class AssignmentModal extends Modal {
+  constructor(app, plugin, options, onDone) {
+    super(app);
+    this.plugin = plugin;
+    this.options = options || {};
+    this.assignment = this.options.assignment || null;
+    this.onDone = onDone || (() => {});
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    const p = this.plugin;
+    const a = this.assignment;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: a ? "Edit assignment" : "New assignment" });
+
+    const field = (label, placeholder) => {
+      const wrap = contentEl.createDiv({ cls: "qt-field" });
+      wrap.createEl("label", { text: label });
+      return wrap.createEl("input", { type: "text", attr: { placeholder: placeholder || "" } });
+    };
+
+    const title = field("Title", "e.g. Unit 4 problem set");
+    title.value = a ? a.title : "";
+
+    const course = field("Course", "e.g. BIOL 201");
+    course.value = a ? a.course : str(this.options.course || "");
+
+    const typeWrap = contentEl.createDiv({ cls: "qt-field" });
+    typeWrap.createEl("label", { text: "Type" });
+    const type = typeWrap.createEl("select", { cls: "dropdown" });
+    for (const t of ASSIGNMENT_TYPES) type.createEl("option", { text: t.label, value: t.id });
+    type.value = a ? a.type : "homework";
+
+    const dueWrap = contentEl.createDiv({ cls: "qt-field" });
+    dueWrap.createEl("label", { text: "Due date" });
+    const due = dueWrap.createEl("input", { type: "date" });
+    due.value = a ? normalizeDate(a.due) : normalizeDate(this.options.due) || localDate();
+
+    const statusWrap = contentEl.createDiv({ cls: "qt-field" });
+    statusWrap.createEl("label", { text: "Status" });
+    const status = statusWrap.createEl("select", { cls: "dropdown" });
+    for (const s of ASSIGNMENT_STATUSES) status.createEl("option", { text: s.label, value: s.id });
+    status.value = a ? a.status : "todo";
+
+    const points = field("Points possible", "100");
+    points.inputEl.type = "number";
+    points.value = a && a.points !== null && a.points !== undefined ? String(a.points) : "100";
+
+    const score = field("Points earned (when graded)", "e.g. 87");
+    score.inputEl.type = "number";
+    score.value = a && a.earned !== null && a.earned !== undefined ? String(a.earned) : "";
+
+    const weight = field("Weight inside its category", "1");
+    weight.inputEl.type = "number";
+    weight.value = a ? String(a.weight) : "1";
+    const hint = contentEl.createDiv({ cls: "qt-hint" });
+    hint.setText("Category weights (homework, quizzes, tests, exams) are under Settings, Assignments, Grading. Weight here only orders assignments within one category.");
+
+    const row = contentEl.createDiv({ cls: "qt-row" });
+    const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
+    const save = row.createEl("button", { text: a ? "Save changes" : "Create assignment", cls: "mod-cta qt-grow" });
+    cancel.addEventListener("click", () => this.close());
+    save.addEventListener("click", async () => {
+      const data = {
+        title: str(title.value).trim(),
+        course: str(course.value).trim(),
+        type: type.value,
+        due: due.value,
+        status: status.value,
+        points: str(points.value).trim(),
+        score: str(score.value).trim(),
+        weight: str(weight.value).trim(),
+      };
+      if (!data.title) {
+        new Notice("Give the assignment a title.");
+        return;
+      }
+      if (!data.course) {
+        new Notice("Add a course so the grade can be calculated.");
+        return;
+      }
+      save.disabled = true;
+      try {
+        const result = a ? await p.updateAssignment(a, data) : await p.createAssignment(data);
+        this.close();
+        this.onDone(result);
+      } catch (e) {
+        save.disabled = false;
+        new Notice(str(e && e.message) || "Could not save the assignment.");
+      }
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = { AssignmentModal };
+};
+
+/* ---- src/assignments-settings.js ---- */
+__defs["assignments-settings"] = function (module, exports, require) {
+const { Setting } = require("obsidian");
+const { renderSettingsTabs, openExternal } = require("./settings-ui");
+const { str } = require("./util");
+const { ASSIGNMENT_CATEGORIES, courseConfig } = require("./assignments");
+
+const ASSIGNMENTS_TABS = [
+  { id: "grading", label: "Grading", icon: "percent" },
+  { id: "courses", label: "Courses", icon: "school" },
+  { id: "about", label: "About", icon: "info" },
+];
+
+function renderAssignmentsSettings(containerEl, plugin, redisplay, activeTab, setTab) {
+  const current = ASSIGNMENTS_TABS.some((t) => t.id === activeTab) ? activeTab : "grading";
+  renderSettingsTabs(
+    containerEl,
+    ASSIGNMENTS_TABS,
+    current,
+    (id) => (typeof setTab === "function" ? setTab(id) : redisplay()),
+    { className: "qt-settings-tabs", tabClass: "qt-settings-tab" }
+  );
+  const section = containerEl.createDiv({ cls: "qt-settings-section" });
+  if (!plugin.assignmentsEnabled()) {
+    section.createEl("p", {
+      cls: "setting-item-description",
+      text: "The Assignments module is off. Turn it on under Global, Modules; its notes and settings are kept.",
+    });
+  }
+  if (current === "courses") return renderCourses(section, plugin, redisplay);
+  if (current === "about") return renderAssignmentsAbout(section, plugin);
+  renderGrading(section, plugin, redisplay);
+}
+
+function numberSetting(containerEl, name, desc, value, opts, onSave) {
+  new Setting(containerEl)
+    .setName(name)
+    .setDesc(desc)
+    .addText((t) => {
+      t.inputEl.type = "number";
+      if (opts && opts.min !== undefined) t.inputEl.min = String(opts.min);
+      if (opts && opts.max !== undefined) t.inputEl.max = String(opts.max);
+      t.setValue(String(value)).onChange((raw) => {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) return;
+        onSave(Math.max(opts && opts.min !== undefined ? opts.min : -Infinity, Math.min(opts && opts.max !== undefined ? opts.max : Infinity, n)));
+      });
+    });
+}
+
+function renderGrading(containerEl, plugin, redisplay) {
+  const st = plugin.settings.assignments;
+
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Assignments are ordinary notes. The grade is calculated locally from scores, category weights and course targets; nothing is uploaded.",
+  });
+
+  new Setting(containerEl).setName("Assignments and grades").setHeading();
+
+  new Setting(containerEl)
+    .setName("Enable Assignments")
+    .setDesc("Adds the gradebook and task view, its ribbon button and commands.")
+    .addToggle((t) =>
+      t.setValue(plugin.assignmentsEnabled()).onChange(async (v) => {
+        st.enabled = v;
+        await plugin.save();
+        await plugin.onAssignmentsToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Assignments folder")
+    .setDesc("New assignment notes go here unless you choose another folder. Existing assignment notes are found anywhere in the vault.")
+    .addText((t) =>
+      t.setPlaceholder("Assignments").setValue(st.folder).onChange(async (v) => {
+        st.folder = str(v).trim().replace(/^\/+|\/+$/g, "") || "Assignments";
+        await plugin.save();
+      })
+    );
+
+  numberSetting(
+    containerEl,
+    "Default target grade",
+    "The course grade you are aiming for. A course can override it on the Courses tab.",
+    st.targetGrade,
+    { min: 0, max: 100 },
+    async (n) => {
+      st.targetGrade = n;
+      await plugin.save();
+      plugin.refreshViews();
+    }
+  );
+
+  numberSetting(
+    containerEl,
+    "Default final weight",
+    "How much the final is worth, as a percentage of the course. Used for the “what do I need on the final” calculation.",
+    st.finalWeight,
+    { min: 0, max: 100 },
+    async (n) => {
+      st.finalWeight = n;
+      await plugin.save();
+      plugin.refreshViews();
+    }
+  );
+
+  new Setting(containerEl).setName("Category weights").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Categories are weighted across the course. Inside a category, each assignment's own weight orders it; a missing assignment counts as zero and ungraded work is left out until it has a score.",
+  });
+  for (const category of st.categories) {
+    numberSetting(
+      containerEl,
+      category.label,
+      `Percentage of the course grade. The ${ASSIGNMENT_CATEGORIES.find((c) => c.id === category.id)?.label || category.label} category is currently set by this value.`,
+      category.weight,
+      { min: 0, max: 100 },
+      async (n) => {
+        category.weight = n;
+        await plugin.save();
+        plugin.refreshViews();
+      }
+    );
+  }
+
+  new Setting(containerEl)
+    .setName("Add an assignment")
+    .setDesc("Create a note in the assignments folder with a Tasks-compatible due date.")
+    .addButton((b) => b.setButtonText("Add assignment").onClick(() => plugin.openNewAssignment()));
+  new Setting(containerEl)
+    .setName("Open the gradebook")
+    .setDesc("Courses, weighted grades, the GPA and the task list.")
+    .addButton((b) => b.setButtonText("Open Assignments").onClick(() => plugin.activateAssignments()));
+}
+
+function ensureCourse(plugin, name) {
+  const st = plugin.settings.assignments;
+  let cfg = courseConfig(st, name);
+  if (!cfg) {
+    cfg = { name, credits: 3, target: null, finalWeight: null };
+    st.courses.push(cfg);
+  }
+  return cfg;
+}
+
+function renderCourses(containerEl, plugin, redisplay) {
+  const st = plugin.settings.assignments;
+  const names = [];
+  const seen = new Set();
+  const add = (name) => {
+    const clean = str(name).trim();
+    if (!clean || seen.has(clean.toLowerCase())) return;
+    seen.add(clean.toLowerCase());
+    names.push(clean);
+  };
+  for (const cfg of st.courses) add(cfg.name);
+  for (const a of plugin.getAssignments()) add(a.course);
+
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Credits make the GPA credit-weighted. A target and final weight here override the defaults for that course. A blank target or final weight uses the Grading tab value.",
+  });
+
+  if (!names.length) {
+    containerEl.createEl("p", { cls: "setting-item-description", text: "No courses yet. Add one below, or create an assignment with a course name." });
+  }
+
+  for (const name of names) {
+    const cfg = courseConfig(st, name);
+    const row = cfg || { name, credits: 3, target: null, finalWeight: null };
+    new Setting(containerEl)
+      .setName(name)
+      .setDesc("Credits, target grade and final weight for this course.")
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.inputEl.min = "0";
+        t.inputEl.max = "30";
+        t.setPlaceholder("credits");
+        t.setValue(String(row.credits)).onChange(async (v) => {
+          const c = ensureCourse(plugin, name);
+          c.credits = Math.max(0, Math.min(30, Number(v) || 0));
+          await plugin.save();
+          plugin.refreshViews();
+        });
+      })
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.inputEl.min = "0";
+        t.inputEl.max = "100";
+        t.setPlaceholder("target %");
+        t.setValue(row.target === null ? "" : String(row.target)).onChange(async (v) => {
+          const c = ensureCourse(plugin, name);
+          c.target = str(v).trim() === "" ? null : Math.max(0, Math.min(100, Number(v) || 0));
+          await plugin.save();
+          plugin.refreshViews();
+        });
+      })
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.inputEl.min = "0";
+        t.inputEl.max = "100";
+        t.setPlaceholder("final %");
+        t.setValue(row.finalWeight === null ? "" : String(row.finalWeight)).onChange(async (v) => {
+          const c = ensureCourse(plugin, name);
+          c.finalWeight = str(v).trim() === "" ? null : Math.max(0, Math.min(100, Number(v) || 0));
+          await plugin.save();
+          plugin.refreshViews();
+        });
+      });
+  }
+
+  new Setting(containerEl)
+    .setName("Add a course")
+    .setDesc("Then set its credits and target. Course names match the assignment's course property, ignoring case.")
+    .addText((t) => t.setPlaceholder("e.g. CHEM 101").setValue(plugin.settings.assignments._newCourse || "").onChange((v) => (plugin.settings.assignments._newCourse = v)))
+    .addButton((b) =>
+      b.setButtonText("Add").onClick(async () => {
+        const name = str(plugin.settings.assignments._newCourse).trim();
+        if (!name) return;
+        ensureCourse(plugin, name);
+        plugin.settings.assignments._newCourse = "";
+        await plugin.save();
+        redisplay();
+        plugin.refreshViews();
+      })
+    );
+}
+
+function renderAssignmentsAbout(containerEl, plugin) {
+  new Setting(containerEl).setName("How grades are calculated").setHeading();
+  const card = containerEl.createDiv({ cls: "qt-settings-card" });
+  card.createEl("p", {
+    cls: "setting-item-description",
+    text: "Within a category, graded assignments are averaged using their weight. Categories are then averaged using the category weights on the Grading tab. Missing work counts as zero; submitted but ungraded work is left out. A course with no grades yet shows no grade instead of zero.",
+  });
+  card.createEl("p", {
+    cls: "setting-item-description",
+    text: "The final calculation assumes your current grade carries through the rest of the non-final work. It is an estimate, not a promise from your school's gradebook.",
+  });
+  new Setting(containerEl)
+    .setName("Assignments are Tasks-compatible")
+    .setDesc("Each new assignment includes a checkbox line with its due date (📅) so Tasks, Dataview and similar plugins can query it.")
+    .addButton((b) => b.setButtonText("Open the assignment note format").onClick(() => openExternal("https://github.com/ifriedenson/mcq-tracker#assignments-tasks-and-grades")));
+  new Setting(containerEl)
+    .setName("Local only")
+    .setDesc("No third-party gradebook, analytics service or network request is used. The calculation runs in the plugin.")
+    .addButton((b) => b.setButtonText("Open Assignments").onClick(() => plugin.activateAssignments()));
+}
+
+module.exports = {
+  ASSIGNMENTS_TABS,
+  renderAssignmentsSettings,
+};
+};
+
+/* ---- src/assignments-view.js ---- */
+__defs["assignments-view"] = function (module, exports, require) {
+const { ItemView, Notice } = require("obsidian");
+const { VIEW_TYPE_ASSIGNMENTS } = require("./constants");
+const { localDate } = require("./util");
+const { AssignmentModal } = require("./assignments-modal");
+const { assignmentTasks, dueState } = require("./assignments");
+
+const numberText = (value) => (value === null || value === undefined ? "—" : `${Math.round(Number(value) * 10) / 10}%`);
+
+/** A compact gradebook and task list built from assignment notes. */
+class AssignmentsView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this.filter = "open"; // open | all | graded
+  }
+
+  getViewType() {
+    return VIEW_TYPE_ASSIGNMENTS;
+  }
+
+  getDisplayText() {
+    return "Assignments";
+  }
+
+  getIcon() {
+    return "clipboard-list";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-root");
+    this.render();
+  }
+
+  render() {
+    const p = this.plugin;
+    const el = this.contentEl;
+    const top = el.scrollTop;
+    el.empty();
+    const root = el.createDiv({ cls: "qt-wrap qt-assignments" });
+
+    if (!p.assignmentsEnabled()) {
+      const card = root.createDiv({ cls: "qt-assignment-empty" });
+      card.createEl("h3", { text: "Assignments are off" });
+      card.createDiv({ cls: "qt-today-meta", text: "Turn the Assignments module back on under Settings, Global, Modules." });
+      card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.openSettings());
+      return;
+    }
+
+    const today = localDate();
+    const stats = p.assignmentStats({ today });
+    const summary = stats.summary;
+    root.createDiv({ cls: "qt-today-kicker", text: "Gradebook" });
+    root.createEl("h2", { text: "Assignments & grades" });
+    root.createDiv({
+      cls: "qt-today-count",
+      text: `${summary.open} open · ${summary.overdue} overdue · ${summary.graded} graded · ${stats.courses.length} course${stats.courses.length === 1 ? "" : "s"}`,
+    });
+    const actions = root.createDiv({ cls: "qt-row qt-small-row" });
+    actions.createEl("button", { text: "Add assignment", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.openNew());
+    actions.createEl("button", { text: "Assignment settings" }).addEventListener("click", () => p.openSettings());
+
+    if (stats.gpa !== null) {
+      const card = root.createDiv({ cls: "qt-assignment-gpa" });
+      card.createDiv({ cls: "qt-today-kicker", text: "Credit-weighted GPA" });
+      card.createDiv({ cls: "qt-assignment-gpa-value", text: String(stats.gpa.toFixed(2)) });
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: `${stats.gradedCourses} graded course${stats.gradedCourses === 1 ? "" : "s"} · ${stats.credits} credits · unweighted ${stats.unweightedGpa.toFixed(2)}`,
+      });
+      card.createDiv({ cls: "qt-toggle-hint", text: "Credits and course targets are under Settings, Assignments, Courses." });
+    } else {
+      const card = root.createDiv({ cls: "qt-assignment-empty" });
+      card.createDiv({ cls: "qt-today-kicker", text: "No course grade yet" });
+      card.createDiv({ cls: "qt-today-meta", text: "Add an assignment with a score, or set a course target and final weight in settings." });
+    }
+
+    root.createEl("h3", { cls: "qt-today-section", text: "Courses" });
+    if (!stats.courses.length) {
+      const card = root.createDiv({ cls: "qt-assignment-empty" });
+      card.createDiv({ cls: "qt-today-title", text: "Add your first assignment" });
+      card.createDiv({ cls: "qt-today-meta", text: "Assignments are ordinary notes with a due date, course, category weight and optional score." });
+      card.createEl("button", { text: "Add assignment", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.openNew());
+    } else {
+      const grid = root.createDiv({ cls: "qt-assignment-courses" });
+      for (const course of stats.courses) this.renderCourse(grid, course);
+    }
+
+    root.createEl("h3", { cls: "qt-today-section", text: "Tasks" });
+    this.renderFilters(root);
+    this.renderTasks(root, today);
+    el.scrollTop = top;
+  }
+
+  renderFilters(root) {
+    const row = root.createDiv({ cls: "qt-row qt-small-row qt-assignment-filters" });
+    for (const [id, label] of [["open", "Open"], ["all", "All"], ["graded", "Graded"]]) {
+      const button = row.createEl("button", { text: label, cls: this.filter === id ? "is-active" : "" });
+      button.addEventListener("click", () => {
+        this.filter = id;
+        this.render();
+      });
+    }
+  }
+
+  renderCourse(parent, course) {
+    const p = this.plugin;
+    const card = parent.createDiv({ cls: "qt-assignment-course" });
+    const head = card.createDiv({ cls: "qt-assignment-course-head" });
+    const name = head.createDiv({ cls: "qt-assignment-course-name" });
+    name.createDiv({ cls: "qt-today-title", text: course.course });
+    name.createDiv({ cls: "qt-today-meta", text: `${course.credits} credit${course.credits === 1 ? "" : "s"} · ${course.graded} graded of ${course.total}` });
+    const grade = head.createDiv({ cls: "qt-assignment-course-grade" });
+    grade.createDiv({ cls: "qt-assignment-letter", text: course.letter });
+    grade.createDiv({ cls: "qt-today-meta", text: numberText(course.current) });
+
+    const bars = card.createDiv({ cls: "qt-assignment-categories" });
+    for (const cat of course.categories.filter((c) => c.assignments || c.weight > 0)) {
+      const line = bars.createDiv({ cls: "qt-assignment-category" });
+      line.createSpan({ cls: "qt-assignment-category-name", text: `${cat.label} ${cat.weight}%` });
+      line.createSpan({ cls: "qt-assignment-category-score", text: cat.percent === null ? "—" : numberText(cat.percent) });
+      if (cat.graded < cat.assignments) line.createSpan({ cls: "qt-toggle-hint", text: `${cat.assignments - cat.graded} ungraded` });
+    }
+
+    let targetText = `Target ${course.target}% · final worth ${course.finalWeight}% · add a graded assignment to see what you need.`;
+    let targetClass = "qt-assignment-target";
+    if (course.current !== null && course.neededFinal === null) {
+      targetText = `Target ${course.target}% · set a final weight below 100% to calculate the final score.`;
+    } else if (course.neededFinal !== null && course.neededFinal <= 0) {
+      targetText = `Target ${course.target}% already secured. Current ${numberText(course.current)} with a final worth ${course.finalWeight}%.`;
+      targetClass += " is-secured";
+    } else if (course.neededFinal !== null) {
+      targetText = `Target ${course.target}% · final worth ${course.finalWeight}% · you need ${numberText(course.neededFinal)} on the final.`;
+      if (course.neededFinal > 100) targetClass += " is-hard";
+    }
+    card.createDiv({ cls: targetClass, text: targetText });
+
+    const actions = card.createDiv({ cls: "qt-row qt-small-row" });
+    if (p.mcqEnabled()) {
+      actions.createEl("button", { text: "Practice this course" }).addEventListener("click", () => p.practiceWith({ course: [course.course] }, "smart"));
+    }
+    actions.createEl("button", { text: "Add assignment", cls: "qt-link" }).addEventListener("click", () => this.openNew({ course: course.course }));
+  }
+
+  renderTasks(root, today) {
+    const p = this.plugin;
+    const all = p.getAssignments();
+    const rows = all
+      .filter((a) => this.filter === "all" || (this.filter === "graded" ? a.percent !== null : a.open))
+      .sort((a, b) => {
+        if (a.open !== b.open) return a.open ? -1 : 1;
+        return (a.due || "9999-99-99").localeCompare(b.due || "9999-99-99") || a.title.localeCompare(b.title);
+      });
+    if (!rows.length) {
+      const card = root.createDiv({ cls: "qt-assignment-empty" });
+      card.createDiv({ cls: "qt-today-meta", text: this.filter === "graded" ? "No graded assignments yet." : "No open tasks. Add an assignment or switch to All." });
+      return;
+    }
+    const list = root.createDiv({ cls: "qt-assignment-tasks" });
+    for (const a of rows) {
+      const state = dueState(a, today);
+      const row = list.createDiv({ cls: `qt-assignment-task is-${state.id}` });
+      const main = row.createDiv({ cls: "qt-assignment-task-main" });
+      main.createDiv({ cls: "qt-assignment-task-title", text: a.title });
+      main.createDiv({
+        cls: "qt-assignment-task-meta",
+        text: [a.course, a.typeLabel, a.due ? state.label : "No due date", a.percent === null ? "" : numberText(a.percent)].filter(Boolean).join(" · "),
+      });
+      row.createSpan({ cls: `qt-assignment-status is-${a.status}`, text: a.statusLabel });
+      const buttons = row.createDiv({ cls: "qt-assignment-task-actions" });
+      buttons.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => p.openAssignmentNote(a));
+      if (a.open) {
+        buttons.createEl("button", { text: "Mark done" }).addEventListener("click", async () => {
+          try {
+            await p.setAssignmentStatus(a, "submitted");
+            this.render();
+          } catch (e) {
+            new Notice((e && e.message) || "Could not update the assignment.");
+          }
+        });
+      }
+      buttons.createEl("button", { text: a.percent === null ? "Grade" : "Edit grade" }).addEventListener("click", () => this.edit(a));
+    }
+  }
+
+  openNew(options) {
+    new AssignmentModal(this.app, this.plugin, options || {}, () => this.render()).open();
+  }
+
+  edit(assignment) {
+    new AssignmentModal(this.app, this.plugin, { assignment }, () => this.render()).open();
+  }
+}
+
+module.exports = { VIEW_TYPE_ASSIGNMENTS, AssignmentsView };
+};
+
 /* ---- src/calendar-ics.js ---- */
 __defs["calendar-ics"] = function (module, exports, require) {
 /*
@@ -7721,12 +8912,14 @@ module.exports = {
 /* ---- src/constants.js ---- */
 __defs["constants"] = function (module, exports, require) {
 const { DEFAULT_REFERENCE_SETTINGS } = require("./reference-data");
+const { DEFAULT_ASSIGNMENT_SETTINGS } = require("./assignments");
 
 const VIEW_TYPE = "question-tracker-view";
 const VIEW_TYPE_TODAY = "question-tracker-today";
 const VIEW_TYPE_CALENDAR = "question-tracker-calendar";
 const VIEW_TYPE_CARDS = "question-tracker-cards";
 const VIEW_TYPE_REFERENCE = "question-tracker-reference";
+const VIEW_TYPE_ASSIGNMENTS = "question-tracker-assignments";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -7810,6 +9003,10 @@ const DEFAULT_SETTINGS = {
     lastCompleted: "",
   },
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
+  assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
+    categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
+    courses: [],
+  }),
   cards: {
     enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off
     newCardFolder: "Cards", // where new cards go when their deck has no folder
@@ -7856,6 +9053,7 @@ module.exports = {
   VIEW_TYPE_CALENDAR,
   VIEW_TYPE_CARDS,
   VIEW_TYPE_REFERENCE,
+  VIEW_TYPE_ASSIGNMENTS,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,
@@ -15627,7 +16825,7 @@ module.exports = {
 __defs["plugin"] = function (module, exports, require) {
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -15635,6 +16833,9 @@ const { TodayView } = require("./today-view");
 const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./modals");
 const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
+const { AssignmentsView } = require("./assignments-view");
+const { AssignmentModal } = require("./assignments-modal");
+const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskTitle } = require("./assignments");
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
@@ -15742,6 +16943,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this));
     this.registerView(VIEW_TYPE_CARDS, (leaf) => new CardView(leaf, this));
     this.registerView(VIEW_TYPE_REFERENCE, (leaf) => new ReferenceView(leaf, this));
+    this.registerView(VIEW_TYPE_ASSIGNMENTS, (leaf) => new AssignmentsView(leaf, this));
     this.ribbonButtons = {};
     this.ribbonAdded = {};
     this.refreshRibbon();
@@ -15795,6 +16997,8 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
+    this.addCommand({ id: "open-assignments", name: "Open assignments and grades", callback: () => this.activateAssignments() });
+    this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
@@ -16005,6 +17209,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
+    this.settings.assignments = normalizeAssignmentSettings(saved.assignments);
     this.settings.reference = mergeReferenceSettings(saved.reference);
     this.settings.studyLog = normalizeStudyLog(saved.studyLog);
     // module switches and plugin-wide flags are always plain booleans
@@ -16197,6 +17402,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (id === "mcq") return this.mcqEnabled();
     if (id === "cards") return this.cardsEnabled();
     if (id === "calendar") return this.calendarEnabled();
+    if (id === "assignments") return this.assignmentsEnabled();
     if (id === "reference") return this.referenceEnabled();
     return !!this.settings.ai.enabled;
   }
@@ -16214,6 +17420,10 @@ class QuestionTrackerPlugin extends Plugin {
       this.settings.calendar.enabled = enabled === true;
       await this.save();
       await this.onCalendarToggled();
+    } else if (id === "assignments") {
+      this.settings.assignments.enabled = enabled === true;
+      await this.save();
+      await this.onAssignmentsToggled();
     } else if (id === "reference") {
       this.settings.reference.enabled = enabled === true;
       await this.save();
@@ -16234,11 +17444,13 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.cards.enabled = m.cards === true;
     this.settings.calendar.enabled = m.calendar === true;
     this.settings.ai.enabled = m.ai === true;
+    this.settings.assignments.enabled = m.assignments === true;
     this.settings.reference.enabled = m.reference === true;
     await this.save();
     await this.onMcqToggled();
     await this.onCardsToggled();
     await this.onCalendarToggled();
+    await this.onAssignmentsToggled();
     await this.onReferenceToggled();
     this.refreshViews();
     return preset;
@@ -16321,6 +17533,9 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_REFERENCE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_ASSIGNMENTS)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
   }
 
   /** Re-draws only the practice views that are showing the first-run screen (an import just finished). */
@@ -16373,6 +17588,15 @@ class QuestionTrackerPlugin extends Plugin {
     return !!(this.settings.reference && this.settings.reference.enabled);
   }
 
+  /** Assignments and grades are on unless the module was turned off. */
+  assignmentsEnabled() {
+    return !!(this.settings.assignments && this.settings.assignments.enabled !== false);
+  }
+
+  assignmentSettings() {
+    return this.settings.assignments;
+  }
+
   /** A saved timed test is still in progress (the test view is the only writer of testSession). */
   timedTestRunning() {
     const s = this.settings.testSession;
@@ -16410,6 +17634,8 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("calendar");
     if (this.referenceEnabled()) this.addModuleRibbon("reference", "book-open", "Open Reference", () => this.activateReference());
     else this.removeModuleRibbon("reference");
+    if (this.assignmentsEnabled()) this.addModuleRibbon("assignments", "clipboard-list", "Open assignments and grades", () => this.activateAssignments());
+    else this.removeModuleRibbon("assignments");
   }
 
   setupCalendarRibbon() {
@@ -16423,18 +17649,22 @@ class QuestionTrackerPlugin extends Plugin {
         ? this.calendarEnabled()
         : id === "cards"
           ? this.cardsEnabled()
-          : id === "reference"
-            ? this.referenceEnabled()
-            : this.mcqEnabled();
+          : id === "assignments"
+            ? this.assignmentsEnabled()
+            : id === "reference"
+              ? this.referenceEnabled()
+              : this.mcqEnabled();
     if (on) return false;
     new Notice(
       id === "calendar"
         ? "The calendar module is off. Turn it on in Settings, Global."
         : id === "cards"
           ? "The Cards module is off. Turn it on in Settings, Global."
-          : id === "reference"
-            ? "The Reference module is off. Turn it on in Settings, Global."
-            : "The MCQ Tracker module is off. Turn it on in Settings, Global."
+          : id === "assignments"
+            ? "The Assignments module is off. Turn it on in Settings, Global."
+            : id === "reference"
+              ? "The Reference module is off. Turn it on in Settings, Global."
+              : "The MCQ Tracker module is off. Turn it on in Settings, Global."
     );
     this.openSettings();
     return true;
@@ -16481,6 +17711,15 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshRibbon();
     if (!this.referenceEnabled()) {
       this.detachModuleLeaves([VIEW_TYPE_REFERENCE]);
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onAssignmentsToggled() {
+    this.refreshRibbon();
+    if (!this.assignmentsEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_ASSIGNMENTS]);
       return;
     }
     this.refreshViews();
@@ -16669,6 +17908,116 @@ class QuestionTrackerPlugin extends Plugin {
     await ws.revealLeaf(leaf);
     if (leaf.view && leaf.view.render) leaf.view.render();
     return leaf.view;
+  }
+
+  async activateAssignments() {
+    if (this.moduleOff("assignments")) return null;
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_ASSIGNMENTS)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_ASSIGNMENTS, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
+  /* ---- assignments and grades */
+
+  /** Assignment notes are ordinary Markdown notes with `assignment: true`. */
+  getAssignments() {
+    const settings = this.assignmentSettings();
+    const out = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      if (!isAssignmentNote(fm)) continue;
+      out.push(parseAssignment(file, fm, "", settings));
+    }
+    return out;
+  }
+
+  assignmentStats(options) {
+    return assignmentStats(this.getAssignments(), this.assignmentSettings(), options || {});
+  }
+
+  openNewAssignment(options, onDone) {
+    if (this.moduleOff("assignments")) return;
+    new AssignmentModal(this.app, this, options || {}, (result) => {
+      if (result && result.path) new Notice(`Created ${result.path}.`);
+      this.refreshViews();
+      if (onDone) onDone(result);
+    }).open();
+  }
+
+  async createAssignment(data) {
+    if (this.moduleOff("assignments")) return null;
+    const settings = this.assignmentSettings();
+    const title = safeName(data.title) || "Assignment";
+    const folder = String(settings.folder || "").trim().replace(/^\/+|\/+$/g, "");
+    if (folder) await ensureFolder(this.app, folder);
+    const path = uniquePath(settings, title, (candidate) => !!this.app.vault.getAbstractFileByPath(candidate));
+    const text = assignmentMarkdown({ ...data, title, id: assignmentId(new Date()) }, new Date());
+    const file = await this.app.vault.create(path, text);
+    this.refreshViews();
+    return { file, path };
+  }
+
+  async updateAssignment(assignment, data) {
+    if (this.moduleOff("assignments")) return null;
+    const file = assignment && assignment.file ? assignment.file : this.app.vault.getAbstractFileByPath(assignment && assignment.path);
+    if (!file) throw new Error("That assignment note is no longer in the vault.");
+    const status = normalizeStatus(data.status || assignment.status);
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      fm.title = safeName(data.title) || fm.title || file.basename;
+      fm.course = String(data.course || "").trim();
+      fm.type = typeId(data.type || fm.type || "homework");
+      fm.category = categoryFor(fm.type, data.category);
+      if (data.due) fm.due = data.due;
+      else delete fm.due;
+      fm.status = status;
+      fm.weight = Math.max(0.01, Number(data.weight) || 1);
+      if (String(data.points || "").trim() === "") delete fm.points;
+      else fm.points = Number(data.points);
+      if (String(data.score || "").trim() === "") delete fm.score;
+      else fm.score = Number(data.score);
+      if (status === "submitted" || status === "graded") fm.submitted = fm.submitted || localDate();
+      else delete fm.submitted;
+    });
+    const text = await this.app.vault.read(file);
+    let next = updateTaskTitle(updateTaskDue(text, data.due), data.title);
+    next = updateTaskCheckbox(next, status === "submitted" || status === "graded");
+    if (next !== text) await this.app.vault.modify(file, next);
+    this.refreshViews();
+    return { file, path: file.path, assignment: parseAssignment(file, this.app.metadataCache.getFileCache(file)?.frontmatter || {}, next, this.assignmentSettings()) };
+  }
+
+  async setAssignmentStatus(assignment, status) {
+    if (this.moduleOff("assignments")) return null;
+    const file = assignment && assignment.file ? assignment.file : this.app.vault.getAbstractFileByPath(assignment && assignment.path);
+    if (!file) throw new Error("That assignment note is no longer in the vault.");
+    const nextStatus = normalizeStatus(status);
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      fm.status = nextStatus;
+      if (nextStatus === "submitted" || nextStatus === "graded") fm.submitted = fm.submitted || localDate();
+      else delete fm.submitted;
+    });
+    const text = await this.app.vault.read(file);
+    const next = updateTaskCheckbox(text, nextStatus === "submitted" || nextStatus === "graded");
+    if (next !== text) await this.app.vault.modify(file, next);
+    this.refreshViews();
+    return nextStatus;
+  }
+
+  async openAssignmentNote(assignment) {
+    if (!assignment) return;
+    const file = assignment.file || this.app.vault.getAbstractFileByPath(assignment.path);
+    if (!file) {
+      new Notice("That assignment note is no longer in the vault.");
+      return;
+    }
+    await this.app.workspace.getLeaf("tab").openFile(file);
   }
 
   async activateReference() {
@@ -21263,6 +22612,18 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Assignments")
+    .setDesc("A gradebook and task list built from assignment notes: weighted course grades, what you need on the final, a credit-weighted GPA and Tasks-compatible due dates. Its settings are under Assignments.")
+    .addToggle((t) =>
+      t.setValue(plugin.assignmentsEnabled()).onChange(async (v) => {
+        st.assignments.enabled = v;
+        await plugin.save();
+        await plugin.onAssignmentsToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>
@@ -21288,7 +22649,7 @@ function renderModules(containerEl, plugin, redisplay) {
 
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "The settings for a module stay on its own page: MCQ Tracker, Cards, Calendar and Reference.",
+    text: "The settings for a module stay on its own page: MCQ Tracker, Cards, Calendar, Assignments and Reference.",
   });
 }
 
@@ -21381,6 +22742,7 @@ const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
+const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
@@ -21390,6 +22752,7 @@ const SETTINGS_MODULES = [
   { id: "mcq", label: "MCQ Tracker", icon: "list-checks" },
   { id: "cards", label: "Cards", icon: "layers" },
   { id: "calendar", label: "Calendar", icon: "graduation-cap" },
+  { id: "assignments", label: "Assignments", icon: "clipboard-list" },
   { id: "reference", label: "Reference", icon: "book-open" },
 ];
 
@@ -21412,6 +22775,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     this.activeMcqTab = "practice";
     this.activeCardsTab = "decks";
     this.activeCalendarTab = "about";
+    this.activeAssignmentsTab = "grading";
     this.activeReferenceTab = "tools";
   }
 
@@ -21459,6 +22823,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         this.activeCalendarTab,
         (id) => {
           this.activeCalendarTab = id;
+          this.display();
+        }
+      );
+      return;
+    }
+
+    if (this.activeModule === "assignments") {
+      renderAssignmentsSettings(
+        containerEl,
+        this.plugin,
+        () => this.display(),
+        this.activeAssignmentsTab,
+        (id) => {
+          this.activeAssignmentsTab = id;
           this.display();
         }
       );
@@ -22089,6 +23467,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 }
 
 module.exports = {
+  ASSIGNMENTS_TABS,
   CARDS_TABS,
   REFERENCE_TABS,
   GLOBAL_TABS,
@@ -22925,6 +24304,7 @@ const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
 const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
 const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus");
+const { buildDailyTasks } = require("./assignments");
 
 /*
  * The phone-sized entry point: what is due, what is next, and one large
@@ -22989,6 +24369,7 @@ class TodayView extends ItemView {
 
     this.renderStudyPlan(root);
     this.renderDaily(root, today);
+    this.renderTasks(root, today, due, visible);
     this.renderFocus(root, today);
 
     if (visible.length) {
@@ -23153,6 +24534,40 @@ class TodayView extends ItemView {
     } finally {
       this.render();
     }
+  }
+
+  /** One small task card: due practice plus the nearest assignment deadlines. */
+  renderTasks(root, today, due, visible) {
+    const p = this.plugin;
+    if (!p.assignmentsEnabled || !p.assignmentsEnabled()) return;
+    const assignments = p.getAssignments ? p.getAssignments() : [];
+    const cardsDue =
+      p.cardsEnabled && p.cardsEnabled()
+        ? (p.getCards ? p.getCards() : []).filter(
+            (c) => isStudyable(c.fm, today) && (!Number(c.fm.attempts) || (!!c.fm.next_review && String(c.fm.next_review).slice(0, 10) <= today))
+          ).length
+        : 0;
+    const tasks = buildDailyTasks({ reviewCount: due.length + cardsDue, assignments, today });
+    if (!tasks.length) return;
+    root.createEl("h3", { cls: "qt-today-section", text: "Tasks" });
+    const card = root.createDiv({ cls: "qt-today-card qt-tasks-card" });
+    for (const task of tasks) {
+      const row = card.createDiv({ cls: `qt-today-task is-${task.kind}` });
+      const main = row.createDiv({ cls: "qt-today-task-main" });
+      main.createDiv({ cls: "qt-today-task-title", text: task.title });
+      main.createDiv({ cls: "qt-today-meta", text: task.meta });
+      if (task.kind === "review") {
+        if (due.length) {
+          row.createEl("button", { text: "Start 5 minutes", cls: "mod-cta" }).addEventListener("click", () =>
+            p.startQuickPractice({ minutes: 5, pool: due, mode: "due", label: "due today" })
+          );
+        }
+      } else if (task.assignment) {
+        row.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => p.openAssignmentNote(task.assignment));
+      }
+    }
+    const actions = card.createDiv({ cls: "qt-row qt-small-row" });
+    actions.createEl("button", { text: "Open Assignments" }).addEventListener("click", () => p.activateAssignments());
   }
 
   renderFocus(root, today) {
@@ -23493,6 +24908,7 @@ const WELCOME_MODULE_INFO = [
   { id: "mcq", label: "MCQ Tracker", description: "Practice questions from your notes, weak spots, timed tests and file import." },
   { id: "cards", label: "Cards", description: "Flashcards, vocabulary, cloze and image-occlusion cards with spaced review." },
   { id: "calendar", label: "Calendar", description: "Classes and exams from an .ics schedule, countdowns and class notes." },
+  { id: "assignments", label: "Assignments", description: "A local gradebook and task list: weighted course grades, final-score planning and a credit-weighted GPA." },
   { id: "ai", label: "AI features", description: "Optional tutor chat, AI grading and document import. Nothing is sent until you turn it on and add a key." },
   { id: "reference", label: "Reference", description: "A local formula sheet, constants, unit converter, graph plotter and periodic table." },
 ];
@@ -23502,37 +24918,37 @@ const WELCOME_PRESETS = [
     id: "sat",
     label: "SAT / AP-style prep",
     description: "Practice questions and review. Cards, calendar and AI stay off until you want them.",
-    modules: { mcq: true, cards: false, calendar: false, ai: false, reference: false },
+    modules: { mcq: true, cards: false, calendar: false, assignments: true, ai: false, reference: false },
   },
   {
     id: "university",
     label: "University courses",
     description: "Questions, cards and the calendar. AI and Reference stay off.",
-    modules: { mcq: true, cards: true, calendar: true, ai: false, reference: false },
+    modules: { mcq: true, cards: true, calendar: true, assignments: true, ai: false, reference: false },
   },
   {
     id: "language",
     label: "Language learning",
     description: "Questions and vocabulary cards. Calendar, AI and Reference stay off.",
-    modules: { mcq: true, cards: true, calendar: false, ai: false, reference: false },
+    modules: { mcq: true, cards: true, calendar: false, assignments: false, ai: false, reference: false },
   },
   {
     id: "stem",
     label: "STEM problem sets",
     description: "Questions and the local Reference panel. Cards, calendar and AI stay off.",
-    modules: { mcq: true, cards: false, calendar: false, ai: false, reference: true },
+    modules: { mcq: true, cards: false, calendar: false, assignments: true, ai: false, reference: true },
   },
   {
     id: "flashcards",
     label: "Just flashcards",
     description: "Cards only. Questions, calendar, AI and Reference stay off.",
-    modules: { mcq: false, cards: true, calendar: false, ai: false, reference: false },
+    modules: { mcq: false, cards: true, calendar: false, assignments: false, ai: false, reference: false },
   },
   {
     id: "off",
     label: "Everything off",
     description: "Start quiet; turn modules on later under Settings, Global, Modules.",
-    modules: { mcq: false, cards: false, calendar: false, ai: false, reference: false },
+    modules: { mcq: false, cards: false, calendar: false, assignments: false, ai: false, reference: false },
   },
 ];
 
@@ -23542,7 +24958,7 @@ const WELCOME_STEPS = [
   { id: "today", title: "Review what is due", body: "Today shows due questions, cards and the next class in one place.", button: "Open Today", action: "today" },
   { id: "card", title: "Add cards (optional)", body: "Create a flashcard, vocabulary item or cloze card in a deck you choose.", button: "Create a card", action: "card" },
   { id: "calendar", title: "Add your schedule (optional)", body: "Import an .ics file or calendar link, then open the month or day view.", button: "Open calendar", action: "calendar" },
-  { id: "settings", title: "Find settings later", body: "Settings has Global, MCQ Tracker, Cards, Calendar and Reference groups, each with its own tabs.", button: "Open settings", action: "settings" },
+  { id: "settings", title: "Find settings later", body: "Settings has Global, MCQ Tracker, Cards, Calendar, Assignments and Reference groups, each with its own tabs.", button: "Open settings", action: "settings" },
 ];
 
 function emptyWelcomeState() {
@@ -23802,7 +25218,11 @@ const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSess
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
 const { TodayView } = require("./today-view");
-const { CARDS_TABS, GLOBAL_TABS, MCQ_TABS, QuestionTrackerSettingTab, SETTINGS_MODULES } = require("./settings-tab");
+const { ASSIGNMENTS_TABS, CARDS_TABS, GLOBAL_TABS, MCQ_TABS, QuestionTrackerSettingTab, SETTINGS_MODULES } = require("./settings-tab");
+const assignments = require("./assignments");
+const { AssignmentsView } = require("./assignments-view");
+const { AssignmentModal } = require("./assignments-modal");
+const { renderAssignmentsSettings } = require("./assignments-settings");
 const { CALENDAR_TABS } = require("./calendar-settings");
 const cards = require("./cards");
 const { CardView } = require("./cards-view");
@@ -23923,6 +25343,7 @@ QuestionTrackerPlugin.__test = {
   SETTINGS_MODULES,
   GLOBAL_TABS,
   MCQ_TABS,
+  ASSIGNMENTS_TABS,
   CARDS_TABS,
   REFERENCE_TABS,
   renderReferenceSettings,
@@ -23948,6 +25369,10 @@ QuestionTrackerPlugin.__test = {
   referenceElements,
   referenceGraph,
   ReferenceView,
+  assignments,
+  AssignmentsView,
+  AssignmentModal,
+  renderAssignmentsSettings,
   CALENDAR_TABS,
   cards,
   cardsImport,
