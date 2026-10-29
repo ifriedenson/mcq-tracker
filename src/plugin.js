@@ -60,6 +60,7 @@ const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, 
 const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
+const { AI_WRITE_STORAGE_KEY, appendAiWrite, latestAiWrite, makeAiWriteRecord, normalizeAiWrites } = require("./ai-writes");
 const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
@@ -149,6 +150,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-dashboard", name: "Open analytics dashboard", callback: () => this.activateInsights("overview") });
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated practice notes", callback: () => this.undoLastAiWriteCommand() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
     this.addCommand({ id: "paper-scanner", name: "Paper scanner: photos to PDF", callback: () => this.openPaperScanner() });
     this.addCommand({ id: "document-review", name: "Review a document for import", callback: () => this.openDocumentReview() });
@@ -1907,6 +1909,7 @@ class QuestionTrackerPlugin extends Plugin {
     const g = generated || {};
     const opts = options || {};
     const items = Array.isArray(g.items) ? g.items : [];
+    const beforePaths = new Set(this.app.vault.getMarkdownFiles().map((file) => file.path));
     if (!items.length) return { created: 0, paths: [], errors: ["There are no items to write."] };
     if (g.kind === "questions" && this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
     if (g.kind !== "questions" && this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
@@ -1932,6 +1935,7 @@ class QuestionTrackerPlugin extends Plugin {
         duplicateMode: opts.duplicateMode || "skip",
       });
       if (result.created || result.updated) this.refreshViews();
+      this.recordAiTranscriptWrite(g, beforePaths);
       return result;
     }
 
@@ -1963,6 +1967,7 @@ class QuestionTrackerPlugin extends Plugin {
       }
     }
     if (paths.length) this.refreshViews();
+    this.recordAiTranscriptWrite(g, beforePaths);
     return { created: paths.length, paths, errors };
   }
 
@@ -3340,6 +3345,66 @@ class QuestionTrackerPlugin extends Plugin {
   async restoreStudyStatusSnapshot(file, snapshot) {
     await this.app.fileManager.processFrontMatter(file, (fm) => applyStudyStatusSnapshot(fm, snapshot));
     this.refreshViews();
+  }
+
+  /** New files written by a confirmed AI generation, recorded for one-click undo. */
+  recordAiTranscriptWrite(generated, beforePaths) {
+    if (!generated || !generated.ai) return null;
+    const paths = this.app.vault
+      .getMarkdownFiles()
+      .map((file) => file.path)
+      .filter((path) => !beforePaths.has(path));
+    if (!paths.length) return null;
+    return this.recordAiWrite(
+      makeAiWriteRecord({
+        kind: generated.kind,
+        sourcePath: generated.sourcePath,
+        model: generated.model || this.aiModelLabel(),
+        summary: generated.title,
+        paths,
+      }),
+    );
+  }
+
+  aiWriteHistory() {
+    return normalizeAiWrites(this.app.loadLocalStorage(AI_WRITE_STORAGE_KEY));
+  }
+
+  recordAiWrite(record) {
+    const next = appendAiWrite(this.aiWriteHistory(), record);
+    this.app.saveLocalStorage(AI_WRITE_STORAGE_KEY, next);
+    return record;
+  }
+
+  /** Removes the files from the most recent confirmed AI generation. */
+  async undoLastAiWrite() {
+    const record = latestAiWrite(this.aiWriteHistory());
+    if (!record) return { removed: 0, paths: [], record: null };
+    const removed = [];
+    for (const path of record.paths) {
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (!file) continue;
+      await this.app.fileManager.trashFile(file);
+      removed.push(path);
+    }
+    this.app.saveLocalStorage(AI_WRITE_STORAGE_KEY, this.aiWriteHistory().slice(1));
+    if (removed.length) this.refreshViews();
+    return { removed: removed.length, paths: removed, record };
+  }
+
+  async undoLastAiWriteCommand() {
+    const result = await this.undoLastAiWrite();
+    if (!result.record) {
+      new Notice("No recent AI-generated practice notes to undo.");
+      return result;
+    }
+    new Notice(
+      result.removed
+        ? `Removed ${result.removed} AI-generated note${result.removed === 1 ? "" : "s"}.`
+        : "Those generated notes are already gone.",
+      6000,
+    );
+    return result;
   }
 
   /** Show the usual confirmation, plus an Undo button when there is a previous state. */

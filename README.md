@@ -450,6 +450,10 @@ Type a command at the start of a message to steer the next reply: `/guide`, `/qu
 
 Three default-off toggles under **Settings → MCQ Tracker → AI → Study context** let the assistant see aggregate study state: **Practice statistics** (question and attempt counts, accuracy, the weakest skill with at least three attempts), **Due work** (due and unseen questions, due and new cards), and **Next exam** (the next calendar exam, its date and countdown). Only the selected lines are added to the chat request, and no note text, question text, answers or personal notes are included. Nothing is built or sent while AI features are off, and the toggles stay off until you turn them on.
 
+### Undoing an AI-generated write
+
+**Generate practice from this lecture** still shows a preview and writes only when you press **Create these**. The files it creates are also recorded in a device-local undo journal. Run **AI: undo the last generated practice notes** to remove the notes created by the most recent confirmed AI generation. The journal stores paths, not note contents, is capped at 20 records, and is never synced. Heading-based card extraction without AI is not recorded.
+
 ### What is disclosed and sent
 
 - **Network use:** requests to your chosen AI provider; requests to `api.github.com` and `github.com` only to set up OpenCode, which happens the first time you choose the OpenCode backend (the plugin shows what it will download, from where, and where it will go, and asks you to confirm first; if you say no it won't ask again) or when you press **Download and install**; and local requests to the OpenCode server on your own computer.

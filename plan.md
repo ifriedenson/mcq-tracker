@@ -22,9 +22,9 @@
 - **Coverage:** preview duplicate detection, history preservation on update, and distinct keys on copy.
 - **No third-party code was added.** The plugin remains MIT.
 
-**Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0, visual text boxes in 1.53.0 and highlight regions in 1.54.0; form filling and a fuller PDF editor remain future work. The unofficial AP score calculator shipped in 1.56.0, the link-only AP resource hub in 1.57.0 and saved practice-exam history with trends in 1.58.0, AP resource notes with course/unit tags and stale-link checks in 1.59.0, a next-exam resource recommendation on Today in 1.60.0, and exam-specific resource attachments in 1.61.0, the calendar exam panel showing attached resources with a detach action on Today in 1.62.0, study-block resource attachment in 1.63.0, the class-note resource link in 1.64.0, binding management in Reference in 1.65.0, and a read-only study context for the AI assistant in 1.66.0. The AP FRQ grader remains behind the owner pilot gate (four-course pilot, human-scored fixtures and rights review). A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated.
+**Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0, visual text boxes in 1.53.0 and highlight regions in 1.54.0; form filling and a fuller PDF editor remain future work. The unofficial AP score calculator shipped in 1.56.0, the link-only AP resource hub in 1.57.0 and saved practice-exam history with trends in 1.58.0, AP resource notes with course/unit tags and stale-link checks in 1.59.0, a next-exam resource recommendation on Today in 1.60.0, and exam-specific resource attachments in 1.61.0, the calendar exam panel showing attached resources with a detach action on Today in 1.62.0, study-block resource attachment in 1.63.0, the class-note resource link in 1.64.0, binding management in Reference in 1.65.0, a read-only study context for the AI assistant in 1.66.0, and an undo journal for AI-generated practice notes in 1.67.0. The AP FRQ grader remains behind the owner pilot gate (four-course pilot, human-scored fixtures and rights review). A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated.
 
-**Recently completed (1.66.0):** the AI assistant can include an explicit, default-off read-only study context (practice counts and accuracy, due work, next exam) with no note text. Previous release 1.65.0 added binding management in Reference; 1.64.0 the class-note link; 1.63.0 study-block resources.
+**Recently completed (1.67.0):** confirmed AI-generated practice notes are recorded in a capped, device-local undo journal, and one command removes the last batch. Previous release 1.66.0 added the read-only assistant study context; 1.65.0 binding management in Reference; 1.64.0 the class-note link.
 
 ---
 
@@ -1199,6 +1199,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [ ] Study-aware assistant: tutor mode, quick actions, context toggles (§5.18)
   - [x] Read-only aggregate study context behind three default-off toggles, with no note text (§5.18) — shipped in 1.66.0
 - [ ] Enforced write protections, diff-and-confirm, undo, prompt-injection defenses
+  - [x] Device-local undo journal for confirmed AI-generated notes, with a command to remove the last batch (§5.3, §5.18) — shipped in 1.67.0
 - [ ] AI question and card generation in plugin formats (§5.3)
 - [ ] Blind verification pass for generated and imported answers (§5.4)
 - [ ] Weak-spot-targeted generation
@@ -2574,6 +2575,7 @@ Names are proposals; keep existing ones unchanged.
 - [ ] Study-aware assistant: tutor mode, quick actions, context toggles (§5.18)
   - [x] Read-only aggregate study context behind three default-off toggles, with no note text (§5.18) — shipped in 1.66.0
 - [ ] Enforced write protections, diff-and-confirm, undo, prompt-injection defenses
+  - [x] Device-local undo journal for confirmed AI-generated notes, with a command to remove the last batch (§5.3, §5.18) — shipped in 1.67.0
 - [ ] AI question and card generation in plugin formats (§5.3)
 - [ ] Blind verification pass for generated and imported answers (§5.4)
 - [ ] Weak-spot-targeted generation

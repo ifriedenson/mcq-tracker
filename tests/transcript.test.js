@@ -144,6 +144,14 @@ test("plugin: transcript cards preview with AI, then write source and AI provena
   assert.match(made, /source_note: "?Courses\/Bio\/lecture.md"?/);
   assert.match(made, /ai_model: /);
   assert.match(made, /## Front\n\nWhat is the membrane\?/);
+
+  const history = plugin.aiWriteHistory();
+  assert.equal(history.length, 1, "the confirmed AI write is recorded");
+  assert.deepEqual(history[0].paths, [app.created[0].path]);
+  const undone = await plugin.undoLastAiWrite();
+  assert.deepEqual(undone.paths, [app.created[0].path]);
+  assert.deepEqual(app.trashed, [app.created[0].path], "undo removes the generated note");
+  assert.equal(plugin.aiWriteHistory().length, 0);
 });
 
 test("plugin: transcript questions are written as normal practice notes with provenance", async () => {
@@ -190,4 +198,5 @@ test("plugin: local heading extraction still works when AI is off", async () => 
   const made = app.created.find((file) => /What makes ATP/.test(file.text)).text;
   assert.match(made, /source_note: "?Courses\/Bio\/lecture.md"?/);
   assert.doesNotMatch(made, /ai_model/);
+  assert.equal(plugin.aiWriteHistory().length, 0, "a non-AI write is not in the undo journal");
 });
