@@ -11,7 +11,13 @@ const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictness, parseVariants } = require("./card-grading");
 
-const CARD_TYPES = ["basic", "reversed", "cloze"];
+const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
+const CARD_TYPE_LABELS = {
+  basic: "Basic",
+  reversed: "Reversed",
+  cloze: "Cloze",
+  "image-occlusion": "Image occlusion",
+};
 const CARD_GRADES = ["again", "hard", "good", "easy"];
 const CARD_ITEM_TYPES = ["card", "flashcard", "vocab", "vocabulary"];
 
@@ -164,13 +170,15 @@ function effectiveGradingStrictness(fm, settings, deckName) {
 /** Fill in the effective deck, course and answer settings so views and filters agree. */
 function resolveCard(file, fm, settings) {
   const deck = deckOf(fm, settings, file.path);
+  const occluded = lower(fm && fm.card_type) === "image-occlusion";
   return {
     file,
     fm,
     deck,
     course: courseOf(fm, settings, file.path, deck),
     kind: cardKind(fm),
-    answerMode: effectiveAnswerMode(fm, settings, deck),
+    // A visual mask is a reveal card; typing a label would miss the point.
+    answerMode: occluded ? "flip" : effectiveAnswerMode(fm, settings, deck),
     gradingStrictness: effectiveGradingStrictness(fm, settings, deck),
   };
 }
@@ -203,6 +211,54 @@ function cleanBody(text) {
 }
 
 const CLOZE_RE = /==([^=\n]+)==|\{\{c?\d*::([\s\S]*?)\}\}/g;
+
+/** A vault image path or Markdown embed both become the bare link target. */
+function cleanImageLink(value) {
+  let text = str(value).trim();
+  const wiki = /^!?\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/.exec(text);
+  if (wiki) text = wiki[1];
+  else {
+    const md = /^!\[[^\]]*\]\(([^)]+)\)$/.exec(text);
+    if (md) text = md[1];
+  }
+  return text.trim().replace(/^<|>$/g, "");
+}
+
+function firstImage(text) {
+  const wiki = /!\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/.exec(str(text));
+  if (wiki) return wiki[1].trim();
+  const md = /!\[[^\]]*\]\(([^)]+)\)/.exec(str(text));
+  return md ? md[1].trim() : "";
+}
+
+function percent(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(100, n));
+}
+
+/** Mask coordinates are percentages of the image, so they survive resizing. */
+function normalizeMask(value) {
+  const src = value && typeof value === "object" ? value : {};
+  const x = Math.min(99, percent(src.x === undefined ? src.mask_x : src.x, 0));
+  const y = Math.min(99, percent(src.y === undefined ? src.mask_y : src.y, 0));
+  const w = Math.max(1, Math.min(percent(src.w === undefined ? src.mask_w : src.w, 100), 100 - x));
+  const h = Math.max(1, Math.min(percent(src.h === undefined ? src.mask_h : src.h, 100), 100 - y));
+  return { x, y, w, h, label: str(src.label === undefined ? src.mask_label : src.label).trim() };
+}
+
+/** One mask per line: x, y, width, height, label (all coordinates are percentages). */
+function parseMaskRows(text) {
+  const out = [];
+  for (const line of str(text).replace(/\r\n/g, "\n").split("\n")) {
+    const parts = line.split(",").map((part) => part.trim());
+    if (parts.length < 5 || !parts.slice(0, 4).every((part) => part !== "" && Number.isFinite(Number(part)))) continue;
+    const label = parts.slice(4).join(",").trim();
+    if (!label) continue;
+    out.push(normalizeMask({ x: Number(parts[0]), y: Number(parts[1]), w: Number(parts[2]), h: Number(parts[3]), label }));
+  }
+  return out;
+}
 
 /** The visible prompt and the hidden deletions of a cloze card. */
 function parseCloze(text) {
@@ -244,6 +300,36 @@ function parseCardBody(text, fm) {
   if (!CARD_TYPES.includes(cardType)) cardType = "basic";
   let front = firstSection(h, ["front", "prompt", "question", "term"]) || str(fm.front || fm.prompt).trim();
   let back = firstSection(h, ["back", "answer", "definition", "explanation"]) || str(fm.back || fm.answer).trim();
+
+  if (cardType === "image-occlusion") {
+    const body = cleanBody(text);
+    const image = cleanImageLink(fm.image || fm.image_path || fm.diagram || firstImage(body) || firstSection(h, ["image", "diagram"]));
+    const label = str(fm.mask_label || fm.back || fm.answer).trim() || back || "Hidden label";
+    const prompt = front || str(fm.prompt || fm.occlusion_prompt).trim() || "What is hidden in the highlighted area?";
+    const mask = normalizeMask({
+      x: fm.mask_x,
+      y: fm.mask_y,
+      w: fm.mask_w,
+      h: fm.mask_h,
+      label: fm.mask_label || label,
+    });
+    return {
+      kind,
+      cardType,
+      front: prompt,
+      back: label,
+      prompt,
+      answer: label,
+      image,
+      mask,
+      occlusionLabel: label,
+      example: "",
+      partOfSpeech: "",
+      language: "",
+      notes: firstSection(h, ["notes"]),
+      acceptedVariants: [],
+    };
+  }
 
   if (cardType === "cloze") {
     const source = front || back || firstSection(h, ["text"]);
@@ -296,9 +382,12 @@ function cardNote(input, now) {
   const deck = str(data.deck).trim() || "Unsorted";
   const course = str(data.course).trim();
   const cardType = kind === "vocab" ? "basic" : CARD_TYPES.includes(lower(data.cardType)) ? lower(data.cardType) : "basic";
-  const front = str(data.front).trim();
-  const back = str(data.back).trim();
-  const title = slugify(kind === "vocab" ? front : front, kind === "vocab" ? "Vocabulary" : "Card");
+  const occluded = kind !== "vocab" && cardType === "image-occlusion";
+  const mask = occluded ? normalizeMask(data.mask || data) : null;
+  const image = occluded ? cleanImageLink(data.image || data.image_path) : "";
+  const front = str(occluded ? data.front || data.prompt || "What is hidden in the highlighted area?" : data.front).trim();
+  const back = str(occluded ? data.back || data.label || (mask && mask.label) : data.back).trim();
+  const title = slugify(str(data.title).trim() || (occluded ? back : front), kind === "vocab" ? "Vocabulary" : "Card");
   const lines = [
     "---",
     `card_id: ${yamlString(data.id || newCardId(now))}`,
@@ -335,6 +424,13 @@ function cardNote(input, now) {
   } else if (cardType !== "basic") {
     lines.push(`card_type: ${cardType}`);
   }
+  if (occluded) {
+    if (image) lines.push(`image: ${yamlString(image)}`);
+    if (mask) {
+      lines.push(`mask_x: ${mask.x}`, `mask_y: ${mask.y}`, `mask_w: ${mask.w}`, `mask_h: ${mask.h}`);
+      if (mask.label) lines.push(`mask_label: ${yamlString(mask.label)}`);
+    }
+  }
   if (Array.isArray(data.tags) && data.tags.length) {
     lines.push("tags:");
     for (const tag of data.tags) if (str(tag).trim()) lines.push(`  - ${yamlString(String(tag).trim())}`);
@@ -354,7 +450,8 @@ function cardNote(input, now) {
     if (data.notes) lines.push("", "## Notes", "", str(data.notes).trim());
   } else {
     lines.push("## Front", "", front, "", "## Back", "", back);
-    if (data.example) lines.push("", "## Example", "", str(data.example).trim());
+    if (occluded && image) lines.push("", "## Image", "", `![[${image}]]`);
+    if (data.example && !occluded) lines.push("", "## Example", "", str(data.example).trim());
     if (data.notes) lines.push("", "## Notes", "", str(data.notes).trim());
   }
   return { text: lines.join("\n") + "\n", title, deck, course, kind, cardType };
@@ -443,6 +540,7 @@ function courseOptions(cards) {
 
 module.exports = {
   CARD_TYPES,
+  CARD_TYPE_LABELS,
   CARD_GRADES,
   ANSWER_MODES,
   GRADING_STRICTNESS,
@@ -461,6 +559,10 @@ module.exports = {
   resolveCard,
   parseCloze,
   parseCardBody,
+  parseMaskRows,
+  cleanImageLink,
+  firstImage,
+  normalizeMask,
   slugify,
   newCardId,
   cardNote,

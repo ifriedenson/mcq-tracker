@@ -142,7 +142,11 @@ function contentDiv(parent, cls) {
 
 /** A basic/reversed/cloze picker shown after the kind is chosen. */
 function cardTypeOptions(select) {
-  for (const type of CARD_TYPES) select.createEl("option", { text: type[0].toUpperCase() + type.slice(1), value: type });
+  for (const type of CARD_TYPES) {
+    // Image occlusion needs an image and mask fields, so it has its own dialog.
+    if (type === "image-occlusion") continue;
+    select.createEl("option", { text: type[0].toUpperCase() + type.slice(1), value: type });
+  }
 }
 
 module.exports = { CardModal, cardTypeOptions };

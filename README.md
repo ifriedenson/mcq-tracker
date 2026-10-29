@@ -28,7 +28,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Notes box** on the result screen, saved into the note.
 - **Import questions from a file:** an AI agent (or your own AI key) turns a PDF, PowerPoint deck, Word file, OpenDocument, HTML, RTF, Markdown, CSV or text file into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from your files](#import-questions-from-your-files)).
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
-- **Cards and vocabulary (optional module, off by default).** Create flashcards, reversed cards, cloze cards and vocabulary notes as ordinary Markdown notes. Organize them into decks, inherit a course tag from a deck or folder, and review them with Again/Hard/Good/Easy using the same ladder or FSRS schedule as your questions (see [Cards and vocabulary](#cards-and-vocabulary-optional-module-off-by-default)).
+- **Cards and vocabulary (optional module, off by default).** Create flashcards, reversed cards, cloze cards, image occlusion cards and vocabulary notes as ordinary Markdown notes. Organize them into decks, inherit a course tag from a deck or folder, and review them with Again/Hard/Good/Easy using the same ladder or FSRS schedule as your questions (see [Cards and vocabulary](#cards-and-vocabulary-optional-module-off-by-default)).
 - **Modules you can switch off.** Settings, Global has an on/off switch for each module (MCQ Tracker, Cards, Calendar and AI features) plus the plugin-wide options, so the parts you don't use stay out of the way.
 - **Calendar (optional module, off by default).** Import an `.ics` schedule from a file or a public feed, see classes and exams in a month grid, day timeline, live countdown and upcoming-exam countdowns, and create a note for a class in one click. Free periods can start a short Quick Practice session (see [Calendar](#calendar-optional-module-off-by-default)).
 
@@ -149,6 +149,7 @@ Every practice and card review screen has **Known** and **Exclude** buttons besi
 - Retry saving offline practice results
 - Open cards
 - Create a flashcard or vocabulary card
+- Cards: create image occlusion cards
 - Cards: extract cards from this note
 - Cards: tag cards with their folder's course
 - Cards: grade pending typed answers
@@ -192,6 +193,7 @@ Turn on **Cards** under Settings, Global, Modules. Cards are first-class notes, 
 
 - **Create a card** from the Cards view, the command palette, or Today. Choose a flashcard, reversed card, cloze card, or vocabulary item, and pick a deck. A deck can have a folder and a course; cards in that folder inherit the course. New cards go under **New card folder** (default `Cards`) in a subfolder named after the deck, unless the deck specifies its own folder.
 - **Extract cards from a note.** Right-click a lecture or source note and choose **Extract cards from this note** (or run the command with it open). The preview reads question/answer headings, `Term: definition` and `Term — definition` lines, “X means Y” sentences, two-column Term/Definition tables, `==highlights==` and `{{c1::cloze}}` marks without an AI key. Nothing is written until you review the pairs. The note gets `flashcards: true` after a successful extraction; set `flashcards: false` to stop extraction for that note.
+- **Image occlusion cards.** Use **Image occlusion** in the Cards view, or the command **Cards: create image occlusion cards**, to make one card per mask on a diagram already in your vault. Enter each mask as `x, y, width, height, label`; coordinates are percentages of the image, so they resize with it. Each mask becomes its own note with `card_type: image-occlusion`, `image`, `mask_x`, `mask_y`, `mask_w`, `mask_h` and `mask_label`. The review screen covers the mask and lifts it when you reveal; these cards always use flip review.
 - **Review** by revealing the answer and rating **Again**, **Hard**, **Good**, or **Easy** (keys 1–4; Space or Enter flips when using Flip mode). The rating maps directly to the simple ladder or FSRS. Reviews use the same offline outbox as question attempts, so a temporary vault or sync lock does not lose a rating.
 - **Type or speak an answer.** Set **Answer mode** under Settings, Cards, Review to **Type** or **Speak**. Type grades the answer locally against the stored answer, ignores case, accents, articles and punctuation at standard strictness, accepts small typos, numbers and `accepted_variants`, and shows the missing key words. **Speak** uses the same text box with your device's dictation or microphone key; no audio leaves the device. The suggested rating is Good/Hard/Again, and choosing another rating records an override. A card's `answer_mode` or `grading_strictness` property, or its deck's setting, overrides the global default.
 - **Optional AI second opinion.** **AI fallback for typed answers** under Settings, Cards, Review sends only an inconclusive answer to your configured provider, with the card front, the stored answer, your answer and the strictness. A valid reply is mapped to Good/Hard/Again and keeps `graded_by: ai`, the confidence and the feedback in the note. If the request fails, the attempt waits in a device-local queue instead of being counted wrong; pending grades appear in **Today** and at the top of the **Cards** list, with a **Review** action beside each card and a **Grade now** button; the **Cards: grade pending typed answers** command retries them too. The plugin also retries when Obsidian starts. Rating the card yourself records `graded_by: self` and removes it from the queue. The learner's answer is treated as untrusted data, and the grader has no tools or access to other notes.
@@ -216,7 +218,7 @@ Turn on **Cards** under Settings, Global, Modules. Cards are first-class notes, 
   item_type: card        # card | vocab
   deck: Spanish verbs
   course: SPAN 101
-  card_type: basic       # basic | reversed | cloze
+  card_type: basic       # basic | reversed | cloze | image-occlusion
   answer_mode: type      # optional: flip | type | speak
   grading_strictness: standard  # optional: strict | standard | lenient
   accepted_variants:

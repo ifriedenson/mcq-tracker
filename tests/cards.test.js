@@ -429,3 +429,103 @@ test("plugin: pending typed answers are graded once and cleared from the queue",
   assert.equal(card.file.fm.graded_by, "ai");
   assert.equal(card.file.fm.grade_status, "graded");
 });
+
+test("cards: image occlusion masks parse, clamp and write one note per mask", async () => {
+  const masks = cards.parseMaskRows("10, 20, 30, 15, Nucleus\n55, 60, 12, 10, Mitochondrion\nnot a mask\n90, 90, 30, 30, Edge");
+  assert.equal(masks.length, 3);
+  assert.deepEqual(masks[0], { x: 10, y: 20, w: 30, h: 15, label: "Nucleus" });
+  assert.equal(masks[2].w, 10, "a mask is clipped to the right edge");
+  assert.equal(masks[2].h, 10, "a mask is clipped to the bottom edge");
+
+  const made = cards.cardNote({
+    deck: "Biology",
+    cardType: "image-occlusion",
+    image: "diagrams/cell.png",
+    prompt: "What is hidden?",
+    mask: masks[0],
+  });
+  assert.match(made.text, /card_type: image-occlusion/);
+  assert.match(made.text, /image: "diagrams\/cell.png"/);
+  assert.match(made.text, /mask_label: "Nucleus"/);
+  assert.match(made.text, /## Image\n\n!\[\[diagrams\/cell\.png\]\]/);
+  const body = cards.parseCardBody(made.text, {
+    item_type: "card",
+    card_type: "image-occlusion",
+    image: "diagrams/cell.png",
+    mask_label: "Nucleus",
+    mask_x: 10,
+    mask_y: 20,
+    mask_w: 30,
+    mask_h: 15,
+  });
+  assert.equal(body.cardType, "image-occlusion");
+  assert.equal(body.front, "What is hidden?");
+  assert.equal(body.back, "Nucleus");
+  assert.equal(body.image, "diagrams/cell.png");
+  assert.deepEqual(body.mask, masks[0]);
+
+  const occluded = cards.resolveCard(
+    { path: "Courses/Bio/cell.md" },
+    { card_id: "cell", item_type: "card", card_type: "image-occlusion", deck: "Biology" },
+    { ...SETTINGS, cards: { ...SETTINGS.cards, answerMode: "type" } }
+  );
+  assert.equal(occluded.answerMode, "flip", "occlusion cards are visual reveal cards");
+});
+
+test("plugin: image occlusion creation writes a card for every mask", async () => {
+  const { app, plugin } = await setup();
+  const result = await plugin.createImageOcclusionCards({
+    deck: "Biology",
+    image: "diagrams/cell.png",
+    prompt: "Name the highlighted structure.",
+    masks: [
+      { x: 10, y: 20, w: 30, h: 15, label: "Nucleus" },
+      { x: 55, y: 60, w: 12, h: 10, label: "Mitochondrion" },
+    ],
+  });
+  assert.equal(result.created, 2);
+  assert.equal(result.paths.length, 2);
+  assert.match(app.created.at(-2).text, /mask_label: "Nucleus"/);
+  assert.match(app.created.at(-1).text, /mask_label: "Mitochondrion"/);
+  assert.match(app.created.at(-2).text, /card_type: image-occlusion/);
+  assert.match(app.created.at(-1).text, /card_type: image-occlusion/);
+});
+
+test("cards view: image occlusion reveals its label and forces a flip review", async () => {
+  const note = {
+    path: "Courses/Bio/diagram.md",
+    noFm: true,
+    fm: {
+      card_id: "diagram",
+      item_type: "card",
+      deck: "Biology",
+      card_type: "image-occlusion",
+      image: "diagrams/cell.png",
+      mask_x: 10,
+      mask_y: 20,
+      mask_w: 30,
+      mask_h: 15,
+      mask_label: "Nucleus",
+    },
+    text: "---\ncard_id: diagram\nitem_type: card\ndeck: Biology\ncard_type: image-occlusion\nimage: diagrams/cell.png\nmask_x: 10\nmask_y: 20\nmask_w: 30\nmask_h: 15\nmask_label: Nucleus\n---\n\n## Front\nWhat is hidden?\n\n## Back\nNucleus\n\n## Image\n\n![[diagrams/cell.png]]\n",
+  };
+  const { app, plugin } = await setup([note]);
+  plugin.settings.cards.answerMode = "type";
+  const card = plugin.getCards().find((c) => c.fm.card_id === "diagram");
+  const dom = makeDom();
+  const view = new T.CardView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  await view.reviewCard(card);
+
+  assert.equal(view.current.body.cardType, "image-occlusion");
+  assert.equal(view.current.answerMode, "flip");
+  assert.equal(view.current.body.front, "What is hidden?");
+  assert.equal(view.current.body.back, "Nucleus");
+  assert.equal(view.revealed, false);
+  assert.ok(dom.texts().includes("Show answer"));
+  assert.ok(dom.all.some((el) => el.meta && el.meta.cls === "qt-cards-occlusion"));
+  await dom.click("Show answer");
+  assert.equal(view.revealed, true);
+  assert.equal(view.current.body.mask.label, "Nucleus");
+});

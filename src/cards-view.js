@@ -2,7 +2,7 @@
 const { ItemView, Notice, setIcon } = require("obsidian");
 const { VIEW_TYPE_CARDS } = require("./constants");
 const { localDate, str } = require("./util");
-const { cardQueue, cardStats, courseOptions, deckSummary, parseCardBody } = require("./cards");
+const { CARD_TYPE_LABELS, cardQueue, cardStats, courseOptions, deckSummary, parseCardBody } = require("./cards");
 const { CardModal } = require("./card-modal");
 const { renderMarkdownInto } = require("./view-helpers");
 const { gradeTypedAnswer } = require("./card-grading");
@@ -60,6 +60,43 @@ class CardView extends ItemView {
     renderMarkdownInto(this.app, markdown, el, path, this);
   }
 
+  /** Resolve a vault image to a URL the img element can display. */
+  imageResourcePath(image, sourcePath) {
+    const link = str(image).trim().replace(/^!?\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/, "$1").replace(/^!\[[^\]]*\]\(([^)]+)\)$/, "$1").trim();
+    if (!link) return "";
+    if (/^https?:\/\//i.test(link)) return link;
+    const file = this.app.metadataCache.getFirstLinkpathDest?.(link, sourcePath) || this.app.vault.getAbstractFileByPath(link);
+    if (!file || !file.path) return "";
+    const adapter = this.app.vault.adapter;
+    return adapter && typeof adapter.getResourcePath === "function" ? adapter.getResourcePath(file.path) : "";
+  }
+
+  /** A diagram with a percentage-positioned mask; the mask lifts on reveal. */
+  renderOcclusion(front, card) {
+    const body = card.body || {};
+    const wrap = front.createDiv({ cls: "qt-cards-occlusion" });
+    const src = this.imageResourcePath(body.image, card.file.path);
+    if (!src) {
+      if (body.image) this.md(`![[${body.image}]]`, wrap.createDiv({ cls: "qt-cards-occlusion-fallback" }), card.file.path);
+      wrap.createDiv({
+        cls: "qt-hint",
+        text: body.image ? `Diagram: ${body.image}` : "This image occlusion card has no image path.",
+      });
+      return;
+    }
+    wrap.createEl("img", { cls: "qt-cards-occlusion-image", attr: { src, alt: "Occlusion diagram" } });
+    const mask = body.mask || { x: 0, y: 0, w: 100, h: 100 };
+    const box = wrap.createDiv({ cls: "qt-cards-occlusion-mask" });
+    box.style.left = `${mask.x}%`;
+    box.style.top = `${mask.y}%`;
+    box.style.width = `${mask.w}%`;
+    box.style.height = `${mask.h}%`;
+    if (this.revealed) {
+      box.addClass("is-revealed");
+      box.createSpan({ cls: "qt-cards-occlusion-label", text: body.back || body.mask.label || "" });
+    }
+  }
+
   onKey(ev) {
     if (this.state !== "review" || this.busy || !this.current) return;
     const t = ev && ev.target;
@@ -114,6 +151,10 @@ class CardView extends ItemView {
     const tools = root.createDiv({ cls: "qt-row qt-cards-tools" });
     const add = tools.createEl("button", { text: "New card", cls: "mod-cta" });
     add.addEventListener("click", () => this.openCardModal());
+    const occlusion = tools.createEl("button", { text: "Image occlusion" });
+    occlusion.addEventListener("click", () =>
+      p.openImageOcclusion({ deck: this.deck, course: this.course }, () => this.render())
+    );
     const imp = tools.createEl("button", { text: "Import" });
     imp.addEventListener("click", () =>
       p.openCardImport({ deck: this.deck, course: this.course }, () => this.render())
@@ -174,7 +215,8 @@ class CardView extends ItemView {
       const row = list.createDiv({ cls: "qt-cards-row" });
       const main = row.createDiv({ cls: "qt-cards-row-main" });
       main.createDiv({ cls: "qt-cards-row-title", text: str(card.fm.card_title || card.file.basename) });
-      const bits = [card.deck, card.course, card.kind === "vocab" ? "Vocabulary" : "Flashcard"].filter(Boolean);
+      const kindLabel = String(card.fm && card.fm.card_type).toLowerCase() === "image-occlusion" ? CARD_TYPE_LABELS["image-occlusion"] : card.kind === "vocab" ? "Vocabulary" : "Flashcard";
+      const bits = [card.deck, card.course, kindLabel].filter(Boolean);
       main.createDiv({ cls: "qt-cards-row-meta", text: bits.join(" · ") });
       const queued = pendingByPath.get(card.file.path) || 0;
       if (queued) row.createSpan({ cls: "qt-cards-pending-badge", text: queued > 1 ? `Pending ${queued}` : "Pending grade" });
@@ -502,7 +544,7 @@ class CardView extends ItemView {
     chips.createSpan({ cls: "qt-cards-deck", text: card.deck });
     if (card.course) chips.createSpan({ cls: "qt-cards-course", text: card.course });
     if (card.body.kind === "vocab") chips.createSpan({ cls: "qt-cards-kind", text: "Vocabulary" });
-    else if (card.body.cardType !== "basic") chips.createSpan({ cls: "qt-cards-kind", text: card.body.cardType });
+    else if (card.body.cardType !== "basic") chips.createSpan({ cls: "qt-cards-kind", text: CARD_TYPE_LABELS[card.body.cardType] || card.body.cardType });
     const open = head.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": "Open note", title: "Open note" } });
     setIcon(open, "file-text");
     open.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(card.file));
@@ -511,9 +553,10 @@ class CardView extends ItemView {
     if (card.body.language || card.body.partOfSpeech) {
       front.createDiv({ cls: "qt-cards-lang", text: [card.body.language, card.body.partOfSpeech].filter(Boolean).join(" · ") });
     }
+    if (card.body.cardType === "image-occlusion") this.renderOcclusion(front, card);
     this.md(card.body.front || "*This card has no front.*", front.createDiv({ cls: "qt-cards-term" }), card.file.path);
 
-    const mode = card.answerMode || "flip";
+    const mode = card.body.cardType === "image-occlusion" ? "flip" : card.answerMode || "flip";
     if (!this.revealed && mode !== "flip") {
       const typedWrap = root.createDiv({ cls: "qt-cards-typed-wrap" });
       typedWrap.createEl("label", {

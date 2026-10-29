@@ -3301,7 +3301,11 @@ function contentDiv(parent, cls) {
 
 /** A basic/reversed/cloze picker shown after the kind is chosen. */
 function cardTypeOptions(select) {
-  for (const type of CARD_TYPES) select.createEl("option", { text: type[0].toUpperCase() + type.slice(1), value: type });
+  for (const type of CARD_TYPES) {
+    // Image occlusion needs an image and mask fields, so it has its own dialog.
+    if (type === "image-occlusion") continue;
+    select.createEl("option", { text: type[0].toUpperCase() + type.slice(1), value: type });
+  }
 }
 
 module.exports = { CardModal, cardTypeOptions };
@@ -3321,7 +3325,13 @@ const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictness, parseVariants } = require("./card-grading");
 
-const CARD_TYPES = ["basic", "reversed", "cloze"];
+const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
+const CARD_TYPE_LABELS = {
+  basic: "Basic",
+  reversed: "Reversed",
+  cloze: "Cloze",
+  "image-occlusion": "Image occlusion",
+};
 const CARD_GRADES = ["again", "hard", "good", "easy"];
 const CARD_ITEM_TYPES = ["card", "flashcard", "vocab", "vocabulary"];
 
@@ -3474,13 +3484,15 @@ function effectiveGradingStrictness(fm, settings, deckName) {
 /** Fill in the effective deck, course and answer settings so views and filters agree. */
 function resolveCard(file, fm, settings) {
   const deck = deckOf(fm, settings, file.path);
+  const occluded = lower(fm && fm.card_type) === "image-occlusion";
   return {
     file,
     fm,
     deck,
     course: courseOf(fm, settings, file.path, deck),
     kind: cardKind(fm),
-    answerMode: effectiveAnswerMode(fm, settings, deck),
+    // A visual mask is a reveal card; typing a label would miss the point.
+    answerMode: occluded ? "flip" : effectiveAnswerMode(fm, settings, deck),
     gradingStrictness: effectiveGradingStrictness(fm, settings, deck),
   };
 }
@@ -3513,6 +3525,54 @@ function cleanBody(text) {
 }
 
 const CLOZE_RE = /==([^=\n]+)==|\{\{c?\d*::([\s\S]*?)\}\}/g;
+
+/** A vault image path or Markdown embed both become the bare link target. */
+function cleanImageLink(value) {
+  let text = str(value).trim();
+  const wiki = /^!?\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/.exec(text);
+  if (wiki) text = wiki[1];
+  else {
+    const md = /^!\[[^\]]*\]\(([^)]+)\)$/.exec(text);
+    if (md) text = md[1];
+  }
+  return text.trim().replace(/^<|>$/g, "");
+}
+
+function firstImage(text) {
+  const wiki = /!\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/.exec(str(text));
+  if (wiki) return wiki[1].trim();
+  const md = /!\[[^\]]*\]\(([^)]+)\)/.exec(str(text));
+  return md ? md[1].trim() : "";
+}
+
+function percent(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(100, n));
+}
+
+/** Mask coordinates are percentages of the image, so they survive resizing. */
+function normalizeMask(value) {
+  const src = value && typeof value === "object" ? value : {};
+  const x = Math.min(99, percent(src.x === undefined ? src.mask_x : src.x, 0));
+  const y = Math.min(99, percent(src.y === undefined ? src.mask_y : src.y, 0));
+  const w = Math.max(1, Math.min(percent(src.w === undefined ? src.mask_w : src.w, 100), 100 - x));
+  const h = Math.max(1, Math.min(percent(src.h === undefined ? src.mask_h : src.h, 100), 100 - y));
+  return { x, y, w, h, label: str(src.label === undefined ? src.mask_label : src.label).trim() };
+}
+
+/** One mask per line: x, y, width, height, label (all coordinates are percentages). */
+function parseMaskRows(text) {
+  const out = [];
+  for (const line of str(text).replace(/\r\n/g, "\n").split("\n")) {
+    const parts = line.split(",").map((part) => part.trim());
+    if (parts.length < 5 || !parts.slice(0, 4).every((part) => part !== "" && Number.isFinite(Number(part)))) continue;
+    const label = parts.slice(4).join(",").trim();
+    if (!label) continue;
+    out.push(normalizeMask({ x: Number(parts[0]), y: Number(parts[1]), w: Number(parts[2]), h: Number(parts[3]), label }));
+  }
+  return out;
+}
 
 /** The visible prompt and the hidden deletions of a cloze card. */
 function parseCloze(text) {
@@ -3554,6 +3614,36 @@ function parseCardBody(text, fm) {
   if (!CARD_TYPES.includes(cardType)) cardType = "basic";
   let front = firstSection(h, ["front", "prompt", "question", "term"]) || str(fm.front || fm.prompt).trim();
   let back = firstSection(h, ["back", "answer", "definition", "explanation"]) || str(fm.back || fm.answer).trim();
+
+  if (cardType === "image-occlusion") {
+    const body = cleanBody(text);
+    const image = cleanImageLink(fm.image || fm.image_path || fm.diagram || firstImage(body) || firstSection(h, ["image", "diagram"]));
+    const label = str(fm.mask_label || fm.back || fm.answer).trim() || back || "Hidden label";
+    const prompt = front || str(fm.prompt || fm.occlusion_prompt).trim() || "What is hidden in the highlighted area?";
+    const mask = normalizeMask({
+      x: fm.mask_x,
+      y: fm.mask_y,
+      w: fm.mask_w,
+      h: fm.mask_h,
+      label: fm.mask_label || label,
+    });
+    return {
+      kind,
+      cardType,
+      front: prompt,
+      back: label,
+      prompt,
+      answer: label,
+      image,
+      mask,
+      occlusionLabel: label,
+      example: "",
+      partOfSpeech: "",
+      language: "",
+      notes: firstSection(h, ["notes"]),
+      acceptedVariants: [],
+    };
+  }
 
   if (cardType === "cloze") {
     const source = front || back || firstSection(h, ["text"]);
@@ -3606,9 +3696,12 @@ function cardNote(input, now) {
   const deck = str(data.deck).trim() || "Unsorted";
   const course = str(data.course).trim();
   const cardType = kind === "vocab" ? "basic" : CARD_TYPES.includes(lower(data.cardType)) ? lower(data.cardType) : "basic";
-  const front = str(data.front).trim();
-  const back = str(data.back).trim();
-  const title = slugify(kind === "vocab" ? front : front, kind === "vocab" ? "Vocabulary" : "Card");
+  const occluded = kind !== "vocab" && cardType === "image-occlusion";
+  const mask = occluded ? normalizeMask(data.mask || data) : null;
+  const image = occluded ? cleanImageLink(data.image || data.image_path) : "";
+  const front = str(occluded ? data.front || data.prompt || "What is hidden in the highlighted area?" : data.front).trim();
+  const back = str(occluded ? data.back || data.label || (mask && mask.label) : data.back).trim();
+  const title = slugify(str(data.title).trim() || (occluded ? back : front), kind === "vocab" ? "Vocabulary" : "Card");
   const lines = [
     "---",
     `card_id: ${yamlString(data.id || newCardId(now))}`,
@@ -3645,6 +3738,13 @@ function cardNote(input, now) {
   } else if (cardType !== "basic") {
     lines.push(`card_type: ${cardType}`);
   }
+  if (occluded) {
+    if (image) lines.push(`image: ${yamlString(image)}`);
+    if (mask) {
+      lines.push(`mask_x: ${mask.x}`, `mask_y: ${mask.y}`, `mask_w: ${mask.w}`, `mask_h: ${mask.h}`);
+      if (mask.label) lines.push(`mask_label: ${yamlString(mask.label)}`);
+    }
+  }
   if (Array.isArray(data.tags) && data.tags.length) {
     lines.push("tags:");
     for (const tag of data.tags) if (str(tag).trim()) lines.push(`  - ${yamlString(String(tag).trim())}`);
@@ -3664,7 +3764,8 @@ function cardNote(input, now) {
     if (data.notes) lines.push("", "## Notes", "", str(data.notes).trim());
   } else {
     lines.push("## Front", "", front, "", "## Back", "", back);
-    if (data.example) lines.push("", "## Example", "", str(data.example).trim());
+    if (occluded && image) lines.push("", "## Image", "", `![[${image}]]`);
+    if (data.example && !occluded) lines.push("", "## Example", "", str(data.example).trim());
     if (data.notes) lines.push("", "## Notes", "", str(data.notes).trim());
   }
   return { text: lines.join("\n") + "\n", title, deck, course, kind, cardType };
@@ -3753,6 +3854,7 @@ function courseOptions(cards) {
 
 module.exports = {
   CARD_TYPES,
+  CARD_TYPE_LABELS,
   CARD_GRADES,
   ANSWER_MODES,
   GRADING_STRICTNESS,
@@ -3771,6 +3873,10 @@ module.exports = {
   resolveCard,
   parseCloze,
   parseCardBody,
+  parseMaskRows,
+  cleanImageLink,
+  firstImage,
+  normalizeMask,
   slugify,
   newCardId,
   cardNote,
@@ -5646,7 +5752,7 @@ __defs["cards-view"] = function (module, exports, require) {
 const { ItemView, Notice, setIcon } = require("obsidian");
 const { VIEW_TYPE_CARDS } = require("./constants");
 const { localDate, str } = require("./util");
-const { cardQueue, cardStats, courseOptions, deckSummary, parseCardBody } = require("./cards");
+const { CARD_TYPE_LABELS, cardQueue, cardStats, courseOptions, deckSummary, parseCardBody } = require("./cards");
 const { CardModal } = require("./card-modal");
 const { renderMarkdownInto } = require("./view-helpers");
 const { gradeTypedAnswer } = require("./card-grading");
@@ -5704,6 +5810,43 @@ class CardView extends ItemView {
     renderMarkdownInto(this.app, markdown, el, path, this);
   }
 
+  /** Resolve a vault image to a URL the img element can display. */
+  imageResourcePath(image, sourcePath) {
+    const link = str(image).trim().replace(/^!?\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/, "$1").replace(/^!\[[^\]]*\]\(([^)]+)\)$/, "$1").trim();
+    if (!link) return "";
+    if (/^https?:\/\//i.test(link)) return link;
+    const file = this.app.metadataCache.getFirstLinkpathDest?.(link, sourcePath) || this.app.vault.getAbstractFileByPath(link);
+    if (!file || !file.path) return "";
+    const adapter = this.app.vault.adapter;
+    return adapter && typeof adapter.getResourcePath === "function" ? adapter.getResourcePath(file.path) : "";
+  }
+
+  /** A diagram with a percentage-positioned mask; the mask lifts on reveal. */
+  renderOcclusion(front, card) {
+    const body = card.body || {};
+    const wrap = front.createDiv({ cls: "qt-cards-occlusion" });
+    const src = this.imageResourcePath(body.image, card.file.path);
+    if (!src) {
+      if (body.image) this.md(`![[${body.image}]]`, wrap.createDiv({ cls: "qt-cards-occlusion-fallback" }), card.file.path);
+      wrap.createDiv({
+        cls: "qt-hint",
+        text: body.image ? `Diagram: ${body.image}` : "This image occlusion card has no image path.",
+      });
+      return;
+    }
+    wrap.createEl("img", { cls: "qt-cards-occlusion-image", attr: { src, alt: "Occlusion diagram" } });
+    const mask = body.mask || { x: 0, y: 0, w: 100, h: 100 };
+    const box = wrap.createDiv({ cls: "qt-cards-occlusion-mask" });
+    box.style.left = `${mask.x}%`;
+    box.style.top = `${mask.y}%`;
+    box.style.width = `${mask.w}%`;
+    box.style.height = `${mask.h}%`;
+    if (this.revealed) {
+      box.addClass("is-revealed");
+      box.createSpan({ cls: "qt-cards-occlusion-label", text: body.back || body.mask.label || "" });
+    }
+  }
+
   onKey(ev) {
     if (this.state !== "review" || this.busy || !this.current) return;
     const t = ev && ev.target;
@@ -5758,6 +5901,10 @@ class CardView extends ItemView {
     const tools = root.createDiv({ cls: "qt-row qt-cards-tools" });
     const add = tools.createEl("button", { text: "New card", cls: "mod-cta" });
     add.addEventListener("click", () => this.openCardModal());
+    const occlusion = tools.createEl("button", { text: "Image occlusion" });
+    occlusion.addEventListener("click", () =>
+      p.openImageOcclusion({ deck: this.deck, course: this.course }, () => this.render())
+    );
     const imp = tools.createEl("button", { text: "Import" });
     imp.addEventListener("click", () =>
       p.openCardImport({ deck: this.deck, course: this.course }, () => this.render())
@@ -5818,7 +5965,8 @@ class CardView extends ItemView {
       const row = list.createDiv({ cls: "qt-cards-row" });
       const main = row.createDiv({ cls: "qt-cards-row-main" });
       main.createDiv({ cls: "qt-cards-row-title", text: str(card.fm.card_title || card.file.basename) });
-      const bits = [card.deck, card.course, card.kind === "vocab" ? "Vocabulary" : "Flashcard"].filter(Boolean);
+      const kindLabel = String(card.fm && card.fm.card_type).toLowerCase() === "image-occlusion" ? CARD_TYPE_LABELS["image-occlusion"] : card.kind === "vocab" ? "Vocabulary" : "Flashcard";
+      const bits = [card.deck, card.course, kindLabel].filter(Boolean);
       main.createDiv({ cls: "qt-cards-row-meta", text: bits.join(" · ") });
       const queued = pendingByPath.get(card.file.path) || 0;
       if (queued) row.createSpan({ cls: "qt-cards-pending-badge", text: queued > 1 ? `Pending ${queued}` : "Pending grade" });
@@ -6146,7 +6294,7 @@ class CardView extends ItemView {
     chips.createSpan({ cls: "qt-cards-deck", text: card.deck });
     if (card.course) chips.createSpan({ cls: "qt-cards-course", text: card.course });
     if (card.body.kind === "vocab") chips.createSpan({ cls: "qt-cards-kind", text: "Vocabulary" });
-    else if (card.body.cardType !== "basic") chips.createSpan({ cls: "qt-cards-kind", text: card.body.cardType });
+    else if (card.body.cardType !== "basic") chips.createSpan({ cls: "qt-cards-kind", text: CARD_TYPE_LABELS[card.body.cardType] || card.body.cardType });
     const open = head.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": "Open note", title: "Open note" } });
     setIcon(open, "file-text");
     open.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(card.file));
@@ -6155,9 +6303,10 @@ class CardView extends ItemView {
     if (card.body.language || card.body.partOfSpeech) {
       front.createDiv({ cls: "qt-cards-lang", text: [card.body.language, card.body.partOfSpeech].filter(Boolean).join(" · ") });
     }
+    if (card.body.cardType === "image-occlusion") this.renderOcclusion(front, card);
     this.md(card.body.front || "*This card has no front.*", front.createDiv({ cls: "qt-cards-term" }), card.file.path);
 
-    const mode = card.answerMode || "flip";
+    const mode = card.body.cardType === "image-occlusion" ? "flip" : card.answerMode || "flip";
     if (!this.revealed && mode !== "flip") {
       const typedWrap = root.createDiv({ cls: "qt-cards-typed-wrap" });
       typedWrap.createEl("label", {
@@ -10499,6 +10648,110 @@ exports.show_diff_message = show_diff_message;
 module.exports = Object.assign(exports.default || {}, exports)
 };
 
+/* ---- src/image-occlusion-modal.js ---- */
+__defs["image-occlusion-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { str } = require("./util");
+const { parseMaskRows } = require("./cards");
+
+/** Create one card per mask on an already-saved vault image. */
+class ImageOcclusionModal extends Modal {
+  constructor(app, plugin, options, onDone) {
+    super(app);
+    this.plugin = plugin;
+    this.options = options || {};
+    this.onDone = onDone || (() => {});
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    const p = this.plugin;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: "Image occlusion" });
+    contentEl.createDiv({
+      cls: "setting-item-description",
+      text: "Use an image already in your vault. Each mask becomes its own card, sharing the same diagram and prompt, so every mask has its own review history.",
+    });
+
+    const deckWrap = contentEl.createDiv({ cls: "qt-field" });
+    deckWrap.createEl("label", { text: "Deck" });
+    const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Biology" } });
+    deck.value = str(this.options.deck || p.settings.cards.defaultDeck || "General").trim();
+
+    const courseWrap = contentEl.createDiv({ cls: "qt-field" });
+    courseWrap.createEl("label", { text: "Course (optional)" });
+    const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
+    course.value = str(this.options.course).trim();
+
+    const imageWrap = contentEl.createDiv({ cls: "qt-field" });
+    imageWrap.createEl("label", { text: "Image path" });
+    const image = imageWrap.createEl("input", {
+      type: "text",
+      attr: { placeholder: "diagrams/cell.png or ![[cell.png]]" },
+    });
+
+    const promptWrap = contentEl.createDiv({ cls: "qt-field" });
+    promptWrap.createEl("label", { text: "Prompt" });
+    const prompt = promptWrap.createEl("input", {
+      type: "text",
+      attr: { placeholder: "What is hidden in the highlighted area?" },
+    });
+    prompt.value = "What is hidden in the highlighted area?";
+
+    const masksWrap = contentEl.createDiv({ cls: "qt-field" });
+    masksWrap.createEl("label", { text: "Masks, one per line" });
+    const masks = masksWrap.createEl("textarea", {
+      attr: {
+        rows: "6",
+        placeholder: "20, 30, 15, 10, Nucleus\n55, 60, 12, 10, Mitochondrion",
+      },
+    });
+    masksWrap.createDiv({
+      cls: "setting-item-description",
+      text: "Each line is x, y, width, height, label. Coordinates are percentages of the image, so they resize with it.",
+    });
+
+    const row = contentEl.createDiv({ cls: "qt-row" });
+    const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
+    const save = row.createEl("button", { text: "Create cards", cls: "mod-cta qt-grow" });
+    cancel.addEventListener("click", () => this.close());
+    save.addEventListener("click", async () => {
+      const imagePath = str(image.value).trim();
+      const maskList = parseMaskRows(masks.value);
+      if (!imagePath) {
+        new Notice("Choose an image in your vault first.");
+        return;
+      }
+      if (!maskList.length) {
+        new Notice("Add at least one mask: x, y, width, height, label.");
+        return;
+      }
+      save.disabled = true;
+      try {
+        const result = await p.createImageOcclusionCards({
+          deck: deck.value,
+          course: course.value,
+          image: imagePath,
+          prompt: prompt.value,
+          masks: maskList,
+        });
+        this.close();
+        this.onDone(result);
+      } catch (e) {
+        save.disabled = false;
+        new Notice(str(e && e.message) || "Could not create the image occlusion cards.");
+      }
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = { ImageOcclusionModal };
+};
+
 /* ---- src/import-modal.js ---- */
 __defs["import-modal"] = function (module, exports, require) {
 const { Modal, Notice, Platform, Setting, TFile, normalizePath } = require("obsidian");
@@ -13644,10 +13897,11 @@ const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = r
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
+const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseGenericCsv, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
-const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, resolveCard } = require("./cards");
+const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
 const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./study-skin");
@@ -13753,6 +14007,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
+    this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
     this.addCommand({
       id: "practice-note",
       name: "Practice this note only",
@@ -14515,6 +14770,17 @@ class QuestionTrackerPlugin extends Plugin {
     }).open();
   }
 
+  openImageOcclusion(options, onDone) {
+    if (this.moduleOff("cards")) return;
+    new ImageOcclusionModal(this.app, this, options || {}, (result) => {
+      if (result && result.paths && result.paths.length) {
+        new Notice(`Created ${result.paths.length} image occlusion card${result.paths.length === 1 ? "" : "s"}.`);
+      }
+      this.refreshViews();
+      if (onDone) onDone(result);
+    }).open();
+  }
+
   openCardImport(options, onDone) {
     if (this.moduleOff("cards")) return;
     new CardImportModal(
@@ -15006,6 +15272,33 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const file = await this.app.vault.create(path, note.text);
     return { path, file, deck, course };
+  }
+
+  /** Create one card note per mask on the same image. */
+  async createImageOcclusionCards(input) {
+    if (this.moduleOff("cards")) return null;
+    const data = input || {};
+    const image = str(data.image || data.image_path).trim();
+    const masks = Array.isArray(data.masks) ? data.masks.filter(Boolean) : parseMaskRows(data.masksText);
+    if (!image) throw new Error("Choose an image in your vault first.");
+    if (!masks.length) throw new Error("Add at least one mask: x, y, width, height, label.");
+    const results = [];
+    for (const mask of masks) {
+      const label = str(mask.label).trim();
+      if (!label) continue;
+      results.push(
+        await this.createCard({
+          ...data,
+          cardType: "image-occlusion",
+          title: label,
+          front: str(data.prompt || data.front).trim() || "What is hidden in the highlighted area?",
+          back: label,
+          mask,
+        })
+      );
+    }
+    if (!results.length) throw new Error("Add at least one mask with a label.");
+    return { created: results.length, paths: results.map((r) => r.path), results };
   }
 
   /** Import cards from a folder of Spaced Repetition notes. */

@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — the daily quiz and exam question ranges shipped in 1.18.0; next unblocked backlog items are the remaining §5.22.4 study-flow ideas (tutor role presets, image occlusion, audio-only commute mode) and §5.22.3 import breadth. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — image occlusion cards shipped in 1.19.0; next unblocked backlog items are tutor role presets and audio-only commute mode (§5.22.4), followed by §5.22.3 import breadth. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), and the October 28 idea backlog (§5.22). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,23 +11,19 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Completed: daily quiz plus its own streak, and optional exam question ranges (§5.22.4).** The daily quiz is an opt-in, local set drawn from chosen folders; timed tests can now run a 1–20-style range from a larger bank.
+**Completed: image occlusion cards (§5.7, §5.22.4).** One diagram can produce one card per mask, with each mask positioned as a percentage of the image and every card sharing the same deck, course, prompt and scheduler.
 
 **What shipped**
 
-- **Daily quiz:** an opt-in set of 1–50 questions chosen once per day from chosen folders, with a separate completion streak and best streak. It reuses the normal queue and scheduler, caches today's paths so the set stays stable, and skips known/excluded items.
-- **Daily surfaces:** a Daily quiz settings tab with count, folders, streak and reset, plus a Today card and a command. Nothing is shown or notified unless the feature is enabled.
-- **Exam question range:** timed tests accept optional From/To question numbers, applied to the filtered bank before questions are picked, for Bluebook-style section practice.
-- **Coverage:** deterministic daily selection, folder filtering, hidden-item exclusion, cache regeneration when a note disappears, consecutive/gap streak rules, the Today card, the settings tab, and timed-test range slicing.
-- **Previous extraction work** from question/answer or front/back headings, definition lines, “X means Y” sentences, two-column tables, highlights and existing cloze marks. Code fences, frontmatter and duplicate pairs are ignored.
-- **Preview before writing** with deck and course fields, ready/skipped counts and the first pairs shown. Cards use the normal card note format, scheduler and due queue.
-- **Per-note opt-in:** `flashcards: true` marks a note for extraction, `flashcards: false` blocks it, and an unset note is stamped true only after a successful manual extraction.
-- **Practice this note only:** command and file-menu action, plus a practice-screen banner with **Open note** and **Practice all notes**.
-- Coverage includes extraction rules, duplicate removal, blocked notes, opt-in stamping, note-scoped filtering and the banner.
+- **Image occlusion card type** with `image`, `mask_x`, `mask_y`, `mask_w`, `mask_h` and `mask_label` properties. One card note represents one mask; no second deck or scheduler.
+- **Multi-mask creation** from the Cards view or the **Cards: create image occlusion cards** command: choose a vault image, a prompt, and one `x, y, width, height, label` row per mask. Coordinates are percentages, so masks scale with the image.
+- **Review** renders the diagram with a positioned cover; revealing lifts the mask and shows the label. These cards always use flip review because the task is visual, even when the global answer mode is typed.
+- **Portable notes** include a readable `## Image` embed alongside the mask properties. Deletion, renaming and deck/course tagging behave like every other card.
+- **Coverage:** mask parsing and edge clamping, per-mask note creation, image/mask round-tripping, forced flip mode, and the reveal flow.
 
-**Next:** The remaining §5.22.4 items are tutor role presets, image occlusion and audio-only commute mode. The rest of the §5.22.3 import formats and the full import report are also queued. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred.
+**Next:** The remaining §5.22.4 items are tutor role presets and audio-only commute mode. The rest of the §5.22.3 import formats and the full import report are also queued. Phase 2b's AP FRQ grader, score calculator and resource tools remain blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred.
 
-**Recently completed (1.18.0):** Daily quiz with its own streak, and optional exam question ranges. Previous release 1.17.0 added rule-based card extraction, the `flashcards` opt-in and practice-this-note-only.
+**Recently completed (1.19.0):** Image occlusion cards. Previous release 1.18.0 added the daily quiz with its own streak and optional exam question ranges.
 
 ---
 
@@ -410,7 +406,7 @@ Build on the existing timed test.
 
 **Scope**
 - **Card syntax compatibility:** read `Q::A`, `Q:::A`, multiline `?` and `??`, and `==cloze==` so existing decks can be pulled in without conversion.
-- **Card types:** basic, reversed, cloze, MCQ-as-card.
+- **Card types:** basic, reversed, cloze, MCQ-as-card, image occlusion (one card per mask).
 - **Vocab item:** term, definition, example sentence, part of speech, language, optional audio.
 - **Lookup:** optional dictionary lookup that fills definition and example (see WordFolio and Dictionary Lexicon for approaches).
 - **TTS / audio:** optional, provider-based, off by default (LearnKit and Language Made Easy show demand for this).
@@ -974,7 +970,7 @@ The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced R
 
 #### 5.22.4 Smaller study-flow ideas — **partly implemented in 1.17.0 and 1.18.0**
 
-**Implemented in 1.17.0:** rule-based extraction from headings, definitions, sentences, two-column tables, highlights and cloze marks; the `flashcards: true|false` per-note opt-in with preview; and **Practice this note only**. **Implemented in 1.18.0:** the opt-in daily quiz with its own streak, and optional exam question ranges in timed tests. Tutor role presets, image occlusion and audio-only commute mode remain queued.
+**Implemented in 1.17.0:** rule-based extraction from headings, definitions, sentences, two-column tables, highlights and cloze marks; the `flashcards: true|false` per-note opt-in with preview; and **Practice this note only**. **Implemented in 1.18.0:** the opt-in daily quiz with its own streak, and optional exam question ranges in timed tests. **Implemented in 1.19.0:** image occlusion cards with one card per mask. Tutor role presets and audio-only commute mode remain queued.
 
 - **Rule-based card extraction (no AI).** Build Q/A pairs from headings, "X means…" sentences, colon and bullet definitions, two-column tables, highlights and existing cloze marks. AI can improve or expand the result, but the rule-based path must work with AI off. *(Source: FlashCard plugin.)*
 - **Per-note auto-card opt in/out.** A `flashcards: true|false` property so a lecture note is never scraped into cards by surprise. Pair it with a preview before writing.
@@ -1132,6 +1128,7 @@ Names are proposals; keep existing ones unchanged.
 ### Phase 2: Flashcards and vocab (priority)
 
 - [x] Card and vocab item types, deck organization, course tagging (§5.7) — shipped in 1.12.0
+- [x] Image occlusion cards, one card per mask (§5.7, §5.22.4) — shipped in 1.19.0
 - [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — .apkg, AnkiConnect and LearnKit formats remain
 - [x] Answer modes: flip, type and speak via OS dictation, with the deterministic cheap-first grading pipeline (§5.17)
 - [x] AI fallback for typed answers that the local grader cannot settle, using the shared AI layer and a validated structured verdict (§5.17)

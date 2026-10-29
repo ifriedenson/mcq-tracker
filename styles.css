@@ -2769,6 +2769,55 @@
   font-style: italic;
 }
 
+/* Image occlusion: a percentage-positioned mask over a vault image. */
+.qt-cards-occlusion {
+  border-radius: var(--radius-m);
+  display: inline-block;
+  margin: 6px 0 12px;
+  max-width: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.qt-cards-occlusion-image {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  width: auto;
+}
+
+.qt-cards-occlusion-mask {
+  background: var(--background-primary);
+  border: 2px solid var(--interactive-accent);
+  border-radius: 4px;
+  box-sizing: border-box;
+  position: absolute;
+}
+
+.qt-cards-occlusion-mask.is-revealed {
+  background: color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+  border-color: var(--text-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+}
+
+.qt-cards-occlusion-label {
+  color: var(--text-on-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.1;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qt-cards-occlusion-fallback {
+  max-width: 100%;
+}
+
 .qt-cards-ratings {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

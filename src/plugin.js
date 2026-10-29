@@ -21,10 +21,11 @@ const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = r
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
+const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseGenericCsv, parseQuestionSetText, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
-const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, resolveCard } = require("./cards");
+const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
 const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./study-skin");
@@ -130,6 +131,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
+    this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
     this.addCommand({
       id: "practice-note",
       name: "Practice this note only",
@@ -892,6 +894,17 @@ class QuestionTrackerPlugin extends Plugin {
     }).open();
   }
 
+  openImageOcclusion(options, onDone) {
+    if (this.moduleOff("cards")) return;
+    new ImageOcclusionModal(this.app, this, options || {}, (result) => {
+      if (result && result.paths && result.paths.length) {
+        new Notice(`Created ${result.paths.length} image occlusion card${result.paths.length === 1 ? "" : "s"}.`);
+      }
+      this.refreshViews();
+      if (onDone) onDone(result);
+    }).open();
+  }
+
   openCardImport(options, onDone) {
     if (this.moduleOff("cards")) return;
     new CardImportModal(
@@ -1383,6 +1396,33 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const file = await this.app.vault.create(path, note.text);
     return { path, file, deck, course };
+  }
+
+  /** Create one card note per mask on the same image. */
+  async createImageOcclusionCards(input) {
+    if (this.moduleOff("cards")) return null;
+    const data = input || {};
+    const image = str(data.image || data.image_path).trim();
+    const masks = Array.isArray(data.masks) ? data.masks.filter(Boolean) : parseMaskRows(data.masksText);
+    if (!image) throw new Error("Choose an image in your vault first.");
+    if (!masks.length) throw new Error("Add at least one mask: x, y, width, height, label.");
+    const results = [];
+    for (const mask of masks) {
+      const label = str(mask.label).trim();
+      if (!label) continue;
+      results.push(
+        await this.createCard({
+          ...data,
+          cardType: "image-occlusion",
+          title: label,
+          front: str(data.prompt || data.front).trim() || "What is hidden in the highlighted area?",
+          back: label,
+          mask,
+        })
+      );
+    }
+    if (!results.length) throw new Error("Add at least one mask with a label.");
+    return { created: results.length, paths: results.map((r) => r.path), results };
   }
 
   /** Import cards from a folder of Spaced Repetition notes. */
