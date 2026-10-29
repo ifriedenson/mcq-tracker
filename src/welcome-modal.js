@@ -2,6 +2,7 @@
 const { Modal, Setting } = require("obsidian");
 const { QUICK_START_URL } = require("./empty-state");
 const { openExternal } = require("./settings-ui");
+const { supportLinks } = require("./support");
 const {
   WELCOME_MODULE_INFO,
   WELCOME_PRESETS,
@@ -69,6 +70,17 @@ class WelcomeModal extends Modal {
     card
       .createEl("button", { text: "Read the quick start guide", cls: "qt-link" })
       .addEventListener("click", () => openExternal(QUICK_START_URL));
+    const links = supportLinks(this.plugin.settings.support);
+    if (links.feedback || links.donation) {
+      const support = card.createDiv({ cls: "qt-welcome-support" });
+      support.createSpan({ cls: "qt-welcome-support-label", text: "Optional:" });
+      if (links.feedback) {
+        support.createEl("button", { text: "Send feedback", cls: "qt-link" }).addEventListener("click", () => openExternal(links.feedback));
+      }
+      if (links.donation) {
+        support.createEl("button", { text: "Support the plugin", cls: "qt-link" }).addEventListener("click", () => openExternal(links.donation));
+      }
+    }
   }
 
   renderModules(card) {

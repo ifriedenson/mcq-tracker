@@ -76,6 +76,7 @@ const provenance = require("./provenance");
 const transcript = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
 const resultsExport = require("./results-export");
+const support = require("./support");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
@@ -185,6 +186,7 @@ QuestionTrackerPlugin.__test = {
   transcript,
   TranscriptPracticeModal,
   resultsExport,
+  support,
   AssignmentsView,
   AssignmentModal,
   renderAssignmentsSettings,

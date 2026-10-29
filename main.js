@@ -9287,6 +9287,7 @@ module.exports = {
 __defs["constants"] = function (module, exports, require) {
 const { DEFAULT_REFERENCE_SETTINGS } = require("./reference-data");
 const { DEFAULT_ASSIGNMENT_SETTINGS } = require("./assignments");
+const { DEFAULT_SUPPORT } = require("./support");
 
 const VIEW_TYPE = "question-tracker-view";
 const VIEW_TYPE_TODAY = "question-tracker-today";
@@ -9322,6 +9323,7 @@ const DEFAULT_SETTINGS = {
   mcqEnabled: true, // the MCQ Tracker module (practice, weak spots, timed tests, import); turned off in Settings, Global
   showRibbonIcons: true, // show the plugin's ribbon buttons
   openPracticeOnStartUp: false, // open the practice view when the workspace is ready
+  support: { ...DEFAULT_SUPPORT }, // optional feedback/donation links; never automatic, never gating
   questionFolder: "",
   intervals: [1, 3, 7, 21, 60],
   scheduler: "ladder", // "ladder" (default) | "fsrs"
@@ -17285,6 +17287,7 @@ const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
+const { normalizeSupport } = require("./support");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -17660,6 +17663,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.mcqEnabled = this.settings.mcqEnabled !== false;
     this.settings.showRibbonIcons = this.settings.showRibbonIcons !== false;
     this.settings.openPracticeOnStartUp = this.settings.openPracticeOnStartUp === true;
+    this.settings.support = normalizeSupport(saved.support);
     if (!["auto", "buttons", "search"].includes(this.settings.folderFilterStyle)) this.settings.folderFilterStyle = "auto";
     if (!["ladder", "fsrs"].includes(this.settings.scheduler)) this.settings.scheduler = "ladder";
     const retention = Number(this.settings.fsrsRetention);
@@ -23582,6 +23586,7 @@ __defs["settings-global"] = function (module, exports, require) {
  */
 const { Setting } = require("obsidian");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
+const { normalizeSupport, supportLinks } = require("./support");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
@@ -23601,7 +23606,7 @@ function renderGlobalSettings(containerEl, plugin, redisplay, activeTab, setTab)
 
   const section = containerEl.createDiv({ cls: "qt-settings-section" });
   if (current === "general") return renderGeneral(section, plugin, redisplay);
-  if (current === "about") return renderGlobalAbout(section, plugin);
+  if (current === "about") return renderGlobalAbout(section, plugin, redisplay);
   return renderModules(section, plugin, redisplay);
 }
 
@@ -23692,7 +23697,7 @@ function renderModules(containerEl, plugin, redisplay) {
   });
 }
 
-function renderGlobalAbout(containerEl, plugin) {
+function renderGlobalAbout(containerEl, plugin, redisplay) {
   new Setting(containerEl).setName("Getting started").setHeading();
   containerEl.createEl("p", {
     cls: "setting-item-description",
@@ -23706,6 +23711,54 @@ function renderGlobalAbout(containerEl, plugin) {
     .setName("Quick start and documentation")
     .setDesc("The README covers question-note formats, imports, cards, the calendar and reference tools.")
     .addButton((b) => b.setButtonText("Open README").onClick(() => openExternal("https://github.com/ifriedenson/mcq-tracker#readme")));
+
+  new Setting(containerEl).setName("Feedback and support").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Optional external links. Nothing opens or is submitted automatically, and the plugin never counts clicks. Leave a field blank to hide that link.",
+  });
+  const st = plugin.settings;
+  const support = normalizeSupport(st.support);
+  new Setting(containerEl)
+    .setName("Show feedback and donation links")
+    .setDesc("Show optional links in the welcome guide. The plugin stays MIT and fully usable either way.")
+    .addToggle((t) =>
+      t.setValue(support.showLinks).onChange(async (v) => {
+        st.support = normalizeSupport({ ...normalizeSupport(st.support), showLinks: v });
+        await plugin.save();
+        if (redisplay) redisplay();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Feedback link")
+    .setDesc("Opens when the user chooses Send feedback. Defaults to the plugin's GitHub issue page.")
+    .addText((t) =>
+      t
+        .setPlaceholder("https://…")
+        .setValue(support.feedbackUrl)
+        .onChange(async (v) => {
+          st.support = normalizeSupport({ ...normalizeSupport(st.support), feedbackUrl: v });
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Donation link")
+    .setDesc("Optional funding page, for example GitHub Sponsors or Ko-fi. Blank hides the donation button.")
+    .addText((t) =>
+      t
+        .setPlaceholder("Leave blank to hide")
+        .setValue(support.donationUrl)
+        .onChange(async (v) => {
+          st.support = normalizeSupport({ ...normalizeSupport(st.support), donationUrl: v });
+          await plugin.save();
+        })
+    );
+  const links = supportLinks(st.support);
+  if (links.feedback || links.donation) {
+    const row = new Setting(containerEl).setName("Preview links");
+    if (links.feedback) row.addButton((b) => b.setButtonText("Open feedback").onClick(() => openExternal(links.feedback)));
+    if (links.donation) row.addButton((b) => b.setButtonText("Open donation page").onClick(() => openExternal(links.donation)));
+  }
   const version = (plugin.manifest && plugin.manifest.version) || "";
   new Setting(containerEl).setName("Version").setDesc(version ? `MCQ Tracker ${version}` : "MCQ Tracker");
 }
@@ -25336,6 +25389,58 @@ class StudyStatusModal extends Modal {
 module.exports = { StudyStatusModal };
 };
 
+/* ---- src/support.js ---- */
+__defs["support"] = function (module, exports, require) {
+/*
+ * Optional feedback and donation links. These are plain external links, not a
+ * survey client: nothing is opened, submitted or counted until the user clicks
+ * one. The URLs live here so they can be changed without touching the UI.
+ */
+const { str } = require("./util");
+
+const DEFAULT_FEEDBACK_URL = "https://github.com/ifriedenson/mcq-tracker/issues/new";
+const DEFAULT_DONATION_URL = ""; // intentionally blank until the owner chooses a funding page
+
+const DEFAULT_SUPPORT = {
+  showLinks: true,
+  feedbackUrl: DEFAULT_FEEDBACK_URL,
+  donationUrl: DEFAULT_DONATION_URL,
+};
+
+function cleanUrl(value) {
+  const url = str(value).trim();
+  return /^https?:\/\//i.test(url) ? url : "";
+}
+
+function normalizeSupport(value) {
+  const src = value && typeof value === "object" ? value : {};
+  return {
+    showLinks: src.showLinks !== false,
+    feedbackUrl: src.feedbackUrl === undefined ? DEFAULT_FEEDBACK_URL : cleanUrl(src.feedbackUrl),
+    donationUrl: src.donationUrl === undefined ? DEFAULT_DONATION_URL : cleanUrl(src.donationUrl),
+  };
+}
+
+/** The links to show, or empty strings when the user has hidden them or left them blank. */
+function supportLinks(settings) {
+  const support = normalizeSupport(settings);
+  if (!support.showLinks) return { feedback: "", donation: "" };
+  return {
+    feedback: cleanUrl(support.feedbackUrl),
+    donation: cleanUrl(support.donationUrl),
+  };
+}
+
+module.exports = {
+  DEFAULT_FEEDBACK_URL,
+  DEFAULT_DONATION_URL,
+  DEFAULT_SUPPORT,
+  cleanUrl,
+  normalizeSupport,
+  supportLinks,
+};
+};
+
 /* ---- src/today-view.js ---- */
 __defs["today-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
@@ -26638,6 +26743,7 @@ __defs["welcome-modal"] = function (module, exports, require) {
 const { Modal, Setting } = require("obsidian");
 const { QUICK_START_URL } = require("./empty-state");
 const { openExternal } = require("./settings-ui");
+const { supportLinks } = require("./support");
 const {
   WELCOME_MODULE_INFO,
   WELCOME_PRESETS,
@@ -26705,6 +26811,17 @@ class WelcomeModal extends Modal {
     card
       .createEl("button", { text: "Read the quick start guide", cls: "qt-link" })
       .addEventListener("click", () => openExternal(QUICK_START_URL));
+    const links = supportLinks(this.plugin.settings.support);
+    if (links.feedback || links.donation) {
+      const support = card.createDiv({ cls: "qt-welcome-support" });
+      support.createSpan({ cls: "qt-welcome-support-label", text: "Optional:" });
+      if (links.feedback) {
+        support.createEl("button", { text: "Send feedback", cls: "qt-link" }).addEventListener("click", () => openExternal(links.feedback));
+      }
+      if (links.donation) {
+        support.createEl("button", { text: "Support the plugin", cls: "qt-link" }).addEventListener("click", () => openExternal(links.donation));
+      }
+    }
   }
 
   renderModules(card) {
@@ -26872,6 +26989,7 @@ const provenance = require("./provenance");
 const transcript = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
 const resultsExport = require("./results-export");
+const support = require("./support");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
@@ -26981,6 +27099,7 @@ QuestionTrackerPlugin.__test = {
   transcript,
   TranscriptPracticeModal,
   resultsExport,
+  support,
   AssignmentsView,
   AssignmentModal,
   renderAssignmentsSettings,

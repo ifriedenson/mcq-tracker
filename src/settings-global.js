@@ -5,6 +5,7 @@
  */
 const { Setting } = require("obsidian");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
+const { normalizeSupport, supportLinks } = require("./support");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
@@ -24,7 +25,7 @@ function renderGlobalSettings(containerEl, plugin, redisplay, activeTab, setTab)
 
   const section = containerEl.createDiv({ cls: "qt-settings-section" });
   if (current === "general") return renderGeneral(section, plugin, redisplay);
-  if (current === "about") return renderGlobalAbout(section, plugin);
+  if (current === "about") return renderGlobalAbout(section, plugin, redisplay);
   return renderModules(section, plugin, redisplay);
 }
 
@@ -115,7 +116,7 @@ function renderModules(containerEl, plugin, redisplay) {
   });
 }
 
-function renderGlobalAbout(containerEl, plugin) {
+function renderGlobalAbout(containerEl, plugin, redisplay) {
   new Setting(containerEl).setName("Getting started").setHeading();
   containerEl.createEl("p", {
     cls: "setting-item-description",
@@ -129,6 +130,54 @@ function renderGlobalAbout(containerEl, plugin) {
     .setName("Quick start and documentation")
     .setDesc("The README covers question-note formats, imports, cards, the calendar and reference tools.")
     .addButton((b) => b.setButtonText("Open README").onClick(() => openExternal("https://github.com/ifriedenson/mcq-tracker#readme")));
+
+  new Setting(containerEl).setName("Feedback and support").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Optional external links. Nothing opens or is submitted automatically, and the plugin never counts clicks. Leave a field blank to hide that link.",
+  });
+  const st = plugin.settings;
+  const support = normalizeSupport(st.support);
+  new Setting(containerEl)
+    .setName("Show feedback and donation links")
+    .setDesc("Show optional links in the welcome guide. The plugin stays MIT and fully usable either way.")
+    .addToggle((t) =>
+      t.setValue(support.showLinks).onChange(async (v) => {
+        st.support = normalizeSupport({ ...normalizeSupport(st.support), showLinks: v });
+        await plugin.save();
+        if (redisplay) redisplay();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Feedback link")
+    .setDesc("Opens when the user chooses Send feedback. Defaults to the plugin's GitHub issue page.")
+    .addText((t) =>
+      t
+        .setPlaceholder("https://…")
+        .setValue(support.feedbackUrl)
+        .onChange(async (v) => {
+          st.support = normalizeSupport({ ...normalizeSupport(st.support), feedbackUrl: v });
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Donation link")
+    .setDesc("Optional funding page, for example GitHub Sponsors or Ko-fi. Blank hides the donation button.")
+    .addText((t) =>
+      t
+        .setPlaceholder("Leave blank to hide")
+        .setValue(support.donationUrl)
+        .onChange(async (v) => {
+          st.support = normalizeSupport({ ...normalizeSupport(st.support), donationUrl: v });
+          await plugin.save();
+        })
+    );
+  const links = supportLinks(st.support);
+  if (links.feedback || links.donation) {
+    const row = new Setting(containerEl).setName("Preview links");
+    if (links.feedback) row.addButton((b) => b.setButtonText("Open feedback").onClick(() => openExternal(links.feedback)));
+    if (links.donation) row.addButton((b) => b.setButtonText("Open donation page").onClick(() => openExternal(links.donation)));
+  }
   const version = (plugin.manifest && plugin.manifest.version) || "";
   new Setting(containerEl).setName("Version").setDesc(version ? `MCQ Tracker ${version}` : "MCQ Tracker");
 }

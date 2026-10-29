@@ -904,7 +904,7 @@ Use short step cards, each with a working button:
 - The welcome is usable on desktop and mobile and with the keyboard alone.
 - No network request is made until the user clicks an external feedback or donation link.
 
-**Implemented in 1.28.0:** the three-step welcome guide, six module presets, live module switches, working how-to buttons, local-only dismissal and step progress, an **Open welcome guide** command and a Global → About entry point. The optional survey and donation links remain deliberately deferred.
+**Implemented in 1.28.0:** the three-step welcome guide, six module presets, live module switches, working how-to buttons, local-only dismissal and step progress, an **Open welcome guide** command and a Global → About entry point. **Added in 1.41.0:** optional external feedback and donation links, configurable under Global → About; they never open automatically and no telemetry is added. An in-plugin survey form remains deliberately deferred.
 
 **Implemented in 1.29.0:** timestamp-derived focus sessions, pause/resume, manual offline study entry, per-course totals, a configurable daily goal and local streaks. The existing per-question practice timer is unchanged.
 
@@ -1215,7 +1215,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Provenance links from generated items back to the source PDF page (§5.13.1) — shared with 1.36.0
 - [x] First-run welcome screen with presets, module toggles and a short how-to guide (§5.21) — shipped in 1.28.0
 - [x] Reopen the welcome from a command and settings, and remember dismissal per device (§5.21) — shipped in 1.28.0
-- [ ] Optional feedback survey and donation links, added later and never gating features (§5.21)
+- [x] Optional external feedback and donation links, configurable under Global → About and never gating features (§5.21) — shipped in 1.41.0; an in-plugin survey form remains deferred
 - [x] CSV export of a per-note summary and full attempt history for outside analysis (§5.15) — shipped in 1.38.0
 - [x] Anki plain-text export with deck, note type and tag columns (§5.15) — shipped in 1.39.0
 - [x] Documented property schema and Dataview examples in [docs/property-schema.md](docs/property-schema.md) (§5.15) — shipped in 1.39.0

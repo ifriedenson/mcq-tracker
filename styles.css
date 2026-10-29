@@ -3587,6 +3587,23 @@
   min-height: 2.75rem;
 }
 
+.qt-welcome-support {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.qt-welcome-support-label {
+  font-size: 0.82rem;
+}
+
+.qt-welcome-support button {
+  min-height: 2.25rem;
+}
+
 .qt-welcome-presets {
   display: grid;
   gap: 8px;

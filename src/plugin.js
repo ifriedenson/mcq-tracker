@@ -53,6 +53,7 @@ const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
+const { normalizeSupport } = require("./support");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -428,6 +429,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.mcqEnabled = this.settings.mcqEnabled !== false;
     this.settings.showRibbonIcons = this.settings.showRibbonIcons !== false;
     this.settings.openPracticeOnStartUp = this.settings.openPracticeOnStartUp === true;
+    this.settings.support = normalizeSupport(saved.support);
     if (!["auto", "buttons", "search"].includes(this.settings.folderFilterStyle)) this.settings.folderFilterStyle = "auto";
     if (!["ladder", "fsrs"].includes(this.settings.scheduler)) this.settings.scheduler = "ladder";
     const retention = Number(this.settings.fsrsRetention);

@@ -1,6 +1,7 @@
 "use strict";
 const { DEFAULT_REFERENCE_SETTINGS } = require("./reference-data");
 const { DEFAULT_ASSIGNMENT_SETTINGS } = require("./assignments");
+const { DEFAULT_SUPPORT } = require("./support");
 
 const VIEW_TYPE = "question-tracker-view";
 const VIEW_TYPE_TODAY = "question-tracker-today";
@@ -36,6 +37,7 @@ const DEFAULT_SETTINGS = {
   mcqEnabled: true, // the MCQ Tracker module (practice, weak spots, timed tests, import); turned off in Settings, Global
   showRibbonIcons: true, // show the plugin's ribbon buttons
   openPracticeOnStartUp: false, // open the practice view when the workspace is ready
+  support: { ...DEFAULT_SUPPORT }, // optional feedback/donation links; never automatic, never gating
   questionFolder: "",
   intervals: [1, 3, 7, 21, 60],
   scheduler: "ladder", // "ladder" (default) | "fsrs"
