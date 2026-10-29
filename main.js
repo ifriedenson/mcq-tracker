@@ -29079,11 +29079,37 @@ class ReferenceView extends ItemView {
       text.createEl("strong", { text: title });
       text.createDiv({ cls: "qt-hint", text: `${entry.course}${entry.unit ? ` · ${entry.unit}` : ""} · checked ${entry.checkedOn || "unknown"}` });
       if (entry.stale) text.createSpan({ cls: "qt-ap-stale", text: `Stale${entry.ageDays === null ? "" : ` · ${entry.ageDays} days old`}` });
+      if (entry.examUid) text.createDiv({ cls: "qt-hint", text: `Attached to exam: ${entry.examTitle || entry.examDate || "an exam"}` });
+      if (entry.studySlotDate) {
+        text.createDiv({ cls: "qt-hint", text: `Study block: ${entry.studySlotDate}${entry.studySlotStart ? ` ${entry.studySlotStart}` : ""}${entry.studySlotSubject ? ` · ${entry.studySlotSubject}` : ""}` });
+      }
       const actions = row.createDiv({ cls: "qt-row qt-ap-saved-actions" });
       actions.createEl("button", { text: "Mark checked", cls: "qt-link" }).addEventListener("click", () => this.markApResourceChecked(entry));
+      if (entry.examUid) {
+        actions.createEl("button", { text: "Detach exam", cls: "qt-link" }).addEventListener("click", () => this.detachApResource(entry, "exam"));
+      }
+      if (entry.studySlotDate) {
+        actions.createEl("button", { text: "Detach block", cls: "qt-link" }).addEventListener("click", () => this.detachApResource(entry, "study"));
+      }
       actions.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => {
         if (this.app && this.app.workspace && this.app.workspace.openLinkText) this.app.workspace.openLinkText(entry.path, "", false);
       });
+    }
+  }
+
+  async detachApResource(entry, kind) {
+    const detach = kind === "exam" ? this.plugin.detachApResourceFromExam : this.plugin.detachApResourceFromStudySlot;
+    if (!detach) return;
+    try {
+      const updated = await detach.call(this.plugin, entry.path);
+      if (!updated) {
+        new Notice("That resource note is no longer in the vault.");
+        return;
+      }
+      new Notice(`Detached ${kind === "exam" ? "the exam" : "the study block"} from ${updated.path}.`);
+      await this.loadApResourceNotes(updated);
+    } catch (err) {
+      new Notice(err && err.message ? err.message : "Could not detach that resource.");
     }
   }
 

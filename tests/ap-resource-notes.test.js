@@ -94,6 +94,50 @@ test("AP resource notes: a study-block binding stores its date, start and subjec
   assert.equal(detached.type, "ap_resource", "detaching leaves the rest of the note alone");
 });
 
+test("AP resource notes: Reference shows exam and study-block bindings and can detach them", async () => {
+  const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+  const app = makeApp([
+    {
+      path: "AP resources/AP Biology/Released FRQs.md",
+      fm: {
+        type: "ap_resource",
+        ap_course: "ap-biology",
+        course: "AP Biology",
+        resource_type: "practice",
+        source_url: "https://apcentral.collegeboard.org/courses/ap-biology/exam/past-exam-questions",
+        checked_on: today,
+        official: true,
+        exam_uid: "exam",
+        exam_date: "2026-11-05",
+        exam_title: "AP Biology Exam",
+        study_slot_date: "2026-10-29",
+        study_slot_start: "10:30",
+        study_slot_subject: "AP Biology",
+      },
+      text: "An official AP resource link.",
+    },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "resources";
+  view.render();
+
+  assert.ok(dom.texts().includes("Attached to exam: AP Biology Exam"));
+  assert.ok(dom.texts().includes("Study block: 2026-10-29 10:30 · AP Biology"));
+  await dom.click("Detach exam");
+  assert.equal(app.files[0].fm.exam_uid, undefined);
+  assert.equal(plugin.getApResourceNotes()[0].examUid, "", "the exam binding is gone from the entry");
+  assert.equal(plugin.getApResourceNotes()[0].studySlotDate, "2026-10-29", "the study-block binding is untouched");
+  await dom.click("Detach block");
+  assert.equal(app.files[0].fm.study_slot_date, undefined);
+  assert.equal(plugin.getApResourceNotes()[0].studySlotDate, "");
+});
+
 test("AP resource notes: the Reference tab saves a link and lists saved notes", async () => {
   const app = makeApp([]);
   const plugin = new QT(app);
