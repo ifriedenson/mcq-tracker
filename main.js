@@ -15020,6 +15020,48 @@ module.exports = {
 };
 };
 
+/* ---- src/figures.js ---- */
+__defs["figures"] = function (module, exports, require) {
+/*
+ * Imported PDF figures are written as text markers:
+ *
+ *   [FIGURE page 3: ![[Bank/images/fig.png]] (the whole page: ![[Bank/images/page-3.png]])]
+ *
+ * The marker is useful to the importer, but it is not what Obsidian should show.
+ * This module turns it into the cropped image embed, with the whole page only as
+ * a fallback. It never fetches or copies an image; it only rewrites the link.
+ */
+const { str } = require("./util");
+
+const FIGURE_MARKER_RE =
+  /\[FIGURE\s+page\s+\d+\s*:\s*(!\[\[[^\]]+\]\])(?:\s*\(the whole page:\s*(!\[\[[^\]]+\]\])\s*\))?\s*\]/gi;
+
+/** Replace PDF figure markers with the embed the note should display. */
+function normalizeFigureMarkers(markdown) {
+  return str(markdown).replace(FIGURE_MARKER_RE, (_match, cropped, wholePage) => cropped || wholePage || "");
+}
+
+/** Every embedded image path in a Markdown string, in order, with duplicates removed. */
+function figureEmbeds(markdown) {
+  const text = normalizeFigureMarkers(markdown);
+  const out = [];
+  const seen = new Set();
+  for (const match of text.matchAll(/!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)) {
+    const path = str(match[1]).trim();
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    out.push(path);
+  }
+  return out;
+}
+
+module.exports = {
+  FIGURE_MARKER_RE,
+  figureEmbeds,
+  normalizeFigureMarkers,
+};
+};
+
 /* ---- src/filters.js ---- */
 __defs["filters"] = function (module, exports, require) {
 const { str } = require("./util");
@@ -18721,6 +18763,7 @@ const { officialIdOf } = require("./filters");
 const { normalizePage, sourceLink } = require("./provenance");
 const { verificationBanner, verificationFields } = require("./answer-verification");
 const { computedVerification, mergeVerification } = require("./computed-verification");
+const { figureEmbeds } = require("./figures");
 
 /* ---- checking imported notes */
 
@@ -18732,8 +18775,8 @@ async function noteIssues(text, exists) {
   if (!ans) out.push("No answer");
   if (!sec.choices.length && (!ans || /^[A-Ha-h]$/.test(ans))) out.push("No answer choices");
   let missing = /\[Figure not captured\]/i.test(body);
-  for (const m of body.matchAll(/!\[\[([^\]|#]+)/g)) {
-    if (!(await exists(m[1].trim()))) missing = true;
+  for (const path of figureEmbeds(body)) {
+    if (!(await exists(path))) missing = true;
   }
   if (missing) out.push("Missing figure");
   return out;
@@ -36851,6 +36894,7 @@ const { MarkdownRenderer } = require("obsidian");
 const { findAnswerKey, inferMode, parseSections } = require("./notes");
 const { str } = require("./util");
 const { prepareMathMarkdown } = require("./math-rendering");
+const { normalizeFigureMarkers } = require("./figures");
 const parameterized = require("./parameterized");
 
 /* ----------------------------------------------------------------- plugin */
@@ -36858,7 +36902,7 @@ const parameterized = require("./parameterized");
 /* ------------------------------------------------- shared view helpers */
 
 function renderMarkdownInto(app, markdown, el, sourcePath, component) {
-  const source = prepareMathMarkdown(markdown);
+  const source = prepareMathMarkdown(normalizeFigureMarkers(markdown));
   try {
     const p = MarkdownRenderer.render
       ? MarkdownRenderer.render(app, source, el, sourcePath, component)
@@ -37480,6 +37524,7 @@ const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
 const answerVerification = require("./answer-verification");
 const computedVerification = require("./computed-verification");
+const figures = require("./figures");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
@@ -37606,6 +37651,7 @@ QuestionTrackerPlugin.__test = {
   weakSpot,
   answerVerification,
   computedVerification,
+  figures,
   WeakSpotModal,
   OpenCodeManager,
   MAX_OPENCODE_MAJOR,

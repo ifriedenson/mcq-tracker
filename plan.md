@@ -620,6 +620,8 @@ Build on the existing timed test.
 - Embed Function Plot graphs or Excalidraw diagrams in stimuli (works because they are normal Obsidian embeds).
 - Imported PDF figures are already captured as PNGs; ensure they display in tests and reviews.
 
+**Shipped in 1.84.0:** PDF figure markers such as `[FIGURE page 3: ![[path]]]` are normalized into ordinary Obsidian embeds before every Markdown render, so the cropped figure wins over the whole-page fallback and diagrams appear in practice, timed tests, results, card reviews and explanations. Import checks find embedded images through the same helper, including markers left in an older note. Images scale to the pane, keep their aspect ratio, and get a themed border. Covered by `tests/figures.test.js`.
+
 **5.16.8 Reference tools**
 - **Formula and constants sheet** per course, viewable during practice.
 - **Setting to hide it in timed tests** to match closed-book exams, or show a specific exam-provided sheet.
@@ -1230,6 +1232,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
+- [x] Imported PDF figures and normal Obsidian embeds display in practice, timed tests and reviews (§5.16.7) — shipped in 1.84.0
 - [ ] Math, chemistry, and physics: SMILES integration and formula sheets (§5.16)
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 
@@ -2368,6 +2371,8 @@ Build on the existing timed test.
 - Embed Function Plot graphs or Excalidraw diagrams in stimuli (works because they are normal Obsidian embeds).
 - Imported PDF figures are already captured as PNGs; ensure they display in tests and reviews.
 
+**Shipped in 1.84.0:** PDF figure markers such as `[FIGURE page 3: ![[path]]]` are normalized into ordinary Obsidian embeds before every Markdown render, so the cropped figure wins over the whole-page fallback and diagrams appear in practice, timed tests, results, card reviews and explanations. Import checks find embedded images through the same helper, including markers left in an older note. Images scale to the pane, keep their aspect ratio, and get a themed border. Covered by `tests/figures.test.js`.
+
 **5.16.8 Reference tools**
 - **Formula and constants sheet** per course, viewable during practice.
 - **Setting to hide it in timed tests** to match closed-book exams, or show a specific exam-provided sheet.
@@ -2621,6 +2626,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Numeric answer grading for SPR items (§5.16.3) — shipped in 1.81.0 with fractions, decimals, scientific notation, percentages, tolerances, ranges, multiple answers, significant figures, unit conversion and an interpretation on every result
 - [x] Parameterized questions with seeded numeric variants, placeholders and computed answers (§5.16.4) — shipped in 1.82.0
 - [x] Verification by computation for numeric answers (§5.16.5) — shipped in 1.83.0
+- [x] Imported PDF figures and normal Obsidian embeds display in practice, timed tests and reviews (§5.16.7) — shipped in 1.84.0
 - [ ] Math, chemistry, and physics: SMILES integration and formula sheets (§5.16)
 - [x] Timed tests with sections, separate timers and saved blueprints (§5.6) — shipped in 1.77.0; confidence calibration and average time per question shipped in 1.78.0; mixed MCQ/SPR/FRQ items remain in Phase 5
 

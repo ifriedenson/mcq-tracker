@@ -3,6 +3,7 @@ const { MarkdownRenderer } = require("obsidian");
 const { findAnswerKey, inferMode, parseSections } = require("./notes");
 const { str } = require("./util");
 const { prepareMathMarkdown } = require("./math-rendering");
+const { normalizeFigureMarkers } = require("./figures");
 const parameterized = require("./parameterized");
 
 /* ----------------------------------------------------------------- plugin */
@@ -10,7 +11,7 @@ const parameterized = require("./parameterized");
 /* ------------------------------------------------- shared view helpers */
 
 function renderMarkdownInto(app, markdown, el, sourcePath, component) {
-  const source = prepareMathMarkdown(markdown);
+  const source = prepareMathMarkdown(normalizeFigureMarkers(markdown));
   try {
     const p = MarkdownRenderer.render
       ? MarkdownRenderer.render(app, source, el, sourcePath, component)

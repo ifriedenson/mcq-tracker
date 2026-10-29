@@ -8,6 +8,7 @@ const { officialIdOf } = require("./filters");
 const { normalizePage, sourceLink } = require("./provenance");
 const { verificationBanner, verificationFields } = require("./answer-verification");
 const { computedVerification, mergeVerification } = require("./computed-verification");
+const { figureEmbeds } = require("./figures");
 
 /* ---- checking imported notes */
 
@@ -19,8 +20,8 @@ async function noteIssues(text, exists) {
   if (!ans) out.push("No answer");
   if (!sec.choices.length && (!ans || /^[A-Ha-h]$/.test(ans))) out.push("No answer choices");
   let missing = /\[Figure not captured\]/i.test(body);
-  for (const m of body.matchAll(/!\[\[([^\]|#]+)/g)) {
-    if (!(await exists(m[1].trim()))) missing = true;
+  for (const path of figureEmbeds(body)) {
+    if (!(await exists(path))) missing = true;
   }
   if (missing) out.push("Missing figure");
   return out;

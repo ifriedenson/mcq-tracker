@@ -450,6 +450,8 @@ Point the plugin at a file of practice questions and it creates one note per que
 
 **Pictures, charts and screenshots.** With **Capture figures and pictures** on (the default), the plugin draws each page, finds charts, diagrams, photos and screenshots, cuts them out as PNG files, and saves them in an `images` folder inside your new folder. Each one is marked in the PDF text at the spot where it appears, so the AI puts it where it belongs: in the passage, in the question, or inside an answer choice that is a picture. Pictures that no note ends up using are deleted. Turn on **Also save a picture of every page** as a backup for figures that don't cut out cleanly.
 
+The marker is converted back into a normal image embed when the note is shown, so figures appear in practice, timed tests, results and card reviews and scale to the pane instead of overflowing it.
+
 **Everything in one place.** The new folder holds the notes, a copy of the original file, and (for PDFs) the images folder.
 
 **Answers the file doesn't give.** If the file shows the answer (including an answer key anywhere in it), that answer is used. If it doesn't, the AI works out the answer and writes an explanation, and the plugin:

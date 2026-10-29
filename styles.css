@@ -2337,9 +2337,25 @@
 .qt-stimulus img,
 .qt-stem img,
 .qt-choice-text img,
-.qt-explanation img {
+.qt-explanation img,
+.qt-study-stimulus img,
+.qt-study-card img {
   max-width: 100%;
   height: auto;
+  display: block;
+  margin: 8px auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+}
+
+.qt-choice-text img {
+  margin: 2px 0;
+}
+
+.qt-study-stimulus img,
+.qt-study-card img {
+  margin: 8px auto;
 }
 
 /* ---- filter counts and folder search ---- */
