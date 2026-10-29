@@ -8,6 +8,7 @@ const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
 const { recommendApResource, resourceTitle } = require("./ap-exam-resources");
 const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
+const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus");
 const { buildDailyTasks } = require("./assignments");
 
@@ -72,6 +73,7 @@ class TodayView extends ItemView {
     const manage = root.createDiv({ cls: "qt-row qt-small-row" });
     manage.createEl("button", { text: "Known & excluded", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
+    this.renderReminder(root, today, due, fresh);
     this.renderStudyPlan(root);
     this.renderDaily(root, today);
     this.renderTasks(root, today, due, visible);
@@ -103,6 +105,30 @@ class TodayView extends ItemView {
     this.renderNext(root, now);
   }
 
+  /** A quiet, local nudge. It never uses an OS notification or the network. */
+  renderReminder(root, today, due, fresh) {
+    const p = this.plugin;
+    if (!p.reminderInfo) return;
+    const info = p.reminderInfo();
+    if (!info.visible) return;
+    const card = root.createDiv({ cls: "qt-today-card qt-reminder-card" });
+    card.createDiv({ cls: "qt-today-kicker", text: "Study reminder" });
+    card.createDiv({ cls: "qt-today-title", text: info.text });
+    card.createDiv({
+      cls: "qt-today-meta",
+      text: `Local only · shown once a day from ${String(info.hour).padStart(2, "0")}:00 · no notification is sent`,
+    });
+    const row = card.createDiv({ cls: "qt-row qt-small-row" });
+    if (info.counts.daily) {
+      row.createEl("button", { text: "Start daily quiz", cls: "mod-cta" }).addEventListener("click", () => p.startDailyQuiz());
+    } else if (due.length) {
+      row.createEl("button", { text: "Start 5 minutes", cls: "mod-cta" }).addEventListener("click", () =>
+        p.startQuickPractice({ minutes: 5, pool: due, mode: "due", label: "questions due today" })
+      );
+    }
+    row.createEl("button", { text: "Dismiss today" }).addEventListener("click", () => p.dismissTodayReminder());
+  }
+
   renderStudyPlan(root) {
     const p = this.plugin;
     if (!p.studyPlan) return;
@@ -132,11 +158,13 @@ class TodayView extends ItemView {
     if (!daily.enabled) return;
     const streak = dailyStreak(daily, today);
     const done = dailyDone(daily, today);
+    const plan = adaptiveDailyCount(p.getQuestions(), daily, { today, settings: normalizeQuickAdaptive(p.settings.quickAdaptive) });
+    const count = plan.value;
     const card = root.createDiv({ cls: "qt-today-card qt-daily-card" });
     card.createDiv({ cls: "qt-today-kicker", text: "Daily quiz" });
     card.createDiv({
       cls: "qt-today-title",
-      text: done ? "Today is complete" : `${daily.count} question${daily.count === 1 ? "" : "s"} today`,
+      text: done ? "Today is complete" : `${count} question${count === 1 ? "" : "s"} today`,
     });
     card.createDiv({
       cls: "qt-today-meta",

@@ -10,6 +10,7 @@ const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
+const { normalizeQuickAdaptive } = require("./adaptive-session");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
@@ -285,6 +286,51 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     }
 
     if (this.activeMcqTab === "practice") {
+    const adaptive = normalizeQuickAdaptive(st.quickAdaptive);
+    new Setting(containerEl)
+      .setName("Adaptive session length")
+      .setDesc("Quick Practice and the daily quiz can warm up or stretch a little based on recent accuracy, pace and logged skips. Off by default; the recommendation is always shown and can be overridden for a session.")
+      .addToggle((t) =>
+        t.setValue(adaptive.enabled).onChange(async (v) => {
+          st.quickAdaptive = { ...adaptive, enabled: v };
+          await this.plugin.save();
+          this.plugin.refreshViews();
+          this.display();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Adaptive hard caps")
+      .setDesc("Minutes: minimum and maximum. Questions: minimum and maximum. The planner never goes outside these values.")
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.setValue(String(adaptive.minMinutes)).onChange(async (v) => {
+          st.quickAdaptive = normalizeQuickAdaptive({ ...adaptive, minMinutes: v });
+          await this.plugin.save();
+        });
+      })
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.setValue(String(adaptive.maxMinutes)).onChange(async (v) => {
+          st.quickAdaptive = normalizeQuickAdaptive({ ...adaptive, maxMinutes: v });
+          await this.plugin.save();
+        });
+      })
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.setValue(String(adaptive.minCount)).onChange(async (v) => {
+          st.quickAdaptive = normalizeQuickAdaptive({ ...adaptive, minCount: v });
+          await this.plugin.save();
+        });
+      })
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.setValue(String(adaptive.maxCount)).onChange(async (v) => {
+          st.quickAdaptive = normalizeQuickAdaptive({ ...adaptive, maxCount: v });
+          await this.plugin.save();
+        });
+      });
+
     new Setting(containerEl)
       .setName("Study cards skin")
       .setDesc("An optional Quizlet-style view over the same question notes. Off by default. Flip cards show the question first; choice cards let you pick a choice and then reveal the answer. Reviews use the normal scheduler and history.")

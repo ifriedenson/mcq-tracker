@@ -63,7 +63,9 @@ const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./s
 const { StudyStatusModal } = require("./study-status-modal");
 const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
-const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
+const { completeDailyQuiz: recordDailyCompletion, dailyDone, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
+const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
+const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
 const { normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
 const aiService = require("./ai-service");
@@ -125,6 +127,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
 
     this.manager = new OpenCodeManager(this);
+    this.setupReminder();
     this.app.workspace.onLayoutReady(() => {
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
       const ai = this.settings.ai;
@@ -193,6 +196,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-today", name: "Open Today", callback: () => this.activateToday() });
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
     this.addCommand({ id: "daily-quiz", name: "Daily quiz", callback: () => this.startDailyQuiz() });
+    this.addCommand({ id: "dismiss-reminder", name: "Dismiss today's study reminder", callback: () => this.dismissTodayReminder() });
     this.addCommand({ id: "study-skin", name: "Open study cards", callback: () => this.openStudySkin() });
     this.addCommand({
       id: "retry-pending-attempts",
@@ -528,6 +532,8 @@ class QuestionTrackerPlugin extends Plugin {
       .slice(0, 20);
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
     this.settings.dailyQuiz = normalizeDailyQuiz(saved.dailyQuiz);
+    this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
+    this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
@@ -2794,6 +2800,59 @@ class QuestionTrackerPlugin extends Plugin {
     return view;
   }
 
+  /* ---- local reminder (no OS notification, no network) */
+
+  setupReminder() {
+    if (typeof this.addStatusBarItem !== "function") return;
+    this.reminderEl = this.addStatusBarItem();
+    this.reminderEl.addClass("qt-reminder");
+    this.reminderEl.addEventListener("click", () => this.activateToday());
+    this.refreshReminder();
+    this.registerInterval(activeWindow.setInterval(() => this.refreshReminder(), 60000));
+  }
+
+  reminderCounts() {
+    const today = localDate();
+    const questions = this.mcqEnabled() ? this.getQuestions() : [];
+    const visible = questions.filter((q) => isStudyable(q.fm, today));
+    const daily = normalizeDailyQuiz(this.settings.dailyQuiz);
+    return {
+      due: visible.filter((q) => isDue(q.fm, today)).length,
+      fresh: visible.filter((q) => !Number(q.fm.attempts)).length,
+      daily: daily.enabled && !dailyDone(daily, today),
+    };
+  }
+
+  /** Read-only reminder state for Today and the status bar. */
+  reminderInfo(now) {
+    const counts = this.reminderCounts();
+    return computeReminderState(this.settings.reminder, { now, due: counts.due, fresh: counts.fresh, daily: counts.daily });
+  }
+
+  refreshReminder() {
+    if (!this.reminderEl) return;
+    const info = this.reminderInfo();
+    if (!info.enabled || !info.text || info.dismissed) {
+      this.reminderEl.setText(info.enabled ? "MCQ" : "");
+      this.reminderEl.toggleClass("qt-hidden", !info.enabled);
+      return;
+    }
+    this.reminderEl.toggleClass("qt-hidden", false);
+    this.reminderEl.setText(`MCQ: ${info.text}`);
+    this.reminderEl.setAttr("aria-label", `${info.text}. Open Today.`);
+    if (info.freshNudge) {
+      this.settings.reminder = markReminderShown(this.settings.reminder);
+      this.save().catch(() => {});
+    }
+  }
+
+  async dismissTodayReminder() {
+    this.settings.reminder = dismissReminder(this.settings.reminder);
+    await this.save();
+    this.refreshReminder();
+    new Notice("Reminder dismissed until tomorrow.");
+  }
+
   /** Start the opt-in daily quiz, reusing today's saved set when it is still valid. */
   async startDailyQuiz() {
     if (this.moduleOff("mcq")) return null;
@@ -2803,7 +2862,9 @@ class QuestionTrackerPlugin extends Plugin {
       return null;
     }
     const today = localDate();
-    const picked = pickDailyQuiz(this.getQuestions(), cfg, today);
+    const questions = this.getQuestions();
+    const adaptive = adaptiveDailyCount(questions, cfg, { today, settings: this.settings.quickAdaptive });
+    const picked = pickDailyQuiz(questions, { ...cfg, count: adaptive.value }, today);
     this.settings.dailyQuiz = picked.state;
     await this.save();
     if (!picked.questions.length) {

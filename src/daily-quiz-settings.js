@@ -2,6 +2,7 @@
 const { Setting } = require("obsidian");
 const { localDate } = require("./util");
 const { dailyDone, dailyStreak, foldersText, normalizeDailyQuiz } = require("./daily-quiz");
+const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 
 function renderDailySettings(containerEl, plugin, redisplay) {
   const st = plugin.settings;
@@ -42,6 +43,24 @@ function renderDailySettings(containerEl, plugin, redisplay) {
           await plugin.save();
           plugin.refreshViews();
         })
+    );
+
+  const adaptive = normalizeQuickAdaptive(st.quickAdaptive);
+  const plan = adaptiveDailyCount(plugin.getQuestions ? plugin.getQuestions() : [], daily, { today, settings: adaptive });
+  new Setting(containerEl)
+    .setName("Adapt the daily count")
+    .setDesc(
+      adaptive.enabled
+        ? `Today's set would use ${plan.value} question${plan.value === 1 ? "" : "s"} (${plan.band}). ${plan.reason || "The configured maximum still applies."}`
+        : "Use the same recent-recall signal as Quick Practice to warm up or stretch the daily set. Off by default."
+    )
+    .addToggle((toggle) =>
+      toggle.setValue(adaptive.enabled).onChange(async (value) => {
+        st.quickAdaptive = { ...adaptive, enabled: value };
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
     );
 
   new Setting(containerEl)

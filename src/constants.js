@@ -87,8 +87,10 @@ const DEFAULT_SETTINGS = {
   testSession: null, // a timed test in progress, so it survives closing Obsidian
   testBlueprints: [], // saved timed-test recipes: { name, count, minutes, from, to, mode, sections }
   quickDefaults: { count: 5, minutes: 5 },
+  quickAdaptive: { enabled: false, useRecommended: true, minMinutes: 2, maxMinutes: 15, minCount: 3, maxCount: 20, lookbackDays: 21 },
   quickSession: null, // a Quick Practice queue in progress, so it survives closing Obsidian
   studyLog: { sessions: [], dailyGoalMinutes: 60, lastCourse: "" }, // focus sessions and manual study time
+  reminder: { enabled: false, hour: 9, lastShown: "", dismissed: "" }, // local, once-a-day in-app nudge
   dailyQuiz: {
     enabled: false, // opt-in; no command, card or notifications until it is on
     count: 5,

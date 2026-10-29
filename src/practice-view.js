@@ -17,6 +17,7 @@ const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
 const { anyContext, buildStudyContext } = require("./ai-context");
 const { readActiveNoteContext } = require("./note-context");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
+const { adaptiveSessionValue, normalizeQuickAdaptive } = require("./adaptive-session");
 const { STUDY_SKIN_LABELS, normalizeStudySkin, resolveStudySkin, studyAttemptForChoice, studyAttemptForFlip, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
 
 class PracticeView extends ItemView {
@@ -955,7 +956,11 @@ class PracticeView extends ItemView {
     const pool = p.filtered(p.getQuestions());
     const today = fmtDate(new Date());
     const mode = p.settings.mode;
+    const adaptive = normalizeQuickAdaptive(p.settings.quickAdaptive);
+    let useRecommended = adaptive.enabled && adaptive.useRecommended !== false;
     const inMode = pool.filter((q) => (MODE_PRED[mode] || MODE_PRED.smart)(q.fm, today)).length;
+    const preferredFor = (kind) => (kind === "time" ? p.settings.quickDefaults.minutes : p.settings.quickDefaults.count);
+    const recommendFor = (kind) => adaptiveSessionValue(pool, { kind, base: preferredFor(kind), today, settings: adaptive });
     root.createEl("h3", { text: "Quick Practice" });
     root.createDiv({ cls: "qt-hint", text: "A short, one-handed session using your current filters and pick mode. Your progress is saved if Obsidian closes." });
     root.createDiv({ cls: "qt-count", text: `${inMode} question${inMode === 1 ? "" : "s"} available in ${mode === "smart" ? "Smart mix" : mode}.` });
@@ -965,22 +970,52 @@ class PracticeView extends ItemView {
     kind.createEl("option", { value: "count", text: "By question count" });
     kind.value = "time";
     const value = root.createEl("select", { cls: "qt-select" });
+    const recEl = root.createDiv({ cls: "qt-hint" });
+    let rec = recommendFor("time");
     const fill = () => {
+      rec = recommendFor(kind.value);
       value.empty();
-      const options = kind.value === "time" ? QUICK_TIME_OPTIONS : QUICK_COUNT_OPTIONS;
+      const baseOptions = kind.value === "time" ? QUICK_TIME_OPTIONS.slice() : QUICK_COUNT_OPTIONS.slice();
+      const options = baseOptions.slice();
+      if (adaptive.enabled && useRecommended && !options.includes(rec.value)) options.push(rec.value);
+      options.sort((a, b) => a - b);
       options.forEach((n) => value.createEl("option", { value: String(n), text: kind.value === "time" ? `${n} minutes` : `${n} questions` }));
-      const preferred = kind.value === "time" ? p.settings.quickDefaults.minutes : p.settings.quickDefaults.count;
-      value.value = String(options.includes(preferred) ? preferred : options[0]);
+      const preferred = preferredFor(kind.value);
+      value.value = String(adaptive.enabled && useRecommended ? rec.value : options.includes(preferred) ? preferred : options[0]);
+      value.disabled = adaptive.enabled && useRecommended;
+      recEl.setText(
+        adaptive.enabled && useRecommended
+          ? `Recommended: ${rec.value} ${kind.value === "time" ? "minutes" : "questions"} (${rec.band === "stretch" ? "stretch" : rec.band === "warmup" ? "warm-up" : "steady"}). ${rec.reason || "Using your chosen length."}`
+          : adaptive.enabled
+            ? "Adaptive length is on, but you chose your own length for this session."
+            : "Adaptive length is off. Turn it on under Settings, MCQ Tracker, Practice to size sessions from recent recall."
+      );
     };
     fill();
     kind.addEventListener("change", fill);
+    if (adaptive.enabled) {
+      const adaptiveRow = root.createDiv({ cls: "qt-row qt-small-row" });
+      const label = adaptiveRow.createEl("label", { cls: "qt-hint" });
+      const check = label.createEl("input", { type: "checkbox" });
+      check.checked = useRecommended;
+      label.createSpan({ text: " Use the recommended length" });
+      check.addEventListener("change", async () => {
+        useRecommended = check.checked;
+        p.settings.quickAdaptive = { ...adaptive, useRecommended };
+        await p.save();
+        fill();
+      });
+    }
     const start = root.createEl("button", { text: "Start Quick Practice", cls: "mod-cta qt-primary" });
     start.disabled = !inMode;
     start.addEventListener("click", async () => {
-      const selected = Number(value.value);
-      if (kind.value === "time") p.settings.quickDefaults.minutes = selected;
-      else p.settings.quickDefaults.count = selected;
-      await p.save();
+      const recommendation = recommendFor(kind.value);
+      const selected = adaptive.enabled && useRecommended ? recommendation.value : Number(value.value);
+      if (!(adaptive.enabled && useRecommended)) {
+        if (kind.value === "time") p.settings.quickDefaults.minutes = selected;
+        else p.settings.quickDefaults.count = selected;
+        await p.save();
+      }
       await this.startQuick(kind.value, selected);
     });
     const back = root.createEl("button", { text: "Back" });

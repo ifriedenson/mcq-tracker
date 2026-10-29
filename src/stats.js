@@ -20,20 +20,23 @@ function computeStats(questions, field) {
     const att = Number(q.fm.attempts) || 0;
     const cor = Math.min(Number(q.fm.correct_count) || 0, att);
     const sec = att ? Number(q.fm.time_spent_total) || 0 : 0;
+    const skip = Math.max(0, Math.round(Number(q.fm.skip_count) || 0));
     for (const v of statVals(q, field)) {
       let r = rows.get(v);
-      if (!r) rows.set(v, (r = { value: v, notes: 0, seen: 0, attempts: 0, correct: 0, seconds: 0 }));
+      if (!r) rows.set(v, (r = { value: v, notes: 0, seen: 0, attempts: 0, correct: 0, seconds: 0, skipped: 0 }));
       r.notes++;
       if (att > 0) r.seen++;
       r.attempts += att;
       r.correct += cor;
       r.seconds += sec;
+      r.skipped += skip;
     }
   }
   const out = [...rows.values()].map((r) => ({
     ...r,
     accuracy: r.attempts ? r.correct / r.attempts : null,
     avgSeconds: r.attempts ? r.seconds / r.attempts : null,
+    skipRate: r.attempts + r.skipped ? r.skipped / (r.attempts + r.skipped) : 0,
   }));
   out.sort((a, b) => {
     if ((a.accuracy === null) !== (b.accuracy === null)) return a.accuracy === null ? 1 : -1;
@@ -53,8 +56,9 @@ function weakestRow(rows, minAttempts) {
 }
 
 function overallStats(questions) {
-  const o = { notes: questions.length, seen: 0, attempts: 0, correct: 0, seconds: 0 };
+  const o = { notes: questions.length, seen: 0, attempts: 0, correct: 0, seconds: 0, skipped: 0 };
   for (const q of questions) {
+    o.skipped += Math.max(0, Math.round(Number(q.fm.skip_count) || 0));
     const att = Number(q.fm.attempts) || 0;
     if (!att) continue;
     o.seen++;
@@ -64,6 +68,7 @@ function overallStats(questions) {
   }
   o.accuracy = o.attempts ? o.correct / o.attempts : null;
   o.avgSeconds = o.attempts ? o.seconds / o.attempts : null;
+  o.skipRate = o.attempts + o.skipped ? o.skipped / (o.attempts + o.skipped) : 0;
   return o;
 }
 

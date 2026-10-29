@@ -218,6 +218,7 @@ function buildDashboard(options) {
     weak: weakestRow(stats),
     skills: stats.slice(0, 8),
     breakdown: stats.slice(0, 8),
+    skippedRows: stats.filter((row) => row.skipped > 0).sort((a, b) => b.skipped - a.skipped || a.value.localeCompare(b.value)).slice(0, 8),
     grades: buildGradeSnapshot(scopedQuestions),
     calibration,
     retention,

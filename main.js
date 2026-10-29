@@ -16,6 +16,168 @@ function __require(name) {
   return name.startsWith("./") ? __load(name.slice(2).replace(/\.js$/, "")) : require(name);
 }
 
+/* ---- src/adaptive-session.js ---- */
+__defs["adaptive-session"] = function (module, exports, require) {
+/*
+ * Adaptive session sizing.
+ *
+ * A short warm-up is better after a rough stretch; a confident learner can
+ * stretch a little. This module only recommends a length from recent,
+ * local history. The learner always sees and can override the choice, and the
+ * configured caps are hard limits.
+ */
+const { parseHistory } = require("./stats");
+const { addDays, fmtDate, str } = require("./util");
+
+const DEFAULT_QUICK_ADAPTIVE = {
+  enabled: false,
+  useRecommended: true,
+  minMinutes: 2,
+  maxMinutes: 15,
+  minCount: 3,
+  maxCount: 20,
+  lookbackDays: 21,
+};
+
+function clampInt(value, min, max, fallback) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function normalizeQuickAdaptive(value) {
+  const src = value && typeof value === "object" ? value : {};
+  const minMinutes = clampInt(src.minMinutes, 1, 60, DEFAULT_QUICK_ADAPTIVE.minMinutes);
+  const maxMinutes = clampInt(src.maxMinutes, minMinutes, 90, DEFAULT_QUICK_ADAPTIVE.maxMinutes);
+  const minCount = clampInt(src.minCount, 1, 50, DEFAULT_QUICK_ADAPTIVE.minCount);
+  const maxCount = clampInt(src.maxCount, minCount, 50, DEFAULT_QUICK_ADAPTIVE.maxCount);
+  return {
+    enabled: src.enabled === true,
+    useRecommended: src.useRecommended !== false,
+    minMinutes,
+    maxMinutes,
+    minCount,
+    maxCount,
+    lookbackDays: clampInt(src.lookbackDays, 7, 90, DEFAULT_QUICK_ADAPTIVE.lookbackDays),
+  };
+}
+
+function dayValue(value) {
+  if (value instanceof Date) return isNaN(value.getTime()) ? "" : fmtDate(value);
+  const text = str(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : fmtDate(new Date());
+}
+
+function dateFromDay(day) {
+  const [year, month, date] = day.split("-").map(Number);
+  return new Date(year, month - 1, date);
+}
+
+/** Recent correctness, logged skips and pace, or nulls when there is not enough history. */
+function recentFluency(questions, opts) {
+  const o = opts || {};
+  const today = dayValue(o.today);
+  const days = clampInt(o.lookbackDays, 7, 90, DEFAULT_QUICK_ADAPTIVE.lookbackDays);
+  const first = fmtDate(addDays(dateFromDay(today), -days));
+  let correct = 0;
+  let incorrect = 0;
+  let skipped = 0;
+  let seconds = 0;
+  let targetSeconds = 0;
+  for (const q of Array.isArray(questions) ? questions : []) {
+    const fm = (q && q.fm) || {};
+    const target = Number(fm.target_seconds) || 0;
+    for (const entry of parseHistory(fm.history)) {
+      const day = str(entry.when).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < first || day > today) continue;
+      if (entry.result === "correct") {
+        correct++;
+        seconds += Math.max(0, Number(entry.seconds) || 0);
+        targetSeconds += target;
+      } else if (entry.result === "incorrect") {
+        incorrect++;
+        seconds += Math.max(0, Number(entry.seconds) || 0);
+        targetSeconds += target;
+      } else if (entry.result === "skipped") {
+        skipped++;
+      }
+    }
+  }
+  const attempted = correct + incorrect;
+  const total = attempted + skipped;
+  return {
+    attempts: attempted,
+    correct,
+    incorrect,
+    skipped,
+    total,
+    accuracy: attempted ? correct / attempted : null,
+    skipRate: total ? skipped / total : 0,
+    avgSeconds: attempted ? seconds / attempted : null,
+    averageTarget: attempted ? targetSeconds / attempted : null,
+    pace: attempted && targetSeconds ? seconds / targetSeconds : null,
+    days,
+  };
+}
+
+/** Warm up or stretch one base length, respecting the configured hard caps. */
+function adaptiveSessionValue(questions, opts) {
+  const o = opts || {};
+  const settings = normalizeQuickAdaptive(o.settings);
+  const kind = o.kind === "count" ? "count" : "time";
+  const base =
+    kind === "count"
+      ? clampInt(o.base, 1, 50, 5)
+      : clampInt(o.base, 1, 90, 5);
+  const metrics = recentFluency(questions, { today: o.today, lookbackDays: settings.lookbackDays });
+  const unchanged = { enabled: settings.enabled, value: base, base, kind, band: "steady", reason: "", metrics };
+  if (!settings.enabled) return unchanged;
+  if (metrics.attempts < 8) {
+    return { ...unchanged, reason: "Not enough recent attempts to adapt yet; using your chosen length." };
+  }
+
+  const accuracy = metrics.accuracy === null ? 0 : metrics.accuracy;
+  const pace = metrics.pace === null ? 1 : metrics.pace;
+  let band = "steady";
+  let factor = 1;
+  if (accuracy >= 0.8 && metrics.skipRate <= 0.15 && pace <= 1.2) {
+    band = "stretch";
+    factor = 1.35;
+  } else if (accuracy < 0.55 || metrics.skipRate >= 0.3 || pace > 1.5) {
+    band = "warmup";
+    factor = 0.65;
+  }
+
+  const raw = base * factor;
+  const value =
+    kind === "count"
+      ? clampInt(raw, settings.minCount, settings.maxCount, base)
+      : clampInt(raw, settings.minMinutes, settings.maxMinutes, base);
+  const skipText = metrics.skipped ? ` and ${metrics.skipped} logged skip${metrics.skipped === 1 ? "" : "s"}` : "";
+  const paceText = metrics.pace === null ? "" : `, ${Math.round(metrics.pace * 100)}% of target time`;
+  const reason = `${Math.round(accuracy * 100)}% recent accuracy${skipText}${paceText}.`;
+  return { enabled: true, value, base, kind, band, reason, metrics };
+}
+
+/** Daily quiz uses the same signal but never exceeds its configured maximum. */
+function adaptiveDailyCount(questions, state, opts) {
+  const o = opts || {};
+  const base = clampInt(state && state.count, 1, 50, 5);
+  const settings = normalizeQuickAdaptive(o.settings);
+  const plan = adaptiveSessionValue(questions, { kind: "count", base, today: o.today, settings });
+  const max = settings.enabled ? settings.maxCount : base;
+  return { ...plan, value: Math.max(1, Math.min(max, plan.value)) };
+}
+
+module.exports = {
+  DEFAULT_QUICK_ADAPTIVE,
+  adaptiveDailyCount,
+  adaptiveSessionValue,
+  normalizeQuickAdaptive,
+  recentFluency,
+};
+};
+
 /* ---- src/agent-edit-review.js ---- */
 __defs["agent-edit-review"] = function (module, exports, require) {
 /*
@@ -1157,6 +1319,7 @@ function buildDashboard(options) {
     weak: weakestRow(stats),
     skills: stats.slice(0, 8),
     breakdown: stats.slice(0, 8),
+    skippedRows: stats.filter((row) => row.skipped > 0).sort((a, b) => b.skipped - a.skipped || a.value.localeCompare(b.value)).slice(0, 8),
     grades: buildGradeSnapshot(scopedQuestions),
     calibration,
     retention,
@@ -1192,7 +1355,7 @@ const { fmtPct } = require("./stats");
 const { fmtClock } = require("./util");
 const { BREAKDOWN_FIELDS, FIELD_LABELS } = require("./analytics");
 
-const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "calibration", "retention", "weak", "grades", "courses", "exam"];
+const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "calibration", "retention", "weak", "skips", "grades", "courses", "exam"];
 const ALIASES = {
   overview: "overview",
   dashboard: "overview",
@@ -1208,6 +1371,8 @@ const ALIASES = {
   trend: "retention",
   weak: "weak",
   skills: "weak",
+  skips: "skips",
+  skip: "skips",
   grade: "grades",
   grades: "grades",
   courses: "courses",
@@ -1223,6 +1388,7 @@ const LABELS = {
   calibration: "Confidence calibration",
   retention: "Retention trend",
   weak: "Weak spots",
+  skips: "Logged skips",
   grades: "Grade snapshot",
   courses: "Study time by course",
   exam: "Next exam",
@@ -1265,6 +1431,7 @@ function renderStats(container, data) {
   tile(tiles, "Accuracy", fmtPct(o.accuracy), o.attempts ? `${fmtClock(Math.round(o.avgSeconds))} per question` : "No attempts yet");
   tile(tiles, "Study today", `${data.study.todayMinutes} min`, `${data.study.streak} day streak`);
   tile(tiles, "Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
+  tile(tiles, "Logged skips", String(o.skipped), o.skipped ? "Not counted as wrong" : "None logged");
 }
 
 function renderHeatmap(container, data) {
@@ -1347,7 +1514,7 @@ function renderBreakdown(container, data, hooks) {
     const line = list.createDiv({ cls: "qt-ins-row" });
     const main = line.createDiv({ cls: "qt-ins-main" });
     main.createDiv({ cls: "qt-ins-name", text: row.value });
-    main.createDiv({ cls: "qt-hint", text: `${row.attempts} attempt${row.attempts === 1 ? "" : "s"} · ${row.notes} note${row.notes === 1 ? "" : "s"}` });
+    main.createDiv({ cls: "qt-hint", text: `${row.attempts} attempt${row.attempts === 1 ? "" : "s"} · ${row.notes} note${row.notes === 1 ? "" : "s"}${row.skipped ? ` · ${row.skipped} logged skip${row.skipped === 1 ? "" : "s"}` : ""}` });
     const meter = line.createDiv({ cls: "qt-ins-meter" });
     const band = row.accuracy < 0.6 ? "is-low" : row.accuracy < 0.8 ? "is-mid" : "is-high";
     meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round(row.accuracy * 100)}%` });
@@ -1356,6 +1523,27 @@ function renderBreakdown(container, data, hooks) {
       line.createEl("button", { text: "Practice" }).addEventListener("click", () => hooks.onPractice(field, row.value));
     }
   }
+}
+
+function renderSkips(container, data) {
+  heading(container, "Logged skips");
+  const rows = data.skippedRows || [];
+  if (!rows.length) {
+    container.createDiv({
+      cls: "qt-hint",
+      text: "No logged skips yet. Use **Don't know** in practice to record that a question is not in memory yet. It lowers the next review without counting as a wrong answer.",
+    });
+    return;
+  }
+  const list = container.createDiv({ cls: "qt-ins-list" });
+  for (const row of rows) {
+    const line = list.createDiv({ cls: "qt-ins-row" });
+    const main = line.createDiv({ cls: "qt-ins-main" });
+    main.createDiv({ cls: "qt-ins-name", text: row.value });
+    main.createDiv({ cls: "qt-hint", text: `${row.skipped} logged skip${row.skipped === 1 ? "" : "s"} · ${fmtPct(row.accuracy)} accuracy on ${row.attempts} attempt${row.attempts === 1 ? "" : "s"}` });
+    line.createSpan({ cls: "qt-ins-pct", text: `${Math.round(row.skipRate * 100)}% skipped` });
+  }
+  container.createDiv({ cls: "qt-hint", text: "Skips are not wrong answers: accuracy and streaks stay untouched. The plain Skip button still records nothing." });
 }
 
 function renderGrade(container, data) {
@@ -1434,6 +1622,7 @@ function renderDashboardEmbed(container, data, options, hooks) {
   if (show("retention")) renderRetention(container, data);
   if (show("grades")) renderGrade(container, data);
   if (show("weak")) renderBreakdown(container, data, hooks);
+  if (show("skips")) renderSkips(container, data);
   if (show("courses")) renderCourses(container, data);
   if (show("exam")) renderExam(container, data);
 }
@@ -1447,6 +1636,7 @@ module.exports = {
   renderDashboardEmbed,
   renderGrade,
   renderRetention,
+  renderSkips,
 };
 };
 
@@ -12832,8 +13022,10 @@ const DEFAULT_SETTINGS = {
   testSession: null, // a timed test in progress, so it survives closing Obsidian
   testBlueprints: [], // saved timed-test recipes: { name, count, minutes, from, to, mode, sections }
   quickDefaults: { count: 5, minutes: 5 },
+  quickAdaptive: { enabled: false, useRecommended: true, minMinutes: 2, maxMinutes: 15, minCount: 3, maxCount: 20, lookbackDays: 21 },
   quickSession: null, // a Quick Practice queue in progress, so it survives closing Obsidian
   studyLog: { sessions: [], dailyGoalMinutes: 60, lastCourse: "" }, // focus sessions and manual study time
+  reminder: { enabled: false, hour: 9, lastShown: "", dismissed: "" }, // local, once-a-day in-app nudge
   dailyQuiz: {
     enabled: false, // opt-in; no command, card or notifications until it is on
     count: 5,
@@ -13541,6 +13733,7 @@ __defs["daily-quiz-settings"] = function (module, exports, require) {
 const { Setting } = require("obsidian");
 const { localDate } = require("./util");
 const { dailyDone, dailyStreak, foldersText, normalizeDailyQuiz } = require("./daily-quiz");
+const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 
 function renderDailySettings(containerEl, plugin, redisplay) {
   const st = plugin.settings;
@@ -13581,6 +13774,24 @@ function renderDailySettings(containerEl, plugin, redisplay) {
           await plugin.save();
           plugin.refreshViews();
         })
+    );
+
+  const adaptive = normalizeQuickAdaptive(st.quickAdaptive);
+  const plan = adaptiveDailyCount(plugin.getQuestions ? plugin.getQuestions() : [], daily, { today, settings: adaptive });
+  new Setting(containerEl)
+    .setName("Adapt the daily count")
+    .setDesc(
+      adaptive.enabled
+        ? `Today's set would use ${plan.value} question${plan.value === 1 ? "" : "s"} (${plan.band}). ${plan.reason || "The configured maximum still applies."}`
+        : "Use the same recent-recall signal as Quick Practice to warm up or stretch the daily set. Off by default."
+    )
+    .addToggle((toggle) =>
+      toggle.setValue(adaptive.enabled).onChange(async (value) => {
+        st.quickAdaptive = { ...adaptive, enabled: value };
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
     );
 
   new Setting(containerEl)
@@ -19708,7 +19919,7 @@ const { fmtClock, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
-const { renderBreakdown, renderCalibration, renderGrade, renderRetention } = require("./analytics-embed");
+const { renderBreakdown, renderCalibration, renderGrade, renderRetention, renderSkips } = require("./analytics-embed");
 
 /* ------------------------------------------- weak spots and error log */
 
@@ -19818,6 +20029,7 @@ class InsightsView extends ItemView {
     tile("Accuracy", fmtPct(o.accuracy), o.attempts ? `${fmtClock(Math.round(o.avgSeconds))} per question` : "No attempts yet");
     tile("Study today", `${data.study.todayMinutes} min`, `${data.study.streak} day streak`);
     tile("Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
+    tile("Logged skips", String(o.skipped), o.skipped ? "Not counted as wrong" : "None logged");
     renderGrade(root, data);
 
     root.createEl("h3", { cls: "qt-today-section", text: "Study heatmap" });
@@ -19854,6 +20066,7 @@ class InsightsView extends ItemView {
     renderBreakdown(root, data, {
       onPractice: (field, value) => p.practiceWith({ [field]: [value] }, "smart"),
     });
+    renderSkips(root, data);
 
     if (data.byCourse.length) {
       root.createEl("h3", { cls: "qt-today-section", text: "Study time by course" });
@@ -26030,7 +26243,9 @@ const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./s
 const { StudyStatusModal } = require("./study-status-modal");
 const { gradeWithAi } = require("./card-grading-ai");
 const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, unpackPendingGrades } = require("./card-grade-queue");
-const { completeDailyQuiz: recordDailyCompletion, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
+const { completeDailyQuiz: recordDailyCompletion, dailyDone, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
+const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
+const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
 const { normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
 const aiService = require("./ai-service");
@@ -26092,6 +26307,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
 
     this.manager = new OpenCodeManager(this);
+    this.setupReminder();
     this.app.workspace.onLayoutReady(() => {
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
       const ai = this.settings.ai;
@@ -26160,6 +26376,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-today", name: "Open Today", callback: () => this.activateToday() });
     this.addCommand({ id: "quick-practice", name: "Quick Practice", callback: () => this.activateQuickPractice() });
     this.addCommand({ id: "daily-quiz", name: "Daily quiz", callback: () => this.startDailyQuiz() });
+    this.addCommand({ id: "dismiss-reminder", name: "Dismiss today's study reminder", callback: () => this.dismissTodayReminder() });
     this.addCommand({ id: "study-skin", name: "Open study cards", callback: () => this.openStudySkin() });
     this.addCommand({
       id: "retry-pending-attempts",
@@ -26495,6 +26712,8 @@ class QuestionTrackerPlugin extends Plugin {
       .slice(0, 20);
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
     this.settings.dailyQuiz = normalizeDailyQuiz(saved.dailyQuiz);
+    this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
+    this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
@@ -28761,6 +28980,59 @@ class QuestionTrackerPlugin extends Plugin {
     return view;
   }
 
+  /* ---- local reminder (no OS notification, no network) */
+
+  setupReminder() {
+    if (typeof this.addStatusBarItem !== "function") return;
+    this.reminderEl = this.addStatusBarItem();
+    this.reminderEl.addClass("qt-reminder");
+    this.reminderEl.addEventListener("click", () => this.activateToday());
+    this.refreshReminder();
+    this.registerInterval(activeWindow.setInterval(() => this.refreshReminder(), 60000));
+  }
+
+  reminderCounts() {
+    const today = localDate();
+    const questions = this.mcqEnabled() ? this.getQuestions() : [];
+    const visible = questions.filter((q) => isStudyable(q.fm, today));
+    const daily = normalizeDailyQuiz(this.settings.dailyQuiz);
+    return {
+      due: visible.filter((q) => isDue(q.fm, today)).length,
+      fresh: visible.filter((q) => !Number(q.fm.attempts)).length,
+      daily: daily.enabled && !dailyDone(daily, today),
+    };
+  }
+
+  /** Read-only reminder state for Today and the status bar. */
+  reminderInfo(now) {
+    const counts = this.reminderCounts();
+    return computeReminderState(this.settings.reminder, { now, due: counts.due, fresh: counts.fresh, daily: counts.daily });
+  }
+
+  refreshReminder() {
+    if (!this.reminderEl) return;
+    const info = this.reminderInfo();
+    if (!info.enabled || !info.text || info.dismissed) {
+      this.reminderEl.setText(info.enabled ? "MCQ" : "");
+      this.reminderEl.toggleClass("qt-hidden", !info.enabled);
+      return;
+    }
+    this.reminderEl.toggleClass("qt-hidden", false);
+    this.reminderEl.setText(`MCQ: ${info.text}`);
+    this.reminderEl.setAttr("aria-label", `${info.text}. Open Today.`);
+    if (info.freshNudge) {
+      this.settings.reminder = markReminderShown(this.settings.reminder);
+      this.save().catch(() => {});
+    }
+  }
+
+  async dismissTodayReminder() {
+    this.settings.reminder = dismissReminder(this.settings.reminder);
+    await this.save();
+    this.refreshReminder();
+    new Notice("Reminder dismissed until tomorrow.");
+  }
+
   /** Start the opt-in daily quiz, reusing today's saved set when it is still valid. */
   async startDailyQuiz() {
     if (this.moduleOff("mcq")) return null;
@@ -28770,7 +29042,9 @@ class QuestionTrackerPlugin extends Plugin {
       return null;
     }
     const today = localDate();
-    const picked = pickDailyQuiz(this.getQuestions(), cfg, today);
+    const questions = this.getQuestions();
+    const adaptive = adaptiveDailyCount(questions, cfg, { today, settings: this.settings.quickAdaptive });
+    const picked = pickDailyQuiz(questions, { ...cfg, count: adaptive.value }, today);
     this.settings.dailyQuiz = picked.state;
     await this.save();
     if (!picked.questions.length) {
@@ -30213,6 +30487,7 @@ const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
 const { anyContext, buildStudyContext } = require("./ai-context");
 const { readActiveNoteContext } = require("./note-context");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
+const { adaptiveSessionValue, normalizeQuickAdaptive } = require("./adaptive-session");
 const { STUDY_SKIN_LABELS, normalizeStudySkin, resolveStudySkin, studyAttemptForChoice, studyAttemptForFlip, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
 
 class PracticeView extends ItemView {
@@ -31151,7 +31426,11 @@ class PracticeView extends ItemView {
     const pool = p.filtered(p.getQuestions());
     const today = fmtDate(new Date());
     const mode = p.settings.mode;
+    const adaptive = normalizeQuickAdaptive(p.settings.quickAdaptive);
+    let useRecommended = adaptive.enabled && adaptive.useRecommended !== false;
     const inMode = pool.filter((q) => (MODE_PRED[mode] || MODE_PRED.smart)(q.fm, today)).length;
+    const preferredFor = (kind) => (kind === "time" ? p.settings.quickDefaults.minutes : p.settings.quickDefaults.count);
+    const recommendFor = (kind) => adaptiveSessionValue(pool, { kind, base: preferredFor(kind), today, settings: adaptive });
     root.createEl("h3", { text: "Quick Practice" });
     root.createDiv({ cls: "qt-hint", text: "A short, one-handed session using your current filters and pick mode. Your progress is saved if Obsidian closes." });
     root.createDiv({ cls: "qt-count", text: `${inMode} question${inMode === 1 ? "" : "s"} available in ${mode === "smart" ? "Smart mix" : mode}.` });
@@ -31161,22 +31440,52 @@ class PracticeView extends ItemView {
     kind.createEl("option", { value: "count", text: "By question count" });
     kind.value = "time";
     const value = root.createEl("select", { cls: "qt-select" });
+    const recEl = root.createDiv({ cls: "qt-hint" });
+    let rec = recommendFor("time");
     const fill = () => {
+      rec = recommendFor(kind.value);
       value.empty();
-      const options = kind.value === "time" ? QUICK_TIME_OPTIONS : QUICK_COUNT_OPTIONS;
+      const baseOptions = kind.value === "time" ? QUICK_TIME_OPTIONS.slice() : QUICK_COUNT_OPTIONS.slice();
+      const options = baseOptions.slice();
+      if (adaptive.enabled && useRecommended && !options.includes(rec.value)) options.push(rec.value);
+      options.sort((a, b) => a - b);
       options.forEach((n) => value.createEl("option", { value: String(n), text: kind.value === "time" ? `${n} minutes` : `${n} questions` }));
-      const preferred = kind.value === "time" ? p.settings.quickDefaults.minutes : p.settings.quickDefaults.count;
-      value.value = String(options.includes(preferred) ? preferred : options[0]);
+      const preferred = preferredFor(kind.value);
+      value.value = String(adaptive.enabled && useRecommended ? rec.value : options.includes(preferred) ? preferred : options[0]);
+      value.disabled = adaptive.enabled && useRecommended;
+      recEl.setText(
+        adaptive.enabled && useRecommended
+          ? `Recommended: ${rec.value} ${kind.value === "time" ? "minutes" : "questions"} (${rec.band === "stretch" ? "stretch" : rec.band === "warmup" ? "warm-up" : "steady"}). ${rec.reason || "Using your chosen length."}`
+          : adaptive.enabled
+            ? "Adaptive length is on, but you chose your own length for this session."
+            : "Adaptive length is off. Turn it on under Settings, MCQ Tracker, Practice to size sessions from recent recall."
+      );
     };
     fill();
     kind.addEventListener("change", fill);
+    if (adaptive.enabled) {
+      const adaptiveRow = root.createDiv({ cls: "qt-row qt-small-row" });
+      const label = adaptiveRow.createEl("label", { cls: "qt-hint" });
+      const check = label.createEl("input", { type: "checkbox" });
+      check.checked = useRecommended;
+      label.createSpan({ text: " Use the recommended length" });
+      check.addEventListener("change", async () => {
+        useRecommended = check.checked;
+        p.settings.quickAdaptive = { ...adaptive, useRecommended };
+        await p.save();
+        fill();
+      });
+    }
     const start = root.createEl("button", { text: "Start Quick Practice", cls: "mod-cta qt-primary" });
     start.disabled = !inMode;
     start.addEventListener("click", async () => {
-      const selected = Number(value.value);
-      if (kind.value === "time") p.settings.quickDefaults.minutes = selected;
-      else p.settings.quickDefaults.count = selected;
-      await p.save();
+      const recommendation = recommendFor(kind.value);
+      const selected = adaptive.enabled && useRecommended ? recommendation.value : Number(value.value);
+      if (!(adaptive.enabled && useRecommended)) {
+        if (kind.value === "time") p.settings.quickDefaults.minutes = selected;
+        else p.settings.quickDefaults.count = selected;
+        await p.save();
+      }
       await this.startQuick(kind.value, selected);
     });
     const back = root.createEl("button", { text: "Back" });
@@ -34287,6 +34596,84 @@ module.exports = {
 };
 };
 
+/* ---- src/reminder.js ---- */
+__defs["reminder"] = function (module, exports, require) {
+/*
+ * Local daily reminder.
+ *
+ * No OS notification and no network request: this only decides whether Today
+ * and the status bar should show a quiet nudge, at most once per local day.
+ */
+const { fmtDate, str } = require("./util");
+
+const DEFAULT_REMINDER = {
+  enabled: false,
+  hour: 9,
+  lastShown: "",
+  dismissed: "",
+};
+
+function normalizeReminder(value) {
+  const src = value && typeof value === "object" ? value : {};
+  const hour = Math.round(Number(src.hour));
+  return {
+    enabled: src.enabled === true,
+    hour: Number.isFinite(hour) ? Math.max(0, Math.min(23, hour)) : DEFAULT_REMINDER.hour,
+    lastShown: /^\d{4}-\d{2}-\d{2}$/.test(str(src.lastShown).slice(0, 10)) ? str(src.lastShown).slice(0, 10) : "",
+    dismissed: /^\d{4}-\d{2}-\d{2}$/.test(str(src.dismissed).slice(0, 10)) ? str(src.dismissed).slice(0, 10) : "",
+  };
+}
+
+function reminderText(counts) {
+  const c = counts || {};
+  const due = Math.max(0, Math.round(Number(c.due) || 0));
+  const fresh = Math.max(0, Math.round(Number(c.fresh) || 0));
+  const daily = c.daily === true;
+  if (due > 0) return `${due} question${due === 1 ? "" : "s"} due today`;
+  if (fresh > 0) return `${fresh} new question${fresh === 1 ? "" : "s"} ready`;
+  if (daily) return "Today's daily quiz is ready";
+  return "";
+}
+
+function reminderState(state, opts) {
+  const o = opts || {};
+  const cfg = normalizeReminder(state);
+  const now = o.now instanceof Date && !isNaN(o.now.getTime()) ? o.now : new Date();
+  const today = fmtDate(now);
+  const counts = {
+    due: Math.max(0, Math.round(Number(o.due) || 0)),
+    fresh: Math.max(0, Math.round(Number(o.fresh) || 0)),
+    daily: o.daily === true,
+  };
+  const text = reminderText(counts);
+  const afterHour = now.getHours() >= cfg.hour;
+  const visible = cfg.enabled && !!text && afterHour && cfg.dismissed !== today;
+  const freshNudge = visible && cfg.lastShown !== today;
+  return { enabled: cfg.enabled, visible, freshNudge, text, today, counts, hour: cfg.hour, dismissed: cfg.dismissed === today };
+}
+
+function markReminderShown(state, now) {
+  const cfg = normalizeReminder(state);
+  const today = fmtDate(now instanceof Date ? now : new Date());
+  return { ...cfg, lastShown: today };
+}
+
+function dismissReminder(state, now) {
+  const cfg = normalizeReminder(state);
+  const today = fmtDate(now instanceof Date ? now : new Date());
+  return { ...cfg, dismissed: today, lastShown: today };
+}
+
+module.exports = {
+  DEFAULT_REMINDER,
+  dismissReminder,
+  markReminderShown,
+  normalizeReminder,
+  reminderState,
+  reminderText,
+};
+};
+
 /* ---- src/results-export.js ---- */
 __defs["results-export"] = function (module, exports, require) {
 /*
@@ -34819,6 +35206,34 @@ function renderGeneral(containerEl, plugin, redisplay) {
       });
     });
 
+  const reminder = st.reminder || { enabled: false, hour: 9 };
+  new Setting(containerEl)
+    .setName("Daily study reminder")
+    .setDesc("A quiet in-app nudge on Today and in the status bar, at most once a day. It never uses an operating-system notification, sends nothing, and is off by default.")
+    .addToggle((t) =>
+      t.setValue(reminder.enabled === true).onChange(async (v) => {
+        st.reminder = { ...reminder, enabled: v };
+        await plugin.save();
+        plugin.refreshReminder();
+        redisplay();
+      })
+    )
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "0";
+      t.inputEl.max = "23";
+      t.setValue(String(reminder.hour === undefined ? 9 : reminder.hour));
+      t.onChange(async (v) => {
+        const hour = Math.round(Number(v));
+        if (Number.isFinite(hour)) {
+          st.reminder = { ...reminder, hour: Math.max(0, Math.min(23, hour)) };
+          await plugin.save();
+          plugin.refreshReminder();
+        }
+      });
+    })
+    .addButton((b) => b.setButtonText("Dismiss today").onClick(() => plugin.dismissTodayReminder()));
+
   new Setting(containerEl)
     .setName("Open the practice view when Obsidian starts")
     .setDesc("Opens the practice view as soon as the workspace is ready, so you can start with one tap. Needs the MCQ Tracker module.")
@@ -34857,6 +35272,7 @@ const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
+const { normalizeQuickAdaptive } = require("./adaptive-session");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
@@ -35132,6 +35548,51 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     }
 
     if (this.activeMcqTab === "practice") {
+    const adaptive = normalizeQuickAdaptive(st.quickAdaptive);
+    new Setting(containerEl)
+      .setName("Adaptive session length")
+      .setDesc("Quick Practice and the daily quiz can warm up or stretch a little based on recent accuracy, pace and logged skips. Off by default; the recommendation is always shown and can be overridden for a session.")
+      .addToggle((t) =>
+        t.setValue(adaptive.enabled).onChange(async (v) => {
+          st.quickAdaptive = { ...adaptive, enabled: v };
+          await this.plugin.save();
+          this.plugin.refreshViews();
+          this.display();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Adaptive hard caps")
+      .setDesc("Minutes: minimum and maximum. Questions: minimum and maximum. The planner never goes outside these values.")
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.setValue(String(adaptive.minMinutes)).onChange(async (v) => {
+          st.quickAdaptive = normalizeQuickAdaptive({ ...adaptive, minMinutes: v });
+          await this.plugin.save();
+        });
+      })
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.setValue(String(adaptive.maxMinutes)).onChange(async (v) => {
+          st.quickAdaptive = normalizeQuickAdaptive({ ...adaptive, maxMinutes: v });
+          await this.plugin.save();
+        });
+      })
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.setValue(String(adaptive.minCount)).onChange(async (v) => {
+          st.quickAdaptive = normalizeQuickAdaptive({ ...adaptive, minCount: v });
+          await this.plugin.save();
+        });
+      })
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.setValue(String(adaptive.maxCount)).onChange(async (v) => {
+          st.quickAdaptive = normalizeQuickAdaptive({ ...adaptive, maxCount: v });
+          await this.plugin.save();
+        });
+      });
+
     new Setting(containerEl)
       .setName("Study cards skin")
       .setDesc("An optional Quizlet-style view over the same question notes. Off by default. Flip cards show the question first; choice cards let you pick a choice and then reveal the answer. Reviews use the normal scheduler and history.")
@@ -35817,20 +36278,23 @@ function computeStats(questions, field) {
     const att = Number(q.fm.attempts) || 0;
     const cor = Math.min(Number(q.fm.correct_count) || 0, att);
     const sec = att ? Number(q.fm.time_spent_total) || 0 : 0;
+    const skip = Math.max(0, Math.round(Number(q.fm.skip_count) || 0));
     for (const v of statVals(q, field)) {
       let r = rows.get(v);
-      if (!r) rows.set(v, (r = { value: v, notes: 0, seen: 0, attempts: 0, correct: 0, seconds: 0 }));
+      if (!r) rows.set(v, (r = { value: v, notes: 0, seen: 0, attempts: 0, correct: 0, seconds: 0, skipped: 0 }));
       r.notes++;
       if (att > 0) r.seen++;
       r.attempts += att;
       r.correct += cor;
       r.seconds += sec;
+      r.skipped += skip;
     }
   }
   const out = [...rows.values()].map((r) => ({
     ...r,
     accuracy: r.attempts ? r.correct / r.attempts : null,
     avgSeconds: r.attempts ? r.seconds / r.attempts : null,
+    skipRate: r.attempts + r.skipped ? r.skipped / (r.attempts + r.skipped) : 0,
   }));
   out.sort((a, b) => {
     if ((a.accuracy === null) !== (b.accuracy === null)) return a.accuracy === null ? 1 : -1;
@@ -35850,8 +36314,9 @@ function weakestRow(rows, minAttempts) {
 }
 
 function overallStats(questions) {
-  const o = { notes: questions.length, seen: 0, attempts: 0, correct: 0, seconds: 0 };
+  const o = { notes: questions.length, seen: 0, attempts: 0, correct: 0, seconds: 0, skipped: 0 };
   for (const q of questions) {
+    o.skipped += Math.max(0, Math.round(Number(q.fm.skip_count) || 0));
     const att = Number(q.fm.attempts) || 0;
     if (!att) continue;
     o.seen++;
@@ -35861,6 +36326,7 @@ function overallStats(questions) {
   }
   o.accuracy = o.attempts ? o.correct / o.attempts : null;
   o.avgSeconds = o.attempts ? o.seconds / o.attempts : null;
+  o.skipRate = o.attempts + o.skipped ? o.skipped / (o.attempts + o.skipped) : 0;
   return o;
 }
 
@@ -36666,6 +37132,7 @@ const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
 const { recommendApResource, resourceTitle } = require("./ap-exam-resources");
 const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
+const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus");
 const { buildDailyTasks } = require("./assignments");
 
@@ -36730,6 +37197,7 @@ class TodayView extends ItemView {
     const manage = root.createDiv({ cls: "qt-row qt-small-row" });
     manage.createEl("button", { text: "Known & excluded", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
+    this.renderReminder(root, today, due, fresh);
     this.renderStudyPlan(root);
     this.renderDaily(root, today);
     this.renderTasks(root, today, due, visible);
@@ -36761,6 +37229,30 @@ class TodayView extends ItemView {
     this.renderNext(root, now);
   }
 
+  /** A quiet, local nudge. It never uses an OS notification or the network. */
+  renderReminder(root, today, due, fresh) {
+    const p = this.plugin;
+    if (!p.reminderInfo) return;
+    const info = p.reminderInfo();
+    if (!info.visible) return;
+    const card = root.createDiv({ cls: "qt-today-card qt-reminder-card" });
+    card.createDiv({ cls: "qt-today-kicker", text: "Study reminder" });
+    card.createDiv({ cls: "qt-today-title", text: info.text });
+    card.createDiv({
+      cls: "qt-today-meta",
+      text: `Local only · shown once a day from ${String(info.hour).padStart(2, "0")}:00 · no notification is sent`,
+    });
+    const row = card.createDiv({ cls: "qt-row qt-small-row" });
+    if (info.counts.daily) {
+      row.createEl("button", { text: "Start daily quiz", cls: "mod-cta" }).addEventListener("click", () => p.startDailyQuiz());
+    } else if (due.length) {
+      row.createEl("button", { text: "Start 5 minutes", cls: "mod-cta" }).addEventListener("click", () =>
+        p.startQuickPractice({ minutes: 5, pool: due, mode: "due", label: "questions due today" })
+      );
+    }
+    row.createEl("button", { text: "Dismiss today" }).addEventListener("click", () => p.dismissTodayReminder());
+  }
+
   renderStudyPlan(root) {
     const p = this.plugin;
     if (!p.studyPlan) return;
@@ -36790,11 +37282,13 @@ class TodayView extends ItemView {
     if (!daily.enabled) return;
     const streak = dailyStreak(daily, today);
     const done = dailyDone(daily, today);
+    const plan = adaptiveDailyCount(p.getQuestions(), daily, { today, settings: normalizeQuickAdaptive(p.settings.quickAdaptive) });
+    const count = plan.value;
     const card = root.createDiv({ cls: "qt-today-card qt-daily-card" });
     card.createDiv({ cls: "qt-today-kicker", text: "Daily quiz" });
     card.createDiv({
       cls: "qt-today-title",
-      text: done ? "Today is complete" : `${daily.count} question${daily.count === 1 ? "" : "s"} today`,
+      text: done ? "Today is complete" : `${count} question${count === 1 ? "" : "s"} today`,
     });
     card.createDiv({
       cls: "qt-today-meta",
@@ -38567,6 +39061,8 @@ const apResourceNotes = require("./ap-resource-notes");
 const apExamResources = require("./ap-exam-resources");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const dailyQuiz = require("./daily-quiz");
+const adaptiveSession = require("./adaptive-session");
+const reminder = require("./reminder");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const provenance = require("./provenance");
 const transcript = require("./transcript");
@@ -38768,6 +39264,8 @@ QuestionTrackerPlugin.__test = {
   packTestSession,
   unpackTestSession,
   dailyQuiz,
+  adaptiveSession,
+  reminder,
   renderDailySettings,
   QUICK_TIME_OPTIONS,
   QUICK_COUNT_OPTIONS,

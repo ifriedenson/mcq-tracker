@@ -213,6 +213,34 @@ function renderGeneral(containerEl, plugin, redisplay) {
       });
     });
 
+  const reminder = st.reminder || { enabled: false, hour: 9 };
+  new Setting(containerEl)
+    .setName("Daily study reminder")
+    .setDesc("A quiet in-app nudge on Today and in the status bar, at most once a day. It never uses an operating-system notification, sends nothing, and is off by default.")
+    .addToggle((t) =>
+      t.setValue(reminder.enabled === true).onChange(async (v) => {
+        st.reminder = { ...reminder, enabled: v };
+        await plugin.save();
+        plugin.refreshReminder();
+        redisplay();
+      })
+    )
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "0";
+      t.inputEl.max = "23";
+      t.setValue(String(reminder.hour === undefined ? 9 : reminder.hour));
+      t.onChange(async (v) => {
+        const hour = Math.round(Number(v));
+        if (Number.isFinite(hour)) {
+          st.reminder = { ...reminder, hour: Math.max(0, Math.min(23, hour)) };
+          await plugin.save();
+          plugin.refreshReminder();
+        }
+      });
+    })
+    .addButton((b) => b.setButtonText("Dismiss today").onClick(() => plugin.dismissTodayReminder()));
+
   new Setting(containerEl)
     .setName("Open the practice view when Obsidian starts")
     .setDesc("Opens the practice view as soon as the workspace is ready, so you can start with one tap. Needs the MCQ Tracker module.")

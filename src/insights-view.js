@@ -5,7 +5,7 @@ const { fmtClock, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
-const { renderBreakdown, renderCalibration, renderGrade, renderRetention } = require("./analytics-embed");
+const { renderBreakdown, renderCalibration, renderGrade, renderRetention, renderSkips } = require("./analytics-embed");
 
 /* ------------------------------------------- weak spots and error log */
 
@@ -115,6 +115,7 @@ class InsightsView extends ItemView {
     tile("Accuracy", fmtPct(o.accuracy), o.attempts ? `${fmtClock(Math.round(o.avgSeconds))} per question` : "No attempts yet");
     tile("Study today", `${data.study.todayMinutes} min`, `${data.study.streak} day streak`);
     tile("Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
+    tile("Logged skips", String(o.skipped), o.skipped ? "Not counted as wrong" : "None logged");
     renderGrade(root, data);
 
     root.createEl("h3", { cls: "qt-today-section", text: "Study heatmap" });
@@ -151,6 +152,7 @@ class InsightsView extends ItemView {
     renderBreakdown(root, data, {
       onPractice: (field, value) => p.practiceWith({ [field]: [value] }, "smart"),
     });
+    renderSkips(root, data);
 
     if (data.byCourse.length) {
       root.createEl("h3", { cls: "qt-today-section", text: "Study time by course" });

@@ -3,7 +3,7 @@ const { fmtPct } = require("./stats");
 const { fmtClock } = require("./util");
 const { BREAKDOWN_FIELDS, FIELD_LABELS } = require("./analytics");
 
-const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "calibration", "retention", "weak", "grades", "courses", "exam"];
+const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "calibration", "retention", "weak", "skips", "grades", "courses", "exam"];
 const ALIASES = {
   overview: "overview",
   dashboard: "overview",
@@ -19,6 +19,8 @@ const ALIASES = {
   trend: "retention",
   weak: "weak",
   skills: "weak",
+  skips: "skips",
+  skip: "skips",
   grade: "grades",
   grades: "grades",
   courses: "courses",
@@ -34,6 +36,7 @@ const LABELS = {
   calibration: "Confidence calibration",
   retention: "Retention trend",
   weak: "Weak spots",
+  skips: "Logged skips",
   grades: "Grade snapshot",
   courses: "Study time by course",
   exam: "Next exam",
@@ -76,6 +79,7 @@ function renderStats(container, data) {
   tile(tiles, "Accuracy", fmtPct(o.accuracy), o.attempts ? `${fmtClock(Math.round(o.avgSeconds))} per question` : "No attempts yet");
   tile(tiles, "Study today", `${data.study.todayMinutes} min`, `${data.study.streak} day streak`);
   tile(tiles, "Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
+  tile(tiles, "Logged skips", String(o.skipped), o.skipped ? "Not counted as wrong" : "None logged");
 }
 
 function renderHeatmap(container, data) {
@@ -158,7 +162,7 @@ function renderBreakdown(container, data, hooks) {
     const line = list.createDiv({ cls: "qt-ins-row" });
     const main = line.createDiv({ cls: "qt-ins-main" });
     main.createDiv({ cls: "qt-ins-name", text: row.value });
-    main.createDiv({ cls: "qt-hint", text: `${row.attempts} attempt${row.attempts === 1 ? "" : "s"} · ${row.notes} note${row.notes === 1 ? "" : "s"}` });
+    main.createDiv({ cls: "qt-hint", text: `${row.attempts} attempt${row.attempts === 1 ? "" : "s"} · ${row.notes} note${row.notes === 1 ? "" : "s"}${row.skipped ? ` · ${row.skipped} logged skip${row.skipped === 1 ? "" : "s"}` : ""}` });
     const meter = line.createDiv({ cls: "qt-ins-meter" });
     const band = row.accuracy < 0.6 ? "is-low" : row.accuracy < 0.8 ? "is-mid" : "is-high";
     meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round(row.accuracy * 100)}%` });
@@ -167,6 +171,27 @@ function renderBreakdown(container, data, hooks) {
       line.createEl("button", { text: "Practice" }).addEventListener("click", () => hooks.onPractice(field, row.value));
     }
   }
+}
+
+function renderSkips(container, data) {
+  heading(container, "Logged skips");
+  const rows = data.skippedRows || [];
+  if (!rows.length) {
+    container.createDiv({
+      cls: "qt-hint",
+      text: "No logged skips yet. Use **Don't know** in practice to record that a question is not in memory yet. It lowers the next review without counting as a wrong answer.",
+    });
+    return;
+  }
+  const list = container.createDiv({ cls: "qt-ins-list" });
+  for (const row of rows) {
+    const line = list.createDiv({ cls: "qt-ins-row" });
+    const main = line.createDiv({ cls: "qt-ins-main" });
+    main.createDiv({ cls: "qt-ins-name", text: row.value });
+    main.createDiv({ cls: "qt-hint", text: `${row.skipped} logged skip${row.skipped === 1 ? "" : "s"} · ${fmtPct(row.accuracy)} accuracy on ${row.attempts} attempt${row.attempts === 1 ? "" : "s"}` });
+    line.createSpan({ cls: "qt-ins-pct", text: `${Math.round(row.skipRate * 100)}% skipped` });
+  }
+  container.createDiv({ cls: "qt-hint", text: "Skips are not wrong answers: accuracy and streaks stay untouched. The plain Skip button still records nothing." });
 }
 
 function renderGrade(container, data) {
@@ -245,6 +270,7 @@ function renderDashboardEmbed(container, data, options, hooks) {
   if (show("retention")) renderRetention(container, data);
   if (show("grades")) renderGrade(container, data);
   if (show("weak")) renderBreakdown(container, data, hooks);
+  if (show("skips")) renderSkips(container, data);
   if (show("courses")) renderCourses(container, data);
   if (show("exam")) renderExam(container, data);
 }
@@ -258,4 +284,5 @@ module.exports = {
   renderDashboardEmbed,
   renderGrade,
   renderRetention,
+  renderSkips,
 };
