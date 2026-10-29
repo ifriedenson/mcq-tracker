@@ -15,7 +15,6 @@ const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, isAssign
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
-const { normalizeLocalOcr } = require("./local-ocr");
 const { PdfImportModal } = require("./import-modal");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
 const { DocumentReviewModal } = require("./document-review-modal");
@@ -498,7 +497,6 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai = Object.assign({}, DEFAULT_SETTINGS.ai, saved.ai || {});
     const sa = (saved.ai && saved.ai.api) || {};
     this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys), secrets: Object.assign({}, sa.secrets) });
-    this.settings.localOcr = normalizeLocalOcr(saved.localOcr);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
     this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);

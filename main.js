@@ -12402,7 +12402,6 @@ const DEFAULT_SETTINGS = {
     features: {}, // per-feature model overrides, filled by normalizeAiService
     limits: { ...DEFAULT_AI_LIMITS }, // one reply cap, optional daily and per-run request caps
   },
-  localOcr: { command: "", timeoutSeconds: 120 }, // optional user-installed OCR command; nothing is bundled
   presets: [],
   importFolder: "",
   importDefaults: {},
@@ -19601,155 +19600,6 @@ module.exports = {
 };
 };
 
-/* ---- src/local-ocr.js ---- */
-__defs["local-ocr"] = function (module, exports, require) {
-/*
- * Local OCR adapter for a user-installed program. No OCR binary is bundled and
- * no third-party code is copied. The command is executed directly (not through
- * a shell), with `{image}` replaced by a temporary PNG path.
- */
-const { Platform } = require("obsidian");
-const { str } = require("./util");
-
-const DEFAULT_LOCAL_OCR = { command: "", timeoutSeconds: 120 };
-
-function normalizeLocalOcr(value) {
-  const v = value && typeof value === "object" ? value : {};
-  const timeout = Math.round(Number(v.timeoutSeconds));
-  return {
-    command: str(v.command).trim().slice(0, 500),
-    timeoutSeconds: Number.isFinite(timeout) ? Math.min(600, Math.max(10, timeout)) : DEFAULT_LOCAL_OCR.timeoutSeconds,
-  };
-}
-
-/** Quote-aware split. This is only for a user-provided command line, never a shell. */
-function tokenize(template) {
-  const text = str(template).trim();
-  if (!text) return [];
-  const out = [];
-  let cur = "";
-  let quote = "";
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (quote) {
-      if (ch === quote) {
-        quote = "";
-        continue;
-      }
-      // A Windows path like "C:\\Program Files\\ocr.exe" must keep its slashes.
-      if (ch === "\\" && quote === '"' && (text[i + 1] === '"' || text[i + 1] === "\\")) {
-        cur += text[++i];
-        continue;
-      }
-      cur += ch;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      continue;
-    }
-    if (/\s/.test(ch)) {
-      if (cur) {
-        out.push(cur);
-        cur = "";
-      }
-      continue;
-    }
-    cur += ch;
-  }
-  if (quote) throw new Error("The local OCR command has an unclosed quote.");
-  if (cur) out.push(cur);
-  return out;
-}
-
-/** Turn `tesseract {image} stdout` into an executable and an argument array. */
-function commandParts(template, imagePath) {
-  const parts = tokenize(template);
-  if (!parts.length) throw new Error("Add a local OCR command first.");
-  if (!parts.some((part) => part.includes("{image}"))) {
-    throw new Error("The local OCR command must contain {image}, where the page file path goes.");
-  }
-  const command = parts[0];
-  const args = parts.slice(1).map((part) => part.split("{image}").join(String(imagePath || "")));
-  return { command, args };
-}
-
-function localOcrLabel(template) {
-  const parts = tokenize(template);
-  if (!parts.length) return "local OCR";
-  return parts[0].replace(/^.*[\\/]/, "") || "local OCR";
-}
-
-function runProcess(command, args, options) {
-  return new Promise((resolve, reject) => {
-    let child;
-    try {
-      const cp = require("child_process");
-      child = cp.execFile(
-        command,
-        args,
-        { timeout: (options && options.timeoutSeconds ? options.timeoutSeconds : 120) * 1000, maxBuffer: 20 * 1024 * 1024, windowsHide: true },
-        (error, stdout, stderr) => {
-          if (error) {
-            const detail = str(stderr).trim() || str(error.message).trim();
-            reject(new Error(`The local OCR command failed${detail ? `: ${detail.slice(0, 400)}` : "."}`));
-            return;
-          }
-          resolve({ stdout: str(stdout), stderr: str(stderr) });
-        }
-      );
-    } catch (e) {
-      reject(new Error(`The local OCR command could not start: ${str(e && e.message) || e}`));
-      return;
-    }
-    if (child && child.stdin) child.stdin.end();
-  });
-}
-
-/**
- * Run the configured command once per rendered page. Temporary page files and
- * their directory are removed even when OCR fails.
- */
-async function ocrPagesWithLocalCommand(template, pages, options) {
-  if (!Platform.isDesktopApp) throw new Error("Local OCR commands are desktop-only. Use AI vision on mobile.");
-  const list = (Array.isArray(pages) ? pages : []).filter((page) => page && page.png);
-  if (!list.length) throw new Error("There are no rendered pages to read.");
-  const opts = normalizeLocalOcr({ command: template, timeoutSeconds: options && options.timeoutSeconds });
-  if (!opts.command) throw new Error("Add a local OCR command in Settings, Global, General first.");
-  // Check the template before creating temporary files so a typo fails early.
-  commandParts(opts.command, "/tmp/page.png");
-
-  const fs = require("fs/promises");
-  const os = require("os");
-  const path = require("path");
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mcq-ocr-"));
-  try {
-    const results = [];
-    for (let i = 0; i < list.length; i++) {
-      const page = list[i];
-      const file = path.join(dir, `page-${page.n || i + 1}.png`);
-      await fs.writeFile(file, Buffer.from(page.png));
-      const call = commandParts(opts.command, file);
-      const result = await runProcess(call.command, call.args, opts);
-      const text = str(result.stdout || result.stderr).trim();
-      results.push({ n: page.n || i + 1, text });
-    }
-    return results;
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
-  }
-}
-
-module.exports = {
-  DEFAULT_LOCAL_OCR,
-  normalizeLocalOcr,
-  tokenize,
-  commandParts,
-  localOcrLabel,
-  ocrPagesWithLocalCommand,
-};
-};
-
 /* ---- src/math-rendering.js ---- */
 __defs["math-rendering"] = function (module, exports, require) {
 /*
@@ -21723,12 +21573,11 @@ __defs["ocr-modal"] = function (module, exports, require) {
  * returned text is editable and saved as an ordinary Markdown note, never as a
  * hidden cache or a replacement for the original PDF.
  */
-const { Modal, Platform, Setting, TFile, normalizePath } = require("obsidian");
+const { Modal, Setting, TFile, normalizePath } = require("obsidian");
 const { FolderSuggest } = require("./modals");
 const { ensureFolder, localDate, str } = require("./util");
 const { renderPdfPagesAsPng } = require("./pdf");
 const { OCR_SYSTEM, buildOcrNote, cleanOcrText, ocrPrompt } = require("./ocr");
-const { localOcrLabel, normalizeLocalOcr, ocrPagesWithLocalCommand } = require("./local-ocr");
 
 function bytesToBase64(buf) {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
@@ -21766,7 +21615,6 @@ class OcrModal extends Modal {
     this.title = `OCR ${localDate()}`;
     this.source = null;
     this.results = null;
-    this.method = "ai";
     this.engineLabel = "";
   }
 
@@ -21776,7 +21624,6 @@ class OcrModal extends Modal {
   }
 
   canRun() {
-    if (this.method === "local") return Platform.isDesktopApp && !!normalizeLocalOcr(this.plugin.settings.localOcr).command;
     return !!this.plugin.settings.ai.enabled && this.plugin.backend() === "api";
   }
 
@@ -21786,27 +21633,12 @@ class OcrModal extends Modal {
     el.createEl("h3", { text: "OCR a scanned PDF with AI vision" });
     el.createEl("p", {
       cls: "setting-item-description",
-      text: this.method === "local"
-        ? "Renders the selected PDF pages locally and runs your installed OCR command on each page. No OCR engine is bundled and nothing is uploaded."
-        : "Renders the selected PDF pages locally, sends each page image to your Direct AI provider, and returns editable text. This is opt-in and uses your provider key and credit. No OCR engine is bundled with the plugin.",
+      text: "Renders the selected PDF pages locally, sends each page image to your Direct AI provider, and returns editable text. This is opt-in and uses your provider key and credit. No OCR engine is bundled with the plugin.",
     });
     el.createEl("p", {
       cls: "qt-hint",
-      text: this.method === "local"
-        ? "The command runs on this computer. Temporary page files are deleted after the run. You are responsible for the command you install and its licence."
-        : "Page images can contain names, handwriting or other personal information. Only the pages you choose are sent, and only after you confirm below. Nothing is uploaded automatically.",
+      text: "Page images can contain names, handwriting or other personal information. Only the pages you choose are sent, and only after you confirm below. Nothing is uploaded automatically.",
     });
-    new Setting(el)
-      .setName("How to read")
-      .setDesc("AI vision works on desktop and mobile. A local command is desktop-only.")
-      .addDropdown((d) => {
-        d.addOption("ai", "AI vision (BYOK)");
-        if (Platform.isDesktopApp) d.addOption("local", "My installed OCR command (desktop)");
-        d.setValue(this.method).onChange((v) => {
-          this.method = v;
-          this.renderSetup();
-        });
-      });
     const docs = this.app.vault.getFiles().filter((f) => /\.pdf$/i.test(f.path || f.name));
     const picked = new Setting(el).setName("PDF").setDesc(this.file ? this.file.name : this.vaultDoc || "No file chosen");
     const input = createEl("input", { type: "file", attr: { accept: ".pdf,application/pdf" } });
@@ -21847,30 +21679,24 @@ class OcrModal extends Modal {
       .setName("Note title")
       .setDesc("The date is already included in the default.")
       .addText((t) => t.setValue(this.title).onChange((v) => (this.title = v)));
-    if (this.method === "ai") {
-      new Setting(el)
-        .setName("I understand page images are sent to my AI provider")
-        .setDesc(this.canRun() ? `Provider: ${this.plugin.aiModelLabel("ocr")}.` : "Turn on AI features and use Direct AI to enable this.")
-        .addToggle((t) =>
-          t.setValue(this.consent).onChange((v) => {
-            this.consent = v;
-            this.renderSetup();
-          })
-        );
-    } else {
-      el.createEl("p", { cls: "qt-hint", text: this.canRun() ? "Your installed command will run locally; nothing leaves this computer." : "Add a local OCR command under Settings, Global, General." });
-    }
+    new Setting(el)
+      .setName("I understand page images are sent to my AI provider")
+      .setDesc(this.canRun() ? `Provider: ${this.plugin.aiModelLabel("ocr")}.` : "Turn on AI features and use Direct AI to enable this.")
+      .addToggle((t) =>
+        t.setValue(this.consent).onChange((v) => {
+          this.consent = v;
+          this.renderSetup();
+        })
+      );
     const row = el.createDiv({ cls: "qt-row" });
     row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
     const run = row.createEl("button", { text: "Read pages", cls: "mod-cta qt-grow" });
-    run.disabled = this.method === "ai" ? !this.consent || !this.canRun() : !this.canRun();
+    run.disabled = !this.consent || !this.canRun();
     run.addEventListener("click", () => this.start());
     if (!this.canRun()) {
       el.createEl("p", {
         cls: "qt-hint",
-        text: this.method === "local"
-          ? "Local OCR needs a command in Settings, Global, General and is available on desktop only."
-          : "Vision OCR requires AI features on and the Direct AI backend. OpenCode cannot receive page images through this plugin.",
+        text: "Vision OCR requires AI features on and the Direct AI backend. OpenCode cannot receive page images through this plugin.",
       });
     }
   }
@@ -21890,12 +21716,12 @@ class OcrModal extends Modal {
   }
 
   async start() {
-    if (this.method === "ai" && !this.consent) {
+    if (!this.consent) {
       this.renderError("Tick the disclosure first.");
       return;
     }
     if (!this.canRun()) {
-      this.renderError(this.method === "local" ? "Add a local OCR command in Settings, Global, General first." : "Turn on AI features and choose Direct AI before using vision OCR.");
+      this.renderError("Turn on AI features and choose Direct AI before using vision OCR.");
       return;
     }
     const el = this.contentEl;
@@ -21907,19 +21733,12 @@ class OcrModal extends Modal {
       const rendered = await renderPdfPagesAsPng(src.buf, this.pages, (message) => status.setText(message), 1.5);
       if (!rendered.pages.length) throw new Error("No pages were selected.");
       const results = [];
-      if (this.method === "local") {
-        const config = normalizeLocalOcr(this.plugin.settings.localOcr);
-        this.engineLabel = `local OCR (${localOcrLabel(config.command)})`;
-        status.setText(`Reading ${rendered.pages.length} page${rendered.pages.length === 1 ? "" : "s"} with ${localOcrLabel(config.command)}...`);
-        results.push(...(await ocrPagesWithLocalCommand(config.command, rendered.pages, { timeoutSeconds: config.timeoutSeconds })));
-      } else {
-        this.engineLabel = this.plugin.aiModelLabel("ocr");
-        for (let i = 0; i < rendered.pages.length; i++) {
-          const page = rendered.pages[i];
-          status.setText(`Reading page ${page.n} (${i + 1} of ${rendered.pages.length}) with ${this.engineLabel}...`);
-          const reply = await this.plugin.aiVision(OCR_SYSTEM, ocrPrompt(page.n), [{ data: bytesToBase64(page.png), mime: "image/png" }], { maxTokens: 1800 });
-          results.push({ n: page.n, text: cleanOcrText(reply) });
-        }
+      this.engineLabel = this.plugin.aiModelLabel("ocr");
+      for (let i = 0; i < rendered.pages.length; i++) {
+        const page = rendered.pages[i];
+        status.setText(`Reading page ${page.n} (${i + 1} of ${rendered.pages.length}) with ${this.engineLabel}...`);
+        const reply = await this.plugin.aiVision(OCR_SYSTEM, ocrPrompt(page.n), [{ data: bytesToBase64(page.png), mime: "image/png" }], { maxTokens: 1800 });
+        results.push({ n: page.n, text: cleanOcrText(reply) });
       }
       this.source = src;
       this.results = results;
@@ -25731,7 +25550,6 @@ const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, isAssign
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
-const { normalizeLocalOcr } = require("./local-ocr");
 const { PdfImportModal } = require("./import-modal");
 const { CourseNotesModal, removeAiSummary } = require("./course-notes");
 const { DocumentReviewModal } = require("./document-review-modal");
@@ -26214,7 +26032,6 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai = Object.assign({}, DEFAULT_SETTINGS.ai, saved.ai || {});
     const sa = (saved.ai && saved.ai.api) || {};
     this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys), secrets: Object.assign({}, sa.secrets) });
-    this.settings.localOcr = normalizeLocalOcr(saved.localOcr);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
     this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
@@ -33860,7 +33677,6 @@ __defs["settings-global"] = function (module, exports, require) {
 const { Setting } = require("obsidian");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { normalizeSupport, supportLinks } = require("./support");
-const { normalizeLocalOcr } = require("./local-ocr");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
@@ -34077,35 +33893,6 @@ function renderGeneral(containerEl, plugin, redisplay) {
         await plugin.save();
       })
     );
-
-  new Setting(containerEl).setName("Local OCR (desktop)").setHeading();
-  containerEl.createEl("p", {
-    cls: "setting-item-description",
-    text: "Optional. No OCR program is bundled. If you install one yourself, the plugin can run it on rendered page files. Use {image} for the temporary page path. The program runs directly, not through a shell; its licence and installation are your responsibility.",
-  });
-  new Setting(containerEl)
-    .setName("OCR command")
-    .setDesc("Desktop only. Example: tesseract {image} stdout --psm 6. Leave blank to use only AI vision.")
-    .addText((t) =>
-      t
-        .setPlaceholder("tesseract {image} stdout --psm 6")
-        .setValue(normalizeLocalOcr(st.localOcr).command)
-        .onChange(async (v) => {
-          st.localOcr = normalizeLocalOcr({ ...(st.localOcr || {}), command: v });
-          await plugin.save();
-        })
-    );
-  new Setting(containerEl)
-    .setName("OCR command timeout")
-    .setDesc("Seconds to wait for each page. Between 10 and 600.")
-    .addText((t) => {
-      t.inputEl.type = "number";
-      t.setValue(String(normalizeLocalOcr(st.localOcr).timeoutSeconds));
-      t.onChange(async (v) => {
-        st.localOcr = normalizeLocalOcr({ ...(st.localOcr || {}), timeoutSeconds: v });
-        await plugin.save();
-      });
-    });
 
   const version = (plugin.manifest && plugin.manifest.version) || "";
   new Setting(containerEl)
@@ -37763,7 +37550,6 @@ const paperScanner = require("./paper-scanner");
 const documentClassify = require("./document-classify");
 const { DocumentReviewModal } = require("./document-review-modal");
 const ocr = require("./ocr");
-const localOcr = require("./local-ocr");
 const { OcrModal } = require("./ocr-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
@@ -37977,7 +37763,6 @@ QuestionTrackerPlugin.__test = {
   documentClassify,
   DocumentReviewModal,
   ocr,
-  localOcr,
   OcrModal,
   documents,
   QUICK_START_URL,

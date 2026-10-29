@@ -629,6 +629,9 @@ Build on the existing timed test.
 
 **Shipped in 1.85.0:** the Reference view has a local **Calculator** tab with Basic and Scientific keypads, a typed expression field, Enter-to-evaluate and Escape-to-clear. It uses the restricted expression evaluator (no `eval`), supports powers, roots, logs, trigonometry, `pi` and `e`, rejects non-finite results instead of showing `Infinity`, and adds no network request. The calculator is on by default, can be turned off in Settings, Reference, Tools, and is hidden during a timed test unless the learner explicitly allows it. Covered by `tests/calculator.test.js`.
 
+**Shipped in 1.86.0:** OCR is now AI-vision only. The optional desktop OCR command adapter was removed, eliminating the plugin's direct `child_process` and `fs` usage while OpenCode keeps its lazy desktop-only setup path and automatic download. The plugin still enumerates the vault through Obsidian's API because import, filters, calendar and study views need the index.
+
+
 **5.16.9 Subject-aware analytics**
 - Track errors by type common to STEM: setup error, algebra/arithmetic slip, unit error, sign error, wrong formula, concept gap. Extend the existing mistake-type labels (users can already add their own).
 
@@ -1257,7 +1260,7 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Local course-notes import for PDF, slide, Word and text sources, with page/slide headings, source links and optional PDF figure copying (§5.13) — shipped in 1.43.0
 - [x] Optional AI summary and key-terms section for course notes, marked with the model and preserved when the summary fails (§5.13) — shipped in 1.44.0; OCR and auto-classification remain
 - [x] Paper scanner: camera or photos → crop, rotate, reorder → one PDF saved in the vault (§5.13.1) — shipped in 1.46.0; OCR and automatic item classification remain
-- [x] OCR for image-only scans: opt-in BYOK vision path and a desktop user-installed OCR command adapter shipped in 1.49.0 with editable per-page text and a Markdown OCR note; a bundled OCR engine remains (licence review)
+- [x] OCR for image-only scans: opt-in BYOK vision path with editable per-page text and a Markdown OCR note. The desktop user-installed OCR command adapter shipped in 1.49.0 and was removed in 1.86.0, so the plugin no longer requires `child_process` or `fs` directly; a bundled OCR engine remains (licence review)
 - [x] Auto-classify a text document as MCQ, FRQ, mixed, cards or notes, then route it through the existing importers (§5.13.1) — shipped in 1.47.0; OCR for image-only scans remains
 - [x] Provenance links from generated items back to the source PDF page (§5.13.1) — shared with 1.36.0
 - [x] First-run welcome screen with presets, module toggles and a short how-to guide (§5.21) — shipped in 1.28.0
@@ -2382,6 +2385,9 @@ Build on the existing timed test.
 - Optional **calculator panel** with modes (basic, scientific). Allow disabling during no-calculator sections.
 
 **Shipped in 1.85.0:** the Reference view has a local **Calculator** tab with Basic and Scientific keypads, a typed expression field, Enter-to-evaluate and Escape-to-clear. It uses the restricted expression evaluator (no `eval`), supports powers, roots, logs, trigonometry, `pi` and `e`, rejects non-finite results instead of showing `Infinity`, and adds no network request. The calculator is on by default, can be turned off in Settings, Reference, Tools, and is hidden during a timed test unless the learner explicitly allows it. Covered by `tests/calculator.test.js`.
+
+**Shipped in 1.86.0:** OCR is now AI-vision only. The optional desktop OCR command adapter was removed, eliminating the plugin's direct `child_process` and `fs` usage while OpenCode keeps its lazy desktop-only setup path and automatic download. The plugin still enumerates the vault through Obsidian's API because import, filters, calendar and study views need the index.
+
 
 **5.16.9 Subject-aware analytics**
 - Track errors by type common to STEM: setup error, algebra/arithmetic slip, unit error, sign error, wrong formula, concept gap. Extend the existing mistake-type labels (users can already add their own).

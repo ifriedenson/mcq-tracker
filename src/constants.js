@@ -71,7 +71,6 @@ const DEFAULT_SETTINGS = {
     features: {}, // per-feature model overrides, filled by normalizeAiService
     limits: { ...DEFAULT_AI_LIMITS }, // one reply cap, optional daily and per-run request caps
   },
-  localOcr: { command: "", timeoutSeconds: 120 }, // optional user-installed OCR command; nothing is bundled
   presets: [],
   importFolder: "",
   importDefaults: {},

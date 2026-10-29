@@ -73,7 +73,6 @@ const paperScanner = require("./paper-scanner");
 const documentClassify = require("./document-classify");
 const { DocumentReviewModal } = require("./document-review-modal");
 const ocr = require("./ocr");
-const localOcr = require("./local-ocr");
 const { OcrModal } = require("./ocr-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
 const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
@@ -287,7 +286,6 @@ QuestionTrackerPlugin.__test = {
   documentClassify,
   DocumentReviewModal,
   ocr,
-  localOcr,
   OcrModal,
   documents,
   QUICK_START_URL,

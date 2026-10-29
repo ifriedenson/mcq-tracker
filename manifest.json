@@ -1,9 +1,9 @@
 {
   "id": "mcq-tracker",
   "name": "MCQ Tracker",
-  "version": "1.85.0",
+  "version": "1.86.0",
   "minAppVersion": "1.8.7",
-  "description": "Serve practice questions from your notes, grade answers, and track time, confidence and spaced review in note properties.",
+  "description": "Practice questions from notes and PDFs, review with flashcards, track progress, and study with a private AI tutor.",
   "author": "Isaac Friedenson",
   "authorUrl": "https://github.com/ifriedenson",
   "isDesktopOnly": false
