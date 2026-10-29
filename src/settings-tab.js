@@ -220,6 +220,33 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Leech threshold")
+      .setDesc("Consecutive misses that mark a question as a leech. 0 turns leech handling off; a correct answer clears the mark.")
+      .addText((t) =>
+        t.setValue(String(st.leechThreshold || 0)).onChange(async (v) => {
+          const n = parseInt(v, 10);
+          if (Number.isFinite(n) && n >= 0) {
+            st.leechThreshold = Math.min(50, n);
+            await this.plugin.save();
+          }
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("When an item becomes a leech")
+      .setDesc("Flag keeps it in practice with a visible mark. Suspend also hides it until you restore it under Hidden study items.")
+      .addDropdown((d) =>
+        d
+          .addOptions({ flag: "Flag only", suspend: "Flag and suspend" })
+          .setValue(st.leechAction === "suspend" ? "suspend" : "flag")
+          .onChange(async (v) => {
+            st.leechAction = v === "suspend" ? "suspend" : "flag";
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
+      );
+
+    new Setting(containerEl)
       .setName("Hidden study items")
       .setDesc("Review and restore questions or cards that are hidden from practice.")
       .addButton((b) => b.setButtonText("Manage").onClick(() => this.plugin.openStudyStatusManager()));

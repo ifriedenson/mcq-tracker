@@ -238,6 +238,8 @@ Run the command **Add missing tracking properties to all question notes** to add
 
 ### Review scheduling
 
+**Leech handling (optional).** Set a leech threshold under Settings, Practice. When a question misses that many times in a row, the attempt marks it `leech: true` and the result view explains the mark; a correct answer clears it. The action can also suspend it so it leaves practice until you restore it under Hidden study items. The default threshold is 0, which leaves the feature off.
+
 After a correct answer with confidence 2 or 3, the next review is 1, 3, 7, 21, then 60 days out (editable). A miss resets the streak and returns tomorrow. A correct answer rated "Guessing" doesn't extend the streak and returns in 2 days.
 
 To use **FSRS** instead, open **Settings → MCQ Tracker → Review → Scheduler** and choose **FSRS (memory model)**. FSRS stores a compact state in the note's `srs` property; `history` stays the source of truth. The first time a question is reviewed, its existing history is replayed to seed that state. Existing `next_review` dates are not changed until that review. You can choose 85%, 90%, or 95% desired retention. Switching back to the ladder keeps the FSRS state and resumes the old streak-based schedule.

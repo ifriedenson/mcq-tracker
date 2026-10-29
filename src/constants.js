@@ -47,6 +47,8 @@ const DEFAULT_SETTINGS = {
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
   knownDays: 14, // default snooze length for the Known button
   knownDaysByCourse: {}, // optional course-specific snooze overrides
+  leechThreshold: 0, // consecutive misses that flag a leech; 0 turns leech handling off
+  leechAction: "flag", // "flag" keeps it in rotation | "suspend" also hides it until restored
   autoPauseOnMobile: true,
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   ai: {

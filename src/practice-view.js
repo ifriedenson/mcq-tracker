@@ -1466,6 +1466,15 @@ class PracticeView extends ItemView {
         text: `Next review moved to ${cap.date} to stay ahead of ${cap.name} on ${cap.examDate}.`,
       });
     }
+    if (r.summary && r.summary.leech) {
+      const leech = r.summary.leech;
+      root.createDiv({
+        cls: "qt-hint qt-leech",
+        text: leech.suspended
+          ? `Leech: ${leech.lapses} misses in a row. This question is suspended; restore it under Settings, Practice, Hidden study items.`
+          : `Leech: ${leech.lapses} misses in a row. It stays in rotation and clears after a correct answer.`,
+      });
+    }
 
     // ---- where this question came from (and a quick way back on a miss)
     const source = p.sourceInfo ? p.sourceInfo(r.fm, path) : null;

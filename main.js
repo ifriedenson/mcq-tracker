@@ -14769,6 +14769,8 @@ const DEFAULT_SETTINGS = {
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
   knownDays: 14, // default snooze length for the Known button
   knownDaysByCourse: {}, // optional course-specific snooze overrides
+  leechThreshold: 0, // consecutive misses that flag a leech; 0 turns leech handling off
+  leechAction: "flag", // "flag" keeps it in rotation | "suspend" also hides it until restored
   autoPauseOnMobile: true,
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   ai: {
@@ -25143,6 +25145,31 @@ function applyAttempt(fm, a, intervals, options) {
         ? prev
         : prev + 1
       : 0;
+  // Leech handling is opt-in and separate from the ladder: consecutive misses
+  // mark the note, a correct answer clears it, and suspending is optional.
+  const leechThreshold = Math.max(0, Math.min(50, Math.round(Number(opts.leechThreshold) || 0)));
+  let leech = null;
+  if (leechThreshold) {
+    if (!a.correct) {
+      const lapses = (Number(fm.leech_lapses) || 0) + 1;
+      fm.leech_lapses = lapses;
+      if (lapses >= leechThreshold && fm.leech !== true) {
+        fm.leech = true;
+        fm.leech_since = fmtDate(a.now);
+        if (opts.leechAction === "suspend" && !fm.study_status) {
+          fm.study_status = "suspended";
+          fm.suspended_on = fmtDate(a.now);
+        }
+        leech = { lapses, threshold: leechThreshold, suspended: fm.study_status === "suspended" };
+      }
+    } else {
+      if (fm.leech_lapses) fm.leech_lapses = 0;
+      if (fm.leech === true) {
+        delete fm.leech;
+        delete fm.leech_since;
+      }
+    }
+  }
   let days;
   if (grade) {
     if (grade === "again") days = 1;
@@ -25212,6 +25239,8 @@ function applyAttempt(fm, a, intervals, options) {
 
   return {
     streak,
+    leech,
+    leechLapses: Number(fm.leech_lapses) || 0,
     attempts: fm.attempts,
     correctCount: fm.correct_count,
     nextReview: fm.next_review,
@@ -30681,6 +30710,8 @@ class QuestionTrackerPlugin extends Plugin {
     delete this.settings.showRationale;
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
+    this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
+    this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.testBlueprints = (Array.isArray(saved.testBlueprints) ? saved.testBlueprints : [])
       .map(normalizeBlueprint)
@@ -34471,7 +34502,7 @@ class QuestionTrackerPlugin extends Plugin {
 
   async recordAttempt(file, a) {
     const attempt = { ...a, attemptId: a.attemptId || newAttemptId(a.now) };
-    const opts = { scheduler: this.settings.scheduler, fsrsRetention: this.settings.fsrsRetention, attemptId: attempt.attemptId };
+    const opts = { scheduler: this.settings.scheduler, fsrsRetention: this.settings.fsrsRetention, attemptId: attempt.attemptId, leechThreshold: this.settings.leechThreshold, leechAction: this.settings.leechAction };
 
     // Build the result the UI should show before touching the note. If the write
     // fails, this summary is still correct and the attempt can be replayed later.
@@ -36251,6 +36282,15 @@ class PracticeView extends ItemView {
       root.createDiv({
         cls: "qt-hint",
         text: `Next review moved to ${cap.date} to stay ahead of ${cap.name} on ${cap.examDate}.`,
+      });
+    }
+    if (r.summary && r.summary.leech) {
+      const leech = r.summary.leech;
+      root.createDiv({
+        cls: "qt-hint qt-leech",
+        text: leech.suspended
+          ? `Leech: ${leech.lapses} misses in a row. This question is suspended; restore it under Settings, Practice, Hidden study items.`
+          : `Leech: ${leech.lapses} misses in a row. It stays in rotation and clears after a correct answer.`,
       });
     }
 
@@ -40373,6 +40413,33 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           .setValue(formatCourseDays(st.knownDaysByCourse))
           .onChange(async (v) => {
             st.knownDaysByCourse = parseCourseDays(v);
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Leech threshold")
+      .setDesc("Consecutive misses that mark a question as a leech. 0 turns leech handling off; a correct answer clears the mark.")
+      .addText((t) =>
+        t.setValue(String(st.leechThreshold || 0)).onChange(async (v) => {
+          const n = parseInt(v, 10);
+          if (Number.isFinite(n) && n >= 0) {
+            st.leechThreshold = Math.min(50, n);
+            await this.plugin.save();
+          }
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("When an item becomes a leech")
+      .setDesc("Flag keeps it in practice with a visible mark. Suspend also hides it until you restore it under Hidden study items.")
+      .addDropdown((d) =>
+        d
+          .addOptions({ flag: "Flag only", suspend: "Flag and suspend" })
+          .setValue(st.leechAction === "suspend" ? "suspend" : "flag")
+          .onChange(async (v) => {
+            st.leechAction = v === "suspend" ? "suspend" : "flag";
             await this.plugin.save();
             this.plugin.refreshViews();
           })

@@ -30,6 +30,7 @@ would break a reader ships with a migration and a new schema version.
 | `calculation` | string | Literal arithmetic expression used to verify a numeric answer, for example `6 * 7`. The evaluator is restricted and never uses `eval`. |
 | `variant_seed`, `last_variant` | number, string | Written after a parameterized attempt: the seed used and the values (`a=3;b=2.5`). |
 | `choice_1` … `choice_8` | string | Answer choices, in display order. |
+| `leech`, `leech_lapses`, `leech_since` | boolean, number, date | Set when a question reaches the configured leech threshold: the flag, the current consecutive-miss count and the date it was flagged. A correct answer clears them. With the suspend action, `study_status` and `suspended_on` are set too. |
 | `correct_choices` | string | One-based choice numbers, for example `2` or `1,3`. |
 | `stimulus_id` | string | Shared ID for a passage or figure used by several questions. |
 | `official_question_id` | string | The source's own ID, when it has one (for example a SAT Question Bank ID). The plugin's ID stays in `question_id`. |

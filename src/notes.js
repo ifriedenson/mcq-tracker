@@ -235,6 +235,31 @@ function applyAttempt(fm, a, intervals, options) {
         ? prev
         : prev + 1
       : 0;
+  // Leech handling is opt-in and separate from the ladder: consecutive misses
+  // mark the note, a correct answer clears it, and suspending is optional.
+  const leechThreshold = Math.max(0, Math.min(50, Math.round(Number(opts.leechThreshold) || 0)));
+  let leech = null;
+  if (leechThreshold) {
+    if (!a.correct) {
+      const lapses = (Number(fm.leech_lapses) || 0) + 1;
+      fm.leech_lapses = lapses;
+      if (lapses >= leechThreshold && fm.leech !== true) {
+        fm.leech = true;
+        fm.leech_since = fmtDate(a.now);
+        if (opts.leechAction === "suspend" && !fm.study_status) {
+          fm.study_status = "suspended";
+          fm.suspended_on = fmtDate(a.now);
+        }
+        leech = { lapses, threshold: leechThreshold, suspended: fm.study_status === "suspended" };
+      }
+    } else {
+      if (fm.leech_lapses) fm.leech_lapses = 0;
+      if (fm.leech === true) {
+        delete fm.leech;
+        delete fm.leech_since;
+      }
+    }
+  }
   let days;
   if (grade) {
     if (grade === "again") days = 1;
@@ -304,6 +329,8 @@ function applyAttempt(fm, a, intervals, options) {
 
   return {
     streak,
+    leech,
+    leechLapses: Number(fm.leech_lapses) || 0,
     attempts: fm.attempts,
     correctCount: fm.correct_count,
     nextReview: fm.next_review,
