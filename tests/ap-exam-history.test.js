@@ -19,6 +19,19 @@ function biologyResult() {
   return ap.calculateApScore(ap.profileById("ap-biology"), biologyScores(), ap.DEFAULT_CUTOFFS);
 }
 
+function usHistoryScores() {
+  return {
+    mcq: { score: 45 },
+    saq: { saq1: 3, saq2: 3, saq3: 2 },
+    dbq: { score: 5 },
+    leq: { score: 4 },
+  };
+}
+
+function usHistoryResult() {
+  return ap.calculateApScore(ap.profileById("ap-us-history"), usHistoryScores(), ap.DEFAULT_CUTOFFS);
+}
+
 test("AP exam history: a complete result becomes a note with durable properties and section detail", () => {
   const profile = ap.profileById("ap-biology");
   const note = history.buildApExamNote(profile, biologyResult(), ap.DEFAULT_CUTOFFS, "2026-10-29");
@@ -47,6 +60,25 @@ test("AP exam history: a complete result becomes a note with durable properties 
   assert.equal(note.entry.frqEarned, 28);
   assert.equal(note.entry.frqMax, 34);
   assert.equal(note.entry.frqPercent, 82.4);
+});
+
+test("AP exam history: AP U.S. History keeps SAQ, DBQ and LEQ scores separately", () => {
+  const profile = ap.profileById("ap-us-history");
+  const result = usHistoryResult();
+  assert.equal(result.composite, 78.4);
+  const note = history.buildApExamNote(profile, result, ap.DEFAULT_CUTOFFS, "2026-10-29");
+  assert.equal(note.frontmatter.frq_earned, 17);
+  assert.equal(note.frontmatter.frq_max, 22);
+  assert.equal(note.frontmatter.frq_percent, 77.3);
+  assert.equal(note.frontmatter.frq_saq_earned, 8);
+  assert.equal(note.frontmatter.frq_saq_max, 9);
+  assert.equal(note.frontmatter.frq_dbq_earned, 5);
+  assert.equal(note.frontmatter.frq_leq_earned, 4);
+  assert.match(note.text, /\| Short answer \| Short answer 1 \| 3 \/ 3 \|/);
+  assert.match(note.text, /\| Document-based question \| Document-based question \| 5 \/ 7 \|/);
+  assert.match(note.text, /\| Long essay \| Long essay \| 4 \/ 6 \|/);
+  assert.equal(note.entry.frqEarned, 17);
+  assert.equal(note.entry.frqPercent, 77.3);
 });
 
 test("AP exam history: an incomplete estimate cannot be saved or parsed as a result", () => {
