@@ -26,6 +26,9 @@ const MODES = [
 ];
 
 const DEFAULT_SETTINGS = {
+  mcqEnabled: true, // the MCQ Tracker module (practice, weak spots, timed tests, import); turned off in Settings, Global
+  showRibbonIcons: true, // show the plugin's ribbon buttons
+  openPracticeOnStartUp: false, // open the practice view when the workspace is ready
   questionFolder: "",
   intervals: [1, 3, 7, 21, 60],
   errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed"],

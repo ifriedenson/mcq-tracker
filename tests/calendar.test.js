@@ -341,7 +341,7 @@ test("calendar settings: maximum width is bounded and 0 means the full pane", ()
 });
 
 test("settings: module and calendar navigation groups expose the requested tabs", () => {
-  assert.deepEqual(T.SETTINGS_MODULES.map((m) => m.id), ["mcq", "calendar"]);
+  assert.deepEqual(T.SETTINGS_MODULES.map((m) => m.id), ["global", "mcq", "calendar"]);
   assert.deepEqual(T.MCQ_TABS.map((t) => t.id), ["practice", "review", "ai", "about"]);
   assert.deepEqual(T.CALENDAR_TABS.map((t) => t.label), [
     "About",

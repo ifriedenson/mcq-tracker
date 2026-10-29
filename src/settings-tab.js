@@ -8,9 +8,11 @@ const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
+const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 
 const SETTINGS_MODULES = [
+  { id: "global", label: "Global", icon: "settings" },
   { id: "mcq", label: "MCQ Tracker", icon: "list-checks" },
   { id: "calendar", label: "Calendar", icon: "graduation-cap" },
 ];
@@ -28,7 +30,8 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
-    this.activeModule = "mcq";
+    this.activeModule = "global";
+    this.activeGlobalTab = "modules";
     this.activeMcqTab = "practice";
     this.activeCalendarTab = "about";
   }
@@ -40,6 +43,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 
     this.renderModuleNav(rootEl);
     const containerEl = rootEl.createDiv({ cls: "qt-settings-body" });
+
+    if (this.activeModule === "global") {
+      renderGlobalSettings(
+        containerEl,
+        this.plugin,
+        () => this.display(),
+        this.activeGlobalTab,
+        (id) => {
+          this.activeGlobalTab = id;
+          this.display();
+        }
+      );
+      return;
+    }
 
     if (this.activeModule === "calendar") {
       renderCalendarSettings(
@@ -56,6 +73,12 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     }
 
     this.renderMcqTabs(containerEl);
+    if (!this.plugin.mcqEnabled()) {
+      containerEl.createEl("p", {
+        cls: "setting-item-description",
+        text: "The MCQ Tracker module is off. Turn it on under Global, Modules.",
+      });
+    }
     if (this.activeMcqTab === "about") {
       this.renderAbout(containerEl);
       return;
@@ -559,6 +582,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 }
 
 module.exports = {
+  GLOBAL_TABS,
   MCQ_TABS,
   QuestionTrackerSettingTab,
   SETTINGS_MODULES,

@@ -21,6 +21,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Notes box** on the result screen, saved into the note.
 - **Import questions from a PDF:** an AI agent (or your own AI key) turns a PDF into properly formatted question notes in a new folder, and labels any answer it had to write itself with the model and date (see [Import questions from a PDF](#import-questions-from-a-pdf)).
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)).
+- **Modules you can switch off.** Settings, Global has an on/off switch for each module (MCQ Tracker, Calendar and AI features) plus the plugin-wide options, so the parts you don't use stay out of the way.
 - **Calendar (optional module, off by default).** Import an `.ics` schedule from a file or a public feed, see classes and exams in a month grid, day timeline, live countdown and upcoming-exam countdowns, and create a note for a class in one click. Free periods can start a short Quick Practice session (see [Calendar](#calendar-optional-module-off-by-default)).
 
 ## Quick start
@@ -121,7 +122,7 @@ Each `history` entry is stored as `date|result|seconds|answer|confidence|error_t
 
 ## Calendar (optional module, off by default)
 
-Turn on **Enable the calendar module** in Settings, Calendar, to add a class and exam calendar. Everything is parsed on your device from `.ics` files; nothing is fetched until you add a feed.
+Turn on **Calendar** under Settings, Global, Modules (or **Enable the calendar module** under Settings, Calendar), to add a class and exam calendar. Everything is parsed on your device from `.ics` files; nothing is fetched until you add a feed.
 
 - **Add a schedule.** Use **Calendar: add an .ics schedule**, or **Add a schedule** in an empty calendar view. Pick an `.ics` file from your vault, or paste a public calendar address. Google Calendar share links (`?cid=...`), embed links (`?src=...`) and `webcal://` addresses are converted to the calendar's `.ics` address automatically. For a private Google Calendar use Settings, Integrate calendar, **Secret address in iCal format**. Canvas, Outlook and most university systems export `.ics` too.
 - **What you see.** The original University Schedule and Calendar layout: a month card with a color dot per class, then the selected day's timeline underneath. Clicking a day keeps the month grid on screen and updates that timeline; **Day** opens the standalone day view. A live countdown marks the class in progress, **Upcoming exams** shows the next five exams with a countdown, and **Upcoming** lists the next two weeks. Classes are colored by type (lecture, exercises, lab, seminar, project, language, exam), and every color is a setting.
@@ -210,7 +211,12 @@ The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRo
 
 ## Settings
 
-Settings are grouped by module, then by tab. **MCQ Tracker** has Practice, Review, AI and About; **Calendar** has About, Schedules & Sync, Notes & Templates, Exclusions, Appearance & Colors, and Language & Region. The calendar's Appearance tab includes a maximum width setting (`0` fills the pane), class colors, break markers, and the study-slot buffer. The MCQ settings cover the question folder, folder-filter style, review intervals, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
+Settings are grouped by module, then by tab. **Global** has Modules and General; **MCQ Tracker** has Practice, Review, AI and About; **Calendar** has About, Schedules & Sync, Notes & Templates, Exclusions, Appearance & Colors, and Language & Region.
+
+- **Global → Modules** is one switch per module: **MCQ Tracker** (on by default), **Calendar** (off by default) and **AI features** (off by default). Turning a module off keeps its settings and your notes. It closes that module's open tabs and hides its ribbon button; using one of its commands anyway shows a notice that points back here.
+- **Global → General** holds the plugin-wide options: whether the plugin shows its ribbon icons, and whether the practice view opens when Obsidian starts.
+- **MCQ Tracker** covers the question folder, folder-filter style, review intervals, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, and saved presets.
+- The calendar's **Appearance & Colors** tab includes a maximum width setting (`0` fills the pane), class colors, break markers, and the study-slot buffer.
 
 ## Privacy
 

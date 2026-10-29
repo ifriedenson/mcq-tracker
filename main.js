@@ -2990,6 +2990,9 @@ const MODES = [
 ];
 
 const DEFAULT_SETTINGS = {
+  mcqEnabled: true, // the MCQ Tracker module (practice, weak spots, timed tests, import); turned off in Settings, Global
+  showRibbonIcons: true, // show the plugin's ribbon buttons
+  openPracticeOnStartUp: false, // open the practice view when the workspace is ready
   questionFolder: "",
   intervals: [1, 3, 7, 21, 60],
   errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed"],
@@ -3259,6 +3262,10 @@ class TestView extends ItemView {
     el.empty();
     this.timerEl = null;
     const root = el.createDiv({ cls: "qt-wrap" });
+    if (this.plugin.mcqEnabled && !this.plugin.mcqEnabled()) {
+      root.createDiv({ cls: "qt-hint", text: "The MCQ Tracker module is off. Turn it on in Settings, Global." });
+      return;
+    }
     try {
       if (this.phase === "test") this.renderTest(root);
       else if (this.phase === "review") this.renderReview(root);
@@ -5061,6 +5068,10 @@ class InsightsView extends ItemView {
     const top = el.scrollTop;
     el.empty();
     const root = el.createDiv({ cls: "qt-wrap qt-ins" });
+    if (this.plugin.mcqEnabled && !this.plugin.mcqEnabled()) {
+      root.createDiv({ cls: "qt-hint", text: "The MCQ Tracker module is off. Turn it on in Settings, Global." });
+      return;
+    }
     const tabs = root.createDiv({ cls: "qt-row qt-small-row" });
     for (const [id, label] of [["weak", "Weak spots"], ["errors", "Error log"]]) {
       const b = tabs.createEl("button", { text: label });
@@ -6841,14 +6852,16 @@ class QuestionTrackerPlugin extends Plugin {
       if (Platform.isDesktopApp && ai.enabled && ai.managed && ai.preStart && this.backend() === "opencode") {
         this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
       }
+      if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
     });
     this.registerDomEvent(window, "beforeunload", () => this.manager.stop());
     this.registerView(VIEW_TYPE, (leaf) => new PracticeView(leaf, this));
     this.registerView(VIEW_TYPE_INSIGHTS, (leaf) => new InsightsView(leaf, this));
     this.registerView(VIEW_TYPE_TEST, (leaf) => new TestView(leaf, this));
     this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this));
-    this.addRibbonIcon("graduation-cap", "Open practice view", () => this.activateView());
-    this.setupCalendarRibbon();
+    this.ribbonButtons = {};
+    this.ribbonAdded = {};
+    this.refreshRibbon();
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a PDF", callback: () => this.openPdfImport() });
@@ -7010,6 +7023,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
+    // module switches and plugin-wide flags are always plain booleans
+    this.settings.mcqEnabled = this.settings.mcqEnabled !== false;
+    this.settings.showRibbonIcons = this.settings.showRibbonIcons !== false;
+    this.settings.openPracticeOnStartUp = this.settings.openPracticeOnStartUp === true;
     if (!["auto", "buttons", "search"].includes(this.settings.folderFilterStyle)) this.settings.folderFilterStyle = "auto";
     for (const k of ["intervals", "errorTypes", "confidenceLabels"]) {
       if (!Array.isArray(this.settings[k]) || !this.settings[k].length) this.settings[k] = DEFAULT_SETTINGS[k].slice();
@@ -7099,6 +7116,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async activateInsights(tab) {
+    if (this.moduleOff("mcq")) return;
     const ws = this.app.workspace;
     let leaf = ws.getLeavesOfType(VIEW_TYPE_INSIGHTS)[0];
     if (!leaf) {
@@ -7114,6 +7132,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async activateTest() {
+    if (this.moduleOff("mcq")) return;
     const ws = this.app.workspace;
     let leaf = ws.getLeavesOfType(VIEW_TYPE_TEST)[0];
     if (!leaf) {
@@ -7157,6 +7176,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   openPdfImport() {
+    if (this.moduleOff("mcq")) return;
     if (!this.settings.ai.enabled) {
       new Notice("Turn on AI features in the plugin settings to import from a PDF.");
       return;
@@ -7171,6 +7191,7 @@ class QuestionTrackerPlugin extends Plugin {
   /* ---- views */
 
   async activateView() {
+    if (this.moduleOff("mcq")) return null;
     const ws = this.app.workspace;
     let leaf = ws.getLeavesOfType(VIEW_TYPE)[0];
     if (!leaf) {
@@ -7221,18 +7242,84 @@ class QuestionTrackerPlugin extends Plugin {
     }
   }
 
+  /* ---- modules and the ribbon */
+
+  /** The MCQ Tracker module (practice, weak spots, timed tests, import) is on unless it was turned off. */
+  mcqEnabled() {
+    return this.settings.mcqEnabled !== false;
+  }
+
+  /** Adds one module's ribbon button, once, if ribbon buttons are on. */
+  addModuleRibbon(id, icon, title, onClick) {
+    if (!this.ribbonAdded) this.ribbonAdded = {};
+    if (!this.ribbonButtons) this.ribbonButtons = {};
+    if (this.ribbonAdded[id] || !this.settings.showRibbonIcons) return;
+    this.ribbonAdded[id] = true;
+    this.ribbonButtons[id] = this.addRibbonIcon(icon, title, onClick) || null;
+  }
+
+  removeModuleRibbon(id) {
+    const el = this.ribbonButtons && this.ribbonButtons[id];
+    if (el && typeof el.remove === "function") el.remove();
+    if (this.ribbonButtons) delete this.ribbonButtons[id];
+    if (this.ribbonAdded) delete this.ribbonAdded[id];
+  }
+
+  /** Shows exactly the ribbon buttons the modules that are on call for. */
+  refreshRibbon() {
+    if (this.mcqEnabled()) this.addModuleRibbon("mcq", "graduation-cap", "Open practice view", () => this.activateView());
+    else this.removeModuleRibbon("mcq");
+    if (this.calendarEnabled()) this.addModuleRibbon("calendar", "calendar-days", "Open calendar", () => this.activateCalendar());
+    else this.removeModuleRibbon("calendar");
+  }
+
   setupCalendarRibbon() {
-    if (!this.calendarEnabled() || this.calendarRibbonAdded) return;
-    this.calendarRibbonAdded = true;
-    this.addRibbonIcon("calendar-days", "Open calendar", () => this.activateCalendar());
+    this.refreshRibbon();
+  }
+
+  /** Says a module is off and points at settings. True when it is off, so callers can stop. */
+  moduleOff(id) {
+    if (id === "calendar" ? this.calendarEnabled() : this.mcqEnabled()) return false;
+    new Notice(
+      id === "calendar"
+        ? "The calendar module is off. Turn it on in Settings, Global."
+        : "The MCQ Tracker module is off. Turn it on in Settings, Global."
+    );
+    this.openSettings();
+    return true;
+  }
+
+  /** Closes a module's open tabs when it is turned off (restored tabs would be stale). */
+  detachModuleLeaves(types) {
+    const ws = this.app.workspace;
+    if (typeof ws.detachLeavesOfType !== "function") return;
+    for (const type of types) ws.detachLeavesOfType(type);
+  }
+
+  async onMcqToggled() {
+    this.refreshRibbon();
+    if (!this.mcqEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE, VIEW_TYPE_INSIGHTS, VIEW_TYPE_TEST]);
+      this.pauseSession();
+      return;
+    }
+    this.refreshViews();
   }
 
   async onCalendarToggled() {
     this.invalidateCalendar();
-    if (!this.calendarEnabled()) return;
-    this.setupCalendarRibbon();
+    this.refreshRibbon();
+    if (!this.calendarEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_CALENDAR]);
+      return;
+    }
     await this.refreshCalendarFileSources();
     this.refreshCalendarViews();
+  }
+
+  onGlobalSettingsChanged() {
+    this.refreshRibbon();
+    this.refreshViews();
   }
 
   /** One month back, six months forward: enough for a semester and a month grid. */
@@ -7394,11 +7481,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async activateCalendar() {
-    if (!this.calendarEnabled()) {
-      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
-      this.openSettings();
-      return null;
-    }
+    if (this.moduleOff("calendar")) return null;
     const ws = this.app.workspace;
     let leaf = ws.getLeavesOfType(VIEW_TYPE_CALENDAR)[0];
     if (!leaf) {
@@ -7412,11 +7495,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   openCalendarImport() {
-    if (!this.calendarEnabled()) {
-      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
-      this.openSettings();
-      return;
-    }
+    if (this.moduleOff("calendar")) return;
     new CalendarImportModal(this.app, this, () => this.refreshCalendarViews()).open();
   }
 
@@ -7425,7 +7504,7 @@ class QuestionTrackerPlugin extends Plugin {
     el.empty();
     if (!this.calendarEnabled()) {
       const empty = el.createDiv({ cls: "uni-empty-schedule" });
-      empty.createDiv({ cls: "uni-empty-schedule-desc", text: "Calendar is off. Turn it on in Settings, Calendar." });
+      empty.createDiv({ cls: "uni-empty-schedule-desc", text: "Calendar is off. Turn it on in Settings, Global." });
       return;
     }
     const { dateKey: key } = parseScheduleBlock(source, new Date());
@@ -7435,10 +7514,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async openNextClassNote() {
-    if (!this.calendarEnabled()) {
-      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
-      return;
-    }
+    if (this.moduleOff("calendar")) return;
     const status = nextClassStatus(this.calendarEvents(), new Date());
     if (!status.event) {
       new Notice("No class found in the calendar.");
@@ -7468,10 +7544,7 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** A free period from the calendar becomes a one-tap Quick Practice session. */
   openStudySlot(slots) {
-    if (!this.calendarEnabled()) {
-      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
-      return;
-    }
+    if (this.moduleOff("calendar")) return;
     const list = (Array.isArray(slots) ? slots : []).filter((slot) => slot && slot.minutes > 0);
     if (!list.length) {
       new Notice("There is no free period long enough for a study session.");
@@ -7507,10 +7580,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async exportCalendarIcs() {
-    if (!this.calendarEnabled()) {
-      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
-      return;
-    }
+    if (this.moduleOff("calendar")) return;
     const events = this.calendarEvents();
     if (!events.length) {
       new Notice("There are no visible classes or exams to export.");
@@ -7963,6 +8033,7 @@ class PracticeView extends ItemView {
     this.timerEl = null;
     const root = el.createDiv({ cls: "qt-wrap" });
     this.emptyShown = false;
+    if (this.plugin.mcqEnabled && !this.plugin.mcqEnabled()) return this.renderModuleOff(root);
     if (this.state === "question") this.renderQuestion(root);
     else if (this.state === "result") this.renderResult(root);
     else if (this.state === "chat") this.renderChat(root);
@@ -8160,6 +8231,19 @@ class PracticeView extends ItemView {
     if (this.tally.n) {
       root.createDiv({ cls: "qt-hint", text: `This session: ${this.tally.correct}/${this.tally.n} correct` });
     }
+  }
+
+  /* ---- the module was turned off in settings */
+
+  renderModuleOff(root) {
+    root.addClass("qt-onboard");
+    const card = root.createDiv({ cls: "qt-onboard-card" });
+    card.createEl("h3", { text: "MCQ Tracker is off" });
+    card.createDiv({
+      cls: "qt-onboard-text",
+      text: "The MCQ Tracker module is turned off, so practice, weak spots and timed tests are hidden. Your notes and settings are fine. Turn it back on under Settings, Global, Modules.",
+    });
+    card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
 
   /* ---- first run: no usable questions yet */
@@ -8840,6 +8924,128 @@ module.exports = {
 };
 };
 
+/* ---- src/settings-global.js ---- */
+__defs["settings-global"] = function (module, exports, require) {
+/*
+ * Global settings: one switch per module, plus the few options that apply to the
+ * whole plugin. Each module keeps its own detailed settings on its own page.
+ */
+const { Setting } = require("obsidian");
+const { renderSettingsTabs } = require("./settings-ui");
+
+const GLOBAL_TABS = [
+  { id: "modules", label: "Modules", icon: "toggle-left" },
+  { id: "general", label: "General", icon: "sliders-horizontal" },
+];
+
+function renderGlobalSettings(containerEl, plugin, redisplay, activeTab, setTab) {
+  const current = GLOBAL_TABS.some((tab) => tab.id === activeTab) ? activeTab : "modules";
+  renderSettingsTabs(
+    containerEl,
+    GLOBAL_TABS,
+    current,
+    (id) => (typeof setTab === "function" ? setTab(id) : redisplay()),
+    { className: "qt-settings-tabs", tabClass: "qt-settings-tab" }
+  );
+
+  const section = containerEl.createDiv({ cls: "qt-settings-section" });
+  if (current === "general") return renderGeneral(section, plugin, redisplay);
+  return renderModules(section, plugin, redisplay);
+}
+
+function renderModules(containerEl, plugin, redisplay) {
+  const st = plugin.settings;
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Turn off the parts of the plugin you don't use. A module that is off keeps its settings and your notes; it just stops showing its views, ribbon button and commands.",
+  });
+
+  new Setting(containerEl).setName("Modules").setHeading();
+
+  new Setting(containerEl)
+    .setName("MCQ Tracker")
+    .setDesc("Practice questions from your notes: filters and presets, weak spots, the error log, timed tests and PDF import. Off hides the practice view and its other views.")
+    .addToggle((t) =>
+      t.setValue(plugin.mcqEnabled()).onChange(async (v) => {
+        st.mcqEnabled = v;
+        await plugin.save();
+        await plugin.onMcqToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Calendar")
+    .setDesc("A class and exam calendar from .ics schedules, with countdowns, one-click class notes and study time from free periods. Off by default; its own settings are under Calendar.")
+    .addToggle((t) =>
+      t.setValue(plugin.calendarEnabled()).onChange(async (v) => {
+        st.calendar.enabled = v;
+        await plugin.save();
+        await plugin.onCalendarToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("AI features")
+    .setDesc("Ask AI on the result screen, the AI assistant, and PDF import. Off by default: nothing is sent anywhere until this is on. Choose the provider under MCQ Tracker, AI.")
+    .addToggle((t) =>
+      t.setValue(!!st.ai.enabled).onChange(async (v) => {
+        st.ai.enabled = v;
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "The settings for a module stay on its own page: MCQ Tracker and Calendar.",
+  });
+}
+
+function renderGeneral(containerEl, plugin, redisplay) {
+  const st = plugin.settings;
+
+  new Setting(containerEl).setName("Interface").setHeading();
+
+  new Setting(containerEl)
+    .setName("Show ribbon icons")
+    .setDesc("The plugin's buttons in the left ribbon, one for each module that is on.")
+    .addToggle((t) =>
+      t.setValue(st.showRibbonIcons !== false).onChange(async (v) => {
+        st.showRibbonIcons = v;
+        await plugin.save();
+        plugin.onGlobalSettingsChanged();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Open the practice view when Obsidian starts")
+    .setDesc("Opens the practice view as soon as the workspace is ready, so you can start with one tap. Needs the MCQ Tracker module.")
+    .addToggle((t) =>
+      t.setValue(st.openPracticeOnStartUp === true).onChange(async (v) => {
+        st.openPracticeOnStartUp = v;
+        await plugin.save();
+      })
+    );
+
+  const version = (plugin.manifest && plugin.manifest.version) || "";
+  new Setting(containerEl)
+    .setName("Version")
+    .setDesc(version ? `MCQ Tracker ${version}` : "MCQ Tracker")
+    .addButton((b) => b.setButtonText("Open practice").onClick(() => plugin.activateView()));
+}
+
+module.exports = {
+  GLOBAL_TABS,
+  renderGeneral,
+  renderGlobalSettings,
+  renderModules,
+};
+};
+
 /* ---- src/settings-tab.js ---- */
 __defs["settings-tab"] = function (module, exports, require) {
 const { Notice, Platform, PluginSettingTab, Setting } = require("obsidian");
@@ -8851,9 +9057,11 @@ const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
+const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 
 const SETTINGS_MODULES = [
+  { id: "global", label: "Global", icon: "settings" },
   { id: "mcq", label: "MCQ Tracker", icon: "list-checks" },
   { id: "calendar", label: "Calendar", icon: "graduation-cap" },
 ];
@@ -8871,7 +9079,8 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
-    this.activeModule = "mcq";
+    this.activeModule = "global";
+    this.activeGlobalTab = "modules";
     this.activeMcqTab = "practice";
     this.activeCalendarTab = "about";
   }
@@ -8883,6 +9092,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 
     this.renderModuleNav(rootEl);
     const containerEl = rootEl.createDiv({ cls: "qt-settings-body" });
+
+    if (this.activeModule === "global") {
+      renderGlobalSettings(
+        containerEl,
+        this.plugin,
+        () => this.display(),
+        this.activeGlobalTab,
+        (id) => {
+          this.activeGlobalTab = id;
+          this.display();
+        }
+      );
+      return;
+    }
 
     if (this.activeModule === "calendar") {
       renderCalendarSettings(
@@ -8899,6 +9122,12 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     }
 
     this.renderMcqTabs(containerEl);
+    if (!this.plugin.mcqEnabled()) {
+      containerEl.createEl("p", {
+        cls: "setting-item-description",
+        text: "The MCQ Tracker module is off. Turn it on under Global, Modules.",
+      });
+    }
     if (this.activeMcqTab === "about") {
       this.renderAbout(containerEl);
       return;
@@ -9402,6 +9631,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 }
 
 module.exports = {
+  GLOBAL_TABS,
   MCQ_TABS,
   QuestionTrackerSettingTab,
   SETTINGS_MODULES,
@@ -9833,7 +10063,7 @@ const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease,
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
-const { MCQ_TABS, QuestionTrackerSettingTab, SETTINGS_MODULES } = require("./settings-tab");
+const { GLOBAL_TABS, MCQ_TABS, QuestionTrackerSettingTab, SETTINGS_MODULES } = require("./settings-tab");
 const { CALENDAR_TABS } = require("./calendar-settings");
 const { renderSettingsTabs } = require("./settings-ui");
 const { FindQuestionModal, FolderFilterSuggest, QuestionFolderModal } = require("./modals");
@@ -9917,6 +10147,7 @@ QuestionTrackerPlugin.__test = {
   TestView,
   QuestionTrackerSettingTab,
   SETTINGS_MODULES,
+  GLOBAL_TABS,
   MCQ_TABS,
   CALENDAR_TABS,
   renderSettingsTabs,

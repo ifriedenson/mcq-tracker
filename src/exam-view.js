@@ -124,6 +124,10 @@ class TestView extends ItemView {
     el.empty();
     this.timerEl = null;
     const root = el.createDiv({ cls: "qt-wrap" });
+    if (this.plugin.mcqEnabled && !this.plugin.mcqEnabled()) {
+      root.createDiv({ cls: "qt-hint", text: "The MCQ Tracker module is off. Turn it on in Settings, Global." });
+      return;
+    }
     try {
       if (this.phase === "test") this.renderTest(root);
       else if (this.phase === "review") this.renderReview(root);

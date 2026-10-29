@@ -49,6 +49,10 @@ class InsightsView extends ItemView {
     const top = el.scrollTop;
     el.empty();
     const root = el.createDiv({ cls: "qt-wrap qt-ins" });
+    if (this.plugin.mcqEnabled && !this.plugin.mcqEnabled()) {
+      root.createDiv({ cls: "qt-hint", text: "The MCQ Tracker module is off. Turn it on in Settings, Global." });
+      return;
+    }
     const tabs = root.createDiv({ cls: "qt-row qt-small-row" });
     for (const [id, label] of [["weak", "Weak spots"], ["errors", "Error log"]]) {
       const b = tabs.createEl("button", { text: label });

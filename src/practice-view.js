@@ -268,6 +268,7 @@ class PracticeView extends ItemView {
     this.timerEl = null;
     const root = el.createDiv({ cls: "qt-wrap" });
     this.emptyShown = false;
+    if (this.plugin.mcqEnabled && !this.plugin.mcqEnabled()) return this.renderModuleOff(root);
     if (this.state === "question") this.renderQuestion(root);
     else if (this.state === "result") this.renderResult(root);
     else if (this.state === "chat") this.renderChat(root);
@@ -465,6 +466,19 @@ class PracticeView extends ItemView {
     if (this.tally.n) {
       root.createDiv({ cls: "qt-hint", text: `This session: ${this.tally.correct}/${this.tally.n} correct` });
     }
+  }
+
+  /* ---- the module was turned off in settings */
+
+  renderModuleOff(root) {
+    root.addClass("qt-onboard");
+    const card = root.createDiv({ cls: "qt-onboard-card" });
+    card.createEl("h3", { text: "MCQ Tracker is off" });
+    card.createDiv({
+      cls: "qt-onboard-text",
+      text: "The MCQ Tracker module is turned off, so practice, weak spots and timed tests are hidden. Your notes and settings are fine. Turn it back on under Settings, Global, Modules.",
+    });
+    card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
 
   /* ---- first run: no usable questions yet */

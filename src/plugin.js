@@ -47,14 +47,16 @@ class QuestionTrackerPlugin extends Plugin {
       if (Platform.isDesktopApp && ai.enabled && ai.managed && ai.preStart && this.backend() === "opencode") {
         this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
       }
+      if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
     });
     this.registerDomEvent(window, "beforeunload", () => this.manager.stop());
     this.registerView(VIEW_TYPE, (leaf) => new PracticeView(leaf, this));
     this.registerView(VIEW_TYPE_INSIGHTS, (leaf) => new InsightsView(leaf, this));
     this.registerView(VIEW_TYPE_TEST, (leaf) => new TestView(leaf, this));
     this.registerView(VIEW_TYPE_CALENDAR, (leaf) => new CalendarView(leaf, this));
-    this.addRibbonIcon("graduation-cap", "Open practice view", () => this.activateView());
-    this.setupCalendarRibbon();
+    this.ribbonButtons = {};
+    this.ribbonAdded = {};
+    this.refreshRibbon();
 
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a PDF", callback: () => this.openPdfImport() });
@@ -216,6 +218,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
+    // module switches and plugin-wide flags are always plain booleans
+    this.settings.mcqEnabled = this.settings.mcqEnabled !== false;
+    this.settings.showRibbonIcons = this.settings.showRibbonIcons !== false;
+    this.settings.openPracticeOnStartUp = this.settings.openPracticeOnStartUp === true;
     if (!["auto", "buttons", "search"].includes(this.settings.folderFilterStyle)) this.settings.folderFilterStyle = "auto";
     for (const k of ["intervals", "errorTypes", "confidenceLabels"]) {
       if (!Array.isArray(this.settings[k]) || !this.settings[k].length) this.settings[k] = DEFAULT_SETTINGS[k].slice();
@@ -305,6 +311,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async activateInsights(tab) {
+    if (this.moduleOff("mcq")) return;
     const ws = this.app.workspace;
     let leaf = ws.getLeavesOfType(VIEW_TYPE_INSIGHTS)[0];
     if (!leaf) {
@@ -320,6 +327,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async activateTest() {
+    if (this.moduleOff("mcq")) return;
     const ws = this.app.workspace;
     let leaf = ws.getLeavesOfType(VIEW_TYPE_TEST)[0];
     if (!leaf) {
@@ -363,6 +371,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   openPdfImport() {
+    if (this.moduleOff("mcq")) return;
     if (!this.settings.ai.enabled) {
       new Notice("Turn on AI features in the plugin settings to import from a PDF.");
       return;
@@ -377,6 +386,7 @@ class QuestionTrackerPlugin extends Plugin {
   /* ---- views */
 
   async activateView() {
+    if (this.moduleOff("mcq")) return null;
     const ws = this.app.workspace;
     let leaf = ws.getLeavesOfType(VIEW_TYPE)[0];
     if (!leaf) {
@@ -427,18 +437,84 @@ class QuestionTrackerPlugin extends Plugin {
     }
   }
 
+  /* ---- modules and the ribbon */
+
+  /** The MCQ Tracker module (practice, weak spots, timed tests, import) is on unless it was turned off. */
+  mcqEnabled() {
+    return this.settings.mcqEnabled !== false;
+  }
+
+  /** Adds one module's ribbon button, once, if ribbon buttons are on. */
+  addModuleRibbon(id, icon, title, onClick) {
+    if (!this.ribbonAdded) this.ribbonAdded = {};
+    if (!this.ribbonButtons) this.ribbonButtons = {};
+    if (this.ribbonAdded[id] || !this.settings.showRibbonIcons) return;
+    this.ribbonAdded[id] = true;
+    this.ribbonButtons[id] = this.addRibbonIcon(icon, title, onClick) || null;
+  }
+
+  removeModuleRibbon(id) {
+    const el = this.ribbonButtons && this.ribbonButtons[id];
+    if (el && typeof el.remove === "function") el.remove();
+    if (this.ribbonButtons) delete this.ribbonButtons[id];
+    if (this.ribbonAdded) delete this.ribbonAdded[id];
+  }
+
+  /** Shows exactly the ribbon buttons the modules that are on call for. */
+  refreshRibbon() {
+    if (this.mcqEnabled()) this.addModuleRibbon("mcq", "graduation-cap", "Open practice view", () => this.activateView());
+    else this.removeModuleRibbon("mcq");
+    if (this.calendarEnabled()) this.addModuleRibbon("calendar", "calendar-days", "Open calendar", () => this.activateCalendar());
+    else this.removeModuleRibbon("calendar");
+  }
+
   setupCalendarRibbon() {
-    if (!this.calendarEnabled() || this.calendarRibbonAdded) return;
-    this.calendarRibbonAdded = true;
-    this.addRibbonIcon("calendar-days", "Open calendar", () => this.activateCalendar());
+    this.refreshRibbon();
+  }
+
+  /** Says a module is off and points at settings. True when it is off, so callers can stop. */
+  moduleOff(id) {
+    if (id === "calendar" ? this.calendarEnabled() : this.mcqEnabled()) return false;
+    new Notice(
+      id === "calendar"
+        ? "The calendar module is off. Turn it on in Settings, Global."
+        : "The MCQ Tracker module is off. Turn it on in Settings, Global."
+    );
+    this.openSettings();
+    return true;
+  }
+
+  /** Closes a module's open tabs when it is turned off (restored tabs would be stale). */
+  detachModuleLeaves(types) {
+    const ws = this.app.workspace;
+    if (typeof ws.detachLeavesOfType !== "function") return;
+    for (const type of types) ws.detachLeavesOfType(type);
+  }
+
+  async onMcqToggled() {
+    this.refreshRibbon();
+    if (!this.mcqEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE, VIEW_TYPE_INSIGHTS, VIEW_TYPE_TEST]);
+      this.pauseSession();
+      return;
+    }
+    this.refreshViews();
   }
 
   async onCalendarToggled() {
     this.invalidateCalendar();
-    if (!this.calendarEnabled()) return;
-    this.setupCalendarRibbon();
+    this.refreshRibbon();
+    if (!this.calendarEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_CALENDAR]);
+      return;
+    }
     await this.refreshCalendarFileSources();
     this.refreshCalendarViews();
+  }
+
+  onGlobalSettingsChanged() {
+    this.refreshRibbon();
+    this.refreshViews();
   }
 
   /** One month back, six months forward: enough for a semester and a month grid. */
@@ -600,11 +676,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async activateCalendar() {
-    if (!this.calendarEnabled()) {
-      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
-      this.openSettings();
-      return null;
-    }
+    if (this.moduleOff("calendar")) return null;
     const ws = this.app.workspace;
     let leaf = ws.getLeavesOfType(VIEW_TYPE_CALENDAR)[0];
     if (!leaf) {
@@ -618,11 +690,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   openCalendarImport() {
-    if (!this.calendarEnabled()) {
-      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
-      this.openSettings();
-      return;
-    }
+    if (this.moduleOff("calendar")) return;
     new CalendarImportModal(this.app, this, () => this.refreshCalendarViews()).open();
   }
 
@@ -631,7 +699,7 @@ class QuestionTrackerPlugin extends Plugin {
     el.empty();
     if (!this.calendarEnabled()) {
       const empty = el.createDiv({ cls: "uni-empty-schedule" });
-      empty.createDiv({ cls: "uni-empty-schedule-desc", text: "Calendar is off. Turn it on in Settings, Calendar." });
+      empty.createDiv({ cls: "uni-empty-schedule-desc", text: "Calendar is off. Turn it on in Settings, Global." });
       return;
     }
     const { dateKey: key } = parseScheduleBlock(source, new Date());
@@ -641,10 +709,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async openNextClassNote() {
-    if (!this.calendarEnabled()) {
-      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
-      return;
-    }
+    if (this.moduleOff("calendar")) return;
     const status = nextClassStatus(this.calendarEvents(), new Date());
     if (!status.event) {
       new Notice("No class found in the calendar.");
@@ -674,10 +739,7 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** A free period from the calendar becomes a one-tap Quick Practice session. */
   openStudySlot(slots) {
-    if (!this.calendarEnabled()) {
-      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
-      return;
-    }
+    if (this.moduleOff("calendar")) return;
     const list = (Array.isArray(slots) ? slots : []).filter((slot) => slot && slot.minutes > 0);
     if (!list.length) {
       new Notice("There is no free period long enough for a study session.");
@@ -713,10 +775,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async exportCalendarIcs() {
-    if (!this.calendarEnabled()) {
-      new Notice("The calendar module is off. Turn it on in Settings, Calendar.");
-      return;
-    }
+    if (this.moduleOff("calendar")) return;
     const events = this.calendarEvents();
     if (!events.length) {
       new Notice("There are no visible classes or exams to export.");
