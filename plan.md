@@ -1684,6 +1684,189 @@ Packaging, audience, calendar and flashcard priority, BYOK + OpenCode, mobile qu
 
 ---
 
+## 13. Competitor analysis (snapshot 2026-10-29)
+
+> Supplied by the owner on 2026-10-29. It reports MCQ Tracker at **1.30.0** with **75 downloads**; the plugin is now **1.109.0**. Competitor versions and download counts are snapshot values, not current status. This section is retained as the positioning record; the plugin's own status lives in the audit table above.
+
+**Legend:** ✅ documented in the README or listing · ◐ partial or different approach · ❌ not documented in what I read (may exist undocumented) · — not applicable
+
+### 13.1 At a glance
+
+| Plugin | Downloads | Version (releases) | Age | License |
+|---|---|---|---|---|
+| **MCQ Tracker** (yours) | 75 (Obsidian Stats), 2 stars, 0 forks, no reviews | 1.30.0 (released ~14 h before the snapshot) | Not checked | MIT |
+| Quiz Generator | 20k | 2.1.2 (7) | Created 3 yrs ago, last updated 2 yrs ago | MIT |
+| CBT Exam Simulator | 2k | 1.5.3 (10) | Created 9 months ago | MIT |
+| Spaceforge | 2k | 1.2.92 (23) | Created last year, updated 10 h before snapshot | MIT |
+| Omniscient | 592 | 0.5.2 (5) | ~2 months | MIT |
+| Note Quiz Engine | 65 | 0.3.2 (3) | ~4 weeks | MIT |
+
+> **Corrections to an earlier chat reply:** Spaceforge now shows **2k** downloads (not ~1k from a stale search snippet), and Note Quiz Engine shows **65** (not 58).
+
+**License note (not legal advice):** every plugin here is MIT. MIT lets others reuse code if the copyright and license notice stay with it, so ideas and even snippets can be borrowed with attribution. MCQ Tracker already follows this pattern: its README credits MIT-licensed code adapted from University Schedule and Calendar (Cesemess) and uses the MIT-licensed ts-fsrs library.
+
+### 13.2 Plugin profiles
+
+#### MCQ Tracker (yours)
+- **Links:** [GitHub](https://github.com/ifriedenson/mcq-tracker) · [Obsidian Stats](https://www.obsidianstats.com/plugins/mcq-tracker) · directory deep link `obsidian://show-plugin?id=mcq-tracker`
+- **License:** MIT
+- **Core:** one note per question (a `question_id` property); passage/question/choices layout; auto-grading for MCQ and numeric (SPR) questions; timer, confidence buttons, mistake tags; history, streaks and next-review stored in note properties.
+- **Scheduling:** 1/3/7/21/60-day ladder by default, optional FSRS; Known/Bury/Suspend/Exclude; exam-aware review (pulls reviews to the day before a matching exam).
+- **Practice modes:** timed multi-section tests with resume, Quick Practice, daily quiz, weak-spot and error-log views, adaptive difficulty, study-cards skin, mixed review.
+- **Import/AI (optional):** PDF/PPTX/DOCX/etc. → question notes (with figure capture), lecture transcript → practice, OCR, AI tutor, answer verification by a second call, weak-spot generation.
+- **Extras:** flashcards/vocab module, Anki/Quizlet/Moodle/QTI/Kahoot/Blooket/Gimkit import-export, AnkiConnect sync, calendar (.ics), assignments + gradebook/GPA, focus timer, reference tools, AP score estimator and FRQ rubric grading, analytics dashboard and `mcq-dashboard` widgets.
+
+#### Quiz Generator
+- **Links:** [Directory](https://community.obsidian.md/plugins/quiz-generator) · [GitHub](https://github.com/ECuiDev/obsidian-quiz-generator) · [Obsidian Stats](https://www.obsidianstats.com/plugins/quiz-generator)
+- **License:** MIT · **Downloads:** 20k
+- **What it does:** AI generates exam-style questions from notes or folders you pick, then you answer them in a quiz UI with real-time feedback.
+- **Features:** 7 question types (true/false, multiple choice, select-all, fill-in-the-blank, matching, short answer, long answer); saves questions as callouts or as flashcards compatible with the Spaced Repetition plugin; reopen saved quizzes; 22 generation languages; LaTeX; providers: OpenAI, Google, Anthropic, Perplexity, Mistral, Cohere, Ollama.
+- **Status:** last updated about 2 years ago; its own roadmap lists test mode, spaced repetition, PDF/image generation, and difficulty settings as not yet shipped. The directory scorecard shows Health "Fair" and Review "Caution".
+- **Has that you don't:** select-all / true-false / fill-in / matching types; 22-language generation; more AI providers (Perplexity, Mistral, Cohere); picks any notes/folders at generation time.
+- **You have that it doesn't:** persistent scoring and history, spaced review, timing, analytics, timed tests, PDF import, and nearly everything else.
+
+#### CBT Exam Simulator
+- **Links:** [Directory](https://community.obsidian.md/plugins/cbt-exam) · [GitHub](https://github.com/nazdridoy/obsidian-cbt-exam) · [Obsidian Stats](https://www.obsidianstats.com/plugins/cbt-exam)
+- **License:** MIT · **Downloads:** 2k
+- **What it does:** timed, computer-based-test-style exams from a simple text syntax in one note.
+- **Features:** exam runs in its own workspace tab with timer and question navigator; 7 question types (multiple choice, select-all, true/false, fill-in, matching, short and long answer); adaptive study mode (configurable mix of improvable vs. mastered, default 70% improvable); per-quiz history saved in a sidecar markdown file; mark for review; color-coded review mode; results dashboard; retake; Markdown + LaTeX; frontmatter options for time limit, pass score, shuffle, and question ranges; companion converter for VCE exam files.
+- **Has that you don't:** select-all / true-false / fill-in / matching types; pass-score threshold; question and option shuffling; compact one-file quiz syntax; VCE converter.
+- **You have that it doesn't:** spaced repetition, confidence ratings, mistake tags, PDF import, AI features, flashcards, calendar, deeper analytics, numeric/units grading.
+
+#### Spaceforge
+- **Links:** [Directory](https://community.obsidian.md/plugins/spaceforge) · [GitHub](https://github.com/dralkh/spaceforge)
+- **License:** MIT (bundles ts-fsrs and fzstd, both MIT) · **Downloads:** 2k
+- **What it does:** spaced repetition for whole notes plus an AI study suite. This is the **closest overlapping competitor** and it ships updates constantly.
+- **Features:** FSRS and SM-2 scheduling; review bar docked under the note; leech handling and lapse checkpoints; AI-generated MCQs per note; adaptive AI tutor that charts a note into learning objectives and tracks understanding/recall/transfer (recall counts as durable only after two different days); study workspace with Learn, Visualize, Mind map and Summary; optional web lookup with citations; Anki-style deck engine (flip, reversed, MCQ, cloze, typed answer) with `.apkg` import and export, AnkiConnect background sync, and AnkiWeb search; statistics page (heatmap, 30-day forecast, true retention, leeches); Pomodoro timer; calendar events with recurrence and categories; 20+ AI providers including local servers and agent CLIs; optional progress file that travels with the vault; 22 commands.
+- **Storage:** review data in the plugin's central data file, keeping note frontmatter clean.
+- **Has that you don't:** objective-based AI tutor, mind map/visualize/summary workspace, web lookup, SM-2, leech handling, `.apkg` **export**, AnkiWeb search, review-forecast and true-retention stats, wider provider list, whole-note scheduling.
+- **You have that it doesn't:** question-first MCQ practice with passages, timed multi-section tests, per-question timing, confidence calibration, mistake tags, PDF/document → question import with figures, numeric/units/parameterized questions, FRQ rubric grading, gradebook/GPA, AP tools, Quizlet/Kahoot/Moodle formats, exam-aware scheduling, progress stored in each question's own properties.
+
+#### Omniscient
+- **Links:** [Directory](https://community.obsidian.md/plugins/omniscient) · [GitHub](https://github.com/fortnitemaster32/Omniscient) · [Obsidian Stats](https://www.obsidianstats.com/plugins/omniscient)
+- **License:** MIT · **Downloads:** 592 in about 2 months
+- **What it does:** quiz-and-recall sessions based on Cal Newport's method. Questions are `> [!Question]` callouts in one file or a folder; the answer stays hidden until you reveal it and you grade yourself.
+- **Features:** self-grade Struggling / Almost / Mastered(n); status written onto the question line; "exam-ready" after N consecutive mastered passes; filters by status, difficulty and section; shuffle; per-question hints; undo; keyboard-driven (Space, 1/2/3, H, N, S, U, Esc); per-file progress summary; sample quiz and usage guide. The author discloses it was built with an AI coding agent. Requires Obsidian 1.13.0+.
+- **Has that you don't:** many questions per file, keyboard-first flow, per-question hints, the "mastered passes" exam-ready concept, a one-sentence pitch.
+- **You have that it doesn't:** MCQ with auto-grading, timing, confidence, real spaced scheduling, analytics, imports, AI features, nearly everything else.
+
+#### Note Quiz Engine
+- **Links:** [Directory](https://community.obsidian.md/plugins/note-quiz-engine) · [GitHub](https://github.com/port22-dev/note-quiz-engine) · [Obsidian Stats](https://www.obsidianstats.com/plugins/note-quiz-engine)
+- **License:** MIT · **Downloads:** 65 (about 4 weeks old)
+- **What it does:** `note-quiz` code blocks render as interactive multiple-choice or text questions inside the note, with scores saved back as Markdown. README is Japanese-first with an English version linked.
+- **Features:** Generate quiz / Start quiz buttons at the top of a note; instant grading, explanations, score/accuracy, retry; multiple accepted answer strings for text questions; saves `quiz_source`, `quiz_created` and a Quiz Results section; AI generation by handing the note to Claudian or by copying a prompt and importing the generated Markdown from the clipboard (it does not call an LLM API itself); generation language: Japanese, English, or same as the note.
+- **Has that you don't:** inline quiz blocks rendered inside notes; clipboard import of generated quizzes; Japanese-language audience.
+- **You have that it doesn't:** timing, confidence, spaced review, analytics, direct AI integration, PDF import, flashcards, and much more.
+
+### 13.3 Feature matrix
+
+| Feature | MCQ Tracker | Spaceforge | CBT Exam | Quiz Generator | Omniscient | Note Quiz Engine |
+|---|---|---|---|---|---|---|
+| Multiple-choice practice | ✅ | ✅ | ✅ | ✅ | ❌ (Q&A reveal) | ✅ |
+| Automatic grading | ✅ | ✅ | ✅ | ✅ | ❌ (self-grade) | ✅ |
+| Numeric answers (tolerance, units, sig figs) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Parameterized questions (random variants) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Select-all / true-false / fill-in / matching | ❌ | ◐ (cloze, typed, MCQ in decks) | ✅ | ✅ | ❌ | ❌ |
+| Short / long free response | ◐ (self-grade + FRQ rubric) | ◐ (typed cards) | ✅ | ✅ | ◐ (self-graded) | ✅ (text answers) |
+| Spaced repetition | ✅ | ✅ | ❌ | ❌ (on roadmap) | ❌ | ❌ |
+| FSRS | ✅ (optional) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| SM-2 | ❌ (ladder instead) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Leech / lapse handling | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Timed test / exam mode | ✅ (multi-section) | ❌ | ✅ | ❌ (on roadmap) | ❌ | ❌ |
+| Per-question timing | ✅ | ❌ | ◐ (total time) | ❌ | ❌ | ❌ |
+| Confidence ratings + calibration | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Mistake-type tagging | ✅ | ◐ (AI tutor error categories) | ❌ | ❌ | ❌ | ❌ |
+| Adaptive / weak-spot practice | ✅ | ✅ (tutor) | ✅ | ❌ | ◐ (not-mastered filter) | ❌ |
+| Analytics dashboard | ✅ | ✅ | ◐ | ❌ | ◐ (per-file summary) | ◐ (score history) |
+| Progress stored in the note files | ✅ (properties) | ❌ (central data file) | ◐ (sidecar file) | — | ✅ | ✅ |
+| Many questions in one file | ❌ (one note each) | ✅ (deck files) | ✅ | ✅ | ✅ | ✅ |
+| Inline quiz rendering inside a note | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Question / option shuffling | ◐ (random pick mode) | ❌ | ✅ | ❌ | ✅ | ❌ |
+| AI question generation | ✅ (optional) | ✅ | ❌ | ✅ | ❌ | ✅ (via Claudian / clipboard) |
+| Direct LLM API support | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| AI tutor / chat | ✅ (optional) | ✅ (objective-based) | ❌ | ❌ | ❌ | ❌ |
+| AI answer verification (second pass) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Web lookup during study | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Documents / PDFs → questions | ✅ | ❌ | ◐ (external VCE converter) | ❌ | ❌ | ❌ |
+| Flashcards | ✅ (optional) | ✅ | ❌ | ◐ (saves in SR format) | ❌ | ❌ |
+| Anki `.apkg` import | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Anki `.apkg` export | ❌ (text export) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| AnkiConnect sync | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Quizlet / Kahoot / Moodle import-export | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Calendar | ✅ (.ics) | ✅ (own events) | ❌ | ❌ | ❌ | ❌ |
+| Focus / Pomodoro timer | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Exam-aware scheduling / cram mode | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Assignments + gradebook / GPA | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Reference tools (calculator, periodic table, AP estimator) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Mind map / visualize / summary views | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Multi-language generation | ❌ (not documented) | ◐ (tutor language) | ❌ | ✅ (22) | ❌ | ◐ (ja / en / same) |
+| Desktop + mobile | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+### 13.4 What competitors have that MCQ Tracker doesn't (candidate gaps)
+
+Ordered roughly by how often they appear across competitors and how much they matter for exam prep:
+
+1. **More question types:** select-all-that-apply, true/false, fill-in-the-blank and matching (CBT Exam Simulator and Quiz Generator both have all four).
+2. **Lighter authoring:** every competitor except Spaceforge's decks lets you write many questions in a single file. MCQ Tracker needs one note per question with properties, which is heavy for hand-written questions. A plain-text quick-add or multi-question-per-file import would lower the barrier.
+3. **Shuffling:** question and answer-option shuffle (CBT, Omniscient).
+4. **Pass-score threshold** on timed tests (CBT).
+5. **`.apkg` export** to Anki (Spaceforge).
+6. **Leech handling** for repeatedly failed items (Spaceforge).
+7. **Multi-language generation** controls (Quiz Generator, Note Quiz Engine).
+8. **Inline quiz blocks** rendered inside a note (Note Quiz Engine).
+9. **Objective-based tutor / mind map / web lookup** (Spaceforge). These are large, so probably not worth chasing.
+
+### 13.5 Where MCQ Tracker leads
+
+- Confidence calibration, mistake tagging and per-skill weak-spot analytics. No other plugin here documents any of the three.
+- Multi-section timed tests with resume plus per-question timing.
+- Document/PDF → question notes with figure capture, answer-key detection and AI-answer labelling.
+- Numeric grading with units, tolerance and parameterized variants; FRQ rubric grading.
+- Exam-aware scheduling tied to a calendar; gradebook; AP tools.
+- Broadest import/export (Quizlet, Kahoot, Blooket, Gimkit, Moodle, QTI, `.apkg`).
+- Progress lives in each question's own properties, so it works with Dataview and survives without the plugin.
+
+### 13.6 Positioning notes
+
+- **Closest rival is Spaceforge** (FSRS, Anki, calendar, Pomodoro and AI MCQs overlap). It schedules whole notes and leans on an AI tutor; MCQ Tracker is question-first and exam-format-first (SAT/AP-style passages, timing, confidence). That difference is the clearest thing to say in the listing.
+- **Omniscient reached about 590 downloads in two months** with a very simple pitch and one-file authoring. A short, concrete tagline plus a one-minute demo GIF likely matters more than additional features.
+- **Quiz Generator is the biggest by downloads (20k) but stale** (last updated about 2 years ago). People searching for "quiz" in the directory find it first; it has no persistence or scheduling, which is the opening.
+
+### 13.7 Other study-quiz plugins spotted (not analyzed in depth)
+
+| Plugin | Link | Note | License |
+|---|---|---|---|
+| quizblock | [Directory](https://community.obsidian.md/plugins/quizblock) | Interactive multiple-choice blocks in notes; questions shareable as plain `.md` | 0BSD |
+| Omni Quiz | [Directory](https://community.obsidian.md/plugins/omni-quiz) | JSON-schema `quiz` code blocks | MIT |
+| Easy Quiz | [Directory](https://community.obsidian.md/plugins/easy-quiz) | Markdown-native quiz practice; attempt records written into the note | Not checked |
+| CQuiz | [Directory](https://community.obsidian.md/plugins/cquiz) | `cquiz` code block loads questions from a note or folder; checkbox-list question format | Not checked |
+| Better Quizbox | [Directory](https://community.obsidian.md/plugins/better-quizbox) | Quiz block plugin | Not checked |
+| LearnKit | Listed as a related plugin on the directory pages | "Native study system": flashcards, spaced repetition, tests | Not checked |
+
+### 13.8 Sources
+
+- MCQ Tracker: https://www.obsidianstats.com/plugins/mcq-tracker · https://github.com/ifriedenson/mcq-tracker
+- https://community.obsidian.md/plugins/quiz-generator
+- https://community.obsidian.md/plugins/cbt-exam
+- https://community.obsidian.md/plugins/spaceforge
+- https://community.obsidian.md/plugins/omniscient
+- https://community.obsidian.md/plugins/note-quiz-engine
+
+Limits of this analysis: "❌" means the feature is not documented in the README or listing I read, not that it is proven absent. I did not install or test any plugin. Download counts for MCQ Tracker come from Obsidian Stats, not the official directory page.
+
+### 13.9 What this changes in the backlog
+
+The analysis adds four gaps that were not explicit in §5.22, kept unscheduled until the owner ranks them:
+
+- [ ] **Native select-all, true/false, fill-in and matching practice.** Import already understands `@sata`, `@tf` and QuizPort choice sets (1.108.0), but practice and auto-grading still cover MCQ, SPR and FRQ only. This is the clearest feature gap against CBT Exam Simulator and Quiz Generator.
+- [ ] **Lighter multi-question authoring.** A plain-text quick-add (or rendering existing one-file quiz blocks) would reduce the one-note-per-question cost that Omniscient and Note Quiz Engine avoid.
+- [ ] **Timed-test option shuffling and a pass-score threshold.** CBT and Omniscient ship both; MCQ Tracker has a random pick mode but no per-test option shuffle or pass mark.
+- [ ] **Leech handling** for repeatedly failed items (Spaceforge), distinct from the existing Suspend/Bury controls.
+
+Not planned: objective-based tutor workspace, mind maps and web lookup (Spaceforge's lane; large and outside the question-first positioning). `.apkg` export stays gated on a tested SQLite writer, as recorded in §5.15.
+
+---
+
 ## Appendix: Archived brainstorms and superseded drafts
 
 The Gemini brainstorm, the pre-Oct-27 duplicate of this plan and the original product
