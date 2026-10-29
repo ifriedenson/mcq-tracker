@@ -1481,6 +1481,31 @@
 
 /* result screen */
 
+.qt-write-preview {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+}
+.qt-write-preview-list {
+  margin: 8px 0;
+  padding-left: 18px;
+}
+.qt-write-preview-path {
+  font-weight: var(--font-semibold);
+}
+.qt-write-preview-field {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+.qt-write-preview-confirm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
 .qt-verify-banner {
   margin: 0 0 12px;
   padding: 9px 12px;

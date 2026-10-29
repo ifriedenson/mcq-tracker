@@ -462,6 +462,10 @@ Run **AI: generate practice from a weak spot** to open a preview-first generator
 
 The general assistant has two switches above its quick actions: **Include current note** and **Include selection**. Both are off by default and reset on **New chat**. While off, the assistant never reads a note for context. While on, it receives the active note's body with frontmatter removed (capped at 6,000 characters) and, separately, the current editor selection (capped at 2,000 characters). The note and selection are labelled as untrusted data, and the prompt tells the model not to follow instructions found inside them or change tracking properties. Turning a switch off stops that text from being sent on the next message.
 
+### Reviewing card updates before import
+
+When an import would update an existing card, choose **Update the existing card** and press **Preview**. The dialog lists each affected note and the fields that will change: front, back, deck or course. Tick **I reviewed these updates** before importing. Review history, attempts, scheduling and notes are not changed by the update.
+
 ### AI write protections
 
 AI-generated notes are written only inside your configured question folder, card folder or deck folders. The plugin checks the destination in code before creating a note; a path outside those folders is refused. When an import updates an existing card, the plugin also checks the review state before writing: `attempts`, `correct_count`, `streak`, `history`, `next_review`, `srs`, study status and the other tracking properties cannot change. The body and the card's deck/course can change, but the learner's review history is a lock, not a prompt request.

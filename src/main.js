@@ -22,6 +22,7 @@ const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
 const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
+const cardWriteDiff = require("./card-write-diff");
 const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
 const answerVerification = require("./answer-verification");
@@ -136,6 +137,7 @@ QuestionTrackerPlugin.__test = {
   aiContext,
   noteContext,
   aiWriteGuard,
+  cardWriteDiff,
   aiWrites,
   weakSpot,
   answerVerification,

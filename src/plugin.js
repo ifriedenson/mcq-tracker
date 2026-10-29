@@ -52,6 +52,7 @@ const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, no
 const { parseApkg } = require("./apkg");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
+const { cardUpdateDiff } = require("./card-write-diff");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { MixedReviewModal, buildMixedQueue } = require("./mixed-review");
 const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
@@ -2926,6 +2927,24 @@ class QuestionTrackerPlugin extends Plugin {
     return this.importParsedCards(parsed.cards, opts);
   }
 
+  /** Adds duplicate details to a read-only import preview so the dialog can show a diff. */
+  decorateImportPreview(result) {
+    const parsed = result && typeof result === "object" ? result : {};
+    const existing = this.existingImportCardMap();
+    const details = [];
+    for (const card of Array.isArray(parsed.cards) ? parsed.cards : []) {
+      const key = String(card.importKey || "").trim();
+      if (!key || !existing.has(key)) continue;
+      details.push(cardUpdateDiff(existing.get(key), card));
+    }
+    return {
+      ...parsed,
+      duplicates: details.length,
+      duplicatePaths: details.map((diff) => diff.path).filter(Boolean),
+      duplicateDetails: details,
+    };
+  }
+
   /** Read a generic CSV/TSV without writing anything, so the import dialog can preview its columns. */
   async previewCardsCsv(path, options) {
     const opts = options || {};
@@ -2943,7 +2962,7 @@ class QuestionTrackerPlugin extends Plugin {
     const first = parseGenericCsv(text, base);
     const explicitMapping = opts.mapping !== undefined && opts.mapping !== null;
     const saved = !explicitMapping && this.settings.cards.csvMappings && this.settings.cards.csvMappings[first.headerKey];
-    return saved ? parseGenericCsv(text, { ...base, mapping: saved }) : first;
+    return this.decorateImportPreview(saved ? parseGenericCsv(text, { ...base, mapping: saved }) : first);
   }
 
   /** Import a generic CSV/TSV, remembering its column mapping by header layout. */
@@ -3073,7 +3092,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const existing = this.existingImportCardMap();
     const duplicatePaths = cards.filter((card) => card.importKey && existing.has(card.importKey)).map((card) => existing.get(card.importKey).file.path);
-    return { cards, total: cards.length, duplicates: duplicatePaths.length, duplicatePaths, errors, format: kind };
+    return this.decorateImportPreview({ cards, total: cards.length, duplicates: duplicatePaths.length, duplicatePaths, errors, format: kind });
   }
 
   existingImportCardMap() {

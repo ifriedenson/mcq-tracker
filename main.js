@@ -7490,6 +7490,70 @@ function cardTypeOptions(select) {
 module.exports = { CardModal, cardTypeOptions };
 };
 
+/* ---- src/card-write-diff.js ---- */
+__defs["card-write-diff"] = function (module, exports, require) {
+/*
+ * Read-only diff for a card import that will update an existing note.
+ * The preview names the fields that change; review history is deliberately
+ * not part of the comparison because it is protected and never rewritten.
+ */
+const { parseCardBody } = require("./cards");
+const { str } = require("./util");
+
+function text(value) {
+  return str(value).trim();
+}
+
+function bodyOf(existing) {
+  if (existing && existing.body && typeof existing.body === "object") return existing.body;
+  return parseCardBody((existing && (existing.text || existing.bodyText)) || "", (existing && existing.fm) || {});
+}
+
+function cardUpdateDiff(existing, incoming) {
+  const oldCard = existing || {};
+  const newCard = incoming || {};
+  const oldBody = bodyOf(oldCard);
+  const before = {
+    front: text(oldBody.front || oldBody.prompt),
+    back: text(oldBody.back || oldBody.answer),
+    deck: text(oldCard.deck || (oldCard.fm && oldCard.fm.deck)),
+    course: text(oldCard.course || (oldCard.fm && oldCard.fm.course)),
+  };
+  const after = {
+    front: text(newCard.front || newCard.prompt) || before.front,
+    back: text(newCard.back || newCard.answer) || before.back,
+    deck: text(newCard.deck) || before.deck,
+    course: text(newCard.course) || before.course,
+  };
+  const labels = { front: "Front", back: "Back", deck: "Deck", course: "Course" };
+  const fields = Object.keys(labels)
+    .filter((key) => before[key] !== after[key])
+    .map((key) => ({ key, label: labels[key], before: before[key], after: after[key] }));
+  return {
+    path: (oldCard.file && oldCard.file.path) || oldCard.path || "",
+    fields,
+    before,
+    after,
+    changed: fields.length > 0,
+  };
+}
+
+function summarizeCardDiffs(diffs) {
+  const list = Array.isArray(diffs) ? diffs.filter(Boolean) : [];
+  return {
+    count: list.length,
+    changed: list.filter((diff) => diff.changed).length,
+    fields: [...new Set(list.flatMap((diff) => diff.fields.map((field) => field.key)))],
+    paths: list.map((diff) => diff.path).filter(Boolean),
+  };
+}
+
+module.exports = {
+  cardUpdateDiff,
+  summarizeCardDiffs,
+};
+};
+
 /* ---- src/cards.js ---- */
 __defs["cards"] = function (module, exports, require) {
 /*
@@ -9785,6 +9849,8 @@ class CardImportModal extends Modal {
     this.type = this.options.type || "spaced";
     this.csvParsed = null;
     this.csvMapping = null;
+    this.preview = null;
+    this.reviewedUpdates = false;
   }
 
   onOpen() {
@@ -9863,6 +9929,7 @@ class CardImportModal extends Modal {
     duplicateMode.createEl("option", { text: "Update the existing card", value: "update" });
     duplicateMode.createEl("option", { text: "Create a copy", value: "copy" });
     duplicateMode.value = "skip";
+    const diffBox = contentEl.createDiv({ cls: "qt-write-preview qt-hidden" });
 
     const csvSection = contentEl.createDiv({ cls: "qt-csv-section" });
     const csvGrid = csvSection.createDiv({ cls: "qt-csv-mapping" });
@@ -9932,12 +9999,15 @@ class CardImportModal extends Modal {
           hasHeader: o.autoHeader ? undefined : csvHeader.checked,
         });
         this.csvParsed = parsed;
+        this.preview = parsed;
+        this.reviewedUpdates = false;
         if (!o.keepMapping || !this.csvMapping) {
           this.csvMapping = { ...parsed.mapping };
           csvHeader.checked = parsed.hasHeader;
         }
         if (o.renderMapping !== false) renderCsvMapping(parsed);
         renderCsvPreview(parsed);
+        renderDiffPreview(parsed);
         toggleCsvControls();
         if (!o.quiet) {
           note.setText(parsed.cards.length ? `Previewing ${parsed.cards.length} card${parsed.cards.length === 1 ? "" : "s"}.` : parsed.errors[0] || "No cards found.");
@@ -9976,6 +10046,46 @@ class CardImportModal extends Modal {
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
     const preview = row.createEl("button", { text: "Preview", cls: "qt-grow" });
     const go = row.createEl("button", { text: "Import cards", cls: "mod-cta qt-grow" });
+    const renderDiffPreview = (parsed) => {
+      diffBox.empty();
+      const details = parsed && Array.isArray(parsed.duplicateDetails) ? parsed.duplicateDetails : [];
+      const updating = duplicateMode.value === "update";
+      if (!updating || !details.length) {
+        diffBox.toggleClass("qt-hidden", true);
+        this.reviewedUpdates = false;
+        go.disabled = false;
+        return;
+      }
+      diffBox.toggleClass("qt-hidden", false);
+      diffBox.createEl("h4", { text: `Review ${details.length} existing card${details.length === 1 ? "" : "s"}` });
+      diffBox.createDiv({
+        cls: "qt-hint",
+        text: "Only the card body, deck and course can change. Review history, attempts and scheduling are protected.",
+      });
+      const list = diffBox.createEl("ul", { cls: "qt-write-preview-list" });
+      for (const diff of details.slice(0, 8)) {
+        const item = list.createEl("li");
+        item.createDiv({ cls: "qt-write-preview-path", text: diff.path || "Existing card" });
+        if (!diff.fields.length) item.createDiv({ cls: "qt-hint", text: "No visible field changes." });
+        for (const field of diff.fields) {
+          item.createDiv({ cls: "qt-write-preview-field", text: `${field.label}: ${field.before || "—"} → ${field.after || "—"}` });
+        }
+      }
+      if (details.length > 8) diffBox.createDiv({ cls: "qt-hint", text: `…and ${details.length - 8} more.` });
+      const confirmWrap = diffBox.createDiv({ cls: "qt-write-preview-confirm" });
+      const reviewed = confirmWrap.createEl("input", { type: "checkbox" });
+      reviewed.checked = !!this.reviewedUpdates;
+      confirmWrap.createEl("label", { text: "I reviewed these updates" });
+      reviewed.addEventListener("change", () => {
+        this.reviewedUpdates = reviewed.checked;
+        go.disabled = !reviewed.checked;
+      });
+      go.disabled = !this.reviewedUpdates;
+    };
+    duplicateMode.addEventListener("change", () => {
+      this.reviewedUpdates = false;
+      renderDiffPreview(this.preview);
+    });
     cancel.addEventListener("click", () => this.close());
     preview.addEventListener("click", async () => {
       const path = source.value;
@@ -9991,6 +10101,9 @@ class CardImportModal extends Modal {
       note.setText("Reading preview…");
       try {
         const parsed = await p.previewCardsImport(this.type, path, { deck: deck.value, course: course.value });
+        this.preview = parsed;
+        this.reviewedUpdates = false;
+        renderDiffPreview(parsed);
         const duplicateText = parsed.duplicates ? ` · ${parsed.duplicates} duplicate${parsed.duplicates === 1 ? "" : "s"}` : "";
         const errorText = parsed.errors && parsed.errors.length ? ` · ${parsed.errors.length} issue${parsed.errors.length === 1 ? "" : "s"}` : "";
         const message = `${parsed.total} card${parsed.total === 1 ? "" : "s"} ready${duplicateText}${errorText}. Choose a duplicate mode, then import.`;
@@ -10012,6 +10125,17 @@ class CardImportModal extends Modal {
         if (!parsed) return;
         if (parsed.mapping.front < 0 || parsed.mapping.back < 0) {
           note.setText("Choose a Front column and a Back column before importing.");
+          return;
+        }
+      }
+      if (duplicateMode.value === "update") {
+        if (!this.preview) {
+          note.setText("Press Preview to review the card updates before importing.");
+          return;
+        }
+        const updates = Array.isArray(this.preview.duplicateDetails) ? this.preview.duplicateDetails : [];
+        if (updates.length && !this.reviewedUpdates) {
+          note.setText("Review the card changes above and tick the box before importing.");
           return;
         }
       }
@@ -23002,6 +23126,7 @@ const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, no
 const { parseApkg } = require("./apkg");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
+const { cardUpdateDiff } = require("./card-write-diff");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { MixedReviewModal, buildMixedQueue } = require("./mixed-review");
 const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf } = require("./study-status");
@@ -25876,6 +26001,24 @@ class QuestionTrackerPlugin extends Plugin {
     return this.importParsedCards(parsed.cards, opts);
   }
 
+  /** Adds duplicate details to a read-only import preview so the dialog can show a diff. */
+  decorateImportPreview(result) {
+    const parsed = result && typeof result === "object" ? result : {};
+    const existing = this.existingImportCardMap();
+    const details = [];
+    for (const card of Array.isArray(parsed.cards) ? parsed.cards : []) {
+      const key = String(card.importKey || "").trim();
+      if (!key || !existing.has(key)) continue;
+      details.push(cardUpdateDiff(existing.get(key), card));
+    }
+    return {
+      ...parsed,
+      duplicates: details.length,
+      duplicatePaths: details.map((diff) => diff.path).filter(Boolean),
+      duplicateDetails: details,
+    };
+  }
+
   /** Read a generic CSV/TSV without writing anything, so the import dialog can preview its columns. */
   async previewCardsCsv(path, options) {
     const opts = options || {};
@@ -25893,7 +26036,7 @@ class QuestionTrackerPlugin extends Plugin {
     const first = parseGenericCsv(text, base);
     const explicitMapping = opts.mapping !== undefined && opts.mapping !== null;
     const saved = !explicitMapping && this.settings.cards.csvMappings && this.settings.cards.csvMappings[first.headerKey];
-    return saved ? parseGenericCsv(text, { ...base, mapping: saved }) : first;
+    return this.decorateImportPreview(saved ? parseGenericCsv(text, { ...base, mapping: saved }) : first);
   }
 
   /** Import a generic CSV/TSV, remembering its column mapping by header layout. */
@@ -26023,7 +26166,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const existing = this.existingImportCardMap();
     const duplicatePaths = cards.filter((card) => card.importKey && existing.has(card.importKey)).map((card) => existing.get(card.importKey).file.path);
-    return { cards, total: cards.length, duplicates: duplicatePaths.length, duplicatePaths, errors, format: kind };
+    return this.decorateImportPreview({ cards, total: cards.length, duplicates: duplicatePaths.length, duplicatePaths, errors, format: kind });
   }
 
   existingImportCardMap() {
@@ -34199,6 +34342,7 @@ const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
 const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
+const cardWriteDiff = require("./card-write-diff");
 const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
 const answerVerification = require("./answer-verification");
@@ -34313,6 +34457,7 @@ QuestionTrackerPlugin.__test = {
   aiContext,
   noteContext,
   aiWriteGuard,
+  cardWriteDiff,
   aiWrites,
   weakSpot,
   answerVerification,

@@ -696,6 +696,9 @@ test("plugin: import preview counts duplicates, update preserves history notes, 
   assert.equal(preview.total, 1);
   assert.equal(preview.duplicates, 1);
   assert.deepEqual(preview.duplicatePaths, ["Cards/Moodle/Q.md"]);
+  assert.equal(preview.duplicateDetails.length, 1);
+  assert.equal(preview.duplicateDetails[0].path, "Cards/Moodle/Q.md");
+  assert.ok(preview.duplicateDetails[0].fields.some((field) => field.key === "front" && field.after === "Q?"));
 
   const updated = await plugin.importCardsFromGift(source, { deck: "Moodle", duplicateMode: "update" });
   assert.equal(updated.updated, 1);

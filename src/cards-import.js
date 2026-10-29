@@ -1300,6 +1300,8 @@ class CardImportModal extends Modal {
     this.type = this.options.type || "spaced";
     this.csvParsed = null;
     this.csvMapping = null;
+    this.preview = null;
+    this.reviewedUpdates = false;
   }
 
   onOpen() {
@@ -1378,6 +1380,7 @@ class CardImportModal extends Modal {
     duplicateMode.createEl("option", { text: "Update the existing card", value: "update" });
     duplicateMode.createEl("option", { text: "Create a copy", value: "copy" });
     duplicateMode.value = "skip";
+    const diffBox = contentEl.createDiv({ cls: "qt-write-preview qt-hidden" });
 
     const csvSection = contentEl.createDiv({ cls: "qt-csv-section" });
     const csvGrid = csvSection.createDiv({ cls: "qt-csv-mapping" });
@@ -1447,12 +1450,15 @@ class CardImportModal extends Modal {
           hasHeader: o.autoHeader ? undefined : csvHeader.checked,
         });
         this.csvParsed = parsed;
+        this.preview = parsed;
+        this.reviewedUpdates = false;
         if (!o.keepMapping || !this.csvMapping) {
           this.csvMapping = { ...parsed.mapping };
           csvHeader.checked = parsed.hasHeader;
         }
         if (o.renderMapping !== false) renderCsvMapping(parsed);
         renderCsvPreview(parsed);
+        renderDiffPreview(parsed);
         toggleCsvControls();
         if (!o.quiet) {
           note.setText(parsed.cards.length ? `Previewing ${parsed.cards.length} card${parsed.cards.length === 1 ? "" : "s"}.` : parsed.errors[0] || "No cards found.");
@@ -1491,6 +1497,46 @@ class CardImportModal extends Modal {
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
     const preview = row.createEl("button", { text: "Preview", cls: "qt-grow" });
     const go = row.createEl("button", { text: "Import cards", cls: "mod-cta qt-grow" });
+    const renderDiffPreview = (parsed) => {
+      diffBox.empty();
+      const details = parsed && Array.isArray(parsed.duplicateDetails) ? parsed.duplicateDetails : [];
+      const updating = duplicateMode.value === "update";
+      if (!updating || !details.length) {
+        diffBox.toggleClass("qt-hidden", true);
+        this.reviewedUpdates = false;
+        go.disabled = false;
+        return;
+      }
+      diffBox.toggleClass("qt-hidden", false);
+      diffBox.createEl("h4", { text: `Review ${details.length} existing card${details.length === 1 ? "" : "s"}` });
+      diffBox.createDiv({
+        cls: "qt-hint",
+        text: "Only the card body, deck and course can change. Review history, attempts and scheduling are protected.",
+      });
+      const list = diffBox.createEl("ul", { cls: "qt-write-preview-list" });
+      for (const diff of details.slice(0, 8)) {
+        const item = list.createEl("li");
+        item.createDiv({ cls: "qt-write-preview-path", text: diff.path || "Existing card" });
+        if (!diff.fields.length) item.createDiv({ cls: "qt-hint", text: "No visible field changes." });
+        for (const field of diff.fields) {
+          item.createDiv({ cls: "qt-write-preview-field", text: `${field.label}: ${field.before || "—"} → ${field.after || "—"}` });
+        }
+      }
+      if (details.length > 8) diffBox.createDiv({ cls: "qt-hint", text: `…and ${details.length - 8} more.` });
+      const confirmWrap = diffBox.createDiv({ cls: "qt-write-preview-confirm" });
+      const reviewed = confirmWrap.createEl("input", { type: "checkbox" });
+      reviewed.checked = !!this.reviewedUpdates;
+      confirmWrap.createEl("label", { text: "I reviewed these updates" });
+      reviewed.addEventListener("change", () => {
+        this.reviewedUpdates = reviewed.checked;
+        go.disabled = !reviewed.checked;
+      });
+      go.disabled = !this.reviewedUpdates;
+    };
+    duplicateMode.addEventListener("change", () => {
+      this.reviewedUpdates = false;
+      renderDiffPreview(this.preview);
+    });
     cancel.addEventListener("click", () => this.close());
     preview.addEventListener("click", async () => {
       const path = source.value;
@@ -1506,6 +1552,9 @@ class CardImportModal extends Modal {
       note.setText("Reading preview…");
       try {
         const parsed = await p.previewCardsImport(this.type, path, { deck: deck.value, course: course.value });
+        this.preview = parsed;
+        this.reviewedUpdates = false;
+        renderDiffPreview(parsed);
         const duplicateText = parsed.duplicates ? ` · ${parsed.duplicates} duplicate${parsed.duplicates === 1 ? "" : "s"}` : "";
         const errorText = parsed.errors && parsed.errors.length ? ` · ${parsed.errors.length} issue${parsed.errors.length === 1 ? "" : "s"}` : "";
         const message = `${parsed.total} card${parsed.total === 1 ? "" : "s"} ready${duplicateText}${errorText}. Choose a duplicate mode, then import.`;
@@ -1527,6 +1576,17 @@ class CardImportModal extends Modal {
         if (!parsed) return;
         if (parsed.mapping.front < 0 || parsed.mapping.back < 0) {
           note.setText("Choose a Front column and a Back column before importing.");
+          return;
+        }
+      }
+      if (duplicateMode.value === "update") {
+        if (!this.preview) {
+          note.setText("Press Preview to review the card updates before importing.");
+          return;
+        }
+        const updates = Array.isArray(this.preview.duplicateDetails) ? this.preview.duplicateDetails : [];
+        if (updates.length && !this.reviewedUpdates) {
+          note.setText("Review the card changes above and tick the box before importing.");
           return;
         }
       }
