@@ -933,6 +933,13 @@ class PracticeView extends ItemView {
     if (r.summary && r.summary.queued) {
       root.createDiv({ cls: "qt-hint", text: "Saved offline. This result will be added to the note when the vault is writable." });
     }
+    if (r.summary && r.summary.examCap) {
+      const cap = r.summary.examCap;
+      root.createDiv({
+        cls: "qt-hint",
+        text: `Next review moved to ${cap.date} to stay ahead of ${cap.name} on ${cap.examDate}.`,
+      });
+    }
 
     // ---- review: the question and choices again, with your pick and the key marked
     const rv = root.createDiv({ cls: "qt-review" });

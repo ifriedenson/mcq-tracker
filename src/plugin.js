@@ -15,7 +15,7 @@ const { sleep, hashString, localDate, ensureFolder } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { cleanSubjectTitle, mergeCalendarSettings, nextClassStatus, subjectKey, visibleEvents } = require("./calendar-model");
+const { cleanSubjectTitle, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, visibleEvents } = require("./calendar-model");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
@@ -631,6 +631,14 @@ class QuestionTrackerPlugin extends Plugin {
     this._calendarCache = null;
   }
 
+  /** The next review date compression for a course's upcoming exam, if there is one. */
+  examCapFor(course, now) {
+    if (!this.calendarEnabled() || !String(course || "").trim()) return null;
+    const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+    const exam = nextExamForCourse(this.calendarEvents(at), course, at);
+    return exam ? examReviewCap(exam, at) : null;
+  }
+
   /** Cached index of class notes by `calendar_uid|calendar_date`. */
   calendarNoteIndex() {
     if (!this._calendarNoteIndex) this._calendarNoteIndex = classNoteIndex(this.app);
@@ -990,7 +998,12 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Write one card review through the same scheduler and offline outbox as questions. */
   recordCardReview(card, grade, seconds, extra) {
-    return this.recordAttempt(card.file, { ...cardAttempt(grade, seconds), ...(extra || {}), now: new Date() });
+    return this.recordAttempt(card.file, {
+      ...cardAttempt(grade, seconds),
+      ...(extra || {}),
+      course: (extra && extra.course) || card.course || (card.fm && card.fm.course) || "",
+      now: new Date(),
+    });
   }
 
   /* ---- optional AI second opinion for typed card answers */
@@ -1476,7 +1489,10 @@ class QuestionTrackerPlugin extends Plugin {
     try {
       const cached = this.app.metadataCache.getFileCache(file);
       const copy = cloneFrontmatter(cached && cached.frontmatter);
-      preview = applyAttempt(copy, attempt, this.settings.intervals, opts);
+      preview = applyAttempt(copy, attempt, this.settings.intervals, {
+        ...opts,
+        examCap: this.examCapFor(attempt.course || copy.course, attempt.now),
+      });
     } catch (e) {
       preview = null;
     }
@@ -1484,7 +1500,10 @@ class QuestionTrackerPlugin extends Plugin {
     let summary;
     try {
       await this.app.fileManager.processFrontMatter(file, (fm) => {
-        summary = applyAttempt(fm, attempt, this.settings.intervals, opts);
+        summary = applyAttempt(fm, attempt, this.settings.intervals, {
+          ...opts,
+          examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
+        });
       });
     } catch (e) {
       if (!preview) throw e;
@@ -1527,10 +1546,12 @@ class QuestionTrackerPlugin extends Plugin {
               if (entry.errorType) setLastErrorType(fm, entry.errorType);
               return;
             }
-            applyAttempt(fm, unpackAttempt(entry.attempt), this.settings.intervals, {
+            const attempt = unpackAttempt(entry.attempt);
+            applyAttempt(fm, attempt, this.settings.intervals, {
               scheduler: this.settings.scheduler,
               fsrsRetention: this.settings.fsrsRetention,
               attemptId: entry.id,
+              examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
             });
             if (entry.errorType) setLastErrorType(fm, entry.errorType);
           });

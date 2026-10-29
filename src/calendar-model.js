@@ -545,6 +545,60 @@ function upcomingExams(events, now, limit) {
   return out;
 }
 
+/** Whole-word/phrase test so "Calculus" does not also match "Precalculus". */
+function containsPhrase(text, phrase) {
+  const needle = str(phrase).trim();
+  if (!needle) return false;
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(str(text));
+}
+
+/**
+ * Whether an exam belongs to a course. Exam feeds usually name the course in
+ * the summary ("Calculus - Final Exam"), but some use a short code or the
+ * reverse order, so accept either side of the phrase.
+ */
+function examMatchesCourse(event, course) {
+  const clean = cleanSubjectTitle(course);
+  const key = subjectKey(clean);
+  if (!key) return false;
+  // "MATH 221 - Linear Algebra" should match an exam called "MATH 221 Final"
+  // as well as one that uses the full course name.
+  const parts = clean
+    .split(/\s*[-–—:/]\s*/)
+    .map((part) => subjectKey(part))
+    .filter((part) => part.length >= 3);
+  const keys = [...new Set([key, ...parts])];
+  const names = [event.summary, event.course, event.subject].map((value) => subjectKey(value)).filter(Boolean);
+  return names.some((name) => keys.some((candidate) => containsPhrase(name, candidate) || containsPhrase(candidate, name)));
+}
+
+/** The soonest future exam for a course, or null when the course is unknown/no exam is scheduled. */
+function nextExamForCourse(events, course, now) {
+  if (!subjectKey(course)) return null;
+  return upcomingExams(events, now).find((event) => examMatchesCourse(event, course)) || null;
+}
+
+/**
+ * The date an item should be brought forward to so it is reviewed before the
+ * exam. This is the day before the exam, never earlier than the attempt day:
+ * an exam today can only be reviewed today.
+ */
+function examReviewCap(event, now) {
+  if (!event || !event.dtstart) return null;
+  const at = now || new Date();
+  const today = new Date(at.getFullYear(), at.getMonth(), at.getDate());
+  const examDay = new Date(event.dtstart.getFullYear(), event.dtstart.getMonth(), event.dtstart.getDate());
+  if (examDay < today) return null;
+  const dayBefore = new Date(examDay.getFullYear(), examDay.getMonth(), examDay.getDate() - 1);
+  const capDay = dayBefore < today ? today : dayBefore;
+  return {
+    date: dateKey(capDay),
+    examDate: dateKey(examDay),
+    name: str(event.summary).trim() || "Exam",
+  };
+}
+
 /* ---------------------------------------------------- folder + note paths */
 
 /**
@@ -618,5 +672,8 @@ module.exports = {
   humanizeDuration,
   examCountdown,
   upcomingExams,
+  examMatchesCourse,
+  nextExamForCourse,
+  examReviewCap,
   resolveSubjectFolder,
 };

@@ -141,6 +141,32 @@ function gradeAnswer(fm, chosen) {
   return str(chosen).toUpperCase() === key.toUpperCase();
 }
 
+/** Removes a cap from an earlier attempt when this review is no longer compressed. */
+function clearExamCap(fm) {
+  if ("exam_cap" in fm) delete fm.exam_cap;
+  if ("exam_cap_name" in fm) delete fm.exam_cap_name;
+  if ("exam_cap_exam_date" in fm) delete fm.exam_cap_exam_date;
+}
+
+/**
+ * Never extends an interval. If the scheduler put the next review after the
+ * exam, move it to the cap date and record why so later reviews can show it.
+ */
+function applyExamCap(fm, nextReview, examCap, now) {
+  const scheduled = str(nextReview).trim();
+  const capDate = str(examCap && examCap.date).trim().slice(0, 10);
+  const today = fmtDate(now);
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(capDate) && (!today || capDate >= today);
+  if (!valid || !scheduled || scheduled <= capDate) {
+    clearExamCap(fm);
+    return null;
+  }
+  fm.exam_cap = capDate;
+  fm.exam_cap_name = str(examCap.name || "Exam").slice(0, 200);
+  if (examCap.examDate) fm.exam_cap_exam_date = str(examCap.examDate).slice(0, 10);
+  return { date: capDate, examDate: str(examCap.examDate).slice(0, 10), name: fm.exam_cap_name };
+}
+
 /** Mutates `fm` (inside processFrontMatter). Returns a summary. */
 function applyAttempt(fm, a, intervals, options) {
   const opts = options || {};
@@ -203,7 +229,9 @@ function applyAttempt(fm, a, intervals, options) {
   fm.result = a.correct ? "correct" : "incorrect";
   fm["date attempted"] = now;
   if (!fm.first_attempted) fm.first_attempted = now;
-  fm.next_review = fsrsReview ? fsrsReview.nextReview : fmtDate(addDays(a.now, days));
+  const scheduledReview = fsrsReview ? fsrsReview.nextReview : fmtDate(addDays(a.now, days));
+  const examCap = applyExamCap(fm, scheduledReview, opts.examCap, a.now);
+  fm.next_review = examCap ? examCap.date : scheduledReview;
   if (fsrsReview) {
     fm.srs = fsrsReview.srs;
     fm.scheduler = "fsrs";
@@ -229,6 +257,7 @@ function applyAttempt(fm, a, intervals, options) {
     attempts: fm.attempts,
     correctCount: fm.correct_count,
     nextReview: fm.next_review,
+    examCap,
     target: Number(fm.target_seconds) || 0,
     scheduler: fsrsReview ? "fsrs" : "ladder",
     fsrsRating: fsrsReview ? fsrsReview.rating : 0,

@@ -1181,6 +1181,60 @@ function upcomingExams(events, now, limit) {
   return out;
 }
 
+/** Whole-word/phrase test so "Calculus" does not also match "Precalculus". */
+function containsPhrase(text, phrase) {
+  const needle = str(phrase).trim();
+  if (!needle) return false;
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(str(text));
+}
+
+/**
+ * Whether an exam belongs to a course. Exam feeds usually name the course in
+ * the summary ("Calculus - Final Exam"), but some use a short code or the
+ * reverse order, so accept either side of the phrase.
+ */
+function examMatchesCourse(event, course) {
+  const clean = cleanSubjectTitle(course);
+  const key = subjectKey(clean);
+  if (!key) return false;
+  // "MATH 221 - Linear Algebra" should match an exam called "MATH 221 Final"
+  // as well as one that uses the full course name.
+  const parts = clean
+    .split(/\s*[-–—:/]\s*/)
+    .map((part) => subjectKey(part))
+    .filter((part) => part.length >= 3);
+  const keys = [...new Set([key, ...parts])];
+  const names = [event.summary, event.course, event.subject].map((value) => subjectKey(value)).filter(Boolean);
+  return names.some((name) => keys.some((candidate) => containsPhrase(name, candidate) || containsPhrase(candidate, name)));
+}
+
+/** The soonest future exam for a course, or null when the course is unknown/no exam is scheduled. */
+function nextExamForCourse(events, course, now) {
+  if (!subjectKey(course)) return null;
+  return upcomingExams(events, now).find((event) => examMatchesCourse(event, course)) || null;
+}
+
+/**
+ * The date an item should be brought forward to so it is reviewed before the
+ * exam. This is the day before the exam, never earlier than the attempt day:
+ * an exam today can only be reviewed today.
+ */
+function examReviewCap(event, now) {
+  if (!event || !event.dtstart) return null;
+  const at = now || new Date();
+  const today = new Date(at.getFullYear(), at.getMonth(), at.getDate());
+  const examDay = new Date(event.dtstart.getFullYear(), event.dtstart.getMonth(), event.dtstart.getDate());
+  if (examDay < today) return null;
+  const dayBefore = new Date(examDay.getFullYear(), examDay.getMonth(), examDay.getDate() - 1);
+  const capDay = dayBefore < today ? today : dayBefore;
+  return {
+    date: dateKey(capDay),
+    examDate: dateKey(examDay),
+    name: str(event.summary).trim() || "Exam",
+  };
+}
+
 /* ---------------------------------------------------- folder + note paths */
 
 /**
@@ -1254,6 +1308,9 @@ module.exports = {
   humanizeDuration,
   examCountdown,
   upcomingExams,
+  examMatchesCourse,
+  nextExamForCourse,
+  examReviewCap,
   resolveSubjectFolder,
 };
 };
@@ -11018,6 +11075,32 @@ function gradeAnswer(fm, chosen) {
   return str(chosen).toUpperCase() === key.toUpperCase();
 }
 
+/** Removes a cap from an earlier attempt when this review is no longer compressed. */
+function clearExamCap(fm) {
+  if ("exam_cap" in fm) delete fm.exam_cap;
+  if ("exam_cap_name" in fm) delete fm.exam_cap_name;
+  if ("exam_cap_exam_date" in fm) delete fm.exam_cap_exam_date;
+}
+
+/**
+ * Never extends an interval. If the scheduler put the next review after the
+ * exam, move it to the cap date and record why so later reviews can show it.
+ */
+function applyExamCap(fm, nextReview, examCap, now) {
+  const scheduled = str(nextReview).trim();
+  const capDate = str(examCap && examCap.date).trim().slice(0, 10);
+  const today = fmtDate(now);
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(capDate) && (!today || capDate >= today);
+  if (!valid || !scheduled || scheduled <= capDate) {
+    clearExamCap(fm);
+    return null;
+  }
+  fm.exam_cap = capDate;
+  fm.exam_cap_name = str(examCap.name || "Exam").slice(0, 200);
+  if (examCap.examDate) fm.exam_cap_exam_date = str(examCap.examDate).slice(0, 10);
+  return { date: capDate, examDate: str(examCap.examDate).slice(0, 10), name: fm.exam_cap_name };
+}
+
 /** Mutates `fm` (inside processFrontMatter). Returns a summary. */
 function applyAttempt(fm, a, intervals, options) {
   const opts = options || {};
@@ -11080,7 +11163,9 @@ function applyAttempt(fm, a, intervals, options) {
   fm.result = a.correct ? "correct" : "incorrect";
   fm["date attempted"] = now;
   if (!fm.first_attempted) fm.first_attempted = now;
-  fm.next_review = fsrsReview ? fsrsReview.nextReview : fmtDate(addDays(a.now, days));
+  const scheduledReview = fsrsReview ? fsrsReview.nextReview : fmtDate(addDays(a.now, days));
+  const examCap = applyExamCap(fm, scheduledReview, opts.examCap, a.now);
+  fm.next_review = examCap ? examCap.date : scheduledReview;
   if (fsrsReview) {
     fm.srs = fsrsReview.srs;
     fm.scheduler = "fsrs";
@@ -11106,6 +11191,7 @@ function applyAttempt(fm, a, intervals, options) {
     attempts: fm.attempts,
     correctCount: fm.correct_count,
     nextReview: fm.next_review,
+    examCap,
     target: Number(fm.target_seconds) || 0,
     scheduler: fsrsReview ? "fsrs" : "ladder",
     fsrsRating: fsrsReview ? fsrsReview.rating : 0,
@@ -12488,7 +12574,7 @@ const { sleep, hashString, localDate, ensureFolder } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { applyAttempt, fillDefaults, replaceMyNotes, setLastErrorType } = require("./notes");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { cleanSubjectTitle, mergeCalendarSettings, nextClassStatus, subjectKey, visibleEvents } = require("./calendar-model");
+const { cleanSubjectTitle, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, visibleEvents } = require("./calendar-model");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
@@ -13104,6 +13190,14 @@ class QuestionTrackerPlugin extends Plugin {
     this._calendarCache = null;
   }
 
+  /** The next review date compression for a course's upcoming exam, if there is one. */
+  examCapFor(course, now) {
+    if (!this.calendarEnabled() || !String(course || "").trim()) return null;
+    const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+    const exam = nextExamForCourse(this.calendarEvents(at), course, at);
+    return exam ? examReviewCap(exam, at) : null;
+  }
+
   /** Cached index of class notes by `calendar_uid|calendar_date`. */
   calendarNoteIndex() {
     if (!this._calendarNoteIndex) this._calendarNoteIndex = classNoteIndex(this.app);
@@ -13463,7 +13557,12 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** Write one card review through the same scheduler and offline outbox as questions. */
   recordCardReview(card, grade, seconds, extra) {
-    return this.recordAttempt(card.file, { ...cardAttempt(grade, seconds), ...(extra || {}), now: new Date() });
+    return this.recordAttempt(card.file, {
+      ...cardAttempt(grade, seconds),
+      ...(extra || {}),
+      course: (extra && extra.course) || card.course || (card.fm && card.fm.course) || "",
+      now: new Date(),
+    });
   }
 
   /* ---- optional AI second opinion for typed card answers */
@@ -13949,7 +14048,10 @@ class QuestionTrackerPlugin extends Plugin {
     try {
       const cached = this.app.metadataCache.getFileCache(file);
       const copy = cloneFrontmatter(cached && cached.frontmatter);
-      preview = applyAttempt(copy, attempt, this.settings.intervals, opts);
+      preview = applyAttempt(copy, attempt, this.settings.intervals, {
+        ...opts,
+        examCap: this.examCapFor(attempt.course || copy.course, attempt.now),
+      });
     } catch (e) {
       preview = null;
     }
@@ -13957,7 +14059,10 @@ class QuestionTrackerPlugin extends Plugin {
     let summary;
     try {
       await this.app.fileManager.processFrontMatter(file, (fm) => {
-        summary = applyAttempt(fm, attempt, this.settings.intervals, opts);
+        summary = applyAttempt(fm, attempt, this.settings.intervals, {
+          ...opts,
+          examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
+        });
       });
     } catch (e) {
       if (!preview) throw e;
@@ -14000,10 +14105,12 @@ class QuestionTrackerPlugin extends Plugin {
               if (entry.errorType) setLastErrorType(fm, entry.errorType);
               return;
             }
-            applyAttempt(fm, unpackAttempt(entry.attempt), this.settings.intervals, {
+            const attempt = unpackAttempt(entry.attempt);
+            applyAttempt(fm, attempt, this.settings.intervals, {
               scheduler: this.settings.scheduler,
               fsrsRetention: this.settings.fsrsRetention,
               attemptId: entry.id,
+              examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
             });
             if (entry.errorType) setLastErrorType(fm, entry.errorType);
           });
@@ -14991,6 +15098,13 @@ class PracticeView extends ItemView {
     });
     if (r.summary && r.summary.queued) {
       root.createDiv({ cls: "qt-hint", text: "Saved offline. This result will be added to the note when the vault is writable." });
+    }
+    if (r.summary && r.summary.examCap) {
+      const cap = r.summary.examCap;
+      root.createDiv({
+        cls: "qt-hint",
+        text: `Next review moved to ${cap.date} to stay ahead of ${cap.name} on ${cap.examDate}.`,
+      });
     }
 
     // ---- review: the question and choices again, with your pick and the key marked

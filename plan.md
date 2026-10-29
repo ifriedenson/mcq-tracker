@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — next: exam-aware scheduling caps (§4.3)
+**Status:** Implementation in progress — exam-aware scheduling caps implemented; next: owner pilot gate for AP tools (Phase 2b)
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), and agent-driven quality gates (§8.5). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,17 +11,16 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Next implementation: exam-aware scheduling caps (§4.3, §5.8).** The calendar already models exams and shows countdowns, but the scheduler does not yet shorten an interval when an exam falls before the computed due date.
+**Completed: exam-aware scheduling caps (§4.3, §5.8).** Questions and cards now get an earlier review when their course has an upcoming exam. The cap is applied after the ladder or FSRS and never extends an interval; matching uses the exam summary and the course name/code, so "MATH 221 Final" matches "MATH 221 - Linear Algebra" without matching "Precalculus" to "Calculus".
 
-**Scope for the next release**
+**What shipped**
 
-- Cap `next_review` for questions and cards when the item's `course` matches an upcoming exam.
-- Apply the cap after ladder or FSRS scheduling, and never extend an interval.
-- Use the existing calendar exam model and course mappings; leave items with no matching exam or course untouched.
-- Surface the cap in the result/review summary so a learner knows why the date moved.
-- Test ladder and FSRS, no exam, an exam after the computed due date, an exam before it, exam day, two exams for one course, and unknown courses.
+- `next_review` is capped to the day before the matching exam (today when the exam is today).
+- `exam_cap`, `exam_cap_name` and `exam_cap_exam_date` record the applied cap; items with no course or no matching exam are unchanged.
+- The practice result screen explains when a cap moved the date.
+- Coverage includes ladder and FSRS, no exam, an exam after the computed due date, an exam before it, exam day, two exams for one course, unknown courses and card reviews.
 
-**Why this is next:** the AP exam tools are blocked on the owner pilot gate (Phase 2b), and optional card TTS/audio is explicitly deferred. Exam-aware caps finish the calendar module and improve scheduling without adding a provider dependency.
+**Next:** Phase 2b's AP FRQ grader, score calculator and resource tools are blocked on the owner pilot gate (four-course pilot and rights review). Optional card TTS/audio remains explicitly deferred. No further unblocked implementation is queued in this plan until that gate is approved.
 
 **Recently completed (unreleased):** pending-grade visibility in Today and the Cards list, with per-card Review actions and a Grade now retry control (§5.17).
 
@@ -262,7 +261,7 @@ Every studyable thing is an **item** with a common set of properties plus a type
   - FRQ: rubric percentage → rating bands
   - Cards/vocab: user's own rating
 - **Fluency signal** (idea from Adaptive Practice): slow, skipped, or low-confidence correct answers shorten the next interval.
-- **Exam-date compression:** if an exam for the item's course falls before the computed due date, cap the interval so the item is reviewed before the exam.
+- **Exam-date compression:** if an exam for the item's course falls before the computed due date, cap the interval so the item is reviewed before the exam. *(Implemented: see Current focus.)*
 
 ### 4.4 Where state lives
 
@@ -1792,7 +1791,7 @@ Every studyable thing is an **item** with a common set of properties plus a type
   - FRQ: rubric percentage → rating bands
   - Cards/vocab: user's own rating
 - **Fluency signal** (idea from Adaptive Practice): slow, skipped, or low-confidence correct answers shorten the next interval.
-- **Exam-date compression:** if an exam for the item's course falls before the computed due date, cap the interval so the item is reviewed before the exam.
+- **Exam-date compression:** if an exam for the item's course falls before the computed due date, cap the interval so the item is reviewed before the exam. *(Implemented: see Current focus.)*
 
 ### 4.4 Where state lives
 
