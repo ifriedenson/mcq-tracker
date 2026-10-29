@@ -128,7 +128,9 @@ function buildCourseNote(pages, meta) {
     lines.push(
       "_The page text below is copied from the source. The AI summary may be wrong; check it against the source._",
       "",
+      "<!-- ai-summary:start -->",
       summary,
+      "<!-- ai-summary:end -->",
       ""
     );
   } else {
@@ -148,6 +150,17 @@ function buildCourseNote(pages, meta) {
     lines.push("");
   }
   return { text: lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n", title };
+}
+
+/** Remove the marked AI summary from an existing note, keeping its extracted page text. */
+function removeAiSummary(text) {
+  const raw = str(text);
+  const start = raw.indexOf("<!-- ai-summary:start -->");
+  const end = raw.indexOf("<!-- ai-summary:end -->");
+  if (start < 0 || end < start) return { text: raw, removed: false };
+  const after = raw.slice(end + "<!-- ai-summary:end -->".length).replace(/^\s*\n/, "");
+  const next = `${raw.slice(0, start).replace(/\n{3,}$/g, "\n\n")}${after}`.replace(/\n{3,}/g, "\n\n");
+  return { text: next, removed: true };
 }
 
 function uniquePath(vault, folder, name, extension) {
@@ -361,6 +374,7 @@ class CourseNotesModal extends Modal {
       });
       const path = uniquePath(this.app.vault, folder, note.title, "md");
       await this.app.vault.create(path, note.text);
+      if (summary && this.plugin.recordAiSummaryNote) this.plugin.recordAiSummaryNote({ path, title: note.title, model: summaryModel });
       this.plugin.refreshViews();
       this.showDone(el, path, pages.length, sourceLink, this.summaryError);
       if (this.onDone) this.onDone({ path, pages: pages.length, title: note.title });
@@ -401,6 +415,7 @@ module.exports = {
   pageHeading,
   buildCourseSummaryPrompt,
   parseCourseSummary,
+  removeAiSummary,
   buildCourseNote,
   uniquePath,
   CourseNotesModal,

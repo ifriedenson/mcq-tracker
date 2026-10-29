@@ -12,12 +12,14 @@ test("AI writes: records keep only real paths and newest first", () => {
     null,
     { id: "b", paths: [] },
     { id: "c", kind: "cards", paths: ["Cards/b.md"] },
+    { id: "d", kind: "summary", paths: ["Course notes/Cells.md"] },
   ]);
-  assert.equal(records.length, 2);
+  assert.equal(records.length, 3);
   assert.deepEqual(records[0].paths, ["Questions/a.md"]);
   assert.equal(records[0].kind, "questions");
   assert.equal(records[1].kind, "cards");
   assert.equal(records[1].sourcePath, "");
+  assert.equal(records[2].kind, "summary", "summary records are not relabelled as cards");
 });
 
 test("AI writes: making a record requires at least one path", () => {

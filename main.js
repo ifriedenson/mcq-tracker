@@ -174,6 +174,7 @@ const { localDate, str } = require("./util");
 
 const AI_WRITE_STORAGE_KEY = "mcq-tracker-ai-writes";
 const MAX_AI_WRITES = 20;
+const AI_WRITE_KINDS = ["cards", "questions", "summary"];
 
 function cleanPaths(value) {
   return [...new Set((Array.isArray(value) ? value : []).map((path) => str(path).trim()).filter(Boolean))];
@@ -189,7 +190,7 @@ function normalizeAiWrites(value) {
     out.push({
       id: str(record.id) || `ai-${out.length}`,
       date: str(record.date) || localDate(),
-      kind: record.kind === "questions" ? "questions" : "cards",
+      kind: AI_WRITE_KINDS.includes(record.kind) ? record.kind : "cards",
       sourcePath: str(record.sourcePath),
       model: str(record.model),
       summary: str(record.summary),
@@ -206,7 +207,7 @@ function makeAiWriteRecord(input) {
   return {
     id: `ai-${Date.now().toString(36)}-${paths.length}`,
     date: localDate(),
-    kind: input && input.kind === "questions" ? "questions" : "cards",
+    kind: input && AI_WRITE_KINDS.includes(input.kind) ? input.kind : "cards",
     sourcePath: str(input && input.sourcePath),
     model: str(input && input.model),
     summary: str(input && input.summary),
@@ -224,6 +225,7 @@ function latestAiWrite(list) {
 }
 
 module.exports = {
+  AI_WRITE_KINDS,
   AI_WRITE_STORAGE_KEY,
   MAX_AI_WRITES,
   appendAiWrite,
@@ -11597,7 +11599,9 @@ function buildCourseNote(pages, meta) {
     lines.push(
       "_The page text below is copied from the source. The AI summary may be wrong; check it against the source._",
       "",
+      "<!-- ai-summary:start -->",
       summary,
+      "<!-- ai-summary:end -->",
       ""
     );
   } else {
@@ -11617,6 +11621,17 @@ function buildCourseNote(pages, meta) {
     lines.push("");
   }
   return { text: lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n", title };
+}
+
+/** Remove the marked AI summary from an existing note, keeping its extracted page text. */
+function removeAiSummary(text) {
+  const raw = str(text);
+  const start = raw.indexOf("<!-- ai-summary:start -->");
+  const end = raw.indexOf("<!-- ai-summary:end -->");
+  if (start < 0 || end < start) return { text: raw, removed: false };
+  const after = raw.slice(end + "<!-- ai-summary:end -->".length).replace(/^\s*\n/, "");
+  const next = `${raw.slice(0, start).replace(/\n{3,}$/g, "\n\n")}${after}`.replace(/\n{3,}/g, "\n\n");
+  return { text: next, removed: true };
 }
 
 function uniquePath(vault, folder, name, extension) {
@@ -11830,6 +11845,7 @@ class CourseNotesModal extends Modal {
       });
       const path = uniquePath(this.app.vault, folder, note.title, "md");
       await this.app.vault.create(path, note.text);
+      if (summary && this.plugin.recordAiSummaryNote) this.plugin.recordAiSummaryNote({ path, title: note.title, model: summaryModel });
       this.plugin.refreshViews();
       this.showDone(el, path, pages.length, sourceLink, this.summaryError);
       if (this.onDone) this.onDone({ path, pages: pages.length, title: note.title });
@@ -11870,6 +11886,7 @@ module.exports = {
   pageHeading,
   buildCourseSummaryPrompt,
   parseCourseSummary,
+  removeAiSummary,
   buildCourseNote,
   uniquePath,
   CourseNotesModal,
@@ -22505,7 +22522,7 @@ const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { normalizeLocalOcr } = require("./local-ocr");
 const { PdfImportModal } = require("./import-modal");
-const { CourseNotesModal } = require("./course-notes");
+const { CourseNotesModal, removeAiSummary } = require("./course-notes");
 const { DocumentReviewModal } = require("./document-review-modal");
 const { OcrModal } = require("./ocr-modal");
 const { PaperScannerModal } = require("./paper-scanner");
@@ -22638,7 +22655,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-dashboard", name: "Open analytics dashboard", callback: () => this.activateInsights("overview") });
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
-    this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated practice notes", callback: () => this.undoLastAiWriteCommand() });
+    this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated notes", callback: () => this.undoLastAiWriteCommand() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
     this.addCommand({ id: "paper-scanner", name: "Paper scanner: photos to PDF", callback: () => this.openPaperScanner() });
     this.addCommand({ id: "document-review", name: "Review a document for import", callback: () => this.openDocumentReview() });
@@ -25854,6 +25871,13 @@ class QuestionTrackerPlugin extends Plugin {
     );
   }
 
+  recordAiSummaryNote(meta) {
+    const m = meta || {};
+    return this.recordAiWrite(
+      makeAiWriteRecord({ kind: "summary", sourcePath: m.path, model: m.model, summary: m.title, paths: [m.path] }),
+    );
+  }
+
   aiWriteHistory() {
     return normalizeAiWrites(this.app.loadLocalStorage(AI_WRITE_STORAGE_KEY));
   }
@@ -25869,11 +25893,29 @@ class QuestionTrackerPlugin extends Plugin {
     const record = latestAiWrite(this.aiWriteHistory());
     if (!record) return { removed: 0, paths: [], record: null };
     const removed = [];
-    for (const path of record.paths) {
-      const file = this.app.vault.getAbstractFileByPath(path);
-      if (!file) continue;
-      await this.app.fileManager.trashFile(file);
-      removed.push(path);
+    if (record.kind === "summary") {
+      for (const path of record.paths) {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!file || !/\.md$/i.test(file.path || path)) continue;
+        const text = await this.app.vault.cachedRead(file);
+        const cleaned = removeAiSummary(text);
+        if (!cleaned.removed) continue;
+        await this.app.vault.modify(file, cleaned.text);
+        if (this.app.fileManager && this.app.fileManager.processFrontMatter) {
+          await this.app.fileManager.processFrontMatter(file, (fm) => {
+            delete fm.ai_summary;
+            delete fm.ai_model;
+          });
+        }
+        removed.push(path);
+      }
+    } else {
+      for (const path of record.paths) {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!file) continue;
+        await this.app.fileManager.trashFile(file);
+        removed.push(path);
+      }
     }
     this.app.saveLocalStorage(AI_WRITE_STORAGE_KEY, this.aiWriteHistory().slice(1));
     if (removed.length) this.refreshViews();
@@ -25888,8 +25930,12 @@ class QuestionTrackerPlugin extends Plugin {
     }
     new Notice(
       result.removed
-        ? `Removed ${result.removed} AI-generated note${result.removed === 1 ? "" : "s"}.`
-        : "Those generated notes are already gone.",
+        ? result.record.kind === "summary"
+          ? `Removed the AI summary from ${result.removed} note${result.removed === 1 ? "" : "s"}.`
+          : `Removed ${result.removed} AI-generated note${result.removed === 1 ? "" : "s"}.`
+        : result.record.kind === "summary"
+          ? "That AI summary is already gone."
+          : "Those generated notes are already gone.",
       6000,
     );
     return result;

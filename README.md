@@ -452,7 +452,7 @@ Three default-off toggles under **Settings → MCQ Tracker → AI → Study cont
 
 ### Undoing an AI-generated write
 
-**Generate practice from this lecture** still shows a preview and writes only when you press **Create these**. The files it creates are also recorded in a device-local undo journal. Run **AI: undo the last generated practice notes** to remove the notes created by the most recent confirmed AI generation. The journal stores paths, not note contents, is capped at 20 records, and is never synced. Heading-based card extraction without AI is not recorded.
+**Generate practice from this lecture** still shows a preview and writes only when you press **Create these**. The files it creates are also recorded in a device-local undo journal. Run **AI: undo the last generated practice notes** to remove the notes created by the most recent confirmed AI generation. The journal stores paths, not note contents, is capped at 20 records, and is never synced. Heading-based card extraction without AI is not recorded. AI course-note summaries use the same command: the summary is wrapped in markers when the note is created, and undo removes only that summary block plus its `ai_summary`/`ai_model` properties, keeping the extracted page text. Older course notes without those markers are not changed.
 
 ### What is disclosed and sent
 

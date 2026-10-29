@@ -2,8 +2,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { load } = require("./helpers/load");
+const { makeApp } = require("./helpers/fake");
 
-const { T } = load();
+const { T, Plugin: QT } = load();
 const courseNotes = T.courseNotes;
 
 const PAGES = [
@@ -63,6 +64,46 @@ test("course notes: AI summary is marked, placed before page sections, and strip
   assert.match(note.text, /^ai_model: "test-model"$/m);
   assert.ok(note.text.indexOf("## Summary") < note.text.indexOf("## Mitosis phases"));
   assert.match(note.text, /The AI summary may be wrong/);
+  assert.match(note.text, /<!-- ai-summary:start -->/);
+  assert.match(note.text, /<!-- ai-summary:end -->/);
+});
+
+test("course notes: removing the AI summary keeps the extracted pages", () => {
+  const note = courseNotes.buildCourseNote(PAGES, {
+    sourceName: "Cells",
+    sourcePageCount: 2,
+    importedOn: "2026-10-29",
+    summary: "## Summary\n\n- Cells divide by mitosis.",
+    summaryModel: "test-model",
+  });
+  const cleaned = courseNotes.removeAiSummary(note.text);
+  assert.equal(cleaned.removed, true);
+  assert.doesNotMatch(cleaned.text, /## Summary/);
+  assert.doesNotMatch(cleaned.text, /ai-summary/);
+  assert.match(cleaned.text, /## Cell division/);
+  assert.match(cleaned.text, /Mitosis phases/);
+  assert.equal(courseNotes.removeAiSummary("ordinary note").removed, false);
+});
+
+test("plugin: undo removes an AI summary but keeps the course note", async () => {
+  const note = courseNotes.buildCourseNote(PAGES, {
+    sourceName: "Cells",
+    sourcePageCount: 2,
+    importedOn: "2026-10-29",
+    summary: "## Summary\n\n- Cells divide by mitosis.",
+    summaryModel: "test-model",
+  });
+  const app = makeApp([{ path: "Course notes/Cells.md", text: note.text, noFm: true }]);
+  app.files[0].fm = { course_notes: true, ai_summary: true, ai_model: "test-model" };
+  const plugin = new QT(app);
+  await plugin.onload();
+  await plugin.recordAiSummaryNote({ path: "Course notes/Cells.md", title: "Cells", model: "test-model" });
+  const result = await plugin.undoLastAiWrite();
+  assert.equal(result.removed, 1);
+  assert.doesNotMatch(app.files[0].text, /## Summary/);
+  assert.match(app.files[0].text, /## Cell division/);
+  assert.equal(app.files[0].fm.ai_summary, undefined);
+  assert.equal(app.trashed.length, 0, "the note itself is kept");
 });
 
 test("course notes: summary prompt includes metadata and clips very long documents", () => {

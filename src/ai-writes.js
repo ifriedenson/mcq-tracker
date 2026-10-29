@@ -12,6 +12,7 @@ const { localDate, str } = require("./util");
 
 const AI_WRITE_STORAGE_KEY = "mcq-tracker-ai-writes";
 const MAX_AI_WRITES = 20;
+const AI_WRITE_KINDS = ["cards", "questions", "summary"];
 
 function cleanPaths(value) {
   return [...new Set((Array.isArray(value) ? value : []).map((path) => str(path).trim()).filter(Boolean))];
@@ -27,7 +28,7 @@ function normalizeAiWrites(value) {
     out.push({
       id: str(record.id) || `ai-${out.length}`,
       date: str(record.date) || localDate(),
-      kind: record.kind === "questions" ? "questions" : "cards",
+      kind: AI_WRITE_KINDS.includes(record.kind) ? record.kind : "cards",
       sourcePath: str(record.sourcePath),
       model: str(record.model),
       summary: str(record.summary),
@@ -44,7 +45,7 @@ function makeAiWriteRecord(input) {
   return {
     id: `ai-${Date.now().toString(36)}-${paths.length}`,
     date: localDate(),
-    kind: input && input.kind === "questions" ? "questions" : "cards",
+    kind: input && AI_WRITE_KINDS.includes(input.kind) ? input.kind : "cards",
     sourcePath: str(input && input.sourcePath),
     model: str(input && input.model),
     summary: str(input && input.summary),
@@ -62,6 +63,7 @@ function latestAiWrite(list) {
 }
 
 module.exports = {
+  AI_WRITE_KINDS,
   AI_WRITE_STORAGE_KEY,
   MAX_AI_WRITES,
   appendAiWrite,

@@ -17,7 +17,7 @@ const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { normalizeLocalOcr } = require("./local-ocr");
 const { PdfImportModal } = require("./import-modal");
-const { CourseNotesModal } = require("./course-notes");
+const { CourseNotesModal, removeAiSummary } = require("./course-notes");
 const { DocumentReviewModal } = require("./document-review-modal");
 const { OcrModal } = require("./ocr-modal");
 const { PaperScannerModal } = require("./paper-scanner");
@@ -150,7 +150,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-dashboard", name: "Open analytics dashboard", callback: () => this.activateInsights("overview") });
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
-    this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated practice notes", callback: () => this.undoLastAiWriteCommand() });
+    this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated notes", callback: () => this.undoLastAiWriteCommand() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
     this.addCommand({ id: "paper-scanner", name: "Paper scanner: photos to PDF", callback: () => this.openPaperScanner() });
     this.addCommand({ id: "document-review", name: "Review a document for import", callback: () => this.openDocumentReview() });
@@ -3366,6 +3366,13 @@ class QuestionTrackerPlugin extends Plugin {
     );
   }
 
+  recordAiSummaryNote(meta) {
+    const m = meta || {};
+    return this.recordAiWrite(
+      makeAiWriteRecord({ kind: "summary", sourcePath: m.path, model: m.model, summary: m.title, paths: [m.path] }),
+    );
+  }
+
   aiWriteHistory() {
     return normalizeAiWrites(this.app.loadLocalStorage(AI_WRITE_STORAGE_KEY));
   }
@@ -3381,11 +3388,29 @@ class QuestionTrackerPlugin extends Plugin {
     const record = latestAiWrite(this.aiWriteHistory());
     if (!record) return { removed: 0, paths: [], record: null };
     const removed = [];
-    for (const path of record.paths) {
-      const file = this.app.vault.getAbstractFileByPath(path);
-      if (!file) continue;
-      await this.app.fileManager.trashFile(file);
-      removed.push(path);
+    if (record.kind === "summary") {
+      for (const path of record.paths) {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!file || !/\.md$/i.test(file.path || path)) continue;
+        const text = await this.app.vault.cachedRead(file);
+        const cleaned = removeAiSummary(text);
+        if (!cleaned.removed) continue;
+        await this.app.vault.modify(file, cleaned.text);
+        if (this.app.fileManager && this.app.fileManager.processFrontMatter) {
+          await this.app.fileManager.processFrontMatter(file, (fm) => {
+            delete fm.ai_summary;
+            delete fm.ai_model;
+          });
+        }
+        removed.push(path);
+      }
+    } else {
+      for (const path of record.paths) {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!file) continue;
+        await this.app.fileManager.trashFile(file);
+        removed.push(path);
+      }
     }
     this.app.saveLocalStorage(AI_WRITE_STORAGE_KEY, this.aiWriteHistory().slice(1));
     if (removed.length) this.refreshViews();
@@ -3400,8 +3425,12 @@ class QuestionTrackerPlugin extends Plugin {
     }
     new Notice(
       result.removed
-        ? `Removed ${result.removed} AI-generated note${result.removed === 1 ? "" : "s"}.`
-        : "Those generated notes are already gone.",
+        ? result.record.kind === "summary"
+          ? `Removed the AI summary from ${result.removed} note${result.removed === 1 ? "" : "s"}.`
+          : `Removed ${result.removed} AI-generated note${result.removed === 1 ? "" : "s"}.`
+        : result.record.kind === "summary"
+          ? "That AI summary is already gone."
+          : "Those generated notes are already gone.",
       6000,
     );
     return result;
