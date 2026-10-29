@@ -1,5 +1,6 @@
 "use strict";
 const { API_PRESETS } = require("./api-client");
+const { resolveApiKey } = require("./secret-keys");
 const { cacheIssues, looksLikeQuestion } = require("./importer");
 const { str } = require("./util");
 
@@ -57,7 +58,7 @@ function aiReady(plugin) {
   const api = ai.api || {};
   const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
   if (!str(api.model).trim()) return false;
-  return !!preset.noKey || !!str((api.keys || {})[api.provider]).trim();
+  return !!preset.noKey || !!resolveApiKey(plugin.app, api);
 }
 
 module.exports = { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes };

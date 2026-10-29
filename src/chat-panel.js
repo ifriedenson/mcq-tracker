@@ -298,7 +298,7 @@ class ChatPanel {
     this.draw();
     const hist = this.apiHistory();
     try {
-      const reply = await new ApiClient(this.ai).chat(
+      const reply = await new ApiClient(this.ai, this.view.plugin.app).chat(
         this.opts.buildContext("tutor", currentNote),
         hist.concat([{ role: "user", content: text }])
       );

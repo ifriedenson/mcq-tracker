@@ -24,6 +24,7 @@ const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
 const cardWriteDiff = require("./card-write-diff");
 const agentWriteGuard = require("./agent-write-guard");
+const secretKeys = require("./secret-keys");
 const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
 const answerVerification = require("./answer-verification");
@@ -140,6 +141,7 @@ QuestionTrackerPlugin.__test = {
   aiWriteGuard,
   cardWriteDiff,
   agentWriteGuard,
+  secretKeys,
   aiWrites,
   weakSpot,
   answerVerification,

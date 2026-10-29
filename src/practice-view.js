@@ -8,6 +8,7 @@ const { extractRationale, gradeAnswer } = require("./notes");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
 const { API_PRESETS } = require("./api-client");
+const { hasSecretStorage, resolveApiKey, storeApiKey } = require("./secret-keys");
 const { QUICK_START_URL, aiReady, emptyState } = require("./empty-state");
 const { groupIssues } = require("./importer");
 const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
@@ -774,11 +775,21 @@ class PracticeView extends ItemView {
         url.addEventListener("input", () => (api.baseUrl = url.value.trim()));
       }
       let keyEl = null;
+      const existingKey = resolveApiKey(this.plugin.app, api);
+      const secretStorage = hasSecretStorage(this.plugin.app);
       if (!preset.noKey) {
         body.createDiv({ cls: "qt-label", text: "API key" });
-        keyEl = body.createEl("input", { type: "password", cls: "qt-fsearch", attr: { placeholder: "Paste your key" } });
-        keyEl.value = (api.keys || {})[api.provider] || "";
-        body.createDiv({ cls: "qt-hint", text: "Saved as plain text in this plugin's data.json, which syncs with your vault." });
+        keyEl = body.createEl("input", {
+          type: "password",
+          cls: "qt-fsearch",
+          attr: { placeholder: existingKey ? "Using a saved key — leave blank to keep it" : "Paste your key" },
+        });
+        body.createDiv({
+          cls: "qt-hint",
+          text: secretStorage
+            ? "Saved in Obsidian's Secret Storage, outside data.json."
+            : "Saved as plain text in this plugin's data.json, which syncs with your vault.",
+        });
       }
       body.createDiv({ cls: "qt-label", text: "Model" });
       const model = body.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: "model name" } });
@@ -787,12 +798,9 @@ class PracticeView extends ItemView {
       go.addEventListener("click", async () => {
         const key = keyEl ? str(keyEl.value).trim() : "";
         const name = str(model.value).trim();
-        if (keyEl && !key) return new Notice("Paste your API key first.");
+        if (keyEl && !key && !existingKey) return new Notice("Paste your API key first.");
         if (!name) return new Notice("Enter the model name your provider lists.");
-        if (keyEl) {
-          api.keys = api.keys || {};
-          api.keys[api.provider] = key;
-        }
+        if (keyEl && key) storeApiKey(this.plugin.app, api, api.provider, key);
         api.model = name;
         ai.backend = "api";
         ai.enabled = true;

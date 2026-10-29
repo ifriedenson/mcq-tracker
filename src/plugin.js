@@ -72,6 +72,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
+const { migrateApiKeys } = require("./secret-keys");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -456,7 +457,7 @@ class QuestionTrackerPlugin extends Plugin {
     );
     this.settings.ai = Object.assign({}, DEFAULT_SETTINGS.ai, saved.ai || {});
     const sa = (saved.ai && saved.ai.api) || {};
-    this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys) });
+    this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys), secrets: Object.assign({}, sa.secrets) });
     this.settings.localOcr = normalizeLocalOcr(saved.localOcr);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
     this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
@@ -487,6 +488,10 @@ class QuestionTrackerPlugin extends Plugin {
     for (const k of ["intervals", "errorTypes", "confidenceLabels"]) {
       if (!Array.isArray(this.settings[k]) || !this.settings[k].length) this.settings[k] = DEFAULT_SETTINGS[k].slice();
     }
+    // Move legacy plain-text keys into Secret Storage where Obsidian provides it.
+    // This runs before the settings page is drawn, so a migrated key is never
+    // written back to data.json.
+    if (migrateApiKeys(this.app, this.settings.ai.api)) await this.save();
   }
 
   save() {
@@ -2630,7 +2635,7 @@ class QuestionTrackerPlugin extends Plugin {
       if (!text) throw new Error("OpenCode returned an empty reply.");
       return text;
     }
-    return new ApiClient(ai).chat(system, [{ role: "user", content: user }], opts);
+    return new ApiClient(ai, this.app).chat(system, [{ role: "user", content: user }], opts);
   }
 
   /** Opt-in image request for OCR. Only Direct AI can receive page images. */
@@ -2638,7 +2643,7 @@ class QuestionTrackerPlugin extends Plugin {
     const ai = this.settings.ai;
     if (!ai.enabled) throw new Error("Turn on AI features in the plugin settings first.");
     if (this.backend() !== "api") throw new Error("Vision OCR needs the Direct AI backend; OpenCode cannot receive page images through this plugin.");
-    return new ApiClient(ai).vision(system, prompt, images, opts);
+    return new ApiClient(ai, this.app).vision(system, prompt, images, opts);
   }
 
   gradeCardWithAi(card, typed, strictness) {

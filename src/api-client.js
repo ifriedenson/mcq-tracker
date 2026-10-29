@@ -1,6 +1,7 @@
 "use strict";
 const { requestUrl } = require("obsidian");
 const { str } = require("./util");
+const { resolveApiKey } = require("./secret-keys");
 
 /* ---------------------------------------------- Direct API chat (works on phones) */
 
@@ -29,8 +30,9 @@ function apiTurns(history) {
 
 /** Plain chat against Anthropic or any OpenAI-compatible endpoint. One request, no streaming. */
 class ApiClient {
-  constructor(ai) {
+  constructor(ai, app) {
     this.ai = ai;
+    this.app = app;
   }
   cfg() {
     const a = this.ai.api || {};
@@ -38,7 +40,7 @@ class ApiClient {
     return {
       preset,
       base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, ""),
-      key: str((a.keys || {})[a.provider]).trim(),
+      key: resolveApiKey(this.app, a),
       model: str(a.model).trim(),
     };
   }

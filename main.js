@@ -2420,6 +2420,7 @@ module.exports = {
 __defs["api-client"] = function (module, exports, require) {
 const { requestUrl } = require("obsidian");
 const { str } = require("./util");
+const { resolveApiKey } = require("./secret-keys");
 
 /* ---------------------------------------------- Direct API chat (works on phones) */
 
@@ -2448,8 +2449,9 @@ function apiTurns(history) {
 
 /** Plain chat against Anthropic or any OpenAI-compatible endpoint. One request, no streaming. */
 class ApiClient {
-  constructor(ai) {
+  constructor(ai, app) {
     this.ai = ai;
+    this.app = app;
   }
   cfg() {
     const a = this.ai.api || {};
@@ -2457,7 +2459,7 @@ class ApiClient {
     return {
       preset,
       base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, ""),
-      key: str((a.keys || {})[a.provider]).trim(),
+      key: resolveApiKey(this.app, a),
       model: str(a.model).trim(),
     };
   }
@@ -11737,7 +11739,7 @@ class ChatPanel {
     this.draw();
     const hist = this.apiHistory();
     try {
-      const reply = await new ApiClient(this.ai).chat(
+      const reply = await new ApiClient(this.ai, this.view.plugin.app).chat(
         this.opts.buildContext("tutor", currentNote),
         hist.concat([{ role: "user", content: text }])
       );
@@ -13599,6 +13601,7 @@ module.exports = {
 /* ---- src/empty-state.js ---- */
 __defs["empty-state"] = function (module, exports, require) {
 const { API_PRESETS } = require("./api-client");
+const { resolveApiKey } = require("./secret-keys");
 const { cacheIssues, looksLikeQuestion } = require("./importer");
 const { str } = require("./util");
 
@@ -13656,7 +13659,7 @@ function aiReady(plugin) {
   const api = ai.api || {};
   const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
   if (!str(api.model).trim()) return false;
-  return !!preset.noKey || !!str((api.keys || {})[api.provider]).trim();
+  return !!preset.noKey || !!resolveApiKey(plugin.app, api);
 }
 
 module.exports = { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes };
@@ -23231,6 +23234,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
+const { migrateApiKeys } = require("./secret-keys");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -23615,7 +23619,7 @@ class QuestionTrackerPlugin extends Plugin {
     );
     this.settings.ai = Object.assign({}, DEFAULT_SETTINGS.ai, saved.ai || {});
     const sa = (saved.ai && saved.ai.api) || {};
-    this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys) });
+    this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys), secrets: Object.assign({}, sa.secrets) });
     this.settings.localOcr = normalizeLocalOcr(saved.localOcr);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
     this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
@@ -23646,6 +23650,10 @@ class QuestionTrackerPlugin extends Plugin {
     for (const k of ["intervals", "errorTypes", "confidenceLabels"]) {
       if (!Array.isArray(this.settings[k]) || !this.settings[k].length) this.settings[k] = DEFAULT_SETTINGS[k].slice();
     }
+    // Move legacy plain-text keys into Secret Storage where Obsidian provides it.
+    // This runs before the settings page is drawn, so a migrated key is never
+    // written back to data.json.
+    if (migrateApiKeys(this.app, this.settings.ai.api)) await this.save();
   }
 
   save() {
@@ -25789,7 +25797,7 @@ class QuestionTrackerPlugin extends Plugin {
       if (!text) throw new Error("OpenCode returned an empty reply.");
       return text;
     }
-    return new ApiClient(ai).chat(system, [{ role: "user", content: user }], opts);
+    return new ApiClient(ai, this.app).chat(system, [{ role: "user", content: user }], opts);
   }
 
   /** Opt-in image request for OCR. Only Direct AI can receive page images. */
@@ -25797,7 +25805,7 @@ class QuestionTrackerPlugin extends Plugin {
     const ai = this.settings.ai;
     if (!ai.enabled) throw new Error("Turn on AI features in the plugin settings first.");
     if (this.backend() !== "api") throw new Error("Vision OCR needs the Direct AI backend; OpenCode cannot receive page images through this plugin.");
-    return new ApiClient(ai).vision(system, prompt, images, opts);
+    return new ApiClient(ai, this.app).vision(system, prompt, images, opts);
   }
 
   gradeCardWithAi(card, typed, strictness) {
@@ -26926,6 +26934,7 @@ const { extractRationale, gradeAnswer } = require("./notes");
 const { FolderFilterSuggest, NameModal } = require("./modals");
 const { ChatPanel } = require("./chat-panel");
 const { API_PRESETS } = require("./api-client");
+const { hasSecretStorage, resolveApiKey, storeApiKey } = require("./secret-keys");
 const { QUICK_START_URL, aiReady, emptyState } = require("./empty-state");
 const { groupIssues } = require("./importer");
 const { buildGeneralContext, buildTutorContext } = require("./opencode-client");
@@ -27692,11 +27701,21 @@ class PracticeView extends ItemView {
         url.addEventListener("input", () => (api.baseUrl = url.value.trim()));
       }
       let keyEl = null;
+      const existingKey = resolveApiKey(this.plugin.app, api);
+      const secretStorage = hasSecretStorage(this.plugin.app);
       if (!preset.noKey) {
         body.createDiv({ cls: "qt-label", text: "API key" });
-        keyEl = body.createEl("input", { type: "password", cls: "qt-fsearch", attr: { placeholder: "Paste your key" } });
-        keyEl.value = (api.keys || {})[api.provider] || "";
-        body.createDiv({ cls: "qt-hint", text: "Saved as plain text in this plugin's data.json, which syncs with your vault." });
+        keyEl = body.createEl("input", {
+          type: "password",
+          cls: "qt-fsearch",
+          attr: { placeholder: existingKey ? "Using a saved key — leave blank to keep it" : "Paste your key" },
+        });
+        body.createDiv({
+          cls: "qt-hint",
+          text: secretStorage
+            ? "Saved in Obsidian's Secret Storage, outside data.json."
+            : "Saved as plain text in this plugin's data.json, which syncs with your vault.",
+        });
       }
       body.createDiv({ cls: "qt-label", text: "Model" });
       const model = body.createEl("input", { type: "text", cls: "qt-fsearch", attr: { placeholder: "model name" } });
@@ -27705,12 +27724,9 @@ class PracticeView extends ItemView {
       go.addEventListener("click", async () => {
         const key = keyEl ? str(keyEl.value).trim() : "";
         const name = str(model.value).trim();
-        if (keyEl && !key) return new Notice("Paste your API key first.");
+        if (keyEl && !key && !existingKey) return new Notice("Paste your API key first.");
         if (!name) return new Notice("Enter the model name your provider lists.");
-        if (keyEl) {
-          api.keys = api.keys || {};
-          api.keys[api.provider] = key;
-        }
+        if (keyEl && key) storeApiKey(this.plugin.app, api, api.provider, key);
         api.model = name;
         ai.backend = "api";
         ai.enabled = true;
@@ -30751,6 +30767,127 @@ module.exports = {
 };
 };
 
+/* ---- src/secret-keys.js ---- */
+__defs["secret-keys"] = function (module, exports, require) {
+/*
+ * API keys live in Obsidian's Secret Storage when the app provides it
+ * (desktop and mobile 1.11.4+). Older apps fall back to the plugin's
+ * data.json, which is plain text and syncs with the vault.
+ */
+const { str } = require("./util");
+
+function secretStorageOf(app) {
+  const store = app && app.secretStorage;
+  return store && typeof store.getSecret === "function" && typeof store.setSecret === "function" ? store : null;
+}
+
+function hasSecretStorage(app) {
+  return !!secretStorageOf(app);
+}
+
+function secretName(api, provider) {
+  return str(((api && api.secrets) || {})[provider]).trim();
+}
+
+function plainKey(api, provider) {
+  return str(((api && api.keys) || {})[provider]).trim();
+}
+
+function readSecret(store, name) {
+  if (!store || !name) return "";
+  try {
+    return str(store.getSecret(name)).trim();
+  } catch (e) {
+    return "";
+  }
+}
+
+/** The key the request should use: Secret Storage first, then legacy plain text. */
+function resolveApiKey(app, api) {
+  const provider = str(api && api.provider).trim();
+  const secret = readSecret(secretStorageOf(app), secretName(api, provider));
+  return secret || plainKey(api, provider);
+}
+
+function randomSuffix() {
+  try {
+    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+      return globalThis.crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+    }
+  } catch (e) {
+    /* fall through */
+  }
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function newSecretName(provider) {
+  const safe = str(provider || "api").replace(/[^a-z0-9-]/gi, "-").toLowerCase();
+  return `mcq-tracker-${safe}-${randomSuffix()}`;
+}
+
+/**
+ * Save one key. Returns { stored: "secret" | "plain", name }. With Secret
+ * Storage the value never enters data.json; without it, the legacy field is
+ * used so older Obsidian versions keep working.
+ */
+function storeApiKey(app, api, provider, key) {
+  const value = str(key).trim();
+  const store = secretStorageOf(app);
+  if (!store) {
+    api.keys = api.keys || {};
+    api.keys[provider] = value;
+    return { stored: "plain", name: "" };
+  }
+  const name = secretName(api, provider) || newSecretName(provider);
+  store.setSecret(name, value);
+  api.secrets = api.secrets || {};
+  api.secrets[provider] = name;
+  if (api.keys) delete api.keys[provider];
+  return { stored: "secret", name };
+}
+
+/**
+ * Move any legacy plain-text keys into Secret Storage. Idempotent. Existing
+ * selected secrets win; the plain-text copy is still removed so it cannot
+ * remain in a synced data.json.
+ */
+function migrateApiKeys(app, api) {
+  const store = secretStorageOf(app);
+  if (!store || !api || !api.keys) return 0;
+  let moved = 0;
+  for (const provider of Object.keys(api.keys)) {
+    const key = plainKey(api, provider);
+    if (!key) {
+      delete api.keys[provider];
+      continue;
+    }
+    try {
+      const current = secretName(api, provider);
+      if (!readSecret(store, current)) {
+        const name = current || newSecretName(provider);
+        store.setSecret(name, key);
+        api.secrets = api.secrets || {};
+        api.secrets[provider] = name;
+      }
+      delete api.keys[provider];
+      moved++;
+    } catch (e) {
+      /* keep the legacy key rather than losing it */
+    }
+  }
+  return moved;
+}
+
+module.exports = {
+  hasSecretStorage,
+  migrateApiKeys,
+  newSecretName,
+  resolveApiKey,
+  secretName,
+  storeApiKey,
+};
+};
+
 /* ---- src/settings-global.js ---- */
 __defs["settings-global"] = function (module, exports, require) {
 /*
@@ -31024,7 +31161,7 @@ module.exports = {
 
 /* ---- src/settings-tab.js ---- */
 __defs["settings-tab"] = function (module, exports, require) {
-const { Notice, Platform, PluginSettingTab, Setting } = require("obsidian");
+const { Notice, Platform, PluginSettingTab, SecretComponent, Setting } = require("obsidian");
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
@@ -31043,6 +31180,7 @@ const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
 const { normalizeVerificationMode } = require("./answer-verification");
+const { hasSecretStorage } = require("./secret-keys");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -31456,17 +31594,35 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           );
       }
       if (!preset.noKey) {
-        new Setting(containerEl)
-          .setName("API key")
-          .setDesc("Stored as plain text in this plugin's data.json, which syncs with your vault, so the same key works on your phone. Anyone with access to the vault can read it.")
-          .addText((t) => {
-            t.inputEl.type = "password";
-            t.setValue((api.keys || {})[api.provider] || "").onChange(async (v) => {
-              api.keys = api.keys || {};
-              api.keys[api.provider] = v.trim();
-              await this.plugin.save();
+        const keySetting = new Setting(containerEl).setName("API key");
+        if (hasSecretStorage(this.app) && typeof SecretComponent === "function") {
+          const current = (api.secrets || {})[api.provider] || "";
+          keySetting
+            .setDesc(
+              "Stored in Obsidian's Secret Storage, outside data.json. Secret Storage may be per device, so select or create a secret on each device you use."
+            )
+            .addComponent((el) => {
+              const comp = new SecretComponent(this.app, el);
+              comp.setValue(current).onChange(async (value) => {
+                api.secrets = api.secrets || {};
+                api.secrets[api.provider] = str(value).trim();
+                await this.plugin.save();
+              });
             });
-          });
+        } else {
+          keySetting
+            .setDesc(
+              "Secret Storage is not available in this Obsidian version, so the key is stored as plain text in data.json and syncs with your vault. Anyone with access to the vault can read it."
+            )
+            .addText((t) => {
+              t.inputEl.type = "password";
+              t.setValue((api.keys || {})[api.provider] || "").onChange(async (v) => {
+                api.keys = api.keys || {};
+                api.keys[api.provider] = v.trim();
+                await this.plugin.save();
+              });
+            });
+        }
       }
       new Setting(containerEl)
         .setName("Model")
@@ -34453,6 +34609,7 @@ const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
 const cardWriteDiff = require("./card-write-diff");
 const agentWriteGuard = require("./agent-write-guard");
+const secretKeys = require("./secret-keys");
 const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
 const answerVerification = require("./answer-verification");
@@ -34569,6 +34726,7 @@ QuestionTrackerPlugin.__test = {
   aiWriteGuard,
   cardWriteDiff,
   agentWriteGuard,
+  secretKeys,
   aiWrites,
   weakSpot,
   answerVerification,

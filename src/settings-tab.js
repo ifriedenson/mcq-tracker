@@ -1,5 +1,5 @@
 "use strict";
-const { Notice, Platform, PluginSettingTab, Setting } = require("obsidian");
+const { Notice, Platform, PluginSettingTab, SecretComponent, Setting } = require("obsidian");
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
@@ -18,6 +18,7 @@ const { STUDY_SKIN_LABELS, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
 const { normalizeVerificationMode } = require("./answer-verification");
+const { hasSecretStorage } = require("./secret-keys");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -431,17 +432,35 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           );
       }
       if (!preset.noKey) {
-        new Setting(containerEl)
-          .setName("API key")
-          .setDesc("Stored as plain text in this plugin's data.json, which syncs with your vault, so the same key works on your phone. Anyone with access to the vault can read it.")
-          .addText((t) => {
-            t.inputEl.type = "password";
-            t.setValue((api.keys || {})[api.provider] || "").onChange(async (v) => {
-              api.keys = api.keys || {};
-              api.keys[api.provider] = v.trim();
-              await this.plugin.save();
+        const keySetting = new Setting(containerEl).setName("API key");
+        if (hasSecretStorage(this.app) && typeof SecretComponent === "function") {
+          const current = (api.secrets || {})[api.provider] || "";
+          keySetting
+            .setDesc(
+              "Stored in Obsidian's Secret Storage, outside data.json. Secret Storage may be per device, so select or create a secret on each device you use."
+            )
+            .addComponent((el) => {
+              const comp = new SecretComponent(this.app, el);
+              comp.setValue(current).onChange(async (value) => {
+                api.secrets = api.secrets || {};
+                api.secrets[api.provider] = str(value).trim();
+                await this.plugin.save();
+              });
             });
-          });
+        } else {
+          keySetting
+            .setDesc(
+              "Secret Storage is not available in this Obsidian version, so the key is stored as plain text in data.json and syncs with your vault. Anyone with access to the vault can read it."
+            )
+            .addText((t) => {
+              t.inputEl.type = "password";
+              t.setValue((api.keys || {})[api.provider] || "").onChange(async (v) => {
+                api.keys = api.keys || {};
+                api.keys[api.provider] = v.trim();
+                await this.plugin.save();
+              });
+            });
+        }
       }
       new Setting(containerEl)
         .setName("Model")
