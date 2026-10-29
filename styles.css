@@ -4881,3 +4881,21 @@
   font-size: 0.82rem;
   margin-top: 8px;
 }
+
+/* Import result: per-row outcomes stay readable without turning the modal into a report page. */
+.qt-import-result {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.qt-import-rows {
+  max-height: 220px;
+  overflow: auto;
+  margin: 6px 0;
+  padding-left: 18px;
+  font-size: var(--font-ui-smaller);
+}
+.qt-import-status {
+  font-weight: 600;
+  text-transform: capitalize;
+}

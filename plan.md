@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — 1.91.0 adds local SMILES structure rendering, after 1.90.0 added the allow-listed Direct AI agent and a sample vault and 1.89.0 closed the Adaptive Practice parity gaps; 1.88.0 shipped bulk calculation preview with selective apply and 1.87.0 added agent-edit review; earlier import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.53.0 phase adds visual text boxes on top of 1.52.0's pen/highlighter overlay; form filling and a fuller PDF editor remain open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
+**Status:** Implementation in progress — 1.92.0 adds per-row import reporting and explicit .apkg media-loss reporting, after 1.91.0 added local SMILES structure rendering; 1.90.0 added the allow-listed Direct AI agent and a sample vault and 1.89.0 closed the Adaptive Practice parity gaps; 1.88.0 shipped bulk calculation preview with selective apply and 1.87.0 added agent-edit review; earlier import preview, reporting and duplicate update/copy shipped in 1.24.0, the first Reference-panel tranche (formula sheet, constants and unit converter) shipped in 1.25.0, the local graph plotter plus all 118 elements shipped in 1.26.0, the PDF annotation sidecar shipped in 1.27.0, the first-run welcome guide shipped in 1.28.0, the focus timer plus study log shipped in 1.29.0, and the exam-scoped study plan plus cram mode shipped in 1.30.0. The 1.53.0 phase adds visual text boxes on top of 1.52.0's pen/highlighter overlay; form filling and a fuller PDF editor remain open; audio-only commute mode remains deferred until TTS returns. AP tools remain behind the owner pilot gate (Phase 2b).
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), the October 28 idea backlog (§5.22), and the Adaptive Practice parity audit (§5.23, Oct 29, 2026). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -26,7 +26,7 @@
 
 **Recently completed (1.78.0):** timed tests now capture confidence per answer and report calibration and average time per answered question alongside the section and skill breakdowns. Previous release 1.77.0 added sections, separate timers and saved blueprints; 1.76.1 published the versioned property schema; 1.76.0 added merge-safe history.
 
-**Latest completed (1.91.0):** chemistry notes can render SMILES structures locally in a `smiles` code block or the Reference Structures tab, with a documented teaching subset and clear errors. 1.90.0 added the allow-listed Direct AI agent and a sample vault; 1.89.0 closed the Adaptive Practice parity gaps; 1.88.0 added selective bulk calculation verification.
+**Latest completed (1.92.0):** every card import returns per-row outcomes and reasons for skipped or failed rows, and `.apkg` imports report media files that stay in Anki instead of silently losing them. 1.91.0 added local SMILES structures; 1.90.0 added the allow-listed Direct AI agent and a sample vault; 1.89.0 closed the Adaptive Practice parity gaps.
 
 **Plan audit (Oct 29, 2026).** This is the evidence-based status pass over the whole document. A checked item is present in the code and covered by a test or a documented manual gate; a partial item has a working slice but a named gap.
 
@@ -38,6 +38,7 @@
 | Logged **Don't know** signal (P2 §5.23) | **Done** | Practice writes a `skipped` history row, `skip_count` and an earlier next review without touching accuracy or streak. Insights shows the overall count, per-skill skip rate and a dedicated Logged skips section; the plain Skip still records nothing. |
 | Adaptive session sizing (P2 §5.23) | **Done** | Optional warm-up/stretch planner reads recent accuracy, pace and logged skips. Quick Practice shows the recommendation and can override it per session; the daily quiz uses the same signal. Hard minute/count caps are configurable and off by default. |
 | Optional local daily reminder (P3 §5.23) | **Done** | Off by default; a local Today card and status-bar nudge appear once a day after a chosen hour and can be dismissed until tomorrow. No OS notification, network request or telemetry. |
+| Import quality and reporting (§5.22.3) | **Done in 1.92.0** | Every import result lists each attempted card with its outcome and reason; CSV and question sets report exact skipped rows, and `.apkg` reports media counts and names. |
 | Direct AI agent with allow-listed tools (§5.18) | **Done** | `create_question`, `create_card` and one safe `update_section` proposal; review window, existing write roots and protected properties enforced. |
 | SMILES structure rendering (§5.16.2) | **Done in 1.91.0** | Local, original SVG renderer for a documented teaching subset; `smiles` code blocks in notes and a Structures tab in Reference. Invalid syntax reports an error rather than guessing. |
 | AP FRQ grader | **Partial — specification only** | `docs/ap-frq-grader-spec.md` exists; implementation is correctly blocked by the four-course pilot and rights gate. |
@@ -47,7 +48,7 @@
 | PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; true AcroForm filling needs an audited MIT PDF library and is not safe to approximate. |
 | README, screenshots, sample vault, license confirmation | **Partial — screenshots blocked** | README, NOTICES, `docs/license-audit.md` and `samples/sample-vault` exist. Screenshots still need a real Obsidian window. |
 
-**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.91.0. The items that remain `[~]` are explicitly gated: AP FRQ needs owner pilot/rights approval; the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation. The duplicate roadmap later in this file is historical and does not override this table.
+**Whole-plan review (Oct 29, 2026).** Every `[~]` marker in this document was checked against the code. Implementable partials are closed in 1.89.0–1.92.0. The items that remain `[~]` are explicitly gated: AP FRQ needs owner pilot/rights approval; the math/chemistry visual pass and screenshots need a real Obsidian window; mobile needs a real device; TTS needs provider and mobile validation. The duplicate roadmap later in this file is historical and does not override this table.
 
 **Adaptive Practice parity audit (Oct 29, 2026):** compared with Adaptive Practice 0.7.2. MCQ Tracker already has the broader study system; the meaningful gaps are generation from any note, per-note subtopic memory, a logged skip/fluency signal, adaptive session size and an optional local reminder. The Whetstone engine (AGPL) and the persistent vault index are non-goals. Full matrix and acceptance criteria: §5.23.
 
@@ -1024,7 +1025,7 @@ Use short step cards, each with a working button:
 
 #### 5.22.3 Import breadth and import quality — **M–L, split by format**
 
-**Implemented in 1.16.0:** the generic CSV/TSV importer with delimiter and header detection, column mapping, saved mapping presets, dry-run preview, skipped-row reporting, source metadata (`import_source`, `import_format`, `imported_on`, `import_batch`, `import_key`) and duplicate-safe re-imports. The remaining formats and the full import report are still queued.
+**Implemented in 1.16.0:** the generic CSV/TSV importer with delimiter and header detection, column mapping, saved mapping presets, dry-run preview, skipped-row reporting, source metadata (`import_source`, `import_format`, `imported_on`, `import_batch`, `import_key`) and duplicate-safe re-imports. **Updated in 1.92.0:** every import now returns a per-row outcome (created, updated, copied, skipped, failed) with reasons, CSV and question-set parsers report the exact skipped row and cause, and `.apkg` imports report the number and names of media files that remain in Anki. The remaining formats are queued. The report now covers every attempted card; parsers that skip malformed rows before returning a card expose exact row details for CSV and question sets, and `.apkg` exposes skipped note IDs plus media names.
 
 The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced Repetition to varying degrees. Add the following, in this order.
 
@@ -1037,7 +1038,7 @@ The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced R
 | **LMS quiz banks** | Moodle XML, GIFT, QTI (Canvas, Blackboard) | Fits university users. **GIFT, Moodle XML and QTI shipped in 1.21.0–1.22.0**; Canvas/Blackboard-specific variants remain. Formats above are from memory; **Verify** current specifications. |
 | **Exam / quiz formats** | FlashQuiz `@mc`/`@sata`/`@tf`, VCE via converter, QuizPort JSON, Markdown checkbox quizzes | CBT Exam Simulator and QuizPort are references. **Verify** the VCE converter's license separately. |
 | **Export** | Anki text, CSV, Markdown, JSON, Mochi `.mochi`; `.apkg` export is a known gap | Round-trip where practical so users can leave with their cards. |
-| **Import quality** | Dry-run preview, report (created, skipped, duplicates, media failures), duplicate detection, source attribution | **Preview/report/update-copy shipped in 1.24.0.** Media-failure reporting and per-row details remain. |
+| **Import quality** | Dry-run preview, report (created, skipped, duplicates, media failures), duplicate detection, source attribution | **Preview/report/update-copy shipped in 1.24.0; per-row outcomes and .apkg media reporting shipped in 1.92.0.** |
 
 **Rules:** prefer files users export themselves; do not scrape Quizlet, Kahoot, Blooket, Gimkit, Canvas or AnkiWeb, and review each service's terms before any unofficial API. Normalize every importer into the existing note format and scheduler; no parallel card database. Dedupe by official ID, normalized text and page/image hash; re-import offers **skip**, **update** or **create copy**. Stage the import, show the report, then commit in one batch; never half-write. Write `import_source`, `import_format`, `imported_on`, `import_batch` and `import_source_url`. Tell users they are responsible for imported content and that no copyrighted question banks are bundled. Keep one small, legally usable fixture per format in CI.
 
@@ -1143,7 +1144,7 @@ These are in addition to §11.
 6. **Image occlusion and audio-only commute mode** — card depth once TTS/provider support is validated.
 7. **Reference panel** — useful but optional; keep it out of timed tests by default.
 8. **PDF editor** — integrate first; build only if integration is inadequate.
-9. **Import polish** — GIFT, Moodle XML, QTI, Mochi Markdown and CrowdAnki are implemented, with preview/report/update-copy; per-row media-failure detail remains.
+9. **Import polish** — GIFT, Moodle XML, QTI, Mochi Markdown and CrowdAnki are implemented, with preview/report/update-copy and per-row/.apkg media reporting in 1.92.0. Canvas/Blackboard variants and `.apkg` export remain.
 10. **Standalone mobile prep** — keep the core portable now; start the app only when the trigger is met.
 
 ### 5.23 Adaptive Practice parity audit — **S–M** (Oct 29, 2026)

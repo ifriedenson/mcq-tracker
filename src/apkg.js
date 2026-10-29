@@ -417,9 +417,11 @@ function parseApkg(input, options) {
     cardsByNote.set(nid, card);
   }
   const media = parseJson(entries.has("media") ? entries.get("media").toString("utf8") : "", {});
-  const mediaCount = Object.keys(media).length;
+  const mediaNames = Object.keys(media);
+  const mediaCount = mediaNames.length;
   const cards = [];
   const errors = [];
+  const skippedDetails = [];
   const warnings = mediaCount ? [`${mediaCount} media file${mediaCount === 1 ? "" : "s"} were not imported; images and audio stay in Anki.`] : [];
   let skipped = 0;
   for (const note of noteRows) {
@@ -427,6 +429,7 @@ function parseApkg(input, options) {
     const rawFront = str(fields[0]).trim();
     if (!rawFront) {
       skipped++;
+      skippedDetails.push({ row: str(note.id) || `note ${skipped}`, reason: "No front field" });
       continue;
     }
     const model = models[str(note.mid)] || {};
@@ -441,6 +444,7 @@ function parseApkg(input, options) {
       const answers = parseCloze(front).answers;
       if (!answers.length) {
         skipped++;
+        skippedDetails.push({ row: str(note.id) || `note ${skipped}`, reason: "No cloze answer" });
         continue;
       }
       cardType = "cloze";
@@ -451,6 +455,7 @@ function parseApkg(input, options) {
     }
     if (!front || !back) {
       skipped++;
+      skippedDetails.push({ row: str(note.id) || `note ${skipped}`, reason: "Missing front or back" });
       continue;
     }
     const schedule = dueDate(card, collection);
@@ -479,7 +484,7 @@ function parseApkg(input, options) {
     });
   }
   if (!cards.length && !skipped) errors.push("No notes were found in that .apkg.");
-  return { cards, skipped, errors, warnings, source, format: "apkg" };
+  return { cards, skipped, errors, warnings, source, format: "apkg", skippedDetails, media: { total: mediaCount, imported: 0, names: mediaNames.slice(0, 50) } };
 }
 
 module.exports = {

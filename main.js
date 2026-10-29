@@ -3983,9 +3983,11 @@ function parseApkg(input, options) {
     cardsByNote.set(nid, card);
   }
   const media = parseJson(entries.has("media") ? entries.get("media").toString("utf8") : "", {});
-  const mediaCount = Object.keys(media).length;
+  const mediaNames = Object.keys(media);
+  const mediaCount = mediaNames.length;
   const cards = [];
   const errors = [];
+  const skippedDetails = [];
   const warnings = mediaCount ? [`${mediaCount} media file${mediaCount === 1 ? "" : "s"} were not imported; images and audio stay in Anki.`] : [];
   let skipped = 0;
   for (const note of noteRows) {
@@ -3993,6 +3995,7 @@ function parseApkg(input, options) {
     const rawFront = str(fields[0]).trim();
     if (!rawFront) {
       skipped++;
+      skippedDetails.push({ row: str(note.id) || `note ${skipped}`, reason: "No front field" });
       continue;
     }
     const model = models[str(note.mid)] || {};
@@ -4007,6 +4010,7 @@ function parseApkg(input, options) {
       const answers = parseCloze(front).answers;
       if (!answers.length) {
         skipped++;
+        skippedDetails.push({ row: str(note.id) || `note ${skipped}`, reason: "No cloze answer" });
         continue;
       }
       cardType = "cloze";
@@ -4017,6 +4021,7 @@ function parseApkg(input, options) {
     }
     if (!front || !back) {
       skipped++;
+      skippedDetails.push({ row: str(note.id) || `note ${skipped}`, reason: "Missing front or back" });
       continue;
     }
     const schedule = dueDate(card, collection);
@@ -4045,7 +4050,7 @@ function parseApkg(input, options) {
     });
   }
   if (!cards.length && !skipped) errors.push("No notes were found in that .apkg.");
-  return { cards, skipped, errors, warnings, source, format: "apkg" };
+  return { cards, skipped, errors, warnings, source, format: "apkg", skippedDetails, media: { total: mediaCount, imported: 0, names: mediaNames.slice(0, 50) } };
 }
 
 module.exports = {
@@ -9969,13 +9974,14 @@ function parseQuestionSetText(text, options) {
   const body = str(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").trim();
   const cards = [];
   const errors = [];
-  if (!body) return { cards, skipped: 0, errors, source, format };
+  const skippedDetails = [];
+  if (!body) return { cards, skipped: 0, errors, source, format, skippedDetails };
 
   const rows = splitDelimited(body, questionSetDelimiter(body));
-  if (rows.length < 2) return { cards, skipped: 0, errors: ["No question rows were found."], source, format };
+  if (rows.length < 2) return { cards, skipped: 0, errors: ["No question rows were found."], source, format, skippedDetails };
   const headers = rows[0].map(questionSetHeaderKey);
   const questionAt = findHeader(headers, ["question", "question text", "prompt", "term"]);
-  if (questionAt < 0) return { cards, skipped: 0, errors: ["No Question column was found."], source, format };
+  if (questionAt < 0) return { cards, skipped: 0, errors: ["No Question column was found."], source, format, skippedDetails };
 
   const choiceColumns = [];
   for (let n = 1; n <= 8; n++) {
@@ -9990,7 +9996,7 @@ function parseQuestionSetText(text, options) {
   const correctAt = findHeader(headers, ["correct answer", "correct answers", "correct choice", "correct", "definition"]);
   const timeAt = findHeader(headers, ["time limit", "time"]);
   if (correctAt < 0 && !incorrectColumns.length) {
-    return { cards, skipped: 0, errors: ["No correct-answer column was found."], source, format };
+    return { cards, skipped: 0, errors: ["No correct-answer column was found."], source, format, skippedDetails };
   }
 
   let skipped = 0;
@@ -10000,6 +10006,7 @@ function parseQuestionSetText(text, options) {
     const question = cleanQuestionSetField(row[questionAt]);
     if (!question) {
       skipped++;
+      skippedDetails.push({ row: r + 1, reason: "No question text" });
       continue;
     }
     const choices = choiceColumns.map((at) => cleanQuestionSetField(row[at])).filter(Boolean);
@@ -10031,6 +10038,7 @@ function parseQuestionSetText(text, options) {
     const answers = selected.map((at) => choices[at - 1]).filter(Boolean);
     if (!answers.length) {
       skipped++;
+      skippedDetails.push({ row: r + 1, reason: "No usable correct answer" });
       errors.push(`${source}: row ${r + 1} has no usable correct answer.`);
       continue;
     }
@@ -10051,7 +10059,7 @@ function parseQuestionSetText(text, options) {
       importKey: `${format}:${hashString(source + "|" + r + "|" + question + "|" + choices.join("\u0001") + "|" + selected.join(","))}`,
     });
   }
-  return { cards, skipped, errors, source, format };
+  return { cards, skipped, errors, source, format, skippedDetails };
 }
 
 /* ---- generic CSV / TSV */
@@ -10170,6 +10178,7 @@ function parseGenericCsv(text, options) {
       detected: normalizeGenericMapping(null, 0),
       headerKey: genericHeaderKey([], false, delimiter),
       preview: [],
+      skippedDetails: [],
     };
   }
 
@@ -10211,17 +10220,21 @@ function parseGenericCsv(text, options) {
       detected,
       headerKey,
       preview: sample,
+      skippedDetails: [],
     };
   }
 
   let skipped = 0;
+  const skippedDetails = [];
   for (let r = 0; r < dataRows.length; r++) {
     const row = dataRows[r];
     const front = genericCell(row[mapping.front]);
     const back = genericCell(row[mapping.back]);
     if (!front || !back) {
+      const rowNumber = r + (hasHeader ? 2 : 1);
       skipped++;
-      errors.push(`${source}: row ${r + (hasHeader ? 2 : 1)} needs both a front and a back.`);
+      skippedDetails.push({ row: rowNumber, reason: "Needs both a front and a back" });
+      errors.push(`${source}: row ${rowNumber} needs both a front and a back.`);
       continue;
     }
     const deck = (mapping.deck >= 0 ? genericCell(row[mapping.deck]) : "") || fallbackDeck;
@@ -10244,7 +10257,7 @@ function parseGenericCsv(text, options) {
       importKey: `csv:${hashString(source + "|" + headerKey + "|" + front + "|" + back + "|" + deck)}`,
     });
   }
-  return { cards, skipped, errors, source, format: "csv", delimiter, headers, hasHeader, mapping, detected, headerKey, preview: sample.length ? sample : dataRows.slice(0, 5).map(previewRow) };
+  return { cards, skipped, errors, source, format: "csv", delimiter, headers, hasHeader, mapping, detected, headerKey, preview: sample.length ? sample : dataRows.slice(0, 5).map(previewRow), skippedDetails };
 }
 
 function csvCell(value) {
@@ -11303,10 +11316,43 @@ class CardImportModal extends Modal {
     };
     help.setText(helpText());
     const note = contentEl.createDiv({ cls: "qt-hint" });
+    const resultBox = contentEl.createDiv({ cls: "qt-import-result qt-hidden" });
     const row = contentEl.createDiv({ cls: "qt-row" });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
     const preview = row.createEl("button", { text: "Preview", cls: "qt-grow" });
     const go = row.createEl("button", { text: "Import cards", cls: "mod-cta qt-grow" });
+    const showImportResult = (result) => {
+      resultBox.empty();
+      resultBox.toggleClass("qt-hidden", false);
+      resultBox.createEl("h4", { text: "Import report" });
+      const rows = Array.isArray(result.rows) ? result.rows : [];
+      const failures = rows.filter((item) => item.status === "failed");
+      const skipped = rows.filter((item) => item.status === "skipped");
+      const summary = [`${result.created || 0} created`, `${result.updated || 0} updated`, `${result.copied || 0} copied`, `${result.skipped || 0} skipped`];
+      if (failures.length) summary.push(`${failures.length} failed`);
+      if (result.media && result.media.total) summary.push(`${result.media.total} media not imported`);
+      resultBox.createDiv({ cls: "qt-hint", text: summary.join(" · ") });
+      if (rows.length) {
+        const list = resultBox.createEl("ul", { cls: "qt-import-rows" });
+        for (const item of rows.slice(0, 25)) {
+          const rowEl = list.createEl("li");
+          const where = item.row !== undefined ? `Row ${item.row}` : item.path || item.source || "Item";
+          rowEl.createSpan({ cls: "qt-import-status", text: `${item.status || "item"} · ${where}` });
+          if (item.reason) rowEl.createSpan({ text: ` — ${item.reason}` });
+        }
+        if (rows.length > 25) resultBox.createDiv({ cls: "qt-hint", text: `…and ${rows.length - 25} more rows.` });
+      }
+      if (skipped.length && !rows.length) resultBox.createDiv({ cls: "qt-hint", text: `${skipped.length} rows were skipped.` });
+      if (result.media && result.media.total) {
+        const names = Array.isArray(result.media.names) ? result.media.names : [];
+        resultBox.createDiv({ cls: "qt-warning", text: `${result.media.total} media file${result.media.total === 1 ? "" : "s"} stayed in Anki${names.length ? `: ${names.slice(0, 8).join(", ")}${names.length > 8 ? `, +${names.length - 8} more` : ""}` : ""}.` });
+      }
+      for (const warning of Array.isArray(result.warnings) ? result.warnings : []) resultBox.createDiv({ cls: "qt-warning", text: warning });
+      for (const error of Array.isArray(result.errors) ? result.errors.slice(0, 10) : []) resultBox.createDiv({ cls: "qt-error", text: error });
+      if (Array.isArray(result.errors) && result.errors.length > 10) resultBox.createDiv({ cls: "qt-hint", text: `…and ${result.errors.length - 10} more errors.` });
+      const done = resultBox.createEl("button", { text: "Done", cls: "mod-cta" });
+      done.addEventListener("click", () => this.close());
+    };
     const renderDiffPreview = (parsed) => {
       diffBox.empty();
       const details = parsed && Array.isArray(parsed.duplicateDetails) ? parsed.duplicateDetails : [];
@@ -11432,12 +11478,9 @@ class CardImportModal extends Modal {
         if (result.warnings && result.warnings.length) bits.push(`${result.warnings.length} warning${result.warnings.length === 1 ? "" : "s"}`);
         note.setText(bits.join(" · "));
         new Notice(bits.join(" · "), 6000);
-        if (result.created) {
-          this.close();
-          this.onDone(result);
-        } else {
-          go.disabled = false;
-        }
+        showImportResult(result);
+        if (this.onDone) this.onDone(result);
+        if (!result.created) go.disabled = false;
       } catch (e) {
         go.disabled = false;
         note.setText(str(e && e.message) || "Import failed.");
@@ -11491,6 +11534,7 @@ class CardExportModal extends Modal {
     setHelp();
 
     const note = contentEl.createDiv({ cls: "qt-hint" });
+    const resultBox = contentEl.createDiv({ cls: "qt-import-result qt-hidden" });
     const row = contentEl.createDiv({ cls: "qt-row" });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
     const go = row.createEl("button", { text: "Export file", cls: "mod-cta qt-grow" });
@@ -29861,8 +29905,8 @@ class QuestionTrackerPlugin extends Plugin {
     if (!file) throw new Error("That .apkg file is not in the vault.");
     const bytes = await this.readVaultBytes(file);
     const parsed = parseApkg(bytes, { sourcePath: file.path, deck: opts.deck });
-    const result = await this.importParsedCards(parsed.cards, { ...opts, errors: parsed.errors });
-    return { ...result, warnings: parsed.warnings, skippedInFile: parsed.skipped };
+    const result = await this.importParsedCards(parsed.cards, { ...opts, errors: parsed.errors, skippedDetails: parsed.skippedDetails, media: parsed.media, source: parsed.source });
+    return { ...result, warnings: parsed.warnings, skippedInFile: parsed.skipped, skippedDetails: parsed.skippedDetails, media: parsed.media };
   }
 
   /** Import a Moodle GIFT text file. Each question becomes a basic card. */
@@ -29993,8 +30037,8 @@ class QuestionTrackerPlugin extends Plugin {
       this.settings.cards.csvMappings[parsed.headerKey] = { ...parsed.mapping };
       await this.save();
     }
-    const result = await this.importParsedCards(parsed.cards, { ...opts, errors: parsed.errors });
-    return { ...result, headers: parsed.headers, mapping: parsed.mapping, headerKey: parsed.headerKey, hasHeader: parsed.hasHeader, skippedRows: parsed.skipped, delimiter: parsed.delimiter };
+    const result = await this.importParsedCards(parsed.cards, { ...opts, errors: parsed.errors, skippedDetails: parsed.skippedDetails, source: parsed.source });
+    return { ...result, headers: parsed.headers, mapping: parsed.mapping, headerKey: parsed.headerKey, hasHeader: parsed.hasHeader, skippedRows: parsed.skipped, skippedDetails: parsed.skippedDetails, delimiter: parsed.delimiter };
   }
 
   /** Import a Kahoot, Blooket or Gimkit CSV. The source deck is the file name unless a fallback is set. */
@@ -30011,7 +30055,7 @@ class QuestionTrackerPlugin extends Plugin {
     const deck = String(opts.deck || "").trim() || file.basename;
     const text = await this.app.vault.cachedRead(file);
     const parsed = parseQuestionSetText(text, { sourcePath: file.path, deck, format: kind });
-    return this.importParsedCards(parsed.cards, { ...opts, deck, errors: parsed.errors });
+    return this.importParsedCards(parsed.cards, { ...opts, deck, errors: parsed.errors, skippedDetails: parsed.skippedDetails, source: parsed.source });
   }
 
   /** Write the current card filter as Quizlet or Anki text, or a platform CSV. */
@@ -30064,9 +30108,15 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const cards = [];
     const errors = [];
+    const warnings = [];
+    const skippedDetails = [];
+    let media = null;
     const add = (parsed) => {
       cards.push(...((parsed && parsed.cards) || []));
       if (parsed && Array.isArray(parsed.errors)) errors.push(...parsed.errors);
+      if (parsed && Array.isArray(parsed.warnings)) warnings.push(...parsed.warnings);
+      if (parsed && Array.isArray(parsed.skippedDetails)) skippedDetails.push(...parsed.skippedDetails);
+      if (parsed && parsed.media) media = parsed.media;
     };
     try {
       if (kind === "spaced" || kind === "mochi") {
@@ -30110,7 +30160,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const existing = this.existingImportCardMap();
     const duplicatePaths = cards.filter((card) => card.importKey && existing.has(card.importKey)).map((card) => existing.get(card.importKey).file.path);
-    return this.decorateImportPreview({ cards, total: cards.length, duplicates: duplicatePaths.length, duplicatePaths, errors, format: kind });
+    return this.decorateImportPreview({ cards, total: cards.length, duplicates: duplicatePaths.length, duplicatePaths, errors, warnings, skippedDetails, media, format: kind });
   }
 
   existingImportCardMap() {
@@ -30178,25 +30228,35 @@ class QuestionTrackerPlugin extends Plugin {
     let copied = 0;
     let skipped = 0;
     const errors = Array.isArray(opts.errors) ? opts.errors.slice() : [];
+    const rows = (Array.isArray(opts.skippedDetails) ? opts.skippedDetails : []).map((detail) => ({
+      status: "skipped",
+      row: detail && detail.row,
+      reason: detail && detail.reason,
+      source: opts.source || "",
+    }));
     for (const card of Array.isArray(parsed) ? parsed : []) {
       const duplicate = card.importKey ? existing.get(card.importKey) : null;
       if (duplicate && mode === "skip") {
         skipped++;
+        rows.push({ status: "skipped", reason: "Duplicate import key", source: card.importSource || "", path: duplicate.file && duplicate.file.path });
         continue;
       }
       if (duplicate && mode === "update") {
         try {
           await this.updateCardFromImport(duplicate, card, { ...opts, importBatch });
           updated++;
+          rows.push({ status: "updated", source: card.importSource || "", path: duplicate.file && duplicate.file.path });
         } catch (e) {
-          errors.push(`${card.importSource || "import"}: ${String((e && e.message) || e)}`);
+          const reason = String((e && e.message) || e);
+          errors.push(`${card.importSource || "import"}: ${reason}`);
+          rows.push({ status: "failed", reason, source: card.importSource || "", path: duplicate.file && duplicate.file.path });
         }
         continue;
       }
       const copy = !!duplicate;
       const target = copy ? { ...card, importKey: `${card.importKey}~copy-${Date.now().toString(36)}-${copied + 1}` } : card;
       try {
-        await this.createCard({
+        const written = await this.createCard({
           ...target,
           deck: target.deck || String(opts.deck || "").trim(),
           course: String(opts.course || "").trim() || target.course || "",
@@ -30206,11 +30266,14 @@ class QuestionTrackerPlugin extends Plugin {
         if (target.importKey) existing.set(target.importKey, target);
         if (copy) copied++;
         else created++;
+        rows.push({ status: copy ? "copied" : "created", source: target.importSource || "", path: written && written.path });
       } catch (e) {
-        errors.push(`${target.importSource || "import"}: ${String((e && e.message) || e)}`);
+        const reason = String((e && e.message) || e);
+        errors.push(`${target.importSource || "import"}: ${reason}`);
+        rows.push({ status: "failed", reason, source: target.importSource || "" });
       }
     }
-    return { created, updated, copied, skipped, errors, total: Array.isArray(parsed) ? parsed.length : 0, duplicateMode: mode };
+    return { created, updated, copied, skipped, errors, rows, media: opts.media || null, total: Array.isArray(parsed) ? parsed.length : 0, duplicateMode: mode };
   }
 
   /** Backfill missing course tags from deck and calendar folder mappings. */

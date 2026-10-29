@@ -3412,8 +3412,8 @@ class QuestionTrackerPlugin extends Plugin {
     if (!file) throw new Error("That .apkg file is not in the vault.");
     const bytes = await this.readVaultBytes(file);
     const parsed = parseApkg(bytes, { sourcePath: file.path, deck: opts.deck });
-    const result = await this.importParsedCards(parsed.cards, { ...opts, errors: parsed.errors });
-    return { ...result, warnings: parsed.warnings, skippedInFile: parsed.skipped };
+    const result = await this.importParsedCards(parsed.cards, { ...opts, errors: parsed.errors, skippedDetails: parsed.skippedDetails, media: parsed.media, source: parsed.source });
+    return { ...result, warnings: parsed.warnings, skippedInFile: parsed.skipped, skippedDetails: parsed.skippedDetails, media: parsed.media };
   }
 
   /** Import a Moodle GIFT text file. Each question becomes a basic card. */
@@ -3544,8 +3544,8 @@ class QuestionTrackerPlugin extends Plugin {
       this.settings.cards.csvMappings[parsed.headerKey] = { ...parsed.mapping };
       await this.save();
     }
-    const result = await this.importParsedCards(parsed.cards, { ...opts, errors: parsed.errors });
-    return { ...result, headers: parsed.headers, mapping: parsed.mapping, headerKey: parsed.headerKey, hasHeader: parsed.hasHeader, skippedRows: parsed.skipped, delimiter: parsed.delimiter };
+    const result = await this.importParsedCards(parsed.cards, { ...opts, errors: parsed.errors, skippedDetails: parsed.skippedDetails, source: parsed.source });
+    return { ...result, headers: parsed.headers, mapping: parsed.mapping, headerKey: parsed.headerKey, hasHeader: parsed.hasHeader, skippedRows: parsed.skipped, skippedDetails: parsed.skippedDetails, delimiter: parsed.delimiter };
   }
 
   /** Import a Kahoot, Blooket or Gimkit CSV. The source deck is the file name unless a fallback is set. */
@@ -3562,7 +3562,7 @@ class QuestionTrackerPlugin extends Plugin {
     const deck = String(opts.deck || "").trim() || file.basename;
     const text = await this.app.vault.cachedRead(file);
     const parsed = parseQuestionSetText(text, { sourcePath: file.path, deck, format: kind });
-    return this.importParsedCards(parsed.cards, { ...opts, deck, errors: parsed.errors });
+    return this.importParsedCards(parsed.cards, { ...opts, deck, errors: parsed.errors, skippedDetails: parsed.skippedDetails, source: parsed.source });
   }
 
   /** Write the current card filter as Quizlet or Anki text, or a platform CSV. */
@@ -3615,9 +3615,15 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const cards = [];
     const errors = [];
+    const warnings = [];
+    const skippedDetails = [];
+    let media = null;
     const add = (parsed) => {
       cards.push(...((parsed && parsed.cards) || []));
       if (parsed && Array.isArray(parsed.errors)) errors.push(...parsed.errors);
+      if (parsed && Array.isArray(parsed.warnings)) warnings.push(...parsed.warnings);
+      if (parsed && Array.isArray(parsed.skippedDetails)) skippedDetails.push(...parsed.skippedDetails);
+      if (parsed && parsed.media) media = parsed.media;
     };
     try {
       if (kind === "spaced" || kind === "mochi") {
@@ -3661,7 +3667,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const existing = this.existingImportCardMap();
     const duplicatePaths = cards.filter((card) => card.importKey && existing.has(card.importKey)).map((card) => existing.get(card.importKey).file.path);
-    return this.decorateImportPreview({ cards, total: cards.length, duplicates: duplicatePaths.length, duplicatePaths, errors, format: kind });
+    return this.decorateImportPreview({ cards, total: cards.length, duplicates: duplicatePaths.length, duplicatePaths, errors, warnings, skippedDetails, media, format: kind });
   }
 
   existingImportCardMap() {
@@ -3729,25 +3735,35 @@ class QuestionTrackerPlugin extends Plugin {
     let copied = 0;
     let skipped = 0;
     const errors = Array.isArray(opts.errors) ? opts.errors.slice() : [];
+    const rows = (Array.isArray(opts.skippedDetails) ? opts.skippedDetails : []).map((detail) => ({
+      status: "skipped",
+      row: detail && detail.row,
+      reason: detail && detail.reason,
+      source: opts.source || "",
+    }));
     for (const card of Array.isArray(parsed) ? parsed : []) {
       const duplicate = card.importKey ? existing.get(card.importKey) : null;
       if (duplicate && mode === "skip") {
         skipped++;
+        rows.push({ status: "skipped", reason: "Duplicate import key", source: card.importSource || "", path: duplicate.file && duplicate.file.path });
         continue;
       }
       if (duplicate && mode === "update") {
         try {
           await this.updateCardFromImport(duplicate, card, { ...opts, importBatch });
           updated++;
+          rows.push({ status: "updated", source: card.importSource || "", path: duplicate.file && duplicate.file.path });
         } catch (e) {
-          errors.push(`${card.importSource || "import"}: ${String((e && e.message) || e)}`);
+          const reason = String((e && e.message) || e);
+          errors.push(`${card.importSource || "import"}: ${reason}`);
+          rows.push({ status: "failed", reason, source: card.importSource || "", path: duplicate.file && duplicate.file.path });
         }
         continue;
       }
       const copy = !!duplicate;
       const target = copy ? { ...card, importKey: `${card.importKey}~copy-${Date.now().toString(36)}-${copied + 1}` } : card;
       try {
-        await this.createCard({
+        const written = await this.createCard({
           ...target,
           deck: target.deck || String(opts.deck || "").trim(),
           course: String(opts.course || "").trim() || target.course || "",
@@ -3757,11 +3773,14 @@ class QuestionTrackerPlugin extends Plugin {
         if (target.importKey) existing.set(target.importKey, target);
         if (copy) copied++;
         else created++;
+        rows.push({ status: copy ? "copied" : "created", source: target.importSource || "", path: written && written.path });
       } catch (e) {
-        errors.push(`${target.importSource || "import"}: ${String((e && e.message) || e)}`);
+        const reason = String((e && e.message) || e);
+        errors.push(`${target.importSource || "import"}: ${reason}`);
+        rows.push({ status: "failed", reason, source: target.importSource || "" });
       }
     }
-    return { created, updated, copied, skipped, errors, total: Array.isArray(parsed) ? parsed.length : 0, duplicateMode: mode };
+    return { created, updated, copied, skipped, errors, rows, media: opts.media || null, total: Array.isArray(parsed) ? parsed.length : 0, duplicateMode: mode };
   }
 
   /** Backfill missing course tags from deck and calendar folder mappings. */

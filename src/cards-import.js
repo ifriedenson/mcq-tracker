@@ -159,13 +159,14 @@ function parseQuestionSetText(text, options) {
   const body = str(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").trim();
   const cards = [];
   const errors = [];
-  if (!body) return { cards, skipped: 0, errors, source, format };
+  const skippedDetails = [];
+  if (!body) return { cards, skipped: 0, errors, source, format, skippedDetails };
 
   const rows = splitDelimited(body, questionSetDelimiter(body));
-  if (rows.length < 2) return { cards, skipped: 0, errors: ["No question rows were found."], source, format };
+  if (rows.length < 2) return { cards, skipped: 0, errors: ["No question rows were found."], source, format, skippedDetails };
   const headers = rows[0].map(questionSetHeaderKey);
   const questionAt = findHeader(headers, ["question", "question text", "prompt", "term"]);
-  if (questionAt < 0) return { cards, skipped: 0, errors: ["No Question column was found."], source, format };
+  if (questionAt < 0) return { cards, skipped: 0, errors: ["No Question column was found."], source, format, skippedDetails };
 
   const choiceColumns = [];
   for (let n = 1; n <= 8; n++) {
@@ -180,7 +181,7 @@ function parseQuestionSetText(text, options) {
   const correctAt = findHeader(headers, ["correct answer", "correct answers", "correct choice", "correct", "definition"]);
   const timeAt = findHeader(headers, ["time limit", "time"]);
   if (correctAt < 0 && !incorrectColumns.length) {
-    return { cards, skipped: 0, errors: ["No correct-answer column was found."], source, format };
+    return { cards, skipped: 0, errors: ["No correct-answer column was found."], source, format, skippedDetails };
   }
 
   let skipped = 0;
@@ -190,6 +191,7 @@ function parseQuestionSetText(text, options) {
     const question = cleanQuestionSetField(row[questionAt]);
     if (!question) {
       skipped++;
+      skippedDetails.push({ row: r + 1, reason: "No question text" });
       continue;
     }
     const choices = choiceColumns.map((at) => cleanQuestionSetField(row[at])).filter(Boolean);
@@ -221,6 +223,7 @@ function parseQuestionSetText(text, options) {
     const answers = selected.map((at) => choices[at - 1]).filter(Boolean);
     if (!answers.length) {
       skipped++;
+      skippedDetails.push({ row: r + 1, reason: "No usable correct answer" });
       errors.push(`${source}: row ${r + 1} has no usable correct answer.`);
       continue;
     }
@@ -241,7 +244,7 @@ function parseQuestionSetText(text, options) {
       importKey: `${format}:${hashString(source + "|" + r + "|" + question + "|" + choices.join("\u0001") + "|" + selected.join(","))}`,
     });
   }
-  return { cards, skipped, errors, source, format };
+  return { cards, skipped, errors, source, format, skippedDetails };
 }
 
 /* ---- generic CSV / TSV */
@@ -360,6 +363,7 @@ function parseGenericCsv(text, options) {
       detected: normalizeGenericMapping(null, 0),
       headerKey: genericHeaderKey([], false, delimiter),
       preview: [],
+      skippedDetails: [],
     };
   }
 
@@ -401,17 +405,21 @@ function parseGenericCsv(text, options) {
       detected,
       headerKey,
       preview: sample,
+      skippedDetails: [],
     };
   }
 
   let skipped = 0;
+  const skippedDetails = [];
   for (let r = 0; r < dataRows.length; r++) {
     const row = dataRows[r];
     const front = genericCell(row[mapping.front]);
     const back = genericCell(row[mapping.back]);
     if (!front || !back) {
+      const rowNumber = r + (hasHeader ? 2 : 1);
       skipped++;
-      errors.push(`${source}: row ${r + (hasHeader ? 2 : 1)} needs both a front and a back.`);
+      skippedDetails.push({ row: rowNumber, reason: "Needs both a front and a back" });
+      errors.push(`${source}: row ${rowNumber} needs both a front and a back.`);
       continue;
     }
     const deck = (mapping.deck >= 0 ? genericCell(row[mapping.deck]) : "") || fallbackDeck;
@@ -434,7 +442,7 @@ function parseGenericCsv(text, options) {
       importKey: `csv:${hashString(source + "|" + headerKey + "|" + front + "|" + back + "|" + deck)}`,
     });
   }
-  return { cards, skipped, errors, source, format: "csv", delimiter, headers, hasHeader, mapping, detected, headerKey, preview: sample.length ? sample : dataRows.slice(0, 5).map(previewRow) };
+  return { cards, skipped, errors, source, format: "csv", delimiter, headers, hasHeader, mapping, detected, headerKey, preview: sample.length ? sample : dataRows.slice(0, 5).map(previewRow), skippedDetails };
 }
 
 function csvCell(value) {
@@ -1493,10 +1501,43 @@ class CardImportModal extends Modal {
     };
     help.setText(helpText());
     const note = contentEl.createDiv({ cls: "qt-hint" });
+    const resultBox = contentEl.createDiv({ cls: "qt-import-result qt-hidden" });
     const row = contentEl.createDiv({ cls: "qt-row" });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
     const preview = row.createEl("button", { text: "Preview", cls: "qt-grow" });
     const go = row.createEl("button", { text: "Import cards", cls: "mod-cta qt-grow" });
+    const showImportResult = (result) => {
+      resultBox.empty();
+      resultBox.toggleClass("qt-hidden", false);
+      resultBox.createEl("h4", { text: "Import report" });
+      const rows = Array.isArray(result.rows) ? result.rows : [];
+      const failures = rows.filter((item) => item.status === "failed");
+      const skipped = rows.filter((item) => item.status === "skipped");
+      const summary = [`${result.created || 0} created`, `${result.updated || 0} updated`, `${result.copied || 0} copied`, `${result.skipped || 0} skipped`];
+      if (failures.length) summary.push(`${failures.length} failed`);
+      if (result.media && result.media.total) summary.push(`${result.media.total} media not imported`);
+      resultBox.createDiv({ cls: "qt-hint", text: summary.join(" · ") });
+      if (rows.length) {
+        const list = resultBox.createEl("ul", { cls: "qt-import-rows" });
+        for (const item of rows.slice(0, 25)) {
+          const rowEl = list.createEl("li");
+          const where = item.row !== undefined ? `Row ${item.row}` : item.path || item.source || "Item";
+          rowEl.createSpan({ cls: "qt-import-status", text: `${item.status || "item"} · ${where}` });
+          if (item.reason) rowEl.createSpan({ text: ` — ${item.reason}` });
+        }
+        if (rows.length > 25) resultBox.createDiv({ cls: "qt-hint", text: `…and ${rows.length - 25} more rows.` });
+      }
+      if (skipped.length && !rows.length) resultBox.createDiv({ cls: "qt-hint", text: `${skipped.length} rows were skipped.` });
+      if (result.media && result.media.total) {
+        const names = Array.isArray(result.media.names) ? result.media.names : [];
+        resultBox.createDiv({ cls: "qt-warning", text: `${result.media.total} media file${result.media.total === 1 ? "" : "s"} stayed in Anki${names.length ? `: ${names.slice(0, 8).join(", ")}${names.length > 8 ? `, +${names.length - 8} more` : ""}` : ""}.` });
+      }
+      for (const warning of Array.isArray(result.warnings) ? result.warnings : []) resultBox.createDiv({ cls: "qt-warning", text: warning });
+      for (const error of Array.isArray(result.errors) ? result.errors.slice(0, 10) : []) resultBox.createDiv({ cls: "qt-error", text: error });
+      if (Array.isArray(result.errors) && result.errors.length > 10) resultBox.createDiv({ cls: "qt-hint", text: `…and ${result.errors.length - 10} more errors.` });
+      const done = resultBox.createEl("button", { text: "Done", cls: "mod-cta" });
+      done.addEventListener("click", () => this.close());
+    };
     const renderDiffPreview = (parsed) => {
       diffBox.empty();
       const details = parsed && Array.isArray(parsed.duplicateDetails) ? parsed.duplicateDetails : [];
@@ -1622,12 +1663,9 @@ class CardImportModal extends Modal {
         if (result.warnings && result.warnings.length) bits.push(`${result.warnings.length} warning${result.warnings.length === 1 ? "" : "s"}`);
         note.setText(bits.join(" · "));
         new Notice(bits.join(" · "), 6000);
-        if (result.created) {
-          this.close();
-          this.onDone(result);
-        } else {
-          go.disabled = false;
-        }
+        showImportResult(result);
+        if (this.onDone) this.onDone(result);
+        if (!result.created) go.disabled = false;
       } catch (e) {
         go.disabled = false;
         note.setText(str(e && e.message) || "Import failed.");
@@ -1681,6 +1719,7 @@ class CardExportModal extends Modal {
     setHelp();
 
     const note = contentEl.createDiv({ cls: "qt-hint" });
+    const resultBox = contentEl.createDiv({ cls: "qt-import-result qt-hidden" });
     const row = contentEl.createDiv({ cls: "qt-row" });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
     const go = row.createEl("button", { text: "Export file", cls: "mod-cta qt-grow" });

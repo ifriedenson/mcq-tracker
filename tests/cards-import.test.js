@@ -234,6 +234,7 @@ test("question sets: a row without a usable answer is skipped and reported", () 
   assert.equal(result.cards.length, 0);
   assert.equal(result.skipped, 1);
   assert.equal(result.errors.length, 1);
+  assert.deepEqual(result.skippedDetails, [{ row: 2, reason: "No usable correct answer" }]);
 });
 
 test("plugin: imports a Kahoot CSV and preserves its choices in the card", async () => {
@@ -396,6 +397,7 @@ test("generic CSV: detects delimiter, header columns, tags and skipped rows", ()
   assert.equal(result.cards.length, 2);
   assert.equal(result.skipped, 1);
   assert.equal(result.errors.length, 1);
+  assert.deepEqual(result.skippedDetails, [{ row: 3, reason: "Needs both a front and a back" }]);
   assert.equal(result.cards[0].deck, "Spanish");
   assert.equal(result.cards[0].course, "SPAN 101");
   assert.deepEqual(result.cards[0].tags, ["greeting", "basic"]);
@@ -441,6 +443,9 @@ test("plugin: generic CSV previews columns, saves the mapping and writes source 
   const result = await plugin.importCardsFromCsv("imports/spanish.csv", { deck: "Fallback" });
   assert.equal(result.created, 2);
   assert.equal(result.skippedRows, 1);
+  assert.equal(result.skippedDetails[0].row, 3);
+  assert.ok(result.rows.some((row) => row.status === "skipped" && row.row === 3 && /front and a back/.test(row.reason)));
+  assert.equal(result.rows.filter((row) => row.status === "created").length, 2);
   assert.equal(app.created.length, 2);
   // Obsidian's metadata cache reads frontmatter from a newly created note; the
   // fake vault needs the same step before a second import can see the keys.
@@ -702,6 +707,8 @@ test("plugin: import preview counts duplicates, update preserves history notes, 
 
   const updated = await plugin.importCardsFromGift(source, { deck: "Moodle", duplicateMode: "update" });
   assert.equal(updated.updated, 1);
+  assert.equal(updated.rows[0].status, "updated");
+  assert.equal(updated.rows[0].path, "Cards/Moodle/Q.md");
   const file = app.files.find((f) => f.path === "Cards/Moodle/Q.md");
   assert.match(file.text, /## Front\n\nQ\?/);
   assert.match(file.text, /## Notes\n\nKeep this note/);
@@ -712,6 +719,7 @@ test("plugin: import preview counts duplicates, update preserves history notes, 
 
   const copied = await plugin.importCardsFromGift(source, { deck: "Moodle", duplicateMode: "copy" });
   assert.equal(copied.copied, 1);
+  assert.equal(copied.rows[0].status, "copied");
   assert.equal(app.created.length, 1);
   assert.match(app.created[0].text, /import_key: "gift:.*~copy-/);
   assert.match(app.created[0].text, /## Front\n\nQ\?/);
