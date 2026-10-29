@@ -22,9 +22,9 @@
 - **Coverage:** preview duplicate detection, history preservation on update, and distinct keys on copy.
 - **No third-party code was added.** The plugin remains MIT.
 
-**Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0, visual text boxes in 1.53.0 and highlight regions in 1.54.0; form filling and a fuller PDF editor remain future work. The unofficial AP score calculator shipped in 1.56.0; the AP FRQ grader and resource hub remain behind the owner pilot gate (four-course pilot and rights review). A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated.
+**Next:** The Reference panel now ships formulas, constants, unit conversion, a local function plotter and the periodic table (1.26.0). The PDF annotation sidecar shipped in 1.27.0, the welcome guide shipped in 1.28.0, the focus timer/study log shipped in 1.29.0, and the exam-scoped study plan/cram mode shipped in 1.30.0. The visual pen/highlighter overlay shipped in 1.52.0, visual text boxes in 1.53.0 and highlight regions in 1.54.0; form filling and a fuller PDF editor remain future work. The unofficial AP score calculator shipped in 1.56.0 and the link-only AP resource hub in 1.57.0. The AP FRQ grader remains behind the owner pilot gate (four-course pilot, human-scored fixtures and rights review). A full JSXGraph geometry/vector-field tool remains optional future work. Audio-only commute mode is still deferred until TTS provider and mobile support are validated.
 
-**Recently completed (1.53.0):** visual text boxes on rendered PDF pages, placed, edited and erased in the same overlay as ink. Previous release 1.52.0 added the pen/highlighter overlay; 1.51.0 added two-way AnkiConnect sync.
+**Recently completed (1.57.0):** a link-only AP resource hub for the four supported courses, with official AP Central, AP Students and AP Classroom links, released FRQs, scoring guidelines, exam format and dates. Previous release 1.56.0 added the unofficial AP score calculator; 1.55.0 added image occlusion, 1.54.0 highlight regions and 1.52.0 the PDF pen/highlighter overlay.
 
 ---
 
@@ -828,6 +828,8 @@ An **unofficial practice estimate**, never a prediction presented as an official
 
 A **link-and-index** feature, not a content dump.
 
+**Implemented in 1.57.0:** the Reference panel has an **AP resources** tab and command for AP Biology, Calculus AB, English Language and U.S. History. Each course pack links to the AP Central course page and CED, exam format, released FRQs with scoring guidelines and sample responses, the AP Students course/date page, AP Classroom/AP Videos, and the AP exam calendar. It stores links and original descriptions only, never fetches or copies AP material, and states that AP is a trademark with no affiliation. Course/unit tagging of resources, stale-link checks and calendar/Today integration remain future work.
+
 - **Official AP resources:** AP Central course pages, course and exam descriptions (CED), exam format pages, released free-response questions, scoring guidelines, sample student responses, chief reader reports, score distributions, AP Daily videos, and AP Students exam dates/registration deadlines.
 - **AP Classroom:** unit guides, progress checks, and the question bank are account-gated and may have no public API. Link to them; never scrape behind a login or copy question banks into the plugin without permission. **Verify** current terms before building any integration.
 - **Third-party study resources:** Fiveable, Khan Academy, teacher sites, AP student communities, and the Quizlet/Anki/Spaced Repetition decks users already have. The existing importers cover decks; the hub should tag and link rather than re-host.
@@ -1168,9 +1170,9 @@ These are **research and specification items**, not implementation work. The AP 
 
 - [ ] **AP FRQ grader** — rubric-based, partial-credit grading with per-criterion feedback, self-grade fallback, and score history (§5.20)
 - [x] **AP score calculator** — four 2027 profiles, weighted section and part inputs, editable practice cutoffs, incomplete estimates, a likely band and a reverse "what do I need?" calculation (§5.20) — shipped in 1.56.0; saved practice-exam history remains
-- [ ] **AP resource hub** — one place for official AP Central/AP Classroom links, course and exam descriptions, released FRQs and scoring guidelines, AP Daily videos, and user-supplied third-party resources (§5.20)
+- [x] **AP resource hub** — one place for official AP Central/AP Classroom links, course and exam descriptions, released FRQs and scoring guidelines, AP Videos, and exam dates (§5.20) — link-only version shipped in 1.57.0; resource notes, unit tags and stale-link checks remain
 - [x] **Research specification** — supported-course recommendation, rubric and score-profile schemas, evaluation plan, copyright/permissions questions, data model, UX flows, and acceptance tests ([spec](docs/ap-frq-grader-spec.md), §5.20)
-- [ ] **Pilot gate** — approve the four-course pilot, build the human-scored fixture set, complete the rights review, and approve the go/no-go thresholds before implementation
+- [ ] **Pilot gate** — approve the four-course pilot, build the human-scored fixture set, complete the rights review, and approve the go/no-go thresholds before implementing the FRQ grader (the link-only resource hub did not require this gate)
 
 ### Phase 3: Calendar and courses (priority)
 

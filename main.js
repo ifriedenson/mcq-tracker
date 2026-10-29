@@ -947,6 +947,154 @@ module.exports = {
 };
 };
 
+/* ---- src/ap-resources.js ---- */
+__defs["ap-resources"] = function (module, exports, require) {
+/*
+ * AP resource hub data.
+ *
+ * This module stores links, labels and short original descriptions only. It
+ * contains no College Board questions, rubrics, videos or other copied
+ * material. AP Classroom content is account-gated and is never fetched by the
+ * plugin; the user opens it in a browser.
+ *
+ * Links were checked on 2026-10-29. AP Daily has been folded into AP Videos in
+ * AP Classroom, so no separate AP Daily URL is shipped.
+ */
+
+const AP_RESOURCES_CHECKED_ON = "2026-10-29";
+
+const AP_RESOURCE_TYPES = {
+  course: "Course page",
+  exam: "Exam format",
+  practice: "Released FRQs",
+  students: "Dates and registration",
+  account: "AP Classroom",
+  calendar: "Exam calendar",
+};
+
+const AP_RESOURCE_COURSES = [
+  {
+    id: "ap-biology",
+    name: "AP Biology",
+    slug: "ap-biology",
+    studentsSlug: "ap-biology",
+  },
+  {
+    id: "ap-calculus-ab",
+    name: "AP Calculus AB",
+    slug: "ap-calculus-ab",
+    studentsSlug: "ap-calculus-ab",
+  },
+  {
+    id: "ap-english-language",
+    name: "AP English Language and Composition",
+    slug: "ap-english-language-and-composition",
+    studentsSlug: "ap-english-language-and-composition",
+  },
+  {
+    id: "ap-us-history",
+    name: "AP United States History",
+    slug: "ap-united-states-history",
+    studentsSlug: "ap-united-states-history",
+  },
+];
+
+const AP_RESOURCE_POLICY = [
+  "This is a link index, not a copy of AP material. Prompts, rubrics, videos and question banks stay on College Board's sites.",
+  "AP Classroom and AP Videos need your own College Board account. The plugin never signs in, scrapes or stores that content.",
+  "AP is a trademark of the College Board. This plugin is not affiliated with or endorsed by the College Board.",
+];
+
+function apCentral(slug, suffix) {
+  return `https://apcentral.collegeboard.org/courses/${slug}${suffix || ""}`;
+}
+
+function apStudents(slug) {
+  return `https://apstudents.collegeboard.org/courses/${slug}`;
+}
+
+/** Return the ordered "start here" set for one supported AP course. */
+function resourcesForCourse(courseId) {
+  const course = AP_RESOURCE_COURSES.find((item) => item.id === courseId) || AP_RESOURCE_COURSES[0];
+  return {
+    course,
+    checkedOn: AP_RESOURCES_CHECKED_ON,
+    resources: [
+      {
+        id: "course-page",
+        type: "course",
+        title: `${course.name} on AP Central`,
+        description: "The official course home: course and exam description, unit guides, teacher resources and the current exam overview.",
+        url: apCentral(course.slug),
+      },
+      {
+        id: "exam-format",
+        type: "exam",
+        title: "Exam format and section weights",
+        description: "Official section structure, timing, question counts, calculator rules and the exam date for this course.",
+        url: apCentral(course.slug, "/exam"),
+      },
+      {
+        id: "released-frqs",
+        type: "practice",
+        title: "Released free-response questions",
+        description: "Past free-response questions with scoring guidelines, sample student responses and reader commentary. Use these for timed practice and self-grading.",
+        url: apCentral(course.slug, "/exam/past-exam-questions"),
+      },
+      {
+        id: "ap-students",
+        type: "students",
+        title: `${course.name} on AP Students`,
+        description: "The student-facing course page with the exam date, registration and fee deadlines, and what to bring on exam day.",
+        url: apStudents(course.studentsSlug),
+      },
+      {
+        id: "ap-classroom",
+        type: "account",
+        title: "AP Classroom and AP Videos",
+        description: "Sign in with your own College Board account for AP Videos (formerly AP Daily), unit progress checks and the question bank. Account-gated; the plugin only opens the page.",
+        url: "https://apclassroom.collegeboard.org/",
+      },
+      {
+        id: "exam-calendar",
+        type: "calendar",
+        title: "AP exam calendar",
+        description: "Official dates for every AP exam, including late-testing windows. Check this before adding exam dates to the calendar.",
+        url: "https://apstudents.collegeboard.org/exam-calendar",
+      },
+    ],
+  };
+}
+
+/** All resources across courses, deduplicated by URL, for tests and exports. */
+function allResources() {
+  const seen = new Set();
+  const out = [];
+  for (const course of AP_RESOURCE_COURSES) {
+    for (const resource of resourcesForCourse(course.id).resources) {
+      if (seen.has(resource.url)) continue;
+      seen.add(resource.url);
+      out.push({ ...resource, course: course.id });
+    }
+  }
+  return out;
+}
+
+function resourceTypeLabel(type) {
+  return AP_RESOURCE_TYPES[type] || "Resource";
+}
+
+module.exports = {
+  AP_RESOURCES_CHECKED_ON,
+  AP_RESOURCE_COURSES,
+  AP_RESOURCE_POLICY,
+  AP_RESOURCE_TYPES,
+  allResources,
+  resourceTypeLabel,
+  resourcesForCourse,
+};
+};
+
 /* ---- src/ap-score.js ---- */
 __defs["ap-score"] = function (module, exports, require) {
 /*
@@ -21661,6 +21809,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
+    this.addCommand({ id: "open-ap-resources", name: "Open AP resources", callback: () => this.openApResources() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
     this.addCommand({
@@ -22767,12 +22916,20 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async openApScore() {
+    return this.openReferenceTab("ap", "Turn on the Reference module under Settings, Global, Modules to use the AP score calculator.");
+  }
+
+  async openApResources() {
+    return this.openReferenceTab("resources", "Turn on the Reference module under Settings, Global, Modules to use AP resources.");
+  }
+
+  async openReferenceTab(tab, offMessage) {
     const view = await this.activateReference();
     if (!view) {
-      new Notice("Turn on the Reference module under Settings, Global, Modules to use the AP score calculator.");
+      new Notice(offMessage);
       return null;
     }
-    view.tab = "ap";
+    view.tab = tab;
     view.render();
     return view;
   }
@@ -27527,6 +27684,11 @@ function renderTools(containerEl, plugin, redisplay) {
     .setDesc("An unofficial practice estimate for AP Biology, Calculus AB, English Language and U.S. History, with editable cut scores and a reverse what-do-I-need calculation.")
     .addButton((b) => b.setButtonText("Open AP score").onClick(() => plugin.openApScore()));
 
+  new Setting(containerEl)
+    .setName("AP resources")
+    .setDesc("Official AP Central, AP Students and AP Classroom links for each supported course, including released free-response questions, scoring guidelines, exam format and dates.")
+    .addButton((b) => b.setButtonText("Open AP resources").onClick(() => plugin.openApResources()));
+
   const card = containerEl.createDiv({ cls: "qt-settings-card" });
   card.createEl("h3", { text: "Bundled content" });
   card.createEl("p", {
@@ -27582,6 +27744,12 @@ const { ELEMENTS, categoryLabel, searchElements } = require("./reference-element
 const { buildPlot } = require("./reference-graph");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
+const {
+  AP_RESOURCE_COURSES,
+  AP_RESOURCE_POLICY,
+  resourceTypeLabel,
+  resourcesForCourse,
+} = require("./ap-resources");
 
 /*
  * A local-only reference panel. It deliberately contains no calculator engine,
@@ -27592,7 +27760,7 @@ class ReferenceView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
-    this.tab = "formulas"; // formulas | units | graph | elements | constants | ap
+    this.tab = "formulas"; // formulas | units | graph | elements | constants | ap | resources
     this.subject = (plugin.settings.reference && plugin.settings.reference.defaultSubject) || "all";
     this.query = "";
     this.constantQuery = "";
@@ -27618,6 +27786,7 @@ class ReferenceView extends ItemView {
     this.apCutoffs = { ...DEFAULT_CUTOFFS };
     this.apTarget = "4";
     this.apResultEl = null;
+    this.apResourceCourse = AP_RESOURCE_COURSES[0].id;
   }
 
   getViewType() {
@@ -27667,6 +27836,7 @@ class ReferenceView extends ItemView {
       ["elements", "Periodic table"],
       ["constants", "Constants"],
       ["ap", "AP score"],
+      ["resources", "AP resources"],
     ]) {
       const button = tabs.createEl("button", { text: label, cls: "qt-ref-tab" });
       if (this.tab === id) button.addClass("mod-cta");
@@ -27681,6 +27851,7 @@ class ReferenceView extends ItemView {
     else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
     else if (this.tab === "ap") this.renderApScore(root);
+    else if (this.tab === "resources") this.renderApResources(root);
     else this.renderFormulas(root);
     el.scrollTop = top;
   }
@@ -27991,6 +28162,50 @@ class ReferenceView extends ItemView {
       body.createDiv({ cls: "qt-ref-constant-name", text: constant.name });
       body.createEl("code", { cls: "qt-ref-constant-value", text: `${constant.value} ${constant.unit}` });
     }
+  }
+
+  renderApResources(root) {
+    const pack = resourcesForCourse(this.apResourceCourse);
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "Official study links for the four supported AP courses. This is a link index, not a copy of AP material: prompts, rubrics, videos and question banks stay on College Board's sites.",
+    });
+
+    const controls = root.createDiv({ cls: "qt-row qt-ap-controls" });
+    controls.createEl("label", { cls: "qt-ap-label", text: "Course" });
+    const select = controls.createEl("select", { cls: "dropdown" });
+    for (const course of AP_RESOURCE_COURSES) select.createEl("option", { text: course.name, value: course.id });
+    select.value = pack.course.id;
+    select.addEventListener("change", () => {
+      this.apResourceCourse = select.value;
+      this.render();
+    });
+    const source = controls.createEl("button", { text: "Open course page", cls: "qt-link" });
+    source.addEventListener("click", () => openExternal(pack.resources[0].url));
+
+    const list = root.createDiv({ cls: "qt-ap-resource-list" });
+    const actionLabels = {
+      course: "Open course page",
+      exam: "Open exam format",
+      practice: "Open released FRQs",
+      students: "Open dates and registration",
+      account: "Open AP Classroom",
+      calendar: "Open exam calendar",
+    };
+    for (const resource of pack.resources) {
+      const card = list.createDiv({ cls: "qt-ap-resource" });
+      const head = card.createDiv({ cls: "qt-ap-resource-head" });
+      head.createEl("strong", { text: resource.title });
+      head.createSpan({ cls: "qt-ap-resource-type", text: resourceTypeLabel(resource.type) });
+      card.createDiv({ cls: "qt-ap-resource-desc", text: resource.description });
+      card.createEl("button", { text: actionLabels[resource.type] || "Open link", cls: "qt-link" }).addEventListener("click", () =>
+        openExternal(resource.url),
+      );
+    }
+
+    const policy = root.createDiv({ cls: "qt-ap-policy" });
+    for (const line of AP_RESOURCE_POLICY) policy.createDiv({ cls: "qt-hint", text: line });
+    policy.createDiv({ cls: "qt-hint", text: `Checked ${pack.checkedOn}. Links can move; report a stale link rather than copying the page into your vault.` });
   }
 
   renderApScore(root) {
@@ -31757,6 +31972,7 @@ const referenceElements = require("./reference-elements");
 const referenceGraph = require("./reference-graph");
 const { ReferenceView } = require("./reference-view");
 const apScore = require("./ap-score");
+const apResources = require("./ap-resources");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const dailyQuiz = require("./daily-quiz");
 const { renderDailySettings } = require("./daily-quiz-settings");
@@ -31849,6 +32065,7 @@ QuestionTrackerPlugin.__test = {
   renderReferenceSettings,
   referenceData,
   apScore,
+  apResources,
   pdfAnnotations,
   pdfInk,
   PdfAnnotationModal,

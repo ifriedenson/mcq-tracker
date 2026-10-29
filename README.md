@@ -43,7 +43,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Focus timer and study log.** Start a 15, 25 or 45 minute session tied to a course, pause and resume it, and log the result. Manual study entry covers offline work. Today shows today's minutes against a configurable daily goal, the current streak, the last seven days and your top courses.
 - **First-run welcome guide.** A short three-step guide on first install: what the plugin does, a preset chooser that sets the real module switches, and buttons for import, practice, Today, cards, calendar and settings. It is shown once per device, never blocks startup, stores progress locally and can be reopened from the command palette or Settings, Global, About.
 - **Modules you can switch off.** Settings, Global has an on/off switch for each module (MCQ Tracker, Cards, Calendar and AI features) plus the plugin-wide options, so the parts you don't use stay out of the way.
-- **Reference (optional module, off by default).** A local formula sheet, constants list, unit converter and unofficial AP score estimator in one view. It works offline, adds no data to your vault, and can be hidden automatically while a timed test is running. See [Reference](#reference-optional-module-off-by-default).
+- **Reference (optional module, off by default).** A local formula sheet, constants list, unit converter, unofficial AP score estimator and link-only AP resource hub in one view. It works offline, adds no data to your vault, and can be hidden automatically while a timed test is running. See [Reference](#reference-optional-module-off-by-default).
 - **Calendar (optional module, off by default).** Import an `.ics` schedule from a file or a public feed, see classes and exams in a month grid, day timeline, live countdown and upcoming-exam countdowns, and create a note for a class in one click. Free periods can start a short Quick Practice session (see [Calendar](#calendar-optional-module-off-by-default)).
 - **Assignments and grades.** Keep assignments as ordinary notes with a course, type, due date, status and score. The gradebook shows weighted category grades, the score you need on the final, a credit-weighted GPA and the next tasks; Today adds a **Review N due items** task beside the nearest deadlines (see [Assignments, tasks and grades](#assignments-tasks-and-grades)).
 
@@ -234,15 +234,23 @@ Open **Reference → AP score**, or run **Open AP score calculator**. Choose AP 
 
 The **What do I need for a 4/5?** control holds the other sections fixed and shows the percentage and points required on each section, or that the target is not reachable with the entered scores. Nothing leaves the device.
 
+## AP resources
+
+Open **Reference → AP resources**, run **Open AP resources**, or use the button in **Settings → Reference → Tools**. Pick a course to get its official starting points: the AP Central course page and course/exam description, the exam format and section weights, released free-response questions with scoring guidelines and sample responses, the AP Students page with dates and registration, AP Classroom/AP Videos, and the AP exam calendar.
+
+This is a **link index, not a content dump**. The plugin stores only titles, short original descriptions and URLs. It never signs in to AP Classroom, scrapes account-gated material, or copies prompts, rubrics, videos or question banks into your vault. Links were checked on 2026-10-29; if one moves, report it rather than pasting the page in. AP is a College Board trademark and this plugin is not affiliated with or endorsed by the College Board.
+
 ## Reference (optional module, off by default)
 
-Turn it on under **Settings, Global, Modules**, then open **Reference** from the ribbon or the command palette. The view has three tabs:
+Turn it on under **Settings, Global, Modules**, then open **Reference** from the ribbon or the command palette. The view has seven tabs:
 
 - **Formulas** — searchable formulas for math, physics, chemistry and biology, with a subject filter.
 - **Unit converter** — length, mass, volume, temperature, time, speed, energy, pressure, angle and digital data.
 - **Graph** — plot `y = f(x)` with a restricted local expression parser. It supports `x`, `pi`, `e`, the usual trig and log functions, and `+ - * / ^`. It does not use `eval`, a calculator service or a Desmos key.
 - **Periodic table** — all 118 elements in a tap-to-open grid, with atomic number, approximate mass, category, period and group.
 - **Constants** — common physical and chemical constants with units.
+- **AP score** — an unofficial weighted score estimate for four AP courses, with editable practice cutoffs and reverse planning.
+- **AP resources** — official AP Central, AP Students and AP Classroom links for each supported course.
 
 The graph parser only accepts the listed names and operators; an unknown name or a pasted script is rejected rather than evaluated. The periodic table data is a factual compilation written for this plugin, not a third-party dataset. The panel is local: it does not read notes, call a model or make a network request. **Hide while a timed test is running** is on by default, so it stays out of a closed-book section; turn it off under Settings, Reference if your test allows a reference sheet. Formulas are study aids, not official exam material; check the sheet supplied with your course and exam year.
 

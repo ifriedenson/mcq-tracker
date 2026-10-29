@@ -3737,6 +3737,54 @@
   margin-top: 12px;
 }
 
+/* AP resource hub: official links only, with a type badge and no embedded content. */
+.qt-ap-resource-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.qt-ap-resource {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 12px;
+}
+
+.qt-ap-resource-head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.qt-ap-resource-type {
+  background: var(--background-modifier-hover);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  text-transform: uppercase;
+}
+
+.qt-ap-resource-desc {
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin: 6px 0 8px;
+}
+
+.qt-ap-policy {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 16px;
+  padding-top: 10px;
+}
+
+.qt-ap-policy .qt-hint {
+  margin: 4px 0;
+}
+
 .qt-welcome-support-label {
   font-size: 0.82rem;
 }

@@ -6,6 +6,14 @@ This file lists code and ideas taken from other projects. Each entry names the l
 the copyright holder, the exact version used, and which files in this repository contain
 the work.
 
+## AP resource links
+
+The AP resource hub in `src/ap-resources.js` contains only official College Board URLs,
+short titles and original descriptions written for this plugin. It does not copy or bundle
+AP questions, rubrics, scoring guidelines, sample responses, videos, unit guides or question
+banks, and it does not scrape AP Classroom. AP is a trademark of the College Board; this
+plugin is not affiliated with or endorsed by the College Board.
+
 ## University Schedule and Calendar
 
 - **Project:** [obsidian-uni-calendar](https://github.com/Cesemess/obsidian-uni-calendar) (plugin id `university-calendar`, "University Schedule and Calendar")

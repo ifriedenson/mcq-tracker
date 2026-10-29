@@ -197,6 +197,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
+    this.addCommand({ id: "open-ap-resources", name: "Open AP resources", callback: () => this.openApResources() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
     this.addCommand({
@@ -1303,12 +1304,20 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async openApScore() {
+    return this.openReferenceTab("ap", "Turn on the Reference module under Settings, Global, Modules to use the AP score calculator.");
+  }
+
+  async openApResources() {
+    return this.openReferenceTab("resources", "Turn on the Reference module under Settings, Global, Modules to use AP resources.");
+  }
+
+  async openReferenceTab(tab, offMessage) {
     const view = await this.activateReference();
     if (!view) {
-      new Notice("Turn on the Reference module under Settings, Global, Modules to use the AP score calculator.");
+      new Notice(offMessage);
       return null;
     }
-    view.tab = "ap";
+    view.tab = tab;
     view.render();
     return view;
   }

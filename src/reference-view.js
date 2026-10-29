@@ -15,6 +15,12 @@ const { ELEMENTS, categoryLabel, searchElements } = require("./reference-element
 const { buildPlot } = require("./reference-graph");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
+const {
+  AP_RESOURCE_COURSES,
+  AP_RESOURCE_POLICY,
+  resourceTypeLabel,
+  resourcesForCourse,
+} = require("./ap-resources");
 
 /*
  * A local-only reference panel. It deliberately contains no calculator engine,
@@ -25,7 +31,7 @@ class ReferenceView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
-    this.tab = "formulas"; // formulas | units | graph | elements | constants | ap
+    this.tab = "formulas"; // formulas | units | graph | elements | constants | ap | resources
     this.subject = (plugin.settings.reference && plugin.settings.reference.defaultSubject) || "all";
     this.query = "";
     this.constantQuery = "";
@@ -51,6 +57,7 @@ class ReferenceView extends ItemView {
     this.apCutoffs = { ...DEFAULT_CUTOFFS };
     this.apTarget = "4";
     this.apResultEl = null;
+    this.apResourceCourse = AP_RESOURCE_COURSES[0].id;
   }
 
   getViewType() {
@@ -100,6 +107,7 @@ class ReferenceView extends ItemView {
       ["elements", "Periodic table"],
       ["constants", "Constants"],
       ["ap", "AP score"],
+      ["resources", "AP resources"],
     ]) {
       const button = tabs.createEl("button", { text: label, cls: "qt-ref-tab" });
       if (this.tab === id) button.addClass("mod-cta");
@@ -114,6 +122,7 @@ class ReferenceView extends ItemView {
     else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
     else if (this.tab === "ap") this.renderApScore(root);
+    else if (this.tab === "resources") this.renderApResources(root);
     else this.renderFormulas(root);
     el.scrollTop = top;
   }
@@ -424,6 +433,50 @@ class ReferenceView extends ItemView {
       body.createDiv({ cls: "qt-ref-constant-name", text: constant.name });
       body.createEl("code", { cls: "qt-ref-constant-value", text: `${constant.value} ${constant.unit}` });
     }
+  }
+
+  renderApResources(root) {
+    const pack = resourcesForCourse(this.apResourceCourse);
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "Official study links for the four supported AP courses. This is a link index, not a copy of AP material: prompts, rubrics, videos and question banks stay on College Board's sites.",
+    });
+
+    const controls = root.createDiv({ cls: "qt-row qt-ap-controls" });
+    controls.createEl("label", { cls: "qt-ap-label", text: "Course" });
+    const select = controls.createEl("select", { cls: "dropdown" });
+    for (const course of AP_RESOURCE_COURSES) select.createEl("option", { text: course.name, value: course.id });
+    select.value = pack.course.id;
+    select.addEventListener("change", () => {
+      this.apResourceCourse = select.value;
+      this.render();
+    });
+    const source = controls.createEl("button", { text: "Open course page", cls: "qt-link" });
+    source.addEventListener("click", () => openExternal(pack.resources[0].url));
+
+    const list = root.createDiv({ cls: "qt-ap-resource-list" });
+    const actionLabels = {
+      course: "Open course page",
+      exam: "Open exam format",
+      practice: "Open released FRQs",
+      students: "Open dates and registration",
+      account: "Open AP Classroom",
+      calendar: "Open exam calendar",
+    };
+    for (const resource of pack.resources) {
+      const card = list.createDiv({ cls: "qt-ap-resource" });
+      const head = card.createDiv({ cls: "qt-ap-resource-head" });
+      head.createEl("strong", { text: resource.title });
+      head.createSpan({ cls: "qt-ap-resource-type", text: resourceTypeLabel(resource.type) });
+      card.createDiv({ cls: "qt-ap-resource-desc", text: resource.description });
+      card.createEl("button", { text: actionLabels[resource.type] || "Open link", cls: "qt-link" }).addEventListener("click", () =>
+        openExternal(resource.url),
+      );
+    }
+
+    const policy = root.createDiv({ cls: "qt-ap-policy" });
+    for (const line of AP_RESOURCE_POLICY) policy.createDiv({ cls: "qt-hint", text: line });
+    policy.createDiv({ cls: "qt-hint", text: `Checked ${pack.checkedOn}. Links can move; report a stale link rather than copying the page into your vault.` });
   }
 
   renderApScore(root) {

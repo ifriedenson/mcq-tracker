@@ -81,6 +81,11 @@ function renderTools(containerEl, plugin, redisplay) {
     .setDesc("An unofficial practice estimate for AP Biology, Calculus AB, English Language and U.S. History, with editable cut scores and a reverse what-do-I-need calculation.")
     .addButton((b) => b.setButtonText("Open AP score").onClick(() => plugin.openApScore()));
 
+  new Setting(containerEl)
+    .setName("AP resources")
+    .setDesc("Official AP Central, AP Students and AP Classroom links for each supported course, including released free-response questions, scoring guidelines, exam format and dates.")
+    .addButton((b) => b.setButtonText("Open AP resources").onClick(() => plugin.openApResources()));
+
   const card = containerEl.createDiv({ cls: "qt-settings-card" });
   card.createEl("h3", { text: "Bundled content" });
   card.createEl("p", {
