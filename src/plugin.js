@@ -85,6 +85,8 @@ const { findSourceFile, sourceOf } = require("./provenance");
 const { buildTranscriptCardPrompt, buildTranscriptQuestionPrompt, isTranscriptNote, parseAiCards, parseAiQuestions, questionNote, safeFileName, transcriptInfo } = require("./transcript");
 const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
+const { QuickAddModal } = require("./quick-add-modal");
+const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
@@ -179,6 +181,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-progress", name: "Open progress dashboard", callback: () => this.activateInsights("progress") });
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
+    this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
     this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated notes", callback: () => this.undoLastAiWriteCommand() });
     this.addCommand({ id: "ai-undo-agent-edits", name: "AI: undo the last agent edits", callback: () => this.undoLastAgentEditCommand() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
@@ -2734,6 +2737,46 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (result.created || result.updated) this.refreshViews();
     return result;
+  }
+
+  /** Paste several questions, review the preview, then write one normal note each. */
+  openQuickAdd() {
+    if (this.moduleOff("mcq")) return;
+    new QuickAddModal(this.app, this, () => this.refreshViews()).open();
+  }
+
+  /** Write already-previewed quick-add items as ordinary question notes. */
+  async createQuickAddQuestions(items, options) {
+    if (this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
+    const opts = options || {};
+    const list = Array.isArray(items) ? items : [];
+    const folder = str(opts.folder).trim() || str(this.settings.questionFolder).trim() || "Questions";
+    const course = str(opts.course).trim();
+    const paths = [];
+    const errors = [];
+    if (!list.length) return { created: 0, paths, errors: ["There are no questions to write."] };
+    await ensureFolder(this.app, folder);
+    for (const item of list) {
+      // One note per question, titled from the question text like AI drafts; a
+      // repeated title gets a numbered suffix so nothing is overwritten.
+      const title = quickAddTitle(item.question);
+      const base = (folder ? folder + "/" : "") + title + ".md";
+      let path = base;
+      let n = 2;
+      while (this.app.vault.getAbstractFileByPath(path)) {
+        path = base.replace(/\.md$/i, " " + n + ".md");
+        n++;
+      }
+      const qid = path.replace(/^.*\//, "").replace(/\.md$/i, "");
+      try {
+        await this.app.vault.create(path, quickAddNote({ ...item, course: item.course || course }, qid));
+        paths.push(path);
+      } catch (e) {
+        errors.push(title + ": " + str(e && e.message ? e.message : e));
+      }
+    }
+    if (paths.length) this.refreshViews();
+    return { created: paths.length, paths, errors };
   }
 
   /** Write an already-previewed transcript draft. */

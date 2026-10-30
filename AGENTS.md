@@ -8,11 +8,11 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
-- Latest release: **1.127.0** (scoped mastery windows, dashboard embed, Today/Progress trends and Quick Practice labels), tagged and published on Oct 30, 2026.
-- The release commit is `380212e`; 703 tests pass and `main.js` is the build of `src/`.
+- Latest release: **1.128.0** (Quick add questions), tagged and published on Oct 30, 2026.
+- The `1.128.0` tag is on the release commit; **710 tests** pass and `main.js` is the build of `src/`.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
-- The only unchecked item, **lighter multi-question authoring**, is new feature scope. Do not implement it without the owner explicitly ranking it.
+- **Lighter multi-question authoring** was ranked by the owner on Oct 30, 2026 and shipped in **1.128.0** as **Quick add questions** (`src/quick-add.js`, `src/quick-add-modal.js`).
 
 ## Commands
 

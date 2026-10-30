@@ -269,6 +269,23 @@ Run the command **Add missing tracking properties to all question notes** to add
 4. Choose an answer, say how sure you are, and **Submit**.
 5. On the result screen you can review the question, show or hide the explanation, tag why you missed it, write notes, flag the question, open the note, or ask the AI. Press **Next question** to continue. **Known** and **Exclude** are beside the answer controls and stay available after you answer.
 
+### Quick add questions
+
+**Quick add questions from pasted text** turns a paste into ordinary question notes, one per block, so a set does not have to be typed one file at a time. Nothing is written until the preview is confirmed.
+
+```text
+Q: Which gas do plants take in during photosynthesis?
+A. Oxygen
+B. Carbon dioxide
+Answer: B
+Why: Photosynthesis consumes carbon dioxide.
+Course: Biology
+Skill: photosynthesis
+Difficulty: easy
+```
+
+`Q:` starts a block. `A.` to `H.` lines are answer choices, `Answer:` or `Key:` takes a letter, a choice's own text or a set such as `A, C`, and `Why:` or `Explanation:` is the rationale. `Stimulus:`, `Course:`, `Skill:`, `Difficulty:`, `Unit:` and `Test:` are optional; wrapped lines continue the field above them and `---` separates blocks. A block with no choices becomes a numeric or short-answer (SPR) note. The dialog lists every block that needs attention, writes only the valid ones into the folder you choose, and numbers repeated titles instead of overwriting. The notes are normal question notes: no AI or import properties and no pre-filled tracking state.
+
 ### Review scheduling
 
 **Leech handling (optional).** Set a leech threshold under Settings, Practice. When a question misses that many times in a row, the attempt marks it `leech: true` and the result view explains the mark; a correct answer clears it. The action can also suspend it so it leaves practice until you restore it under Hidden study items. The default threshold is 0, which leaves the feature off.
@@ -337,6 +354,7 @@ Every practice and card review screen has **Known**, **Bury**, **Suspend** and *
 - Show error log
 - Find a question by ID
 - Import questions from a file
+- Quick add questions from pasted text
 - Rename old source_question_id properties to official_question_id (one-time clean-up for notes imported before the rename)
 
 ## AP score calculator
