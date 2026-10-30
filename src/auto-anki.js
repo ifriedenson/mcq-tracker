@@ -49,6 +49,7 @@ function autoAnkiCardInputs(generated, options) {
   const opts = options || {};
   const batch = str(opts.batch).trim();
   const deck = str(opts.deck).trim() || str(g.deck).trim() || "General";
+  const format = str(opts.format).trim() || "auto-anki";
   const course = str(g.course).trim();
   const sourcePath = str(g.sourcePath).trim();
   const items = Array.isArray(g.items) ? g.items : [];
@@ -64,7 +65,7 @@ function autoAnkiCardInputs(generated, options) {
         course,
         sourceNote: sourcePath,
         importSource: sourcePath,
-        importFormat: "auto-anki",
+        importFormat: format,
         importedOn: localDate(),
         aiGenerated: g.ai ? g.model || "AI" : "",
         aiModel: g.ai ? g.model || "AI" : "",

@@ -8,12 +8,12 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
-- Latest release: **1.146.0** (Auto Anki: AI card generation to tracked card notes and exact-path AnkiConnect delivery), commit `35f1df6`, tagged and published on Oct 30, 2026 in [run 41089689474](https://github.com/ifriedenson/mcq-tracker/actions/runs/41089689474). Release: https://github.com/ifriedenson/mcq-tracker/releases/tag/1.146.0. The previous release is **1.145.0** (Spaced Everything, commit `95e912d`, [run 41087409754](https://github.com/ifriedenson/mcq-tracker/actions/runs/41087409754)).
-- **843 tests** pass and `main.js` is the build of `src/`. Release 1.146.0 adds Auto Anki; 1.145.0 added Spaced Everything, 1.144.0 added the Simple Note Quiz, and 1.143.0 added Simple Quiz blocks, JSON/JavaScript card sources and local quiz charts.
+- Latest release: **1.147.0** (Text2Anki: one-shot selection to tracked cards and exact-path Anki delivery, with custom instructions and Deck: directives), release candidate in this handoff. The previous release is **1.146.0** (Auto Anki, commit `35f1df6`, [run 41089689474](https://github.com/ifriedenson/mcq-tracker/actions/runs/41089689474)).
+- **849 tests** pass and `main.js` is the build of `src/`. Release 1.147.0 adds Text2Anki; 1.146.0 added Auto Anki, 1.145.0 added Spaced Everything, 1.144.0 added the Simple Note Quiz, and 1.143.0 added Simple Quiz blocks, JSON/JavaScript card sources and local quiz charts.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
 - Anki bridge hardening (no release, Oct 30, 2026): push-only now updates linked notes instead of duplicating them, duplicate media basenames warn instead of silently overwriting, and tables keep escaped pipes plus inline formatting. Real desktop checks are in `docs/anki-smoke-test.md` and remain a manual gate.
-- Step 9 queue rows 1–21 are shipped; rows 22+ remain in plan.md. The next implementable row is **22** (text2anki-openai).
+- Step 9 queue rows 1–22 are shipped; rows 23+ remain in plan.md. The next implementable row is **23** (Flashcard Generator).
 - **Lighter multi-question authoring** was ranked by the owner on Oct 30, 2026 and shipped in **1.128.0** as **Quick add questions** (`src/quick-add.js`, `src/quick-add-modal.js`).
 
 ## Commands

@@ -430,6 +430,12 @@ Run **Auto Anki: send this note or selection** on an open Markdown note. When te
 
 Re-running on unchanged source text reuses the cards already generated for that source and sends them again without creating duplicates. The generated cards carry `import_format: auto-anki`, a stable import key and the source batch, so the existing card queue, history and scheduler still own them. AnkiConnect must be enabled under Settings → Cards → Sync. The default count and deck are under Settings → Cards → Decks, Auto Anki.
 
+### Text2Anki
+
+**Text2Anki: send the selection to Anki** is the one-shot shortcut for a passage you have selected. It drafts cards immediately with the configured AI provider, writes ordinary tracked card notes through the same importer and batch keys as Auto Anki, and pushes only those cards to Anki without opening a confirmation window. Re-running on the same selection reuses the existing cards and never duplicates them.
+
+Add a line such as `Deck: Computer Science::Python` to the note or the selection to choose the Anki deck for that run; otherwise the Text2Anki deck setting is used. **Settings → Cards → Decks → Text2Anki** holds the count, deck and optional extra instruction. AI features, Cards and AnkiConnect must all be enabled. The selected text is treated as untrusted study material, not as instructions.
+
 ### Commands
 
 - Open practice view

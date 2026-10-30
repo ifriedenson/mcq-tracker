@@ -6413,6 +6413,7 @@ function autoAnkiCardInputs(generated, options) {
   const opts = options || {};
   const batch = str(opts.batch).trim();
   const deck = str(opts.deck).trim() || str(g.deck).trim() || "General";
+  const format = str(opts.format).trim() || "auto-anki";
   const course = str(g.course).trim();
   const sourcePath = str(g.sourcePath).trim();
   const items = Array.isArray(g.items) ? g.items : [];
@@ -6428,7 +6429,7 @@ function autoAnkiCardInputs(generated, options) {
         course,
         sourceNote: sourcePath,
         importSource: sourcePath,
-        importFormat: "auto-anki",
+        importFormat: format,
         importedOn: localDate(),
         aiGenerated: g.ai ? g.model || "AI" : "",
         aiModel: g.ai ? g.model || "AI" : "",
@@ -14617,6 +14618,7 @@ const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 const { deckSummary, effectiveScheduler, normalizeDeckIntervals } = require("./cards");
 const { CARD_GENERATOR_STYLES, normalizeCardGenerator } = require("./card-generator");
 const { normalizeAutoAnki } = require("./auto-anki");
+const { normalizeText2Anki } = require("./text2anki");
 const { renderSettingsTabs } = require("./settings-ui");
 const { COUCHDB_PASSWORD_SECRET, normalizeCouchDb } = require("./couchdb-sync");
 const { hasSecretStorage, storeSecretValue } = require("./secret-keys");
@@ -15391,6 +15393,45 @@ function renderReview(containerEl, plugin, redisplay) {
   new Setting(containerEl)
     .setName("Send this note or selection")
     .addButton((b) => b.setButtonText("Open Auto Anki").onClick(() => plugin.openAutoAnki()));
+  new Setting(containerEl).setName("Text2Anki").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "A one-shot shortcut for the selected text. It drafts cards, writes ordinary tracked card notes and sends only those cards to Anki without opening a confirmation window. Re-running on the same selection reuses the existing cards. Add a line like Deck: Computer Science::Python to the note or the selection to choose its Anki deck for that run.",
+  });
+  const t2 = normalizeText2Anki(plugin.settings.text2anki, st.defaultDeck);
+  const patchText2Anki = async (values) => {
+    plugin.settings.text2anki = normalizeText2Anki({ ...normalizeText2Anki(plugin.settings.text2anki, st.defaultDeck), ...values }, st.defaultDeck);
+    await plugin.save();
+  };
+  new Setting(containerEl)
+    .setName("Text2Anki card count")
+    .setDesc("Between 1 and 20. The command always uses the selection.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.max = "20";
+      t.setValue(String(t2.count)).onChange(async (v) => {
+        const n = Math.round(Number(v));
+        if (Number.isFinite(n) && n > 0) await patchText2Anki({ count: Math.min(20, n) });
+      });
+    });
+  new Setting(containerEl)
+    .setName("Text2Anki deck")
+    .setDesc("Default deck for the shortcut. A Deck: line in the note or selection overrides it; leave blank to use the configured default deck.")
+    .addText((t) =>
+      t.setValue(t2.deck).setPlaceholder(st.defaultDeck || "General").onChange(async (v) => {
+        await patchText2Anki({ deck: v });
+      })
+    );
+  new Setting(containerEl)
+    .setName("Text2Anki extra instruction")
+    .setDesc("Optional guidance for the card generator, such as 'focus on definitions'. It cannot change the JSON shape or use outside facts.")
+    .addTextArea((t) => t.setValue(t2.customPrompt).onChange(async (v) => {
+      await patchText2Anki({ customPrompt: v });
+    }));
+  new Setting(containerEl)
+    .setName("Send the current selection")
+    .addButton((b) => b.setButtonText("Send selection now").onClick(() => plugin.runText2AnkiCommand()));
 }
 
 function renderAbout(containerEl, plugin) {
@@ -16938,6 +16979,7 @@ const DEFAULT_SETTINGS = {
   },
   cardGenerator: { count: 8, customPrompt: "", style: "inline", separator: "::", hideInPreview: false, output: "notes", source: "auto", deck: "" }, // last flashcard-generator choices
   autoAnki: { count: 8, deck: "" }, // Auto Anki: AI card creation sent through the existing Anki bridge
+  text2anki: { count: 5, deck: "", customPrompt: "" }, // Text2Anki: one-shot selection to Anki through the same card store
   quizGenerator: { folders: [], count: 5, language: "English", types: ["mcq"] }, // last AI quiz-generator choices
   cards: {
     enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off
@@ -34359,6 +34401,7 @@ const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const { CardGeneratorModal } = require("./card-generator-modal");
 const { AutoAnkiModal } = require("./auto-anki-modal");
 const { autoAnkiBatchPaths, autoAnkiCardInputs, autoAnkiSourceKey, chooseAutoAnkiSource, normalizeAutoAnki } = require("./auto-anki");
+const { chooseText2AnkiSource, normalizeText2Anki, text2AnkiNotice } = require("./text2anki");
 const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator } = require("./card-generator");
 const { readActiveNoteContext } = require("./note-context");
 const { QuizGeneratorModal } = require("./quiz-generator-modal");
@@ -34561,6 +34604,7 @@ class QuestionTrackerPlugin extends Plugin {
         return true;
       },
     });
+    this.addCommand({ id: "text2anki-send", name: "Text2Anki: send the selection to Anki", callback: () => this.runText2AnkiCommand() });
     this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
     this.addCommand({
       id: "practice-note",
@@ -34952,6 +34996,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quizGenerator = normalizeQuizGenerator(saved.quizGenerator);
     this.settings.cardGenerator = normalizeCardGenerator(saved.cardGenerator);
     this.settings.autoAnki = normalizeAutoAnki(saved.autoAnki, this.settings.cards.defaultDeck);
+    this.settings.text2anki = normalizeText2Anki(saved.text2anki, this.settings.cards.defaultDeck);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
     this.settings.assignments = normalizeAssignmentSettings(saved.assignments);
     this.settings.reference = mergeReferenceSettings(saved.reference);
@@ -38165,12 +38210,14 @@ class QuestionTrackerPlugin extends Plugin {
   async generateCardsFromNote(options) {
     if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
     if (this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
-    const config = normalizeCardGenerator({ ...normalizeCardGenerator(this.settings.cardGenerator), ...(options || {}) });
-    const context = await readActiveNoteContext(this.app);
+    const requested = options || {};
+    const config = normalizeCardGenerator({ ...normalizeCardGenerator(this.settings.cardGenerator), ...requested });
+    const context = requested.context && requested.context.path ? requested.context : await readActiveNoteContext(this.app);
     if (!context || !context.path) throw new Error("Open a Markdown note first.");
     if (config.source === "selection" && !context.selection) throw new Error("Select some text in the note first, or choose the whole note.");
     const sourceKind = config.source === "note" ? "note" : config.source === "selection" ? "selection" : context.selection ? "selection" : "note";
-    const text = sourceKind === "selection" ? context.selection : context.text;
+    const supplied = requested.sourceText === undefined ? "" : str(requested.sourceText);
+    const text = supplied || (sourceKind === "selection" ? context.selection : context.text);
     if (!str(text).trim()) throw new Error("That note has no readable text to turn into cards.");
     const file = this.app.vault.getAbstractFileByPath(context.path);
     const fm = (file && this.app.metadataCache.getFileCache(file)?.frontmatter) || {};
@@ -38274,12 +38321,67 @@ class QuestionTrackerPlugin extends Plugin {
       this.settings.cards.defaultDeck
     );
     const deck = str(opts.deck).trim() || config.deck || this.settings.cards.defaultDeck || "General";
+    return this.runAnkiBatch({ context, source, count: config.count, deck, customPrompt: opts.customPrompt, format: "auto-anki" });
+  }
+
+  /**
+   * Text2Anki: the one-shot selection shortcut. It uses the same source batch,
+   * card store and Anki bridge as Auto Anki, so the two commands cannot create
+   * duplicate cards for the same selected passage.
+   */
+  async runText2Anki(options) {
+    if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
+    if (this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    const anki = normalizeAnkiConnect(this.settings.cards.ankiConnect);
+    if (!anki.enabled) throw new Error("Turn on AnkiConnect sync under Settings, Cards, Sync first.");
+    const opts = options || {};
+    const base = normalizeText2Anki(this.settings.text2anki, this.settings.cards.defaultDeck);
+    const config = normalizeText2Anki(
+      {
+        ...base,
+        count: opts.count === undefined ? base.count : opts.count,
+        deck: opts.deck === undefined ? base.deck : opts.deck,
+        customPrompt: opts.customPrompt === undefined ? base.customPrompt : opts.customPrompt,
+      },
+      this.settings.cards.defaultDeck
+    );
+    const context = opts.context && opts.context.path ? opts.context : await readActiveNoteContext(this.app);
+    if (!context || !context.path) throw new Error("Open a Markdown note first.");
+    const source = chooseText2AnkiSource(context);
+    const deck = source.deck || config.deck || this.settings.cards.defaultDeck || "General";
+    return this.runAnkiBatch({ context, source, count: config.count, deck, customPrompt: config.customPrompt, format: "text2anki-openai" });
+  }
+
+  /** Command wrapper: a failed shortcut explains itself instead of rejecting into Obsidian. */
+  async runText2AnkiCommand() {
+    try {
+      const result = await this.runText2Anki();
+      new Notice(text2AnkiNotice(result), 6000);
+      return result;
+    } catch (e) {
+      new Notice(str(e && e.message ? e.message : e) || "Text2Anki could not send the selection.", 7000);
+      return null;
+    }
+  }
+
+  /** Shared generate-write-push path for Auto Anki and Text2Anki. */
+  async runAnkiBatch(options) {
+    const opts = options || {};
+    const context = opts.context;
+    const source = opts.source;
+    if (!context || !context.path) throw new Error("Open a Markdown note first.");
+    if (!source || !str(source.text).trim()) throw new Error("That source has no readable text to turn into cards.");
+    const count = Math.max(1, Math.min(20, Math.round(Number(opts.count) || 8)));
+    const deck = str(opts.deck).trim() || this.settings.cards.defaultDeck || "General";
+    const customPrompt = str(opts.customPrompt).trim().slice(0, 2000);
+    const format = str(opts.format).trim() || "auto-anki";
     const batch = autoAnkiSourceKey(context.path, source.kind, source.text);
     const existing = autoAnkiBatchPaths(this.getCards(), batch);
     if (existing.length) {
       const pushed = await this.pushCardsToAnki({ paths: existing, deck });
       return {
         batch,
+        format,
         reused: true,
         sourceKind: source.kind,
         cards: existing.length,
@@ -38290,9 +38392,16 @@ class QuestionTrackerPlugin extends Plugin {
       };
     }
 
-    const generated = await this.generateCardsFromNote({ source: source.kind, count: config.count, deck });
+    const generated = await this.generateCardsFromNote({
+      context,
+      source: source.kind,
+      sourceText: source.text,
+      count,
+      deck,
+      customPrompt,
+    });
     if (!generated.items.length) throw new Error("The AI returned no usable cards. Try a different note or selection.");
-    const inputs = autoAnkiCardInputs(generated, { deck, batch });
+    const inputs = autoAnkiCardInputs(generated, { deck, batch, format });
     if (!inputs.length) throw new Error("The AI returned no usable cards. Try a different note or selection.");
     const beforePaths = new Set(this.app.vault.getMarkdownFiles().map((file) => file.path));
     const write = await this.importParsedCards(inputs, {
@@ -38309,6 +38418,7 @@ class QuestionTrackerPlugin extends Plugin {
     const pushed = await this.pushCardsToAnki({ paths, deck });
     return {
       batch,
+      format,
       reused: false,
       sourceKind: source.kind,
       generated: generated.items.length,
@@ -52626,6 +52736,81 @@ function safeSvg(svg) {
 module.exports = { safeSvg };
 };
 
+/* ---- src/text2anki.js ---- */
+__defs["text2anki"] = function (module, exports, require) {
+/*
+ * Text2Anki: the one-shot selection path from the MIT text2anki-openai plugin.
+ *
+ * It deliberately uses the same source batch, card store and Anki bridge as
+ * Auto Anki; this module only normalizes the shortcut's settings, strips its
+ * note-level Deck: directive and builds the user-facing result line.
+ */
+const { str } = require("./util");
+const { autoAnkiSourceKey } = require("./auto-anki");
+
+const DEFAULT_TEXT2ANKI = {
+  count: 5,
+  deck: "",
+  customPrompt: "",
+};
+
+function normalizeText2Anki(value, fallbackDeck) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    count: Math.max(1, Math.min(20, Math.round(Number(src.count) || DEFAULT_TEXT2ANKI.count))),
+    deck: str(src.deck).trim() || str(fallbackDeck).trim(),
+    customPrompt: str(src.customPrompt).trim().slice(0, 2000),
+  };
+}
+
+/** `Deck: Computer Science::Python` at the start of a line sets the deck for this run. */
+function text2AnkiDeckDirective(text) {
+  const match = str(text).match(/^[ \t]*Deck:[ \t]*(.+?)[ \t]*$/im);
+  return match ? match[1].trim() : "";
+}
+
+function stripText2AnkiDeck(text) {
+  return str(text)
+    .replace(/^[ \t]*Deck:[ \t]*.+?[ \t]*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** The one-shot command requires a selection; it never silently falls back to the note. */
+function chooseText2AnkiSource(context) {
+  const ctx = context || {};
+  const raw = str(ctx.selection).trim();
+  if (!raw) throw new Error("Select some text in the note first.");
+  const deck = text2AnkiDeckDirective(raw) || text2AnkiDeckDirective(ctx.text);
+  const text = stripText2AnkiDeck(raw);
+  if (!text) throw new Error("The selection has no text after the Deck line.");
+  return { kind: "selection", text, deck };
+}
+
+function text2AnkiSourceKey(path, text) {
+  return autoAnkiSourceKey(path, "selection", text);
+}
+
+function text2AnkiNotice(result) {
+  const r = result || {};
+  const count = Number.isFinite(Number(r.cards)) ? Number(r.cards) : 0;
+  const added = r.pushed && Number.isFinite(Number(r.pushed.added)) ? Number(r.pushed.added) : 0;
+  const updated = r.pushed && Number.isFinite(Number(r.pushed.updated)) ? Number(r.pushed.updated) : 0;
+  if (r.reused) return `Text2Anki reused ${count} existing card${count === 1 ? "" : "s"} and sent them to Anki.`;
+  return `Text2Anki created ${count} card${count === 1 ? "" : "s"} and added ${added} to Anki${updated ? ` (${updated} updated)` : ""}.`;
+}
+
+module.exports = {
+  DEFAULT_TEXT2ANKI,
+  chooseText2AnkiSource,
+  normalizeText2Anki,
+  stripText2AnkiDeck,
+  text2AnkiDeckDirective,
+  text2AnkiNotice,
+  text2AnkiSourceKey,
+};
+};
+
 /* ---- src/today-view.js ---- */
 __defs["today-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
@@ -54830,6 +55015,7 @@ const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const quizGenerator = require("./quiz-generator");
 const cardGenerator = require("./card-generator");
 const autoAnki = require("./auto-anki");
+const text2anki = require("./text2anki");
 const { AutoAnkiModal } = require("./auto-anki-modal");
 const studyBundle = require("./study-bundle");
 const studyBundleImport = require("./study-bundle-import");
@@ -55000,6 +55186,7 @@ QuestionTrackerPlugin.__test = {
   cardGenerator,
   autoAnki,
   AutoAnkiModal,
+  text2anki,
   studyBundle,
   studyBundleImport,
   zipWrite,

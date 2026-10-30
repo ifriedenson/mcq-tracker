@@ -5,6 +5,7 @@ const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 const { deckSummary, effectiveScheduler, normalizeDeckIntervals } = require("./cards");
 const { CARD_GENERATOR_STYLES, normalizeCardGenerator } = require("./card-generator");
 const { normalizeAutoAnki } = require("./auto-anki");
+const { normalizeText2Anki } = require("./text2anki");
 const { renderSettingsTabs } = require("./settings-ui");
 const { COUCHDB_PASSWORD_SECRET, normalizeCouchDb } = require("./couchdb-sync");
 const { hasSecretStorage, storeSecretValue } = require("./secret-keys");
@@ -779,6 +780,45 @@ function renderReview(containerEl, plugin, redisplay) {
   new Setting(containerEl)
     .setName("Send this note or selection")
     .addButton((b) => b.setButtonText("Open Auto Anki").onClick(() => plugin.openAutoAnki()));
+  new Setting(containerEl).setName("Text2Anki").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "A one-shot shortcut for the selected text. It drafts cards, writes ordinary tracked card notes and sends only those cards to Anki without opening a confirmation window. Re-running on the same selection reuses the existing cards. Add a line like Deck: Computer Science::Python to the note or the selection to choose its Anki deck for that run.",
+  });
+  const t2 = normalizeText2Anki(plugin.settings.text2anki, st.defaultDeck);
+  const patchText2Anki = async (values) => {
+    plugin.settings.text2anki = normalizeText2Anki({ ...normalizeText2Anki(plugin.settings.text2anki, st.defaultDeck), ...values }, st.defaultDeck);
+    await plugin.save();
+  };
+  new Setting(containerEl)
+    .setName("Text2Anki card count")
+    .setDesc("Between 1 and 20. The command always uses the selection.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.max = "20";
+      t.setValue(String(t2.count)).onChange(async (v) => {
+        const n = Math.round(Number(v));
+        if (Number.isFinite(n) && n > 0) await patchText2Anki({ count: Math.min(20, n) });
+      });
+    });
+  new Setting(containerEl)
+    .setName("Text2Anki deck")
+    .setDesc("Default deck for the shortcut. A Deck: line in the note or selection overrides it; leave blank to use the configured default deck.")
+    .addText((t) =>
+      t.setValue(t2.deck).setPlaceholder(st.defaultDeck || "General").onChange(async (v) => {
+        await patchText2Anki({ deck: v });
+      })
+    );
+  new Setting(containerEl)
+    .setName("Text2Anki extra instruction")
+    .setDesc("Optional guidance for the card generator, such as 'focus on definitions'. It cannot change the JSON shape or use outside facts.")
+    .addTextArea((t) => t.setValue(t2.customPrompt).onChange(async (v) => {
+      await patchText2Anki({ customPrompt: v });
+    }));
+  new Setting(containerEl)
+    .setName("Send the current selection")
+    .addButton((b) => b.setButtonText("Send selection now").onClick(() => plugin.runText2AnkiCommand()));
 }
 
 function renderAbout(containerEl, plugin) {
