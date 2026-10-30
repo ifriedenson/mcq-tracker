@@ -6,7 +6,8 @@ const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
 const { conceptMasteryRows } = require("./concept-mastery");
-const { renderBreakdown, renderCalibration, renderGrade, renderRetention, renderSkips } = require("./analytics-embed");
+const { renderBreakdown, renderCalibration, renderGrade, renderHeatmap, renderRetention, renderSkips } = require("./analytics-embed");
+const { bandQuestions, buildProgress, masteryScopes, scopeQuestions: questionsInScope } = require("./progress");
 
 /* ------------------------------------------- weak spots and error log */
 
@@ -16,8 +17,10 @@ class InsightsView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
-    this.tab = "weak"; // weak | errors | overview
+    this.tab = "weak"; // weak | progress | overview | concepts | errors
     this.overviewField = "skill";
+    this.progressWeeks = 12;
+    this.masteryScope = "";
     this.field = "skill";
     this.showAll = {};
     this.timer = null;
@@ -58,7 +61,7 @@ class InsightsView extends ItemView {
       return;
     }
     const tabs = root.createDiv({ cls: "qt-row qt-small-row" });
-    for (const [id, label] of [["overview", "Overview"], ["weak", "Weak spots"], ["concepts", "Concepts"], ["errors", "Error log"]]) {
+    for (const [id, label] of [["progress", "Progress"], ["overview", "Overview"], ["weak", "Weak spots"], ["concepts", "Concepts"], ["errors", "Error log"]]) {
       const b = tabs.createEl("button", { text: label });
       if (this.tab === id) b.addClass("mod-cta");
       b.addEventListener("click", () => {
@@ -67,6 +70,11 @@ class InsightsView extends ItemView {
       });
     }
     const questions = this.plugin.getQuestions();
+    if (this.tab === "progress") {
+      this.renderProgress(root, questions);
+      el.scrollTop = top;
+      return;
+    }
     if (this.tab === "overview") {
       this.renderOverview(root, questions);
       el.scrollTop = top;
@@ -191,6 +199,186 @@ class InsightsView extends ItemView {
     }
 
     root.createDiv({ cls: "qt-hint qt-dash-privacy", text: "Everything on this dashboard is calculated locally; nothing is uploaded." });
+  }
+
+  /** A goal-first progress page: today's target, weekly momentum, mastery and the next step. */
+  renderProgress(root, questions) {
+    const p = this.plugin;
+    const cards = p.getCards ? p.getCards() : [];
+    const now = new Date();
+    const studyLog = p.settings.studyLog;
+    const scopes = masteryScopes(questions);
+    if (this.masteryScope && !scopes.some((scope) => scope.toLowerCase() === this.masteryScope.toLowerCase())) this.masteryScope = "";
+    const progress = buildProgress({ questions, cards, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope });
+    const dash = buildDashboard({ questions, cards, studyLog, field: this.overviewField, today: now, weeks: this.progressWeeks });
+    if (!questions.length && !cards.length && !progress.study.weekMinutes) {
+      root.createDiv({
+        cls: "qt-empty",
+        text: "Nothing to chart yet. Answer a question, review a card or log a focus session and this page fills in.",
+      });
+      return;
+    }
+
+    const hero = root.createDiv({ cls: "qt-progress-hero" });
+    const ring = hero.createDiv({ cls: "qt-progress-ring" });
+    ring.setCssProps({ "--qt-pct": `${progress.goal.pct}%` });
+    ring.setAttr("role", "img");
+    ring.setAttr("aria-label", `${progress.goal.minutes} of ${progress.goal.goalMinutes} study minutes today`);
+    const face = ring.createDiv({ cls: "qt-progress-ring-face" });
+    face.createDiv({ cls: "qt-progress-ring-value", text: String(progress.goal.minutes) });
+    face.createDiv({ cls: "qt-progress-ring-label", text: `of ${progress.goal.goalMinutes} min` });
+    const heroMain = hero.createDiv({ cls: "qt-progress-hero-main" });
+    heroMain.createDiv({ cls: "qt-today-kicker", text: "Today's study goal" });
+    heroMain.createDiv({ cls: "qt-today-title", text: progress.goal.remaining ? `${progress.goal.remaining} min to go` : "Goal reached" });
+    heroMain.createDiv({
+      cls: "qt-today-meta",
+      text: `${progress.goal.streak} day streak · ${progress.study.weekMinutes} min in the last 7 days · ${progress.goal.sessionsToday} session${progress.goal.sessionsToday === 1 ? "" : "s"} today`,
+    });
+    const heroRow = heroMain.createDiv({ cls: "qt-row qt-small-row" });
+    heroRow.createEl("button", { text: "Log study time" }).addEventListener("click", () => p.openFocusLog());
+    heroRow
+      .createEl("button", { text: "Start 25-minute focus", cls: "mod-cta" })
+      .addEventListener("click", () => p.startFocusSession(25, p.settings.studyLog.lastCourse));
+
+    root.createEl("h3", { cls: "qt-today-section", text: "This week" });
+    root.createDiv({ cls: "qt-hint", text: "Monday to today, next to last week. Deltas compare the two." });
+    const momentum = progress.momentum;
+    const tiles = root.createDiv({ cls: "qt-dash-stats" });
+    const tile = (label, value, delta, unit, hint) => {
+      const box = tiles.createDiv({ cls: "qt-dash-stat" });
+      box.createDiv({ cls: "qt-dash-value", text: value });
+      box.createDiv({ cls: "qt-dash-label", text: label });
+      if (delta === null || delta === undefined) box.createDiv({ cls: "qt-hint", text: "First week" });
+      else if (!delta) box.createDiv({ cls: "qt-progress-delta", text: "No change vs last week" });
+      else box.createDiv({ cls: `qt-progress-delta ${delta > 0 ? "is-up" : "is-down"}`, text: `${delta > 0 ? "+" : ""}${delta}${unit} vs last week` });
+      if (hint) box.createDiv({ cls: "qt-hint", text: hint });
+    };
+    if (momentum) {
+      tile("Accuracy", fmtPct(momentum.current.accuracy), momentum.accuracyDelta, " pts", `${momentum.current.attempts} attempt${momentum.current.attempts === 1 ? "" : "s"} this week`);
+      tile("Attempts", String(momentum.current.attempts), momentum.attemptsDelta, "", `${momentum.current.activeDays} active day${momentum.current.activeDays === 1 ? "" : "s"}`);
+      tile("Study time", `${momentum.current.minutes} min`, momentum.minutesDelta, " min", `Goal is ${progress.goal.goalMinutes} min a day`);
+    }
+    tile(
+      "Mastery",
+      progress.mastery.total ? fmtPct(progress.mastery.total ? progress.mastery.mastered / progress.mastery.total : null) : "-",
+      null,
+      "",
+      `${progress.mastery.mastered} of ${progress.mastery.total} mastered`
+    );
+
+    root.createEl("h3", { cls: "qt-today-section", text: "Question mastery" });
+    const mastery = progress.mastery;
+    if (progress.masteryScopes.length) {
+      const scopeRow = root.createDiv({ cls: "qt-progress-scope" });
+      scopeRow.createSpan({ cls: "qt-hint", text: "Show mastery for" });
+      const picker = scopeRow.createEl("select", { cls: "qt-select" });
+      picker.createEl("option", { value: "", text: "All questions" });
+      for (const scope of progress.masteryScopes) picker.createEl("option", { value: scope, text: scope });
+      picker.value = progress.masteryScope;
+      picker.addEventListener("change", () => {
+        this.masteryScope = picker.value;
+        this.render();
+      });
+    }
+    const scopeLabel = progress.masteryScope ? ` in ${progress.masteryScope}` : "";
+    root.createDiv({
+      cls: "qt-hint",
+      text: mastery.total
+        ? `${mastery.tried} of ${mastery.total} question${mastery.total === 1 ? "" : "s"}${scopeLabel} tried. Mastery is practice accuracy on each note, weakest band first.`
+        : progress.masteryScope
+          ? `No questions in ${progress.masteryScope} yet.`
+          : "No question notes yet. Every question you try lands in a band here.",
+    });
+    if (!progress.masteryScopes.length) {
+      root.createDiv({ cls: "qt-hint", text: "Add a course property to question notes to compare mastery by subject." });
+    }
+    if (mastery.total) {
+      const stack = root.createDiv({ cls: "qt-progress-stack" });
+      for (const band of mastery.bands) {
+        if (!band.count) continue;
+        const seg = stack.createDiv({ cls: `qt-progress-seg is-${band.id}` });
+        seg.setCssProps({ "--qt-pct": `${band.pct * 100}%` });
+        seg.setAttr("title", `${band.label}: ${band.count} question${band.count === 1 ? "" : "s"} (${fmtPct(band.pct)})`);
+      }
+      const legend = root.createDiv({ cls: "qt-progress-legend" });
+      for (const band of mastery.bands) {
+        const line = legend.createDiv({ cls: "qt-progress-legend-row" });
+        line.createSpan({ cls: `qt-progress-swatch is-${band.id}` });
+        line.createSpan({ cls: "qt-progress-legend-label", text: band.label });
+        line.createSpan({ cls: "qt-progress-legend-count", text: `${band.count} · ${fmtPct(band.pct)}` });
+        if (!band.count) continue;
+        const go = line.createEl("button", { text: "Practice", cls: "qt-link" });
+        go.setAttr(
+          "aria-label",
+          `Practice ${band.count} ${band.label.toLowerCase()} question${band.count === 1 ? "" : "s"}${scopeLabel}`
+        );
+        go.addEventListener("click", () => {
+          const pool = bandQuestions(questionsInScope(questions, progress.masteryScope), band.id);
+          p.practiceQuestionPool(pool, `${band.label}${progress.masteryScope ? ` · ${progress.masteryScope}` : ""}`);
+        });
+      }
+    }
+
+    const range = root.createDiv({ cls: "qt-chips" });
+    for (const weeks of [4, 8, 12]) {
+      const chip = range.createEl("button", { text: `${weeks} weeks`, cls: "qt-chip" });
+      if (this.progressWeeks === weeks) chip.addClass("is-selected");
+      chip.addEventListener("click", () => {
+        this.progressWeeks = weeks;
+        this.render();
+      });
+    }
+    renderHeatmap(root, dash);
+
+    if (progress.courses.length) {
+      root.createEl("h3", { cls: "qt-today-section", text: "Course progress" });
+      root.createDiv({ cls: "qt-hint", text: "Practice accuracy per course, with the study time you logged against it." });
+      const list = root.createDiv({ cls: "qt-ins-list" });
+      for (const row of progress.courses) {
+        const line = list.createDiv({ cls: "qt-ins-row qt-dash-course" });
+        const main = line.createDiv({ cls: "qt-ins-main" });
+        main.createDiv({ cls: "qt-ins-name", text: row.course });
+        main.createDiv({
+          cls: "qt-hint",
+          text: row.attempts
+            ? `${row.attempts} attempt${row.attempts === 1 ? "" : "s"} · ${row.minutes} min studied`
+            : `${row.notes} note${row.notes === 1 ? "" : "s"} · not tried yet · ${row.minutes} min studied`,
+        });
+        const meter = line.createDiv({ cls: "qt-ins-meter" });
+        const band = row.accuracy === null ? "" : row.accuracy < 0.6 ? "is-low" : row.accuracy < 0.8 ? "is-mid" : "is-high";
+        meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((row.accuracy || 0) * 100)}%` });
+        meter.createSpan({ cls: "qt-ins-pct", text: fmtPct(row.accuracy) });
+        if (row.notes && row.course !== "No course") {
+          line.createEl("button", { text: "Practice" }).addEventListener("click", () => p.practiceWith({ course: [row.course] }, "smart"));
+        }
+      }
+    }
+
+    root.createEl("h3", { cls: "qt-today-section", text: "Next up" });
+    const next = progress.next;
+    const box = root.createDiv({ cls: "qt-progress-next" });
+    if (next.weak) {
+      const line = box.createDiv({ cls: "qt-progress-next-row" });
+      const main = line.createDiv({ cls: "qt-ins-main" });
+      main.createDiv({ cls: "qt-ins-name", text: `Weakest skill: ${next.weak.value}` });
+      main.createDiv({
+        cls: "qt-hint",
+        text: `${fmtPct(next.weak.accuracy)} correct over ${next.weak.attempts} attempt${next.weak.attempts === 1 ? "" : "s"}`,
+      });
+      line.createEl("button", { text: "Practice", cls: "mod-cta" }).addEventListener("click", () => p.practiceWith({ skill: [next.weak.value] }, "smart"));
+    } else {
+      box.createDiv({ cls: "qt-hint", text: "Your weakest skill shows up once questions have a skill property and some attempts." });
+    }
+    box.createDiv({
+      cls: "qt-hint",
+      text: `${next.due} due · ${next.fresh} new · ${next.hidden} hidden · ${next.dueCards} card${next.dueCards === 1 ? "" : "s"} due`,
+    });
+    const row = box.createDiv({ cls: "qt-row qt-small-row" });
+    if (next.due) row.createEl("button", { text: `Review ${next.due} due`, cls: "mod-cta" }).addEventListener("click", () => p.practiceWith({}, "due"));
+    if (next.fresh) row.createEl("button", { text: `Practice ${next.fresh} new` }).addEventListener("click", () => p.practiceWith({}, "unseen"));
+    if (cards.length) row.createEl("button", { text: next.dueCards ? "Review cards" : "Open cards" }).addEventListener("click", () => p.activateCards());
+
+    root.createDiv({ cls: "qt-hint qt-dash-privacy", text: "Everything on this page is calculated locally from your notes; nothing is uploaded." });
   }
 
   renderWeak(root, questions) {

@@ -109,6 +109,7 @@ const focus = require("./focus");
 const studyPlan = require("./study-plan");
 const analytics = require("./analytics");
 const analyticsEmbed = require("./analytics-embed");
+const progress = require("./progress");
 const { FocusLogModal } = require("./focus-modal");
 const { WelcomeModal } = require("./welcome-modal");
 const referenceElements = require("./reference-elements");
@@ -276,6 +277,16 @@ QuestionTrackerPlugin.__test = {
   focus,
   studyPlan,
   analytics,
+  progress,
+  buildProgress: progress.buildProgress,
+  buildMastery: progress.buildMastery,
+  masteryBandOf: progress.masteryBandOf,
+  masteryScopes: progress.masteryScopes,
+  scopeQuestions: progress.scopeQuestions,
+  bandQuestions: progress.bandQuestions,
+  buildWeeks: progress.buildWeeks,
+  buildMomentum: progress.buildMomentum,
+  buildCourses: progress.buildCourses,
   buildDashboard: analytics.buildDashboard,
   buildHeatmap: analytics.buildHeatmap,
   buildCalibration: analytics.buildCalibration,

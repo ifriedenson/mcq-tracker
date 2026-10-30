@@ -9,6 +9,7 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 ## Current state
 
 - Latest release: **1.117.0**
+- In the tree, unreleased: **1.118.0** (Progress tab with scoped mastery), verified with 696 tests and pushed; tag it only when the owner asks to release.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
 - The only unchecked item, **lighter multi-question authoring**, is new feature scope. Do not implement it without the owner explicitly ranking it.

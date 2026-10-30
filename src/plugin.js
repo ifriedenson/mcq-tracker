@@ -175,6 +175,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "focus-log", name: "Focus: log study time", callback: () => this.openFocusLog() });
     this.addCommand({ id: "study-plan", name: "Study plan: start for the next exam", callback: () => this.startNextExamPlan() });
     this.addCommand({ id: "open-dashboard", name: "Open analytics dashboard", callback: () => this.activateInsights("overview") });
+    this.addCommand({ id: "open-progress", name: "Open progress dashboard", callback: () => this.activateInsights("progress") });
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated notes", callback: () => this.undoLastAiWriteCommand() });
@@ -677,6 +678,24 @@ class QuestionTrackerPlugin extends Plugin {
       return;
     }
     await this.practiceWith({}, "smart", { practicePath: note.file.path });
+  }
+
+  /** Practice exactly this set of questions (for example one mastery band) as a quick session. */
+  async practiceQuestionPool(pool, label) {
+    if (this.moduleOff("mcq")) return null;
+    const today = localDate();
+    const list = (Array.isArray(pool) ? pool : []).filter((q) => q && q.file && isStudyable(q.fm, today));
+    if (!list.length) {
+      new Notice("No questions are in that group right now.");
+      return null;
+    }
+    const view = await this.activateView();
+    if (!view || !view.startQuick) {
+      new Notice("Could not open the practice view.");
+      return null;
+    }
+    await view.startQuick("count", list.length, { pool: list, label });
+    return view;
   }
 
   async activateInsights(tab) {

@@ -2704,12 +2704,189 @@
   margin-top: 14px;
 }
 
+/* ---- progress dashboard ---- */
+
+.qt-progress-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 14px;
+  background: var(--background-secondary);
+  margin-bottom: 6px;
+}
+
+.qt-progress-ring {
+  width: 96px;
+  height: 96px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: conic-gradient(var(--interactive-accent) var(--qt-pct, 0%), var(--background-modifier-border) 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qt-progress-ring-face {
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  background: var(--background-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.qt-progress-ring-value {
+  font-size: 1.35em;
+  font-weight: var(--font-semibold);
+  line-height: 1.1;
+}
+
+.qt-progress-ring-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-progress-hero-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.qt-progress-delta {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.qt-progress-delta.is-up {
+  color: var(--text-success, var(--color-green));
+}
+
+.qt-progress-delta.is-down {
+  color: var(--text-error);
+}
+
+.qt-progress-stack {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--background-modifier-border);
+  margin: 6px 0 8px;
+}
+
+.qt-progress-seg {
+  flex: 0 0 var(--qt-pct, 0%);
+  height: 100%;
+}
+
+.qt-progress-seg.is-untried,
+.qt-progress-swatch.is-untried {
+  background: var(--text-faint, var(--background-modifier-border-hover, var(--background-modifier-border)));
+}
+
+.qt-progress-seg.is-weak,
+.qt-progress-swatch.is-weak {
+  background: var(--text-error);
+}
+
+.qt-progress-seg.is-developing,
+.qt-progress-swatch.is-developing {
+  background: var(--text-warning, var(--color-orange));
+}
+
+.qt-progress-seg.is-strong,
+.qt-progress-swatch.is-strong {
+  background: var(--interactive-accent);
+}
+
+.qt-progress-seg.is-mastered,
+.qt-progress-swatch.is-mastered {
+  background: var(--text-success, var(--color-green));
+}
+
+.qt-progress-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 4px 12px;
+  margin-bottom: 6px;
+}
+
+.qt-progress-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 6px;
+}
+
+.qt-progress-scope .qt-select {
+  max-width: 100%;
+}
+
+.qt-progress-legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-progress-legend-row button {
+  padding: 0 6px;
+  height: auto;
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-progress-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+.qt-progress-legend-label {
+  flex: 1;
+}
+
+.qt-progress-legend-count {
+  color: var(--text-muted);
+}
+
+.qt-progress-next {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 10px 12px;
+  background: var(--background-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qt-progress-next-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.qt-progress-next-row .qt-ins-main {
+  flex: 1;
+}
+
 @media (max-width: 480px) {
   .qt-dash-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .qt-dash-course .qt-ins-meter {
     width: auto;
+  }
+  .qt-progress-hero {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 

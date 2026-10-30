@@ -283,6 +283,7 @@ module.exports = {
   renderCalibration,
   renderDashboardEmbed,
   renderGrade,
+  renderHeatmap,
   renderRetention,
   renderSkips,
 };

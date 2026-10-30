@@ -132,6 +132,69 @@ test("insights overview: shows the study heatmap, course time and weak skills", 
   assert.equal(v.tab, "weak");
 });
 
+test("insights progress: shows the goal, weekly momentum, mastery and next steps", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.settings.studyLog = {
+    sessions: [{ date: "2026-10-27", minutes: 30, course: "sat" }],
+    dailyGoalMinutes: 60,
+  };
+  const v = makeView(T.InsightsView, plugin, app, dom);
+  v.render();
+  await dom.click("Progress");
+  assert.equal(v.tab, "progress");
+  const texts = dom.texts();
+  assert.ok(texts.includes("Today's study goal"));
+  assert.ok(texts.includes("This week"));
+  assert.ok(texts.includes("Question mastery"));
+  assert.ok(texts.includes("Course progress"));
+  assert.ok(texts.includes("Next up"));
+  assert.ok(texts.some((t) => /60 min to go|Goal reached/.test(t)));
+  assert.ok(texts.some((t) => /Questions|4 ·|sat/.test(t)) || texts.includes("sat"));
+});
+
+test("insights progress: mastery scopes to a course and a band starts practice", async () => {
+  const app = makeApp([
+    { path: "Q/a.md", fm: { course: "Alpha", attempts: 2, correct_count: 0 } },
+    { path: "Q/b.md", fm: { course: "Alpha", attempts: 2, correct_count: 2 } },
+    { path: "Q/c.md", fm: { course: "Beta", attempts: 1, correct_count: 0 } },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const started = [];
+  plugin.practiceQuestionPool = async (pool, label) => started.push({ paths: pool.map((q) => q.file.path), label });
+  const dom = makeDom();
+  const v = new T.InsightsView({ app }, plugin);
+  v.app = app;
+  v.contentEl = dom.root;
+  v.tab = "progress";
+  v.masteryScope = "Alpha";
+  v.render();
+  assert.ok(dom.texts().some((text) => /2 of 2 questions in Alpha tried/.test(text)));
+  assert.ok(dom.all.some((el) => el.meta && el.meta.tag === "option" && el.meta.text === "Beta"));
+  const button = dom.all.find((el) => el.meta && el.meta.attrs && /Practice 1 needs work question in Alpha/.test(String(el.meta.attrs["aria-label"] || "")));
+  assert.ok(button, "the needs-work band has a practice button");
+  await button.handlers.find((h) => h.ev === "click").fn({});
+  assert.deepEqual(started, [{ paths: ["Q/a.md"], label: "Needs work · Alpha" }]);
+  const picker = dom.all.find((el) => el.meta && el.meta.tag === "select" && el.handlers.some((h) => h.ev === "change"));
+  picker.value = "Beta";
+  await picker.handlers.find((h) => h.ev === "change").fn({});
+  assert.equal(v.masteryScope, "Beta");
+  assert.ok(dom.texts().some((text) => /1 of 1 question in Beta tried/.test(text)));
+});
+
+test("plugin: a mastery band pool starts an exact quick session", async () => {
+  const { plugin } = await setup();
+  let session = null;
+  plugin.activateView = async () => ({ startQuick: async (...args) => (session = args) });
+  const pool = plugin.getQuestions().slice(0, 2);
+  await plugin.practiceQuestionPool(pool, "Needs work");
+  assert.equal(session[0], "count");
+  assert.equal(session[1], 2);
+  assert.equal(session[2].pool.length, 2);
+  assert.equal(session[2].label, "Needs work");
+  assert.equal(await plugin.practiceQuestionPool([], "Nothing"), null);
+});
+
 test("weak spots and error log have friendly empty states", async () => {
   const app = makeApp([{ path: "Q/a.md", fm: {} }]);
   const plugin = new QT(app);
