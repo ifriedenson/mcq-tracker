@@ -39,7 +39,7 @@ MCQ Tracker turns Obsidian into a local-first exam-prep workspace. Keep question
 - **Exam coverage.** Add a **Total topics** count to a course in Settings, Calendar, Courses. The next-exam study plan counts a topic as mastered only when every question in that `skill` is fully mastered, and Today/Insights show `mastered / declared topics (%)`. A count of 0 hides it, and readiness, due counts and scheduling are unchanged.
 - **Daily quiz (optional, off by default).** Get a small set of questions once a day from the folders you choose, with a separate completion streak and best streak. It uses the same queue and scheduler, stays on your device, and sends no notifications. When adaptive length is on, its count uses the same recent-recall signal. Start it from Settings, MCQ Tracker, Daily quiz, Today, or the command palette. An optional **Streak freeze** earns one freeze every five completions (configurable, maximum three) and automatically covers a missed day when you finish the next quiz, so one gap does not erase the streak.
 - **Study cards (optional, off by default).** Review the same MCQ notes as flip cards or choice cards, or switch the session to Learn, Test or Match, using your current filters and the same scheduler. No duplicate notes or second deck.
-- **Today:** a start screen that is a single column on phones and a compact dashboard grid on laptops, with due and new counts, the next class or exam, and one **Start 5 minutes** button that opens Quick Practice. When both modules have due work, **Start mixed review** runs one interleaved session.
+- **Today:** a start screen that is a single column on phones and a full-width widget grid on desktop, with due and new counts, the next class or exam, and one **Start 5 minutes** button that opens Quick Practice. When both modules have due work, **Start mixed review** runs one interleaved session.
 - **CSV results export.** Export a summary row per question or card plus a row per stored attempt, with course, skill, difficulty, accuracy, timing, review dates, error type and history. The files are plain CSVs written to the vault root for outside analysis.
 - **Answer-free practice sheet.** Export the current question filter as a printable Markdown sheet with the stimulus, question, choices or matching prompts and blank answer lines. The answer key, rationale, source notes and frontmatter are deliberately omitted, and question state is never changed. The file is written to the vault root as `mcq-practice-sheet-YYYY-MM-DD.md`.
 - **Error-log review sheet.** Export every question due for review as a printable Markdown sheet. Each prompt keeps the last recorded mistake beside it (your answer, the reason you tagged and the date), while the correct key, rationale, source notes and frontmatter stay out. The file is written as `mcq-review-sheet-YYYY-MM-DD.md`; review state is never changed.
@@ -424,6 +424,29 @@ Weight: 1
 ```
 
 Sliders accept any value within `Tolerance` of `Answer`. Text questions check an exact answer locally and, when AI features are on, offer **Evaluate with AI**; the model returns a 0–100 score and explanation through the existing card-grading AI path. `Weight` applies to the weighted block summary, which reports **pass**, **imprecise** or **fail** without changing the note format or scheduler.
+
+### QuizPort blocks
+
+A `quizport` block plays a plain-JSON quiz in the [QuizPort format](https://github.com/kelleyblackmore/quizport-library) inside any note. The same JSON works on quizport.io:
+
+```quizport
+{
+  "title": "Capitals",
+  "questions": [
+    {
+      "question": "What is the capital of France?",
+      "choices": ["London", "Paris", "Berlin"],
+      "answer": 1,
+      "hint": "It is on the Seine.",
+      "explanation": "Paris has been the capital since 987 AD."
+    }
+  ]
+}
+```
+
+`answer` is a 0-based index, or an array of indexes for multi-select. Each question can carry a `hint` (shown on request before answering) and an `explanation` (shown after). At the end, missed questions are listed and can be retried on their own. Add `shuffle: true` beside the JSON, or at the top of the quiz object, to shuffle questions and choices. A block can load a vault file instead with `file: quizzes/capitals.json`.
+
+The player only reads and grades locally: it makes no request and writes no attempt, history, streak or scheduler state. Use `mcq-quiz` with `ID:` when you want an answer recorded on a question note.
 
 ### Simple quiz blocks
 

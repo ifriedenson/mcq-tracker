@@ -35591,6 +35591,7 @@ const { completeDailyQuiz: recordDailyCompletion, dailyDone, normalizeDailyQuiz,
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
 const { extractSimpleQuizBlocks, legacyQuizJsNotice, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
+const { renderQuizPortBlock } = require("./quizport-view");
 const { applySimpleNoteQuizMarks, clearSimpleNoteQuizMarks, normalizeSimpleNoteQuiz, parseSimpleNoteQuiz } = require("./simple-note-quiz");
 const { SimpleNoteQuizModal } = require("./simple-note-quiz-modal");
 const { normalizeTutorRole } = require("./tutor-presets");
@@ -36011,6 +36012,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.registerMarkdownCodeBlockProcessor("mcq-dashboard", (source, el) => this.renderDashboardBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("mcq-quiz", (source, el, ctx) => this.renderQuizBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("quizport", (source, el, ctx) => this.renderQuizPortBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
     this.registerMarkdownCodeBlockProcessor("quizjs", (source, el) => this.renderSimpleQuizDataBlock(source, el, "js"));
@@ -39306,6 +39308,11 @@ class QuestionTrackerPlugin extends Plugin {
       });
     });
     if (!staticMode) cards.forEach((card, index) => card.toggleClass("qt-quiz-hidden", parsed.gated && index >= visibleQuizCount(parsed.questions.length, 0, true)));
+  }
+
+  /** Render a `quizport` block with the local QuizPort player. */
+  async renderQuizPortBlock(source, el, ctx) {
+    return renderQuizPortBlock(this, source, el, ctx);
   }
 
   /** Write one completed inline-quiz result into the source note's frontmatter. */
@@ -46199,6 +46206,464 @@ class QuizGeneratorModal extends Modal {
 }
 
 module.exports = { QuizGeneratorModal };
+};
+
+/* ---- src/quizport.js ---- */
+__defs["quizport"] = function (module, exports, require) {
+/*
+ * QuizPort JSON blocks: a portable, plain-JSON quiz format that also runs on
+ * quizport.io. A block can contain the JSON directly:
+ *
+ *   {
+ *     "title": "Capitals",
+ *     "questions": [
+ *       {
+ *         "question": "What is the capital of France?",
+ *         "choices": ["London", "Paris", "Berlin"],
+ *         "answer": 1,
+ *         "hint": "It is on the Seine.",
+ *         "explanation": "Paris has been the capital since 987 AD."
+ *       }
+ *     ]
+ *   }
+ *
+ * or point at a `.json` file in the vault:
+ *
+ *   file: quizzes/capitals.json
+ *   shuffle: true
+ *
+ * `answer` is a 0-based index, or an array of indexes for multi-select. The
+ * player only reads and grades; it never writes attempts, history, streak or
+ * scheduler state.
+ */
+const { str } = require("./util");
+
+const LETTERS = "ABCDEFGH";
+
+function textOf(value) {
+  return str(value).replace(/\r\n?/g, "\n").trim();
+}
+
+function line(value) {
+  return textOf(value).replace(/\s+/g, " ");
+}
+
+function emptyResult() {
+  return {
+    title: "",
+    description: "",
+    category: "",
+    difficulty: "",
+    author: "",
+    tags: [],
+    shuffle: false,
+    questions: [],
+    issues: [],
+  };
+}
+
+function normalizeChoices(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .map((item) => {
+      if (item && typeof item === "object") {
+        return {
+          text: line(item.text !== undefined ? item.text : item.label !== undefined ? item.label : item.value),
+          correct: item.correct === true,
+        };
+      }
+      return { text: line(item), correct: false };
+    })
+    .filter((choice) => choice.text);
+}
+
+/**
+ * Resolve an answer index, an array of indexes, a letter, or the choice text.
+ * Indexes are 0-based, matching the QuizPort format.
+ */
+function answerIndexes(raw, choices) {
+  if (raw === undefined || raw === null) return [];
+  const values = Array.isArray(raw) ? raw : [raw];
+  const out = [];
+  for (const value of values) {
+    if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value < choices.length) {
+      out.push(value);
+      continue;
+    }
+    const text = line(value).replace(/^[*_`"']+|[*_`"']+$/g, "");
+    if (!text) continue;
+    const byText = choices.findIndex((choice) => choice.text.toLowerCase() === text.toLowerCase());
+    if (byText >= 0) {
+      out.push(byText);
+      continue;
+    }
+    const letter = text.match(/^\(?([A-Ha-h])\)?$/);
+    if (letter) {
+      const at = LETTERS.indexOf(letter[1].toUpperCase());
+      if (at >= 0 && at < choices.length) out.push(at);
+      continue;
+    }
+    const number = Number(text);
+    if (Number.isInteger(number) && number >= 0 && number < choices.length) out.push(number);
+  }
+  return [...new Set(out)].sort((a, b) => a - b);
+}
+
+function normalizeQuestion(raw, index, issues) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const prompt = line(source.question !== undefined ? source.question : source.prompt !== undefined ? source.prompt : source.q);
+  const choices = normalizeChoices(source.choices !== undefined ? source.choices : source.options);
+  let answers = answerIndexes(source.answer, choices);
+  if (!answers.length) {
+    const marked = choices.map((choice, at) => (choice.correct ? at : -1)).filter((at) => at >= 0);
+    if (marked.length) answers = marked;
+  }
+  if (!prompt) issues.push(`Question ${index + 1} has no question text.`);
+  if (choices.length < 2) issues.push(`Question ${index + 1} needs at least two choices.`);
+  if (!answers.length) issues.push(`Question ${index + 1} has no valid answer index.`);
+  return {
+    prompt,
+    choices: choices.map((choice) => ({ text: choice.text })),
+    answers,
+    hint: textOf(source.hint),
+    explanation: textOf(source.explanation),
+    multi: answers.length > 1,
+    valid: !!prompt && choices.length >= 2 && answers.length > 0,
+  };
+}
+
+/** Normalize a parsed QuizPort object (or a bare question array). Never throws. */
+function parseQuizPortData(data) {
+  const result = emptyResult();
+  let list = [];
+  if (Array.isArray(data)) {
+    list = data;
+  } else if (data && typeof data === "object" && Array.isArray(data.questions)) {
+    list = data.questions;
+    result.title = line(data.title);
+    result.description = line(data.description);
+    result.category = line(data.category);
+    result.difficulty = line(data.difficulty);
+    result.author = line(data.author);
+    result.tags = Array.isArray(data.tags) ? data.tags.map(line).filter(Boolean) : [];
+    result.shuffle = data.shuffle === true;
+  } else {
+    result.issues.push("Add a QuizPort object with a questions array, or a question array.");
+    return result;
+  }
+  if (!list.length) {
+    result.issues.push("This QuizPort quiz has no questions.");
+    return result;
+  }
+  list.forEach((raw, index) => {
+    result.questions.push(normalizeQuestion(raw, index, result.issues));
+  });
+  return result;
+}
+
+/** Read a fenced `quizport` block. `file:` blocks are loaded by the plugin. */
+function parseQuizPortBlock(source) {
+  const raw = str(source).replace(/\r\n?/g, "\n").trim();
+  const result = emptyResult();
+  if (!raw) {
+    result.issues.push("Add QuizPort JSON or a file: path.");
+    return result;
+  }
+  if (/^[\[{]/.test(raw)) {
+    try {
+      const data = JSON.parse(raw);
+      const parsed = parseQuizPortData(data);
+      parsed.shuffle = parsed.shuffle || (data && data.shuffle === true);
+      return parsed;
+    } catch (e) {
+      result.issues.push("That quizport block is not valid JSON.");
+      return result;
+    }
+  }
+  const jsonLines = [];
+  for (const rawLine of raw.split("\n")) {
+    const option = rawLine.trim().match(/^(file|shuffle)\s*[:=]\s*(.*)$/i);
+    if (option) {
+      if (option[1].toLowerCase() === "file") result.file = textOf(option[2]);
+      else result.shuffle = /^(true|yes|on|1)$/i.test(textOf(option[2]));
+      continue;
+    }
+    jsonLines.push(rawLine);
+  }
+  const jsonText = jsonLines.join("\n").trim();
+  if (!jsonText) {
+    if (!result.file) result.issues.push("Add QuizPort JSON or a file: path.");
+    return result;
+  }
+  try {
+    const parsed = parseQuizPortData(JSON.parse(jsonText));
+    parsed.shuffle = result.shuffle || parsed.shuffle;
+    return parsed;
+  } catch (e) {
+    result.issues.push("That quizport block is not valid JSON.");
+    return result;
+  }
+}
+
+/** Grade one answer. A multi-select answer must match the key exactly. */
+function scoreQuizPortAnswer(question, picked) {
+  const answers = Array.isArray(question && question.answers) ? question.answers : [];
+  const count = question && Array.isArray(question.choices) ? question.choices.length : 0;
+  const chosen = [...new Set((Array.isArray(picked) ? picked : [picked]).map(Number))]
+    .filter((value) => Number.isInteger(value) && value >= 0 && value < count)
+    .sort((a, b) => a - b);
+  return {
+    correct: answers.length > 0 && chosen.length === answers.length && answers.every((answer) => chosen.includes(answer)),
+    answers: answers.slice(),
+    picked: chosen,
+  };
+}
+
+/** Score the whole quiz from per-question results. Unanswered questions count as wrong. */
+function quizPortResult(questions, records) {
+  const list = Array.isArray(questions) ? questions : [];
+  const list2 = Array.isArray(records) ? records : [];
+  let answered = 0;
+  let correct = 0;
+  const missed = [];
+  list.forEach((_question, index) => {
+    const record = list2[index];
+    if (!record) return;
+    answered++;
+    if (record.correct) correct++;
+    else missed.push(index);
+  });
+  return {
+    answered,
+    total: list.length,
+    correct,
+    percent: list.length ? Math.round((correct / list.length) * 100) : 0,
+    missed,
+  };
+}
+
+/** Deterministic shuffle, used for both question and choice order. */
+function seededRandom(seed) {
+  let state = 2166136261 >>> 0;
+  for (const char of String(seed)) {
+    state ^= char.charCodeAt(0);
+    state = Math.imul(state, 16777619);
+  }
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffledOrder(length, random) {
+  const order = Array.from({ length }, (_value, index) => index);
+  for (let at = order.length - 1; at > 0; at--) {
+    const swap = Math.floor(random() * (at + 1));
+    [order[at], order[swap]] = [order[swap], order[at]];
+  }
+  return order;
+}
+
+/**
+ * Shuffle questions and each question's choices while remapping its answer
+ * indexes, so the same choice text stays correct after a shuffle.
+ */
+function shuffleQuizPortQuestions(questions, seed) {
+  const list = Array.isArray(questions) ? questions : [];
+  const random = seededRandom(seed === undefined ? "quizport" : seed);
+  const order = shuffledOrder(list.length, random);
+  return order.map((index) => {
+    const question = list[index];
+    const choiceOrder = shuffledOrder(question.choices.length, random);
+    const choices = choiceOrder.map((at) => ({ text: question.choices[at].text }));
+    const answers = question.answers
+      .map((answer) => choiceOrder.indexOf(answer))
+      .filter((at) => at >= 0)
+      .sort((a, b) => a - b);
+    return { ...question, choices, answers };
+  });
+}
+
+module.exports = {
+  LETTERS,
+  answerIndexes,
+  parseQuizPortBlock,
+  parseQuizPortData,
+  quizPortResult,
+  scoreQuizPortAnswer,
+  shuffleQuizPortQuestions,
+};
+};
+
+/* ---- src/quizport-view.js ---- */
+__defs["quizport-view"] = function (module, exports, require) {
+/*
+ * Render a `quizport` fenced block. The player is intentionally local and
+ * read-only: it grades in memory and never records attempts, history, streak or
+ * scheduler state. A block can hold JSON directly or a `file:` path plus
+ * `shuffle: true`; the file path resolves like a note link.
+ */
+const { TFile } = require("obsidian");
+const { str } = require("./util");
+const { LETTERS, parseQuizPortBlock, parseQuizPortData, quizPortResult, scoreQuizPortAnswer, shuffleQuizPortQuestions } = require("./quizport");
+
+/** Resolve a QuizPort `file:` against the vault and the containing note's folder. */
+function resolveQuizPortFile(plugin, path, sourcePath) {
+  const target = str(path).trim().replace(/^\/+/, "");
+  if (!target) return null;
+  const dir = str(sourcePath).includes("/") ? str(sourcePath).replace(/\/[^/]*$/, "") : "";
+  const candidates = [target, dir ? `${dir}/${target}` : ""];
+  if (!/\.json$/i.test(target)) candidates.push(`${target}.json`, dir ? `${dir}/${target}.json` : "");
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const file = plugin.app.vault.getAbstractFileByPath(candidate);
+    if (file instanceof TFile) return file;
+  }
+  return null;
+}
+
+async function renderQuizPortBlock(plugin, source, el, ctx) {
+  let meta = parseQuizPortBlock(source);
+  let questions = meta.questions;
+  const issues = meta.issues.slice();
+  if (meta.file) {
+    const file = resolveQuizPortFile(plugin, meta.file, ctx && ctx.sourcePath);
+    if (!file) {
+      issues.push(`QuizPort file "${meta.file}" was not found in the vault.`);
+    } else {
+      try {
+        const loaded = parseQuizPortData(JSON.parse(await plugin.app.vault.cachedRead(file)));
+        meta = { ...meta, ...loaded, file: meta.file, shuffle: meta.shuffle || loaded.shuffle };
+        questions = loaded.questions;
+        issues.push(...loaded.issues);
+      } catch (e) {
+        issues.push("That QuizPort file is not valid JSON.");
+      }
+    }
+  }
+  const box = el.createDiv({ cls: "qt-quiz-block qt-quizport" });
+  if (meta.title) box.createDiv({ cls: "qt-quiz-title", text: meta.title });
+  const badges = [meta.category, meta.difficulty, meta.author].filter(Boolean);
+  if (badges.length) box.createDiv({ cls: "qt-quiz-meta", text: badges.join(" · ") });
+  if (meta.description) box.createDiv({ cls: "qt-quiz-description", text: meta.description });
+  for (const issue of issues.slice(0, 8)) box.createDiv({ cls: "qt-quiz-issue", text: issue });
+  if (!questions.length) return;
+  if (meta.shuffle) {
+    questions = shuffleQuizPortQuestions(questions, `${meta.file || ""}|${source}|${ctx && ctx.sourcePath ? ctx.sourcePath : ""}|${Date.now()}`);
+  }
+  const summary = box.createDiv({ cls: "qt-quiz-summary" });
+  const stage = box.createDiv({ cls: "qt-quizport-stage" });
+  let active = questions.slice();
+  let records = [];
+  let index = 0;
+  const paintSummary = () => {
+    const result = quizPortResult(active, records);
+    if (!result.answered) {
+      summary.setText(`${active.length} question${active.length === 1 ? "" : "s"} · choose an answer`);
+      return;
+    }
+    summary.setText(`Score: ${result.percent}% · ${result.answered}/${result.total} answered`);
+  };
+  const restart = () => {
+    active = questions.slice();
+    records = [];
+    index = 0;
+    paintSummary();
+    renderQuestion();
+  };
+  const finish = () => {
+    stage.empty();
+    const result = quizPortResult(active, records);
+    stage.createDiv({
+      cls: result.percent >= 80 ? "qt-quiz-score is-pass" : result.percent >= 60 ? "qt-quiz-score is-imprecise" : "qt-quiz-score is-fail",
+      text: `${result.correct}/${result.total} correct · ${result.percent}%`,
+    });
+    if (result.missed.length) {
+      const missed = stage.createDiv({ cls: "qt-quizport-missed" });
+      missed.createDiv({ cls: "qt-quizport-missed-title", text: `Missed ${result.missed.length} question${result.missed.length === 1 ? "" : "s"}` });
+      for (const at of result.missed) missed.createDiv({ cls: "qt-quizport-missed-item", text: `${at + 1}. ${active[at].prompt}` });
+      stage.createEl("button", { cls: "qt-quiz-submit", text: `Retry ${result.missed.length} missed` }).addEventListener("click", () => {
+        active = result.missed.map((at) => active[at]);
+        records = [];
+        index = 0;
+        paintSummary();
+        renderQuestion();
+      });
+    }
+    stage.createEl("button", { cls: "qt-quiz-submit", text: "Restart quiz" }).addEventListener("click", restart);
+  };
+  const renderQuestion = () => {
+    stage.empty();
+    if (index >= active.length) {
+      finish();
+      return;
+    }
+    const question = active[index];
+    stage.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.prompt}` });
+    if (question.hint) {
+      const hint = stage.createEl("button", { cls: "qt-quiz-submit qt-quizport-hint", text: "Show hint" });
+      hint.addEventListener("click", () => {
+        hint.disabled = true;
+        hint.setText("Hint");
+        stage.createDiv({ cls: "qt-hint", text: question.hint });
+      });
+    }
+    const choices = stage.createDiv({ cls: "qt-quiz-choices" });
+    const picked = new Set();
+    let locked = false;
+    let submit = null;
+    const grade = (selection) => {
+      if (locked) return;
+      locked = true;
+      const result = scoreQuizPortAnswer(question, selection);
+      records[index] = result;
+      buttons.forEach((button, at) => {
+        button.toggleClass("is-correct", question.answers.includes(at));
+        button.toggleClass("is-wrong", selection.includes(at) && !question.answers.includes(at));
+        button.toggleClass("is-picked", selection.includes(at));
+      });
+      if (submit) submit.disabled = true;
+      paintSummary();
+      stage.createDiv({
+        cls: result.correct ? "qt-quiz-result is-correct" : "qt-quiz-result is-wrong",
+        text: result.correct ? "Correct" : "Not quite",
+      });
+      if (question.explanation) stage.createDiv({ cls: "qt-quiz-explanation", text: question.explanation });
+      stage.createEl("button", { cls: "qt-quiz-submit", text: index === active.length - 1 ? "See results" : "Next question" }).addEventListener("click", () => {
+        index++;
+        renderQuestion();
+      });
+    };
+    const buttons = question.choices.map((choice, at) => {
+      const button = choices.createEl("button", { cls: "qt-quiz-choice", text: `${LETTERS[at]}. ${choice.text}` });
+      button.addEventListener("click", () => {
+        if (locked) return;
+        if (!question.multi) {
+          grade([at]);
+          return;
+        }
+        if (picked.has(at)) picked.delete(at);
+        else picked.add(at);
+        button.toggleClass("is-picked", picked.has(at));
+        if (submit) submit.disabled = picked.size === 0;
+      });
+      return button;
+    });
+    if (question.multi) {
+      submit = stage.createEl("button", { cls: "qt-quiz-submit", text: "Submit answer" });
+      submit.disabled = true;
+      submit.addEventListener("click", () => {
+        if (picked.size) grade([...picked]);
+      });
+    }
+  };
+  paintSummary();
+  renderQuestion();
+}
+
+module.exports = { renderQuizPortBlock, resolveQuizPortFile };
 };
 
 /* ---- src/reference-data.js ---- */
@@ -54946,6 +55411,7 @@ class TodayView extends ItemView {
 
   async onOpen() {
     this.contentEl.addClass("qt-root");
+    this.contentEl.addClass("qt-root-today");
     this.render();
     // Counts and the next event move while the tab stays open.
     this.registerInterval(activeWindow.setInterval(() => this.render(), 60000));
@@ -57146,6 +57612,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
 const quizBlock = require("./quiz-block");
+const quizport = require("./quizport");
 const sourceRecall = require("./source-recall");
 const noteReview = require("./note-review");
 const spacedEverything = require("./spaced-everything");
@@ -57316,6 +57783,7 @@ QuestionTrackerPlugin.__test = {
   QuickAddModal,
   quickAdd,
   quizBlock,
+  quizport,
   sourceRecall,
   couchdbSync,
   cardPreview,

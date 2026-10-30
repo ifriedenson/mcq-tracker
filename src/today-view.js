@@ -37,6 +37,7 @@ class TodayView extends ItemView {
 
   async onOpen() {
     this.contentEl.addClass("qt-root");
+    this.contentEl.addClass("qt-root-today");
     this.render();
     // Counts and the next event move while the tab stays open.
     this.registerInterval(activeWindow.setInterval(() => this.render(), 60000));

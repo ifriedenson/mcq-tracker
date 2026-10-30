@@ -250,3 +250,21 @@ test("today: groups sections into a responsive dashboard grid", async () => {
   assert.ok(dom.all.some((el) => el.meta && el.meta.cls === "qt-today-panel qt-today-panel-wide"));
   assert.ok(dom.all.some((el) => el.meta && el.meta.cls === "qt-today-panel"));
 });
+
+test("today: desktop CSS fills the pane and adds a four-column widget breakpoint", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const css = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
+  const rule = (css.match(/\.qt-today \{[^}]*\}/) || [])[0] || "";
+  assert.match(rule, /max-width:\s*none/);
+  assert.match(rule, /width:\s*100%/);
+  assert.match(rule, /min-height:\s*100%/);
+  assert.match(rule, /margin:\s*0;/);
+  assert.match(css, /\.qt-root\.qt-root-today \{\s*height:\s*100%;/);
+  const wide = css.indexOf("@media (min-width: 1600px)");
+  assert.ok(wide > 0, "a four-column desktop breakpoint exists");
+  const block = css.slice(wide, wide + 500);
+  assert.match(block, /\.qt-today-panel \{\s*grid-column:\s*span 3;/);
+  assert.match(block, /\.qt-today-panel-wide \{\s*grid-column:\s*span 6;/);
+  assert.ok(!css.includes("max-width: 900px"), "the old 900px tablet cap is gone");
+});

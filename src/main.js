@@ -59,6 +59,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
 const quizBlock = require("./quiz-block");
+const quizport = require("./quizport");
 const sourceRecall = require("./source-recall");
 const noteReview = require("./note-review");
 const spacedEverything = require("./spaced-everything");
@@ -229,6 +230,7 @@ QuestionTrackerPlugin.__test = {
   QuickAddModal,
   quickAdd,
   quizBlock,
+  quizport,
   sourceRecall,
   couchdbSync,
   cardPreview,
