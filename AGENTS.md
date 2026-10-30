@@ -8,7 +8,7 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
-- Latest release: **1.149.0** (Anki folder exclusions: configured vault folders and their subfolders are kept out of Anki previews, pushes and syncs), tagged and published on Oct 30, 2026. The previous release is **1.148.0** (Spaced Repetition quiz notes, commit `c661ee7`, [run 41094115096](https://github.com/ifriedenson/mcq-tracker/actions/runs/41094115096)).
+- Latest release: **1.149.0** (Anki folder exclusions: configured vault folders and their subfolders are kept out of Anki previews, pushes and syncs), commit `79689fd`, tagged and published on Oct 30, 2026 in [run 41095440297](https://github.com/ifriedenson/mcq-tracker/actions/runs/41095440297). Release: https://github.com/ifriedenson/mcq-tracker/releases/tag/1.149.0. The previous release is **1.148.0** (Spaced Repetition quiz notes, commit `c661ee7`, [run 41094115096](https://github.com/ifriedenson/mcq-tracker/actions/runs/41094115096)).
 - **856 tests** pass and `main.js` is the build of `src/`. Release 1.149.0 adds Anki folder exclusions; 1.148.0 added Spaced Repetition quiz notes, 1.147.0 added Text2Anki, 1.146.0 added Auto Anki, 1.145.0 added Spaced Everything, 1.144.0 added the Simple Note Quiz, and 1.143.0 added Simple Quiz blocks, JSON/JavaScript card sources and local quiz charts.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
