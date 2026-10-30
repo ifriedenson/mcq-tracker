@@ -10312,6 +10312,7 @@ const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictness, parseVariants } = require("./card-grading");
 const { DEFAULT_ANKI_CONNECT, normalizeAnkiConnect } = require("./anki-connect");
+const { DEFAULT_PLAIN_CARDS, inferPlainCard, normalizePlainCards, plainDeckName } = require("./plain-cards");
 
 const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
 const CARD_TYPE_LABELS = {
@@ -10369,6 +10370,7 @@ function mergeCardSettings(saved, defaults) {
       decks: [],
       csvMappings: {},
       ankiConnect: { ...DEFAULT_ANKI_CONNECT },
+      plainMarkdown: { ...DEFAULT_PLAIN_CARDS },
     },
     defaults || {}
   );
@@ -10385,6 +10387,7 @@ function mergeCardSettings(saved, defaults) {
   out.decks = normalizeDecks(src.decks === undefined ? base.decks : src.decks);
   out.csvMappings = src.csvMappings && typeof src.csvMappings === "object" && !Array.isArray(src.csvMappings) ? { ...src.csvMappings } : {};
   out.ankiConnect = normalizeAnkiConnect(src.ankiConnect === undefined ? base.ankiConnect : src.ankiConnect);
+  out.plainMarkdown = normalizePlainCards(src.plainMarkdown === undefined ? base.plainMarkdown : src.plainMarkdown);
   return out;
 }
 
@@ -10419,6 +10422,11 @@ function deckOf(fm, settings, path) {
     if (!best || folder.length > best.folder.length) best = { name: deck.name, folder };
   }
   if (best) return best.name;
+  const plain = cards.plainMarkdown;
+  if (plain && plain.enabled === true) {
+    const derived = plainDeckName(path, plain.folder, "");
+    if (derived) return derived;
+  }
   const root = normalizeFolder(cards.newCardFolder);
   if (root && p.startsWith(root + "/")) {
     const rest = p.slice(root.length + 1);
@@ -10581,6 +10589,7 @@ function parseCloze(text) {
 function parseCardBody(text, fm) {
   const h = headingsOf(cleanBody(text));
   const kind = cardKind(fm);
+  const plain = inferPlainCard(text);
   if (kind === "vocab") {
     const term = firstSection(h, ["term", "word", "front", "prompt"]) || str(fm.term || fm.word || fm.front).trim();
     const definition =
@@ -10600,10 +10609,16 @@ function parseCardBody(text, fm) {
     };
   }
 
-  let cardType = lower(fm && (fm.card_type || fm.card_type_name)) || "basic";
+  const declaredType = lower(fm && (fm.card_type || fm.card_type_name));
+  let cardType = declaredType || "basic";
   if (!CARD_TYPES.includes(cardType)) cardType = "basic";
   let front = firstSection(h, ["front", "prompt", "question", "term"]) || str(fm.front || fm.prompt).trim();
   let back = firstSection(h, ["back", "answer", "definition", "explanation"]) || str(fm.back || fm.answer).trim();
+  if (!front && !back && plain) {
+    if (!declaredType) cardType = plain.cardType;
+    front = plain.front;
+    back = plain.back;
+  }
 
   if (cardType === "image-occlusion") {
     const body = cleanBody(text);
@@ -10638,7 +10653,7 @@ function parseCardBody(text, fm) {
   let rawFront = front;
   let rawBack = back;
   if (cardType === "cloze") {
-    const source = front || back || firstSection(h, ["text"]);
+    const source = (front || back || firstSection(h, ["text"])).replace(/~~([^~\n]+)~~/g, "==$1==");
     const parsed = parseCloze(source);
     rawFront = source;
     front = parsed.prompt;
@@ -14004,6 +14019,42 @@ function renderDecks(containerEl, plugin, redisplay) {
       })
     );
 
+  new Setting(containerEl).setName("Plain Markdown cards").setHeading();
+  const plain = st.plainMarkdown;
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Optional. Treat every note under one folder as a card without Anki markup. Split the front and back with ---, use two --- lines for reversed cards, or wrap text in ~~tildes~~ for a cloze. Subfolders become nested Anki decks with ::. Notes outside the folder and every existing card setting stay unchanged.",
+  });
+  new Setting(containerEl)
+    .setName("Use plain Markdown notes as cards")
+    .setDesc("Off by default. The folder is scanned locally; notes keep their plain Markdown and receive normal tracking properties only when reviewed.")
+    .addToggle((t) =>
+      t.setValue(plain.enabled === true).onChange(async (v) => {
+        plain.enabled = v;
+        await plugin.save();
+        await plugin.refreshPlainCards({ refresh: true });
+      })
+    );
+  new Setting(containerEl)
+    .setName("Plain Markdown folder")
+    .setDesc("The folder whose notes are read as cards. Leave blank to keep this feature idle. Rescan after adding or moving notes.")
+    .addText((t) =>
+      t
+        .setPlaceholder("e.g. Flashcards")
+        .setValue(plain.folder || "")
+        .onChange(async (v) => {
+          plain.folder = str(v).trim().replace(/^\/+|\/+$/g, "");
+          await plugin.save();
+          if (plain.enabled) await plugin.refreshPlainCards({ refresh: true });
+        })
+    )
+    .addButton((b) =>
+      b.setButtonText("Rescan").onClick(async () => {
+        const n = await plugin.refreshPlainCards({ refresh: true });
+        new Notice(n ? `Found ${n} plain Markdown card${n === 1 ? "" : "s"}.` : "No plain Markdown cards found in that folder.");
+      })
+    );
+
   if (!decks.length) {
     containerEl.createEl("p", {
       cls: "setting-item-description",
@@ -15860,6 +15911,7 @@ const DEFAULT_SETTINGS = {
     decks: [], // [{ name, folder, course, answerMode, gradingStrictness }]
     csvMappings: {}, // header-signature -> column mapping remembered by the generic CSV importer
     ankiConnect: { enabled: false, url: "http://127.0.0.1:8765", deck: "", vaultTags: "", backlinks: false }, // optional local AnkiConnect push; off by default
+    plainMarkdown: { enabled: false, folder: "" }, // optional Yanki-style plain Markdown cards; off by default
   },
 };
 
@@ -32484,6 +32536,132 @@ function drawHighlightAreas(ctx, areas, width, height) {
 module.exports = { PdfInkModal, TextBoxPromptModal };
 };
 
+/* ---- src/plain-cards.js ---- */
+__defs["plain-cards"] = function (module, exports, require) {
+/*
+ * Plain Markdown card structure, after Yanki's public syntax but written
+ * independently for this plugin.
+ *
+ *   A basic card:              A reversed pair:
+ *   front                      front
+ *   ---                        ---
+ *   back                       ---
+ *                              back
+ *
+ *   A cloze card uses ~~struck-through~~ text, and a note may keep any
+ *   ordinary Markdown around it. Folders below the configured source folder
+ *   become nested Anki decks with `::`.
+ */
+const { str } = require("./util");
+
+const DEFAULT_PLAIN_CARDS = { enabled: false, folder: "" };
+
+function normalizeFolder(value) {
+  return str(value).trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+}
+
+/** Normalise saved plain-card settings without inventing a folder. */
+function normalizePlainCards(value) {
+  const src = value && typeof value === "object" ? value : {};
+  return {
+    enabled: src.enabled === true,
+    folder: normalizeFolder(src.folder),
+  };
+}
+
+function bodyOnly(text) {
+  return str(text).replace(/\r\n/g, "\n").replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+}
+
+/** Horizontal rules and cloze markers inside fenced code are examples, not syntax. */
+function structureLines(text) {
+  const lines = bodyOnly(text).split("\n");
+  const rules = [];
+  const cloze = [];
+  let fenced = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*(```|~~~)/.test(lines[i])) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) continue;
+    if (/^\s*---\s*$/.test(lines[i])) rules.push(i);
+    if (/~~[^~\n]+~~/.test(lines[i])) cloze.push(i);
+  }
+  return { lines, rules, cloze };
+}
+
+function sectionsOf(lines, rules) {
+  const out = [];
+  let start = 0;
+  for (const at of rules) {
+    out.push(lines.slice(start, at).join("\n").trim());
+    start = at + 1;
+  }
+  out.push(lines.slice(start).join("\n").trim());
+  return out;
+}
+
+/**
+ * Infer the note type from structure alone. Returns null when the note has no
+ * front/back separator, so a stray note in the folder is not presented as an
+ * empty card.
+ */
+function inferPlainCard(text) {
+  const { lines, rules, cloze } = structureLines(text);
+  const sections = sectionsOf(lines, rules);
+  if (cloze.length) {
+    const front = sections[0] || bodyOnly(text);
+    return front ? { cardType: "cloze", front, back: "" } : null;
+  }
+  if (rules.length === 1) {
+    const front = sections[0].trim();
+    const back = sections[1].trim();
+    return front && back ? { cardType: "basic", front, back } : null;
+  }
+  // Two adjacent rules are Yanki's reversed marker: A --- --- B.
+  if (rules.length === 2 && rules[1] === rules[0] + 1) {
+    const front = sections[0].trim();
+    const back = sections[2].trim();
+    return front && back ? { cardType: "reversed", front, back } : null;
+  }
+  return null;
+}
+
+/** True when a path is the plain-card folder or one of its descendants. */
+function isPlainPath(path, folder) {
+  const root = normalizeFolder(folder);
+  if (!root) return false;
+  const p = normalizeFolder(path);
+  return p === root || p.startsWith(root + "/");
+}
+
+/**
+ * Yanki-style folder deck: the source folder and each subfolder become a
+ * `::`-separated deck. A note directly in the source folder uses that folder's
+ * own name; a nested note adds its subfolders.
+ */
+function plainDeckName(path, folder, fallback) {
+  const root = normalizeFolder(folder);
+  if (!root || !isPlainPath(path, root)) return "";
+  const dirs = normalizeFolder(path).split("/").slice(0, -1);
+  const rootParts = root.split("/");
+  const rootName = rootParts[rootParts.length - 1] || "";
+  const relative = dirs.slice(rootParts.length).filter(Boolean);
+  const parts = [rootName, ...relative].filter(Boolean);
+  return parts.length ? parts.join("::") : str(fallback).trim();
+}
+
+module.exports = {
+  DEFAULT_PLAIN_CARDS,
+  normalizePlainCards,
+  normalizeFolder,
+  inferPlainCard,
+  isPlainPath,
+  plainDeckName,
+};
+};
+
 /* ---- src/plugin.js ---- */
 __defs["plugin"] = function (module, exports, require) {
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
@@ -32552,6 +32730,7 @@ const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
+const { inferPlainCard, isPlainPath, normalizePlainCards } = require("./plain-cards");
 const { cardUpdateDiff } = require("./card-write-diff");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { MixedReviewModal, buildMixedQueue } = require("./mixed-review");
@@ -32611,6 +32790,8 @@ function noteNotesSection(body) {
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
+    this.plainCardIndex = new Map();
+    await this.refreshPlainCards();
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
     this._calendarCache = null;
@@ -32624,6 +32805,17 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("delete", invalidateNotes));
     this.registerEvent(this.app.vault.on("rename", invalidateNotes));
     this.registerEvent(this.app.metadataCache.on("changed", invalidateNotes));
+    const refreshPlainCards = () => {
+      const plain = this.settings.cards && this.settings.cards.plainMarkdown;
+      if (!plain || plain.enabled !== true) return;
+      this.refreshPlainCards()
+        .then(() => this.refreshViews())
+        .catch(() => {});
+    };
+    this.registerEvent(this.app.vault.on("create", refreshPlainCards));
+    this.registerEvent(this.app.vault.on("delete", refreshPlainCards));
+    this.registerEvent(this.app.vault.on("rename", refreshPlainCards));
+    this.registerEvent(this.app.metadataCache.on("changed", refreshPlainCards));
 
     // The timer is kept per device (not in the synced settings). One that was running when the
     // app closed becomes paused, counting only up to the last heartbeat (time away isn't counted).
@@ -32863,6 +33055,15 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
+    this.addCommand({
+      id: "cards-rescan-plain",
+      name: "Cards: rescan plain Markdown folder",
+      callback: async () => {
+        if (this.moduleOff("cards")) return;
+        const count = await this.refreshPlainCards({ refresh: true });
+        new Notice(count ? `Found ${count} plain Markdown card${count === 1 ? "" : "s"}.` : "No plain Markdown cards found in the configured folder.");
+      },
+    });
     this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
     this.addCommand({ id: "push-vault-anki", name: "Cards: push the whole vault to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ vaultWide: true }) });
@@ -36403,11 +36604,38 @@ class QuestionTrackerPlugin extends Plugin {
   /** Every card or vocabulary note, with its effective deck and course. */
   getCards() {
     const out = [];
+    const plain = this.plainCardIndex || new Map();
     for (const file of this.app.vault.getMarkdownFiles()) {
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      if (isCardNote(fm)) out.push(resolveCard(file, fm, this.settings));
+      if (isCardNote(fm) || plain.has(file.path)) out.push(resolveCard(file, fm || {}, this.settings));
     }
     return out;
+  }
+
+  /**
+   * Rebuild the opt-in index of plain notes that have a front/back structure.
+   * The index keeps getCards() synchronous; plain notes stay ordinary notes
+   * and receive tracking properties only when they are reviewed.
+   */
+  async refreshPlainCards(options) {
+    const config = normalizePlainCards(this.settings.cards.plainMarkdown);
+    const found = new Map();
+    if (config.enabled && config.folder) {
+      for (const file of this.app.vault.getMarkdownFiles()) {
+        if (!isPlainPath(file.path, config.folder)) continue;
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+        if (isCardNote(fm) || (fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "")) continue;
+        try {
+          const parsed = inferPlainCard(await this.app.vault.cachedRead(file));
+          if (parsed) found.set(file.path, parsed);
+        } catch (e) {
+          /* a folder scan must not break the Cards view */
+        }
+      }
+    }
+    this.plainCardIndex = found;
+    if (options && options.refresh) this.refreshViews();
+    return found.size;
   }
 
   filteredCards(options) {
@@ -50073,6 +50301,7 @@ const { AssignmentModal } = require("./assignments-modal");
 const { renderAssignmentsSettings } = require("./assignments-settings");
 const { CALENDAR_TABS } = require("./calendar-settings");
 const cards = require("./cards");
+const plainCards = require("./plain-cards");
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
 const cardsImport = require("./cards-import");
@@ -50333,6 +50562,7 @@ QuestionTrackerPlugin.__test = {
   renderAssignmentsSettings,
   CALENDAR_TABS,
   cards,
+  plainCards,
   cardsImport,
   pdf: require("./pdf"),
   ankiConnect,

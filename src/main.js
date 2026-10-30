@@ -73,6 +73,7 @@ const { AssignmentModal } = require("./assignments-modal");
 const { renderAssignmentsSettings } = require("./assignments-settings");
 const { CALENDAR_TABS } = require("./calendar-settings");
 const cards = require("./cards");
+const plainCards = require("./plain-cards");
 const { CardView } = require("./cards-view");
 const { CardModal } = require("./card-modal");
 const cardsImport = require("./cards-import");
@@ -333,6 +334,7 @@ QuestionTrackerPlugin.__test = {
   renderAssignmentsSettings,
   CALENDAR_TABS,
   cards,
+  plainCards,
   cardsImport,
   pdf: require("./pdf"),
   ankiConnect,

@@ -11,6 +11,7 @@ const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictness, parseVariants } = require("./card-grading");
 const { DEFAULT_ANKI_CONNECT, normalizeAnkiConnect } = require("./anki-connect");
+const { DEFAULT_PLAIN_CARDS, inferPlainCard, normalizePlainCards, plainDeckName } = require("./plain-cards");
 
 const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
 const CARD_TYPE_LABELS = {
@@ -68,6 +69,7 @@ function mergeCardSettings(saved, defaults) {
       decks: [],
       csvMappings: {},
       ankiConnect: { ...DEFAULT_ANKI_CONNECT },
+      plainMarkdown: { ...DEFAULT_PLAIN_CARDS },
     },
     defaults || {}
   );
@@ -84,6 +86,7 @@ function mergeCardSettings(saved, defaults) {
   out.decks = normalizeDecks(src.decks === undefined ? base.decks : src.decks);
   out.csvMappings = src.csvMappings && typeof src.csvMappings === "object" && !Array.isArray(src.csvMappings) ? { ...src.csvMappings } : {};
   out.ankiConnect = normalizeAnkiConnect(src.ankiConnect === undefined ? base.ankiConnect : src.ankiConnect);
+  out.plainMarkdown = normalizePlainCards(src.plainMarkdown === undefined ? base.plainMarkdown : src.plainMarkdown);
   return out;
 }
 
@@ -118,6 +121,11 @@ function deckOf(fm, settings, path) {
     if (!best || folder.length > best.folder.length) best = { name: deck.name, folder };
   }
   if (best) return best.name;
+  const plain = cards.plainMarkdown;
+  if (plain && plain.enabled === true) {
+    const derived = plainDeckName(path, plain.folder, "");
+    if (derived) return derived;
+  }
   const root = normalizeFolder(cards.newCardFolder);
   if (root && p.startsWith(root + "/")) {
     const rest = p.slice(root.length + 1);
@@ -280,6 +288,7 @@ function parseCloze(text) {
 function parseCardBody(text, fm) {
   const h = headingsOf(cleanBody(text));
   const kind = cardKind(fm);
+  const plain = inferPlainCard(text);
   if (kind === "vocab") {
     const term = firstSection(h, ["term", "word", "front", "prompt"]) || str(fm.term || fm.word || fm.front).trim();
     const definition =
@@ -299,10 +308,16 @@ function parseCardBody(text, fm) {
     };
   }
 
-  let cardType = lower(fm && (fm.card_type || fm.card_type_name)) || "basic";
+  const declaredType = lower(fm && (fm.card_type || fm.card_type_name));
+  let cardType = declaredType || "basic";
   if (!CARD_TYPES.includes(cardType)) cardType = "basic";
   let front = firstSection(h, ["front", "prompt", "question", "term"]) || str(fm.front || fm.prompt).trim();
   let back = firstSection(h, ["back", "answer", "definition", "explanation"]) || str(fm.back || fm.answer).trim();
+  if (!front && !back && plain) {
+    if (!declaredType) cardType = plain.cardType;
+    front = plain.front;
+    back = plain.back;
+  }
 
   if (cardType === "image-occlusion") {
     const body = cleanBody(text);
@@ -337,7 +352,7 @@ function parseCardBody(text, fm) {
   let rawFront = front;
   let rawBack = back;
   if (cardType === "cloze") {
-    const source = front || back || firstSection(h, ["text"]);
+    const source = (front || back || firstSection(h, ["text"])).replace(/~~([^~\n]+)~~/g, "==$1==");
     const parsed = parseCloze(source);
     rawFront = source;
     front = parsed.prompt;

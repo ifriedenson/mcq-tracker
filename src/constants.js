@@ -126,6 +126,7 @@ const DEFAULT_SETTINGS = {
     decks: [], // [{ name, folder, course, answerMode, gradingStrictness }]
     csvMappings: {}, // header-signature -> column mapping remembered by the generic CSV importer
     ankiConnect: { enabled: false, url: "http://127.0.0.1:8765", deck: "", vaultTags: "", backlinks: false }, // optional local AnkiConnect push; off by default
+    plainMarkdown: { enabled: false, folder: "" }, // optional Yanki-style plain Markdown cards; off by default
   },
 };
 

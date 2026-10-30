@@ -80,6 +80,42 @@ function renderDecks(containerEl, plugin, redisplay) {
       })
     );
 
+  new Setting(containerEl).setName("Plain Markdown cards").setHeading();
+  const plain = st.plainMarkdown;
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Optional. Treat every note under one folder as a card without Anki markup. Split the front and back with ---, use two --- lines for reversed cards, or wrap text in ~~tildes~~ for a cloze. Subfolders become nested Anki decks with ::. Notes outside the folder and every existing card setting stay unchanged.",
+  });
+  new Setting(containerEl)
+    .setName("Use plain Markdown notes as cards")
+    .setDesc("Off by default. The folder is scanned locally; notes keep their plain Markdown and receive normal tracking properties only when reviewed.")
+    .addToggle((t) =>
+      t.setValue(plain.enabled === true).onChange(async (v) => {
+        plain.enabled = v;
+        await plugin.save();
+        await plugin.refreshPlainCards({ refresh: true });
+      })
+    );
+  new Setting(containerEl)
+    .setName("Plain Markdown folder")
+    .setDesc("The folder whose notes are read as cards. Leave blank to keep this feature idle. Rescan after adding or moving notes.")
+    .addText((t) =>
+      t
+        .setPlaceholder("e.g. Flashcards")
+        .setValue(plain.folder || "")
+        .onChange(async (v) => {
+          plain.folder = str(v).trim().replace(/^\/+|\/+$/g, "");
+          await plugin.save();
+          if (plain.enabled) await plugin.refreshPlainCards({ refresh: true });
+        })
+    )
+    .addButton((b) =>
+      b.setButtonText("Rescan").onClick(async () => {
+        const n = await plugin.refreshPlainCards({ refresh: true });
+        new Notice(n ? `Found ${n} plain Markdown card${n === 1 ? "" : "s"}.` : "No plain Markdown cards found in that folder.");
+      })
+    );
+
   if (!decks.length) {
     containerEl.createEl("p", {
       cls: "setting-item-description",

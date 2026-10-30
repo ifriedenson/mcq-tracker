@@ -65,6 +65,7 @@ const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
+const { inferPlainCard, isPlainPath, normalizePlainCards } = require("./plain-cards");
 const { cardUpdateDiff } = require("./card-write-diff");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
 const { MixedReviewModal, buildMixedQueue } = require("./mixed-review");
@@ -124,6 +125,8 @@ function noteNotesSection(body) {
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
+    this.plainCardIndex = new Map();
+    await this.refreshPlainCards();
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
     this._calendarCache = null;
@@ -137,6 +140,17 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("delete", invalidateNotes));
     this.registerEvent(this.app.vault.on("rename", invalidateNotes));
     this.registerEvent(this.app.metadataCache.on("changed", invalidateNotes));
+    const refreshPlainCards = () => {
+      const plain = this.settings.cards && this.settings.cards.plainMarkdown;
+      if (!plain || plain.enabled !== true) return;
+      this.refreshPlainCards()
+        .then(() => this.refreshViews())
+        .catch(() => {});
+    };
+    this.registerEvent(this.app.vault.on("create", refreshPlainCards));
+    this.registerEvent(this.app.vault.on("delete", refreshPlainCards));
+    this.registerEvent(this.app.vault.on("rename", refreshPlainCards));
+    this.registerEvent(this.app.metadataCache.on("changed", refreshPlainCards));
 
     // The timer is kept per device (not in the synced settings). One that was running when the
     // app closed becomes paused, counting only up to the last heartbeat (time away isn't counted).
@@ -376,6 +390,15 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
+    this.addCommand({
+      id: "cards-rescan-plain",
+      name: "Cards: rescan plain Markdown folder",
+      callback: async () => {
+        if (this.moduleOff("cards")) return;
+        const count = await this.refreshPlainCards({ refresh: true });
+        new Notice(count ? `Found ${count} plain Markdown card${count === 1 ? "" : "s"}.` : "No plain Markdown cards found in the configured folder.");
+      },
+    });
     this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
     this.addCommand({ id: "push-vault-anki", name: "Cards: push the whole vault to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ vaultWide: true }) });
@@ -3916,11 +3939,38 @@ class QuestionTrackerPlugin extends Plugin {
   /** Every card or vocabulary note, with its effective deck and course. */
   getCards() {
     const out = [];
+    const plain = this.plainCardIndex || new Map();
     for (const file of this.app.vault.getMarkdownFiles()) {
       const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-      if (isCardNote(fm)) out.push(resolveCard(file, fm, this.settings));
+      if (isCardNote(fm) || plain.has(file.path)) out.push(resolveCard(file, fm || {}, this.settings));
     }
     return out;
+  }
+
+  /**
+   * Rebuild the opt-in index of plain notes that have a front/back structure.
+   * The index keeps getCards() synchronous; plain notes stay ordinary notes
+   * and receive tracking properties only when they are reviewed.
+   */
+  async refreshPlainCards(options) {
+    const config = normalizePlainCards(this.settings.cards.plainMarkdown);
+    const found = new Map();
+    if (config.enabled && config.folder) {
+      for (const file of this.app.vault.getMarkdownFiles()) {
+        if (!isPlainPath(file.path, config.folder)) continue;
+        const fm = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+        if (isCardNote(fm) || (fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "")) continue;
+        try {
+          const parsed = inferPlainCard(await this.app.vault.cachedRead(file));
+          if (parsed) found.set(file.path, parsed);
+        } catch (e) {
+          /* a folder scan must not break the Cards view */
+        }
+      }
+    }
+    this.plainCardIndex = found;
+    if (options && options.refresh) this.refreshViews();
+    return found.size;
   }
 
   filteredCards(options) {
