@@ -408,7 +408,7 @@ These reuse existing surfaces instead of adding a module. They stay **unschedule
 6. **Daily-quiz streak freeze.** One freeze earned per N completions and spent automatically on a missed active day, so a single missed day does not erase a long streak. Extends the daily quiz that §5.22 already sourced from VaultQuiz.
 7. **Needs-fixing flag.** After repeated misses across distinct days, mark the question for repair with a **Mark fixed** action that opens a new window but keeps history. Distinct from the 1.111.0 leech suspend, which removes the item from the queue.
 
-**Not proposed:** a second scheduling engine (Better Recall's per-deck SM-2), inline quiz blocks and a subject-timetable parser are each a large surface for a small gain here. The existing ladder-plus-FSRS choice, the study skin and the `.ics` calendar already cover the need.
+**Not proposed in the Oct 30 pass:** a subject-timetable parser stays out. A second scheduling engine (Better Recall's per-deck SM-2) and inline quiz blocks were ranked then as a large surface for a small gain, but the step-8 mission queue in §3.9.1 now reopens both for step 9; the existing ladder-plus-FSRS choice, the study skin and the `.ics` calendar still cover the current need.
 
 ### 3.9.1 Mission step 8: MIT-verified related plugins (Oct 30, 2026)
 
