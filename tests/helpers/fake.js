@@ -64,6 +64,13 @@ function makeApp(notes) {
         app.created.push({ path: p, text });
         return f;
       },
+      createBinary: async (p, data) => {
+        const f = await app.vault.create(p, "");
+        f.buffer = data instanceof Uint8Array ? data : new Uint8Array(data || []);
+        app.createdBinary = app.createdBinary || [];
+        app.createdBinary.push({ path: p, buffer: f.buffer });
+        return f;
+      },
       modify: async (f, text) => {
         f.text = text;
         app.modified = app.modified || [];

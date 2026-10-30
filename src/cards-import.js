@@ -2000,7 +2000,13 @@ function ankiFileHint() {
 function cardsExportHint(format) {
   if (format === "quizlet") return quizletExportHint();
   if (format === "anki") return ankiFileHint();
+  if (format === "mochi") return mochiExportHint();
   return questionSetExportHint(format);
+}
+
+/** Mochi imports the archive directly; decks and front/back sides are kept. */
+function mochiExportHint() {
+  return "Mochi: in Mochi choose Import, then pick this .mochi file. Decks and front/back sides are kept; images and audio are not bundled.";
 }
 
 /** Quizlet has no deck or file metadata, so point at its exact copy settings. */
@@ -2522,6 +2528,7 @@ class CardExportModal extends Modal {
     const format = wrap.createEl("select", { cls: "dropdown" });
     format.createEl("option", { text: "Quizlet text", value: "quizlet" });
     format.createEl("option", { text: "Anki text", value: "anki" });
+    format.createEl("option", { text: "Mochi (.mochi)", value: "mochi" });
     format.createEl("option", { text: "Kahoot CSV", value: "kahoot" });
     format.createEl("option", { text: "Blooket CSV", value: "blooket" });
     format.createEl("option", { text: "Gimkit CSV", value: "gimkit" });

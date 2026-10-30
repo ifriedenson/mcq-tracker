@@ -82,5 +82,8 @@ test("adaptive parity: plugin recordSkip writes the signal to the note", async (
   assert.equal(summary.skipped, true);
   assert.equal(file.fm.skip_count, 1);
   assert.equal(file.fm.attempts, 2);
-  assert.equal(file.fm.next_review <= "2026-10-30", true);
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowKey = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+  assert.equal(file.fm.next_review <= tomorrowKey, true);
 });

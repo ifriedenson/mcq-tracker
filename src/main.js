@@ -19,6 +19,7 @@ const { answerFromSection,
 const numericGrading = require("./numeric-grading");
 const answerTypes = require("./answer-types");
 const matching = require("./matching");
+const mochiExport = require("./mochi-export");
 const parameterized = require("./parameterized");
 const fsrs = require("./fsrs");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
@@ -207,6 +208,7 @@ QuestionTrackerPlugin.__test = {
   numericGrading,
   answerTypes,
   matching,
+  mochiExport,
   parameterized,
   applyAttempt,
   applySkip,

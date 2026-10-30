@@ -52,7 +52,7 @@ function renderDecks(containerEl, plugin, redisplay) {
 
   new Setting(containerEl)
     .setName("Export cards")
-    .setDesc("Write the current deck as Quizlet or Anki text, or a Kahoot, Blooket or Gimkit CSV. Question-set choices and the correct answer stay with the card.")
+    .setDesc("Write the current deck as Quizlet text, Anki text, a Mochi .mochi file, or a Kahoot, Blooket or Gimkit CSV. Question-set choices and the correct answer stay with the card.")
     .addButton((b) => b.setButtonText("Export cards").onClick(() => plugin.openCardExport()));
 
   new Setting(containerEl)

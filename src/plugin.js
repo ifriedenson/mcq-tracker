@@ -56,6 +56,7 @@ const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseFlashQuizText, parseGiftText, parseMarkdownQuiz, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizPortJson, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
+const { buildMochiArchive, cardsToMochiDecks, mochiMediaWarning } = require("./mochi-export");
 const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
 const { parseQtiArchive } = require("./qti-archive");
@@ -344,7 +345,7 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
-    this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
+    this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki, Mochi, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
@@ -3821,7 +3822,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (this.moduleOff("cards")) throw new Error("Turn on the Cards module first.");
     const opts = options || {};
     const kind = String(format || "quizlet").toLowerCase();
-    if (!["quizlet", "anki", "kahoot", "blooket", "gimkit"].includes(kind)) {
+    if (!["quizlet", "anki", "mochi", "kahoot", "blooket", "gimkit"].includes(kind)) {
       throw new Error(`Unsupported export format: ${kind}.`);
     }
     const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
@@ -3833,13 +3834,22 @@ class QuestionTrackerPlugin extends Plugin {
         const text = await this.app.vault.cachedRead(card.file);
         const record = { ...card, body: parseCardBody(text, card.fm) };
         records.push(record);
-        if (!["quizlet", "anki"].includes(kind) && !record.body.back) warnings.push(`${card.file.path} has no answer and was skipped.`);
+        if (!["quizlet", "anki", "mochi"].includes(kind) && !record.body.back) warnings.push(`${card.file.path} has no answer and was skipped.`);
       } catch (e) {
         warnings.push(`${card.file.path}: ${String((e && e.message) || e)}`);
       }
     }
-    const output = kind === "quizlet" ? cardsToQuizlet(records) : kind === "anki" ? cardsToAnki(records) : cardsToQuestionSet(kind, records);
-    if (!output) throw new Error("Nothing in this filter can be exported in that format yet.");
+    const mochiDecks = kind === "mochi" ? cardsToMochiDecks(records) : null;
+    const mochiCount = mochiDecks ? mochiDecks.reduce((sum, deck) => sum + deck.cards.length, 0) : 0;
+    if (kind === "mochi" && !mochiCount) throw new Error("Nothing in this filter has front text to export to Mochi.");
+    if (kind === "mochi") {
+      const skipped = records.length - mochiCount;
+      if (skipped > 0) warnings.push(`${skipped} card${skipped === 1 ? "" : "s"} had no front text and was skipped.`);
+      const media = mochiMediaWarning(records);
+      if (media) warnings.push(media);
+    }
+    const output = kind === "quizlet" ? cardsToQuizlet(records) : kind === "anki" ? cardsToAnki(records) : kind === "mochi" ? buildMochiArchive(records) : cardsToQuestionSet(kind, records);
+    if (!output || (typeof output === "string" && !output.trim())) throw new Error("Nothing in this filter can be exported in that format yet.");
     const root = String(this.settings.cards.newCardFolder || "Cards").replace(/^\/+|\/+$/g, "") || "Cards";
     const folder = `${root}/exports`;
     await ensureFolder(this.app, folder);
@@ -3847,16 +3857,19 @@ class QuestionTrackerPlugin extends Plugin {
       .replace(/[\\/:*?"<>|]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-    const extension = kind === "quizlet" || kind === "anki" ? "txt" : "csv";
+    const extension = kind === "mochi" ? "mochi" : kind === "quizlet" || kind === "anki" ? "txt" : "csv";
     let path = `${folder}/${base}.${extension}`;
     let n = 2;
     while (this.app.vault.getAbstractFileByPath(path)) {
       path = `${folder}/${base} ${n}.${extension}`;
       n++;
     }
-    await this.app.vault.create(path, output);
-    new Notice(`Exported ${records.length} card${records.length === 1 ? "" : "s"} to ${path}.`, 6000);
-    return { path, count: records.length, format: kind, warnings };
+    if (typeof output === "string") await this.app.vault.create(path, output);
+    else if (typeof this.app.vault.createBinary === "function") await this.app.vault.createBinary(path, output);
+    else await this.app.vault.create(path, output.buffer);
+    const exported = kind === "mochi" ? mochiCount : records.length;
+    new Notice(`Exported ${exported} card${exported === 1 ? "" : "s"} to ${path}.`, 6000);
+    return { path, count: exported, format: kind, warnings };
   }
 
   /** Parsed-card preview with duplicate counts, used before writing anything. */

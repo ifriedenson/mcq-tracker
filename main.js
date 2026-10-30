@@ -12391,7 +12391,13 @@ function ankiFileHint() {
 function cardsExportHint(format) {
   if (format === "quizlet") return quizletExportHint();
   if (format === "anki") return ankiFileHint();
+  if (format === "mochi") return mochiExportHint();
   return questionSetExportHint(format);
+}
+
+/** Mochi imports the archive directly; decks and front/back sides are kept. */
+function mochiExportHint() {
+  return "Mochi: in Mochi choose Import, then pick this .mochi file. Decks and front/back sides are kept; images and audio are not bundled.";
 }
 
 /** Quizlet has no deck or file metadata, so point at its exact copy settings. */
@@ -12913,6 +12919,7 @@ class CardExportModal extends Modal {
     const format = wrap.createEl("select", { cls: "dropdown" });
     format.createEl("option", { text: "Quizlet text", value: "quizlet" });
     format.createEl("option", { text: "Anki text", value: "anki" });
+    format.createEl("option", { text: "Mochi (.mochi)", value: "mochi" });
     format.createEl("option", { text: "Kahoot CSV", value: "kahoot" });
     format.createEl("option", { text: "Blooket CSV", value: "blooket" });
     format.createEl("option", { text: "Gimkit CSV", value: "gimkit" });
@@ -13053,7 +13060,7 @@ function renderDecks(containerEl, plugin, redisplay) {
 
   new Setting(containerEl)
     .setName("Export cards")
-    .setDesc("Write the current deck as Quizlet or Anki text, or a Kahoot, Blooket or Gimkit CSV. Question-set choices and the correct answer stay with the card.")
+    .setDesc("Write the current deck as Quizlet text, Anki text, a Mochi .mochi file, or a Kahoot, Blooket or Gimkit CSV. Question-set choices and the correct answer stay with the card.")
     .addButton((b) => b.setButtonText("Export cards").onClick(() => plugin.openCardExport()));
 
   new Setting(containerEl)
@@ -24844,6 +24851,92 @@ module.exports = {
 };
 };
 
+/* ---- src/mochi-export.js ---- */
+__defs["mochi-export"] = function (module, exports, require) {
+/*
+ * Mochi .mochi export.
+ *
+ * A .mochi file is a ZIP with `data.edn` (or `data.json`) and optional media.
+ * This writes the documented EDN form:
+ *
+ *   {:version 2, :decks [{:name "Biology", :cards [{:name "...", :content "front\n---\nback"}]}]}
+ *
+ * Cards are grouped by their deck. Media stays in the vault, matching the
+ * Anki text export: the card text is exported and a warning names the cards
+ * whose images or audio were not bundled.
+ */
+const { str } = require("./util");
+const { zipStore } = require("./zip-write");
+
+const MOCHI_VERSION = 2;
+
+/** JSON string escaping is valid EDN string escaping. */
+function ednString(value) {
+  return JSON.stringify(str(value));
+}
+
+function oneLine(value) {
+  return str(value).replace(/\s+/g, " ").trim();
+}
+
+function mochiCardFor(record) {
+  const fm = (record && record.fm) || {};
+  const body = (record && record.body) || {};
+  const front = str(body.front || fm.front || fm.question).trim();
+  if (!front) return null;
+  const back = str(body.back || fm.back || fm.answer).trim();
+  const name = oneLine(fm.card_title || (record.file && record.file.basename) || front) || "Card";
+  return { name, content: back ? `${front}\n---\n${back}` : front };
+}
+
+/** One deck entry per distinct deck name, in first-seen order. */
+function cardsToMochiDecks(records) {
+  const decks = new Map();
+  for (const record of Array.isArray(records) ? records : []) {
+    const card = mochiCardFor(record);
+    if (!card) continue;
+    const name = oneLine((record.fm && record.fm.deck) || record.deck || "Cards") || "Cards";
+    if (!decks.has(name)) decks.set(name, []);
+    decks.get(name).push(card);
+  }
+  return [...decks.entries()].map(([name, cards]) => ({ name, cards }));
+}
+
+function cardsToMochiEdn(records) {
+  const decks = cardsToMochiDecks(records);
+  const body = decks
+    .map((deck) => {
+      const cards = deck.cards.map((card) => `{:name ${ednString(card.name)}, :content ${ednString(card.content)}}`);
+      return `{:name ${ednString(deck.name)}, :cards [${cards.join(", ")}]}`;
+    })
+    .join(", ");
+  return `{:version ${MOCHI_VERSION}, :decks [${body}]}\n`;
+}
+
+/** The complete .mochi archive: one stored `data.edn` entry. */
+function buildMochiArchive(records) {
+  return zipStore([{ name: "data.edn", data: cardsToMochiEdn(records) }]);
+}
+
+/** A single warning when any card references media that the archive does not carry. */
+function mochiMediaWarning(records) {
+  const found = (Array.isArray(records) ? records : []).filter((record) => {
+    const text = `${str(record.body && record.body.front)}\n${str(record.body && record.body.back)}`;
+    return /!\[\[|!\[[^\]]*\]\(/.test(text);
+  });
+  if (!found.length) return "";
+  return `${found.length} card${found.length === 1 ? "" : "s"} reference images or audio. The .mochi file contains text only; add those files in Mochi if you need them.`;
+}
+
+module.exports = {
+  MOCHI_VERSION,
+  cardsToMochiDecks,
+  cardsToMochiEdn,
+  buildMochiArchive,
+  mochiMediaWarning,
+};
+};
+
 /* ---- src/modals.js ---- */
 __defs["modals"] = function (module, exports, require) {
 const { AbstractInputSuggest, FuzzySuggestModal, Modal } = require("obsidian");
@@ -30427,6 +30520,7 @@ const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseFlashQuizText, parseGiftText, parseMarkdownQuiz, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizPortJson, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
+const { buildMochiArchive, cardsToMochiDecks, mochiMediaWarning } = require("./mochi-export");
 const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
 const { parseQtiArchive } = require("./qti-archive");
@@ -30715,7 +30809,7 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
-    this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
+    this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki, Mochi, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
@@ -34192,7 +34286,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (this.moduleOff("cards")) throw new Error("Turn on the Cards module first.");
     const opts = options || {};
     const kind = String(format || "quizlet").toLowerCase();
-    if (!["quizlet", "anki", "kahoot", "blooket", "gimkit"].includes(kind)) {
+    if (!["quizlet", "anki", "mochi", "kahoot", "blooket", "gimkit"].includes(kind)) {
       throw new Error(`Unsupported export format: ${kind}.`);
     }
     const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
@@ -34204,13 +34298,22 @@ class QuestionTrackerPlugin extends Plugin {
         const text = await this.app.vault.cachedRead(card.file);
         const record = { ...card, body: parseCardBody(text, card.fm) };
         records.push(record);
-        if (!["quizlet", "anki"].includes(kind) && !record.body.back) warnings.push(`${card.file.path} has no answer and was skipped.`);
+        if (!["quizlet", "anki", "mochi"].includes(kind) && !record.body.back) warnings.push(`${card.file.path} has no answer and was skipped.`);
       } catch (e) {
         warnings.push(`${card.file.path}: ${String((e && e.message) || e)}`);
       }
     }
-    const output = kind === "quizlet" ? cardsToQuizlet(records) : kind === "anki" ? cardsToAnki(records) : cardsToQuestionSet(kind, records);
-    if (!output) throw new Error("Nothing in this filter can be exported in that format yet.");
+    const mochiDecks = kind === "mochi" ? cardsToMochiDecks(records) : null;
+    const mochiCount = mochiDecks ? mochiDecks.reduce((sum, deck) => sum + deck.cards.length, 0) : 0;
+    if (kind === "mochi" && !mochiCount) throw new Error("Nothing in this filter has front text to export to Mochi.");
+    if (kind === "mochi") {
+      const skipped = records.length - mochiCount;
+      if (skipped > 0) warnings.push(`${skipped} card${skipped === 1 ? "" : "s"} had no front text and was skipped.`);
+      const media = mochiMediaWarning(records);
+      if (media) warnings.push(media);
+    }
+    const output = kind === "quizlet" ? cardsToQuizlet(records) : kind === "anki" ? cardsToAnki(records) : kind === "mochi" ? buildMochiArchive(records) : cardsToQuestionSet(kind, records);
+    if (!output || (typeof output === "string" && !output.trim())) throw new Error("Nothing in this filter can be exported in that format yet.");
     const root = String(this.settings.cards.newCardFolder || "Cards").replace(/^\/+|\/+$/g, "") || "Cards";
     const folder = `${root}/exports`;
     await ensureFolder(this.app, folder);
@@ -34218,16 +34321,19 @@ class QuestionTrackerPlugin extends Plugin {
       .replace(/[\\/:*?"<>|]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-    const extension = kind === "quizlet" || kind === "anki" ? "txt" : "csv";
+    const extension = kind === "mochi" ? "mochi" : kind === "quizlet" || kind === "anki" ? "txt" : "csv";
     let path = `${folder}/${base}.${extension}`;
     let n = 2;
     while (this.app.vault.getAbstractFileByPath(path)) {
       path = `${folder}/${base} ${n}.${extension}`;
       n++;
     }
-    await this.app.vault.create(path, output);
-    new Notice(`Exported ${records.length} card${records.length === 1 ? "" : "s"} to ${path}.`, 6000);
-    return { path, count: records.length, format: kind, warnings };
+    if (typeof output === "string") await this.app.vault.create(path, output);
+    else if (typeof this.app.vault.createBinary === "function") await this.app.vault.createBinary(path, output);
+    else await this.app.vault.create(path, output.buffer);
+    const exported = kind === "mochi" ? mochiCount : records.length;
+    new Notice(`Exported ${exported} card${exported === 1 ? "" : "s"} to ${path}.`, 6000);
+    return { path, count: exported, format: kind, warnings };
   }
 
   /** Parsed-card preview with duplicate counts, used before writing anything. */
@@ -44944,6 +45050,112 @@ module.exports = {
 };
 };
 
+/* ---- src/zip-write.js ---- */
+__defs["zip-write"] = function (module, exports, require) {
+/*
+ * A minimal ZIP writer for formats this plugin creates itself (.mochi).
+ *
+ * Entries are stored (method 0), not deflated: the payloads are small JSON/EDN
+ * text, so compression would only add code and a dependency. The layout follows
+ * PKWARE APPNOTE 4.5: local headers, a central directory and one EOCD record.
+ */
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/** DOS date/time, the only timestamp a ZIP header carries. */
+function dosDateTime(value) {
+  const d = value instanceof Date && !Number.isNaN(value.getTime()) ? value : new Date();
+  const year = Math.max(1980, d.getFullYear());
+  return {
+    time: (d.getHours() << 11) | (d.getMinutes() << 5) | Math.floor(d.getSeconds() / 2),
+    date: ((year - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(),
+  };
+}
+
+/**
+ * Writes a ZIP archive with stored entries.
+ * `entries` is [{ name, data }] where data is a string or a Uint8Array.
+ */
+function zipStore(entries) {
+  const encoder = new TextEncoder();
+  const items = (Array.isArray(entries) ? entries : []).map((entry) => {
+    const data = typeof entry.data === "string" ? encoder.encode(entry.data) : entry.data || new Uint8Array(0);
+    return { name: encoder.encode(String(entry.name || "")), data, crc: crc32(data) };
+  });
+  const localSize = items.reduce((sum, item) => sum + 30 + item.name.length + item.data.length, 0);
+  const centralSize = items.reduce((sum, item) => sum + 46 + item.name.length, 0);
+  const out = new Uint8Array(localSize + centralSize + 22);
+  const view = new DataView(out.buffer);
+  const stamp = dosDateTime(new Date());
+  let offset = 0;
+  const offsets = [];
+  for (const item of items) {
+    offsets.push(offset);
+    view.setUint32(offset, 0x04034b50, true);
+    view.setUint16(offset + 4, 20, true);
+    view.setUint16(offset + 6, 0x0800, true); // UTF-8 names
+    view.setUint16(offset + 8, 0, true); // stored
+    view.setUint16(offset + 10, stamp.time, true);
+    view.setUint16(offset + 12, stamp.date, true);
+    view.setUint32(offset + 14, item.crc, true);
+    view.setUint32(offset + 18, item.data.length, true);
+    view.setUint32(offset + 22, item.data.length, true);
+    view.setUint16(offset + 26, item.name.length, true);
+    view.setUint16(offset + 28, 0, true);
+    out.set(item.name, offset + 30);
+    out.set(item.data, offset + 30 + item.name.length);
+    offset += 30 + item.name.length + item.data.length;
+  }
+  const centralStart = offset;
+  items.forEach((item, index) => {
+    view.setUint32(offset, 0x02014b50, true);
+    view.setUint16(offset + 4, 20, true);
+    view.setUint16(offset + 6, 20, true);
+    view.setUint16(offset + 8, 0x0800, true);
+    view.setUint16(offset + 10, 0, true);
+    view.setUint16(offset + 12, stamp.time, true);
+    view.setUint16(offset + 14, stamp.date, true);
+    view.setUint32(offset + 16, item.crc, true);
+    view.setUint32(offset + 20, item.data.length, true);
+    view.setUint32(offset + 24, item.data.length, true);
+    view.setUint16(offset + 28, item.name.length, true);
+    view.setUint16(offset + 30, 0, true);
+    view.setUint16(offset + 32, 0, true);
+    view.setUint16(offset + 34, 0, true);
+    view.setUint16(offset + 36, 0, true);
+    view.setUint32(offset + 38, 0, true);
+    view.setUint32(offset + 42, offsets[index], true);
+    out.set(item.name, offset + 46);
+    offset += 46 + item.name.length;
+  });
+  view.setUint32(offset, 0x06054b50, true);
+  view.setUint16(offset + 4, 0, true);
+  view.setUint16(offset + 6, 0, true);
+  view.setUint16(offset + 8, items.length, true);
+  view.setUint16(offset + 10, items.length, true);
+  view.setUint32(offset + 12, offset - centralStart, true);
+  view.setUint32(offset + 16, centralStart, true);
+  view.setUint16(offset + 20, 0, true);
+  return out;
+}
+
+module.exports = { zipStore, crc32 };
+};
+
 /* ---- src/main.js ---- */
 __defs["main"] = function (module, exports, require) {
 /*
@@ -44966,6 +45178,7 @@ const { answerFromSection,
 const numericGrading = require("./numeric-grading");
 const answerTypes = require("./answer-types");
 const matching = require("./matching");
+const mochiExport = require("./mochi-export");
 const parameterized = require("./parameterized");
 const fsrs = require("./fsrs");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
@@ -45154,6 +45367,7 @@ QuestionTrackerPlugin.__test = {
   numericGrading,
   answerTypes,
   matching,
+  mochiExport,
   parameterized,
   applyAttempt,
   applySkip,

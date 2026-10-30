@@ -9,6 +9,12 @@ const S = T.studyStatus;
 const NOW = new Date(2026, 9, 29, 10, 0);
 const TODAY = "2026-10-29";
 
+function tomorrowKey(from) {
+  const d = new Date(from.getTime());
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 const question = (path, fm) => ({ file: { path, basename: path.replace(/^.*\//, "").replace(/\.md$/, "") }, fm });
 const card = (path, fm) => {
   const q = question(path, fm);
@@ -247,9 +253,10 @@ test("plugin: setting and restoring a status writes readable properties and refr
   assert.equal(plugin.studyStatusNotice(snoozed), "Known for 7 days (until 2026-11-05).");
   assert.match(plugin.studyStatusNotice(excluded), /Excluded from practice/);
 
-  const buried = await plugin.setStudyStatus(active.file, "buried", { now: NOW });
+  const buryNow = new Date();
+  const buried = await plugin.setStudyStatus(active.file, "buried", { now: buryNow });
   assert.equal(buried.status, "buried");
-  assert.equal(active.fm.buried_until, "2026-10-30");
+  assert.equal(active.fm.buried_until, tomorrowKey(buryNow));
   assert.match(plugin.studyStatusNotice(buried), /returns tomorrow/);
   assert.ok(plugin.studyStatusItems().some((item) => item.file.path === "Questions/active.md" && item.status === "buried"));
 
