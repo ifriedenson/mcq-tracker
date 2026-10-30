@@ -98,11 +98,14 @@ test("weak spots: shows the weakest skill and starts practising it", async () =>
 
 test("error log: groups misses and starts practising a group", async () => {
   const { app, plugin, dom } = await setup();
+  plugin.exportReviewSheet = async () => plugin.calls.push("review-sheet");
   const v = makeView(T.InsightsView, plugin, app, dom);
   v.tab = "errors";
   v.render();
   assert.ok(dom.texts().includes("careless"));
   assert.ok(dom.texts().includes("No reason picked"));
+  await dom.click("Export due review sheet");
+  assert.equal(plugin.calls.at(-1), "review-sheet");
   await dom.click("Practice these (1)");
   assert.deepEqual(plugin.calls.at(-1), [{ last_error_type: ["careless"] }, "missed"]);
   await dom.click("Practice all missed");

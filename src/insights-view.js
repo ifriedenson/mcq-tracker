@@ -575,6 +575,8 @@ class InsightsView extends ItemView {
       return;
     }
     root.createDiv({ cls: "qt-hint", text: "Questions whose latest attempt was a miss, grouped by the reason you gave." });
+    const exportSheet = root.createEl("button", { text: "Export due review sheet", cls: "qt-link" });
+    exportSheet.addEventListener("click", () => p.exportReviewSheet());
     for (const g of groups) {
       const box = root.createDiv({ cls: "qt-ins-group" });
       const head = box.createDiv({ cls: "qt-fset-head" });

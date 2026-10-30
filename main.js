@@ -27553,6 +27553,8 @@ class InsightsView extends ItemView {
       return;
     }
     root.createDiv({ cls: "qt-hint", text: "Questions whose latest attempt was a miss, grouped by the reason you gave." });
+    const exportSheet = root.createEl("button", { text: "Export due review sheet", cls: "qt-link" });
+    exportSheet.addEventListener("click", () => p.exportReviewSheet());
     for (const g of groups) {
       const box = root.createDiv({ cls: "qt-ins-group" });
       const head = box.createDiv({ cls: "qt-fset-head" });
@@ -34982,7 +34984,7 @@ const { buildQuizGeneratorPrompt, collectGeneratorSources, folderMatches, normal
 const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
-const { buildAttemptsCsv, buildPracticeSheet, buildResultsCsv, practiceSheetFileName, resultFileNames } = require("./results-export");
+const { buildAttemptsCsv, buildPracticeSheet, buildResultsCsv, buildReviewSheet, practiceSheetFileName, resultFileNames, reviewSheetFileName } = require("./results-export");
 const { normalizeSupport } = require("./support");
 const secretKeys = require("./secret-keys");
 const { calendarText, safeCalendarFeedUrl } = require("./url-safety");
@@ -35093,6 +35095,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-progress", name: "Open progress dashboard", callback: () => this.activateInsights("progress") });
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "export-practice-sheet", name: "Export an answer-free practice sheet", callback: () => this.exportPracticeSheet() });
+    this.addCommand({ id: "export-review-sheet", name: "Export an error-log review sheet", callback: () => this.exportReviewSheet() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
     this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and cards)", callback: () => this.exportStudyBundle() });
@@ -39928,6 +39931,44 @@ ${body}
       return null;
     }
     new Notice(`Exported ${sheet.count} question${sheet.count === 1 ? "" : "s"} to ${path}.`, 7000);
+    return { path, count: sheet.count };
+  }
+
+  /** Write every question due today as a printable sheet with its last recorded mistake. */
+  async exportReviewSheet() {
+    if (this.moduleOff("mcq")) {
+      new Notice("Turn on MCQ Tracker before exporting a review sheet.");
+      return null;
+    }
+    const today = localDate();
+    const due = this.getQuestions().filter((question) => isDue(question.fm, today));
+    if (!due.length) {
+      new Notice("No questions are due for review.");
+      return null;
+    }
+    const records = [];
+    for (const question of due) {
+      try {
+        records.push({ file: question.file, fm: question.fm, text: await this.app.vault.cachedRead(question.file) });
+      } catch (e) {
+        // Skip an unreadable note; the rest of the sheet is still useful.
+      }
+    }
+    if (!records.length) {
+      new Notice("Could not read any of the due questions.");
+      return null;
+    }
+    const base = reviewSheetFileName(today);
+    let path = base;
+    for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = base.replace(/\.md$/i, ` ${n}.md`);
+    const sheet = buildReviewSheet(records, { date: today });
+    try {
+      await this.app.vault.create(path, sheet.text);
+    } catch (e) {
+      new Notice(`Could not write the review sheet: ${str(e && e.message ? e.message : e)}`, 7000);
+      return null;
+    }
+    new Notice(`Exported ${sheet.count} due question${sheet.count === 1 ? "" : "s"} to ${path}.`, 7000);
     return { path, count: sheet.count };
   }
 
@@ -48465,19 +48506,40 @@ function practiceSheetFileName(date) {
   return `mcq-practice-sheet-${safeDay(date)}.md`;
 }
 
+function reviewSheetFileName(date) {
+  return `mcq-review-sheet-${safeDay(date)}.md`;
+}
+
 const inline = (value) => str(value).replace(/\s+/g, " ").trim();
+
+/** The most recent recorded miss, using the existing history and latest-attempt fields. */
+function lastMistakeOf(fm) {
+  const misses = parseHistory(fm && fm.history).filter((entry) => entry.result === "incorrect");
+  const latest = misses.reduce((best, entry) => (!best || entry.when >= best.when ? entry : best), null);
+  const latestAttemptWasMiss = str(fm && fm.result) === "incorrect";
+  const answer = str(latest && latest.answer) || (latestAttemptWasMiss ? str(fm && fm.last_answer) : "");
+  const reason = str(latest && latest.error) || str(fm && fm.last_error_type).trim();
+  const when = str(latest && latest.when).slice(0, 10) || (latestAttemptWasMiss ? str(fm && fm["date attempted"]).slice(0, 10) : "");
+  if (!answer && !reason && !when) return null;
+  return { answer: inline(answer), reason: inline(reason), when };
+}
 
 /** A printable question sheet. Answer, rationale and notes sections are never copied. */
 function buildPracticeSheet(records, options) {
   const opts = options || {};
   const items = Array.isArray(records) ? records : [];
   const day = safeDay(opts.date);
+  const review = opts.review === true;
   const lines = [
-    "# Answer-free practice sheet",
+    review ? "# Error-log review sheet" : "# Answer-free practice sheet",
     "",
-    `Generated ${day} from ${items.length} question${items.length === 1 ? "" : "s"} in the current filter.`,
+    review
+      ? `Compiled ${day} from ${items.length} question${items.length === 1 ? "" : "s"} due for review.`
+      : `Generated ${day} from ${items.length} question${items.length === 1 ? "" : "s"} in the current filter.`,
     "",
-    "Answer keys, rationales and source notes are omitted. Write your answers below, then check the original notes.",
+    review
+      ? "Each item keeps the last recorded mistake for context. The correct answer, rationale and source notes are omitted; write your answers below, then check the original notes."
+      : "Answer keys, rationales and source notes are omitted. Write your answers below, then check the original notes.",
     "",
   ];
   items.forEach((item, index) => {
@@ -48487,6 +48549,17 @@ function buildPracticeSheet(records, options) {
     lines.push(`## ${index + 1}. ${label}`, "");
     const meta = [fm.course, fm.skill, fm.difficulty].map(inline).filter(Boolean);
     if (meta.length) lines.push(`_${meta.join(" · ")}_`, "");
+    if (review) {
+      const mistake = lastMistakeOf(fm);
+      if (mistake) {
+        const bits = [
+          mistake.answer ? `chose ${mistake.answer}` : "",
+          mistake.reason ? `reason: ${mistake.reason}` : "",
+          mistake.when ? `on ${mistake.when}` : "",
+        ].filter(Boolean);
+        lines.push(`**Original mistake:** ${bits.join(" · ")}`, "");
+      }
+    }
     if (sections.stimulus) lines.push("**Stimulus**", "", sections.stimulus, "");
     if (sections.question) lines.push("**Question**", "", sections.question, "");
     else lines.push("**Question**", "", "_Question text was not found in this note._", "");
@@ -48502,7 +48575,7 @@ function buildPracticeSheet(records, options) {
     lines.push("**Your answer:** ______________________________", "", "---", "");
   });
   lines.push("## Answer sheet", "");
-  if (!items.length) lines.push("_No questions matched the current filter._", "");
+  if (!items.length) lines.push(review ? "_No questions are due for review._" : "_No questions matched the current filter._", "");
   items.forEach((item, index) => {
     const fm = (item && item.fm) || {};
     const label = inline(fm.question_id) || inline(item && item.file && item.file.basename) || `Question ${index + 1}`;
@@ -48511,17 +48584,24 @@ function buildPracticeSheet(records, options) {
   return { count: items.length, text: lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n" };
 }
 
+/** A due review sheet with the original mistake beside each question. */
+function buildReviewSheet(records, options) {
+  return buildPracticeSheet(records, { ...(options || {}), review: true });
+}
+
 module.exports = {
   SUMMARY_COLUMNS,
   ATTEMPT_COLUMNS,
   buildAttemptsCsv,
   buildPracticeSheet,
   buildResultsCsv,
+  buildReviewSheet,
   csvCell,
   csvLine,
   csvText,
   practiceSheetFileName,
   resultFileNames,
+  reviewSheetFileName,
 };
 };
 

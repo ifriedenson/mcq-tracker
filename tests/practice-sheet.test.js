@@ -150,3 +150,78 @@ test("practice sheet command writes nothing when the current filter has no quest
   assert.equal(out, null);
   assert.equal(app.created, undefined);
 });
+
+test("review sheet shows each question's original mistake without the answer key", () => {
+  const out = ex.buildReviewSheet(
+    [{
+      file: { basename: "q2" },
+      fm: {
+        question_id: "q2",
+        answer: "C",
+        course: "BIO",
+        skill: "cells",
+        difficulty: "easy",
+        result: "incorrect",
+        last_answer: "A",
+        last_error_type: "careless",
+        "date attempted": "2026-10-20",
+        history: [
+          "2026-10-19T09:00:00|incorrect|12|B|2|misread|a1",
+          "2026-10-20T09:00:00|incorrect|9|A|2|careless|a2",
+        ],
+      },
+      text: QUESTION_TEXT("q2", "C"),
+    }],
+    { date: "2026-10-30" }
+  );
+
+  assert.match(out.text, /^# Error-log review sheet/m);
+  assert.match(out.text, /Compiled 2026-10-30 from 1 question due for review/);
+  assert.match(out.text, /\*\*Original mistake:\*\* chose A · reason: careless · on 2026-10-20/);
+  assert.match(out.text, /Which organelle makes most ATP\?/);
+  assert.doesNotMatch(out.text, /Correct Answer|Reveal answer|Because mitochondria|Remember this private study note/);
+  assert.equal(ex.reviewSheetFileName("2026-10-30"), "mcq-review-sheet-2026-10-30.md");
+});
+
+test("review sheet command exports only due questions and leaves their state alone", async () => {
+  const app = makeApp([
+    {
+      path: "Q/due.md",
+      fm: {
+        question_id: "due-question",
+        attempts: 2,
+        correct_count: 1,
+        result: "incorrect",
+        last_answer: "A",
+        last_error_type: "careless",
+        "date attempted": "2026-10-20",
+        next_review: "2020-01-01",
+        history: ["2026-10-20T09:00:00|incorrect|12|A|2|careless|a1"],
+      },
+    },
+    { path: "Q/future.md", fm: { question_id: "future-question", attempts: 1, next_review: "2099-01-01", result: "incorrect", last_error_type: "misread" } },
+    { path: "Q/new.md", fm: { question_id: "new-question" } },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const file = app.files.find((entry) => entry.path === "Q/due.md");
+  const before = JSON.stringify(file.fm);
+  const out = await plugin.exportReviewSheet();
+  const today = T.fmtDate(new Date());
+
+  assert.deepEqual(out, { path: `mcq-review-sheet-${today}.md`, count: 1 });
+  assert.match(app.created[0].text, /due-question/);
+  assert.match(app.created[0].text, /Original mistake:\*\* chose A · reason: careless/);
+  assert.doesNotMatch(app.created[0].text, /future-question|new-question/);
+  assert.equal(JSON.stringify(file.fm), before);
+  assert.ok(plugin.commands.some((command) => command.id === "export-review-sheet"));
+});
+
+test("review sheet command writes nothing when no questions are due", async () => {
+  const app = makeApp([{ path: "Q/new.md", fm: { question_id: "new-question" } }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+
+  assert.equal(await plugin.exportReviewSheet(), null);
+  assert.equal(app.created, undefined);
+});

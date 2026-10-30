@@ -185,19 +185,40 @@ function practiceSheetFileName(date) {
   return `mcq-practice-sheet-${safeDay(date)}.md`;
 }
 
+function reviewSheetFileName(date) {
+  return `mcq-review-sheet-${safeDay(date)}.md`;
+}
+
 const inline = (value) => str(value).replace(/\s+/g, " ").trim();
+
+/** The most recent recorded miss, using the existing history and latest-attempt fields. */
+function lastMistakeOf(fm) {
+  const misses = parseHistory(fm && fm.history).filter((entry) => entry.result === "incorrect");
+  const latest = misses.reduce((best, entry) => (!best || entry.when >= best.when ? entry : best), null);
+  const latestAttemptWasMiss = str(fm && fm.result) === "incorrect";
+  const answer = str(latest && latest.answer) || (latestAttemptWasMiss ? str(fm && fm.last_answer) : "");
+  const reason = str(latest && latest.error) || str(fm && fm.last_error_type).trim();
+  const when = str(latest && latest.when).slice(0, 10) || (latestAttemptWasMiss ? str(fm && fm["date attempted"]).slice(0, 10) : "");
+  if (!answer && !reason && !when) return null;
+  return { answer: inline(answer), reason: inline(reason), when };
+}
 
 /** A printable question sheet. Answer, rationale and notes sections are never copied. */
 function buildPracticeSheet(records, options) {
   const opts = options || {};
   const items = Array.isArray(records) ? records : [];
   const day = safeDay(opts.date);
+  const review = opts.review === true;
   const lines = [
-    "# Answer-free practice sheet",
+    review ? "# Error-log review sheet" : "# Answer-free practice sheet",
     "",
-    `Generated ${day} from ${items.length} question${items.length === 1 ? "" : "s"} in the current filter.`,
+    review
+      ? `Compiled ${day} from ${items.length} question${items.length === 1 ? "" : "s"} due for review.`
+      : `Generated ${day} from ${items.length} question${items.length === 1 ? "" : "s"} in the current filter.`,
     "",
-    "Answer keys, rationales and source notes are omitted. Write your answers below, then check the original notes.",
+    review
+      ? "Each item keeps the last recorded mistake for context. The correct answer, rationale and source notes are omitted; write your answers below, then check the original notes."
+      : "Answer keys, rationales and source notes are omitted. Write your answers below, then check the original notes.",
     "",
   ];
   items.forEach((item, index) => {
@@ -207,6 +228,17 @@ function buildPracticeSheet(records, options) {
     lines.push(`## ${index + 1}. ${label}`, "");
     const meta = [fm.course, fm.skill, fm.difficulty].map(inline).filter(Boolean);
     if (meta.length) lines.push(`_${meta.join(" · ")}_`, "");
+    if (review) {
+      const mistake = lastMistakeOf(fm);
+      if (mistake) {
+        const bits = [
+          mistake.answer ? `chose ${mistake.answer}` : "",
+          mistake.reason ? `reason: ${mistake.reason}` : "",
+          mistake.when ? `on ${mistake.when}` : "",
+        ].filter(Boolean);
+        lines.push(`**Original mistake:** ${bits.join(" · ")}`, "");
+      }
+    }
     if (sections.stimulus) lines.push("**Stimulus**", "", sections.stimulus, "");
     if (sections.question) lines.push("**Question**", "", sections.question, "");
     else lines.push("**Question**", "", "_Question text was not found in this note._", "");
@@ -222,7 +254,7 @@ function buildPracticeSheet(records, options) {
     lines.push("**Your answer:** ______________________________", "", "---", "");
   });
   lines.push("## Answer sheet", "");
-  if (!items.length) lines.push("_No questions matched the current filter._", "");
+  if (!items.length) lines.push(review ? "_No questions are due for review._" : "_No questions matched the current filter._", "");
   items.forEach((item, index) => {
     const fm = (item && item.fm) || {};
     const label = inline(fm.question_id) || inline(item && item.file && item.file.basename) || `Question ${index + 1}`;
@@ -231,15 +263,22 @@ function buildPracticeSheet(records, options) {
   return { count: items.length, text: lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n" };
 }
 
+/** A due review sheet with the original mistake beside each question. */
+function buildReviewSheet(records, options) {
+  return buildPracticeSheet(records, { ...(options || {}), review: true });
+}
+
 module.exports = {
   SUMMARY_COLUMNS,
   ATTEMPT_COLUMNS,
   buildAttemptsCsv,
   buildPracticeSheet,
   buildResultsCsv,
+  buildReviewSheet,
   csvCell,
   csvLine,
   csvText,
   practiceSheetFileName,
   resultFileNames,
+  reviewSheetFileName,
 };
