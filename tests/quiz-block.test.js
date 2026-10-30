@@ -190,3 +190,33 @@ Why: The light reactions use CO2.`;
   assert.equal(dom.find(/Check answer/).length, 0);
   assert.equal(dom.find(/Evaluate with AI/).length, 0);
 });
+
+test("quiz block: parses and renders L1-L4 cognitive levels with a per-question override", async () => {
+  const source = `Mode: static
+Level: L2
+Q: What does photosynthesis produce?
+A. Oxygen
+B. Nitrogen
+Answer: A
+
+Q: Which organelle carries out photosynthesis?
+Cognitive level: 4
+A. Nucleus
+B. Chloroplast
+Answer: B
+
+Q: What is the purpose of chlorophyll?
+Level: L9
+A. Absorb light
+B. Store water
+Answer: A`;
+  const parsed = Q.parseQuizBlock(source);
+  assert.deepEqual(parsed.questions.map((question) => question.level), ["L2", "L4", ""]);
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  const dom = makeDom();
+  await plugin.renderQuizBlock(source, dom.root);
+  assert.ok(dom.texts().includes("Level L2"));
+  assert.ok(dom.texts().includes("Level L4"));
+  assert.ok(!dom.texts().includes("Level L9"));
+});

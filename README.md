@@ -39,7 +39,7 @@ MCQ Tracker turns Obsidian into a local-first exam-prep workspace. Keep question
 - **Exam coverage.** Add a **Total topics** count to a course in Settings, Calendar, Courses. The next-exam study plan counts a topic as mastered only when every question in that `skill` is fully mastered, and Today/Insights show `mastered / declared topics (%)`. A count of 0 hides it, and readiness, due counts and scheduling are unchanged.
 - **Daily quiz (optional, off by default).** Get a small set of questions once a day from the folders you choose, with a separate completion streak and best streak. It uses the same queue and scheduler, stays on your device, and sends no notifications. When adaptive length is on, its count uses the same recent-recall signal. Start it from Settings, MCQ Tracker, Daily quiz, Today, or the command palette. An optional **Streak freeze** earns one freeze every five completions (configurable, maximum three) and automatically covers a missed day when you finish the next quiz, so one gap does not erase the streak.
 - **Study cards (optional, off by default).** Review the same MCQ notes as flip cards or choice cards, or switch the session to Learn, Test or Match, using your current filters and the same scheduler. No duplicate notes or second deck.
-- **Today:** a phone-sized start screen with due and new counts, the next class or exam, and one **Start 5 minutes** button that opens Quick Practice. When both modules have due work, **Start mixed review** runs one interleaved session.
+- **Today:** a start screen that is a single column on phones and a compact dashboard grid on laptops, with due and new counts, the next class or exam, and one **Start 5 minutes** button that opens Quick Practice. When both modules have due work, **Start mixed review** runs one interleaved session.
 - **CSV results export.** Export a summary row per question or card plus a row per stored attempt, with course, skill, difficulty, accuracy, timing, review dates, error type and history. The files are plain CSVs written to the vault root for outside analysis.
 - **Answer-free practice sheet.** Export the current question filter as a printable Markdown sheet with the stimulus, question, choices or matching prompts and blank answer lines. The answer key, rationale, source notes and frontmatter are deliberately omitted, and question state is never changed. The file is written to the vault root as `mcq-practice-sheet-YYYY-MM-DD.md`.
 - **Error-log review sheet.** Export every question due for review as a printable Markdown sheet. Each prompt keeps the last recorded mistake beside it (your answer, the reason you tagged and the date), while the correct key, rationale, source notes and frontmatter stay out. The file is written as `mcq-review-sheet-YYYY-MM-DD.md`; review state is never changed.
@@ -351,6 +351,10 @@ Turn on **Settings → MCQ Tracker → Review → Inline numeric questions** to 
 ### Shared-option quiz questions (optional)
 
 Turn on **Settings → MCQ Tracker → Review → Shared-option quiz questions** to reuse one option set across several `mcq-quiz` questions. Put the `A.`/`B.`/`C.` lines before the first `Q:`; each question keeps its own `Answer:`. The option is off by default, per-question choices still win, and no attempt, history, streak or scheduling data changes.
+
+### Cognitive levels (optional)
+
+Add `Level: L1` (or `Cognitive level: L1`) at the top of an `mcq-quiz` block to label every question with a cognitive level, or put the line inside one question to override the block default. Accepted values are `L1`–`L4` (plain `1`–`4` also works). The badge is informational only: it does not change grading, attempts, history, streak, next review or any scheduler state. Invalid values are ignored. Levels are available in both interactive and static answer-key modes.
 
 ### Static answer-key mode
 

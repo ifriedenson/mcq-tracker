@@ -241,3 +241,12 @@ test("today: explains when the MCQ module is off", async () => {
   view.render();
   assert.ok(dom.texts().some((t) => /MCQ Tracker is off/.test(t)));
 });
+
+test("today: groups sections into a responsive dashboard grid", async () => {
+  const { dom, view } = await setup();
+  view.render();
+  assert.ok(dom.all.some((el) => el.meta && el.meta.cls === "qt-today-header"));
+  assert.ok(dom.all.some((el) => el.meta && el.meta.cls === "qt-today-grid"));
+  assert.ok(dom.all.some((el) => el.meta && el.meta.cls === "qt-today-panel qt-today-panel-wide"));
+  assert.ok(dom.all.some((el) => el.meta && el.meta.cls === "qt-today-panel"));
+});

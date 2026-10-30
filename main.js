@@ -39165,6 +39165,7 @@ class QuestionTrackerPlugin extends Plugin {
       }
       cards.push(card);
       card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
+      if (question.level) card.createDiv({ cls: "qt-quiz-level", text: `Level ${question.level}` });
       if (question.weight !== 1) card.createDiv({ cls: "qt-quiz-weight", text: `Weight ${question.weight}` });
       if (!question.valid) {
         card.createDiv({ cls: "qt-quiz-issue", text: question.issues.join(" ") });
@@ -45274,6 +45275,13 @@ function clampScore(value) {
   return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : null;
 }
 
+/** Normalize a cognitive level to L1-L4; invalid metadata is ignored. */
+function normalizeLevel(value) {
+  const text = clean(value).toUpperCase().replace(/^LEVEL\s+/, "");
+  const match = text.match(/^L?([1-4])$/);
+  return match ? `L${match[1]}` : "";
+}
+
 function normalizeQuestionType(value) {
   const text = clean(value).toLowerCase();
   if (/reorder|sequence|chronological/.test(text)) return "reorder";
@@ -45312,6 +45320,7 @@ function resolveAnswer(raw, choices) {
 function newQuestion() {
   return {
     type: "choice",
+    level: "",
     question: "",
     choices: [],
     sharedOptions: false,
@@ -45338,6 +45347,7 @@ function parseQuizBlock(text) {
   const lines = str(text).replace(/\r\n?/g, "\n").split("\n");
   let gated = false;
   let mode = "interactive";
+  let level = "";
   let quizId = "";
   let pass = DEFAULT_PASS;
   let imprecise = DEFAULT_IMPRECISE;
@@ -45348,6 +45358,7 @@ function parseQuizBlock(text) {
 
   const start = () => {
     cur = newQuestion();
+    cur.level = level;
     questions.push(cur);
     last = null;
   };
@@ -45363,6 +45374,11 @@ function parseQuizBlock(text) {
     const modeLine = line.match(/^(?:mode|display)\s*[:=]\s*(.*)$/i);
     if (!cur && modeLine) {
       mode = /static|answer.?key|key|review/i.test(clean(modeLine[1])) ? "static" : "interactive";
+      continue;
+    }
+    const levelLine = line.match(/^(?:cognitive\s+level|level)\s*[:=]\s*(.*)$/i);
+    if (!cur && levelLine) {
+      level = normalizeLevel(levelLine[1]);
       continue;
     }
     if (/^gated\s*:\s*(true|yes|on)$/i.test(line)) {
@@ -45412,6 +45428,12 @@ function parseQuizBlock(text) {
     const type = line.match(/^(?:Type|Question\s*type)\s*[:.=]\s*(.*)$/i);
     if (type) {
       cur.type = normalizeQuestionType(type[1]);
+      last = null;
+      continue;
+    }
+    const questionLevel = line.match(/^(?:cognitive\s+level|level)\s*[:=]\s*(.*)$/i);
+    if (questionLevel) {
+      cur.level = normalizeLevel(questionLevel[1]);
       last = null;
       continue;
     }
@@ -54945,9 +54967,6 @@ class TodayView extends ItemView {
     }
 
     const now = new Date();
-    root.createDiv({ cls: "qt-today-date", text: now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) });
-    root.createEl("h2", { text: "Today" });
-
     const questions = p.getQuestions();
     const today = fmtDate(now);
     const visible = questions.filter((q) => isStudyable(q.fm, today));
@@ -54955,32 +54974,33 @@ class TodayView extends ItemView {
     const due = visible.filter((q) => isDue(q.fm, today));
     const fresh = visible.filter((q) => !Number(q.fm.attempts));
     const hiddenText = hidden ? ` · ${hidden} hidden` : "";
-    root.createDiv({
+
+    const header = root.createDiv({ cls: "qt-today-header" });
+    header.createDiv({ cls: "qt-today-date", text: now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) });
+    header.createEl("h2", { text: "Today" });
+    header.createDiv({
       cls: "qt-today-count",
       text: `${due.length} due · ${fresh.length} new · ${visible.length} question${visible.length === 1 ? "" : "s"}${hiddenText}`,
     });
-    const manage = root.createDiv({ cls: "qt-row qt-small-row" });
+    const manage = header.createDiv({ cls: "qt-row qt-small-row" });
     manage.createEl("button", { text: "Hidden items", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
-
-    this.renderReminder(root, today, due, fresh);
-    this.renderMasteryCard(root, questions, today);
-    const plan = this.renderStudyPlan(root);
-    this.renderFrqReview(root, plan);
-    this.renderDaily(root, today);
-    this.renderTasks(root, today, due, visible);
-    this.renderFocus(root, today);
 
     if (visible.length) {
       const pool = due.length ? due : visible;
       const mode = due.length ? "due" : "smart";
       const label = due.length ? "questions due today" : "available questions";
-      const start = root.createEl("button", { text: "Start 5 minutes", cls: "mod-cta qt-primary qt-today-start" });
+      const hero = root.createDiv({ cls: "qt-today-hero" });
+      const start = hero.createEl("button", { text: "Start 5 minutes", cls: "mod-cta qt-primary qt-today-start" });
       start.addEventListener("click", () => p.startQuickPractice({ minutes: 5, pool, mode, label }));
-      const more = root.createDiv({ cls: "qt-today-actions" });
+      const more = hero.createDiv({ cls: "qt-today-actions" });
       more.createEl("button", { text: "More Quick Practice options" }).addEventListener("click", () => p.activateQuickPractice());
       more.createEl("button", { text: "Open practice view" }).addEventListener("click", () => p.activateView());
-    } else {
-      const card = root.createDiv({ cls: "qt-today-card" });
+    }
+
+    const grid = root.createDiv({ cls: "qt-today-grid" });
+    if (!visible.length) {
+      const panel = grid.createDiv({ cls: "qt-today-panel qt-today-panel-full" });
+      const card = panel.createDiv({ cls: "qt-today-card" });
       card.createEl("h3", { text: hidden ? "All questions are hidden" : "No questions yet" });
       card.createDiv({
         cls: "qt-today-meta",
@@ -54991,9 +55011,16 @@ class TodayView extends ItemView {
         .addEventListener("click", () => (hidden ? p.openStudyStatusManager() : p.activateView()));
     }
 
-    this.renderDueQueue(root);
-    this.renderCards(root);
-    this.renderNext(root, now);
+    this.renderReminder(grid, today, due, fresh);
+    this.renderMasteryCard(grid, questions, today);
+    const plan = this.renderStudyPlan(grid);
+    this.renderFrqReview(grid, plan);
+    this.renderDaily(grid, today);
+    this.renderTasks(grid, today, due, visible);
+    this.renderFocus(grid, today);
+    this.renderDueQueue(grid);
+    this.renderCards(grid);
+    this.renderNext(grid, now);
   }
 
   /** A quiet, local nudge. It never uses an OS notification or the network. */
@@ -55002,7 +55029,8 @@ class TodayView extends ItemView {
     if (!p.reminderInfo) return;
     const info = p.reminderInfo();
     if (!info.visible) return;
-    const card = root.createDiv({ cls: "qt-today-card qt-reminder-card" });
+    const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-full" });
+    const card = panel.createDiv({ cls: "qt-today-card qt-reminder-card" });
     card.createDiv({ cls: "qt-today-kicker", text: "Study reminder" });
     card.createDiv({ cls: "qt-today-title", text: info.text });
     card.createDiv({
@@ -55032,6 +55060,7 @@ class TodayView extends ItemView {
     const mastery = buildMastery(pool, { days, today });
     if (!mastery.total) return;
     const trend = buildMasteryTrend(pool, { days, today });
+    const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-wide" });
     const controls = (container) => {
       if (scopes.length) {
         const scopeRow = container.createDiv({ cls: "qt-progress-scope" });
@@ -55063,7 +55092,7 @@ class TodayView extends ItemView {
       actions.createEl("button", { text: "Open progress", cls: "qt-link" }).addEventListener("click", () => p.activateInsights("progress"));
     };
     renderMastery(
-      root,
+      panel,
       { mastery, masteryScope: scope, masteryDays: days },
       {
         onMasteryPractice: (band, label) => {
@@ -55079,8 +55108,9 @@ class TodayView extends ItemView {
     if (!p.studyPlan) return null;
     const plan = p.studyPlan();
     if (!plan) return null;
-    root.createEl("h3", { cls: "qt-today-section", text: "Study plan" });
-    const card = root.createDiv({ cls: "qt-today-card qt-plan-card" });
+    const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-side" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Study plan" });
+    const card = panel.createDiv({ cls: "qt-today-card qt-plan-card" });
     card.createDiv({ cls: "qt-today-kicker", text: plan.daysLeft === 0 ? "Exam today" : `Next exam in ${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"}` });
     card.createDiv({ cls: "qt-today-title", text: plan.course });
     card.createDiv({
@@ -55120,8 +55150,9 @@ class TodayView extends ItemView {
       due = [];
     }
     if (!due.length) return;
-    root.createEl("h3", { cls: "qt-today-section", text: "FRQ review" });
-    const card = root.createDiv({ cls: "qt-today-card qt-frq-review" });
+    const panel = root.createDiv({ cls: "qt-today-panel" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "FRQ review" });
+    const card = panel.createDiv({ cls: "qt-today-card qt-frq-review" });
     card.createDiv({
       cls: "qt-today-kicker",
       text: due.length === 1 ? "1 free-response prompt due" : `${due.length} free-response prompts due`,
@@ -55150,7 +55181,8 @@ class TodayView extends ItemView {
     const done = dailyDone(daily, today);
     const plan = adaptiveDailyCount(p.getQuestions(), daily, { today, settings: normalizeQuickAdaptive(p.settings.quickAdaptive) });
     const count = plan.value;
-    const card = root.createDiv({ cls: "qt-today-card qt-daily-card" });
+    const panel = root.createDiv({ cls: "qt-today-panel" });
+    const card = panel.createDiv({ cls: "qt-today-card qt-daily-card" });
     card.createDiv({ cls: "qt-today-kicker", text: "Daily quiz" });
     card.createDiv({
       cls: "qt-today-title",
@@ -55174,12 +55206,13 @@ class TodayView extends ItemView {
     const pending = pendingGradeCounts(p.pendingCardGrades ? p.pendingCardGrades() : []);
     const cardCount = queue.counts.cards + queue.counts.vocab;
     if (!queue.counts.questions || !cardCount) return;
-    root.createEl("h3", { cls: "qt-today-section", text: "Due across modules" });
-    root.createDiv({
+    const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-wide" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Due across modules" });
+    panel.createDiv({
       cls: "qt-today-count",
       text: `${queue.counts.questions} question${queue.counts.questions === 1 ? "" : "s"} · ${cardCount} card${cardCount === 1 ? "" : "s"} due or new`,
     });
-    const list = root.createDiv({ cls: "qt-due-list" });
+    const list = panel.createDiv({ cls: "qt-due-list" });
     for (const item of queue.items) {
       const row = list.createDiv({ cls: `qt-due-row qt-due-${item.type}` });
       const main = row.createDiv({ cls: "qt-due-main" });
@@ -55188,7 +55221,7 @@ class TodayView extends ItemView {
       row.createSpan({ cls: `qt-due-badge${item.isNew ? " is-new" : ""}`, text: item.isNew ? "New" : "Due" });
       if (pending.get(item.path)) row.createSpan({ cls: "qt-due-badge is-pending", text: "Pending" });
     }
-    const actions = root.createDiv({ cls: "qt-row" });
+    const actions = panel.createDiv({ cls: "qt-row" });
     actions.createEl("button", { text: "Start mixed review", cls: "mod-cta qt-primary" }).addEventListener("click", () => p.openMixedReview());
     actions.createEl("button", { text: "Open due queue" }).addEventListener("click", () => p.openDueQueue());
   }
@@ -55203,8 +55236,9 @@ class TodayView extends ItemView {
     const due = cards.filter(
       (c) => isStudyable(c.fm, today) && (!Number(c.fm.attempts) || (!!c.fm.next_review && String(c.fm.next_review).slice(0, 10) <= today))
     ).length;
-    root.createEl("h3", { cls: "qt-today-section", text: "Cards" });
-    const card = root.createDiv({ cls: "qt-today-card" });
+    const panel = root.createDiv({ cls: "qt-today-panel" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Cards" });
+    const card = panel.createDiv({ cls: "qt-today-card" });
     card.createDiv({ cls: "qt-today-kicker", text: due ? "Ready to review" : "All caught up" });
     card.createDiv({
       cls: "qt-today-title",
@@ -55275,8 +55309,9 @@ class TodayView extends ItemView {
     const tasks = buildDailyTasks({ reviewCount: due.length + cardsDue, assignments, today });
     if (!tasks.length) return;
     const work = workload(assignments, { today });
-    root.createEl("h3", { cls: "qt-today-section", text: "Tasks" });
-    const card = root.createDiv({ cls: "qt-today-card qt-tasks-card" });
+    const panel = root.createDiv({ cls: "qt-today-panel" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Tasks" });
+    const card = panel.createDiv({ cls: "qt-today-card qt-tasks-card" });
     for (const task of tasks) {
       const row = card.createDiv({ cls: `qt-today-task is-${task.kind}` });
       const main = row.createDiv({ cls: "qt-today-task-main" });
@@ -55306,8 +55341,9 @@ class TodayView extends ItemView {
     const p = this.plugin;
     if (!p.studySummary) return;
     const summary = p.studySummary(today);
-    root.createEl("h3", { cls: "qt-today-section", text: "Focus" });
-    const card = root.createDiv({ cls: "qt-today-card qt-focus-card" });
+    const panel = root.createDiv({ cls: "qt-today-panel" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Focus" });
+    const card = panel.createDiv({ cls: "qt-today-card qt-focus-card" });
     const focus = p.focus;
     if (focus) {
       card.createDiv({ cls: "qt-today-kicker", text: focus.course ? `Focus · ${focus.course}` : "Focus session" });
@@ -55362,11 +55398,12 @@ class TodayView extends ItemView {
     const exam = upcomingExams(events, now, 1)[0];
     if (!classStatus.event && !exam) return;
 
-    root.createEl("h3", { cls: "qt-today-section", text: "Next up" });
+    const panel = root.createDiv({ cls: "qt-today-panel" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Next up" });
     if (classStatus.event) {
       const event = classStatus.event;
       const details = event.details || parseClassDetails(event.summary, event.description, event.location);
-      const card = root.createDiv({ cls: "qt-today-card" });
+      const card = panel.createDiv({ cls: "qt-today-card" });
       card.createDiv({ cls: "qt-today-kicker", text: classStatus.state === "ongoing" ? "In class now" : "Next class" });
       card.createDiv({ cls: "qt-today-title", text: cleanSubjectTitle(event.summary) || event.summary || "Class" });
       const when = classStatus.state === "ongoing"
@@ -55375,7 +55412,7 @@ class TodayView extends ItemView {
       card.createDiv({ cls: "qt-today-meta", text: [when, details.room].filter(Boolean).join(" · ") });
     }
     if (exam) {
-      const card = root.createDiv({ cls: "qt-today-card" });
+      const card = panel.createDiv({ cls: "qt-today-card" });
       card.createDiv({ cls: "qt-today-kicker", text: "Next exam" });
       card.createDiv({ cls: "qt-today-title", text: cleanSubjectTitle(exam.summary) || exam.summary || "Exam" });
       card.createDiv({ cls: "qt-today-meta", text: `${formatDateValue(settings.dateFormat, exam.dateKey)} · ${examCountdown(exam, now)}` });

@@ -55,6 +55,13 @@ function clampScore(value) {
   return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : null;
 }
 
+/** Normalize a cognitive level to L1-L4; invalid metadata is ignored. */
+function normalizeLevel(value) {
+  const text = clean(value).toUpperCase().replace(/^LEVEL\s+/, "");
+  const match = text.match(/^L?([1-4])$/);
+  return match ? `L${match[1]}` : "";
+}
+
 function normalizeQuestionType(value) {
   const text = clean(value).toLowerCase();
   if (/reorder|sequence|chronological/.test(text)) return "reorder";
@@ -93,6 +100,7 @@ function resolveAnswer(raw, choices) {
 function newQuestion() {
   return {
     type: "choice",
+    level: "",
     question: "",
     choices: [],
     sharedOptions: false,
@@ -119,6 +127,7 @@ function parseQuizBlock(text) {
   const lines = str(text).replace(/\r\n?/g, "\n").split("\n");
   let gated = false;
   let mode = "interactive";
+  let level = "";
   let quizId = "";
   let pass = DEFAULT_PASS;
   let imprecise = DEFAULT_IMPRECISE;
@@ -129,6 +138,7 @@ function parseQuizBlock(text) {
 
   const start = () => {
     cur = newQuestion();
+    cur.level = level;
     questions.push(cur);
     last = null;
   };
@@ -144,6 +154,11 @@ function parseQuizBlock(text) {
     const modeLine = line.match(/^(?:mode|display)\s*[:=]\s*(.*)$/i);
     if (!cur && modeLine) {
       mode = /static|answer.?key|key|review/i.test(clean(modeLine[1])) ? "static" : "interactive";
+      continue;
+    }
+    const levelLine = line.match(/^(?:cognitive\s+level|level)\s*[:=]\s*(.*)$/i);
+    if (!cur && levelLine) {
+      level = normalizeLevel(levelLine[1]);
       continue;
     }
     if (/^gated\s*:\s*(true|yes|on)$/i.test(line)) {
@@ -193,6 +208,12 @@ function parseQuizBlock(text) {
     const type = line.match(/^(?:Type|Question\s*type)\s*[:.=]\s*(.*)$/i);
     if (type) {
       cur.type = normalizeQuestionType(type[1]);
+      last = null;
+      continue;
+    }
+    const questionLevel = line.match(/^(?:cognitive\s+level|level)\s*[:=]\s*(.*)$/i);
+    if (questionLevel) {
+      cur.level = normalizeLevel(questionLevel[1]);
       last = null;
       continue;
     }

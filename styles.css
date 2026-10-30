@@ -3315,9 +3315,56 @@
 /* Today: a phone-first launch card. Scoped under .qt-today so it never changes
    the exam-style practice screen. */
 .qt-today {
-  max-width: 560px;
-  gap: 14px;
+  gap: 16px;
+  max-width: 1320px;
+  padding: 20px clamp(14px, 2vw, 28px) 30px;
 }
+
+.qt-today-header {
+  align-items: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.qt-today-header .qt-today-date {
+  flex-basis: 100%;
+}
+
+.qt-today-header .qt-today-count {
+  flex: 1 1 360px;
+}
+
+.qt-today-header .qt-row {
+  align-self: flex-end;
+}
+
+.qt-today-hero {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.qt-today-hero .qt-today-start {
+  flex: 0 1 260px;
+}
+
+.qt-today-grid {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.qt-today-panel {
+  grid-column: span 4;
+  min-width: 0;
+}
+
+.qt-today-panel-wide { grid-column: span 8; }
+.qt-today-panel-full { grid-column: 1 / -1; }
+.qt-today-panel > .qt-today-section { margin-top: 0; }
 
 .qt-today-date {
   color: var(--text-muted);
@@ -3433,11 +3480,47 @@
   margin-top: 8px;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 1100px) {
   .qt-today {
+    max-width: 900px;
+  }
+
+  .qt-today-panel,
+  .qt-today-panel-wide {
+    grid-column: span 6;
+  }
+
+  .qt-today-panel-full {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 700px) {
+  .qt-today {
+    max-width: none;
     padding: 16px 14px 24px;
   }
 
+  .qt-today-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qt-today-panel,
+  .qt-today-panel-wide,
+  .qt-today-panel-full {
+    grid-column: 1;
+  }
+
+  .qt-today-hero {
+    align-items: stretch;
+  }
+
+  .qt-today-hero .qt-today-start {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 480px) {
   .qt-today h2 {
     font-size: 1.55rem;
   }
@@ -5562,6 +5645,7 @@
 .qt-quiz-summary.is-pass { background: var(--background-modifier-success); color: var(--text-success); }
 .qt-quiz-summary.is-imprecise { background: var(--background-modifier-warning); color: var(--text-warning); }
 .qt-quiz-summary.is-fail { background: var(--background-modifier-error); color: var(--text-error); }
+.qt-quiz-level { border: 1px solid var(--background-modifier-border); border-radius: 999px; color: var(--text-muted); display: inline-block; font-size: 0.75em; letter-spacing: 0.04em; margin: -2px 0 6px 18px; padding: 0 6px; }
 .qt-quiz-weight { color: var(--text-muted); font-size: 0.8em; margin: -2px 0 6px 18px; }
 .qt-quiz-slider, .qt-quiz-text { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 18px; }
 .qt-quiz-slider input[type="range"] { flex: 1 1 180px; }

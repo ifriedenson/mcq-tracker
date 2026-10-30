@@ -3655,6 +3655,7 @@ class QuestionTrackerPlugin extends Plugin {
       }
       cards.push(card);
       card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
+      if (question.level) card.createDiv({ cls: "qt-quiz-level", text: `Level ${question.level}` });
       if (question.weight !== 1) card.createDiv({ cls: "qt-quiz-weight", text: `Weight ${question.weight}` });
       if (!question.valid) {
         card.createDiv({ cls: "qt-quiz-issue", text: question.issues.join(" ") });
