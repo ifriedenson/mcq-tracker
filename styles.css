@@ -3325,6 +3325,8 @@
 }
 
 .qt-root.qt-root-today {
+  container-name: qt-today;
+  container-type: inline-size;
   height: 100%;
 }
 
@@ -3366,6 +3368,7 @@
   align-items: stretch;
   display: grid;
   gap: clamp(14px, 1.2vw, 20px);
+  grid-auto-rows: minmax(min-content, 1fr);
   grid-template-columns: repeat(12, minmax(0, 1fr));
 }
 
@@ -3555,6 +3558,49 @@
 
   .qt-today-start {
     min-height: 60px;
+  }
+}
+
+/* Container queries measure the Today pane itself, so a split pane or a
+   narrow window gets the right number of widget columns. The media queries
+   above remain as a fallback for Obsidian versions without container-query
+   support. */
+@container qt-today (max-width: 699.98px) {
+  .qt-today-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qt-today-panel,
+  .qt-today-panel-wide,
+  .qt-today-panel-full {
+    grid-column: 1;
+  }
+}
+
+@container qt-today (min-width: 700px) {
+  .qt-today-panel,
+  .qt-today-panel-wide {
+    grid-column: span 6;
+  }
+}
+
+@container qt-today (min-width: 1050px) {
+  .qt-today-panel {
+    grid-column: span 4;
+  }
+
+  .qt-today-panel-wide {
+    grid-column: span 8;
+  }
+}
+
+@container qt-today (min-width: 1400px) {
+  .qt-today-panel {
+    grid-column: span 3;
+  }
+
+  .qt-today-panel-wide {
+    grid-column: span 6;
   }
 }
 

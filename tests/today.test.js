@@ -251,20 +251,48 @@ test("today: groups sections into a responsive dashboard grid", async () => {
   assert.ok(dom.all.some((el) => el.meta && el.meta.cls === "qt-today-panel"));
 });
 
-test("today: desktop CSS fills the pane and adds a four-column widget breakpoint", () => {
+test("today: desktop CSS fills the pane and uses container-query breakpoints", () => {
   const fs = require("node:fs");
   const path = require("node:path");
   const css = fs.readFileSync(path.join(__dirname, "..", "styles.css"), "utf8");
+  const viewSource = fs.readFileSync(path.join(__dirname, "..", "src", "today-view.js"), "utf8");
+  assert.ok(viewSource.includes('addClass("qt-root-today")'), "the Today root carries the container-query class");
   const rule = (css.match(/\.qt-today \{[^}]*\}/) || [])[0] || "";
   assert.match(rule, /max-width:\s*none/);
   assert.match(rule, /width:\s*100%/);
   assert.match(rule, /min-height:\s*100%/);
   assert.match(rule, /margin:\s*0;/);
-  assert.match(css, /\.qt-root\.qt-root-today \{\s*height:\s*100%;/);
-  const wide = css.indexOf("@media (min-width: 1600px)");
-  assert.ok(wide > 0, "a four-column desktop breakpoint exists");
-  const block = css.slice(wide, wide + 500);
-  assert.match(block, /\.qt-today-panel \{\s*grid-column:\s*span 3;/);
-  assert.match(block, /\.qt-today-panel-wide \{\s*grid-column:\s*span 6;/);
-  assert.ok(!css.includes("max-width: 900px"), "the old 900px tablet cap is gone");
+
+  const root = (css.match(/\.qt-root\.qt-root-today \{[^}]*\}/) || [])[0] || "";
+  assert.match(root, /container-name:\s*qt-today/);
+  assert.match(root, /container-type:\s*inline-size/);
+
+  const grid = (css.match(/\.qt-today-grid \{[^}]*\}/) || [])[0] || "";
+  assert.match(grid, /align-items:\s*stretch/);
+  assert.match(grid, /grid-auto-rows:/);
+
+  const blocks = [
+    [700, 6],
+    [1050, 4],
+    [1400, 3],
+  ];
+  for (const [width, span] of blocks) {
+    const start = css.indexOf(`@container qt-today (min-width: ${width}px)`);
+    assert.ok(start > 0, `a ${width}px container breakpoint exists`);
+    const block = css.slice(start, start + 400);
+    assert.match(block, new RegExp(`grid-column:\\s*span ${span};`));
+  }
+
+  const single = css.indexOf("@container qt-today (max-width: 699.98px)");
+  assert.ok(single > 0, "the single-column container breakpoint exists");
+  assert.match(css.slice(single, single + 400), /grid-template-columns:\s*minmax\(0, 1fr\)/);
+
+  const todayRules = [...css.matchAll(/\.qt-today(?:\.[\w-]+)?\s*\{[^}]*\}/g)].map((match) => match[0]);
+  assert.ok(todayRules.length > 0);
+  for (const todayRule of todayRules) {
+    assert.doesNotMatch(todayRule, /max-width:\s*(?!none)\d/);
+    assert.doesNotMatch(todayRule, /margin:\s*(0\s+)?auto/);
+  }
+
+  assert.ok(css.includes("@media (min-width: 1600px)"), "the window media query stays as a fallback");
 });
