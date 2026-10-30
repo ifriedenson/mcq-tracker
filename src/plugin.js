@@ -704,6 +704,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.inlineQuizResults = this.settings.inlineQuizResults === true;
     this.settings.inlineQuizReorder = this.settings.inlineQuizReorder === true;
     this.settings.inlineQuizNumeric = this.settings.inlineQuizNumeric === true;
+    this.settings.inlineQuizSharedChoice = this.settings.inlineQuizSharedChoice === true;
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -3601,6 +3602,11 @@ class QuestionTrackerPlugin extends Plugin {
 
     parsed.questions.forEach((question, index) => {
       const card = box.createDiv({ cls: "qt-quiz-card" });
+      if (question.sharedOptions && this.settings.inlineQuizSharedChoice !== true) {
+        card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
+        card.createDiv({ cls: "qt-quiz-issue", text: "Shared-option questions are off. Turn on Shared-option quiz questions under Settings → MCQ Review." });
+        return;
+      }
       cards.push(card);
       card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
       if (question.weight !== 1) card.createDiv({ cls: "qt-quiz-weight", text: `Weight ${question.weight}` });

@@ -95,6 +95,7 @@ function newQuestion() {
     type: "choice",
     question: "",
     choices: [],
+    sharedOptions: false,
     answer: "",
     explanation: "",
     context: "",
@@ -121,6 +122,7 @@ function parseQuizBlock(text) {
   let pass = DEFAULT_PASS;
   let imprecise = DEFAULT_IMPRECISE;
   const questions = [];
+  const sharedChoices = [];
   let cur = null;
   let last = null;
 
@@ -167,6 +169,11 @@ function parseQuizBlock(text) {
       start();
       cur.question = question[1].trim();
       last = { key: "question" };
+      continue;
+    }
+    const sharedOption = !cur && line.match(/^([A-H])\s*[.):]\s*(.*)$/);
+    if (sharedOption) {
+      sharedChoices.push({ letter: sharedOption[1].toUpperCase(), text: sharedOption[2].trim(), feedback: "" });
       continue;
     }
     if (!cur) continue;
@@ -259,6 +266,10 @@ function parseQuizBlock(text) {
     question.question = clean(question.question);
     question.explanation = clean(question.explanation);
     question.context = clean(question.context).slice(0, 1000);
+    if (!question.choices.length && sharedChoices.length && question.type === "choice") {
+      question.choices = sharedChoices.map((choice) => ({ ...choice }));
+      question.sharedOptions = true;
+    }
     question.choices = question.choices.filter((choice) => clean(choice.text));
     if (!question.question) question.issues.push(`Question ${index + 1} has no text.`);
     if (question.type === "choice") {

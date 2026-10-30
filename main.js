@@ -17047,6 +17047,7 @@ const DEFAULT_SETTINGS = {
   inlineQuizResults: false, // opt-in: export mcq-quiz scores to the note under quizResults
   inlineQuizReorder: false, // opt-in: reorder questions in mcq-quiz blocks
   inlineQuizNumeric: false, // opt-in: typed numeric questions in mcq-quiz blocks
+  inlineQuizSharedChoice: false, // opt-in: one option set reused by several mcq-quiz questions
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
     managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)
@@ -35367,6 +35368,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.inlineQuizResults = this.settings.inlineQuizResults === true;
     this.settings.inlineQuizReorder = this.settings.inlineQuizReorder === true;
     this.settings.inlineQuizNumeric = this.settings.inlineQuizNumeric === true;
+    this.settings.inlineQuizSharedChoice = this.settings.inlineQuizSharedChoice === true;
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -38264,6 +38266,11 @@ class QuestionTrackerPlugin extends Plugin {
 
     parsed.questions.forEach((question, index) => {
       const card = box.createDiv({ cls: "qt-quiz-card" });
+      if (question.sharedOptions && this.settings.inlineQuizSharedChoice !== true) {
+        card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
+        card.createDiv({ cls: "qt-quiz-issue", text: "Shared-option questions are off. Turn on Shared-option quiz questions under Settings → MCQ Review." });
+        return;
+      }
       cards.push(card);
       card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
       if (question.weight !== 1) card.createDiv({ cls: "qt-quiz-weight", text: `Weight ${question.weight}` });
@@ -44345,6 +44352,7 @@ function newQuestion() {
     type: "choice",
     question: "",
     choices: [],
+    sharedOptions: false,
     answer: "",
     explanation: "",
     context: "",
@@ -44371,6 +44379,7 @@ function parseQuizBlock(text) {
   let pass = DEFAULT_PASS;
   let imprecise = DEFAULT_IMPRECISE;
   const questions = [];
+  const sharedChoices = [];
   let cur = null;
   let last = null;
 
@@ -44417,6 +44426,11 @@ function parseQuizBlock(text) {
       start();
       cur.question = question[1].trim();
       last = { key: "question" };
+      continue;
+    }
+    const sharedOption = !cur && line.match(/^([A-H])\s*[.):]\s*(.*)$/);
+    if (sharedOption) {
+      sharedChoices.push({ letter: sharedOption[1].toUpperCase(), text: sharedOption[2].trim(), feedback: "" });
       continue;
     }
     if (!cur) continue;
@@ -44509,6 +44523,10 @@ function parseQuizBlock(text) {
     question.question = clean(question.question);
     question.explanation = clean(question.explanation);
     question.context = clean(question.context).slice(0, 1000);
+    if (!question.choices.length && sharedChoices.length && question.type === "choice") {
+      question.choices = sharedChoices.map((choice) => ({ ...choice }));
+      question.sharedOptions = true;
+    }
     question.choices = question.choices.filter((choice) => clean(choice.text));
     if (!question.question) question.issues.push(`Question ${index + 1} has no text.`);
     if (question.type === "choice") {
@@ -49365,6 +49383,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(st.inlineQuizNumeric === true).onChange(async (v) => {
           st.inlineQuizNumeric = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Shared-option quiz questions")
+      .setDesc(
+        "Use one A./B./C. option set for several mcq-quiz questions. Put the options before the first Q: line and give each question its own Answer. Off by default; blocks with per-question choices are unchanged."
+      )
+      .addToggle((t) =>
+        t.setValue(st.inlineQuizSharedChoice === true).onChange(async (v) => {
+          st.inlineQuizSharedChoice = v === true;
           await this.plugin.save();
           this.plugin.refreshViews();
         })

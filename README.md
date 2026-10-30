@@ -337,6 +337,10 @@ Turn on **Settings → MCQ Tracker → Review → Inline reorder questions** to 
 
 Turn on **Settings → MCQ Tracker → Review → Inline numeric questions** to use `Type: numeric` in an `mcq-quiz` block. Give the question an `Answer:` number, an optional inclusive `Tolerance:`, and optional `Min:` / `Max:` bounds. Practice renders a number field and checks the typed value locally. The option is off by default, other quiz blocks are unchanged, and no attempt, history, streak or scheduling data is altered.
 
+### Shared-option quiz questions (optional)
+
+Turn on **Settings → MCQ Tracker → Review → Shared-option quiz questions** to reuse one option set across several `mcq-quiz` questions. Put the `A.`/`B.`/`C.` lines before the first `Q:`; each question keeps its own `Answer:`. The option is off by default, per-question choices still win, and no attempt, history, streak or scheduling data changes.
+
 ### Closed-book practice (optional)
 
 Turn on **Settings → MCQ Tracker → Review → Closed-book practice** to hide the **Open note** shortcut during a question. The question, choices and timer stay visible; the source row, answer note and explanation unlock only after you submit. The option is off by default, and it changes no attempts, history, streak, next review or scheduling. The toggle is a saved setting, so it stays on across practice sessions and plugin restarts; turn it off to restore the Open note shortcut.

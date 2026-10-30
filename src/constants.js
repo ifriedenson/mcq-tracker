@@ -59,6 +59,7 @@ const DEFAULT_SETTINGS = {
   inlineQuizResults: false, // opt-in: export mcq-quiz scores to the note under quizResults
   inlineQuizReorder: false, // opt-in: reorder questions in mcq-quiz blocks
   inlineQuizNumeric: false, // opt-in: typed numeric questions in mcq-quiz blocks
+  inlineQuizSharedChoice: false, // opt-in: one option set reused by several mcq-quiz questions
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
     managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)

@@ -614,6 +614,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Shared-option quiz questions")
+      .setDesc(
+        "Use one A./B./C. option set for several mcq-quiz questions. Put the options before the first Q: line and give each question its own Answer. Off by default; blocks with per-question choices are unchanged."
+      )
+      .addToggle((t) =>
+        t.setValue(st.inlineQuizSharedChoice === true).onChange(async (v) => {
+          st.inlineQuizSharedChoice = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Pause timer when the app is backgrounded (mobile)")
       .setDesc("Stops the clock if you switch apps or lock your phone.")
       .addToggle((t) =>
