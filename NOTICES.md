@@ -70,13 +70,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Anki .apkg reader
+## Anki .apkg reader and writer
 
 - **Project:** original code in this repository.
 - **License:** MIT, same as the rest of MCQ Tracker.
-- **What it does:** reads a user-provided `.apkg` ZIP, its uncompressed SQLite collection, and the `notes`, `cards` and `col` tables. It does not bundle Anki, AnkiConnect, SQLite, a ZIP library, or any third-party importer. Archive paths are never extracted and no SQL is executed.
-- **Files:** `src/apkg.js` (reader) and `src/plugin.js` (import wiring).
-- **Limitation:** Anki's newer zstd-compressed `collection.anki21b` packages are rejected with a text-export hint rather than guessed at.
+- **What it does:** reads a user-provided `.apkg` ZIP, its uncompressed SQLite collection, and the `notes`, `cards` and `col` tables, and writes the legacy `collection.anki2` package for export. It does not bundle Anki, AnkiConnect, SQLite, a ZIP library, or any third-party importer. Archive paths are never extracted and no SQL is executed; the writer emits the small `col`, `notes`, `cards`, `revlog` and `graves` tables directly.
+- **Files:** `src/apkg.js` (reader), `src/apkg-export.js` (package writer), `src/sqlite-write.js` (SQLite page writer), `src/zip-write.js` (stored ZIP writer) and `src/plugin.js` (import/export wiring).
+- **Limitation:** Anki's newer zstd-compressed `collection.anki21b` packages are rejected with a text-export hint rather than guessed at. Export is text-only; images and audio are not bundled.
 
 ## ts-fsrs
 

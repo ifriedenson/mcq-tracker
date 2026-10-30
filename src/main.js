@@ -20,6 +20,7 @@ const numericGrading = require("./numeric-grading");
 const answerTypes = require("./answer-types");
 const matching = require("./matching");
 const mochiExport = require("./mochi-export");
+const apkgExport = require("./apkg-export");
 const learnkit = require("./learnkit");
 const survey = require("./survey");
 const parameterized = require("./parameterized");
@@ -211,6 +212,7 @@ QuestionTrackerPlugin.__test = {
   answerTypes,
   matching,
   mochiExport,
+  apkgExport,
   learnkit,
   survey,
   parameterized,

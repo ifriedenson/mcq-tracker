@@ -136,7 +136,7 @@ function decodeValue(buf, serial, offset) {
   if (serial === 2) return buf.readInt16BE(offset);
   if (serial === 3) return (buf.readUInt8(offset) << 16) | buf.readUInt16BE(offset + 1);
   if (serial === 4) return buf.readInt32BE(offset);
-  if (serial === 5) return buf.readUInt8(offset) * 4294967296 + buf.readUInt32BE(offset + 1);
+  if (serial === 5) return buf.readUInt16BE(offset) * 4294967296 + buf.readUInt32BE(offset + 2);
   if (serial === 6) return int64(buf, offset);
   if (serial === 7) return buf.readDoubleBE(offset);
   if (serial === 8) return 0;

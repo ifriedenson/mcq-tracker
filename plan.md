@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — 1.115.0 adds a local-only in-plugin feedback survey, on top of 1.114.0's LearnKit import/export, 1.113.0's Mochi `.mochi` export, 1.112.0's native fill-in and matching practice, 1.111.1's true/false key fixes and offline leech handling, 1.111.0's opt-in leech handling, 1.110.0's native true/false and select-all practice and 1.109.0's zipped Canvas/Blackboard QTI archives, 1.108.0's FlashQuiz, QuizPort and Markdown-quiz import, 1.107.0's Insights Concepts mastery list and multi-photo FRQ answers, 1.106.0's one-screen reference sheets, 1.105.0's Learn, Test and Match study modes, 1.104.0's opt-in photo-of-handwritten-work reading to the FRQ grader, 1.103.0's device file picker for Quizlet PDF import, 1.102.0's local Quizlet PDF/test-bank import, 1.101.0's full course registry, FRQ math preview and rubric categories, 1.100.0's mixed MCQ/SPR/FRQ timed tests, 1.99.0's score-based FRQ review schedule, 1.98.0's optional second grading pass and official/teacher rubric marker and 1.97.0's six-course AP FRQ pilot. Remaining blocked items: the real-Obsidian visual/screenshot pass, a real-device mobile audit, TTS provider/mobile validation, and PDF form filling/full editor. Human-scored FRQ calibration remains a quality gate, not an implementation gate.
+**Status:** Implementation in progress — 1.116.0 adds Anki `.apkg` export, on top of 1.115.0's local-only in-plugin feedback survey, 1.114.0's LearnKit import/export, 1.113.0's Mochi `.mochi` export, 1.112.0's native fill-in and matching practice, 1.111.1's true/false key fixes and offline leech handling, 1.111.0's opt-in leech handling, 1.110.0's native true/false and select-all practice and 1.109.0's zipped Canvas/Blackboard QTI archives, 1.108.0's FlashQuiz, QuizPort and Markdown-quiz import, 1.107.0's Insights Concepts mastery list and multi-photo FRQ answers, 1.106.0's one-screen reference sheets, 1.105.0's Learn, Test and Match study modes, 1.104.0's opt-in photo-of-handwritten-work reading to the FRQ grader, 1.103.0's device file picker for Quizlet PDF import, 1.102.0's local Quizlet PDF/test-bank import, 1.101.0's full course registry, FRQ math preview and rubric categories, 1.100.0's mixed MCQ/SPR/FRQ timed tests, 1.99.0's score-based FRQ review schedule, 1.98.0's optional second grading pass and official/teacher rubric marker and 1.97.0's six-course AP FRQ pilot. Remaining blocked items: the real-Obsidian visual/screenshot pass, a real-device mobile audit, TTS provider/mobile validation, and PDF form filling/full editor. Human-scored FRQ calibration remains a quality gate, not an implementation gate.
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), the October 28 idea backlog (§5.22), and the Adaptive Practice parity audit (§5.23, Oct 29, 2026). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,7 +11,9 @@
 
 ## Current focus (Oct 29, 2026)
 
-**Latest completed (1.115.0):** Settings, About now has an optional **feedback survey**: a rating, what the learner uses the plugin for, free-text strengths and improvements, and a quote permission toggle. **Copy feedback** builds a Markdown summary for the clipboard; nothing is sent, saved to the vault or counted, and there is no telemetry. The form is local-only and every field except the rating is optional.
+**Latest completed (1.116.0):** Cards can be exported as an **Anki package (.apkg)**. The plugin writes a real SQLite collection (col, notes, cards, revlog and graves) and wraps it in a stored ZIP, with decks, tags and Basic, Basic (and reversed), Cloze and multiple-choice notes. MCQ choices stay on the front and the key on the back; cloze markers are preserved. The Cards export dialog, Settings and the export command offer it, and the result warns when a card references images or audio that were not bundled. The writer and reader are local, original code; no SQLite engine, Anki code or dependency is added. Python's SQLite engine reports `integrity_check: ok` for a 1,200-note package, and the round-trip is covered by tests.
+
+**Previously (1.115.0):** Settings, About has an optional **feedback survey**: a rating, what the learner uses the plugin for, free-text strengths and improvements, and a quote permission toggle. **Copy feedback** builds a Markdown summary for the clipboard; nothing is sent, saved to the vault or counted, and there is no telemetry. The form is local-only and every field except the rating is optional.
 
 **Previously (1.114.0):** Cards can be imported from and exported to **LearnKit**. The importer reads LearnKit's pipe blocks (`T`, `Q`, `A`, `CQ`, `MCQ`, `O`, `RQ`, `OQ`, `G`), single-line quick cards (`question::answer`, `question:::answer`, `cloze::...`) and `::`/`:::` combo cards. Groups become decks and tags, ordered questions become basic cards with the order on the back, and hotspot cards are skipped with a reason. The exporter writes the same block format as a Markdown note; LearnKit adds its anchors when the note is synced. The Cards import and export dialogs, Settings and the export command offer it. Nothing is uploaded and no dependency was added.
 
@@ -92,7 +94,7 @@
 | FRQ math preview and rubric categories (§5.16.6, §5.20.1) | **Done in 1.101.0** | The answer box has a local **Math preview** for math and chemistry notation. Rubric rows accept an optional category tag, infer one from the label when omitted, show it in the grader, and preserve it in generated notes and the AI payload. |
 | Concept mastery overlay (§5.14) | **Done in 1.107.0** | Insights → Concepts lists one row per source note, weakest first, with practice accuracy and a colour band; **Reread this** and source backlinks ship since 1.36.0. |
 | Exam/quiz import breadth (§5.22.3) | **Done in 1.114.0** | GIFT, Moodle XML, QTI, Mochi Markdown, CrowdAnki, FlashQuiz `@mc`/`@sata`/`@tf`, QuizPort JSON, Markdown checkbox quizzes, zipped Canvas/Blackboard QTI archives and LearnKit blocks/quick cards. |
-| Card and question export (§5.15) | **Partial** | Anki text, CSV, Markdown and JSON ship, plus Mochi `.mochi` in 1.113.0; `.apkg` export is missing. |
+| Card and question export (§5.15) | **Done in 1.116.0** | Anki text, CSV, Markdown, JSON, Mochi `.mochi` (1.113.0), LearnKit (1.114.0) and a real Anki `.apkg` package (1.116.0). The `.apkg` writer is covered by tests and a SQLite `integrity_check` on a 1,200-note package. |
 | LearnKit compatibility (§5.15) | **Done in 1.114.0** | Pipe blocks and quick cards import; groups map to decks/tags; ordered questions import as basic cards, hotspot cards are skipped. Export writes the same block format as a Markdown note. |
 | Math/chemistry rendering audit | **Blocked — manual gate** | Renderer and golden tests are done; the remaining visual pass needs a real Obsidian window and cannot be completed in this cloud environment. |
 | Mobile audit | **Blocked** | No real iOS/Android device is available in this environment. |
@@ -100,9 +102,9 @@
 | PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; true AcroForm filling needs an audited MIT PDF library and is not safe to approximate. |
 | README, screenshots, sample vault, license confirmation | **Partial — screenshots blocked** | README, NOTICES, `docs/license-audit.md` and `samples/sample-vault` exist. Screenshots still need a real Obsidian window. |
 
-**Whole-plan review (Oct 29, 2026).** Every checkbox in this document was checked against the code. Closed in 1.89.0–1.106.0: the course registry, FRQ rubric categories, Quizlet PDF import with a device picker and the reference sheets. The boxes that remain `[~]` are either gated on hardware or an audited library (visual pass, screenshots, mobile, TTS, PDF form filling, pronunciation) or carry a named, implementable gap: exam/quiz import breadth, `.apkg` export and the bundled OCR engine. The concept mastery overlay closed in 1.107.0, fill-in and matching practice closed in 1.112.0, Mochi `.mochi` export closed in 1.113.0, and LearnKit import/export closed in 1.114.0, and the in-plugin survey closed in 1.115.0. Human-scored FRQ calibration remains a quality gate, not an implementation gate. There is now a single status list; the superseded copy is archived.
+**Whole-plan review (Oct 29, 2026).** Every checkbox in this document was checked against the code. Closed in 1.89.0–1.106.0: the course registry, FRQ rubric categories, Quizlet PDF import with a device picker and the reference sheets. The boxes that remain `[~]` are either gated on hardware or an audited library (visual pass, screenshots, mobile, TTS, PDF form filling, pronunciation) The only remaining named implementation gap is the bundled OCR engine. The concept mastery overlay closed in 1.107.0, fill-in and matching practice closed in 1.112.0, Mochi `.mochi` export closed in 1.113.0, and LearnKit import/export closed in 1.114.0, the in-plugin survey closed in 1.115.0 and `.apkg` export closed in 1.116.0. Human-scored FRQ calibration remains a quality gate, not an implementation gate. There is now a single status list; the superseded copy is archived.
 
-**Partial review (Oct 29, 2026, 1.104.0).** Every partial marker was re-read after the handwriting work. Closed in this release: photo-of-handwritten-work grading. Still gated with a concrete reason: the real-Obsidian visual/screenshot pass (no Obsidian window here), the mobile audit (no real device), TTS/audio commute (no provider or mobile speech validation), PDF form filling (no audited MIT form-filling library; approximating it would corrupt files), pronunciation feedback (needs audio capture plus mobile validation), and human-scored FRQ calibration (a quality gate, not code). `.apkg` export stays open because it needs a tested SQLite writer; reading `.apkg` already works. Also closed in 1.105.0: the Learn, Test and Match study-skin modes. Also closed in 1.106.0: the one-screen reference sheets.
+**Partial review (Oct 29, 2026, 1.104.0).** Every partial marker was re-read after the handwriting work. Closed in this release: photo-of-handwritten-work grading. Still gated with a concrete reason: the real-Obsidian visual/screenshot pass (no Obsidian window here), the mobile audit (no real device), TTS/audio commute (no provider or mobile speech validation), PDF form filling (no audited MIT form-filling library; approximating it would corrupt files), pronunciation feedback (needs audio capture plus mobile validation), and human-scored FRQ calibration (a quality gate, not code). `.apkg` export was open at that time because it needed a tested SQLite writer; it closed in 1.116.0, and reading `.apkg` already works. Also closed in 1.105.0: the Learn, Test and Match study-skin modes. Also closed in 1.106.0: the one-screen reference sheets.
 
 **Dedupe and re-mark (Oct 29, 2026, 1.106.0).** `plan.md` is now one document. The
 pre-Oct-27 duplicate, the Gemini brainstorm and Appendix A were moved verbatim to
@@ -110,7 +112,7 @@ pre-Oct-27 duplicate, the Gemini brainstorm and Appendix A were moved verbatim t
 promoted first, so no unique content was lost. Newly marked partial because a named gap
 remains: LearnKit import/export, FRQ human-scored calibration, the bundled OCR engine, the
 in-plugin survey form, the concept mastery overlay, exam/quiz import breadth and Mochi and
-`.apkg` export. Items previously marked `[x]` whose own text said something “remains” were
+`.apkg` export. Those last two closed in 1.113.0 and 1.116.0. Items previously marked `[x]` whose own text said something “remains” were
 corrected, including two stale claims that auto-classification was missing (it shipped in
 1.47.0).
 
@@ -1112,10 +1114,10 @@ The existing importers cover Quizlet, Kahoot, Blooket, Gimkit, Anki and Spaced R
 | **Generic CSV / TSV** | Header detection, delimiter/quote detection, column mapping, saved presets, preview | **Highest payoff.** One importer covers Brainscape, Cram, RemNote, Memrise, Sheets/Excel and most Quizlet exports. Do this before app-specific importers. |
 | **Other Obsidian plugins** | Spaced Repetition (`Q::A`, multiline `?`, cloze, `#flashcards`), Obsidian_to_Anki custom syntax, Mochi `#card` with `---`, Flashcards (Colucci), Yanki, FlashCard, Syro | **Mochi Markdown import shipped in 1.23.0.** One-click **Migrate from X** with preview. Read documented syntax only; do not copy GPL code. |
 | **Other apps** | Mochi, Memrise, Cram, Knowt, Brainscape, RemNote, Notion tables | Mostly via CSV. Confirm Mochi's current format before promising native `.mochi` import. |
-| **More Anki variants** | `.apkg` (new and old), Anki text, CrowdAnki JSON, AnkiWeb shared decks | **CrowdAnki JSON shipped in 1.23.0, desktop `.apkg` import in 1.50.0, and two-way AnkiConnect sync in 1.51.0. LearnKit remains; preserve scheduling and media where possible.** |
+| **More Anki variants** | `.apkg` (new and old), Anki text, CrowdAnki JSON, AnkiWeb shared decks | **CrowdAnki JSON shipped in 1.23.0, desktop `.apkg` import in 1.50.0, two-way AnkiConnect sync in 1.51.0 and `.apkg` export in 1.116.0. LearnKit remains; preserve scheduling and media where possible.** |
 | **LMS quiz banks** | Moodle XML, GIFT, QTI (Canvas, Blackboard) | Fits university users. **GIFT, Moodle XML and QTI shipped in 1.21.0–1.22.0**; Canvas/Blackboard-specific variants remain. Formats above are from memory; **Verify** current specifications. |
 | **Exam / quiz formats** | FlashQuiz `@mc`/`@sata`/`@tf`, VCE via converter, QuizPort JSON, Markdown checkbox quizzes | CBT Exam Simulator and QuizPort are references. **Verify** the VCE converter's license separately. |
-| **Export** | Anki text, CSV, Markdown, JSON, Mochi `.mochi`; `.apkg` export is a known gap | Round-trip where practical so users can leave with their cards. |
+| **Export** | Anki text, Anki `.apkg`, CSV, Markdown, JSON, Mochi `.mochi`, LearnKit | Round-trip where practical so users can leave with their cards. |
 | **Import quality** | Dry-run preview, report (created, skipped, duplicates, media failures), duplicate detection, source attribution | **Preview/report/update-copy shipped in 1.24.0; per-row outcomes and .apkg media reporting shipped in 1.92.0.** |
 
 **Rules:** prefer files users export themselves; do not scrape Quizlet, Kahoot, Blooket, Gimkit, Canvas or AnkiWeb, and review each service's terms before any unofficial API. Normalize every importer into the existing note format and scheduler; no parallel card database. Dedupe by official ID, normalized text and page/image hash; re-import offers **skip**, **update** or **create copy**. Stage the import, show the report, then commit in one batch; never half-write. Write `import_source`, `import_format`, `imported_on`, `import_batch` and `import_source_url`. Tell users they are responsible for imported content and that no copyrighted question banks are bundled. Keep one small, legally usable fixture per format in CI.
@@ -1222,7 +1224,7 @@ These are in addition to §11.
 6. **Image occlusion and audio-only commute mode** — card depth once TTS/provider support is validated.
 7. **Reference panel** — useful but optional; keep it out of timed tests by default.
 8. **PDF editor** — integrate first; build only if integration is inadequate.
-9. **Import polish** — GIFT, Moodle XML, QTI, Mochi Markdown and CrowdAnki are implemented, with preview/report/update-copy and per-row/.apkg media reporting in 1.92.0. Canvas/Blackboard variants and `.apkg` export remain.
+9. **Import polish** — GIFT, Moodle XML, QTI, Mochi Markdown and CrowdAnki are implemented, with preview/report/update-copy and per-row/.apkg media reporting in 1.92.0. Canvas/Blackboard variants remain.
 10. **Standalone mobile prep** — keep the core portable now; start the app only when the trigger is met.
 
 ### 5.23 Adaptive Practice parity audit — **S–M** (Oct 29, 2026)
@@ -1322,7 +1324,7 @@ Names are proposals; keep existing ones unchanged.
 - [x] Moodle XML and QTI import (§5.22.3) — shipped in 1.22.0
 - [x] Mochi Markdown and CrowdAnki JSON import (§5.22.3) — shipped in 1.23.0
 - [x] Import preview, report and duplicate update/copy (§5.22.3) — shipped in 1.24.0
-- [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — desktop `.apkg` import shipped in 1.50.0, two-way AnkiConnect sync in 1.51.0, Quizlet PDF/test-bank import in 1.102.0 and its device file picker in 1.103.0; LearnKit import/export shipped in 1.114.0
+- [x] Card syntax compatibility and importers: Spaced Repetition, Anki, Quizlet, Kahoot, Blooket and Gimkit CSV import/export (§5.15) — desktop `.apkg` import shipped in 1.50.0, `.apkg` export in 1.116.0, two-way AnkiConnect sync in 1.51.0, Quizlet PDF/test-bank import in 1.102.0 and its device file picker in 1.103.0; LearnKit import/export shipped in 1.114.0
 - [x] Answer modes: flip, type and speak via OS dictation, with the deterministic cheap-first grading pipeline (§5.17)
 - [x] AI fallback for typed answers that the local grader cannot settle, using the shared AI layer and a validated structured verdict (§5.17)
 - [x] Durable grade-later queue for offline, slow or over-budget grading, with batch retry, idempotency and a pending-grade badge (§5.17)
@@ -1423,11 +1425,11 @@ These are **research and specification items**, not implementation work. The AP 
 - [x] Anki plain-text export with deck, note type and tag columns (§5.15) — shipped in 1.39.0
 - [x] Documented property schema and Dataview examples in [docs/property-schema.md](docs/property-schema.md) (§5.15) — shipped in 1.39.0
 - [x] Optional AnkiConnect push to a running Anki desktop, with duplicate reporting (§5.15) — shipped in 1.40.0
-- [x] Optional `.apkg` import through a local ZIP/SQLite reader, with scheduling metadata (§5.15) — shipped in 1.50.0
+- [x] Optional `.apkg` import through a local ZIP/SQLite reader, with scheduling metadata (§5.15) — shipped in 1.50.0; `.apkg` export through a local SQLite writer and stored-ZIP writer in 1.116.0
 - [x] Bidirectional AnkiConnect sync with note-ID mapping, content hashes and conflict handling (§5.15) — shipped in 1.51.0
 - [x] Notes ↔ practice links — **Reread this** and source backlinks shipped in 1.36.0; the Insights **Concepts** mastery list shipped in 1.107.0 (§5.14)
 - [x] Exam/quiz import breadth — GIFT, Moodle XML, QTI, Mochi Markdown and CrowdAnki shipped in 1.21.0–1.23.0; FlashQuiz `@mc`/`@sata`/`@tf`, QuizPort JSON and Markdown checkbox quizzes shipped in 1.108.0; zipped Canvas/Blackboard QTI archives are read in 1.109.0 and LearnKit blocks/quick cards in 1.114.0 (§5.22.3)
-- [~] **Partial** Card and question export — Anki text, CSV, Markdown, JSON and Mochi `.mochi` (1.113.0) shipped; `.apkg` export remains (§5.15)
+- [x] Card and question export — Anki text, Anki `.apkg` (1.116.0), CSV, Markdown, JSON, Mochi `.mochi` (1.113.0) and LearnKit (1.114.0) shipped (§5.15)
 - [~] **Open (optional)** Pronunciation feedback for language learners
 - [x] Handwritten-work photo reading — shipped in 1.104.0 as an opt-in vision transcript; since 1.107.0 one answer can use up to eight photos read in order and appended, recorded as `answer_pages`; grading still runs on text
 
@@ -1752,7 +1754,7 @@ Packaging, audience, calendar and flashcard priority, BYOK + OpenCode, mobile qu
 - **What it does:** spaced repetition for whole notes plus an AI study suite. This is the **closest overlapping competitor** and it ships updates constantly.
 - **Features:** FSRS and SM-2 scheduling; review bar docked under the note; leech handling and lapse checkpoints; AI-generated MCQs per note; adaptive AI tutor that charts a note into learning objectives and tracks understanding/recall/transfer (recall counts as durable only after two different days); study workspace with Learn, Visualize, Mind map and Summary; optional web lookup with citations; Anki-style deck engine (flip, reversed, MCQ, cloze, typed answer) with `.apkg` import and export, AnkiConnect background sync, and AnkiWeb search; statistics page (heatmap, 30-day forecast, true retention, leeches); Pomodoro timer; calendar events with recurrence and categories; 20+ AI providers including local servers and agent CLIs; optional progress file that travels with the vault; 22 commands.
 - **Storage:** review data in the plugin's central data file, keeping note frontmatter clean.
-- **Has that you don't:** objective-based AI tutor, mind map/visualize/summary workspace, web lookup, SM-2, leech handling, `.apkg` **export**, AnkiWeb search, review-forecast and true-retention stats, wider provider list, whole-note scheduling.
+- **Has that you don't:** objective-based AI tutor, mind map/visualize/summary workspace, web lookup, SM-2, leech handling, AnkiWeb search, review-forecast and true-retention stats, wider provider list, whole-note scheduling.
 - **You have that it doesn't:** question-first MCQ practice with passages, timed multi-section tests, per-question timing, confidence calibration, mistake tags, PDF/document → question import with figures, numeric/units/parameterized questions, FRQ rubric grading, gradebook/GPA, AP tools, Quizlet/Kahoot/Moodle formats, exam-aware scheduling, progress stored in each question's own properties.
 
 #### Omniscient
@@ -1803,7 +1805,7 @@ Packaging, audience, calendar and flashcard priority, BYOK + OpenCode, mobile qu
 | Documents / PDFs → questions | ✅ | ❌ | ◐ (external VCE converter) | ❌ | ❌ | ❌ |
 | Flashcards | ✅ (optional) | ✅ | ❌ | ◐ (saves in SR format) | ❌ | ❌ |
 | Anki `.apkg` import | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Anki `.apkg` export | ❌ (text export) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Anki `.apkg` export | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | AnkiConnect sync | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Quizlet / Kahoot / Moodle import-export | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Calendar | ✅ (.ics) | ✅ (own events) | ❌ | ❌ | ❌ | ❌ |
@@ -1823,7 +1825,7 @@ Ordered roughly by how often they appear across competitors and how much they ma
 2. **Lighter authoring:** every competitor except Spaceforge's decks lets you write many questions in a single file. MCQ Tracker needs one note per question with properties, which is heavy for hand-written questions. A plain-text quick-add or multi-question-per-file import would lower the barrier.
 3. **Shuffling:** question and answer-option shuffle (CBT, Omniscient).
 4. **Pass-score threshold** on timed tests (CBT).
-5. **`.apkg` export** to Anki (Spaceforge).
+5. **`.apkg` export** to Anki (Spaceforge). **Shipped in 1.116.0.**
 6. **Leech handling** for repeatedly failed items (Spaceforge).
 7. **Multi-language generation** controls (Quiz Generator, Note Quiz Engine).
 8. **Inline quiz blocks** rendered inside a note (Note Quiz Engine).
@@ -1876,7 +1878,7 @@ The analysis added four gaps that were not explicit in §5.22. The first and fou
 - [ ] **Timed-test option shuffling and a pass-score threshold.** CBT and Omniscient ship both; MCQ Tracker has a random pick mode but no per-test option shuffle or pass mark.
 - [x] **Leech handling** for repeatedly failed items, shipped in 1.111.0 as an opt-in threshold with a flag or suspend action, `leech_lapses`/`leech_since` properties and automatic clearing on a correct answer. Distinct from the manual Suspend/Bury controls.
 
-Not planned: objective-based tutor workspace, mind maps and web lookup (Spaceforge's lane; large and outside the question-first positioning). `.apkg` export stays gated on a tested SQLite writer, as recorded in §5.15.
+Not planned: objective-based tutor workspace, mind maps and web lookup (Spaceforge's lane; large and outside the question-first positioning). `.apkg` export shipped in 1.116.0 with a tested SQLite writer, so it is no longer a gap.
 
 ---
 

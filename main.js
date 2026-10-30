@@ -4067,7 +4067,7 @@ function decodeValue(buf, serial, offset) {
   if (serial === 2) return buf.readInt16BE(offset);
   if (serial === 3) return (buf.readUInt8(offset) << 16) | buf.readUInt16BE(offset + 1);
   if (serial === 4) return buf.readInt32BE(offset);
-  if (serial === 5) return buf.readUInt8(offset) * 4294967296 + buf.readUInt32BE(offset + 1);
+  if (serial === 5) return buf.readUInt16BE(offset) * 4294967296 + buf.readUInt32BE(offset + 2);
   if (serial === 6) return int64(buf, offset);
   if (serial === 7) return buf.readDoubleBE(offset);
   if (serial === 8) return 0;
@@ -4425,6 +4425,270 @@ module.exports = {
   columnsFromSql,
   decodeRecord,
   SqliteReader,
+};
+};
+
+/* ---- src/apkg-export.js ---- */
+__defs["apkg-export"] = function (module, exports, require) {
+/*
+ * Anki .apkg export.
+ *
+ * Produces the legacy `collection.anki2` package Anki imports: a SQLite
+ * database with col, notes, cards, revlog and graves tables, plus an empty
+ * media map. Basic, reversed, cloze and multiple-choice cards map onto three
+ * note types. Images and audio stay in the vault; the caller warns about them.
+ */
+const { hashString, str } = require("./util");
+const { buildSqlite } = require("./sqlite-write");
+const { zipStore } = require("./zip-write");
+
+const MODEL_BASIC = 1001;
+const MODEL_CLOZE = 1002;
+const MODEL_REVERSED = 1003;
+
+const COL_SQL = "CREATE TABLE col (id integer primary key, crt integer, mod integer, scm integer, ver integer, dty integer, usn integer, ls integer, conf text, models text, decks text, dconf text, tags text)";
+const NOTES_SQL = "CREATE TABLE notes (id integer primary key, guid text, mid integer, mod integer, usn integer, tags text, flds text, sfld integer, csum integer, flags integer, data text)";
+const CARDS_SQL = "CREATE TABLE cards (id integer primary key, nid integer, did integer, ord integer, mod integer, usn integer, type integer, queue integer, due integer, ivl integer, factor integer, reps integer, lapses integer, left integer, odue integer, odid integer, flags integer, data text)";
+const REVLOG_SQL = "CREATE TABLE revlog (id integer primary key, cid integer, usn integer, ease integer, ivl integer, lastIvl integer, factor integer, time integer, type integer)";
+const GRAVES_SQL = "CREATE TABLE graves (usn integer, oid integer, type integer)";
+
+const LATEX_PRE = "\\documentclass[12pt]{article}\n\\special{papersize=3in,5in}\n\\usepackage[utf8]{inputenc}\n\\usepackage{amssymb,amsmath}\n\\pagestyle{empty}\n\\setlength{\\parindent}{0in}\n\\begin{document}\n";
+const LATEX_POST = "\\end{document}";
+
+function modelFields(names) {
+  return names.map((name, ord) => ({
+    name,
+    ord,
+    font: "Liberation Sans",
+    media: [],
+    rtl: false,
+    size: 20,
+    sticky: false,
+  }));
+}
+
+function model(id, name, type, fieldNames, templates, now) {
+  return {
+    id: String(id),
+    name,
+    type,
+    mod: now,
+    usn: -1,
+    did: 1,
+    sortf: 0,
+    flds: modelFields(fieldNames),
+    tmpls: templates.map((template, ord) => ({
+      name: template.name,
+      qfmt: template.qfmt,
+      afmt: template.afmt,
+      ord,
+      bafmt: "",
+      bqfmt: "",
+      bfont: "",
+      bsize: 0,
+      did: null,
+    })),
+    css: "",
+    latexPre: LATEX_PRE,
+    latexPost: LATEX_POST,
+    latexsvg: false,
+    req: templates.map((_template, ord) => [ord, "all", [0]]),
+    tags: [],
+    vers: [],
+  };
+}
+
+function modelsFor(now) {
+  const basic = model(MODEL_BASIC, "Basic", 0, ["Front", "Back"], [
+    { name: "Card 1", qfmt: "{{Front}}", afmt: "{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}" },
+  ], now);
+  const cloze = model(MODEL_CLOZE, "Cloze", 1, ["Text", "Back Extra"], [
+    { name: "Cloze", qfmt: "{{cloze:Text}}", afmt: "{{cloze:Text}}<br>\n{{Back Extra}}" },
+  ], now);
+  const reversed = model(MODEL_REVERSED, "Basic (and reversed card)", 0, ["Front", "Back"], [
+    { name: "Card 1", qfmt: "{{Front}}", afmt: "{{FrontSide}}\n\n<hr id=answer>\n\n{{Back}}" },
+    { name: "Card 2", qfmt: "{{Back}}", afmt: "{{FrontSide}}\n\n<hr id=answer>\n\n{{Front}}" },
+  ], now);
+  return { [String(MODEL_BASIC)]: basic, [String(MODEL_CLOZE)]: cloze, [String(MODEL_REVERSED)]: reversed };
+}
+
+function deckJson(id, name, now) {
+  return {
+    collapsed: false,
+    conf: 1,
+    desc: "",
+    dyn: 0,
+    extendNew: id === 1 ? 10 : 0,
+    extendRev: 50,
+    id,
+    lrnToday: [0, 0],
+    mod: now,
+    name,
+    newToday: [0, 0],
+    revToday: [0, 0],
+    timeToday: [0, 0],
+    usn: -1,
+  };
+}
+
+function defaultDeckConfig() {
+  return {
+    "1": {
+      autoplay: true,
+      id: 1,
+      lapse: { delays: [10], leechAction: 0, leechFails: 8, minInt: 1, mult: 0 },
+      maxTaken: 60,
+      mod: 0,
+      name: "Default",
+      new: { bury: true, delays: [1, 10], initialFactor: 2500, ints: [1, 4, 7], order: 1, perDay: 20, separate: true },
+      replayq: true,
+      rev: { bury: true, ease4: 1.3, fuzz: 0.05, ivlFct: 1, maxIvl: 36500, minSpace: 1, perDay: 100 },
+      timer: 0,
+      usn: 0,
+    },
+  };
+}
+
+function collectionConf() {
+  return {
+    activeDecks: [1],
+    addToCur: true,
+    collapseTime: 1200,
+    curDeck: 1,
+    curModel: String(MODEL_BASIC),
+    dueCounts: true,
+    estTimes: true,
+    newBury: true,
+    newSpread: 0,
+    nextPos: 1,
+    sortBackwards: false,
+    sortType: "noteFld",
+    timeLim: 0,
+  };
+}
+
+function choiceRow(record) {
+  const fm = (record && record.fm) || {};
+  const raw = [];
+  for (let n = 1; n <= 8; n++) {
+    const value = str(fm[`choice_${n}`]).trim();
+    if (value) raw.push(value);
+  }
+  if (!raw.length && Array.isArray(fm.choices)) {
+    for (const value of fm.choices) if (str(value).trim()) raw.push(str(value).trim());
+  }
+  if (!raw.length) return null;
+  const indexes = str(fm.correct_choices)
+    .split(/[,\s]+/)
+    .map((part) => Number(part))
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= raw.length);
+  return { choices: raw, correct: indexes.length ? [...new Set(indexes)] : [1] };
+}
+
+function withChoices(front, back, quiz) {
+  if (!quiz) return { front, back };
+  const letters = quiz.choices.map((choice, index) => `${String.fromCharCode(65 + index)}. ${choice}`);
+  const answer = quiz.correct.map((index) => `${String.fromCharCode(64 + index)}. ${quiz.choices[index - 1]}`).join("\n");
+  return { front: `${front}\n\n${letters.join("\n")}`, back: `${answer}${back ? `\n\n${back}` : ""}` };
+}
+
+function tagsOf(record) {
+  const fm = (record && record.fm) || {};
+  const source = Array.isArray(fm.tags) ? fm.tags : str(fm.tags).split(/[,;]+/);
+  const tags = source.map((tag) => str(tag).trim()).filter(Boolean);
+  return tags.length ? ` ${[...new Set(tags)].join(" ")} ` : "";
+}
+
+/** Builds the SQLite collection and wraps it in a stored ZIP. */
+function buildApkg(records, options) {
+  const opts = options || {};
+  const now = opts.now instanceof Date ? opts.now : new Date();
+  const nowMs = now.getTime();
+  const nowSec = Math.floor(nowMs / 1000);
+  const list = Array.isArray(records) ? records : [];
+  const deckNames = [...new Set(list.map((record) => str(record.fm && record.fm.deck).trim() || "Default"))];
+  if (!deckNames.includes("Default")) deckNames.unshift("Default");
+  const deckIds = new Map();
+  deckNames.forEach((name, index) => deckIds.set(name, index + 1));
+  const decks = {};
+  for (const [name, id] of deckIds) decks[String(id)] = deckJson(id, name, nowSec);
+  const notes = [];
+  const cards = [];
+  let due = 1;
+  let noteIndex = 0;
+  for (const record of list) {
+    const fm = (record && record.fm) || {};
+    const body = (record && record.body) || {};
+    const cardType = str(body.cardType || fm.card_type).trim().toLowerCase();
+    const rawFront = str(body.rawFront || body.front || fm.front || fm.prompt).trim();
+    if (!rawFront) continue;
+    const rawBack = str(body.back || fm.back || fm.answer).trim();
+    const quiz = choiceRow(record);
+    const sides = withChoices(rawFront, rawBack, quiz);
+    const deck = str(fm.deck).trim() || "Default";
+    const deckId = deckIds.get(deck) || 1;
+    const tags = tagsOf(record);
+    const noteId = nowMs + noteIndex * 10;
+    const cloze = cardType === "cloze";
+    const reversed = cardType === "reversed";
+    const mid = cloze ? MODEL_CLOZE : reversed ? MODEL_REVERSED : MODEL_BASIC;
+    const fields = cloze ? [str(body.rawFront || rawFront), rawBack] : [sides.front, sides.back];
+    notes.push([noteId, `mcq-${hashString([record.file && record.file.path, fields[0], fields[1], deck].join("|"))}-${noteIndex}`, mid, nowSec, 0, tags, fields.join("\u001f"), fields[0], 0, 0, ""]);
+    const orders = reversed ? [0, 1] : [0];
+    for (const ord of orders) {
+      cards.push([noteId + ord + 1, noteId, deckId, ord, nowSec, 0, 0, 0, due++, 0, 0, 0, 0, 0, 0, 0, 0, ""]);
+    }
+    noteIndex++;
+  }
+  if (!notes.length) throw new Error("No cards with front text can be exported to Anki.");
+  const col = [
+    1,
+    nowSec,
+    nowMs,
+    nowMs,
+    11,
+    0,
+    0,
+    0,
+    JSON.stringify(collectionConf()),
+    JSON.stringify(modelsFor(nowSec)),
+    JSON.stringify(decks),
+    JSON.stringify(defaultDeckConfig()),
+    "{}",
+  ];
+  const collection = buildSqlite([
+    { name: "col", sql: COL_SQL, rows: [col] },
+    { name: "notes", sql: NOTES_SQL, rows: notes },
+    { name: "cards", sql: CARDS_SQL, rows: cards },
+    { name: "revlog", sql: REVLOG_SQL, rows: [] },
+    { name: "graves", sql: GRAVES_SQL, rows: [], rowidAlias: false },
+  ]);
+  return zipStore([
+    { name: "collection.anki2", data: collection },
+    { name: "media", data: "{}" },
+  ]);
+}
+
+function apkgMediaWarning(records) {
+  const found = (Array.isArray(records) ? records : []).filter((record) => {
+    const text = `${str(record.body && record.body.front)}\n${str(record.body && record.body.back)}`;
+    return /!\[\[|!\[[^\]]*\]\(/.test(text);
+  });
+  if (!found.length) return "";
+  return `${found.length} card${found.length === 1 ? "" : "s"} reference images or audio. The .apkg export is text only; add those files in Anki if you need them.`;
+}
+
+function apkgExportHint() {
+  return "Anki package: save the .apkg and open it with File → Import in Anki. Basic, reversed, cloze and multiple-choice cards are written as normal notes; images and audio are not bundled. Anki will schedule the imported cards as new.";
+}
+
+module.exports = {
+  buildApkg,
+  apkgMediaWarning,
+  apkgExportHint,
+  MODEL_BASIC,
+  MODEL_CLOZE,
+  MODEL_REVERSED,
 };
 };
 
@@ -10405,6 +10669,7 @@ const { Modal, Notice } = require("obsidian");
 const { hashString, localDate, str } = require("./util");
 const { parseCloze } = require("./cards");
 const { learnkitExportHint } = require("./learnkit");
+const { apkgExportHint } = require("./apkg-export");
 
 const IMPORT_TYPES = ["spaced", "mochi", "learnkit", "crowdanki", "anki", "apkg", "quizlet", "gift", "moodlexml", "qti", "flashquiz", "quizport", "mdquiz", "kahoot", "blooket", "gimkit", "csv"];
 const QUESTION_SET_TYPES = ["kahoot", "blooket", "gimkit"];
@@ -12392,6 +12657,7 @@ function ankiFileHint() {
 function cardsExportHint(format) {
   if (format === "quizlet") return quizletExportHint();
   if (format === "anki") return ankiFileHint();
+  if (format === "apkg") return apkgExportHint();
   if (format === "mochi") return mochiExportHint();
   if (format === "learnkit") return learnkitExportHint();
   return questionSetExportHint(format);
@@ -12929,6 +13195,7 @@ class CardExportModal extends Modal {
     const format = wrap.createEl("select", { cls: "dropdown" });
     format.createEl("option", { text: "Quizlet text", value: "quizlet" });
     format.createEl("option", { text: "Anki text", value: "anki" });
+    format.createEl("option", { text: "Anki package (.apkg)", value: "apkg" });
     format.createEl("option", { text: "Mochi (.mochi)", value: "mochi" });
     format.createEl("option", { text: "LearnKit note (.md)", value: "learnkit" });
     format.createEl("option", { text: "Kahoot CSV", value: "kahoot" });
@@ -13071,7 +13338,7 @@ function renderDecks(containerEl, plugin, redisplay) {
 
   new Setting(containerEl)
     .setName("Export cards")
-    .setDesc("Write the current deck as Quizlet text, Anki text, a Mochi .mochi file, a LearnKit note, or a Kahoot, Blooket or Gimkit CSV. Question-set choices and the correct answer stay with the card.")
+    .setDesc("Write the current deck as Quizlet text, Anki text, an Anki .apkg package, a Mochi .mochi file, a LearnKit note, or a Kahoot, Blooket or Gimkit CSV. Question-set choices and the correct answer stay with the card.")
     .addButton((b) => b.setButtonText("Export cards").onClick(() => plugin.openCardExport()));
 
   new Setting(containerEl)
@@ -30952,6 +31219,7 @@ const { buildMochiArchive, cardsToMochiDecks, mochiMediaWarning } = require("./m
 const { cardsToLearnKit, parseLearnKit } = require("./learnkit");
 const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
+const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
@@ -31238,7 +31506,7 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
-    this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki, Mochi, LearnKit, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
+    this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
@@ -34745,7 +35013,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (this.moduleOff("cards")) throw new Error("Turn on the Cards module first.");
     const opts = options || {};
     const kind = String(format || "quizlet").toLowerCase();
-    if (!["quizlet", "anki", "mochi", "learnkit", "kahoot", "blooket", "gimkit"].includes(kind)) {
+    if (!["quizlet", "anki", "apkg", "mochi", "learnkit", "kahoot", "blooket", "gimkit"].includes(kind)) {
       throw new Error(`Unsupported export format: ${kind}.`);
     }
     const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
@@ -34771,7 +35039,11 @@ class QuestionTrackerPlugin extends Plugin {
       const media = mochiMediaWarning(records);
       if (media) warnings.push(media);
     }
-    const output = kind === "quizlet" ? cardsToQuizlet(records) : kind === "anki" ? cardsToAnki(records) : kind === "mochi" ? buildMochiArchive(records) : kind === "learnkit" ? cardsToLearnKit(records) : cardsToQuestionSet(kind, records);
+    if (kind === "apkg") {
+      const media = apkgMediaWarning(records);
+      if (media) warnings.push(media);
+    }
+    const output = kind === "quizlet" ? cardsToQuizlet(records) : kind === "anki" ? cardsToAnki(records) : kind === "apkg" ? buildApkg(records) : kind === "mochi" ? buildMochiArchive(records) : kind === "learnkit" ? cardsToLearnKit(records) : cardsToQuestionSet(kind, records);
     if (!output || (typeof output === "string" && !output.trim())) throw new Error("Nothing in this filter can be exported in that format yet.");
     const root = String(this.settings.cards.newCardFolder || "Cards").replace(/^\/+|\/+$/g, "") || "Cards";
     const folder = `${root}/exports`;
@@ -34780,7 +35052,7 @@ class QuestionTrackerPlugin extends Plugin {
       .replace(/[\\/:*?"<>|]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-    const extension = kind === "mochi" ? "mochi" : kind === "learnkit" ? "md" : kind === "quizlet" || kind === "anki" ? "txt" : "csv";
+    const extension = kind === "apkg" ? "apkg" : kind === "mochi" ? "mochi" : kind === "learnkit" ? "md" : kind === "quizlet" || kind === "anki" ? "txt" : "csv";
     let path = `${folder}/${base}.${extension}`;
     let n = 2;
     while (this.app.vault.getAbstractFileByPath(path)) {
@@ -34788,8 +35060,11 @@ class QuestionTrackerPlugin extends Plugin {
       n++;
     }
     if (typeof output === "string") await this.app.vault.create(path, output);
-    else if (typeof this.app.vault.createBinary === "function") await this.app.vault.createBinary(path, output);
-    else await this.app.vault.create(path, output.buffer);
+    else {
+      const binary = output instanceof Uint8Array ? output.buffer.slice(output.byteOffset, output.byteOffset + output.byteLength) : output;
+      if (typeof this.app.vault.createBinary === "function") await this.app.vault.createBinary(path, binary);
+      else await this.app.vault.create(path, binary);
+    }
     const exported = kind === "mochi" ? mochiCount : records.length;
     new Notice(`Exported ${exported} card${exported === 1 ? "" : "s"} to ${path}.`, 6000);
     return { path, count: exported, format: kind, warnings };
@@ -42459,6 +42734,231 @@ module.exports = {
 };
 };
 
+/* ---- src/sqlite-write.js ---- */
+__defs["sqlite-write"] = function (module, exports, require) {
+/*
+ * A minimal SQLite writer for the Anki collection inside an .apkg.
+ *
+ * Anki's collection is an ordinary SQLite database with three small tables
+ * (col, notes, cards) plus empty revlog/graves tables. This writes that subset
+ * directly: table leaf pages, one interior page when a table spans pages, the
+ * sqlite_master page and the 100-byte database header. No SQL is executed and
+ * no dependency is added. The result is validated by opening it with SQLite in
+ * src/apkg-export tests; the reader in apkg.js can read it back too.
+ */
+const PAGE = 65536;
+const TEXT = new TextEncoder();
+
+function setU16(buf, offset, value) {
+  buf[offset] = (value >>> 8) & 0xff;
+  buf[offset + 1] = value & 0xff;
+}
+
+function setU32(buf, offset, value) {
+  buf[offset] = Math.floor(value / 0x1000000) & 0xff;
+  buf[offset + 1] = (value >>> 16) & 0xff;
+  buf[offset + 2] = (value >>> 8) & 0xff;
+  buf[offset + 3] = value & 0xff;
+}
+
+function concat(parts) {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.length;
+  }
+  return out;
+}
+
+/** SQLite's big-endian variable-length integer for non-negative values. */
+function varint(value) {
+  let n = BigInt(Math.max(0, Math.floor(Number(value) || 0)));
+  if (n < 0x80n) return new Uint8Array([Number(n)]);
+  const groups = [];
+  while (n > 0n) {
+    groups.unshift(Number(n & 0x7fn));
+    n >>= 7n;
+  }
+  const out = new Uint8Array(groups.length);
+  for (let i = 0; i < groups.length; i++) out[i] = i === groups.length - 1 ? groups[i] : 0x80 | groups[i];
+  return out;
+}
+
+function intBytes(value, length) {
+  const out = new Uint8Array(length);
+  let n = BigInt(value);
+  if (n < 0n) n += 1n << BigInt(length * 8);
+  for (let i = length - 1; i >= 0; i--) {
+    out[i] = Number(n & 0xffn);
+    n >>= 8n;
+  }
+  return out;
+}
+
+function encodeValue(value) {
+  if (value === null || value === undefined) return { serial: 0, bytes: new Uint8Array(0) };
+  if (typeof value === "number") {
+    if (!Number.isInteger(value)) {
+      const bytes = new Uint8Array(8);
+      new DataView(bytes.buffer).setFloat64(0, value, false);
+      return { serial: 7, bytes };
+    }
+    if (value === 0) return { serial: 8, bytes: new Uint8Array(0) };
+    if (value === 1) return { serial: 9, bytes: new Uint8Array(0) };
+    if (value >= -128 && value <= 127) return { serial: 1, bytes: intBytes(value, 1) };
+    if (value >= -32768 && value <= 32767) return { serial: 2, bytes: intBytes(value, 2) };
+    if (value >= -8388608 && value <= 8388607) return { serial: 3, bytes: intBytes(value, 3) };
+    if (value >= -2147483648 && value <= 2147483647) return { serial: 4, bytes: intBytes(value, 4) };
+    if (value >= -140737488355328 && value <= 140737488355327) return { serial: 5, bytes: intBytes(value, 6) };
+    return { serial: 6, bytes: intBytes(value, 8) };
+  }
+  if (typeof value === "boolean") return encodeValue(value ? 1 : 0);
+  const bytes = value instanceof Uint8Array ? value : TEXT.encode(String(value));
+  const isBlob = value instanceof Uint8Array;
+  return { serial: (isBlob ? 12 : 13) + bytes.length * 2, bytes };
+}
+
+function encodeRecord(values) {
+  const parts = values.map(encodeValue);
+  const serialBytes = parts.map((part) => varint(part.serial));
+  const serialLength = serialBytes.reduce((sum, part) => sum + part.length, 0);
+  let headerLength = 1 + serialLength;
+  for (let i = 0; i < 4; i++) {
+    const next = varint(headerLength).length + serialLength;
+    if (next === headerLength) break;
+    headerLength = next;
+  }
+  return concat([varint(headerLength), ...serialBytes, ...parts.map((part) => part.bytes)]);
+}
+
+function leafCells(rows, rowidAlias) {
+  return rows.map((row, index) => {
+    const aliased = rowidAlias !== false;
+    const rowid = aliased ? row[0] : index + 1;
+    // SQLite stores an INTEGER PRIMARY KEY as a NULL placeholder in the record;
+    // the real value is the cell's rowid. A table without that alias keeps every
+    // column in the record and only uses the rowid for the b-tree key.
+    const values = aliased ? [null, ...row.slice(1)] : row;
+    const payload = encodeRecord(values);
+    return { rowid, cell: concat([varint(payload.length), varint(rowid), payload]), key: rowid };
+  });
+}
+
+function leafPage(cells, headerOffset) {
+  const page = new Uint8Array(PAGE);
+  const at = headerOffset || 0;
+  page[at] = 0x0d;
+  setU16(page, at + 1, 0);
+  setU16(page, at + 3, cells.length);
+  let content = PAGE;
+  const pointers = [];
+  for (const cell of cells) {
+    content -= cell.cell.length;
+    if (content < at + 8 + cells.length * 2) throw new Error("A row is too large for the SQLite page.");
+    page.set(cell.cell, content);
+    pointers.push(content);
+  }
+  setU16(page, at + 5, content);
+  page[at + 7] = 0;
+  for (let i = 0; i < pointers.length; i++) setU16(page, at + 8 + i * 2, pointers[i]);
+  return page;
+}
+
+function interiorPage(children, keys) {
+  const page = new Uint8Array(PAGE);
+  page[0] = 0x05;
+  setU16(page, 1, 0);
+  setU16(page, 3, children.length - 1);
+  setU16(page, 7, 0);
+  setU32(page, 8, children[children.length - 1].number);
+  let content = PAGE;
+  const pointers = [];
+  for (let i = 0; i < children.length - 1; i++) {
+    const cell = concat([new Uint8Array([(children[i].number >>> 24) & 0xff, (children[i].number >>> 16) & 0xff, (children[i].number >>> 8) & 0xff, children[i].number & 0xff]), varint(keys[i])]);
+    content -= cell.length;
+    page.set(cell, content);
+    pointers.push(content);
+  }
+  setU16(page, 5, content);
+  for (let i = 0; i < pointers.length; i++) setU16(page, 12 + i * 2, pointers[i]);
+  return page;
+}
+
+/** Groups rows into leaf pages, adding one interior root page when needed. */
+function tablePages(rows, rowidAlias) {
+  const cells = leafCells(rows, rowidAlias);
+  const leaves = [];
+  let bucket = [];
+  let used = 0;
+  for (const cell of cells) {
+    const count = bucket.length + 1;
+    if (bucket.length && 8 + count * 2 + used + cell.cell.length > PAGE) {
+      leaves.push({ kind: "leaf", cells: bucket });
+      bucket = [];
+      used = 0;
+    }
+    if (8 + 2 + cell.cell.length > PAGE) throw new Error("A row is too large for the SQLite page.");
+    bucket.push(cell);
+    used += cell.cell.length;
+  }
+  leaves.push({ kind: "leaf", cells: bucket });
+  if (leaves.length === 1) return { pages: leaves, root: leaves[0] };
+  const children = leaves.slice();
+  const interior = { kind: "interior", children, keys: children.map((leaf) => leaf.cells[leaf.cells.length - 1].key) };
+  leaves.push(interior);
+  return { pages: leaves, root: interior };
+}
+
+function databaseHeader(pageCount) {
+  const header = new Uint8Array(100);
+  header.set(TEXT.encode("SQLite format 3\u0000"), 0);
+  setU16(header, 16, PAGE === 65536 ? 1 : PAGE);
+  header[18] = 1;
+  header[19] = 1;
+  header[20] = 0;
+  header[21] = 64;
+  header[22] = 32;
+  header[23] = 32;
+  setU32(header, 24, 1);
+  setU32(header, 28, pageCount);
+  setU32(header, 32, 0);
+  setU32(header, 36, 0);
+  setU32(header, 40, 1);
+  setU32(header, 44, 4);
+  setU32(header, 48, 0);
+  setU32(header, 52, 0);
+  setU32(header, 56, 1);
+  setU32(header, 60, 0);
+  setU32(header, 64, 0);
+  setU32(header, 68, 0);
+  setU32(header, 92, 1);
+  setU32(header, 96, 3045001);
+  return header;
+}
+
+/**
+ * Builds a complete SQLite database from `[{ name, sql, rows }]`.
+ * Each row is a value array whose first value is its integer primary key.
+ */
+function buildSqlite(tables) {
+  const built = tables.map((table) => ({ ...table, ...tablePages(table.rows, table.rowidAlias) }));
+  const pages = [];
+  for (const table of built) pages.push(...table.pages);
+  pages.forEach((page, index) => {
+    page.number = index + 2;
+  });
+  const masterRows = built.map((table, index) => ["table", table.name, table.name, table.root.number, table.sql]);
+  const master = leafPage(leafCells(masterRows, false), 100);
+  master.set(databaseHeader(pages.length + 1), 0);
+  const body = pages.map((page) => (page.kind === "leaf" ? leafPage(page.cells, 0) : interiorPage(page.children, page.keys)));
+  return concat([master, ...body]);
+}
+
+module.exports = { buildSqlite, PAGE, varint, encodeRecord };
+};
+
 /* ---- src/stats.js ---- */
 __defs["stats"] = function (module, exports, require) {
 const { folderChain, noteVals, pickQuestion } = require("./filters");
@@ -45745,6 +46245,7 @@ const numericGrading = require("./numeric-grading");
 const answerTypes = require("./answer-types");
 const matching = require("./matching");
 const mochiExport = require("./mochi-export");
+const apkgExport = require("./apkg-export");
 const learnkit = require("./learnkit");
 const survey = require("./survey");
 const parameterized = require("./parameterized");
@@ -45936,6 +46437,7 @@ QuestionTrackerPlugin.__test = {
   answerTypes,
   matching,
   mochiExport,
+  apkgExport,
   learnkit,
   survey,
   parameterized,

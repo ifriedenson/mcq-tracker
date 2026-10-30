@@ -35,6 +35,44 @@ test("apkg: rejects files that are not an Anki package", () => {
   assert.throws(() => apkg.parseApkg(Buffer.from("not a zip")), /valid \.apkg archive/);
 });
 
+test("apkg export: writes a SQLite package that reads back as basic, reversed and cloze cards", () => {
+  const records = [
+    { file: { path: "a.md" }, fm: { deck: "Spanish", tags: ["greeting"] }, body: { front: "hola", back: "hello", cardType: "basic" } },
+    { file: { path: "b.md" }, fm: { deck: "Spanish" }, body: { front: "gato", back: "cat", cardType: "reversed" } },
+    { file: { path: "c.md" }, fm: { deck: "Science" }, body: { front: "The capital is {{c1::Paris}}.", back: "Paris", cardType: "cloze" } },
+  ];
+  const bytes = T.apkgExport.buildApkg(records, { now: new Date("2026-01-02T03:04:05Z") });
+  assert.equal(Buffer.from(bytes).toString("ascii", 0, 2), "PK");
+  const entries = apkg.readZipEntries(bytes);
+  const { db, tables } = apkg.parseCollection(entries.get("collection.anki2"));
+  assert.equal(db.rows(tables.get("notes").root).length, 3);
+  assert.equal(db.rows(tables.get("cards").root).length, 4, "a reversed card writes one card in each direction");
+  const parsed = apkg.parseApkg(bytes, { sourcePath: "export.apkg" });
+  assert.equal(parsed.cards.length, 3);
+  assert.equal(parsed.cards[0].front, "hola");
+  assert.equal(parsed.cards[0].deck, "Spanish");
+  assert.equal(parsed.cards[1].cardType, "reversed");
+  assert.equal(parsed.cards[2].cardType, "cloze");
+  assert.equal(parsed.cards[2].back, "Paris");
+  assert.deepEqual(parsed.cards[0].tags, ["greeting"]);
+  assert.match(T.apkgExport.apkgExportHint(), /File → Import/);
+});
+
+test("plugin: exports the filtered cards as an .apkg package", async () => {
+  const app = makeApp([{ path: "Cards/Biology/Q.md", fm: { card_id: "q1", item_type: "card", deck: "Biology" }, text: "## Front\nWhich one?\n\n## Back\nB" }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  const result = await plugin.exportCards("apkg", { deck: "Biology" });
+  assert.match(result.path, /^Cards\/exports\/Biology apkg .*\.apkg$/);
+  assert.equal(result.count, 1);
+  assert.ok(app.createdBinary.some((file) => file.path === result.path));
+  const parsed = apkg.parseApkg(app.createdBinary.find((file) => file.path === result.path).buffer, { sourcePath: result.path });
+  assert.equal(parsed.cards.length, 1);
+  assert.equal(parsed.cards[0].front, "Which one?");
+  assert.equal(parsed.cards[0].back, "B");
+});
+
 test("plugin: imports an .apkg through the normal card writer and preserves Anki keys", async () => {
   const app = makeApp([{ path: "deck.apkg", text: "binary fixture" }]);
   app.vault.readBinary = async () => fixture;

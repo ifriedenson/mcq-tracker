@@ -14,6 +14,7 @@ const { Modal, Notice } = require("obsidian");
 const { hashString, localDate, str } = require("./util");
 const { parseCloze } = require("./cards");
 const { learnkitExportHint } = require("./learnkit");
+const { apkgExportHint } = require("./apkg-export");
 
 const IMPORT_TYPES = ["spaced", "mochi", "learnkit", "crowdanki", "anki", "apkg", "quizlet", "gift", "moodlexml", "qti", "flashquiz", "quizport", "mdquiz", "kahoot", "blooket", "gimkit", "csv"];
 const QUESTION_SET_TYPES = ["kahoot", "blooket", "gimkit"];
@@ -2001,6 +2002,7 @@ function ankiFileHint() {
 function cardsExportHint(format) {
   if (format === "quizlet") return quizletExportHint();
   if (format === "anki") return ankiFileHint();
+  if (format === "apkg") return apkgExportHint();
   if (format === "mochi") return mochiExportHint();
   if (format === "learnkit") return learnkitExportHint();
   return questionSetExportHint(format);
@@ -2538,6 +2540,7 @@ class CardExportModal extends Modal {
     const format = wrap.createEl("select", { cls: "dropdown" });
     format.createEl("option", { text: "Quizlet text", value: "quizlet" });
     format.createEl("option", { text: "Anki text", value: "anki" });
+    format.createEl("option", { text: "Anki package (.apkg)", value: "apkg" });
     format.createEl("option", { text: "Mochi (.mochi)", value: "mochi" });
     format.createEl("option", { text: "LearnKit note (.md)", value: "learnkit" });
     format.createEl("option", { text: "Kahoot CSV", value: "kahoot" });
