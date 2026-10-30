@@ -3,9 +3,10 @@
  * Global settings: one switch per module, plus the few options that apply to the
  * whole plugin. Each module keeps its own detailed settings on its own page.
  */
-const { Setting } = require("obsidian");
+const { Notice, Setting } = require("obsidian");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { normalizeSupport, supportLinks } = require("./support");
+const { SURVEY_ROLES, copySurveySummary } = require("./survey");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
@@ -178,6 +179,50 @@ function renderGlobalAbout(containerEl, plugin, redisplay) {
     if (links.feedback) row.addButton((b) => b.setButtonText("Open feedback").onClick(() => openExternal(links.feedback)));
     if (links.donation) row.addButton((b) => b.setButtonText("Open donation page").onClick(() => openExternal(links.donation)));
   }
+  new Setting(containerEl).setName("Feedback survey").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Optional and local-only. Answers stay in this form until you copy them; nothing is sent, saved or counted automatically.",
+  });
+  const survey = { rating: 5, role: SURVEY_ROLES[0], likes: "", improve: "", quote: false };
+  new Setting(containerEl)
+    .setName("How is MCQ Tracker working for you?")
+    .addDropdown((d) => {
+      for (const n of [1, 2, 3, 4, 5]) d.addOption(String(n), `${n} / 5`);
+      d.setValue("5").onChange((v) => (survey.rating = Number(v)));
+    });
+  new Setting(containerEl)
+    .setName("What do you use it for?")
+    .addDropdown((d) => {
+      for (const role of SURVEY_ROLES) d.addOption(role, role);
+      d.setValue(SURVEY_ROLES[0]).onChange((v) => (survey.role = v));
+    });
+  new Setting(containerEl)
+    .setName("What works well?")
+    .setDesc("Optional. A sentence or two is plenty.")
+    .addTextArea((t) => t.setPlaceholder("Optional").onChange((v) => (survey.likes = v)));
+  new Setting(containerEl)
+    .setName("What should improve?")
+    .setDesc("Optional. Specific workflows or missing formats are the most useful.")
+    .addTextArea((t) => t.setPlaceholder("Optional").onChange((v) => (survey.improve = v)));
+  new Setting(containerEl)
+    .setName("May I quote this feedback?")
+    .setDesc("Leave off to keep the feedback anonymous.")
+    .addToggle((t) => t.setValue(false).onChange((v) => (survey.quote = v)));
+  new Setting(containerEl)
+    .setName("Copy the feedback")
+    .setDesc("Copies a Markdown summary. Paste it into the feedback link above or any message you choose.")
+    .addButton((b) =>
+      b.setButtonText("Copy feedback").onClick(async () => {
+        try {
+          await copySurveySummary(survey);
+          new Notice("Feedback copied. Paste it wherever you like.", 5000);
+        } catch (e) {
+          new Notice(String((e && e.message) || "Could not copy the feedback."), 7000);
+        }
+      })
+    );
+
   const version = (plugin.manifest && plugin.manifest.version) || "";
   new Setting(containerEl).setName("Version").setDesc(version ? `MCQ Tracker ${version}` : "MCQ Tracker");
 }

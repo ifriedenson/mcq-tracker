@@ -40752,9 +40752,10 @@ __defs["settings-global"] = function (module, exports, require) {
  * Global settings: one switch per module, plus the few options that apply to the
  * whole plugin. Each module keeps its own detailed settings on its own page.
  */
-const { Setting } = require("obsidian");
+const { Notice, Setting } = require("obsidian");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { normalizeSupport, supportLinks } = require("./support");
+const { SURVEY_ROLES, copySurveySummary } = require("./survey");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
@@ -40927,6 +40928,50 @@ function renderGlobalAbout(containerEl, plugin, redisplay) {
     if (links.feedback) row.addButton((b) => b.setButtonText("Open feedback").onClick(() => openExternal(links.feedback)));
     if (links.donation) row.addButton((b) => b.setButtonText("Open donation page").onClick(() => openExternal(links.donation)));
   }
+  new Setting(containerEl).setName("Feedback survey").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Optional and local-only. Answers stay in this form until you copy them; nothing is sent, saved or counted automatically.",
+  });
+  const survey = { rating: 5, role: SURVEY_ROLES[0], likes: "", improve: "", quote: false };
+  new Setting(containerEl)
+    .setName("How is MCQ Tracker working for you?")
+    .addDropdown((d) => {
+      for (const n of [1, 2, 3, 4, 5]) d.addOption(String(n), `${n} / 5`);
+      d.setValue("5").onChange((v) => (survey.rating = Number(v)));
+    });
+  new Setting(containerEl)
+    .setName("What do you use it for?")
+    .addDropdown((d) => {
+      for (const role of SURVEY_ROLES) d.addOption(role, role);
+      d.setValue(SURVEY_ROLES[0]).onChange((v) => (survey.role = v));
+    });
+  new Setting(containerEl)
+    .setName("What works well?")
+    .setDesc("Optional. A sentence or two is plenty.")
+    .addTextArea((t) => t.setPlaceholder("Optional").onChange((v) => (survey.likes = v)));
+  new Setting(containerEl)
+    .setName("What should improve?")
+    .setDesc("Optional. Specific workflows or missing formats are the most useful.")
+    .addTextArea((t) => t.setPlaceholder("Optional").onChange((v) => (survey.improve = v)));
+  new Setting(containerEl)
+    .setName("May I quote this feedback?")
+    .setDesc("Leave off to keep the feedback anonymous.")
+    .addToggle((t) => t.setValue(false).onChange((v) => (survey.quote = v)));
+  new Setting(containerEl)
+    .setName("Copy the feedback")
+    .setDesc("Copies a Markdown summary. Paste it into the feedback link above or any message you choose.")
+    .addButton((b) =>
+      b.setButtonText("Copy feedback").onClick(async () => {
+        try {
+          await copySurveySummary(survey);
+          new Notice("Feedback copied. Paste it wherever you like.", 5000);
+        } catch (e) {
+          new Notice(String((e && e.message) || "Could not copy the feedback."), 7000);
+        }
+      })
+    );
+
   const version = (plugin.manifest && plugin.manifest.version) || "";
   new Setting(containerEl).setName("Version").setDesc(version ? `MCQ Tracker ${version}` : "MCQ Tracker");
 }
@@ -43606,6 +43651,68 @@ module.exports = {
 };
 };
 
+/* ---- src/survey.js ---- */
+__defs["survey"] = function (module, exports, require) {
+/*
+ * Optional in-plugin feedback survey.
+ *
+ * The form only builds a Markdown summary and copies it to the clipboard. It
+ * makes no network request, writes no vault file and stores nothing unless the
+ * user copies the text themselves.
+ */
+const { localDate, str } = require("./util");
+
+const SURVEY_ROLES = [
+  "Exam prep (AP, SAT, ACT)",
+  "College coursework",
+  "Language learning",
+  "Professional certification",
+  "Something else",
+];
+
+function normalizeSurvey(input) {
+  const src = input && typeof input === "object" ? input : {};
+  const rating = Math.round(Number(src.rating));
+  return {
+    rating: Number.isFinite(rating) ? Math.max(1, Math.min(5, rating)) : 0,
+    role: str(src.role).trim(),
+    likes: str(src.likes).trim(),
+    improve: str(src.improve).trim(),
+    quote: src.quote === true,
+    date: str(src.date).trim() || localDate(),
+  };
+}
+
+/** A short Markdown summary the learner can paste into any feedback channel. */
+function buildSurveySummary(input) {
+  const survey = normalizeSurvey(input);
+  const lines = ["# MCQ Tracker feedback", "", `Date: ${survey.date}`, `Rating: ${survey.rating ? `${survey.rating}/5` : "not answered"}`];
+  if (survey.role) lines.push(`Used for: ${survey.role}`);
+  if (survey.likes) lines.push("", "## What works well", "", survey.likes);
+  if (survey.improve) lines.push("", "## What should improve", "", survey.improve);
+  if (survey.quote) lines.push("", "You may quote this feedback.");
+  lines.push("", "_Shared from the optional in-plugin survey. No network request was made._");
+  return lines.join("\n") + "\n";
+}
+
+/** Copies the summary; the caller shows the result and never sends it. */
+async function copySurveySummary(input) {
+  const text = buildSurveySummary(input);
+  if (typeof navigator === "undefined" || !navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+    throw new Error("This build cannot write to the clipboard. Copy the text from the form instead.");
+  }
+  await navigator.clipboard.writeText(text);
+  return text;
+}
+
+module.exports = {
+  SURVEY_ROLES,
+  normalizeSurvey,
+  buildSurveySummary,
+  copySurveySummary,
+};
+};
+
 /* ---- src/today-view.js ---- */
 __defs["today-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
@@ -45639,6 +45746,7 @@ const answerTypes = require("./answer-types");
 const matching = require("./matching");
 const mochiExport = require("./mochi-export");
 const learnkit = require("./learnkit");
+const survey = require("./survey");
 const parameterized = require("./parameterized");
 const fsrs = require("./fsrs");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
@@ -45829,6 +45937,7 @@ QuestionTrackerPlugin.__test = {
   matching,
   mochiExport,
   learnkit,
+  survey,
   parameterized,
   applyAttempt,
   applySkip,
