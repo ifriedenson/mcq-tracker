@@ -8,12 +8,12 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
-- Latest release: **1.142.0** (guided card/deck creation and optional CouchDB review-state sync), commit `bada462`, tagged and published on Oct 30, 2026. The release workflow succeeded in [run 41076430504](https://github.com/ifriedenson/mcq-tracker/actions/runs/41076430504). Release: https://github.com/ifriedenson/mcq-tracker/releases/tag/1.142.0. The previous release, **1.141.0** (source-anchored recalls), succeeded in [run 41071862975](https://github.com/ifriedenson/mcq-tracker/actions/runs/41071862975).
-- **817 tests** pass and `main.js` is the build of `src/`. Release 1.142.0 is published from the row-17 commit with `main.js`, `manifest.json` and `styles.css` attached and a descriptive release note.
+- Latest release: **1.143.0** (Simple Quiz blocks, JSON/JavaScript card sources and local quiz charts). The previous release, **1.142.0** (guided card/deck creation and optional CouchDB review-state sync), was published on Oct 30, 2026 in [run 41076430504](https://github.com/ifriedenson/mcq-tracker/actions/runs/41076430504).
+- **824 tests** pass and `main.js` is the build of `src/`. Release 1.143.0 adds Simple Quiz blocks, JSON/JavaScript card sources and local quiz charts. The previous release, 1.142.0, shipped from the row-17 commit.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
 - Anki bridge hardening (no release, Oct 30, 2026): push-only now updates linked notes instead of duplicating them, duplicate media basenames warn instead of silently overwriting, and tables keep escaped pipes plus inline formatting. Real desktop checks are in `docs/anki-smoke-test.md` and remain a manual gate.
-- Step 9 queue rows 1–17 are shipped; rows 18+ remain in plan.md. The next implementable row is **18** (Simple Quiz).
+- Step 9 queue rows 1–18 are shipped; rows 19+ remain in plan.md. The next implementable row is **19** (Simple Note Quiz).
 - **Lighter multi-question authoring** was ranked by the owner on Oct 30, 2026 and shipped in **1.128.0** as **Quick add questions** (`src/quick-add.js`, `src/quick-add-modal.js`).
 
 ## Commands

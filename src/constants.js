@@ -109,6 +109,10 @@ const DEFAULT_SETTINGS = {
     best: 0,
     lastCompleted: "",
   },
+  simpleQuiz: {
+    enableJavaScript: false, // trusted note JavaScript is never run until explicitly enabled
+    stats: { days: {}, streak: 0, best: 0, lastCompleted: "" },
+  },
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),

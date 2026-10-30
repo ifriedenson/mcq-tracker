@@ -78,6 +78,7 @@ const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, 
 const { completeDailyQuiz: recordDailyCompletion, dailyDone, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
+const { extractSimpleQuizBlocks, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, runSimpleQuizJavaScript, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
 const { normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
 const aiService = require("./ai-service");
@@ -429,6 +430,11 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.registerMarkdownCodeBlockProcessor("mcq-dashboard", (source, el) => this.renderDashboardBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("mcq-quiz", (source, el) => this.renderQuizBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
+    this.registerMarkdownCodeBlockProcessor("quizjs", (source, el) => this.renderSimpleQuizDataBlock(source, el, "js"));
+    this.registerMarkdownCodeBlockProcessor("quiztoday", (source, el) => this.renderSimpleQuizTodayBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("quizcharts", (source, el) => this.renderSimpleQuizChartsBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("smiles", (source, el) => {
       const result = renderSmilesSvg(source);
       if (!result.ok) {
@@ -623,6 +629,7 @@ class QuestionTrackerPlugin extends Plugin {
       .slice(0, 20);
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
     this.settings.dailyQuiz = normalizeDailyQuiz(saved.dailyQuiz);
+    this.settings.simpleQuiz = normalizeSimpleQuiz(saved.simpleQuiz);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -3568,6 +3575,229 @@ class QuestionTrackerPlugin extends Plugin {
       });
     });
     cards.forEach((card, index) => card.toggleClass("qt-quiz-hidden", parsed.gated && index >= visibleQuizCount(parsed.questions.length, 0, true)));
+  }
+
+  /**
+   * Read `quizjson` and `quizjs` blocks from the selected vault notes. A source
+   * can be a note or a folder; without sources the current note is used.
+   */
+  async simpleQuizCardsFromSources(sources, sourcePath) {
+    const list = (Array.isArray(sources) ? sources : []).map((item) => str(item).trim()).filter(Boolean);
+    const files = [];
+    const issues = [];
+    const seenFiles = new Set();
+    const addFile = (file) => {
+      if (!file || !/\.md$/i.test(str(file.path)) || seenFiles.has(file.path)) return;
+      seenFiles.add(file.path);
+      files.push(file);
+    };
+    for (const raw of list) {
+      const clean = str(raw).replace(/^\/+|\/+$/g, "");
+      if (!clean) continue;
+      let found = this.app.vault.getAbstractFileByPath(clean);
+      if (!found && !/\.md$/i.test(clean)) found = this.app.vault.getAbstractFileByPath(`${clean}.md`);
+      if (found instanceof TFile) {
+        addFile(found);
+        continue;
+      }
+      const matches = this.app.vault
+        .getMarkdownFiles()
+        .filter((file) => file.path === clean || file.path === `${clean}.md` || file.path.startsWith(`${clean}/`));
+      if (!matches.length) {
+        issues.push(`Quiz source "${raw}" was not found in the vault.`);
+        continue;
+      }
+      matches.forEach(addFile);
+    }
+    if (!list.length && sourcePath) {
+      const current = this.app.vault.getAbstractFileByPath(sourcePath);
+      if (current instanceof TFile) addFile(current);
+      else issues.push(`Quiz source note "${sourcePath}" was not found.`);
+    }
+    const cards = [];
+    const ids = new Set();
+    for (const file of files) {
+      let text;
+      try {
+        text = await this.app.vault.cachedRead(file);
+      } catch (e) {
+        issues.push(`${file.path}: the note could not be read.`);
+        continue;
+      }
+      const blocks = extractSimpleQuizBlocks(text);
+      for (const block of blocks.json) {
+        const parsed = parseSimpleQuizCards(block);
+        issues.push(...parsed.issues.map((issue) => `${file.path}: ${issue}`));
+        for (const card of parsed.cards) {
+          if (ids.has(card.id)) issues.push(`${file.path}: duplicate card id "${card.id}" was skipped.`);
+          else {
+            ids.add(card.id);
+            cards.push(card);
+          }
+        }
+      }
+      for (const block of blocks.js) {
+        const parsed = runSimpleQuizJavaScript(block, this.settings.simpleQuiz.enableJavaScript === true);
+        issues.push(...parsed.issues.map((issue) => `${file.path}: ${issue}`));
+        for (const card of parsed.cards) {
+          if (ids.has(card.id)) issues.push(`${file.path}: duplicate card id "${card.id}" was skipped.`);
+          else {
+            ids.add(card.id);
+            cards.push(card);
+          }
+        }
+      }
+    }
+    return { cards, issues };
+  }
+
+  /** Render a `quiz` block: choose a source, then review its cards inline. */
+  async renderSimpleQuizBlock(source, el, ctx) {
+    const parsed = parseSimpleQuizOptions(source);
+    const options = parsed.options || {};
+    let cards = parsed.cards.slice();
+    const issues = parsed.issues.slice();
+    if (!cards.length) {
+      const loaded = await this.simpleQuizCardsFromSources(options.sources || [], ctx && ctx.sourcePath ? ctx.sourcePath : "");
+      cards = loaded.cards;
+      issues.push(...loaded.issues);
+    }
+    if (options.limit) cards = cards.slice(0, options.limit);
+    if (options.shuffle && cards.length > 1) {
+      const seed = hashString(str(source) + localDate());
+      cards.sort((a, b) => hashString(seed + a.id) - hashString(seed + b.id));
+    }
+    const box = el.createDiv({ cls: `qt-simple-quiz${options.minify ? " is-minified" : ""}` });
+    if (!options.hideTitle) box.createDiv({ cls: "qt-simple-quiz-title", text: "Simple quiz" });
+    const summary = box.createDiv({ cls: "qt-simple-quiz-summary" });
+    const paintSummary = () => {
+      const stats = simpleQuizDaySummary(this.settings.simpleQuiz, localDate());
+      summary.setText(`${stats.streak} day streak · ${stats.cards} cards today · ${stats.quizzes} quizzes today`);
+    };
+    paintSummary();
+    for (const issue of issues.slice(0, 8)) box.createDiv({ cls: "qt-simple-quiz-issue", text: issue });
+    if (!cards.length) {
+      box.createDiv({
+        cls: "qt-simple-quiz-empty",
+        text: "No cards found. Add a quizjson or quizjs block to this note, or set sources to a note or folder.",
+      });
+      return;
+    }
+
+    const stage = box.createDiv({ cls: "qt-simple-quiz-stage" });
+    let index = 0;
+    let correct = 0;
+    const renderStart = () => {
+      stage.empty();
+      stage.createDiv({ cls: "qt-simple-quiz-meta", text: `${cards.length} card${cards.length === 1 ? "" : "s"} ready` });
+      stage.createEl("button", { cls: "mod-cta", text: "Start simple quiz" }).addEventListener("click", () => {
+        index = 0;
+        correct = 0;
+        renderCard();
+      });
+    };
+    const finish = async () => {
+      this.settings.simpleQuiz = recordSimpleQuizSession(this.settings.simpleQuiz, {
+        today: localDate(),
+        cards: cards.length,
+        correct,
+      });
+      await this.save();
+      paintSummary();
+      stage.empty();
+      const score = Math.round((correct / cards.length) * 100);
+      stage.createDiv({ cls: "qt-simple-quiz-result", text: `Quiz complete: ${correct}/${cards.length} correct (${score}%).` });
+      const stats = simpleQuizDaySummary(this.settings.simpleQuiz, localDate());
+      stage.createDiv({ cls: "qt-simple-quiz-meta", text: `${stats.streak} day streak · best ${stats.best}` });
+      stage.createEl("button", { text: "Start again" }).addEventListener("click", renderStart);
+    };
+    const renderCard = () => {
+      if (index >= cards.length) {
+        finish().catch((e) => new Notice(str(e && e.message ? e.message : e)));
+        return;
+      }
+      const card = cards[index];
+      const reverse = !card.notReversible && index % 2 === 1;
+      const left = card.defaultSide === "right" !== reverse ? card.question.right : card.question.left;
+      const right = card.defaultSide === "right" !== reverse ? card.question.left : card.question.right;
+      stage.empty();
+      stage.createDiv({ cls: "qt-simple-quiz-progress", text: `${index + 1} / ${cards.length}` });
+      const front = stage.createDiv({ cls: "qt-simple-quiz-side" });
+      for (const line of left) front.createDiv({ cls: "qt-simple-quiz-line", text: line });
+      const reveal = stage.createEl("button", { cls: "mod-cta", text: "Show answer" });
+      reveal.addEventListener("click", () => {
+        reveal.disabled = true;
+        const answer = stage.createDiv({ cls: "qt-simple-quiz-answer" });
+        for (const line of right) answer.createDiv({ cls: "qt-simple-quiz-line", text: line });
+        const actions = stage.createDiv({ cls: "qt-row" });
+        actions.createEl("button", { cls: "qt-simple-quiz-missed", text: "Missed" }).addEventListener("click", () => {
+          index++;
+          renderCard();
+        });
+        actions.createEl("button", { cls: "mod-cta qt-simple-quiz-correct", text: "Got it" }).addEventListener("click", () => {
+          correct++;
+          index++;
+          renderCard();
+        });
+      });
+    };
+    renderStart();
+  }
+
+  /** Render a quizjson/quizjs source block as a compact card count. */
+  renderSimpleQuizDataBlock(source, el, kind) {
+    const box = el.createDiv({ cls: "qt-simple-quiz-data" });
+    const parsed = kind === "js"
+      ? runSimpleQuizJavaScript(source, this.settings.simpleQuiz.enableJavaScript === true)
+      : parseSimpleQuizCards(source);
+    box.createDiv({
+      cls: "qt-simple-quiz-data-title",
+      text: kind === "js" ? "JavaScript quiz cards" : "Quiz cards",
+    });
+    box.createDiv({
+      cls: "qt-simple-quiz-meta",
+      text: parsed.cards.length
+        ? `${parsed.cards.length} card${parsed.cards.length === 1 ? "" : "s"} available to a quiz block.`
+        : "No usable cards in this block.",
+    });
+    for (const issue of parsed.issues.slice(0, 6)) box.createDiv({ cls: "qt-simple-quiz-issue", text: issue });
+  }
+
+  /** Render the `quiztoday` stats card without starting a session. */
+  renderSimpleQuizTodayBlock(source, el) {
+    const parsed = parseSimpleQuizOptions(source || "{}");
+    const stats = simpleQuizDaySummary(this.settings.simpleQuiz, localDate());
+    const box = el.createDiv({ cls: `qt-simple-quiz-today${parsed.options && parsed.options.minify ? " is-minified" : ""}` });
+    if (!parsed.options || !parsed.options.minify) box.createDiv({ cls: "qt-simple-quiz-title", text: "Simple quiz today" });
+    if (!parsed.options || !parsed.options.hideCounters) {
+      box.createDiv({ cls: "qt-simple-quiz-big", text: `${stats.streak} day streak` });
+      box.createDiv({ cls: "qt-simple-quiz-meta", text: `${stats.cards} card${stats.cards === 1 ? "" : "s"} reviewed today · ${stats.quizzes} quiz${stats.quizzes === 1 ? "" : "zes"} today` });
+      box.createDiv({ cls: "qt-simple-quiz-meta", text: `This week: ${stats.weekCards} cards · ${stats.weekQuizzes} quizzes · week streak ${stats.weekStreak}` });
+    }
+    for (const issue of parsed.issues.slice(0, 3)) box.createDiv({ cls: "qt-simple-quiz-issue", text: issue });
+  }
+
+  /** Render a dependency-free bar chart for `quizcharts`. */
+  renderSimpleQuizChartsBlock(source, el) {
+    const parsed = parseSimpleQuizOptions(source || "{}");
+    const options = parsed.options || {};
+    const series = simpleQuizChartSeries(this.settings.simpleQuiz, { days: 30 });
+    const box = el.createDiv({ cls: `qt-simple-quiz-charts${options.minify ? " is-minified" : ""}` });
+    if (!options.minify) box.createDiv({ cls: "qt-simple-quiz-title", text: "Simple quiz charts" });
+    box.createDiv({ cls: "qt-simple-quiz-meta", text: "Last 30 days · cards reviewed and quizzes completed" });
+    const chart = box.createDiv({ cls: "qt-simple-quiz-chart" });
+    const maxCards = Math.max(1, series.maxCards);
+    for (const row of series.days) {
+      const col = chart.createDiv({ cls: "qt-simple-quiz-chart-day" });
+      const bars = col.createDiv({ cls: "qt-simple-quiz-chart-bars" });
+      const cardsBar = bars.createDiv({ cls: "qt-simple-quiz-chart-bar is-cards" });
+      cardsBar.style.height = `${Math.round((row.cards / maxCards) * 100)}%`;
+      const quizBar = bars.createDiv({ cls: "qt-simple-quiz-chart-bar is-quizzes" });
+      quizBar.style.height = `${Math.round((row.quizzes / Math.max(1, series.maxQuizzes)) * 100)}%`;
+      col.createDiv({ cls: "qt-simple-quiz-chart-label", text: row.label });
+    }
+    box.createDiv({ cls: "qt-simple-quiz-meta", text: `30-day total: ${series.totalCards} cards · ${series.totalQuizzes} quizzes` });
+    for (const issue of parsed.issues.slice(0, 3)) box.createDiv({ cls: "qt-simple-quiz-issue", text: issue });
   }
 
   /** Draft quiz questions from chosen notes and folders. This method writes nothing. */

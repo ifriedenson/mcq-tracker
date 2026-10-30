@@ -16633,6 +16633,10 @@ const DEFAULT_SETTINGS = {
     best: 0,
     lastCompleted: "",
   },
+  simpleQuiz: {
+    enableJavaScript: false, // trusted note JavaScript is never run until explicitly enabled
+    stats: { days: {}, streak: 0, best: 0, lastCompleted: "" },
+  },
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
@@ -17648,6 +17652,7 @@ const { Setting } = require("obsidian");
 const { localDate } = require("./util");
 const { dailyDone, dailyStreak, foldersText, normalizeDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
+const { normalizeSimpleQuiz, simpleQuizDaySummary } = require("./simple-quiz");
 
 function renderDailySettings(containerEl, plugin, redisplay) {
   const st = plugin.settings;
@@ -17742,6 +17747,35 @@ function renderDailySettings(containerEl, plugin, redisplay) {
     cls: "setting-item-description",
     text: "The streak counts days on which you finish the whole daily set. It is separate from study-time and question streaks.",
   });
+
+  new Setting(containerEl).setName("Simple quiz blocks").setHeading();
+  const simple = normalizeSimpleQuiz(st.simpleQuiz);
+  const simpleToday = simpleQuizDaySummary(simple, today);
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Add a quiz block to a note to review cards loaded from quizjson blocks, a quizjs block or a JSON card list. quiztoday and quizcharts show its local streak and counts. This is separate from the question scheduler and the daily quiz.",
+  });
+  new Setting(containerEl)
+    .setName("Allow JavaScript card blocks")
+    .setDesc("Off by default. quizjs blocks run trusted JavaScript from the note with fc.addCard() and fc.commit(). JavaScript is not sandboxed, so only enable it for notes you trust.")
+    .addToggle((toggle) =>
+      toggle.setValue(simple.enableJavaScript).onChange(async (value) => {
+        st.simpleQuiz = { ...normalizeSimpleQuiz(st.simpleQuiz), enableJavaScript: value };
+        await plugin.save();
+        redisplay();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Simple quiz stats")
+    .setDesc(`${simpleToday.streak} day streak · best ${simple.best} · ${simpleToday.cards} cards and ${simpleToday.quizzes} quizzes today.`)
+    .addButton((button) =>
+      button.setButtonText("Reset stats").onClick(async () => {
+        const next = normalizeSimpleQuiz(st.simpleQuiz);
+        st.simpleQuiz = { ...next, stats: { days: {}, streak: 0, best: 0, lastCompleted: "" } };
+        await plugin.save();
+        redisplay();
+      })
+    );
 }
 
 module.exports = {
@@ -33941,6 +33975,7 @@ const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, 
 const { completeDailyQuiz: recordDailyCompletion, dailyDone, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
+const { extractSimpleQuizBlocks, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, runSimpleQuizJavaScript, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
 const { normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
 const aiService = require("./ai-service");
@@ -34292,6 +34327,11 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.registerMarkdownCodeBlockProcessor("mcq-dashboard", (source, el) => this.renderDashboardBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("mcq-quiz", (source, el) => this.renderQuizBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
+    this.registerMarkdownCodeBlockProcessor("quizjs", (source, el) => this.renderSimpleQuizDataBlock(source, el, "js"));
+    this.registerMarkdownCodeBlockProcessor("quiztoday", (source, el) => this.renderSimpleQuizTodayBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("quizcharts", (source, el) => this.renderSimpleQuizChartsBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("smiles", (source, el) => {
       const result = renderSmilesSvg(source);
       if (!result.ok) {
@@ -34486,6 +34526,7 @@ class QuestionTrackerPlugin extends Plugin {
       .slice(0, 20);
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
     this.settings.dailyQuiz = normalizeDailyQuiz(saved.dailyQuiz);
+    this.settings.simpleQuiz = normalizeSimpleQuiz(saved.simpleQuiz);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -37431,6 +37472,229 @@ class QuestionTrackerPlugin extends Plugin {
       });
     });
     cards.forEach((card, index) => card.toggleClass("qt-quiz-hidden", parsed.gated && index >= visibleQuizCount(parsed.questions.length, 0, true)));
+  }
+
+  /**
+   * Read `quizjson` and `quizjs` blocks from the selected vault notes. A source
+   * can be a note or a folder; without sources the current note is used.
+   */
+  async simpleQuizCardsFromSources(sources, sourcePath) {
+    const list = (Array.isArray(sources) ? sources : []).map((item) => str(item).trim()).filter(Boolean);
+    const files = [];
+    const issues = [];
+    const seenFiles = new Set();
+    const addFile = (file) => {
+      if (!file || !/\.md$/i.test(str(file.path)) || seenFiles.has(file.path)) return;
+      seenFiles.add(file.path);
+      files.push(file);
+    };
+    for (const raw of list) {
+      const clean = str(raw).replace(/^\/+|\/+$/g, "");
+      if (!clean) continue;
+      let found = this.app.vault.getAbstractFileByPath(clean);
+      if (!found && !/\.md$/i.test(clean)) found = this.app.vault.getAbstractFileByPath(`${clean}.md`);
+      if (found instanceof TFile) {
+        addFile(found);
+        continue;
+      }
+      const matches = this.app.vault
+        .getMarkdownFiles()
+        .filter((file) => file.path === clean || file.path === `${clean}.md` || file.path.startsWith(`${clean}/`));
+      if (!matches.length) {
+        issues.push(`Quiz source "${raw}" was not found in the vault.`);
+        continue;
+      }
+      matches.forEach(addFile);
+    }
+    if (!list.length && sourcePath) {
+      const current = this.app.vault.getAbstractFileByPath(sourcePath);
+      if (current instanceof TFile) addFile(current);
+      else issues.push(`Quiz source note "${sourcePath}" was not found.`);
+    }
+    const cards = [];
+    const ids = new Set();
+    for (const file of files) {
+      let text;
+      try {
+        text = await this.app.vault.cachedRead(file);
+      } catch (e) {
+        issues.push(`${file.path}: the note could not be read.`);
+        continue;
+      }
+      const blocks = extractSimpleQuizBlocks(text);
+      for (const block of blocks.json) {
+        const parsed = parseSimpleQuizCards(block);
+        issues.push(...parsed.issues.map((issue) => `${file.path}: ${issue}`));
+        for (const card of parsed.cards) {
+          if (ids.has(card.id)) issues.push(`${file.path}: duplicate card id "${card.id}" was skipped.`);
+          else {
+            ids.add(card.id);
+            cards.push(card);
+          }
+        }
+      }
+      for (const block of blocks.js) {
+        const parsed = runSimpleQuizJavaScript(block, this.settings.simpleQuiz.enableJavaScript === true);
+        issues.push(...parsed.issues.map((issue) => `${file.path}: ${issue}`));
+        for (const card of parsed.cards) {
+          if (ids.has(card.id)) issues.push(`${file.path}: duplicate card id "${card.id}" was skipped.`);
+          else {
+            ids.add(card.id);
+            cards.push(card);
+          }
+        }
+      }
+    }
+    return { cards, issues };
+  }
+
+  /** Render a `quiz` block: choose a source, then review its cards inline. */
+  async renderSimpleQuizBlock(source, el, ctx) {
+    const parsed = parseSimpleQuizOptions(source);
+    const options = parsed.options || {};
+    let cards = parsed.cards.slice();
+    const issues = parsed.issues.slice();
+    if (!cards.length) {
+      const loaded = await this.simpleQuizCardsFromSources(options.sources || [], ctx && ctx.sourcePath ? ctx.sourcePath : "");
+      cards = loaded.cards;
+      issues.push(...loaded.issues);
+    }
+    if (options.limit) cards = cards.slice(0, options.limit);
+    if (options.shuffle && cards.length > 1) {
+      const seed = hashString(str(source) + localDate());
+      cards.sort((a, b) => hashString(seed + a.id) - hashString(seed + b.id));
+    }
+    const box = el.createDiv({ cls: `qt-simple-quiz${options.minify ? " is-minified" : ""}` });
+    if (!options.hideTitle) box.createDiv({ cls: "qt-simple-quiz-title", text: "Simple quiz" });
+    const summary = box.createDiv({ cls: "qt-simple-quiz-summary" });
+    const paintSummary = () => {
+      const stats = simpleQuizDaySummary(this.settings.simpleQuiz, localDate());
+      summary.setText(`${stats.streak} day streak · ${stats.cards} cards today · ${stats.quizzes} quizzes today`);
+    };
+    paintSummary();
+    for (const issue of issues.slice(0, 8)) box.createDiv({ cls: "qt-simple-quiz-issue", text: issue });
+    if (!cards.length) {
+      box.createDiv({
+        cls: "qt-simple-quiz-empty",
+        text: "No cards found. Add a quizjson or quizjs block to this note, or set sources to a note or folder.",
+      });
+      return;
+    }
+
+    const stage = box.createDiv({ cls: "qt-simple-quiz-stage" });
+    let index = 0;
+    let correct = 0;
+    const renderStart = () => {
+      stage.empty();
+      stage.createDiv({ cls: "qt-simple-quiz-meta", text: `${cards.length} card${cards.length === 1 ? "" : "s"} ready` });
+      stage.createEl("button", { cls: "mod-cta", text: "Start simple quiz" }).addEventListener("click", () => {
+        index = 0;
+        correct = 0;
+        renderCard();
+      });
+    };
+    const finish = async () => {
+      this.settings.simpleQuiz = recordSimpleQuizSession(this.settings.simpleQuiz, {
+        today: localDate(),
+        cards: cards.length,
+        correct,
+      });
+      await this.save();
+      paintSummary();
+      stage.empty();
+      const score = Math.round((correct / cards.length) * 100);
+      stage.createDiv({ cls: "qt-simple-quiz-result", text: `Quiz complete: ${correct}/${cards.length} correct (${score}%).` });
+      const stats = simpleQuizDaySummary(this.settings.simpleQuiz, localDate());
+      stage.createDiv({ cls: "qt-simple-quiz-meta", text: `${stats.streak} day streak · best ${stats.best}` });
+      stage.createEl("button", { text: "Start again" }).addEventListener("click", renderStart);
+    };
+    const renderCard = () => {
+      if (index >= cards.length) {
+        finish().catch((e) => new Notice(str(e && e.message ? e.message : e)));
+        return;
+      }
+      const card = cards[index];
+      const reverse = !card.notReversible && index % 2 === 1;
+      const left = card.defaultSide === "right" !== reverse ? card.question.right : card.question.left;
+      const right = card.defaultSide === "right" !== reverse ? card.question.left : card.question.right;
+      stage.empty();
+      stage.createDiv({ cls: "qt-simple-quiz-progress", text: `${index + 1} / ${cards.length}` });
+      const front = stage.createDiv({ cls: "qt-simple-quiz-side" });
+      for (const line of left) front.createDiv({ cls: "qt-simple-quiz-line", text: line });
+      const reveal = stage.createEl("button", { cls: "mod-cta", text: "Show answer" });
+      reveal.addEventListener("click", () => {
+        reveal.disabled = true;
+        const answer = stage.createDiv({ cls: "qt-simple-quiz-answer" });
+        for (const line of right) answer.createDiv({ cls: "qt-simple-quiz-line", text: line });
+        const actions = stage.createDiv({ cls: "qt-row" });
+        actions.createEl("button", { cls: "qt-simple-quiz-missed", text: "Missed" }).addEventListener("click", () => {
+          index++;
+          renderCard();
+        });
+        actions.createEl("button", { cls: "mod-cta qt-simple-quiz-correct", text: "Got it" }).addEventListener("click", () => {
+          correct++;
+          index++;
+          renderCard();
+        });
+      });
+    };
+    renderStart();
+  }
+
+  /** Render a quizjson/quizjs source block as a compact card count. */
+  renderSimpleQuizDataBlock(source, el, kind) {
+    const box = el.createDiv({ cls: "qt-simple-quiz-data" });
+    const parsed = kind === "js"
+      ? runSimpleQuizJavaScript(source, this.settings.simpleQuiz.enableJavaScript === true)
+      : parseSimpleQuizCards(source);
+    box.createDiv({
+      cls: "qt-simple-quiz-data-title",
+      text: kind === "js" ? "JavaScript quiz cards" : "Quiz cards",
+    });
+    box.createDiv({
+      cls: "qt-simple-quiz-meta",
+      text: parsed.cards.length
+        ? `${parsed.cards.length} card${parsed.cards.length === 1 ? "" : "s"} available to a quiz block.`
+        : "No usable cards in this block.",
+    });
+    for (const issue of parsed.issues.slice(0, 6)) box.createDiv({ cls: "qt-simple-quiz-issue", text: issue });
+  }
+
+  /** Render the `quiztoday` stats card without starting a session. */
+  renderSimpleQuizTodayBlock(source, el) {
+    const parsed = parseSimpleQuizOptions(source || "{}");
+    const stats = simpleQuizDaySummary(this.settings.simpleQuiz, localDate());
+    const box = el.createDiv({ cls: `qt-simple-quiz-today${parsed.options && parsed.options.minify ? " is-minified" : ""}` });
+    if (!parsed.options || !parsed.options.minify) box.createDiv({ cls: "qt-simple-quiz-title", text: "Simple quiz today" });
+    if (!parsed.options || !parsed.options.hideCounters) {
+      box.createDiv({ cls: "qt-simple-quiz-big", text: `${stats.streak} day streak` });
+      box.createDiv({ cls: "qt-simple-quiz-meta", text: `${stats.cards} card${stats.cards === 1 ? "" : "s"} reviewed today · ${stats.quizzes} quiz${stats.quizzes === 1 ? "" : "zes"} today` });
+      box.createDiv({ cls: "qt-simple-quiz-meta", text: `This week: ${stats.weekCards} cards · ${stats.weekQuizzes} quizzes · week streak ${stats.weekStreak}` });
+    }
+    for (const issue of parsed.issues.slice(0, 3)) box.createDiv({ cls: "qt-simple-quiz-issue", text: issue });
+  }
+
+  /** Render a dependency-free bar chart for `quizcharts`. */
+  renderSimpleQuizChartsBlock(source, el) {
+    const parsed = parseSimpleQuizOptions(source || "{}");
+    const options = parsed.options || {};
+    const series = simpleQuizChartSeries(this.settings.simpleQuiz, { days: 30 });
+    const box = el.createDiv({ cls: `qt-simple-quiz-charts${options.minify ? " is-minified" : ""}` });
+    if (!options.minify) box.createDiv({ cls: "qt-simple-quiz-title", text: "Simple quiz charts" });
+    box.createDiv({ cls: "qt-simple-quiz-meta", text: "Last 30 days · cards reviewed and quizzes completed" });
+    const chart = box.createDiv({ cls: "qt-simple-quiz-chart" });
+    const maxCards = Math.max(1, series.maxCards);
+    for (const row of series.days) {
+      const col = chart.createDiv({ cls: "qt-simple-quiz-chart-day" });
+      const bars = col.createDiv({ cls: "qt-simple-quiz-chart-bars" });
+      const cardsBar = bars.createDiv({ cls: "qt-simple-quiz-chart-bar is-cards" });
+      cardsBar.style.height = `${Math.round((row.cards / maxCards) * 100)}%`;
+      const quizBar = bars.createDiv({ cls: "qt-simple-quiz-chart-bar is-quizzes" });
+      quizBar.style.height = `${Math.round((row.quizzes / Math.max(1, series.maxQuizzes)) * 100)}%`;
+      col.createDiv({ cls: "qt-simple-quiz-chart-label", text: row.label });
+    }
+    box.createDiv({ cls: "qt-simple-quiz-meta", text: `30-day total: ${series.totalCards} cards · ${series.totalQuizzes} quizzes` });
+    for (const issue of parsed.issues.slice(0, 3)) box.createDiv({ cls: "qt-simple-quiz-issue", text: issue });
   }
 
   /** Draft quiz questions from chosen notes and folders. This method writes nothing. */
@@ -48005,6 +48269,387 @@ module.exports = {
 };
 };
 
+/* ---- src/simple-quiz.js ---- */
+__defs["simple-quiz"] = function (module, exports, require) {
+/*
+ * Simple Quiz parity: `quiz` blocks, JSON/JavaScript card sources and small
+ * local day statistics. This module is deliberately independent of the
+ * question scheduler so a note can carry a quick recall set without creating
+ * question notes; any linked question IDs still use the normal attempt path.
+ */
+const { addDays, fmtDate, hashString, str } = require("./util");
+
+const DEFAULT_SIMPLE_QUIZ = {
+  enableJavaScript: false,
+  stats: { days: {}, streak: 0, best: 0, lastCompleted: "" },
+};
+
+const MAX_CARDS = 500;
+const MAX_STATS_DAYS = 400;
+
+function dayKey(value) {
+  if (value instanceof Date) return isNaN(value.getTime()) ? "" : fmtDate(value);
+  const text = str(value).trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function parseDay(value) {
+  const key = dayKey(value);
+  if (!key) return null;
+  const [year, month, day] = key.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+function previousDay(value) {
+  const date = parseDay(value);
+  return date ? fmtDate(addDays(date, -1)) : "";
+}
+
+function nonNegative(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+function cleanLines(value) {
+  const list = Array.isArray(value) ? value : str(value).split(/\r?\n/);
+  return list.map((line) => str(line).trim()).filter(Boolean);
+}
+
+/** One card shape accepted by JSON and JavaScript blocks. */
+function normalizeSimpleCard(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { error: "A card must be an object with question.left and question.right." };
+  }
+  const question = raw.question && typeof raw.question === "object" ? raw.question : {};
+  const left = cleanLines(question.left !== undefined ? question.left : raw.left);
+  const right = cleanLines(question.right !== undefined ? question.right : raw.right);
+  if (!left.length || !right.length) {
+    return { error: "A card needs non-empty question.left and question.right text." };
+  }
+  const defaultSide = str(raw.defaultSide).toLowerCase() === "right" ? "right" : "left";
+  const tags = Array.isArray(raw.tags) ? raw.tags.map((tag) => str(tag).trim()).filter(Boolean) : [];
+  const id = str(raw.id).trim() || `h${hashString(JSON.stringify({ left, right }))}`;
+  return {
+    card: {
+      id,
+      question: { left, right },
+      pool: str(raw.pool).trim() || "cards",
+      tags,
+      defaultSide,
+      notReversible: raw.notReversible === true,
+      question_id: str(raw.question_id).trim(),
+    },
+  };
+}
+
+/** Parse an array (or JSON text) of cards. Never throws. */
+function parseSimpleQuizCards(value) {
+  let data = value;
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (!text) return { cards: [], issues: [] };
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      return { cards: [], issues: [`Quiz card JSON is invalid: ${str(e && e.message ? e.message : e)}`] };
+    }
+  }
+  if (!Array.isArray(data)) return { cards: [], issues: ["Quiz cards must be a JSON array."] };
+  const cards = [];
+  const issues = [];
+  const seen = new Set();
+  data.slice(0, MAX_CARDS).forEach((raw, index) => {
+    const normalized = normalizeSimpleCard(raw);
+    if (!normalized.card) {
+      issues.push(`Card ${index + 1}: ${normalized.error}`);
+      return;
+    }
+    if (seen.has(normalized.card.id)) {
+      issues.push(`Card ${index + 1}: duplicate id "${normalized.card.id}" was skipped.`);
+      return;
+    }
+    seen.add(normalized.card.id);
+    cards.push(normalized.card);
+  });
+  if (data.length > MAX_CARDS) issues.push(`Only the first ${MAX_CARDS} cards were loaded.`);
+  return { cards, issues };
+}
+
+/** Parse the JSON options block used by `quiz`, `quiztoday` and `quizcharts`. */
+function parseSimpleQuizOptions(source) {
+  const text = str(source).trim();
+  if (!text) return { cards: [], options: {}, issues: [] };
+  if (text.startsWith("[")) {
+    const parsed = parseSimpleQuizCards(text);
+    return { cards: parsed.cards, options: {}, issues: parsed.issues };
+  }
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch (e) {
+    return { cards: [], options: {}, issues: [`Quiz block options are not valid JSON: ${str(e && e.message ? e.message : e)}`] };
+  }
+  if (Array.isArray(value)) {
+    const parsed = parseSimpleQuizCards(value);
+    return { cards: parsed.cards, options: {}, issues: parsed.issues };
+  }
+  if (!value || typeof value !== "object") {
+    return { cards: [], options: {}, issues: ["Quiz block options must be a JSON object."] };
+  }
+  const rawSources = Array.isArray(value.sources) ? value.sources : value.sources ? [value.sources] : [];
+  const sources = rawSources.map((item) => str(item).trim()).filter(Boolean);
+  const parsedCards = value.cards !== undefined ? parseSimpleQuizCards(value.cards) : { cards: [], issues: [] };
+  const limit = Number(value.limit);
+  return {
+    cards: parsedCards.cards,
+    options: {
+      sources,
+      hideTitle: value.hideTitle === true,
+      minify: value.minify === true,
+      hideCounters: value.hideCounters === true,
+      shuffle: value.shuffle === true,
+      limit: Number.isFinite(limit) ? Math.max(0, Math.min(MAX_CARDS, Math.round(limit))) : 0,
+    },
+    issues: parsedCards.issues,
+  };
+}
+
+function fencedBlocks(text, tag) {
+  const source = str(text);
+  const out = [];
+  const re = new RegExp("```" + tag + "\\b[^\\n]*\\n([\\s\\S]*?)```", "gi");
+  let match;
+  while ((match = re.exec(source))) out.push(match[1]);
+  return out;
+}
+
+/** Collect `quizjson` and `quizjs` blocks from one note. */
+function extractSimpleQuizBlocks(text) {
+  return { json: fencedBlocks(text, "quizjson"), js: fencedBlocks(text, "quizjs") };
+}
+
+/**
+ * Run one trusted `quizjs` block. This is opt-in because the code lives in a
+ * note; it is not a security boundary. `fc.addCard` validates each card and
+ * `fc.commit` marks the block as complete.
+ */
+function runSimpleQuizJavaScript(source, enabled) {
+  if (enabled !== true) {
+    return { cards: [], issues: ["JavaScript quiz cards are off. Turn on Simple Quiz JavaScript under Settings, MCQ Tracker, Daily quiz."] };
+  }
+  const code = str(source);
+  if (!code.trim()) return { cards: [], issues: ["This quizjs block is empty."] };
+  if (code.length > 100000) return { cards: [], issues: ["This quizjs block is too large; split it into smaller blocks."] };
+  const cards = [];
+  const issues = [];
+  let committed = false;
+  const fc = {
+    addCard(raw) {
+      const normalized = normalizeSimpleCard(raw);
+      if (!normalized.card) throw new Error(normalized.error);
+      cards.push(normalized.card);
+    },
+    commit() {
+      committed = true;
+    },
+  };
+  try {
+    const run = new Function("fc", `"use strict";\n${code}`);
+    run(fc);
+  } catch (e) {
+    issues.push(`quizjs failed: ${str(e && e.message ? e.message : e)}`);
+  }
+  if (!committed) issues.push("quizjs must call fc.commit() after adding its cards.");
+  return { cards: cards.slice(0, MAX_CARDS), issues };
+}
+
+function normalizeQuizStats(value) {
+  const src = value && typeof value === "object" ? value : {};
+  const rawDays = src.days && typeof src.days === "object" && !Array.isArray(src.days) ? src.days : {};
+  const days = {};
+  for (const [key, row] of Object.entries(rawDays)) {
+    const date = dayKey(key);
+    if (!date || !row || typeof row !== "object") continue;
+    days[date] = {
+      cards: nonNegative(row.cards),
+      correct: Math.min(nonNegative(row.cards), nonNegative(row.correct)),
+      quizzes: nonNegative(row.quizzes),
+    };
+  }
+  const kept = Object.keys(days).sort().slice(-MAX_STATS_DAYS);
+  const pruned = {};
+  for (const date of kept) pruned[date] = days[date];
+  return {
+    days: pruned,
+    streak: nonNegative(src.streak),
+    best: nonNegative(src.best),
+    lastCompleted: dayKey(src.lastCompleted),
+  };
+}
+
+function normalizeSimpleQuiz(value) {
+  const src = value && typeof value === "object" ? value : {};
+  return {
+    enableJavaScript: src.enableJavaScript === true,
+    stats: normalizeQuizStats(src.stats),
+  };
+}
+
+function hasQuiz(days, key) {
+  const row = days && days[key];
+  return !!row && (row.quizzes > 0 || row.cards > 0);
+}
+
+function streakFromDays(days, today) {
+  let cursor = dayKey(today);
+  if (!cursor) return 0;
+  if (!hasQuiz(days, cursor)) cursor = previousDay(cursor);
+  let streak = 0;
+  while (hasQuiz(days, cursor)) {
+    streak++;
+    cursor = previousDay(cursor);
+  }
+  return streak;
+}
+
+function weekStart(value) {
+  const date = parseDay(value);
+  if (!date) return "";
+  date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+  return fmtDate(date);
+}
+
+/** Consecutive Monday-start weeks with at least one completed quiz. */
+function weekStreakFromDays(days, today) {
+  let start = weekStart(today);
+  if (!start) return 0;
+  const weekHasQuiz = (monday) => {
+    const date = parseDay(monday);
+    if (!date) return false;
+    for (let i = 0; i < 7; i++) {
+      const key = fmtDate(addDays(date, i));
+      if (hasQuiz(days, key)) return true;
+    }
+    return false;
+  };
+  if (!weekHasQuiz(start)) {
+    const date = parseDay(start);
+    start = date ? fmtDate(addDays(date, -7)) : "";
+  }
+  let streak = 0;
+  while (start && weekHasQuiz(start)) {
+    streak++;
+    const date = parseDay(start);
+    start = date ? fmtDate(addDays(date, -7)) : "";
+  }
+  return streak;
+}
+
+function simpleQuizDaySummary(value, today) {
+  const cfg = normalizeSimpleQuiz(value);
+  const day = dayKey(today) || dayKey(new Date());
+  const row = cfg.stats.days[day] || { cards: 0, correct: 0, quizzes: 0 };
+  const weekStartKey = weekStart(day);
+  const weekDate = parseDay(weekStartKey);
+  let weekCards = 0;
+  let weekQuizzes = 0;
+  if (weekDate) {
+    for (let i = 0; i < 7; i++) {
+      const key = fmtDate(addDays(weekDate, i));
+      const entry = cfg.stats.days[key];
+      if (!entry) continue;
+      weekCards += entry.cards;
+      weekQuizzes += entry.quizzes;
+    }
+  }
+  return {
+    today: day,
+    cards: row.cards,
+    correct: row.correct,
+    quizzes: row.quizzes,
+    streak: streakFromDays(cfg.stats.days, day),
+    best: cfg.stats.best,
+    weekCards,
+    weekQuizzes,
+    weekStreak: weekStreakFromDays(cfg.stats.days, day),
+  };
+}
+
+function pruneDays(days) {
+  const keys = Object.keys(days).sort().slice(-MAX_STATS_DAYS);
+  const out = {};
+  for (const key of keys) out[key] = days[key];
+  return out;
+}
+
+/** Complete one quiz session and update the local streak/count store. */
+function recordSimpleQuizSession(value, input) {
+  const cfg = normalizeSimpleQuiz(value);
+  const data = input || {};
+  const day = dayKey(data.today) || dayKey(new Date());
+  const cards = Math.min(MAX_CARDS, nonNegative(data.cards));
+  if (!cards) return cfg;
+  const correct = Math.min(cards, nonNegative(data.correct));
+  const previous = cfg.stats.days[day] || { cards: 0, correct: 0, quizzes: 0 };
+  const days = pruneDays({
+    ...cfg.stats.days,
+    [day]: { cards: previous.cards + cards, correct: previous.correct + correct, quizzes: previous.quizzes + 1 },
+  });
+  const streak = streakFromDays(days, day);
+  return {
+    ...cfg,
+    stats: {
+      days,
+      streak,
+      best: Math.max(cfg.stats.best, streak),
+      lastCompleted: day,
+    },
+  };
+}
+
+/** Oldest-to-newest day series for the `quizcharts` block. */
+function simpleQuizChartSeries(value, options) {
+  const cfg = normalizeSimpleQuiz(value);
+  const opts = options || {};
+  const count = Math.max(1, Math.min(365, Math.round(Number(opts.days) || 30)));
+  const today = dayKey(opts.today) || dayKey(new Date());
+  const end = parseDay(today);
+  const rows = [];
+  if (!end) return { days: [], maxCards: 0, maxQuizzes: 0, totalCards: 0, totalQuizzes: 0 };
+  for (let i = count - 1; i >= 0; i--) {
+    const key = fmtDate(addDays(end, -i));
+    const row = cfg.stats.days[key] || { cards: 0, correct: 0, quizzes: 0 };
+    rows.push({ date: key, label: key.slice(5), cards: row.cards, correct: row.correct, quizzes: row.quizzes });
+  }
+  return {
+    days: rows,
+    maxCards: rows.reduce((max, row) => Math.max(max, row.cards), 0),
+    maxQuizzes: rows.reduce((max, row) => Math.max(max, row.quizzes), 0),
+    totalCards: rows.reduce((sum, row) => sum + row.cards, 0),
+    totalQuizzes: rows.reduce((sum, row) => sum + row.quizzes, 0),
+  };
+}
+
+module.exports = {
+  DEFAULT_SIMPLE_QUIZ,
+  MAX_CARDS,
+  MAX_STATS_DAYS,
+  dayKey,
+  extractSimpleQuizBlocks,
+  normalizeSimpleCard,
+  normalizeSimpleQuiz,
+  normalizeQuizStats,
+  parseSimpleQuizCards,
+  parseSimpleQuizOptions,
+  recordSimpleQuizSession,
+  runSimpleQuizJavaScript,
+  simpleQuizChartSeries,
+  simpleQuizDaySummary,
+  weekStreakFromDays,
+};
+};
+
 /* ---- src/sm2.js ---- */
 __defs["sm2"] = function (module, exports, require) {
 /*
@@ -52789,6 +53434,7 @@ const apResourceNotes = require("./ap-resource-notes");
 const apExamResources = require("./ap-exam-resources");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const dailyQuiz = require("./daily-quiz");
+const simpleQuiz = require("./simple-quiz");
 const adaptiveSession = require("./adaptive-session");
 const reminder = require("./reminder");
 const { renderDailySettings } = require("./daily-quiz-settings");
@@ -53042,6 +53688,7 @@ QuestionTrackerPlugin.__test = {
   packTestSession,
   unpackTestSession,
   dailyQuiz,
+  simpleQuiz,
   adaptiveSession,
   reminder,
   renderDailySettings,
