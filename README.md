@@ -29,7 +29,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Study cards (optional, off by default).** Review the same MCQ notes as flip cards or choice cards, or switch the session to Learn, Test or Match, using your current filters and the same scheduler. No duplicate notes or second deck.
 - **Today:** a phone-sized start screen with due and new counts, the next class or exam, and one **Start 5 minutes** button that opens Quick Practice. When both modules have due work, **Start mixed review** runs one interleaved session.
 - **CSV results export.** Export a summary row per question or card plus a row per stored attempt, with course, skill, difficulty, accuracy, timing, review dates, error type and history. The files are plain CSVs written to the vault root for outside analysis.
-- **Source links.** Imported questions keep the source document path and, for PDFs, the page. Extracted cards keep the lecture or source note. A miss shows a **Reread this** button that opens the exact source page; cards show a **Reread source** button after the answer.
+- **Source links.** Imported questions keep the source document path and, for PDFs, the page. Extracted cards keep the lecture or source note. A miss shows a **Reread this** button that opens the exact source page; cards show a **Reread source** button after the answer. A card can also anchor a recall to selected source text; after revealing it, **Review in context** opens the source with that passage selected.
 - **Lecture and transcript to practice.** A note from Whisper, Audio to Text, Local Whisper, Lecture Transcriber or a similar tool is recognized by its transcript properties, headings, filename or timestamped lines. **Generate practice from this lecture** drafts flashcards or multiple-choice questions, shows a preview, and writes only what you approve. Without AI it can extract cards from headings, definitions, tables and cloze marks already in the note.
 - **Notes box** on the result screen, saved into the note.
 - **PDF annotations.** Add a highlighted quote, text box, form note or page note to any PDF in the vault. Each PDF gets a readable Markdown sidecar beside it, keyed by a content hash so a replaced file is noticed; the visual pen/highlighter, highlight-region and text-box overlay saves page-normalized edits in the same sidecar.
@@ -396,6 +396,7 @@ Run **Generate flashcards from this note or selection**. If text is selected, th
 - Open assignments and grades
 - Assignments: add an assignment
 - Create a flashcard or vocabulary card
+- Create a source-anchored recall from selection
 - Generate flashcards from this note or selection
 - Cards: create image occlusion cards
 - Cards: extract cards from this note
@@ -559,6 +560,7 @@ Turn on **Cards** under Settings, Global, Modules. Cards are first-class notes, 
 - **Create a card** from the Cards view, the command palette, or Today. Choose a flashcard, reversed card, cloze card, or vocabulary item, and pick a deck. A deck can have a folder and a course; cards in that folder inherit the course. New cards go under **New card folder** (default `Cards`) in a subfolder named after the deck, unless the deck specifies its own folder.
 - **Plain Markdown cards.** Turn on **Plain Markdown cards** under Settings, Cards, Decks and choose one folder. Notes in that folder become cards without Anki markup: split the front and back with `---`, use two `---` lines for a reversed pair, or wrap text in `~~tildes~~` for a cloze. Subfolders become nested Anki decks with `::`; a note directly in the source folder uses that folder's name. Notes without a usable structure, question notes and existing card notes are skipped. The notes stay plain Markdown and get normal tracking properties only when reviewed; use **Cards: rescan plain Markdown folder** or **Rescan** after adding notes. Off by default.
 - **Extract cards from a note.** Right-click a lecture or source note and choose **Extract cards from this note** (or run the command with it open). The preview reads question/answer headings, `Term: definition` and `Term — definition` lines, “X means Y” sentences, two-column Term/Definition tables, `==highlights==` and `{{c1::cloze}}` marks without an AI key. Nothing is written until you review the pairs. The note gets `flashcards: true` after a successful extraction; set `flashcards: false` to stop extraction for that note.
+- **Source-anchored recalls.** Select the passage that explains why an answer is true, then run **Create a source-anchored recall from selection**. The passage is prefilled as the card's answer and stored as `source_quote` with a short `source_context` and the nearest heading. After revealing the card, the review shows that passage with the anchor highlighted; **Review in context** opens the source note and selects the passage. The recall is still an ordinary card note, so it uses the same deck, course, history, offline outbox and ladder/SM-2/FSRS scheduler. Everything stays in the vault and no network request is made.
 - **Image occlusion cards.** Use **Image occlusion** in the Cards view, or the command **Cards: create image occlusion cards**, to make one card per mask on a diagram already in your vault. Enter each mask as `x, y, width, height, label`; coordinates are percentages of the image, so they resize with it. Each mask becomes its own note with `card_type: image-occlusion`, `image`, `mask_x`, `mask_y`, `mask_w`, `mask_h` and `mask_label`. The review screen covers the mask and lifts it when you reveal; these cards always use flip review.
 - **Review** by revealing the answer and rating **Again**, **Hard**, **Good**, or **Easy** (keys 1–4; Space or Enter flips when using Flip mode). The rating maps directly to the simple ladder or FSRS. Reviews use the same offline outbox as question attempts, so a temporary vault or sync lock does not lose a rating.
 - **Type or speak an answer.** Set **Answer mode** under Settings, Cards, Review to **Type** or **Speak**. Type grades the answer locally against the stored answer, ignores case, accents, articles and punctuation at standard strictness, accepts small typos, numbers and `accepted_variants`, and shows the missing key words. **Speak** uses the same text box with your device's dictation or microphone key; no audio leaves the device. The suggested rating is Good/Hard/Again, and choosing another rating records an override. A card's `answer_mode` or `grading_strictness` property, or its deck's setting, overrides the global default.
@@ -600,6 +602,10 @@ Turn on **Cards** under Settings, Global, Modules. Cards are first-class notes, 
   grading_strictness: standard  # optional: strict | standard | lenient
   accepted_variants:
     - to speak
+  source_note: Notes/lecture.md  # optional source anchor
+  source_heading: Cell
+  source_quote: selectively permeable
+  source_context: The membrane is selectively permeable.
   ---
 
   ## Front

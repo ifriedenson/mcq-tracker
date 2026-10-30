@@ -8,6 +8,7 @@ const { renderMarkdownInto } = require("./view-helpers");
 const { gradeTypedAnswer } = require("./card-grading");
 const { needsAi } = require("./card-grading-ai");
 const { pendingGradeCounts } = require("./card-grade-queue");
+const { splitSourceContext } = require("./source-recall");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
 const GRADE_LABELS = { again: "Again", hard: "Hard", good: "Good", easy: "Easy" };
@@ -629,8 +630,21 @@ class CardView extends ItemView {
       const sourceRow = root.createDiv({ cls: "qt-source" });
       sourceRow.createSpan({ cls: "qt-source-label", text: "Source" });
       sourceRow.createSpan({ cls: "qt-source-name", text: source.detail });
-      const openSource = sourceRow.createEl("button", { text: "Reread source", cls: "qt-link" });
-      openSource.addEventListener("click", () => this.plugin.openSource(card.fm, card.file.path));
+      const openSource = sourceRow.createEl("button", { text: source.quote ? "Review in context" : "Reread source", cls: "qt-link" });
+      openSource.addEventListener("click", () => this.plugin.openSource(card.fm, card.file.path, source.quote));
+    }
+    if (source && source.quote) {
+      const passage = root.createDiv({ cls: "qt-cards-source-context" });
+      passage.createDiv({ cls: "qt-cards-source-context-label", text: "Source passage" });
+      const parts = splitSourceContext(source.context || source.quote, source.quote);
+      const text = passage.createDiv({ cls: "qt-cards-source-context-text" });
+      if (parts.match) {
+        if (parts.before) text.createSpan({ text: parts.before });
+        text.createEl("mark", { cls: "qt-cards-source-mark", text: parts.match });
+        if (parts.after) text.createSpan({ text: parts.after });
+      } else {
+        text.setText(source.context || source.quote);
+      }
     }
 
     const ratings = root.createDiv({ cls: "qt-cards-ratings" });

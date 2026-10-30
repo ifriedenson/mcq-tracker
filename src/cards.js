@@ -543,6 +543,8 @@ function cardNote(input, now) {
   if (data.sourceNote) lines.push(`source_note: ${yamlString(data.sourceNote)}`);
   if (data.sourcePage) lines.push(`source_page: ${yamlString(data.sourcePage)}`);
   if (data.sourceHeading) lines.push(`source_heading: ${yamlString(data.sourceHeading)}`);
+  if (data.sourceQuote) lines.push(`source_quote: ${yamlString(data.sourceQuote)}`);
+  if (data.sourceContext) lines.push(`source_context: ${yamlString(data.sourceContext)}`);
   if (data.sourceLink) lines.push(`source_link: ${yamlString(data.sourceLink)}`);
   if (data.aiGenerated) lines.push(`ai_generated: ${yamlString(data.aiGenerated)}`);
   if (data.aiModel) lines.push(`ai_model: ${yamlString(data.aiModel)}`);

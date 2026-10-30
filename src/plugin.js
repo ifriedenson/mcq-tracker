@@ -89,6 +89,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { gradeQuizBlockQuestion, gradeQuizQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, visibleQuizCount } = require("./quiz-block");
+const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
 const { CardGeneratorModal } = require("./card-generator-modal");
@@ -281,6 +282,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-frq-grader", name: "AP: open free-response practice and grader", callback: () => this.openFrqGrader() });
     this.addCommand({ id: "new-frq-note", name: "AP: create a free-response note", callback: () => this.openNewFrqNote() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
+    this.addCommand({ id: "source-recall", name: "Create a source-anchored recall from selection", callback: () => this.openSourceRecall() });
     this.addCommand({ id: "generate-cards", name: "Generate flashcards from this note or selection", callback: () => this.openCardGenerator() });
     this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
     this.addCommand({
@@ -1510,25 +1512,98 @@ class QuestionTrackerPlugin extends Plugin {
     return file ? sourceOf({ ...(fm || {}), source_pdf: file.path }) : direct;
   }
 
-  /** Open the source note or the exact PDF page. */
-  async openSource(fm, notePath) {
+  /** Select the anchored passage in an already-open source editor. */
+  selectSourceQuote(path, quote) {
+    const active = this.app.workspace && this.app.workspace.activeEditor;
+    if (!active || !active.file || active.file.path !== path || !active.editor) return false;
+    const text = typeof active.editor.getValue === "function" ? active.editor.getValue() : "";
+    const range = findQuoteRange(text, quote);
+    if (!range) return false;
+    if (typeof active.editor.setSelection === "function") active.editor.setSelection(range.from, range.to);
+    if (typeof active.editor.scrollIntoView === "function") active.editor.scrollIntoView(range.from, true);
+    return true;
+  }
+
+  /** Open the source note or exact PDF page, optionally selecting a recall's passage. */
+  async openSource(fm, notePath, quote) {
     const source = this.sourceInfo(fm, notePath);
     if (!source.has) {
       new Notice("This note has no source link. Imported questions get one automatically.");
       return false;
     }
+    const anchored = str(quote || source.quote).trim();
     const target = source.link.replace(/^\[\[|\]\]$/g, "");
     if (this.app.workspace.openLinkText) {
       await this.app.workspace.openLinkText(target, notePath || "", false);
+      if (anchored) {
+        await sleep(20);
+        if (!this.selectSourceQuote(source.path, anchored)) {
+          await sleep(80);
+          this.selectSourceQuote(source.path, anchored);
+        }
+      }
       return true;
     }
     const file = source.path ? this.app.vault.getAbstractFileByPath(source.path) : null;
     if (file instanceof TFile) {
       await this.app.workspace.getLeaf("tab").openFile(file);
+      if (anchored) {
+        await sleep(20);
+        this.selectSourceQuote(file.path, anchored);
+      }
       return true;
     }
     new Notice("The source is not in this vault.");
     return false;
+  }
+
+  /** Open the card dialog with the selected source passage as its anchor. */
+  openSourceRecall() {
+    if (this.moduleOff("cards")) {
+      new Notice("Turn on the Cards module under Settings, Global, Modules first.");
+      return null;
+    }
+    const workspace = this.app.workspace || {};
+    const file = typeof workspace.getActiveFile === "function" ? workspace.getActiveFile() : null;
+    if (!file || !/\.md$/i.test(file.path)) {
+      new Notice("Open a Markdown note and select the source text for the recall.");
+      return null;
+    }
+    const active = workspace.activeEditor;
+    const editor = active && active.file && active.file.path === file.path ? active.editor : null;
+    const selection = editor && typeof editor.getSelection === "function" ? editor.getSelection() : "";
+    if (!str(selection).trim()) {
+      new Notice("Select the source text in the note first, then run the command again.");
+      return null;
+    }
+    const from = editor && typeof editor.getCursor === "function" ? editor.getCursor("from") : null;
+    const text = editor && typeof editor.getValue === "function" ? editor.getValue() : "";
+    const anchor = buildSourceRecall({
+      text,
+      selection,
+      cache: this.app.metadataCache.getFileCache(file),
+      line: from && from.line,
+    });
+    const modal = new CardModal(
+      this.app,
+      this,
+      {
+        deck: this.settings.cards.defaultDeck,
+        course: courseForFolder(this.settings, file.path),
+        sourceNote: file.path,
+        sourceHeading: anchor.heading,
+        sourceQuote: anchor.quote,
+        sourceContext: anchor.context,
+        front: "",
+        back: anchor.quote,
+      },
+      (result) => {
+        if (result && result.path) new Notice(`Created ${result.path}.`);
+        this.refreshViews();
+      }
+    );
+    modal.open();
+    return modal;
   }
 
   async openAssignmentNote(assignment) {

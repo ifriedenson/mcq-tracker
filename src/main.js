@@ -59,6 +59,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
 const quizBlock = require("./quiz-block");
+const sourceRecall = require("./source-recall");
 const noteReview = require("./note-review");
 const quizGenerator = require("./quiz-generator");
 const cardGenerator = require("./card-generator");
@@ -216,6 +217,7 @@ QuestionTrackerPlugin.__test = {
   QuickAddModal,
   quickAdd,
   quizBlock,
+  sourceRecall,
   noteReview,
   quizGenerator,
   cardGenerator,

@@ -13,13 +13,19 @@ class CardModal extends Modal {
     this.kind = this.options.kind === "vocab" ? "vocab" : "card";
     this.deck = str(this.options.deck || plugin.settings.cards.defaultDeck).trim();
     this.course = str(this.options.course).trim();
+    this.sourceNote = str(this.options.sourceNote).trim();
+    this.sourceHeading = str(this.options.sourceHeading).trim();
+    this.sourceQuote = str(this.options.sourceQuote).trim();
+    this.sourceContext = str(this.options.sourceContext).trim();
+    this.initialFront = str(this.options.front);
+    this.initialBack = str(this.options.back);
   }
 
   onOpen() {
     const { contentEl } = this;
     const p = this.plugin;
     contentEl.empty();
-    contentEl.createEl("h3", { text: "New card" });
+    contentEl.createEl("h3", { text: this.sourceQuote ? "New source-anchored recall" : "New card" });
 
     const kindWrap = contentEl.createDiv({ cls: "qt-field" });
     kindWrap.createEl("label", { text: "Type" });
@@ -64,13 +70,27 @@ class CardModal extends Modal {
     scheduler.createEl("option", { text: "SM-2", value: "sm2" });
     scheduler.createEl("option", { text: "FSRS", value: "fsrs" });
 
+    if (this.sourceQuote) {
+      const anchor = contentEl.createDiv({ cls: "qt-source-anchor" });
+      anchor.createDiv({ cls: "qt-source-anchor-label", text: "Source anchor" });
+      anchor.createEl("blockquote", { cls: "qt-source-anchor-quote", text: this.sourceQuote });
+      const where = [this.sourceNote, this.sourceHeading].filter(Boolean).join(" · ");
+      if (where) anchor.createDiv({ cls: "qt-hint", text: where });
+      anchor.createDiv({
+        cls: "qt-hint",
+        text: "The selected passage is stored as the anchor and prefilled as the answer. Edit either side before saving.",
+      });
+    }
+
     const frontWrap = contentEl.createDiv({ cls: "qt-field" });
     const frontLabel = frontWrap.createEl("label", { text: "Front" });
     const front = frontWrap.createEl("textarea", { attr: { rows: "3", placeholder: "What should the card ask?" } });
+    front.value = this.initialFront;
 
     const backWrap = contentEl.createDiv({ cls: "qt-field" });
     const backLabel = backWrap.createEl("label", { text: "Back" });
     const back = backWrap.createEl("textarea", { attr: { rows: "3", placeholder: "The answer" } });
+    back.value = this.initialBack;
 
     const expectationWrap = contentEl.createDiv({ cls: "qt-field" });
     expectationWrap.createEl("label", { text: "What each side expects (optional)" });
@@ -144,6 +164,10 @@ class CardModal extends Modal {
           backExpectation: backExpectation.value,
           partOfSpeech: pos.value,
           language: language.value,
+          sourceNote: this.sourceNote,
+          sourceHeading: this.sourceHeading,
+          sourceQuote: this.sourceQuote,
+          sourceContext: this.sourceContext,
         });
         this.close();
         this.onDone(result);

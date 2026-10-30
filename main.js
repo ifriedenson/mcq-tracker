@@ -10289,13 +10289,19 @@ class CardModal extends Modal {
     this.kind = this.options.kind === "vocab" ? "vocab" : "card";
     this.deck = str(this.options.deck || plugin.settings.cards.defaultDeck).trim();
     this.course = str(this.options.course).trim();
+    this.sourceNote = str(this.options.sourceNote).trim();
+    this.sourceHeading = str(this.options.sourceHeading).trim();
+    this.sourceQuote = str(this.options.sourceQuote).trim();
+    this.sourceContext = str(this.options.sourceContext).trim();
+    this.initialFront = str(this.options.front);
+    this.initialBack = str(this.options.back);
   }
 
   onOpen() {
     const { contentEl } = this;
     const p = this.plugin;
     contentEl.empty();
-    contentEl.createEl("h3", { text: "New card" });
+    contentEl.createEl("h3", { text: this.sourceQuote ? "New source-anchored recall" : "New card" });
 
     const kindWrap = contentEl.createDiv({ cls: "qt-field" });
     kindWrap.createEl("label", { text: "Type" });
@@ -10340,13 +10346,27 @@ class CardModal extends Modal {
     scheduler.createEl("option", { text: "SM-2", value: "sm2" });
     scheduler.createEl("option", { text: "FSRS", value: "fsrs" });
 
+    if (this.sourceQuote) {
+      const anchor = contentEl.createDiv({ cls: "qt-source-anchor" });
+      anchor.createDiv({ cls: "qt-source-anchor-label", text: "Source anchor" });
+      anchor.createEl("blockquote", { cls: "qt-source-anchor-quote", text: this.sourceQuote });
+      const where = [this.sourceNote, this.sourceHeading].filter(Boolean).join(" · ");
+      if (where) anchor.createDiv({ cls: "qt-hint", text: where });
+      anchor.createDiv({
+        cls: "qt-hint",
+        text: "The selected passage is stored as the anchor and prefilled as the answer. Edit either side before saving.",
+      });
+    }
+
     const frontWrap = contentEl.createDiv({ cls: "qt-field" });
     const frontLabel = frontWrap.createEl("label", { text: "Front" });
     const front = frontWrap.createEl("textarea", { attr: { rows: "3", placeholder: "What should the card ask?" } });
+    front.value = this.initialFront;
 
     const backWrap = contentEl.createDiv({ cls: "qt-field" });
     const backLabel = backWrap.createEl("label", { text: "Back" });
     const back = backWrap.createEl("textarea", { attr: { rows: "3", placeholder: "The answer" } });
+    back.value = this.initialBack;
 
     const expectationWrap = contentEl.createDiv({ cls: "qt-field" });
     expectationWrap.createEl("label", { text: "What each side expects (optional)" });
@@ -10420,6 +10440,10 @@ class CardModal extends Modal {
           backExpectation: backExpectation.value,
           partOfSpeech: pos.value,
           language: language.value,
+          sourceNote: this.sourceNote,
+          sourceHeading: this.sourceHeading,
+          sourceQuote: this.sourceQuote,
+          sourceContext: this.sourceContext,
         });
         this.close();
         this.onDone(result);
@@ -11061,6 +11085,8 @@ function cardNote(input, now) {
   if (data.sourceNote) lines.push(`source_note: ${yamlString(data.sourceNote)}`);
   if (data.sourcePage) lines.push(`source_page: ${yamlString(data.sourcePage)}`);
   if (data.sourceHeading) lines.push(`source_heading: ${yamlString(data.sourceHeading)}`);
+  if (data.sourceQuote) lines.push(`source_quote: ${yamlString(data.sourceQuote)}`);
+  if (data.sourceContext) lines.push(`source_context: ${yamlString(data.sourceContext)}`);
   if (data.sourceLink) lines.push(`source_link: ${yamlString(data.sourceLink)}`);
   if (data.aiGenerated) lines.push(`ai_generated: ${yamlString(data.aiGenerated)}`);
   if (data.aiModel) lines.push(`ai_model: ${yamlString(data.aiModel)}`);
@@ -14987,6 +15013,7 @@ const { renderMarkdownInto } = require("./view-helpers");
 const { gradeTypedAnswer } = require("./card-grading");
 const { needsAi } = require("./card-grading-ai");
 const { pendingGradeCounts } = require("./card-grade-queue");
+const { splitSourceContext } = require("./source-recall");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
 const GRADE_LABELS = { again: "Again", hard: "Hard", good: "Good", easy: "Easy" };
@@ -15608,8 +15635,21 @@ class CardView extends ItemView {
       const sourceRow = root.createDiv({ cls: "qt-source" });
       sourceRow.createSpan({ cls: "qt-source-label", text: "Source" });
       sourceRow.createSpan({ cls: "qt-source-name", text: source.detail });
-      const openSource = sourceRow.createEl("button", { text: "Reread source", cls: "qt-link" });
-      openSource.addEventListener("click", () => this.plugin.openSource(card.fm, card.file.path));
+      const openSource = sourceRow.createEl("button", { text: source.quote ? "Review in context" : "Reread source", cls: "qt-link" });
+      openSource.addEventListener("click", () => this.plugin.openSource(card.fm, card.file.path, source.quote));
+    }
+    if (source && source.quote) {
+      const passage = root.createDiv({ cls: "qt-cards-source-context" });
+      passage.createDiv({ cls: "qt-cards-source-context-label", text: "Source passage" });
+      const parts = splitSourceContext(source.context || source.quote, source.quote);
+      const text = passage.createDiv({ cls: "qt-cards-source-context-text" });
+      if (parts.match) {
+        if (parts.before) text.createSpan({ text: parts.before });
+        text.createEl("mark", { cls: "qt-cards-source-mark", text: parts.match });
+        if (parts.after) text.createSpan({ text: parts.after });
+      } else {
+        text.setText(source.context || source.quote);
+      }
     }
 
     const ratings = root.createDiv({ cls: "qt-cards-ratings" });
@@ -33465,6 +33505,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { gradeQuizBlockQuestion, gradeQuizQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, visibleQuizCount } = require("./quiz-block");
+const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
 const { CardGeneratorModal } = require("./card-generator-modal");
@@ -33657,6 +33698,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-frq-grader", name: "AP: open free-response practice and grader", callback: () => this.openFrqGrader() });
     this.addCommand({ id: "new-frq-note", name: "AP: create a free-response note", callback: () => this.openNewFrqNote() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
+    this.addCommand({ id: "source-recall", name: "Create a source-anchored recall from selection", callback: () => this.openSourceRecall() });
     this.addCommand({ id: "generate-cards", name: "Generate flashcards from this note or selection", callback: () => this.openCardGenerator() });
     this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
     this.addCommand({
@@ -34886,25 +34928,98 @@ class QuestionTrackerPlugin extends Plugin {
     return file ? sourceOf({ ...(fm || {}), source_pdf: file.path }) : direct;
   }
 
-  /** Open the source note or the exact PDF page. */
-  async openSource(fm, notePath) {
+  /** Select the anchored passage in an already-open source editor. */
+  selectSourceQuote(path, quote) {
+    const active = this.app.workspace && this.app.workspace.activeEditor;
+    if (!active || !active.file || active.file.path !== path || !active.editor) return false;
+    const text = typeof active.editor.getValue === "function" ? active.editor.getValue() : "";
+    const range = findQuoteRange(text, quote);
+    if (!range) return false;
+    if (typeof active.editor.setSelection === "function") active.editor.setSelection(range.from, range.to);
+    if (typeof active.editor.scrollIntoView === "function") active.editor.scrollIntoView(range.from, true);
+    return true;
+  }
+
+  /** Open the source note or exact PDF page, optionally selecting a recall's passage. */
+  async openSource(fm, notePath, quote) {
     const source = this.sourceInfo(fm, notePath);
     if (!source.has) {
       new Notice("This note has no source link. Imported questions get one automatically.");
       return false;
     }
+    const anchored = str(quote || source.quote).trim();
     const target = source.link.replace(/^\[\[|\]\]$/g, "");
     if (this.app.workspace.openLinkText) {
       await this.app.workspace.openLinkText(target, notePath || "", false);
+      if (anchored) {
+        await sleep(20);
+        if (!this.selectSourceQuote(source.path, anchored)) {
+          await sleep(80);
+          this.selectSourceQuote(source.path, anchored);
+        }
+      }
       return true;
     }
     const file = source.path ? this.app.vault.getAbstractFileByPath(source.path) : null;
     if (file instanceof TFile) {
       await this.app.workspace.getLeaf("tab").openFile(file);
+      if (anchored) {
+        await sleep(20);
+        this.selectSourceQuote(file.path, anchored);
+      }
       return true;
     }
     new Notice("The source is not in this vault.");
     return false;
+  }
+
+  /** Open the card dialog with the selected source passage as its anchor. */
+  openSourceRecall() {
+    if (this.moduleOff("cards")) {
+      new Notice("Turn on the Cards module under Settings, Global, Modules first.");
+      return null;
+    }
+    const workspace = this.app.workspace || {};
+    const file = typeof workspace.getActiveFile === "function" ? workspace.getActiveFile() : null;
+    if (!file || !/\.md$/i.test(file.path)) {
+      new Notice("Open a Markdown note and select the source text for the recall.");
+      return null;
+    }
+    const active = workspace.activeEditor;
+    const editor = active && active.file && active.file.path === file.path ? active.editor : null;
+    const selection = editor && typeof editor.getSelection === "function" ? editor.getSelection() : "";
+    if (!str(selection).trim()) {
+      new Notice("Select the source text in the note first, then run the command again.");
+      return null;
+    }
+    const from = editor && typeof editor.getCursor === "function" ? editor.getCursor("from") : null;
+    const text = editor && typeof editor.getValue === "function" ? editor.getValue() : "";
+    const anchor = buildSourceRecall({
+      text,
+      selection,
+      cache: this.app.metadataCache.getFileCache(file),
+      line: from && from.line,
+    });
+    const modal = new CardModal(
+      this.app,
+      this,
+      {
+        deck: this.settings.cards.defaultDeck,
+        course: courseForFolder(this.settings, file.path),
+        sourceNote: file.path,
+        sourceHeading: anchor.heading,
+        sourceQuote: anchor.quote,
+        sourceContext: anchor.context,
+        front: "",
+        back: anchor.quote,
+      },
+      (result) => {
+        if (result && result.path) new Notice(`Created ${result.path}.`);
+        this.refreshViews();
+      }
+    );
+    modal.open();
+    return modal;
   }
 
   async openAssignmentNote(assignment) {
@@ -41178,6 +41293,8 @@ function sourceOf(fm) {
   const path = cleanPath(f.source_pdf || f.source_document || f.source_note || f.source_file || f.source_path || "");
   const page = normalizePage(f.source_page || f.pdf_page || f.page);
   const heading = str(f.source_heading || f.source_heading_text || "").trim();
+  const quote = str(f.source_quote || f.sourceQuote).trim();
+  const context = str(f.source_context || f.sourceContext).trim();
   const link = explicitLink || sourceLink(path, page, heading);
   const label = sourceLabel(path);
   const detail = [label, page ? `page ${page}` : "", heading && !page ? heading : ""].filter(Boolean).join(" · ") || link;
@@ -41185,6 +41302,8 @@ function sourceOf(fm) {
     path,
     page,
     heading,
+    quote,
+    context,
     link,
     label,
     detail,
@@ -47829,6 +47948,143 @@ module.exports = {
 };
 };
 
+/* ---- src/source-recall.js ---- */
+__defs["source-recall"] = function (module, exports, require) {
+/*
+ * Source-anchored recalls extend ordinary card notes. A recall stores the
+ * selected source passage and a short surrounding context, so it can be
+ * reviewed beside the place it came from and reopened with that passage
+ * selected. This module holds only the text/heading helpers; scheduling,
+ * attempts and review UI stay on the existing card paths.
+ */
+const { str } = require("./util");
+
+const MAX_QUOTE_CHARS = 1200;
+const MAX_CONTEXT_CHARS = 1800;
+const CONTEXT_PAD = 220;
+
+function normalizeNewlines(value) {
+  return str(value).replace(/\r\n?/g, "\n");
+}
+
+function normalizeText(value) {
+  return normalizeNewlines(value).trim();
+}
+
+function cleanHeading(value) {
+  return str(value).replace(/^#+\s*/, "").replace(/\s+#+\s*$/, "").trim();
+}
+
+function escapeRegExp(value) {
+  return str(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function positionAt(text, offset) {
+  const before = text.slice(0, offset);
+  const line = (before.match(/\n/g) || []).length;
+  const last = before.lastIndexOf("\n");
+  return { line, ch: offset - (last + 1) };
+}
+
+/**
+ * Find a selected passage in source text. Exact matches win; when the source
+ * wraps or re-indents the same words, a whitespace-flexible match is used.
+ * Offsets stay relative to the original text so an editor can select them.
+ */
+function findQuoteRange(text, quote) {
+  const source = normalizeNewlines(text);
+  const needle = normalizeNewlines(quote).trim();
+  if (!source || !needle) return null;
+  let start = source.indexOf(needle);
+  let end = start + needle.length;
+  if (start < 0) {
+    const words = needle.split(/\s+/).filter(Boolean).map(escapeRegExp);
+    if (!words.length) return null;
+    const match = new RegExp(words.join("\\s+")).exec(source);
+    if (!match) return null;
+    start = match.index;
+    end = start + match[0].length;
+  }
+  return {
+    start,
+    end,
+    from: positionAt(source, start),
+    to: positionAt(source, end),
+  };
+}
+
+/** The nearest preceding Markdown heading for a zero-based editor line. */
+function headingAtLine(cache, line) {
+  const target = Number(line);
+  if (!Number.isFinite(target)) return "";
+  let heading = "";
+  for (const item of (cache && Array.isArray(cache.headings) ? cache.headings : [])) {
+    const start = item && item.position && item.position.start;
+    const at = start && Number(start.line);
+    if (!Number.isFinite(at)) continue;
+    if (at <= target) heading = cleanHeading(item.heading);
+    else break;
+  }
+  return heading;
+}
+
+function cleanQuote(value) {
+  const quote = normalizeText(value);
+  if (quote.length <= MAX_QUOTE_CHARS) return quote;
+  return `${quote.slice(0, MAX_QUOTE_CHARS).trimEnd()}…`;
+}
+
+function excerptAround(source, range) {
+  let start = Math.max(0, range.start - CONTEXT_PAD);
+  let end = Math.min(source.length, range.end + CONTEXT_PAD);
+  while (start > 0 && !/\s/.test(source[start - 1])) start--;
+  while (end < source.length && !/\s/.test(source[end])) end++;
+  let text = source.slice(start, end).trim();
+  if (start > 0) text = `…${text}`;
+  if (end < source.length) text = `${text}…`;
+  if (text.length <= MAX_CONTEXT_CHARS) return text;
+  return `${text.slice(0, MAX_CONTEXT_CHARS).trimEnd()}…`;
+}
+
+/** The stored source fields for a selection, plus the range used for highlighting. */
+function buildSourceRecall(input) {
+  const data = input || {};
+  const quote = cleanQuote(data.selection);
+  const heading = headingAtLine(data.cache, data.line);
+  if (!quote) return { quote: "", context: "", heading, range: null };
+  const source = normalizeNewlines(data.text);
+  const range = findQuoteRange(source, quote);
+  const context = range ? excerptAround(source, range) : quote;
+  return { quote, context, heading, range };
+}
+
+/** Split a stored context so the selected passage can be rendered as a mark. */
+function splitSourceContext(context, quote) {
+  const source = normalizeNewlines(context);
+  const needle = normalizeNewlines(quote).trim();
+  if (!source) return { before: "", match: "", after: "" };
+  if (!needle) return { before: source, match: "", after: "" };
+  const range = findQuoteRange(source, needle);
+  if (!range) return { before: source, match: "", after: "" };
+  return {
+    before: source.slice(0, range.start),
+    match: source.slice(range.start, range.end),
+    after: source.slice(range.end),
+  };
+}
+
+module.exports = {
+  CONTEXT_PAD,
+  MAX_CONTEXT_CHARS,
+  MAX_QUOTE_CHARS,
+  buildSourceRecall,
+  cleanQuote,
+  findQuoteRange,
+  headingAtLine,
+  splitSourceContext,
+};
+};
+
 /* ---- src/sqlite-write.js ---- */
 __defs["sqlite-write"] = function (module, exports, require) {
 /*
@@ -51824,6 +52080,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
 const quizBlock = require("./quiz-block");
+const sourceRecall = require("./source-recall");
 const noteReview = require("./note-review");
 const quizGenerator = require("./quiz-generator");
 const cardGenerator = require("./card-generator");
@@ -51981,6 +52238,7 @@ QuestionTrackerPlugin.__test = {
   QuickAddModal,
   quickAdd,
   quizBlock,
+  sourceRecall,
   noteReview,
   quizGenerator,
   cardGenerator,

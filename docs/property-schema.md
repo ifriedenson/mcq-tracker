@@ -136,6 +136,7 @@ update the existing note instead of creating a duplicate.
 | `import_key` | string | Stable key used to recognise the same source note on a later import. |
 | `import_source_url` | string | Source URL, when one was supplied. |
 | `source_pdf`, `source_page`, `source_heading`, `source_note`, `source_link` | string | Link back to the document, page, heading or note. |
+| `source_quote`, `source_context` | string | For a source-anchored recall, the selected passage and a short surrounding excerpt. **Review in context** opens the source note and selects the passage. |
 | `answer_source`, `explanation_source` | string | Where the answer and explanation came from, including AI-generated ones. |
 | `ai_generated`, `ai_model` | string | Marks AI-written content and records the model. |
 | `anki_note_id`, `anki_card_id`, `anki_guid` | string | The source note, card and GUID from an imported `.apkg`, used by later syncs. |

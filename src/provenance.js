@@ -80,6 +80,8 @@ function sourceOf(fm) {
   const path = cleanPath(f.source_pdf || f.source_document || f.source_note || f.source_file || f.source_path || "");
   const page = normalizePage(f.source_page || f.pdf_page || f.page);
   const heading = str(f.source_heading || f.source_heading_text || "").trim();
+  const quote = str(f.source_quote || f.sourceQuote).trim();
+  const context = str(f.source_context || f.sourceContext).trim();
   const link = explicitLink || sourceLink(path, page, heading);
   const label = sourceLabel(path);
   const detail = [label, page ? `page ${page}` : "", heading && !page ? heading : ""].filter(Boolean).join(" · ") || link;
@@ -87,6 +89,8 @@ function sourceOf(fm) {
     path,
     page,
     heading,
+    quote,
+    context,
     link,
     label,
     detail,

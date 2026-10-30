@@ -2949,6 +2949,50 @@
   overflow-wrap: anywhere;
 }
 
+.qt-source-anchor {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  margin: 12px 0;
+  padding: 10px 12px;
+}
+
+.qt-source-anchor-label,
+.qt-cards-source-context-label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.qt-source-anchor-quote {
+  border-left: 3px solid var(--interactive-accent);
+  margin: 8px 0;
+  padding-left: 10px;
+  white-space: pre-wrap;
+}
+
+.qt-cards-source-context {
+  border-top: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-top: 10px;
+  padding-top: 8px;
+}
+
+.qt-cards-source-context-text {
+  line-height: 1.45;
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
+.qt-cards-source-mark {
+  background: var(--text-highlight-bg);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
 @media (max-width: 480px) {
   .qt-ins-row {
     grid-template-columns: minmax(0, 1fr) auto;
