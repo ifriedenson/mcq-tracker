@@ -14,6 +14,7 @@ const CARD_GENERATOR_STYLES = [
 ];
 const CARD_GENERATOR_OUTPUTS = [
   { id: "notes", label: "Create tracked card notes" },
+  { id: "spaced", label: "Save as a Spaced Repetition quiz note" },
   { id: "insert", label: "Insert into this note (not tracked)" },
 ];
 const CARD_GENERATOR_SOURCES = [

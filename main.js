@@ -9767,6 +9767,7 @@ const CARD_GENERATOR_STYLES = [
 ];
 const CARD_GENERATOR_OUTPUTS = [
   { id: "notes", label: "Create tracked card notes" },
+  { id: "spaced", label: "Save as a Spaced Repetition quiz note" },
   { id: "insert", label: "Insert into this note (not tracked)" },
 ];
 const CARD_GENERATOR_SOURCES = [
@@ -9882,14 +9883,20 @@ const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const { readActiveNoteContext } = require("./note-context");
 const { CARD_GENERATOR_OUTPUTS, CARD_GENERATOR_SOURCES, CARD_GENERATOR_STYLES, normalizeCardGenerator } = require("./card-generator");
+const { spacedQuizNotice } = require("./spaced-quiz");
 
 /** Per-command settings and preview for custom-prompt flashcard generation. */
 class CardGeneratorModal extends Modal {
-  constructor(app, plugin, onDone) {
+  constructor(app, plugin, onDone, options) {
     super(app);
     this.plugin = plugin;
     this.onDone = onDone || (() => {});
-    this.config = normalizeCardGenerator(plugin.settings.cardGenerator);
+    const saved = normalizeCardGenerator(plugin.settings.cardGenerator);
+    this.options = options || {};
+    this.lockedOutput = this.options.output || "";
+    this.savedOutput = saved.output;
+    this.savedSource = saved.source;
+    this.config = normalizeCardGenerator({ ...saved, ...this.options });
     this.context = null;
     this.useSelection = false;
     this.deck = this.config.deck || plugin.settings.cards.defaultDeck || "General";
@@ -9952,8 +9959,10 @@ class CardGeneratorModal extends Modal {
     const output = outputWrap.createEl("select", { cls: "qt-select" });
     for (const item of CARD_GENERATOR_OUTPUTS) output.createEl("option", { value: item.id, text: item.label });
     output.value = this.config.output;
+    output.disabled = !!this.lockedOutput;
     output.addEventListener("change", () => {
-      this.config.output = output.value === "insert" ? "insert" : "notes";
+      if (this.lockedOutput) return;
+      this.config.output = output.value;
       this.render();
     });
 
@@ -9963,30 +9972,32 @@ class CardGeneratorModal extends Modal {
     prompt.value = this.config.customPrompt;
     prompt.addEventListener("input", () => (this.config.customPrompt = prompt.value));
 
-    const styleWrap = el.createDiv({ cls: "qt-field" });
-    styleWrap.createEl("label", { text: "Card layout" });
-    const style = styleWrap.createEl("select", { cls: "qt-select" });
-    for (const item of CARD_GENERATOR_STYLES) style.createEl("option", { value: item.id, text: item.label });
-    style.value = this.config.style;
-    style.addEventListener("change", () => {
-      this.config.style = style.value;
-      this.config.separator = CARD_GENERATOR_STYLES.find((item) => item.id === style.value).separator;
-      this.render();
-    });
+    if (this.config.output !== "spaced") {
+      const styleWrap = el.createDiv({ cls: "qt-field" });
+      styleWrap.createEl("label", { text: "Card layout" });
+      const style = styleWrap.createEl("select", { cls: "qt-select" });
+      for (const item of CARD_GENERATOR_STYLES) style.createEl("option", { value: item.id, text: item.label });
+      style.value = this.config.style;
+      style.addEventListener("change", () => {
+        this.config.style = style.value;
+        this.config.separator = CARD_GENERATOR_STYLES.find((item) => item.id === style.value).separator;
+        this.render();
+      });
 
-    const sepWrap = el.createDiv({ cls: "qt-field" });
-    sepWrap.createEl("label", { text: "Separator" });
-    const separator = sepWrap.createEl("input", { type: "text", attr: { placeholder: "::" } });
-    separator.value = this.config.separator;
-    separator.addEventListener("input", () => (this.config.separator = separator.value));
+      const sepWrap = el.createDiv({ cls: "qt-field" });
+      sepWrap.createEl("label", { text: "Separator" });
+      const separator = sepWrap.createEl("input", { type: "text", attr: { placeholder: "::" } });
+      separator.value = this.config.separator;
+      separator.addEventListener("input", () => (this.config.separator = separator.value));
 
-    const hideWrap = el.createDiv({ cls: "qt-check" });
-    const hide = hideWrap.createEl("input", { type: "checkbox" });
-    hide.checked = this.config.hideInPreview;
-    hide.addEventListener("change", () => (this.config.hideInPreview = hide.checked));
-    hideWrap.createSpan({ text: " Hide the inserted block in reading view (wraps it in %%)" });
+      const hideWrap = el.createDiv({ cls: "qt-check" });
+      const hide = hideWrap.createEl("input", { type: "checkbox" });
+      hide.checked = this.config.hideInPreview;
+      hide.addEventListener("change", () => (this.config.hideInPreview = hide.checked));
+      hideWrap.createSpan({ text: " Hide the inserted block in reading view (wraps it in %%)" });
+    }
 
-    if (this.config.output === "notes") {
+    if (this.config.output === "notes" || this.config.output === "spaced") {
       const deckWrap = el.createDiv({ cls: "qt-field" });
       deckWrap.createEl("label", { text: "Deck for the new cards" });
       const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "General" } });
@@ -9998,7 +10009,9 @@ class CardGeneratorModal extends Modal {
       cls: "qt-hint",
       text: this.config.output === "insert"
         ? "This appends a block to the open note using the chosen layout. It is not tracked as cards; use Ctrl/Cmd+Z to undo the insertion. Tracking stays opt-in."
-        : "This creates ordinary card notes through the existing card importer, with deck, source and AI provenance. Nothing is written until you confirm.",
+        : this.config.output === "spaced"
+          ? "This saves a separate #flashcards note with multiline ? cards, then imports those cards through the normal card importer. Deck, source and AI provenance are kept."
+          : "This creates ordinary card notes through the existing card importer, with deck, source and AI provenance. Nothing is written until you confirm.",
     });
     const actions = el.createDiv({ cls: "qt-row" });
     actions.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
@@ -10009,7 +10022,8 @@ class CardGeneratorModal extends Modal {
 
   renderPreview(el) {
     const g = this.generated;
-    el.createEl("h4", { text: `Ready to ${this.config.output === "insert" ? "insert" : "create"} ${g.items.length} card${g.items.length === 1 ? "" : "s"}` });
+    const verb = this.config.output === "insert" ? "insert" : this.config.output === "spaced" ? "save" : "create";
+    el.createEl("h4", { text: `Ready to ${verb} ${g.items.length} card${g.items.length === 1 ? "" : "s"}` });
     const list = el.createEl("ul", { cls: "qt-extract-preview" });
     for (const card of g.items.slice(0, 20)) {
       list.createEl("li", { text: `${card.front} → ${this.config.hideInPreview && !this.reveal ? "•••" : card.back}` });
@@ -10025,14 +10039,17 @@ class CardGeneratorModal extends Modal {
       cls: "qt-hint",
       text: this.config.output === "insert"
         ? `${g.sourceKind === "selection" ? "Selection" : "Note"}: ${g.sourcePath}. The block uses ${this.config.style} layout and is ${this.config.hideInPreview ? "hidden" : "visible"} in reading view.`
-        : `${g.sourceKind === "selection" ? "Selection" : "Note"}: ${g.sourcePath}. Deck: ${this.deck || "General"}.`,
+        : this.config.output === "spaced"
+          ? `${g.sourceKind === "selection" ? "Selection" : "Note"}: ${g.sourcePath}. Deck: ${this.deck || "General"}. The quiz note uses one question, a ? line and one answer per card.`
+          : `${g.sourceKind === "selection" ? "Selection" : "Note"}: ${g.sourcePath}. Deck: ${this.deck || "General"}.`,
     });
     const actions = el.createDiv({ cls: "qt-row" });
     actions.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => {
       this.generated = null;
       this.render();
     });
-    actions.createEl("button", { text: this.config.output === "insert" ? "Insert cards" : "Create cards", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.write());
+    const saveLabel = this.config.output === "insert" ? "Insert cards" : this.config.output === "spaced" ? "Save quiz and cards" : "Create cards";
+    actions.createEl("button", { text: saveLabel, cls: "mod-cta qt-grow" }).addEventListener("click", () => this.write());
   }
 
   async generate() {
@@ -10041,7 +10058,12 @@ class CardGeneratorModal extends Modal {
     this.error = "";
     this.render();
     try {
-      this.plugin.settings.cardGenerator = normalizeCardGenerator({ ...this.config, deck: this.deck });
+      const saved = normalizeCardGenerator({ ...this.config, deck: this.deck });
+      if (this.lockedOutput) {
+        saved.output = this.savedOutput;
+        saved.source = this.savedSource;
+      }
+      this.plugin.settings.cardGenerator = saved;
       await this.plugin.save();
       this.generated = await this.plugin.generateCardsFromNote({
         ...this.plugin.settings.cardGenerator,
@@ -10063,6 +10085,13 @@ class CardGeneratorModal extends Modal {
       if (this.config.output === "insert") {
         const result = await this.plugin.insertGeneratedCards(this.generated, this.config);
         new Notice(`Inserted ${result.inserted} card${result.inserted === 1 ? "" : "s"} at the end of the note. Use Ctrl/Cmd+Z to undo.`, 6000);
+        this.close();
+        this.onDone(result);
+        return;
+      }
+      if (this.config.output === "spaced") {
+        const result = await this.plugin.writeSpacedQuiz(this.generated, { deck: this.deck });
+        new Notice(spacedQuizNotice(result), 6000);
         this.close();
         this.onDone(result);
         return;
@@ -34403,6 +34432,7 @@ const { AutoAnkiModal } = require("./auto-anki-modal");
 const { autoAnkiBatchPaths, autoAnkiCardInputs, autoAnkiSourceKey, chooseAutoAnkiSource, normalizeAutoAnki } = require("./auto-anki");
 const { chooseText2AnkiSource, normalizeText2Anki, text2AnkiNotice } = require("./text2anki");
 const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator } = require("./card-generator");
+const { buildSpacedQuizNote, spacedQuizFileName, spacedQuizSourceKey } = require("./spaced-quiz");
 const { readActiveNoteContext } = require("./note-context");
 const { QuizGeneratorModal } = require("./quiz-generator-modal");
 const { buildQuizGeneratorPrompt, collectGeneratorSources, folderMatches, normalizeQuizGenerator, parseGeneratorQuestions } = require("./quiz-generator");
@@ -34593,6 +34623,17 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "source-recall", name: "Create a source-anchored recall from selection", callback: () => this.openSourceRecall() });
     this.addCommand({ id: "generate-cards", name: "Generate flashcards from this note or selection", callback: () => this.openCardGenerator() });
+    this.addCommand({
+      id: "generate-spaced-quiz",
+      name: "Spaced quiz: generate from this note",
+      checkCallback: (checking) => {
+        if (this.moduleOff("cards")) return false;
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !/\.md$/i.test(file.path)) return false;
+        if (!checking) this.openSpacedQuiz();
+        return true;
+      },
+    });
     this.addCommand({
       id: "auto-anki-send",
       name: "Auto Anki: send this note or selection",
@@ -38241,6 +38282,7 @@ class QuestionTrackerPlugin extends Plugin {
       title: context.title,
       course,
       count: parsed.cards.length,
+      sourceText: text,
       ai: true,
       model: this.aiModelLabel("generation"),
     };
@@ -38274,7 +38316,85 @@ class QuestionTrackerPlugin extends Plugin {
     return { inserted: items.length, path: g.sourcePath, style: config.style, separator: config.separator, hidden: config.hideInPreview };
   }
 
-  openCardGenerator(onDone) {
+  /**
+   * Save previewed front/back cards as a #flashcards note in multiline
+   * Spaced Repetition syntax, then import that note through the normal card
+   * importer. The source batch and card import keys make a rerun idempotent.
+   */
+  async writeSpacedQuiz(generated, options) {
+    if (this.moduleOff("cards")) throw new Error("Turn on Cards to save a Spaced Repetition quiz.");
+    const g = generated || {};
+    const items = Array.isArray(g.items) ? g.items : [];
+    if (!items.length) throw new Error("There are no usable cards to save as a Spaced Repetition quiz.");
+    const opts = options || {};
+    const deck = str(opts.deck).trim() || str(g.deck).trim() || this.settings.cards.defaultDeck || "General";
+    const folder = str(opts.folder).trim() || str(this.settings.cards.newCardFolder).trim() || "Cards";
+    const sourcePath = str(g.sourcePath).trim();
+    const sourceText = g.sourceText === undefined ? items.map((item) => `${str(item.front)}\n${str(item.back)}`).join("\n") : str(g.sourceText);
+    const batch = spacedQuizSourceKey(sourcePath, sourceText);
+    const title = g.title ? `${str(g.title).trim()} Spaced Quiz` : "";
+    const built = buildSpacedQuizNote(items, { sourcePath, batch, deck, title, model: g.model });
+    await ensureFolder(this.app, folder);
+
+    const sourceFile = this.app.vault
+      .getMarkdownFiles()
+      .find((file) => {
+        const cache = this.app.metadataCache && this.app.metadataCache.getFileCache ? this.app.metadataCache.getFileCache(file) : null;
+        return str(cache && cache.frontmatter && cache.frontmatter.spaced_quiz_source).trim() === sourcePath;
+      });
+    let file = sourceFile || null;
+    const fileName = spacedQuizFileName(built.title);
+    let path = file ? file.path : `${folder ? folder + "/" : ""}${fileName}`;
+    if (!file) {
+      let n = 2;
+      while (this.app.vault.getAbstractFileByPath(path)) {
+        path = `${folder ? folder + "/" : ""}${fileName.replace(/\.md$/i, ` ${n}.md`)}`;
+        n++;
+      }
+    }
+
+    const parsed = parseSpacedRepetition(built.text, { sourcePath: path, deck });
+    if (parsed.cards.length !== built.cards.length) {
+      throw new Error("The Spaced Repetition quiz did not round-trip cleanly; nothing was written.");
+    }
+    const beforePaths = new Set(this.app.vault.getMarkdownFiles().map((entry) => entry.path));
+    if (file) await this.app.vault.modify(file, built.text);
+    else file = await this.app.vault.create(path, built.text);
+
+    const inputs = parsed.cards.map((card) => ({
+      ...card,
+      deck,
+      course: str(g.course).trim(),
+      sourceNote: sourcePath,
+      importSource: path,
+      importFormat: "spaced-quiz",
+      importedOn: localDate(),
+      aiGenerated: g.ai ? g.model || "" : "",
+      aiModel: g.ai ? g.model || "" : "",
+      importBatch: batch,
+    }));
+    const write = await this.importParsedCards(inputs, {
+      deck,
+      course: str(g.course).trim(),
+      duplicateMode: "skip",
+    });
+    if (write.created || write.updated) this.refreshViews();
+    this.recordAiTranscriptWrite(g, beforePaths);
+    return {
+      path,
+      notePath: path,
+      file,
+      batch,
+      deck,
+      cards: parsed.cards.length,
+      created: write.created,
+      skipped: write.skipped,
+      write,
+      reused: write.created === 0 && write.updated === 0 && write.copied === 0,
+    };
+  }
+
+  openCardGenerator(onDone, options) {
     if (!this.settings.ai.enabled) {
       new Notice("Turn on AI features under Settings, Global, Modules, then choose a provider under MCQ Tracker, AI.");
       return null;
@@ -38283,9 +38403,14 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice("Turn on Cards under Settings, Global, Modules to generate flashcards.");
       return null;
     }
-    const modal = new CardGeneratorModal(this.app, this, onDone || (() => this.refreshViews()));
+    const modal = new CardGeneratorModal(this.app, this, onDone || (() => this.refreshViews()), options);
     modal.open();
     return modal;
+  }
+
+  /** Dedicated whole-note command for the Spaced Repetition quiz output. */
+  openSpacedQuiz(onDone) {
+    return this.openCardGenerator(onDone, { output: "spaced", source: "note" });
   }
 
   openAutoAnki() {
@@ -50937,6 +51062,92 @@ module.exports = {
 };
 };
 
+/* ---- src/spaced-quiz.js ---- */
+__defs["spaced-quiz"] = function (module, exports, require) {
+/*
+ * Spaced Repetition quiz output for the existing card generator.
+ *
+ * The generated front/back pairs are rendered as the Spaced Repetition
+ * plugin's multiline syntax (question, "?", answer, blank line). The note is
+ * also imported through the normal card importer, so review scheduling and
+ * duplicate protection stay in the existing card store.
+ */
+const { hashString, str } = require("./util");
+
+function cleanLine(value) {
+  return str(value).replace(/\r\n/g, "\n").replace(/\s+/g, " ").trim();
+}
+
+function spacedQuizSourceKey(sourcePath, text) {
+  return `spaced-quiz-source:${hashString(`${str(sourcePath).trim()}|${str(text).trim()}`)}`;
+}
+
+function spacedQuizTitle(sourcePath) {
+  const basename = str(sourcePath).replace(/^.*\//, "").replace(/\.md$/i, "").trim();
+  return `${basename || "Note"} Spaced Quiz`;
+}
+
+function spacedQuizFileName(title) {
+  const safe = cleanLine(title)
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 90)
+    .replace(/[. ]+$/g, "");
+  return `${safe || "Spaced Quiz"}.md`;
+}
+
+/** Build one validated Spaced Repetition note from generated front/back pairs. */
+function buildSpacedQuizNote(items, options) {
+  const opts = options || {};
+  const cards = (Array.isArray(items) ? items : [])
+    .map((item) => ({ front: cleanLine(item && item.front), back: cleanLine(item && item.back) }))
+    .filter((item) => item.front && item.back)
+    .slice(0, 200);
+  if (!cards.length) throw new Error("There are no usable cards to save as a Spaced Repetition quiz.");
+  const sourcePath = str(opts.sourcePath).trim();
+  const batch = str(opts.batch).trim() || spacedQuizSourceKey(sourcePath, cards.map((card) => `${card.front}\u0000${card.back}`).join("\n"));
+  const deck = str(opts.deck).trim();
+  const title = str(opts.title).trim() || spacedQuizTitle(sourcePath);
+  const model = str(opts.model).trim();
+  const lines = [
+    "---",
+    `spaced_quiz_source: ${JSON.stringify(sourcePath)}`,
+    `spaced_quiz_batch: ${JSON.stringify(batch)}`,
+  ];
+  if (deck) lines.push(`spaced_quiz_deck: ${JSON.stringify(deck)}`);
+  if (model) lines.push(`spaced_quiz_ai_model: ${JSON.stringify(model)}`);
+  lines.push("---", "", `# ${title}`, "", "#flashcards", "");
+  for (const card of cards) lines.push(card.front, "?", card.back, "");
+  return {
+    text: lines.join("\n").replace(/\n+$/, "\n"),
+    cards,
+    title,
+    batch,
+    sourcePath,
+    deck,
+  };
+}
+
+/** A compact result line for the command and modal. */
+function spacedQuizNotice(result) {
+  const r = result || {};
+  const cards = Number(r.cards) || 0;
+  const created = Number(r.created) || 0;
+  if (r.reused) return `Spaced quiz updated: ${cards} card${cards === 1 ? "" : "s"} already tracked.`;
+  return `Saved a Spaced Repetition quiz with ${cards} card${cards === 1 ? "" : "s"}${created ? ` (${created} new tracked card${created === 1 ? "" : "s"})` : ""}.`;
+}
+
+module.exports = {
+  buildSpacedQuizNote,
+  cleanLine,
+  spacedQuizFileName,
+  spacedQuizNotice,
+  spacedQuizSourceKey,
+  spacedQuizTitle,
+};
+};
+
 /* ---- src/sqlite-write.js ---- */
 __defs["sqlite-write"] = function (module, exports, require) {
 /*
@@ -55014,6 +55225,7 @@ const { NoteReviewModal } = require("./note-review-modal");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const quizGenerator = require("./quiz-generator");
 const cardGenerator = require("./card-generator");
+const spacedQuiz = require("./spaced-quiz");
 const autoAnki = require("./auto-anki");
 const text2anki = require("./text2anki");
 const { AutoAnkiModal } = require("./auto-anki-modal");
@@ -55184,6 +55396,7 @@ QuestionTrackerPlugin.__test = {
   SpacedEverythingCaptureModal,
   quizGenerator,
   cardGenerator,
+  spacedQuiz,
   autoAnki,
   AutoAnkiModal,
   text2anki,

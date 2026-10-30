@@ -424,6 +424,18 @@ Run **Generate quiz questions from notes** from the command palette. Choose sour
 
 Run **Generate flashcards from this note or selection**. If text is selected, the generator uses it; otherwise it reads the open note. Add an optional instruction and choose 1–20 cards. **Create tracked card notes** is the default: cards go through the normal importer, get a deck, source note and AI provenance, and use the same history and scheduler; **AI: undo the last generated notes** removes them. **Insert into this note** appends a block instead, using an inline `front :: back` or multiline `front` / `---` / `back` layout you can change, plus an optional `%%` wrapper that hides the block in reading view. Inserted blocks are not scheduled; undo the insertion with Ctrl/Cmd+Z. The last choices are remembered in settings, and Cards → Review exposes the default count, layout and hidden-block choice.
 
+### Spaced Repetition quiz notes
+
+Choose **Spaced Repetition quiz note** under **Output**, or run **Spaced quiz: generate from this note** for a whole-note shortcut. The same AI card draft is previewed first. Confirming saves a separate note named after the source under the card folder, for example `Cards/Cell Spaced Quiz.md`, with a `#flashcards` tag and one card per block:
+
+```markdown
+What is the membrane like?
+?
+Selectively permeable.
+```
+
+The saved note is parsed back with the existing Spaced Repetition importer before anything is written, then its cards are imported through the normal card store. They therefore get the usual deck, source, `import_batch` and `import_key` provenance, review history and ladder/FSRS schedule. Re-running updates the same generated note and skips cards that are already tracked; an ordinary note at the target path is never overwritten. The source note's attempts, history, streak and next review are untouched.
+
 ### Auto Anki
 
 Run **Auto Anki: send this note or selection** on an open Markdown note. When text is selected it uses that passage; otherwise it uses the whole note. The confirmation window shows the source, card count and deck; **Generate and send** drafts cards with the configured AI provider, writes them as ordinary tracked card notes and pushes only those cards through AnkiConnect.
@@ -462,6 +474,7 @@ Add a line such as `Deck: Computer Science::Python` to the note or the selection
 - Cards: test CouchDB connection
 - Cards: sync review state with CouchDB
 - Generate flashcards from this note or selection
+- Spaced quiz: generate from this note
 - Cards: create image occlusion cards
 - Cards: extract cards from this note
 - Cards: tag cards with their folder's course

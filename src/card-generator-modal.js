@@ -3,14 +3,20 @@ const { Modal, Notice } = require("obsidian");
 const { str } = require("./util");
 const { readActiveNoteContext } = require("./note-context");
 const { CARD_GENERATOR_OUTPUTS, CARD_GENERATOR_SOURCES, CARD_GENERATOR_STYLES, normalizeCardGenerator } = require("./card-generator");
+const { spacedQuizNotice } = require("./spaced-quiz");
 
 /** Per-command settings and preview for custom-prompt flashcard generation. */
 class CardGeneratorModal extends Modal {
-  constructor(app, plugin, onDone) {
+  constructor(app, plugin, onDone, options) {
     super(app);
     this.plugin = plugin;
     this.onDone = onDone || (() => {});
-    this.config = normalizeCardGenerator(plugin.settings.cardGenerator);
+    const saved = normalizeCardGenerator(plugin.settings.cardGenerator);
+    this.options = options || {};
+    this.lockedOutput = this.options.output || "";
+    this.savedOutput = saved.output;
+    this.savedSource = saved.source;
+    this.config = normalizeCardGenerator({ ...saved, ...this.options });
     this.context = null;
     this.useSelection = false;
     this.deck = this.config.deck || plugin.settings.cards.defaultDeck || "General";
@@ -73,8 +79,10 @@ class CardGeneratorModal extends Modal {
     const output = outputWrap.createEl("select", { cls: "qt-select" });
     for (const item of CARD_GENERATOR_OUTPUTS) output.createEl("option", { value: item.id, text: item.label });
     output.value = this.config.output;
+    output.disabled = !!this.lockedOutput;
     output.addEventListener("change", () => {
-      this.config.output = output.value === "insert" ? "insert" : "notes";
+      if (this.lockedOutput) return;
+      this.config.output = output.value;
       this.render();
     });
 
@@ -84,30 +92,32 @@ class CardGeneratorModal extends Modal {
     prompt.value = this.config.customPrompt;
     prompt.addEventListener("input", () => (this.config.customPrompt = prompt.value));
 
-    const styleWrap = el.createDiv({ cls: "qt-field" });
-    styleWrap.createEl("label", { text: "Card layout" });
-    const style = styleWrap.createEl("select", { cls: "qt-select" });
-    for (const item of CARD_GENERATOR_STYLES) style.createEl("option", { value: item.id, text: item.label });
-    style.value = this.config.style;
-    style.addEventListener("change", () => {
-      this.config.style = style.value;
-      this.config.separator = CARD_GENERATOR_STYLES.find((item) => item.id === style.value).separator;
-      this.render();
-    });
+    if (this.config.output !== "spaced") {
+      const styleWrap = el.createDiv({ cls: "qt-field" });
+      styleWrap.createEl("label", { text: "Card layout" });
+      const style = styleWrap.createEl("select", { cls: "qt-select" });
+      for (const item of CARD_GENERATOR_STYLES) style.createEl("option", { value: item.id, text: item.label });
+      style.value = this.config.style;
+      style.addEventListener("change", () => {
+        this.config.style = style.value;
+        this.config.separator = CARD_GENERATOR_STYLES.find((item) => item.id === style.value).separator;
+        this.render();
+      });
 
-    const sepWrap = el.createDiv({ cls: "qt-field" });
-    sepWrap.createEl("label", { text: "Separator" });
-    const separator = sepWrap.createEl("input", { type: "text", attr: { placeholder: "::" } });
-    separator.value = this.config.separator;
-    separator.addEventListener("input", () => (this.config.separator = separator.value));
+      const sepWrap = el.createDiv({ cls: "qt-field" });
+      sepWrap.createEl("label", { text: "Separator" });
+      const separator = sepWrap.createEl("input", { type: "text", attr: { placeholder: "::" } });
+      separator.value = this.config.separator;
+      separator.addEventListener("input", () => (this.config.separator = separator.value));
 
-    const hideWrap = el.createDiv({ cls: "qt-check" });
-    const hide = hideWrap.createEl("input", { type: "checkbox" });
-    hide.checked = this.config.hideInPreview;
-    hide.addEventListener("change", () => (this.config.hideInPreview = hide.checked));
-    hideWrap.createSpan({ text: " Hide the inserted block in reading view (wraps it in %%)" });
+      const hideWrap = el.createDiv({ cls: "qt-check" });
+      const hide = hideWrap.createEl("input", { type: "checkbox" });
+      hide.checked = this.config.hideInPreview;
+      hide.addEventListener("change", () => (this.config.hideInPreview = hide.checked));
+      hideWrap.createSpan({ text: " Hide the inserted block in reading view (wraps it in %%)" });
+    }
 
-    if (this.config.output === "notes") {
+    if (this.config.output === "notes" || this.config.output === "spaced") {
       const deckWrap = el.createDiv({ cls: "qt-field" });
       deckWrap.createEl("label", { text: "Deck for the new cards" });
       const deck = deckWrap.createEl("input", { type: "text", attr: { placeholder: "General" } });
@@ -119,7 +129,9 @@ class CardGeneratorModal extends Modal {
       cls: "qt-hint",
       text: this.config.output === "insert"
         ? "This appends a block to the open note using the chosen layout. It is not tracked as cards; use Ctrl/Cmd+Z to undo the insertion. Tracking stays opt-in."
-        : "This creates ordinary card notes through the existing card importer, with deck, source and AI provenance. Nothing is written until you confirm.",
+        : this.config.output === "spaced"
+          ? "This saves a separate #flashcards note with multiline ? cards, then imports those cards through the normal card importer. Deck, source and AI provenance are kept."
+          : "This creates ordinary card notes through the existing card importer, with deck, source and AI provenance. Nothing is written until you confirm.",
     });
     const actions = el.createDiv({ cls: "qt-row" });
     actions.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
@@ -130,7 +142,8 @@ class CardGeneratorModal extends Modal {
 
   renderPreview(el) {
     const g = this.generated;
-    el.createEl("h4", { text: `Ready to ${this.config.output === "insert" ? "insert" : "create"} ${g.items.length} card${g.items.length === 1 ? "" : "s"}` });
+    const verb = this.config.output === "insert" ? "insert" : this.config.output === "spaced" ? "save" : "create";
+    el.createEl("h4", { text: `Ready to ${verb} ${g.items.length} card${g.items.length === 1 ? "" : "s"}` });
     const list = el.createEl("ul", { cls: "qt-extract-preview" });
     for (const card of g.items.slice(0, 20)) {
       list.createEl("li", { text: `${card.front} → ${this.config.hideInPreview && !this.reveal ? "•••" : card.back}` });
@@ -146,14 +159,17 @@ class CardGeneratorModal extends Modal {
       cls: "qt-hint",
       text: this.config.output === "insert"
         ? `${g.sourceKind === "selection" ? "Selection" : "Note"}: ${g.sourcePath}. The block uses ${this.config.style} layout and is ${this.config.hideInPreview ? "hidden" : "visible"} in reading view.`
-        : `${g.sourceKind === "selection" ? "Selection" : "Note"}: ${g.sourcePath}. Deck: ${this.deck || "General"}.`,
+        : this.config.output === "spaced"
+          ? `${g.sourceKind === "selection" ? "Selection" : "Note"}: ${g.sourcePath}. Deck: ${this.deck || "General"}. The quiz note uses one question, a ? line and one answer per card.`
+          : `${g.sourceKind === "selection" ? "Selection" : "Note"}: ${g.sourcePath}. Deck: ${this.deck || "General"}.`,
     });
     const actions = el.createDiv({ cls: "qt-row" });
     actions.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => {
       this.generated = null;
       this.render();
     });
-    actions.createEl("button", { text: this.config.output === "insert" ? "Insert cards" : "Create cards", cls: "mod-cta qt-grow" }).addEventListener("click", () => this.write());
+    const saveLabel = this.config.output === "insert" ? "Insert cards" : this.config.output === "spaced" ? "Save quiz and cards" : "Create cards";
+    actions.createEl("button", { text: saveLabel, cls: "mod-cta qt-grow" }).addEventListener("click", () => this.write());
   }
 
   async generate() {
@@ -162,7 +178,12 @@ class CardGeneratorModal extends Modal {
     this.error = "";
     this.render();
     try {
-      this.plugin.settings.cardGenerator = normalizeCardGenerator({ ...this.config, deck: this.deck });
+      const saved = normalizeCardGenerator({ ...this.config, deck: this.deck });
+      if (this.lockedOutput) {
+        saved.output = this.savedOutput;
+        saved.source = this.savedSource;
+      }
+      this.plugin.settings.cardGenerator = saved;
       await this.plugin.save();
       this.generated = await this.plugin.generateCardsFromNote({
         ...this.plugin.settings.cardGenerator,
@@ -184,6 +205,13 @@ class CardGeneratorModal extends Modal {
       if (this.config.output === "insert") {
         const result = await this.plugin.insertGeneratedCards(this.generated, this.config);
         new Notice(`Inserted ${result.inserted} card${result.inserted === 1 ? "" : "s"} at the end of the note. Use Ctrl/Cmd+Z to undo.`, 6000);
+        this.close();
+        this.onDone(result);
+        return;
+      }
+      if (this.config.output === "spaced") {
+        const result = await this.plugin.writeSpacedQuiz(this.generated, { deck: this.deck });
+        new Notice(spacedQuizNotice(result), 6000);
         this.close();
         this.onDone(result);
         return;

@@ -103,6 +103,7 @@ const { AutoAnkiModal } = require("./auto-anki-modal");
 const { autoAnkiBatchPaths, autoAnkiCardInputs, autoAnkiSourceKey, chooseAutoAnkiSource, normalizeAutoAnki } = require("./auto-anki");
 const { chooseText2AnkiSource, normalizeText2Anki, text2AnkiNotice } = require("./text2anki");
 const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator } = require("./card-generator");
+const { buildSpacedQuizNote, spacedQuizFileName, spacedQuizSourceKey } = require("./spaced-quiz");
 const { readActiveNoteContext } = require("./note-context");
 const { QuizGeneratorModal } = require("./quiz-generator-modal");
 const { buildQuizGeneratorPrompt, collectGeneratorSources, folderMatches, normalizeQuizGenerator, parseGeneratorQuestions } = require("./quiz-generator");
@@ -293,6 +294,17 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "source-recall", name: "Create a source-anchored recall from selection", callback: () => this.openSourceRecall() });
     this.addCommand({ id: "generate-cards", name: "Generate flashcards from this note or selection", callback: () => this.openCardGenerator() });
+    this.addCommand({
+      id: "generate-spaced-quiz",
+      name: "Spaced quiz: generate from this note",
+      checkCallback: (checking) => {
+        if (this.moduleOff("cards")) return false;
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !/\.md$/i.test(file.path)) return false;
+        if (!checking) this.openSpacedQuiz();
+        return true;
+      },
+    });
     this.addCommand({
       id: "auto-anki-send",
       name: "Auto Anki: send this note or selection",
@@ -3941,6 +3953,7 @@ class QuestionTrackerPlugin extends Plugin {
       title: context.title,
       course,
       count: parsed.cards.length,
+      sourceText: text,
       ai: true,
       model: this.aiModelLabel("generation"),
     };
@@ -3974,7 +3987,85 @@ class QuestionTrackerPlugin extends Plugin {
     return { inserted: items.length, path: g.sourcePath, style: config.style, separator: config.separator, hidden: config.hideInPreview };
   }
 
-  openCardGenerator(onDone) {
+  /**
+   * Save previewed front/back cards as a #flashcards note in multiline
+   * Spaced Repetition syntax, then import that note through the normal card
+   * importer. The source batch and card import keys make a rerun idempotent.
+   */
+  async writeSpacedQuiz(generated, options) {
+    if (this.moduleOff("cards")) throw new Error("Turn on Cards to save a Spaced Repetition quiz.");
+    const g = generated || {};
+    const items = Array.isArray(g.items) ? g.items : [];
+    if (!items.length) throw new Error("There are no usable cards to save as a Spaced Repetition quiz.");
+    const opts = options || {};
+    const deck = str(opts.deck).trim() || str(g.deck).trim() || this.settings.cards.defaultDeck || "General";
+    const folder = str(opts.folder).trim() || str(this.settings.cards.newCardFolder).trim() || "Cards";
+    const sourcePath = str(g.sourcePath).trim();
+    const sourceText = g.sourceText === undefined ? items.map((item) => `${str(item.front)}\n${str(item.back)}`).join("\n") : str(g.sourceText);
+    const batch = spacedQuizSourceKey(sourcePath, sourceText);
+    const title = g.title ? `${str(g.title).trim()} Spaced Quiz` : "";
+    const built = buildSpacedQuizNote(items, { sourcePath, batch, deck, title, model: g.model });
+    await ensureFolder(this.app, folder);
+
+    const sourceFile = this.app.vault
+      .getMarkdownFiles()
+      .find((file) => {
+        const cache = this.app.metadataCache && this.app.metadataCache.getFileCache ? this.app.metadataCache.getFileCache(file) : null;
+        return str(cache && cache.frontmatter && cache.frontmatter.spaced_quiz_source).trim() === sourcePath;
+      });
+    let file = sourceFile || null;
+    const fileName = spacedQuizFileName(built.title);
+    let path = file ? file.path : `${folder ? folder + "/" : ""}${fileName}`;
+    if (!file) {
+      let n = 2;
+      while (this.app.vault.getAbstractFileByPath(path)) {
+        path = `${folder ? folder + "/" : ""}${fileName.replace(/\.md$/i, ` ${n}.md`)}`;
+        n++;
+      }
+    }
+
+    const parsed = parseSpacedRepetition(built.text, { sourcePath: path, deck });
+    if (parsed.cards.length !== built.cards.length) {
+      throw new Error("The Spaced Repetition quiz did not round-trip cleanly; nothing was written.");
+    }
+    const beforePaths = new Set(this.app.vault.getMarkdownFiles().map((entry) => entry.path));
+    if (file) await this.app.vault.modify(file, built.text);
+    else file = await this.app.vault.create(path, built.text);
+
+    const inputs = parsed.cards.map((card) => ({
+      ...card,
+      deck,
+      course: str(g.course).trim(),
+      sourceNote: sourcePath,
+      importSource: path,
+      importFormat: "spaced-quiz",
+      importedOn: localDate(),
+      aiGenerated: g.ai ? g.model || "" : "",
+      aiModel: g.ai ? g.model || "" : "",
+      importBatch: batch,
+    }));
+    const write = await this.importParsedCards(inputs, {
+      deck,
+      course: str(g.course).trim(),
+      duplicateMode: "skip",
+    });
+    if (write.created || write.updated) this.refreshViews();
+    this.recordAiTranscriptWrite(g, beforePaths);
+    return {
+      path,
+      notePath: path,
+      file,
+      batch,
+      deck,
+      cards: parsed.cards.length,
+      created: write.created,
+      skipped: write.skipped,
+      write,
+      reused: write.created === 0 && write.updated === 0 && write.copied === 0,
+    };
+  }
+
+  openCardGenerator(onDone, options) {
     if (!this.settings.ai.enabled) {
       new Notice("Turn on AI features under Settings, Global, Modules, then choose a provider under MCQ Tracker, AI.");
       return null;
@@ -3983,9 +4074,14 @@ class QuestionTrackerPlugin extends Plugin {
       new Notice("Turn on Cards under Settings, Global, Modules to generate flashcards.");
       return null;
     }
-    const modal = new CardGeneratorModal(this.app, this, onDone || (() => this.refreshViews()));
+    const modal = new CardGeneratorModal(this.app, this, onDone || (() => this.refreshViews()), options);
     modal.open();
     return modal;
+  }
+
+  /** Dedicated whole-note command for the Spaced Repetition quiz output. */
+  openSpacedQuiz(onDone) {
+    return this.openCardGenerator(onDone, { output: "spaced", source: "note" });
   }
 
   openAutoAnki() {

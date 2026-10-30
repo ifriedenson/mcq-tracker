@@ -66,6 +66,7 @@ const { NoteReviewModal } = require("./note-review-modal");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const quizGenerator = require("./quiz-generator");
 const cardGenerator = require("./card-generator");
+const spacedQuiz = require("./spaced-quiz");
 const autoAnki = require("./auto-anki");
 const text2anki = require("./text2anki");
 const { AutoAnkiModal } = require("./auto-anki-modal");
@@ -236,6 +237,7 @@ QuestionTrackerPlugin.__test = {
   SpacedEverythingCaptureModal,
   quizGenerator,
   cardGenerator,
+  spacedQuiz,
   autoAnki,
   AutoAnkiModal,
   text2anki,
