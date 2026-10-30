@@ -3330,6 +3330,12 @@
   height: 100%;
 }
 
+.qt-wrap.qt-today {
+  margin: 0;
+  max-width: none;
+  width: 100%;
+}
+
 .qt-today-header {
   align-items: flex-end;
   display: flex;

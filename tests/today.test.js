@@ -263,6 +263,14 @@ test("today: desktop CSS fills the pane and uses container-query breakpoints", (
   assert.match(rule, /min-height:\s*100%/);
   assert.match(rule, /margin:\s*0;/);
 
+  const override = (css.match(/\.qt-wrap\.qt-today \{[^}]*\}/) || [])[0] || "";
+  assert.match(override, /max-width:\s*none/);
+  assert.match(override, /margin:\s*0;/);
+  assert.match(override, /width:\s*100%/);
+  assert.ok(css.indexOf(".qt-wrap.qt-today {") > css.indexOf(".qt-wrap {"), "the Today override follows the shared wrapper");
+
+  assert.match(css, /\.qt-today-panel > \.qt-today-card \{\s*flex:/);
+
   const root = (css.match(/\.qt-root\.qt-root-today \{[^}]*\}/) || [])[0] || "";
   assert.match(root, /container-name:\s*qt-today/);
   assert.match(root, /container-type:\s*inline-size/);
