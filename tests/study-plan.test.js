@@ -78,6 +78,34 @@ test("study plan: declared topic coverage uses fully mastered skills and leaves 
   assert.equal(plan.topicCoverage(questions, 999).declared, 500);
 });
 
+test("study plan: Insights pairs days left with declared topic coverage", async () => {
+  const app = makeApp([
+    { path: "Bio/Q1.md", fm: { answer: "A", course: "Biology", skill: "Genetics", attempts: 2, correct_count: 1, next_review: "2026-10-29" } },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.studyPlan = () => ({
+    course: "Biology",
+    daysLeft: 3,
+    readiness: 55,
+    due: 1,
+    fresh: 0,
+    cardsDue: 0,
+    topics: { declared: 4, mastered: 2, pct: 50, discovered: 3 },
+  });
+  plugin.startStudyPlan = async () => {};
+  const dom = makeDom();
+  const view = new T.InsightsView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.tab = "overview";
+  view.render();
+  const texts = dom.texts();
+  assert.ok(texts.includes("Next exam"));
+  assert.ok(texts.includes("3 days away"));
+  assert.ok(texts.some((text) => text.includes("2/4 topics mastered (50%)")));
+});
+
 test("study plan: Today shows the plan and cram button", async () => {
   const app = makeApp([]);
   const plugin = new QT(app);
