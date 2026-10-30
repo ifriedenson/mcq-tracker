@@ -24,6 +24,7 @@ npm run check     # verify main.js matches src/
 ## Rules
 
 - Make the smallest change that meets the request; do not add dependencies.
+- Only MIT, BSD, ISC, 0BSD or (permissively, with its NOTICE) Apache-2.0 code may be integrated. GPL, AGPL, MPL, CC BY-NC(-ND), PolyForm, proprietary and unverified sources are ideas-only: check `plan.md` §3.10 before copying anything, and never paste code from a plugin listed there as blocked.
 - Update `plan.md` before pushing implementation work.
 - Tests are part of the change. Run the affected tests, then `npm test` and `npm run check` before committing.
 - Keep generated `main.js` in the commit when source changes.
