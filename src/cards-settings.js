@@ -222,6 +222,25 @@ function renderDecks(containerEl, plugin, redisplay) {
         })
     );
   new Setting(containerEl)
+    .setName("Delete Anki notes for deleted local cards")
+    .setDesc("Opt-in. The next preview shows linked Anki notes whose local note no longer exists, and applies the deletion only when you confirm. Off by default; moving a note out of the card folder can count as a deletion.")
+    .addToggle((t) =>
+      t.setValue(anki.deleteMissing === true).onChange(async (v) => {
+        anki.deleteMissing = v;
+        await plugin.save();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Folder-based decks")
+    .setDesc("When a card has no deck property, use its first subfolder under the card folder as the Anki deck. Off by default; a configured deck folder or frontmatter still wins.")
+    .addToggle((t) =>
+      t.setValue(anki.folderDecks === true).onChange(async (v) => {
+        anki.folderDecks = v;
+        await plugin.save();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Conflicting edits")
     .setDesc("When a linked card changed in both places, keep the local card and report it, push the local card, or pull Anki's version.")
     .addDropdown((d) =>

@@ -1934,6 +1934,194 @@ class QuestionTrackerPlugin extends Plugin {
     return remoteHash;
   }
 
+  /** Remember which local paths are linked to which Anki notes, for safe deletion previews. */
+  async rememberAnkiIndex() {
+    const index = {};
+    const cards = typeof this.getCards === "function" ? this.getCards() : [];
+    for (const card of cards) {
+      const fm = (card && card.fm) || {};
+      const noteId = str(fm.anki_note_id).trim();
+      const path = str(card && card.file && card.file.path).trim();
+      if (!noteId || !path) continue;
+      index[path] = { noteId, cardId: str(fm.anki_card_id).trim() };
+    }
+    this.settings.cards.ankiConnect.index = index;
+    await this.save();
+    return index;
+  }
+
+  /** Linked paths that no longer exist locally; only used when the owner opted in. */
+  pendingAnkiDeletions(settings) {
+    const index = settings && settings.index && typeof settings.index === "object" ? settings.index : {};
+    const out = [];
+    for (const [path, meta] of Object.entries(index)) {
+      if (!path || !meta || !str(meta.noteId).trim()) continue;
+      if (this.app.vault.getAbstractFileByPath(path)) continue;
+      out.push({ path, noteId: str(meta.noteId).trim(), cardId: str(meta.cardId).trim() });
+    }
+    return out;
+  }
+
+  /** Upload referenced vault media before Anki fields point at it. Failures are warnings. */
+  async uploadAnkiMedia(client, built) {
+    const warnings = [];
+    const seen = new Set();
+    const files = [];
+    for (const ref of Array.isArray(built && built.media) ? built.media : []) {
+      const name = str(ref && ref.name).trim();
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      let file = null;
+      try {
+        if (this.app.metadataCache && typeof this.app.metadataCache.getFirstLinkpathDest === "function") {
+          file = this.app.metadataCache.getFirstLinkpathDest(name, ref.sourcePath || "");
+        }
+        if (!file) file = this.app.vault.getAbstractFileByPath(ref.target || name);
+        if (!file && typeof this.app.vault.getFiles === "function") {
+          file = this.app.vault.getFiles().find((item) => str(item.name || item.basename) === name) || null;
+        }
+      } catch (e) {
+        file = null;
+      }
+      if (!file) {
+        warnings.push(`${ref.sourcePath || "card"}: could not find ${name} in the vault; the text was sent without it.`);
+        continue;
+      }
+      try {
+        const bytes = await this.readVaultBytes(file);
+        files.push({ filename: name, data: Buffer.from(bytes).toString("base64") });
+      } catch (e) {
+        warnings.push(`${ref.sourcePath || "card"}: could not read ${name}; the text was sent without it.`);
+      }
+    }
+    if (files.length) {
+      try {
+        await client.storeMedia(files);
+      } catch (e) {
+        warnings.push(`Media upload failed: ${str(e && e.message ? e.message : e)}. The text was sent without it.`);
+      }
+    }
+    return warnings;
+  }
+
+  /** Read-only AnkiConnect plan: creates, updates, pulls, conflicts and Anki-side deletions. */
+  async previewAnkiSync(options) {
+    if (this.moduleOff("cards")) throw new Error("Turn on the Cards module first.");
+    const opts = options || {};
+    const settings = normalizeAnkiConnect(this.settings.cards.ankiConnect);
+    if (!settings.enabled) throw new Error("Turn on AnkiConnect sync under Settings, Cards, Decks first.");
+    const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
+    if (!cards.length) throw new Error("No cards match the current deck and course filter.");
+    const records = [];
+    const errors = [];
+    const warnings = [];
+    for (const card of cards) {
+      try {
+        const text = await this.app.vault.cachedRead(card.file);
+        records.push({ ...card, body: parseCardBody(text, card.fm) });
+      } catch (e) {
+        errors.push(`${card.file.path}: ${String((e && e.message) || e)}`);
+      }
+    }
+    const entries = [];
+    const counts = { create: 0, update: 0, pull: 0, conflict: 0, missing: 0, delete: 0, unchanged: 0, media: 0 };
+    const build = (list) =>
+      buildAnkiNotes(list, {
+        deck: opts.targetDeck || settings.deck,
+        defaultDeck: this.settings.cards.defaultDeck,
+        folderDecks: settings.folderDecks,
+        cardRoot: this.settings.cards.newCardFolder,
+      });
+    const unlinked = records.filter((record) => !str(record.fm && record.fm.anki_note_id).trim());
+    if (unlinked.length) {
+      const built = build(unlinked);
+      counts.create = built.notes.length;
+      counts.media += built.media.length;
+      for (let i = 0; i < built.notes.length; i++) {
+        const note = built.notes[i];
+        entries.push({ action: "create", path: built.paths[i], deck: note.deckName, front: note.fields.Front || note.fields.Text || "" });
+      }
+      warnings.push(...built.warnings);
+    }
+    if (!opts.pushOnly && settings.deleteMissing) {
+      for (const item of this.pendingAnkiDeletions(settings)) {
+        counts.delete++;
+        entries.push({ action: "delete", path: item.path, noteId: item.noteId, detail: "The local note is gone; this Anki note will be deleted only after you apply." });
+      }
+    }
+    if (opts.pushOnly) {
+      return { entries, counts, warnings, errors, total: records.length, format: "ankiconnect-preview", pushOnly: true };
+    }
+    const linked = records.filter((record) => str(record.fm && record.fm.anki_note_id).trim());
+    if (linked.length) {
+      const client = new AnkiConnectClient({ url: settings.url });
+      const notes = await client.notesInfo(linked.map((record) => record.fm.anki_note_id));
+      const noteById = new Map(notes.map((note) => [str(note && note.noteId), note]));
+      const cardIds = [];
+      for (const note of notes) for (const id of (Array.isArray(note.cards) ? note.cards : [])) cardIds.push(id);
+      const cardInfos = await client.cardsInfo(cardIds);
+      const cardById = new Map(cardInfos.map((card) => [str(card && card.cardId), card]));
+      for (const record of linked) {
+        const noteId = str(record.fm.anki_note_id).trim();
+        const note = noteById.get(noteId);
+        if (!note) {
+          counts.missing++;
+          entries.push({ action: "missing", path: record.file.path, noteId, detail: "Anki no longer has this note; the local card is kept." });
+          continue;
+        }
+        const noteCards = Array.isArray(note.cards) ? note.cards : [];
+        const cardId = str(record.fm.anki_card_id).trim() || str(noteCards[0]);
+        const card = cardById.get(cardId) || cardById.get(str(noteCards[0])) || null;
+        const remote = remoteSyncRecord(note, card);
+        if (!remote.front || !remote.back) {
+          counts.missing++;
+          entries.push({ action: "missing", path: record.file.path, noteId, detail: "Anki returned an empty card; the local card is kept." });
+          continue;
+        }
+        let local = localSyncRecord(record);
+        if (!remote.deck) remote.deck = local.deck;
+        if (settings.deck) {
+          local = { ...local, deck: "" };
+          remote.deck = "";
+        }
+        const decision = syncDecision(local, remote, {
+          local: str(record.fm.anki_synced_hash).trim(),
+          remote: str(record.fm.anki_remote_hash).trim(),
+        });
+        let action = decision.action;
+        if (action === "conflict" && settings.conflict === "local") action = "push";
+        if (action === "conflict" && settings.conflict === "anki") action = "pull";
+        if (action === "none") {
+          counts.unchanged++;
+          continue;
+        }
+        if (action === "conflict") {
+          counts.conflict++;
+          entries.push({ action: "conflict", path: record.file.path, noteId, detail: "Changed in both places; your conflict setting decides." });
+        } else if (action === "push") {
+          counts.update++;
+          entries.push({ action: "update", path: record.file.path, noteId, detail: "Local edit goes to Anki." });
+        } else if (action === "pull") {
+          counts.pull++;
+          entries.push({ action: "pull", path: record.file.path, noteId, detail: "Anki edit comes into the note." });
+        }
+      }
+      if (client) {
+        const linkedMedia = [];
+        for (const record of linked) {
+          try {
+            const built = build([record]);
+            linkedMedia.push(...built.media);
+          } catch (e) {
+            /* a parse failure was already reported when the record was read */
+          }
+        }
+        counts.media += new Set(linkedMedia.map((item) => item.name)).size;
+      }
+    }
+    return { entries, counts, warnings, errors, total: records.length, format: "ankiconnect-preview", pushOnly: false };
+  }
+
   /** Optional push. It also records note IDs so the next sync can pull changes. */
   async pushCardsToAnki(options) {
     if (this.moduleOff("cards")) throw new Error("Turn on the Cards module first.");
@@ -1955,9 +2143,13 @@ class QuestionTrackerPlugin extends Plugin {
     const built = buildAnkiNotes(records, {
       deck: opts.targetDeck || settings.deck,
       defaultDeck: this.settings.cards.defaultDeck,
+      folderDecks: settings.folderDecks,
+      cardRoot: this.settings.cards.newCardFolder,
     });
     if (!built.notes.length) throw new Error("Nothing in this filter can be sent to Anki yet.");
-    const result = await new AnkiConnectClient({ url: settings.url }).push(built.notes);
+    const client = new AnkiConnectClient({ url: settings.url });
+    warnings.push(...(await this.uploadAnkiMedia(client, built)));
+    const result = await client.push(built.notes);
     const byPath = new Map(records.map((record) => [record.file.path, record]));
     let stamped = 0;
     for (let i = 0; i < result.acceptedIndexes.length; i++) {
@@ -1980,6 +2172,7 @@ class QuestionTrackerPlugin extends Plugin {
       });
       stamped++;
     }
+    await this.rememberAnkiIndex();
     return { ...result, stamped, format: "ankiconnect", count: built.notes.length, warnings: [...warnings, ...built.warnings] };
   }
 
@@ -2010,7 +2203,10 @@ class QuestionTrackerPlugin extends Plugin {
       const built = buildAnkiNotes(unlinked, {
         deck: opts.targetDeck || settings.deck,
         defaultDeck: this.settings.cards.defaultDeck,
+        folderDecks: settings.folderDecks,
+        cardRoot: this.settings.cards.newCardFolder,
       });
+      warnings.push(...(await this.uploadAnkiMedia(client, built)));
       const result = await client.push(built.notes);
       duplicates += result.duplicates;
       warnings.push(...built.warnings);
@@ -2102,11 +2298,14 @@ class QuestionTrackerPlugin extends Plugin {
             const built = buildAnkiNotes([record], {
               deck: opts.targetDeck || settings.deck,
               defaultDeck: this.settings.cards.defaultDeck,
+              folderDecks: settings.folderDecks,
+              cardRoot: this.settings.cards.newCardFolder,
             });
             if (!built.notes.length) {
               skipped++;
               continue;
             }
+            warnings.push(...(await this.uploadAnkiMedia(client, built)));
             await client.updateNote(noteId, cardId, built.notes[0]);
             updated++;
             await this.stampAnkiCard(record.file, {
@@ -2131,10 +2330,24 @@ class QuestionTrackerPlugin extends Plugin {
         }
       }
     }
+    let deleted = 0;
+    if (settings.deleteMissing) {
+      const pending = this.pendingAnkiDeletions(settings);
+      if (pending.length) {
+        try {
+          const result = await client.deleteNotes(pending.map((item) => item.noteId));
+          deleted = result.deleted;
+        } catch (e) {
+          errors.push(`Anki deletion failed: ${str(e && e.message ? e.message : e)}`);
+        }
+      }
+    }
+    await this.rememberAnkiIndex();
     return {
       pushed,
       pulled,
       updated,
+      deleted,
       conflicts,
       skipped,
       duplicates,

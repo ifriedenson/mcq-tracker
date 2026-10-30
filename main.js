@@ -1984,6 +1984,9 @@ const DEFAULT_ANKI_CONNECT = {
   url: "http://127.0.0.1:8765",
   deck: "", // blank keeps each card's own deck
   conflict: "report", // report | local | anki
+  folderDecks: false, // optional: use the first card subfolder as the Anki deck
+  deleteMissing: false, // optional: delete linked Anki notes after their local note is gone
+  index: {}, // path -> { noteId, cardId } from the last successful sync
 };
 
 const ANKI_VERSION = 6;
@@ -1996,6 +1999,9 @@ function normalizeAnkiConnect(value) {
     url: /^https?:\/\//i.test(url) ? url : DEFAULT_ANKI_CONNECT.url,
     deck: str(src.deck).trim(),
     conflict: ["report", "local", "anki"].includes(str(src.conflict).toLowerCase()) ? str(src.conflict).toLowerCase() : "report",
+    folderDecks: src.folderDecks === true,
+    deleteMissing: src.deleteMissing === true,
+    index: src.index && typeof src.index === "object" && !Array.isArray(src.index) ? { ...src.index } : {},
   };
 }
 
@@ -2013,8 +2019,20 @@ function syncRecord(value) {
   };
 }
 
+/** Compare Markdown and Anki HTML as the same content, so a pull does not look like a new edit. */
+function syncText(value) {
+  let text = str(value).replace(/<br\s*\/?>/gi, "\n");
+  text = text.replace(/<img[^>]*src=["']([^"']+)["'][^>]*>/gi, "![[$1]]");
+  text = text.replace(/<[^>]+>/g, "");
+  text = text.replace(/\[sound:([^\]]+)\]/gi, "![[$1]]");
+  text = text.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/[*_`]/g, "");
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, "$1").replace(/\$([^$]+)\$/g, "$1");
+  return text.replace(/\s+/g, " ").trim();
+}
+
 function syncHash(value) {
-  return hashString(JSON.stringify(syncRecord(value)));
+  const record = syncRecord(value);
+  return hashString(JSON.stringify({ ...record, front: syncText(record.front), back: syncText(record.back) }));
 }
 
 /** The card as Anki sees it, after the same front/back parsing used by push. */
@@ -2022,8 +2040,11 @@ function localSyncRecord(card) {
   const fm = (card && card.fm) || {};
   const body = (card && card.body) || {};
   const cloze = /cloze/i.test(str(fm.card_type)) || /cloze/i.test(str(body.cardType));
+  const image = mediaName(fm.image || "");
+  const rawFront = cloze ? body.rawFront || body.front : body.front;
+  const front = image && !str(rawFront).includes(image) ? `![[${image}]] ${rawFront || ""}` : rawFront;
   return syncRecord({
-    front: cloze ? body.rawFront || body.front : body.front,
+    front,
     back: body.back,
     deck: (card && card.deck) || fm.deck,
     tags: tagsFor(fm),
@@ -2096,6 +2117,80 @@ function syncDecision(local, remote, baseline) {
   return { action: "none", localHash, remoteHash, localDirty, remoteDirty };
 }
 
+
+const MEDIA_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|m4a|ogg|flac|aac|opus|mp4|webm|mov)$/i;
+const AUDIO_EXTENSIONS = /\.(mp3|wav|m4a|ogg|flac|aac|opus)$/i;
+
+function mediaName(target) {
+  return str(target).split("#")[0].split("|")[0].replace(/^.*[\\/]/, "").trim();
+}
+
+function mediaKind(name) {
+  if (AUDIO_EXTENSIONS.test(name)) return "audio";
+  return MEDIA_EXTENSIONS.test(name) ? "image" : "";
+}
+
+/** Find image/audio embeds in Markdown without fetching anything. */
+function mediaRefs(text) {
+  const out = [];
+  const seen = new Set();
+  const add = (target) => {
+    const clean = str(target).trim().replace(/^<|>$/g, "");
+    if (!clean || /^https?:/i.test(clean)) return;
+    const name = mediaName(clean);
+    const kind = mediaKind(name);
+    if (!name || !kind || seen.has(name)) return;
+    seen.add(name);
+    out.push({ target: clean, name, kind });
+  };
+  const source = str(text);
+  for (const match of source.matchAll(/!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)) add(match[1]);
+  for (const match of source.matchAll(/!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) add(match[1]);
+  return out;
+}
+
+function escapeHtml(value) {
+  return str(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/**
+ * A deliberately small Markdown-to-HTML adapter for Anki fields. It keeps
+ * code, math, images and audio readable without shipping a Markdown parser.
+ */
+function markdownToAnkiHtml(value) {
+  const source = str(value);
+  if (/<(?:strong|em|code|pre|img|br|a)\b[^>]*>/i.test(source)) return source;
+  const tokens = [];
+  const hold = (html) => `\u0000${tokens.push(html) - 1}\u0000`;
+  let text = source.replace(/\r\n/g, "\n");
+  text = text.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_full, code) => hold(`<pre><code>${escapeHtml(code.trim())}</code></pre>`));
+  text = text.replace(/!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g, (_full, target) => {
+    const name = mediaName(target);
+    return hold(mediaKind(name) === "audio" ? `[sound:${escapeHtml(name)}]` : `<img src="${escapeHtml(name)}">`);
+  });
+  text = text.replace(/!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_full, target) => {
+    const name = mediaName(target);
+    return hold(mediaKind(name) === "audio" ? `[sound:${escapeHtml(name)}]` : `<img src="${escapeHtml(name)}">`);
+  });
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_full, math) => hold(`\\[${escapeHtml(math.trim())}\\]`));
+  text = text.replace(/\$([^$\n]+)\$/g, (_full, math) => hold(`\\(${escapeHtml(math.trim())}\\)`));
+  text = text.replace(/`([^`]+)`/g, (_full, code) => hold(`<code>${escapeHtml(code)}</code>`));
+  text = escapeHtml(text);
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_full, label, url) => `<a href="${url}">${label}</a>`);
+  text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  text = text.replace(/\n/g, "<br>");
+  return text.replace(/\u0000(\d+)\u0000/g, (_full, index) => tokens[Number(index)] || "");
+}
+
+/** Optional folder convention: Cards/Biology/Q.md becomes the Biology deck. */
+function folderDeckName(path, root) {
+  const clean = str(path).replace(/^\/+|\/+$/g, "").replace(/\.md$/i, "");
+  const base = str(root).replace(/^\/+|\/+$/g, "");
+  const relative = base && (clean === base || clean.startsWith(base + "/")) ? clean.slice(base.length).replace(/^\/+/, "") : clean;
+  const slash = relative.indexOf("/");
+  return slash > 0 ? relative.slice(0, slash) : "";
+}
+
 function oneLine(value) {
   return str(value).replace(/\r?\n/g, " ").replace(/\t/g, " ").trim();
 }
@@ -2142,35 +2237,47 @@ function buildAnkiNotes(cards, options) {
   const notes = [];
   const paths = [];
   const warnings = [];
+  const media = [];
   for (const card of Array.isArray(cards) ? cards : []) {
     const fm = (card && card.fm) || {};
     const body = (card && card.body) || {};
     const path = (card && card.file && card.file.path) || "card";
-    const front = oneLine(body.front || fm.front || fm.question);
+    const rawFront = str(body.front || fm.front || fm.question);
     const answer = cardAnswer(card);
-    if (!front || !answer) {
+    if (!rawFront.trim() || !answer.trim()) {
       warnings.push(`${path} has no front or answer and was skipped.`);
       continue;
     }
-    const deckName = targetDeck || oneLine(fm.deck) || fallbackDeck;
+    const deckName =
+      targetDeck ||
+      oneLine(fm.deck) ||
+      (opts.folderDecks ? folderDeckName(path, opts.cardRoot) : "") ||
+      oneLine(card && card.deck) ||
+      fallbackDeck;
     const tags = tagsFor(fm);
     const cloze = /cloze/i.test(str(fm.card_type)) || /cloze/i.test(str(body.cardType));
+    const imageName = mediaName(fm.image || "");
+    const rawBack = str(body.back || fm.back || fm.answer);
+    for (const ref of [...mediaRefs(rawFront), ...mediaRefs(rawBack)]) media.push({ ...ref, sourcePath: path });
+    if (imageName) media.push({ target: str(fm.image), name: imageName, kind: mediaKind(imageName) || "image", sourcePath: path });
     const fields = {};
     let modelName = "Basic";
     if (cloze && str(body.front).includes("[…]")) {
       let next = 0;
-      const answers = str(body.back)
+      const answers = rawBack
         .split(" · ")
         .map((value) => oneLine(value))
         .filter(Boolean);
-      fields.Text = oneLine(body.front).replace(/\[\…\]/g, () => `{{c1::${answers[next++] || "…"}}}`);
+      const text = rawFront.replace(/\[…\]/g, () => `{{c1::${answers[next++] || "…"}}}`);
+      fields.Text = markdownToAnkiHtml(text);
       fields["Back Extra"] = "";
       modelName = "Cloze";
     } else {
-      fields.Front = front;
-      fields.Back = answer;
+      fields.Front = imageName ? `<img src="${escapeHtml(imageName)}"><br>${markdownToAnkiHtml(rawFront)}` : markdownToAnkiHtml(rawFront);
+      fields.Back = markdownToAnkiHtml(answer);
     }
-    if (fm.image) warnings.push(`${path}: the image stays in the vault and is not sent to Anki.`);
+    if (imageName) warnings.push(`${path}: the image stays in the vault and is uploaded only when you confirm Anki sync.`);
+    if (mediaRefs(rawFront).length || mediaRefs(rawBack).length) warnings.push(`${path}: media stays in the vault and is uploaded only when you confirm Anki sync.`);
     notes.push({
       deckName,
       modelName,
@@ -2180,9 +2287,8 @@ function buildAnkiNotes(cards, options) {
     });
     paths.push(path);
   }
-  return { notes, paths, warnings };
+  return { notes, paths, warnings, media };
 }
-
 function responseData(response) {
   if (!response) return null;
   try {
@@ -2264,6 +2370,26 @@ class AnkiConnectClient {
     return this.call("cardsInfo", { cards: list }).then((result) => (Array.isArray(result) ? result : []));
   }
 
+  /** Upload local images/audio by filename before fields reference them. */
+  async storeMedia(files) {
+    const list = Array.isArray(files) ? files : [];
+    const stored = [];
+    for (const file of list) {
+      if (!file || !file.filename || !file.data) continue;
+      await this.call("storeMediaFile", { filename: file.filename, data: file.data });
+      stored.push(file.filename);
+    }
+    return { stored };
+  }
+
+  /** Delete linked Anki notes only after the user has previewed the plan. */
+  async deleteNotes(ids) {
+    const list = (Array.isArray(ids) ? ids : []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0);
+    if (!list.length) return { deleted: 0 };
+    await this.call("deleteNotes", { notes: list });
+    return { deleted: list.length };
+  }
+
   /** Update the content, deck and tags of a note that already exists in Anki. */
   async updateNote(noteId, cardId, note) {
     const id = Number(noteId);
@@ -2292,12 +2418,12 @@ class AnkiConnectModal extends Modal {
     const count = p.filteredCards({ deck: this.options.deck, course: this.options.course }).length;
     contentEl.createEl("p", {
       cls: "setting-item-description",
-      text: `${count} card${count === 1 ? "" : "s"} in the current deck and course filter. Sync pushes new cards and pulls edits from linked cards. AnkiConnect must be installed in a running Anki desktop.`,
+      text: `${count} card${count === 1 ? "" : "s"} in the current deck and course filter. Preview first: creates, updates, pulls, conflicts and Anki-side deletions are listed before anything is sent. AnkiConnect must be installed in a running Anki desktop.`,
     });
     if (!settings.enabled) {
       contentEl.createEl("p", {
         cls: "setting-item-description",
-        text: "AnkiConnect push is off. Turn it on under Settings, Cards, Decks first.",
+        text: "AnkiConnect sync is off. Turn it on under Settings, Cards, Decks first.",
       });
     }
 
@@ -2307,62 +2433,92 @@ class AnkiConnectModal extends Modal {
     target.placeholder = "Each card's own deck";
     target.value = this.options.targetDeck || settings.deck || "";
 
-    const note = contentEl.createDiv({ cls: "qt-hint" });
-    note.setText(`AnkiConnect: ${settings.url}`);
+    this.note = contentEl.createDiv({ cls: "qt-hint" });
+    this.note.setText(`AnkiConnect: ${settings.url}`);
     const row = contentEl.createDiv({ cls: "qt-row" });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
-    const go = row.createEl("button", { text: "Push only", cls: "qt-grow" });
-    const sync = row.createEl("button", { text: "Sync cards", cls: "mod-cta qt-grow" });
+    const go = row.createEl("button", { text: "Preview push", cls: "qt-grow" });
+    const sync = row.createEl("button", { text: "Preview sync", cls: "mod-cta qt-grow" });
     go.disabled = !settings.enabled;
     sync.disabled = !settings.enabled;
+    this.previewEl = contentEl.createDiv({ cls: "qt-anki-preview" });
     cancel.addEventListener("click", () => this.close());
-    go.addEventListener("click", async () => {
-      go.disabled = true;
-      note.setText("Sending to Anki…");
-      try {
-        const result = await p.pushCardsToAnki({
-          deck: this.options.deck,
-          course: this.options.course,
-          targetDeck: target.value,
-        });
-        const bits = [`Added ${result.added} card${result.added === 1 ? "" : "s"}`];
-        if (result.duplicates) bits.push(`${result.duplicates} already in Anki`);
-        if (result.failed) bits.push(`${result.failed} failed`);
-        note.setText(bits.join(" · "));
-        new Notice(bits.join(" · "), 7000);
-        if (result.warnings && result.warnings.length) note.setText(`${bits.join(" · ")} · ${result.warnings[0]}`);
-        if (this.onDone) this.onDone(result);
-      } catch (e) {
-        note.setText(str(e && e.message) || "Could not push to Anki.");
-        go.disabled = false;
+    go.addEventListener("click", () => this.preview(true, target.value));
+    sync.addEventListener("click", () => this.preview(false, target.value));
+  }
+
+  async preview(pushOnly, targetDeck) {
+    this.previewEl.empty();
+    this.note.setText("Reading Anki without changing anything…");
+    try {
+      const result = await this.plugin.previewAnkiSync({
+        deck: this.options.deck,
+        course: this.options.course,
+        targetDeck,
+        pushOnly,
+      });
+      this.renderPlan(result, pushOnly, targetDeck);
+      this.note.setText(`Preview ready: ${result.entries.length} change${result.entries.length === 1 ? "" : "s"}. Nothing has been written.`);
+    } catch (e) {
+      this.note.setText(str(e && e.message) || "Could not preview Anki sync.");
+    }
+  }
+
+  renderPlan(result, pushOnly, targetDeck) {
+    const el = this.previewEl;
+    el.empty();
+    const c = result.counts || {};
+    const bits = [];
+    if (c.create) bits.push(`${c.create} create`);
+    if (c.update) bits.push(`${c.update} update`);
+    if (c.pull) bits.push(`${c.pull} pull`);
+    if (c.conflict) bits.push(`${c.conflict} conflict${c.conflict === 1 ? "" : "s"}`);
+    if (c.missing) bits.push(`${c.missing} Anki deletion${c.missing === 1 ? "" : "s"}`);
+    if (c.delete) bits.push(`${c.delete} Anki deletion${c.delete === 1 ? "" : "s"}`);
+    if (c.unchanged) bits.push(`${c.unchanged} unchanged`);
+    if (c.media) bits.push(`${c.media} media file${c.media === 1 ? "" : "s"}`);
+    el.createEl("p", { cls: "qt-hint", text: bits.join(" · ") || (pushOnly ? "No new cards to push." : "Everything is already in sync.") });
+    if (result.entries.length) {
+      const list = el.createEl("ul", { cls: "qt-extract-preview" });
+      for (const entry of result.entries.slice(0, 40)) {
+        const label = entry.action === "create" ? "Create" : entry.action === "update" ? "Update" : entry.action === "pull" ? "Pull" : entry.action === "conflict" ? "Conflict" : "Anki deletion";
+        const detail = entry.detail || (entry.deck ? `deck: ${entry.deck}` : "");
+        list.createEl("li", { text: `${label}: ${entry.path}${detail ? " — " + detail : ""}` });
       }
-    });
-    sync.addEventListener("click", async () => {
-      sync.disabled = true;
-      go.disabled = true;
-      note.setText("Syncing with Anki…");
-      try {
-        const result = await p.syncCardsWithAnki({
-          deck: this.options.deck,
-          course: this.options.course,
-          targetDeck: target.value,
-        });
-        const bits = [`Pushed ${result.pushed}`, `Pulled ${result.pulled}`];
-        if (result.updated) bits.push(`Updated ${result.updated} in Anki`);
-        if (result.conflicts) bits.push(`${result.conflicts} conflict${result.conflicts === 1 ? "" : "s"}`);
-        if (result.skipped) bits.push(`Skipped ${result.skipped}`);
-        if (result.errors.length) bits.push(`${result.errors.length} failed`);
-        note.setText(bits.join(" · "));
-        new Notice(bits.join(" · "), 8000);
-        if (result.warnings.length) note.setText(`${bits.join(" · ")} · ${result.warnings[0]}`);
-        if (this.onDone) this.onDone(result);
-      } catch (e) {
-        note.setText(str(e && e.message) || "Could not sync with Anki.");
-      } finally {
-        sync.disabled = !settings.enabled;
-        go.disabled = !settings.enabled;
-      }
-    });
+      if (result.entries.length > 40) el.createEl("p", { cls: "qt-hint", text: `…and ${result.entries.length - 40} more.` });
+    }
+    if (result.warnings && result.warnings.length) el.createEl("p", { cls: "qt-hint", text: result.warnings[0] });
+    if (result.errors && result.errors.length) el.createEl("p", { cls: "qt-error", text: result.errors[0] });
+    if (result.entries.length) {
+      const apply = el.createEl("button", { text: pushOnly ? "Apply push" : "Apply sync", cls: "mod-cta" });
+      apply.addEventListener("click", () => this.apply(pushOnly, targetDeck, apply));
+    }
+  }
+
+  async apply(pushOnly, targetDeck, button) {
+    button.disabled = true;
+    this.note.setText(pushOnly ? "Pushing to Anki…" : "Syncing with Anki…");
+    try {
+      const result = pushOnly
+        ? await this.plugin.pushCardsToAnki({ deck: this.options.deck, course: this.options.course, targetDeck })
+        : await this.plugin.syncCardsWithAnki({ deck: this.options.deck, course: this.options.course, targetDeck });
+      const bits = pushOnly
+        ? [`Added ${result.added} card${result.added === 1 ? "" : "s"}`]
+        : [`Pushed ${result.pushed}`, `Pulled ${result.pulled}`];
+      if (result.deleted) bits.push(`Deleted ${result.deleted} from Anki`);
+      if (result.updated) bits.push(`Updated ${result.updated} in Anki`);
+      if (result.duplicates) bits.push(`${result.duplicates} already in Anki`);
+      if (result.conflicts) bits.push(`${result.conflicts} conflict${result.conflicts === 1 ? "" : "s"}`);
+      if (result.skipped) bits.push(`Skipped ${result.skipped}`);
+      if (result.errors && result.errors.length) bits.push(`${result.errors.length} failed`);
+      this.note.setText(bits.join(" · "));
+      new Notice(bits.join(" · "), 8000);
+      if (result.warnings && result.warnings.length) this.note.setText(`${bits.join(" · ")} · ${result.warnings[0]}`);
+      if (this.onDone) this.onDone(result);
+    } catch (e) {
+      this.note.setText(str(e && e.message) || "Could not finish the Anki sync.");
+      button.disabled = false;
+    }
   }
 
   onClose() {
@@ -2375,6 +2531,10 @@ module.exports = {
   ANKI_VERSION,
   normalizeAnkiConnect,
   buildAnkiNotes,
+  folderDeckName,
+  markdownToAnkiHtml,
+  mediaRefs,
+  mediaName,
   syncRecord,
   syncHash,
   localSyncRecord,
@@ -13901,6 +14061,25 @@ function renderDecks(containerEl, plugin, redisplay) {
           await plugin.save();
         })
     );
+  new Setting(containerEl)
+    .setName("Delete Anki notes for deleted local cards")
+    .setDesc("Opt-in. The next preview shows linked Anki notes whose local note no longer exists, and applies the deletion only when you confirm. Off by default; moving a note out of the card folder can count as a deletion.")
+    .addToggle((t) =>
+      t.setValue(anki.deleteMissing === true).onChange(async (v) => {
+        anki.deleteMissing = v;
+        await plugin.save();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Folder-based decks")
+    .setDesc("When a card has no deck property, use its first subfolder under the card folder as the Anki deck. Off by default; a configured deck folder or frontmatter still wins.")
+    .addToggle((t) =>
+      t.setValue(anki.folderDecks === true).onChange(async (v) => {
+        anki.folderDecks = v;
+        await plugin.save();
+      })
+    );
+
   new Setting(containerEl)
     .setName("Conflicting edits")
     .setDesc("When a linked card changed in both places, keep the local card and report it, push the local card, or pull Anki's version.")
@@ -34136,6 +34315,194 @@ class QuestionTrackerPlugin extends Plugin {
     return remoteHash;
   }
 
+  /** Remember which local paths are linked to which Anki notes, for safe deletion previews. */
+  async rememberAnkiIndex() {
+    const index = {};
+    const cards = typeof this.getCards === "function" ? this.getCards() : [];
+    for (const card of cards) {
+      const fm = (card && card.fm) || {};
+      const noteId = str(fm.anki_note_id).trim();
+      const path = str(card && card.file && card.file.path).trim();
+      if (!noteId || !path) continue;
+      index[path] = { noteId, cardId: str(fm.anki_card_id).trim() };
+    }
+    this.settings.cards.ankiConnect.index = index;
+    await this.save();
+    return index;
+  }
+
+  /** Linked paths that no longer exist locally; only used when the owner opted in. */
+  pendingAnkiDeletions(settings) {
+    const index = settings && settings.index && typeof settings.index === "object" ? settings.index : {};
+    const out = [];
+    for (const [path, meta] of Object.entries(index)) {
+      if (!path || !meta || !str(meta.noteId).trim()) continue;
+      if (this.app.vault.getAbstractFileByPath(path)) continue;
+      out.push({ path, noteId: str(meta.noteId).trim(), cardId: str(meta.cardId).trim() });
+    }
+    return out;
+  }
+
+  /** Upload referenced vault media before Anki fields point at it. Failures are warnings. */
+  async uploadAnkiMedia(client, built) {
+    const warnings = [];
+    const seen = new Set();
+    const files = [];
+    for (const ref of Array.isArray(built && built.media) ? built.media : []) {
+      const name = str(ref && ref.name).trim();
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      let file = null;
+      try {
+        if (this.app.metadataCache && typeof this.app.metadataCache.getFirstLinkpathDest === "function") {
+          file = this.app.metadataCache.getFirstLinkpathDest(name, ref.sourcePath || "");
+        }
+        if (!file) file = this.app.vault.getAbstractFileByPath(ref.target || name);
+        if (!file && typeof this.app.vault.getFiles === "function") {
+          file = this.app.vault.getFiles().find((item) => str(item.name || item.basename) === name) || null;
+        }
+      } catch (e) {
+        file = null;
+      }
+      if (!file) {
+        warnings.push(`${ref.sourcePath || "card"}: could not find ${name} in the vault; the text was sent without it.`);
+        continue;
+      }
+      try {
+        const bytes = await this.readVaultBytes(file);
+        files.push({ filename: name, data: Buffer.from(bytes).toString("base64") });
+      } catch (e) {
+        warnings.push(`${ref.sourcePath || "card"}: could not read ${name}; the text was sent without it.`);
+      }
+    }
+    if (files.length) {
+      try {
+        await client.storeMedia(files);
+      } catch (e) {
+        warnings.push(`Media upload failed: ${str(e && e.message ? e.message : e)}. The text was sent without it.`);
+      }
+    }
+    return warnings;
+  }
+
+  /** Read-only AnkiConnect plan: creates, updates, pulls, conflicts and Anki-side deletions. */
+  async previewAnkiSync(options) {
+    if (this.moduleOff("cards")) throw new Error("Turn on the Cards module first.");
+    const opts = options || {};
+    const settings = normalizeAnkiConnect(this.settings.cards.ankiConnect);
+    if (!settings.enabled) throw new Error("Turn on AnkiConnect sync under Settings, Cards, Decks first.");
+    const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
+    if (!cards.length) throw new Error("No cards match the current deck and course filter.");
+    const records = [];
+    const errors = [];
+    const warnings = [];
+    for (const card of cards) {
+      try {
+        const text = await this.app.vault.cachedRead(card.file);
+        records.push({ ...card, body: parseCardBody(text, card.fm) });
+      } catch (e) {
+        errors.push(`${card.file.path}: ${String((e && e.message) || e)}`);
+      }
+    }
+    const entries = [];
+    const counts = { create: 0, update: 0, pull: 0, conflict: 0, missing: 0, delete: 0, unchanged: 0, media: 0 };
+    const build = (list) =>
+      buildAnkiNotes(list, {
+        deck: opts.targetDeck || settings.deck,
+        defaultDeck: this.settings.cards.defaultDeck,
+        folderDecks: settings.folderDecks,
+        cardRoot: this.settings.cards.newCardFolder,
+      });
+    const unlinked = records.filter((record) => !str(record.fm && record.fm.anki_note_id).trim());
+    if (unlinked.length) {
+      const built = build(unlinked);
+      counts.create = built.notes.length;
+      counts.media += built.media.length;
+      for (let i = 0; i < built.notes.length; i++) {
+        const note = built.notes[i];
+        entries.push({ action: "create", path: built.paths[i], deck: note.deckName, front: note.fields.Front || note.fields.Text || "" });
+      }
+      warnings.push(...built.warnings);
+    }
+    if (!opts.pushOnly && settings.deleteMissing) {
+      for (const item of this.pendingAnkiDeletions(settings)) {
+        counts.delete++;
+        entries.push({ action: "delete", path: item.path, noteId: item.noteId, detail: "The local note is gone; this Anki note will be deleted only after you apply." });
+      }
+    }
+    if (opts.pushOnly) {
+      return { entries, counts, warnings, errors, total: records.length, format: "ankiconnect-preview", pushOnly: true };
+    }
+    const linked = records.filter((record) => str(record.fm && record.fm.anki_note_id).trim());
+    if (linked.length) {
+      const client = new AnkiConnectClient({ url: settings.url });
+      const notes = await client.notesInfo(linked.map((record) => record.fm.anki_note_id));
+      const noteById = new Map(notes.map((note) => [str(note && note.noteId), note]));
+      const cardIds = [];
+      for (const note of notes) for (const id of (Array.isArray(note.cards) ? note.cards : [])) cardIds.push(id);
+      const cardInfos = await client.cardsInfo(cardIds);
+      const cardById = new Map(cardInfos.map((card) => [str(card && card.cardId), card]));
+      for (const record of linked) {
+        const noteId = str(record.fm.anki_note_id).trim();
+        const note = noteById.get(noteId);
+        if (!note) {
+          counts.missing++;
+          entries.push({ action: "missing", path: record.file.path, noteId, detail: "Anki no longer has this note; the local card is kept." });
+          continue;
+        }
+        const noteCards = Array.isArray(note.cards) ? note.cards : [];
+        const cardId = str(record.fm.anki_card_id).trim() || str(noteCards[0]);
+        const card = cardById.get(cardId) || cardById.get(str(noteCards[0])) || null;
+        const remote = remoteSyncRecord(note, card);
+        if (!remote.front || !remote.back) {
+          counts.missing++;
+          entries.push({ action: "missing", path: record.file.path, noteId, detail: "Anki returned an empty card; the local card is kept." });
+          continue;
+        }
+        let local = localSyncRecord(record);
+        if (!remote.deck) remote.deck = local.deck;
+        if (settings.deck) {
+          local = { ...local, deck: "" };
+          remote.deck = "";
+        }
+        const decision = syncDecision(local, remote, {
+          local: str(record.fm.anki_synced_hash).trim(),
+          remote: str(record.fm.anki_remote_hash).trim(),
+        });
+        let action = decision.action;
+        if (action === "conflict" && settings.conflict === "local") action = "push";
+        if (action === "conflict" && settings.conflict === "anki") action = "pull";
+        if (action === "none") {
+          counts.unchanged++;
+          continue;
+        }
+        if (action === "conflict") {
+          counts.conflict++;
+          entries.push({ action: "conflict", path: record.file.path, noteId, detail: "Changed in both places; your conflict setting decides." });
+        } else if (action === "push") {
+          counts.update++;
+          entries.push({ action: "update", path: record.file.path, noteId, detail: "Local edit goes to Anki." });
+        } else if (action === "pull") {
+          counts.pull++;
+          entries.push({ action: "pull", path: record.file.path, noteId, detail: "Anki edit comes into the note." });
+        }
+      }
+      if (client) {
+        const linkedMedia = [];
+        for (const record of linked) {
+          try {
+            const built = build([record]);
+            linkedMedia.push(...built.media);
+          } catch (e) {
+            /* a parse failure was already reported when the record was read */
+          }
+        }
+        counts.media += new Set(linkedMedia.map((item) => item.name)).size;
+      }
+    }
+    return { entries, counts, warnings, errors, total: records.length, format: "ankiconnect-preview", pushOnly: false };
+  }
+
   /** Optional push. It also records note IDs so the next sync can pull changes. */
   async pushCardsToAnki(options) {
     if (this.moduleOff("cards")) throw new Error("Turn on the Cards module first.");
@@ -34157,9 +34524,13 @@ class QuestionTrackerPlugin extends Plugin {
     const built = buildAnkiNotes(records, {
       deck: opts.targetDeck || settings.deck,
       defaultDeck: this.settings.cards.defaultDeck,
+      folderDecks: settings.folderDecks,
+      cardRoot: this.settings.cards.newCardFolder,
     });
     if (!built.notes.length) throw new Error("Nothing in this filter can be sent to Anki yet.");
-    const result = await new AnkiConnectClient({ url: settings.url }).push(built.notes);
+    const client = new AnkiConnectClient({ url: settings.url });
+    warnings.push(...(await this.uploadAnkiMedia(client, built)));
+    const result = await client.push(built.notes);
     const byPath = new Map(records.map((record) => [record.file.path, record]));
     let stamped = 0;
     for (let i = 0; i < result.acceptedIndexes.length; i++) {
@@ -34182,6 +34553,7 @@ class QuestionTrackerPlugin extends Plugin {
       });
       stamped++;
     }
+    await this.rememberAnkiIndex();
     return { ...result, stamped, format: "ankiconnect", count: built.notes.length, warnings: [...warnings, ...built.warnings] };
   }
 
@@ -34212,7 +34584,10 @@ class QuestionTrackerPlugin extends Plugin {
       const built = buildAnkiNotes(unlinked, {
         deck: opts.targetDeck || settings.deck,
         defaultDeck: this.settings.cards.defaultDeck,
+        folderDecks: settings.folderDecks,
+        cardRoot: this.settings.cards.newCardFolder,
       });
+      warnings.push(...(await this.uploadAnkiMedia(client, built)));
       const result = await client.push(built.notes);
       duplicates += result.duplicates;
       warnings.push(...built.warnings);
@@ -34304,11 +34679,14 @@ class QuestionTrackerPlugin extends Plugin {
             const built = buildAnkiNotes([record], {
               deck: opts.targetDeck || settings.deck,
               defaultDeck: this.settings.cards.defaultDeck,
+              folderDecks: settings.folderDecks,
+              cardRoot: this.settings.cards.newCardFolder,
             });
             if (!built.notes.length) {
               skipped++;
               continue;
             }
+            warnings.push(...(await this.uploadAnkiMedia(client, built)));
             await client.updateNote(noteId, cardId, built.notes[0]);
             updated++;
             await this.stampAnkiCard(record.file, {
@@ -34333,10 +34711,24 @@ class QuestionTrackerPlugin extends Plugin {
         }
       }
     }
+    let deleted = 0;
+    if (settings.deleteMissing) {
+      const pending = this.pendingAnkiDeletions(settings);
+      if (pending.length) {
+        try {
+          const result = await client.deleteNotes(pending.map((item) => item.noteId));
+          deleted = result.deleted;
+        } catch (e) {
+          errors.push(`Anki deletion failed: ${str(e && e.message ? e.message : e)}`);
+        }
+      }
+    }
+    await this.rememberAnkiIndex();
     return {
       pushed,
       pulled,
       updated,
+      deleted,
       conflicts,
       skipped,
       duplicates,

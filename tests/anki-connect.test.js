@@ -377,3 +377,110 @@ test("plugin: a card changed on both sides is reported, then an Anki policy can 
     obsidian.requestImpl = previous;
   }
 });
+
+test("AnkiConnect: Markdown, math, code and media become Anki-ready fields", () => {
+  assert.match(anki.markdownToAnkiHtml("**Bold** and `code` and $x^2$"), /<strong>Bold<\/strong>/);
+  assert.match(anki.markdownToAnkiHtml("**Bold** and `code` and $x^2$"), /<code>code<\/code>/);
+  assert.match(anki.markdownToAnkiHtml("**Bold** and `code` and $x^2$"), /\\\(x\^2\\\)/);
+  assert.match(anki.markdownToAnkiHtml("```js\nconst x = 1;\n```"), /<pre><code>const x = 1;<\/code><\/pre>/);
+  const refs = anki.mediaRefs("![[diagram.png]] ![](audio.mp3) ![alt](https://example.com/x.png)");
+  assert.deepEqual(refs.map((ref) => ref.name), ["diagram.png", "audio.mp3"]);
+  assert.equal(refs[1].kind, "audio");
+  assert.match(anki.markdownToAnkiHtml("![[diagram.png]]"), /<img src="diagram.png">/);
+  assert.match(anki.markdownToAnkiHtml("![[lecture.mp3]]"), /\[sound:lecture\.mp3\]/);
+});
+
+test("AnkiConnect: folder decks and frontmatter precedence are opt-in", () => {
+  assert.equal(anki.normalizeAnkiConnect({}).folderDecks, false);
+  assert.equal(anki.normalizeAnkiConnect({ folderDecks: true }).folderDecks, true);
+  assert.equal(anki.folderDeckName("Cards/Biology/Q.md", "Cards"), "Biology");
+  assert.equal(anki.folderDeckName("Other/Biology/Q.md", "Cards"), "Other");
+  const cards = [{ file: { path: "Cards/Biology/Q.md" }, fm: {}, body: { front: "Q", back: "A" } }];
+  assert.equal(anki.buildAnkiNotes(cards, { defaultDeck: "General" }).notes[0].deckName, "General");
+  const built = anki.buildAnkiNotes(cards, { defaultDeck: "General", folderDecks: true, cardRoot: "Cards" });
+  assert.equal(built.notes[0].deckName, "Biology");
+  const explicit = anki.buildAnkiNotes([{ ...cards[0], fm: { deck: "Frontmatter" } }], { defaultDeck: "General", folderDecks: true, cardRoot: "Cards" });
+  assert.equal(explicit.notes[0].deckName, "Frontmatter");
+});
+
+test("plugin: preview lists creates, pulls and Anki deletions without writing", async () => {
+  const base = anki.syncHash(anki.syncRecord({ front: "Linked?", back: "Old", deck: "Biology", tags: [], type: "Basic" }));
+  const notes = [
+    { path: "Cards/Bio/New.md", noFm: true, fm: { card_id: "new", item_type: "card", deck: "Biology" }, text: "## Front\nNew?\n\n## Back\nYes" },
+    { path: "Cards/Bio/Linked.md", noFm: true, fm: { card_id: "linked", item_type: "card", deck: "Biology", anki_note_id: "9", anki_card_id: "90", anki_synced_hash: base, anki_remote_hash: base }, text: "## Front\nLinked?\n\n## Back\nOld" },
+    { path: "Cards/Bio/Gone.md", noFm: true, fm: { card_id: "gone", item_type: "card", deck: "Biology", anki_note_id: "8" }, text: "## Front\nGone?\n\n## Back\nAway" },
+  ];
+  const app = makeApp(notes);
+  notes.forEach((n, i) => (app.files[i].fm = { ...n.fm }));
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  plugin.settings.cards.ankiConnect = { enabled: true, url: "http://127.0.0.1:8765", deck: "", conflict: "report", deleteMissing: true, index: { "Cards/Bio/Deleted.md": { noteId: "7", cardId: "70" } } };
+  const before = app.files.map((f) => f.text);
+  const previous = obsidian.requestImpl;
+  obsidian.requestImpl = async (req) => {
+    const body = JSON.parse(req.body);
+    if (body.action === "notesInfo") return { status: 200, json: { result: [{ noteId: 9, cards: [90], modelName: "Basic", tags: [], fields: { Front: { value: "Linked?", order: 0 }, Back: { value: "New", order: 1 } } }] } };
+    if (body.action === "cardsInfo") return { status: 200, json: { result: [{ cardId: 90, deckName: "Biology", modelName: "Basic", due: 1, interval: 2, reps: 3, lapses: 0 }] } };
+    return { status: 200, json: { result: 1 } };
+  };
+  try {
+    const plan = await plugin.previewAnkiSync({});
+    assert.equal(plan.counts.create, 1);
+    assert.equal(plan.counts.pull, 1);
+    assert.equal(plan.counts.missing, 1);
+    assert.equal(plan.counts.delete, 1);
+    assert.deepEqual(plan.entries.map((entry) => entry.action).sort(), ["create", "delete", "missing", "pull"]);
+    assert.deepEqual(app.files.map((f) => f.text), before, "preview never writes");
+    assert.equal(app.created, undefined);
+  } finally {
+    obsidian.requestImpl = previous;
+  }
+});
+
+test("plugin: push uploads images and audio and sends Markdown, math and code as HTML", async () => {
+  const notes = [
+    { path: "Cards/Bio/Media.md", noFm: true, fm: { card_id: "media", item_type: "card", deck: "Biology" }, text: "## Front\n![[diagram.png]]\n\n## Back\n**A** and `code` and $x^2$\n" },
+  ];
+  const app = makeApp(notes);
+  app.files[0].fm = { ...notes[0].fm };
+  const binary = { path: "Cards/Bio/diagram.png", name: "diagram.png", basename: "diagram", extension: "png" };
+  app.files.push(binary);
+  app.vault.readBinary = async () => Buffer.from([1, 2, 3]);
+  app.metadataCache.getFirstLinkpathDest = (name) => (name === "diagram.png" ? binary : null);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  plugin.settings.cards.ankiConnect = { enabled: true, url: "http://127.0.0.1:8765", deck: "" };
+  const actions = [];
+  const previous = obsidian.requestImpl;
+  obsidian.requestImpl = async (req) => {
+    const body = JSON.parse(req.body);
+    actions.push({ action: body.action, params: body.params });
+    if (body.action === "canAddNotes") return { status: 200, json: { result: body.params.notes.map(() => true) } };
+    if (body.action === "addNotes") return { status: 200, json: { result: [123] } };
+    return { status: 200, json: { result: 1 } };
+  };
+  try {
+    const result = await plugin.pushCardsToAnki({ deck: "Biology" });
+    assert.equal(result.added, 1);
+    const media = actions.find((entry) => entry.action === "storeMediaFile");
+    assert.ok(media, JSON.stringify(actions.map((entry) => entry.action)));
+    assert.equal(media.params.filename, "diagram.png");
+    assert.equal(media.params.data, "AQID");
+    const note = actions.find((entry) => entry.action === "canAddNotes").params.notes[0];
+    assert.match(note.fields.Front, /<img src="diagram.png">/);
+    assert.match(note.fields.Back, /<strong>A<\/strong>/);
+    assert.match(note.fields.Back, /<code>code<\/code>/);
+    assert.match(note.fields.Back, /\\\(x\^2\\\)/);
+  } finally {
+    obsidian.requestImpl = previous;
+  }
+});
+
+test("AnkiConnect: Markdown and the HTML Anki returns compare as the same content", () => {
+  const markdown = anki.syncRecord({ front: "**Bold** ![[diagram.png]]", back: "`code` $x^2$", deck: "D", tags: [], type: "Basic" });
+  const html = anki.syncRecord({ front: "<strong>Bold</strong> <img src=\"diagram.png\">", back: "<code>code</code> \\(x^2\\)", deck: "D", tags: [], type: "Basic" });
+  assert.equal(anki.syncHash(markdown), anki.syncHash(html));
+  assert.match(anki.markdownToAnkiHtml("<strong>Already HTML</strong>"), /^<strong>Already HTML<\/strong>$/);
+});
