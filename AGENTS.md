@@ -8,12 +8,12 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
-- Latest release: **1.149.0** (Anki folder exclusions: configured vault folders and their subfolders are kept out of Anki previews, pushes and syncs), commit `79689fd`, tagged and published on Oct 30, 2026 in [run 41095440297](https://github.com/ifriedenson/mcq-tracker/actions/runs/41095440297). Release: https://github.com/ifriedenson/mcq-tracker/releases/tag/1.149.0. The previous release is **1.148.0** (Spaced Repetition quiz notes, commit `c661ee7`, [run 41094115096](https://github.com/ifriedenson/mcq-tracker/actions/runs/41094115096)).
-- **856 tests** pass and `main.js` is the build of `src/`. Release 1.149.0 adds Anki folder exclusions; 1.148.0 added Spaced Repetition quiz notes, 1.147.0 added Text2Anki, 1.146.0 added Auto Anki, 1.145.0 added Spaced Everything, 1.144.0 added the Simple Note Quiz, and 1.143.0 added Simple Quiz blocks, JSON/JavaScript card sources and local quiz charts.
+- Latest release: **1.150.0** (optional card reveal animation: Instant by default, Fade in or Flip, with reduced-motion and no-transition fallbacks), tagged and published on Oct 30, 2026. Release: https://github.com/ifriedenson/mcq-tracker/releases/tag/1.150.0. The previous release is **1.149.0** (Anki folder exclusions, commit `79689fd`, [run 41095440297](https://github.com/ifriedenson/mcq-tracker/actions/runs/41095440297)).
+- **863 tests** pass and `main.js` is the build of `src/`. Release 1.150.0 adds the optional card reveal animation; 1.149.0 added Anki folder exclusions, 1.148.0 added Spaced Repetition quiz notes, 1.147.0 added Text2Anki, 1.146.0 added Auto Anki, 1.145.0 added Spaced Everything, 1.144.0 added the Simple Note Quiz, and 1.143.0 added Simple Quiz blocks, JSON/JavaScript card sources and local quiz charts.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
 - Anki bridge hardening (no release, Oct 30, 2026): push-only now updates linked notes instead of duplicating them, duplicate media basenames warn instead of silently overwriting, and tables keep escaped pipes plus inline formatting. Real desktop checks are in `docs/anki-smoke-test.md` and remain a manual gate.
-- Step 9 queue rows 1–26 are shipped; rows 27+ remain in plan.md. Row 24 was verified as already covered by FSRS and AI card generation; row 25 has no documented feature. The next implementable row is **27** (Obsidiflip flip/fade presentation).
+- Step 9 queue rows 1–27 are shipped; row 28 remains in plan.md. Row 24 was verified as already covered by FSRS and AI card generation; row 25 has no documented feature. The next implementable row is **28** (Review Notes), which has no distinct feature beyond the existing note-review queue and needs a verification pass.
 - **Lighter multi-question authoring** was ranked by the owner on Oct 30, 2026 and shipped in **1.128.0** as **Quick add questions** (`src/quick-add.js`, `src/quick-add-modal.js`).
 
 ## Commands

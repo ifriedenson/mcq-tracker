@@ -10914,6 +10914,7 @@ const CARD_TYPE_LABELS = {
 const CARD_GRADES = ["again", "hard", "good", "easy"];
 const CARD_ITEM_TYPES = ["card", "flashcard", "vocab", "vocabulary"];
 const CARD_SCHEDULERS = ["ladder", "sm2", "fsrs"];
+const REVEAL_ANIMATIONS = ["instant", "fade", "flip"];
 
 const GRADE_INFO = {
   again: { label: "Again", correct: false, conf: 0, rating: 1 },
@@ -10924,6 +10925,26 @@ const GRADE_INFO = {
 
 const normalizeFolder = (p) => str(p).trim().replace(/^\/+|\/+$/g, "");
 const lower = (v) => str(v).trim().toLowerCase();
+
+/** Optional presentation only: instant is the safe default and never animates. */
+function normalizeRevealAnimation(value) {
+  const v = lower(value);
+  return REVEAL_ANIMATIONS.includes(v) ? v : "instant";
+}
+
+/**
+ * The one-shot class for an answer that has just been revealed, or "" for an
+ * instant reveal. Reduced motion and browsers without CSS transitions always
+ * fall back to instant, so the answer is never hidden by an unsupported effect.
+ */
+function revealAnimationClass(value, env) {
+  const mode = normalizeRevealAnimation(value);
+  if (mode === "instant") return "";
+  const e = env || {};
+  if (e.reducedMotion === true) return "";
+  if (e.supportsTransition === false) return "";
+  return `qt-cards-reveal-${mode}`;
+}
 
 /** Empty means inherit the global scheduler. */
 function normalizeSchedulerChoice(value) {
@@ -10985,6 +11006,7 @@ function mergeCardSettings(saved, defaults) {
       reviewLimit: 20,
       order: "due",
       answerMode: "flip",
+      revealAnimation: "instant",
       gradingStrictness: "standard",
       aiGrading: false,
       sameDayReviews: false,
@@ -11006,6 +11028,7 @@ function mergeCardSettings(saved, defaults) {
   out.reviewLimit = Math.min(100, Math.max(1, Math.round(Number(src.reviewLimit) || base.reviewLimit || 20)));
   out.order = src.order === "all" ? "all" : "due";
   out.answerMode = normalizeAnswerMode(src.answerMode === undefined ? base.answerMode : src.answerMode, "flip");
+  out.revealAnimation = normalizeRevealAnimation(src.revealAnimation === undefined ? base.revealAnimation : src.revealAnimation);
   out.gradingStrictness = normalizeStrictness(src.gradingStrictness === undefined ? base.gradingStrictness : src.gradingStrictness, "standard");
   out.aiGrading = src.aiGrading === true;
   out.sameDayReviews = src.sameDayReviews === true;
@@ -11594,9 +11617,12 @@ module.exports = {
   GRADING_STRICTNESS,
   GRADE_INFO,
   CARD_SCHEDULERS,
+  REVEAL_ANIMATIONS,
   DEFAULT_SM2,
   normalizeFolder,
   normalizeSchedulerChoice,
+  normalizeRevealAnimation,
+  revealAnimationClass,
   normalizeDeckIntervals,
   normalizeDeckRetention,
   normalizeDecks,
@@ -15275,6 +15301,22 @@ function renderReview(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Card reveal animation")
+    .setDesc("Instant is the default. Fade and Flip add a short entrance to the answer when you reveal it. Reduced-motion settings always reveal instantly, and typing or rating is unchanged.")
+    .addDropdown((d) =>
+      d
+        .addOption("instant", "Instant")
+        .addOption("fade", "Fade in")
+        .addOption("flip", "Flip")
+        .setValue(st.revealAnimation || "instant")
+        .onChange(async (v) => {
+          st.revealAnimation = v === "fade" || v === "flip" ? v : "instant";
+          await plugin.save();
+          plugin.refreshViews();
+        })
+    );
+
+  new Setting(containerEl)
     .setName("Answer mode")
     .setDesc("Flip is the classic reveal-and-rate review. Type asks for an answer and grades obvious matches locally; Speak uses the same box with your device's dictation. A card's answer_mode or its deck's setting overrides this default.")
     .addDropdown((d) =>
@@ -15524,7 +15566,7 @@ __defs["cards-view"] = function (module, exports, require) {
 const { ItemView, Notice, setIcon } = require("obsidian");
 const { VIEW_TYPE_CARDS } = require("./constants");
 const { localDate, str } = require("./util");
-const { CARD_TYPE_LABELS, cardQueue, cardStats, courseOptions, deckSummary, parseCardBody } = require("./cards");
+const { CARD_TYPE_LABELS, cardQueue, cardStats, courseOptions, deckSummary, parseCardBody, revealAnimationClass } = require("./cards");
 const { CardModal } = require("./card-modal");
 const { renderMarkdownInto } = require("./view-helpers");
 const { gradeTypedAnswer } = require("./card-grading");
@@ -15534,6 +15576,25 @@ const { splitSourceContext } = require("./source-recall");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
 const GRADE_LABELS = { again: "Again", hard: "Hard", good: "Good", easy: "Easy" };
+
+/** Read the OS preference and CSS support once per reveal, with safe fallbacks. */
+function revealEnvironment() {
+  const win = typeof activeWindow !== "undefined" && activeWindow ? activeWindow : typeof window !== "undefined" ? window : null;
+  if (!win) return { reducedMotion: false, supportsTransition: true };
+  let reducedMotion = false;
+  try {
+    reducedMotion = typeof win.matchMedia === "function" && !!win.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch (e) {
+    reducedMotion = false;
+  }
+  let supportsTransition = true;
+  try {
+    if (win.CSS && typeof win.CSS.supports === "function") supportsTransition = win.CSS.supports("transition", "opacity 1s");
+  } catch (e) {
+    supportsTransition = true;
+  }
+  return { reducedMotion, supportsTransition };
+}
 
 class CardView extends ItemView {
   constructor(leaf, plugin) {
@@ -15555,6 +15616,7 @@ class CardView extends ItemView {
     this.aiError = "";
     this.pendingGrade = false;
     this.pendingGradeId = "";
+    this.revealEffect = ""; // consumed by the next render, so a refresh never replays the animation
     this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
   }
 
@@ -15901,6 +15963,7 @@ class CardView extends ItemView {
     this.aiError = "";
     this.pendingGrade = false;
     this.pendingGradeId = "";
+    this.revealEffect = "";
     try {
       const text = await this.app.vault.cachedRead(card.file);
       this.current = { ...card, body: parseCardBody(text, card.fm) };
@@ -15915,9 +15978,16 @@ class CardView extends ItemView {
     this.render();
   }
 
+  /** The class for this reveal only; empty when the effect is off or unavailable. */
+  nextRevealEffect() {
+    const cards = (this.plugin.settings && this.plugin.settings.cards) || {};
+    return revealAnimationClass(cards.revealAnimation, revealEnvironment());
+  }
+
   reveal() {
     if (!this.current) return;
     this.revealed = true;
+    this.revealEffect = this.nextRevealEffect();
     this.render();
   }
 
@@ -15935,6 +16005,7 @@ class CardView extends ItemView {
     this.suggestedGrade = graded.suggestedGrade;
     this.override = false;
     this.revealed = true;
+    this.revealEffect = this.nextRevealEffect();
     this.aiError = "";
     this.pendingGrade = false;
     this.pendingGradeId = "";
@@ -16136,7 +16207,9 @@ class CardView extends ItemView {
     if (this.aiError) root.createDiv({ cls: "qt-error", text: this.aiError });
     if (this.pendingGrade) root.createDiv({ cls: "qt-hint qt-cards-pending", text: "Pending grade. Rate the card yourself to save this review now, or leave it and it will be graded when AI is available." });
 
-    const answer = root.createDiv({ cls: "qt-cards-box qt-cards-answer" });
+    const effect = this.revealEffect;
+    this.revealEffect = "";
+    const answer = root.createDiv({ cls: `qt-cards-box qt-cards-answer${effect ? ` ${effect}` : ""}` });
     answer.createDiv({ cls: "qt-cards-answer-label", text: card.body.kind === "vocab" ? "Definition" : "Answer" });
     if (card.body.backExpectation) {
       answer.createDiv({ cls: "qt-cards-expectation", text: `Expected: ${card.body.backExpectation}` });
@@ -17036,6 +17109,7 @@ const DEFAULT_SETTINGS = {
     reviewLimit: 20,
     order: "due", // "due" (due + new) | "all"
     answerMode: "flip", // "flip" | "type" | "speak" (speak uses the text box with OS dictation)
+    revealAnimation: "instant", // "instant" | "fade" | "flip": optional answer reveal presentation
     gradingStrictness: "standard", // "strict" | "standard" | "lenient"
     aiGrading: false, // optional AI second opinion when the local typed-answer grader is unsure
     sameDayReviews: false, // optional: Again/Hard cards stay due today for another session

@@ -143,6 +143,7 @@ const DEFAULT_SETTINGS = {
     reviewLimit: 20,
     order: "due", // "due" (due + new) | "all"
     answerMode: "flip", // "flip" | "type" | "speak" (speak uses the text box with OS dictation)
+    revealAnimation: "instant", // "instant" | "fade" | "flip": optional answer reveal presentation
     gradingStrictness: "standard", // "strict" | "standard" | "lenient"
     aiGrading: false, // optional AI second opinion when the local typed-answer grader is unsure
     sameDayReviews: false, // optional: Again/Hard cards stay due today for another session

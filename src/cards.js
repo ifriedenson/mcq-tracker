@@ -26,6 +26,7 @@ const CARD_TYPE_LABELS = {
 const CARD_GRADES = ["again", "hard", "good", "easy"];
 const CARD_ITEM_TYPES = ["card", "flashcard", "vocab", "vocabulary"];
 const CARD_SCHEDULERS = ["ladder", "sm2", "fsrs"];
+const REVEAL_ANIMATIONS = ["instant", "fade", "flip"];
 
 const GRADE_INFO = {
   again: { label: "Again", correct: false, conf: 0, rating: 1 },
@@ -36,6 +37,26 @@ const GRADE_INFO = {
 
 const normalizeFolder = (p) => str(p).trim().replace(/^\/+|\/+$/g, "");
 const lower = (v) => str(v).trim().toLowerCase();
+
+/** Optional presentation only: instant is the safe default and never animates. */
+function normalizeRevealAnimation(value) {
+  const v = lower(value);
+  return REVEAL_ANIMATIONS.includes(v) ? v : "instant";
+}
+
+/**
+ * The one-shot class for an answer that has just been revealed, or "" for an
+ * instant reveal. Reduced motion and browsers without CSS transitions always
+ * fall back to instant, so the answer is never hidden by an unsupported effect.
+ */
+function revealAnimationClass(value, env) {
+  const mode = normalizeRevealAnimation(value);
+  if (mode === "instant") return "";
+  const e = env || {};
+  if (e.reducedMotion === true) return "";
+  if (e.supportsTransition === false) return "";
+  return `qt-cards-reveal-${mode}`;
+}
 
 /** Empty means inherit the global scheduler. */
 function normalizeSchedulerChoice(value) {
@@ -97,6 +118,7 @@ function mergeCardSettings(saved, defaults) {
       reviewLimit: 20,
       order: "due",
       answerMode: "flip",
+      revealAnimation: "instant",
       gradingStrictness: "standard",
       aiGrading: false,
       sameDayReviews: false,
@@ -118,6 +140,7 @@ function mergeCardSettings(saved, defaults) {
   out.reviewLimit = Math.min(100, Math.max(1, Math.round(Number(src.reviewLimit) || base.reviewLimit || 20)));
   out.order = src.order === "all" ? "all" : "due";
   out.answerMode = normalizeAnswerMode(src.answerMode === undefined ? base.answerMode : src.answerMode, "flip");
+  out.revealAnimation = normalizeRevealAnimation(src.revealAnimation === undefined ? base.revealAnimation : src.revealAnimation);
   out.gradingStrictness = normalizeStrictness(src.gradingStrictness === undefined ? base.gradingStrictness : src.gradingStrictness, "standard");
   out.aiGrading = src.aiGrading === true;
   out.sameDayReviews = src.sameDayReviews === true;
@@ -706,9 +729,12 @@ module.exports = {
   GRADING_STRICTNESS,
   GRADE_INFO,
   CARD_SCHEDULERS,
+  REVEAL_ANIMATIONS,
   DEFAULT_SM2,
   normalizeFolder,
   normalizeSchedulerChoice,
+  normalizeRevealAnimation,
+  revealAnimationClass,
   normalizeDeckIntervals,
   normalizeDeckRetention,
   normalizeDecks,

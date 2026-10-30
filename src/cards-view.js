@@ -2,7 +2,7 @@
 const { ItemView, Notice, setIcon } = require("obsidian");
 const { VIEW_TYPE_CARDS } = require("./constants");
 const { localDate, str } = require("./util");
-const { CARD_TYPE_LABELS, cardQueue, cardStats, courseOptions, deckSummary, parseCardBody } = require("./cards");
+const { CARD_TYPE_LABELS, cardQueue, cardStats, courseOptions, deckSummary, parseCardBody, revealAnimationClass } = require("./cards");
 const { CardModal } = require("./card-modal");
 const { renderMarkdownInto } = require("./view-helpers");
 const { gradeTypedAnswer } = require("./card-grading");
@@ -12,6 +12,25 @@ const { splitSourceContext } = require("./source-recall");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
 const GRADE_LABELS = { again: "Again", hard: "Hard", good: "Good", easy: "Easy" };
+
+/** Read the OS preference and CSS support once per reveal, with safe fallbacks. */
+function revealEnvironment() {
+  const win = typeof activeWindow !== "undefined" && activeWindow ? activeWindow : typeof window !== "undefined" ? window : null;
+  if (!win) return { reducedMotion: false, supportsTransition: true };
+  let reducedMotion = false;
+  try {
+    reducedMotion = typeof win.matchMedia === "function" && !!win.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch (e) {
+    reducedMotion = false;
+  }
+  let supportsTransition = true;
+  try {
+    if (win.CSS && typeof win.CSS.supports === "function") supportsTransition = win.CSS.supports("transition", "opacity 1s");
+  } catch (e) {
+    supportsTransition = true;
+  }
+  return { reducedMotion, supportsTransition };
+}
 
 class CardView extends ItemView {
   constructor(leaf, plugin) {
@@ -33,6 +52,7 @@ class CardView extends ItemView {
     this.aiError = "";
     this.pendingGrade = false;
     this.pendingGradeId = "";
+    this.revealEffect = ""; // consumed by the next render, so a refresh never replays the animation
     this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
   }
 
@@ -379,6 +399,7 @@ class CardView extends ItemView {
     this.aiError = "";
     this.pendingGrade = false;
     this.pendingGradeId = "";
+    this.revealEffect = "";
     try {
       const text = await this.app.vault.cachedRead(card.file);
       this.current = { ...card, body: parseCardBody(text, card.fm) };
@@ -393,9 +414,16 @@ class CardView extends ItemView {
     this.render();
   }
 
+  /** The class for this reveal only; empty when the effect is off or unavailable. */
+  nextRevealEffect() {
+    const cards = (this.plugin.settings && this.plugin.settings.cards) || {};
+    return revealAnimationClass(cards.revealAnimation, revealEnvironment());
+  }
+
   reveal() {
     if (!this.current) return;
     this.revealed = true;
+    this.revealEffect = this.nextRevealEffect();
     this.render();
   }
 
@@ -413,6 +441,7 @@ class CardView extends ItemView {
     this.suggestedGrade = graded.suggestedGrade;
     this.override = false;
     this.revealed = true;
+    this.revealEffect = this.nextRevealEffect();
     this.aiError = "";
     this.pendingGrade = false;
     this.pendingGradeId = "";
@@ -614,7 +643,9 @@ class CardView extends ItemView {
     if (this.aiError) root.createDiv({ cls: "qt-error", text: this.aiError });
     if (this.pendingGrade) root.createDiv({ cls: "qt-hint qt-cards-pending", text: "Pending grade. Rate the card yourself to save this review now, or leave it and it will be graded when AI is available." });
 
-    const answer = root.createDiv({ cls: "qt-cards-box qt-cards-answer" });
+    const effect = this.revealEffect;
+    this.revealEffect = "";
+    const answer = root.createDiv({ cls: `qt-cards-box qt-cards-answer${effect ? ` ${effect}` : ""}` });
     answer.createDiv({ cls: "qt-cards-answer-label", text: card.body.kind === "vocab" ? "Definition" : "Answer" });
     if (card.body.backExpectation) {
       answer.createDiv({ cls: "qt-cards-expectation", text: `Expected: ${card.body.backExpectation}` });

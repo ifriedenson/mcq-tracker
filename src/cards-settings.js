@@ -626,6 +626,22 @@ function renderReview(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Card reveal animation")
+    .setDesc("Instant is the default. Fade and Flip add a short entrance to the answer when you reveal it. Reduced-motion settings always reveal instantly, and typing or rating is unchanged.")
+    .addDropdown((d) =>
+      d
+        .addOption("instant", "Instant")
+        .addOption("fade", "Fade in")
+        .addOption("flip", "Flip")
+        .setValue(st.revealAnimation || "instant")
+        .onChange(async (v) => {
+          st.revealAnimation = v === "fade" || v === "flip" ? v : "instant";
+          await plugin.save();
+          plugin.refreshViews();
+        })
+    );
+
+  new Setting(containerEl)
     .setName("Answer mode")
     .setDesc("Flip is the classic reveal-and-rate review. Type asks for an answer and grades obvious matches locally; Speak uses the same box with your device's dictation. A card's answer_mode or its deck's setting overrides this default.")
     .addDropdown((d) =>
