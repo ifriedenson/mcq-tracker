@@ -3824,17 +3824,7 @@ class QuestionTrackerPlugin extends Plugin {
           }
         }
       }
-      for (const block of blocks.js) {
-        const parsed = legacyQuizJsNotice(block);
-        issues.push(...parsed.issues.map((issue) => `${file.path}: ${issue}`));
-        for (const card of parsed.cards) {
-          if (ids.has(card.id)) issues.push(`${file.path}: duplicate card id "${card.id}" was skipped.`);
-          else {
-            ids.add(card.id);
-            cards.push(card);
-          }
-        }
-      }
+      if (blocks.js.length) issues.push(`${file.path}: ${legacyQuizJsNotice()}`);
     }
     return { cards, issues };
   }
@@ -3935,7 +3925,7 @@ class QuestionTrackerPlugin extends Plugin {
   /** Render a quizjson block, or a disabled notice for a legacy quizjs block. */
   renderSimpleQuizDataBlock(source, el, kind) {
     const box = el.createDiv({ cls: "qt-simple-quiz-data" });
-    const parsed = kind === "js" ? legacyQuizJsNotice(source) : parseSimpleQuizCards(source);
+    const parsed = kind === "js" ? { cards: [], issues: [legacyQuizJsNotice()] } : parseSimpleQuizCards(source);
     box.createDiv({
       cls: "qt-simple-quiz-data-title",
       text: kind === "js" ? "Legacy JavaScript quiz block (disabled)" : "Quiz cards",

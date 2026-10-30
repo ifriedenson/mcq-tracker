@@ -76,9 +76,7 @@ test("simple quiz: note blocks are extracted and legacy quizjs is rejected", () 
   assert.equal(blocks.json.length, 1);
   assert.equal(blocks.js.length, 1);
 
-  const legacy = S.legacyQuizJsNotice(blocks.js[0]);
-  assert.equal(legacy.cards.length, 0);
-  assert.match(legacy.issues.join(" "), /disabled.*quizjson/);
+  assert.match(S.legacyQuizJsNotice(), /disabled.*quizjson/);
 });
 
 test("simple quiz: no dynamic code execution remains", () => {
@@ -161,7 +159,7 @@ test("simple quiz: empty and malformed input render a useful empty state", async
   assert.match(malformed.issues.join(" "), /not valid JSON/);
 });
 
-test("simple quiz: data blocks show a count, and quizjs stays visibly disabled by default", async () => {
+test("simple quiz: data blocks show a count, and legacy quizjs blocks stay visibly disabled", async () => {
   const plugin = new QT(makeApp([]));
   await plugin.onload();
   const dom = makeDom();

@@ -156,15 +156,9 @@ function extractSimpleQuizBlocks(text) {
   return { json: fencedBlocks(text, "quizjson"), js: fencedBlocks(text, "quizjs") };
 }
 
-/**
- * Legacy `quizjs` blocks are not executed. The plugin has no dynamic code
- * path; existing blocks get a migration notice and must use `quizjson`.
- */
-function legacyQuizJsNotice(source) {
-  return {
-    cards: [],
-    issues: ["JavaScript quiz blocks are disabled. Convert this block to quizjson."],
-  };
+/** Message for a legacy `quizjs` block: it is never executed; migrate to `quizjson`. */
+function legacyQuizJsNotice() {
+  return "JavaScript quiz blocks are disabled. Convert them to quizjson.";
 }
 
 function normalizeQuizStats(value) {
