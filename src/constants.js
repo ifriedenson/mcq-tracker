@@ -103,6 +103,10 @@ const DEFAULT_SETTINGS = {
     enabled: false, // opt-in; no command, card or notifications until it is on
     count: 5,
     folders: [],
+    freezeEnabled: false, // opt-in: earned freezes can cover a missed day
+    freezeEvery: 5, // completed daily quizzes per earned freeze
+    freezes: 0,
+    completions: 0,
     lastDate: "",
     paths: [],
     streak: 0,

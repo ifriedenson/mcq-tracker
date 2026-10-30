@@ -66,6 +66,34 @@ function renderDailySettings(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Streak freeze")
+    .setDesc("Earn one freeze every few completed daily quizzes (maximum 3). A missed day is covered automatically when you finish the next quiz, so one gap does not erase the streak. Off by default.")
+    .addToggle((toggle) =>
+      toggle.setValue(daily.freezeEnabled).onChange(async (value) => {
+        st.dailyQuiz = { ...normalizeDailyQuiz(st.dailyQuiz), freezeEnabled: value };
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Completions per freeze")
+    .setDesc("Between 2 and 50. One freeze is earned each time this many daily quizzes are completed.")
+    .addText((text) =>
+      text
+        .setValue(String(daily.freezeEvery))
+        .setPlaceholder("5")
+        .onChange(async (value) => {
+          const every = Math.round(Number(value));
+          if (!Number.isFinite(every) || every < 2) return;
+          st.dailyQuiz = { ...normalizeDailyQuiz(st.dailyQuiz), freezeEvery: Math.min(50, every) };
+          await plugin.save();
+          redisplay();
+        })
+    );
+
+  new Setting(containerEl)
     .setName("Folders")
     .setDesc("One folder path per line. Leave empty to draw from every question note. Subfolders are included.")
     .addTextArea((area) =>
@@ -79,16 +107,17 @@ function renderDailySettings(containerEl, plugin, redisplay) {
         })
     );
 
+  const freezeText = daily.freezeEnabled ? ` · ${daily.freezes} freeze${daily.freezes === 1 ? "" : "s"}` : "";
   new Setting(containerEl)
     .setName("Current streak")
-    .setDesc(`${streak} day${streak === 1 ? "" : "s"} · best ${daily.best} · ${done ? "today is complete" : "today is not complete yet"}`)
+    .setDesc(`${streak} day${streak === 1 ? "" : "s"} · best ${daily.best}${freezeText} · ${done ? "today is complete" : "today is not complete yet"}`)
     .addButton((button) => button.setButtonText("Start today's quiz").setCta().onClick(() => plugin.startDailyQuiz()))
     .addExtraButton((button) =>
       button
         .setIcon("reset")
         .setTooltip("Reset the daily streak")
         .onClick(async () => {
-          st.dailyQuiz = { ...normalizeDailyQuiz(st.dailyQuiz), streak: 0, best: 0, lastCompleted: "" };
+          st.dailyQuiz = { ...normalizeDailyQuiz(st.dailyQuiz), streak: 0, best: 0, freezes: 0, completions: 0, lastCompleted: "" };
           await plugin.save();
           plugin.refreshViews();
           redisplay();

@@ -8,10 +8,15 @@ const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { addDays, fmtDate, str } = require("./util");
 
+const MAX_DAILY_FREEZES = 3;
 const DEFAULT_DAILY_QUIZ = {
   enabled: false,
   count: 5,
   folders: [],
+  freezeEnabled: false, // opt-in: a missed day can spend an earned freeze
+  freezeEvery: 5, // completed daily quizzes per earned freeze
+  freezes: 0,
+  completions: 0,
   lastDate: "",
   paths: [],
   streak: 0,
@@ -61,10 +66,15 @@ function foldersText(value) {
 function normalizeDailyQuiz(value) {
   const src = value && typeof value === "object" ? value : {};
   const count = Number(src.count);
+  const freezeEvery = Number(src.freezeEvery);
   return {
     enabled: src.enabled === true,
     count: Number.isFinite(count) ? Math.min(50, Math.max(1, Math.round(count))) : DEFAULT_DAILY_QUIZ.count,
     folders: folderList(src.folders),
+    freezeEnabled: src.freezeEnabled === true,
+    freezeEvery: Number.isFinite(freezeEvery) && freezeEvery >= 2 ? Math.min(50, Math.round(freezeEvery)) : DEFAULT_DAILY_QUIZ.freezeEvery,
+    freezes: Math.min(MAX_DAILY_FREEZES, nonNegative(src.freezes)),
+    completions: nonNegative(src.completions),
     lastDate: dayKey(src.lastDate),
     paths: Array.isArray(src.paths) ? src.paths.filter((p) => typeof p === "string" && p) : [],
     streak: nonNegative(src.streak),
@@ -169,12 +179,46 @@ function dailyDone(state, today) {
   return !!cfg.lastCompleted && cfg.lastCompleted === (dayKey(today) || fmtDate(new Date()));
 }
 
-/** The streak is still alive today when the last completion was today or yesterday. */
+/** Calendar days strictly between the last completion and today. */
+function missedDayKeys(state, today) {
+  const cfg = normalizeDailyQuiz(state);
+  const day = dayKey(today) || fmtDate(new Date());
+  const start = parseDay(cfg.lastCompleted);
+  const end = parseDay(day);
+  const out = [];
+  if (!start || !end) return out;
+  let cursor = addDays(start, 1);
+  while (cursor < end) {
+    out.push(fmtDate(cursor));
+    cursor = addDays(cursor, 1);
+  }
+  return out;
+}
+
+/** What the freeze ledger looks like today, without spending anything. */
+function dailyFreezeStatus(state, today) {
+  const cfg = normalizeDailyQuiz(state);
+  const missed = missedDayKeys(cfg, today);
+  return {
+    enabled: cfg.freezeEnabled,
+    freezes: cfg.freezes,
+    completions: cfg.completions,
+    every: cfg.freezeEvery,
+    missedDays: missed.length,
+    canProtect: cfg.freezeEnabled && missed.length > 0 && cfg.freezes >= missed.length,
+    nextEarnIn: cfg.freezeEvery - (cfg.completions % cfg.freezeEvery),
+  };
+}
+
 function dailyStreak(state, today) {
   const cfg = normalizeDailyQuiz(state);
   const day = dayKey(today) || fmtDate(new Date());
   if (!cfg.lastCompleted) return 0;
   if (cfg.lastCompleted === day || cfg.lastCompleted === previousDay(day)) return cfg.streak;
+  if (cfg.freezeEnabled) {
+    const missed = missedDayKeys(cfg, day);
+    if (missed.length && cfg.freezes >= missed.length) return cfg.streak;
+  }
   return 0;
 }
 
@@ -183,19 +227,33 @@ function completeDailyQuiz(state, today) {
   const cfg = normalizeDailyQuiz(state);
   const day = dayKey(today) || fmtDate(new Date());
   if (cfg.lastCompleted === day) return cfg;
-  const streak = cfg.lastCompleted === previousDay(day) ? cfg.streak + 1 : 1;
-  return { ...cfg, lastCompleted: day, streak, best: Math.max(cfg.best, streak) };
+  const missed = missedDayKeys(cfg, day);
+  let freezes = cfg.freezes;
+  let streak = 1;
+  if (cfg.lastCompleted === previousDay(day)) {
+    streak = cfg.streak + 1;
+  } else if (cfg.freezeEnabled && cfg.lastCompleted && missed.length && freezes >= missed.length) {
+    // Spend exactly the missed days the earned freezes cover.
+    freezes -= missed.length;
+    streak = cfg.streak + 1;
+  }
+  const completions = cfg.completions + 1;
+  if (cfg.freezeEnabled && completions % cfg.freezeEvery === 0) freezes = Math.min(MAX_DAILY_FREEZES, freezes + 1);
+  return { ...cfg, freezes, completions, lastCompleted: day, streak, best: Math.max(cfg.best, streak) };
 }
 
 module.exports = {
   DEFAULT_DAILY_QUIZ,
+  MAX_DAILY_FREEZES,
   buildDailyQuiz,
   completeDailyQuiz,
   dailyDone,
+  dailyFreezeStatus,
   dailyStreak,
   dayKey,
   folderList,
   foldersText,
+  missedDayKeys,
   normalizeDailyQuiz,
   pathInFolders,
   pickDailyQuiz,

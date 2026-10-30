@@ -269,9 +269,10 @@ class TodayView extends ItemView {
       cls: "qt-today-title",
       text: done ? "Today is complete" : `${count} question${count === 1 ? "" : "s"} today`,
     });
+    const freezeText = daily.freezeEnabled ? ` · ${daily.freezes} freeze${daily.freezes === 1 ? "" : "s"}` : "";
     card.createDiv({
       cls: "qt-today-meta",
-      text: `Streak ${streak} day${streak === 1 ? "" : "s"} · best ${daily.best}${done ? " · finish once counts once" : ""}`,
+      text: `Streak ${streak} day${streak === 1 ? "" : "s"} · best ${daily.best}${freezeText}${done ? " · finish once counts once" : ""}`,
     });
     card
       .createEl("button", { text: done ? "Practice again" : "Start daily quiz", cls: "mod-cta qt-primary" })
