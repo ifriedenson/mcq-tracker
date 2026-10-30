@@ -88,6 +88,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { buildStudyBundle, bundleFileName } = require("./study-bundle");
+const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
@@ -184,6 +185,17 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
     this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and cards)", callback: () => this.exportStudyBundle() });
+    this.addCommand({
+      id: "import-study-bundle",
+      name: "Import a study bundle (restore questions and cards)",
+      callback: async () => {
+        try {
+          await this.importStudyBundle("");
+        } catch (e) {
+          new Notice(`Study bundle import failed: ${str(e && e.message ? e.message : e)}`, 10000);
+        }
+      },
+    });
     this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated notes", callback: () => this.undoLastAiWriteCommand() });
     this.addCommand({ id: "ai-undo-agent-edits", name: "AI: undo the last agent edits", callback: () => this.undoLastAgentEditCommand() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
@@ -2822,6 +2834,73 @@ class QuestionTrackerPlugin extends Plugin {
     new Notice(`Exported ${built.manifest.counts.questions} questions and ${built.manifest.counts.cards} cards to ${path}.`, 6000);
     this.refreshViews();
     return { path, counts: built.manifest.counts, manifest: built.manifest };
+  }
+
+  /** The newest bundle at the vault root, used by the import command. */
+  newestStudyBundle() {
+    const files = this.app.vault
+      .getFiles()
+      .filter((file) => /^mcq-study-bundle-\d{4}-\d{2}-\d{2}(?: \d+)?\.zip$/i.test(file.path));
+    return files.sort((a, b) => String(b.path).localeCompare(String(a.path), undefined, { numeric: true }))[0] || null;
+  }
+
+  /**
+   * Restore a study bundle. Existing notes are never overwritten: identical
+   * copies are skipped and different ones are reported as conflicts.
+   */
+  async importStudyBundle(path) {
+    if (this.moduleOff("mcq")) return null;
+    const chosen = str(path).trim();
+    const file = chosen ? this.app.vault.getAbstractFileByPath(chosen) : this.newestStudyBundle();
+    if (!file) throw new Error(chosen ? `"${chosen}" is not in the vault.` : "No study bundle was found at the vault root.");
+    const bytes = typeof this.app.vault.readBinary === "function" ? await this.app.vault.readBinary(file) : file.buffer;
+    if (!bytes) throw new Error("That study bundle could not be read.");
+    const bundle = parseStudyBundle(bytes);
+    const plan = await planStudyBundleRestore(bundle, {
+      cardsEnabled: this.cardsEnabled(),
+      folders: {
+        questions: str(this.settings.questionFolder).trim() || "Questions",
+        cards: str(this.settings.cards.newCardFolder).trim() || "Cards",
+      },
+      readExisting: async (target) => {
+        const existing = this.app.vault.getAbstractFileByPath(target);
+        if (!existing) return null;
+        try {
+          return await this.app.vault.cachedRead(existing);
+        } catch (e) {
+          return null;
+        }
+      },
+    });
+    const paths = [];
+    const failed = [];
+    for (const note of plan.creates) {
+      try {
+        const folder = note.path.includes("/") ? note.path.replace(/\/[^/]*$/, "") : "";
+        if (folder) await ensureFolder(this.app, folder);
+        await this.app.vault.create(note.path, note.text);
+        paths.push(note.path);
+      } catch (e) {
+        failed.push({ path: note.path, reason: str(e && e.message ? e.message : e) });
+      }
+    }
+    if (paths.length) this.refreshViews();
+    const result = {
+      imported: paths.length,
+      paths,
+      identical: plan.identical.length,
+      conflicts: plan.conflicts.length,
+      invalid: plan.invalid.length + failed.length,
+      cardsSkipped: plan.cardsSkipped,
+      details: { ...plan, failed },
+    };
+    const bits = [`Restored ${result.imported} note${result.imported === 1 ? "" : "s"}`];
+    if (result.identical) bits.push(`${result.identical} already there`);
+    if (result.conflicts) bits.push(`${result.conflicts} skipped (different note exists)`);
+    if (result.cardsSkipped) bits.push(`${result.cardsSkipped} card${result.cardsSkipped === 1 ? "" : "s"} skipped (Cards is off)`);
+    if (result.invalid) bits.push(`${result.invalid} invalid`);
+    new Notice(bits.join(" · "), 8000);
+    return result;
   }
 
   /** Write an already-previewed transcript draft. */

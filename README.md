@@ -356,7 +356,14 @@ Every practice and card review screen has **Known**, **Bury**, **Suspend** and *
 - Import questions from a file
 - Quick add questions from pasted text
 - Export a study bundle (backup of questions and cards)
+- Import a study bundle (restore questions and cards)
 - Rename old source_question_id properties to official_question_id (one-time clean-up for notes imported before the rename)
+
+### Study bundles
+
+**Export a study bundle** writes every question note and card note into one ZIP at the vault root (`mcq-study-bundle-YYYY-MM-DD.zip`), with a `manifest.json` and a README. Notes are copied unchanged, so properties, history and scheduling survive. Images, audio and PDFs are not bundled.
+
+**Import a study bundle** restores the newest bundle at the vault root. Missing notes are created; an identical note is reported and not duplicated; a note that differs from the bundle is never overwritten and is reported as a conflict. Absolute paths, `..` hops and unsafe characters are rejected. Cards are skipped while the Cards module is off. Both commands work locally; nothing is uploaded.
 
 ## AP score calculator
 

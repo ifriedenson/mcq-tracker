@@ -9,7 +9,7 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 ## Current state
 
 - Latest release: **1.128.0** (Quick add questions), tagged and published on Oct 30, 2026; release commit `b3f0839`.
-- The release commit is `b3f0839`; **710 tests** pass and `main.js` is the build of `src/`.
+- The release commit is `b3f0839`; **725 tests** pass and `main.js` is the build of `src/`.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
 - **Lighter multi-question authoring** was ranked by the owner on Oct 30, 2026 and shipped in **1.128.0** as **Quick add questions** (`src/quick-add.js`, `src/quick-add-modal.js`).
