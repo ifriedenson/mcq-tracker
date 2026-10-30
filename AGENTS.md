@@ -8,7 +8,7 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
-- Latest release: **1.150.0** (optional card reveal animation: Instant by default, Fade in or Flip, with reduced-motion and no-transition fallbacks), tagged and published on Oct 30, 2026. Release: https://github.com/ifriedenson/mcq-tracker/releases/tag/1.150.0. The previous release is **1.149.0** (Anki folder exclusions, commit `79689fd`, [run 41095440297](https://github.com/ifriedenson/mcq-tracker/actions/runs/41095440297)).
+- Latest release: **1.150.0** (optional card reveal animation: Instant by default, Fade in or Flip, with reduced-motion and no-transition fallbacks), commit `28da9f6`, tagged and published on Oct 30, 2026 in [run 41097232057](https://github.com/ifriedenson/mcq-tracker/actions/runs/41097232057). Release: https://github.com/ifriedenson/mcq-tracker/releases/tag/1.150.0. The previous release is **1.149.0** (Anki folder exclusions, commit `79689fd`, [run 41095440297](https://github.com/ifriedenson/mcq-tracker/actions/runs/41095440297)).
 - **863 tests** pass and `main.js` is the build of `src/`. Release 1.150.0 adds the optional card reveal animation; 1.149.0 added Anki folder exclusions, 1.148.0 added Spaced Repetition quiz notes, 1.147.0 added Text2Anki, 1.146.0 added Auto Anki, 1.145.0 added Spaced Everything, 1.144.0 added the Simple Note Quiz, and 1.143.0 added Simple Quiz blocks, JSON/JavaScript card sources and local quiz charts.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
