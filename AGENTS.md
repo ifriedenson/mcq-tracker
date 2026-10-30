@@ -8,7 +8,7 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
-- Latest release: **1.128.0** (Quick add questions), tagged and published on Oct 30, 2026.
+- Latest code release: **1.128.0** (Quick add questions). The commits are on `main`; the `1.128.0` tag exists locally and **still needs pushing** to trigger the release workflow.
 - The release commit is `b3f0839`; **710 tests** pass and `main.js` is the build of `src/`.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
