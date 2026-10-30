@@ -15,6 +15,8 @@ const DEFAULT_ANKI_CONNECT = {
   conflict: "report", // report | local | anki
   folderDecks: false, // optional: use the first card subfolder as the Anki deck
   deleteMissing: false, // optional: delete linked Anki notes after their local note is gone
+  vaultTags: "", // optional extra tags applied to every Anki note
+  backlinks: false, // optional link from each Anki note back to its source note
   index: {}, // path -> { noteId, cardId } from the last successful sync
 };
 
@@ -30,6 +32,8 @@ function normalizeAnkiConnect(value) {
     conflict: ["report", "local", "anki"].includes(str(src.conflict).toLowerCase()) ? str(src.conflict).toLowerCase() : "report",
     folderDecks: src.folderDecks === true,
     deleteMissing: src.deleteMissing === true,
+    vaultTags: str(src.vaultTags).trim(),
+    backlinks: src.backlinks === true,
     index: src.index && typeof src.index === "object" && !Array.isArray(src.index) ? { ...src.index } : {},
   };
 }
@@ -50,8 +54,17 @@ function syncRecord(value) {
 
 /** Compare Markdown and Anki HTML as the same content, so a pull does not look like a new edit. */
 function syncText(value) {
-  let text = str(value).replace(/<br\s*\/?>/gi, "\n");
+  let text = str(value);
+  text = text.replace(/(?:<br\s*\/?>){1,2}\s*<a[^>]*href=["']obsidian:\/\/open[^"']*["'][^>]*>[^<]*<\/a>/gi, "");
+  text = text.replace(/<br\s*\/?>/gi, "\n");
+  text = text.replace(/<video[^>]*src=["']([^"']+)["'][^>]*>/gi, "![[$1]]");
+  text = text.replace(/<audio[^>]*src=["']([^"']+)["'][^>]*>/gi, "[sound:$1]");
   text = text.replace(/<img[^>]*src=["']([^"']+)["'][^>]*>/gi, "![[$1]]");
+  // Tables use different delimiters locally and in Anki HTML; reduce both to
+  // the same words so a pulled table does not look like a fresh local edit.
+  text = text.replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*$/gm, " ");
+  text = text.replace(/<\/?(?:table|thead|tbody|tr|td|th)[^>]*>/gi, " ");
+  text = text.replace(/\|/g, " ");
   text = text.replace(/<[^>]+>/g, "");
   text = text.replace(/\[sound:([^\]]+)\]/gi, "![[$1]]");
   text = text.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/[*_`]/g, "");
@@ -147,8 +160,9 @@ function syncDecision(local, remote, baseline) {
 }
 
 
-const MEDIA_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|m4a|ogg|flac|aac|opus|mp4|webm|mov)$/i;
+const MEDIA_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|avif|mp3|wav|m4a|ogg|flac|aac|opus|mp4|webm|mov|m4v|ogv)$/i;
 const AUDIO_EXTENSIONS = /\.(mp3|wav|m4a|ogg|flac|aac|opus)$/i;
+const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|m4v|ogv)$/i;
 
 function mediaName(target) {
   return str(target).split("#")[0].split("|")[0].replace(/^.*[\\/]/, "").trim();
@@ -156,7 +170,15 @@ function mediaName(target) {
 
 function mediaKind(name) {
   if (AUDIO_EXTENSIONS.test(name)) return "audio";
+  if (VIDEO_EXTENSIONS.test(name)) return "video";
   return MEDIA_EXTENSIONS.test(name) ? "image" : "";
+}
+
+function mediaHtml(name) {
+  const kind = mediaKind(name);
+  if (kind === "audio") return `[sound:${escapeHtml(name)}]`;
+  if (kind === "video") return `<video controls src="${escapeHtml(name)}"></video>`;
+  return `<img src="${escapeHtml(name)}">`;
 }
 
 /** Find image/audio embeds in Markdown without fetching anything. */
@@ -183,28 +205,73 @@ function escapeHtml(value) {
 }
 
 /**
+ * Convert pipe tables only when the second row is a Markdown alignment row.
+ * Returning the original block when it is not a table keeps ordinary prose
+ * containing pipes intact.
+ */
+function splitTableRow(line) {
+  return str(line).trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+
+function isTableSeparator(line) {
+  const cells = splitTableRow(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function tableToHtml(lines) {
+  const rows = (Array.isArray(lines) ? lines : []).map(splitTableRow);
+  if (rows.length < 2) return "";
+  const head = rows[0].map((cell) => `<th>${cell}</th>`).join("");
+  const body = rows
+    .slice(2)
+    .map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`)
+    .join("");
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function markdownTablesToHtml(text, hold) {
+  const lines = str(text).split("\n");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const block = [];
+    let next = i;
+    while (next < lines.length && str(lines[next]).includes("|")) {
+      block.push(lines[next]);
+      next++;
+    }
+    if (block.length >= 2 && isTableSeparator(block[1])) {
+      out.push(hold(tableToHtml(block)));
+      i = next - 1;
+      continue;
+    }
+    out.push(lines[i]);
+  }
+  return out.join("\n");
+}
+
+/**
  * A deliberately small Markdown-to-HTML adapter for Anki fields. It keeps
- * code, math, images and audio readable without shipping a Markdown parser.
+ * code, math, tables, images, audio and video readable without shipping a
+ * Markdown parser.
  */
 function markdownToAnkiHtml(value) {
   const source = str(value);
-  if (/<(?:strong|em|code|pre|img|br|a)\b[^>]*>/i.test(source)) return source;
+  if (/<(?:strong|em|code|pre|img|br|a|table|video)\b[^>]*>/i.test(source)) return source;
   const tokens = [];
   const hold = (html) => `\u0000${tokens.push(html) - 1}\u0000`;
   let text = source.replace(/\r\n/g, "\n");
   text = text.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_full, code) => hold(`<pre><code>${escapeHtml(code.trim())}</code></pre>`));
   text = text.replace(/!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g, (_full, target) => {
-    const name = mediaName(target);
-    return hold(mediaKind(name) === "audio" ? `[sound:${escapeHtml(name)}]` : `<img src="${escapeHtml(name)}">`);
+    return hold(mediaHtml(mediaName(target)));
   });
   text = text.replace(/!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_full, target) => {
-    const name = mediaName(target);
-    return hold(mediaKind(name) === "audio" ? `[sound:${escapeHtml(name)}]` : `<img src="${escapeHtml(name)}">`);
+    return hold(mediaHtml(mediaName(target)));
   });
   text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_full, math) => hold(`\\[${escapeHtml(math.trim())}\\]`));
   text = text.replace(/\$([^$\n]+)\$/g, (_full, math) => hold(`\\(${escapeHtml(math.trim())}\\)`));
   text = text.replace(/`([^`]+)`/g, (_full, code) => hold(`<code>${escapeHtml(code)}</code>`));
   text = escapeHtml(text);
+  text = markdownTablesToHtml(text, hold);
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_full, label, url) => `<a href="${url}">${label}</a>`);
   text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\*([^*]+)\*/g, "<em>$1</em>");
   text = text.replace(/\n/g, "<br>");
@@ -224,11 +291,24 @@ function oneLine(value) {
   return str(value).replace(/\r?\n/g, " ").replace(/\t/g, " ").trim();
 }
 
-function tagsFor(fm) {
-  const raw = Array.isArray(fm && fm.tags) ? fm.tags : str(fm && fm.tags).split(/[,;]+|\s+/);
+function parseTags(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[,;]+|\s+/);
   return raw
     .map((tag) => oneLine(tag).replace(/\s+/g, "_"))
     .filter(Boolean);
+}
+
+function tagsFor(fm) {
+  return parseTags(fm && fm.tags);
+}
+
+/** A local Obsidian URI, used only when the optional backlink is enabled. */
+function sourceBacklink(path, vaultName) {
+  const clean = str(path).trim();
+  if (!clean) return "";
+  const vault = str(vaultName).trim();
+  const query = `${vault ? `vault=${encodeURIComponent(vault)}&` : ""}file=${encodeURIComponent(clean)}`;
+  return `<br><br><a href="${escapeHtml(`obsidian://open?${query}`)}">Source note</a>`;
 }
 
 function cardAnswer(card) {
@@ -263,6 +343,7 @@ function buildAnkiNotes(cards, options) {
   const opts = options || {};
   const fallbackDeck = str(opts.defaultDeck).trim() || "Imported";
   const targetDeck = str(opts.deck).trim();
+  const vaultTags = parseTags(opts.vaultTags);
   const notes = [];
   const paths = [];
   const warnings = [];
@@ -283,10 +364,12 @@ function buildAnkiNotes(cards, options) {
       (opts.folderDecks ? folderDeckName(path, opts.cardRoot) : "") ||
       oneLine(card && card.deck) ||
       fallbackDeck;
-    const tags = tagsFor(fm);
+    const tags = [...new Set([...tagsFor(fm), ...vaultTags])];
     const cloze = /cloze/i.test(str(fm.card_type)) || /cloze/i.test(str(body.cardType));
     const imageName = mediaName(fm.image || "");
     const rawBack = str(body.back || fm.back || fm.answer);
+    const sourcePath = str(fm.source_note || fm.source_file || path).trim();
+    const backlink = opts.backlinks === true ? sourceBacklink(sourcePath, opts.vaultName) : "";
     for (const ref of [...mediaRefs(rawFront), ...mediaRefs(rawBack)]) media.push({ ...ref, sourcePath: path });
     if (imageName) media.push({ target: str(fm.image), name: imageName, kind: mediaKind(imageName) || "image", sourcePath: path });
     const fields = {};
@@ -299,11 +382,11 @@ function buildAnkiNotes(cards, options) {
         .filter(Boolean);
       const text = rawFront.replace(/\[…\]/g, () => `{{c1::${answers[next++] || "…"}}}`);
       fields.Text = markdownToAnkiHtml(text);
-      fields["Back Extra"] = "";
+      fields["Back Extra"] = backlink;
       modelName = "Cloze";
     } else {
       fields.Front = imageName ? `<img src="${escapeHtml(imageName)}"><br>${markdownToAnkiHtml(rawFront)}` : markdownToAnkiHtml(rawFront);
-      fields.Back = markdownToAnkiHtml(answer);
+      fields.Back = `${markdownToAnkiHtml(answer)}${backlink}`;
     }
     if (imageName) warnings.push(`${path}: the image stays in the vault and is uploaded only when you confirm Anki sync.`);
     if (mediaRefs(rawFront).length || mediaRefs(rawBack).length) warnings.push(`${path}: media stays in the vault and is uploaded only when you confirm Anki sync.`);
@@ -466,10 +549,11 @@ class AnkiConnectModal extends Modal {
     this.note.setText(`AnkiConnect: ${settings.url}`);
     const row = contentEl.createDiv({ cls: "qt-row" });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
-    const go = row.createEl("button", { text: "Preview push", cls: "qt-grow" });
+    const go = row.createEl("button", { text: this.options.vaultWide ? "Preview vault push" : "Preview push", cls: "qt-grow" });
     const sync = row.createEl("button", { text: "Preview sync", cls: "mod-cta qt-grow" });
     go.disabled = !settings.enabled;
-    sync.disabled = !settings.enabled;
+    sync.disabled = !settings.enabled || this.options.vaultWide === true;
+    if (this.options.vaultWide === true) sync.style.display = "none";
     this.previewEl = contentEl.createDiv({ cls: "qt-anki-preview" });
     cancel.addEventListener("click", () => this.close());
     go.addEventListener("click", () => this.preview(true, target.value));
@@ -483,6 +567,7 @@ class AnkiConnectModal extends Modal {
       const result = await this.plugin.previewAnkiSync({
         deck: this.options.deck,
         course: this.options.course,
+        vaultWide: this.options.vaultWide === true,
         targetDeck,
         pushOnly,
       });
@@ -519,7 +604,7 @@ class AnkiConnectModal extends Modal {
     if (result.warnings && result.warnings.length) el.createEl("p", { cls: "qt-hint", text: result.warnings[0] });
     if (result.errors && result.errors.length) el.createEl("p", { cls: "qt-error", text: result.errors[0] });
     if (result.entries.length) {
-      const apply = el.createEl("button", { text: pushOnly ? "Apply push" : "Apply sync", cls: "mod-cta" });
+      const apply = el.createEl("button", { text: pushOnly ? (this.options.vaultWide ? "Apply vault push" : "Apply push") : "Apply sync", cls: "mod-cta" });
       apply.addEventListener("click", () => this.apply(pushOnly, targetDeck, apply));
     }
   }
@@ -528,9 +613,8 @@ class AnkiConnectModal extends Modal {
     button.disabled = true;
     this.note.setText(pushOnly ? "Pushing to Anki…" : "Syncing with Anki…");
     try {
-      const result = pushOnly
-        ? await this.plugin.pushCardsToAnki({ deck: this.options.deck, course: this.options.course, targetDeck })
-        : await this.plugin.syncCardsWithAnki({ deck: this.options.deck, course: this.options.course, targetDeck });
+      const scope = { deck: this.options.deck, course: this.options.course, vaultWide: this.options.vaultWide === true, targetDeck };
+      const result = pushOnly ? await this.plugin.pushCardsToAnki(scope) : await this.plugin.syncCardsWithAnki(scope);
       const bits = pushOnly
         ? [`Added ${result.added} card${result.added === 1 ? "" : "s"}`]
         : [`Pushed ${result.pushed}`, `Pulled ${result.pulled}`];

@@ -378,6 +378,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
     this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki package, Anki text, Mochi, LearnKit, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
+    this.addCommand({ id: "push-vault-anki", name: "Cards: push the whole vault to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ vaultWide: true }) });
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
     this.addCommand({ id: "review-notes", name: "Review notes (whole-note queue)", callback: () => this.openNoteReview() });
@@ -1840,6 +1841,21 @@ class QuestionTrackerPlugin extends Plugin {
     ).open();
   }
 
+  /** Shared build options, including the opt-in vault tags and source backlinks. */
+  ankiBuildOptions(options, settings) {
+    const opts = options || {};
+    const anki = settings || normalizeAnkiConnect(this.settings.cards.ankiConnect);
+    return {
+      deck: opts.targetDeck || anki.deck,
+      defaultDeck: this.settings.cards.defaultDeck,
+      folderDecks: anki.folderDecks,
+      cardRoot: this.settings.cards.newCardFolder,
+      vaultTags: anki.vaultTags,
+      backlinks: anki.backlinks === true,
+      vaultName: typeof this.app.vault.getName === "function" ? this.app.vault.getName() : "",
+    };
+  }
+
   openAnkiConnectPush(options, onDone) {
     if (this.moduleOff("cards")) return;
     const settings = normalizeAnkiConnect(this.settings.cards.ankiConnect);
@@ -2010,8 +2026,10 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const settings = normalizeAnkiConnect(this.settings.cards.ankiConnect);
     if (!settings.enabled) throw new Error("Turn on AnkiConnect sync under Settings, Cards, Decks first.");
-    const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
-    if (!cards.length) throw new Error("No cards match the current deck and course filter.");
+    const cards = opts.vaultWide === true
+      ? this.getCards()
+      : this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
+    if (!cards.length) throw new Error(opts.vaultWide === true ? "No card notes were found in the vault." : "No cards match the current deck and course filter.");
     const records = [];
     const errors = [];
     const warnings = [];
@@ -2025,13 +2043,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const entries = [];
     const counts = { create: 0, update: 0, pull: 0, conflict: 0, missing: 0, delete: 0, unchanged: 0, media: 0 };
-    const build = (list) =>
-      buildAnkiNotes(list, {
-        deck: opts.targetDeck || settings.deck,
-        defaultDeck: this.settings.cards.defaultDeck,
-        folderDecks: settings.folderDecks,
-        cardRoot: this.settings.cards.newCardFolder,
-      });
+    const build = (list) => buildAnkiNotes(list, this.ankiBuildOptions(opts, settings));
     const unlinked = records.filter((record) => !str(record.fm && record.fm.anki_note_id).trim());
     if (unlinked.length) {
       const built = build(unlinked);
@@ -2050,7 +2062,7 @@ class QuestionTrackerPlugin extends Plugin {
       }
     }
     if (opts.pushOnly) {
-      return { entries, counts, warnings, errors, total: records.length, format: "ankiconnect-preview", pushOnly: true };
+      return { entries, counts, warnings, errors, total: records.length, format: "ankiconnect-preview", pushOnly: true, vaultWide: opts.vaultWide === true };
     }
     const linked = records.filter((record) => str(record.fm && record.fm.anki_note_id).trim());
     if (linked.length) {
@@ -2119,7 +2131,7 @@ class QuestionTrackerPlugin extends Plugin {
         counts.media += new Set(linkedMedia.map((item) => item.name)).size;
       }
     }
-    return { entries, counts, warnings, errors, total: records.length, format: "ankiconnect-preview", pushOnly: false };
+    return { entries, counts, warnings, errors, total: records.length, format: "ankiconnect-preview", pushOnly: false, vaultWide: opts.vaultWide === true };
   }
 
   /** Optional push. It also records note IDs so the next sync can pull changes. */
@@ -2128,8 +2140,10 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const settings = normalizeAnkiConnect(this.settings.cards.ankiConnect);
     if (!settings.enabled) throw new Error("Turn on AnkiConnect sync under Settings, Cards, Decks first.");
-    const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
-    if (!cards.length) throw new Error("No cards match the current deck and course filter.");
+    const cards = opts.vaultWide === true
+      ? this.getCards()
+      : this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
+    if (!cards.length) throw new Error(opts.vaultWide === true ? "No card notes were found in the vault." : "No cards match the current deck and course filter.");
     const records = [];
     const warnings = [];
     for (const card of cards) {
@@ -2140,12 +2154,7 @@ class QuestionTrackerPlugin extends Plugin {
         warnings.push(`${card.file.path}: ${String((e && e.message) || e)}`);
       }
     }
-    const built = buildAnkiNotes(records, {
-      deck: opts.targetDeck || settings.deck,
-      defaultDeck: this.settings.cards.defaultDeck,
-      folderDecks: settings.folderDecks,
-      cardRoot: this.settings.cards.newCardFolder,
-    });
+    const built = buildAnkiNotes(records, this.ankiBuildOptions(opts, settings));
     if (!built.notes.length) throw new Error("Nothing in this filter can be sent to Anki yet.");
     const client = new AnkiConnectClient({ url: settings.url });
     warnings.push(...(await this.uploadAnkiMedia(client, built)));
@@ -2182,8 +2191,10 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const settings = normalizeAnkiConnect(this.settings.cards.ankiConnect);
     if (!settings.enabled) throw new Error("Turn on AnkiConnect sync under Settings, Cards, Decks first.");
-    const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
-    if (!cards.length) throw new Error("No cards match the current deck and course filter.");
+    const cards = opts.vaultWide === true
+      ? this.getCards()
+      : this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
+    if (!cards.length) throw new Error(opts.vaultWide === true ? "No card notes were found in the vault." : "No cards match the current deck and course filter.");
     const records = [];
     const errors = [];
     const warnings = [];
@@ -2200,12 +2211,7 @@ class QuestionTrackerPlugin extends Plugin {
     let pushed = 0;
     let duplicates = 0;
     if (unlinked.length) {
-      const built = buildAnkiNotes(unlinked, {
-        deck: opts.targetDeck || settings.deck,
-        defaultDeck: this.settings.cards.defaultDeck,
-        folderDecks: settings.folderDecks,
-        cardRoot: this.settings.cards.newCardFolder,
-      });
+      const built = buildAnkiNotes(unlinked, this.ankiBuildOptions(opts, settings));
       warnings.push(...(await this.uploadAnkiMedia(client, built)));
       const result = await client.push(built.notes);
       duplicates += result.duplicates;
@@ -2295,12 +2301,7 @@ class QuestionTrackerPlugin extends Plugin {
               remoteHash: decision.remoteHash,
             });
           } else if (action === "push") {
-            const built = buildAnkiNotes([record], {
-              deck: opts.targetDeck || settings.deck,
-              defaultDeck: this.settings.cards.defaultDeck,
-              folderDecks: settings.folderDecks,
-              cardRoot: this.settings.cards.newCardFolder,
-            });
+            const built = buildAnkiNotes([record], this.ankiBuildOptions(opts, settings));
             if (!built.notes.length) {
               skipped++;
               continue;

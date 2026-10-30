@@ -484,3 +484,75 @@ test("AnkiConnect: Markdown and the HTML Anki returns compare as the same conten
   assert.equal(anki.syncHash(markdown), anki.syncHash(html));
   assert.match(anki.markdownToAnkiHtml("<strong>Already HTML</strong>"), /^<strong>Already HTML<\/strong>$/);
 });
+
+test("AnkiConnect: video, tables, vault tags and source backlinks are opt-in", () => {
+  const video = anki.mediaRefs("![[clip.mp4]]");
+  assert.equal(video.length, 1);
+  assert.equal(video[0].kind, "video");
+  assert.match(anki.markdownToAnkiHtml("![[clip.mp4]]"), /<video controls src="clip\.mp4"><\/video>/);
+  const table = anki.markdownToAnkiHtml("| Term | Meaning |\n| --- | --- |\n| ATP | Energy |");
+  assert.equal(
+    table,
+    "<table><thead><tr><th>Term</th><th>Meaning</th></tr></thead><tbody><tr><td>ATP</td><td>Energy</td></tr></tbody></table>"
+  );
+  assert.equal(anki.markdownToAnkiHtml("Term | Meaning\n--- | ---\nATP | Energy"), table);
+  const card = {
+    file: { path: "Cards/Bio/Q.md" },
+    fm: { deck: "Biology", tags: ["exam"], source_note: "Notes/Bio Lecture.md" },
+    body: { front: "Q", back: "A" },
+  };
+  assert.equal(anki.buildAnkiNotes([card], { defaultDeck: "General" }).notes[0].fields.Back, "A");
+  const built = anki.buildAnkiNotes([card], {
+    defaultDeck: "General",
+    vaultTags: "vault, extra",
+    backlinks: true,
+    vaultName: "Study Vault",
+  });
+  assert.deepEqual(built.notes[0].tags, ["exam", "vault", "extra"]);
+  assert.match(built.notes[0].fields.Back, /obsidian:\/\/open\?vault=Study%20Vault&amp;file=Notes%2FBio%20Lecture\.md/);
+  assert.match(built.notes[0].fields.Back, />Source note<\/a>$/);
+  const local = anki.syncRecord({ front: "| Term | Meaning |\n| --- | --- |\n| ATP | Energy |", back: "A", deck: "D", tags: [], type: "Basic" });
+  const remote = anki.syncRecord({
+    front: "<table><thead><tr><th>Term</th><th>Meaning</th></tr></thead><tbody><tr><td>ATP</td><td>Energy</td></tr></tbody></table>",
+    back: 'A<br><br><a href="obsidian://open?vault=Study%20Vault&amp;file=Notes%2FBio.md">Source note</a>',
+    deck: "D",
+    tags: [],
+    type: "Basic",
+  });
+  assert.equal(anki.syncHash(local), anki.syncHash(remote));
+});
+
+test("plugin: vault-wide push includes every card and applies vault tags and backlinks", async () => {
+  const notes = [
+    { path: "Cards/Bio/Q.md", noFm: true, fm: { card_id: "q1", item_type: "card", deck: "Biology", source_note: "Notes/Bio.md" }, text: "## Front\nQ1\n\n## Back\nA1" },
+    { path: "Cards/Chem/Q.md", noFm: true, fm: { card_id: "q2", item_type: "card", deck: "Chemistry" }, text: "## Front\nQ2\n\n## Back\nA2" },
+  ];
+  const app = makeApp(notes);
+  notes.forEach((n, i) => (app.files[i].fm = { ...n.fm }));
+  app.vault.getName = () => "Study Vault";
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  plugin.settings.cards.ankiConnect = { enabled: true, url: "http://127.0.0.1:8765", deck: "", vaultTags: "vault, extra", backlinks: true };
+  assert.ok(plugin.commands.some((command) => command.id === "push-vault-anki"));
+  const actions = [];
+  const previous = obsidian.requestImpl;
+  obsidian.requestImpl = async (req) => {
+    const body = JSON.parse(req.body);
+    actions.push(body);
+    if (body.action === "canAddNotes") return { status: 200, json: { result: body.params.notes.map(() => true) } };
+    if (body.action === "addNotes") return { status: 200, json: { result: [123, 456] } };
+    return { status: 200, json: { result: 1 } };
+  };
+  try {
+    const result = await plugin.pushCardsToAnki({ deck: "Biology", vaultWide: true });
+    assert.equal(result.count, 2);
+    const add = actions.find((body) => body.action === "canAddNotes");
+    assert.equal(add.params.notes.length, 2);
+    assert.deepEqual(add.params.notes[0].tags, ["vault", "extra"]);
+    assert.match(add.params.notes[0].fields.Back, /obsidian:\/\/open\?vault=Study%20Vault&amp;file=Notes%2FBio\.md/);
+    assert.match(add.params.notes[1].fields.Back, /obsidian:\/\/open\?vault=Study%20Vault&amp;file=Cards%2FChem%2FQ\.md/);
+  } finally {
+    obsidian.requestImpl = previous;
+  }
+});

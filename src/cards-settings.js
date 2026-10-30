@@ -222,6 +222,27 @@ function renderDecks(containerEl, plugin, redisplay) {
         })
     );
   new Setting(containerEl)
+    .setName("Extra Anki tags")
+    .setDesc("Optional comma-separated tags added to every Anki note, alongside each note's own tags. Leave blank to use only per-note tags.")
+    .addText((t) =>
+      t
+        .setPlaceholder("e.g. mcq-tracker")
+        .setValue(anki.vaultTags || "")
+        .onChange(async (v) => {
+          anki.vaultTags = str(v).trim();
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Source backlink in Anki")
+    .setDesc("Optional. Appends a link to the source note (or the card note when there is no source) to each pushed Anki card. Off by default.")
+    .addToggle((t) =>
+      t.setValue(anki.backlinks === true).onChange(async (v) => {
+        anki.backlinks = v;
+        await plugin.save();
+      })
+    );
+  new Setting(containerEl)
     .setName("Delete Anki notes for deleted local cards")
     .setDesc("Opt-in. The next preview shows linked Anki notes whose local note no longer exists, and applies the deletion only when you confirm. Off by default; moving a note out of the card folder can count as a deletion.")
     .addToggle((t) =>
@@ -258,7 +279,8 @@ function renderDecks(containerEl, plugin, redisplay) {
     .setName("Sync the current filter with Anki")
     .setDesc("Pushes new cards and merges Anki edits into linked cards. Uses the deck and course filter from the Cards view.")
     .addButton((b) => b.setButtonText("Sync with Anki").onClick(() => plugin.openAnkiConnectPush({ sync: true })))
-    .addButton((b) => b.setButtonText("Push only").onClick(() => plugin.openAnkiConnectPush()));
+    .addButton((b) => b.setButtonText("Push only").onClick(() => plugin.openAnkiConnectPush()))
+    .addButton((b) => b.setButtonText("Push whole vault").onClick(() => plugin.openAnkiConnectPush({ vaultWide: true })));
 }
 
 function ensureDeck(st, name) {
