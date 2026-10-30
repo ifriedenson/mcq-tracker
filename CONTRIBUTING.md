@@ -20,8 +20,7 @@ before opening the pull request.
 
 AI assistance is allowed, but you are responsible for the result. Disclose
 substantial AI-generated code in the pull request, review every line yourself,
-and make sure you have the right to license what you submit. Purely
-AI-generated output may not be copyrightable in some jurisdictions.
+and make sure you have the right to license what you submit.
 
 ## Before you open a pull request
 
