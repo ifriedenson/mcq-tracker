@@ -58,6 +58,7 @@ function clampScore(value) {
 function normalizeQuestionType(value) {
   const text = clean(value).toLowerCase();
   if (/reorder|sequence|chronological/.test(text)) return "reorder";
+  if (/numeric(?!\s*[-]?\s*estimate)|number|decimal|integer/.test(text)) return "numeric";
   if (/slider|range|numeric.?estimate/.test(text)) return "slider";
   if (/text|free|short|written|open/.test(text)) return "text";
   return "choice";
@@ -100,6 +101,8 @@ function newQuestion() {
     id: "",
     min: 0,
     max: 100,
+    minSet: false,
+    maxSet: false,
     step: 1,
     tolerance: 0,
     weight: 1,
@@ -189,11 +192,13 @@ function parseQuizBlock(text) {
     const context = field("Context");
     if (min) {
       cur.min = number(min[1], 0);
+      cur.minSet = true;
       last = null;
       continue;
     }
     if (max) {
       cur.max = number(max[1], 100);
+      cur.maxSet = true;
       last = null;
       continue;
     }
@@ -272,6 +277,13 @@ function parseQuizBlock(text) {
         if (!key) question.issues.push(`Question ${index + 1}: Answer must list every item letter once.`);
         question.answer = key;
       }
+    } else if (question.type === "numeric") {
+      const answer = number(question.answer, NaN);
+      if (!Number.isFinite(answer)) question.issues.push(`Question ${index + 1} needs a numeric Answer.`);
+      if (question.minSet && question.maxSet && !(question.min < question.max)) question.issues.push(`Question ${index + 1} needs Min smaller than Max.`);
+      if (Number.isFinite(answer) && question.minSet && answer < question.min) question.issues.push(`Question ${index + 1}: the Answer is below Min.`);
+      if (Number.isFinite(answer) && question.maxSet && answer > question.max) question.issues.push(`Question ${index + 1}: the Answer is above Max.`);
+      question.answer = Number.isFinite(answer) ? String(answer) : "";
     } else if (question.type === "slider") {
       if (!Number.isFinite(number(question.answer, NaN))) question.issues.push(`Question ${index + 1} needs a numeric Answer for its slider.`);
       if (!(question.min < question.max)) question.issues.push(`Question ${index + 1} needs Min smaller than Max.`);
@@ -362,6 +374,26 @@ function gradeTextQuestion(question, selected, aiScore) {
   };
 }
 
+/** Grade a typed number with an inclusive ± tolerance. */
+function gradeNumericQuestion(question, selected) {
+  const q = question || {};
+  const expected = number(q.answer, NaN);
+  const picked = number(selected, NaN);
+  const tolerance = Math.max(0, Number(q.tolerance) || 0);
+  const correct = Number.isFinite(expected) && Number.isFinite(picked) && Math.abs(picked - expected) <= tolerance;
+  return {
+    correct,
+    score: correct ? 100 : 0,
+    mode: "numeric",
+    type: "numeric",
+    weight: Number(q.weight) || 1,
+    key: String(expected),
+    selected: Number.isFinite(picked) ? String(picked) : "",
+    explanation: str(q.explanation),
+    band: correct ? "pass" : "fail",
+  };
+}
+
 /** Grade an exact sequence of item letters. */
 function gradeReorderQuestion(question, selected) {
   const q = question || {};
@@ -384,6 +416,7 @@ function gradeReorderQuestion(question, selected) {
 /** Grade one answer. `aiScore` is only used for text questions. */
 function gradeQuizQuestion(question, selected, aiScore) {
   if (question && question.type === "reorder") return gradeReorderQuestion(question, selected);
+  if (question && question.type === "numeric") return gradeNumericQuestion(question, selected);
   if (question && question.type === "slider") return gradeSliderQuestion(question, selected);
   if (question && question.type === "text") return gradeTextQuestion(question, selected, aiScore);
   return gradeQuizBlockQuestion(question, selected);
@@ -484,6 +517,7 @@ module.exports = {
   LETTERS,
   bandForScore,
   gradeQuizBlockQuestion,
+  gradeNumericQuestion,
   gradeQuizQuestion,
   gradeReorderQuestion,
   normalizeQuestionType,

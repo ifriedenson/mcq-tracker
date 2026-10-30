@@ -17046,6 +17046,7 @@ const DEFAULT_SETTINGS = {
   examReadyPasses: 2, // consecutive correct answers for the exam-ready badge (Omniscient's default)
   inlineQuizResults: false, // opt-in: export mcq-quiz scores to the note under quizResults
   inlineQuizReorder: false, // opt-in: reorder questions in mcq-quiz blocks
+  inlineQuizNumeric: false, // opt-in: typed numeric questions in mcq-quiz blocks
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
     managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)
@@ -34755,7 +34756,7 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
-const { gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
+const { gradeNumericQuestion, gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
@@ -35365,6 +35366,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.examReadyPasses = normalizeExamReadyPasses(this.settings.examReadyPasses);
     this.settings.inlineQuizResults = this.settings.inlineQuizResults === true;
     this.settings.inlineQuizReorder = this.settings.inlineQuizReorder === true;
+    this.settings.inlineQuizNumeric = this.settings.inlineQuizNumeric === true;
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -38314,6 +38316,26 @@ class QuestionTrackerPlugin extends Plugin {
           await finish(gradeReorderQuestion(question, chosen));
         });
         card.createDiv({ cls: "qt-hint", text: "Use ▲ and ▼ to put the items in order, then check." });
+        return;
+      }
+
+      if (question.type === "numeric") {
+        if (this.settings.inlineQuizNumeric !== true) {
+          card.createDiv({ cls: "qt-quiz-issue", text: "Numeric questions are off. Turn on Inline numeric questions under Settings → MCQ Review." });
+          return;
+        }
+        const wrap = card.createDiv({ cls: "qt-quiz-numeric" });
+        const attrs = { placeholder: "Your answer", "aria-label": question.question };
+        if (question.minSet) attrs.min = String(question.min);
+        if (question.maxSet) attrs.max = String(question.max);
+        const input = wrap.createEl("input", { type: "number", cls: "qt-spr", attr: attrs });
+        if (question.step !== 1) input.setAttr("step", String(question.step));
+        wrap.createEl("button", { cls: "qt-quiz-submit", text: "Check answer" }).addEventListener("click", async () => {
+          if (done) return;
+          await finish(gradeNumericQuestion(question, input.value));
+        });
+        const bounds = [question.minSet ? `min ${question.min}` : "", question.maxSet ? `max ${question.max}` : ""].filter(Boolean).join(" · ");
+        card.createDiv({ cls: "qt-hint", text: `Tolerance ±${question.tolerance}${bounds ? ` · ${bounds}` : ""}` });
         return;
       }
 
@@ -44286,6 +44308,7 @@ function clampScore(value) {
 function normalizeQuestionType(value) {
   const text = clean(value).toLowerCase();
   if (/reorder|sequence|chronological/.test(text)) return "reorder";
+  if (/numeric(?!\s*[-]?\s*estimate)|number|decimal|integer/.test(text)) return "numeric";
   if (/slider|range|numeric.?estimate/.test(text)) return "slider";
   if (/text|free|short|written|open/.test(text)) return "text";
   return "choice";
@@ -44328,6 +44351,8 @@ function newQuestion() {
     id: "",
     min: 0,
     max: 100,
+    minSet: false,
+    maxSet: false,
     step: 1,
     tolerance: 0,
     weight: 1,
@@ -44417,11 +44442,13 @@ function parseQuizBlock(text) {
     const context = field("Context");
     if (min) {
       cur.min = number(min[1], 0);
+      cur.minSet = true;
       last = null;
       continue;
     }
     if (max) {
       cur.max = number(max[1], 100);
+      cur.maxSet = true;
       last = null;
       continue;
     }
@@ -44500,6 +44527,13 @@ function parseQuizBlock(text) {
         if (!key) question.issues.push(`Question ${index + 1}: Answer must list every item letter once.`);
         question.answer = key;
       }
+    } else if (question.type === "numeric") {
+      const answer = number(question.answer, NaN);
+      if (!Number.isFinite(answer)) question.issues.push(`Question ${index + 1} needs a numeric Answer.`);
+      if (question.minSet && question.maxSet && !(question.min < question.max)) question.issues.push(`Question ${index + 1} needs Min smaller than Max.`);
+      if (Number.isFinite(answer) && question.minSet && answer < question.min) question.issues.push(`Question ${index + 1}: the Answer is below Min.`);
+      if (Number.isFinite(answer) && question.maxSet && answer > question.max) question.issues.push(`Question ${index + 1}: the Answer is above Max.`);
+      question.answer = Number.isFinite(answer) ? String(answer) : "";
     } else if (question.type === "slider") {
       if (!Number.isFinite(number(question.answer, NaN))) question.issues.push(`Question ${index + 1} needs a numeric Answer for its slider.`);
       if (!(question.min < question.max)) question.issues.push(`Question ${index + 1} needs Min smaller than Max.`);
@@ -44590,6 +44624,26 @@ function gradeTextQuestion(question, selected, aiScore) {
   };
 }
 
+/** Grade a typed number with an inclusive ± tolerance. */
+function gradeNumericQuestion(question, selected) {
+  const q = question || {};
+  const expected = number(q.answer, NaN);
+  const picked = number(selected, NaN);
+  const tolerance = Math.max(0, Number(q.tolerance) || 0);
+  const correct = Number.isFinite(expected) && Number.isFinite(picked) && Math.abs(picked - expected) <= tolerance;
+  return {
+    correct,
+    score: correct ? 100 : 0,
+    mode: "numeric",
+    type: "numeric",
+    weight: Number(q.weight) || 1,
+    key: String(expected),
+    selected: Number.isFinite(picked) ? String(picked) : "",
+    explanation: str(q.explanation),
+    band: correct ? "pass" : "fail",
+  };
+}
+
 /** Grade an exact sequence of item letters. */
 function gradeReorderQuestion(question, selected) {
   const q = question || {};
@@ -44612,6 +44666,7 @@ function gradeReorderQuestion(question, selected) {
 /** Grade one answer. `aiScore` is only used for text questions. */
 function gradeQuizQuestion(question, selected, aiScore) {
   if (question && question.type === "reorder") return gradeReorderQuestion(question, selected);
+  if (question && question.type === "numeric") return gradeNumericQuestion(question, selected);
   if (question && question.type === "slider") return gradeSliderQuestion(question, selected);
   if (question && question.type === "text") return gradeTextQuestion(question, selected, aiScore);
   return gradeQuizBlockQuestion(question, selected);
@@ -44712,6 +44767,7 @@ module.exports = {
   LETTERS,
   bandForScore,
   gradeQuizBlockQuestion,
+  gradeNumericQuestion,
   gradeQuizQuestion,
   gradeReorderQuestion,
   normalizeQuestionType,
@@ -49296,6 +49352,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(st.inlineQuizReorder === true).onChange(async (v) => {
           st.inlineQuizReorder = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Inline numeric questions")
+      .setDesc(
+        "Enable Type: numeric in mcq-quiz blocks. Answer is a number, Tolerance is the allowed ± margin, and optional Min/Max bound the input. Off by default; other quiz blocks are unchanged."
+      )
+      .addToggle((t) =>
+        t.setValue(st.inlineQuizNumeric === true).onChange(async (v) => {
+          st.inlineQuizNumeric = v === true;
           await this.plugin.save();
           this.plugin.refreshViews();
         })

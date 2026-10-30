@@ -333,6 +333,10 @@ The export is off by default and is the only inline-quiz write to the note. It n
 
 Turn on **Settings → MCQ Tracker → Review → Inline reorder questions** to use `Type: reorder` in an `mcq-quiz` block. Items use the normal `A.`, `B.`, `C.` lines, and `Answer:` lists every letter once in the correct order. Practice shows ▲/▼ controls and checks the exact sequence. The option is off by default; other quiz blocks are unchanged and no attempt, history, streak or scheduling data is altered.
 
+### Inline numeric questions (optional)
+
+Turn on **Settings → MCQ Tracker → Review → Inline numeric questions** to use `Type: numeric` in an `mcq-quiz` block. Give the question an `Answer:` number, an optional inclusive `Tolerance:`, and optional `Min:` / `Max:` bounds. Practice renders a number field and checks the typed value locally. The option is off by default, other quiz blocks are unchanged, and no attempt, history, streak or scheduling data is altered.
+
 ### Closed-book practice (optional)
 
 Turn on **Settings → MCQ Tracker → Review → Closed-book practice** to hide the **Open note** shortcut during a question. The question, choices and timer stay visible; the source row, answer note and explanation unlock only after you submit. The option is off by default, and it changes no attempts, history, streak, next review or scheduling. The toggle is a saved setting, so it stays on across practice sessions and plugin restarts; turn it off to restore the Open note shortcut.

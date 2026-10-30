@@ -93,7 +93,7 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
-const { gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
+const { gradeNumericQuestion, gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
@@ -703,6 +703,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.examReadyPasses = normalizeExamReadyPasses(this.settings.examReadyPasses);
     this.settings.inlineQuizResults = this.settings.inlineQuizResults === true;
     this.settings.inlineQuizReorder = this.settings.inlineQuizReorder === true;
+    this.settings.inlineQuizNumeric = this.settings.inlineQuizNumeric === true;
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -3652,6 +3653,26 @@ class QuestionTrackerPlugin extends Plugin {
           await finish(gradeReorderQuestion(question, chosen));
         });
         card.createDiv({ cls: "qt-hint", text: "Use ▲ and ▼ to put the items in order, then check." });
+        return;
+      }
+
+      if (question.type === "numeric") {
+        if (this.settings.inlineQuizNumeric !== true) {
+          card.createDiv({ cls: "qt-quiz-issue", text: "Numeric questions are off. Turn on Inline numeric questions under Settings → MCQ Review." });
+          return;
+        }
+        const wrap = card.createDiv({ cls: "qt-quiz-numeric" });
+        const attrs = { placeholder: "Your answer", "aria-label": question.question };
+        if (question.minSet) attrs.min = String(question.min);
+        if (question.maxSet) attrs.max = String(question.max);
+        const input = wrap.createEl("input", { type: "number", cls: "qt-spr", attr: attrs });
+        if (question.step !== 1) input.setAttr("step", String(question.step));
+        wrap.createEl("button", { cls: "qt-quiz-submit", text: "Check answer" }).addEventListener("click", async () => {
+          if (done) return;
+          await finish(gradeNumericQuestion(question, input.value));
+        });
+        const bounds = [question.minSet ? `min ${question.min}` : "", question.maxSet ? `max ${question.max}` : ""].filter(Boolean).join(" · ");
+        card.createDiv({ cls: "qt-hint", text: `Tolerance ±${question.tolerance}${bounds ? ` · ${bounds}` : ""}` });
         return;
       }
 

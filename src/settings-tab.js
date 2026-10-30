@@ -601,6 +601,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Inline numeric questions")
+      .setDesc(
+        "Enable Type: numeric in mcq-quiz blocks. Answer is a number, Tolerance is the allowed ± margin, and optional Min/Max bound the input. Off by default; other quiz blocks are unchanged."
+      )
+      .addToggle((t) =>
+        t.setValue(st.inlineQuizNumeric === true).onChange(async (v) => {
+          st.inlineQuizNumeric = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Pause timer when the app is backgrounded (mobile)")
       .setDesc("Stops the clock if you switch apps or lock your phone.")
       .addToggle((t) =>
