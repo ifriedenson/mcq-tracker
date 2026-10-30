@@ -4195,6 +4195,7 @@ __defs["api-client"] = function (module, exports, require) {
 const { requestUrl } = require("obsidian");
 const { str } = require("./util");
 const { resolveApiKey } = require("./secret-keys");
+const { safeApiBase } = require("./url-safety");
 
 /* ---------------------------------------------- Direct API chat (works on phones) */
 
@@ -4234,7 +4235,7 @@ class ApiClient {
     const preset = API_PRESETS[a.provider] || API_PRESETS.custom;
     return {
       preset,
-      base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, ""),
+      base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "") ? safeApiBase((str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "")) : "",
       key: resolveApiKey(this.app, a),
       model: str(this.opts.model).trim() || str(a.model).trim(),
     };
@@ -4375,6 +4376,25 @@ const ZIP_LOCAL = 0x04034b50;
 const ZIP_CENTRAL = 0x02014b50;
 const ZIP_EOCD = 0x06054b50;
 
+// Bounds are deliberately generous for real decks but stop a small archive from
+// expanding without limit. The ZIP reader never writes entries to disk.
+const DEFAULT_ZIP_LIMITS = {
+  maxBytes: 100 * 1024 * 1024,
+  maxEntryBytes: 32 * 1024 * 1024,
+  maxTotalBytes: 128 * 1024 * 1024,
+  maxEntries: 5000,
+};
+
+function withZipLimits(value) {
+  const src = value && typeof value === "object" ? value : {};
+  return {
+    maxBytes: Math.max(1, Number(src.maxBytes) || DEFAULT_ZIP_LIMITS.maxBytes),
+    maxEntryBytes: Math.max(1, Number(src.maxEntryBytes) || DEFAULT_ZIP_LIMITS.maxEntryBytes),
+    maxTotalBytes: Math.max(1, Number(src.maxTotalBytes) || DEFAULT_ZIP_LIMITS.maxTotalBytes),
+    maxEntries: Math.max(1, Math.round(Number(src.maxEntries) || DEFAULT_ZIP_LIMITS.maxEntries)),
+  };
+}
+
 function fail(message) {
   throw new Error(message);
 }
@@ -4413,8 +4433,10 @@ function inflateRaw(data) {
 }
 
 /** Reads the ZIP central directory without extracting anything to disk. */
-function readZipEntries(input) {
+function readZipEntries(input, limits) {
+  const lim = withZipLimits(limits);
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input || []);
+  if (buf.length > lim.maxBytes) fail(`That .apkg file is too large (over ${Math.round(lim.maxBytes / (1024 * 1024))} MB).`);
   if (buf.length < 22) fail("That file is not a valid .apkg archive.");
   let eocd = -1;
   const stop = Math.max(0, buf.length - 65557);
@@ -4427,10 +4449,12 @@ function readZipEntries(input) {
   if (eocd < 0) fail("That file is not a valid .apkg archive: the ZIP directory is missing.");
   const entries = new Map();
   const total = u16(buf, eocd + 10);
+  if (total > lim.maxEntries) fail(`That .apkg file has too many ZIP entries (over ${lim.maxEntries}).`);
   const cdOffset = u32(buf, eocd + 16);
   if (cdOffset === 0xffffffff || total === 0xffff) fail("ZIP64 .apkg files are not supported. Export the deck as Anki text instead.");
   if (cdOffset >= buf.length) fail("That .apkg file is damaged: its ZIP directory is outside the file.");
   let p = cdOffset;
+  let totalUncompressed = 0;
   for (let index = 0; index < total; index++) {
     if (p + 46 > buf.length || u32(buf, p) !== ZIP_CENTRAL) fail("That .apkg file has a damaged ZIP directory.");
     const flags = u16(buf, p + 8);
@@ -4446,6 +4470,8 @@ function readZipEntries(input) {
     const name = buf.toString("utf8", p + 46, nameEnd);
     if (flags & 0x1) fail(`The .apkg entry ${name} is encrypted and cannot be read.`);
     if (compressedSize === 0xffffffff || uncompressedSize === 0xffffffff) fail("ZIP64 .apkg files are not supported. Export the deck as Anki text instead.");
+    if (uncompressedSize > lim.maxEntryBytes) fail(`The .apkg entry ${name} is too large (over ${Math.round(lim.maxEntryBytes / (1024 * 1024))} MB).`);
+    if (totalUncompressed + uncompressedSize > lim.maxTotalBytes) fail("That .apkg file expands to too much data.");
     if (localOffset + 30 > buf.length || u32(buf, localOffset) !== ZIP_LOCAL) fail(`The .apkg entry ${name} has a damaged local header.`);
     const localName = u16(buf, localOffset + 26);
     const localExtra = u16(buf, localOffset + 28);
@@ -4460,6 +4486,7 @@ function readZipEntries(input) {
       fail(`The .apkg entry ${name} uses an unsupported ZIP compression method (${method}).`);
     }
     if (Number(uncompressedSize) !== data.length) fail(`The .apkg entry ${name} has the wrong size after decompression.`);
+    totalUncompressed += data.length;
     entries.set(name.replace(/\\/g, "/"), data);
     p = nameEnd + extraLen + commentLen;
   }
@@ -4748,7 +4775,7 @@ function parseApkg(input, options) {
   const opts = options || {};
   const source = str(opts.sourcePath || "Anki package");
   const fallbackDeck = str(opts.deck).trim() || "Imported";
-  const entries = readZipEntries(input);
+  const entries = readZipEntries(input, options && options.zipLimits);
   const sqliteName = ["collection.anki21", "collection.anki2"].find((name) => entries.has(name));
   if (!sqliteName) {
     if (entries.has("collection.anki21b")) {
@@ -4845,6 +4872,7 @@ function parseApkg(input, options) {
 }
 
 module.exports = {
+  DEFAULT_ZIP_LIMITS,
   readZipEntries,
   parseCollection,
   parseApkg,
@@ -10204,6 +10232,47 @@ module.exports = {
 };
 };
 
+/* ---- src/card-learning.js ---- */
+__defs["card-learning"] = function (module, exports, require) {
+/*
+ * Small, shared rules for the optional card-learning features.
+ *
+ * These helpers do not own a scheduler or a queue. The existing attempt path
+ * still writes `history`, `next_review` and scheduler state; this module only
+ * describes when an opt-in same-day repeat is wanted and how much a known-card
+ * streak may lengthen a simple-ladder interval.
+ */
+
+const SAME_DAY_GRADES = ["again", "hard"];
+const ADAPTIVE_MAX_STREAK = 4;
+const ADAPTIVE_STEP = 0.15;
+
+/** Again/Hard can stay due today when the user opted into same-day reviews. */
+function isSameDayReview(grade, enabled) {
+  return enabled === true && SAME_DAY_GRADES.includes(String(grade || "").trim().toLowerCase());
+}
+
+/**
+ * Lengthen a ladder interval for a card the learner keeps getting right.
+ * A first correct answer has no bonus; each further consecutive correct answer
+ * adds 15%, up to four steps, so a well-known card is seen less often.
+ */
+function adaptiveIntervalDays(days, streak, enabled) {
+  const base = Math.max(1, Math.round(Number(days) || 1));
+  if (enabled !== true) return base;
+  const known = Math.max(0, Math.min(ADAPTIVE_MAX_STREAK, Math.round(Number(streak) || 0) - 1));
+  return Math.min(3650, Math.max(base, Math.round(base * (1 + known * ADAPTIVE_STEP))));
+}
+
+module.exports = {
+  SAME_DAY_GRADES,
+  ADAPTIVE_MAX_STREAK,
+  ADAPTIVE_STEP,
+  isSameDayReview,
+  adaptiveIntervalDays,
+};
+};
+
 /* ---- src/card-modal.js ---- */
 __defs["card-modal"] = function (module, exports, require) {
 const { Modal, Notice } = require("obsidian");
@@ -10263,6 +10332,14 @@ class CardModal extends Modal {
     const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
     course.value = this.course;
 
+    const schedulerWrap = contentEl.createDiv({ cls: "qt-field" });
+    schedulerWrap.createEl("label", { text: "Scheduler (optional)" });
+    const scheduler = schedulerWrap.createEl("select", { cls: "dropdown" });
+    scheduler.createEl("option", { text: "Use deck or global scheduler", value: "" });
+    scheduler.createEl("option", { text: "Simple ladder (Leitner)", value: "ladder" });
+    scheduler.createEl("option", { text: "SM-2", value: "sm2" });
+    scheduler.createEl("option", { text: "FSRS", value: "fsrs" });
+
     const frontWrap = contentEl.createDiv({ cls: "qt-field" });
     const frontLabel = frontWrap.createEl("label", { text: "Front" });
     const front = frontWrap.createEl("textarea", { attr: { rows: "3", placeholder: "What should the card ask?" } });
@@ -10270,6 +10347,18 @@ class CardModal extends Modal {
     const backWrap = contentEl.createDiv({ cls: "qt-field" });
     const backLabel = backWrap.createEl("label", { text: "Back" });
     const back = backWrap.createEl("textarea", { attr: { rows: "3", placeholder: "The answer" } });
+
+    const expectationWrap = contentEl.createDiv({ cls: "qt-field" });
+    expectationWrap.createEl("label", { text: "What each side expects (optional)" });
+    const expectations = expectationWrap.createDiv({ cls: "qt-row" });
+    const frontExpectation = expectations.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Front expectation, e.g. capital city" },
+    });
+    const backExpectation = expectations.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Back expectation, e.g. country" },
+    });
 
     const exampleWrap = contentEl.createDiv({ cls: "qt-field qt-hidden" });
     exampleWrap.createEl("label", { text: "Example sentence (optional)" });
@@ -10323,9 +10412,12 @@ class CardModal extends Modal {
           cardType: this.cardType,
           deck: deckName,
           course: course.value,
+          scheduler: scheduler.value,
           front: front.value,
           back: back.value,
           example: example.value,
+          frontExpectation: frontExpectation.value,
+          backExpectation: backExpectation.value,
           partOfSpeech: pos.value,
           language: language.value,
         });
@@ -10439,6 +10531,7 @@ const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictne
 const { DEFAULT_ANKI_CONNECT, normalizeAnkiConnect } = require("./anki-connect");
 const { DEFAULT_PLAIN_CARDS, inferPlainCard, normalizePlainCards, plainDeckName } = require("./plain-cards");
 const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
+const { adaptiveIntervalDays } = require("./card-learning");
 
 const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
 const CARD_TYPE_LABELS = {
@@ -10523,6 +10616,9 @@ function mergeCardSettings(saved, defaults) {
       answerMode: "flip",
       gradingStrictness: "standard",
       aiGrading: false,
+      sameDayReviews: false,
+      adaptiveFrequency: false,
+      fileExplorerDue: false,
       decks: [],
       csvMappings: {},
       ankiConnect: { ...DEFAULT_ANKI_CONNECT, excalidraw: { ...DEFAULT_ANKI_CONNECT.excalidraw } },
@@ -10540,6 +10636,9 @@ function mergeCardSettings(saved, defaults) {
   out.answerMode = normalizeAnswerMode(src.answerMode === undefined ? base.answerMode : src.answerMode, "flip");
   out.gradingStrictness = normalizeStrictness(src.gradingStrictness === undefined ? base.gradingStrictness : src.gradingStrictness, "standard");
   out.aiGrading = src.aiGrading === true;
+  out.sameDayReviews = src.sameDayReviews === true;
+  out.adaptiveFrequency = src.adaptiveFrequency === true;
+  out.fileExplorerDue = src.fileExplorerDue === true;
   out.decks = normalizeDecks(src.decks === undefined ? base.decks : src.decks);
   out.csvMappings = src.csvMappings && typeof src.csvMappings === "object" && !Array.isArray(src.csvMappings) ? { ...src.csvMappings } : {};
   out.ankiConnect = normalizeAnkiConnect(src.ankiConnect === undefined ? base.ankiConnect : src.ankiConnect);
@@ -10636,7 +10735,9 @@ function effectiveGradingStrictness(fm, settings, deckName) {
 }
 
 /** Deck scheduler choice, then the global ladder/FSRS selection. */
-function effectiveScheduler(settings, deckName) {
+function effectiveScheduler(settings, deckName, fm) {
+  const own = normalizeSchedulerChoice(fm && (fm.scheduler || fm.card_scheduler));
+  if (own) return own;
   const deck = deckConfig(settings, deckName);
   if (deck && deck.scheduler) return deck.scheduler;
   return lower(settings && settings.scheduler) === "fsrs" ? "fsrs" : "ladder";
@@ -10663,9 +10764,9 @@ function effectiveSm2(settings, deckName) {
 }
 
 /** Resolve every scheduler option for one deck in one place. */
-function schedulerForDeck(settings, deckName) {
+function schedulerForDeck(settings, deckName, fm) {
   return {
-    scheduler: effectiveScheduler(settings, deckName),
+    scheduler: effectiveScheduler(settings, deckName, fm),
     intervals: effectiveDeckIntervals(settings, deckName),
     fsrsRetention: effectiveFsrsRetention(settings, deckName),
     sm2: effectiveSm2(settings, deckName),
@@ -10685,6 +10786,7 @@ function resolveCard(file, fm, settings) {
     // A visual mask is a reveal card; typing a label would miss the point.
     answerMode: occluded ? "flip" : effectiveAnswerMode(fm, settings, deck),
     gradingStrictness: effectiveGradingStrictness(fm, settings, deck),
+    scheduler: effectiveScheduler(settings, deck, fm),
   };
 }
 
@@ -10783,6 +10885,19 @@ function parseCardBody(text, fm) {
   const h = headingsOf(cleanBody(text));
   const kind = cardKind(fm);
   const plain = inferPlainCard(text);
+  const firstValue = (keys) => {
+    for (const key of keys) {
+      const value = str(fm && fm[key]).trim();
+      if (value) return value;
+    }
+    return "";
+  };
+  let frontExpectation =
+    firstSection(h, ["front expectation", "front description", "expectation (front)", "term expectation"]) ||
+    firstValue(["front_expectation", "front_description", "side1_desc", "side1Desc"]);
+  let backExpectation =
+    firstSection(h, ["back expectation", "back description", "expectation (back)", "definition expectation"]) ||
+    firstValue(["back_expectation", "back_description", "side2_desc", "side2Desc"]);
   if (kind === "vocab") {
     const term = firstSection(h, ["term", "word", "front", "prompt"]) || str(fm.term || fm.word || fm.front).trim();
     const definition =
@@ -10798,6 +10913,8 @@ function parseCardBody(text, fm) {
       partOfSpeech: firstSection(h, ["part of speech", "pos"]) || str(fm.part_of_speech || fm.pos).trim(),
       language: str(fm.language || fm.lang).trim(),
       notes: firstSection(h, ["notes"]),
+      frontExpectation,
+      backExpectation,
       acceptedVariants: parseVariants(fm && (fm.accepted_variants || fm.answer_variants)),
     };
   }
@@ -10839,6 +10956,8 @@ function parseCardBody(text, fm) {
       partOfSpeech: "",
       language: "",
       notes: firstSection(h, ["notes"]),
+      frontExpectation,
+      backExpectation,
       acceptedVariants: [],
     };
   }
@@ -10856,6 +10975,9 @@ function parseCardBody(text, fm) {
     const t = front;
     front = back;
     back = t;
+    const expectation = frontExpectation;
+    frontExpectation = backExpectation;
+    backExpectation = expectation;
   }
 
   return {
@@ -10871,6 +10993,8 @@ function parseCardBody(text, fm) {
     partOfSpeech: "",
     language: "",
     notes: firstSection(h, ["notes"]),
+    frontExpectation,
+    backExpectation,
     acceptedVariants: parseVariants(fm && (fm.accepted_variants || fm.answer_variants)),
   };
 }
@@ -10952,11 +11076,17 @@ function cardNote(input, now) {
   if (answerMode) lines.push(`answer_mode: ${yamlString(answerMode)}`);
   const gradingStrictness = normalizeStrictness(data.gradingStrictness, "");
   if (gradingStrictness) lines.push(`grading_strictness: ${yamlString(gradingStrictness)}`);
+  const scheduler = normalizeSchedulerChoice(data.scheduler);
+  if (scheduler) lines.push(`scheduler: ${yamlString(scheduler)}`);
   const variants = parseVariants(data.acceptedVariants);
   if (variants.length) {
     lines.push("accepted_variants:");
     for (const variant of variants) lines.push(`  - ${yamlString(variant)}`);
   }
+  const frontExpectation = str(data.frontExpectation || data.front_expectation).trim();
+  const backExpectation = str(data.backExpectation || data.back_expectation).trim();
+  if (frontExpectation) lines.push(`front_expectation: ${yamlString(frontExpectation)}`);
+  if (backExpectation) lines.push(`back_expectation: ${yamlString(backExpectation)}`);
   if (kind === "vocab") {
     if (data.partOfSpeech) lines.push(`part_of_speech: ${yamlString(data.partOfSpeech)}`);
     if (data.language) lines.push(`language: ${yamlString(data.language)}`);
@@ -11099,7 +11229,9 @@ module.exports = {
   effectiveDeckIntervals,
   effectiveFsrsRetention,
   effectiveSm2,
+  normalizeSchedulerChoice,
   schedulerForDeck,
+  adaptiveIntervalDays,
   mergeCardSettings,
   isCardNote,
   cardKind,
@@ -14717,8 +14849,41 @@ function renderReview(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Same-day reviews")
+    .setDesc("When a card is rated Again or Hard, keep it due today so another review session can pick it up. Good and Easy keep their next date. Off by default.")
+    .addToggle((t) =>
+      t.setValue(st.sameDayReviews === true).onChange(async (v) => {
+        st.sameDayReviews = v;
+        await plugin.save();
+        plugin.refreshViews();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Adaptive card frequency")
+    .setDesc("On the simple ladder, each further correct answer in a row adds 15% to the next interval, up to four steps. FSRS and SM-2 already adapt from their own memory state. Off by default.")
+    .addToggle((t) =>
+      t.setValue(st.adaptiveFrequency === true).onChange(async (v) => {
+        st.adaptiveFrequency = v;
+        await plugin.save();
+        plugin.refreshViews();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Due markers in the file explorer")
+    .setDesc("Off by default. Adds a small due or new marker to card files in Obsidian's file explorer. This uses Obsidian's internal file-explorer view and silently does nothing if that view is unavailable.")
+    .addToggle((t) =>
+      t.setValue(st.fileExplorerDue === true).onChange(async (v) => {
+        st.fileExplorerDue = v;
+        await plugin.save();
+        plugin.refreshViews();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Scheduler")
-    .setDesc("Cards use the scheduler chosen under MCQ Tracker, Review. A card reviewed with FSRS stores its memory state in the note, and switching back to the simple ladder is lossless.")
+    .setDesc("Cards use the scheduler chosen under MCQ Tracker, Review. A card can override it with its own scheduler property. A card reviewed with FSRS stores its memory state in the note, and switching back to the simple ladder is lossless.")
     .addButton((b) => b.setButtonText("Open Cards view").onClick(() => plugin.activateCards()));
 
   containerEl.createEl("p", {
@@ -15368,6 +15533,9 @@ class CardView extends ItemView {
       front.createDiv({ cls: "qt-cards-lang", text: [card.body.language, card.body.partOfSpeech].filter(Boolean).join(" · ") });
     }
     if (card.body.cardType === "image-occlusion") this.renderOcclusion(front, card);
+    if (card.body.frontExpectation) {
+      front.createDiv({ cls: "qt-cards-expectation", text: `Expected: ${card.body.frontExpectation}` });
+    }
     this.md(card.body.front || "*This card has no front.*", front.createDiv({ cls: "qt-cards-term" }), card.file.path);
 
     const mode = card.body.cardType === "image-occlusion" ? "flip" : card.answerMode || "flip";
@@ -15426,6 +15594,9 @@ class CardView extends ItemView {
 
     const answer = root.createDiv({ cls: "qt-cards-box qt-cards-answer" });
     answer.createDiv({ cls: "qt-cards-answer-label", text: card.body.kind === "vocab" ? "Definition" : "Answer" });
+    if (card.body.backExpectation) {
+      answer.createDiv({ cls: "qt-cards-expectation", text: `Expected: ${card.body.backExpectation}` });
+    }
     this.md(card.body.back || "*This card has no answer.*", answer.createDiv({ cls: "qt-cards-back" }), card.file.path);
     if (card.body.example) {
       answer.createDiv({ cls: "qt-cards-answer-label", text: "Example" });
@@ -15513,6 +15684,12 @@ const { buildCurrentNoteContext } = require("./note-context");
 const { AgentEditReviewModal } = require("./agent-edit-review-modal");
 const { AiToolReviewModal } = require("./ai-tool-review-modal");
 const { toolProtocol } = require("./ai-tools");
+
+function toolsForMode(mode, agentShell) {
+  if (mode === "tutor") return { edit: false, write: false, patch: false, bash: false };
+  if (mode === "agent" && agentShell !== true) return { bash: false };
+  return null;
+}
 
 class ChatPanel {
   /**
@@ -15672,8 +15849,8 @@ class ChatPanel {
     this.hint.setText(
       (this.ai.mode === "agent"
         ? this.ai.reviewAgentEdits === false
-          ? "Agent mode: OpenCode may read and edit files immediately. Edit review is turned off in settings."
-          : "Agent mode: OpenCode can read the vault. Edits to your question, card and deck notes, plus the current note, are paused for your review before they are applied."
+          ? "Agent mode: OpenCode may read and edit files immediately. Edit review is turned off in settings. Shell commands are off unless you enable them."
+          : "Agent mode: OpenCode can read the vault. Edits to your question, card and deck notes, plus the current note, are paused for your review before they are applied. Other files and shell commands are not covered by that review. Shell commands are off unless you enable them."
         : "Tutor mode: file-editing tools are switched off for this chat.") + suffix
     );
   }
@@ -15792,7 +15969,8 @@ class ChatPanel {
       const model = modelFromString(ai.model);
       if (model) body.model = model;
       if (str(ai.agent).trim()) body.agent = ai.agent.trim();
-      if (ai.mode === "tutor") body.tools = { edit: false, write: false, patch: false, bash: false };
+      const tools = toolsForMode(ai.mode, ai.agentShell);
+      if (tools) body.tools = tools;
       // The POST blocks until the reply is done, so poll the transcript meanwhile for live progress.
       const mySid = sid;
       timer = activeWindow.setInterval(() => this.refresh(mySid), 1500);
@@ -15923,8 +16101,11 @@ class ChatPanel {
   }
 }
 
+ChatPanel.toolsForMode = toolsForMode;
+
 module.exports = {
   ChatPanel,
+  toolsForMode,
 };
 };
 
@@ -16216,9 +16397,12 @@ const DEFAULT_SETTINGS = {
     url: "http://127.0.0.1:4096", // only used when managed is off
     username: "opencode",
     password: "",
+    passwordSecret: "",
+    rememberPassword: false, // older Obsidian only: opt in before a manual password enters data.json
     model: "",
     agent: "",
     mode: "tutor",
+    agentShell: false, // Agent mode: shell commands stay off unless explicitly enabled
     reviewAgentEdits: true, // agent mode: pause file edits and show a diff before applying them
     tutorRole: "private", // "private" | "socratic" | "language"
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
@@ -16278,6 +16462,9 @@ const DEFAULT_SETTINGS = {
     answerMode: "flip", // "flip" | "type" | "speak" (speak uses the text box with OS dictation)
     gradingStrictness: "standard", // "strict" | "standard" | "lenient"
     aiGrading: false, // optional AI second opinion when the local typed-answer grader is unsure
+    sameDayReviews: false, // optional: Again/Hard cards stay due today for another session
+    adaptiveFrequency: false, // optional: a known-card streak lengthens simple-ladder intervals
+    fileExplorerDue: false, // optional: due/new markers on card files in the file explorer
     decks: [], // [{ name, folder, course, answerMode, gradingStrictness }]
     csvMappings: {}, // header-signature -> column mapping remembered by the generic CSV importer
     ankiConnect: {
@@ -19340,6 +19527,73 @@ module.exports = {
   figureEmbeds,
   normalizeFigureMarkers,
 };
+};
+
+/* ---- src/file-explorer.js ---- */
+__defs["file-explorer"] = function (module, exports, require) {
+/*
+ * Optional due/new markers for the file explorer.
+ *
+ * Obsidian has no public file-explorer decoration API. This module therefore
+ * treats the explorer view as optional: it finds the built-in view when it is
+ * present, adds a class to the matching file item, and otherwise does nothing.
+ * The feature is off by default and never changes a note.
+ */
+const { isDue } = require("./filters");
+const { isStudyable } = require("./study-status");
+
+const DUE_CLASS = "qt-card-due";
+const NEW_CLASS = "qt-card-new";
+
+/** Pure path -> "due" | "new" map used by the decorator and its tests. */
+function dueFilePaths(cards, today) {
+  const out = new Map();
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const fm = (card && card.fm) || {};
+    const path = card && card.file && card.file.path;
+    if (!path || !isStudyable(fm, today)) continue;
+    if (isDue(fm, today)) out.set(path, "due");
+    else if (!Number(fm.attempts)) out.set(path, "new");
+  }
+  return out;
+}
+
+function classListOf(item) {
+  const el = item && (item.selfEl || item.el || item.innerEl);
+  return el && el.classList ? el.classList : null;
+}
+
+/** Applies markers to the current built-in file-explorer items. Returns the count. */
+function decorateFileExplorer(app, cards, today, enabled) {
+  if (enabled !== true) return 0;
+  let leaves = [];
+  try {
+    leaves = app && app.workspace && typeof app.workspace.getLeavesOfType === "function"
+      ? app.workspace.getLeavesOfType("file-explorer")
+      : [];
+  } catch (e) {
+    return 0;
+  }
+  const wanted = dueFilePaths(cards, today);
+  let marked = 0;
+  for (const leaf of Array.isArray(leaves) ? leaves : []) {
+    const items = leaf && leaf.view && leaf.view.fileItems;
+    if (!items || typeof items !== "object") continue;
+    for (const item of Object.values(items)) {
+      const classes = classListOf(item);
+      if (!classes) continue;
+      classes.remove(DUE_CLASS, NEW_CLASS);
+      const path = item.file && item.file.path;
+      const state = path ? wanted.get(path) : "";
+      if (!state) continue;
+      classes.add(state === "due" ? DUE_CLASS : NEW_CLASS);
+      marked++;
+    }
+  }
+  return marked;
+}
+
+module.exports = { DUE_CLASS, NEW_CLASS, dueFilePaths, decorateFileExplorer };
 };
 
 /* ---- src/filters.js ---- */
@@ -27659,6 +27913,7 @@ const { appendHistory, hasAttemptId, setAttemptErrorType } = require("./history"
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
 const { reviewNote: reviewSm2 } = require("./sm2");
+const { adaptiveIntervalDays, isSameDayReview } = require("./card-learning");
 const { gradeAnswerDetailed } = require("./numeric-grading");
 const { formatChoiceSet, isTrueFalseChoices, normalizeTrueFalse, parseChoiceSet } = require("./answer-types");
 const { parsePairs } = require("./matching");
@@ -27938,6 +28193,9 @@ function applyAttempt(fm, a, intervals, options) {
   } else if (!a.correct) days = 1;
   else if (a.conf === 1) days = 2;
   else days = iv[Math.min(Math.max(streak, 1) - 1, iv.length - 1)];
+  if (opts.adaptiveFrequency === true && a.correct && opts.scheduler !== "fsrs" && opts.scheduler !== "sm2") {
+    days = adaptiveIntervalDays(days, streak, true);
+  }
 
   // FSRS reads the history before this attempt is appended, so a note that has
   // never used FSRS is seeded from its existing history exactly once.
@@ -27985,7 +28243,13 @@ function applyAttempt(fm, a, intervals, options) {
   fm.result = a.correct ? "correct" : "incorrect";
   fm["date attempted"] = now;
   if (!fm.first_attempted) fm.first_attempted = now;
-  const scheduledReview = fsrsReview ? fsrsReview.nextReview : sm2Review ? sm2Review.nextReview : fmtDate(addDays(a.now, days));
+  const scheduledReview = isSameDayReview(grade, opts.sameDayReviews)
+    ? fmtDate(a.now)
+    : fsrsReview
+      ? fsrsReview.nextReview
+      : sm2Review
+        ? sm2Review.nextReview
+        : fmtDate(addDays(a.now, days));
   const examCap = applyExamCap(fm, scheduledReview, opts.examCap, a.now);
   fm.next_review = examCap ? examCap.date : scheduledReview;
   if (fsrsReview) {
@@ -29302,6 +29566,7 @@ module.exports = {
 __defs["opencode-client"] = function (module, exports, require) {
 const { requestUrl } = require("obsidian");
 const { str } = require("./util");
+const { safeApiBase } = require("./url-safety");
 const { extractRationale } = require("./notes");
 const { roleInstruction, commandReference } = require("./tutor-presets");
 
@@ -29428,7 +29693,7 @@ class OpenCodeClient {
     this.ai = ai;
   }
   base() {
-    return str(this.ai.url).trim().replace(/\/+$/, "") || "http://127.0.0.1:4096";
+    return safeApiBase(str(this.ai.url).trim().replace(/\/+$/, "") || "http://127.0.0.1:4096");
   }
   headers() {
     const h = {};
@@ -29653,12 +29918,48 @@ function downloadFile(url, dest, onProgress, hops) {
   });
 }
 
+function assertExtractedTree(destDir) {
+  const fs = nodeReq("fs");
+  const path = nodeReq("path");
+  let root;
+  try {
+    root = fs.realpathSync(destDir);
+  } catch (e) {
+    throw new Error("The downloaded archive could not be unpacked.");
+  }
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (e) {
+      throw new Error("The downloaded archive could not be verified after unpacking.");
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) throw new Error("The downloaded archive contains a symbolic link and was rejected.");
+      let real;
+      try {
+        real = fs.realpathSync(full);
+      } catch (e) {
+        throw new Error("The downloaded archive contains an unreadable path and was rejected.");
+      }
+      if (real !== root && !real.startsWith(root + path.sep)) {
+        throw new Error("The downloaded archive tried to write outside its install folder and was rejected.");
+      }
+      if (entry.isDirectory()) stack.push(full);
+    }
+  }
+}
+
 async function extractArchive(archive, destDir) {
   const fs = nodeReq("fs");
   fs.mkdirSync(destDir, { recursive: true });
   try {
     // bsdtar (Windows 10+, macOS) reads .zip too; GNU tar reads the Linux .tar.gz
     await runCmd("tar", ["-xf", archive, "-C", destDir], { timeout: 8 * 60 * 1000 });
+    assertExtractedTree(destDir);
     return;
   } catch (first) {
     if (/Timed out/.test(first.message)) {
@@ -29672,6 +29973,7 @@ async function extractArchive(archive, destDir) {
     } else {
       throw first;
     }
+    assertExtractedTree(destDir);
   }
 }
 
@@ -30147,6 +30449,7 @@ module.exports = {
   runCmd,
   downloadFile,
   extractArchive,
+  assertExtractedTree,
   findBinaryIn,
   freePort,
   OpenCodeManager,
@@ -33174,7 +33477,10 @@ const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-imp
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
-const { migrateApiKeys } = require("./secret-keys");
+const secretKeys = require("./secret-keys");
+const { calendarText, safeCalendarFeedUrl } = require("./url-safety");
+const { safeSvg } = require("./svg-safety");
+const fileExplorer = require("./file-explorer");
 const { hasAttemptId, repairHistoryCounters } = require("./history");
 const { normalizeBlueprint, normalizePassScore } = require("./exam-sections");
 
@@ -33246,6 +33552,7 @@ class QuestionTrackerPlugin extends Plugin {
         this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
       }
       if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
+      this.decorateFileExplorer();
       this.flushPendingAttempts().then((r) => {
         if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
       }).catch(() => {});
@@ -33500,7 +33807,7 @@ class QuestionTrackerPlugin extends Plugin {
         return;
       }
       const box = el.createDiv({ cls: "qt-smiles" });
-      box.innerHTML = result.svg;
+      box.innerHTML = safeSvg(result.svg);
     });
     this.addCommand({ id: "weak-spots", name: "Show weak spots", callback: () => this.activateInsights("weak") });
     this.addCommand({ id: "error-log", name: "Show error log", callback: () => this.activateInsights("errors") });
@@ -33714,7 +34021,13 @@ class QuestionTrackerPlugin extends Plugin {
     // Move legacy plain-text keys into Secret Storage where Obsidian provides it.
     // This runs before the settings page is drawn, so a migrated key is never
     // written back to data.json.
-    if (migrateApiKeys(this.app, this.settings.ai.api)) await this.save();
+    if (secretKeys.migrateApiKeys(this.app, this.settings.ai.api)) await this.save();
+    const openCodePassword = str(this.settings.ai.password).trim();
+    if (openCodePassword && secretKeys.storeSecretValue(this.app, secretKeys.OPENCODE_PASSWORD_SECRET, openCodePassword)) {
+      this.settings.ai.password = "";
+      this.settings.ai.passwordSecret = secretKeys.OPENCODE_PASSWORD_SECRET;
+      await this.save();
+    }
   }
 
   save() {
@@ -33730,7 +34043,8 @@ class QuestionTrackerPlugin extends Plugin {
   conn() {
     const ai = this.settings.ai;
     if (ai.managed && this.manager.conn) return this.manager.conn;
-    return { url: ai.url, username: ai.username, password: ai.password };
+    const fromSecret = ai.passwordSecret ? secretKeys.readSecretValue(this.app, ai.passwordSecret) : "";
+    return { url: ai.url, username: ai.username, password: fromSecret || ai.password || this.sessionOpenCodePassword || "" };
   }
 
   openCode() {
@@ -34068,6 +34382,17 @@ class QuestionTrackerPlugin extends Plugin {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
     this.refreshNoteReviewStatus();
+    this.decorateFileExplorer();
+  }
+
+  /** Optional due/new markers; the internal explorer view is treated as optional. */
+  decorateFileExplorer() {
+    if (!this.settings.cards || this.settings.cards.fileExplorerDue !== true) return 0;
+    try {
+      return fileExplorer.decorateFileExplorer(this.app, this.getCards(), localDate(), true);
+    } catch (e) {
+      return 0;
+    }
   }
 
   /** Re-draws only the practice views that are showing the first-run screen (an import just finished). */
@@ -34386,10 +34711,9 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async addCalendarUrlSource(rawUrl) {
-    const url = normalizeCalendarUrl(rawUrl);
-    if (!/^https?:\/\//i.test(url)) throw new Error("Enter an https:// or webcal:// calendar link.");
+    const url = safeCalendarFeedUrl(normalizeCalendarUrl(rawUrl));
     const response = await requestUrl({ url, method: "GET" });
-    const text = response && response.text;
+    const text = calendarText(response);
     if (!icsLooksValid(text)) throw new Error("That address did not return an iCalendar feed.");
     const cal = this.settings.calendar;
     const name = deriveSourceLabel(url, text);
@@ -34415,9 +34739,11 @@ class QuestionTrackerPlugin extends Plugin {
       this.refreshCalendarViews();
       return;
     }
-    const response = await requestUrl({ url: source.url, method: "GET" });
-    if (!icsLooksValid(response && response.text)) throw new Error("That calendar did not return an iCalendar feed.");
-    source.content = response.text;
+    const url = safeCalendarFeedUrl(source.url);
+    const response = await requestUrl({ url, method: "GET" });
+    const text = calendarText(response);
+    if (!icsLooksValid(text)) throw new Error("That calendar did not return an iCalendar feed.");
+    source.content = text;
     source.lastSync = Date.now();
     this.invalidateCalendar();
     await this.save();
@@ -37142,6 +37468,8 @@ class QuestionTrackerPlugin extends Plugin {
       ...(extra || {}),
       deck: (extra && extra.deck) || card.deck || (card.fm && card.fm.deck) || "",
       course: (extra && extra.course) || card.course || (card.fm && card.fm.course) || "",
+      sameDayReviews: this.settings.cards.sameDayReviews === true,
+      adaptiveFrequency: this.settings.cards.adaptiveFrequency === true,
       now: new Date(),
     });
   }
@@ -38289,12 +38617,18 @@ class QuestionTrackerPlugin extends Plugin {
   scheduleOptionsFor(fm, path, deckHint) {
     const hinted = str(deckHint).trim();
     const deck = hinted || (isCardNote(fm) ? deckOf(fm, this.settings, path) : "");
-    return schedulerForDeck(this.settings, deck);
+    return schedulerForDeck(this.settings, deck, fm);
   }
 
   async recordAttempt(file, a) {
     const attempt = { ...a, attemptId: a.attemptId || newAttemptId(a.now) };
-    const shared = { attemptId: attempt.attemptId, leechThreshold: this.settings.leechThreshold, leechAction: this.settings.leechAction };
+    const shared = {
+      attemptId: attempt.attemptId,
+      leechThreshold: this.settings.leechThreshold,
+      leechAction: this.settings.leechAction,
+      sameDayReviews: attempt.sameDayReviews === true,
+      adaptiveFrequency: attempt.adaptiveFrequency === true,
+    };
 
     // Build the result the UI should show before touching the note. If the write
     // fails, this summary is still correct and the attempt can be replayed later.
@@ -38376,6 +38710,8 @@ class QuestionTrackerPlugin extends Plugin {
               scheduler: sched.scheduler,
               fsrsRetention: sched.fsrsRetention,
               sm2: sched.sm2,
+              sameDayReviews: attempt.sameDayReviews === true,
+              adaptiveFrequency: attempt.adaptiveFrequency === true,
               attemptId: entry.id,
               leechThreshold: this.settings.leechThreshold,
               leechAction: this.settings.leechAction,
@@ -43638,6 +43974,7 @@ const {
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
 const { buildPlot } = require("./reference-graph");
 const { renderSmilesSvg } = require("./smiles");
+const { safeSvg } = require("./svg-safety");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -44068,7 +44405,7 @@ class ReferenceView extends ItemView {
         error.setText(result.error);
         return;
       }
-      preview.innerHTML = result.svg;
+      preview.innerHTML = safeSvg(result.svg);
     };
     input.addEventListener("input", draw);
     const examples = root.createDiv({ cls: "qt-row qt-small-row qt-ref-subjects" });
@@ -45037,6 +45374,24 @@ function hasSecretStorage(app) {
   return !!secretStorageOf(app);
 }
 
+const OPENCODE_PASSWORD_SECRET = "mcq-tracker-opencode-password";
+
+function readSecretValue(app, name) {
+  return readSecret(secretStorageOf(app), name);
+}
+
+/** Returns false when Secret Storage is unavailable or the write failed. */
+function storeSecretValue(app, name, value) {
+  const store = secretStorageOf(app);
+  if (!store || !name) return false;
+  try {
+    store.setSecret(name, str(value));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function secretName(api, provider) {
   return str(((api && api.secrets) || {})[provider]).trim();
 }
@@ -45131,7 +45486,10 @@ function migrateApiKeys(app, api) {
 }
 
 module.exports = {
+  OPENCODE_PASSWORD_SECRET,
   hasSecretStorage,
+  readSecretValue,
+  storeSecretValue,
   migrateApiKeys,
   newSecretName,
   resolveApiKey,
@@ -45479,7 +45837,7 @@ const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-pre
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
 const { normalizeVerificationMode } = require("./answer-verification");
-const { hasSecretStorage } = require("./secret-keys");
+const { hasSecretStorage, readSecretValue, storeSecretValue, OPENCODE_PASSWORD_SECRET } = require("./secret-keys");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -46230,16 +46588,49 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             await this.plugin.save();
           })
         );
+      const secretStorage = hasSecretStorage(this.app);
+      const savedPassword = secretStorage && ai.passwordSecret ? readSecretValue(this.app, ai.passwordSecret) : str(ai.password);
       new Setting(containerEl)
         .setName("Password")
-        .setDesc("Stored as plain text in this plugin's data.json, which syncs with your vault.")
+        .setDesc(
+          secretStorage
+            ? "Stored in Obsidian's Secret Storage, outside data.json. Secret Storage may be per device."
+            : "Secret Storage is not available in this Obsidian version. The password stays in memory for this session unless you explicitly allow saving it below."
+        )
         .addText((t) => {
           t.inputEl.type = "password";
-          t.setValue(ai.password).onChange(async (v) => {
-            ai.password = v;
+          t.setValue(savedPassword || this.plugin.sessionOpenCodePassword || "").onChange(async (v) => {
+            this.plugin.sessionOpenCodePassword = v;
+            if (secretStorage) {
+              if (v) {
+                if (storeSecretValue(this.app, OPENCODE_PASSWORD_SECRET, v)) {
+                  ai.passwordSecret = OPENCODE_PASSWORD_SECRET;
+                  ai.password = "";
+                } else {
+                  ai.password = v;
+                }
+              } else {
+                ai.passwordSecret = "";
+                ai.password = "";
+              }
+            } else {
+              ai.password = ai.rememberPassword === true ? v : "";
+            }
             await this.plugin.save();
           });
         });
+      if (!secretStorage) {
+        new Setting(containerEl)
+          .setName("Remember OpenCode password")
+          .setDesc("Off by default. When on, the password is saved as plain text in data.json and syncs with the vault. Leave it off to enter the password again after restarting Obsidian.")
+          .addToggle((t) =>
+            t.setValue(ai.rememberPassword === true).onChange(async (v) => {
+              ai.rememberPassword = v;
+              ai.password = v ? this.plugin.sessionOpenCodePassword || "" : "";
+              await this.plugin.save();
+            })
+          );
+      }
     }
 
     new Setting(containerEl)
@@ -46263,11 +46654,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Review agent edits before applying")
       .setDesc(
-        "Agent mode only. The plugin pauses edits to your question, card and deck notes plus the current note, shows a diff, and writes only the files you approve. Closing the review discards the agent's changes. On by default."
+        "Agent mode only. The plugin pauses edits to your question, card and deck notes plus the current note, shows a diff, and writes only the files you approve. Closing the review discards the agent's changes. This review does not cover other files or shell commands. On by default."
       )
       .addToggle((t) =>
         t.setValue(ai.reviewAgentEdits !== false).onChange(async (v) => {
           ai.reviewAgentEdits = v;
+          await this.plugin.save();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Allow shell commands in Agent mode")
+      .setDesc("Off by default. When on, OpenCode may run shell commands on this computer in Agent mode. The Markdown edit review does not approve or undo those commands. Leave it off unless you deliberately need them.")
+      .addToggle((t) =>
+        t.setValue(ai.agentShell === true).onChange(async (v) => {
+          ai.agentShell = v;
           await this.plugin.save();
         })
       );
@@ -48878,6 +49278,25 @@ module.exports = {
 };
 };
 
+/* ---- src/svg-safety.js ---- */
+__defs["svg-safety"] = function (module, exports, require) {
+/*
+ * Defense in depth for the two places that assign an internally generated SVG
+ * string to innerHTML. The SMILES renderer only emits a known element set, but
+ * keeping the sink itself free of scripts, event handlers and external links
+ * means a future renderer change cannot silently create an injection point.
+ */
+
+const DANGEROUS = /<\s*(?:script|foreignObject|iframe|object|embed)\b|\bon[a-z]+\s*=|javascript\s*:|data\s*:\s*text\/html/i;
+
+function safeSvg(svg) {
+  const text = String(svg || "");
+  return DANGEROUS.test(text) ? "" : text;
+}
+
+module.exports = { safeSvg };
+};
+
 /* ---- src/today-view.js ---- */
 __defs["today-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
@@ -50148,6 +50567,74 @@ module.exports = {
 };
 };
 
+/* ---- src/url-safety.js ---- */
+__defs["url-safety"] = function (module, exports, require) {
+/*
+ * Small URL checks shared by the optional network features.
+ *
+ * API keys, OpenCode passwords and calendar feed URLs must never travel over
+ * plain HTTP to another computer. Loopback HTTP stays available because local
+ * model servers and a locally started OpenCode use it on purpose.
+ */
+
+const MAX_CALENDAR_BYTES = 2 * 1024 * 1024;
+
+function parseHttpUrl(raw) {
+  let url;
+  try {
+    url = new URL(String(raw || "").trim());
+  } catch (e) {
+    return null;
+  }
+  return url.protocol === "https:" || url.protocol === "http:" ? url : null;
+}
+
+function isLoopbackHost(hostname) {
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  return host === "localhost" || host === "::1" || /^127\./.test(host);
+}
+
+function cleanUrl(url) {
+  return url.toString().replace(/\/+$/, "");
+}
+
+/** An API/OpenCode base URL. Remote endpoints must use HTTPS. */
+function safeApiBase(raw) {
+  const url = parseHttpUrl(raw);
+  if (!url) throw new Error("Enter a valid http:// or https:// address.");
+  if (url.username || url.password) throw new Error("Do not put a username or password in the address; use the separate fields.");
+  if (url.protocol === "http:" && !isLoopbackHost(url.hostname)) {
+    throw new Error("Remote API and OpenCode addresses must use https://. Plain http:// is allowed only for localhost, 127.0.0.1 or ::1.");
+  }
+  return cleanUrl(url);
+}
+
+/** A calendar feed URL. Public feeds must use HTTPS; local files never come through here. */
+function safeCalendarFeedUrl(raw) {
+  const url = parseHttpUrl(raw);
+  if (!url) throw new Error("Enter a valid https:// or webcal:// calendar link.");
+  if (url.username || url.password) throw new Error("A calendar feed link must not contain a username or password.");
+  if (url.protocol !== "https:") {
+    throw new Error("Calendar feeds must use https://. A webcal:// link is converted automatically; plain http:// is not accepted.");
+  }
+  return url.toString();
+}
+
+function calendarText(response) {
+  const text = String((response && response.text) || "");
+  if (text.length > MAX_CALENDAR_BYTES) throw new Error("That calendar feed is too large (over 2 MB).");
+  return text;
+}
+
+module.exports = {
+  MAX_CALENDAR_BYTES,
+  isLoopbackHost,
+  safeApiBase,
+  safeCalendarFeedUrl,
+  calendarText,
+};
+};
+
 /* ---- src/util.js ---- */
 __defs["util"] = function (module, exports, require) {
 const { normalizePath } = require("obsidian");
@@ -50991,6 +51478,9 @@ const agentEditReview = require("./agent-edit-review");
 const { AgentEditReviewModal } = require("./agent-edit-review-modal");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const secretKeys = require("./secret-keys");
+const urlSafety = require("./url-safety");
+const svgSafety = require("./svg-safety");
+const fileExplorer = require("./file-explorer");
 const history = require("./history");
 const testSections = require("./exam-sections");
 const aiWrites = require("./ai-writes");
@@ -51009,7 +51499,7 @@ const cardGenerator = require("./card-generator");
 const studyBundle = require("./study-bundle");
 const studyBundleImport = require("./study-bundle-import");
 const zipWrite = require("./zip-write");
-const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
+const { MAX_OPENCODE_MAJOR, OpenCodeManager, assertExtractedTree, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
@@ -51145,6 +51635,9 @@ QuestionTrackerPlugin.__test = {
   AgentEditReviewModal,
   CalculationPreviewModal,
   secretKeys,
+  urlSafety,
+  svgSafety,
+  fileExplorer,
   history,
   testSections,
   aiWrites,
@@ -51172,6 +51665,7 @@ QuestionTrackerPlugin.__test = {
   mergeAuth,
   downloadFile,
   extractArchive,
+  assertExtractedTree,
   findBinaryIn,
   replaceMyNotes,
   gradeAnswer,

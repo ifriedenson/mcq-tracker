@@ -61,9 +61,12 @@ const DEFAULT_SETTINGS = {
     url: "http://127.0.0.1:4096", // only used when managed is off
     username: "opencode",
     password: "",
+    passwordSecret: "",
+    rememberPassword: false, // older Obsidian only: opt in before a manual password enters data.json
     model: "",
     agent: "",
     mode: "tutor",
+    agentShell: false, // Agent mode: shell commands stay off unless explicitly enabled
     reviewAgentEdits: true, // agent mode: pause file edits and show a diff before applying them
     tutorRole: "private", // "private" | "socratic" | "language"
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
@@ -123,6 +126,9 @@ const DEFAULT_SETTINGS = {
     answerMode: "flip", // "flip" | "type" | "speak" (speak uses the text box with OS dictation)
     gradingStrictness: "standard", // "strict" | "standard" | "lenient"
     aiGrading: false, // optional AI second opinion when the local typed-answer grader is unsure
+    sameDayReviews: false, // optional: Again/Hard cards stay due today for another session
+    adaptiveFrequency: false, // optional: a known-card streak lengthens simple-ladder intervals
+    fileExplorerDue: false, // optional: due/new markers on card files in the file explorer
     decks: [], // [{ name, folder, course, answerMode, gradingStrictness }]
     csvMappings: {}, // header-signature -> column mapping remembered by the generic CSV importer
     ankiConnect: {

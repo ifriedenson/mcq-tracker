@@ -2,6 +2,7 @@
 const { requestUrl } = require("obsidian");
 const { str } = require("./util");
 const { resolveApiKey } = require("./secret-keys");
+const { safeApiBase } = require("./url-safety");
 
 /* ---------------------------------------------- Direct API chat (works on phones) */
 
@@ -41,7 +42,7 @@ class ApiClient {
     const preset = API_PRESETS[a.provider] || API_PRESETS.custom;
     return {
       preset,
-      base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, ""),
+      base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "") ? safeApiBase((str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "")) : "",
       key: resolveApiKey(this.app, a),
       model: str(this.opts.model).trim() || str(a.model).trim(),
     };

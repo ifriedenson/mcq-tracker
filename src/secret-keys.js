@@ -15,6 +15,24 @@ function hasSecretStorage(app) {
   return !!secretStorageOf(app);
 }
 
+const OPENCODE_PASSWORD_SECRET = "mcq-tracker-opencode-password";
+
+function readSecretValue(app, name) {
+  return readSecret(secretStorageOf(app), name);
+}
+
+/** Returns false when Secret Storage is unavailable or the write failed. */
+function storeSecretValue(app, name, value) {
+  const store = secretStorageOf(app);
+  if (!store || !name) return false;
+  try {
+    store.setSecret(name, str(value));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function secretName(api, provider) {
   return str(((api && api.secrets) || {})[provider]).trim();
 }
@@ -109,7 +127,10 @@ function migrateApiKeys(app, api) {
 }
 
 module.exports = {
+  OPENCODE_PASSWORD_SECRET,
   hasSecretStorage,
+  readSecretValue,
+  storeSecretValue,
   migrateApiKeys,
   newSecretName,
   resolveApiKey,

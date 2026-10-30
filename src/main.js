@@ -44,6 +44,9 @@ const agentEditReview = require("./agent-edit-review");
 const { AgentEditReviewModal } = require("./agent-edit-review-modal");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const secretKeys = require("./secret-keys");
+const urlSafety = require("./url-safety");
+const svgSafety = require("./svg-safety");
+const fileExplorer = require("./file-explorer");
 const history = require("./history");
 const testSections = require("./exam-sections");
 const aiWrites = require("./ai-writes");
@@ -62,7 +65,7 @@ const cardGenerator = require("./card-generator");
 const studyBundle = require("./study-bundle");
 const studyBundleImport = require("./study-bundle-import");
 const zipWrite = require("./zip-write");
-const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
+const { MAX_OPENCODE_MAJOR, OpenCodeManager, assertExtractedTree, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
@@ -198,6 +201,9 @@ QuestionTrackerPlugin.__test = {
   AgentEditReviewModal,
   CalculationPreviewModal,
   secretKeys,
+  urlSafety,
+  svgSafety,
+  fileExplorer,
   history,
   testSections,
   aiWrites,
@@ -225,6 +231,7 @@ QuestionTrackerPlugin.__test = {
   mergeAuth,
   downloadFile,
   extractArchive,
+  assertExtractedTree,
   findBinaryIn,
   replaceMyNotes,
   gradeAnswer,

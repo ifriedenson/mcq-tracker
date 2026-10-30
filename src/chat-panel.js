@@ -9,6 +9,12 @@ const { AgentEditReviewModal } = require("./agent-edit-review-modal");
 const { AiToolReviewModal } = require("./ai-tool-review-modal");
 const { toolProtocol } = require("./ai-tools");
 
+function toolsForMode(mode, agentShell) {
+  if (mode === "tutor") return { edit: false, write: false, patch: false, bash: false };
+  if (mode === "agent" && agentShell !== true) return { bash: false };
+  return null;
+}
+
 class ChatPanel {
   /**
    * opts: { title, sourcePath, getSessionId, setSessionId, getRole, setRole, buildContext(mode), quick: [{label,prompt}], onSaveNote(text) }
@@ -167,8 +173,8 @@ class ChatPanel {
     this.hint.setText(
       (this.ai.mode === "agent"
         ? this.ai.reviewAgentEdits === false
-          ? "Agent mode: OpenCode may read and edit files immediately. Edit review is turned off in settings."
-          : "Agent mode: OpenCode can read the vault. Edits to your question, card and deck notes, plus the current note, are paused for your review before they are applied."
+          ? "Agent mode: OpenCode may read and edit files immediately. Edit review is turned off in settings. Shell commands are off unless you enable them."
+          : "Agent mode: OpenCode can read the vault. Edits to your question, card and deck notes, plus the current note, are paused for your review before they are applied. Other files and shell commands are not covered by that review. Shell commands are off unless you enable them."
         : "Tutor mode: file-editing tools are switched off for this chat.") + suffix
     );
   }
@@ -287,7 +293,8 @@ class ChatPanel {
       const model = modelFromString(ai.model);
       if (model) body.model = model;
       if (str(ai.agent).trim()) body.agent = ai.agent.trim();
-      if (ai.mode === "tutor") body.tools = { edit: false, write: false, patch: false, bash: false };
+      const tools = toolsForMode(ai.mode, ai.agentShell);
+      if (tools) body.tools = tools;
       // The POST blocks until the reply is done, so poll the transcript meanwhile for live progress.
       const mySid = sid;
       timer = activeWindow.setInterval(() => this.refresh(mySid), 1500);
@@ -418,6 +425,9 @@ class ChatPanel {
   }
 }
 
+ChatPanel.toolsForMode = toolsForMode;
+
 module.exports = {
   ChatPanel,
+  toolsForMode,
 };

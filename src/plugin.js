@@ -101,7 +101,10 @@ const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-imp
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
-const { migrateApiKeys } = require("./secret-keys");
+const secretKeys = require("./secret-keys");
+const { calendarText, safeCalendarFeedUrl } = require("./url-safety");
+const { safeSvg } = require("./svg-safety");
+const fileExplorer = require("./file-explorer");
 const { hasAttemptId, repairHistoryCounters } = require("./history");
 const { normalizeBlueprint, normalizePassScore } = require("./exam-sections");
 
@@ -173,6 +176,7 @@ class QuestionTrackerPlugin extends Plugin {
         this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
       }
       if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
+      this.decorateFileExplorer();
       this.flushPendingAttempts().then((r) => {
         if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
       }).catch(() => {});
@@ -427,7 +431,7 @@ class QuestionTrackerPlugin extends Plugin {
         return;
       }
       const box = el.createDiv({ cls: "qt-smiles" });
-      box.innerHTML = result.svg;
+      box.innerHTML = safeSvg(result.svg);
     });
     this.addCommand({ id: "weak-spots", name: "Show weak spots", callback: () => this.activateInsights("weak") });
     this.addCommand({ id: "error-log", name: "Show error log", callback: () => this.activateInsights("errors") });
@@ -641,7 +645,13 @@ class QuestionTrackerPlugin extends Plugin {
     // Move legacy plain-text keys into Secret Storage where Obsidian provides it.
     // This runs before the settings page is drawn, so a migrated key is never
     // written back to data.json.
-    if (migrateApiKeys(this.app, this.settings.ai.api)) await this.save();
+    if (secretKeys.migrateApiKeys(this.app, this.settings.ai.api)) await this.save();
+    const openCodePassword = str(this.settings.ai.password).trim();
+    if (openCodePassword && secretKeys.storeSecretValue(this.app, secretKeys.OPENCODE_PASSWORD_SECRET, openCodePassword)) {
+      this.settings.ai.password = "";
+      this.settings.ai.passwordSecret = secretKeys.OPENCODE_PASSWORD_SECRET;
+      await this.save();
+    }
   }
 
   save() {
@@ -657,7 +667,8 @@ class QuestionTrackerPlugin extends Plugin {
   conn() {
     const ai = this.settings.ai;
     if (ai.managed && this.manager.conn) return this.manager.conn;
-    return { url: ai.url, username: ai.username, password: ai.password };
+    const fromSecret = ai.passwordSecret ? secretKeys.readSecretValue(this.app, ai.passwordSecret) : "";
+    return { url: ai.url, username: ai.username, password: fromSecret || ai.password || this.sessionOpenCodePassword || "" };
   }
 
   openCode() {
@@ -995,6 +1006,17 @@ class QuestionTrackerPlugin extends Plugin {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
     this.refreshNoteReviewStatus();
+    this.decorateFileExplorer();
+  }
+
+  /** Optional due/new markers; the internal explorer view is treated as optional. */
+  decorateFileExplorer() {
+    if (!this.settings.cards || this.settings.cards.fileExplorerDue !== true) return 0;
+    try {
+      return fileExplorer.decorateFileExplorer(this.app, this.getCards(), localDate(), true);
+    } catch (e) {
+      return 0;
+    }
   }
 
   /** Re-draws only the practice views that are showing the first-run screen (an import just finished). */
@@ -1313,10 +1335,9 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async addCalendarUrlSource(rawUrl) {
-    const url = normalizeCalendarUrl(rawUrl);
-    if (!/^https?:\/\//i.test(url)) throw new Error("Enter an https:// or webcal:// calendar link.");
+    const url = safeCalendarFeedUrl(normalizeCalendarUrl(rawUrl));
     const response = await requestUrl({ url, method: "GET" });
-    const text = response && response.text;
+    const text = calendarText(response);
     if (!icsLooksValid(text)) throw new Error("That address did not return an iCalendar feed.");
     const cal = this.settings.calendar;
     const name = deriveSourceLabel(url, text);
@@ -1342,9 +1363,11 @@ class QuestionTrackerPlugin extends Plugin {
       this.refreshCalendarViews();
       return;
     }
-    const response = await requestUrl({ url: source.url, method: "GET" });
-    if (!icsLooksValid(response && response.text)) throw new Error("That calendar did not return an iCalendar feed.");
-    source.content = response.text;
+    const url = safeCalendarFeedUrl(source.url);
+    const response = await requestUrl({ url, method: "GET" });
+    const text = calendarText(response);
+    if (!icsLooksValid(text)) throw new Error("That calendar did not return an iCalendar feed.");
+    source.content = text;
     source.lastSync = Date.now();
     this.invalidateCalendar();
     await this.save();
@@ -4069,6 +4092,8 @@ class QuestionTrackerPlugin extends Plugin {
       ...(extra || {}),
       deck: (extra && extra.deck) || card.deck || (card.fm && card.fm.deck) || "",
       course: (extra && extra.course) || card.course || (card.fm && card.fm.course) || "",
+      sameDayReviews: this.settings.cards.sameDayReviews === true,
+      adaptiveFrequency: this.settings.cards.adaptiveFrequency === true,
       now: new Date(),
     });
   }
@@ -5216,12 +5241,18 @@ class QuestionTrackerPlugin extends Plugin {
   scheduleOptionsFor(fm, path, deckHint) {
     const hinted = str(deckHint).trim();
     const deck = hinted || (isCardNote(fm) ? deckOf(fm, this.settings, path) : "");
-    return schedulerForDeck(this.settings, deck);
+    return schedulerForDeck(this.settings, deck, fm);
   }
 
   async recordAttempt(file, a) {
     const attempt = { ...a, attemptId: a.attemptId || newAttemptId(a.now) };
-    const shared = { attemptId: attempt.attemptId, leechThreshold: this.settings.leechThreshold, leechAction: this.settings.leechAction };
+    const shared = {
+      attemptId: attempt.attemptId,
+      leechThreshold: this.settings.leechThreshold,
+      leechAction: this.settings.leechAction,
+      sameDayReviews: attempt.sameDayReviews === true,
+      adaptiveFrequency: attempt.adaptiveFrequency === true,
+    };
 
     // Build the result the UI should show before touching the note. If the write
     // fails, this summary is still correct and the attempt can be replayed later.
@@ -5303,6 +5334,8 @@ class QuestionTrackerPlugin extends Plugin {
               scheduler: sched.scheduler,
               fsrsRetention: sched.fsrsRetention,
               sm2: sched.sm2,
+              sameDayReviews: attempt.sameDayReviews === true,
+              adaptiveFrequency: attempt.adaptiveFrequency === true,
               attemptId: entry.id,
               leechThreshold: this.settings.leechThreshold,
               leechAction: this.settings.leechAction,

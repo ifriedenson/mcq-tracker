@@ -14,6 +14,7 @@ const {
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
 const { buildPlot } = require("./reference-graph");
 const { renderSmilesSvg } = require("./smiles");
+const { safeSvg } = require("./svg-safety");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -444,7 +445,7 @@ class ReferenceView extends ItemView {
         error.setText(result.error);
         return;
       }
-      preview.innerHTML = result.svg;
+      preview.innerHTML = safeSvg(result.svg);
     };
     input.addEventListener("input", draw);
     const examples = root.createDiv({ cls: "qt-row qt-small-row qt-ref-subjects" });

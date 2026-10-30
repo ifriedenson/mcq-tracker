@@ -4,6 +4,7 @@ const { appendHistory, hasAttemptId, setAttemptErrorType } = require("./history"
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
 const { reviewNote: reviewSm2 } = require("./sm2");
+const { adaptiveIntervalDays, isSameDayReview } = require("./card-learning");
 const { gradeAnswerDetailed } = require("./numeric-grading");
 const { formatChoiceSet, isTrueFalseChoices, normalizeTrueFalse, parseChoiceSet } = require("./answer-types");
 const { parsePairs } = require("./matching");
@@ -283,6 +284,9 @@ function applyAttempt(fm, a, intervals, options) {
   } else if (!a.correct) days = 1;
   else if (a.conf === 1) days = 2;
   else days = iv[Math.min(Math.max(streak, 1) - 1, iv.length - 1)];
+  if (opts.adaptiveFrequency === true && a.correct && opts.scheduler !== "fsrs" && opts.scheduler !== "sm2") {
+    days = adaptiveIntervalDays(days, streak, true);
+  }
 
   // FSRS reads the history before this attempt is appended, so a note that has
   // never used FSRS is seeded from its existing history exactly once.
@@ -330,7 +334,13 @@ function applyAttempt(fm, a, intervals, options) {
   fm.result = a.correct ? "correct" : "incorrect";
   fm["date attempted"] = now;
   if (!fm.first_attempted) fm.first_attempted = now;
-  const scheduledReview = fsrsReview ? fsrsReview.nextReview : sm2Review ? sm2Review.nextReview : fmtDate(addDays(a.now, days));
+  const scheduledReview = isSameDayReview(grade, opts.sameDayReviews)
+    ? fmtDate(a.now)
+    : fsrsReview
+      ? fsrsReview.nextReview
+      : sm2Review
+        ? sm2Review.nextReview
+        : fmtDate(addDays(a.now, days));
   const examCap = applyExamCap(fm, scheduledReview, opts.examCap, a.now);
   fm.next_review = examCap ? examCap.date : scheduledReview;
   if (fsrsReview) {

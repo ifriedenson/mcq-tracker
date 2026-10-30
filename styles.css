@@ -3467,6 +3467,13 @@
   margin-bottom: 8px;
 }
 
+.qt-cards-expectation {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-style: italic;
+  margin-bottom: 8px;
+}
+
 .qt-cards-term {
   font-size: 1.35rem;
   font-weight: 650;
@@ -5330,4 +5337,27 @@
 .qt-quick-add-issues {
   margin: 4px 0;
   padding-left: 20px;
+}
+
+/* Opt-in file-explorer markers for card files. */
+.qt-card-due .nav-file-title-content::after,
+.qt-card-new .nav-file-title-content::after {
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  margin-left: 6px;
+  padding: 0 3px;
+  vertical-align: middle;
+}
+
+.qt-card-due .nav-file-title-content::after {
+  background: var(--text-error);
+  color: var(--text-on-accent);
+  content: "due";
+}
+
+.qt-card-new .nav-file-title-content::after {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  content: "new";
 }

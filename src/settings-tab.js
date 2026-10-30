@@ -22,7 +22,7 @@ const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-pre
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
 const { normalizeVerificationMode } = require("./answer-verification");
-const { hasSecretStorage } = require("./secret-keys");
+const { hasSecretStorage, readSecretValue, storeSecretValue, OPENCODE_PASSWORD_SECRET } = require("./secret-keys");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -773,16 +773,49 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             await this.plugin.save();
           })
         );
+      const secretStorage = hasSecretStorage(this.app);
+      const savedPassword = secretStorage && ai.passwordSecret ? readSecretValue(this.app, ai.passwordSecret) : str(ai.password);
       new Setting(containerEl)
         .setName("Password")
-        .setDesc("Stored as plain text in this plugin's data.json, which syncs with your vault.")
+        .setDesc(
+          secretStorage
+            ? "Stored in Obsidian's Secret Storage, outside data.json. Secret Storage may be per device."
+            : "Secret Storage is not available in this Obsidian version. The password stays in memory for this session unless you explicitly allow saving it below."
+        )
         .addText((t) => {
           t.inputEl.type = "password";
-          t.setValue(ai.password).onChange(async (v) => {
-            ai.password = v;
+          t.setValue(savedPassword || this.plugin.sessionOpenCodePassword || "").onChange(async (v) => {
+            this.plugin.sessionOpenCodePassword = v;
+            if (secretStorage) {
+              if (v) {
+                if (storeSecretValue(this.app, OPENCODE_PASSWORD_SECRET, v)) {
+                  ai.passwordSecret = OPENCODE_PASSWORD_SECRET;
+                  ai.password = "";
+                } else {
+                  ai.password = v;
+                }
+              } else {
+                ai.passwordSecret = "";
+                ai.password = "";
+              }
+            } else {
+              ai.password = ai.rememberPassword === true ? v : "";
+            }
             await this.plugin.save();
           });
         });
+      if (!secretStorage) {
+        new Setting(containerEl)
+          .setName("Remember OpenCode password")
+          .setDesc("Off by default. When on, the password is saved as plain text in data.json and syncs with the vault. Leave it off to enter the password again after restarting Obsidian.")
+          .addToggle((t) =>
+            t.setValue(ai.rememberPassword === true).onChange(async (v) => {
+              ai.rememberPassword = v;
+              ai.password = v ? this.plugin.sessionOpenCodePassword || "" : "";
+              await this.plugin.save();
+            })
+          );
+      }
     }
 
     new Setting(containerEl)
@@ -806,11 +839,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Review agent edits before applying")
       .setDesc(
-        "Agent mode only. The plugin pauses edits to your question, card and deck notes plus the current note, shows a diff, and writes only the files you approve. Closing the review discards the agent's changes. On by default."
+        "Agent mode only. The plugin pauses edits to your question, card and deck notes plus the current note, shows a diff, and writes only the files you approve. Closing the review discards the agent's changes. This review does not cover other files or shell commands. On by default."
       )
       .addToggle((t) =>
         t.setValue(ai.reviewAgentEdits !== false).onChange(async (v) => {
           ai.reviewAgentEdits = v;
+          await this.plugin.save();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Allow shell commands in Agent mode")
+      .setDesc("Off by default. When on, OpenCode may run shell commands on this computer in Agent mode. The Markdown edit review does not approve or undo those commands. Leave it off unless you deliberately need them.")
+      .addToggle((t) =>
+        t.setValue(ai.agentShell === true).onChange(async (v) => {
+          ai.agentShell = v;
           await this.plugin.save();
         })
       );

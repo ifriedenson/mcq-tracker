@@ -56,6 +56,14 @@ class CardModal extends Modal {
     const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
     course.value = this.course;
 
+    const schedulerWrap = contentEl.createDiv({ cls: "qt-field" });
+    schedulerWrap.createEl("label", { text: "Scheduler (optional)" });
+    const scheduler = schedulerWrap.createEl("select", { cls: "dropdown" });
+    scheduler.createEl("option", { text: "Use deck or global scheduler", value: "" });
+    scheduler.createEl("option", { text: "Simple ladder (Leitner)", value: "ladder" });
+    scheduler.createEl("option", { text: "SM-2", value: "sm2" });
+    scheduler.createEl("option", { text: "FSRS", value: "fsrs" });
+
     const frontWrap = contentEl.createDiv({ cls: "qt-field" });
     const frontLabel = frontWrap.createEl("label", { text: "Front" });
     const front = frontWrap.createEl("textarea", { attr: { rows: "3", placeholder: "What should the card ask?" } });
@@ -63,6 +71,18 @@ class CardModal extends Modal {
     const backWrap = contentEl.createDiv({ cls: "qt-field" });
     const backLabel = backWrap.createEl("label", { text: "Back" });
     const back = backWrap.createEl("textarea", { attr: { rows: "3", placeholder: "The answer" } });
+
+    const expectationWrap = contentEl.createDiv({ cls: "qt-field" });
+    expectationWrap.createEl("label", { text: "What each side expects (optional)" });
+    const expectations = expectationWrap.createDiv({ cls: "qt-row" });
+    const frontExpectation = expectations.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Front expectation, e.g. capital city" },
+    });
+    const backExpectation = expectations.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Back expectation, e.g. country" },
+    });
 
     const exampleWrap = contentEl.createDiv({ cls: "qt-field qt-hidden" });
     exampleWrap.createEl("label", { text: "Example sentence (optional)" });
@@ -116,9 +136,12 @@ class CardModal extends Modal {
           cardType: this.cardType,
           deck: deckName,
           course: course.value,
+          scheduler: scheduler.value,
           front: front.value,
           back: back.value,
           example: example.value,
+          frontExpectation: frontExpectation.value,
+          backExpectation: backExpectation.value,
           partOfSpeech: pos.value,
           language: language.value,
         });

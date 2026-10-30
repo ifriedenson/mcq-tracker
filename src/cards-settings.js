@@ -575,8 +575,41 @@ function renderReview(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Same-day reviews")
+    .setDesc("When a card is rated Again or Hard, keep it due today so another review session can pick it up. Good and Easy keep their next date. Off by default.")
+    .addToggle((t) =>
+      t.setValue(st.sameDayReviews === true).onChange(async (v) => {
+        st.sameDayReviews = v;
+        await plugin.save();
+        plugin.refreshViews();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Adaptive card frequency")
+    .setDesc("On the simple ladder, each further correct answer in a row adds 15% to the next interval, up to four steps. FSRS and SM-2 already adapt from their own memory state. Off by default.")
+    .addToggle((t) =>
+      t.setValue(st.adaptiveFrequency === true).onChange(async (v) => {
+        st.adaptiveFrequency = v;
+        await plugin.save();
+        plugin.refreshViews();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Due markers in the file explorer")
+    .setDesc("Off by default. Adds a small due or new marker to card files in Obsidian's file explorer. This uses Obsidian's internal file-explorer view and silently does nothing if that view is unavailable.")
+    .addToggle((t) =>
+      t.setValue(st.fileExplorerDue === true).onChange(async (v) => {
+        st.fileExplorerDue = v;
+        await plugin.save();
+        plugin.refreshViews();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Scheduler")
-    .setDesc("Cards use the scheduler chosen under MCQ Tracker, Review. A card reviewed with FSRS stores its memory state in the note, and switching back to the simple ladder is lossless.")
+    .setDesc("Cards use the scheduler chosen under MCQ Tracker, Review. A card can override it with its own scheduler property. A card reviewed with FSRS stores its memory state in the note, and switching back to the simple ladder is lossless.")
     .addButton((b) => b.setButtonText("Open Cards view").onClick(() => plugin.activateCards()));
 
   containerEl.createEl("p", {

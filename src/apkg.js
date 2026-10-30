@@ -18,6 +18,25 @@ const ZIP_LOCAL = 0x04034b50;
 const ZIP_CENTRAL = 0x02014b50;
 const ZIP_EOCD = 0x06054b50;
 
+// Bounds are deliberately generous for real decks but stop a small archive from
+// expanding without limit. The ZIP reader never writes entries to disk.
+const DEFAULT_ZIP_LIMITS = {
+  maxBytes: 100 * 1024 * 1024,
+  maxEntryBytes: 32 * 1024 * 1024,
+  maxTotalBytes: 128 * 1024 * 1024,
+  maxEntries: 5000,
+};
+
+function withZipLimits(value) {
+  const src = value && typeof value === "object" ? value : {};
+  return {
+    maxBytes: Math.max(1, Number(src.maxBytes) || DEFAULT_ZIP_LIMITS.maxBytes),
+    maxEntryBytes: Math.max(1, Number(src.maxEntryBytes) || DEFAULT_ZIP_LIMITS.maxEntryBytes),
+    maxTotalBytes: Math.max(1, Number(src.maxTotalBytes) || DEFAULT_ZIP_LIMITS.maxTotalBytes),
+    maxEntries: Math.max(1, Math.round(Number(src.maxEntries) || DEFAULT_ZIP_LIMITS.maxEntries)),
+  };
+}
+
 function fail(message) {
   throw new Error(message);
 }
@@ -56,8 +75,10 @@ function inflateRaw(data) {
 }
 
 /** Reads the ZIP central directory without extracting anything to disk. */
-function readZipEntries(input) {
+function readZipEntries(input, limits) {
+  const lim = withZipLimits(limits);
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input || []);
+  if (buf.length > lim.maxBytes) fail(`That .apkg file is too large (over ${Math.round(lim.maxBytes / (1024 * 1024))} MB).`);
   if (buf.length < 22) fail("That file is not a valid .apkg archive.");
   let eocd = -1;
   const stop = Math.max(0, buf.length - 65557);
@@ -70,10 +91,12 @@ function readZipEntries(input) {
   if (eocd < 0) fail("That file is not a valid .apkg archive: the ZIP directory is missing.");
   const entries = new Map();
   const total = u16(buf, eocd + 10);
+  if (total > lim.maxEntries) fail(`That .apkg file has too many ZIP entries (over ${lim.maxEntries}).`);
   const cdOffset = u32(buf, eocd + 16);
   if (cdOffset === 0xffffffff || total === 0xffff) fail("ZIP64 .apkg files are not supported. Export the deck as Anki text instead.");
   if (cdOffset >= buf.length) fail("That .apkg file is damaged: its ZIP directory is outside the file.");
   let p = cdOffset;
+  let totalUncompressed = 0;
   for (let index = 0; index < total; index++) {
     if (p + 46 > buf.length || u32(buf, p) !== ZIP_CENTRAL) fail("That .apkg file has a damaged ZIP directory.");
     const flags = u16(buf, p + 8);
@@ -89,6 +112,8 @@ function readZipEntries(input) {
     const name = buf.toString("utf8", p + 46, nameEnd);
     if (flags & 0x1) fail(`The .apkg entry ${name} is encrypted and cannot be read.`);
     if (compressedSize === 0xffffffff || uncompressedSize === 0xffffffff) fail("ZIP64 .apkg files are not supported. Export the deck as Anki text instead.");
+    if (uncompressedSize > lim.maxEntryBytes) fail(`The .apkg entry ${name} is too large (over ${Math.round(lim.maxEntryBytes / (1024 * 1024))} MB).`);
+    if (totalUncompressed + uncompressedSize > lim.maxTotalBytes) fail("That .apkg file expands to too much data.");
     if (localOffset + 30 > buf.length || u32(buf, localOffset) !== ZIP_LOCAL) fail(`The .apkg entry ${name} has a damaged local header.`);
     const localName = u16(buf, localOffset + 26);
     const localExtra = u16(buf, localOffset + 28);
@@ -103,6 +128,7 @@ function readZipEntries(input) {
       fail(`The .apkg entry ${name} uses an unsupported ZIP compression method (${method}).`);
     }
     if (Number(uncompressedSize) !== data.length) fail(`The .apkg entry ${name} has the wrong size after decompression.`);
+    totalUncompressed += data.length;
     entries.set(name.replace(/\\/g, "/"), data);
     p = nameEnd + extraLen + commentLen;
   }
@@ -391,7 +417,7 @@ function parseApkg(input, options) {
   const opts = options || {};
   const source = str(opts.sourcePath || "Anki package");
   const fallbackDeck = str(opts.deck).trim() || "Imported";
-  const entries = readZipEntries(input);
+  const entries = readZipEntries(input, options && options.zipLimits);
   const sqliteName = ["collection.anki21", "collection.anki2"].find((name) => entries.has(name));
   if (!sqliteName) {
     if (entries.has("collection.anki21b")) {
@@ -488,6 +514,7 @@ function parseApkg(input, options) {
 }
 
 module.exports = {
+  DEFAULT_ZIP_LIMITS,
   readZipEntries,
   parseCollection,
   parseApkg,

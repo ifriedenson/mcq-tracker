@@ -1,6 +1,7 @@
 "use strict";
 const { requestUrl } = require("obsidian");
 const { str } = require("./util");
+const { safeApiBase } = require("./url-safety");
 const { extractRationale } = require("./notes");
 const { roleInstruction, commandReference } = require("./tutor-presets");
 
@@ -127,7 +128,7 @@ class OpenCodeClient {
     this.ai = ai;
   }
   base() {
-    return str(this.ai.url).trim().replace(/\/+$/, "") || "http://127.0.0.1:4096";
+    return safeApiBase(str(this.ai.url).trim().replace(/\/+$/, "") || "http://127.0.0.1:4096");
   }
   headers() {
     const h = {};

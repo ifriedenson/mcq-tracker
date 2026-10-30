@@ -158,12 +158,48 @@ function downloadFile(url, dest, onProgress, hops) {
   });
 }
 
+function assertExtractedTree(destDir) {
+  const fs = nodeReq("fs");
+  const path = nodeReq("path");
+  let root;
+  try {
+    root = fs.realpathSync(destDir);
+  } catch (e) {
+    throw new Error("The downloaded archive could not be unpacked.");
+  }
+  const stack = [root];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (e) {
+      throw new Error("The downloaded archive could not be verified after unpacking.");
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isSymbolicLink()) throw new Error("The downloaded archive contains a symbolic link and was rejected.");
+      let real;
+      try {
+        real = fs.realpathSync(full);
+      } catch (e) {
+        throw new Error("The downloaded archive contains an unreadable path and was rejected.");
+      }
+      if (real !== root && !real.startsWith(root + path.sep)) {
+        throw new Error("The downloaded archive tried to write outside its install folder and was rejected.");
+      }
+      if (entry.isDirectory()) stack.push(full);
+    }
+  }
+}
+
 async function extractArchive(archive, destDir) {
   const fs = nodeReq("fs");
   fs.mkdirSync(destDir, { recursive: true });
   try {
     // bsdtar (Windows 10+, macOS) reads .zip too; GNU tar reads the Linux .tar.gz
     await runCmd("tar", ["-xf", archive, "-C", destDir], { timeout: 8 * 60 * 1000 });
+    assertExtractedTree(destDir);
     return;
   } catch (first) {
     if (/Timed out/.test(first.message)) {
@@ -177,6 +213,7 @@ async function extractArchive(archive, destDir) {
     } else {
       throw first;
     }
+    assertExtractedTree(destDir);
   }
 }
 
@@ -652,6 +689,7 @@ module.exports = {
   runCmd,
   downloadFile,
   extractArchive,
+  assertExtractedTree,
   findBinaryIn,
   freePort,
   OpenCodeManager,

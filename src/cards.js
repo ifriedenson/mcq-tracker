@@ -13,6 +13,7 @@ const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictne
 const { DEFAULT_ANKI_CONNECT, normalizeAnkiConnect } = require("./anki-connect");
 const { DEFAULT_PLAIN_CARDS, inferPlainCard, normalizePlainCards, plainDeckName } = require("./plain-cards");
 const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
+const { adaptiveIntervalDays } = require("./card-learning");
 
 const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
 const CARD_TYPE_LABELS = {
@@ -97,6 +98,9 @@ function mergeCardSettings(saved, defaults) {
       answerMode: "flip",
       gradingStrictness: "standard",
       aiGrading: false,
+      sameDayReviews: false,
+      adaptiveFrequency: false,
+      fileExplorerDue: false,
       decks: [],
       csvMappings: {},
       ankiConnect: { ...DEFAULT_ANKI_CONNECT, excalidraw: { ...DEFAULT_ANKI_CONNECT.excalidraw } },
@@ -114,6 +118,9 @@ function mergeCardSettings(saved, defaults) {
   out.answerMode = normalizeAnswerMode(src.answerMode === undefined ? base.answerMode : src.answerMode, "flip");
   out.gradingStrictness = normalizeStrictness(src.gradingStrictness === undefined ? base.gradingStrictness : src.gradingStrictness, "standard");
   out.aiGrading = src.aiGrading === true;
+  out.sameDayReviews = src.sameDayReviews === true;
+  out.adaptiveFrequency = src.adaptiveFrequency === true;
+  out.fileExplorerDue = src.fileExplorerDue === true;
   out.decks = normalizeDecks(src.decks === undefined ? base.decks : src.decks);
   out.csvMappings = src.csvMappings && typeof src.csvMappings === "object" && !Array.isArray(src.csvMappings) ? { ...src.csvMappings } : {};
   out.ankiConnect = normalizeAnkiConnect(src.ankiConnect === undefined ? base.ankiConnect : src.ankiConnect);
@@ -210,7 +217,9 @@ function effectiveGradingStrictness(fm, settings, deckName) {
 }
 
 /** Deck scheduler choice, then the global ladder/FSRS selection. */
-function effectiveScheduler(settings, deckName) {
+function effectiveScheduler(settings, deckName, fm) {
+  const own = normalizeSchedulerChoice(fm && (fm.scheduler || fm.card_scheduler));
+  if (own) return own;
   const deck = deckConfig(settings, deckName);
   if (deck && deck.scheduler) return deck.scheduler;
   return lower(settings && settings.scheduler) === "fsrs" ? "fsrs" : "ladder";
@@ -237,9 +246,9 @@ function effectiveSm2(settings, deckName) {
 }
 
 /** Resolve every scheduler option for one deck in one place. */
-function schedulerForDeck(settings, deckName) {
+function schedulerForDeck(settings, deckName, fm) {
   return {
-    scheduler: effectiveScheduler(settings, deckName),
+    scheduler: effectiveScheduler(settings, deckName, fm),
     intervals: effectiveDeckIntervals(settings, deckName),
     fsrsRetention: effectiveFsrsRetention(settings, deckName),
     sm2: effectiveSm2(settings, deckName),
@@ -259,6 +268,7 @@ function resolveCard(file, fm, settings) {
     // A visual mask is a reveal card; typing a label would miss the point.
     answerMode: occluded ? "flip" : effectiveAnswerMode(fm, settings, deck),
     gradingStrictness: effectiveGradingStrictness(fm, settings, deck),
+    scheduler: effectiveScheduler(settings, deck, fm),
   };
 }
 
@@ -357,6 +367,19 @@ function parseCardBody(text, fm) {
   const h = headingsOf(cleanBody(text));
   const kind = cardKind(fm);
   const plain = inferPlainCard(text);
+  const firstValue = (keys) => {
+    for (const key of keys) {
+      const value = str(fm && fm[key]).trim();
+      if (value) return value;
+    }
+    return "";
+  };
+  let frontExpectation =
+    firstSection(h, ["front expectation", "front description", "expectation (front)", "term expectation"]) ||
+    firstValue(["front_expectation", "front_description", "side1_desc", "side1Desc"]);
+  let backExpectation =
+    firstSection(h, ["back expectation", "back description", "expectation (back)", "definition expectation"]) ||
+    firstValue(["back_expectation", "back_description", "side2_desc", "side2Desc"]);
   if (kind === "vocab") {
     const term = firstSection(h, ["term", "word", "front", "prompt"]) || str(fm.term || fm.word || fm.front).trim();
     const definition =
@@ -372,6 +395,8 @@ function parseCardBody(text, fm) {
       partOfSpeech: firstSection(h, ["part of speech", "pos"]) || str(fm.part_of_speech || fm.pos).trim(),
       language: str(fm.language || fm.lang).trim(),
       notes: firstSection(h, ["notes"]),
+      frontExpectation,
+      backExpectation,
       acceptedVariants: parseVariants(fm && (fm.accepted_variants || fm.answer_variants)),
     };
   }
@@ -413,6 +438,8 @@ function parseCardBody(text, fm) {
       partOfSpeech: "",
       language: "",
       notes: firstSection(h, ["notes"]),
+      frontExpectation,
+      backExpectation,
       acceptedVariants: [],
     };
   }
@@ -430,6 +457,9 @@ function parseCardBody(text, fm) {
     const t = front;
     front = back;
     back = t;
+    const expectation = frontExpectation;
+    frontExpectation = backExpectation;
+    backExpectation = expectation;
   }
 
   return {
@@ -445,6 +475,8 @@ function parseCardBody(text, fm) {
     partOfSpeech: "",
     language: "",
     notes: firstSection(h, ["notes"]),
+    frontExpectation,
+    backExpectation,
     acceptedVariants: parseVariants(fm && (fm.accepted_variants || fm.answer_variants)),
   };
 }
@@ -526,11 +558,17 @@ function cardNote(input, now) {
   if (answerMode) lines.push(`answer_mode: ${yamlString(answerMode)}`);
   const gradingStrictness = normalizeStrictness(data.gradingStrictness, "");
   if (gradingStrictness) lines.push(`grading_strictness: ${yamlString(gradingStrictness)}`);
+  const scheduler = normalizeSchedulerChoice(data.scheduler);
+  if (scheduler) lines.push(`scheduler: ${yamlString(scheduler)}`);
   const variants = parseVariants(data.acceptedVariants);
   if (variants.length) {
     lines.push("accepted_variants:");
     for (const variant of variants) lines.push(`  - ${yamlString(variant)}`);
   }
+  const frontExpectation = str(data.frontExpectation || data.front_expectation).trim();
+  const backExpectation = str(data.backExpectation || data.back_expectation).trim();
+  if (frontExpectation) lines.push(`front_expectation: ${yamlString(frontExpectation)}`);
+  if (backExpectation) lines.push(`back_expectation: ${yamlString(backExpectation)}`);
   if (kind === "vocab") {
     if (data.partOfSpeech) lines.push(`part_of_speech: ${yamlString(data.partOfSpeech)}`);
     if (data.language) lines.push(`language: ${yamlString(data.language)}`);
@@ -673,7 +711,9 @@ module.exports = {
   effectiveDeckIntervals,
   effectiveFsrsRetention,
   effectiveSm2,
+  normalizeSchedulerChoice,
   schedulerForDeck,
+  adaptiveIntervalDays,
   mergeCardSettings,
   isCardNote,
   cardKind,

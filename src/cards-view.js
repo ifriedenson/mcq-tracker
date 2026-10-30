@@ -554,6 +554,9 @@ class CardView extends ItemView {
       front.createDiv({ cls: "qt-cards-lang", text: [card.body.language, card.body.partOfSpeech].filter(Boolean).join(" · ") });
     }
     if (card.body.cardType === "image-occlusion") this.renderOcclusion(front, card);
+    if (card.body.frontExpectation) {
+      front.createDiv({ cls: "qt-cards-expectation", text: `Expected: ${card.body.frontExpectation}` });
+    }
     this.md(card.body.front || "*This card has no front.*", front.createDiv({ cls: "qt-cards-term" }), card.file.path);
 
     const mode = card.body.cardType === "image-occlusion" ? "flip" : card.answerMode || "flip";
@@ -612,6 +615,9 @@ class CardView extends ItemView {
 
     const answer = root.createDiv({ cls: "qt-cards-box qt-cards-answer" });
     answer.createDiv({ cls: "qt-cards-answer-label", text: card.body.kind === "vocab" ? "Definition" : "Answer" });
+    if (card.body.backExpectation) {
+      answer.createDiv({ cls: "qt-cards-expectation", text: `Expected: ${card.body.backExpectation}` });
+    }
     this.md(card.body.back || "*This card has no answer.*", answer.createDiv({ cls: "qt-cards-back" }), card.file.path);
     if (card.body.example) {
       answer.createDiv({ cls: "qt-cards-answer-label", text: "Example" });
