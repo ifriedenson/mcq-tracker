@@ -57,6 +57,7 @@ const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseFlashQuizText, parseGiftText, parseMarkdownQuiz, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizPortJson, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
 const { buildMochiArchive, cardsToMochiDecks, mochiMediaWarning } = require("./mochi-export");
+const { cardsToLearnKit, parseLearnKit } = require("./learnkit");
 const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
 const { parseQtiArchive } = require("./qti-archive");
@@ -345,7 +346,7 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
-    this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki, Mochi, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
+    this.addCommand({ id: "export-cards", name: "Cards: export to Quizlet, Anki, Mochi, LearnKit, Kahoot, Blooket or Gimkit", callback: () => this.openCardExport() });
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
@@ -3620,6 +3621,36 @@ class QuestionTrackerPlugin extends Plugin {
     return this.importParsedCards(cards, { ...opts, errors });
   }
 
+  /** Import LearnKit pipe blocks and quick cards from a note or folder. */
+  async importCardsFromLearnKit(folder, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    const root = String(folder || "").replace(/^\/+|\/+$/g, "");
+    const files = this.app.vault.getMarkdownFiles().filter((file) => {
+      if (root && file.path !== root && !file.path.startsWith(root + "/")) return false;
+      return !isCardNote(this.app.metadataCache.getFileCache(file)?.frontmatter);
+    });
+    const cards = [];
+    const errors = [];
+    const warnings = [];
+    const skippedDetails = [];
+    for (const file of files) {
+      try {
+        const text = await this.app.vault.cachedRead(file);
+        const parent = String(file.path || "").split("/").slice(0, -1).join("/");
+        const deck = String(opts.deck || "").trim() || (parent ? parent.split("/").pop() : this.settings.cards.defaultDeck);
+        const parsed = parseLearnKit(text, { sourcePath: file.path, deck });
+        cards.push(...parsed.cards);
+        warnings.push(...parsed.warnings);
+        skippedDetails.push(...parsed.skippedDetails);
+      } catch (e) {
+        errors.push(`${file.path}: ${String((e && e.message) || e)}`);
+      }
+    }
+    const result = await this.importParsedCards(cards, { ...opts, errors, skippedDetails });
+    return { ...result, warnings: [...new Set(warnings)] };
+  }
+
   /** Import a CrowdAnki JSON export. */
   async importCardsFromCrowdAnki(path, options) {
     if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
@@ -3822,7 +3853,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (this.moduleOff("cards")) throw new Error("Turn on the Cards module first.");
     const opts = options || {};
     const kind = String(format || "quizlet").toLowerCase();
-    if (!["quizlet", "anki", "mochi", "kahoot", "blooket", "gimkit"].includes(kind)) {
+    if (!["quizlet", "anki", "mochi", "learnkit", "kahoot", "blooket", "gimkit"].includes(kind)) {
       throw new Error(`Unsupported export format: ${kind}.`);
     }
     const cards = this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
@@ -3848,7 +3879,7 @@ class QuestionTrackerPlugin extends Plugin {
       const media = mochiMediaWarning(records);
       if (media) warnings.push(media);
     }
-    const output = kind === "quizlet" ? cardsToQuizlet(records) : kind === "anki" ? cardsToAnki(records) : kind === "mochi" ? buildMochiArchive(records) : cardsToQuestionSet(kind, records);
+    const output = kind === "quizlet" ? cardsToQuizlet(records) : kind === "anki" ? cardsToAnki(records) : kind === "mochi" ? buildMochiArchive(records) : kind === "learnkit" ? cardsToLearnKit(records) : cardsToQuestionSet(kind, records);
     if (!output || (typeof output === "string" && !output.trim())) throw new Error("Nothing in this filter can be exported in that format yet.");
     const root = String(this.settings.cards.newCardFolder || "Cards").replace(/^\/+|\/+$/g, "") || "Cards";
     const folder = `${root}/exports`;
@@ -3857,7 +3888,7 @@ class QuestionTrackerPlugin extends Plugin {
       .replace(/[\\/:*?"<>|]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-    const extension = kind === "mochi" ? "mochi" : kind === "quizlet" || kind === "anki" ? "txt" : "csv";
+    const extension = kind === "mochi" ? "mochi" : kind === "learnkit" ? "md" : kind === "quizlet" || kind === "anki" ? "txt" : "csv";
     let path = `${folder}/${base}.${extension}`;
     let n = 2;
     while (this.app.vault.getAbstractFileByPath(path)) {
@@ -3890,15 +3921,15 @@ class QuestionTrackerPlugin extends Plugin {
       if (parsed && parsed.media) media = parsed.media;
     };
     try {
-      if (kind === "spaced" || kind === "mochi") {
+      if (kind === "spaced" || kind === "mochi" || kind === "learnkit") {
         const root = String(path || "").replace(/^\/+|\/+$/g, "");
         const files = this.app.vault.getMarkdownFiles().filter((file) => (!root || file.path === root || file.path.startsWith(root + "/")) && !isCardNote(this.app.metadataCache.getFileCache(file)?.frontmatter));
         for (const file of files) {
           try {
             const text = await this.app.vault.cachedRead(file);
             const folder = String(file.path || "").split("/").slice(0, -1).join("/");
-            const deck = String(opts.deck || "").trim() || (kind === "mochi" ? (folder ? folder.split("/").pop() : "Imported") : (root ? root.split("/").pop() : this.settings.cards.defaultDeck));
-            add(kind === "mochi" ? parseMochiMarkdown(text, { sourcePath: file.path, deck }) : parseSpacedRepetition(text, { sourcePath: file.path, deck }));
+            const deck = String(opts.deck || "").trim() || ((kind === "mochi" || kind === "learnkit") ? (folder ? folder.split("/").pop() : "Imported") : (root ? root.split("/").pop() : this.settings.cards.defaultDeck));
+            add(kind === "mochi" ? parseMochiMarkdown(text, { sourcePath: file.path, deck }) : kind === "learnkit" ? parseLearnKit(text, { sourcePath: file.path, deck }) : parseSpacedRepetition(text, { sourcePath: file.path, deck }));
           } catch (e) {
             errors.push(`${file.path}: ${String((e && e.message) || e)}`);
           }
