@@ -3325,9 +3325,14 @@
 }
 
 .qt-root.qt-root-today {
+  align-self: stretch;
   container-name: qt-today;
   container-type: inline-size;
   height: 100%;
+  margin: 0;
+  max-width: none;
+  padding: 0;
+  width: 100%;
 }
 
 .qt-wrap.qt-today {

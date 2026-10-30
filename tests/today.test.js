@@ -274,6 +274,10 @@ test("today: desktop CSS fills the pane and uses container-query breakpoints", (
   const root = (css.match(/\.qt-root\.qt-root-today \{[^}]*\}/) || [])[0] || "";
   assert.match(root, /container-name:\s*qt-today/);
   assert.match(root, /container-type:\s*inline-size/);
+  assert.match(root, /max-width:\s*none/);
+  assert.match(root, /width:\s*100%/);
+  assert.match(root, /margin:\s*0;/);
+  assert.match(root, /padding:\s*0;/);
 
   const grid = (css.match(/\.qt-today-grid \{[^}]*\}/) || [])[0] || "";
   assert.match(grid, /align-items:\s*stretch/);
