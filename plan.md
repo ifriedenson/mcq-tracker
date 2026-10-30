@@ -551,6 +551,98 @@ These reuse existing surfaces instead of adding a module. They stay **unschedule
 
 **Step-9 progress — complete.** Rows 1–28 shipped in 1.130.0–1.151.0: inline quiz blocks now include choice, slider and text questions, per-question weights and pass/imprecise/fail bands; plus whole-note review, AI generation, Anki parity, content authority, per-deck/per-note scheduling, file-explorer markers and source-anchored recalls, plus guided card/deck creation, optional CouchDB review-state sync, Simple Quiz blocks, Simple Note Quiz, Text2Anki, Spaced Everything, Auto Anki, Spaced Repetition quiz notes, Anki folder exclusions, the opt-in card reveal animation and the optional daily-quiz streak freeze. Row 28 was verified-satisfied against the existing whole-note queue. **A-Level Study Coach's error-log review sheet shipped in 1.163.0; its think-first timer is open in §11 item 17. No fully specified step-9 row remains.** Class Timetable's term calendar shipped in 1.162.0 (odd/even parity is §11 item 16), Study Vault's exam-days/topics widget is verified-satisfied, §5.22.4 item 4 is shipped, and item 1 is open in §11 item 13.
 
+### 3.9.2 Link-dump relevance and licence audit (Oct 30, 2026)
+
+**Status: research only; supersedes the unverified list in §11 item 21.** Every public link in the Oct 30 dump was opened once (HTTP status and page title) or resolved to its repository through `community-plugins.json` (9,701 entries) and the GitHub API. The dump contained 34 community-plugin listings, 21 direct GitHub repository links, one Hugging Face dataset, official and third-party exam-content pages, AI services, and a large amount of unrelated consumer, hardware, media and private material.
+
+**Licence rule.** "MIT" means GitHub reports `license.spdx_id = MIT`; for the 29 plugin listings the repository `LICENSE` was also read, and 28 start with `MIT License` (Ballistics starts with its copyright line but is MIT per the API). Every other result is **NOT MIT**: 0BSD, Apache-2.0, GPL/AGPL, CC-BY-SA, no licence (`NONE`), `NOASSERTION` with a custom or restrictive text, or a closed website or service with no source licence. No licence was inferred from a README badge. No code was copied and no feature was started.
+
+#### Directly relevant to MCQ Tracker
+
+| Link | What it is | Licence | Why relevant |
+|---|---|---|---|
+| [LearnKit](https://github.com/ctrlaltwill/learnkit) | Obsidian study system: FSRS, flashcards, note review, tests, analytics, TTS | MIT | Closest study-system competitor; its feature gaps are already tracked in §2.1 and §3.9.1. |
+| [Adaptive Practice](https://github.com/anupchavan/adaptive-practice) | LLM quizzes from notes and PDFs, skill levels, fluency-aware review | MIT plugin; its Whetstone engine is AGPL, so engine code is not reusable | Direct competitor for adaptive quiz generation and scheduling. |
+| [MarginMuse](https://github.com/vic-athens/MarginMuse) | AI vault assistant with MCP, web search and Canvas editing | MIT | AI-assistant surface beyond MCQ's tutor: MCP, web search, Canvas tools. |
+| [Jelly](https://github.com/fa3eng/jelly) | Local-first AI chat over notes and PDFs with vault-scoped file tools | MIT | PDF-grounded chat and local extraction that MCQ does not have. |
+| [Free AI and Agents](https://github.com/mokelu/free-ai-agents) | Free AI chat plus vault-editing agents in the Obsidian sidebar | MIT | Lowers the bring-your-own-key barrier; agents can create, rewrite, move and tag notes. |
+| [Task Hours](https://github.com/mytasklog/task-hours) | Time estimates on Tasks-format lines and an hours-ahead dashboard | MIT | Adjacent to MCQ's time tracking: estimates and workload planning rather than logged study time. |
+| [Mathfolio](https://github.com/glaysia/obsidian-mathfolio) | Math worksheet editor and local calculation engine | **NOT MIT** (AGPL-3.0) | Relevant to math practice, but copyleft; ideas only, no code. |
+| [Code Runner](https://github.com/chujiu-dev/obsidian-code-runner) | Runs code blocks on desktop and mobile (Pyodide, 18+ languages) | MIT | Relevant to computer-science practice questions that need executable snippets. |
+| [Ideaverse Maps](https://github.com/nickmilo/ideaverse-maps) | Interactive vault maps: Emergence, Starfield, Treemap and more | MIT | Vault navigation and review-by-map; not a study scheduler. |
+| [Width Wizard](https://github.com/ferhatyurdakul/width-wizard) | Editor line-width control and draggable table-column borders | MIT | Reading and table-authoring quality of life. |
+| [Dashboard Gallery](https://github.com/InlitX/Obsidian-Dashboard-Gallery) | Six installable home dashboards built from a note and a CSS snippet | MIT | Dashboard presentation templates; MCQ has one built-in insights view. |
+| [obsidian-git](https://github.com/Vinzent03/obsidian-git) | Git version control with auto commit-and-sync, history, diff and conflict views | MIT | Vault backup and version history that MCQ does not provide. |
+| [Temperans](https://github.com/Adg0/temperans) | Habit archetypes, annual heat map, API and companion imports | MIT | Adjacent tracking model: avoidance and zero-goal habits, not just study sessions. |
+| [Kairos](https://github.com/caasion/kairos) | Time-blocked daily planning inside notes | **NOT MIT** (0BSD) | Scheduling idea only; 0BSD is permissive but outside the MIT-only rule for this table. |
+| [obsidian-icloud-windows-sync](https://github.com/gursimar/obsidian-icloud-windows-sync) | Syncs and merges a Windows vault with iCloud | **NOT MIT** (no licence) | Vault portability, but no licence means no reuse. |
+| [VibeCurb](https://github.com/Yu-369/VibeCurb) | Prompt-skill pipelines with design reads, quality gates and visual diffs | MIT | Relevant to AI output quality, though it is not an Obsidian plugin. |
+
+#### Content, PDF/OCR, providers and host
+
+| Link | What it is | Licence | Why relevant |
+|---|---|---|---|
+| [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) | This plugin | MIT | Self-reference for the plugin's own listing and feature boundary. |
+| [Obsidian](https://obsidian.md/download) | Host application | **NOT MIT** (proprietary) | The platform MCQ runs on; no code reuse. |
+| [Knap](https://github.com/obsidianmd/knap) | Template language that turns data into Markdown | MIT | Potential route for importing structured tables into question notes. |
+| [Tabula](https://github.com/tabulapdf/tabula-java) | PDF table extraction | MIT | Relevant to question-table extraction, but it is a Java tool, not an embeddable Obsidian dependency. |
+| [PyPDF2](https://pypdf2.readthedocs.io/en/3.x/) | Python PDF text extraction | **NOT MIT** (BSD-3-Clause) | Relevant conceptually to PDF import, but Python-only and not usable in this JavaScript plugin. |
+| [OnlineOCR](https://www.onlineocr.net/) | Image-to-text OCR service | **NOT MIT** (closed service) | Relevant to scanned-question import; no source licence or offline reuse. |
+| [NotebookLM](https://notebooklm.google/) | Source-grounded AI research and study assistant | **NOT MIT** (closed service) | Comparable study workflow; no plugin integration or reusable code. |
+| [Groq](https://console.groq.com/keys) | OpenAI-compatible inference provider | **NOT MIT** (service) | A provider option for MCQ's bring-your-own-key AI tutor; service terms, not code. |
+| [OpenCode Zen](https://opencode.ai/zen) | Curated model gateway for coding agents | **NOT MIT** (service) | MCQ already integrates OpenCode; this is a provider endpoint, not a feature source. |
+| [OER-MCP dataset](https://huggingface.co/datasets/swoopeagle/oer-mcp) | MCP dataset of open educational resources | **NOT MIT** (no licence in the dataset metadata) | Potentially relevant to AI question sourcing, but unlicensed; do not ingest. |
+| [PineSAT questions API](https://pinesat.duckdns.org/api/questions) | Live SAT question JSON endpoint tied to OpenSAT | **NOT MIT** (no published terms) | Relevant SAT content, but no licence or terms; do not ingest. |
+| [College Board SAT Educator Question Bank](https://satsuiteeducatorquestionbank.collegeboard.org/digital/results) | Official SAT question bank | **NOT MIT** (proprietary content) | Authoritative SAT questions, but the terms restrict copying and redistribution. |
+| [AP Central AP Chemistry FRQs](https://apcentral.collegeboard.org/media/pdf/ap25-frq-chemistry.pdf) | Official AP Chemistry free-response questions | **NOT MIT** (copyrighted) | Useful for format study only; content cannot be bundled. |
+| [NUM8ERS AP Chemistry FRQs](https://num8ers.com/past-papers/ap-chemistry-frqs/) | Third-party collection of past AP Chemistry FRQs | **NOT MIT** (third-party copies) | Same copyright caution as the official paper. |
+| [OpenSAT](https://github.com/Anas099X/OpenSAT) | SAT question database and API | **NOT MIT** (custom restrictions: no forking or derivatives under the name, non-commercial code use) | Question-bank idea only; the licence is not open source. |
+| [SAT Math Problem Solver](https://github.com/imbooz1/sat-math-problem-solver) | SAT math solutions and score calculators | MIT | SAT-specific step-by-step solutions and score prediction that MCQ lacks. |
+| [SAT Lesson Plan Generator](https://github.com/laurenlliu/sat-lesson-plan-generator) | Generates SAT tutoring lesson plans from score reports | **NOT MIT** (no licence) | Tutoring workflow idea only; no reuse. |
+| [SAT Math Lab](https://github.com/echa920/sat-math-lab) | Adaptive SAT math practice, exams and mistake log | **NOT MIT** (no licence) | Direct SAT-practice competitor; no reuse. |
+| [SAT-PREP](https://github.com/nakshatra30/SAT-PREP) | AI SAT question-generation pipeline | **NOT MIT** (no licence) | Question-generation idea only; no reuse. |
+| [sat-trainer](https://github.com/hummingbirdrhino-png/sat-trainer) | No documented feature; README is the default Vite template | **NOT MIT** (no licence) | Not usable or assessable. |
+| [obsidian-releases](https://github.com/obsidianmd/obsidian-releases) | Community plugin index and release metadata | **NOT MIT** (no licence) | Relevant to publishing and the plugin listing, not to a user-facing feature. |
+| [Blinko](https://github.com/blinkospace/blinko) | Self-hosted AI note tool | **NOT MIT** (GPL-3.0) | Adjacent AI-notes product, not an Obsidian plugin; ideas only. |
+
+#### Peripheral: science-subject plugins
+
+These are relevant only if MCQ adds science notation or subject-specific rendering; they are not study-workflow features. Licences are recorded so a later step cannot copy an unlicensed source.
+
+| Plugin | Licence | Subject or feature |
+|---|---|---|
+| [AtomView](https://github.com/dhwan0112/obsidian-atomview) | MIT | 3D atomic structures and MD trajectories |
+| [ChemSpec](https://github.com/ruzx/chemspec) | MIT | NMR, FT-IR and analytical spectra |
+| [ChemRender](https://github.com/ruzx/chemrender3d) | MIT | 3D molecular structures |
+| [ChemSearch](https://github.com/ruzx/ChemSearch) | MIT | Substructure search and inventory |
+| [ChemEdit Universal](https://github.com/ruzx/ChemEdit-Universal) | MIT | Draw and edit structures, calculate properties |
+| [ChemEdit](https://github.com/ruzx/obsidian-chemedit) | MIT | Display and edit SMILES |
+| [Molren](https://github.com/quiachonj/molren) | MIT | SMILES, molfile and reaction rendering |
+| [gene-code](https://github.com/neznayer/obsidian-gene-code) | MIT | Gene and variant diagrams |
+| [Uncertainty Calc](https://github.com/masoudmim/obsidian-uncertainty-calc) | MIT | Measurement-uncertainty propagation |
+| [Sketch Mechanisms](https://github.com/masoudmim/sketch-mechanisms) | MIT | Mechanism animations |
+| [Ballistics](https://github.com/jheddings/obsidian-ballistics) | MIT | Ballistics calculations |
+| [Science Input Helper](https://github.com/xuxinxi14/science-input-helper) | MIT | Chemical formulas, units, Greek letters and math input |
+| [ChemTrails](https://github.com/altarok/chemtrails) | MIT | SMILES to SVG |
+| [Reverse Complement](https://github.com/bjornfjohansson/reverse-complement) | **NOT MIT** (0BSD) | DNA reverse complement |
+| [TIPA Support](https://github.com/akdemirdeniz/obsidian-tipa) | MIT | Phonetic TIPA notation |
+| [Ketcher](https://github.com/yulei-chen/obsidian-ketcher) | **NOT MIT** (Apache-2.0) | Structure and reaction editor |
+| [Chemical Structure Renderer](https://github.com/xaya1001/obsidian-Chemical-Structure-Renderer) | MIT | SMILES to PNG or SVG |
+| [Periodic Table](https://github.com/r-cramer4/Periodic-Table-Obsidian) | MIT | Periodic table |
+| [chem](https://github.com/acylation/obsidian-chem) | MIT | SMILES to chemistry structures |
+| [CircuitJS](https://github.com/stevengann/obsidian-circuitjs) | MIT | Circuit simulation |
+| [Biosequence](https://github.com/jwreda/obsidian-biosequence) | MIT | Biological sequences |
+| [Anatomed](https://github.com/pitfa19/anatomed-obsidian) | **NOT MIT** (CC-BY-SA-4.0) | Interactive 3D anatomy |
+
+#### Checked and not relevant
+
+- **Consumer, hardware, OS and design tools:** `remove.bg` (background removal), `normalbones.com/app` (DICOM library), `shouldiremoveit.com` (Windows bloatware; 403), `pi-hole.net` (network ad blocking), Blackmagic Camera, Raycast, TouchDesigner docs, Google Opinion Rewards, Blip, Affinity, Omarchy and its plugin page, MakerWorld (403), elementary OS, Apple iCloud storage support, the Apple MacBook Air product page, Open Sauce, Spinach, Veg Capital, Grayswan Cygnal, Vanced, Wealth With Rajesh, `rajesh-neupane.github.io`, Higgsfield, B.AI, UnoRouter, TokenRouter, Qoder, WorkBuddy, MongoDB's build-with-AI docs, Nous Research, and the three XDA articles. Public consumer AI chat sites such as `kimi.ai` are closed services too, not integration providers.
+- **General note or workspace products:** Notion (closed AI workspace). Blinko is in the table above because it is an AI-notes product, but it is not an Obsidian plugin.
+- **Adjacent code with no reusable feature:** `usestrix/strix` (Apache-2.0, AI penetration testing), `freedomofpress/dangerzone` (AGPL-3.0, PDF sanitising desktop app), `garylab/MakeMoneyWithAI` (no licence, AI-income list), and `pseudonymizer-tool` (GPL-3.0, note pseudonymisation; no study feature).
+- **Search, media and discussion pages:** the DuckDuckGo result pages, all YouTube videos, the r/ObsidianMD, r/Sat, r/vegan, r/VeganActivism, r/3Dprinting, r/ClaudeAI, r/ChatGPT and r/hacking threads, and the Discord invite. These are discussion or demonstration pages with no repository or licence.
+- **Private or non-public URLs (not reproduced):** private Claude, ChatGPT, Gemini, Kimi and Z.ai conversations; iCloud Mail; Instructure course pages; a Scribd upload; a Microsoft SAML sign-in request; a Blip download URL containing an email address; the Obsidian account page; one local `file:///` PDF path; and `chrome://` pages.
+- **Not URLs or not public websites:** "SAT", "ideas", "[Folder Name]", and "Obsidian plugin promotions".
+
 ### 3.10 Licence allow-list: what may and may not be integrated
 
 **Read this before copying anything.** This section is the source of truth for reuse; the per-row notes in §3.1–§3.9 are commentary on top of it. If an entry here disagrees with a row above, this table wins.
@@ -2431,4 +2523,5 @@ devices.
 18. **Obsidian directory removal (Oct 30, 2026):** the plan records that the community-directory entry was removed, but the dashboard reason was never captured and cannot be read from this environment. Do not guess at it or resubmit blindly: open the developer dashboard error, fix it, and record the reason here. The related static-review points are the opt-in OpenCode download and runtime (a consent dialog and SHA-256 verification already exist) and the former dynamic `require(name)` wrapper, which now uses literal `require()` calls behind an allowlist.
 19. **Authorship and similarity review (Oct 30, 2026):** much of the code was written with AI coding agents under human direction. The license documents carry no authorship or copyrightability caveat: that text was removed from `docs/license-audit.md` and `CONTRIBUTING.md` at the owner's request in `a7cc97d`, and `LICENSE` is plain MIT and was never modified. The remaining open question is that no similarity or licence scanner has been run against third-party code; decide whether to run one and how to keep human design and review records before commercial distribution. No scan result is claimed.
 20. **Commercial distribution and exam-content policy (Oct 30, 2026):** the plugin bundles no College Board content and an import is the user's own action, but a paid product that advertises importing question-bank PDFs and sending them to AI providers could invite a facilitating claim. The import example and README warning were tightened, but whether to charge, and what import policy to advertise if charging, is an owner and business decision, not a code decision.
-21. **Unverified link dump (Oct 30, 2026):** a large set of links was supplied without a specific instruction. The Obsidian plugin candidates for a future step-8 licence pass are `ideaverse-maps`, `width-wizard`, `marginmuse`, `jelly`, `adaptive-practice`, `learnkit`, `free-ai-agents`, `task-hours`, `mathfolio`, `atomview`, `chemspec`, `chemrender`, `chem-search`, `chemedit-universal`, `chemedit`, `code-runner`, `anatomed`, `molren`, `gene-code`, `uncertainty-calc`, `sketch-mechanisms`, `ballistics`, `science-input-helper`, `chemtrails`, `pseudonymizer-tool`, `reverse-complement`, `tipa-support`, `ketcher`, `chemical-structure-renderer`, `periodic-table`, `chem`, `obsidian-circuitjs` and `biosequence`, plus the SAT repositories `imbooz1/sat-math-problem-solver`, `laurenlliu/sat-lesson-plan-generator`, `echa920/sat-math-lab`, `nakshatra30/SAT-PREP`, `Anas099X/OpenSAT` and `hummingbirdrhino-png/sat-trainer`. No licence was checked and no code was copied; verify each repository's `LICENSE` before adding it to section 3.9.1.
+21. **Unverified link dump (Oct 30, 2026):** a large set of links was supplied without a specific instruction. The Obsidian plugin candidates for a future step-8 licence pass are `ideaverse-maps`, `width-wizard`, `marginmuse`, `jelly`, `adaptive-practice`, `learnkit`, `free-ai-agents`, `task-hours`, `mathfolio`, `atomview`, `chemspec`, `chemrender`, `chem-search`, `chemedit-universal`, `chemedit`, `code-runner`, `anatomed`, `molren`, `gene-code`, `uncertainty-calc`, `sketch-mechanisms`, `ballistics`, `science-input-helper`, `chemtrails`, `pseudonymizer-tool`, `reverse-complement`, `tipa-support`, `ketcher`, `chemical-structure-renderer`, `periodic-table`, `chem`, `obsidian-circuitjs` and `biosequence`, plus the SAT repositories `imbooz1/sat-math-problem-solver`, `laurenlliu/sat-lesson-plan-generator`, `echa920/sat-math-lab`, `nakshatra30/SAT-PREP`, `Anas099X/OpenSAT` and `hummingbirdrhino-png/sat-trainer`. **Audited Oct 30, 2026 in §3.9.2:** 34 community-plugin listings (29 MIT, 5 NOT MIT), 21 direct repository links (7 MIT, 14 NOT MIT), the Knap repository (MIT), the OER-MCP dataset (no licence) and the non-repository links were classified there. No code was copied and no feature was started.
+22. **Link-audit unknowns (Oct 30, 2026):** §3.9.2 records the full pass. Three links remain unresolved: `https://pinesat.duckdns.org/api/questions` returns live SAT questions but publishes no licence or terms; the `swoopeagle/oer-mcp` Hugging Face dataset has no licence in its API metadata; `shouldiremoveit.com` and MakerWorld returned HTTP 403. Do not ingest or copy from these. The science-subject plugin cluster is recorded as peripheral; whether MCQ should add chemistry, biology or circuit rendering is a product decision and was not started.
