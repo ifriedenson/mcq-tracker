@@ -410,6 +410,12 @@ This is a note-local self-test. It never changes a question's attempts, history,
 
 Turn it on under Settings → MCQ Tracker → Review. One set per line: `Name | folders | tags | priority`. Folders include subfolders, and blank folders or tags mean any note. With no sets, only notes with `note_review: true` are reviewed. The command **Review notes (whole-note queue)** shows one note at a time with Again/Hard/Good/Easy; ratings go through the same ladder or FSRS scheduler and write the usual `history`, `attempts` and `next_review` properties. A status-bar count shows notes due. Question and card notes are excluded, and `note_review_priority: high|normal|low` changes queue order only.
 
+### Spaced Everything
+
+Spaced Everything is an optional SuperMemo 2 queue for whole notes. Enable it under Settings → MCQ Tracker → Review, then run **Spaced Everything: log review outcome for this note** on the open note. The first rating onboards the note and writes `se-interval`, `se-ease` and `se-last-reviewed`; later ratings update only those properties. **Fruitful** brings the note back soon, **Ignore** keeps the normal pace, and **Unfruitful** spaces it further out. Run **Spaced Everything: review due notes** for a due queue. Question and card tracking (`attempts`, `history`, `streak` and `next_review`) is never changed.
+
+**Capture thought** creates a new onboarded note. Its title and body templates support `{{date}}`, `{{time}}`, `{{unixtime}}` and `{{thought}}`; if the body template omits `{{thought}}`, the thought is appended rather than lost. Notes with malformed schedule properties are still shown as due and are repaired when rated.
+
 ### AI quiz generation from notes
 
 Run **Generate quiz questions from notes** from the command palette. Choose source folders (blank means the whole vault), 1–20 questions, one or more of multiple-choice, select-all and true/false, and any of 22 output languages. Only notes in those folders are read; existing question and card notes are skipped, and the source is capped at 12 notes / 18,000 characters. Every draft is shown with its key before anything is written. Confirming creates ordinary question notes through Quick add, so generated questions use the same history, streak and ladder/FSRS schedule. This needs **Enable AI features** and a configured provider; nothing is sent until you press **Generate draft**. Malformed or duplicate model items are dropped, and the last choices are remembered.

@@ -12,6 +12,7 @@ const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { normalizeQuickAdaptive } = require("./adaptive-session");
 const { formatNoteSets, normalizeNoteReview, parseNoteSets } = require("./note-review");
+const { normalizeSpacedEverything } = require("./spaced-everything");
 const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
@@ -421,6 +422,74 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           st.noteReview = normalizeNoteReview({ ...noteReview, sets: parseNoteSets(v) });
           await this.plugin.save();
           this.plugin.refreshNoteReviewStatus();
+        });
+      });
+
+    new Setting(containerEl).setName("Spaced Everything").setHeading();
+    const spaced = normalizeSpacedEverything(st.spacedEverything);
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "An optional SuperMemo 2 whole-note queue. Use Spaced Everything: log review outcome for this note to onboard and rate the open note, or review due notes. Notes store se-interval, se-ease and se-last-reviewed; question and card tracking is never changed. Capture thought templates support {{date}}, {{time}}, {{unixtime}} and {{thought}}.",
+    });
+    new Setting(containerEl)
+      .setName("Enable Spaced Everything")
+      .setDesc("Adds Spaced Everything: review due notes, log review outcome and capture thought.")
+      .addToggle((t) =>
+        t.setValue(spaced.enabled).onChange(async (v) => {
+          st.spacedEverything = normalizeSpacedEverything({ ...spaced, enabled: v });
+          await this.plugin.save();
+          this.plugin.refreshNoteReviewStatus();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Default interval")
+      .setDesc("Days before a newly onboarded note comes back for its first review.")
+      .addText((t) =>
+        t.setValue(String(spaced.defaultInterval)).onChange(async (v) => {
+          const n = Number(v);
+          if (!Number.isFinite(n)) return;
+          st.spacedEverything = normalizeSpacedEverything({ ...spaced, defaultInterval: n });
+          await this.plugin.save();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Default ease")
+      .setDesc("Starting ease factor for the SM-2 interval calculation. Minimum 1.3.")
+      .addText((t) =>
+        t.setValue(String(spaced.defaultEase)).onChange(async (v) => {
+          const n = Number(v);
+          if (!Number.isFinite(n)) return;
+          st.spacedEverything = normalizeSpacedEverything({ ...spaced, defaultEase: n });
+          await this.plugin.save();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Capture folder")
+      .setDesc("Vault-relative folder for captured thoughts. Leave empty for the vault root.")
+      .addText((t) =>
+        t.setValue(spaced.captureFolder).setPlaceholder("Inbox").onChange(async (v) => {
+          st.spacedEverything = normalizeSpacedEverything({ ...spaced, captureFolder: v });
+          await this.plugin.save();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Capture title template")
+      .setDesc("Supports {{date}}, {{time}} and {{unixtime}}.")
+      .addText((t) =>
+        t.setValue(spaced.titleTemplate).onChange(async (v) => {
+          st.spacedEverything = normalizeSpacedEverything({ ...spaced, titleTemplate: v });
+          await this.plugin.save();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Capture note template")
+      .setDesc("Body for a captured thought. {{thought}} is required; if missing, the thought is appended.")
+      .addTextArea((t) => {
+        t.setValue(spaced.noteTemplate).setPlaceholder("## Captured thought\n{{thought}}");
+        t.inputEl.rows = 4;
+        t.onChange(async (v) => {
+          st.spacedEverything = normalizeSpacedEverything({ ...spaced, noteTemplate: v });
+          await this.plugin.save();
         });
       });
 

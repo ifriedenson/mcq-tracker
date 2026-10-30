@@ -61,6 +61,9 @@ const quickAdd = require("./quick-add");
 const quizBlock = require("./quiz-block");
 const sourceRecall = require("./source-recall");
 const noteReview = require("./note-review");
+const spacedEverything = require("./spaced-everything");
+const { NoteReviewModal } = require("./note-review-modal");
+const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const quizGenerator = require("./quiz-generator");
 const cardGenerator = require("./card-generator");
 const studyBundle = require("./study-bundle");
@@ -225,6 +228,9 @@ QuestionTrackerPlugin.__test = {
   couchdbSync,
   cardPreview,
   noteReview,
+  spacedEverything,
+  NoteReviewModal,
+  SpacedEverythingCaptureModal,
   quizGenerator,
   cardGenerator,
   studyBundle,

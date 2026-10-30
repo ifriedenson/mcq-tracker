@@ -1,5 +1,5 @@
 "use strict";
-const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
+const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS } = require("./constants");
 const { PracticeView } = require("./practice-view");
@@ -96,6 +96,8 @@ const { gradeQuizBlockQuestion, gradeQuizQuestion, parseQuizAiEvaluation, parseQ
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
+const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
+const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const { CardGeneratorModal } = require("./card-generator-modal");
 const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator } = require("./card-generator");
 const { readActiveNoteContext } = require("./note-context");
@@ -418,6 +420,31 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
     this.addCommand({ id: "review-notes", name: "Review notes (whole-note queue)", callback: () => this.openNoteReview() });
     this.addCommand({
+      id: "spaced-everything-review",
+      name: "Spaced Everything: review due notes",
+      checkCallback: (checking) => {
+        if (this.moduleOff("mcq") || !normalizeSpacedEverything(this.settings.spacedEverything).enabled) return false;
+        if (!checking) this.openSpacedReview();
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "spaced-everything-log",
+      name: "Spaced Everything: log review outcome for this note",
+      checkCallback: (checking) => {
+        if (this.moduleOff("mcq") || !normalizeSpacedEverything(this.settings.spacedEverything).enabled) return false;
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !/\.md$/i.test(file.path)) return false;
+        if (!checking) this.openSpacedReviewForFile(file);
+        return true;
+      },
+    });
+    this.addCommand({ id: "spaced-everything-capture", name: "Spaced Everything: capture thought", checkCallback: (checking) => {
+      if (this.moduleOff("mcq") || !normalizeSpacedEverything(this.settings.spacedEverything).enabled) return false;
+      if (!checking) this.openSpacedCapture();
+      return true;
+    } });
+    this.addCommand({
       id: "simple-note-quiz",
       name: "Simple note quiz: start on this note",
       checkCallback: (checking) => {
@@ -650,6 +677,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.noteReview = normalizeNoteReview(saved.noteReview);
+    this.settings.spacedEverything = normalizeSpacedEverything(saved.spacedEverything);
     this.settings.quizGenerator = normalizeQuizGenerator(saved.quizGenerator);
     this.settings.cardGenerator = normalizeCardGenerator(saved.cardGenerator);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
@@ -3989,6 +4017,100 @@ class QuestionTrackerPlugin extends Plugin {
     const modal = new NoteReviewModal(this.app, this);
     modal.open();
     return modal;
+  }
+
+  /** The shared candidate set, filtered to notes onboarded to Spaced Everything. */
+  getSpacedQueue(options) {
+    const opts = options || {};
+    const config = normalizeNoteReview(this.settings.noteReview);
+    return buildSpacedQueue(this.getNoteCandidates(), {
+      config: this.settings.spacedEverything,
+      now: opts.now,
+      limit: opts.limit === undefined ? config.limit : opts.limit,
+      files: opts.files,
+      includeUnonboarded: opts.includeUnonboarded === true,
+    });
+  }
+
+  openSpacedReview() {
+    const config = normalizeSpacedEverything(this.settings.spacedEverything);
+    if (!config.enabled) {
+      new Notice("Turn on Spaced Everything under Settings → MCQ Tracker → Review first.", 6000);
+      return null;
+    }
+    const modal = new NoteReviewModal(this.app, this, { mode: "spaced" });
+    modal.open();
+    return modal;
+  }
+
+  openSpacedReviewForFile(file) {
+    const config = normalizeSpacedEverything(this.settings.spacedEverything);
+    if (!config.enabled) {
+      new Notice("Turn on Spaced Everything under Settings → MCQ Tracker → Review first.", 6000);
+      return null;
+    }
+    const modal = new NoteReviewModal(this.app, this, { mode: "spaced", files: [file], includeUnonboarded: true });
+    modal.open();
+    return modal;
+  }
+
+  /** Update only the readable se-* schedule fields; question tracking stays untouched. */
+  async recordSpacedReview(file, rating, seconds, now) {
+    let summary;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      summary = applySpacedReview(fm, rating, now instanceof Date ? now : new Date(), this.settings.spacedEverything);
+    });
+    if (!summary) throw new Error("Choose Fruitful, Unfruitful or Ignore.");
+    this.refreshNoteReviewStatus();
+    return { ...summary, seconds: Math.max(0, Math.round(Number(seconds) || 0)) };
+  }
+
+  openSpacedCapture() {
+    const config = normalizeSpacedEverything(this.settings.spacedEverything);
+    if (!config.enabled) {
+      new Notice("Turn on Spaced Everything under Settings → MCQ Tracker → Review first.", 6000);
+      return null;
+    }
+    const modal = new SpacedEverythingCaptureModal(this.app, this);
+    modal.open();
+    return modal;
+  }
+
+  /** Create an onboarded thought note from the configured title and body templates. */
+  async captureSpacedThought(thought, options) {
+    const text = str(thought).trim();
+    if (!text) throw new Error("Write a thought first.");
+    const config = normalizeSpacedEverything(this.settings.spacedEverything);
+    const now = options && options.now instanceof Date && !isNaN(options.now.getTime()) ? options.now : new Date();
+    const processedThought = renderSpacedTemplate(text, text, now);
+    const title = safeName(renderSpacedTemplate(config.titleTemplate, processedThought, now)) || `Inbox ${Math.floor(now.getTime() / 1000)}`;
+    const folder = config.captureFolder;
+    if (folder) await ensureFolder(this.app, folder);
+    let path = folder ? `${folder}/${title}.md` : `${title}.md`;
+    let suffix = 2;
+    while (this.app.vault.getAbstractFileByPath(path)) {
+      path = folder ? `${folder}/${title} ${suffix}.md` : `${title} ${suffix}.md`;
+      suffix++;
+    }
+    const frontmatter = {
+      "se-interval": config.defaultInterval,
+      "se-ease": config.defaultEase,
+      "se-last-reviewed": "",
+    };
+    const body = spacedCaptureText(processedThought, now, config);
+    const content = `---
+${stringifyYaml(frontmatter)}---
+
+${body}
+`;
+    const file = await this.app.vault.create(path, content);
+    try {
+      const leaf = this.app.workspace.getLeaf("tab");
+      if (leaf && typeof leaf.openFile === "function") await leaf.openFile(file);
+    } catch (e) {
+      /* the note exists even if the workspace cannot focus it */
+    }
+    return { path, file };
   }
 
   /** Read and parse the active note without changing its scheduler state. */

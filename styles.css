@@ -5485,3 +5485,13 @@
 .qt-simple-note-quiz-modal .qt-simple-note-quiz-issues {
   margin-top: 10px;
 }
+
+
+/* Spaced Everything capture and review extras. */
+.qt-spaced-capture-modal .qt-spaced-capture-text {
+  min-height: 160px;
+  width: 100%;
+}
+.qt-spaced-capture-modal .qt-error {
+  margin-top: 6px;
+}

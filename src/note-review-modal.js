@@ -5,9 +5,12 @@ const { str } = require("./util");
 
 /** Review one whole note at a time, with the same four ratings as cards. */
 class NoteReviewModal extends Modal {
-  constructor(app, plugin) {
+  constructor(app, plugin, options) {
     super(app);
+    this.app = app;
     this.plugin = plugin;
+    this.options = options || {};
+    this.mode = this.options.mode === "spaced" ? "spaced" : "standard";
     this.queue = [];
     this.index = 0;
     this.started = Date.now();
@@ -18,8 +21,19 @@ class NoteReviewModal extends Modal {
   }
 
   async load() {
-    const queue = this.plugin.getNoteQueue({ limit: this.plugin.settings.noteReview.limit });
-    this.queue = queue.items;
+    if (this.mode === "spaced") {
+      const queue = this.plugin.getSpacedQueue({
+        limit: this.plugin.settings.noteReview.limit,
+        files: this.options.files,
+        includeUnonboarded: this.options.includeUnonboarded === true,
+      });
+      this.queue = queue.items;
+      this.counts = queue.counts;
+    } else {
+      const queue = this.plugin.getNoteQueue({ limit: this.plugin.settings.noteReview.limit });
+      this.queue = queue.items;
+      this.counts = queue.counts;
+    }
     this.index = 0;
     await this.render();
   }
@@ -27,14 +41,21 @@ class NoteReviewModal extends Modal {
   async render() {
     const el = this.contentEl;
     el.empty();
-    el.createEl("h3", { text: "Whole-note review" });
-    const counts = this.plugin.getNoteQueue({ limit: 0 }).counts;
-    el.createDiv({
-      cls: "qt-hint",
-      text: `${counts.due} note${counts.due === 1 ? "" : "s"} due or new · ${counts.new} new`,
-    });
+    const isSpaced = this.mode === "spaced";
+    el.createEl("h3", { text: isSpaced ? "Spaced Everything" : "Whole-note review" });
+    if (isSpaced) {
+      el.createDiv({
+        cls: "qt-hint",
+        text: `${this.counts && this.counts.due ? this.counts.due : this.queue.length} note${(this.counts && this.counts.due ? this.counts.due : this.queue.length) === 1 ? "" : "s"} due · rate how the review went.`,
+      });
+    } else {
+      el.createDiv({
+        cls: "qt-hint",
+        text: `${this.counts.due} note${this.counts.due === 1 ? "" : "s"} due or new · ${this.counts.new} new`,
+      });
+    }
     if (this.index >= this.queue.length) {
-      el.createDiv({ cls: "qt-hint", text: this.queue.length ? "Review complete." : "No notes are due in the configured sets." });
+      el.createDiv({ cls: "qt-hint", text: this.queue.length ? "Review complete." : (isSpaced ? "No notes are due in the Spaced Everything queue." : "No notes are due in the configured sets.") });
       return;
     }
 
@@ -42,18 +63,24 @@ class NoteReviewModal extends Modal {
     this.started = Date.now();
     const head = el.createDiv({ cls: "qt-note-review-head" });
     head.createEl("h4", { text: item.title });
-    head.createDiv({
-      cls: "qt-hint",
-      text: `${item.set} · ${item.priority} priority · ${item.isNew ? "new" : `due ${item.dueDate}`} · ${this.index + 1}/${this.queue.length}`,
-    });
-
-    const grow = head.createEl("select", { cls: "qt-select" });
-    for (const value of ["high", "normal", "low"]) grow.createEl("option", { value, text: `${value} priority` });
-    grow.value = item.priority;
-    grow.addEventListener("change", async () => {
-      await this.plugin.setNotePriority(item.file, grow.value);
-      new Notice(`Priority set to ${grow.value}.`);
-    });
+    if (isSpaced) {
+      head.createDiv({
+        cls: "qt-hint",
+        text: `${item.onboarded ? `due ${item.dueDate}` : "not onboarded yet"} · interval ${item.interval}d · ease ${Number(item.easeFactor).toFixed(2)} · ${this.index + 1}/${this.queue.length}`,
+      });
+    } else {
+      head.createDiv({
+        cls: "qt-hint",
+        text: `${item.set} · ${item.priority} priority · ${item.isNew ? "new" : `due ${item.dueDate}`} · ${this.index + 1}/${this.queue.length}`,
+      });
+      const grow = head.createEl("select", { cls: "qt-select" });
+      for (const value of ["high", "normal", "low"]) grow.createEl("option", { value, text: `${value} priority` });
+      grow.value = item.priority;
+      grow.addEventListener("change", async () => {
+        await this.plugin.setNotePriority(item.file, grow.value);
+        new Notice(`Priority set to ${grow.value}.`);
+      });
+    }
 
     const body = el.createDiv({ cls: "qt-note-review-body" });
     try {
@@ -64,12 +91,10 @@ class NoteReviewModal extends Modal {
     }
 
     const actions = el.createDiv({ cls: "qt-row qt-note-review-actions" });
-    for (const [grade, label] of [
-      ["again", "Again"],
-      ["hard", "Hard"],
-      ["good", "Good"],
-      ["easy", "Easy"],
-    ]) {
+    const ratings = isSpaced
+      ? [["fruitful", "Fruitful"], ["unfruitful", "Unfruitful"], ["ignore", "Ignore"]]
+      : [["again", "Again"], ["hard", "Hard"], ["good", "Good"], ["easy", "Easy"]];
+    for (const [grade, label] of ratings) {
       actions.createEl("button", { text: label }).addEventListener("click", () => this.rate(grade));
     }
     el.createEl("button", { text: "Open note", cls: "qt-link" }).addEventListener("click", () => {
@@ -82,7 +107,8 @@ class NoteReviewModal extends Modal {
     if (!item) return;
     const seconds = Math.max(1, Math.round((Date.now() - this.started) / 1000));
     try {
-      await this.plugin.recordNoteReview(item.file, grade, seconds);
+      if (this.mode === "spaced") await this.plugin.recordSpacedReview(item.file, grade, seconds);
+      else await this.plugin.recordNoteReview(item.file, grade, seconds);
       this.index++;
       await this.render();
     } catch (e) {
@@ -91,7 +117,7 @@ class NoteReviewModal extends Modal {
   }
 
   onClose() {
-    this.contentEl.empty();
+    if (this.contentEl) this.contentEl.empty();
   }
 }
 

@@ -16648,6 +16648,14 @@ const DEFAULT_SETTINGS = {
     courses: [],
   }),
   noteReview: { enabled: false, limit: 20, sets: [] }, // optional whole-note review queue
+  spacedEverything: {
+    enabled: false, // optional whole-note SM-2 queue, separate from standard note review
+    defaultInterval: 1,
+    defaultEase: 2.5,
+    captureFolder: "",
+    titleTemplate: "Inbox {{date}} {{time}}",
+    noteTemplate: "## Captured thought\n{{thought}}",
+  },
   cardGenerator: { count: 8, customPrompt: "", style: "inline", separator: "::", hideInPreview: false, output: "notes", source: "auto", deck: "" }, // last flashcard-generator choices
   quizGenerator: { folders: [], count: 5, language: "English", types: ["mcq"] }, // last AI quiz-generator choices
   cards: {
@@ -28379,9 +28387,12 @@ const { str } = require("./util");
 
 /** Review one whole note at a time, with the same four ratings as cards. */
 class NoteReviewModal extends Modal {
-  constructor(app, plugin) {
+  constructor(app, plugin, options) {
     super(app);
+    this.app = app;
     this.plugin = plugin;
+    this.options = options || {};
+    this.mode = this.options.mode === "spaced" ? "spaced" : "standard";
     this.queue = [];
     this.index = 0;
     this.started = Date.now();
@@ -28392,8 +28403,19 @@ class NoteReviewModal extends Modal {
   }
 
   async load() {
-    const queue = this.plugin.getNoteQueue({ limit: this.plugin.settings.noteReview.limit });
-    this.queue = queue.items;
+    if (this.mode === "spaced") {
+      const queue = this.plugin.getSpacedQueue({
+        limit: this.plugin.settings.noteReview.limit,
+        files: this.options.files,
+        includeUnonboarded: this.options.includeUnonboarded === true,
+      });
+      this.queue = queue.items;
+      this.counts = queue.counts;
+    } else {
+      const queue = this.plugin.getNoteQueue({ limit: this.plugin.settings.noteReview.limit });
+      this.queue = queue.items;
+      this.counts = queue.counts;
+    }
     this.index = 0;
     await this.render();
   }
@@ -28401,14 +28423,21 @@ class NoteReviewModal extends Modal {
   async render() {
     const el = this.contentEl;
     el.empty();
-    el.createEl("h3", { text: "Whole-note review" });
-    const counts = this.plugin.getNoteQueue({ limit: 0 }).counts;
-    el.createDiv({
-      cls: "qt-hint",
-      text: `${counts.due} note${counts.due === 1 ? "" : "s"} due or new · ${counts.new} new`,
-    });
+    const isSpaced = this.mode === "spaced";
+    el.createEl("h3", { text: isSpaced ? "Spaced Everything" : "Whole-note review" });
+    if (isSpaced) {
+      el.createDiv({
+        cls: "qt-hint",
+        text: `${this.counts && this.counts.due ? this.counts.due : this.queue.length} note${(this.counts && this.counts.due ? this.counts.due : this.queue.length) === 1 ? "" : "s"} due · rate how the review went.`,
+      });
+    } else {
+      el.createDiv({
+        cls: "qt-hint",
+        text: `${this.counts.due} note${this.counts.due === 1 ? "" : "s"} due or new · ${this.counts.new} new`,
+      });
+    }
     if (this.index >= this.queue.length) {
-      el.createDiv({ cls: "qt-hint", text: this.queue.length ? "Review complete." : "No notes are due in the configured sets." });
+      el.createDiv({ cls: "qt-hint", text: this.queue.length ? "Review complete." : (isSpaced ? "No notes are due in the Spaced Everything queue." : "No notes are due in the configured sets.") });
       return;
     }
 
@@ -28416,18 +28445,24 @@ class NoteReviewModal extends Modal {
     this.started = Date.now();
     const head = el.createDiv({ cls: "qt-note-review-head" });
     head.createEl("h4", { text: item.title });
-    head.createDiv({
-      cls: "qt-hint",
-      text: `${item.set} · ${item.priority} priority · ${item.isNew ? "new" : `due ${item.dueDate}`} · ${this.index + 1}/${this.queue.length}`,
-    });
-
-    const grow = head.createEl("select", { cls: "qt-select" });
-    for (const value of ["high", "normal", "low"]) grow.createEl("option", { value, text: `${value} priority` });
-    grow.value = item.priority;
-    grow.addEventListener("change", async () => {
-      await this.plugin.setNotePriority(item.file, grow.value);
-      new Notice(`Priority set to ${grow.value}.`);
-    });
+    if (isSpaced) {
+      head.createDiv({
+        cls: "qt-hint",
+        text: `${item.onboarded ? `due ${item.dueDate}` : "not onboarded yet"} · interval ${item.interval}d · ease ${Number(item.easeFactor).toFixed(2)} · ${this.index + 1}/${this.queue.length}`,
+      });
+    } else {
+      head.createDiv({
+        cls: "qt-hint",
+        text: `${item.set} · ${item.priority} priority · ${item.isNew ? "new" : `due ${item.dueDate}`} · ${this.index + 1}/${this.queue.length}`,
+      });
+      const grow = head.createEl("select", { cls: "qt-select" });
+      for (const value of ["high", "normal", "low"]) grow.createEl("option", { value, text: `${value} priority` });
+      grow.value = item.priority;
+      grow.addEventListener("change", async () => {
+        await this.plugin.setNotePriority(item.file, grow.value);
+        new Notice(`Priority set to ${grow.value}.`);
+      });
+    }
 
     const body = el.createDiv({ cls: "qt-note-review-body" });
     try {
@@ -28438,12 +28473,10 @@ class NoteReviewModal extends Modal {
     }
 
     const actions = el.createDiv({ cls: "qt-row qt-note-review-actions" });
-    for (const [grade, label] of [
-      ["again", "Again"],
-      ["hard", "Hard"],
-      ["good", "Good"],
-      ["easy", "Easy"],
-    ]) {
+    const ratings = isSpaced
+      ? [["fruitful", "Fruitful"], ["unfruitful", "Unfruitful"], ["ignore", "Ignore"]]
+      : [["again", "Again"], ["hard", "Hard"], ["good", "Good"], ["easy", "Easy"]];
+    for (const [grade, label] of ratings) {
       actions.createEl("button", { text: label }).addEventListener("click", () => this.rate(grade));
     }
     el.createEl("button", { text: "Open note", cls: "qt-link" }).addEventListener("click", () => {
@@ -28456,7 +28489,8 @@ class NoteReviewModal extends Modal {
     if (!item) return;
     const seconds = Math.max(1, Math.round((Date.now() - this.started) / 1000));
     try {
-      await this.plugin.recordNoteReview(item.file, grade, seconds);
+      if (this.mode === "spaced") await this.plugin.recordSpacedReview(item.file, grade, seconds);
+      else await this.plugin.recordNoteReview(item.file, grade, seconds);
       this.index++;
       await this.render();
     } catch (e) {
@@ -28465,7 +28499,7 @@ class NoteReviewModal extends Modal {
   }
 
   onClose() {
-    this.contentEl.empty();
+    if (this.contentEl) this.contentEl.empty();
   }
 }
 
@@ -33942,7 +33976,7 @@ module.exports = {
 
 /* ---- src/plugin.js ---- */
 __defs["plugin"] = function (module, exports, require) {
-const { Notice, Platform, Plugin, TFile, TFolder, requestUrl } = require("obsidian");
+const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS } = require("./constants");
 const { PracticeView } = require("./practice-view");
@@ -34039,6 +34073,8 @@ const { gradeQuizBlockQuestion, gradeQuizQuestion, parseQuizAiEvaluation, parseQ
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
+const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
+const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const { CardGeneratorModal } = require("./card-generator-modal");
 const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator } = require("./card-generator");
 const { readActiveNoteContext } = require("./note-context");
@@ -34361,6 +34397,31 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
     this.addCommand({ id: "review-notes", name: "Review notes (whole-note queue)", callback: () => this.openNoteReview() });
     this.addCommand({
+      id: "spaced-everything-review",
+      name: "Spaced Everything: review due notes",
+      checkCallback: (checking) => {
+        if (this.moduleOff("mcq") || !normalizeSpacedEverything(this.settings.spacedEverything).enabled) return false;
+        if (!checking) this.openSpacedReview();
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "spaced-everything-log",
+      name: "Spaced Everything: log review outcome for this note",
+      checkCallback: (checking) => {
+        if (this.moduleOff("mcq") || !normalizeSpacedEverything(this.settings.spacedEverything).enabled) return false;
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !/\.md$/i.test(file.path)) return false;
+        if (!checking) this.openSpacedReviewForFile(file);
+        return true;
+      },
+    });
+    this.addCommand({ id: "spaced-everything-capture", name: "Spaced Everything: capture thought", checkCallback: (checking) => {
+      if (this.moduleOff("mcq") || !normalizeSpacedEverything(this.settings.spacedEverything).enabled) return false;
+      if (!checking) this.openSpacedCapture();
+      return true;
+    } });
+    this.addCommand({
       id: "simple-note-quiz",
       name: "Simple note quiz: start on this note",
       checkCallback: (checking) => {
@@ -34593,6 +34654,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.noteReview = normalizeNoteReview(saved.noteReview);
+    this.settings.spacedEverything = normalizeSpacedEverything(saved.spacedEverything);
     this.settings.quizGenerator = normalizeQuizGenerator(saved.quizGenerator);
     this.settings.cardGenerator = normalizeCardGenerator(saved.cardGenerator);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
@@ -37932,6 +37994,100 @@ class QuestionTrackerPlugin extends Plugin {
     const modal = new NoteReviewModal(this.app, this);
     modal.open();
     return modal;
+  }
+
+  /** The shared candidate set, filtered to notes onboarded to Spaced Everything. */
+  getSpacedQueue(options) {
+    const opts = options || {};
+    const config = normalizeNoteReview(this.settings.noteReview);
+    return buildSpacedQueue(this.getNoteCandidates(), {
+      config: this.settings.spacedEverything,
+      now: opts.now,
+      limit: opts.limit === undefined ? config.limit : opts.limit,
+      files: opts.files,
+      includeUnonboarded: opts.includeUnonboarded === true,
+    });
+  }
+
+  openSpacedReview() {
+    const config = normalizeSpacedEverything(this.settings.spacedEverything);
+    if (!config.enabled) {
+      new Notice("Turn on Spaced Everything under Settings → MCQ Tracker → Review first.", 6000);
+      return null;
+    }
+    const modal = new NoteReviewModal(this.app, this, { mode: "spaced" });
+    modal.open();
+    return modal;
+  }
+
+  openSpacedReviewForFile(file) {
+    const config = normalizeSpacedEverything(this.settings.spacedEverything);
+    if (!config.enabled) {
+      new Notice("Turn on Spaced Everything under Settings → MCQ Tracker → Review first.", 6000);
+      return null;
+    }
+    const modal = new NoteReviewModal(this.app, this, { mode: "spaced", files: [file], includeUnonboarded: true });
+    modal.open();
+    return modal;
+  }
+
+  /** Update only the readable se-* schedule fields; question tracking stays untouched. */
+  async recordSpacedReview(file, rating, seconds, now) {
+    let summary;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      summary = applySpacedReview(fm, rating, now instanceof Date ? now : new Date(), this.settings.spacedEverything);
+    });
+    if (!summary) throw new Error("Choose Fruitful, Unfruitful or Ignore.");
+    this.refreshNoteReviewStatus();
+    return { ...summary, seconds: Math.max(0, Math.round(Number(seconds) || 0)) };
+  }
+
+  openSpacedCapture() {
+    const config = normalizeSpacedEverything(this.settings.spacedEverything);
+    if (!config.enabled) {
+      new Notice("Turn on Spaced Everything under Settings → MCQ Tracker → Review first.", 6000);
+      return null;
+    }
+    const modal = new SpacedEverythingCaptureModal(this.app, this);
+    modal.open();
+    return modal;
+  }
+
+  /** Create an onboarded thought note from the configured title and body templates. */
+  async captureSpacedThought(thought, options) {
+    const text = str(thought).trim();
+    if (!text) throw new Error("Write a thought first.");
+    const config = normalizeSpacedEverything(this.settings.spacedEverything);
+    const now = options && options.now instanceof Date && !isNaN(options.now.getTime()) ? options.now : new Date();
+    const processedThought = renderSpacedTemplate(text, text, now);
+    const title = safeName(renderSpacedTemplate(config.titleTemplate, processedThought, now)) || `Inbox ${Math.floor(now.getTime() / 1000)}`;
+    const folder = config.captureFolder;
+    if (folder) await ensureFolder(this.app, folder);
+    let path = folder ? `${folder}/${title}.md` : `${title}.md`;
+    let suffix = 2;
+    while (this.app.vault.getAbstractFileByPath(path)) {
+      path = folder ? `${folder}/${title} ${suffix}.md` : `${title} ${suffix}.md`;
+      suffix++;
+    }
+    const frontmatter = {
+      "se-interval": config.defaultInterval,
+      "se-ease": config.defaultEase,
+      "se-last-reviewed": "",
+    };
+    const body = spacedCaptureText(processedThought, now, config);
+    const content = `---
+${stringifyYaml(frontmatter)}---
+
+${body}
+`;
+    const file = await this.app.vault.create(path, content);
+    try {
+      const leaf = this.app.workspace.getLeaf("tab");
+      if (leaf && typeof leaf.openFile === "function") await leaf.openFile(file);
+    } catch (e) {
+      /* the note exists even if the workspace cannot focus it */
+    }
+    return { path, file };
   }
 
   /** Read and parse the active note without changing its scheduler state. */
@@ -47274,6 +47430,7 @@ const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { normalizeQuickAdaptive } = require("./adaptive-session");
 const { formatNoteSets, normalizeNoteReview, parseNoteSets } = require("./note-review");
+const { normalizeSpacedEverything } = require("./spaced-everything");
 const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
@@ -47683,6 +47840,74 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           st.noteReview = normalizeNoteReview({ ...noteReview, sets: parseNoteSets(v) });
           await this.plugin.save();
           this.plugin.refreshNoteReviewStatus();
+        });
+      });
+
+    new Setting(containerEl).setName("Spaced Everything").setHeading();
+    const spaced = normalizeSpacedEverything(st.spacedEverything);
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "An optional SuperMemo 2 whole-note queue. Use Spaced Everything: log review outcome for this note to onboard and rate the open note, or review due notes. Notes store se-interval, se-ease and se-last-reviewed; question and card tracking is never changed. Capture thought templates support {{date}}, {{time}}, {{unixtime}} and {{thought}}.",
+    });
+    new Setting(containerEl)
+      .setName("Enable Spaced Everything")
+      .setDesc("Adds Spaced Everything: review due notes, log review outcome and capture thought.")
+      .addToggle((t) =>
+        t.setValue(spaced.enabled).onChange(async (v) => {
+          st.spacedEverything = normalizeSpacedEverything({ ...spaced, enabled: v });
+          await this.plugin.save();
+          this.plugin.refreshNoteReviewStatus();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Default interval")
+      .setDesc("Days before a newly onboarded note comes back for its first review.")
+      .addText((t) =>
+        t.setValue(String(spaced.defaultInterval)).onChange(async (v) => {
+          const n = Number(v);
+          if (!Number.isFinite(n)) return;
+          st.spacedEverything = normalizeSpacedEverything({ ...spaced, defaultInterval: n });
+          await this.plugin.save();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Default ease")
+      .setDesc("Starting ease factor for the SM-2 interval calculation. Minimum 1.3.")
+      .addText((t) =>
+        t.setValue(String(spaced.defaultEase)).onChange(async (v) => {
+          const n = Number(v);
+          if (!Number.isFinite(n)) return;
+          st.spacedEverything = normalizeSpacedEverything({ ...spaced, defaultEase: n });
+          await this.plugin.save();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Capture folder")
+      .setDesc("Vault-relative folder for captured thoughts. Leave empty for the vault root.")
+      .addText((t) =>
+        t.setValue(spaced.captureFolder).setPlaceholder("Inbox").onChange(async (v) => {
+          st.spacedEverything = normalizeSpacedEverything({ ...spaced, captureFolder: v });
+          await this.plugin.save();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Capture title template")
+      .setDesc("Supports {{date}}, {{time}} and {{unixtime}}.")
+      .addText((t) =>
+        t.setValue(spaced.titleTemplate).onChange(async (v) => {
+          st.spacedEverything = normalizeSpacedEverything({ ...spaced, titleTemplate: v });
+          await this.plugin.save();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Capture note template")
+      .setDesc("Body for a captured thought. {{thought}} is required; if missing, the thought is appended.")
+      .addTextArea((t) => {
+        t.setValue(spaced.noteTemplate).setPlaceholder("## Captured thought\n{{thought}}");
+        t.inputEl.rows = 4;
+        t.onChange(async (v) => {
+          st.spacedEverything = normalizeSpacedEverything({ ...spaced, noteTemplate: v });
+          await this.plugin.save();
         });
       });
 
@@ -49926,6 +50151,301 @@ module.exports = {
   findQuoteRange,
   headingAtLine,
   splitSourceContext,
+};
+};
+
+/* ---- src/spaced-everything.js ---- */
+__defs["spaced-everything"] = function (module, exports, require) {
+/*
+ * Spaced Everything: whole-note SuperMemo 2 review.
+ *
+ * This is an optional mode for the existing whole-note review queue. It stores
+ * scheduling in readable `se-*` frontmatter and never writes question/card
+ * tracking fields. Clean-room implementation of the published SM-2 formula.
+ */
+const { fmtDate, str } = require("./util");
+const { isNoteCandidate } = require("./note-review");
+const { isStudyable } = require("./study-status");
+
+const DEFAULT_SPACED_EVERYTHING = {
+  enabled: false,
+  defaultInterval: 1,
+  defaultEase: 2.5,
+  captureFolder: "",
+  titleTemplate: "Inbox {{date}} {{time}}",
+  noteTemplate: "## Captured thought\n{{thought}}",
+};
+
+const SPACED_RATINGS = [
+  { id: "fruitful", label: "Fruitful", score: 1, description: "Good progress; bring it back soon." },
+  { id: "unfruitful", label: "Unfruitful", score: 5, description: "Limited progress; space it out further." },
+  { id: "ignore", label: "Ignore", score: 3, description: "A normal review; keep the current pace." },
+];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function clampNumber(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function round4(value) {
+  return Number(Number(value).toFixed(4));
+}
+
+function normalizeSpacedEverything(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    enabled: src.enabled === true,
+    defaultInterval: clampNumber(src.defaultInterval, 1, 3650, DEFAULT_SPACED_EVERYTHING.defaultInterval),
+    defaultEase: clampNumber(src.defaultEase, 1.3, 5, DEFAULT_SPACED_EVERYTHING.defaultEase),
+    captureFolder: str(src.captureFolder).trim().replace(/^\/+|\/+$/g, ""),
+    titleTemplate: str(src.titleTemplate).trim() || DEFAULT_SPACED_EVERYTHING.titleTemplate,
+    noteTemplate: str(src.noteTemplate) || DEFAULT_SPACED_EVERYTHING.noteTemplate,
+  };
+}
+
+function ratingFor(value) {
+  const id = str(value).trim().toLowerCase();
+  return SPACED_RATINGS.find((rating) => rating.id === id) || null;
+}
+
+/** The published SuperMemo 2 formula, using the writing-practice score labels. */
+function superMemoSchedule(input) {
+  const score = clampNumber(input && input.reviewScore, 0, 5, 3);
+  const previousInterval = clampNumber(input && input.interval, 0, 36500, 1);
+  const previousEase = clampNumber(input && input.easeFactor, 1.3, 10, DEFAULT_SPACED_EVERYTHING.defaultEase);
+  const adjustment = 0.1 - (5 - score) * (0.08 + (5 - score) * 0.02);
+  const ease = Math.max(1.3, round4(previousEase + adjustment));
+  const interval = score < 3 ? 1 : round4(Math.max(1, previousInterval * ease));
+  return { interval, easeFactor: ease };
+}
+
+function parseTimestamp(value) {
+  const text = str(value).trim();
+  if (!text) return null;
+  const normalized = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(text) ? `${text}Z` : text;
+  const date = new Date(normalized);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+function formatTimestamp(now) {
+  const date = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function hasSpacedState(fm) {
+  return !!fm && Object.prototype.hasOwnProperty.call(fm, "se-interval");
+}
+
+function spacedState(fm, config) {
+  const cfg = normalizeSpacedEverything(config);
+  const rawInterval = Number(fm && fm["se-interval"]);
+  const rawEase = Number(fm && fm["se-ease"]);
+  const interval = Number.isFinite(rawInterval) && rawInterval > 0 ? Math.min(36500, rawInterval) : cfg.defaultInterval;
+  const ease = Number.isFinite(rawEase) && rawEase >= 1.3 ? Math.min(10, rawEase) : cfg.defaultEase;
+  const lastReviewed = parseTimestamp(fm && fm["se-last-reviewed"]);
+  return { interval, easeFactor: ease, lastReviewed, onboarded: hasSpacedState(fm) };
+}
+
+/** Due at the last review + interval; an onboarded note with no timestamp is due now. */
+function spacedDueAt(fm, config) {
+  if (!hasSpacedState(fm)) return null;
+  const state = spacedState(fm, config);
+  if (!state.lastReviewed) return 0;
+  return state.lastReviewed.getTime() + state.interval * DAY_MS;
+}
+
+function spacedDueDate(fm, config) {
+  const dueAt = spacedDueAt(fm, config);
+  return dueAt === null ? "" : fmtDate(new Date(dueAt));
+}
+
+/**
+ * Due notes from the same candidate set used by whole-note review. Spaced notes
+ * opt in with `se-interval`; question and card notes are still excluded.
+ */
+function buildSpacedQueue(notes, options) {
+  const opts = options || {};
+  const config = normalizeSpacedEverything(opts.config);
+  const now = opts.now instanceof Date && !isNaN(opts.now.getTime()) ? opts.now : new Date();
+  const allowed = Array.isArray(opts.files) ? new Set(opts.files.map((file) => str(file && file.path))) : null;
+  const includeUnonboarded = opts.includeUnonboarded === true;
+  const rows = [];
+  for (const note of Array.isArray(notes) ? notes : []) {
+    if (!isNoteCandidate(note)) continue;
+    const path = note.file.path;
+    if (allowed && !allowed.has(path)) continue;
+    const onboarded = hasSpacedState(note.fm);
+    if (!onboarded && !includeUnonboarded) continue;
+    if (!isStudyable(note.fm, fmtDate(now))) continue;
+    const state = spacedState(note.fm, config);
+    const dueAt = onboarded ? spacedDueAt(note.fm, config) : 0;
+    if (onboarded && dueAt > now.getTime()) continue;
+    rows.push({
+      note,
+      file: note.file,
+      path,
+      title: str(note.fm && note.fm.title) || str(note.file.basename) || path.replace(/^.*\//, "").replace(/\.md$/i, ""),
+      onboarded,
+      interval: state.interval,
+      easeFactor: state.easeFactor,
+      lastReviewed: state.lastReviewed,
+      dueAt,
+      dueDate: dueAt ? fmtDate(new Date(dueAt)) : fmtDate(now),
+      overdueDays: Math.max(0, Math.floor((now.getTime() - dueAt) / DAY_MS)),
+    });
+  }
+  rows.sort((a, b) => a.dueAt - b.dueAt || a.path.localeCompare(b.path));
+  const limit = opts.limit === undefined ? 20 : Math.max(0, Math.round(Number(opts.limit) || 0));
+  return {
+    items: limit ? rows.slice(0, limit) : [],
+    all: rows,
+    counts: {
+      due: rows.length,
+      onboarded: rows.filter((row) => row.onboarded).length,
+    },
+  };
+}
+
+/** Apply one review and return the new state without touching any attempt fields. */
+function applySpacedReview(fm, rating, now, config) {
+  const selected = ratingFor(rating);
+  if (!selected) return null;
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  const state = spacedState(fm, config);
+  const next = superMemoSchedule({
+    interval: state.interval,
+    easeFactor: state.easeFactor,
+    reviewScore: selected.score,
+  });
+  const lastReviewed = formatTimestamp(at);
+  fm["se-interval"] = next.interval;
+  fm["se-ease"] = next.easeFactor;
+  fm["se-last-reviewed"] = lastReviewed;
+  return {
+    rating: selected.id,
+    label: selected.label,
+    score: selected.score,
+    previousInterval: state.interval,
+    previousEase: state.easeFactor,
+    interval: next.interval,
+    easeFactor: next.easeFactor,
+    lastReviewed,
+    dueAt: at.getTime() + next.interval * DAY_MS,
+  };
+}
+
+function renderSpacedTemplate(template, thought, now) {
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  const date = fmtDate(at);
+  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  const unixtime = String(Math.floor(at.getTime() / 1000));
+  return str(template)
+    .replace(/\{\{date\}\}/g, date)
+    .replace(/\{\{time\}\}/g, time)
+    .replace(/\{\{unixtime\}\}/g, unixtime)
+    .replace(/\{\{thought\}\}/g, str(thought));
+}
+
+function spacedCaptureText(thought, now, config) {
+  const cfg = normalizeSpacedEverything(config);
+  const body = renderSpacedTemplate(cfg.noteTemplate, thought, now);
+  return body.includes(str(thought)) || !str(thought) ? body : `${body}\n\n${str(thought)}`;
+}
+
+module.exports = {
+  DEFAULT_SPACED_EVERYTHING,
+  SPACED_RATINGS,
+  applySpacedReview,
+  buildSpacedQueue,
+  formatTimestamp,
+  hasSpacedState,
+  normalizeSpacedEverything,
+  parseTimestamp,
+  ratingFor,
+  renderSpacedTemplate,
+  spacedCaptureText,
+  spacedDueAt,
+  spacedDueDate,
+  spacedState,
+  superMemoSchedule,
+};
+};
+
+/* ---- src/spaced-everything-modal.js ---- */
+__defs["spaced-everything-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { str } = require("./util");
+
+/** Capture a thought into a new note that is already onboarded to Spaced Everything. */
+class SpacedEverythingCaptureModal extends Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.app = app;
+    this.plugin = plugin;
+    this.busy = false;
+    this.error = "";
+    this.text = "";
+  }
+
+  onOpen() {
+    if (this.modalEl && typeof this.modalEl.addClass === "function") this.modalEl.addClass("qt-spaced-capture-modal");
+    this.draw();
+  }
+
+  draw() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Capture thought" });
+    el.createDiv({
+      cls: "qt-hint",
+      text: "Create an onboarded note from your thought. The title and note templates support {{date}}, {{time}}, {{unixtime}} and {{thought}}.",
+    });
+    this.box = el.createEl("textarea", {
+      cls: "qt-spaced-capture-text",
+      attr: { rows: "9", placeholder: "Write the thought you want to develop…" },
+    });
+    this.box.value = this.text;
+    this.box.addEventListener("input", () => (this.text = this.box.value));
+    if (this.error) el.createDiv({ cls: "qt-error", text: this.error });
+    const row = el.createDiv({ cls: "qt-row" });
+    const create = row.createEl("button", { text: this.busy ? "Creating…" : "Create thought", cls: "mod-cta" });
+    create.disabled = this.busy;
+    create.addEventListener("click", () => this.create());
+    row.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
+  }
+
+  async create() {
+    if (this.busy) return;
+    const thought = str(this.text).trim();
+    if (!thought) {
+      this.error = "Write a thought first.";
+      this.draw();
+      return;
+    }
+    this.busy = true;
+    this.error = "";
+    this.draw();
+    try {
+      const result = await this.plugin.captureSpacedThought(thought);
+      new Notice(`Captured thought in ${result.path}.`, 5000);
+      this.close();
+    } catch (e) {
+      this.busy = false;
+      this.error = str(e && e.message ? e.message : e) || "Could not create the captured thought.";
+      this.draw();
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = {
+  SpacedEverythingCaptureModal,
 };
 };
 
@@ -53926,6 +54446,9 @@ const quickAdd = require("./quick-add");
 const quizBlock = require("./quiz-block");
 const sourceRecall = require("./source-recall");
 const noteReview = require("./note-review");
+const spacedEverything = require("./spaced-everything");
+const { NoteReviewModal } = require("./note-review-modal");
+const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const quizGenerator = require("./quiz-generator");
 const cardGenerator = require("./card-generator");
 const studyBundle = require("./study-bundle");
@@ -54090,6 +54613,9 @@ QuestionTrackerPlugin.__test = {
   couchdbSync,
   cardPreview,
   noteReview,
+  spacedEverything,
+  NoteReviewModal,
+  SpacedEverythingCaptureModal,
   quizGenerator,
   cardGenerator,
   studyBundle,

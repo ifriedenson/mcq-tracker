@@ -124,6 +124,14 @@ const DEFAULT_SETTINGS = {
     courses: [],
   }),
   noteReview: { enabled: false, limit: 20, sets: [] }, // optional whole-note review queue
+  spacedEverything: {
+    enabled: false, // optional whole-note SM-2 queue, separate from standard note review
+    defaultInterval: 1,
+    defaultEase: 2.5,
+    captureFolder: "",
+    titleTemplate: "Inbox {{date}} {{time}}",
+    noteTemplate: "## Captured thought\n{{thought}}",
+  },
   cardGenerator: { count: 8, customPrompt: "", style: "inline", separator: "::", hideInPreview: false, output: "notes", source: "auto", deck: "" }, // last flashcard-generator choices
   quizGenerator: { folders: [], count: 5, language: "English", types: ["mcq"] }, // last AI quiz-generator choices
   cards: {
