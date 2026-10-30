@@ -4,7 +4,7 @@
   "description": "Obsidian plugin: practice multiple-choice questions kept as notes, with spaced review.",
   "scripts": {
     "build": "node scripts/build.js",
-    "check": "node scripts/build.js --check",
+    "check": "node scripts/check-no-dynamic-code.js && node scripts/build.js --check",
     "test": "node --test"
   },
   "engines": {
