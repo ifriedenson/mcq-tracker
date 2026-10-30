@@ -25,6 +25,17 @@
 - **Explicitly not done:** no source or test changes were made after 1.117.0. The only unchecked implementation item is **lighter multi-question authoring**, which is a new feature request, not a partial. It stays unscheduled until the owner explicitly ranks it.
 - **Release procedure:** update this plan first; bump `manifest.json` and `versions.json`; rebuild `main.js`; run `npm test` and `npm run check`; commit and push to `main`; create a tag equal to the manifest version and push it. `.github/workflows/release.yml` runs the tests and publishes `main.js`, `manifest.json` and `styles.css` with build attestations.
 - **New-chat continuation:** close this chat; open the same GitHub-connected project on branch `main`; confirm HEAD includes `bd848d9` or later and the working tree is clean; then send: “Read `AGENTS.md` and the Handoff snapshot in `plan.md`; continue from the verified 1.117.0 state.” Do not start from a sibling chat's uncommitted worktree.
+- **Directory listing:** the plugin is currently absent from Obsidian’s official community index, so it cannot appear in the in-app browse/search. The 1.117.0 release itself is valid. See the incident note below.
+
+### Community directory listing incident (Oct 30, 2026)
+
+- **Symptom:** `Add to Obsidian` from the public listing and searching in Obsidian on Windows 11 do not install the plugin. This is not a local cache delay or a version typo.
+- **Release state:** `1.117.0` is GitHub’s latest release, is neither draft nor prerelease, and has uploaded `main.js`, `manifest.json` and `styles.css`. `manifest.json` and `versions.json` agree on `1.117.0` and minimum app `1.8.7`.
+- **Directory state:** `mcq-tracker` was present in `obsidianmd/obsidian-releases` `community-plugins.json` at 21:21 UTC on Oct 29 and absent at 22:21 UTC. Commit `cd097f5c6` removed the entry, before the 1.117.0 release at 01:03 UTC on Oct 30. The public page at `community.obsidian.md/plugins/mcq-tracker` still exists and still renders an `Add to Obsidian` link, but the app reads the index file; a removed entry cannot be found in the app.
+- **Why:** Obsidian’s current automated review scans every release and removes a version from search within 24 hours if it fails. The exact failure text is only in the developer dashboard; the public page does not expose it. The earlier reported review with two scan issues is consistent with this removal, but do not guess the cause from the public page.
+- **Recovery:** sign in at `community.obsidian.md`, connect the GitHub account if needed, claim/open MCQ Tracker in the developer dashboard, read the exact review errors, fix them in the repository, publish the listing, and wait for the scan. A new version is only needed if the dashboard’s errors require code changes; do not bump the version merely to retry.
+- **Highest-risk area to inspect:** the optional desktop OpenCode backend downloads a separate binary, verifies its SHA-256, unpacks it into `~/.question-tracker/opencode` outside the vault, and runs it. That is the first place to compare against the dashboard’s current policy findings, alongside vault access and network disclosures. Do not claim 1.117.0 resolves review errors until the dashboard says so.
+- **Interim install:** BRAT with `ifriedenson/mcq-tracker`, or copy the three release assets into `.obsidian/plugins/mcq-tracker/` and enable it. The GitHub release is usable even while the directory entry is absent.
 
 ---
 
