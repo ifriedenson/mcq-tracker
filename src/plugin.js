@@ -90,6 +90,9 @@ const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { gradeQuizBlockQuestion, parseQuizBlock, visibleQuizCount } = require("./quiz-block");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
+const { CardGeneratorModal } = require("./card-generator-modal");
+const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator } = require("./card-generator");
+const { readActiveNoteContext } = require("./note-context");
 const { QuizGeneratorModal } = require("./quiz-generator-modal");
 const { buildQuizGeneratorPrompt, collectGeneratorSources, folderMatches, normalizeQuizGenerator, parseGeneratorQuestions } = require("./quiz-generator");
 const { buildStudyBundle, bundleFileName } = require("./study-bundle");
@@ -260,6 +263,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-frq-grader", name: "AP: open free-response practice and grader", callback: () => this.openFrqGrader() });
     this.addCommand({ id: "new-frq-note", name: "AP: create a free-response note", callback: () => this.openNewFrqNote() });
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
+    this.addCommand({ id: "generate-cards", name: "Generate flashcards from this note or selection", callback: () => this.openCardGenerator() });
     this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
     this.addCommand({
       id: "practice-note",
@@ -593,6 +597,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.noteReview = normalizeNoteReview(saved.noteReview);
     this.settings.quizGenerator = normalizeQuizGenerator(saved.quizGenerator);
+    this.settings.cardGenerator = normalizeCardGenerator(saved.cardGenerator);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
     this.settings.assignments = normalizeAssignmentSettings(saved.assignments);
     this.settings.reference = mergeReferenceSettings(saved.reference);
@@ -3025,6 +3030,86 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (this.moduleOff("mcq")) return null;
     const modal = new QuizGeneratorModal(this.app, this, onDone || (() => this.refreshViews()));
+    modal.open();
+    return modal;
+  }
+
+  /** Draft cards from the open note or its selection. This method writes nothing. */
+  async generateCardsFromNote(options) {
+    if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
+    if (this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    const config = normalizeCardGenerator({ ...normalizeCardGenerator(this.settings.cardGenerator), ...(options || {}) });
+    const context = await readActiveNoteContext(this.app);
+    if (!context || !context.path) throw new Error("Open a Markdown note first.");
+    if (config.source === "selection" && !context.selection) throw new Error("Select some text in the note first, or choose the whole note.");
+    const sourceKind = config.source === "note" ? "note" : config.source === "selection" ? "selection" : context.selection ? "selection" : "note";
+    const text = sourceKind === "selection" ? context.selection : context.text;
+    if (!str(text).trim()) throw new Error("That note has no readable text to turn into cards.");
+    const file = this.app.vault.getAbstractFileByPath(context.path);
+    const fm = (file && this.app.metadataCache.getFileCache(file)?.frontmatter) || {};
+    const course = str(fm.course).trim() || courseForFolder(this.settings, context.path) || "";
+    const prompt = buildCardGeneratorPrompt({
+      title: context.title,
+      course,
+      text,
+      sourceKind,
+      count: config.count,
+      customPrompt: config.customPrompt,
+    });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: 3000 });
+    const parsed = parseAiCards(reply, config.count);
+    if (!parsed.cards.length) throw new Error("The AI returned no usable cards. Try a different prompt or source.");
+    return {
+      kind: "cards",
+      items: parsed.cards,
+      sourcePath: context.path,
+      sourceKind,
+      title: context.title,
+      course,
+      count: parsed.cards.length,
+      ai: true,
+      model: this.aiModelLabel("generation"),
+    };
+  }
+
+  /** Append already-previewed cards to the open note. This is intentionally untracked. */
+  async insertGeneratedCards(generated, options) {
+    if (this.moduleOff("cards")) throw new Error("Turn on Cards to work with flashcards.");
+    const g = generated || {};
+    const items = Array.isArray(g.items) ? g.items : [];
+    if (!items.length) throw new Error("There are no cards to insert.");
+    const config = normalizeCardGenerator({ ...normalizeCardGenerator(this.settings.cardGenerator), ...(options || {}) });
+    const block = buildCardBlock(items, config);
+    if (!block) throw new Error("There are no cards to insert.");
+    const active = this.app.workspace.activeEditor;
+    const editor = active && active.editor;
+    if (!active || !active.file || active.file.path !== g.sourcePath || !editor) {
+      throw new Error("Keep that note open in the editor to insert cards into it.");
+    }
+    if (typeof editor.getValue !== "function") throw new Error("The open editor cannot be read.");
+    const current = editor.getValue();
+    if (typeof editor.replaceRange === "function" && typeof editor.lineCount === "function" && typeof editor.getLine === "function") {
+      const line = Math.max(0, editor.lineCount() - 1);
+      const ch = str(editor.getLine(line)).length;
+      editor.replaceRange(appendPrefix(current) + block + "\n", { line, ch });
+    } else if (typeof editor.setValue === "function") {
+      editor.setValue(appendCardBlock(current, block));
+    } else {
+      throw new Error("The open editor cannot be changed.");
+    }
+    return { inserted: items.length, path: g.sourcePath, style: config.style, separator: config.separator, hidden: config.hideInPreview };
+  }
+
+  openCardGenerator(onDone) {
+    if (!this.settings.ai.enabled) {
+      new Notice("Turn on AI features under Settings, Global, Modules, then choose a provider under MCQ Tracker, AI.");
+      return null;
+    }
+    if (this.moduleOff("cards")) {
+      new Notice("Turn on Cards under Settings, Global, Modules to generate flashcards.");
+      return null;
+    }
+    const modal = new CardGeneratorModal(this.app, this, onDone || (() => this.refreshViews()));
     modal.open();
     return modal;
   }

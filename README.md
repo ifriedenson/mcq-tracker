@@ -346,6 +346,10 @@ Turn it on under Settings → MCQ Tracker → Review. One set per line: `Name | 
 
 Run **Generate quiz questions from notes** from the command palette. Choose source folders (blank means the whole vault), 1–20 questions, one or more of multiple-choice, select-all and true/false, and any of 22 output languages. Only notes in those folders are read; existing question and card notes are skipped, and the source is capped at 12 notes / 18,000 characters. Every draft is shown with its key before anything is written. Confirming creates ordinary question notes through Quick add, so generated questions use the same history, streak and ladder/FSRS schedule. This needs **Enable AI features** and a configured provider; nothing is sent until you press **Generate draft**. Malformed or duplicate model items are dropped, and the last choices are remembered.
 
+### AI flashcard generation from the open note
+
+Run **Generate flashcards from this note or selection**. If text is selected, the generator uses it; otherwise it reads the open note. Add an optional instruction and choose 1–20 cards. **Create tracked card notes** is the default: cards go through the normal importer, get a deck, source note and AI provenance, and use the same history and scheduler; **AI: undo the last generated notes** removes them. **Insert into this note** appends a block instead, using an inline `front :: back` or multiline `front` / `---` / `back` layout you can change, plus an optional `%%` wrapper that hides the block in reading view. Inserted blocks are not scheduled; undo the insertion with Ctrl/Cmd+Z. The last choices are remembered in settings, and Cards → Review exposes the default count, layout and hidden-block choice.
+
 ### Commands
 
 - Open practice view
@@ -368,6 +372,7 @@ Run **Generate quiz questions from notes** from the command palette. Choose sour
 - Open assignments and grades
 - Assignments: add an assignment
 - Create a flashcard or vocabulary card
+- Generate flashcards from this note or selection
 - Cards: create image occlusion cards
 - Cards: extract cards from this note
 - Cards: tag cards with their folder's course
@@ -730,7 +735,7 @@ Settings are grouped by module, then by tab. **Global** has Modules and General;
 - **Global → Modules** is one switch per module: **MCQ Tracker** (on by default), **Cards and vocabulary** (off by default), **Calendar** (off by default) and **AI features** (off by default). Turning a module off keeps its settings and your notes. It closes that module's open tabs and hides its ribbon button; using one of its commands anyway shows a notice that points back here.
 - **Global → General** holds the plugin-wide options: whether the plugin shows its ribbon icons, and whether the practice view opens when Obsidian starts.
 - **MCQ Tracker** covers the question folder, folder-filter style, review intervals or FSRS scheduling, desired retention, the global and per-course Known snooze lengths and manager, the optional study-cards skin, the daily quiz count and folders, mistake types, confidence labels, explanation default, mobile timer pause, AI backend and provider details, per-feature models, daily and per-run request caps, and saved presets.
-- **Cards** covers the default deck, the new-card folder, deck folders and course tags, cards per review session, answer mode, grading strictness, the optional AI fallback for typed answers, and whether to review due-and-new or all cards.
+- **Cards** covers the default deck, the new-card folder, deck folders and course tags, cards per review session, answer mode, grading strictness, the optional AI fallback for typed answers, flashcard-generator defaults (count, layout and hidden inserted blocks), and whether to review due-and-new or all cards.
 - The calendar's **Appearance & Colors** tab includes a maximum width setting (`0` fills the pane), class colors, break markers, and the study-slot buffer.
 
 ## Privacy

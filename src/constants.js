@@ -112,6 +112,7 @@ const DEFAULT_SETTINGS = {
     courses: [],
   }),
   noteReview: { enabled: false, limit: 20, sets: [] }, // optional whole-note review queue
+  cardGenerator: { count: 8, customPrompt: "", style: "inline", separator: "::", hideInPreview: false, output: "notes", source: "auto", deck: "" }, // last flashcard-generator choices
   quizGenerator: { folders: [], count: 5, language: "English", types: ["mcq"] }, // last AI quiz-generator choices
   cards: {
     enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off

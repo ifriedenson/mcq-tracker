@@ -2,6 +2,7 @@
 const { Notice, Setting } = require("obsidian");
 const { localDate, str } = require("./util");
 const { deckSummary } = require("./cards");
+const { CARD_GENERATOR_STYLES, normalizeCardGenerator } = require("./card-generator");
 const { renderSettingsTabs } = require("./settings-ui");
 
 const CARDS_TABS = [
@@ -26,7 +27,7 @@ function renderCardsSettings(containerEl, plugin, redisplay, activeTab, setTab) 
       text: "The Cards module is off. Turn it on under Global, Modules; these settings are kept while it is off.",
     });
   }
-  if (current === "review") return renderReview(section, plugin);
+  if (current === "review") return renderReview(section, plugin, redisplay);
   if (current === "about") return renderAbout(section, plugin);
   renderDecks(section, plugin, redisplay);
 }
@@ -251,7 +252,7 @@ function ensureDeck(st, name) {
   return cfg;
 }
 
-function renderReview(containerEl, plugin) {
+function renderReview(containerEl, plugin, redisplay) {
   const st = plugin.settings.cards;
   new Setting(containerEl).setName("Review").setHeading();
   new Setting(containerEl)
@@ -338,6 +339,53 @@ function renderReview(containerEl, plugin) {
     cls: "setting-item-description",
     text: "Ratings map to the scheduler as Again, Hard, Good and Easy. Typed answers are graded locally first; accepted_variants and grading_strictness on a card override the defaults. A card's history stays in the note next to its question history.",
   });
+
+  new Setting(containerEl).setName("Flashcard generator").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Generate cards from the open note or its selection with an optional custom instruction. The command always opens these choices so you can change them for one run; the last choices are remembered here. Tracked card notes are the default; inserting a formatted block into the note is optional and is not scheduled.",
+  });
+  const cg = normalizeCardGenerator(plugin.settings.cardGenerator);
+  const patchGenerator = async (values) => {
+    plugin.settings.cardGenerator = normalizeCardGenerator({ ...normalizeCardGenerator(plugin.settings.cardGenerator), ...values });
+    await plugin.save();
+  };
+  new Setting(containerEl)
+    .setName("Default card count")
+    .setDesc("Between 1 and 20. The generator can change this for a single run.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.max = "20";
+      t.setValue(String(cg.count)).onChange(async (v) => {
+        const n = Math.round(Number(v));
+        if (Number.isFinite(n) && n > 0) {
+          await patchGenerator({ count: Math.min(20, n) });
+        }
+      });
+    });
+  new Setting(containerEl)
+    .setName("Default card layout")
+    .setDesc("Inline uses one line per card; multiline puts the separator on its own line. The separator is editable for each run.")
+    .addDropdown((d) => {
+      for (const style of CARD_GENERATOR_STYLES) d.addOption(style.id, style.label);
+      d.setValue(cg.style).onChange(async (v) => {
+        const style = CARD_GENERATOR_STYLES.find((item) => item.id === v) || CARD_GENERATOR_STYLES[0];
+        await patchGenerator({ style: style.id, separator: style.separator });
+        if (typeof redisplay === "function") redisplay();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Hide inserted cards in reading view")
+    .setDesc("Wraps only the optional inserted block in Obsidian comment markers. Tracked card notes are never hidden or changed.")
+    .addToggle((t) =>
+      t.setValue(cg.hideInPreview === true).onChange(async (v) => {
+        await patchGenerator({ hideInPreview: v });
+      })
+    );
+  new Setting(containerEl)
+    .setName("Generate from this note or selection")
+    .addButton((b) => b.setButtonText("Open generator").onClick(() => plugin.openCardGenerator()));
 }
 
 function renderAbout(containerEl, plugin) {
