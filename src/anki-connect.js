@@ -82,6 +82,9 @@ function syncText(value) {
   // the same words so a pulled table does not look like a fresh local edit.
   text = text.replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*$/gm, " ");
   text = text.replace(/<\/?(?:table|thead|tbody|tr|td|th)[^>]*>/gi, " ");
+  // An escaped pipe is table content, not a cell boundary. The HTML side has
+  // the same pipe without the backslash, so normalize both before flattening.
+  text = text.replace(/\\\|/g, "|");
   text = text.replace(/\|/g, " ");
   text = text.replace(/<[^>]+>/g, "");
   text = text.replace(/\[sound:([^\]]+)\]/gi, "![[$1]]");
@@ -244,7 +247,22 @@ function escapeHtml(value) {
  * containing pipes intact.
  */
 function splitTableRow(line) {
-  return str(line).trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  // A backslash-escaped pipe belongs inside the cell, not between cells.
+  return str(line)
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .replace(/\\\|/g, "\u0001")
+    .split("|")
+    .map((cell) => cell.replace(/\u0001/g, "|").trim());
+}
+
+/** Inline Markdown inside a table cell, after the outer text was HTML-escaped. */
+function tableCell(value) {
+  return str(value)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
 }
 
 function isTableSeparator(line) {
@@ -255,15 +273,15 @@ function isTableSeparator(line) {
 function tableToHtml(lines) {
   const rows = (Array.isArray(lines) ? lines : []).map(splitTableRow);
   if (rows.length < 2) return "";
-  const head = rows[0].map((cell) => `<th>${cell}</th>`).join("");
+  const head = rows[0].map((cell) => `<th>${tableCell(cell)}</th>`).join("");
   const body = rows
     .slice(2)
-    .map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`)
+    .map((row) => `<tr>${row.map((cell) => `<td>${tableCell(cell)}</td>`).join("")}</tr>`)
     .join("");
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
-function markdownTablesToHtml(text, hold) {
+function markdownTablesToHtml(text, hold, restore) {
   const lines = str(text).split("\n");
   const out = [];
   for (let i = 0; i < lines.length; i++) {
@@ -274,7 +292,10 @@ function markdownTablesToHtml(text, hold) {
       next++;
     }
     if (block.length >= 2 && isTableSeparator(block[1])) {
-      out.push(hold(tableToHtml(block)));
+      const table = tableToHtml(block);
+      // Code/math/media were held as tokens before the table was built, so
+      // resolve those inner tokens before the whole table is held as one block.
+      out.push(hold(typeof restore === "function" ? restore(table) : table));
       i = next - 1;
       continue;
     }
@@ -305,7 +326,7 @@ function markdownToAnkiHtml(value) {
   text = text.replace(/\$([^$\n]+)\$/g, (_full, math) => hold(`\\(${escapeHtml(math.trim())}\\)`));
   text = text.replace(/`([^`]+)`/g, (_full, code) => hold(`<code>${escapeHtml(code)}</code>`));
   text = escapeHtml(text);
-  text = markdownTablesToHtml(text, hold);
+  text = markdownTablesToHtml(text, hold, (table) => table.replace(/\u0000(\d+)\u0000/g, (_full, index) => tokens[Number(index)] || ""));
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_full, label, url) => `<a href="${url}">${label}</a>`);
   text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\*([^*]+)\*/g, "<em>$1</em>");
   text = text.replace(/\n/g, "<br>");

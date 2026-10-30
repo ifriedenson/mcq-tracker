@@ -2053,6 +2053,9 @@ function syncText(value) {
   // the same words so a pulled table does not look like a fresh local edit.
   text = text.replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*$/gm, " ");
   text = text.replace(/<\/?(?:table|thead|tbody|tr|td|th)[^>]*>/gi, " ");
+  // An escaped pipe is table content, not a cell boundary. The HTML side has
+  // the same pipe without the backslash, so normalize both before flattening.
+  text = text.replace(/\\\|/g, "|");
   text = text.replace(/\|/g, " ");
   text = text.replace(/<[^>]+>/g, "");
   text = text.replace(/\[sound:([^\]]+)\]/gi, "![[$1]]");
@@ -2215,7 +2218,22 @@ function escapeHtml(value) {
  * containing pipes intact.
  */
 function splitTableRow(line) {
-  return str(line).trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  // A backslash-escaped pipe belongs inside the cell, not between cells.
+  return str(line)
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .replace(/\\\|/g, "\u0001")
+    .split("|")
+    .map((cell) => cell.replace(/\u0001/g, "|").trim());
+}
+
+/** Inline Markdown inside a table cell, after the outer text was HTML-escaped. */
+function tableCell(value) {
+  return str(value)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>");
 }
 
 function isTableSeparator(line) {
@@ -2226,15 +2244,15 @@ function isTableSeparator(line) {
 function tableToHtml(lines) {
   const rows = (Array.isArray(lines) ? lines : []).map(splitTableRow);
   if (rows.length < 2) return "";
-  const head = rows[0].map((cell) => `<th>${cell}</th>`).join("");
+  const head = rows[0].map((cell) => `<th>${tableCell(cell)}</th>`).join("");
   const body = rows
     .slice(2)
-    .map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`)
+    .map((row) => `<tr>${row.map((cell) => `<td>${tableCell(cell)}</td>`).join("")}</tr>`)
     .join("");
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
-function markdownTablesToHtml(text, hold) {
+function markdownTablesToHtml(text, hold, restore) {
   const lines = str(text).split("\n");
   const out = [];
   for (let i = 0; i < lines.length; i++) {
@@ -2245,7 +2263,10 @@ function markdownTablesToHtml(text, hold) {
       next++;
     }
     if (block.length >= 2 && isTableSeparator(block[1])) {
-      out.push(hold(tableToHtml(block)));
+      const table = tableToHtml(block);
+      // Code/math/media were held as tokens before the table was built, so
+      // resolve those inner tokens before the whole table is held as one block.
+      out.push(hold(typeof restore === "function" ? restore(table) : table));
       i = next - 1;
       continue;
     }
@@ -2276,7 +2297,7 @@ function markdownToAnkiHtml(value) {
   text = text.replace(/\$([^$\n]+)\$/g, (_full, math) => hold(`\\(${escapeHtml(math.trim())}\\)`));
   text = text.replace(/`([^`]+)`/g, (_full, code) => hold(`<code>${escapeHtml(code)}</code>`));
   text = escapeHtml(text);
-  text = markdownTablesToHtml(text, hold);
+  text = markdownTablesToHtml(text, hold, (table) => table.replace(/\u0000(\d+)\u0000/g, (_full, index) => tokens[Number(index)] || ""));
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_full, label, url) => `<a href="${url}">${label}</a>`);
   text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/\*([^*]+)\*/g, "<em>$1</em>");
   text = text.replace(/\n/g, "<br>");
@@ -35974,12 +35995,14 @@ class QuestionTrackerPlugin extends Plugin {
   /** Upload referenced vault media before Anki fields point at it. Failures are warnings. */
   async uploadAnkiMedia(client, built) {
     const warnings = [];
-    const seen = new Set();
+    // Anki media is flat: the filename is the identity. Track the resolved
+    // vault path as well, so two different files that share a basename cannot
+    // silently overwrite each other in Anki.
+    const seen = new Map();
     const files = [];
     for (const ref of Array.isArray(built && built.media) ? built.media : []) {
       const name = str(ref && ref.name).trim();
-      if (!name || seen.has(name)) continue;
-      seen.add(name);
+      if (!name) continue;
       let file = null;
       try {
         if (this.app.metadataCache && typeof this.app.metadataCache.getFirstLinkpathDest === "function") {
@@ -35996,9 +36019,20 @@ class QuestionTrackerPlugin extends Plugin {
         warnings.push(`${ref.sourcePath || "card"}: could not find ${name} in the vault; the text was sent without it.`);
         continue;
       }
+      const resolvedPath = str(file.path || ref.target || name);
+      if (seen.has(name)) {
+        const previous = seen.get(name);
+        if (previous !== resolvedPath) {
+          warnings.push(
+            `${ref.sourcePath || "card"}: media filename conflict for "${name}": ${previous} was selected for upload, so ${resolvedPath} will not be. Rename one of the files to sync both.`
+          );
+        }
+        continue;
+      }
       try {
         const bytes = await this.readVaultBytes(file);
         files.push({ filename: name, data: Buffer.from(bytes).toString("base64") });
+        seen.set(name, resolvedPath);
       } catch (e) {
         warnings.push(`${ref.sourcePath || "card"}: could not read ${name}; the text was sent without it.`);
       }
@@ -36062,6 +36096,28 @@ class QuestionTrackerPlugin extends Plugin {
       }
     }
     if (opts.pushOnly) {
+      const linked = records.filter((record) => str(record.fm && record.fm.anki_note_id).trim());
+      if (linked.length) {
+        const client = new AnkiConnectClient({ url: settings.url });
+        const notes = await client.notesInfo(linked.map((record) => str(record.fm.anki_note_id)));
+        const noteById = new Map(notes.map((note) => [str(note && note.noteId), note]));
+        for (const record of linked) {
+          const noteId = str(record.fm.anki_note_id).trim();
+          if (!noteById.has(noteId)) {
+            counts.missing++;
+            entries.push({ action: "missing", path: record.file.path, noteId, detail: "Anki no longer has this note; the local card is kept." });
+            continue;
+          }
+          const one = build([record]);
+          if (!one.notes.length) {
+            warnings.push(...one.warnings);
+            continue;
+          }
+          counts.update++;
+          counts.media += one.media.length;
+          entries.push({ action: "update", path: record.file.path, noteId, detail: "Local content goes to Anki." });
+        }
+      }
       return { entries, counts, warnings, errors, total: records.length, format: "ankiconnect-preview", pushOnly: true, vaultWide: opts.vaultWide === true };
     }
     const linked = records.filter((record) => str(record.fm && record.fm.anki_note_id).trim());
@@ -36174,12 +36230,17 @@ class QuestionTrackerPlugin extends Plugin {
         warnings.push(`${card.file.path}: ${String((e && e.message) || e)}`);
       }
     }
-    const built = buildAnkiNotes(records, buildOptions);
-    if (!built.notes.length) throw new Error("Nothing in this filter can be sent to Anki yet.");
+    const unlinked = records.filter((record) => !str(record.fm && record.fm.anki_note_id).trim());
+    const linked = records.filter((record) => str(record.fm && record.fm.anki_note_id).trim());
+    const built = buildAnkiNotes(unlinked, buildOptions);
+    if (!built.notes.length && !linked.length) throw new Error("Nothing in this filter can be sent to Anki yet.");
+    const linkedBuilt = linked.map((record) => ({ record, built: buildAnkiNotes([record], buildOptions) }));
     const client = new AnkiConnectClient({ url: settings.url });
-    warnings.push(...(await this.uploadAnkiMedia(client, built)));
-    const result = await client.push(built.notes);
-    const byPath = new Map(records.map((record) => [record.file.path, record]));
+    warnings.push(...(await this.uploadAnkiMedia(client, { media: [...built.media, ...linkedBuilt.flatMap((entry) => entry.built.media)] })));
+    const result = built.notes.length
+      ? await client.push(built.notes)
+      : { added: 0, duplicates: 0, failed: 0, decks: [], total: 0, ids: [], acceptedIndexes: [] };
+    const byPath = new Map(unlinked.map((record) => [record.file.path, record]));
     let stamped = 0;
     for (let i = 0; i < result.acceptedIndexes.length; i++) {
       const id = result.ids[i];
@@ -36201,8 +36262,44 @@ class QuestionTrackerPlugin extends Plugin {
       });
       stamped++;
     }
+    const errors = [];
+    let updated = 0;
+    for (const entry of linkedBuilt) {
+      const note = entry.built.notes[0];
+      if (!note) {
+        warnings.push(...entry.built.warnings);
+        continue;
+      }
+      try {
+        await client.updateNote(str(entry.record.fm.anki_note_id), str(entry.record.fm.anki_card_id), note);
+        // Keep the same local hash normalization as sync, so the next run sees
+        // this linked card as agreed instead of immediately pushing it again.
+        const local = localSyncRecord(entry.record, buildOptions);
+        if (settings.deck) local.deck = "";
+        const localHash = syncHash(local);
+        await this.stampAnkiCard(entry.record.file, {
+          noteId: str(entry.record.fm.anki_note_id),
+          cardId: str(entry.record.fm.anki_card_id) || undefined,
+          deck: note.deckName,
+          model: note.modelName,
+          localHash,
+          remoteHash: localHash,
+        });
+        updated++;
+      } catch (e) {
+        errors.push(`${entry.record.file.path}: ${str(e && e.message ? e.message : e)}`);
+      }
+    }
     await this.rememberAnkiIndex();
-    return { ...result, stamped, format: "ankiconnect", count: built.notes.length, warnings: [...warnings, ...built.warnings] };
+    return {
+      ...result,
+      stamped,
+      updated,
+      errors,
+      format: "ankiconnect",
+      count: records.length,
+      warnings: [...warnings, ...built.warnings, ...linkedBuilt.flatMap((entry) => entry.built.warnings)],
+    };
   }
 
   /** Push new cards and merge edits for cards already linked to Anki. */

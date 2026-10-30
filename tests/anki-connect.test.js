@@ -847,3 +847,158 @@ test("plugin: Obsidian content authority overwrites Anki text but pulls Anki sch
     obsidian.requestImpl = previous;
   }
 });
+
+test("plugin: push-only updates linked cards and creates only unlinked ones in a vault-wide push", async () => {
+  const notes = [
+    {
+      path: "Cards/Bio/New.md",
+      noFm: true,
+      fm: { card_id: "new", item_type: "card", deck: "Biology" },
+      text: "## Front\nNew question?\n\n## Back\nNew answer",
+    },
+    {
+      path: "Cards/Chem/Linked.md",
+      noFm: true,
+      fm: { card_id: "linked", item_type: "card", deck: "Chemistry", anki_note_id: "9", anki_card_id: "90" },
+      text: "## Front\nLinked question?\n\n## Back\nLinked answer",
+    },
+  ];
+  const app = makeApp(notes);
+  notes.forEach((note, index) => (app.files[index].fm = { ...note.fm }));
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  plugin.settings.cards.ankiConnect = { enabled: true, url: "http://127.0.0.1:8765", deck: "" };
+  const actions = [];
+  const previous = obsidian.requestImpl;
+  obsidian.requestImpl = async (req) => {
+    const body = JSON.parse(req.body);
+    actions.push(body);
+    if (body.action === "notesInfo") {
+      return {
+        status: 200,
+        json: {
+          result: [
+            {
+              noteId: 9,
+              cards: [90],
+              modelName: "Basic",
+              tags: [],
+              fields: { Front: { value: "Old linked question", order: 0 }, Back: { value: "Old linked answer", order: 1 } },
+            },
+          ],
+        },
+      };
+    }
+    if (body.action === "canAddNotes") return { status: 200, json: { result: body.params.notes.map(() => true) } };
+    if (body.action === "addNotes") return { status: 200, json: { result: [123] } };
+    return { status: 200, json: { result: 1 } };
+  };
+  try {
+    const preview = await plugin.previewAnkiSync({ vaultWide: true, pushOnly: true });
+    assert.equal(preview.counts.create, 1, JSON.stringify(preview));
+    assert.equal(preview.counts.update, 1, JSON.stringify(preview));
+    assert.deepEqual(preview.entries.map((entry) => entry.action).sort(), ["create", "update"]);
+
+    const result = await plugin.pushCardsToAnki({ vaultWide: true, targetDeck: "School" });
+    assert.equal(result.added, 1, JSON.stringify(result));
+    assert.equal(result.updated, 1, JSON.stringify(result));
+    assert.deepEqual(result.errors, []);
+    const add = actions.find((body) => body.action === "canAddNotes");
+    assert.equal(add.params.notes.length, 1, "only the unlinked card is a create");
+    assert.match(add.params.notes[0].fields.Front, /New question/);
+    const update = actions.find((body) => body.action === "updateNoteFields");
+    assert.ok(update, JSON.stringify(actions.map((body) => body.action)));
+    assert.equal(update.params.note.id, 9);
+    assert.match(update.params.note.fields.Front, /Linked question/);
+    const deckChange = actions.find((body) => body.action === "changeDeck");
+    assert.deepEqual(deckChange.params.cards, [90]);
+    assert.equal(deckChange.params.deck, "School");
+    assert.ok(app.files[1].fm.anki_synced_hash, "linked card gets a fresh baseline");
+    assert.equal(app.files[1].fm.anki_note_id, "9");
+  } finally {
+    obsidian.requestImpl = previous;
+  }
+});
+
+test("AnkiConnect: a page, heading and special characters survive in one source backlink", () => {
+  const card = {
+    file: { path: "Cards/Bio/Special.md" },
+    fm: {
+      deck: "Biology",
+      source_note: "Notes/A & B.md",
+      source_page: "12-14",
+      source_heading: "## Cell & theory",
+    },
+    body: { front: "Q", back: "A" },
+  };
+  const built = anki.buildAnkiNotes([card], { defaultDeck: "General", backlinks: true, vaultName: "Study & Lab" });
+  const back = built.notes[0].fields.Back;
+  assert.ok(
+    back.includes("vault=Study%20%26%20Lab&amp;file=Notes%2FA%20%26%20B.md&amp;page=12&amp;heading=Cell%20%26%20theory"),
+    back
+  );
+  assert.equal((back.match(/>Source note<\/a>/g) || []).length, 1);
+
+  const fallback = anki.buildAnkiNotes(
+    [{ file: { path: "Cards/Bio/NoSource.md" }, fm: { deck: "Biology" }, body: { front: "Q", back: "A" } }],
+    { defaultDeck: "General", backlinks: true }
+  );
+  assert.ok(fallback.notes[0].fields.Back.includes("file=Cards%2FBio%2FNoSource.md"), fallback.notes[0].fields.Back);
+  assert.doesNotMatch(fallback.notes[0].fields.Back, /[?&]page=|[?&]heading=/);
+});
+
+test("AnkiConnect: table cells keep escaped pipes and inline formatting", () => {
+  const html = anki.markdownToAnkiHtml(
+    "| **Term** | Meaning |\n| --- | --- |\n| ATP | Energy \\| work |\n| `cAMP` | *Second messenger* |"
+  );
+  assert.match(html, /<th><strong>Term<\/strong><\/th>/);
+  assert.match(html, /<td>ATP<\/td><td>Energy \| work<\/td>/);
+  assert.match(html, /<td><code>cAMP<\/code><\/td><td><em>Second messenger<\/em><\/td>/);
+  const local = anki.syncRecord({ front: "| **Term** | Meaning |\n| --- | --- |\n| ATP | Energy \\| work |", back: "A", deck: "D", tags: [], type: "Basic" });
+  const remote = anki.syncRecord({
+    front: "<table><thead><tr><th><strong>Term</strong></th><th>Meaning</th></tr></thead><tbody><tr><td>ATP</td><td>Energy | work</td></tr></tbody></table>",
+    back: "A",
+    deck: "D",
+    tags: [],
+    type: "Basic",
+  });
+  assert.equal(anki.syncHash(local), anki.syncHash(remote));
+});
+
+test("plugin: duplicate media basenames warn instead of silently overwriting, and upload failures stay warnings", async () => {
+  const app = makeApp([]);
+  const first = { path: "Media/A/same.png", name: "same.png", basename: "same", extension: "png" };
+  const second = { path: "Media/B/same.png", name: "same.png", basename: "same", extension: "png" };
+  app.metadataCache.getFirstLinkpathDest = (_name, sourcePath) => (String(sourcePath).startsWith("Cards/A") ? first : second);
+  app.vault.readBinary = async (file) => Buffer.from(file.path.startsWith("Media/A") ? [1] : [2]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const stored = [];
+  const warnings = await plugin.uploadAnkiMedia(
+    { storeMedia: async (files) => stored.push(...files) },
+    {
+      media: [
+        { name: "same.png", target: "Media/A/same.png", sourcePath: "Cards/A.md" },
+        { name: "same.png", target: "Media/B/same.png", sourcePath: "Cards/B.md" },
+      ],
+    }
+  );
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].filename, "same.png");
+  assert.equal(stored[0].data, "AQ==");
+  assert.match(warnings.join(" "), /filename conflict/);
+  assert.match(warnings.join(" "), /Media\/A\/same\.png/);
+  assert.match(warnings.join(" "), /Media\/B\/same\.png/);
+
+  const failed = await plugin.uploadAnkiMedia(
+    {
+      storeMedia: async () => {
+        throw new Error("disk full");
+      },
+    },
+    { media: [{ name: "same.png", target: "Media/A/same.png", sourcePath: "Cards/A.md" }] }
+  );
+  assert.match(failed.join(" "), /Media upload failed: disk full/);
+  assert.equal(failed.length, 1);
+});

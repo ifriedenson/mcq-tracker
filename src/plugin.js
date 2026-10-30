@@ -2132,12 +2132,14 @@ class QuestionTrackerPlugin extends Plugin {
   /** Upload referenced vault media before Anki fields point at it. Failures are warnings. */
   async uploadAnkiMedia(client, built) {
     const warnings = [];
-    const seen = new Set();
+    // Anki media is flat: the filename is the identity. Track the resolved
+    // vault path as well, so two different files that share a basename cannot
+    // silently overwrite each other in Anki.
+    const seen = new Map();
     const files = [];
     for (const ref of Array.isArray(built && built.media) ? built.media : []) {
       const name = str(ref && ref.name).trim();
-      if (!name || seen.has(name)) continue;
-      seen.add(name);
+      if (!name) continue;
       let file = null;
       try {
         if (this.app.metadataCache && typeof this.app.metadataCache.getFirstLinkpathDest === "function") {
@@ -2154,9 +2156,20 @@ class QuestionTrackerPlugin extends Plugin {
         warnings.push(`${ref.sourcePath || "card"}: could not find ${name} in the vault; the text was sent without it.`);
         continue;
       }
+      const resolvedPath = str(file.path || ref.target || name);
+      if (seen.has(name)) {
+        const previous = seen.get(name);
+        if (previous !== resolvedPath) {
+          warnings.push(
+            `${ref.sourcePath || "card"}: media filename conflict for "${name}": ${previous} was selected for upload, so ${resolvedPath} will not be. Rename one of the files to sync both.`
+          );
+        }
+        continue;
+      }
       try {
         const bytes = await this.readVaultBytes(file);
         files.push({ filename: name, data: Buffer.from(bytes).toString("base64") });
+        seen.set(name, resolvedPath);
       } catch (e) {
         warnings.push(`${ref.sourcePath || "card"}: could not read ${name}; the text was sent without it.`);
       }
@@ -2220,6 +2233,28 @@ class QuestionTrackerPlugin extends Plugin {
       }
     }
     if (opts.pushOnly) {
+      const linked = records.filter((record) => str(record.fm && record.fm.anki_note_id).trim());
+      if (linked.length) {
+        const client = new AnkiConnectClient({ url: settings.url });
+        const notes = await client.notesInfo(linked.map((record) => str(record.fm.anki_note_id)));
+        const noteById = new Map(notes.map((note) => [str(note && note.noteId), note]));
+        for (const record of linked) {
+          const noteId = str(record.fm.anki_note_id).trim();
+          if (!noteById.has(noteId)) {
+            counts.missing++;
+            entries.push({ action: "missing", path: record.file.path, noteId, detail: "Anki no longer has this note; the local card is kept." });
+            continue;
+          }
+          const one = build([record]);
+          if (!one.notes.length) {
+            warnings.push(...one.warnings);
+            continue;
+          }
+          counts.update++;
+          counts.media += one.media.length;
+          entries.push({ action: "update", path: record.file.path, noteId, detail: "Local content goes to Anki." });
+        }
+      }
       return { entries, counts, warnings, errors, total: records.length, format: "ankiconnect-preview", pushOnly: true, vaultWide: opts.vaultWide === true };
     }
     const linked = records.filter((record) => str(record.fm && record.fm.anki_note_id).trim());
@@ -2332,12 +2367,17 @@ class QuestionTrackerPlugin extends Plugin {
         warnings.push(`${card.file.path}: ${String((e && e.message) || e)}`);
       }
     }
-    const built = buildAnkiNotes(records, buildOptions);
-    if (!built.notes.length) throw new Error("Nothing in this filter can be sent to Anki yet.");
+    const unlinked = records.filter((record) => !str(record.fm && record.fm.anki_note_id).trim());
+    const linked = records.filter((record) => str(record.fm && record.fm.anki_note_id).trim());
+    const built = buildAnkiNotes(unlinked, buildOptions);
+    if (!built.notes.length && !linked.length) throw new Error("Nothing in this filter can be sent to Anki yet.");
+    const linkedBuilt = linked.map((record) => ({ record, built: buildAnkiNotes([record], buildOptions) }));
     const client = new AnkiConnectClient({ url: settings.url });
-    warnings.push(...(await this.uploadAnkiMedia(client, built)));
-    const result = await client.push(built.notes);
-    const byPath = new Map(records.map((record) => [record.file.path, record]));
+    warnings.push(...(await this.uploadAnkiMedia(client, { media: [...built.media, ...linkedBuilt.flatMap((entry) => entry.built.media)] })));
+    const result = built.notes.length
+      ? await client.push(built.notes)
+      : { added: 0, duplicates: 0, failed: 0, decks: [], total: 0, ids: [], acceptedIndexes: [] };
+    const byPath = new Map(unlinked.map((record) => [record.file.path, record]));
     let stamped = 0;
     for (let i = 0; i < result.acceptedIndexes.length; i++) {
       const id = result.ids[i];
@@ -2359,8 +2399,44 @@ class QuestionTrackerPlugin extends Plugin {
       });
       stamped++;
     }
+    const errors = [];
+    let updated = 0;
+    for (const entry of linkedBuilt) {
+      const note = entry.built.notes[0];
+      if (!note) {
+        warnings.push(...entry.built.warnings);
+        continue;
+      }
+      try {
+        await client.updateNote(str(entry.record.fm.anki_note_id), str(entry.record.fm.anki_card_id), note);
+        // Keep the same local hash normalization as sync, so the next run sees
+        // this linked card as agreed instead of immediately pushing it again.
+        const local = localSyncRecord(entry.record, buildOptions);
+        if (settings.deck) local.deck = "";
+        const localHash = syncHash(local);
+        await this.stampAnkiCard(entry.record.file, {
+          noteId: str(entry.record.fm.anki_note_id),
+          cardId: str(entry.record.fm.anki_card_id) || undefined,
+          deck: note.deckName,
+          model: note.modelName,
+          localHash,
+          remoteHash: localHash,
+        });
+        updated++;
+      } catch (e) {
+        errors.push(`${entry.record.file.path}: ${str(e && e.message ? e.message : e)}`);
+      }
+    }
     await this.rememberAnkiIndex();
-    return { ...result, stamped, format: "ankiconnect", count: built.notes.length, warnings: [...warnings, ...built.warnings] };
+    return {
+      ...result,
+      stamped,
+      updated,
+      errors,
+      format: "ankiconnect",
+      count: records.length,
+      warnings: [...warnings, ...built.warnings, ...linkedBuilt.flatMap((entry) => entry.built.warnings)],
+    };
   }
 
   /** Push new cards and merge edits for cards already linked to Anki. */
