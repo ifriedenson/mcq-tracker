@@ -93,7 +93,7 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
-const { gradeQuizBlockQuestion, gradeQuizQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, visibleQuizCount } = require("./quiz-block");
+const { gradeQuizBlockQuestion, gradeQuizQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
@@ -498,7 +498,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.registerMarkdownCodeBlockProcessor("mcq-dashboard", (source, el) => this.renderDashboardBlock(source, el));
-    this.registerMarkdownCodeBlockProcessor("mcq-quiz", (source, el) => this.renderQuizBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("mcq-quiz", (source, el, ctx) => this.renderQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
     this.registerMarkdownCodeBlockProcessor("quizjs", (source, el) => this.renderSimpleQuizDataBlock(source, el, "js"));
@@ -701,6 +701,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.hints = this.settings.hints === true;
     this.settings.examReady = this.settings.examReady === true;
     this.settings.examReadyPasses = normalizeExamReadyPasses(this.settings.examReadyPasses);
+    this.settings.inlineQuizResults = this.settings.inlineQuizResults === true;
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -3542,7 +3543,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /** Render an `mcq-quiz` fenced block: choices, sliders, text and weighted scoring. */
-  async renderQuizBlock(source, el) {
+  async renderQuizBlock(source, el, ctx) {
     const parsed = parseQuizBlock(source);
     if (!parsed.questions.length) {
       el.createDiv({ cls: "qt-quiz-empty", text: "This quiz block has no questions. Start a question with Q: and add choices with A., B., ..." });
@@ -3553,8 +3554,9 @@ class QuestionTrackerPlugin extends Plugin {
     const cards = [];
     const selections = {};
     const summary = box.createDiv({ cls: "qt-quiz-summary" });
+    const scoreNow = () => quizBlockScore(parsed.questions, selections, parsed);
     const paintSummary = () => {
-      const score = quizBlockScore(parsed.questions, selections, parsed);
+      const score = scoreNow();
       summary.setText(`Score: ${score.percent}% · ${score.band} · ${score.answered}/${score.total} answered`);
       summary.toggleClass("is-pass", score.band === "pass");
       summary.toggleClass("is-imprecise", score.band === "imprecise");
@@ -3584,6 +3586,14 @@ class QuestionTrackerPlugin extends Plugin {
         await this.recordQuizBlockAnswer(question, result, (Date.now() - started) / 1000);
       } catch (e) {
         new Notice(`Could not record this inline answer: ${str(e && e.message ? e.message : e)}`);
+      }
+      const score = scoreNow();
+      if (this.settings.inlineQuizResults === true && parsed.id && score.answered === score.total) {
+        try {
+          await this.exportInlineQuizResult(ctx && ctx.sourcePath, parsed.id, score);
+        } catch (e) {
+          new Notice(`Could not export this quiz result: ${str(e && e.message ? e.message : e)}`, 8000);
+        }
       }
     };
 
@@ -3668,6 +3678,20 @@ class QuestionTrackerPlugin extends Plugin {
       });
     });
     cards.forEach((card, index) => card.toggleClass("qt-quiz-hidden", parsed.gated && index >= visibleQuizCount(parsed.questions.length, 0, true)));
+  }
+
+  /** Write one completed inline-quiz result into the source note's frontmatter. */
+  async exportInlineQuizResult(sourcePath, quizId, score) {
+    const path = str(sourcePath).trim();
+    const prop = quizResultProperties(quizId, score);
+    if (!path || !prop) return false;
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return false;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      const current = fm.quizResults && typeof fm.quizResults === "object" && !Array.isArray(fm.quizResults) ? fm.quizResults : {};
+      fm.quizResults = { ...current, [prop.key]: prop.value };
+    });
+    return true;
   }
 
   /**

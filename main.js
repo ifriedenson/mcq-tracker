@@ -17044,6 +17044,7 @@ const DEFAULT_SETTINGS = {
   hints: false, // opt-in: show a question's optional Hint section before answering
   examReady: false, // opt-in: mark a question after N consecutive correct answers
   examReadyPasses: 2, // consecutive correct answers for the exam-ready badge (Omniscient's default)
+  inlineQuizResults: false, // opt-in: export mcq-quiz scores to the note under quizResults
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
     managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)
@@ -34753,7 +34754,7 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
-const { gradeQuizBlockQuestion, gradeQuizQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, visibleQuizCount } = require("./quiz-block");
+const { gradeQuizBlockQuestion, gradeQuizQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
@@ -35158,7 +35159,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.registerMarkdownCodeBlockProcessor("mcq-dashboard", (source, el) => this.renderDashboardBlock(source, el));
-    this.registerMarkdownCodeBlockProcessor("mcq-quiz", (source, el) => this.renderQuizBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("mcq-quiz", (source, el, ctx) => this.renderQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
     this.registerMarkdownCodeBlockProcessor("quizjs", (source, el) => this.renderSimpleQuizDataBlock(source, el, "js"));
@@ -35361,6 +35362,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.hints = this.settings.hints === true;
     this.settings.examReady = this.settings.examReady === true;
     this.settings.examReadyPasses = normalizeExamReadyPasses(this.settings.examReadyPasses);
+    this.settings.inlineQuizResults = this.settings.inlineQuizResults === true;
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -38202,7 +38204,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /** Render an `mcq-quiz` fenced block: choices, sliders, text and weighted scoring. */
-  async renderQuizBlock(source, el) {
+  async renderQuizBlock(source, el, ctx) {
     const parsed = parseQuizBlock(source);
     if (!parsed.questions.length) {
       el.createDiv({ cls: "qt-quiz-empty", text: "This quiz block has no questions. Start a question with Q: and add choices with A., B., ..." });
@@ -38213,8 +38215,9 @@ class QuestionTrackerPlugin extends Plugin {
     const cards = [];
     const selections = {};
     const summary = box.createDiv({ cls: "qt-quiz-summary" });
+    const scoreNow = () => quizBlockScore(parsed.questions, selections, parsed);
     const paintSummary = () => {
-      const score = quizBlockScore(parsed.questions, selections, parsed);
+      const score = scoreNow();
       summary.setText(`Score: ${score.percent}% · ${score.band} · ${score.answered}/${score.total} answered`);
       summary.toggleClass("is-pass", score.band === "pass");
       summary.toggleClass("is-imprecise", score.band === "imprecise");
@@ -38244,6 +38247,14 @@ class QuestionTrackerPlugin extends Plugin {
         await this.recordQuizBlockAnswer(question, result, (Date.now() - started) / 1000);
       } catch (e) {
         new Notice(`Could not record this inline answer: ${str(e && e.message ? e.message : e)}`);
+      }
+      const score = scoreNow();
+      if (this.settings.inlineQuizResults === true && parsed.id && score.answered === score.total) {
+        try {
+          await this.exportInlineQuizResult(ctx && ctx.sourcePath, parsed.id, score);
+        } catch (e) {
+          new Notice(`Could not export this quiz result: ${str(e && e.message ? e.message : e)}`, 8000);
+        }
       }
     };
 
@@ -38328,6 +38339,20 @@ class QuestionTrackerPlugin extends Plugin {
       });
     });
     cards.forEach((card, index) => card.toggleClass("qt-quiz-hidden", parsed.gated && index >= visibleQuizCount(parsed.questions.length, 0, true)));
+  }
+
+  /** Write one completed inline-quiz result into the source note's frontmatter. */
+  async exportInlineQuizResult(sourcePath, quizId, score) {
+    const path = str(sourcePath).trim();
+    const prop = quizResultProperties(quizId, score);
+    if (!path || !prop) return false;
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return false;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      const current = fm.quizResults && typeof fm.quizResults === "object" && !Array.isArray(fm.quizResults) ? fm.quizResults : {};
+      fm.quizResults = { ...current, [prop.key]: prop.value };
+    });
+    return true;
   }
 
   /**
@@ -44262,6 +44287,7 @@ function newQuestion() {
 function parseQuizBlock(text) {
   const lines = str(text).replace(/\r\n?/g, "\n").split("\n");
   let gated = false;
+  let quizId = "";
   let pass = DEFAULT_PASS;
   let imprecise = DEFAULT_IMPRECISE;
   const questions = [];
@@ -44284,6 +44310,11 @@ function parseQuizBlock(text) {
     const line = raw.trim();
     if (/^gated\s*:\s*(true|yes|on)$/i.test(line)) {
       gated = true;
+      continue;
+    }
+    const blockId = line.match(/^(?:(?:quiz[\s-]*)?id)\s*[:=]\s*(.*)$/i);
+    if (!cur && blockId) {
+      quizId = clean(blockId[1]).slice(0, 120);
       continue;
     }
     const passLine = line.match(/^(?:pass(?:ing)?(?:\s*score)?|min_score_to_pass)\s*[:=]\s*(\d+(?:\.\d+)?)$/i);
@@ -44422,7 +44453,7 @@ function parseQuizBlock(text) {
     question.imprecise = imprecise;
     question.valid = question.issues.length === 0;
   }
-  return { gated, pass, imprecise, questions };
+  return { gated, id: quizId, pass, imprecise, questions };
 }
 
 /** Grade one multiple-choice selection and mark every option with its feedback. */
@@ -44576,6 +44607,22 @@ function parseQuizAiEvaluation(text) {
   };
 }
 
+/** The opt-in note property Quizzable-compatible dashboards can read. */
+function quizResultProperties(quizId, score) {
+  const id = clean(quizId);
+  if (!id || !score || typeof score !== "object") return null;
+  const totalPoints = Math.max(0, Math.round(Number(score.total) || 0));
+  return {
+    key: id,
+    value: {
+      score: Math.max(0, Math.round(Number(score.correct) || 0)),
+      totalPoints,
+      percentage: Math.max(0, Math.min(100, Math.round(Number(score.percent) || 0))),
+      passed: score.band === "pass",
+    },
+  };
+}
+
 module.exports = {
   DEFAULT_IMPRECISE,
   DEFAULT_PASS,
@@ -44587,6 +44634,7 @@ module.exports = {
   parseQuizAiEvaluation,
   parseQuizBlock,
   quizBlockScore,
+  quizResultProperties,
   resolveAnswer,
   visibleQuizCount,
 };
@@ -49137,6 +49185,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(st.hints === true).onChange(async (v) => {
           st.hints = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Export inline quiz results")
+      .setDesc(
+        "After every question in an mcq-quiz block with an id: line is answered, write score, totalPoints, percentage and passed under the note's quizResults property. Off by default. This is the only inline-quiz write to the note and never changes attempts, history, streak or scheduling."
+      )
+      .addToggle((t) =>
+        t.setValue(st.inlineQuizResults === true).onChange(async (v) => {
+          st.inlineQuizResults = v === true;
           await this.plugin.save();
           this.plugin.refreshViews();
         })

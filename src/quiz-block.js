@@ -100,6 +100,7 @@ function newQuestion() {
 function parseQuizBlock(text) {
   const lines = str(text).replace(/\r\n?/g, "\n").split("\n");
   let gated = false;
+  let quizId = "";
   let pass = DEFAULT_PASS;
   let imprecise = DEFAULT_IMPRECISE;
   const questions = [];
@@ -122,6 +123,11 @@ function parseQuizBlock(text) {
     const line = raw.trim();
     if (/^gated\s*:\s*(true|yes|on)$/i.test(line)) {
       gated = true;
+      continue;
+    }
+    const blockId = line.match(/^(?:(?:quiz[\s-]*)?id)\s*[:=]\s*(.*)$/i);
+    if (!cur && blockId) {
+      quizId = clean(blockId[1]).slice(0, 120);
       continue;
     }
     const passLine = line.match(/^(?:pass(?:ing)?(?:\s*score)?|min_score_to_pass)\s*[:=]\s*(\d+(?:\.\d+)?)$/i);
@@ -260,7 +266,7 @@ function parseQuizBlock(text) {
     question.imprecise = imprecise;
     question.valid = question.issues.length === 0;
   }
-  return { gated, pass, imprecise, questions };
+  return { gated, id: quizId, pass, imprecise, questions };
 }
 
 /** Grade one multiple-choice selection and mark every option with its feedback. */
@@ -414,6 +420,22 @@ function parseQuizAiEvaluation(text) {
   };
 }
 
+/** The opt-in note property Quizzable-compatible dashboards can read. */
+function quizResultProperties(quizId, score) {
+  const id = clean(quizId);
+  if (!id || !score || typeof score !== "object") return null;
+  const totalPoints = Math.max(0, Math.round(Number(score.total) || 0));
+  return {
+    key: id,
+    value: {
+      score: Math.max(0, Math.round(Number(score.correct) || 0)),
+      totalPoints,
+      percentage: Math.max(0, Math.min(100, Math.round(Number(score.percent) || 0))),
+      passed: score.band === "pass",
+    },
+  };
+}
+
 module.exports = {
   DEFAULT_IMPRECISE,
   DEFAULT_PASS,
@@ -425,6 +447,7 @@ module.exports = {
   parseQuizAiEvaluation,
   parseQuizBlock,
   quizBlockScore,
+  quizResultProperties,
   resolveAnswer,
   visibleQuizCount,
 };

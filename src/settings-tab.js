@@ -575,6 +575,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Export inline quiz results")
+      .setDesc(
+        "After every question in an mcq-quiz block with an id: line is answered, write score, totalPoints, percentage and passed under the note's quizResults property. Off by default. This is the only inline-quiz write to the note and never changes attempts, history, streak or scheduling."
+      )
+      .addToggle((t) =>
+        t.setValue(st.inlineQuizResults === true).onChange(async (v) => {
+          st.inlineQuizResults = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Pause timer when the app is backgrounded (mobile)")
       .setDesc("Stops the clock if you switch apps or lock your phone.")
       .addToggle((t) =>
