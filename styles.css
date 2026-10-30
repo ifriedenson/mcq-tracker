@@ -1360,6 +1360,11 @@
   overflow-wrap: anywhere;
 }
 
+.qt-hint.qt-needs-fixing {
+  border-left: 2px solid var(--text-warning);
+  padding-left: 8px;
+}
+
 .qt-hint,
 .qt-count,
 .qt-empty,

@@ -7,9 +7,10 @@
  * is what makes a retry or a sync merge safe: the same row cannot be counted
  * twice, while two devices can contribute different rows for the same note.
  */
-const { str } = require("./util");
+const { fmtDate, str } = require("./util");
 
 const VALID_RESULTS = new Set(["correct", "incorrect"]);
+const NEEDS_FIXING_DAYS = 5;
 
 function splitRow(line) {
   return str(line).split("|");
@@ -79,6 +80,106 @@ function setAttemptErrorType(list, id, type) {
   parts[5] = str(type);
   rows[index] = parts.join("|");
   return rows;
+}
+
+/** A valid calendar-day key from a history timestamp or property. */
+function dayKey(value) {
+  const key = str(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : "";
+}
+
+/** Distinct days with a miss, optionally only after the last Mark fixed date. */
+function needsFixingMissDays(fm, since) {
+  if (!fm || typeof fm !== "object") return 0;
+  const after = dayKey(since);
+  const days = new Set();
+  for (const line of Array.isArray(fm.history) ? fm.history : []) {
+    const row = rowData(line);
+    if (row.result !== "incorrect") continue;
+    const day = dayKey(row.when);
+    if (!day || (after && day <= after)) continue;
+    days.add(day);
+  }
+  return days.size;
+}
+
+/** Repair malformed flag properties so they cannot keep an item stuck. */
+function normalizeNeedsFixing(fm) {
+  if (!fm || typeof fm !== "object") return false;
+  let changed = false;
+  if (fm.needs_fixing !== undefined && fm.needs_fixing !== true) {
+    delete fm.needs_fixing;
+    changed = true;
+  }
+  if (fm.needs_fixing === true) {
+    if (fm.needs_fixing_since !== undefined && !dayKey(fm.needs_fixing_since)) {
+      delete fm.needs_fixing_since;
+      changed = true;
+    }
+    const count = Number(fm.needs_fixing_miss_days);
+    if (fm.needs_fixing_miss_days !== undefined && (!Number.isFinite(count) || count < 1)) {
+      delete fm.needs_fixing_miss_days;
+      changed = true;
+    }
+  } else {
+    if (fm.needs_fixing_since !== undefined) {
+      delete fm.needs_fixing_since;
+      changed = true;
+    }
+    if (fm.needs_fixing_miss_days !== undefined) {
+      delete fm.needs_fixing_miss_days;
+      changed = true;
+    }
+  }
+  if (fm.needs_fixing_fixed_on !== undefined) {
+    const fixed = dayKey(fm.needs_fixing_fixed_on);
+    if (!fixed) {
+      delete fm.needs_fixing_fixed_on;
+      changed = true;
+    } else if (str(fm.needs_fixing_fixed_on) !== fixed) {
+      fm.needs_fixing_fixed_on = fixed;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function needsFixingStatus(fm) {
+  const fixedOn = fm && typeof fm === "object" ? dayKey(fm.needs_fixing_fixed_on) : "";
+  return {
+    flagged: !!(fm && typeof fm === "object" && fm.needs_fixing === true),
+    missDays: needsFixingMissDays(fm, fixedOn),
+    fixedOn,
+  };
+}
+
+/** Flag once the history has misses on enough distinct days. Returns the new flag, if raised. */
+function applyNeedsFixing(fm, now, threshold) {
+  if (!fm || typeof fm !== "object") return null;
+  const limit = Math.max(0, Math.round(Number(threshold) || 0));
+  if (!limit) return null;
+  normalizeNeedsFixing(fm);
+  const state = needsFixingStatus(fm);
+  if (state.flagged) {
+    if (Number(fm.needs_fixing_miss_days) !== state.missDays) fm.needs_fixing_miss_days = state.missDays;
+    return null;
+  }
+  if (state.missDays < limit) return null;
+  fm.needs_fixing = true;
+  fm.needs_fixing_since = fmtDate(now);
+  fm.needs_fixing_miss_days = state.missDays;
+  return { flagged: true, missDays: state.missDays, threshold: limit, since: fm.needs_fixing_since };
+}
+
+/** Clear the flag without touching attempts or history; new misses are counted after this date. */
+function markNeedsFixingFixed(fm, now) {
+  if (!fm || typeof fm !== "object") return { wasFlagged: false, fixedOn: "" };
+  const wasFlagged = fm.needs_fixing === true;
+  delete fm.needs_fixing;
+  delete fm.needs_fixing_since;
+  delete fm.needs_fixing_miss_days;
+  if (wasFlagged) fm.needs_fixing_fixed_on = fmtDate(now);
+  return { wasFlagged, fixedOn: wasFlagged ? fm.needs_fixing_fixed_on : "" };
 }
 
 function rowData(line) {
@@ -156,7 +257,14 @@ function repairHistoryCounters(fm) {
 }
 
 module.exports = {
+  NEEDS_FIXING_DAYS,
   VALID_RESULTS,
+  applyNeedsFixing,
+  dayKey,
+  markNeedsFixingFixed,
+  needsFixingMissDays,
+  needsFixingStatus,
+  normalizeNeedsFixing,
   appendHistory,
   attemptIdOf,
   hasAttemptId,

@@ -1515,6 +1515,24 @@ class PracticeView extends ItemView {
           : `Leech: ${leech.lapses} misses in a row. It stays in rotation and clears after a correct answer.`,
       });
     }
+    if (r.summary && (r.summary.needsFixing || r.summary.needsFixingFlagged)) {
+      const days = (r.summary.needsFixing && r.summary.needsFixing.missDays) || r.summary.needsFixingMissDays || Number(r.fm.needs_fixing_miss_days) || 0;
+      const box = root.createDiv({ cls: "qt-hint qt-needs-fixing" });
+      box.createSpan({
+        text: `Needs fixing: missed on ${days || "several"} different day${days === 1 ? "" : "s"}.`,
+      });
+      const fix = box.createEl("button", { text: "Mark fixed", cls: "qt-link" });
+      fix.addEventListener("click", async () => {
+        const cleared = await p.markQuestionFixed(r.file);
+        if (!cleared) return;
+        delete r.fm.needs_fixing;
+        delete r.fm.needs_fixing_since;
+        delete r.fm.needs_fixing_miss_days;
+        r.summary.needsFixing = null;
+        r.summary.needsFixingFlagged = false;
+        this.render();
+      });
+    }
 
     // ---- where this question came from (and a quick way back on a miss)
     const source = p.sourceInfo ? p.sourceInfo(r.fm, path) : null;

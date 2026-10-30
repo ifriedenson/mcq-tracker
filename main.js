@@ -1203,6 +1203,10 @@ const PROTECTED_PROPERTIES = [
   "last_confidence",
   "last_error_type",
   "flagged",
+  "needs_fixing",
+  "needs_fixing_since",
+  "needs_fixing_miss_days",
+  "needs_fixing_fixed_on",
   "next_review",
   "last_attempt_id",
   "srs",
@@ -17015,6 +17019,7 @@ const DEFAULT_SETTINGS = {
   knownDaysByCourse: {}, // optional course-specific snooze overrides
   leechThreshold: 0, // consecutive misses that flag a leech; 0 turns leech handling off
   leechAction: "flag", // "flag" keeps it in rotation | "suspend" also hides it until restored
+  needsFixing: false, // opt-in: flag questions missed on five distinct days for repair
   autoPauseOnMobile: true,
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   ai: {
@@ -25123,9 +25128,10 @@ __defs["history"] = function (module, exports, require) {
  * is what makes a retry or a sync merge safe: the same row cannot be counted
  * twice, while two devices can contribute different rows for the same note.
  */
-const { str } = require("./util");
+const { fmtDate, str } = require("./util");
 
 const VALID_RESULTS = new Set(["correct", "incorrect"]);
+const NEEDS_FIXING_DAYS = 5;
 
 function splitRow(line) {
   return str(line).split("|");
@@ -25195,6 +25201,106 @@ function setAttemptErrorType(list, id, type) {
   parts[5] = str(type);
   rows[index] = parts.join("|");
   return rows;
+}
+
+/** A valid calendar-day key from a history timestamp or property. */
+function dayKey(value) {
+  const key = str(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : "";
+}
+
+/** Distinct days with a miss, optionally only after the last Mark fixed date. */
+function needsFixingMissDays(fm, since) {
+  if (!fm || typeof fm !== "object") return 0;
+  const after = dayKey(since);
+  const days = new Set();
+  for (const line of Array.isArray(fm.history) ? fm.history : []) {
+    const row = rowData(line);
+    if (row.result !== "incorrect") continue;
+    const day = dayKey(row.when);
+    if (!day || (after && day <= after)) continue;
+    days.add(day);
+  }
+  return days.size;
+}
+
+/** Repair malformed flag properties so they cannot keep an item stuck. */
+function normalizeNeedsFixing(fm) {
+  if (!fm || typeof fm !== "object") return false;
+  let changed = false;
+  if (fm.needs_fixing !== undefined && fm.needs_fixing !== true) {
+    delete fm.needs_fixing;
+    changed = true;
+  }
+  if (fm.needs_fixing === true) {
+    if (fm.needs_fixing_since !== undefined && !dayKey(fm.needs_fixing_since)) {
+      delete fm.needs_fixing_since;
+      changed = true;
+    }
+    const count = Number(fm.needs_fixing_miss_days);
+    if (fm.needs_fixing_miss_days !== undefined && (!Number.isFinite(count) || count < 1)) {
+      delete fm.needs_fixing_miss_days;
+      changed = true;
+    }
+  } else {
+    if (fm.needs_fixing_since !== undefined) {
+      delete fm.needs_fixing_since;
+      changed = true;
+    }
+    if (fm.needs_fixing_miss_days !== undefined) {
+      delete fm.needs_fixing_miss_days;
+      changed = true;
+    }
+  }
+  if (fm.needs_fixing_fixed_on !== undefined) {
+    const fixed = dayKey(fm.needs_fixing_fixed_on);
+    if (!fixed) {
+      delete fm.needs_fixing_fixed_on;
+      changed = true;
+    } else if (str(fm.needs_fixing_fixed_on) !== fixed) {
+      fm.needs_fixing_fixed_on = fixed;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function needsFixingStatus(fm) {
+  const fixedOn = fm && typeof fm === "object" ? dayKey(fm.needs_fixing_fixed_on) : "";
+  return {
+    flagged: !!(fm && typeof fm === "object" && fm.needs_fixing === true),
+    missDays: needsFixingMissDays(fm, fixedOn),
+    fixedOn,
+  };
+}
+
+/** Flag once the history has misses on enough distinct days. Returns the new flag, if raised. */
+function applyNeedsFixing(fm, now, threshold) {
+  if (!fm || typeof fm !== "object") return null;
+  const limit = Math.max(0, Math.round(Number(threshold) || 0));
+  if (!limit) return null;
+  normalizeNeedsFixing(fm);
+  const state = needsFixingStatus(fm);
+  if (state.flagged) {
+    if (Number(fm.needs_fixing_miss_days) !== state.missDays) fm.needs_fixing_miss_days = state.missDays;
+    return null;
+  }
+  if (state.missDays < limit) return null;
+  fm.needs_fixing = true;
+  fm.needs_fixing_since = fmtDate(now);
+  fm.needs_fixing_miss_days = state.missDays;
+  return { flagged: true, missDays: state.missDays, threshold: limit, since: fm.needs_fixing_since };
+}
+
+/** Clear the flag without touching attempts or history; new misses are counted after this date. */
+function markNeedsFixingFixed(fm, now) {
+  if (!fm || typeof fm !== "object") return { wasFlagged: false, fixedOn: "" };
+  const wasFlagged = fm.needs_fixing === true;
+  delete fm.needs_fixing;
+  delete fm.needs_fixing_since;
+  delete fm.needs_fixing_miss_days;
+  if (wasFlagged) fm.needs_fixing_fixed_on = fmtDate(now);
+  return { wasFlagged, fixedOn: wasFlagged ? fm.needs_fixing_fixed_on : "" };
 }
 
 function rowData(line) {
@@ -25272,7 +25378,14 @@ function repairHistoryCounters(fm) {
 }
 
 module.exports = {
+  NEEDS_FIXING_DAYS,
   VALID_RESULTS,
+  applyNeedsFixing,
+  dayKey,
+  markNeedsFixingFixed,
+  needsFixingMissDays,
+  needsFixingStatus,
+  normalizeNeedsFixing,
   appendHistory,
   attemptIdOf,
   hasAttemptId,
@@ -29046,7 +29159,7 @@ module.exports = { NoteReviewModal };
 /* ---- src/notes.js ---- */
 __defs["notes"] = function (module, exports, require) {
 const { addDays, fmtDate, fmtDateTime, fmtDateTimeSec, str } = require("./util");
-const { appendHistory, hasAttemptId, setAttemptErrorType } = require("./history");
+const { appendHistory, applyNeedsFixing, hasAttemptId, setAttemptErrorType } = require("./history");
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
 const { reviewNote: reviewSm2 } = require("./sm2");
@@ -29274,6 +29387,9 @@ function applyAttempt(fm, a, intervals, options) {
       verdict: "",
       typedAnswer: "",
       verdictOverride: false,
+      needsFixing: null,
+      needsFixingFlagged: fm.needs_fixing === true,
+      needsFixingMissDays: Number(fm.needs_fixing_miss_days) || 0,
       attemptId,
     };
   }
@@ -29380,6 +29496,9 @@ function applyAttempt(fm, a, intervals, options) {
   fm.result = a.correct ? "correct" : "incorrect";
   fm["date attempted"] = now;
   if (!fm.first_attempted) fm.first_attempted = now;
+  // The flag is separate from the leech: it records repeated misses on distinct
+  // days for repair, while the leech counts misses in a row and may suspend.
+  const needsFixing = !a.correct ? applyNeedsFixing(fm, a.now, opts.needsFixingDays) : null;
   if (opts.reviewUpdated) fm.review_updated = str(opts.reviewUpdated);
   const scheduledReview = isSameDayReview(grade, opts.sameDayReviews)
     ? fmtDate(a.now)
@@ -29417,6 +29536,9 @@ function applyAttempt(fm, a, intervals, options) {
     streak,
     leech,
     leechLapses: Number(fm.leech_lapses) || 0,
+    needsFixing,
+    needsFixingFlagged: fm.needs_fixing === true,
+    needsFixingMissDays: Number(fm.needs_fixing_miss_days) || 0,
     attempts: fm.attempts,
     correctCount: fm.correct_count,
     nextReview: fm.next_review,
@@ -34630,7 +34752,7 @@ const secretKeys = require("./secret-keys");
 const { calendarText, safeCalendarFeedUrl } = require("./url-safety");
 const { safeSvg } = require("./svg-safety");
 const fileExplorer = require("./file-explorer");
-const { hasAttemptId, repairHistoryCounters } = require("./history");
+const { NEEDS_FIXING_DAYS, hasAttemptId, markNeedsFixingFixed, repairHistoryCounters } = require("./history");
 const { normalizeBlueprint, normalizePassScore } = require("./exam-sections");
 
 function noteBodyText(text) {
@@ -35128,6 +35250,17 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({
+      id: "mark-question-fixed",
+      name: "Mark this question fixed",
+      checkCallback: (checking) => {
+        const f = this.app.workspace.getActiveFile();
+        const fm = f && this.app.metadataCache.getFileCache(f)?.frontmatter;
+        if (!fm || !fm.question_id || fm.needs_fixing !== true) return false;
+        if (!checking) this.markQuestionFixed(f);
+        return true;
+      },
+    });
+    this.addCommand({
       id: "add-fields-this-note",
       name: "Add missing tracking properties to this note",
       checkCallback: (checking) => {
@@ -35201,6 +35334,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
+    this.settings.needsFixing = this.settings.needsFixing === true;
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.testDefaults.shuffleChoices = !!this.settings.testDefaults.shuffleChoices;
     this.settings.testDefaults.passScore = normalizePassScore(this.settings.testDefaults.passScore);
@@ -40786,6 +40920,7 @@ ${body}
       attemptId: attempt.attemptId,
       leechThreshold: this.settings.leechThreshold,
       leechAction: this.settings.leechAction,
+      needsFixingDays: this.settings.needsFixing ? NEEDS_FIXING_DAYS : 0,
       sameDayReviews: attempt.sameDayReviews === true,
       adaptiveFrequency: attempt.adaptiveFrequency === true,
     };
@@ -40877,6 +41012,7 @@ ${body}
               attemptId: entry.id,
               leechThreshold: this.settings.leechThreshold,
               leechAction: this.settings.leechAction,
+              needsFixingDays: this.settings.needsFixing ? NEEDS_FIXING_DAYS : 0,
               examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
             });
             if (entry.errorType) setAttemptError(fm, entry.id, entry.errorType);
@@ -41096,6 +41232,37 @@ ${body}
       now = fm.flagged;
     });
     return now;
+  }
+
+  /** Clear a needs-fixing flag without touching attempts, history or scheduling. */
+  async markQuestionFixed(file, now) {
+    const cached = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    if (!cached.question_id) {
+      new Notice("This note is not a question.");
+      return false;
+    }
+    if (cached.needs_fixing !== true) {
+      new Notice("This question is not marked needs fixing.");
+      return false;
+    }
+    const days = Number(cached.needs_fixing_miss_days) || 0;
+    const since = str(cached.needs_fixing_since).trim();
+    const detail = days ? ` after misses on ${days} different day${days === 1 ? "" : "s"}` : "";
+    const ok = await this.askConfirm(
+      "Mark this question fixed?",
+      `This clears the needs-fixing flag${detail}${since ? ` since ${since}` : ""}. Attempts, history and scheduling are unchanged.`,
+      "Mark fixed"
+    );
+    if (!ok) return false;
+    let cleared = false;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      cleared = markNeedsFixingFixed(fm, now instanceof Date ? now : new Date()).wasFlagged;
+    });
+    if (cleared) {
+      this.refreshViews();
+      new Notice("Marked fixed. Review history is unchanged.");
+    }
+    return cleared;
   }
 
   async saveMyNotes(file, text) {
@@ -42636,6 +42803,24 @@ class PracticeView extends ItemView {
         text: leech.suspended
           ? `Leech: ${leech.lapses} misses in a row. This question is suspended; restore it under Settings, Practice, Hidden study items.`
           : `Leech: ${leech.lapses} misses in a row. It stays in rotation and clears after a correct answer.`,
+      });
+    }
+    if (r.summary && (r.summary.needsFixing || r.summary.needsFixingFlagged)) {
+      const days = (r.summary.needsFixing && r.summary.needsFixing.missDays) || r.summary.needsFixingMissDays || Number(r.fm.needs_fixing_miss_days) || 0;
+      const box = root.createDiv({ cls: "qt-hint qt-needs-fixing" });
+      box.createSpan({
+        text: `Needs fixing: missed on ${days || "several"} different day${days === 1 ? "" : "s"}.`,
+      });
+      const fix = box.createEl("button", { text: "Mark fixed", cls: "qt-link" });
+      fix.addEventListener("click", async () => {
+        const cleared = await p.markQuestionFixed(r.file);
+        if (!cleared) return;
+        delete r.fm.needs_fixing;
+        delete r.fm.needs_fixing_since;
+        delete r.fm.needs_fixing_miss_days;
+        r.summary.needsFixing = null;
+        r.summary.needsFixingFlagged = false;
+        this.render();
       });
     }
 
@@ -48463,6 +48648,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             await this.plugin.save();
             this.plugin.refreshViews();
           })
+      );
+
+    new Setting(containerEl)
+      .setName("Needs-fixing flag")
+      .setDesc(
+        "After misses on five different days, mark a question for repair and show a Mark fixed action. Off by default. Mark fixed clears the flag without deleting attempts or history."
+      )
+      .addToggle((t) =>
+        t.setValue(st.needsFixing === true).onChange(async (v) => {
+          st.needsFixing = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
       );
 
     new Setting(containerEl)

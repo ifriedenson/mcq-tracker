@@ -160,7 +160,7 @@ Which choice best describes the relationship between the two texts?
 - The answer key is read from the `answer` property, or from a line like `Correct Answer: B` in the `## Answer` section.
 - `question_type` can be `mcq`, `spr` (student-produced response), `true_false`, `select_all`, `fill_in`, `matching`, or anything else for self-grading. Aliases such as `tf`, `sata` and `select-all-that-apply` are understood, and so is free text such as "Multiple choice (4 choices)".
 - Properties the plugin reads: `course, test, section, domain, skill, unit, difficulty, question_type, choices, answer, tolerance, tolerance_type, sig_figs, sig_figs_mode, units, answer_unit, accepted_answers, accepted_variants, variables, answer_formula, variant_seed, target_seconds, stimulus_id`.
-- Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, next_review, last_attempt_id, srs, sm2, scheduler, history`, plus the Known/Exclude fields `study_status, known_days, known_until, excluded_on, excluded_reason` when you use those actions, and `variant_seed` and `last_variant` after a parameterized attempt. `srs` and `scheduler` are populated when FSRS schedules a review, and `sm2` and `scheduler` when a deck uses SM-2 (`srs` may be empty if you add tracking properties to notes first).
+- Properties the plugin writes: `result, date attempted, first_attempted, attempts, correct_count, streak, time_spent_total, last_time_spent, last_answer, last_confidence, last_error_type, flagged, needs_fixing, needs_fixing_since, needs_fixing_miss_days, needs_fixing_fixed_on, next_review, last_attempt_id, srs, sm2, scheduler, history`, plus the Known/Exclude fields `study_status, known_days, known_until, excluded_on, excluded_reason` when you use those actions, and `variant_seed` and `last_variant` after a parameterized attempt. `srs` and `scheduler` are populated when FSRS schedules a review, and `sm2` and `scheduler` when a deck uses SM-2 (`srs` may be empty if you add tracking properties to notes first). The needs-fixing fields appear only when that opt-in feature marks a question for repair; Mark fixed removes the flag and records the repair date.
 
 ### Numeric answers (SPR)
 
@@ -291,6 +291,8 @@ Difficulty: easy
 ### Review scheduling
 
 **Leech handling (optional).** Set a leech threshold under Settings, Practice. When a question misses that many times in a row, the attempt marks it `leech: true` and the result view explains the mark; a correct answer clears it. The action can also suspend it so it leaves practice until you restore it under Hidden study items. The default threshold is 0, which leaves the feature off.
+
+**Needs-fixing flag (optional).** Settings, Practice can mark a question after it is missed on five different days. The result screen then shows **Needs fixing** with a **Mark fixed** button; **Mark this question fixed** is also in the command palette. Confirming records `needs_fixing_fixed_on` and clears the flag, but keeps every attempt, the history list and the next review date. Misses before that repair date do not count again, so a repaired question starts a fresh five-day cycle. The option is off by default.
 
 After a correct answer with confidence 2 or 3, the next review is 1, 3, 7, 21, then 60 days out (editable). A miss resets the streak and returns tomorrow. A correct answer rated "Guessing" doesn't extend the streak and returns in 2 days.
 

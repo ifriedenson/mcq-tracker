@@ -249,6 +249,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Needs-fixing flag")
+      .setDesc(
+        "After misses on five different days, mark a question for repair and show a Mark fixed action. Off by default. Mark fixed clears the flag without deleting attempts or history."
+      )
+      .addToggle((t) =>
+        t.setValue(st.needsFixing === true).onChange(async (v) => {
+          st.needsFixing = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Hidden study items")
       .setDesc("Review and restore questions or cards that are hidden from practice.")
       .addButton((b) => b.setButtonText("Manage").onClick(() => this.plugin.openStudyStatusManager()));

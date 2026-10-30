@@ -1,6 +1,6 @@
 "use strict";
 const { addDays, fmtDate, fmtDateTime, fmtDateTimeSec, str } = require("./util");
-const { appendHistory, hasAttemptId, setAttemptErrorType } = require("./history");
+const { appendHistory, applyNeedsFixing, hasAttemptId, setAttemptErrorType } = require("./history");
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
 const { reviewNote: reviewSm2 } = require("./sm2");
@@ -228,6 +228,9 @@ function applyAttempt(fm, a, intervals, options) {
       verdict: "",
       typedAnswer: "",
       verdictOverride: false,
+      needsFixing: null,
+      needsFixingFlagged: fm.needs_fixing === true,
+      needsFixingMissDays: Number(fm.needs_fixing_miss_days) || 0,
       attemptId,
     };
   }
@@ -334,6 +337,9 @@ function applyAttempt(fm, a, intervals, options) {
   fm.result = a.correct ? "correct" : "incorrect";
   fm["date attempted"] = now;
   if (!fm.first_attempted) fm.first_attempted = now;
+  // The flag is separate from the leech: it records repeated misses on distinct
+  // days for repair, while the leech counts misses in a row and may suspend.
+  const needsFixing = !a.correct ? applyNeedsFixing(fm, a.now, opts.needsFixingDays) : null;
   if (opts.reviewUpdated) fm.review_updated = str(opts.reviewUpdated);
   const scheduledReview = isSameDayReview(grade, opts.sameDayReviews)
     ? fmtDate(a.now)
@@ -371,6 +377,9 @@ function applyAttempt(fm, a, intervals, options) {
     streak,
     leech,
     leechLapses: Number(fm.leech_lapses) || 0,
+    needsFixing,
+    needsFixingFlagged: fm.needs_fixing === true,
+    needsFixingMissDays: Number(fm.needs_fixing_miss_days) || 0,
     attempts: fm.attempts,
     correctCount: fm.correct_count,
     nextReview: fm.next_review,

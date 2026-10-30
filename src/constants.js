@@ -49,6 +49,7 @@ const DEFAULT_SETTINGS = {
   knownDaysByCourse: {}, // optional course-specific snooze overrides
   leechThreshold: 0, // consecutive misses that flag a leech; 0 turns leech handling off
   leechAction: "flag", // "flag" keeps it in rotation | "suspend" also hides it until restored
+  needsFixing: false, // opt-in: flag questions missed on five distinct days for repair
   autoPauseOnMobile: true,
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   ai: {

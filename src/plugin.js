@@ -116,7 +116,7 @@ const secretKeys = require("./secret-keys");
 const { calendarText, safeCalendarFeedUrl } = require("./url-safety");
 const { safeSvg } = require("./svg-safety");
 const fileExplorer = require("./file-explorer");
-const { hasAttemptId, repairHistoryCounters } = require("./history");
+const { NEEDS_FIXING_DAYS, hasAttemptId, markNeedsFixingFixed, repairHistoryCounters } = require("./history");
 const { normalizeBlueprint, normalizePassScore } = require("./exam-sections");
 
 function noteBodyText(text) {
@@ -614,6 +614,17 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({
+      id: "mark-question-fixed",
+      name: "Mark this question fixed",
+      checkCallback: (checking) => {
+        const f = this.app.workspace.getActiveFile();
+        const fm = f && this.app.metadataCache.getFileCache(f)?.frontmatter;
+        if (!fm || !fm.question_id || fm.needs_fixing !== true) return false;
+        if (!checking) this.markQuestionFixed(f);
+        return true;
+      },
+    });
+    this.addCommand({
       id: "add-fields-this-note",
       name: "Add missing tracking properties to this note",
       checkCallback: (checking) => {
@@ -687,6 +698,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
+    this.settings.needsFixing = this.settings.needsFixing === true;
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
     this.settings.testDefaults.shuffleChoices = !!this.settings.testDefaults.shuffleChoices;
     this.settings.testDefaults.passScore = normalizePassScore(this.settings.testDefaults.passScore);
@@ -6272,6 +6284,7 @@ ${body}
       attemptId: attempt.attemptId,
       leechThreshold: this.settings.leechThreshold,
       leechAction: this.settings.leechAction,
+      needsFixingDays: this.settings.needsFixing ? NEEDS_FIXING_DAYS : 0,
       sameDayReviews: attempt.sameDayReviews === true,
       adaptiveFrequency: attempt.adaptiveFrequency === true,
     };
@@ -6363,6 +6376,7 @@ ${body}
               attemptId: entry.id,
               leechThreshold: this.settings.leechThreshold,
               leechAction: this.settings.leechAction,
+              needsFixingDays: this.settings.needsFixing ? NEEDS_FIXING_DAYS : 0,
               examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
             });
             if (entry.errorType) setAttemptError(fm, entry.id, entry.errorType);
@@ -6582,6 +6596,37 @@ ${body}
       now = fm.flagged;
     });
     return now;
+  }
+
+  /** Clear a needs-fixing flag without touching attempts, history or scheduling. */
+  async markQuestionFixed(file, now) {
+    const cached = this.app.metadataCache.getFileCache(file)?.frontmatter || {};
+    if (!cached.question_id) {
+      new Notice("This note is not a question.");
+      return false;
+    }
+    if (cached.needs_fixing !== true) {
+      new Notice("This question is not marked needs fixing.");
+      return false;
+    }
+    const days = Number(cached.needs_fixing_miss_days) || 0;
+    const since = str(cached.needs_fixing_since).trim();
+    const detail = days ? ` after misses on ${days} different day${days === 1 ? "" : "s"}` : "";
+    const ok = await this.askConfirm(
+      "Mark this question fixed?",
+      `This clears the needs-fixing flag${detail}${since ? ` since ${since}` : ""}. Attempts, history and scheduling are unchanged.`,
+      "Mark fixed"
+    );
+    if (!ok) return false;
+    let cleared = false;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      cleared = markNeedsFixingFixed(fm, now instanceof Date ? now : new Date()).wasFlagged;
+    });
+    if (cleared) {
+      this.refreshViews();
+      new Notice("Marked fixed. Review history is unchanged.");
+    }
+    return cleared;
   }
 
   async saveMyNotes(file, text) {
