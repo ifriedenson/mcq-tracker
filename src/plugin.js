@@ -110,7 +110,7 @@ const { buildQuizGeneratorPrompt, collectGeneratorSources, folderMatches, normal
 const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
-const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
+const { buildAttemptsCsv, buildPracticeSheet, buildResultsCsv, practiceSheetFileName, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
 const secretKeys = require("./secret-keys");
 const { calendarText, safeCalendarFeedUrl } = require("./url-safety");
@@ -220,6 +220,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-dashboard", name: "Open analytics dashboard", callback: () => this.activateInsights("overview") });
     this.addCommand({ id: "open-progress", name: "Open progress dashboard", callback: () => this.activateInsights("progress") });
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
+    this.addCommand({ id: "export-practice-sheet", name: "Export an answer-free practice sheet", callback: () => this.exportPracticeSheet() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
     this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and cards)", callback: () => this.exportStudyBundle() });
@@ -4920,6 +4921,44 @@ ${body}
     }
     new Notice(`Exported ${summary.rows.length} notes and ${attempts.rows.length} attempts to ${names.summary} and ${names.attempts}.`, 7000);
     return { paths: [names.summary, names.attempts], summary, attempts };
+  }
+
+  /** Write the current filter as a Markdown practice sheet with no answer key or rationale. */
+  async exportPracticeSheet() {
+    if (this.moduleOff("mcq")) {
+      new Notice("Turn on MCQ Tracker before exporting a practice sheet.");
+      return null;
+    }
+    const questions = this.filtered(this.getQuestions());
+    if (!questions.length) {
+      new Notice("No questions match the current filter.");
+      return null;
+    }
+    const records = [];
+    for (const question of questions) {
+      try {
+        records.push({ file: question.file, fm: question.fm, text: await this.app.vault.cachedRead(question.file) });
+      } catch (e) {
+        // Skip an unreadable note; the rest of the sheet is still useful.
+      }
+    }
+    if (!records.length) {
+      new Notice("Could not read any of the filtered questions.");
+      return null;
+    }
+    const today = localDate();
+    const base = practiceSheetFileName(today);
+    let path = base;
+    for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = base.replace(/\.md$/i, ` ${n}.md`);
+    const sheet = buildPracticeSheet(records, { date: today });
+    try {
+      await this.app.vault.create(path, sheet.text);
+    } catch (e) {
+      new Notice(`Could not write the practice sheet: ${str(e && e.message ? e.message : e)}`, 7000);
+      return null;
+    }
+    new Notice(`Exported ${sheet.count} question${sheet.count === 1 ? "" : "s"} to ${path}.`, 7000);
+    return { path, count: sheet.count };
   }
 
   async exportCalendarIcs() {

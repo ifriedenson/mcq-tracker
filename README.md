@@ -30,6 +30,7 @@ Serve practice questions from your own notes, grade your answers, and keep a ful
 - **Study cards (optional, off by default).** Review the same MCQ notes as flip cards or choice cards, or switch the session to Learn, Test or Match, using your current filters and the same scheduler. No duplicate notes or second deck.
 - **Today:** a phone-sized start screen with due and new counts, the next class or exam, and one **Start 5 minutes** button that opens Quick Practice. When both modules have due work, **Start mixed review** runs one interleaved session.
 - **CSV results export.** Export a summary row per question or card plus a row per stored attempt, with course, skill, difficulty, accuracy, timing, review dates, error type and history. The files are plain CSVs written to the vault root for outside analysis.
+- **Answer-free practice sheet.** Export the current question filter as a printable Markdown sheet with the stimulus, question, choices or matching prompts and blank answer lines. The answer key, rationale, source notes and frontmatter are deliberately omitted, and question state is never changed. The file is written to the vault root as `mcq-practice-sheet-YYYY-MM-DD.md`.
 - **Source links.** Imported questions keep the source document path and, for PDFs, the page. Extracted cards keep the lecture or source note. A miss shows a **Reread this** button that opens the exact source page; cards show a **Reread source** button after the answer. A card can also anchor a recall to selected source text; after revealing it, **Review in context** opens the source with that passage selected.
 - **Lecture and transcript to practice.** A note from Whisper, Audio to Text, Local Whisper, Lecture Transcriber or a similar tool is recognized by its transcript properties, headings, filename or timestamped lines. **Generate practice from this lecture** drafts flashcards or multiple-choice questions, shows a preview, and writes only what you approve. Without AI it can extract cards from headings, definitions, tables and cloze marks already in the note.
 - **Notes box** on the result screen, saved into the note.
@@ -491,6 +492,7 @@ Add a line such as `Deck: Computer Science::Python` to the note or the selection
 - Find a question by ID
 - Import questions from a file
 - Quick add questions from pasted text
+- Export an answer-free practice sheet
 - Export a study bundle (backup of questions and cards)
 - Import a study bundle (restore questions and cards)
 - Rename old source_question_id properties to official_question_id (one-time clean-up for notes imported before the rename)
@@ -500,6 +502,10 @@ Add a line such as `Deck: Computer Science::Python` to the note or the selection
 **Export a study bundle** writes every question note and card note into one ZIP at the vault root (`mcq-study-bundle-YYYY-MM-DD.zip`), with a `manifest.json` and a README. Notes are copied unchanged, so properties, history and scheduling survive. Images, audio and PDFs are not bundled.
 
 **Import a study bundle** restores the newest bundle at the vault root. Missing notes are created; an identical note is reported and not duplicated; a note that differs from the bundle is never overwritten and is reported as a conflict. Absolute paths, `..` hops and unsafe characters are rejected. Cards are skipped while the Cards module is off. Both commands work locally; nothing is uploaded.
+
+### Practice sheets
+
+**Export an answer-free practice sheet** writes `mcq-practice-sheet-YYYY-MM-DD.md` at the vault root from the questions that match the current filters. Each entry keeps the stimulus, question, answer choices (or the left side of a matching prompt), course/skill/difficulty metadata and a blank answer line. The answer section, correct key, rationale, private notes and frontmatter are left out, so the result is safe to print or use for a closed-book self-test. Exporting changes no question note, attempt, history, streak or review date. Running it again gets a numbered name such as `mcq-practice-sheet-2026-10-30 2.md` instead of overwriting the earlier sheet.
 
 ## AP score calculator
 

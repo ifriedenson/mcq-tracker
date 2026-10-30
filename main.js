@@ -34746,7 +34746,7 @@ const { buildQuizGeneratorPrompt, collectGeneratorSources, folderMatches, normal
 const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
-const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
+const { buildAttemptsCsv, buildPracticeSheet, buildResultsCsv, practiceSheetFileName, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
 const secretKeys = require("./secret-keys");
 const { calendarText, safeCalendarFeedUrl } = require("./url-safety");
@@ -34856,6 +34856,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-dashboard", name: "Open analytics dashboard", callback: () => this.activateInsights("overview") });
     this.addCommand({ id: "open-progress", name: "Open progress dashboard", callback: () => this.activateInsights("progress") });
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
+    this.addCommand({ id: "export-practice-sheet", name: "Export an answer-free practice sheet", callback: () => this.exportPracticeSheet() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
     this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and cards)", callback: () => this.exportStudyBundle() });
@@ -39556,6 +39557,44 @@ ${body}
     }
     new Notice(`Exported ${summary.rows.length} notes and ${attempts.rows.length} attempts to ${names.summary} and ${names.attempts}.`, 7000);
     return { paths: [names.summary, names.attempts], summary, attempts };
+  }
+
+  /** Write the current filter as a Markdown practice sheet with no answer key or rationale. */
+  async exportPracticeSheet() {
+    if (this.moduleOff("mcq")) {
+      new Notice("Turn on MCQ Tracker before exporting a practice sheet.");
+      return null;
+    }
+    const questions = this.filtered(this.getQuestions());
+    if (!questions.length) {
+      new Notice("No questions match the current filter.");
+      return null;
+    }
+    const records = [];
+    for (const question of questions) {
+      try {
+        records.push({ file: question.file, fm: question.fm, text: await this.app.vault.cachedRead(question.file) });
+      } catch (e) {
+        // Skip an unreadable note; the rest of the sheet is still useful.
+      }
+    }
+    if (!records.length) {
+      new Notice("Could not read any of the filtered questions.");
+      return null;
+    }
+    const today = localDate();
+    const base = practiceSheetFileName(today);
+    let path = base;
+    for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = base.replace(/\.md$/i, ` ${n}.md`);
+    const sheet = buildPracticeSheet(records, { date: today });
+    try {
+      await this.app.vault.create(path, sheet.text);
+    } catch (e) {
+      new Notice(`Could not write the practice sheet: ${str(e && e.message ? e.message : e)}`, 7000);
+      return null;
+    }
+    new Notice(`Exported ${sheet.count} question${sheet.count === 1 ? "" : "s"} to ${path}.`, 7000);
+    return { path, count: sheet.count };
   }
 
   async exportCalendarIcs() {
@@ -47761,6 +47800,7 @@ const { str } = require("./util");
 const { parseHistory } = require("./stats");
 const { isDue } = require("./filters");
 const { sourceOf } = require("./provenance");
+const { parseSections } = require("./notes");
 
 const SUMMARY_COLUMNS = [
   "kind",
@@ -47931,14 +47971,66 @@ function resultFileNames(date) {
   };
 }
 
+function practiceSheetFileName(date) {
+  return `mcq-practice-sheet-${safeDay(date)}.md`;
+}
+
+const inline = (value) => str(value).replace(/\s+/g, " ").trim();
+
+/** A printable question sheet. Answer, rationale and notes sections are never copied. */
+function buildPracticeSheet(records, options) {
+  const opts = options || {};
+  const items = Array.isArray(records) ? records : [];
+  const day = safeDay(opts.date);
+  const lines = [
+    "# Answer-free practice sheet",
+    "",
+    `Generated ${day} from ${items.length} question${items.length === 1 ? "" : "s"} in the current filter.`,
+    "",
+    "Answer keys, rationales and source notes are omitted. Write your answers below, then check the original notes.",
+    "",
+  ];
+  items.forEach((item, index) => {
+    const fm = (item && item.fm) || {};
+    const sections = parseSections(str(item && item.text));
+    const label = inline(fm.question_id) || inline(item && item.file && item.file.basename) || `Question ${index + 1}`;
+    lines.push(`## ${index + 1}. ${label}`, "");
+    const meta = [fm.course, fm.skill, fm.difficulty].map(inline).filter(Boolean);
+    if (meta.length) lines.push(`_${meta.join(" · ")}_`, "");
+    if (sections.stimulus) lines.push("**Stimulus**", "", sections.stimulus, "");
+    if (sections.question) lines.push("**Question**", "", sections.question, "");
+    else lines.push("**Question**", "", "_Question text was not found in this note._", "");
+    if (sections.pairs.length) {
+      lines.push("**Match each item**", "");
+      for (const pair of sections.pairs) lines.push(`- ${inline(pair.left)} → ______________________________`);
+      lines.push("");
+    } else if (sections.choices.length) {
+      lines.push("**Choices**", "");
+      for (const choice of sections.choices) lines.push(`- **${choice.letter}.** ${inline(choice.text)}`);
+      lines.push("");
+    }
+    lines.push("**Your answer:** ______________________________", "", "---", "");
+  });
+  lines.push("## Answer sheet", "");
+  if (!items.length) lines.push("_No questions matched the current filter._", "");
+  items.forEach((item, index) => {
+    const fm = (item && item.fm) || {};
+    const label = inline(fm.question_id) || inline(item && item.file && item.file.basename) || `Question ${index + 1}`;
+    lines.push(`- **${index + 1}. ${label}:** ______________________________`);
+  });
+  return { count: items.length, text: lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n" };
+}
+
 module.exports = {
   SUMMARY_COLUMNS,
   ATTEMPT_COLUMNS,
   buildAttemptsCsv,
+  buildPracticeSheet,
   buildResultsCsv,
   csvCell,
   csvLine,
   csvText,
+  practiceSheetFileName,
   resultFileNames,
 };
 };

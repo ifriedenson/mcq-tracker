@@ -10,6 +10,7 @@ const { str } = require("./util");
 const { parseHistory } = require("./stats");
 const { isDue } = require("./filters");
 const { sourceOf } = require("./provenance");
+const { parseSections } = require("./notes");
 
 const SUMMARY_COLUMNS = [
   "kind",
@@ -180,13 +181,65 @@ function resultFileNames(date) {
   };
 }
 
+function practiceSheetFileName(date) {
+  return `mcq-practice-sheet-${safeDay(date)}.md`;
+}
+
+const inline = (value) => str(value).replace(/\s+/g, " ").trim();
+
+/** A printable question sheet. Answer, rationale and notes sections are never copied. */
+function buildPracticeSheet(records, options) {
+  const opts = options || {};
+  const items = Array.isArray(records) ? records : [];
+  const day = safeDay(opts.date);
+  const lines = [
+    "# Answer-free practice sheet",
+    "",
+    `Generated ${day} from ${items.length} question${items.length === 1 ? "" : "s"} in the current filter.`,
+    "",
+    "Answer keys, rationales and source notes are omitted. Write your answers below, then check the original notes.",
+    "",
+  ];
+  items.forEach((item, index) => {
+    const fm = (item && item.fm) || {};
+    const sections = parseSections(str(item && item.text));
+    const label = inline(fm.question_id) || inline(item && item.file && item.file.basename) || `Question ${index + 1}`;
+    lines.push(`## ${index + 1}. ${label}`, "");
+    const meta = [fm.course, fm.skill, fm.difficulty].map(inline).filter(Boolean);
+    if (meta.length) lines.push(`_${meta.join(" · ")}_`, "");
+    if (sections.stimulus) lines.push("**Stimulus**", "", sections.stimulus, "");
+    if (sections.question) lines.push("**Question**", "", sections.question, "");
+    else lines.push("**Question**", "", "_Question text was not found in this note._", "");
+    if (sections.pairs.length) {
+      lines.push("**Match each item**", "");
+      for (const pair of sections.pairs) lines.push(`- ${inline(pair.left)} → ______________________________`);
+      lines.push("");
+    } else if (sections.choices.length) {
+      lines.push("**Choices**", "");
+      for (const choice of sections.choices) lines.push(`- **${choice.letter}.** ${inline(choice.text)}`);
+      lines.push("");
+    }
+    lines.push("**Your answer:** ______________________________", "", "---", "");
+  });
+  lines.push("## Answer sheet", "");
+  if (!items.length) lines.push("_No questions matched the current filter._", "");
+  items.forEach((item, index) => {
+    const fm = (item && item.fm) || {};
+    const label = inline(fm.question_id) || inline(item && item.file && item.file.basename) || `Question ${index + 1}`;
+    lines.push(`- **${index + 1}. ${label}:** ______________________________`);
+  });
+  return { count: items.length, text: lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n" };
+}
+
 module.exports = {
   SUMMARY_COLUMNS,
   ATTEMPT_COLUMNS,
   buildAttemptsCsv,
+  buildPracticeSheet,
   buildResultsCsv,
   csvCell,
   csvLine,
   csvText,
+  practiceSheetFileName,
   resultFileNames,
 };
