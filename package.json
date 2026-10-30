@@ -1,7 +1,7 @@
 {
   "name": "mcq-tracker",
   "private": true,
-  "description": "Obsidian plugin: practice multiple-choice questions kept as notes, with spaced review.",
+  "description": "Obsidian plugin for exam practice, spaced review, cards, courses, grades and optional local-first AI.",
   "scripts": {
     "build": "node scripts/build.js",
     "check": "node scripts/check-no-dynamic-code.js && node scripts/build.js --check",

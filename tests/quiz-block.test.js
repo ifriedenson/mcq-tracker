@@ -26,6 +26,7 @@ Why: Mitochondria carry out oxidative phosphorylation.`;
 test("quiz block: parses gated questions, ids and per-option feedback", () => {
   const parsed = Q.parseQuizBlock(BLOCK);
   assert.equal(parsed.gated, true);
+  assert.equal(parsed.mode, "interactive");
   assert.equal(parsed.questions.length, 2);
   assert.equal(parsed.questions[0].id, "Q1");
   assert.equal(parsed.questions[0].answer, "B");
@@ -167,4 +168,25 @@ test("quiz block: slider UI renders a range and records a weighted result", asyn
   assert.ok(dom.texts().includes("Range 1980–2010"));
   await dom.click("Check");
   assert.ok(dom.texts().some((text) => /100% · pass/.test(text)));
+});
+
+test("quiz block: static mode renders an answer key without input controls", async () => {
+  const source = `Mode: static
+Q: Which gas do plants take in?
+A. Oxygen
+Why A: Oxygen is released, not taken in.
+B. Carbon dioxide
+Why B: Photosynthesis consumes carbon dioxide.
+Answer: B
+Why: The light reactions use CO2.`;
+  const parsed = Q.parseQuizBlock(source);
+  assert.equal(parsed.mode, "static");
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  const dom = makeDom();
+  await plugin.renderQuizBlock(source, dom.root);
+  assert.ok(dom.texts().includes("Answer: B"));
+  assert.ok(dom.texts().includes("Oxygen is released, not taken in."));
+  assert.equal(dom.find(/Check answer/).length, 0);
+  assert.equal(dom.find(/Evaluate with AI/).length, 0);
 });

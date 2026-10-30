@@ -3562,6 +3562,7 @@ class QuestionTrackerPlugin extends Plugin {
       el.createDiv({ cls: "qt-quiz-empty", text: "This quiz block has no questions. Start a question with Q: and add choices with A., B., ..." });
       return;
     }
+    const staticMode = parsed.mode === "static";
     const box = el.createDiv({ cls: "qt-quiz-block" });
     let answered = 0;
     const cards = [];
@@ -3575,7 +3576,42 @@ class QuestionTrackerPlugin extends Plugin {
       summary.toggleClass("is-imprecise", score.band === "imprecise");
       summary.toggleClass("is-fail", score.band === "fail");
     };
-    paintSummary();
+    if (staticMode) {
+      const count = parsed.questions.length;
+      summary.setText(`Answer key · ${count} question${count === 1 ? "" : "s"}`);
+    } else {
+      paintSummary();
+    }
+
+    const renderStaticQuestion = (question, card) => {
+      if (question.type === "choice") {
+        const result = gradeQuizBlockQuestion(question, "");
+        const choices = card.createDiv({ cls: "qt-quiz-choices is-static" });
+        result.options.forEach((option) => {
+          const button = choices.createEl("button", {
+            cls: `qt-quiz-choice is-static${option.correct ? " is-correct" : ""}`,
+            text: `${option.letter}. ${option.text}`,
+          });
+          button.disabled = true;
+        });
+        card.createDiv({ cls: "qt-quiz-result is-correct", text: `Answer: ${question.answer}` });
+        const feedback = card.createDiv({ cls: "qt-quiz-feedback" });
+        result.options.forEach((option) => {
+          if (!option.feedback) return;
+          const line = feedback.createDiv({ cls: "qt-quiz-option-feedback" });
+          line.createSpan({ text: `${option.letter}. ${option.correct ? "Correct" : "Why"} ` });
+          line.createSpan({ text: option.feedback });
+        });
+        if (question.explanation) feedback.createDiv({ cls: "qt-quiz-explanation", text: question.explanation });
+        return;
+      }
+      card.createDiv({ cls: "qt-quiz-result is-correct", text: `Answer: ${question.answer}` });
+      if ((question.type === "numeric" || question.type === "slider") && question.tolerance) {
+        card.createDiv({ cls: "qt-hint", text: `Tolerance ±${question.tolerance}` });
+      }
+      if (question.type === "text" && question.context) card.createDiv({ cls: "qt-hint", text: `Hint: ${question.context}` });
+      if (question.explanation) card.createDiv({ cls: "qt-quiz-explanation", text: question.explanation });
+    };
 
     const complete = async (index, question, result, started, card, feedback, extra) => {
       if (selections[index]) return;
@@ -3622,6 +3658,10 @@ class QuestionTrackerPlugin extends Plugin {
       if (question.weight !== 1) card.createDiv({ cls: "qt-quiz-weight", text: `Weight ${question.weight}` });
       if (!question.valid) {
         card.createDiv({ cls: "qt-quiz-issue", text: question.issues.join(" ") });
+        return;
+      }
+      if (staticMode) {
+        renderStaticQuestion(question, card);
         return;
       }
       const feedback = card.createDiv({ cls: "qt-quiz-feedback" });
@@ -3754,7 +3794,7 @@ class QuestionTrackerPlugin extends Plugin {
         });
       });
     });
-    cards.forEach((card, index) => card.toggleClass("qt-quiz-hidden", parsed.gated && index >= visibleQuizCount(parsed.questions.length, 0, true)));
+    if (!staticMode) cards.forEach((card, index) => card.toggleClass("qt-quiz-hidden", parsed.gated && index >= visibleQuizCount(parsed.questions.length, 0, true)));
   }
 
   /** Write one completed inline-quiz result into the source note's frontmatter. */

@@ -3,7 +3,7 @@
   "name": "MCQ Tracker",
   "version": "1.164.0",
   "minAppVersion": "1.8.7",
-  "description": "Practice questions from notes and PDFs, review with flashcards, track progress, and study with a bring-your-own-key AI tutor.",
+  "description": "Turn notes and PDFs into exam practice, spaced cards and study plans; track courses and grades, with an optional bring-your-own-key AI tutor.",
   "author": "Isaac Friedenson",
   "authorUrl": "https://github.com/ifriedenson",
   "isDesktopOnly": false

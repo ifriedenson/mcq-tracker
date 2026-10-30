@@ -1,6 +1,16 @@
 # MCQ Tracker
 
-Serve practice questions from your own notes, grade your answers, and keep a full study record in each note's properties: time, confidence, mistake type, streak and the next review date. It works on desktop and mobile, and the AI tutor is optional and off by default.
+MCQ Tracker turns Obsidian into a complete exam-prep workspace. Keep questions, cards and course notes as ordinary Markdown, then practise exam-style questions, review with spaced repetition, plan around real exams, track grades and see what is actually sticking. It works on desktop and mobile; AI features are optional, bring-your-own-key and off by default.
+
+**At a glance**
+
+- **Practise like the exam.** MCQ, student-produced response, numeric, fill-in, matching, true/false, select-all, reorder and rubric-graded free-response questions, plus multi-section timed tests with confidence calibration and a full review.
+- **Remember it.** Cards, cloze, image occlusion and vocabulary, scheduled with the simple ladder, clean-room SM-2 or FSRS. Whole-note review and Spaced Everything cover material that is not a single question.
+- **Plan the term.** Import `.ics` schedules and Full Calendar notes, register courses, count down to exams, track assignments and grades, and start a study session from Today or a free period.
+- **Get material in.** Import PDFs, slides, Word/OpenDocument, HTML, CSV, Markdown and quiz-bank files; turn lecture transcripts into notes and cards; annotate PDFs; scan paper; and OCR a scanned PDF only with explicit consent.
+- **Know what to study.** Confidence calibration, mistake tags, weak-spot practice, retention and mastery trends, a study heatmap, focus sessions, grade projections and dashboard widgets all come from your local notes.
+- **AI only when you want it.** A bring-your-own-key tutor, grader and generator, or an OpenCode agent on desktop. AI features are off by default; generated notes and edits can be reviewed before they are applied.
+- **Local-first by design.** Questions, cards, schedules and study history stay in Markdown and plugin data. No account, analytics service or required cloud is involved.
 
 ## Features
 
@@ -117,7 +127,7 @@ If you want to try the plugin before writing notes, open [samples/README.md](sam
 
 **With BRAT:** install the BRAT plugin, choose Add beta plugin, and enter `ifriedenson/mcq-tracker`. BRAT installs the latest release and keeps it updated.
 
-**From the community directory** (once the plugin is listed): open Settings, Community plugins, Browse, search for "MCQ Tracker", then Install and Enable.
+**From the community directory:** open Settings, Community plugins, Browse, search for "MCQ Tracker", then Install and Enable. The public listing can trail the latest GitHub release; if it is unavailable, use BRAT or the manual install below.
 
 **Manually:** download `main.js`, `manifest.json` and `styles.css` from the latest release and copy them into `<your vault>/.obsidian/plugins/mcq-tracker/`. Then enable the plugin under Settings, Community plugins.
 
@@ -341,6 +351,10 @@ Turn on **Settings → MCQ Tracker → Review → Inline numeric questions** to 
 ### Shared-option quiz questions (optional)
 
 Turn on **Settings → MCQ Tracker → Review → Shared-option quiz questions** to reuse one option set across several `mcq-quiz` questions. Put the `A.`/`B.`/`C.` lines before the first `Q:`; each question keeps its own `Answer:`. The option is off by default, per-question choices still win, and no attempt, history, streak or scheduling data changes.
+
+### Static answer-key mode
+
+Add `Mode: static` (or `mode: static`) at the top of an `mcq-quiz` block to render it as a read-only answer key. Correct choices are highlighted, each `Why A:` feedback line and the `Why:` explanation appear, and no input controls or Check button are created. Nothing is written: no attempt, history, streak, next review, `quizResults` export or scheduler state changes, and `gated:` is ignored in this mode. Remove the line to return to interactive practice.
 
 ### Closed-book practice (optional)
 

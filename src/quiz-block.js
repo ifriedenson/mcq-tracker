@@ -118,6 +118,7 @@ function newQuestion() {
 function parseQuizBlock(text) {
   const lines = str(text).replace(/\r\n?/g, "\n").split("\n");
   let gated = false;
+  let mode = "interactive";
   let quizId = "";
   let pass = DEFAULT_PASS;
   let imprecise = DEFAULT_IMPRECISE;
@@ -140,6 +141,11 @@ function parseQuizBlock(text) {
 
   for (const raw of lines) {
     const line = raw.trim();
+    const modeLine = line.match(/^(?:mode|display)\s*[:=]\s*(.*)$/i);
+    if (!cur && modeLine) {
+      mode = /static|answer.?key|key|review/i.test(clean(modeLine[1])) ? "static" : "interactive";
+      continue;
+    }
     if (/^gated\s*:\s*(true|yes|on)$/i.test(line)) {
       gated = true;
       continue;
@@ -311,7 +317,7 @@ function parseQuizBlock(text) {
     question.imprecise = imprecise;
     question.valid = question.issues.length === 0;
   }
-  return { gated, id: quizId, pass, imprecise, questions };
+  return { gated, id: quizId, pass, imprecise, mode, questions };
 }
 
 /** Grade one multiple-choice selection and mark every option with its feedback. */

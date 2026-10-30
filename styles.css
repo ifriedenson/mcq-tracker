@@ -5572,6 +5572,9 @@
 .qt-quiz-score.is-pass { background: var(--background-modifier-success); color: var(--text-success); }
 .qt-quiz-score.is-imprecise { background: var(--background-modifier-warning); color: var(--text-warning); }
 .qt-quiz-score.is-fail { background: var(--background-modifier-error); color: var(--text-error); }
+.qt-quiz-choices.is-static { pointer-events: none; }
+.qt-quiz-choice.is-static:disabled { cursor: default; opacity: 1; }
+.qt-quiz-choice.is-static.is-correct { border-color: var(--interactive-accent); }
 
 
 /* Simple Quiz blocks, daily counters and dependency-free charts. */
