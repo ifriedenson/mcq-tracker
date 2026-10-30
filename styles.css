@@ -1360,6 +1360,19 @@
   overflow-wrap: anywhere;
 }
 
+.qt-exam-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 4px 9px;
+  border: 1px solid var(--text-success);
+  border-radius: var(--radius-s);
+  color: var(--text-success);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+}
+
 .qt-hint.qt-needs-fixing {
   border-left: 2px solid var(--text-warning);
   padding-left: 8px;

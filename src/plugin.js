@@ -1,4 +1,5 @@
 "use strict";
+const { normalizeExamReadyPasses } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS } = require("./constants");
@@ -698,6 +699,8 @@ class QuestionTrackerPlugin extends Plugin {
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.closedBook = this.settings.closedBook === true;
     this.settings.hints = this.settings.hints === true;
+    this.settings.examReady = this.settings.examReady === true;
+    this.settings.examReadyPasses = normalizeExamReadyPasses(this.settings.examReadyPasses);
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";

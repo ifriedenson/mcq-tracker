@@ -11,6 +11,20 @@ const parameterized = require("./parameterized");
 
 /* ------------------------------------------------- shared view helpers */
 
+const DEFAULT_EXAM_READY_PASSES = 2;
+
+/** Consecutive correct answers needed for the exam-ready badge, clamped to Omniscient's 1–10 range. */
+function normalizeExamReadyPasses(value) {
+  const passes = Math.round(Number(value));
+  return Number.isFinite(passes) ? Math.min(10, Math.max(1, passes)) : DEFAULT_EXAM_READY_PASSES;
+}
+
+/** Whether the current consecutive-correct streak has reached the configured pass count. */
+function isExamReady(streak, passes) {
+  const needed = normalizeExamReadyPasses(passes);
+  return Number(streak) >= needed;
+}
+
 function renderMarkdownInto(app, markdown, el, sourcePath, component) {
   const source = prepareMathMarkdown(normalizeFigureMarkers(markdown));
   try {
@@ -92,6 +106,9 @@ function renderMatchPicker(options) {
 }
 
 module.exports = {
+  DEFAULT_EXAM_READY_PASSES,
+  isExamReady,
+  normalizeExamReadyPasses,
   renderMarkdownInto,
   loadQuestionData,
   renderMatchPicker,

@@ -114,7 +114,7 @@ const { DocumentReviewModal } = require("./document-review-modal");
 const ocr = require("./ocr");
 const { OcrModal } = require("./ocr-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
-const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
+const { isExamReady, loadQuestionData, normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const offline = require("./offline");
 const documents = require("./documents");
 const calendarIcs = require("./calendar-ics");
@@ -405,6 +405,8 @@ QuestionTrackerPlugin.__test = {
   hasValidQuestion,
   scanQuestionNotes,
   loadQuestionData,
+  isExamReady,
+  normalizeExamReadyPasses,
   offline,
   weekStart,
   weeklyAccuracy,

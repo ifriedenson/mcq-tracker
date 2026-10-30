@@ -12,6 +12,7 @@ const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { normalizeQuickAdaptive } = require("./adaptive-session");
 const { formatNoteSets, normalizeNoteReview, parseNoteSets } = require("./note-review");
+const { normalizeExamReadyPasses } = require("./view-helpers");
 const { normalizeSpacedEverything } = require("./spaced-everything");
 const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
@@ -533,6 +534,32 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.plugin.refreshViews();
         })
       );
+
+    new Setting(containerEl)
+      .setName("Exam-ready badge")
+      .setDesc(
+        "After a question is answered, show Exam ready once it has N correct answers in a row. This reads the existing streak and changes no attempt, history, review date, Auto Anki, Text2Anki or Spaced Repetition output. Off by default."
+      )
+      .addToggle((t) =>
+        t.setValue(st.examReady === true).onChange(async (v) => {
+          st.examReady = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Mastered passes")
+      .setDesc("Consecutive correct answers needed for the Exam-ready badge. The default is 2; values are kept between 1 and 10.")
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.setValue(String(st.examReadyPasses)).onChange(async (v) => {
+          if (String(v).trim() === "") return;
+          st.examReadyPasses = normalizeExamReadyPasses(v);
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        });
+      });
 
     new Setting(containerEl)
       .setName("Per-question hints")

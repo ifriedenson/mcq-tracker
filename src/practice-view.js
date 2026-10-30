@@ -6,6 +6,7 @@ const { fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
+const { isExamReady } = require("./view-helpers");
 const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet, trueFalseLabels } = require("./answer-types");
 const { gradeMatching, parsePicks, shuffleForSeed } = require("./matching");
 const { variantSummary, variantValuesText } = require("./parameterized");
@@ -1519,6 +1520,13 @@ class PracticeView extends ItemView {
     if (this.quickSession) topNext.setText("Next quick question");
     topNext.addEventListener("click", () => this.next());
 
+    if (p.settings.examReady === true && isExamReady(s.streak, p.settings.examReadyPasses)) {
+      const ready = root.createDiv({
+        cls: "qt-exam-ready",
+        text: `Exam ready · ${s.streak} correct in a row`,
+      });
+      ready.setAttr("role", "status");
+    }
     root.createDiv({
       cls: "qt-count",
       text: `Streak ${s.streak} · ${s.correctCount}/${s.attempts} correct overall · next review ${s.nextReview}`,

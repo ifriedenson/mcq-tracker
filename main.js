@@ -17042,6 +17042,8 @@ const DEFAULT_SETTINGS = {
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   closedBook: false, // opt-in: hide the Open note shortcut until the current question is submitted
   hints: false, // opt-in: show a question's optional Hint section before answering
+  examReady: false, // opt-in: mark a question after N consecutive correct answers
+  examReadyPasses: 2, // consecutive correct answers for the exam-ready badge (Omniscient's default)
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
     managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)
@@ -34657,6 +34659,7 @@ module.exports = {
 
 /* ---- src/plugin.js ---- */
 __defs["plugin"] = function (module, exports, require) {
+const { normalizeExamReadyPasses } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS } = require("./constants");
@@ -35356,6 +35359,8 @@ class QuestionTrackerPlugin extends Plugin {
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.closedBook = this.settings.closedBook === true;
     this.settings.hints = this.settings.hints === true;
+    this.settings.examReady = this.settings.examReady === true;
+    this.settings.examReadyPasses = normalizeExamReadyPasses(this.settings.examReadyPasses);
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -41360,6 +41365,7 @@ const { fmtClock, fmtDate, str } = require("./util");
 const { MODE_PRED, filterOptionCounts, folderLabel, fvals, hasFilters, isDue, pickQuestion } = require("./filters");
 const { extractRationale } = require("./notes");
 const { gradeAnswerDetailed } = require("./numeric-grading");
+const { isExamReady } = require("./view-helpers");
 const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet, trueFalseLabels } = require("./answer-types");
 const { gradeMatching, parsePicks, shuffleForSeed } = require("./matching");
 const { variantSummary, variantValuesText } = require("./parameterized");
@@ -42873,6 +42879,13 @@ class PracticeView extends ItemView {
     if (this.quickSession) topNext.setText("Next quick question");
     topNext.addEventListener("click", () => this.next());
 
+    if (p.settings.examReady === true && isExamReady(s.streak, p.settings.examReadyPasses)) {
+      const ready = root.createDiv({
+        cls: "qt-exam-ready",
+        text: `Exam ready · ${s.streak} correct in a row`,
+      });
+      ready.setAttr("role", "status");
+    }
     root.createDiv({
       cls: "qt-count",
       text: `Streak ${s.streak} · ${s.correctCount}/${s.attempts} correct overall · next review ${s.nextReview}`,
@@ -48567,6 +48580,7 @@ const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { normalizeQuickAdaptive } = require("./adaptive-session");
 const { formatNoteSets, normalizeNoteReview, parseNoteSets } = require("./note-review");
+const { normalizeExamReadyPasses } = require("./view-helpers");
 const { normalizeSpacedEverything } = require("./spaced-everything");
 const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
@@ -49088,6 +49102,32 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.plugin.refreshViews();
         })
       );
+
+    new Setting(containerEl)
+      .setName("Exam-ready badge")
+      .setDesc(
+        "After a question is answered, show Exam ready once it has N correct answers in a row. This reads the existing streak and changes no attempt, history, review date, Auto Anki, Text2Anki or Spaced Repetition output. Off by default."
+      )
+      .addToggle((t) =>
+        t.setValue(st.examReady === true).onChange(async (v) => {
+          st.examReady = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Mastered passes")
+      .setDesc("Consecutive correct answers needed for the Exam-ready badge. The default is 2; values are kept between 1 and 10.")
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.setValue(String(st.examReadyPasses)).onChange(async (v) => {
+          if (String(v).trim() === "") return;
+          st.examReadyPasses = normalizeExamReadyPasses(v);
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        });
+      });
 
     new Setting(containerEl)
       .setName("Per-question hints")
@@ -55027,6 +55067,20 @@ const parameterized = require("./parameterized");
 
 /* ------------------------------------------------- shared view helpers */
 
+const DEFAULT_EXAM_READY_PASSES = 2;
+
+/** Consecutive correct answers needed for the exam-ready badge, clamped to Omniscient's 1–10 range. */
+function normalizeExamReadyPasses(value) {
+  const passes = Math.round(Number(value));
+  return Number.isFinite(passes) ? Math.min(10, Math.max(1, passes)) : DEFAULT_EXAM_READY_PASSES;
+}
+
+/** Whether the current consecutive-correct streak has reached the configured pass count. */
+function isExamReady(streak, passes) {
+  const needed = normalizeExamReadyPasses(passes);
+  return Number(streak) >= needed;
+}
+
 function renderMarkdownInto(app, markdown, el, sourcePath, component) {
   const source = prepareMathMarkdown(normalizeFigureMarkers(markdown));
   try {
@@ -55108,6 +55162,9 @@ function renderMatchPicker(options) {
 }
 
 module.exports = {
+  DEFAULT_EXAM_READY_PASSES,
+  isExamReady,
+  normalizeExamReadyPasses,
   renderMarkdownInto,
   loadQuestionData,
   renderMatchPicker,
@@ -55866,7 +55923,7 @@ const { DocumentReviewModal } = require("./document-review-modal");
 const ocr = require("./ocr");
 const { OcrModal } = require("./ocr-modal");
 const { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes } = require("./empty-state");
-const { loadQuestionData, renderMarkdownInto } = require("./view-helpers");
+const { isExamReady, loadQuestionData, normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const offline = require("./offline");
 const documents = require("./documents");
 const calendarIcs = require("./calendar-ics");
@@ -56157,6 +56214,8 @@ QuestionTrackerPlugin.__test = {
   hasValidQuestion,
   scanQuestionNotes,
   loadQuestionData,
+  isExamReady,
+  normalizeExamReadyPasses,
   offline,
   weekStart,
   weeklyAccuracy,

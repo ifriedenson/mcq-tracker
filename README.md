@@ -310,6 +310,10 @@ Each `history` entry is stored as `date|result|seconds|answer|confidence|error_t
 
 Turn on **Settings → MCQ Tracker → Review → Per-question hints** to show a **Show hint** button before answering. A hint comes from a `## Hint` section or a `hint` frontmatter property, and it stays hidden until you press the button. Quick add questions also accepts `Hint:` or `Clue:`. The option is off by default, so existing notes look the same. Hints never change attempts, history, streak or scheduling, and closed-book practice keeps them hidden.
 
+### Exam-ready badge (optional)
+
+Turn on **Settings → MCQ Tracker → Review → Exam-ready badge** to mark a question after **2 correct answers in a row** (Omniscient's default). Change the pass count with **Mastered passes** (1–10). The badge appears on the result screen and reads the existing question `streak`; it does not write a new property or change attempts, history, next review, Auto Anki, Text2Anki or Spaced Repetition output. It is off by default, so existing practice screens look the same.
+
 ### Closed-book practice (optional)
 
 Turn on **Settings → MCQ Tracker → Review → Closed-book practice** to hide the **Open note** shortcut during a question. The question, choices and timer stay visible; the source row, answer note and explanation unlock only after you submit. The option is off by default, and it changes no attempts, history, streak, next review or scheduling. The toggle is a saved setting, so it stays on across practice sessions and plugin restarts; turn it off to restore the Open note shortcut.
