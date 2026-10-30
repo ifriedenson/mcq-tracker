@@ -10,6 +10,7 @@ const {
   BREAK_ICON_OPTIONS,
   CLASS_CATEGORIES,
   normalizeCourseRegistry,
+  normalizeFolder,
   normalizeReadingWeeks,
   normalizeTermDate,
 } = require("./calendar-model");
@@ -239,6 +240,17 @@ function renderNotes(containerEl, plugin, redisplay) {
       t.setPlaceholder("e.g. University").setValue(cal.noteFolder).onChange(async (v) => {
         cal.noteFolder = v.trim();
         await plugin.save();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Full Calendar event folder")
+    .setDesc("Read-only: show events from Full Calendar notes in this folder, including subfolders. Leave empty to turn interop off.")
+    .addText((t) =>
+      t.setPlaceholder("e.g. Calendar/Events").setValue(cal.eventNoteFolder || "").onChange(async (v) => {
+        cal.eventNoteFolder = normalizeFolder(v);
+        await plugin.save();
+        plugin.invalidateCalendar();
+        plugin.refreshCalendarViews();
       })
     );
   new Setting(containerEl)

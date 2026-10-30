@@ -7633,6 +7633,174 @@ module.exports = {
 };
 };
 
+/* ---- src/calendar-interop.js ---- */
+__defs["calendar-interop"] = function (module, exports, require) {
+/*
+ * Read-only interop with Full Calendar's local event notes.
+ *
+ * Full Calendar stores local events as frontmatter on ordinary notes:
+ * `title`, `date`, optional `endDate`, `allDay`, `startTime`, `endTime`,
+ * plus `type: recurring` or `type: rrule` for repeated events. We read that
+ * documented shape without copying upstream code, so a learner can keep using
+ * both plugins without moving their calendar. Notes are never written here.
+ */
+const { dateKey, expandIcs, parseDateKey } = require("./calendar-ics");
+const { normalizeFolder } = require("./calendar-model");
+
+const FC_DAYS = { U: "SU", M: "MO", T: "TU", W: "WE", R: "TH", F: "FR", S: "SA" };
+const DEFAULT_MINUTES = 90;
+
+const text = (value) => (value === undefined || value === null ? "" : String(value)).trim();
+
+/** A strict local date, or null when the value is not a real YYYY-MM-DD day. */
+function noteDate(value) {
+  const key = text(value);
+  const date = parseDateKey(key);
+  return date && dateKey(date) === key ? date : null;
+}
+
+/** Full Calendar accepts `HH:mm`, `H:mm` and 12-hour forms such as `9:05 PM`. */
+function parseClock(value) {
+  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap])?\.?m?\.?$/i.exec(text(value));
+  if (!match) return null;
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const suffix = String(match[3] || "").toLowerCase();
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || minutes > 59) return null;
+  if (suffix) {
+    if (hours < 1 || hours > 12) return null;
+    if (hours === 12) hours = 0;
+    if (suffix === "p") hours += 12;
+  }
+  if (hours > 23) return null;
+  return { hours, minutes };
+}
+
+function atTime(day, clock) {
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), clock.hours, clock.minutes, 0, 0);
+}
+
+function endOfDay(day) {
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), 23, 59, 59, 999);
+}
+
+function fallbackTitle(file) {
+  const base = text(file && file.basename).replace(/\.md$/i, "");
+  return base.replace(/^\d{4}-\d{2}-\d{2}\s+/, "").trim() || base;
+}
+
+function timedSpan(day, startClock, endClock, endDate) {
+  const start = atTime(day, startClock);
+  let end;
+  if (endClock) {
+    end = atTime(endDate || day, endClock);
+    if (end <= start) end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+  } else if (endDate) {
+    end = endOfDay(endDate);
+  } else {
+    end = new Date(start.getTime() + DEFAULT_MINUTES * 60 * 1000);
+  }
+  return { start, end };
+}
+
+/**
+ * Converts one Full Calendar event note's frontmatter into the common event
+ * shape used by `expandIcs`. Returns null for notes that do not carry an event
+ * marker, so an unrelated note with a `date` property stays out of the calendar.
+ */
+function eventFromNote(frontmatter, file) {
+  const fm = frontmatter && typeof frontmatter === "object" && !Array.isArray(frontmatter) ? frontmatter : null;
+  if (!fm || !file || !text(file.path)) return null;
+  const type = text(fm.type).toLowerCase() || "single";
+  if (!["single", "recurring", "rrule"].includes(type)) return null;
+
+  const title = text(fm.title) || fallbackTitle(file);
+  const startClock = parseClock(fm.startTime);
+  const endClock = parseClock(fm.endTime);
+  const allDay = fm.allDay === true;
+  if (!allDay && !startClock) return null;
+
+  const base = {
+    uid: `full-calendar:${file.path}`,
+    summary: title,
+    description: text(fm.description),
+    location: text(fm.location),
+    allDay,
+    sourcePath: file.path,
+  };
+
+  if (type === "single") {
+    const day = noteDate(fm.date);
+    if (!day) return null;
+    const endDay = noteDate(fm.endDate);
+    if (endDay && endDay <= day) return null;
+    if (allDay) {
+      base.dtstart = day;
+      base.dtend = endDay ? new Date(endDay.getFullYear(), endDay.getMonth(), endDay.getDate()) : new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
+    } else {
+      const span = timedSpan(day, startClock || { hours: 0, minutes: 0 }, endClock, endDay);
+      base.dtstart = span.start;
+      base.dtend = span.end;
+    }
+    return base;
+  }
+
+  if (type === "recurring") {
+    const startDay = noteDate(fm.startRecur);
+    const days = (Array.isArray(fm.daysOfWeek) ? fm.daysOfWeek : []).map((day) => FC_DAYS[text(day).toUpperCase()]).filter(Boolean);
+    if (!startDay || !days.length) return null;
+    const endDay = noteDate(fm.endRecur);
+    base.dtstart = allDay ? startDay : atTime(startDay, startClock || { hours: 0, minutes: 0 });
+    base.dtend = allDay
+      ? new Date(startDay.getFullYear(), startDay.getMonth(), startDay.getDate() + 1)
+      : timedSpan(startDay, startClock || { hours: 0, minutes: 0 }, endClock).end;
+    base.rrule = `FREQ=WEEKLY;BYDAY=${[...new Set(days)].join(",")}`;
+    if (endDay) base.rrule += `;UNTIL=${endDay.getFullYear()}${String(endDay.getMonth() + 1).padStart(2, "0")}${String(endDay.getDate()).padStart(2, "0")}T235959`;
+    return base;
+  }
+
+  const startDay = noteDate(fm.startDate);
+  const rule = text(fm.rrule);
+  if (!startDay || !rule) return null;
+  base.dtstart = allDay ? startDay : atTime(startDay, startClock || { hours: 0, minutes: 0 });
+  base.dtend = allDay
+    ? new Date(startDay.getFullYear(), startDay.getMonth(), startDay.getDate() + 1)
+    : timedSpan(startDay, startClock || { hours: 0, minutes: 0 }, endClock).end;
+  base.rrule = rule;
+  base.exdates = (Array.isArray(fm.skipDates) ? fm.skipDates : []).map(noteDate).filter(Boolean);
+  return base;
+}
+
+/**
+ * Reads the chosen folder and returns expanded events inside the calendar
+ * window. The signature includes every note's frontmatter so the calendar
+ * cache notices edits, additions and deletions without a vault-wide scan.
+ */
+function fullCalendarNotes(app, folder, range) {
+  const root = normalizeFolder(folder);
+  if (!root) return { events: [], signature: "" };
+  const start = range && range.start instanceof Date ? range.start : new Date(0);
+  const end = range && range.end instanceof Date ? range.end : new Date(2100, 0, 1);
+  const files = typeof app.vault.getMarkdownFiles === "function" ? app.vault.getMarkdownFiles() : [];
+  let signature = `full-calendar:${root}`;
+  const bases = [];
+  for (const file of files || []) {
+    if (!file || !text(file.path).startsWith(`${root}/`)) continue;
+    const fm = app.metadataCache && typeof app.metadataCache.getFileCache === "function" ? app.metadataCache.getFileCache(file)?.frontmatter : null;
+    if (!fm) continue;
+    signature += `|${file.path}:${JSON.stringify(fm)}`;
+    const event = eventFromNote(fm, file);
+    if (event) bases.push(event);
+  }
+  const events = expandIcs(bases, start, end).map((event) =>
+    Object.assign(event, { sourceId: "full-calendar-notes", sourceName: "Full Calendar notes", foreign: true })
+  );
+  return { events, signature };
+}
+
+module.exports = { eventFromNote, fullCalendarNotes, parseClock };
+};
+
 /* ---- src/calendar-model.js ---- */
 __defs["calendar-model"] = function (module, exports, require) {
 /*
@@ -7711,6 +7879,7 @@ const DEFAULT_CALENDAR_SETTINGS = {
   enabled: false, // calendar module is off by default
   sources: [], // { id, name, type: "file"|"url", path, url, content, hidden, lastSync }
   noteFolder: "",
+  eventNoteFolder: "", // read-only Full Calendar event notes; empty turns interop off
   noteNameFormat: "{date} - {subject}",
   noteTemplate: DEFAULT_NOTE_TEMPLATE,
   cleanSubjectNames: true,
@@ -7832,6 +8001,7 @@ function mergeCalendarSettings(saved) {
   out.excludedKeywords = (Array.isArray(out.excludedKeywords) ? out.excludedKeywords : []).map(str).filter(Boolean);
   out.subjectFolders = plainObject(out.subjectFolders);
   out.courses = normalizeCourseRegistry(out.courses);
+  out.eventNoteFolder = normalizeFolder(out.eventNoteFolder);
   out.classColors = plainObject(out.classColors);
   out.subjectColors = plainObject(out.subjectColors);
   out.classNames = plainObject(out.classNames);
@@ -8671,6 +8841,7 @@ const {
   BREAK_ICON_OPTIONS,
   CLASS_CATEGORIES,
   normalizeCourseRegistry,
+  normalizeFolder,
   normalizeReadingWeeks,
   normalizeTermDate,
 } = require("./calendar-model");
@@ -8900,6 +9071,17 @@ function renderNotes(containerEl, plugin, redisplay) {
       t.setPlaceholder("e.g. University").setValue(cal.noteFolder).onChange(async (v) => {
         cal.noteFolder = v.trim();
         await plugin.save();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Full Calendar event folder")
+    .setDesc("Read-only: show events from Full Calendar notes in this folder, including subfolders. Leave empty to turn interop off.")
+    .addText((t) =>
+      t.setPlaceholder("e.g. Calendar/Events").setValue(cal.eventNoteFolder || "").onChange(async (v) => {
+        cal.eventNoteFolder = normalizeFolder(v);
+        await plugin.save();
+        plugin.invalidateCalendar();
+        plugin.refreshCalendarViews();
       })
     );
   new Setting(containerEl)
@@ -9523,14 +9705,15 @@ function renderEventCard(plugin, timeline, event, key, options) {
   const left = status.createDiv({ cls: "uni-note-status-left" });
   status.createDiv({ cls: "uni-note-status-right" });
 
-  const exists = noteExists(plugin, event, key);
+  const foreign = !!event.sourcePath;
+  const exists = foreign || noteExists(plugin, event, key);
   const badge = left.createDiv({ cls: `uni-note-status-badge is-clickable ${exists ? "has-note" : "missing-note"}` });
-  badge.setAttr("title", exists ? "Open note" : "Click to create note");
+  badge.setAttr("title", foreign ? "Open event note" : exists ? "Open note" : "Click to create note");
   setIcon(badge, exists ? "file-text" : "plus");
-  badge.createSpan({ text: exists ? "Note exists" : "Missing note" });
+  badge.createSpan({ text: foreign ? "Event note" : exists ? "Note exists" : "Missing note" });
 
   const label = str(event.summary) || "this class";
-  card.setAttr("aria-label", `${exists ? "Open" : "Create"} note for ${label}${event.termReadingWeek ? ", reading week class" : ""}`);
+  card.setAttr("aria-label", `${foreign ? "Open event note for" : exists ? "Open note for" : "Create note for"} ${label}${event.termReadingWeek ? ", reading week class" : ""}`);
 
   const open = (e) => {
     if (e && e.stopPropagation) e.stopPropagation();
@@ -35365,13 +35548,14 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { applyTermWeeks, cleanSubjectTitle, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { applyTermWeeks, cleanSubjectTitle, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, nextExamForCourse, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
 const { parseDashboardBlock, renderDashboardEmbed } = require("./analytics-embed");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { addResourceLink, classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
+const { fullCalendarNotes } = require("./calendar-interop");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
 const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
@@ -36706,8 +36890,9 @@ class QuestionTrackerPlugin extends Plugin {
     const range = this.calendarWindow(now);
     const sources = this.calendarSources().filter((s) => !s.hidden && s.content);
     const cal = this.calendarSettings();
+    const foreignNotes = fullCalendarNotes(this.app, cal.eventNoteFolder, range);
     const termSignature = `${cal.semesterStart}|${cal.semesterEnd}|${(cal.readingWeeks || []).map((r) => `${r.start}:${r.end}:${r.label}`).join(",")}`;
-    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${termSignature}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
+    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${termSignature}|${foreignNotes.signature}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
     if (this._calendarCache && this._calendarCache.signature === signature) return this._calendarCache.events;
     const all = [];
     const errors = [];
@@ -36719,6 +36904,7 @@ class QuestionTrackerPlugin extends Plugin {
         errors.push(`${source.name}: ${e.message}`);
       }
     }
+    all.push(...foreignNotes.events);
     const events = applyTermWeeks(this.calendarSettings(), visibleEvents(this.calendarSettings(), all));
     this._calendarCache = { signature, events };
     this._calendarErrors = errors;
@@ -40106,6 +40292,16 @@ ${body}
   }
 
   async openClassNote(event, key) {
+    if (event && event.sourcePath) {
+      const source = this.app.vault.getAbstractFileByPath(event.sourcePath);
+      if (!(source instanceof TFile)) {
+        new Notice(`Could not find ${event.sourcePath}.`);
+        return null;
+      }
+      const leaf = this.app.workspace.getLeaf(false);
+      if (leaf && leaf.openFile) await leaf.openFile(source);
+      return { file: source, path: source.path, created: false };
+    }
     const result = await openOrCreateClassNote(
       this.app,
       this.calendarSettings(),
@@ -40421,7 +40617,7 @@ ${body}
 
   async exportCalendarIcs() {
     if (this.moduleOff("calendar")) return;
-    const events = this.calendarEvents().filter((event) => !event.termReadingWeek);
+    const events = this.calendarEvents().filter((event) => !event.termReadingWeek && !event.foreign);
     if (!events.length) {
       new Notice("There are no visible classes or exams to export.");
       return;
@@ -56928,6 +57124,7 @@ const documents = require("./documents");
 const calendarIcs = require("./calendar-ics");
 const calendarModel = require("./calendar-model");
 const calendarNotes = require("./calendar-notes");
+const calendarInterop = require("./calendar-interop");
 const { CalendarView, StudySlotModal, parseScheduleBlock } = require("./calendar-view");
 const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, resumeQuickSession, unpackQuickSession } = require("./quick-practice");
 const referenceData = require("./reference-data");
@@ -57242,6 +57439,7 @@ QuestionTrackerPlugin.__test = {
   calendarIcs,
   calendarModel,
   calendarNotes,
+  calendarInterop,
   CalendarView,
   StudySlotModal,
   parseScheduleBlock,

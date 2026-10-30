@@ -235,14 +235,15 @@ function renderEventCard(plugin, timeline, event, key, options) {
   const left = status.createDiv({ cls: "uni-note-status-left" });
   status.createDiv({ cls: "uni-note-status-right" });
 
-  const exists = noteExists(plugin, event, key);
+  const foreign = !!event.sourcePath;
+  const exists = foreign || noteExists(plugin, event, key);
   const badge = left.createDiv({ cls: `uni-note-status-badge is-clickable ${exists ? "has-note" : "missing-note"}` });
-  badge.setAttr("title", exists ? "Open note" : "Click to create note");
+  badge.setAttr("title", foreign ? "Open event note" : exists ? "Open note" : "Click to create note");
   setIcon(badge, exists ? "file-text" : "plus");
-  badge.createSpan({ text: exists ? "Note exists" : "Missing note" });
+  badge.createSpan({ text: foreign ? "Event note" : exists ? "Note exists" : "Missing note" });
 
   const label = str(event.summary) || "this class";
-  card.setAttr("aria-label", `${exists ? "Open" : "Create"} note for ${label}${event.termReadingWeek ? ", reading week class" : ""}`);
+  card.setAttr("aria-label", `${foreign ? "Open event note for" : exists ? "Open note for" : "Create note for"} ${label}${event.termReadingWeek ? ", reading week class" : ""}`);
 
   const open = (e) => {
     if (e && e.stopPropagation) e.stopPropagation();

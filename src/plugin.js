@@ -38,13 +38,14 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { applyTermWeeks, cleanSubjectTitle, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { applyTermWeeks, cleanSubjectTitle, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, nextExamForCourse, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
 const { parseDashboardBlock, renderDashboardEmbed } = require("./analytics-embed");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { addResourceLink, classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
+const { fullCalendarNotes } = require("./calendar-interop");
 const { cloneFrontmatter, enqueuePending, newAttemptId, packPendingAttempts, removePending, unpackAttempt, unpackPendingAttempts, updatePendingError } = require("./offline");
 const { CardView } = require("./cards-view");
 const { ReferenceView } = require("./reference-view");
@@ -1379,8 +1380,9 @@ class QuestionTrackerPlugin extends Plugin {
     const range = this.calendarWindow(now);
     const sources = this.calendarSources().filter((s) => !s.hidden && s.content);
     const cal = this.calendarSettings();
+    const foreignNotes = fullCalendarNotes(this.app, cal.eventNoteFolder, range);
     const termSignature = `${cal.semesterStart}|${cal.semesterEnd}|${(cal.readingWeeks || []).map((r) => `${r.start}:${r.end}:${r.label}`).join(",")}`;
-    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${termSignature}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
+    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${termSignature}|${foreignNotes.signature}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
     if (this._calendarCache && this._calendarCache.signature === signature) return this._calendarCache.events;
     const all = [];
     const errors = [];
@@ -1392,6 +1394,7 @@ class QuestionTrackerPlugin extends Plugin {
         errors.push(`${source.name}: ${e.message}`);
       }
     }
+    all.push(...foreignNotes.events);
     const events = applyTermWeeks(this.calendarSettings(), visibleEvents(this.calendarSettings(), all));
     this._calendarCache = { signature, events };
     this._calendarErrors = errors;
@@ -4779,6 +4782,16 @@ ${body}
   }
 
   async openClassNote(event, key) {
+    if (event && event.sourcePath) {
+      const source = this.app.vault.getAbstractFileByPath(event.sourcePath);
+      if (!(source instanceof TFile)) {
+        new Notice(`Could not find ${event.sourcePath}.`);
+        return null;
+      }
+      const leaf = this.app.workspace.getLeaf(false);
+      if (leaf && leaf.openFile) await leaf.openFile(source);
+      return { file: source, path: source.path, created: false };
+    }
     const result = await openOrCreateClassNote(
       this.app,
       this.calendarSettings(),
@@ -5094,7 +5107,7 @@ ${body}
 
   async exportCalendarIcs() {
     if (this.moduleOff("calendar")) return;
-    const events = this.calendarEvents().filter((event) => !event.termReadingWeek);
+    const events = this.calendarEvents().filter((event) => !event.termReadingWeek && !event.foreign);
     if (!events.length) {
       new Notice("There are no visible classes or exams to export.");
       return;

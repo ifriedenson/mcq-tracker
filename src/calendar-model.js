@@ -75,6 +75,7 @@ const DEFAULT_CALENDAR_SETTINGS = {
   enabled: false, // calendar module is off by default
   sources: [], // { id, name, type: "file"|"url", path, url, content, hidden, lastSync }
   noteFolder: "",
+  eventNoteFolder: "", // read-only Full Calendar event notes; empty turns interop off
   noteNameFormat: "{date} - {subject}",
   noteTemplate: DEFAULT_NOTE_TEMPLATE,
   cleanSubjectNames: true,
@@ -196,6 +197,7 @@ function mergeCalendarSettings(saved) {
   out.excludedKeywords = (Array.isArray(out.excludedKeywords) ? out.excludedKeywords : []).map(str).filter(Boolean);
   out.subjectFolders = plainObject(out.subjectFolders);
   out.courses = normalizeCourseRegistry(out.courses);
+  out.eventNoteFolder = normalizeFolder(out.eventNoteFolder);
   out.classColors = plainObject(out.classColors);
   out.subjectColors = plainObject(out.subjectColors);
   out.classNames = plainObject(out.classNames);
