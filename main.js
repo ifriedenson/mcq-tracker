@@ -17318,7 +17318,6 @@ const DEFAULT_SETTINGS = {
     lastCompleted: "",
   },
   simpleQuiz: {
-    enableJavaScript: false, // trusted note JavaScript is never run until explicitly enabled
     stats: { days: {}, streak: 0, best: 0, lastCompleted: "" },
   },
   simpleNoteQuiz: {
@@ -18542,18 +18541,8 @@ function renderDailySettings(containerEl, plugin, redisplay) {
   const simpleToday = simpleQuizDaySummary(simple, today);
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "Add a quiz block to a note to review cards loaded from quizjson blocks, a quizjs block or a JSON card list. quiztoday and quizcharts show its local streak and counts. This is separate from the question scheduler and the daily quiz.",
+    text: "Add a quiz block to a note to review cards loaded from quizjson blocks or a JSON card list. Legacy quizjs blocks are shown as disabled and never executed. quiztoday and quizcharts show its local streak and counts. This is separate from the question scheduler and the daily quiz.",
   });
-  new Setting(containerEl)
-    .setName("Allow JavaScript card blocks")
-    .setDesc("Off by default. quizjs blocks run trusted JavaScript from the note with fc.addCard() and fc.commit(). JavaScript is not sandboxed, so only enable it for notes you trust.")
-    .addToggle((toggle) =>
-      toggle.setValue(simple.enableJavaScript).onChange(async (value) => {
-        st.simpleQuiz = { ...normalizeSimpleQuiz(st.simpleQuiz), enableJavaScript: value };
-        await plugin.save();
-        redisplay();
-      })
-    );
   new Setting(containerEl)
     .setName("Simple quiz stats")
     .setDesc(`${simpleToday.streak} day streak · best ${simple.best} · ${simpleToday.cards} cards and ${simpleToday.quizzes} quizzes today.`)
@@ -34952,7 +34941,7 @@ const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, 
 const { completeDailyQuiz: recordDailyCompletion, dailyDone, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
-const { extractSimpleQuizBlocks, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, runSimpleQuizJavaScript, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
+const { extractSimpleQuizBlocks, legacyQuizJsNotice, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
 const { applySimpleNoteQuizMarks, clearSimpleNoteQuizMarks, normalizeSimpleNoteQuiz, parseSimpleNoteQuiz } = require("./simple-note-quiz");
 const { SimpleNoteQuizModal } = require("./simple-note-quiz-modal");
 const { normalizeTutorRole } = require("./tutor-presets");
@@ -38638,8 +38627,9 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /**
-   * Read `quizjson` and `quizjs` blocks from the selected vault notes. A source
-   * can be a note or a folder; without sources the current note is used.
+   * Read `quizjson` blocks and report legacy `quizjs` blocks from the selected
+   * vault notes. A source can be a note or a folder; without sources the current
+   * note is used.
    */
   async simpleQuizCardsFromSources(sources, sourcePath) {
     const list = (Array.isArray(sources) ? sources : []).map((item) => str(item).trim()).filter(Boolean);
@@ -38697,7 +38687,7 @@ class QuestionTrackerPlugin extends Plugin {
         }
       }
       for (const block of blocks.js) {
-        const parsed = runSimpleQuizJavaScript(block, this.settings.simpleQuiz.enableJavaScript === true);
+        const parsed = legacyQuizJsNotice(block);
         issues.push(...parsed.issues.map((issue) => `${file.path}: ${issue}`));
         for (const card of parsed.cards) {
           if (ids.has(card.id)) issues.push(`${file.path}: duplicate card id "${card.id}" was skipped.`);
@@ -38739,7 +38729,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!cards.length) {
       box.createDiv({
         cls: "qt-simple-quiz-empty",
-        text: "No cards found. Add a quizjson or quizjs block to this note, or set sources to a note or folder.",
+        text: "No cards found. Add a quizjson block to this note, or set sources to a note or folder.",
       });
       return;
     }
@@ -38804,15 +38794,13 @@ class QuestionTrackerPlugin extends Plugin {
     renderStart();
   }
 
-  /** Render a quizjson/quizjs source block as a compact card count. */
+  /** Render a quizjson block, or a disabled notice for a legacy quizjs block. */
   renderSimpleQuizDataBlock(source, el, kind) {
     const box = el.createDiv({ cls: "qt-simple-quiz-data" });
-    const parsed = kind === "js"
-      ? runSimpleQuizJavaScript(source, this.settings.simpleQuiz.enableJavaScript === true)
-      : parseSimpleQuizCards(source);
+    const parsed = kind === "js" ? legacyQuizJsNotice(source) : parseSimpleQuizCards(source);
     box.createDiv({
       cls: "qt-simple-quiz-data-title",
-      text: kind === "js" ? "JavaScript quiz cards" : "Quiz cards",
+      text: kind === "js" ? "Legacy JavaScript quiz block (disabled)" : "Quiz cards",
     });
     box.createDiv({
       cls: "qt-simple-quiz-meta",
@@ -50835,15 +50823,14 @@ module.exports = {
 /* ---- src/simple-quiz.js ---- */
 __defs["simple-quiz"] = function (module, exports, require) {
 /*
- * Simple Quiz parity: `quiz` blocks, JSON/JavaScript card sources and small
- * local day statistics. This module is deliberately independent of the
+ * Simple Quiz parity: `quiz` blocks, JSON card sources, legacy quizjs notices
+ * and small local day statistics. This module is deliberately independent of the
  * question scheduler so a note can carry a quick recall set without creating
  * question notes; any linked question IDs still use the normal attempt path.
  */
 const { addDays, fmtDate, hashString, str } = require("./util");
 
 const DEFAULT_SIMPLE_QUIZ = {
-  enableJavaScript: false,
   stats: { days: {}, streak: 0, best: 0, lastCompleted: "" },
 };
 
@@ -50993,38 +50980,14 @@ function extractSimpleQuizBlocks(text) {
 }
 
 /**
- * Run one trusted `quizjs` block. This is opt-in because the code lives in a
- * note; it is not a security boundary. `fc.addCard` validates each card and
- * `fc.commit` marks the block as complete.
+ * Legacy `quizjs` blocks are not executed. The plugin has no dynamic code
+ * path; existing blocks get a migration notice and must use `quizjson`.
  */
-function runSimpleQuizJavaScript(source, enabled) {
-  if (enabled !== true) {
-    return { cards: [], issues: ["JavaScript quiz cards are off. Turn on Simple Quiz JavaScript under Settings, MCQ Tracker, Daily quiz."] };
-  }
-  const code = str(source);
-  if (!code.trim()) return { cards: [], issues: ["This quizjs block is empty."] };
-  if (code.length > 100000) return { cards: [], issues: ["This quizjs block is too large; split it into smaller blocks."] };
-  const cards = [];
-  const issues = [];
-  let committed = false;
-  const fc = {
-    addCard(raw) {
-      const normalized = normalizeSimpleCard(raw);
-      if (!normalized.card) throw new Error(normalized.error);
-      cards.push(normalized.card);
-    },
-    commit() {
-      committed = true;
-    },
+function legacyQuizJsNotice(source) {
+  return {
+    cards: [],
+    issues: ["JavaScript quiz blocks are disabled. Convert this block to quizjson."],
   };
-  try {
-    const run = new Function("fc", `"use strict";\n${code}`);
-    run(fc);
-  } catch (e) {
-    issues.push(`quizjs failed: ${str(e && e.message ? e.message : e)}`);
-  }
-  if (!committed) issues.push("quizjs must call fc.commit() after adding its cards.");
-  return { cards: cards.slice(0, MAX_CARDS), issues };
 }
 
 function normalizeQuizStats(value) {
@@ -51054,7 +51017,6 @@ function normalizeQuizStats(value) {
 function normalizeSimpleQuiz(value) {
   const src = value && typeof value === "object" ? value : {};
   return {
-    enableJavaScript: src.enableJavaScript === true,
     stats: normalizeQuizStats(src.stats),
   };
 }
@@ -51206,7 +51168,7 @@ module.exports = {
   parseSimpleQuizCards,
   parseSimpleQuizOptions,
   recordSimpleQuizSession,
-  runSimpleQuizJavaScript,
+  legacyQuizJsNotice,
   simpleQuizChartSeries,
   simpleQuizDaySummary,
   weekStreakFromDays,

@@ -1,14 +1,13 @@
 "use strict";
 /*
- * Simple Quiz parity: `quiz` blocks, JSON/JavaScript card sources and small
- * local day statistics. This module is deliberately independent of the
+ * Simple Quiz parity: `quiz` blocks, JSON card sources, legacy quizjs notices
+ * and small local day statistics. This module is deliberately independent of the
  * question scheduler so a note can carry a quick recall set without creating
  * question notes; any linked question IDs still use the normal attempt path.
  */
 const { addDays, fmtDate, hashString, str } = require("./util");
 
 const DEFAULT_SIMPLE_QUIZ = {
-  enableJavaScript: false,
   stats: { days: {}, streak: 0, best: 0, lastCompleted: "" },
 };
 
@@ -158,38 +157,14 @@ function extractSimpleQuizBlocks(text) {
 }
 
 /**
- * Run one trusted `quizjs` block. This is opt-in because the code lives in a
- * note; it is not a security boundary. `fc.addCard` validates each card and
- * `fc.commit` marks the block as complete.
+ * Legacy `quizjs` blocks are not executed. The plugin has no dynamic code
+ * path; existing blocks get a migration notice and must use `quizjson`.
  */
-function runSimpleQuizJavaScript(source, enabled) {
-  if (enabled !== true) {
-    return { cards: [], issues: ["JavaScript quiz cards are off. Turn on Simple Quiz JavaScript under Settings, MCQ Tracker, Daily quiz."] };
-  }
-  const code = str(source);
-  if (!code.trim()) return { cards: [], issues: ["This quizjs block is empty."] };
-  if (code.length > 100000) return { cards: [], issues: ["This quizjs block is too large; split it into smaller blocks."] };
-  const cards = [];
-  const issues = [];
-  let committed = false;
-  const fc = {
-    addCard(raw) {
-      const normalized = normalizeSimpleCard(raw);
-      if (!normalized.card) throw new Error(normalized.error);
-      cards.push(normalized.card);
-    },
-    commit() {
-      committed = true;
-    },
+function legacyQuizJsNotice(source) {
+  return {
+    cards: [],
+    issues: ["JavaScript quiz blocks are disabled. Convert this block to quizjson."],
   };
-  try {
-    const run = new Function("fc", `"use strict";\n${code}`);
-    run(fc);
-  } catch (e) {
-    issues.push(`quizjs failed: ${str(e && e.message ? e.message : e)}`);
-  }
-  if (!committed) issues.push("quizjs must call fc.commit() after adding its cards.");
-  return { cards: cards.slice(0, MAX_CARDS), issues };
 }
 
 function normalizeQuizStats(value) {
@@ -219,7 +194,6 @@ function normalizeQuizStats(value) {
 function normalizeSimpleQuiz(value) {
   const src = value && typeof value === "object" ? value : {};
   return {
-    enableJavaScript: src.enableJavaScript === true,
     stats: normalizeQuizStats(src.stats),
   };
 }
@@ -371,7 +345,7 @@ module.exports = {
   parseSimpleQuizCards,
   parseSimpleQuizOptions,
   recordSimpleQuizSession,
-  runSimpleQuizJavaScript,
+  legacyQuizJsNotice,
   simpleQuizChartSeries,
   simpleQuizDaySummary,
   weekStreakFromDays,

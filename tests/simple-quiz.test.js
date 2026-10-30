@@ -1,6 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const { load, obsidian } = require("./helpers/load");
 const { makeApp, makeDom } = require("./helpers/fake");
 
@@ -61,7 +62,7 @@ test("simple quiz: options accept sources, direct cards and safe defaults", () =
   assert.match(broken.issues.join(" "), /not valid JSON/);
 });
 
-test("simple quiz: note blocks are extracted and JavaScript is opt-in", () => {
+test("simple quiz: note blocks are extracted and legacy quizjs is rejected", () => {
   const note = [
     "Text",
     "```quizjson",
@@ -75,24 +76,19 @@ test("simple quiz: note blocks are extracted and JavaScript is opt-in", () => {
   assert.equal(blocks.json.length, 1);
   assert.equal(blocks.js.length, 1);
 
-  const off = S.runSimpleQuizJavaScript(blocks.js[0], false);
-  assert.equal(off.cards.length, 0);
-  assert.match(off.issues.join(" "), /are off/);
+  const legacy = S.legacyQuizJsNotice(blocks.js[0]);
+  assert.equal(legacy.cards.length, 0);
+  assert.match(legacy.issues.join(" "), /disabled.*quizjson/);
+});
 
-  const on = S.runSimpleQuizJavaScript(blocks.js[0], true);
-  assert.equal(on.cards.length, 1);
-  assert.equal(on.issues.length, 0);
-
-  const missingCommit = S.runSimpleQuizJavaScript('fc.addCard({question:{left:["Q"], right:["A"]}});', true);
-  assert.match(missingCommit.issues.join(" "), /fc\.commit/);
-
-  const invalid = S.runSimpleQuizJavaScript('fc.addCard({question:{left:[], right:["A"]}}); fc.commit();', true);
-  assert.match(invalid.issues.join(" "), /quizjs failed/);
+test("simple quiz: no dynamic code execution remains", () => {
+  const source = fs.readFileSync(require.resolve("../src/simple-quiz"), "utf8");
+  assert.doesNotMatch(source, /new\s+Function|\beval\s*\(/);
 });
 
 test("simple quiz: malformed saved stats recover and sessions update streak and charts", () => {
   const recovered = S.normalizeSimpleQuiz({ enableJavaScript: "yes", stats: { days: { "2026-10-30": { cards: 4, correct: 9, quizzes: 1 }, bad: {} }, streak: -3 } });
-  assert.equal(recovered.enableJavaScript, false);
+  assert.equal("enableJavaScript" in recovered, false);
   assert.equal(recovered.stats.days["2026-10-30"].correct, 4);
   assert.equal(recovered.stats.streak, 0);
 
@@ -134,7 +130,6 @@ test("simple quiz: the plugin registers blocks and records one inline session", 
   assert.ok(plugin.codeBlocks.quizjs);
   assert.ok(plugin.codeBlocks.quiztoday);
   assert.ok(plugin.codeBlocks.quizcharts);
-  assert.equal(plugin.settings.simpleQuiz.enableJavaScript, false);
 
   const dom = makeDom();
   await plugin.renderSimpleQuizBlock(JSON.stringify({ sources: ["Quiz.md"] }), dom.root, { sourcePath: "Quiz.md" });
@@ -173,5 +168,5 @@ test("simple quiz: data blocks show a count, and quizjs stays visibly disabled b
   plugin.renderSimpleQuizDataBlock('[{"question":{"left":["Q"],"right":["A"]}}]', dom.root, "json");
   assert.ok(dom.texts().some((text) => text.includes("1 card available")));
   plugin.renderSimpleQuizDataBlock('fc.addCard({question:{left:["Q"],right:["A"]}});fc.commit();', dom.root, "js");
-  assert.ok(dom.texts().some((text) => text.includes("off")), JSON.stringify(dom.texts()));
+  assert.ok(dom.texts().some((text) => text.includes("disabled") && text.includes("quizjson")), JSON.stringify(dom.texts()));
 });

@@ -79,7 +79,7 @@ const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, 
 const { completeDailyQuiz: recordDailyCompletion, dailyDone, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
-const { extractSimpleQuizBlocks, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, runSimpleQuizJavaScript, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
+const { extractSimpleQuizBlocks, legacyQuizJsNotice, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
 const { applySimpleNoteQuizMarks, clearSimpleNoteQuizMarks, normalizeSimpleNoteQuiz, parseSimpleNoteQuiz } = require("./simple-note-quiz");
 const { SimpleNoteQuizModal } = require("./simple-note-quiz-modal");
 const { normalizeTutorRole } = require("./tutor-presets");
@@ -3765,8 +3765,9 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /**
-   * Read `quizjson` and `quizjs` blocks from the selected vault notes. A source
-   * can be a note or a folder; without sources the current note is used.
+   * Read `quizjson` blocks and report legacy `quizjs` blocks from the selected
+   * vault notes. A source can be a note or a folder; without sources the current
+   * note is used.
    */
   async simpleQuizCardsFromSources(sources, sourcePath) {
     const list = (Array.isArray(sources) ? sources : []).map((item) => str(item).trim()).filter(Boolean);
@@ -3824,7 +3825,7 @@ class QuestionTrackerPlugin extends Plugin {
         }
       }
       for (const block of blocks.js) {
-        const parsed = runSimpleQuizJavaScript(block, this.settings.simpleQuiz.enableJavaScript === true);
+        const parsed = legacyQuizJsNotice(block);
         issues.push(...parsed.issues.map((issue) => `${file.path}: ${issue}`));
         for (const card of parsed.cards) {
           if (ids.has(card.id)) issues.push(`${file.path}: duplicate card id "${card.id}" was skipped.`);
@@ -3866,7 +3867,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (!cards.length) {
       box.createDiv({
         cls: "qt-simple-quiz-empty",
-        text: "No cards found. Add a quizjson or quizjs block to this note, or set sources to a note or folder.",
+        text: "No cards found. Add a quizjson block to this note, or set sources to a note or folder.",
       });
       return;
     }
@@ -3931,15 +3932,13 @@ class QuestionTrackerPlugin extends Plugin {
     renderStart();
   }
 
-  /** Render a quizjson/quizjs source block as a compact card count. */
+  /** Render a quizjson block, or a disabled notice for a legacy quizjs block. */
   renderSimpleQuizDataBlock(source, el, kind) {
     const box = el.createDiv({ cls: "qt-simple-quiz-data" });
-    const parsed = kind === "js"
-      ? runSimpleQuizJavaScript(source, this.settings.simpleQuiz.enableJavaScript === true)
-      : parseSimpleQuizCards(source);
+    const parsed = kind === "js" ? legacyQuizJsNotice(source) : parseSimpleQuizCards(source);
     box.createDiv({
       cls: "qt-simple-quiz-data-title",
-      text: kind === "js" ? "JavaScript quiz cards" : "Quiz cards",
+      text: kind === "js" ? "Legacy JavaScript quiz block (disabled)" : "Quiz cards",
     });
     box.createDiv({
       cls: "qt-simple-quiz-meta",

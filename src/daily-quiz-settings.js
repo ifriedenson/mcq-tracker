@@ -134,18 +134,8 @@ function renderDailySettings(containerEl, plugin, redisplay) {
   const simpleToday = simpleQuizDaySummary(simple, today);
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "Add a quiz block to a note to review cards loaded from quizjson blocks, a quizjs block or a JSON card list. quiztoday and quizcharts show its local streak and counts. This is separate from the question scheduler and the daily quiz.",
+    text: "Add a quiz block to a note to review cards loaded from quizjson blocks or a JSON card list. Legacy quizjs blocks are shown as disabled and never executed. quiztoday and quizcharts show its local streak and counts. This is separate from the question scheduler and the daily quiz.",
   });
-  new Setting(containerEl)
-    .setName("Allow JavaScript card blocks")
-    .setDesc("Off by default. quizjs blocks run trusted JavaScript from the note with fc.addCard() and fc.commit(). JavaScript is not sandboxed, so only enable it for notes you trust.")
-    .addToggle((toggle) =>
-      toggle.setValue(simple.enableJavaScript).onChange(async (value) => {
-        st.simpleQuiz = { ...normalizeSimpleQuiz(st.simpleQuiz), enableJavaScript: value };
-        await plugin.save();
-        redisplay();
-      })
-    );
   new Setting(containerEl)
     .setName("Simple quiz stats")
     .setDesc(`${simpleToday.streak} day streak · best ${simple.best} · ${simpleToday.cards} cards and ${simpleToday.quizzes} quizzes today.`)

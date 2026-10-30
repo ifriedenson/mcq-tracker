@@ -123,7 +123,6 @@ const DEFAULT_SETTINGS = {
     lastCompleted: "",
   },
   simpleQuiz: {
-    enableJavaScript: false, // trusted note JavaScript is never run until explicitly enabled
     stats: { days: {}, streak: 0, best: 0, lastCompleted: "" },
   },
   simpleNoteQuiz: {
