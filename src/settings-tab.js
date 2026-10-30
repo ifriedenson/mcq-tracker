@@ -588,6 +588,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Inline reorder questions")
+      .setDesc(
+        "Enable Type: reorder in mcq-quiz blocks. Items use A./B./C. lines, Answer: lists every letter once in the correct order, and ▲/▼ buttons move them. Off by default; other quiz blocks are unchanged."
+      )
+      .addToggle((t) =>
+        t.setValue(st.inlineQuizReorder === true).onChange(async (v) => {
+          st.inlineQuizReorder = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Pause timer when the app is backgrounded (mobile)")
       .setDesc("Stops the clock if you switch apps or lock your phone.")
       .addToggle((t) =>

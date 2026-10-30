@@ -57,6 +57,7 @@ const DEFAULT_SETTINGS = {
   examReady: false, // opt-in: mark a question after N consecutive correct answers
   examReadyPasses: 2, // consecutive correct answers for the exam-ready badge (Omniscient's default)
   inlineQuizResults: false, // opt-in: export mcq-quiz scores to the note under quizResults
+  inlineQuizReorder: false, // opt-in: reorder questions in mcq-quiz blocks
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
     managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)

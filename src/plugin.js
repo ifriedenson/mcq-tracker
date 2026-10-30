@@ -93,7 +93,7 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
-const { gradeQuizBlockQuestion, gradeQuizQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
+const { gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
@@ -702,6 +702,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.examReady = this.settings.examReady === true;
     this.settings.examReadyPasses = normalizeExamReadyPasses(this.settings.examReadyPasses);
     this.settings.inlineQuizResults = this.settings.inlineQuizResults === true;
+    this.settings.inlineQuizReorder = this.settings.inlineQuizReorder === true;
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -3614,6 +3615,45 @@ class QuestionTrackerPlugin extends Plugin {
         done = true;
         await complete(index, question, result, started, card, feedback);
       };
+
+      if (question.type === "reorder") {
+        if (this.settings.inlineQuizReorder !== true) {
+          card.createDiv({ cls: "qt-quiz-issue", text: "Reorder questions are off. Turn on Inline reorder questions under Settings → MCQ Review." });
+          return;
+        }
+        const wrap = card.createDiv({ cls: "qt-quiz-reorder" });
+        const list = wrap.createDiv({ cls: "qt-quiz-reorder-list" });
+        let order = question.choices.map((_choice, i) => i);
+        const paint = () => {
+          list.empty();
+          order.forEach((itemIndex, position) => {
+            const row = list.createDiv({ cls: "qt-quiz-reorder-row" });
+            row.createSpan({ cls: "qt-quiz-reorder-text", text: `${position + 1}. ${question.choices[itemIndex].text}` });
+            const up = row.createEl("button", { cls: "qt-quiz-reorder-move", text: "▲", attr: { "aria-label": `Move ${question.choices[itemIndex].text} up` } });
+            up.disabled = position === 0;
+            up.addEventListener("click", () => {
+              if (position === 0 || done) return;
+              [order[position - 1], order[position]] = [order[position], order[position - 1]];
+              paint();
+            });
+            const down = row.createEl("button", { cls: "qt-quiz-reorder-move", text: "▼", attr: { "aria-label": `Move ${question.choices[itemIndex].text} down` } });
+            down.disabled = position === order.length - 1;
+            down.addEventListener("click", () => {
+              if (position === order.length - 1 || done) return;
+              [order[position], order[position + 1]] = [order[position + 1], order[position]];
+              paint();
+            });
+          });
+        };
+        paint();
+        wrap.createEl("button", { cls: "qt-quiz-submit", text: "Check order" }).addEventListener("click", async () => {
+          if (done) return;
+          const chosen = order.map((i) => question.choices[i].letter).join(", ");
+          await finish(gradeReorderQuestion(question, chosen));
+        });
+        card.createDiv({ cls: "qt-hint", text: "Use ▲ and ▼ to put the items in order, then check." });
+        return;
+      }
 
       if (question.type === "slider") {
         const wrap = card.createDiv({ cls: "qt-quiz-slider" });

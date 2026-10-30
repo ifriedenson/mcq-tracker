@@ -1373,6 +1373,32 @@
   font-weight: var(--font-semibold);
 }
 
+.qt-quiz-reorder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.qt-quiz-reorder-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qt-quiz-reorder-text {
+  flex: 1;
+}
+
+.qt-quiz-reorder-move {
+  min-width: 28px;
+  padding: 2px 6px;
+}
+
+.qt-quiz-reorder-move:disabled {
+  opacity: 0.35;
+}
+
 .qt-hint.qt-needs-fixing {
   border-left: 2px solid var(--text-warning);
   padding-left: 8px;

@@ -57,9 +57,23 @@ function clampScore(value) {
 
 function normalizeQuestionType(value) {
   const text = clean(value).toLowerCase();
+  if (/reorder|sequence|chronological/.test(text)) return "reorder";
   if (/slider|range|numeric.?estimate/.test(text)) return "slider";
   if (/text|free|short|written|open/.test(text)) return "text";
   return "choice";
+}
+
+/** Read an explicit item order from `C, A, B`, `CAB` or an array; duplicates are rejected. */
+function resolveOrder(raw, choices) {
+  const tokens = Array.isArray(raw)
+    ? raw
+    : clean(raw).match(/[A-Ha-h]/g) || [];
+  const letters = tokens.map((token) => clean(token).toUpperCase()).filter((letter) => /^[A-H]$/.test(letter));
+  const available = new Set((choices || []).map((choice) => choice.letter));
+  if (letters.length !== (choices || []).length) return "";
+  if (new Set(letters).size !== letters.length) return "";
+  if (!letters.every((letter) => available.has(letter))) return "";
+  return letters.join(", ");
 }
 
 function resolveAnswer(raw, choices) {
@@ -250,6 +264,14 @@ function parseQuizBlock(text) {
         if (!key) question.issues.push(`Question ${index + 1}: "${question.answer.slice(0, 30)}" is not one of its choices.`);
         question.answer = key;
       }
+    } else if (question.type === "reorder") {
+      if (question.choices.length < 2) question.issues.push(`Question ${index + 1} needs at least two items.`);
+      if (!question.answer) question.issues.push(`Question ${index + 1} has no Answer line.`);
+      else {
+        const key = resolveOrder(question.answer, question.choices);
+        if (!key) question.issues.push(`Question ${index + 1}: Answer must list every item letter once.`);
+        question.answer = key;
+      }
     } else if (question.type === "slider") {
       if (!Number.isFinite(number(question.answer, NaN))) question.issues.push(`Question ${index + 1} needs a numeric Answer for its slider.`);
       if (!(question.min < question.max)) question.issues.push(`Question ${index + 1} needs Min smaller than Max.`);
@@ -340,8 +362,28 @@ function gradeTextQuestion(question, selected, aiScore) {
   };
 }
 
+/** Grade an exact sequence of item letters. */
+function gradeReorderQuestion(question, selected) {
+  const q = question || {};
+  const key = resolveOrder(q.answer, q.choices || []);
+  const picked = resolveOrder(selected, q.choices || []);
+  const correct = !!key && key === picked;
+  return {
+    correct,
+    score: correct ? 100 : 0,
+    mode: "reorder",
+    type: "reorder",
+    weight: Number(q.weight) || 1,
+    key,
+    selected: picked,
+    explanation: str(q.explanation),
+    band: correct ? "pass" : "fail",
+  };
+}
+
 /** Grade one answer. `aiScore` is only used for text questions. */
 function gradeQuizQuestion(question, selected, aiScore) {
+  if (question && question.type === "reorder") return gradeReorderQuestion(question, selected);
   if (question && question.type === "slider") return gradeSliderQuestion(question, selected);
   if (question && question.type === "text") return gradeTextQuestion(question, selected, aiScore);
   return gradeQuizBlockQuestion(question, selected);
@@ -443,11 +485,13 @@ module.exports = {
   bandForScore,
   gradeQuizBlockQuestion,
   gradeQuizQuestion,
+  gradeReorderQuestion,
   normalizeQuestionType,
   parseQuizAiEvaluation,
   parseQuizBlock,
   quizBlockScore,
   quizResultProperties,
   resolveAnswer,
+  resolveOrder,
   visibleQuizCount,
 };
