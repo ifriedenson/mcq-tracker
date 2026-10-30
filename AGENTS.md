@@ -8,7 +8,7 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
-- Latest release: **1.144.0** (Simple Note Quiz with note-local known/missed marks), tagged and published on Oct 30, 2026. Release: https://github.com/ifriedenson/mcq-tracker/releases/tag/1.144.0. The previous release, **1.143.0** (Simple Quiz blocks), was published in [run 41082745304](https://github.com/ifriedenson/mcq-tracker/actions/runs/41082745304).
+- Latest release: **1.144.0** (Simple Note Quiz with note-local known/missed marks), commit `6032271`, tagged and published on Oct 30, 2026 in [run 41085153063](https://github.com/ifriedenson/mcq-tracker/actions/runs/41085153063). Release: https://github.com/ifriedenson/mcq-tracker/releases/tag/1.144.0. The previous release, **1.143.0** (Simple Quiz blocks), was published in [run 41082745304](https://github.com/ifriedenson/mcq-tracker/actions/runs/41082745304).
 - **831 tests** pass and `main.js` is the build of `src/`. Release 1.144.0 adds the Simple Note Quiz; release 1.143.0 added Simple Quiz blocks, JSON/JavaScript card sources and local quiz charts.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
