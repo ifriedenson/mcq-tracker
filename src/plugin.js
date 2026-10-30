@@ -87,6 +87,9 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
+const { gradeQuizBlockQuestion, parseQuizBlock, visibleQuizCount } = require("./quiz-block");
+const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
+const { NoteReviewModal } = require("./note-review-modal");
 const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
@@ -143,6 +146,7 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.manager = new OpenCodeManager(this);
     this.setupReminder();
+    this.setupNoteReviewStatus();
     this.app.workspace.onLayoutReady(() => {
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
       const ai = this.settings.ai;
@@ -370,6 +374,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
+    this.addCommand({ id: "review-notes", name: "Review notes (whole-note queue)", callback: () => this.openNoteReview() });
     this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
     this.addCommand({ id: "manage-study-status", name: "Manage hidden study items", callback: () => this.openStudyStatusManager() });
 
@@ -383,6 +388,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.registerMarkdownCodeBlockProcessor("mcq-dashboard", (source, el) => this.renderDashboardBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("mcq-quiz", (source, el) => this.renderQuizBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("smiles", (source, el) => {
       const result = renderSmilesSvg(source);
       if (!result.ok) {
@@ -582,6 +588,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.practicePath = str(this.settings.practicePath).trim();
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
+    this.settings.noteReview = normalizeNoteReview(saved.noteReview);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
     this.settings.assignments = normalizeAssignmentSettings(saved.assignments);
     this.settings.reference = mergeReferenceSettings(saved.reference);
@@ -954,6 +961,7 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_ASSIGNMENTS)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
+    this.refreshNoteReviewStatus();
   }
 
   /** Re-draws only the practice views that are showing the first-run screen (an import just finished). */
@@ -2901,6 +2909,151 @@ class QuestionTrackerPlugin extends Plugin {
     if (result.invalid) bits.push(`${result.invalid} invalid`);
     new Notice(bits.join(" · "), 8000);
     return result;
+  }
+
+  /** Record an inline quiz answer on its linked question note, if it has one. */
+  async recordQuizBlockAnswer(question, result, seconds) {
+    const id = str(question && question.id).trim();
+    if (!id) return null;
+    const target = this.getQuestions().find((q) => str(q.fm.question_id).trim() === id);
+    if (!target) return null;
+    return this.recordAttempt(target.file, {
+      chosen: str(result && result.selected),
+      correct: !!(result && result.correct),
+      conf: 2,
+      seconds: Math.max(1, Math.round(Number(seconds) || 0)),
+      now: new Date(),
+      course: target.fm.course,
+    });
+  }
+
+  /** Render an `mcq-quiz` fenced block: inline choices, gating and per-option feedback. */
+  async renderQuizBlock(source, el) {
+    const parsed = parseQuizBlock(source);
+    if (!parsed.questions.length) {
+      el.createDiv({ cls: "qt-quiz-empty", text: "This quiz block has no questions. Start a question with Q: and add choices with A., B., ..." });
+      return;
+    }
+    const box = el.createDiv({ cls: "qt-quiz-block" });
+    let answered = 0;
+    const cards = [];
+    parsed.questions.forEach((question, index) => {
+      const card = box.createDiv({ cls: "qt-quiz-card" });
+      cards.push(card);
+      card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
+      if (!question.valid) {
+        card.createDiv({ cls: "qt-quiz-issue", text: question.issues.join(" ") });
+        return;
+      }
+      const choices = card.createDiv({ cls: "qt-quiz-choices" });
+      const feedback = card.createDiv({ cls: "qt-quiz-feedback" });
+      const buttons = [];
+      const started = Date.now();
+      let done = false;
+      question.choices.forEach((choice) => {
+        const button = choices.createEl("button", { cls: "qt-quiz-choice", text: `${choice.letter}. ${choice.text}` });
+        buttons.push(button);
+        button.addEventListener("click", async () => {
+          if (done) return;
+          done = true;
+          const result = gradeQuizBlockQuestion(question, choice.letter);
+          result.options.forEach((option, i) => {
+            buttons[i].addClass(option.correct ? "is-correct" : "is-wrong");
+            if (option.selected) buttons[i].addClass("is-picked");
+          });
+          for (const option of result.options) {
+            const line = feedback.createDiv({ cls: "qt-quiz-option-feedback" });
+            line.createSpan({ text: `${option.letter}. ${option.correct ? "Correct" : option.selected ? "Your choice" : ""} ` });
+            if (option.feedback) line.createSpan({ text: option.feedback });
+          }
+          if (result.explanation) feedback.createDiv({ cls: "qt-quiz-explanation", text: result.explanation });
+          card.createDiv({ cls: result.correct ? "qt-quiz-result is-correct" : "qt-quiz-result is-wrong", text: result.correct ? "Correct" : "Not quite" });
+          answered++;
+          cards.forEach((item, i) => item.toggleClass("qt-quiz-hidden", parsed.gated && i >= visibleQuizCount(parsed.questions.length, answered, true)));
+          try {
+            await this.recordQuizBlockAnswer(question, result, (Date.now() - started) / 1000);
+          } catch (e) {
+            new Notice(`Could not record this inline answer: ${str(e && e.message ? e.message : e)}`);
+          }
+        });
+      });
+    });
+    cards.forEach((card, index) => card.toggleClass("qt-quiz-hidden", parsed.gated && index >= visibleQuizCount(parsed.questions.length, 0, true)));
+  }
+
+  /* ---- whole-note review, using the same scheduler as questions and cards */
+
+  setupNoteReviewStatus() {
+    if (typeof this.addStatusBarItem !== "function") return;
+    this.noteReviewEl = this.addStatusBarItem();
+    this.noteReviewEl.addClass("qt-note-review-status");
+    this.noteReviewEl.addEventListener("click", () => this.openNoteReview());
+    this.refreshNoteReviewStatus();
+    this.registerInterval(activeWindow.setInterval(() => this.refreshNoteReviewStatus(), 60000));
+  }
+
+  refreshNoteReviewStatus() {
+    if (!this.noteReviewEl) return;
+    const config = normalizeNoteReview(this.settings.noteReview);
+    if (!config.enabled) {
+      this.noteReviewEl.setText("");
+      this.noteReviewEl.toggleClass("qt-hidden", true);
+      return;
+    }
+    const queue = this.getNoteQueue({ limit: 0 });
+    this.noteReviewEl.toggleClass("qt-hidden", false);
+    this.noteReviewEl.setText(`Notes due: ${queue.counts.due}`);
+    this.noteReviewEl.setAttr("aria-label", `${queue.counts.due} whole note${queue.counts.due === 1 ? "" : "s"} due for review`);
+  }
+
+  getNoteCandidates() {
+    return this.app.vault.getMarkdownFiles().map((file) => ({
+      file,
+      fm: (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {},
+    }));
+  }
+
+  getNoteQueue(options) {
+    const opts = options || {};
+    const config = normalizeNoteReview(this.settings.noteReview);
+    return buildNoteQueue(this.getNoteCandidates(), {
+      sets: config.sets,
+      today: localDate(),
+      limit: opts.limit === undefined ? config.limit : opts.limit,
+    });
+  }
+
+  openNoteReview() {
+    const config = normalizeNoteReview(this.settings.noteReview);
+    if (!config.enabled) {
+      new Notice("Turn on whole-note review under Settings → MCQ Tracker → Review first.", 6000);
+      return null;
+    }
+    const modal = new NoteReviewModal(this.app, this);
+    modal.open();
+    return modal;
+  }
+
+  /** Record a whole-note rating through the same applyAttempt path as questions and cards. */
+  async recordNoteReview(file, grade, seconds) {
+    const attempt = noteReviewAttempt(grade, seconds);
+    let summary;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      summary = applyAttempt(fm, attempt, this.settings.intervals, {
+        scheduler: this.settings.scheduler,
+        fsrsRetention: this.settings.fsrsRetention,
+        grade: attempt.grade,
+      });
+    });
+    this.refreshViews();
+    return summary;
+  }
+
+  async setNotePriority(file, priority) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      fm.note_review_priority = normalizePriority(priority);
+    });
+    this.refreshViews();
   }
 
   /** Write an already-previewed transcript draft. */

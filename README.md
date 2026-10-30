@@ -321,6 +321,27 @@ Every practice and card review screen has **Known**, **Bury**, **Suspend** and *
 - A session uses the current filters, pick mode, hidden-item rules and scheduler, and is capped at 20 cards. A question with no choices or no answer key automatically falls back to a flip card.
 - The skin never creates or changes a second note, deck or scheduler. Turning it off restores the practice home screen unchanged.
 
+### Inline quiz blocks
+
+Add a fenced `mcq-quiz` block to any note. It works without a question note and stays local:
+
+```mcq-quiz
+gated: true
+Q: Which gas do plants take in?
+A. Oxygen
+B. Carbon dioxide
+Why A: Oxygen is released, not taken in.
+Why B: Photosynthesis consumes carbon dioxide.
+Answer: B
+Why: The light reactions use CO2.
+```
+
+`gated: true` shows one question at a time and reveals the next only after an answer. Every choice is marked, and its own `Why A:` / `Why B:` feedback appears after answering; the overall `Why:` appears too. Add `ID: Q-123` to a question to record the attempt on that question note, so it uses the same history, streak and ladder/FSRS schedule as normal practice.
+
+### Whole-note review
+
+Turn it on under Settings → MCQ Tracker → Review. One set per line: `Name | folders | tags | priority`. Folders include subfolders, and blank folders or tags mean any note. With no sets, only notes with `note_review: true` are reviewed. The command **Review notes (whole-note queue)** shows one note at a time with Again/Hard/Good/Easy; ratings go through the same ladder or FSRS scheduler and write the usual `history`, `attempts` and `next_review` properties. A status-bar count shows notes due. Question and card notes are excluded, and `note_review_priority: high|normal|low` changes queue order only.
+
 ### Commands
 
 - Open practice view
@@ -336,6 +357,7 @@ Every practice and card review screen has **Known**, **Bury**, **Suspend** and *
 - Daily quiz
 - Open study cards
 - Open Today
+- Review notes (whole-note queue)
 - Retry saving offline practice results
 - Open cards
 - Open assignments and grades

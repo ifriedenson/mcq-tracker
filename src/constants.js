@@ -111,6 +111,7 @@ const DEFAULT_SETTINGS = {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
     courses: [],
   }),
+  noteReview: { enabled: false, limit: 20, sets: [] }, // optional whole-note review queue
   cards: {
     enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off
     newCardFolder: "Cards", // where new cards go when their deck has no folder

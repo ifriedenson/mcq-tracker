@@ -11,6 +11,7 @@ const { renderCalendarSettings } = require("./calendar-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { normalizeQuickAdaptive } = require("./adaptive-session");
+const { formatNoteSets, normalizeNoteReview, parseNoteSets } = require("./note-review");
 const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
@@ -396,6 +397,31 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             st.studyMode = normalizeStudyMode(v);
             await this.plugin.save();
           });
+      });
+
+    new Setting(containerEl).setName("Whole-note review").setHeading();
+    const noteReview = normalizeNoteReview(st.noteReview);
+    new Setting(containerEl)
+      .setName("Enable whole-note review")
+      .setDesc("Adds a Review notes command and a due count in the status bar. Notes are scheduled by the same ladder or FSRS as questions and cards; question and card notes are excluded.")
+      .addToggle((t) =>
+        t.setValue(noteReview.enabled).onChange(async (v) => {
+          st.noteReview = normalizeNoteReview({ ...noteReview, enabled: v });
+          await this.plugin.save();
+          this.plugin.refreshNoteReviewStatus();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Note sets")
+      .setDesc("One set per line: Name | folders | tags | priority. Folders include subfolders; blank folders or tags mean any. With no sets, only notes marked note_review: true are reviewed.")
+      .addTextArea((t) => {
+        t.setValue(formatNoteSets(noteReview.sets)).setPlaceholder("Class notes | Notes, Lectures | review | high");
+        t.inputEl.rows = 4;
+        t.onChange(async (v) => {
+          st.noteReview = normalizeNoteReview({ ...noteReview, sets: parseNoteSets(v) });
+          await this.plugin.save();
+          this.plugin.refreshNoteReviewStatus();
+        });
       });
 
     new Setting(containerEl)

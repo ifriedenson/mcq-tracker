@@ -54,6 +54,8 @@ const calculator = require("./calculator");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
+const quizBlock = require("./quiz-block");
+const noteReview = require("./note-review");
 const studyBundle = require("./study-bundle");
 const studyBundleImport = require("./study-bundle-import");
 const zipWrite = require("./zip-write");
@@ -203,6 +205,8 @@ QuestionTrackerPlugin.__test = {
   WeakSpotModal,
   QuickAddModal,
   quickAdd,
+  quizBlock,
+  noteReview,
   studyBundle,
   studyBundleImport,
   zipWrite,

@@ -15175,6 +15175,7 @@ const DEFAULT_SETTINGS = {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
     courses: [],
   }),
+  noteReview: { enabled: false, limit: 20, sets: [] }, // optional whole-note review queue
   cards: {
     enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off
     newCardFolder: "Cards", // where new cards go when their deck has no folder
@@ -26246,6 +26247,305 @@ module.exports = {
 };
 };
 
+/* ---- src/note-review.js ---- */
+__defs["note-review"] = function (module, exports, require) {
+/*
+ * Whole-note review, built on the same scheduler as questions and cards.
+ *
+ * A note is reviewable when it matches a note set (folder and/or tag) and is
+ * not itself a question or card note. Reviewing it writes the ordinary
+ * tracking properties (`history`, `attempts`, `next_review`, `streak`, `srs`)
+ * through `applyAttempt`, so the ladder and FSRS behave exactly as elsewhere.
+ * `note_review_priority` (high/normal/low) only changes queue order.
+ */
+const { str } = require("./util");
+const { isStudyable } = require("./study-status");
+
+const PRIORITIES = ["high", "normal", "low"];
+
+function normalizePriority(value) {
+  const text = str(value).trim().toLowerCase();
+  return PRIORITIES.includes(text) ? text : "normal";
+}
+
+/** One set per line: Name | folders | tags | priority. Blank fields mean "any". */
+function parseNoteSets(text) {
+  const sets = [];
+  for (const raw of str(text).replace(/\r\n?/g, "\n").split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const parts = line.split("|").map((part) => part.trim());
+    const name = parts[0] || `Set ${sets.length + 1}`;
+    const folders = (parts[1] || "")
+      .split(",")
+      .map((value) => value.trim().replace(/^\/+|\/+$/g, ""))
+      .filter(Boolean);
+    const tags = (parts[2] || "")
+      .split(",")
+      .map((value) => value.trim().replace(/^#/, ""))
+      .filter(Boolean);
+    sets.push({ name, folders, tags, priority: normalizePriority(parts[3]) });
+  }
+  return sets;
+}
+
+function formatNoteSets(sets) {
+  return (Array.isArray(sets) ? sets : [])
+    .map((set) => [set.name, (set.folders || []).join(", "), (set.tags || []).join(", "), normalizePriority(set.priority)].join(" | "))
+    .join("\n");
+}
+
+function normalizeNoteReview(value) {
+  const src = value && typeof value === "object" ? value : {};
+  const sets = Array.isArray(src.sets)
+    ? src.sets
+        .filter((set) => set && typeof set === "object")
+        .map((set) => ({
+          name: str(set.name).trim() || "Notes",
+          folders: (Array.isArray(set.folders) ? set.folders : []).map((folder) => str(folder).trim().replace(/^\/+|\/+$/g, "")).filter(Boolean),
+          tags: (Array.isArray(set.tags) ? set.tags : []).map((tag) => str(tag).trim().replace(/^#/, "")).filter(Boolean),
+          priority: normalizePriority(set.priority),
+        }))
+    : [];
+  const limit = Math.max(1, Math.min(200, Math.round(Number(src.limit) || 20)));
+  return { enabled: src.enabled === true, sets, limit };
+}
+
+function tagsOf(fm) {
+  const value = fm ? fm.tags : undefined;
+  return (Array.isArray(value) ? value : str(value).split(/[,;]+/))
+    .map((tag) => str(tag).trim().replace(/^#/, ""))
+    .filter(Boolean);
+}
+
+function inFolder(path, folders) {
+  const list = Array.isArray(folders) ? folders : [];
+  if (!list.length) return true;
+  const target = str(path).replace(/^\/+/, "");
+  return list.some((folder) => target === folder || target.startsWith(`${folder}/`));
+}
+
+function matchesNoteSet(note, set) {
+  if (!note || !set) return false;
+  if (!inFolder(note.file && note.file.path, set.folders)) return false;
+  const wanted = Array.isArray(set.tags) ? set.tags : [];
+  if (!wanted.length) return true;
+  const have = tagsOf(note.fm);
+  return wanted.some((tag) => have.includes(tag));
+}
+
+/** The first matching set; an explicitly marked note is included when no set matches. */
+function noteSetFor(note, sets) {
+  for (const set of Array.isArray(sets) ? sets : []) {
+    if (matchesNoteSet(note, set)) return set;
+  }
+  if (!Array.isArray(sets) || !sets.length) {
+    if (note && note.fm && note.fm.note_review === true) return { name: "Marked notes", folders: [], tags: [], priority: "normal" };
+  }
+  return null;
+}
+
+function isNoteCandidate(note) {
+  const fm = (note && note.fm) || {};
+  const path = str(note && note.file && note.file.path);
+  if (!path || !/\.md$/i.test(path)) return false;
+  if (str(fm.question_id).trim() || str(fm.card_id).trim() || str(fm.card_type).trim()) return false;
+  if (/^(flashcard|vocab|vocabulary)$/i.test(str(fm.type).trim())) return false;
+  return true;
+}
+
+function notePriority(note, set) {
+  return normalizePriority((note && note.fm && note.fm.note_review_priority) || (set && set.priority));
+}
+
+function noteDueDate(fm) {
+  return str(fm && fm.next_review).slice(0, 10);
+}
+
+/**
+ * Due/new whole notes, ordered by priority, then due date, then path.
+ * `sets` is the configured list; an empty list falls back to `note_review: true`.
+ */
+function buildNoteQueue(notes, options) {
+  const opts = options || {};
+  const today = str(opts.today);
+  const sets = Array.isArray(opts.sets) ? opts.sets : [];
+  const rows = [];
+  const setCounts = new Map();
+  for (const note of Array.isArray(notes) ? notes : []) {
+    if (!isNoteCandidate(note)) continue;
+    const set = noteSetFor(note, sets);
+    if (!set) continue;
+    const fm = note.fm || {};
+    if (!isStudyable(fm, today)) continue;
+    const isNew = !Number(fm.attempts);
+    const dueDate = noteDueDate(fm);
+    if (!isNew && (!dueDate || dueDate > today)) continue;
+    const row = {
+      note,
+      file: note.file,
+      path: note.file.path,
+      title: str(fm.title || note.file.basename || note.file.path.replace(/^.*\//, "").replace(/\.md$/i, "")),
+      set: set.name,
+      priority: notePriority(note, set),
+      isNew,
+      dueDate,
+    };
+    rows.push(row);
+    setCounts.set(set.name, (setCounts.get(set.name) || 0) + 1);
+  }
+  const rank = { high: 0, normal: 1, low: 2 };
+  rows.sort((a, b) => {
+    if (a.priority !== b.priority) return rank[a.priority] - rank[b.priority];
+    if (a.isNew !== b.isNew) return a.isNew ? 1 : -1;
+    if (a.dueDate !== b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+    return a.path.localeCompare(b.path);
+  });
+  const limit = opts.limit === undefined ? 20 : Math.max(0, Math.round(Number(opts.limit) || 0));
+  return {
+    items: limit ? rows.slice(0, limit) : [],
+    all: rows,
+    counts: {
+      due: rows.length,
+      new: rows.filter((row) => row.isNew).length,
+      sets: [...setCounts.entries()].map(([name, count]) => ({ name, count })),
+    },
+  };
+}
+
+/** Map a four-button rating onto the attempt shape `applyAttempt` already reads. */
+function noteReviewAttempt(grade, seconds, now) {
+  const value = ["again", "hard", "good", "easy"].includes(str(grade).toLowerCase()) ? str(grade).toLowerCase() : "good";
+  const conf = value === "again" ? 0 : value === "hard" ? 1 : value === "easy" ? 3 : 2;
+  return {
+    grade: value,
+    chosen: value,
+    correct: value !== "again",
+    conf,
+    seconds: Math.max(0, Math.round(Number(seconds) || 0)),
+    now: now instanceof Date ? now : new Date(),
+  };
+}
+
+module.exports = {
+  PRIORITIES,
+  buildNoteQueue,
+  formatNoteSets,
+  grade: noteReviewAttempt,
+  isNoteCandidate,
+  matchesNoteSet,
+  normalizeNoteReview,
+  normalizePriority,
+  noteDueDate,
+  notePriority,
+  noteReviewAttempt,
+  noteSetFor,
+  parseNoteSets,
+  tagsOf,
+};
+};
+
+/* ---- src/note-review-modal.js ---- */
+__defs["note-review-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { renderMarkdownInto } = require("./view-helpers");
+const { str } = require("./util");
+
+/** Review one whole note at a time, with the same four ratings as cards. */
+class NoteReviewModal extends Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+    this.queue = [];
+    this.index = 0;
+    this.started = Date.now();
+  }
+
+  async onOpen() {
+    await this.load();
+  }
+
+  async load() {
+    const queue = this.plugin.getNoteQueue({ limit: this.plugin.settings.noteReview.limit });
+    this.queue = queue.items;
+    this.index = 0;
+    await this.render();
+  }
+
+  async render() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Whole-note review" });
+    const counts = this.plugin.getNoteQueue({ limit: 0 }).counts;
+    el.createDiv({
+      cls: "qt-hint",
+      text: `${counts.due} note${counts.due === 1 ? "" : "s"} due or new · ${counts.new} new`,
+    });
+    if (this.index >= this.queue.length) {
+      el.createDiv({ cls: "qt-hint", text: this.queue.length ? "Review complete." : "No notes are due in the configured sets." });
+      return;
+    }
+
+    const item = this.queue[this.index];
+    this.started = Date.now();
+    const head = el.createDiv({ cls: "qt-note-review-head" });
+    head.createEl("h4", { text: item.title });
+    head.createDiv({
+      cls: "qt-hint",
+      text: `${item.set} · ${item.priority} priority · ${item.isNew ? "new" : `due ${item.dueDate}`} · ${this.index + 1}/${this.queue.length}`,
+    });
+
+    const grow = head.createEl("select", { cls: "qt-select" });
+    for (const value of ["high", "normal", "low"]) grow.createEl("option", { value, text: `${value} priority` });
+    grow.value = item.priority;
+    grow.addEventListener("change", async () => {
+      await this.plugin.setNotePriority(item.file, grow.value);
+      new Notice(`Priority set to ${grow.value}.`);
+    });
+
+    const body = el.createDiv({ cls: "qt-note-review-body" });
+    try {
+      const text = await this.app.vault.cachedRead(item.file);
+      renderMarkdownInto(this.app, text, body, item.path, this);
+    } catch (e) {
+      body.createDiv({ cls: "qt-error", text: "Could not read this note." });
+    }
+
+    const actions = el.createDiv({ cls: "qt-row qt-note-review-actions" });
+    for (const [grade, label] of [
+      ["again", "Again"],
+      ["hard", "Hard"],
+      ["good", "Good"],
+      ["easy", "Easy"],
+    ]) {
+      actions.createEl("button", { text: label }).addEventListener("click", () => this.rate(grade));
+    }
+    el.createEl("button", { text: "Open note", cls: "qt-link" }).addEventListener("click", () => {
+      this.app.workspace.getLeaf("tab").openFile(item.file);
+    });
+  }
+
+  async rate(grade) {
+    const item = this.queue[this.index];
+    if (!item) return;
+    const seconds = Math.max(1, Math.round((Date.now() - this.started) / 1000));
+    try {
+      await this.plugin.recordNoteReview(item.file, grade, seconds);
+      this.index++;
+      await this.render();
+    } catch (e) {
+      new Notice(`Could not record this note review: ${str(e && e.message ? e.message : e)}`);
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = { NoteReviewModal };
+};
+
 /* ---- src/notes.js ---- */
 __defs["notes"] = function (module, exports, require) {
 const { addDays, fmtDate, fmtDateTime, fmtDateTimeSec, str } = require("./util");
@@ -31602,6 +31902,9 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
+const { gradeQuizBlockQuestion, parseQuizBlock, visibleQuizCount } = require("./quiz-block");
+const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
+const { NoteReviewModal } = require("./note-review-modal");
 const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
@@ -31658,6 +31961,7 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.manager = new OpenCodeManager(this);
     this.setupReminder();
+    this.setupNoteReviewStatus();
     this.app.workspace.onLayoutReady(() => {
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
       const ai = this.settings.ai;
@@ -31885,6 +32189,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
+    this.addCommand({ id: "review-notes", name: "Review notes (whole-note queue)", callback: () => this.openNoteReview() });
     this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
     this.addCommand({ id: "manage-study-status", name: "Manage hidden study items", callback: () => this.openStudyStatusManager() });
 
@@ -31898,6 +32203,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.registerMarkdownCodeBlockProcessor("mcq-dashboard", (source, el) => this.renderDashboardBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("mcq-quiz", (source, el) => this.renderQuizBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("smiles", (source, el) => {
       const result = renderSmilesSvg(source);
       if (!result.ok) {
@@ -32097,6 +32403,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.practicePath = str(this.settings.practicePath).trim();
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
+    this.settings.noteReview = normalizeNoteReview(saved.noteReview);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
     this.settings.assignments = normalizeAssignmentSettings(saved.assignments);
     this.settings.reference = mergeReferenceSettings(saved.reference);
@@ -32469,6 +32776,7 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_ASSIGNMENTS)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
+    this.refreshNoteReviewStatus();
   }
 
   /** Re-draws only the practice views that are showing the first-run screen (an import just finished). */
@@ -34416,6 +34724,151 @@ class QuestionTrackerPlugin extends Plugin {
     if (result.invalid) bits.push(`${result.invalid} invalid`);
     new Notice(bits.join(" · "), 8000);
     return result;
+  }
+
+  /** Record an inline quiz answer on its linked question note, if it has one. */
+  async recordQuizBlockAnswer(question, result, seconds) {
+    const id = str(question && question.id).trim();
+    if (!id) return null;
+    const target = this.getQuestions().find((q) => str(q.fm.question_id).trim() === id);
+    if (!target) return null;
+    return this.recordAttempt(target.file, {
+      chosen: str(result && result.selected),
+      correct: !!(result && result.correct),
+      conf: 2,
+      seconds: Math.max(1, Math.round(Number(seconds) || 0)),
+      now: new Date(),
+      course: target.fm.course,
+    });
+  }
+
+  /** Render an `mcq-quiz` fenced block: inline choices, gating and per-option feedback. */
+  async renderQuizBlock(source, el) {
+    const parsed = parseQuizBlock(source);
+    if (!parsed.questions.length) {
+      el.createDiv({ cls: "qt-quiz-empty", text: "This quiz block has no questions. Start a question with Q: and add choices with A., B., ..." });
+      return;
+    }
+    const box = el.createDiv({ cls: "qt-quiz-block" });
+    let answered = 0;
+    const cards = [];
+    parsed.questions.forEach((question, index) => {
+      const card = box.createDiv({ cls: "qt-quiz-card" });
+      cards.push(card);
+      card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
+      if (!question.valid) {
+        card.createDiv({ cls: "qt-quiz-issue", text: question.issues.join(" ") });
+        return;
+      }
+      const choices = card.createDiv({ cls: "qt-quiz-choices" });
+      const feedback = card.createDiv({ cls: "qt-quiz-feedback" });
+      const buttons = [];
+      const started = Date.now();
+      let done = false;
+      question.choices.forEach((choice) => {
+        const button = choices.createEl("button", { cls: "qt-quiz-choice", text: `${choice.letter}. ${choice.text}` });
+        buttons.push(button);
+        button.addEventListener("click", async () => {
+          if (done) return;
+          done = true;
+          const result = gradeQuizBlockQuestion(question, choice.letter);
+          result.options.forEach((option, i) => {
+            buttons[i].addClass(option.correct ? "is-correct" : "is-wrong");
+            if (option.selected) buttons[i].addClass("is-picked");
+          });
+          for (const option of result.options) {
+            const line = feedback.createDiv({ cls: "qt-quiz-option-feedback" });
+            line.createSpan({ text: `${option.letter}. ${option.correct ? "Correct" : option.selected ? "Your choice" : ""} ` });
+            if (option.feedback) line.createSpan({ text: option.feedback });
+          }
+          if (result.explanation) feedback.createDiv({ cls: "qt-quiz-explanation", text: result.explanation });
+          card.createDiv({ cls: result.correct ? "qt-quiz-result is-correct" : "qt-quiz-result is-wrong", text: result.correct ? "Correct" : "Not quite" });
+          answered++;
+          cards.forEach((item, i) => item.toggleClass("qt-quiz-hidden", parsed.gated && i >= visibleQuizCount(parsed.questions.length, answered, true)));
+          try {
+            await this.recordQuizBlockAnswer(question, result, (Date.now() - started) / 1000);
+          } catch (e) {
+            new Notice(`Could not record this inline answer: ${str(e && e.message ? e.message : e)}`);
+          }
+        });
+      });
+    });
+    cards.forEach((card, index) => card.toggleClass("qt-quiz-hidden", parsed.gated && index >= visibleQuizCount(parsed.questions.length, 0, true)));
+  }
+
+  /* ---- whole-note review, using the same scheduler as questions and cards */
+
+  setupNoteReviewStatus() {
+    if (typeof this.addStatusBarItem !== "function") return;
+    this.noteReviewEl = this.addStatusBarItem();
+    this.noteReviewEl.addClass("qt-note-review-status");
+    this.noteReviewEl.addEventListener("click", () => this.openNoteReview());
+    this.refreshNoteReviewStatus();
+    this.registerInterval(activeWindow.setInterval(() => this.refreshNoteReviewStatus(), 60000));
+  }
+
+  refreshNoteReviewStatus() {
+    if (!this.noteReviewEl) return;
+    const config = normalizeNoteReview(this.settings.noteReview);
+    if (!config.enabled) {
+      this.noteReviewEl.setText("");
+      this.noteReviewEl.toggleClass("qt-hidden", true);
+      return;
+    }
+    const queue = this.getNoteQueue({ limit: 0 });
+    this.noteReviewEl.toggleClass("qt-hidden", false);
+    this.noteReviewEl.setText(`Notes due: ${queue.counts.due}`);
+    this.noteReviewEl.setAttr("aria-label", `${queue.counts.due} whole note${queue.counts.due === 1 ? "" : "s"} due for review`);
+  }
+
+  getNoteCandidates() {
+    return this.app.vault.getMarkdownFiles().map((file) => ({
+      file,
+      fm: (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {},
+    }));
+  }
+
+  getNoteQueue(options) {
+    const opts = options || {};
+    const config = normalizeNoteReview(this.settings.noteReview);
+    return buildNoteQueue(this.getNoteCandidates(), {
+      sets: config.sets,
+      today: localDate(),
+      limit: opts.limit === undefined ? config.limit : opts.limit,
+    });
+  }
+
+  openNoteReview() {
+    const config = normalizeNoteReview(this.settings.noteReview);
+    if (!config.enabled) {
+      new Notice("Turn on whole-note review under Settings → MCQ Tracker → Review first.", 6000);
+      return null;
+    }
+    const modal = new NoteReviewModal(this.app, this);
+    modal.open();
+    return modal;
+  }
+
+  /** Record a whole-note rating through the same applyAttempt path as questions and cards. */
+  async recordNoteReview(file, grade, seconds) {
+    const attempt = noteReviewAttempt(grade, seconds);
+    let summary;
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      summary = applyAttempt(fm, attempt, this.settings.intervals, {
+        scheduler: this.settings.scheduler,
+        fsrsRetention: this.settings.fsrsRetention,
+        grade: attempt.grade,
+      });
+    });
+    this.refreshViews();
+    return summary;
+  }
+
+  async setNotePriority(file, priority) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      fm.note_review_priority = normalizePriority(priority);
+    });
+    this.refreshViews();
   }
 
   /** Write an already-previewed transcript draft. */
@@ -39159,6 +39612,203 @@ module.exports = {
 };
 };
 
+/* ---- src/quiz-block.js ---- */
+__defs["quiz-block"] = function (module, exports, require) {
+/*
+ * Inline quizzes for ordinary notes.
+ *
+ * A fenced `mcq-quiz` block is parsed by this module; the plugin renders it in
+ * place. The format deliberately mirrors a question note:
+ *
+ *   gated: true
+ *   Q: Which gas do plants take in?
+ *   A. Oxygen
+ *   B. Carbon dioxide
+ *   Why A: Oxygen is released, not taken in.
+ *   Why B: Photosynthesis consumes carbon dioxide.
+ *   Answer: B
+ *   Why: The light reactions use CO2.
+ *   ID: Q-123          (optional: record the attempt on that question note)
+ *
+ * `gated` hides every question after the current one until the reader answers.
+ * Per-option feedback is shown for every choice, not only the picked one.
+ */
+const { str } = require("./util");
+const { formatChoiceSet, parseChoiceSet } = require("./answer-types");
+
+const LETTERS = "ABCDEFGH";
+
+function clean(value) {
+  return str(value).replace(/\s+/g, " ").trim();
+}
+
+function resolveAnswer(raw, choices) {
+  const text = clean(raw).replace(/^[*_`"']+|[*_`"']+$/g, "");
+  if (!text) return "";
+  const byText = choices.findIndex((choice) => clean(choice.text).toLowerCase() === text.toLowerCase());
+  if (byText >= 0) return LETTERS[byText];
+  const set = parseChoiceSet(text);
+  if (set.length && set.every((letter) => LETTERS.indexOf(letter) < choices.length)) return formatChoiceSet(set);
+  const single = text.match(/^\(?([A-Ha-h])\)?(?:[.):\s]|$)/);
+  if (!single) return "";
+  const letter = single[1].toUpperCase();
+  return LETTERS.indexOf(letter) < choices.length ? letter : "";
+}
+
+function newQuestion() {
+  return { question: "", choices: [], answer: "", explanation: "", id: "", issues: [] };
+}
+
+/**
+ * Parse one fenced block. Never throws: malformed questions are returned with
+ * an `issues` list so the renderer can explain the problem in place.
+ */
+function parseQuizBlock(text) {
+  const lines = str(text).replace(/\r\n?/g, "\n").split("\n");
+  let gated = false;
+  const questions = [];
+  let cur = null;
+  let last = null;
+
+  const start = () => {
+    cur = newQuestion();
+    questions.push(cur);
+    last = null;
+  };
+  const append = (key, value, choiceIndex) => {
+    if (!cur || !value) return;
+    if (key === "choice") cur.choices[choiceIndex].text = `${cur.choices[choiceIndex].text} ${value}`.trim();
+    else if (key === "feedback") cur.choices[choiceIndex].feedback = `${cur.choices[choiceIndex].feedback} ${value}`.trim();
+    else cur[key] = `${cur[key]} ${value}`.trim();
+  };
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (/^gated\s*:\s*(true|yes|on)$/i.test(line)) {
+      gated = true;
+      continue;
+    }
+    if (/^---+$/.test(line)) {
+      cur = null;
+      last = null;
+      continue;
+    }
+    const question = line.match(/^(?:Q|Question)\s*[:.)]\s*(.*)$/i);
+    if (question) {
+      start();
+      cur.question = question[1].trim();
+      last = { key: "question" };
+      continue;
+    }
+    if (!cur) continue;
+
+    const id = line.match(/^(?:ID|Question[\s-]*ID)\s*[:.)]\s*(.*)$/i);
+    if (id) {
+      cur.id = id[1].trim();
+      last = { key: "id" };
+      continue;
+    }
+    const option = line.match(/^([A-H])\s*[.):]\s*(.*)$/);
+    if (option) {
+      cur.choices.push({ letter: option[1].toUpperCase(), text: option[2].trim(), feedback: "" });
+      last = { key: "choice", index: cur.choices.length - 1 };
+      continue;
+    }
+    const whyOption = line.match(/^(?:Why|Feedback|Note)\s+([A-H])\s*[:.)]\s*(.*)$/i);
+    if (whyOption) {
+      const index = cur.choices.findIndex((choice) => choice.letter === whyOption[1].toUpperCase());
+      if (index >= 0) {
+        cur.choices[index].feedback = whyOption[2].trim();
+        last = { key: "feedback", index };
+      }
+      continue;
+    }
+    const answer = line.match(/^(?:Answer|Key|Correct(?:\s+answer)?)\s*[:.)]\s*(.*)$/i);
+    if (answer) {
+      cur.answer = answer[1].trim();
+      last = { key: "answer" };
+      continue;
+    }
+    const why = line.match(/^(?:Why|Explanation|Rationale)\s*[:.)]\s*(.*)$/i);
+    if (why) {
+      cur.explanation = why[1].trim();
+      last = { key: "explanation" };
+      continue;
+    }
+    if (!line) continue;
+    if (last && last.key === "choice") append("choice", line, last.index);
+    else if (last && last.key === "feedback") append("feedback", line, last.index);
+    else if (last && ["question", "answer", "explanation"].includes(last.key)) append(last.key, line);
+  }
+
+  for (const [index, question] of questions.entries()) {
+    question.question = clean(question.question);
+    question.explanation = clean(question.explanation);
+    question.choices = question.choices.filter((choice) => clean(choice.text));
+    if (!question.question) question.issues.push(`Question ${index + 1} has no text.`);
+    if (question.choices.length < 2) question.issues.push(`Question ${index + 1} needs at least two choices.`);
+    if (!question.answer) question.issues.push(`Question ${index + 1} has no Answer line.`);
+    else {
+      const key = resolveAnswer(question.answer, question.choices);
+      if (!key) question.issues.push(`Question ${index + 1}: "${question.answer.slice(0, 30)}" is not one of its choices.`);
+      question.answer = key;
+    }
+    question.valid = question.issues.length === 0;
+  }
+  return { gated, questions };
+}
+
+/** Grade one choice selection and mark every option with its own feedback. */
+function gradeQuizBlockQuestion(question, selected) {
+  const q = question || {};
+  const key = parseChoiceSet(q.answer);
+  const picked = parseChoiceSet(selected);
+  const correct = key.length > 0 && key.length === picked.length && key.every((letter) => picked.includes(letter));
+  const options = (Array.isArray(q.choices) ? q.choices : []).map((choice) => ({
+    letter: str(choice.letter).toUpperCase(),
+    text: str(choice.text),
+    correct: key.includes(str(choice.letter).toUpperCase()),
+    selected: picked.includes(str(choice.letter).toUpperCase()),
+    feedback: str(choice.feedback),
+  }));
+  return { correct, key: key.join(", "), selected: picked.join(", "), options, explanation: str(q.explanation) };
+}
+
+/** Gated blocks show one unanswered question at a time; open blocks show all. */
+function visibleQuizCount(total, answered, gated) {
+  const n = Math.max(0, Math.round(Number(total) || 0));
+  if (!gated) return n;
+  return Math.min(n, Math.max(0, Math.round(Number(answered) || 0)) + 1);
+}
+
+function quizBlockScore(questions, selections) {
+  const list = Array.isArray(questions) ? questions : [];
+  const picks = selections && typeof selections === "object" ? selections : {};
+  let answered = 0;
+  let correct = 0;
+  list.forEach((question, index) => {
+    if (!(index in picks)) return;
+    answered++;
+    if (gradeQuizBlockQuestion(question, picks[index]).correct) correct++;
+  });
+  return {
+    answered,
+    correct,
+    total: list.length,
+    percent: answered ? Math.round((correct / answered) * 100) : 0,
+  };
+}
+
+module.exports = {
+  LETTERS,
+  gradeQuizBlockQuestion,
+  parseQuizBlock,
+  quizBlockScore,
+  resolveAnswer,
+  visibleQuizCount,
+};
+};
+
 /* ---- src/reference-data.js ---- */
 __defs["reference-data"] = function (module, exports, require) {
 /*
@@ -42659,6 +43309,7 @@ const { renderCalendarSettings } = require("./calendar-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { normalizeQuickAdaptive } = require("./adaptive-session");
+const { formatNoteSets, normalizeNoteReview, parseNoteSets } = require("./note-review");
 const { formatCourseDays, parseCourseDays } = require("./study-status");
 const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
@@ -43044,6 +43695,31 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             st.studyMode = normalizeStudyMode(v);
             await this.plugin.save();
           });
+      });
+
+    new Setting(containerEl).setName("Whole-note review").setHeading();
+    const noteReview = normalizeNoteReview(st.noteReview);
+    new Setting(containerEl)
+      .setName("Enable whole-note review")
+      .setDesc("Adds a Review notes command and a due count in the status bar. Notes are scheduled by the same ladder or FSRS as questions and cards; question and card notes are excluded.")
+      .addToggle((t) =>
+        t.setValue(noteReview.enabled).onChange(async (v) => {
+          st.noteReview = normalizeNoteReview({ ...noteReview, enabled: v });
+          await this.plugin.save();
+          this.plugin.refreshNoteReviewStatus();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Note sets")
+      .setDesc("One set per line: Name | folders | tags | priority. Folders include subfolders; blank folders or tags mean any. With no sets, only notes marked note_review: true are reviewed.")
+      .addTextArea((t) => {
+        t.setValue(formatNoteSets(noteReview.sets)).setPlaceholder("Class notes | Notes, Lectures | review | high");
+        t.inputEl.rows = 4;
+        t.onChange(async (v) => {
+          st.noteReview = normalizeNoteReview({ ...noteReview, sets: parseNoteSets(v) });
+          await this.plugin.save();
+          this.plugin.refreshNoteReviewStatus();
+        });
       });
 
     new Setting(containerEl)
@@ -47947,6 +48623,8 @@ const calculator = require("./calculator");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
+const quizBlock = require("./quiz-block");
+const noteReview = require("./note-review");
 const studyBundle = require("./study-bundle");
 const studyBundleImport = require("./study-bundle-import");
 const zipWrite = require("./zip-write");
@@ -48096,6 +48774,8 @@ QuestionTrackerPlugin.__test = {
   WeakSpotModal,
   QuickAddModal,
   quickAdd,
+  quizBlock,
+  noteReview,
   studyBundle,
   studyBundleImport,
   zipWrite,
