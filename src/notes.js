@@ -12,6 +12,7 @@ const { parsePairs } = require("./matching");
 const HEAD_ALIASES = {
   stimulus: ["stimulus", "passage", "source", "excerpt", "reading", "text", "figure"],
   question: ["question", "stem", "prompt"],
+  hint: ["hint", "clue"],
   choices: ["answer choices", "choices", "options", "answers choices"],
   pairs: ["pairs", "match", "matching"],
   answer: ["answer", "answer key", "correct answer", "answer and rationale", "solution"],
@@ -69,6 +70,7 @@ function parseSections(text) {
   return {
     stimulus: tidyStimulus(first(HEAD_ALIASES.stimulus)),
     question: first(HEAD_ALIASES.question),
+    hint: first(HEAD_ALIASES.hint),
     choices,
     pairs: parsePairs(first(HEAD_ALIASES.pairs)),
     answer: first(HEAD_ALIASES.answer),

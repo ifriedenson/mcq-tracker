@@ -42,6 +42,7 @@ class PracticeView extends ItemView {
     this.quickSession = null;
     this.study = null;
     this.matchOrder = [];
+    this.hintShown = false;
   }
 
   getViewType() {
@@ -135,6 +136,7 @@ class PracticeView extends ItemView {
     this.current = await loadQuestionData(this.plugin, q, { seed });
     this.sel = "";
     this.conf = 0;
+    this.hintShown = false;
     this.matchOrder =
       this.current.mode === "match"
         ? shuffleForSeed(this.current.pairs.map((_pair, i) => i), q.file.path)
@@ -1270,6 +1272,21 @@ class PracticeView extends ItemView {
     }
 
     this.md(q.sections.question || "*No `## Question` section found in this note.*", right.createDiv({ cls: "qt-stem" }), path);
+
+    const hintText = str(q.sections.hint).trim();
+    if (hintText && p.settings.hints === true && !closedBook) {
+      const hintRow = right.createDiv({ cls: "qt-hint qt-question-hint" });
+      const hintBtn = hintRow.createEl("button", {
+        text: this.hintShown ? "Hide hint" : "Show hint",
+        cls: "qt-link",
+        attr: { "aria-expanded": String(this.hintShown) },
+      });
+      if (this.hintShown) this.md(hintText, hintRow.createDiv({ cls: "qt-hint-text" }), path);
+      hintBtn.addEventListener("click", () => {
+        this.hintShown = !this.hintShown;
+        this.render();
+      });
+    }
 
     const mode = q.mode;
     const submit = fr.createEl("button", { text: "Submit", cls: "mod-cta qt-submit" });

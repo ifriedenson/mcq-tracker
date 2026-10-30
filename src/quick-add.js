@@ -31,6 +31,8 @@ const NAMED_FIELDS = {
   why: "explanation",
   explanation: "explanation",
   rationale: "explanation",
+  hint: "hint",
+  clue: "hint",
   course: "course",
   skill: "skill",
   difficulty: "difficulty",
@@ -44,7 +46,7 @@ function fieldAt(line) {
   if (question) return { key: "question", text: question[1] };
   const choice = line.match(/^[-*+]?\s*([A-H])\s*[.):]\s*(.*)$/);
   if (choice) return { key: "choice", text: choice[2] };
-  const named = line.match(/^(Stimulus|Passage|Source|Answer|Key|Correct answer|Correct|Why|Explanation|Rationale|Course|Skill|Difficulty|Unit|Test)\s*[:.)]\s*(.*)$/i);
+  const named = line.match(/^(Stimulus|Passage|Source|Answer|Key|Correct answer|Correct|Why|Explanation|Rationale|Hint|Clue|Course|Skill|Difficulty|Unit|Test)\s*[:.)]\s*(.*)$/i);
   if (named) {
     const key = NAMED_FIELDS[named[1].toLowerCase().replace(/\s+/g, " ")];
     if (key) return { key, text: named[2] };
@@ -52,11 +54,11 @@ function fieldAt(line) {
   return null;
 }
 
-const TEXT_FIELDS = new Set(["question", "stimulus", "explanation"]);
+const TEXT_FIELDS = new Set(["question", "stimulus", "explanation", "hint"]);
 const META_FIELDS = new Set(["course", "skill", "difficulty", "unit", "test"]);
 
 function emptyBlock() {
-  return { question: "", stimulus: "", explanation: "", answer: "", choices: [], meta: {}, last: null };
+  return { question: "", stimulus: "", explanation: "", hint: "", answer: "", choices: [], meta: {}, last: null };
 }
 
 /** Split pasted text into blocks. Everything before the first "Q:" line is ignored. */
@@ -162,6 +164,7 @@ function normalizeBlock(block, defaults) {
   const item = {
     question,
     stimulus: cleanText(block.stimulus),
+    hint: cleanText(block.hint),
     choices,
     answer,
     explanation: cleanText(block.explanation),
@@ -217,6 +220,12 @@ function quickAddNote(item, qid) {
   if (stimulus) {
     lines.push("## Stimulus", "");
     for (const line of stimulus.split("\n")) lines.push(line ? `> ${line}` : ">");
+    lines.push("");
+  }
+  const hint = str(data.hint).trim();
+  if (hint) {
+    lines.push("## Hint", "");
+    for (const line of hint.split("\n")) lines.push(line);
     lines.push("");
   }
   lines.push("## Question", "", str(data.question).trim(), "");

@@ -535,6 +535,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Per-question hints")
+      .setDesc(
+        "Show a Show hint button before you answer when a question has a hint property or a ## Hint section. Off by default, so existing notes look the same. Hints never change attempts, history, streak or scheduling; closed-book practice keeps them hidden."
+      )
+      .addToggle((t) =>
+        t.setValue(st.hints === true).onChange(async (v) => {
+          st.hints = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Pause timer when the app is backgrounded (mobile)")
       .setDesc("Stops the clock if you switch apps or lock your phone.")
       .addToggle((t) =>

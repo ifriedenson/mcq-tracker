@@ -28,6 +28,10 @@ async function loadQuestionData(plugin, q, options) {
   const app = plugin.app;
   const text = await app.vault.cachedRead(q.file);
   let sections = parseSections(text);
+  if (!sections.hint) {
+    const declaredHint = str(q.fm.hint || q.fm.clue).trim();
+    if (declaredHint) sections.hint = declaredHint;
+  }
   // Shared passage: if this note has none but names a stimulus_id, borrow it from a sibling note.
   if (!sections.stimulus && str(q.fm.stimulus_id).trim()) {
     const id = str(q.fm.stimulus_id).trim();

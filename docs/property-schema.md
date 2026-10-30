@@ -38,6 +38,7 @@ would break a reader ships with a migration and a new schema version.
 | `source_question_id`, `pdf_question_id`, `original_id` | string | Older or source-specific ID names read by the duplicate check. |
 | `test`, `section`, `domain`, `skill`, `unit` | string | Classification used by filters, stats and tests. |
 | `difficulty` | string | `easy`, `medium` or `hard` when the source provides it. |
+| `hint`, `clue` | string | Optional hint shown by the opt-in **Show hint** control in practice. A `## Hint` section is also read. Hints never affect attempts, history or scheduling. |
 | `course` | string | Course tag, when the import or template supplies one. |
 | `stimulus` / passage body | Markdown | A passage can live in the note body or in a linked note; `stimulus_id` links the set. |
 

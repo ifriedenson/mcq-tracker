@@ -17041,6 +17041,7 @@ const DEFAULT_SETTINGS = {
   autoPauseOnMobile: true,
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   closedBook: false, // opt-in: hide the Open note shortcut until the current question is submitted
+  hints: false, // opt-in: show a question's optional Hint section before answering
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
     managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)
@@ -29190,6 +29191,7 @@ const { parsePairs } = require("./matching");
 const HEAD_ALIASES = {
   stimulus: ["stimulus", "passage", "source", "excerpt", "reading", "text", "figure"],
   question: ["question", "stem", "prompt"],
+  hint: ["hint", "clue"],
   choices: ["answer choices", "choices", "options", "answers choices"],
   pairs: ["pairs", "match", "matching"],
   answer: ["answer", "answer key", "correct answer", "answer and rationale", "solution"],
@@ -29247,6 +29249,7 @@ function parseSections(text) {
   return {
     stimulus: tidyStimulus(first(HEAD_ALIASES.stimulus)),
     question: first(HEAD_ALIASES.question),
+    hint: first(HEAD_ALIASES.hint),
     choices,
     pairs: parsePairs(first(HEAD_ALIASES.pairs)),
     answer: first(HEAD_ALIASES.answer),
@@ -35352,6 +35355,7 @@ class QuestionTrackerPlugin extends Plugin {
     delete this.settings.showRationale;
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.closedBook = this.settings.closedBook === true;
+    this.settings.hints = this.settings.hints === true;
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -41392,6 +41396,7 @@ class PracticeView extends ItemView {
     this.quickSession = null;
     this.study = null;
     this.matchOrder = [];
+    this.hintShown = false;
   }
 
   getViewType() {
@@ -41485,6 +41490,7 @@ class PracticeView extends ItemView {
     this.current = await loadQuestionData(this.plugin, q, { seed });
     this.sel = "";
     this.conf = 0;
+    this.hintShown = false;
     this.matchOrder =
       this.current.mode === "match"
         ? shuffleForSeed(this.current.pairs.map((_pair, i) => i), q.file.path)
@@ -42621,6 +42627,21 @@ class PracticeView extends ItemView {
 
     this.md(q.sections.question || "*No `## Question` section found in this note.*", right.createDiv({ cls: "qt-stem" }), path);
 
+    const hintText = str(q.sections.hint).trim();
+    if (hintText && p.settings.hints === true && !closedBook) {
+      const hintRow = right.createDiv({ cls: "qt-hint qt-question-hint" });
+      const hintBtn = hintRow.createEl("button", {
+        text: this.hintShown ? "Hide hint" : "Show hint",
+        cls: "qt-link",
+        attr: { "aria-expanded": String(this.hintShown) },
+      });
+      if (this.hintShown) this.md(hintText, hintRow.createDiv({ cls: "qt-hint-text" }), path);
+      hintBtn.addEventListener("click", () => {
+        this.hintShown = !this.hintShown;
+        this.render();
+      });
+    }
+
     const mode = q.mode;
     const submit = fr.createEl("button", { text: "Submit", cls: "mod-cta qt-submit" });
     const ready = () => {
@@ -43635,6 +43656,8 @@ const NAMED_FIELDS = {
   why: "explanation",
   explanation: "explanation",
   rationale: "explanation",
+  hint: "hint",
+  clue: "hint",
   course: "course",
   skill: "skill",
   difficulty: "difficulty",
@@ -43648,7 +43671,7 @@ function fieldAt(line) {
   if (question) return { key: "question", text: question[1] };
   const choice = line.match(/^[-*+]?\s*([A-H])\s*[.):]\s*(.*)$/);
   if (choice) return { key: "choice", text: choice[2] };
-  const named = line.match(/^(Stimulus|Passage|Source|Answer|Key|Correct answer|Correct|Why|Explanation|Rationale|Course|Skill|Difficulty|Unit|Test)\s*[:.)]\s*(.*)$/i);
+  const named = line.match(/^(Stimulus|Passage|Source|Answer|Key|Correct answer|Correct|Why|Explanation|Rationale|Hint|Clue|Course|Skill|Difficulty|Unit|Test)\s*[:.)]\s*(.*)$/i);
   if (named) {
     const key = NAMED_FIELDS[named[1].toLowerCase().replace(/\s+/g, " ")];
     if (key) return { key, text: named[2] };
@@ -43656,11 +43679,11 @@ function fieldAt(line) {
   return null;
 }
 
-const TEXT_FIELDS = new Set(["question", "stimulus", "explanation"]);
+const TEXT_FIELDS = new Set(["question", "stimulus", "explanation", "hint"]);
 const META_FIELDS = new Set(["course", "skill", "difficulty", "unit", "test"]);
 
 function emptyBlock() {
-  return { question: "", stimulus: "", explanation: "", answer: "", choices: [], meta: {}, last: null };
+  return { question: "", stimulus: "", explanation: "", hint: "", answer: "", choices: [], meta: {}, last: null };
 }
 
 /** Split pasted text into blocks. Everything before the first "Q:" line is ignored. */
@@ -43766,6 +43789,7 @@ function normalizeBlock(block, defaults) {
   const item = {
     question,
     stimulus: cleanText(block.stimulus),
+    hint: cleanText(block.hint),
     choices,
     answer,
     explanation: cleanText(block.explanation),
@@ -43821,6 +43845,12 @@ function quickAddNote(item, qid) {
   if (stimulus) {
     lines.push("## Stimulus", "");
     for (const line of stimulus.split("\n")) lines.push(line ? `> ${line}` : ">");
+    lines.push("");
+  }
+  const hint = str(data.hint).trim();
+  if (hint) {
+    lines.push("## Hint", "");
+    for (const line of hint.split("\n")) lines.push(line);
     lines.push("");
   }
   lines.push("## Question", "", str(data.question).trim(), "");
@@ -49054,6 +49084,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       .addToggle((t) =>
         t.setValue(st.closedBook === true).onChange(async (v) => {
           st.closedBook = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Per-question hints")
+      .setDesc(
+        "Show a Show hint button before you answer when a question has a hint property or a ## Hint section. Off by default, so existing notes look the same. Hints never change attempts, history, streak or scheduling; closed-book practice keeps them hidden."
+      )
+      .addToggle((t) =>
+        t.setValue(st.hints === true).onChange(async (v) => {
+          st.hints = v === true;
           await this.plugin.save();
           this.plugin.refreshViews();
         })
@@ -55001,6 +55044,10 @@ async function loadQuestionData(plugin, q, options) {
   const app = plugin.app;
   const text = await app.vault.cachedRead(q.file);
   let sections = parseSections(text);
+  if (!sections.hint) {
+    const declaredHint = str(q.fm.hint || q.fm.clue).trim();
+    if (declaredHint) sections.hint = declaredHint;
+  }
   // Shared passage: if this note has none but names a stimulus_id, borrow it from a sibling note.
   if (!sections.stimulus && str(q.fm.stimulus_id).trim()) {
     const id = str(q.fm.stimulus_id).trim();

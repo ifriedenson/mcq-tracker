@@ -306,6 +306,10 @@ When an upcoming calendar exam matches the note's `course`, the scheduled `next_
 
 Each `history` entry is stored as `date|result|seconds|answer|confidence|error_type`.
 
+### Per-question hints (optional)
+
+Turn on **Settings → MCQ Tracker → Review → Per-question hints** to show a **Show hint** button before answering. A hint comes from a `## Hint` section or a `hint` frontmatter property, and it stays hidden until you press the button. Quick add questions also accepts `Hint:` or `Clue:`. The option is off by default, so existing notes look the same. Hints never change attempts, history, streak or scheduling, and closed-book practice keeps them hidden.
+
 ### Closed-book practice (optional)
 
 Turn on **Settings → MCQ Tracker → Review → Closed-book practice** to hide the **Open note** shortcut during a question. The question, choices and timer stay visible; the source row, answer note and explanation unlock only after you submit. The option is off by default, and it changes no attempts, history, streak, next review or scheduling. The toggle is a saved setting, so it stays on across practice sessions and plugin restarts; turn it off to restore the Open note shortcut.
