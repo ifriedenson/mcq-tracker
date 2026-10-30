@@ -144,6 +144,8 @@ const apExamResources = require("./ap-exam-resources");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const dailyQuiz = require("./daily-quiz");
 const simpleQuiz = require("./simple-quiz");
+const simpleNoteQuiz = require("./simple-note-quiz");
+const { SimpleNoteQuizModal } = require("./simple-note-quiz-modal");
 const adaptiveSession = require("./adaptive-session");
 const reminder = require("./reminder");
 const { renderDailySettings } = require("./daily-quiz-settings");
@@ -398,6 +400,8 @@ QuestionTrackerPlugin.__test = {
   unpackTestSession,
   dailyQuiz,
   simpleQuiz,
+  simpleNoteQuiz,
+  SimpleNoteQuizModal,
   adaptiveSession,
   reminder,
   renderDailySettings,

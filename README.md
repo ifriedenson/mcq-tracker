@@ -390,6 +390,22 @@ Add `quiztoday` for a local streak and today's card/quiz counts, and `quizcharts
 
 For generated cards, enable **Allow JavaScript card blocks** under Settings → MCQ Tracker → Daily quiz and use a `quizjs` block. The code receives `fc`, calls `fc.addCard({...})` for each card and must end with `fc.commit()`. JavaScript is off by default and is **trusted note code**, not a sandbox; only enable it for notes you trust.
 
+### Simple note quiz
+
+Run **Simple note quiz: start on this note** on an ordinary Markdown note. A non-empty line ending in `?` is a question; the lines below it are its answer until a blank line, or until the next unindented bullet when **Answer separator** is set to **Next unindented bullet**:
+
+```markdown
+What is the capital of France?
+Paris, on the Seine.
+
+What is 7 × 8?
+56
+```
+
+Choose **Known** or **Still learning** after revealing each answer. At the end, **Save marks** appends a visible `✅` or `❌` to the question line. Run the quiz again to review only unmarked or missed questions, or use **Clear marks** in the setup. The question marker, separator and shuffle behavior are under Settings → MCQ Tracker → Daily quiz.
+
+This is a note-local self-test. It never changes a question's attempts, history, streak or next review, and it does not create question notes. Fenced code blocks and YAML frontmatter are ignored when parsing.
+
 ### Whole-note review
 
 Turn it on under Settings → MCQ Tracker → Review. One set per line: `Name | folders | tags | priority`. Folders include subfolders, and blank folders or tags mean any note. With no sets, only notes with `note_review: true` are reviewed. The command **Review notes (whole-note queue)** shows one note at a time with Again/Hard/Good/Easy; ratings go through the same ladder or FSRS scheduler and write the usual `history`, `attempts` and `next_review` properties. A status-bar count shows notes due. Question and card notes are excluded, and `note_review_priority: high|normal|low` changes queue order only.

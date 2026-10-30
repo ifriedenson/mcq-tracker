@@ -4,6 +4,7 @@ const { localDate } = require("./util");
 const { dailyDone, dailyStreak, foldersText, normalizeDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { normalizeSimpleQuiz, simpleQuizDaySummary } = require("./simple-quiz");
+const { normalizeSimpleNoteQuiz } = require("./simple-note-quiz");
 
 function renderDailySettings(containerEl, plugin, redisplay) {
   const st = plugin.settings;
@@ -125,6 +126,46 @@ function renderDailySettings(containerEl, plugin, redisplay) {
         st.simpleQuiz = { ...next, stats: { days: {}, streak: 0, best: 0, lastCompleted: "" } };
         await plugin.save();
         redisplay();
+      })
+    );
+
+  new Setting(containerEl).setName("Simple note quiz").setHeading();
+  const noteQuiz = normalizeSimpleNoteQuiz(st.simpleNoteQuiz);
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Run Simple note quiz: start on this note. Lines ending with your question marker become questions; the lines below them become answers. Known and missed marks stay in the note and do not change the question scheduler.",
+  });
+  new Setting(containerEl)
+    .setName("Question marker")
+    .setDesc("A non-empty line ending with this text becomes a question. Default: ?")
+    .addText((text) =>
+      text.setValue(noteQuiz.questionMark).onChange(async (value) => {
+        const requested = String(value || "").trim();
+        if (!requested) return;
+        st.simpleNoteQuiz = { ...normalizeSimpleNoteQuiz(st.simpleNoteQuiz), questionMark: requested.slice(0, 16) };
+        await plugin.save();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Answer separator")
+    .setDesc("Blank line ends an answer, or start the next question with an unindented bullet.")
+    .addDropdown((dropdown) =>
+      dropdown
+        .addOption("blank", "Blank line")
+        .addOption("bullet", "Next unindented bullet")
+        .setValue(noteQuiz.separator)
+        .onChange(async (value) => {
+          st.simpleNoteQuiz = { ...normalizeSimpleNoteQuiz(st.simpleNoteQuiz), separator: value };
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Shuffle note questions")
+    .setDesc("Shuffle the questions chosen for each Simple note quiz session.")
+    .addToggle((toggle) =>
+      toggle.setValue(noteQuiz.shuffle).onChange(async (value) => {
+        st.simpleNoteQuiz = { ...normalizeSimpleNoteQuiz(st.simpleNoteQuiz), shuffle: value };
+        await plugin.save();
       })
     );
 }

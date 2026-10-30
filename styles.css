@@ -5454,3 +5454,34 @@
 .qt-simple-quiz-chart-bar.is-cards { background: var(--interactive-accent); }
 .qt-simple-quiz-chart-bar.is-quizzes { background: var(--text-muted); }
 .qt-simple-quiz-chart-label { color: var(--text-faint); font-size: 0.6em; text-align: center; }
+
+/* Simple Note Quiz: a modal quiz over the current note. */
+.qt-simple-note-quiz-modal .qt-simple-note-quiz-question {
+  border-left: 3px solid var(--interactive-accent);
+  font-size: 1.1em;
+  font-weight: 600;
+  margin: 10px 0;
+  padding-left: 10px;
+}
+.qt-simple-note-quiz-modal .qt-simple-note-quiz-answer {
+  background: var(--background-secondary);
+  border-radius: 6px;
+  margin: 10px 0;
+  padding: 10px 12px;
+}
+.qt-simple-note-quiz-modal .qt-simple-note-quiz-count,
+.qt-simple-note-quiz-modal .qt-simple-note-quiz-score {
+  font-weight: 600;
+  margin: 8px 0;
+}
+.qt-simple-note-quiz-modal .qt-simple-note-quiz-progress {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  margin: 4px 0 10px;
+}
+.qt-simple-note-quiz-modal .qt-simple-note-quiz-actions {
+  flex-wrap: wrap;
+}
+.qt-simple-note-quiz-modal .qt-simple-note-quiz-issues {
+  margin-top: 10px;
+}

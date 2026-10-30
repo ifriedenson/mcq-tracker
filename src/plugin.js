@@ -79,6 +79,8 @@ const { completeDailyQuiz: recordDailyCompletion, dailyDone, normalizeDailyQuiz,
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
 const { extractSimpleQuizBlocks, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, runSimpleQuizJavaScript, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
+const { applySimpleNoteQuizMarks, clearSimpleNoteQuizMarks, normalizeSimpleNoteQuiz, parseSimpleNoteQuiz } = require("./simple-note-quiz");
+const { SimpleNoteQuizModal } = require("./simple-note-quiz-modal");
 const { normalizeTutorRole } = require("./tutor-presets");
 const { normalizeAiContext } = require("./ai-context");
 const aiService = require("./ai-service");
@@ -415,6 +417,17 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "sync-cards-couchdb", name: "Cards: sync review state with CouchDB", callback: () => this.syncCardsCouchDb() });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
     this.addCommand({ id: "review-notes", name: "Review notes (whole-note queue)", callback: () => this.openNoteReview() });
+    this.addCommand({
+      id: "simple-note-quiz",
+      name: "Simple note quiz: start on this note",
+      checkCallback: (checking) => {
+        if (this.moduleOff("mcq")) return false;
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !/\.md$/i.test(file.path)) return false;
+        if (!checking) this.openSimpleNoteQuiz().catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not start the note quiz.", 6000));
+        return true;
+      },
+    });
     this.addCommand({ id: "generate-quiz", name: "Generate quiz questions from notes", callback: () => this.openQuizGenerator() });
     this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
     this.addCommand({ id: "manage-study-status", name: "Manage hidden study items", callback: () => this.openStudyStatusManager() });
@@ -630,6 +643,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quickDefaults = Object.assign({}, DEFAULT_SETTINGS.quickDefaults, saved.quickDefaults || {});
     this.settings.dailyQuiz = normalizeDailyQuiz(saved.dailyQuiz);
     this.settings.simpleQuiz = normalizeSimpleQuiz(saved.simpleQuiz);
+    this.settings.simpleNoteQuiz = normalizeSimpleNoteQuiz(saved.simpleNoteQuiz);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -3975,6 +3989,54 @@ class QuestionTrackerPlugin extends Plugin {
     const modal = new NoteReviewModal(this.app, this);
     modal.open();
     return modal;
+  }
+
+  /** Read and parse the active note without changing its scheduler state. */
+  async loadSimpleNoteQuiz(file) {
+    const text = await this.app.vault.cachedRead(file);
+    return { ...parseSimpleNoteQuiz(text, this.settings.simpleNoteQuiz), file, text };
+  }
+
+  /** Save the self-ratings as visible ✅/❌ marks on the question lines. */
+  async saveSimpleNoteQuizMarks(file, results) {
+    const current = await this.app.vault.read(file);
+    const result = applySimpleNoteQuizMarks(current, results);
+    if (result.changed) await this.app.vault.modify(file, result.text);
+    return result;
+  }
+
+  /** Remove all Simple Note Quiz marks from one note. */
+  async clearSimpleNoteQuizMarks(file) {
+    const current = await this.app.vault.read(file);
+    const result = clearSimpleNoteQuizMarks(current);
+    if (result.changed) await this.app.vault.modify(file, result.text);
+    return result;
+  }
+
+  async openSimpleNoteQuiz() {
+    if (this.moduleOff("mcq")) {
+      new Notice("Turn on MCQ Tracker to use Simple Note Quiz.", 6000);
+      return null;
+    }
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice("Open a Markdown note first.", 5000);
+      return null;
+    }
+    try {
+      const parsed = await this.loadSimpleNoteQuiz(file);
+      if (!parsed.questions.length) {
+        const detail = parsed.issues && parsed.issues.length ? ` ${parsed.issues[0]}` : "";
+        new Notice(`No question/answer pairs found.${detail}`, 7000);
+        return parsed;
+      }
+      const modal = new SimpleNoteQuizModal(this.app, this, file, parsed, parsed.options);
+      modal.open();
+      return modal;
+    } catch (e) {
+      new Notice(`Could not read this note: ${str(e && e.message ? e.message : e)}`, 7000);
+      return null;
+    }
   }
 
   /** Record a whole-note rating through the same applyAttempt path as questions and cards. */
