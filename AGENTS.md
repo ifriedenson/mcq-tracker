@@ -13,16 +13,19 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
 - Anki bridge hardening (no release, Oct 30, 2026): push-only now updates linked notes instead of duplicating them, duplicate media basenames warn instead of silently overwriting, and tables keep escaped pipes plus inline formatting. Real desktop checks are in `docs/anki-smoke-test.md` and remain a manual gate.
-- Step 9 queue rows 1–28 are shipped; row 28 was verified-satisfied against the existing whole-note queue. Row 24 was verified as already covered by FSRS and AI card generation; row 25 has no documented feature. §5.22.4 item 7 (needs-fixing flag) shipped in 1.152.0, item 3 (answer-free export) shipped in 1.153.0 and item 2 (exam coverage) shipped in 1.154.0. Item 1 (misconception diagnosis) is open in §11 item 13. §5.22.4 item 4 (closed-book practice) shipped in 1.155.0. No specified §5.22.4 item remains; item 1 stays open in §11 item 13. Omniscient keyboard-first shortcuts are open in §11 item 14. Quizzable define-once/play-anywhere and its partial-credit formula are open in §11 item 15.
+- Step 9 queue rows 1–28 are shipped; row 28 was verified-satisfied against the existing whole-note queue. Row 24 was verified as already covered by FSRS and AI card generation; row 25 has no documented feature. §5.22.4 item 7 (needs-fixing flag) shipped in 1.152.0, item 3 (answer-free export) shipped in 1.153.0 and item 2 (exam coverage) shipped in 1.154.0. Item 1 (misconception diagnosis) is open in §11 item 13. §5.22.4 item 4 (closed-book practice) shipped in 1.155.0. No specified §5.22.4 item remains; item 1 stays open in §11 item 13. Omniscient keyboard-first shortcuts are open in §11 item 14. Quizzable define-once/play-anywhere and its partial-credit formula are open in §11 item 15. Class Timetable odd/even parity is open in §11 item 16; semester dates and reading weeks shipped in 1.162.0.
 - **Lighter multi-question authoring** was ranked by the owner on Oct 30, 2026 and shipped in **1.128.0** as **Quick add questions** (`src/quick-add.js`, `src/quick-add-modal.js`).
 
 ## Commands
 
 ```bash
-npm test          # full test suite
-npm run build     # regenerate main.js from src/
-npm run check     # verify main.js matches src/
+npm ci --ignore-scripts   # reproducible install from package-lock.json
+npm test                  # full test suite
+npm run build             # regenerate main.js from src/
+npm run check             # verify main.js matches src/
 ```
+
+The repository is dependency-free, but `package-lock.json` is committed and the release workflow installs with `npm ci` so local and CI builds start from the same locked metadata.
 
 ## Rules
 

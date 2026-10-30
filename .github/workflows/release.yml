@@ -31,6 +31,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install from the lockfile
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
       - name: Run the tests (this also checks main.js is the build of src/)
         run: npm test
 

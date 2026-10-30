@@ -24,6 +24,8 @@ const {
   gapLabel,
   monthLabel,
   timelineEntries,
+  termWeekInfo,
+  termWeekLabel,
   upcomingExams,
   parseClassDetails,
   weekdayLabels,
@@ -183,6 +185,7 @@ function renderEventCard(plugin, timeline, event, key, options) {
 
   const card = item.createDiv({ cls: "uni-event-card" });
   card.style.setProperty("--event-color", color);
+  if (event.termReadingWeek) card.addClass("is-reading-week");
   card.setAttr("role", "button");
   card.setAttr("tabindex", "0");
 
@@ -206,6 +209,13 @@ function renderEventCard(plugin, timeline, event, key, options) {
     if (opts.liveNodes) opts.liveNodes.push({ node: text, event });
   }
 
+  if (event.termReadingWeek) {
+    const readingLabel = str(event.termReadingLabel).trim();
+    header.createDiv({
+      cls: "uni-event-term-badge",
+      text: readingLabel && readingLabel.toLowerCase() !== "reading week" ? `Reading week · ${readingLabel}` : "Reading week",
+    });
+  }
   header.createDiv({ cls: "uni-event-type-badge", text: classTypeLabel(settings, details.category) });
   card.createDiv({ cls: "uni-event-title", text: str(event.summary) || "Class" });
 
@@ -232,7 +242,7 @@ function renderEventCard(plugin, timeline, event, key, options) {
   badge.createSpan({ text: exists ? "Note exists" : "Missing note" });
 
   const label = str(event.summary) || "this class";
-  card.setAttr("aria-label", `${exists ? "Open" : "Create"} note for ${label}`);
+  card.setAttr("aria-label", `${exists ? "Open" : "Create"} note for ${label}${event.termReadingWeek ? ", reading week class" : ""}`);
 
   const open = (e) => {
     if (e && e.stopPropagation) e.stopPropagation();
@@ -260,10 +270,17 @@ function renderDaySection(plugin, container, key, options) {
   const opts = options || {};
   const settings = plugin.calendarSettings();
   const events = eventsOnDay(opts.events || plugin.calendarEvents(opts.now), key);
+  const term = termWeekInfo(settings, key);
+  const termLabel = termWeekLabel(term);
   const section = container.createDiv({ cls: "uni-schedule-section" });
   const header = section.createDiv({ cls: "uni-schedule-header" });
-  if (opts.title !== false) header.createDiv({ cls: "uni-schedule-date-title", text: dayHeading(key) });
+  if (opts.title !== false) {
+    const title = header.createDiv({ cls: "uni-schedule-date-title" });
+    title.createSpan({ text: dayHeading(key) });
+    if (termLabel) title.createSpan({ cls: `uni-term-badge${term && !term.inTerm ? " is-out-of-term" : ""}`, text: termLabel });
+  }
   const badges = header.createDiv({ cls: "uni-schedule-badges" });
+  if (opts.title === false && termLabel) badges.createDiv({ cls: "uni-term-badge", text: termLabel });
   badges.createDiv({ cls: "uni-schedule-badge-count", text: classesCount(events.length) });
   const freeMinutes = dayFreeMinutes(events);
   const slots = studySlotsFor(events);
@@ -279,9 +296,12 @@ function renderDaySection(plugin, container, key, options) {
     empty.createDiv({ cls: "uni-empty-schedule-icon", text: "🎓" });
     empty.createDiv({
       cls: "uni-empty-schedule-title uni-empty-schedule-text",
-      text: opts.emptyTitle || "No classes scheduled for this day.",
+      text: opts.emptyTitle || (term && term.readingWeek ? term.readingLabel || "Reading week" : "No classes scheduled for this day."),
     });
-    empty.createDiv({ cls: "uni-empty-schedule-subtext", text: "Enjoy your free time or review your notes!" });
+    empty.createDiv({
+      cls: "uni-empty-schedule-subtext",
+      text: term && term.readingWeek ? "No classes this week. Use the break to review." : "Enjoy your free time or review your notes!",
+    });
     return section;
   }
 
@@ -457,19 +477,28 @@ class CalendarView extends ItemView {
     const grid = card.createDiv({ cls: "uni-days-grid" });
     grid.setAttr("role", "grid");
     grid.setAttr("aria-label", monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()));
-    for (const cell of compactMonthCells(this.cursor.getFullYear(), this.cursor.getMonth(), settings.firstDayOfWeek)) {
+    const cells = compactMonthCells(this.cursor.getFullYear(), this.cursor.getMonth(), settings.firstDayOfWeek);
+    for (const [index, cell] of cells.entries()) {
       const day = grid.createDiv({ cls: "uni-day-cell" });
+      const term = termWeekInfo(settings, cell.key);
       if (!cell.inMonth) day.addClass("is-other-month");
       if (cell.isToday) day.addClass("is-today");
       if (cell.key === this.selectedKey) day.addClass("is-selected");
+      if (term && term.readingWeek) day.addClass("is-reading-week");
       day.setAttr("data-date", cell.key);
       day.setAttr("role", "gridcell");
       day.setAttr("tabindex", "0");
       day.setAttr("aria-selected", cell.key === this.selectedKey ? "true" : "false");
       day.createSpan({ text: String(cell.day) });
+      if (term && term.inTerm && index % 7 === 0) {
+        const week = day.createSpan({ cls: "uni-day-week", text: `W${term.week}` });
+        week.setAttr("aria-hidden", "true");
+      }
+      if (term) day.setAttr("title", termWeekLabel(term));
 
       const dayEvents = eventsOnDay(events, cell.key);
-      day.setAttr("aria-label", `${dayHeading(cell.key)}${dayEvents.length ? `, ${classesCount(dayEvents.length)}` : ""}`);
+      const termText = term ? `, ${termWeekLabel(term)}` : "";
+      day.setAttr("aria-label", `${dayHeading(cell.key)}${termText}${dayEvents.length ? `, ${classesCount(dayEvents.length)}` : ""}`);
       if (dayEvents.length) {
         const dots = day.createDiv({ cls: "uni-event-dots-container" });
         for (const event of dayEvents.slice(0, 3)) {

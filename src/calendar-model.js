@@ -88,6 +88,9 @@ const DEFAULT_CALENDAR_SETTINGS = {
   classColors: {},
   subjectColors: {},
   classNames: {},
+  semesterStart: "", // YYYY-MM-DD; empty keeps term tools off
+  semesterEnd: "", // optional YYYY-MM-DD; classes after this date are not drawn
+  readingWeeks: [], // { start, end, label } date or inclusive range
   autoSync: false, // URL feeds are refreshed on startup only when this is on
   calendarMaxWidth: 0, // 0 fills the pane; a positive value centers a narrower calendar
   studySlotBufferMinutes: 5, // kept free before the next class in a study slot
@@ -196,6 +199,13 @@ function mergeCalendarSettings(saved) {
   out.classColors = plainObject(out.classColors);
   out.subjectColors = plainObject(out.subjectColors);
   out.classNames = plainObject(out.classNames);
+  out.semesterStart = normalizeTermDate(out.semesterStart);
+  out.semesterEnd = normalizeTermDate(out.semesterEnd);
+  if (out.semesterStart && out.semesterEnd && out.semesterEnd < out.semesterStart) {
+    out.semesterStart = "";
+    out.semesterEnd = "";
+  }
+  out.readingWeeks = normalizeReadingWeeks(out.readingWeeks);
   const buffer = Math.round(Number(out.studySlotBufferMinutes));
   out.studySlotBufferMinutes = Number.isFinite(buffer) && buffer >= 0 && buffer <= 60 ? buffer : 5;
   const maxWidth = Math.round(Number(out.calendarMaxWidth));
@@ -215,6 +225,103 @@ function mergeCalendarSettings(saved) {
   if (!["YYYY-MM-DD", "DD.MM.YYYY", "DD/MM/YYYY", "MM/DD/YYYY"].includes(out.dateFormat)) out.dateFormat = "YYYY-MM-DD";
   if (!out.noteNameFormat.trim()) out.noteNameFormat = DEFAULT_CALENDAR_SETTINGS.noteNameFormat;
   if (!out.noteTemplate.trim()) out.noteTemplate = DEFAULT_NOTE_TEMPLATE;
+  return out;
+}
+
+/** A strict local calendar date key, or an empty string for anything malformed. */
+function normalizeTermDate(value) {
+  const key = str(value).trim();
+  const parsed = parseDateKey(key);
+  return parsed && dateKey(parsed) === key ? key : "";
+}
+
+/** Date or inclusive date range followed by an optional label, one per line. */
+function parseReadingWeekLine(line) {
+  const text = str(line).trim();
+  const match = /^(\d{4}-\d{2}-\d{2})(?:\s*(?:~|–|—|\.\.|\bto\b)\s*(\d{4}-\d{2}-\d{2}))?(?:\s+(.*))?$/i.exec(text);
+  if (!match) return null;
+  const start = normalizeTermDate(match[1]);
+  const end = normalizeTermDate(match[2] || match[1]);
+  if (!start || !end || end < start) return null;
+  const label = str(match[3]).trim().slice(0, 80);
+  return { start, end, label };
+}
+
+/** Normalizes reading-week lines/objects and drops duplicates and invalid ranges. */
+function normalizeReadingWeeks(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/\r?\n/);
+  const out = [];
+  const seen = new Set();
+  for (const entry of raw) {
+    const parsed =
+      entry && typeof entry === "object" && !Array.isArray(entry)
+        ? parseReadingWeekLine(
+            `${str(entry.start).trim()}${str(entry.end).trim() && str(entry.end).trim() !== str(entry.start).trim() ? ` ~ ${str(entry.end).trim()}` : ""}${str(entry.label).trim() ? ` ${str(entry.label).trim()}` : ""}`
+          )
+        : parseReadingWeekLine(entry);
+    if (!parsed) continue;
+    const key = `${parsed.start}|${parsed.end}|${parsed.label.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(parsed);
+  }
+  return out.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+}
+
+const termDayNumber = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000;
+
+/**
+ * Week 1 starts on the configured semester start date, not on the first Monday.
+ * Returns null until a start date is set, so every term feature stays inactive.
+ */
+function termWeekInfo(settings, key) {
+  const startKey = normalizeTermDate(settings && settings.semesterStart);
+  if (!startKey) return null;
+  const start = parseDateKey(startKey);
+  const date = parseDateKey(key);
+  if (!start || !date) return null;
+  const endKey = normalizeTermDate(settings && settings.semesterEnd);
+  const end = endKey ? parseDateKey(endKey) : null;
+  const inTerm = date >= start && (!end || date <= end);
+  const week = Math.floor((termDayNumber(date) - termDayNumber(start)) / 7) + 1;
+  const readingWeek = inTerm
+    ? (normalizeReadingWeeks(settings && settings.readingWeeks).find((entry) => key >= entry.start && key <= entry.end) || null)
+    : null;
+  return { start: startKey, end: endKey, week, inTerm, readingWeek, readingLabel: readingWeek ? readingWeek.label : "" };
+}
+
+/** `Week 6`, `Week 7 · Reading week` or a clear out-of-term label. */
+function termWeekLabel(info) {
+  if (!info) return "";
+  if (!info.inTerm) return info.end && info.start && info.week > 0 ? "After term" : "Before term";
+  const base = `Week ${info.week}`;
+  if (!info.readingWeek) return base;
+  return `${base} · ${info.readingLabel || "Reading week"}`;
+}
+
+/**
+ * Hides non-exam classes outside the configured semester. Classes inside a reading
+ * week stay visible with a marker so they can be struck through, but next-class
+ * selection skips them. Exams are never hidden or suspended.
+ */
+function applyTermWeeks(settings, events) {
+  const start = normalizeTermDate(settings && settings.semesterStart);
+  if (!start) return Array.isArray(events) ? events : [];
+  const out = [];
+  for (const event of Array.isArray(events) ? events : []) {
+    if (isExamEvent(event)) {
+      out.push(event);
+      continue;
+    }
+    const info = termWeekInfo(settings, event.dateKey);
+    if (!info || !info.inTerm) continue;
+    const copy = Object.assign({}, event, { termWeek: info.week });
+    if (info.readingWeek) {
+      copy.termReadingWeek = true;
+      copy.termReadingLabel = info.readingLabel;
+    }
+    out.push(copy);
+  }
   return out;
 }
 
@@ -578,7 +685,7 @@ function byStart(a, b) {
  */
 function nextClassStatus(events, now) {
   const at = now || new Date();
-  const timed = (events || []).filter((ev) => !ev.allDay && ev.dtstart && ev.dtend).sort(byStart);
+  const timed = (events || []).filter((ev) => !ev.allDay && ev.dtstart && ev.dtend && !ev.termReadingWeek).sort(byStart);
   const ongoing = timed.find((ev) => ev.dtstart <= at && at < ev.dtend);
   if (ongoing) return { state: "ongoing", event: ongoing, startsInMs: 0, endsInMs: ongoing.dtend - at };
   const next = timed.find((ev) => ev.dtstart > at);
@@ -742,6 +849,11 @@ module.exports = {
   classColor,
   isExamEvent,
   visibleEvents,
+  normalizeTermDate,
+  normalizeReadingWeeks,
+  termWeekInfo,
+  termWeekLabel,
+  applyTermWeeks,
   eventsOnDay,
   monthGrid,
   weekdayLabels,

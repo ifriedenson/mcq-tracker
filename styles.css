@@ -397,6 +397,26 @@
   outline-offset: 1px;
 }
 
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-day-cell.is-reading-week:not(.is-today) {
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0 5px,
+    var(--background-modifier-hover) 5px 6px
+  );
+  color: var(--text-muted);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-day-week {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  font-size: 0.56rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+}
+
 /* Kropki oznaczające obecność zajęć */
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-dots-container {
   display: flex;
@@ -435,9 +455,30 @@
 }
 
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-date-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-normal);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-term-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-accent);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-term-badge.is-out-of-term {
+  color: var(--text-muted);
+  border-style: dashed;
 }
 
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-schedule-badges {
@@ -611,6 +652,26 @@
   border-color: var(--event-color, var(--interactive-accent));
   background: var(--background-modifier-hover);
   box-shadow: 0 0 12px rgba(var(--interactive-accent-rgb, 120, 80, 220), 0.28);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card.is-reading-week {
+  border-style: dashed;
+  opacity: 0.7;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card.is-reading-week .uni-event-title {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-event-term-badge {
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--background-primary);
+  border: 1px dashed var(--background-modifier-border);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-countdown {

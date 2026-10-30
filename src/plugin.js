@@ -38,7 +38,7 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { cleanSubjectTitle, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { applyTermWeeks, cleanSubjectTitle, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
@@ -1377,7 +1377,9 @@ class QuestionTrackerPlugin extends Plugin {
   calendarEvents(now) {
     const range = this.calendarWindow(now);
     const sources = this.calendarSources().filter((s) => !s.hidden && s.content);
-    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
+    const cal = this.calendarSettings();
+    const termSignature = `${cal.semesterStart}|${cal.semesterEnd}|${(cal.readingWeeks || []).map((r) => `${r.start}:${r.end}:${r.label}`).join(",")}`;
+    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${termSignature}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
     if (this._calendarCache && this._calendarCache.signature === signature) return this._calendarCache.events;
     const all = [];
     const errors = [];
@@ -1389,7 +1391,7 @@ class QuestionTrackerPlugin extends Plugin {
         errors.push(`${source.name}: ${e.message}`);
       }
     }
-    const events = visibleEvents(this.calendarSettings(), all);
+    const events = applyTermWeeks(this.calendarSettings(), visibleEvents(this.calendarSettings(), all));
     this._calendarCache = { signature, events };
     this._calendarErrors = errors;
     return events;
@@ -5060,7 +5062,7 @@ ${body}
 
   async exportCalendarIcs() {
     if (this.moduleOff("calendar")) return;
-    const events = this.calendarEvents();
+    const events = this.calendarEvents().filter((event) => !event.termReadingWeek);
     if (!events.length) {
       new Notice("There are no visible classes or exams to export.");
       return;

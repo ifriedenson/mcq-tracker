@@ -6,7 +6,13 @@
  */
 const { Notice, Setting } = require("obsidian");
 const { str } = require("./util");
-const { BREAK_ICON_OPTIONS, CLASS_CATEGORIES, normalizeCourseRegistry } = require("./calendar-model");
+const {
+  BREAK_ICON_OPTIONS,
+  CLASS_CATEGORIES,
+  normalizeCourseRegistry,
+  normalizeReadingWeeks,
+  normalizeTermDate,
+} = require("./calendar-model");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 
 const CALENDAR_TABS = [
@@ -156,10 +162,70 @@ function renderSchedules(containerEl, plugin, redisplay) {
     .setDesc("Import an .ics file from the vault, or paste a public calendar feed. Google share links are converted to their .ics address.")
     .addButton((b) => b.setButtonText("Add").onClick(() => plugin.openCalendarImport()));
 
+  new Setting(containerEl).setName("Term calendar").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Optional. Week 1 starts on the semester start date. Classes outside the semester are hidden, and reading weeks are labelled but skipped by next-class actions. Exams are never hidden.",
+  });
+  const saveTerm = async () => {
+    plugin.invalidateCalendar();
+    await plugin.save();
+    plugin.refreshCalendarViews();
+  };
+  new Setting(containerEl)
+    .setName("Semester start")
+    .setDesc("The first day of teaching. Leave empty to keep term week numbers, semester limits and reading weeks off.")
+    .addText((t) => {
+      t.inputEl.type = "date";
+      t.setValue(cal.semesterStart || "").onChange(async (v) => {
+        const start = normalizeTermDate(v);
+        if (start && cal.semesterEnd && cal.semesterEnd < start) {
+          cal.semesterStart = "";
+          cal.semesterEnd = "";
+          new Notice("Semester end must be on or after the start.");
+          await saveTerm();
+          redisplay();
+          return;
+        }
+        cal.semesterStart = start;
+        await saveTerm();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Semester end")
+    .setDesc("Optional last teaching day. Classes after it are not drawn; exams still are.")
+    .addText((t) => {
+      t.inputEl.type = "date";
+      t.setValue(cal.semesterEnd || "").onChange(async (v) => {
+        const end = normalizeTermDate(v);
+        if (end && cal.semesterStart && end < cal.semesterStart) {
+          cal.semesterEnd = "";
+          new Notice("Semester end must be on or after the start.");
+          await saveTerm();
+          redisplay();
+          return;
+        }
+        cal.semesterEnd = end;
+        await saveTerm();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Reading weeks")
+    .setDesc("One date or inclusive range per line, with an optional label: 2026-10-19 ~ 2026-10-23 Reading week. These classes stay visible but are struck through and skipped by next-class actions.")
+    .addTextArea((t) => {
+      t.inputEl.rows = 4;
+      t.setPlaceholder("2026-10-19 ~ 2026-10-23 Reading week");
+      t.setValue(cal.readingWeeks.map((r) => `${r.start}${r.end !== r.start ? ` ~ ${r.end}` : ""}${r.label ? ` ${r.label}` : ""}`).join("\n"));
+      t.onChange(async (v) => {
+        cal.readingWeeks = normalizeReadingWeeks(v);
+        await saveTerm();
+      });
+    });
+
   new Setting(containerEl).setName("Actions").setHeading();
   new Setting(containerEl)
     .setName("Export the visible schedule")
-    .setDesc("Writes schedule-export.ics to the vault root, with hidden sources and excluded subjects left out.")
+    .setDesc("Writes schedule-export.ics to the vault root, with hidden sources, excluded subjects and reading-week classes left out.")
     .addButton((b) => b.setButtonText("Export .ics").onClick(() => plugin.exportCalendarIcs()));
 }
 

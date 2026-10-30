@@ -7432,6 +7432,9 @@ const DEFAULT_CALENDAR_SETTINGS = {
   classColors: {},
   subjectColors: {},
   classNames: {},
+  semesterStart: "", // YYYY-MM-DD; empty keeps term tools off
+  semesterEnd: "", // optional YYYY-MM-DD; classes after this date are not drawn
+  readingWeeks: [], // { start, end, label } date or inclusive range
   autoSync: false, // URL feeds are refreshed on startup only when this is on
   calendarMaxWidth: 0, // 0 fills the pane; a positive value centers a narrower calendar
   studySlotBufferMinutes: 5, // kept free before the next class in a study slot
@@ -7540,6 +7543,13 @@ function mergeCalendarSettings(saved) {
   out.classColors = plainObject(out.classColors);
   out.subjectColors = plainObject(out.subjectColors);
   out.classNames = plainObject(out.classNames);
+  out.semesterStart = normalizeTermDate(out.semesterStart);
+  out.semesterEnd = normalizeTermDate(out.semesterEnd);
+  if (out.semesterStart && out.semesterEnd && out.semesterEnd < out.semesterStart) {
+    out.semesterStart = "";
+    out.semesterEnd = "";
+  }
+  out.readingWeeks = normalizeReadingWeeks(out.readingWeeks);
   const buffer = Math.round(Number(out.studySlotBufferMinutes));
   out.studySlotBufferMinutes = Number.isFinite(buffer) && buffer >= 0 && buffer <= 60 ? buffer : 5;
   const maxWidth = Math.round(Number(out.calendarMaxWidth));
@@ -7559,6 +7569,103 @@ function mergeCalendarSettings(saved) {
   if (!["YYYY-MM-DD", "DD.MM.YYYY", "DD/MM/YYYY", "MM/DD/YYYY"].includes(out.dateFormat)) out.dateFormat = "YYYY-MM-DD";
   if (!out.noteNameFormat.trim()) out.noteNameFormat = DEFAULT_CALENDAR_SETTINGS.noteNameFormat;
   if (!out.noteTemplate.trim()) out.noteTemplate = DEFAULT_NOTE_TEMPLATE;
+  return out;
+}
+
+/** A strict local calendar date key, or an empty string for anything malformed. */
+function normalizeTermDate(value) {
+  const key = str(value).trim();
+  const parsed = parseDateKey(key);
+  return parsed && dateKey(parsed) === key ? key : "";
+}
+
+/** Date or inclusive date range followed by an optional label, one per line. */
+function parseReadingWeekLine(line) {
+  const text = str(line).trim();
+  const match = /^(\d{4}-\d{2}-\d{2})(?:\s*(?:~|–|—|\.\.|\bto\b)\s*(\d{4}-\d{2}-\d{2}))?(?:\s+(.*))?$/i.exec(text);
+  if (!match) return null;
+  const start = normalizeTermDate(match[1]);
+  const end = normalizeTermDate(match[2] || match[1]);
+  if (!start || !end || end < start) return null;
+  const label = str(match[3]).trim().slice(0, 80);
+  return { start, end, label };
+}
+
+/** Normalizes reading-week lines/objects and drops duplicates and invalid ranges. */
+function normalizeReadingWeeks(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/\r?\n/);
+  const out = [];
+  const seen = new Set();
+  for (const entry of raw) {
+    const parsed =
+      entry && typeof entry === "object" && !Array.isArray(entry)
+        ? parseReadingWeekLine(
+            `${str(entry.start).trim()}${str(entry.end).trim() && str(entry.end).trim() !== str(entry.start).trim() ? ` ~ ${str(entry.end).trim()}` : ""}${str(entry.label).trim() ? ` ${str(entry.label).trim()}` : ""}`
+          )
+        : parseReadingWeekLine(entry);
+    if (!parsed) continue;
+    const key = `${parsed.start}|${parsed.end}|${parsed.label.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(parsed);
+  }
+  return out.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+}
+
+const termDayNumber = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000;
+
+/**
+ * Week 1 starts on the configured semester start date, not on the first Monday.
+ * Returns null until a start date is set, so every term feature stays inactive.
+ */
+function termWeekInfo(settings, key) {
+  const startKey = normalizeTermDate(settings && settings.semesterStart);
+  if (!startKey) return null;
+  const start = parseDateKey(startKey);
+  const date = parseDateKey(key);
+  if (!start || !date) return null;
+  const endKey = normalizeTermDate(settings && settings.semesterEnd);
+  const end = endKey ? parseDateKey(endKey) : null;
+  const inTerm = date >= start && (!end || date <= end);
+  const week = Math.floor((termDayNumber(date) - termDayNumber(start)) / 7) + 1;
+  const readingWeek = inTerm
+    ? (normalizeReadingWeeks(settings && settings.readingWeeks).find((entry) => key >= entry.start && key <= entry.end) || null)
+    : null;
+  return { start: startKey, end: endKey, week, inTerm, readingWeek, readingLabel: readingWeek ? readingWeek.label : "" };
+}
+
+/** `Week 6`, `Week 7 · Reading week` or a clear out-of-term label. */
+function termWeekLabel(info) {
+  if (!info) return "";
+  if (!info.inTerm) return info.end && info.start && info.week > 0 ? "After term" : "Before term";
+  const base = `Week ${info.week}`;
+  if (!info.readingWeek) return base;
+  return `${base} · ${info.readingLabel || "Reading week"}`;
+}
+
+/**
+ * Hides non-exam classes outside the configured semester. Classes inside a reading
+ * week stay visible with a marker so they can be struck through, but next-class
+ * selection skips them. Exams are never hidden or suspended.
+ */
+function applyTermWeeks(settings, events) {
+  const start = normalizeTermDate(settings && settings.semesterStart);
+  if (!start) return Array.isArray(events) ? events : [];
+  const out = [];
+  for (const event of Array.isArray(events) ? events : []) {
+    if (isExamEvent(event)) {
+      out.push(event);
+      continue;
+    }
+    const info = termWeekInfo(settings, event.dateKey);
+    if (!info || !info.inTerm) continue;
+    const copy = Object.assign({}, event, { termWeek: info.week });
+    if (info.readingWeek) {
+      copy.termReadingWeek = true;
+      copy.termReadingLabel = info.readingLabel;
+    }
+    out.push(copy);
+  }
   return out;
 }
 
@@ -7922,7 +8029,7 @@ function byStart(a, b) {
  */
 function nextClassStatus(events, now) {
   const at = now || new Date();
-  const timed = (events || []).filter((ev) => !ev.allDay && ev.dtstart && ev.dtend).sort(byStart);
+  const timed = (events || []).filter((ev) => !ev.allDay && ev.dtstart && ev.dtend && !ev.termReadingWeek).sort(byStart);
   const ongoing = timed.find((ev) => ev.dtstart <= at && at < ev.dtend);
   if (ongoing) return { state: "ongoing", event: ongoing, startsInMs: 0, endsInMs: ongoing.dtend - at };
   const next = timed.find((ev) => ev.dtstart > at);
@@ -8086,6 +8193,11 @@ module.exports = {
   classColor,
   isExamEvent,
   visibleEvents,
+  normalizeTermDate,
+  normalizeReadingWeeks,
+  termWeekInfo,
+  termWeekLabel,
+  applyTermWeeks,
   eventsOnDay,
   monthGrid,
   weekdayLabels,
@@ -8263,7 +8375,13 @@ __defs["calendar-settings"] = function (module, exports, require) {
  */
 const { Notice, Setting } = require("obsidian");
 const { str } = require("./util");
-const { BREAK_ICON_OPTIONS, CLASS_CATEGORIES, normalizeCourseRegistry } = require("./calendar-model");
+const {
+  BREAK_ICON_OPTIONS,
+  CLASS_CATEGORIES,
+  normalizeCourseRegistry,
+  normalizeReadingWeeks,
+  normalizeTermDate,
+} = require("./calendar-model");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 
 const CALENDAR_TABS = [
@@ -8413,10 +8531,70 @@ function renderSchedules(containerEl, plugin, redisplay) {
     .setDesc("Import an .ics file from the vault, or paste a public calendar feed. Google share links are converted to their .ics address.")
     .addButton((b) => b.setButtonText("Add").onClick(() => plugin.openCalendarImport()));
 
+  new Setting(containerEl).setName("Term calendar").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Optional. Week 1 starts on the semester start date. Classes outside the semester are hidden, and reading weeks are labelled but skipped by next-class actions. Exams are never hidden.",
+  });
+  const saveTerm = async () => {
+    plugin.invalidateCalendar();
+    await plugin.save();
+    plugin.refreshCalendarViews();
+  };
+  new Setting(containerEl)
+    .setName("Semester start")
+    .setDesc("The first day of teaching. Leave empty to keep term week numbers, semester limits and reading weeks off.")
+    .addText((t) => {
+      t.inputEl.type = "date";
+      t.setValue(cal.semesterStart || "").onChange(async (v) => {
+        const start = normalizeTermDate(v);
+        if (start && cal.semesterEnd && cal.semesterEnd < start) {
+          cal.semesterStart = "";
+          cal.semesterEnd = "";
+          new Notice("Semester end must be on or after the start.");
+          await saveTerm();
+          redisplay();
+          return;
+        }
+        cal.semesterStart = start;
+        await saveTerm();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Semester end")
+    .setDesc("Optional last teaching day. Classes after it are not drawn; exams still are.")
+    .addText((t) => {
+      t.inputEl.type = "date";
+      t.setValue(cal.semesterEnd || "").onChange(async (v) => {
+        const end = normalizeTermDate(v);
+        if (end && cal.semesterStart && end < cal.semesterStart) {
+          cal.semesterEnd = "";
+          new Notice("Semester end must be on or after the start.");
+          await saveTerm();
+          redisplay();
+          return;
+        }
+        cal.semesterEnd = end;
+        await saveTerm();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Reading weeks")
+    .setDesc("One date or inclusive range per line, with an optional label: 2026-10-19 ~ 2026-10-23 Reading week. These classes stay visible but are struck through and skipped by next-class actions.")
+    .addTextArea((t) => {
+      t.inputEl.rows = 4;
+      t.setPlaceholder("2026-10-19 ~ 2026-10-23 Reading week");
+      t.setValue(cal.readingWeeks.map((r) => `${r.start}${r.end !== r.start ? ` ~ ${r.end}` : ""}${r.label ? ` ${r.label}` : ""}`).join("\n"));
+      t.onChange(async (v) => {
+        cal.readingWeeks = normalizeReadingWeeks(v);
+        await saveTerm();
+      });
+    });
+
   new Setting(containerEl).setName("Actions").setHeading();
   new Setting(containerEl)
     .setName("Export the visible schedule")
-    .setDesc("Writes schedule-export.ics to the vault root, with hidden sources and excluded subjects left out.")
+    .setDesc("Writes schedule-export.ics to the vault root, with hidden sources, excluded subjects and reading-week classes left out.")
     .addButton((b) => b.setButtonText("Export .ics").onClick(() => plugin.exportCalendarIcs()));
 }
 
@@ -8842,6 +9020,8 @@ const {
   gapLabel,
   monthLabel,
   timelineEntries,
+  termWeekInfo,
+  termWeekLabel,
   upcomingExams,
   parseClassDetails,
   weekdayLabels,
@@ -9001,6 +9181,7 @@ function renderEventCard(plugin, timeline, event, key, options) {
 
   const card = item.createDiv({ cls: "uni-event-card" });
   card.style.setProperty("--event-color", color);
+  if (event.termReadingWeek) card.addClass("is-reading-week");
   card.setAttr("role", "button");
   card.setAttr("tabindex", "0");
 
@@ -9024,6 +9205,13 @@ function renderEventCard(plugin, timeline, event, key, options) {
     if (opts.liveNodes) opts.liveNodes.push({ node: text, event });
   }
 
+  if (event.termReadingWeek) {
+    const readingLabel = str(event.termReadingLabel).trim();
+    header.createDiv({
+      cls: "uni-event-term-badge",
+      text: readingLabel && readingLabel.toLowerCase() !== "reading week" ? `Reading week · ${readingLabel}` : "Reading week",
+    });
+  }
   header.createDiv({ cls: "uni-event-type-badge", text: classTypeLabel(settings, details.category) });
   card.createDiv({ cls: "uni-event-title", text: str(event.summary) || "Class" });
 
@@ -9050,7 +9238,7 @@ function renderEventCard(plugin, timeline, event, key, options) {
   badge.createSpan({ text: exists ? "Note exists" : "Missing note" });
 
   const label = str(event.summary) || "this class";
-  card.setAttr("aria-label", `${exists ? "Open" : "Create"} note for ${label}`);
+  card.setAttr("aria-label", `${exists ? "Open" : "Create"} note for ${label}${event.termReadingWeek ? ", reading week class" : ""}`);
 
   const open = (e) => {
     if (e && e.stopPropagation) e.stopPropagation();
@@ -9078,10 +9266,17 @@ function renderDaySection(plugin, container, key, options) {
   const opts = options || {};
   const settings = plugin.calendarSettings();
   const events = eventsOnDay(opts.events || plugin.calendarEvents(opts.now), key);
+  const term = termWeekInfo(settings, key);
+  const termLabel = termWeekLabel(term);
   const section = container.createDiv({ cls: "uni-schedule-section" });
   const header = section.createDiv({ cls: "uni-schedule-header" });
-  if (opts.title !== false) header.createDiv({ cls: "uni-schedule-date-title", text: dayHeading(key) });
+  if (opts.title !== false) {
+    const title = header.createDiv({ cls: "uni-schedule-date-title" });
+    title.createSpan({ text: dayHeading(key) });
+    if (termLabel) title.createSpan({ cls: `uni-term-badge${term && !term.inTerm ? " is-out-of-term" : ""}`, text: termLabel });
+  }
   const badges = header.createDiv({ cls: "uni-schedule-badges" });
+  if (opts.title === false && termLabel) badges.createDiv({ cls: "uni-term-badge", text: termLabel });
   badges.createDiv({ cls: "uni-schedule-badge-count", text: classesCount(events.length) });
   const freeMinutes = dayFreeMinutes(events);
   const slots = studySlotsFor(events);
@@ -9097,9 +9292,12 @@ function renderDaySection(plugin, container, key, options) {
     empty.createDiv({ cls: "uni-empty-schedule-icon", text: "🎓" });
     empty.createDiv({
       cls: "uni-empty-schedule-title uni-empty-schedule-text",
-      text: opts.emptyTitle || "No classes scheduled for this day.",
+      text: opts.emptyTitle || (term && term.readingWeek ? term.readingLabel || "Reading week" : "No classes scheduled for this day."),
     });
-    empty.createDiv({ cls: "uni-empty-schedule-subtext", text: "Enjoy your free time or review your notes!" });
+    empty.createDiv({
+      cls: "uni-empty-schedule-subtext",
+      text: term && term.readingWeek ? "No classes this week. Use the break to review." : "Enjoy your free time or review your notes!",
+    });
     return section;
   }
 
@@ -9275,19 +9473,28 @@ class CalendarView extends ItemView {
     const grid = card.createDiv({ cls: "uni-days-grid" });
     grid.setAttr("role", "grid");
     grid.setAttr("aria-label", monthLabel(this.cursor.getFullYear(), this.cursor.getMonth()));
-    for (const cell of compactMonthCells(this.cursor.getFullYear(), this.cursor.getMonth(), settings.firstDayOfWeek)) {
+    const cells = compactMonthCells(this.cursor.getFullYear(), this.cursor.getMonth(), settings.firstDayOfWeek);
+    for (const [index, cell] of cells.entries()) {
       const day = grid.createDiv({ cls: "uni-day-cell" });
+      const term = termWeekInfo(settings, cell.key);
       if (!cell.inMonth) day.addClass("is-other-month");
       if (cell.isToday) day.addClass("is-today");
       if (cell.key === this.selectedKey) day.addClass("is-selected");
+      if (term && term.readingWeek) day.addClass("is-reading-week");
       day.setAttr("data-date", cell.key);
       day.setAttr("role", "gridcell");
       day.setAttr("tabindex", "0");
       day.setAttr("aria-selected", cell.key === this.selectedKey ? "true" : "false");
       day.createSpan({ text: String(cell.day) });
+      if (term && term.inTerm && index % 7 === 0) {
+        const week = day.createSpan({ cls: "uni-day-week", text: `W${term.week}` });
+        week.setAttr("aria-hidden", "true");
+      }
+      if (term) day.setAttr("title", termWeekLabel(term));
 
       const dayEvents = eventsOnDay(events, cell.key);
-      day.setAttr("aria-label", `${dayHeading(cell.key)}${dayEvents.length ? `, ${classesCount(dayEvents.length)}` : ""}`);
+      const termText = term ? `, ${termWeekLabel(term)}` : "";
+      day.setAttr("aria-label", `${dayHeading(cell.key)}${termText}${dayEvents.length ? `, ${classesCount(dayEvents.length)}` : ""}`);
       if (dayEvents.length) {
         const dots = day.createDiv({ cls: "uni-event-dots-container" });
         for (const event of dayEvents.slice(0, 3)) {
@@ -34702,7 +34909,7 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { cleanSubjectTitle, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { applyTermWeeks, cleanSubjectTitle, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
@@ -36041,7 +36248,9 @@ class QuestionTrackerPlugin extends Plugin {
   calendarEvents(now) {
     const range = this.calendarWindow(now);
     const sources = this.calendarSources().filter((s) => !s.hidden && s.content);
-    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
+    const cal = this.calendarSettings();
+    const termSignature = `${cal.semesterStart}|${cal.semesterEnd}|${(cal.readingWeeks || []).map((r) => `${r.start}:${r.end}:${r.label}`).join(",")}`;
+    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${termSignature}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
     if (this._calendarCache && this._calendarCache.signature === signature) return this._calendarCache.events;
     const all = [];
     const errors = [];
@@ -36053,7 +36262,7 @@ class QuestionTrackerPlugin extends Plugin {
         errors.push(`${source.name}: ${e.message}`);
       }
     }
-    const events = visibleEvents(this.calendarSettings(), all);
+    const events = applyTermWeeks(this.calendarSettings(), visibleEvents(this.calendarSettings(), all));
     this._calendarCache = { signature, events };
     this._calendarErrors = errors;
     return events;
@@ -39724,7 +39933,7 @@ ${body}
 
   async exportCalendarIcs() {
     if (this.moduleOff("calendar")) return;
-    const events = this.calendarEvents();
+    const events = this.calendarEvents().filter((event) => !event.termReadingWeek);
     if (!events.length) {
       new Notice("There are no visible classes or exams to export.");
       return;
