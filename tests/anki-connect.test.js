@@ -556,3 +556,169 @@ test("plugin: vault-wide push includes every card and applies vault tags and bac
     obsidian.requestImpl = previous;
   }
 });
+
+test("AnkiConnect: regex omission, Excalidraw rewrites and exclusion filters are opt-in", () => {
+  const plain = anki.normalizeAnkiConnect({});
+  assert.equal(plain.omitRegex, "");
+  assert.equal(plain.excludeTags, "");
+  assert.equal(plain.excludeDecks, "");
+  assert.equal(plain.clearMissing, false);
+  assert.equal(plain.excalidraw.enabled, false);
+  assert.equal(plain.excalidraw.folder, "");
+
+  const card = {
+    file: { path: "Cards/Bio/Q.md" },
+    fm: { deck: "Biology", tags: ["exam"] },
+    body: { front: "Question? %%hidden%% ![[Drawing.excalidraw|300]]", back: "Answer %%note%%" },
+  };
+  const options = { defaultDeck: "General", omitRegex: "%%[^%]*%%", excalidraw: { enabled: true, folder: "Drawings" } };
+  const built = anki.buildAnkiNotes([card], options);
+  assert.equal(built.notes.length, 1);
+  assert.doesNotMatch(built.notes[0].fields.Front, /hidden/);
+  assert.match(built.notes[0].fields.Front, /Question\?/);
+  assert.match(built.notes[0].fields.Front, /<img src="Drawing\.excalidraw\.svg">/);
+  assert.doesNotMatch(built.notes[0].fields.Back, /%%note%%/);
+  assert.equal(built.notes[0].fields.Back, "Answer ");
+  const drawing = built.media.find((item) => item.name === "Drawing.excalidraw.svg");
+  assert.ok(drawing, JSON.stringify(built.media));
+  assert.equal(drawing.target, "Drawings/Drawing.excalidraw.svg");
+
+  const local = anki.localSyncRecord(card, options);
+  const remote = anki.syncRecord({
+    front: 'Question? <img src="Drawing.excalidraw.svg">',
+    back: "Answer",
+    deck: "Biology",
+    tags: ["exam"],
+    type: "Basic",
+  });
+  assert.equal(anki.syncHash(local), anki.syncHash(remote), "omitted and exported text must compare cleanly");
+
+  const tagged = { ...card, fm: { deck: "Biology", tags: ["hold"] }, body: { front: "Q", back: "A" } };
+  const byTag = anki.buildAnkiNotes([tagged], { defaultDeck: "General", excludeTags: "#hold" });
+  assert.equal(byTag.notes.length, 0);
+  assert.match(byTag.warnings.join(" "), /tag #hold is excluded/);
+
+  const decked = { ...card, fm: { deck: "Biology::Draft", tags: [] }, body: { front: "Q", back: "A" } };
+  const byDeck = anki.buildAnkiNotes([decked], { defaultDeck: "General", excludeDecks: "Biology" });
+  assert.equal(byDeck.notes.length, 0);
+  assert.match(byDeck.warnings.join(" "), /deck Biology::Draft is excluded/);
+
+  const invalid = anki.buildAnkiNotes([{ ...card, body: { front: "Q", back: "A" } }], { defaultDeck: "General", omitRegex: "[" });
+  assert.equal(invalid.notes[0].fields.Front, "Q");
+  assert.match(invalid.warnings.join(" "), /Omission regex is invalid/);
+});
+
+test("plugin: push omits regex text, uploads an Excalidraw SVG and skips excluded cards", async () => {
+  const notes = [
+    {
+      path: "Cards/Bio/Send.md",
+      noFm: true,
+      fm: { card_id: "send", item_type: "card", deck: "Biology", tags: ["exam"] },
+      text: "## Front\nQuestion? %%secret%% ![[Drawing.excalidraw|300]]\n\n## Back\nAnswer %%note%%\n",
+    },
+    {
+      path: "Cards/Bio/Hold.md",
+      noFm: true,
+      fm: { card_id: "hold", item_type: "card", deck: "Biology", tags: ["hold"] },
+      text: "## Front\nHold?\n\n## Back\nNo\n",
+    },
+  ];
+  const app = makeApp(notes);
+  notes.forEach((note, index) => (app.files[index].fm = { ...note.fm }));
+  const svg = { path: "Drawings/Drawing.excalidraw.svg", name: "Drawing.excalidraw.svg", basename: "Drawing.excalidraw", extension: "svg" };
+  app.files.push(svg);
+  app.vault.readBinary = async (file) => (file === svg ? Buffer.from([4, 5, 6]) : Buffer.from([1]));
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  plugin.settings.cards.ankiConnect = {
+    enabled: true,
+    url: "http://127.0.0.1:8765",
+    deck: "",
+    omitRegex: "%%[^%]*%%",
+    excludeTags: "#hold",
+    excalidraw: { enabled: true, folder: "Drawings" },
+  };
+  const actions = [];
+  const previous = obsidian.requestImpl;
+  obsidian.requestImpl = async (req) => {
+    const body = JSON.parse(req.body);
+    actions.push({ action: body.action, params: body.params });
+    if (body.action === "canAddNotes") return { status: 200, json: { result: body.params.notes.map(() => true) } };
+    if (body.action === "addNotes") return { status: 200, json: { result: [321] } };
+    return { status: 200, json: { result: 1 } };
+  };
+  try {
+    const plan = await plugin.previewAnkiSync({ deck: "Biology", pushOnly: true });
+    assert.equal(plan.counts.create, 1);
+    assert.match(plan.warnings.join(" "), /Hold\.md: skipped because tag #hold is excluded/);
+    const result = await plugin.pushCardsToAnki({ deck: "Biology" });
+    assert.equal(result.added, 1, JSON.stringify(result));
+    assert.equal(result.count, 1);
+    assert.match(result.warnings.join(" "), /Hold\.md: skipped because tag #hold is excluded/);
+    const media = actions.find((entry) => entry.action === "storeMediaFile");
+    assert.ok(media, JSON.stringify(actions.map((entry) => entry.action)));
+    assert.equal(media.params.filename, "Drawing.excalidraw.svg");
+    assert.equal(media.params.data, "BAUG");
+    const note = actions.find((entry) => entry.action === "canAddNotes").params.notes[0];
+    assert.doesNotMatch(note.fields.Front, /secret/);
+    assert.match(note.fields.Front, /<img src="Drawing\.excalidraw\.svg">/);
+    assert.doesNotMatch(note.fields.Back, /%%note%%/);
+    assert.equal(app.files[1].fm.anki_note_id, undefined);
+  } finally {
+    obsidian.requestImpl = previous;
+  }
+});
+
+test("plugin: clearing a stale Anki link is off by default and opt-in", async () => {
+  const notes = [
+    {
+      path: "Cards/Bio/Gone.md",
+      noFm: true,
+      fm: {
+        card_id: "gone",
+        item_type: "card",
+        deck: "Biology",
+        anki_note_id: "777",
+        anki_card_id: "778",
+        anki_synced_hash: "old-local",
+        anki_remote_hash: "old-remote",
+      },
+      text: "## Front\nGone?\n\n## Back\nA\n",
+    },
+  ];
+  const app = makeApp(notes);
+  app.files[0].fm = { ...notes[0].fm };
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  plugin.settings.cards.ankiConnect = { enabled: true, url: "http://127.0.0.1:8765", deck: "" };
+  const before = app.files[0].text;
+  const previous = obsidian.requestImpl;
+  obsidian.requestImpl = async (req) => {
+    const body = JSON.parse(req.body);
+    if (body.action === "notesInfo") return { status: 200, json: { result: [] } };
+    if (body.action === "cardsInfo") return { status: 200, json: { result: [] } };
+    return { status: 200, json: { result: 1 } };
+  };
+  try {
+    const kept = await plugin.syncCardsWithAnki({});
+    assert.equal(kept.cleared, 0);
+    assert.equal(kept.skipped, 1);
+    assert.equal(app.files[0].fm.anki_note_id, "777");
+    assert.match(kept.warnings.join(" "), /the Anki note 777 was not found/);
+
+    plugin.settings.cards.ankiConnect.clearMissing = true;
+    const cleared = await plugin.syncCardsWithAnki({});
+    assert.equal(cleared.cleared, 1, JSON.stringify(cleared));
+    assert.equal(cleared.skipped, 1);
+    assert.equal(app.files[0].fm.anki_note_id, undefined);
+    assert.equal(app.files[0].fm.anki_card_id, undefined);
+    assert.equal(app.files[0].fm.anki_synced_hash, undefined);
+    assert.equal(app.files[0].text, before, "cleanup never rewrites the card body");
+    assert.equal(plugin.settings.cards.ankiConnect.index["Cards/Bio/Gone.md"], undefined);
+    assert.match(cleared.warnings.join(" "), /local Anki link was cleared/);
+  } finally {
+    obsidian.requestImpl = previous;
+  }
+});

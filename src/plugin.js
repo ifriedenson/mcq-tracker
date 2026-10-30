@@ -59,7 +59,7 @@ const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cards
 const { CardExtractModal } = require("./cards-extract-modal");
 const { buildMochiArchive, cardsToMochiDecks, mochiMediaWarning } = require("./mochi-export");
 const { cardsToLearnKit, parseLearnKit } = require("./learnkit");
-const { AnkiConnectModal, AnkiConnectClient, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
+const { AnkiConnectModal, AnkiConnectClient, ankiExclusionReason, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
 const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
@@ -1875,6 +1875,10 @@ class QuestionTrackerPlugin extends Plugin {
       cardRoot: this.settings.cards.newCardFolder,
       vaultTags: anki.vaultTags,
       backlinks: anki.backlinks === true,
+      excludeTags: anki.excludeTags,
+      excludeDecks: anki.excludeDecks,
+      omitRegex: anki.omitRegex,
+      excalidraw: { ...anki.excalidraw },
       vaultName: typeof this.app.vault.getName === "function" ? this.app.vault.getName() : "",
     };
   }
@@ -1914,6 +1918,29 @@ class QuestionTrackerPlugin extends Plugin {
       if (data.localHash) fm.anki_synced_hash = data.localHash;
       if (data.remoteHash) fm.anki_remote_hash = data.remoteHash;
       if (data.localHash || data.remoteHash) fm.anki_last_sync = new Date().toISOString();
+    });
+    return true;
+  }
+
+  /** Drop the Anki identity after Anki reports that its note is gone. */
+  async clearAnkiLink(file) {
+    if (!(file instanceof TFile)) return false;
+    const keys = [
+      "anki_note_id",
+      "anki_card_id",
+      "anki_deck",
+      "anki_model",
+      "anki_ord",
+      "anki_due",
+      "anki_interval",
+      "anki_reps",
+      "anki_lapses",
+      "anki_synced_hash",
+      "anki_remote_hash",
+      "anki_last_sync",
+    ];
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      for (const key of keys) delete fm[key];
     });
     return true;
   }
@@ -2053,20 +2080,27 @@ class QuestionTrackerPlugin extends Plugin {
       ? this.getCards()
       : this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
     if (!cards.length) throw new Error(opts.vaultWide === true ? "No card notes were found in the vault." : "No cards match the current deck and course filter.");
+    const buildOptions = this.ankiBuildOptions(opts, settings);
     const records = [];
     const errors = [];
     const warnings = [];
     for (const card of cards) {
       try {
         const text = await this.app.vault.cachedRead(card.file);
-        records.push({ ...card, body: parseCardBody(text, card.fm) });
+        const record = { ...card, body: parseCardBody(text, card.fm) };
+        const exclusion = ankiExclusionReason(record, buildOptions);
+        if (exclusion) {
+          warnings.push(`${record.file.path}: skipped because ${exclusion}.`);
+          continue;
+        }
+        records.push(record);
       } catch (e) {
         errors.push(`${card.file.path}: ${String((e && e.message) || e)}`);
       }
     }
     const entries = [];
     const counts = { create: 0, update: 0, pull: 0, conflict: 0, missing: 0, delete: 0, unchanged: 0, media: 0 };
-    const build = (list) => buildAnkiNotes(list, this.ankiBuildOptions(opts, settings));
+    const build = (list) => buildAnkiNotes(list, buildOptions);
     const unlinked = records.filter((record) => !str(record.fm && record.fm.anki_note_id).trim());
     if (unlinked.length) {
       const built = build(unlinked);
@@ -2101,7 +2135,14 @@ class QuestionTrackerPlugin extends Plugin {
         const note = noteById.get(noteId);
         if (!note) {
           counts.missing++;
-          entries.push({ action: "missing", path: record.file.path, noteId, detail: "Anki no longer has this note; the local card is kept." });
+          entries.push({
+            action: "missing",
+            path: record.file.path,
+            noteId,
+            detail: settings.clearMissing
+              ? "Anki no longer has this note; the local Anki link will be cleared after you apply."
+              : "Anki no longer has this note; the local card is kept.",
+          });
           continue;
         }
         const noteCards = Array.isArray(note.cards) ? note.cards : [];
@@ -2113,7 +2154,7 @@ class QuestionTrackerPlugin extends Plugin {
           entries.push({ action: "missing", path: record.file.path, noteId, detail: "Anki returned an empty card; the local card is kept." });
           continue;
         }
-        let local = localSyncRecord(record);
+        let local = localSyncRecord(record, buildOptions);
         if (!remote.deck) remote.deck = local.deck;
         if (settings.deck) {
           local = { ...local, deck: "" };
@@ -2167,17 +2208,24 @@ class QuestionTrackerPlugin extends Plugin {
       ? this.getCards()
       : this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
     if (!cards.length) throw new Error(opts.vaultWide === true ? "No card notes were found in the vault." : "No cards match the current deck and course filter.");
+    const buildOptions = this.ankiBuildOptions(opts, settings);
     const records = [];
     const warnings = [];
     for (const card of cards) {
       try {
         const text = await this.app.vault.cachedRead(card.file);
-        records.push({ ...card, body: parseCardBody(text, card.fm) });
+        const record = { ...card, body: parseCardBody(text, card.fm) };
+        const exclusion = ankiExclusionReason(record, buildOptions);
+        if (exclusion) {
+          warnings.push(`${record.file.path}: skipped because ${exclusion}.`);
+          continue;
+        }
+        records.push(record);
       } catch (e) {
         warnings.push(`${card.file.path}: ${String((e && e.message) || e)}`);
       }
     }
-    const built = buildAnkiNotes(records, this.ankiBuildOptions(opts, settings));
+    const built = buildAnkiNotes(records, buildOptions);
     if (!built.notes.length) throw new Error("Nothing in this filter can be sent to Anki yet.");
     const client = new AnkiConnectClient({ url: settings.url });
     warnings.push(...(await this.uploadAnkiMedia(client, built)));
@@ -2192,7 +2240,7 @@ class QuestionTrackerPlugin extends Plugin {
       // A configured target deck is applied by the sync, not compared as a
       // content edit. Stamp the same normalized deck the next sync will use,
       // otherwise every card would look changed on both sides.
-      const local = localSyncRecord(record);
+      const local = localSyncRecord(record, buildOptions);
       if (settings.deck) local.deck = "";
       const localHash = syncHash(local);
       await this.stampAnkiCard(record.file, {
@@ -2218,13 +2266,20 @@ class QuestionTrackerPlugin extends Plugin {
       ? this.getCards()
       : this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
     if (!cards.length) throw new Error(opts.vaultWide === true ? "No card notes were found in the vault." : "No cards match the current deck and course filter.");
+    const buildOptions = this.ankiBuildOptions(opts, settings);
     const records = [];
     const errors = [];
     const warnings = [];
     for (const card of cards) {
       try {
         const text = await this.app.vault.cachedRead(card.file);
-        records.push({ ...card, body: parseCardBody(text, card.fm) });
+        const record = { ...card, body: parseCardBody(text, card.fm) };
+        const exclusion = ankiExclusionReason(record, buildOptions);
+        if (exclusion) {
+          warnings.push(`${record.file.path}: skipped because ${exclusion}.`);
+          continue;
+        }
+        records.push(record);
       } catch (e) {
         errors.push(`${card.file.path}: ${String((e && e.message) || e)}`);
       }
@@ -2234,7 +2289,7 @@ class QuestionTrackerPlugin extends Plugin {
     let pushed = 0;
     let duplicates = 0;
     if (unlinked.length) {
-      const built = buildAnkiNotes(unlinked, this.ankiBuildOptions(opts, settings));
+      const built = buildAnkiNotes(unlinked, buildOptions);
       warnings.push(...(await this.uploadAnkiMedia(client, built)));
       const result = await client.push(built.notes);
       duplicates += result.duplicates;
@@ -2245,7 +2300,7 @@ class QuestionTrackerPlugin extends Plugin {
         const note = built.notes[result.acceptedIndexes[i]];
         const record = note && byPath.get(built.paths[result.acceptedIndexes[i]]);
         if (noteId === null || noteId === undefined || !record) continue;
-        const local = localSyncRecord(record);
+        const local = localSyncRecord(record, buildOptions);
         if (settings.deck) local.deck = "";
         const localHash = syncHash(local);
         await this.stampAnkiCard(record.file, {
@@ -2263,6 +2318,7 @@ class QuestionTrackerPlugin extends Plugin {
     let pulled = 0;
     let updated = 0;
     let conflicts = 0;
+    let cleared = 0;
     let skipped = duplicates;
     if (linked.length) {
       const notes = await client.notesInfo(linked.map((record) => record.fm.anki_note_id));
@@ -2276,7 +2332,17 @@ class QuestionTrackerPlugin extends Plugin {
         const note = noteById.get(noteId);
         if (!note) {
           skipped++;
-          warnings.push(`${record.file.path}: the Anki note ${noteId} was not found.`);
+          if (settings.clearMissing) {
+            try {
+              await this.clearAnkiLink(record.file);
+              cleared++;
+              warnings.push(`${record.file.path}: the Anki note ${noteId} was not found; the local Anki link was cleared.`);
+            } catch (e) {
+              errors.push(`${record.file.path}: could not clear the local Anki link: ${String((e && e.message) || e)}`);
+            }
+          } else {
+            warnings.push(`${record.file.path}: the Anki note ${noteId} was not found.`);
+          }
           continue;
         }
         const noteCards = Array.isArray(note.cards) ? note.cards : [];
@@ -2288,7 +2354,7 @@ class QuestionTrackerPlugin extends Plugin {
           warnings.push(`${record.file.path}: Anki returned an empty card and it was left unchanged.`);
           continue;
         }
-        let local = localSyncRecord(record);
+        let local = localSyncRecord(record, buildOptions);
         // Older or partial Anki replies can omit the deck; keep the local name
         // rather than treating that omission as a deck move.
         if (!remote.deck) remote.deck = local.deck;
@@ -2324,7 +2390,7 @@ class QuestionTrackerPlugin extends Plugin {
               remoteHash: decision.remoteHash,
             });
           } else if (action === "push") {
-            const built = buildAnkiNotes([record], this.ankiBuildOptions(opts, settings));
+            const built = buildAnkiNotes([record], buildOptions);
             if (!built.notes.length) {
               skipped++;
               continue;
@@ -2372,6 +2438,7 @@ class QuestionTrackerPlugin extends Plugin {
       pulled,
       updated,
       deleted,
+      cleared,
       conflicts,
       skipped,
       duplicates,

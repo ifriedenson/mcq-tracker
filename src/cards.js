@@ -68,7 +68,7 @@ function mergeCardSettings(saved, defaults) {
       aiGrading: false,
       decks: [],
       csvMappings: {},
-      ankiConnect: { ...DEFAULT_ANKI_CONNECT },
+      ankiConnect: { ...DEFAULT_ANKI_CONNECT, excalidraw: { ...DEFAULT_ANKI_CONNECT.excalidraw } },
       plainMarkdown: { ...DEFAULT_PLAIN_CARDS },
     },
     defaults || {}

@@ -17,6 +17,11 @@ const DEFAULT_ANKI_CONNECT = {
   deleteMissing: false, // optional: delete linked Anki notes after their local note is gone
   vaultTags: "", // optional extra tags applied to every Anki note
   backlinks: false, // optional link from each Anki note back to its source note
+  excludeTags: "", // optional comma-separated tags that keep a card out of Anki
+  excludeDecks: "", // optional comma-separated decks (and subdecks) kept out of Anki
+  omitRegex: "", // optional global regex removed from both sides before pushing
+  clearMissing: false, // optional cleanup of local Anki IDs after an Anki-side deletion
+  excalidraw: { enabled: false, folder: "" }, // optional exported .excalidraw.svg support
   index: {}, // path -> { noteId, cardId } from the last successful sync
 };
 
@@ -25,6 +30,7 @@ const ANKI_VERSION = 6;
 function normalizeAnkiConnect(value) {
   const src = value && typeof value === "object" ? value : {};
   const url = str(src.url).trim().replace(/\/+$/, "");
+  const excalidraw = src.excalidraw && typeof src.excalidraw === "object" ? src.excalidraw : {};
   return {
     enabled: src.enabled === true,
     url: /^https?:\/\//i.test(url) ? url : DEFAULT_ANKI_CONNECT.url,
@@ -34,6 +40,14 @@ function normalizeAnkiConnect(value) {
     deleteMissing: src.deleteMissing === true,
     vaultTags: str(src.vaultTags).trim(),
     backlinks: src.backlinks === true,
+    excludeTags: str(src.excludeTags).trim(),
+    excludeDecks: str(src.excludeDecks).trim(),
+    omitRegex: str(src.omitRegex).trim(),
+    clearMissing: src.clearMissing === true,
+    excalidraw: {
+      enabled: excalidraw.enabled === true,
+      folder: str(excalidraw.folder).trim().replace(/^\/+|\/+$/g, ""),
+    },
     index: src.index && typeof src.index === "object" && !Array.isArray(src.index) ? { ...src.index } : {},
   };
 }
@@ -55,6 +69,8 @@ function syncRecord(value) {
 /** Compare Markdown and Anki HTML as the same content, so a pull does not look like a new edit. */
 function syncText(value) {
   let text = str(value);
+  // Anki drops Obsidian's image alias/size suffix; compare the same target.
+  text = text.replace(/!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g, "![[$1]]");
   text = text.replace(/(?:<br\s*\/?>){1,2}\s*<a[^>]*href=["']obsidian:\/\/open[^"']*["'][^>]*>[^<]*<\/a>/gi, "");
   text = text.replace(/<br\s*\/?>/gi, "\n");
   text = text.replace(/<video[^>]*src=["']([^"']+)["'][^>]*>/gi, "![[$1]]");
@@ -78,16 +94,17 @@ function syncHash(value) {
 }
 
 /** The card as Anki sees it, after the same front/back parsing used by push. */
-function localSyncRecord(card) {
+function localSyncRecord(card, options) {
   const fm = (card && card.fm) || {};
   const body = (card && card.body) || {};
   const cloze = /cloze/i.test(str(fm.card_type)) || /cloze/i.test(str(body.cardType));
   const image = mediaName(fm.image || "");
   const rawFront = cloze ? body.rawFront || body.front : body.front;
-  const front = image && !str(rawFront).includes(image) ? `![[${image}]] ${rawFront || ""}` : rawFront;
+  const preparedFront = prepareAnkiText(rawFront, options);
+  const front = image && !str(preparedFront).includes(image) ? `![[${image}]] ${preparedFront}` : preparedFront;
   return syncRecord({
     front,
-    back: body.back,
+    back: prepareAnkiText(body.back, options),
     deck: (card && card.deck) || fm.deck,
     tags: tagsFor(fm),
     type: cloze ? "Cloze" : "Basic",
@@ -182,7 +199,9 @@ function mediaHtml(name) {
 }
 
 /** Find image/audio embeds in Markdown without fetching anything. */
-function mediaRefs(text) {
+function mediaRefs(text, options) {
+  const opts = options || {};
+  const folder = str(opts.excalidraw && opts.excalidraw.folder).trim().replace(/^\/+|\/+$/g, "");
   const out = [];
   const seen = new Set();
   const add = (target) => {
@@ -192,7 +211,10 @@ function mediaRefs(text) {
     const kind = mediaKind(name);
     if (!name || !kind || seen.has(name)) return;
     seen.add(name);
-    out.push({ target: clean, name, kind });
+    // Excalidraw's auto-export can live in its own folder even though the
+    // embed itself stays a plain ![[Drawing.excalidraw.svg]].
+    const resolved = /\.excalidraw\.svg$/i.test(name) && folder && !clean.includes("/") ? `${folder}/${name}` : clean;
+    out.push({ target: resolved, name, kind });
   };
   const source = str(text);
   for (const match of source.matchAll(/!\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)) add(match[1]);
@@ -302,6 +324,77 @@ function tagsFor(fm) {
   return parseTags(fm && fm.tags);
 }
 
+/** Shared comma/newline list parsing for the optional exclusion filters. */
+function filterList(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[\n,;]+/);
+  return [...new Set(raw.map((entry) => oneLine(entry)).filter(Boolean))];
+}
+
+function filterTag(value) {
+  return oneLine(value).replace(/^#+/, "").replace(/\s+/g, "_").toLowerCase();
+}
+
+function omissionPattern(value) {
+  const source = str(value).trim();
+  if (!source) return { regex: null, error: "" };
+  try {
+    return { regex: new RegExp(source, "g"), error: "" };
+  } catch (e) {
+    return { regex: null, error: `Omission regex is invalid and was ignored: ${str(e && e.message ? e.message : e)}` };
+  }
+}
+
+/**
+ * Excalidraw stores drawings as .excalidraw.md but its auto-export writes an
+ * .excalidraw.svg. Point cards at the exported SVG; the optional folder is
+ * used only when the file is uploaded, so sync hashes stay path-independent.
+ */
+function rewriteExcalidrawEmbeds(value, options) {
+  const opts = options || {};
+  if (!opts.excalidraw || opts.excalidraw.enabled !== true) return str(value);
+  return str(value).replace(/!\[\[([^\]|#]+?)\.excalidraw(?:\.md)?((?:[|#][^\]]*)?)\]\]/gi, (_full, base, suffix) => `![[${base}.excalidraw.svg${suffix || ""}]]`);
+}
+
+/** The exact text Anki receives: optional regex omission, then Excalidraw. */
+function prepareAnkiText(value, options) {
+  const opts = options || {};
+  let text = str(value);
+  const omission = omissionPattern(opts.omitRegex);
+  if (omission.regex) text = text.replace(omission.regex, "");
+  return rewriteExcalidrawEmbeds(text, opts);
+}
+
+/** Resolve a card's deck with the same precedence used by buildAnkiNotes. */
+function ankiDeckName(card, options) {
+  const opts = options || {};
+  const fm = (card && card.fm) || {};
+  const path = (card && card.file && card.file.path) || "card";
+  const fallbackDeck = str(opts.defaultDeck).trim() || "Imported";
+  const targetDeck = str(opts.deck).trim();
+  return (
+    targetDeck ||
+    oneLine(fm.deck) ||
+    (opts.folderDecks ? folderDeckName(path, opts.cardRoot) : "") ||
+    oneLine(card && card.deck) ||
+    fallbackDeck
+  );
+}
+
+/** Why a card is excluded from Anki, or an empty string when it is included. */
+function ankiExclusionReason(card, options) {
+  const opts = options || {};
+  const fm = (card && card.fm) || {};
+  const tags = [...tagsFor(fm), ...parseTags(opts.vaultTags)].map(filterTag);
+  const excludedTag = filterList(opts.excludeTags).map(filterTag).find((tag) => tag && tags.includes(tag));
+  if (excludedTag) return `tag #${excludedTag} is excluded`;
+  const deck = ankiDeckName(card, opts).toLowerCase();
+  const excludedDeck = filterList(opts.excludeDecks)
+    .map((name) => name.toLowerCase())
+    .find((name) => name && (deck === name || deck.startsWith(name + "::")));
+  if (excludedDeck) return `deck ${ankiDeckName(card, opts)} is excluded`;
+  return "";
+}
+
 /** A local Obsidian URI, used only when the optional backlink is enabled. */
 function sourceBacklink(path, vaultName) {
   const clean = str(path).trim();
@@ -341,36 +434,38 @@ function cardAnswer(card) {
  */
 function buildAnkiNotes(cards, options) {
   const opts = options || {};
-  const fallbackDeck = str(opts.defaultDeck).trim() || "Imported";
-  const targetDeck = str(opts.deck).trim();
   const vaultTags = parseTags(opts.vaultTags);
+  const omission = omissionPattern(opts.omitRegex);
   const notes = [];
   const paths = [];
   const warnings = [];
   const media = [];
+  if (omission.error) warnings.push(omission.error);
   for (const card of Array.isArray(cards) ? cards : []) {
     const fm = (card && card.fm) || {};
     const body = (card && card.body) || {};
     const path = (card && card.file && card.file.path) || "card";
-    const rawFront = str(body.front || fm.front || fm.question);
-    const answer = cardAnswer(card);
+    const rawFront = prepareAnkiText(body.front || fm.front || fm.question, opts);
+    const answer = prepareAnkiText(cardAnswer(card), opts);
+    const exclusion = ankiExclusionReason(card, opts);
+    if (exclusion) {
+      warnings.push(`${path}: skipped because ${exclusion}.`);
+      continue;
+    }
     if (!rawFront.trim() || !answer.trim()) {
       warnings.push(`${path} has no front or answer and was skipped.`);
       continue;
     }
-    const deckName =
-      targetDeck ||
-      oneLine(fm.deck) ||
-      (opts.folderDecks ? folderDeckName(path, opts.cardRoot) : "") ||
-      oneLine(card && card.deck) ||
-      fallbackDeck;
+    const deckName = ankiDeckName(card, opts);
     const tags = [...new Set([...tagsFor(fm), ...vaultTags])];
     const cloze = /cloze/i.test(str(fm.card_type)) || /cloze/i.test(str(body.cardType));
     const imageName = mediaName(fm.image || "");
-    const rawBack = str(body.back || fm.back || fm.answer);
+    const rawBack = prepareAnkiText(body.back || fm.back || fm.answer, opts);
     const sourcePath = str(fm.source_note || fm.source_file || path).trim();
     const backlink = opts.backlinks === true ? sourceBacklink(sourcePath, opts.vaultName) : "";
-    for (const ref of [...mediaRefs(rawFront), ...mediaRefs(rawBack)]) media.push({ ...ref, sourcePath: path });
+    const frontMedia = mediaRefs(rawFront, opts);
+    const backMedia = mediaRefs(rawBack, opts);
+    for (const ref of [...frontMedia, ...backMedia]) media.push({ ...ref, sourcePath: path });
     if (imageName) media.push({ target: str(fm.image), name: imageName, kind: mediaKind(imageName) || "image", sourcePath: path });
     const fields = {};
     let modelName = "Basic";
@@ -389,7 +484,7 @@ function buildAnkiNotes(cards, options) {
       fields.Back = `${markdownToAnkiHtml(answer)}${backlink}`;
     }
     if (imageName) warnings.push(`${path}: the image stays in the vault and is uploaded only when you confirm Anki sync.`);
-    if (mediaRefs(rawFront).length || mediaRefs(rawBack).length) warnings.push(`${path}: media stays in the vault and is uploaded only when you confirm Anki sync.`);
+    if (frontMedia.length || backMedia.length) warnings.push(`${path}: media stays in the vault and is uploaded only when you confirm Anki sync.`);
     notes.push({
       deckName,
       modelName,
@@ -619,6 +714,7 @@ class AnkiConnectModal extends Modal {
         ? [`Added ${result.added} card${result.added === 1 ? "" : "s"}`]
         : [`Pushed ${result.pushed}`, `Pulled ${result.pulled}`];
       if (result.deleted) bits.push(`Deleted ${result.deleted} from Anki`);
+      if (result.cleared) bits.push(`Cleared ${result.cleared} stale Anki link${result.cleared === 1 ? "" : "s"}`);
       if (result.updated) bits.push(`Updated ${result.updated} in Anki`);
       if (result.duplicates) bits.push(`${result.duplicates} already in Anki`);
       if (result.conflicts) bits.push(`${result.conflicts} conflict${result.conflicts === 1 ? "" : "s"}`);
@@ -645,6 +741,11 @@ module.exports = {
   normalizeAnkiConnect,
   buildAnkiNotes,
   folderDeckName,
+  ankiDeckName,
+  ankiExclusionReason,
+  omissionPattern,
+  prepareAnkiText,
+  rewriteExcalidrawEmbeds,
   markdownToAnkiHtml,
   mediaRefs,
   mediaName,

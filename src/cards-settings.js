@@ -221,6 +221,7 @@ function renderDecks(containerEl, plugin, redisplay) {
     );
 
   const anki = st.ankiConnect;
+  const excalidraw = anki.excalidraw && typeof anki.excalidraw === "object" ? anki.excalidraw : (anki.excalidraw = { enabled: false, folder: "" });
   new Setting(containerEl).setName("AnkiConnect").setHeading();
   containerEl.createEl("p", {
     cls: "setting-item-description",
@@ -275,6 +276,75 @@ function renderDecks(containerEl, plugin, redisplay) {
     .addToggle((t) =>
       t.setValue(anki.backlinks === true).onChange(async (v) => {
         anki.backlinks = v;
+        await plugin.save();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Excluded tags")
+    .setDesc("Optional comma-separated tags. Cards carrying any of them are left out of Anki previews and syncs. A leading # is optional; deck and tag settings still apply.")
+    .addText((t) =>
+      t
+        .setPlaceholder("e.g. #hold, draft")
+        .setValue(anki.excludeTags || "")
+        .onChange(async (v) => {
+          anki.excludeTags = str(v).trim();
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Excluded decks")
+    .setDesc("Optional comma-separated decks. A deck and its subdecks are left out of Anki previews and syncs. For example, Biology also excludes Biology::Exam.")
+    .addText((t) =>
+      t
+        .setPlaceholder("e.g. Archive, Biology::Drafts")
+        .setValue(anki.excludeDecks || "")
+        .onChange(async (v) => {
+          anki.excludeDecks = str(v).trim();
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Omit text with a regex")
+    .setDesc("Optional global regular expression removed from the front and back before they are sent to Anki. The same text is removed from the local sync comparison, so it does not create a false conflict. An invalid expression is ignored with a warning.")
+    .addText((t) =>
+      t
+        .setPlaceholder("e.g. %%[^%]*%%")
+        .setValue(anki.omitRegex || "")
+        .onChange(async (v) => {
+          anki.omitRegex = str(v).trim();
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Excalidraw support")
+    .setDesc("Optional. Point .excalidraw embeds at the .excalidraw.svg files exported by the Excalidraw plugin, then upload them with the note. Turn on Excalidraw's automatic SVG export first. Off by default.")
+    .addToggle((t) =>
+      t.setValue(excalidraw.enabled === true).onChange(async (v) => {
+        excalidraw.enabled = v;
+        await plugin.save();
+        redisplay();
+      })
+    );
+  if (excalidraw.enabled === true) {
+    new Setting(containerEl)
+      .setName("Excalidraw export folder")
+      .setDesc("Folder where the Excalidraw plugin writes its automatic SVG exports. Leave blank when the SVG sits next to the drawing.")
+      .addText((t) =>
+        t
+          .setPlaceholder("e.g. Drawings")
+          .setValue(excalidraw.folder || "")
+          .onChange(async (v) => {
+            excalidraw.folder = str(v).trim().replace(/^\/+|\/+$/g, "");
+            await plugin.save();
+          })
+      );
+  }
+  new Setting(containerEl)
+    .setName("Clear links to deleted Anki notes")
+    .setDesc("Opt-in. When Anki no longer has a linked note, remove its local anki_note_id, cards and scheduling metadata after the previewed sync is applied, so the card can be pushed again. Off by default.")
+    .addToggle((t) =>
+      t.setValue(anki.clearMissing === true).onChange(async (v) => {
+        anki.clearMissing = v;
         await plugin.save();
       })
     );
