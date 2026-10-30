@@ -88,7 +88,7 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
-const { gradeQuizBlockQuestion, parseQuizBlock, visibleQuizCount } = require("./quiz-block");
+const { gradeQuizBlockQuestion, gradeQuizQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, visibleQuizCount } = require("./quiz-block");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
 const { CardGeneratorModal } = require("./card-generator-modal");
@@ -3267,7 +3267,27 @@ class QuestionTrackerPlugin extends Plugin {
     });
   }
 
-  /** Render an `mcq-quiz` fenced block: inline choices, gating and per-option feedback. */
+  /** Grade one free-text inline quiz answer with the configured AI backend. */
+  async evaluateQuizTextQuestion(question, answer) {
+    if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
+    const q = question || {};
+    const system =
+      "You grade one short free-text quiz answer. Return only JSON with a score from 0 to 100 and a short explanation: " +
+      '{"score": 0, "explanation": ""}. Judge the learner answer against the expected answer and the optional context. ' +
+      "Do not add a markdown fence or any other text.";
+    const user = [
+      `Question: ${str(q.question)}`,
+      `Expected answer: ${str(q.answer)}`,
+      q.context ? `Context: ${str(q.context)}` : "",
+      `Learner answer: ${str(answer)}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const reply = await this.aiComplete(system, user, { feature: "cardGrading", maxTokens: 300 });
+    return parseQuizAiEvaluation(reply);
+  }
+
+  /** Render an `mcq-quiz` fenced block: choices, sliders, text and weighted scoring. */
   async renderQuizBlock(source, el) {
     const parsed = parseQuizBlock(source);
     if (!parsed.questions.length) {
@@ -3277,25 +3297,108 @@ class QuestionTrackerPlugin extends Plugin {
     const box = el.createDiv({ cls: "qt-quiz-block" });
     let answered = 0;
     const cards = [];
+    const selections = {};
+    const summary = box.createDiv({ cls: "qt-quiz-summary" });
+    const paintSummary = () => {
+      const score = quizBlockScore(parsed.questions, selections, parsed);
+      summary.setText(`Score: ${score.percent}% · ${score.band} · ${score.answered}/${score.total} answered`);
+      summary.toggleClass("is-pass", score.band === "pass");
+      summary.toggleClass("is-imprecise", score.band === "imprecise");
+      summary.toggleClass("is-fail", score.band === "fail");
+    };
+    paintSummary();
+
+    const complete = async (index, question, result, started, card, feedback, extra) => {
+      if (selections[index]) return;
+      selections[index] = result;
+      answered++;
+      if (extra && extra.options) {
+        // Choice feedback is rendered by the caller before this completes.
+      }
+      if (result.explanation) feedback.createDiv({ cls: "qt-quiz-explanation", text: result.explanation });
+      if (question.type !== "choice") {
+        feedback.createDiv({
+          cls: `qt-quiz-score is-${result.band || (result.correct ? "pass" : "fail")}`,
+          text: `${result.score}% · ${result.band || (result.correct ? "pass" : "fail")}${result.mode === "text" ? " · AI/local check" : ""}`,
+        });
+      }
+      const label = result.correct ? "Correct" : result.band === "imprecise" ? "Imprecise" : "Not quite";
+      card.createDiv({ cls: result.correct ? "qt-quiz-result is-correct" : "qt-quiz-result is-wrong", text: label });
+      cards.forEach((item, i) => item.toggleClass("qt-quiz-hidden", parsed.gated && i >= visibleQuizCount(parsed.questions.length, answered, true)));
+      paintSummary();
+      try {
+        await this.recordQuizBlockAnswer(question, result, (Date.now() - started) / 1000);
+      } catch (e) {
+        new Notice(`Could not record this inline answer: ${str(e && e.message ? e.message : e)}`);
+      }
+    };
+
     parsed.questions.forEach((question, index) => {
       const card = box.createDiv({ cls: "qt-quiz-card" });
       cards.push(card);
       card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
+      if (question.weight !== 1) card.createDiv({ cls: "qt-quiz-weight", text: `Weight ${question.weight}` });
       if (!question.valid) {
         card.createDiv({ cls: "qt-quiz-issue", text: question.issues.join(" ") });
         return;
       }
-      const choices = card.createDiv({ cls: "qt-quiz-choices" });
       const feedback = card.createDiv({ cls: "qt-quiz-feedback" });
-      const buttons = [];
       const started = Date.now();
       let done = false;
+      const finish = async (result) => {
+        if (done) return;
+        done = true;
+        await complete(index, question, result, started, card, feedback);
+      };
+
+      if (question.type === "slider") {
+        const wrap = card.createDiv({ cls: "qt-quiz-slider" });
+        const value = wrap.createSpan({ cls: "qt-quiz-slider-value", text: String(question.answer) });
+        const input = wrap.createEl("input", {
+          type: "range",
+          attr: { min: String(question.min), max: String(question.max), step: String(question.step), "aria-label": question.question },
+        });
+        input.value = String(question.answer);
+        input.addEventListener("input", () => value.setText(input.value));
+        wrap.createEl("button", { cls: "qt-quiz-submit", text: "Check" }).addEventListener("click", () => finish(gradeQuizQuestion(question, input.value)));
+        card.createDiv({ cls: "qt-hint", text: `Range ${question.min}–${question.max}${question.tolerance ? ` · ±${question.tolerance} accepted` : ""}` });
+        return;
+      }
+
+      if (question.type === "text") {
+        const wrap = card.createDiv({ cls: "qt-quiz-text" });
+        const input = wrap.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer" } });
+        input.addEventListener("input", () => {
+          if (!done) card.toggleClass("qt-quiz-typed", !!input.value.trim());
+        });
+        wrap.createEl("button", { cls: "qt-quiz-submit", text: "Check answer" }).addEventListener("click", () => finish(gradeQuizQuestion(question, input.value)));
+        if (this.settings.ai.enabled) {
+          const ai = wrap.createEl("button", { cls: "qt-quiz-ai", text: "Evaluate with AI" });
+          ai.addEventListener("click", async () => {
+            if (done || !input.value.trim()) return;
+            ai.disabled = true;
+            try {
+              const evaluation = await this.evaluateQuizTextQuestion(question, input.value);
+              const result = gradeQuizQuestion(question, input.value, evaluation.score);
+              result.explanation = evaluation.explanation || result.explanation;
+              await finish(result);
+            } catch (e) {
+              new Notice(str(e && e.message ? e.message : e), 9000);
+              ai.disabled = false;
+            }
+          });
+        }
+        if (question.context) card.createDiv({ cls: "qt-hint", text: `Hint: ${question.context}` });
+        return;
+      }
+
+      const choices = card.createDiv({ cls: "qt-quiz-choices" });
+      const buttons = [];
       question.choices.forEach((choice) => {
         const button = choices.createEl("button", { cls: "qt-quiz-choice", text: `${choice.letter}. ${choice.text}` });
         buttons.push(button);
         button.addEventListener("click", async () => {
           if (done) return;
-          done = true;
           const result = gradeQuizBlockQuestion(question, choice.letter);
           result.options.forEach((option, i) => {
             buttons[i].addClass(option.correct ? "is-correct" : "is-wrong");
@@ -3306,15 +3409,7 @@ class QuestionTrackerPlugin extends Plugin {
             line.createSpan({ text: `${option.letter}. ${option.correct ? "Correct" : option.selected ? "Your choice" : ""} ` });
             if (option.feedback) line.createSpan({ text: option.feedback });
           }
-          if (result.explanation) feedback.createDiv({ cls: "qt-quiz-explanation", text: result.explanation });
-          card.createDiv({ cls: result.correct ? "qt-quiz-result is-correct" : "qt-quiz-result is-wrong", text: result.correct ? "Correct" : "Not quite" });
-          answered++;
-          cards.forEach((item, i) => item.toggleClass("qt-quiz-hidden", parsed.gated && i >= visibleQuizCount(parsed.questions.length, answered, true)));
-          try {
-            await this.recordQuizBlockAnswer(question, result, (Date.now() - started) / 1000);
-          } catch (e) {
-            new Notice(`Could not record this inline answer: ${str(e && e.message ? e.message : e)}`);
-          }
+          await finish(result);
         });
       });
     });

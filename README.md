@@ -339,7 +339,28 @@ Answer: B
 Why: The light reactions use CO2.
 ```
 
-`gated: true` shows one question at a time and reveals the next only after an answer. Every choice is marked, and its own `Why A:` / `Why B:` feedback appears after answering; the overall `Why:` appears too. Add `ID: Q-123` to a question to record the attempt on that question note, so it uses the same history, streak and ladder/FSRS schedule as normal practice.
+`gated: true` shows one question at a time and reveals the next only after an answer. Every choice is marked, and its own `Why A:` / `Why B:` feedback appears after answering; the overall `Why:` appears too. Add `ID: Q-123` to a question to record the attempt on that question note, so it uses the same history, streak and ladder/FSRS schedule as normal practice. Add `pass: 80` and `imprecise: 60` at the top for weighted pass/imprecise/fail scoring.
+
+For a numeric estimate, add a slider question; for a short written answer, add a text question:
+
+```mcq-quiz
+Q: In what year was JavaScript created?
+Type: slider
+Min: 1980
+Max: 2010
+Step: 1
+Tolerance: 2
+Answer: 1995
+Weight: 2
+
+Q: What is the capital of France?
+Type: text
+Answer: Paris
+Context: The city, not the country.
+Weight: 1
+```
+
+Sliders accept any value within `Tolerance` of `Answer`. Text questions check an exact answer locally and, when AI features are on, offer **Evaluate with AI**; the model returns a 0–100 score and explanation through the existing card-grading AI path. `Weight` applies to the weighted block summary, which reports **pass**, **imprecise** or **fail** without changing the note format or scheduler.
 
 ### Whole-note review
 

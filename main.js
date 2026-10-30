@@ -33464,7 +33464,7 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
-const { gradeQuizBlockQuestion, parseQuizBlock, visibleQuizCount } = require("./quiz-block");
+const { gradeQuizBlockQuestion, gradeQuizQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, visibleQuizCount } = require("./quiz-block");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
 const { CardGeneratorModal } = require("./card-generator-modal");
@@ -36643,7 +36643,27 @@ class QuestionTrackerPlugin extends Plugin {
     });
   }
 
-  /** Render an `mcq-quiz` fenced block: inline choices, gating and per-option feedback. */
+  /** Grade one free-text inline quiz answer with the configured AI backend. */
+  async evaluateQuizTextQuestion(question, answer) {
+    if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
+    const q = question || {};
+    const system =
+      "You grade one short free-text quiz answer. Return only JSON with a score from 0 to 100 and a short explanation: " +
+      '{"score": 0, "explanation": ""}. Judge the learner answer against the expected answer and the optional context. ' +
+      "Do not add a markdown fence or any other text.";
+    const user = [
+      `Question: ${str(q.question)}`,
+      `Expected answer: ${str(q.answer)}`,
+      q.context ? `Context: ${str(q.context)}` : "",
+      `Learner answer: ${str(answer)}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const reply = await this.aiComplete(system, user, { feature: "cardGrading", maxTokens: 300 });
+    return parseQuizAiEvaluation(reply);
+  }
+
+  /** Render an `mcq-quiz` fenced block: choices, sliders, text and weighted scoring. */
   async renderQuizBlock(source, el) {
     const parsed = parseQuizBlock(source);
     if (!parsed.questions.length) {
@@ -36653,25 +36673,108 @@ class QuestionTrackerPlugin extends Plugin {
     const box = el.createDiv({ cls: "qt-quiz-block" });
     let answered = 0;
     const cards = [];
+    const selections = {};
+    const summary = box.createDiv({ cls: "qt-quiz-summary" });
+    const paintSummary = () => {
+      const score = quizBlockScore(parsed.questions, selections, parsed);
+      summary.setText(`Score: ${score.percent}% · ${score.band} · ${score.answered}/${score.total} answered`);
+      summary.toggleClass("is-pass", score.band === "pass");
+      summary.toggleClass("is-imprecise", score.band === "imprecise");
+      summary.toggleClass("is-fail", score.band === "fail");
+    };
+    paintSummary();
+
+    const complete = async (index, question, result, started, card, feedback, extra) => {
+      if (selections[index]) return;
+      selections[index] = result;
+      answered++;
+      if (extra && extra.options) {
+        // Choice feedback is rendered by the caller before this completes.
+      }
+      if (result.explanation) feedback.createDiv({ cls: "qt-quiz-explanation", text: result.explanation });
+      if (question.type !== "choice") {
+        feedback.createDiv({
+          cls: `qt-quiz-score is-${result.band || (result.correct ? "pass" : "fail")}`,
+          text: `${result.score}% · ${result.band || (result.correct ? "pass" : "fail")}${result.mode === "text" ? " · AI/local check" : ""}`,
+        });
+      }
+      const label = result.correct ? "Correct" : result.band === "imprecise" ? "Imprecise" : "Not quite";
+      card.createDiv({ cls: result.correct ? "qt-quiz-result is-correct" : "qt-quiz-result is-wrong", text: label });
+      cards.forEach((item, i) => item.toggleClass("qt-quiz-hidden", parsed.gated && i >= visibleQuizCount(parsed.questions.length, answered, true)));
+      paintSummary();
+      try {
+        await this.recordQuizBlockAnswer(question, result, (Date.now() - started) / 1000);
+      } catch (e) {
+        new Notice(`Could not record this inline answer: ${str(e && e.message ? e.message : e)}`);
+      }
+    };
+
     parsed.questions.forEach((question, index) => {
       const card = box.createDiv({ cls: "qt-quiz-card" });
       cards.push(card);
       card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
+      if (question.weight !== 1) card.createDiv({ cls: "qt-quiz-weight", text: `Weight ${question.weight}` });
       if (!question.valid) {
         card.createDiv({ cls: "qt-quiz-issue", text: question.issues.join(" ") });
         return;
       }
-      const choices = card.createDiv({ cls: "qt-quiz-choices" });
       const feedback = card.createDiv({ cls: "qt-quiz-feedback" });
-      const buttons = [];
       const started = Date.now();
       let done = false;
+      const finish = async (result) => {
+        if (done) return;
+        done = true;
+        await complete(index, question, result, started, card, feedback);
+      };
+
+      if (question.type === "slider") {
+        const wrap = card.createDiv({ cls: "qt-quiz-slider" });
+        const value = wrap.createSpan({ cls: "qt-quiz-slider-value", text: String(question.answer) });
+        const input = wrap.createEl("input", {
+          type: "range",
+          attr: { min: String(question.min), max: String(question.max), step: String(question.step), "aria-label": question.question },
+        });
+        input.value = String(question.answer);
+        input.addEventListener("input", () => value.setText(input.value));
+        wrap.createEl("button", { cls: "qt-quiz-submit", text: "Check" }).addEventListener("click", () => finish(gradeQuizQuestion(question, input.value)));
+        card.createDiv({ cls: "qt-hint", text: `Range ${question.min}–${question.max}${question.tolerance ? ` · ±${question.tolerance} accepted` : ""}` });
+        return;
+      }
+
+      if (question.type === "text") {
+        const wrap = card.createDiv({ cls: "qt-quiz-text" });
+        const input = wrap.createEl("input", { type: "text", cls: "qt-spr", attr: { placeholder: "Your answer" } });
+        input.addEventListener("input", () => {
+          if (!done) card.toggleClass("qt-quiz-typed", !!input.value.trim());
+        });
+        wrap.createEl("button", { cls: "qt-quiz-submit", text: "Check answer" }).addEventListener("click", () => finish(gradeQuizQuestion(question, input.value)));
+        if (this.settings.ai.enabled) {
+          const ai = wrap.createEl("button", { cls: "qt-quiz-ai", text: "Evaluate with AI" });
+          ai.addEventListener("click", async () => {
+            if (done || !input.value.trim()) return;
+            ai.disabled = true;
+            try {
+              const evaluation = await this.evaluateQuizTextQuestion(question, input.value);
+              const result = gradeQuizQuestion(question, input.value, evaluation.score);
+              result.explanation = evaluation.explanation || result.explanation;
+              await finish(result);
+            } catch (e) {
+              new Notice(str(e && e.message ? e.message : e), 9000);
+              ai.disabled = false;
+            }
+          });
+        }
+        if (question.context) card.createDiv({ cls: "qt-hint", text: `Hint: ${question.context}` });
+        return;
+      }
+
+      const choices = card.createDiv({ cls: "qt-quiz-choices" });
+      const buttons = [];
       question.choices.forEach((choice) => {
         const button = choices.createEl("button", { cls: "qt-quiz-choice", text: `${choice.letter}. ${choice.text}` });
         buttons.push(button);
         button.addEventListener("click", async () => {
           if (done) return;
-          done = true;
           const result = gradeQuizBlockQuestion(question, choice.letter);
           result.options.forEach((option, i) => {
             buttons[i].addClass(option.correct ? "is-correct" : "is-wrong");
@@ -36682,15 +36785,7 @@ class QuestionTrackerPlugin extends Plugin {
             line.createSpan({ text: `${option.letter}. ${option.correct ? "Correct" : option.selected ? "Your choice" : ""} ` });
             if (option.feedback) line.createSpan({ text: option.feedback });
           }
-          if (result.explanation) feedback.createDiv({ cls: "qt-quiz-explanation", text: result.explanation });
-          card.createDiv({ cls: result.correct ? "qt-quiz-result is-correct" : "qt-quiz-result is-wrong", text: result.correct ? "Correct" : "Not quite" });
-          answered++;
-          cards.forEach((item, i) => item.toggleClass("qt-quiz-hidden", parsed.gated && i >= visibleQuizCount(parsed.questions.length, answered, true)));
-          try {
-            await this.recordQuizBlockAnswer(question, result, (Date.now() - started) / 1000);
-          } catch (e) {
-            new Notice(`Could not record this inline answer: ${str(e && e.message ? e.message : e)}`);
-          }
+          await finish(result);
         });
       });
     });
@@ -41703,15 +41798,31 @@ __defs["quiz-block"] = function (module, exports, require) {
  * A fenced `mcq-quiz` block is parsed by this module; the plugin renders it in
  * place. The format deliberately mirrors a question note:
  *
+ *   pass: 80
+ *   imprecise: 60
  *   gated: true
  *   Q: Which gas do plants take in?
  *   A. Oxygen
  *   B. Carbon dioxide
- *   Why A: Oxygen is released, not taken in.
- *   Why B: Photosynthesis consumes carbon dioxide.
  *   Answer: B
  *   Why: The light reactions use CO2.
- *   ID: Q-123          (optional: record the attempt on that question note)
+ *   ID: Q-123
+ *
+ * Quizzator-style additions are opt-in per question:
+ *
+ *   Q: In what year was JavaScript created?
+ *   Type: slider
+ *   Min: 1980
+ *   Max: 2010
+ *   Step: 1
+ *   Tolerance: 2
+ *   Answer: 1995
+ *   Weight: 2
+ *
+ *   Q: What is the capital of France?
+ *   Type: text
+ *   Answer: Paris
+ *   Context: The city, not the country.
  *
  * `gated` hides every question after the current one until the reader answers.
  * Per-option feedback is shown for every choice, not only the picked one.
@@ -41720,9 +41831,28 @@ const { str } = require("./util");
 const { formatChoiceSet, parseChoiceSet } = require("./answer-types");
 
 const LETTERS = "ABCDEFGH";
+const DEFAULT_PASS = 80;
+const DEFAULT_IMPRECISE = 60;
 
 function clean(value) {
   return str(value).replace(/\s+/g, " ").trim();
+}
+
+function number(value, fallback) {
+  const n = Number(clean(value));
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function clampScore(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : null;
+}
+
+function normalizeQuestionType(value) {
+  const text = clean(value).toLowerCase();
+  if (/slider|range|numeric.?estimate/.test(text)) return "slider";
+  if (/text|free|short|written|open/.test(text)) return "text";
+  return "choice";
 }
 
 function resolveAnswer(raw, choices) {
@@ -41739,7 +41869,21 @@ function resolveAnswer(raw, choices) {
 }
 
 function newQuestion() {
-  return { question: "", choices: [], answer: "", explanation: "", id: "", issues: [] };
+  return {
+    type: "choice",
+    question: "",
+    choices: [],
+    answer: "",
+    explanation: "",
+    context: "",
+    id: "",
+    min: 0,
+    max: 100,
+    step: 1,
+    tolerance: 0,
+    weight: 1,
+    issues: [],
+  };
 }
 
 /**
@@ -41749,6 +41893,8 @@ function newQuestion() {
 function parseQuizBlock(text) {
   const lines = str(text).replace(/\r\n?/g, "\n").split("\n");
   let gated = false;
+  let pass = DEFAULT_PASS;
+  let imprecise = DEFAULT_IMPRECISE;
   const questions = [];
   let cur = null;
   let last = null;
@@ -41771,6 +41917,16 @@ function parseQuizBlock(text) {
       gated = true;
       continue;
     }
+    const passLine = line.match(/^(?:pass(?:ing)?(?:\s*score)?|min_score_to_pass)\s*[:=]\s*(\d+(?:\.\d+)?)$/i);
+    if (!cur && passLine) {
+      pass = clampScore(passLine[1]);
+      continue;
+    }
+    const impreciseLine = line.match(/^(?:(?:imprecise|partial|fail(?:ing)?)(?:\s*score)?|min_score_to_fail)\s*[:=]\s*(\d+(?:\.\d+)?)$/i);
+    if (!cur && impreciseLine) {
+      imprecise = clampScore(impreciseLine[1]);
+      continue;
+    }
     if (/^---+$/.test(line)) {
       cur = null;
       last = null;
@@ -41789,6 +41945,49 @@ function parseQuizBlock(text) {
     if (id) {
       cur.id = id[1].trim();
       last = { key: "id" };
+      continue;
+    }
+    const type = line.match(/^(?:Type|Question\s*type)\s*[:.=]\s*(.*)$/i);
+    if (type) {
+      cur.type = normalizeQuestionType(type[1]);
+      last = null;
+      continue;
+    }
+    const field = (name) => line.match(new RegExp(`^${name}\\s*[:=]\\s*(.*)$`, "i"));
+    const min = field("Min(?:imum)?");
+    const max = field("Max(?:imum)?");
+    const step = field("Step");
+    const tolerance = field("Tolerance");
+    const weight = field("Weight");
+    const context = field("Context");
+    if (min) {
+      cur.min = number(min[1], 0);
+      last = null;
+      continue;
+    }
+    if (max) {
+      cur.max = number(max[1], 100);
+      last = null;
+      continue;
+    }
+    if (step) {
+      cur.step = number(step[1], 1);
+      last = null;
+      continue;
+    }
+    if (tolerance) {
+      cur.tolerance = Math.max(0, number(tolerance[1], 0));
+      last = null;
+      continue;
+    }
+    if (weight) {
+      cur.weight = Math.max(0.01, number(weight[1], 1));
+      last = null;
+      continue;
+    }
+    if (context) {
+      cur.context = context[1].trim();
+      last = { key: "context" };
       continue;
     }
     const option = line.match(/^([A-H])\s*[.):]\s*(.*)$/);
@@ -41821,27 +42020,43 @@ function parseQuizBlock(text) {
     if (!line) continue;
     if (last && last.key === "choice") append("choice", line, last.index);
     else if (last && last.key === "feedback") append("feedback", line, last.index);
-    else if (last && ["question", "answer", "explanation"].includes(last.key)) append(last.key, line);
+    else if (last && ["question", "answer", "explanation", "context"].includes(last.key)) append(last.key, line);
   }
 
   for (const [index, question] of questions.entries()) {
     question.question = clean(question.question);
     question.explanation = clean(question.explanation);
+    question.context = clean(question.context).slice(0, 1000);
     question.choices = question.choices.filter((choice) => clean(choice.text));
     if (!question.question) question.issues.push(`Question ${index + 1} has no text.`);
-    if (question.choices.length < 2) question.issues.push(`Question ${index + 1} needs at least two choices.`);
-    if (!question.answer) question.issues.push(`Question ${index + 1} has no Answer line.`);
-    else {
-      const key = resolveAnswer(question.answer, question.choices);
-      if (!key) question.issues.push(`Question ${index + 1}: "${question.answer.slice(0, 30)}" is not one of its choices.`);
-      question.answer = key;
+    if (question.type === "choice") {
+      if (question.choices.length < 2) question.issues.push(`Question ${index + 1} needs at least two choices.`);
+      if (!question.answer) question.issues.push(`Question ${index + 1} has no Answer line.`);
+      else {
+        const key = resolveAnswer(question.answer, question.choices);
+        if (!key) question.issues.push(`Question ${index + 1}: "${question.answer.slice(0, 30)}" is not one of its choices.`);
+        question.answer = key;
+      }
+    } else if (question.type === "slider") {
+      if (!Number.isFinite(number(question.answer, NaN))) question.issues.push(`Question ${index + 1} needs a numeric Answer for its slider.`);
+      if (!(question.min < question.max)) question.issues.push(`Question ${index + 1} needs Min smaller than Max.`);
+      if (!(question.step > 0)) question.issues.push(`Question ${index + 1} needs a Step greater than 0.`);
+      const answer = number(question.answer, NaN);
+      if (Number.isFinite(answer) && (answer < question.min || answer > question.max)) {
+        question.issues.push(`Question ${index + 1}: the slider Answer is outside Min-Max.`);
+      }
+      question.answer = Number.isFinite(answer) ? String(answer) : "";
+    } else if (!question.answer) {
+      question.issues.push(`Question ${index + 1} has no Answer line.`);
     }
+    question.pass = pass;
+    question.imprecise = imprecise;
     question.valid = question.issues.length === 0;
   }
-  return { gated, questions };
+  return { gated, pass, imprecise, questions };
 }
 
-/** Grade one choice selection and mark every option with its own feedback. */
+/** Grade one multiple-choice selection and mark every option with its feedback. */
 function gradeQuizBlockQuestion(question, selected) {
   const q = question || {};
   const key = parseChoiceSet(q.answer);
@@ -41854,7 +42069,78 @@ function gradeQuizBlockQuestion(question, selected) {
     selected: picked.includes(str(choice.letter).toUpperCase()),
     feedback: str(choice.feedback),
   }));
-  return { correct, key: key.join(", "), selected: picked.join(", "), options, explanation: str(q.explanation) };
+  return {
+    correct,
+    score: correct ? 100 : 0,
+    mode: "choice",
+    type: "choice",
+    weight: Number(q.weight) || 1,
+    key: key.join(", "),
+    selected: picked.join(", "),
+    options,
+    explanation: str(q.explanation),
+    band: correct ? "pass" : "fail",
+  };
+}
+
+function textAnswer(value) {
+  return clean(value)
+    .toLowerCase()
+    .replace(/[.!?。]+$/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function gradeSliderQuestion(question, selected) {
+  const q = question || {};
+  const expected = number(q.answer, NaN);
+  const picked = number(selected, NaN);
+  const tolerance = Math.max(0, Number(q.tolerance) || 0);
+  const correct = Number.isFinite(expected) && Number.isFinite(picked) && Math.abs(picked - expected) <= tolerance;
+  return {
+    correct,
+    score: correct ? 100 : 0,
+    mode: "slider",
+    type: "slider",
+    weight: Number(q.weight) || 1,
+    key: String(expected),
+    selected: Number.isFinite(picked) ? String(picked) : "",
+    explanation: str(q.explanation),
+    band: correct ? "pass" : "fail",
+  };
+}
+
+function gradeTextQuestion(question, selected, aiScore) {
+  const q = question || {};
+  const score = clampScore(aiScore);
+  const exact = textAnswer(q.answer) && textAnswer(selected) === textAnswer(q.answer);
+  const finalScore = score === null ? (exact ? 100 : 0) : score;
+  return {
+    correct: finalScore >= (Number(q.pass) || DEFAULT_PASS),
+    score: finalScore,
+    mode: "text",
+    type: "text",
+    weight: Number(q.weight) || 1,
+    key: str(q.answer),
+    selected: str(selected),
+    explanation: str(q.explanation),
+    band: bandForScore(finalScore, q.pass, q.imprecise),
+  };
+}
+
+/** Grade one answer. `aiScore` is only used for text questions. */
+function gradeQuizQuestion(question, selected, aiScore) {
+  if (question && question.type === "slider") return gradeSliderQuestion(question, selected);
+  if (question && question.type === "text") return gradeTextQuestion(question, selected, aiScore);
+  return gradeQuizBlockQuestion(question, selected);
+}
+
+function bandForScore(score, pass, imprecise) {
+  const n = Number(score) || 0;
+  const p = Number.isFinite(Number(pass)) ? Number(pass) : DEFAULT_PASS;
+  const i = Number.isFinite(Number(imprecise)) ? Number(imprecise) : DEFAULT_IMPRECISE;
+  if (n >= p) return "pass";
+  if (n >= i) return "imprecise";
+  return "fail";
 }
 
 /** Gated blocks show one unanswered question at a time; open blocks show all. */
@@ -41864,27 +42150,72 @@ function visibleQuizCount(total, answered, gated) {
   return Math.min(n, Math.max(0, Math.round(Number(answered) || 0)) + 1);
 }
 
-function quizBlockScore(questions, selections) {
+/**
+ * Weighted score across the whole block. Unanswered questions contribute zero,
+ * so the percentage reflects the complete quiz, while `answered` reports
+ * progress. A selection can be a raw answer or a completed grade result.
+ */
+function quizBlockScore(questions, selections, settings) {
   const list = Array.isArray(questions) ? questions : [];
   const picks = selections && typeof selections === "object" ? selections : {};
+  const opts = settings || {};
+  const pass = Number(opts.pass);
+  const imprecise = Number(opts.imprecise);
   let answered = 0;
   let correct = 0;
+  let earned = 0;
+  let weight = 0;
   list.forEach((question, index) => {
+    if (!question || question.valid === false) return;
+    const w = Math.max(0.01, Number(question.weight) || 1);
+    weight += w;
     if (!(index in picks)) return;
     answered++;
-    if (gradeQuizBlockQuestion(question, picks[index]).correct) correct++;
+    const pick = picks[index];
+    const grade =
+      pick && typeof pick === "object" && Number.isFinite(Number(pick.score))
+        ? pick
+        : gradeQuizQuestion(question, pick, pick && pick.aiScore);
+    earned += (Number(grade.score) || 0) * w;
+    if (grade.correct) correct++;
   });
+  const percent = weight ? Math.round(earned / weight) : 0;
   return {
     answered,
     correct,
     total: list.length,
-    percent: answered ? Math.round((correct / answered) * 100) : 0,
+    percent,
+    band: bandForScore(percent, pass, imprecise),
+  };
+}
+
+/** Parse a small AI reply for a free-text score. Accepts JSON or a bare score. */
+function parseQuizAiEvaluation(text) {
+  const raw = str(text).trim();
+  let obj = null;
+  try {
+    obj = JSON.parse(raw);
+  } catch (e) {
+    /* plain text */
+  }
+  const score = obj && typeof obj === "object" ? obj.score : (raw.match(/(?:score|percent(?:age)?)\D{0,12}(\d{1,3})/i) || [])[1];
+  const value = clampScore(score);
+  if (value === null) throw new Error("The AI did not return a score from 0 to 100.");
+  return {
+    score: value,
+    explanation: str((obj && (obj.explanation || obj.feedback || obj.reason)) || "").trim().slice(0, 1000),
   };
 }
 
 module.exports = {
+  DEFAULT_IMPRECISE,
+  DEFAULT_PASS,
   LETTERS,
+  bandForScore,
   gradeQuizBlockQuestion,
+  gradeQuizQuestion,
+  normalizeQuestionType,
+  parseQuizAiEvaluation,
   parseQuizBlock,
   quizBlockScore,
   resolveAnswer,
