@@ -159,6 +159,7 @@ const DEFAULT_SETTINGS = {
       contentAuthority: "two-way",
       excludeTags: "",
       excludeDecks: "",
+      excludeFolders: "",
       omitRegex: "",
       clearMissing: false,
       excalidraw: { enabled: false, folder: "" },

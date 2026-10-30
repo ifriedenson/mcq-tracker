@@ -1991,6 +1991,7 @@ const DEFAULT_ANKI_CONNECT = {
   backlinks: false, // optional link from each Anki note back to its source note
   excludeTags: "", // optional comma-separated tags that keep a card out of Anki
   excludeDecks: "", // optional comma-separated decks (and subdecks) kept out of Anki
+  excludeFolders: "", // optional comma-separated vault folders (and subfolders) kept out of Anki
   omitRegex: "", // optional global regex removed from both sides before pushing
   clearMissing: false, // optional cleanup of local Anki IDs after an Anki-side deletion
   excalidraw: { enabled: false, folder: "" }, // optional exported .excalidraw.svg support
@@ -2015,6 +2016,7 @@ function normalizeAnkiConnect(value) {
     backlinks: src.backlinks === true,
     excludeTags: str(src.excludeTags).trim(),
     excludeDecks: str(src.excludeDecks).trim(),
+    excludeFolders: str(src.excludeFolders).trim(),
     omitRegex: str(src.omitRegex).trim(),
     clearMissing: src.clearMissing === true,
     excalidraw: {
@@ -2396,6 +2398,11 @@ function ankiExclusionReason(card, options) {
     .map((name) => name.toLowerCase())
     .find((name) => name && (deck === name || deck.startsWith(name + "::")));
   if (excludedDeck) return `deck ${ankiDeckName(card, opts)} is excluded`;
+  const path = str(card && card.file && card.file.path).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").toLowerCase();
+  const excludedFolder = filterList(opts.excludeFolders)
+    .map((folder) => str(folder).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").toLowerCase())
+    .find((folder) => folder && (path === folder || path.startsWith(folder + "/")));
+  if (excludedFolder) return `folder ${filterList(opts.excludeFolders).find((folder) => str(folder).replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").toLowerCase() === excludedFolder)} is excluded`;
   return "";
 }
 
@@ -15015,6 +15022,18 @@ function renderDecks(containerEl, plugin, redisplay) {
         })
     );
   new Setting(containerEl)
+    .setName("Excluded folders")
+    .setDesc("Optional comma-separated vault folders. Cards inside them and their subfolders are left out of Anki previews and syncs. Paths are case-insensitive. For example, Cards/Archive also excludes Cards/Archive/Old.")
+    .addText((t) =>
+      t
+        .setPlaceholder("e.g. Cards/Archive, Courses/Old")
+        .setValue(anki.excludeFolders || "")
+        .onChange(async (v) => {
+          anki.excludeFolders = str(v).trim();
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
     .setName("Omit text with a regex")
     .setDesc("Optional global regular expression removed from the front and back before they are sent to Anki. The same text is removed from the local sync comparison, so it does not create a false conflict. An invalid expression is ignored with a warning.")
     .addText((t) =>
@@ -17033,6 +17052,7 @@ const DEFAULT_SETTINGS = {
       contentAuthority: "two-way",
       excludeTags: "",
       excludeDecks: "",
+      excludeFolders: "",
       omitRegex: "",
       clearMissing: false,
       excalidraw: { enabled: false, folder: "" },
@@ -36385,6 +36405,7 @@ class QuestionTrackerPlugin extends Plugin {
       backlinks: anki.backlinks === true,
       excludeTags: anki.excludeTags,
       excludeDecks: anki.excludeDecks,
+      excludeFolders: anki.excludeFolders,
       omitRegex: anki.omitRegex,
       excalidraw: { ...anki.excalidraw },
       vaultName: typeof this.app.vault.getName === "function" ? this.app.vault.getName() : "",

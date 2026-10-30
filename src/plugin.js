@@ -2056,6 +2056,7 @@ class QuestionTrackerPlugin extends Plugin {
       backlinks: anki.backlinks === true,
       excludeTags: anki.excludeTags,
       excludeDecks: anki.excludeDecks,
+      excludeFolders: anki.excludeFolders,
       omitRegex: anki.omitRegex,
       excalidraw: { ...anki.excalidraw },
       vaultName: typeof this.app.vault.getName === "function" ? this.app.vault.getName() : "",

@@ -373,6 +373,18 @@ function renderDecks(containerEl, plugin, redisplay) {
         })
     );
   new Setting(containerEl)
+    .setName("Excluded folders")
+    .setDesc("Optional comma-separated vault folders. Cards inside them and their subfolders are left out of Anki previews and syncs. Paths are case-insensitive. For example, Cards/Archive also excludes Cards/Archive/Old.")
+    .addText((t) =>
+      t
+        .setPlaceholder("e.g. Cards/Archive, Courses/Old")
+        .setValue(anki.excludeFolders || "")
+        .onChange(async (v) => {
+          anki.excludeFolders = str(v).trim();
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
     .setName("Omit text with a regex")
     .setDesc("Optional global regular expression removed from the front and back before they are sent to Anki. The same text is removed from the local sync comparison, so it does not create a false conflict. An invalid expression is ignored with a warning.")
     .addText((t) =>
