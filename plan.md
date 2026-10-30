@@ -11,20 +11,20 @@
 
 **Start a new chat here.** The repository is the source of truth; this section records the current state so a fresh chat does not need the old conversation.
 
-- **Repository:** `ifriedenson/mcq-tracker`, branch `main`. The latest code release is **1.117.0** (`aca5eab`, tag `1.117.0`); the documentation audit before this handoff is `215f788`. This handoff is a docs-only commit.
+- **Repository:** `ifriedenson/mcq-tracker`, branch `main`. The latest code release is **1.117.0** (`aca5eab`, tag `1.117.0`); the documentation audit is `215f788`, and this handoff snapshot plus `AGENTS.md` were added in `bd848d9`. The handoff is documentation only; it did not change code, tests, `manifest.json`, or the release.
+- **Owner direction (Oct 30, 2026):** freeze the verified state, save it in this plan, push it to GitHub, and make the repository ready for a new chat. No new feature was authorized by that direction; the unchecked authoring item remains unranked.
 - **What is shipped:** the six-course AP FRQ pilot with self/AI grading, rubric categories, review scheduling and multi-photo answers; the course registry; unit-circle/trig/codon/Punnett sheets; Learn/Test/Match study modes; Quizlet PDF import with a device picker; Mochi `.mochi`, LearnKit and Anki `.apkg` export; the in-plugin feedback survey; timed-test answer-choice shuffling and pass marks. Earlier releases added the calendar, assignments/GPA, reference tools, PDF annotations, AI tutor, cards module, imports and analytics.
 - **Verification at handoff:** `npm test` passes all **687 tests**, and `npm run check` reports `main.js` is up to date. `main.js` is generated from `src/`; rebuild with `npm run build` after source edits.
-- **No implementable partial remains in this environment.**
+- **No implementable partial remains in this environment.** The open gates are:
   - Real Obsidian window: visual/math audit and screenshots.
   - Real iOS/Android hardware: mobile audit.
   - Provider plus mobile audio: TTS and pronunciation validation.
   - Audited MIT PDF library: AcroForm form filling.
   - OCR engine and licence decision: bundled OCR (and the OCR-dependent AI summary/paper-scanner slices).
   - Human-scored fixtures and go/no-go thresholds: AP FRQ calibration and any accuracy claim.
-- **One unchecked item, not a partial:** lighter multi-question authoring. It is a new feature request and stays unscheduled until the owner explicitly ranks it. Do not implement it silently.
+- **Explicitly not done:** no source or test changes were made after 1.117.0. The only unchecked implementation item is **lighter multi-question authoring**, which is a new feature request, not a partial. It stays unscheduled until the owner explicitly ranks it.
 - **Release procedure:** update this plan first; bump `manifest.json` and `versions.json`; rebuild `main.js`; run `npm test` and `npm run check`; commit and push to `main`; create a tag equal to the manifest version and push it. `.github/workflows/release.yml` runs the tests and publishes `main.js`, `manifest.json` and `styles.css` with build attestations.
-- **Start a new chat:** open the same GitHub-connected project on branch `main` and say: “Read `AGENTS.md` and the Handoff snapshot in `plan.md`; continue from the verified 1.117.0 state.” The working tree is clean after this handoff commit.
-
+- **New-chat continuation:** close this chat; open the same GitHub-connected project on branch `main`; confirm HEAD includes `bd848d9` or later and the working tree is clean; then send: “Read `AGENTS.md` and the Handoff snapshot in `plan.md`; continue from the verified 1.117.0 state.” Do not start from a sibling chat's uncommitted worktree.
 
 ---
 
