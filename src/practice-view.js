@@ -1110,6 +1110,7 @@ class PracticeView extends ItemView {
     const p = this.plugin;
     const q = this.current;
     const fm = q.fm;
+    const closedBook = p.settings.closedBook === true;
     const paused = !p.isRunning();
     const path = q.file.path;
     const verification = str(fm.verification).toLowerCase();
@@ -1176,9 +1177,11 @@ class PracticeView extends ItemView {
       this.render();
     });
     const tools = bar.createDiv({ cls: "qt-exam-tools" });
-    const open = tools.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": "Open note" } });
-    setIcon(open, "file-text");
-    open.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(q.file));
+    if (!closedBook) {
+      const open = tools.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": "Open note" } });
+      setIcon(open, "file-text");
+      open.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(q.file));
+    }
 
     // ---- two panes: passage on the left, question + choices on the right
     const hasStim = !!q.sections.stimulus;
@@ -1258,6 +1261,13 @@ class PracticeView extends ItemView {
       q.fm.flagged = now;
       paintFlag(now);
     });
+
+    if (closedBook) {
+      right.createDiv({
+        cls: "qt-hint qt-closed-book",
+        text: "Closed book: the source, answer note and explanation unlock after you submit.",
+      });
+    }
 
     this.md(q.sections.question || "*No `## Question` section found in this note.*", right.createDiv({ cls: "qt-stem" }), path);
 

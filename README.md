@@ -306,6 +306,10 @@ When an upcoming calendar exam matches the note's `course`, the scheduled `next_
 
 Each `history` entry is stored as `date|result|seconds|answer|confidence|error_type`.
 
+### Closed-book practice (optional)
+
+Turn on **Settings → MCQ Tracker → Review → Closed-book practice** to hide the **Open note** shortcut during a question. The question, choices and timer stay visible; the source row, answer note and explanation unlock only after you submit. The option is off by default, and it changes no attempts, history, streak, next review or scheduling. Closing the practice tab ends the restriction; reopening the question starts gated again.
+
 ### Hidden study items
 
 Every practice and card review screen has **Known**, **Bury**, **Suspend** and **Exclude** actions. They hide an item without deleting its note or changing its review history:

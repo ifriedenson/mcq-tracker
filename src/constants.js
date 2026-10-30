@@ -52,6 +52,7 @@ const DEFAULT_SETTINGS = {
   needsFixing: false, // opt-in: flag questions missed on five distinct days for repair
   autoPauseOnMobile: true,
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
+  closedBook: false, // opt-in: hide the Open note shortcut until the current question is submitted
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
     managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)

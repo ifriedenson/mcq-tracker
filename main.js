@@ -17040,6 +17040,7 @@ const DEFAULT_SETTINGS = {
   needsFixing: false, // opt-in: flag questions missed on five distinct days for repair
   autoPauseOnMobile: true,
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
+  closedBook: false, // opt-in: hide the Open note shortcut until the current question is submitted
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
     managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)
@@ -35350,6 +35351,7 @@ class QuestionTrackerPlugin extends Plugin {
     if (saved.explanationDefault === undefined && saved.showRationale === false) this.settings.explanationDefault = "hide";
     delete this.settings.showRationale;
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
+    this.settings.closedBook = this.settings.closedBook === true;
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -42458,6 +42460,7 @@ class PracticeView extends ItemView {
     const p = this.plugin;
     const q = this.current;
     const fm = q.fm;
+    const closedBook = p.settings.closedBook === true;
     const paused = !p.isRunning();
     const path = q.file.path;
     const verification = str(fm.verification).toLowerCase();
@@ -42524,9 +42527,11 @@ class PracticeView extends ItemView {
       this.render();
     });
     const tools = bar.createDiv({ cls: "qt-exam-tools" });
-    const open = tools.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": "Open note" } });
-    setIcon(open, "file-text");
-    open.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(q.file));
+    if (!closedBook) {
+      const open = tools.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": "Open note" } });
+      setIcon(open, "file-text");
+      open.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(q.file));
+    }
 
     // ---- two panes: passage on the left, question + choices on the right
     const hasStim = !!q.sections.stimulus;
@@ -42606,6 +42611,13 @@ class PracticeView extends ItemView {
       q.fm.flagged = now;
       paintFlag(now);
     });
+
+    if (closedBook) {
+      right.createDiv({
+        cls: "qt-hint qt-closed-book",
+        text: "Closed book: the source, answer note and explanation unlock after you submit.",
+      });
+    }
 
     this.md(q.sections.question || "*No `## Question` section found in this note.*", right.createDiv({ cls: "qt-stem" }), path);
 
@@ -49032,6 +49044,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             st.explanationDefault = v;
             await this.plugin.save();
           })
+      );
+
+    new Setting(containerEl)
+      .setName("Closed-book practice")
+      .setDesc(
+        "Hide the Open note shortcut until you submit, so the answer cannot be peeked at during practice. Explanations and source links already appear only on the result screen. Off by default; attempts, history, streak and scheduling are unchanged."
+      )
+      .addToggle((t) =>
+        t.setValue(st.closedBook === true).onChange(async (v) => {
+          st.closedBook = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
       );
 
     new Setting(containerEl)

@@ -522,6 +522,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Closed-book practice")
+      .setDesc(
+        "Hide the Open note shortcut until you submit, so the answer cannot be peeked at during practice. Explanations and source links already appear only on the result screen. Off by default; attempts, history, streak and scheduling are unchanged."
+      )
+      .addToggle((t) =>
+        t.setValue(st.closedBook === true).onChange(async (v) => {
+          st.closedBook = v === true;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Pause timer when the app is backgrounded (mobile)")
       .setDesc("Stops the clock if you switch apps or lock your phone.")
       .addToggle((t) =>
