@@ -37,7 +37,7 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { cleanSubjectTitle, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
@@ -4733,7 +4733,8 @@ ${body}
     if (!questions.length) return null;
     const cards = this.cardsEnabled() ? this.getCards().filter((c) => matches(c.course || (c.fm && c.fm.course))) : [];
     const frq = this.getFrqReviewQueue({ course });
-    return buildStudyPlan(exam, questions, cards, { today: localDate(), course, frq });
+    const registered = findRegisteredCourse(this.settings.calendar, course);
+    return buildStudyPlan(exam, questions, cards, { today: localDate(), course, frq, totalTopics: registered ? registered.totalTopics : 0 });
   }
 
   async startStudyPlan(plan, cram) {

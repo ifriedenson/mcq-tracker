@@ -282,6 +282,22 @@ function renderCourses(containerEl, plugin, redisplay) {
       );
 
     new Setting(card)
+      .setName("Total topics")
+      .setDesc("How many topics the course covers. The study plan counts a topic as mastered only when every question in that skill is fully mastered. 0 hides the coverage figure.")
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.inputEl.min = "0";
+        t.inputEl.max = "500";
+        t.setPlaceholder("0");
+        t.setValue(String(course.totalTopics || 0)).onChange(async (v) => {
+          const n = Math.round(Number(v));
+          course.totalTopics = Number.isFinite(n) ? Math.max(0, Math.min(500, n)) : 0;
+          await plugin.save();
+          plugin.refreshViews();
+        });
+      });
+
+    new Setting(card)
       .setName("Semester and instructor")
       .setDesc("Readable metadata for the course; it does not change scheduling.")
       .addText((t) =>

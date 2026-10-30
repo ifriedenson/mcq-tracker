@@ -48,13 +48,34 @@ test("study plan: a plugin plan scopes to the exam course and starts Quick Pract
   plugin.calendarEvents = () => [EXAM];
   plugin.calls = [];
   plugin.startQuickPractice = async (opts) => plugin.calls.push(opts);
+  plugin.settings.calendar.courses = [{ name: "Biology", code: "", folder: "", color: "", semester: "", instructor: "", credits: 3, totalTopics: 4 }];
   const result = plugin.studyPlan();
   assert.equal(result.course, "Biology");
+  assert.equal(result.topics.declared, 4);
   assert.equal(result.pool.length, 1);
   await plugin.startStudyPlan(result, false);
   assert.equal(plugin.calls[0].mode, "smart");
   await plugin.startStudyPlan(result, true);
   assert.equal(plugin.calls[1].mode, "cram");
+});
+
+test("study plan: declared topic coverage uses fully mastered skills and leaves readiness alone", () => {
+  const questions = [
+    Q("G1.md", { skill: "Genetics", attempts: 2, correct_count: 2 }),
+    Q("G2.md", { skill: "Genetics", attempts: 1, correct_count: 1 }),
+    Q("C1.md", { skill: "Cells", attempts: 2, correct_count: 1 }),
+    Q("C2.md", { skill: "Cells" }),
+    Q("NoSkill.md", { attempts: 3, correct_count: 3 }),
+  ];
+  const withCount = plan.buildStudyPlan(EXAM, questions, [], { today: "2026-10-29", course: "Biology", totalTopics: 3 });
+  const without = plan.buildStudyPlan(EXAM, questions, [], { today: "2026-10-29", course: "Biology" });
+  assert.deepEqual(withCount.topics, { declared: 3, discovered: 2, mastered: 1, pct: 33 });
+  assert.equal(without.topics, null);
+  assert.equal(withCount.readiness, without.readiness);
+  assert.equal(withCount.pool.length, questions.length);
+  assert.deepEqual(plan.topicCoverage(questions, 0), null);
+  assert.equal(plan.topicCoverage(questions, 1).pct, 100, "coverage is capped at 100%");
+  assert.equal(plan.topicCoverage(questions, 999).declared, 500);
 });
 
 test("study plan: Today shows the plan and cram button", async () => {
@@ -72,6 +93,7 @@ test("study plan: Today shows the plan and cram button", async () => {
     total: 7,
     accuracy: 0.6,
     weakSkill: "Genetics",
+    topics: { declared: 4, mastered: 2, pct: 50, discovered: 3 },
     pool: [{ file: { path: "x.md" } }],
     cramPool: [],
   });
@@ -84,4 +106,5 @@ test("study plan: Today shows the plan and cram button", async () => {
   assert.ok(dom.texts().includes("Study plan"));
   assert.ok(dom.texts().includes("Biology"));
   assert.ok(dom.texts().includes("Cram 10 min"));
+  assert.ok(dom.texts().some((text) => text.includes("2/4 topics mastered (50%)")));
 });

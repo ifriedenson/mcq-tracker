@@ -195,7 +195,7 @@ class InsightsView extends ItemView {
       const box = root.createDiv({ cls: "qt-dash-exam" });
       box.createDiv({ cls: "qt-today-kicker", text: plan.daysLeft === 0 ? "Exam today" : `${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"} away` });
       box.createDiv({ cls: "qt-today-title", text: plan.course });
-      box.createDiv({ cls: "qt-today-meta", text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards` });
+      box.createDiv({ cls: "qt-today-meta", text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.topics ? ` · ${plan.topics.mastered}/${plan.topics.declared} topics mastered (${plan.topics.pct}%)` : ""}` });
       box.createEl("button", { text: "Start 10 min", cls: "mod-cta" }).addEventListener("click", () => p.startStudyPlan(plan, false));
     }
 

@@ -84,7 +84,7 @@ const DEFAULT_CALENDAR_SETTINGS = {
   excludedSubjects: [],
   excludedKeywords: [],
   subjectFolders: {},
-  courses: [], // { id, name, code, folder, color, semester, instructor, credits }
+  courses: [], // { id, name, code, folder, color, semester, instructor, credits, totalTopics }
   classColors: {},
   subjectColors: {},
   classNames: {},
@@ -126,6 +126,7 @@ function normalizeCourseRegistry(value) {
     while (ids.has(id)) id = `${base}-${suffix++}`;
     ids.add(id);
     const credits = Math.round(Number(raw.credits));
+    const totalTopics = Math.round(Number(raw.totalTopics));
     out.push({
       id,
       name: name || code,
@@ -135,6 +136,7 @@ function normalizeCourseRegistry(value) {
       semester: str(raw.semester).trim(),
       instructor: str(raw.instructor).trim(),
       credits: Number.isFinite(credits) ? Math.max(0, Math.min(30, credits)) : 3,
+      totalTopics: Number.isFinite(totalTopics) ? Math.max(0, Math.min(500, totalTopics)) : 0,
     });
   }
   return out;

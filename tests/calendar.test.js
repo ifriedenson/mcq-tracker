@@ -926,3 +926,14 @@ test("courses: registry fields normalize, then drive folders, colors and note va
   assert.equal(vars.instructor, "Dr. Chen");
   assert.equal(vars.credits, 4);
 });
+
+test("course registry: total topics normalize to a bounded non-negative count", () => {
+  const rows = model.normalizeCourseRegistry([
+    { name: "Biology", totalTopics: "12" },
+    { name: "Chemistry", totalTopics: "not-a-number" },
+    { name: "Physics", totalTopics: 999 },
+  ]);
+  assert.equal(rows[0].totalTopics, 12);
+  assert.equal(rows[1].totalTopics, 0);
+  assert.equal(rows[2].totalTopics, 500);
+});

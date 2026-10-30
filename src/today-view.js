@@ -198,7 +198,7 @@ class TodayView extends ItemView {
     card.createDiv({ cls: "qt-today-title", text: plan.course });
     card.createDiv({
       cls: "qt-today-meta",
-      text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.frqTotal ? ` · ${plan.frqDue} FRQ due` : ""}`,
+      text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.frqTotal ? ` · ${plan.frqDue} FRQ due` : ""}${plan.topics ? ` · ${plan.topics.mastered}/${plan.topics.declared} topics mastered (${plan.topics.pct}%)` : ""}`,
     });
     const evidence = [`${plan.attempted}/${plan.total} questions practised`];
     if (plan.accuracy !== null) evidence.push(`${Math.round(plan.accuracy * 100)}% accuracy`);

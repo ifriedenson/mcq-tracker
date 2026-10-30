@@ -56,6 +56,29 @@ function weakSkillOf(questions) {
   return list.find((r) => r.attempts >= 2) || list[0] || null;
 }
 
+/** Mastered skills as a share of a course's declared topic count. No declaration means no figure. */
+function topicCoverage(questions, totalTopics) {
+  const declared = Math.max(0, Math.min(500, Math.round(Number(totalTopics) || 0)));
+  if (!declared) return null;
+  const rows = new Map();
+  for (const q of Array.isArray(questions) ? questions : []) {
+    const skill = str(q.fm && q.fm.skill).trim();
+    if (!skill) continue;
+    const row = rows.get(skill) || { total: 0, mastered: 0 };
+    row.total++;
+    const attempts = Number(q.fm.attempts) || 0;
+    if (attempts > 0 && Number(q.fm.correct_count) >= attempts) row.mastered++;
+    rows.set(skill, row);
+  }
+  const mastered = [...rows.values()].filter((row) => row.total > 0 && row.mastered === row.total).length;
+  return {
+    declared,
+    discovered: rows.size,
+    mastered,
+    pct: Math.min(100, Math.round((mastered / declared) * 100)),
+  };
+}
+
 function readinessScore(questions, due, daysLeft) {
   const total = questions.length;
   if (!total) return 0;
@@ -129,6 +152,7 @@ function buildStudyPlan(exam, questions, cards, options) {
     frqTotal: frq.length,
     frqNext: frq.find((row) => row.due) || frq.find((row) => row.state === "scheduled") || frq[0] || null,
     readiness: readinessScore(list, due, daysLeft),
+    topics: topicCoverage(list, opts.totalTopics),
     pool: list.slice(),
     cramPool: buildCramPool(list, today, opts.cramLimit || 40),
   };
@@ -142,5 +166,6 @@ module.exports = {
   daysBetween,
   isDueQuestion,
   readinessScore,
+  topicCoverage,
   weakSkillOf,
 };

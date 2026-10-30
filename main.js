@@ -7428,7 +7428,7 @@ const DEFAULT_CALENDAR_SETTINGS = {
   excludedSubjects: [],
   excludedKeywords: [],
   subjectFolders: {},
-  courses: [], // { id, name, code, folder, color, semester, instructor, credits }
+  courses: [], // { id, name, code, folder, color, semester, instructor, credits, totalTopics }
   classColors: {},
   subjectColors: {},
   classNames: {},
@@ -7470,6 +7470,7 @@ function normalizeCourseRegistry(value) {
     while (ids.has(id)) id = `${base}-${suffix++}`;
     ids.add(id);
     const credits = Math.round(Number(raw.credits));
+    const totalTopics = Math.round(Number(raw.totalTopics));
     out.push({
       id,
       name: name || code,
@@ -7479,6 +7480,7 @@ function normalizeCourseRegistry(value) {
       semester: str(raw.semester).trim(),
       instructor: str(raw.instructor).trim(),
       credits: Number.isFinite(credits) ? Math.max(0, Math.min(30, credits)) : 3,
+      totalTopics: Number.isFinite(totalTopics) ? Math.max(0, Math.min(500, totalTopics)) : 0,
     });
   }
   return out;
@@ -8535,6 +8537,22 @@ function renderCourses(containerEl, plugin, redisplay) {
           await plugin.save();
         })
       );
+
+    new Setting(card)
+      .setName("Total topics")
+      .setDesc("How many topics the course covers. The study plan counts a topic as mastered only when every question in that skill is fully mastered. 0 hides the coverage figure.")
+      .addText((t) => {
+        t.inputEl.type = "number";
+        t.inputEl.min = "0";
+        t.inputEl.max = "500";
+        t.setPlaceholder("0");
+        t.setValue(String(course.totalTopics || 0)).onChange(async (v) => {
+          const n = Math.round(Number(v));
+          course.totalTopics = Number.isFinite(n) ? Math.max(0, Math.min(500, n)) : 0;
+          await plugin.save();
+          plugin.refreshViews();
+        });
+      });
 
     new Setting(card)
       .setName("Semester and instructor")
@@ -26940,7 +26958,7 @@ class InsightsView extends ItemView {
       const box = root.createDiv({ cls: "qt-dash-exam" });
       box.createDiv({ cls: "qt-today-kicker", text: plan.daysLeft === 0 ? "Exam today" : `${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"} away` });
       box.createDiv({ cls: "qt-today-title", text: plan.course });
-      box.createDiv({ cls: "qt-today-meta", text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards` });
+      box.createDiv({ cls: "qt-today-meta", text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.topics ? ` · ${plan.topics.mastered}/${plan.topics.declared} topics mastered (${plan.topics.pct}%)` : ""}` });
       box.createEl("button", { text: "Start 10 min", cls: "mod-cta" }).addEventListener("click", () => p.startStudyPlan(plan, false));
     }
 
@@ -34673,7 +34691,7 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { cleanSubjectTitle, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
@@ -39369,7 +39387,8 @@ ${body}
     if (!questions.length) return null;
     const cards = this.cardsEnabled() ? this.getCards().filter((c) => matches(c.course || (c.fm && c.fm.course))) : [];
     const frq = this.getFrqReviewQueue({ course });
-    return buildStudyPlan(exam, questions, cards, { today: localDate(), course, frq });
+    const registered = findRegisteredCourse(this.settings.calendar, course);
+    return buildStudyPlan(exam, questions, cards, { today: localDate(), course, frq, totalTopics: registered ? registered.totalTopics : 0 });
   }
 
   async startStudyPlan(plan, cram) {
@@ -52655,6 +52674,29 @@ function weakSkillOf(questions) {
   return list.find((r) => r.attempts >= 2) || list[0] || null;
 }
 
+/** Mastered skills as a share of a course's declared topic count. No declaration means no figure. */
+function topicCoverage(questions, totalTopics) {
+  const declared = Math.max(0, Math.min(500, Math.round(Number(totalTopics) || 0)));
+  if (!declared) return null;
+  const rows = new Map();
+  for (const q of Array.isArray(questions) ? questions : []) {
+    const skill = str(q.fm && q.fm.skill).trim();
+    if (!skill) continue;
+    const row = rows.get(skill) || { total: 0, mastered: 0 };
+    row.total++;
+    const attempts = Number(q.fm.attempts) || 0;
+    if (attempts > 0 && Number(q.fm.correct_count) >= attempts) row.mastered++;
+    rows.set(skill, row);
+  }
+  const mastered = [...rows.values()].filter((row) => row.total > 0 && row.mastered === row.total).length;
+  return {
+    declared,
+    discovered: rows.size,
+    mastered,
+    pct: Math.min(100, Math.round((mastered / declared) * 100)),
+  };
+}
+
 function readinessScore(questions, due, daysLeft) {
   const total = questions.length;
   if (!total) return 0;
@@ -52728,6 +52770,7 @@ function buildStudyPlan(exam, questions, cards, options) {
     frqTotal: frq.length,
     frqNext: frq.find((row) => row.due) || frq.find((row) => row.state === "scheduled") || frq[0] || null,
     readiness: readinessScore(list, due, daysLeft),
+    topics: topicCoverage(list, opts.totalTopics),
     pool: list.slice(),
     cramPool: buildCramPool(list, today, opts.cramLimit || 40),
   };
@@ -52741,6 +52784,7 @@ module.exports = {
   daysBetween,
   isDueQuestion,
   readinessScore,
+  topicCoverage,
   weakSkillOf,
 };
 };
@@ -53699,7 +53743,7 @@ class TodayView extends ItemView {
     card.createDiv({ cls: "qt-today-title", text: plan.course });
     card.createDiv({
       cls: "qt-today-meta",
-      text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.frqTotal ? ` · ${plan.frqDue} FRQ due` : ""}`,
+      text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.frqTotal ? ` · ${plan.frqDue} FRQ due` : ""}${plan.topics ? ` · ${plan.topics.mastered}/${plan.topics.declared} topics mastered (${plan.topics.pct}%)` : ""}`,
     });
     const evidence = [`${plan.attempted}/${plan.total} questions practised`];
     if (plan.accuracy !== null) evidence.push(`${Math.round(plan.accuracy * 100)}% accuracy`);
