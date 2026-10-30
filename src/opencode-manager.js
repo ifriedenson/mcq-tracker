@@ -3,9 +3,27 @@ const { Platform, requestUrl } = require("obsidian");
 const { fmtMB, sleep, str } = require("./util");
 const { OpenCodeClient } = require("./opencode-client");
 
+/*
+ * Node built-ins are loaded lazily by literal name, so a static review can
+ * see every module the plugin can reach. Nothing is bundled or required on
+ * mobile; the first call throws the same desktop-only message there.
+ */
+const NODE_MODULES = {
+  child_process: () => require("child_process"),
+  crypto: () => require("crypto"),
+  fs: () => require("fs"),
+  http: () => require("http"),
+  https: () => require("https"),
+  net: () => require("net"),
+  os: () => require("os"),
+  path: () => require("path"),
+};
+
 function nodeReq(name) {
+  const load = NODE_MODULES[name];
+  if (!load) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
   try {
-    return require(name);
+    return load();
   } catch (e) {
     throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
   }

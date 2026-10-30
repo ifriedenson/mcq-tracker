@@ -759,6 +759,8 @@ Right-click a PDF in the file explorer, or run **PDF: add an annotation**, to sa
 
 Point the plugin at a file of practice questions and it creates one note per question, in the right format and with the passage included, in a new folder you name. It reads PDFs, PowerPoint decks (`.pptx`, `.pptm`), Word documents (`.docx`, `.docm`), OpenDocument text and presentations (`.odt`, `.odp`), HTML, RTF, Markdown, CSV and plain text. Run the command **Import questions from a file**, or press **Import questions from a file** on the practice home screen. This needs **Enable AI features** turned on.
 
+**Import only material you have the right to use.** The plugin ships no exam content. Importing a file is your own action, and you are responsible for the copyright, licence and terms that apply to it. Do not import question banks or other content you are not allowed to copy, and do not send such content to an AI provider through this feature.
+
 1. Choose a file from your device or your vault.
 2. Name the new folder. It's created for you, and it must not already contain files.
 3. Choose who writes the notes (see below), optionally add properties for every note (test, course, section, domain, unit, difficulty), and optionally limit the pages or slides.
@@ -769,7 +771,7 @@ Point the plugin at a file of practice questions and it creates one note per que
 - **OpenCode agent (desktop).** The agent reads the file and writes the note files itself, straight into the folder, the way you'd ask an AI agent to do it in a chat. Choose OpenCode as the AI backend in settings first. If the agent has to wait for permission to create files, allow file edits for your vault in OpenCode's permissions.
 - **Direct AI (any device).** The plugin sends the file's text to your provider a few pages or slides at a time. The AI replies with finished notes, you review the list, untick anything you don't want, and the plugin creates the files.
 
-**Properties from the document.** The import reads the labels the file prints for each question and saves them as note properties: the question's own ID (as `official_question_id`, kept separate from the plugin's own `question_id`, for example the `Question ID: 37e5c794` on SAT Question Bank pages), plus test, section, domain, skill and difficulty. In an SAT-style table, "Assessment" becomes `test` and the table's "Test" column becomes `section`. Difficulty is saved in lower case (easy, medium, hard). Any other labelled value (for example a score band) is kept as an extra property. Anything you type in the import window's property boxes is used for every note instead of what the file says, so leave a box blank to take it from the file. Properties the file doesn't show are left out, never guessed.
+**Properties from the document.** The import reads the labels the file prints for each question and saves them as note properties: the question's own ID (as `official_question_id`, kept separate from the plugin's own `question_id`, for example the `Question ID: 37e5c794` printed on an exam page), plus test, section, domain, skill and difficulty. In a printed question table, "Assessment" becomes `test` and the table's "Test" column becomes `section`. Difficulty is saved in lower case (easy, medium, hard). Any other labelled value (for example a score band) is kept as an extra property. Anything you type in the import window's property boxes is used for every note instead of what the file says, so leave a box blank to take it from the file. Properties the file doesn't show are left out, never guessed.
 
 **Duplicates and a check of the result.** If a new note has the same official question ID as a note you already have, the review method skips it, and the agent method lists the repeats so you can move them to the trash in one click. When an import finishes, the plugin lists notes that need a look: no answer, no answer choices, or a missing figure. You can save that list as a note in the new folder.
 
@@ -799,7 +801,7 @@ AI answers can be wrong. Check them, especially before relying on them to study.
 
 ## AI assistant (optional, and off by default)
 
-The result screen can show an **Ask AI** panel that explains a question, tells you why you missed it, writes a similar question, or quizzes you. Nothing is sent anywhere, and nothing is downloaded or started, until you turn on **Enable AI features** in settings. There are two ways to power it. Both use your own account.
+The result screen can show an **Ask AI** panel that explains a question, tells you why you missed it, writes a similar question, or quizzes you. Nothing is sent anywhere, and nothing is downloaded or started, until you turn on **Enable AI features** in settings. There are two ways to power it. Both use your own account. The tutor is bring-your-own-key: text you submit goes only to the provider or local OpenCode agent you configure.
 
 ### Option 1: Direct API (all devices, including phones)
 
@@ -924,12 +926,16 @@ npm test        # run the tests (they include a check that main.js is up to date
 ```
 
 
-Edit files in `src/`, run `npm run build`, and commit both. The tests run on plain Node with a stand-in for the `obsidian` module (see `tests/helpers`), and cover filters, folders, statistics, the error log, the import rules and checks, grading and scheduling, calendar parsing, recurrence, filtering, note templates and export, and smoke tests that run the plugin's views and commands. GitHub Actions runs them on every push and before each release.
+Edit files in `src/`, run `npm run build`, and commit both. The tests run on plain Node with a stand-in for the `obsidian` module (see `tests/helpers`), and cover filters, folders, statistics, the error log, the import rules and checks, grading and scheduling, calendar parsing, recurrence, filtering, note templates and export, and smoke tests that run the plugin's views and commands. GitHub Actions runs them on every push and before each release. Contributions are accepted under the MIT license; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Support and issues
 
 Please report bugs and ideas on the GitHub issues page for this repository.
 
+## Trademarks
+
+AP, SAT, PSAT and College Board are trademarks of the College Board. Anki, Quizlet, Mochi, Kahoot, Blooket, Gimkit, Moodle, CrowdAnki, LearnKit and other product names are trademarks of their respective owners. MCQ Tracker is not affiliated with, endorsed by or sponsored by any of them; the names describe compatibility with formats and services.
+
 ## License
 
-[MIT](LICENSE). The calendar module contains code adapted from University Schedule and Calendar (MIT, Cesemess), and the optional FSRS scheduler uses ts-fsrs 5.4.1 (MIT, Open Spaced Repetition). The optional SM-2 scheduler is an original clean-room implementation; no third-party scheduler code is bundled for it. See [NOTICES.md](NOTICES.md).
+[MIT](LICENSE). The calendar module contains code adapted from University Schedule and Calendar (MIT, Cesemess), and the optional FSRS scheduler uses ts-fsrs 5.4.1 (MIT, Open Spaced Repetition). The optional SM-2 scheduler is an original clean-room implementation; no third-party scheduler code is bundled for it. See [NOTICES.md](NOTICES.md). The build embeds the full MIT text from [LICENSE](LICENSE) and those third-party notices into `main.js`, so the notice ships with the file Obsidian installs.

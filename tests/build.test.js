@@ -50,3 +50,13 @@ test("modules don't require each other in a circle (a circle would leave imports
   };
   ids.forEach((id) => visit(id, []));
 });
+
+test("the built bundle carries the full license and third-party notices", () => {
+  const built = build();
+  assert.match(built, /Permission is hereby granted, free of charge/);
+  assert.match(built, /Copyright \(c\) 2026 Isaac Friedenson/);
+  assert.match(built, /Third-party notices/);
+  assert.match(built, /ts-fsrs/);
+  assert.match(built, /Copyright \(c\) 2026 Open Spaced Repetition/);
+  assert.match(built, /Copyright \(c\) 2026 Cesemess/);
+});

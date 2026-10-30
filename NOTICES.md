@@ -6,6 +6,8 @@ This file lists code and ideas taken from other projects. Each entry names the l
 the copyright holder, the exact version used, and which files in this repository contain
 the work.
 
+The build embeds this file and `LICENSE` into the generated `main.js`, so the notices travel with the file Obsidian installs.
+
 ## AP resource links
 
 The AP resource hub in `src/ap-resources.js` contains only official College Board URLs,

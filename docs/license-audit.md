@@ -38,3 +38,11 @@ The sample vault under `samples/` is original content written for this repositor
 ## Rule for future work
 
 Before any new third-party code, dataset or binary is copied, check its actual repository `LICENSE` and `package.json`, prefer MIT/BSD/ISC/0BSD, keep the copyright and license text in `NOTICES.md`, and record the pinned version or commit. If the license cannot be found, do not copy the code.
+
+## Notice in the shipped file
+
+The build embeds the full project `LICENSE` and `NOTICES.md` into `main.js`, so the MIT text travels with the single file Obsidian installs. The release publishes only `main.js`, `manifest.json` and `styles.css`; the repository copies of `LICENSE` and `NOTICES.md` are the source for that embedded block.
+
+## Authorship and contributions
+
+Much of this code was written with AI coding agents under human direction; the commit history records the changes and human review. Purely AI-generated output may not be copyrightable in every jurisdiction, so the MIT grant applies only to the extent the author holds copyright. Contributions are accepted under the MIT license and must follow [CONTRIBUTING.md](../CONTRIBUTING.md). No similarity or license scanner has been run against third-party code; that remains an open question in `plan.md` section 11.
