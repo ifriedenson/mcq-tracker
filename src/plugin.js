@@ -64,7 +64,7 @@ const { parseApkg } = require("./apkg");
 const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
-const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
+const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckOf, deckSummary, isCardNote, schedulerForDeck, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { inferPlainCard, isPlainPath, normalizePlainCards } = require("./plain-cards");
 const { cardUpdateDiff } = require("./card-write-diff");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
@@ -4067,6 +4067,7 @@ class QuestionTrackerPlugin extends Plugin {
     return this.recordAttempt(card.file, {
       ...cardAttempt(grade, seconds),
       ...(extra || {}),
+      deck: (extra && extra.deck) || card.deck || (card.fm && card.fm.deck) || "",
       course: (extra && extra.course) || card.course || (card.fm && card.fm.course) || "",
       now: new Date(),
     });
@@ -5211,9 +5212,16 @@ class QuestionTrackerPlugin extends Plugin {
     return { ...summary, queued: false };
   }
 
+  /** Cards can override the scheduler per deck; every other note keeps the global choice. */
+  scheduleOptionsFor(fm, path, deckHint) {
+    const hinted = str(deckHint).trim();
+    const deck = hinted || (isCardNote(fm) ? deckOf(fm, this.settings, path) : "");
+    return schedulerForDeck(this.settings, deck);
+  }
+
   async recordAttempt(file, a) {
     const attempt = { ...a, attemptId: a.attemptId || newAttemptId(a.now) };
-    const opts = { scheduler: this.settings.scheduler, fsrsRetention: this.settings.fsrsRetention, attemptId: attempt.attemptId, leechThreshold: this.settings.leechThreshold, leechAction: this.settings.leechAction };
+    const shared = { attemptId: attempt.attemptId, leechThreshold: this.settings.leechThreshold, leechAction: this.settings.leechAction };
 
     // Build the result the UI should show before touching the note. If the write
     // fails, this summary is still correct and the attempt can be replayed later.
@@ -5221,8 +5229,12 @@ class QuestionTrackerPlugin extends Plugin {
     try {
       const cached = this.app.metadataCache.getFileCache(file);
       const copy = cloneFrontmatter(cached && cached.frontmatter);
-      preview = applyAttempt(copy, attempt, this.settings.intervals, {
-        ...opts,
+      const sched = this.scheduleOptionsFor(copy, file.path, attempt.deck);
+      preview = applyAttempt(copy, attempt, sched.intervals, {
+        ...shared,
+        scheduler: sched.scheduler,
+        fsrsRetention: sched.fsrsRetention,
+        sm2: sched.sm2,
         examCap: this.examCapFor(attempt.course || copy.course, attempt.now),
       });
     } catch (e) {
@@ -5232,8 +5244,12 @@ class QuestionTrackerPlugin extends Plugin {
     let summary;
     try {
       await this.app.fileManager.processFrontMatter(file, (fm) => {
-        summary = applyAttempt(fm, attempt, this.settings.intervals, {
-          ...opts,
+        const sched = this.scheduleOptionsFor(fm, file.path, attempt.deck);
+        summary = applyAttempt(fm, attempt, sched.intervals, {
+          ...shared,
+          scheduler: sched.scheduler,
+          fsrsRetention: sched.fsrsRetention,
+          sm2: sched.sm2,
           examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
         });
       });
@@ -5247,6 +5263,9 @@ class QuestionTrackerPlugin extends Plugin {
 
     if (summary && summary.fsrsError) {
       new Notice("FSRS couldn't schedule this question, so the simple ladder was used.");
+    }
+    if (summary && summary.sm2Error) {
+      new Notice("SM-2 couldn't schedule this item, so the simple ladder was used.");
     }
     return { ...summary, queued: false, attemptId: attempt.attemptId };
   }
@@ -5279,9 +5298,11 @@ class QuestionTrackerPlugin extends Plugin {
               return;
             }
             const attempt = unpackAttempt(entry.attempt);
-            applyAttempt(fm, attempt, this.settings.intervals, {
-              scheduler: this.settings.scheduler,
-              fsrsRetention: this.settings.fsrsRetention,
+            const sched = this.scheduleOptionsFor(fm, file.path, attempt.deck);
+            applyAttempt(fm, attempt, sched.intervals, {
+              scheduler: sched.scheduler,
+              fsrsRetention: sched.fsrsRetention,
+              sm2: sched.sm2,
               attemptId: entry.id,
               leechThreshold: this.settings.leechThreshold,
               leechAction: this.settings.leechAction,

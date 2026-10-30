@@ -115,6 +115,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## SM-2 scheduler
+
+`src/sm2.js` is an original clean-room implementation of the published SM-2 spaced-repetition rules, adapted for notes that store a review date rather than a time. No Better Recall, Anki, SuperMemo or other plugin code is copied into this file. The plan records the algorithm as research input only; the implementation, state format and tests are local work.
+
 ## Bundled Reference content
 
 The Reference module's formula list, constants and unit factors in `src/reference-data.js`, the

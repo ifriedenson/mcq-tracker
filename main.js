@@ -10438,6 +10438,7 @@ const { isStudyable } = require("./study-status");
 const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictness, parseVariants } = require("./card-grading");
 const { DEFAULT_ANKI_CONNECT, normalizeAnkiConnect } = require("./anki-connect");
 const { DEFAULT_PLAIN_CARDS, inferPlainCard, normalizePlainCards, plainDeckName } = require("./plain-cards");
+const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 
 const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
 const CARD_TYPE_LABELS = {
@@ -10448,6 +10449,7 @@ const CARD_TYPE_LABELS = {
 };
 const CARD_GRADES = ["again", "hard", "good", "easy"];
 const CARD_ITEM_TYPES = ["card", "flashcard", "vocab", "vocabulary"];
+const CARD_SCHEDULERS = ["ladder", "sm2", "fsrs"];
 
 const GRADE_INFO = {
   again: { label: "Again", correct: false, conf: 0, rating: 1 },
@@ -10458,6 +10460,31 @@ const GRADE_INFO = {
 
 const normalizeFolder = (p) => str(p).trim().replace(/^\/+|\/+$/g, "");
 const lower = (v) => str(v).trim().toLowerCase();
+
+/** Empty means inherit the global scheduler. */
+function normalizeSchedulerChoice(value) {
+  const v = lower(value);
+  return CARD_SCHEDULERS.includes(v) ? v : "";
+}
+
+/** A deck's ladder timing. Empty means inherit the global interval list. */
+function normalizeDeckIntervals(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[,\s]+/);
+  const seen = new Set();
+  for (const part of raw) {
+    const n = Math.round(Number(part));
+    if (Number.isFinite(n) && n > 0 && n <= 3650) seen.add(n);
+  }
+  return [...seen].sort((a, b) => a - b).slice(0, 20);
+}
+
+/** Empty (0) means inherit the global FSRS retention. */
+function normalizeDeckRetention(value) {
+  if (value === "" || value === null || value === undefined) return 0;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(0.95, Math.max(0.85, n));
+}
 
 function normalizeDecks(list) {
   const out = [];
@@ -10475,6 +10502,10 @@ function normalizeDecks(list) {
       course: str(raw.course).trim(),
       answerMode: normalizeAnswerMode(raw.answerMode || raw.answer_mode, ""),
       gradingStrictness: normalizeStrictness(raw.gradingStrictness || raw.grading_strictness, ""),
+      scheduler: normalizeSchedulerChoice(raw.scheduler),
+      intervals: normalizeDeckIntervals(raw.intervals),
+      fsrsRetention: normalizeDeckRetention(raw.fsrsRetention || raw.fsrs_retention),
+      sm2: normalizeSm2(raw.sm2),
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -10602,6 +10633,43 @@ function effectiveGradingStrictness(fm, settings, deckName) {
   const deck = deckConfig(settings, deckName);
   if (deck && deck.gradingStrictness) return deck.gradingStrictness;
   return normalizeStrictness(settings && settings.cards && settings.cards.gradingStrictness, "standard");
+}
+
+/** Deck scheduler choice, then the global ladder/FSRS selection. */
+function effectiveScheduler(settings, deckName) {
+  const deck = deckConfig(settings, deckName);
+  if (deck && deck.scheduler) return deck.scheduler;
+  return lower(settings && settings.scheduler) === "fsrs" ? "fsrs" : "ladder";
+}
+
+/** Deck ladder timing, then the global interval list. */
+function effectiveDeckIntervals(settings, deckName) {
+  const deck = deckConfig(settings, deckName);
+  if (deck && Array.isArray(deck.intervals) && deck.intervals.length) return deck.intervals;
+  return Array.isArray(settings && settings.intervals) && settings.intervals.length ? settings.intervals : [1, 3, 7, 21, 60];
+}
+
+/** Deck FSRS retention, then the global retention. */
+function effectiveFsrsRetention(settings, deckName) {
+  const deck = deckConfig(settings, deckName);
+  if (deck && Number(deck.fsrsRetention) > 0) return deck.fsrsRetention;
+  return settings && settings.fsrsRetention;
+}
+
+/** Deck SM-2 timing with the built-in defaults filled in. */
+function effectiveSm2(settings, deckName) {
+  const deck = deckConfig(settings, deckName);
+  return normalizeSm2(deck && deck.sm2);
+}
+
+/** Resolve every scheduler option for one deck in one place. */
+function schedulerForDeck(settings, deckName) {
+  return {
+    scheduler: effectiveScheduler(settings, deckName),
+    intervals: effectiveDeckIntervals(settings, deckName),
+    fsrsRetention: effectiveFsrsRetention(settings, deckName),
+    sm2: effectiveSm2(settings, deckName),
+  };
 }
 
 /** Fill in the effective deck, course and answer settings so views and filters agree. */
@@ -11020,8 +11088,18 @@ module.exports = {
   ANSWER_MODES,
   GRADING_STRICTNESS,
   GRADE_INFO,
+  CARD_SCHEDULERS,
+  DEFAULT_SM2,
   normalizeFolder,
+  normalizeSchedulerChoice,
+  normalizeDeckIntervals,
+  normalizeDeckRetention,
   normalizeDecks,
+  effectiveScheduler,
+  effectiveDeckIntervals,
+  effectiveFsrsRetention,
+  effectiveSm2,
+  schedulerForDeck,
   mergeCardSettings,
   isCardNote,
   cardKind,
@@ -14065,7 +14143,8 @@ module.exports = {
 __defs["cards-settings"] = function (module, exports, require) {
 const { Notice, Setting } = require("obsidian");
 const { localDate, str } = require("./util");
-const { deckSummary } = require("./cards");
+const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
+const { deckSummary, effectiveScheduler, normalizeDeckIntervals } = require("./cards");
 const { CARD_GENERATOR_STYLES, normalizeCardGenerator } = require("./card-generator");
 const { renderSettingsTabs } = require("./settings-ui");
 
@@ -14238,6 +14317,68 @@ function renderDecks(containerEl, plugin, redisplay) {
           await plugin.save();
         })
     );
+    s.addDropdown((d) =>
+      d
+        .addOption("", "Use global scheduler")
+        .addOption("ladder", "Simple ladder")
+        .addOption("sm2", "SM-2")
+        .addOption("fsrs", "FSRS")
+        .setValue((configured && configured.scheduler) || "")
+        .onChange(async (v) => {
+          const cfg = ensureDeck(st, deck.name);
+          cfg.scheduler = v;
+          await plugin.save();
+          redisplay();
+        })
+    );
+    const effective = effectiveScheduler(plugin.settings, deck.name);
+    if (effective === "ladder") {
+      const timing = new Setting(containerEl)
+        .setName(`${deck.name} · ladder timing`)
+        .setDesc("Days between reviews. Leave blank to use the global intervals.")
+        .addText((t) =>
+          t
+            .setPlaceholder((plugin.settings.intervals || [1, 3, 7, 21, 60]).join(", "))
+            .setValue(configured && configured.intervals && configured.intervals.length ? configured.intervals.join(", ") : "")
+            .onChange(async (v) => {
+              const cfg = ensureDeck(st, deck.name);
+              cfg.intervals = normalizeDeckIntervals(v);
+              await plugin.save();
+            })
+        );
+      timing.settingEl.addClass("qt-deck-timing");
+    } else if (effective === "fsrs") {
+      new Setting(containerEl)
+        .setName(`${deck.name} · FSRS retention`)
+        .setDesc("Desired recall probability for this deck. Leave blank to use the global retention.")
+        .addDropdown((d) =>
+          d
+            .addOption("", "Use global retention")
+            .addOption("0.85", "85%")
+            .addOption("0.9", "90%")
+            .addOption("0.95", "95%")
+            .setValue(configured && configured.fsrsRetention ? String(configured.fsrsRetention) : "")
+            .onChange(async (v) => {
+              const cfg = ensureDeck(st, deck.name);
+              cfg.fsrsRetention = v === "" ? 0 : Number(v);
+              await plugin.save();
+            })
+        );
+    } else if (effective === "sm2") {
+      new Setting(containerEl)
+        .setName(`${deck.name} · SM-2 timing`)
+        .setDesc("Starting ease, first Easy interval in days, Hard multiplier, Easy bonus. Leave blank for 2.5, 4, 1.2, 1.3.")
+        .addText((t) =>
+          t
+            .setPlaceholder("2.5, 4, 1.2, 1.3")
+            .setValue(sm2TimingText(configured && configured.sm2))
+            .onChange(async (v) => {
+              const cfg = ensureDeck(st, deck.name);
+              cfg.sm2 = parseSm2Timing(v, cfg.sm2);
+              await plugin.save();
+            })
+        );
+    }
     if (configured) {
       s.addButton((b) =>
         b
@@ -14466,11 +14607,32 @@ function renderDecks(containerEl, plugin, redisplay) {
     .addButton((b) => b.setButtonText("Push whole vault").onClick(() => plugin.openAnkiConnectPush({ vaultWide: true })));
 }
 
+function sm2TimingText(value) {
+  const opts = normalizeSm2(value);
+  const defaults = normalizeSm2(DEFAULT_SM2);
+  if (JSON.stringify(opts) === JSON.stringify(defaults)) return "";
+  return [opts.startingEase, opts.easyInterval, opts.hardMultiplier, opts.easyBonus].join(", ");
+}
+
+function parseSm2Timing(text, current) {
+  const raw = str(text).trim();
+  if (!raw) return normalizeSm2();
+  const parts = raw.split(/[,\s]+/).map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return normalizeSm2(current);
+  return normalizeSm2({
+    ...normalizeSm2(current),
+    startingEase: parts[0],
+    easyInterval: parts[1],
+    hardMultiplier: parts[2],
+    easyBonus: parts[3],
+  });
+}
+
 function ensureDeck(st, name) {
   st.decks = Array.isArray(st.decks) ? st.decks : [];
   let cfg = st.decks.find((d) => d.name.toLowerCase() === str(name).trim().toLowerCase());
   if (!cfg) {
-    cfg = { name: str(name).trim(), folder: "", course: "", answerMode: "", gradingStrictness: "" };
+    cfg = { name: str(name).trim(), folder: "", course: "", answerMode: "", gradingStrictness: "", scheduler: "", intervals: [], fsrsRetention: 0, sm2: normalizeSm2() };
     st.decks.push(cfg);
   }
   return cfg;
@@ -27496,6 +27658,7 @@ const { addDays, fmtDate, fmtDateTime, fmtDateTimeSec, str } = require("./util")
 const { appendHistory, hasAttemptId, setAttemptErrorType } = require("./history");
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
+const { reviewNote: reviewSm2 } = require("./sm2");
 const { gradeAnswerDetailed } = require("./numeric-grading");
 const { formatChoiceSet, isTrueFalseChoices, normalizeTrueFalse, parseChoiceSet } = require("./answer-types");
 const { parsePairs } = require("./matching");
@@ -27705,11 +27868,16 @@ function applyAttempt(fm, a, intervals, options) {
       nextReview: str(fm.next_review),
       examCap: null,
       target: Number(fm.target_seconds) || 0,
-      scheduler: fm.scheduler === "fsrs" ? "fsrs" : "ladder",
+      scheduler: ["fsrs", "sm2"].includes(fm.scheduler) ? fm.scheduler : "ladder",
       fsrsRating: 0,
       fsrsDays: 0,
       fsrsReplayed: 0,
       fsrsError: "",
+      sm2Rating: 0,
+      sm2Days: 0,
+      sm2Ease: 0,
+      sm2Replayed: 0,
+      sm2Error: "",
       grade: "",
       verdict: "",
       typedAnswer: "",
@@ -27782,6 +27950,18 @@ function applyAttempt(fm, a, intervals, options) {
       fsrsError = str(e && e.message);
     }
   }
+  // SM-2 is a clean-room alternative for decks that prefer Anki-style ease
+  // factors. It keeps its own state, so switching between schedulers remains
+  // lossless and no existing note is rewritten until it is reviewed again.
+  let sm2Review = null;
+  let sm2Error = "";
+  if (!fsrsReview && opts.scheduler === "sm2") {
+    try {
+      sm2Review = reviewSm2(fm, a, opts.sm2);
+    } catch (e) {
+      sm2Error = str(e && e.message);
+    }
+  }
 
   const now = fmtDateTime(a.now);
   const when = fmtDateTimeSec(a.now);
@@ -27805,14 +27985,17 @@ function applyAttempt(fm, a, intervals, options) {
   fm.result = a.correct ? "correct" : "incorrect";
   fm["date attempted"] = now;
   if (!fm.first_attempted) fm.first_attempted = now;
-  const scheduledReview = fsrsReview ? fsrsReview.nextReview : fmtDate(addDays(a.now, days));
+  const scheduledReview = fsrsReview ? fsrsReview.nextReview : sm2Review ? sm2Review.nextReview : fmtDate(addDays(a.now, days));
   const examCap = applyExamCap(fm, scheduledReview, opts.examCap, a.now);
   fm.next_review = examCap ? examCap.date : scheduledReview;
   if (fsrsReview) {
     fm.srs = fsrsReview.srs;
     fm.scheduler = "fsrs";
-  } else if (fm.srs) {
-    // Switching back to the ladder is lossless: keep the FSRS state for later.
+  } else if (sm2Review) {
+    fm.sm2 = sm2Review.sm2;
+    fm.scheduler = "sm2";
+  } else if (fm.srs || fm.sm2) {
+    // Switching back to the ladder is lossless: keep the other states for later.
     fm.scheduler = "ladder";
   }
   if (grade) fm.last_card_rating = grade;
@@ -27837,11 +28020,16 @@ function applyAttempt(fm, a, intervals, options) {
     nextReview: fm.next_review,
     examCap,
     target: Number(fm.target_seconds) || 0,
-    scheduler: fsrsReview ? "fsrs" : "ladder",
+    scheduler: fsrsReview ? "fsrs" : sm2Review ? "sm2" : "ladder",
     fsrsRating: fsrsReview ? fsrsReview.rating : 0,
     fsrsDays: fsrsReview ? fsrsReview.days : 0,
     fsrsReplayed: fsrsReview ? fsrsReview.replayed : 0,
     fsrsError,
+    sm2Rating: sm2Review ? sm2Review.rating : 0,
+    sm2Days: sm2Review ? sm2Review.days : 0,
+    sm2Ease: sm2Review ? sm2Review.ease : 0,
+    sm2Replayed: sm2Review ? sm2Review.replayed : 0,
+    sm2Error,
     grade,
     verdict: a.verdict || "",
     typedAnswer: a.typedAnswer === undefined ? "" : str(a.typedAnswer),
@@ -32949,7 +33137,7 @@ const { parseApkg } = require("./apkg");
 const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
-const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckSummary, isCardNote, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
+const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckOf, deckSummary, isCardNote, schedulerForDeck, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { inferPlainCard, isPlainPath, normalizePlainCards } = require("./plain-cards");
 const { cardUpdateDiff } = require("./card-write-diff");
 const { DueQueueModal, buildDueQueue } = require("./due-queue");
@@ -36952,6 +37140,7 @@ class QuestionTrackerPlugin extends Plugin {
     return this.recordAttempt(card.file, {
       ...cardAttempt(grade, seconds),
       ...(extra || {}),
+      deck: (extra && extra.deck) || card.deck || (card.fm && card.fm.deck) || "",
       course: (extra && extra.course) || card.course || (card.fm && card.fm.course) || "",
       now: new Date(),
     });
@@ -38096,9 +38285,16 @@ class QuestionTrackerPlugin extends Plugin {
     return { ...summary, queued: false };
   }
 
+  /** Cards can override the scheduler per deck; every other note keeps the global choice. */
+  scheduleOptionsFor(fm, path, deckHint) {
+    const hinted = str(deckHint).trim();
+    const deck = hinted || (isCardNote(fm) ? deckOf(fm, this.settings, path) : "");
+    return schedulerForDeck(this.settings, deck);
+  }
+
   async recordAttempt(file, a) {
     const attempt = { ...a, attemptId: a.attemptId || newAttemptId(a.now) };
-    const opts = { scheduler: this.settings.scheduler, fsrsRetention: this.settings.fsrsRetention, attemptId: attempt.attemptId, leechThreshold: this.settings.leechThreshold, leechAction: this.settings.leechAction };
+    const shared = { attemptId: attempt.attemptId, leechThreshold: this.settings.leechThreshold, leechAction: this.settings.leechAction };
 
     // Build the result the UI should show before touching the note. If the write
     // fails, this summary is still correct and the attempt can be replayed later.
@@ -38106,8 +38302,12 @@ class QuestionTrackerPlugin extends Plugin {
     try {
       const cached = this.app.metadataCache.getFileCache(file);
       const copy = cloneFrontmatter(cached && cached.frontmatter);
-      preview = applyAttempt(copy, attempt, this.settings.intervals, {
-        ...opts,
+      const sched = this.scheduleOptionsFor(copy, file.path, attempt.deck);
+      preview = applyAttempt(copy, attempt, sched.intervals, {
+        ...shared,
+        scheduler: sched.scheduler,
+        fsrsRetention: sched.fsrsRetention,
+        sm2: sched.sm2,
         examCap: this.examCapFor(attempt.course || copy.course, attempt.now),
       });
     } catch (e) {
@@ -38117,8 +38317,12 @@ class QuestionTrackerPlugin extends Plugin {
     let summary;
     try {
       await this.app.fileManager.processFrontMatter(file, (fm) => {
-        summary = applyAttempt(fm, attempt, this.settings.intervals, {
-          ...opts,
+        const sched = this.scheduleOptionsFor(fm, file.path, attempt.deck);
+        summary = applyAttempt(fm, attempt, sched.intervals, {
+          ...shared,
+          scheduler: sched.scheduler,
+          fsrsRetention: sched.fsrsRetention,
+          sm2: sched.sm2,
           examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
         });
       });
@@ -38132,6 +38336,9 @@ class QuestionTrackerPlugin extends Plugin {
 
     if (summary && summary.fsrsError) {
       new Notice("FSRS couldn't schedule this question, so the simple ladder was used.");
+    }
+    if (summary && summary.sm2Error) {
+      new Notice("SM-2 couldn't schedule this item, so the simple ladder was used.");
     }
     return { ...summary, queued: false, attemptId: attempt.attemptId };
   }
@@ -38164,9 +38371,11 @@ class QuestionTrackerPlugin extends Plugin {
               return;
             }
             const attempt = unpackAttempt(entry.attempt);
-            applyAttempt(fm, attempt, this.settings.intervals, {
-              scheduler: this.settings.scheduler,
-              fsrsRetention: this.settings.fsrsRetention,
+            const sched = this.scheduleOptionsFor(fm, file.path, attempt.deck);
+            applyAttempt(fm, attempt, sched.intervals, {
+              scheduler: sched.scheduler,
+              fsrsRetention: sched.fsrsRetention,
+              sm2: sched.sm2,
               attemptId: entry.id,
               leechThreshold: this.settings.leechThreshold,
               leechAction: this.settings.leechAction,
@@ -46321,6 +46530,225 @@ module.exports = {
 };
 };
 
+/* ---- src/sm2.js ---- */
+__defs["sm2"] = function (module, exports, require) {
+/*
+ * Clean-room SM-2 scheduler adapter for MCQ Tracker.
+ *
+ * Better Recall (MIT) uses an Anki-style SM-2 scheduler; this file is an
+ * independent implementation of the published SM-2 rules, adapted to notes
+ * that store a date rather than a time. The compact state lives in the note's
+ * `sm2` property:
+ *
+ *   sm2|reps|interval|ease|due|last_review|lapses
+ *
+ * No third-party scheduler code is copied here. History remains the source of
+ * truth: a note that has never used SM-2 replays its existing attempts once so
+ * switching a deck to SM-2 does not reset its progress.
+ */
+const { addDays, fmtDate, str } = require("./util");
+const { parseHistory } = require("./stats");
+
+const SRS_VERSION = "sm2";
+const MAX_REPLAY = 500;
+
+const DEFAULT_SM2 = Object.freeze({
+  startingEase: 2.5,
+  minEase: 1.3,
+  graduatingInterval: 1,
+  easyInterval: 4,
+  hardMultiplier: 1.2,
+  easyBonus: 1.3,
+  easeDecrement: 0.2,
+  easeIncrement: 0.15,
+  maxInterval: 3650,
+});
+
+const clampNumber = (value, min, max, fallback) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+};
+
+const clampInt = (value, min, max, fallback) => Math.round(clampNumber(value, min, max, fallback));
+const ease = (value) => Number(Number(value).toFixed(6));
+
+/** Merge a saved deck's SM-2 timing with defaults, clamping every field. */
+function normalizeSm2(value) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const minEase = clampNumber(raw.minEase, 1.3, 5, DEFAULT_SM2.minEase);
+  const startingEase = Math.max(minEase, clampNumber(raw.startingEase, 1.3, 5, DEFAULT_SM2.startingEase));
+  return {
+    startingEase: ease(startingEase),
+    minEase: ease(minEase),
+    graduatingInterval: clampInt(raw.graduatingInterval, 1, 365, DEFAULT_SM2.graduatingInterval),
+    easyInterval: clampInt(raw.easyInterval, 1, 3650, DEFAULT_SM2.easyInterval),
+    hardMultiplier: ease(clampNumber(raw.hardMultiplier, 1, 10, DEFAULT_SM2.hardMultiplier)),
+    easyBonus: ease(clampNumber(raw.easyBonus, 1, 10, DEFAULT_SM2.easyBonus)),
+    easeDecrement: ease(clampNumber(raw.easeDecrement, 0, 2, DEFAULT_SM2.easeDecrement)),
+    easeIncrement: ease(clampNumber(raw.easeIncrement, 0, 2, DEFAULT_SM2.easeIncrement)),
+    maxInterval: clampInt(raw.maxInterval, 1, 36500, DEFAULT_SM2.maxInterval),
+  };
+}
+
+const iso = (d) => (d instanceof Date && !isNaN(d.getTime()) ? d.toISOString() : "-");
+const num = (n) => (Number.isFinite(Number(n)) ? Number(Number(n).toFixed(6)) : 0);
+
+function encodeSm2(state) {
+  return [
+    SRS_VERSION,
+    Math.max(0, Math.round(Number(state.reps) || 0)),
+    Math.max(0, Math.round(Number(state.interval) || 0)),
+    num(state.ease || DEFAULT_SM2.startingEase),
+    iso(state.due),
+    iso(state.last),
+    Math.max(0, Math.round(Number(state.lapses) || 0)),
+  ].join("|");
+}
+
+function decodeSm2(value) {
+  const text = str(value).trim();
+  if (!text.startsWith(SRS_VERSION + "|")) return null;
+  const p = text.split("|");
+  if (p.length !== 7) return null;
+  const reps = Number(p[1]);
+  const interval = Number(p[2]);
+  const easeValue = Number(p[3]);
+  const due = new Date(p[4]);
+  const last = p[5] === "-" ? null : new Date(p[5]);
+  const lapses = Number(p[6]);
+  if (![reps, interval, easeValue, lapses].every(Number.isFinite)) return null;
+  if (reps < 0 || interval < 0 || lapses < 0) return null;
+  if (easeValue < 1 || easeValue > 10) return null;
+  if (isNaN(due.getTime()) || (last && isNaN(last.getTime()))) return null;
+  return { reps: Math.round(reps), interval: Math.round(interval), ease: easeValue, due, last, lapses: Math.round(lapses) };
+}
+
+function emptySm2(now) {
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  return encodeSm2({
+    reps: 0,
+    interval: 0,
+    ease: DEFAULT_SM2.startingEase,
+    due: at,
+    last: null,
+    lapses: 0,
+  });
+}
+
+/**
+ * Turn an attempt into an SM-2 quality. Notes carry correctness, confidence
+ * and time rather than a button, so a slow or unsure correct answer maps to
+ * Hard, a confident fast answer to Easy, and everything else to Good.
+ */
+function gradeForAttempt(correct, conf, seconds, target) {
+  if (!correct) return 1;
+  const c = Number(conf) || 0;
+  const t = Number(target) || 0;
+  const s = Number(seconds) || 0;
+  if (c === 1) return 2;
+  if (t > 0 && s > t * 1.5) return 2;
+  if (c === 3 && t > 0 && s <= t * 0.75) return 4;
+  return 3;
+}
+
+/** One SM-2 review, returning the next compact state without waiting to write it. */
+function scheduleState(previous, rating, now, options) {
+  const opts = normalizeSm2(options);
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  const grade = [1, 2, 3, 4].includes(Number(rating)) ? Number(rating) : 3;
+  let reps = Math.max(0, Math.round(Number(previous && previous.reps) || 0));
+  let interval = Math.max(0, Math.round(Number(previous && previous.interval) || 0));
+  let easeFactor = clampNumber(previous && previous.ease, 1.3, 10, opts.startingEase);
+  let lapses = Math.max(0, Math.round(Number(previous && previous.lapses) || 0));
+
+  if (grade === 1) {
+    reps = 0;
+    interval = 1;
+    lapses += 1;
+    easeFactor = Math.max(opts.minEase, easeFactor - opts.easeDecrement);
+  } else if (reps === 0) {
+    interval = grade === 4 ? opts.easyInterval : opts.graduatingInterval;
+    reps = 1;
+    if (grade === 4) easeFactor += opts.easeIncrement;
+  } else if (reps === 1) {
+    interval = grade === 2 ? Math.max(1, Math.round(interval * opts.hardMultiplier)) : grade === 4 ? Math.max(6, Math.round(6 * easeFactor * opts.easyBonus)) : 6;
+    reps = 2;
+    if (grade === 4) easeFactor += opts.easeIncrement;
+  } else {
+    const multiplier = grade === 2 ? opts.hardMultiplier : grade === 4 ? easeFactor * opts.easyBonus : easeFactor;
+    interval = Math.max(1, Math.round(interval * multiplier));
+    reps += 1;
+    if (grade === 4) easeFactor += opts.easeIncrement;
+  }
+  interval = Math.min(opts.maxInterval, interval);
+  easeFactor = Math.min(5, Math.max(opts.minEase, easeFactor));
+  const due = addDays(at, interval);
+  return { reps, interval, ease: ease(easeFactor), due, last: at, lapses };
+}
+
+/** Replay existing history once so a deck can migrate to SM-2 without losing progress. */
+function replayHistory(fm, now, options) {
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  const entries = parseHistory(fm && fm.history)
+    .map((e) => ({ ...e, at: new Date(e.when) }))
+    .filter((e) => !isNaN(e.at.getTime()) && e.at.getTime() <= at.getTime())
+    .sort((a, b) => a.at - b.at)
+    .slice(-MAX_REPLAY);
+  let state = { reps: 0, interval: 0, ease: normalizeSm2(options).startingEase, due: at, last: null, lapses: 0 };
+  let replayed = 0;
+  for (const e of entries) {
+    if (e.result !== "correct" && e.result !== "incorrect") continue;
+    const rating = gradeForAttempt(e.result === "correct", e.conf, e.seconds, fm && fm.target_seconds);
+    state = scheduleState(state, rating, e.at, options);
+    replayed++;
+  }
+  return { state, replayed };
+}
+
+function cardForNote(fm, now, options) {
+  const stored = decodeSm2(fm && fm.sm2);
+  if (stored) return { state: stored, replayed: 0 };
+  return replayHistory(fm, now, options);
+}
+
+/** Compute the next review for one attempt without mutating the note. */
+function reviewNote(fm, a, options) {
+  const now = a && a.now instanceof Date && !isNaN(a.now.getTime()) ? a.now : new Date();
+  const seeded = cardForNote(fm, now, options);
+  const explicit = Number(a && a.rating);
+  const rating = Number.isInteger(explicit) && explicit >= 1 && explicit <= 4
+    ? explicit
+    : gradeForAttempt(!!a.correct, a.conf, a.seconds, fm && fm.target_seconds);
+  const state = scheduleState(seeded.state, rating, now, options);
+  return {
+    sm2: encodeSm2(state),
+    due: state.due,
+    nextReview: fmtDate(state.due),
+    rating,
+    days: state.interval,
+    interval: state.interval,
+    ease: state.ease,
+    replayed: seeded.replayed,
+  };
+}
+
+module.exports = {
+  SRS_VERSION,
+  DEFAULT_SM2,
+  MAX_REPLAY,
+  normalizeSm2,
+  encodeSm2,
+  decodeSm2,
+  emptySm2,
+  gradeForAttempt,
+  scheduleState,
+  replayHistory,
+  cardForNote,
+  reviewNote,
+};
+};
+
 /* ---- src/smiles.js ---- */
 __defs["smiles"] = function (module, exports, require) {
 /*
@@ -50544,6 +50972,7 @@ const learnkit = require("./learnkit");
 const survey = require("./survey");
 const parameterized = require("./parameterized");
 const fsrs = require("./fsrs");
+const sm2 = require("./sm2");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
@@ -50758,6 +51187,7 @@ QuestionTrackerPlugin.__test = {
   applyAttempt,
   applySkip,
   fsrs,
+  sm2,
   setLastErrorType,
   fillDefaults,
   // folders, ids, stats, errors, tests, import checks

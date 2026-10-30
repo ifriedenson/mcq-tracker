@@ -8,11 +8,11 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
-- Latest release: **1.137.0** (Obsidian content authority and exact Anki source links), tagged and published on Oct 30, 2026.
-- The release commit is `d5e5ffc`; **765 tests** pass and `main.js` is the build of `src/`. Release 1.137.0 is https://github.com/ifriedenson/mcq-tracker/releases/tag/1.137.0 and its release workflow run is 41059265041.
+- Latest release: **1.138.0** (per-deck SM-2/FSRS scheduling with per-deck timing), tagged and published on Oct 30, 2026.
+- The release commit is recorded below after publishing; **773 tests** pass and `main.js` is the build of `src/`. Release 1.138.0 is https://github.com/ifriedenson/mcq-tracker/releases/tag/1.138.0; its workflow run is recorded after the tag is published.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
-- Step 9 queue rows 1, 2, 6, 7, 8, 9, 10, 11 and 12 are shipped; rows 3–5 remain narrowed in plan.md §11. The next implementable row is **13** (Better Recall per-deck SM-2/FSRS choice).
+- Step 9 queue rows 1, 2, 6, 7, 8, 9, 10, 11, 12 and 13 are shipped; rows 3–5 remain narrowed in plan.md §11. The next implementable row is **14** (Flashcard Learning multiple reviews, expectation labels and adaptive frequency).
 - **Lighter multi-question authoring** was ranked by the owner on Oct 30, 2026 and shipped in **1.128.0** as **Quick add questions** (`src/quick-add.js`, `src/quick-add-modal.js`).
 
 ## Commands

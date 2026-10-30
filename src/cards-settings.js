@@ -1,7 +1,8 @@
 "use strict";
 const { Notice, Setting } = require("obsidian");
 const { localDate, str } = require("./util");
-const { deckSummary } = require("./cards");
+const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
+const { deckSummary, effectiveScheduler, normalizeDeckIntervals } = require("./cards");
 const { CARD_GENERATOR_STYLES, normalizeCardGenerator } = require("./card-generator");
 const { renderSettingsTabs } = require("./settings-ui");
 
@@ -174,6 +175,68 @@ function renderDecks(containerEl, plugin, redisplay) {
           await plugin.save();
         })
     );
+    s.addDropdown((d) =>
+      d
+        .addOption("", "Use global scheduler")
+        .addOption("ladder", "Simple ladder")
+        .addOption("sm2", "SM-2")
+        .addOption("fsrs", "FSRS")
+        .setValue((configured && configured.scheduler) || "")
+        .onChange(async (v) => {
+          const cfg = ensureDeck(st, deck.name);
+          cfg.scheduler = v;
+          await plugin.save();
+          redisplay();
+        })
+    );
+    const effective = effectiveScheduler(plugin.settings, deck.name);
+    if (effective === "ladder") {
+      const timing = new Setting(containerEl)
+        .setName(`${deck.name} · ladder timing`)
+        .setDesc("Days between reviews. Leave blank to use the global intervals.")
+        .addText((t) =>
+          t
+            .setPlaceholder((plugin.settings.intervals || [1, 3, 7, 21, 60]).join(", "))
+            .setValue(configured && configured.intervals && configured.intervals.length ? configured.intervals.join(", ") : "")
+            .onChange(async (v) => {
+              const cfg = ensureDeck(st, deck.name);
+              cfg.intervals = normalizeDeckIntervals(v);
+              await plugin.save();
+            })
+        );
+      timing.settingEl.addClass("qt-deck-timing");
+    } else if (effective === "fsrs") {
+      new Setting(containerEl)
+        .setName(`${deck.name} · FSRS retention`)
+        .setDesc("Desired recall probability for this deck. Leave blank to use the global retention.")
+        .addDropdown((d) =>
+          d
+            .addOption("", "Use global retention")
+            .addOption("0.85", "85%")
+            .addOption("0.9", "90%")
+            .addOption("0.95", "95%")
+            .setValue(configured && configured.fsrsRetention ? String(configured.fsrsRetention) : "")
+            .onChange(async (v) => {
+              const cfg = ensureDeck(st, deck.name);
+              cfg.fsrsRetention = v === "" ? 0 : Number(v);
+              await plugin.save();
+            })
+        );
+    } else if (effective === "sm2") {
+      new Setting(containerEl)
+        .setName(`${deck.name} · SM-2 timing`)
+        .setDesc("Starting ease, first Easy interval in days, Hard multiplier, Easy bonus. Leave blank for 2.5, 4, 1.2, 1.3.")
+        .addText((t) =>
+          t
+            .setPlaceholder("2.5, 4, 1.2, 1.3")
+            .setValue(sm2TimingText(configured && configured.sm2))
+            .onChange(async (v) => {
+              const cfg = ensureDeck(st, deck.name);
+              cfg.sm2 = parseSm2Timing(v, cfg.sm2);
+              await plugin.save();
+            })
+        );
+    }
     if (configured) {
       s.addButton((b) =>
         b
@@ -402,11 +465,32 @@ function renderDecks(containerEl, plugin, redisplay) {
     .addButton((b) => b.setButtonText("Push whole vault").onClick(() => plugin.openAnkiConnectPush({ vaultWide: true })));
 }
 
+function sm2TimingText(value) {
+  const opts = normalizeSm2(value);
+  const defaults = normalizeSm2(DEFAULT_SM2);
+  if (JSON.stringify(opts) === JSON.stringify(defaults)) return "";
+  return [opts.startingEase, opts.easyInterval, opts.hardMultiplier, opts.easyBonus].join(", ");
+}
+
+function parseSm2Timing(text, current) {
+  const raw = str(text).trim();
+  if (!raw) return normalizeSm2();
+  const parts = raw.split(/[,\s]+/).map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return normalizeSm2(current);
+  return normalizeSm2({
+    ...normalizeSm2(current),
+    startingEase: parts[0],
+    easyInterval: parts[1],
+    hardMultiplier: parts[2],
+    easyBonus: parts[3],
+  });
+}
+
 function ensureDeck(st, name) {
   st.decks = Array.isArray(st.decks) ? st.decks : [];
   let cfg = st.decks.find((d) => d.name.toLowerCase() === str(name).trim().toLowerCase());
   if (!cfg) {
-    cfg = { name: str(name).trim(), folder: "", course: "", answerMode: "", gradingStrictness: "" };
+    cfg = { name: str(name).trim(), folder: "", course: "", answerMode: "", gradingStrictness: "", scheduler: "", intervals: [], fsrsRetention: 0, sm2: normalizeSm2() };
     st.decks.push(cfg);
   }
   return cfg;

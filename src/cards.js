@@ -12,6 +12,7 @@ const { isStudyable } = require("./study-status");
 const { ANSWER_MODES, GRADING_STRICTNESS, normalizeAnswerMode, normalizeStrictness, parseVariants } = require("./card-grading");
 const { DEFAULT_ANKI_CONNECT, normalizeAnkiConnect } = require("./anki-connect");
 const { DEFAULT_PLAIN_CARDS, inferPlainCard, normalizePlainCards, plainDeckName } = require("./plain-cards");
+const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 
 const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
 const CARD_TYPE_LABELS = {
@@ -22,6 +23,7 @@ const CARD_TYPE_LABELS = {
 };
 const CARD_GRADES = ["again", "hard", "good", "easy"];
 const CARD_ITEM_TYPES = ["card", "flashcard", "vocab", "vocabulary"];
+const CARD_SCHEDULERS = ["ladder", "sm2", "fsrs"];
 
 const GRADE_INFO = {
   again: { label: "Again", correct: false, conf: 0, rating: 1 },
@@ -32,6 +34,31 @@ const GRADE_INFO = {
 
 const normalizeFolder = (p) => str(p).trim().replace(/^\/+|\/+$/g, "");
 const lower = (v) => str(v).trim().toLowerCase();
+
+/** Empty means inherit the global scheduler. */
+function normalizeSchedulerChoice(value) {
+  const v = lower(value);
+  return CARD_SCHEDULERS.includes(v) ? v : "";
+}
+
+/** A deck's ladder timing. Empty means inherit the global interval list. */
+function normalizeDeckIntervals(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[,\s]+/);
+  const seen = new Set();
+  for (const part of raw) {
+    const n = Math.round(Number(part));
+    if (Number.isFinite(n) && n > 0 && n <= 3650) seen.add(n);
+  }
+  return [...seen].sort((a, b) => a - b).slice(0, 20);
+}
+
+/** Empty (0) means inherit the global FSRS retention. */
+function normalizeDeckRetention(value) {
+  if (value === "" || value === null || value === undefined) return 0;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(0.95, Math.max(0.85, n));
+}
 
 function normalizeDecks(list) {
   const out = [];
@@ -49,6 +76,10 @@ function normalizeDecks(list) {
       course: str(raw.course).trim(),
       answerMode: normalizeAnswerMode(raw.answerMode || raw.answer_mode, ""),
       gradingStrictness: normalizeStrictness(raw.gradingStrictness || raw.grading_strictness, ""),
+      scheduler: normalizeSchedulerChoice(raw.scheduler),
+      intervals: normalizeDeckIntervals(raw.intervals),
+      fsrsRetention: normalizeDeckRetention(raw.fsrsRetention || raw.fsrs_retention),
+      sm2: normalizeSm2(raw.sm2),
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -176,6 +207,43 @@ function effectiveGradingStrictness(fm, settings, deckName) {
   const deck = deckConfig(settings, deckName);
   if (deck && deck.gradingStrictness) return deck.gradingStrictness;
   return normalizeStrictness(settings && settings.cards && settings.cards.gradingStrictness, "standard");
+}
+
+/** Deck scheduler choice, then the global ladder/FSRS selection. */
+function effectiveScheduler(settings, deckName) {
+  const deck = deckConfig(settings, deckName);
+  if (deck && deck.scheduler) return deck.scheduler;
+  return lower(settings && settings.scheduler) === "fsrs" ? "fsrs" : "ladder";
+}
+
+/** Deck ladder timing, then the global interval list. */
+function effectiveDeckIntervals(settings, deckName) {
+  const deck = deckConfig(settings, deckName);
+  if (deck && Array.isArray(deck.intervals) && deck.intervals.length) return deck.intervals;
+  return Array.isArray(settings && settings.intervals) && settings.intervals.length ? settings.intervals : [1, 3, 7, 21, 60];
+}
+
+/** Deck FSRS retention, then the global retention. */
+function effectiveFsrsRetention(settings, deckName) {
+  const deck = deckConfig(settings, deckName);
+  if (deck && Number(deck.fsrsRetention) > 0) return deck.fsrsRetention;
+  return settings && settings.fsrsRetention;
+}
+
+/** Deck SM-2 timing with the built-in defaults filled in. */
+function effectiveSm2(settings, deckName) {
+  const deck = deckConfig(settings, deckName);
+  return normalizeSm2(deck && deck.sm2);
+}
+
+/** Resolve every scheduler option for one deck in one place. */
+function schedulerForDeck(settings, deckName) {
+  return {
+    scheduler: effectiveScheduler(settings, deckName),
+    intervals: effectiveDeckIntervals(settings, deckName),
+    fsrsRetention: effectiveFsrsRetention(settings, deckName),
+    sm2: effectiveSm2(settings, deckName),
+  };
 }
 
 /** Fill in the effective deck, course and answer settings so views and filters agree. */
@@ -594,8 +662,18 @@ module.exports = {
   ANSWER_MODES,
   GRADING_STRICTNESS,
   GRADE_INFO,
+  CARD_SCHEDULERS,
+  DEFAULT_SM2,
   normalizeFolder,
+  normalizeSchedulerChoice,
+  normalizeDeckIntervals,
+  normalizeDeckRetention,
   normalizeDecks,
+  effectiveScheduler,
+  effectiveDeckIntervals,
+  effectiveFsrsRetention,
+  effectiveSm2,
+  schedulerForDeck,
   mergeCardSettings,
   isCardNote,
   cardKind,

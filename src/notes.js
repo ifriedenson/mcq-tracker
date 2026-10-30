@@ -3,6 +3,7 @@ const { addDays, fmtDate, fmtDateTime, fmtDateTimeSec, str } = require("./util")
 const { appendHistory, hasAttemptId, setAttemptErrorType } = require("./history");
 const { DEFAULT_SETTINGS, TRACKING_DEFAULTS } = require("./constants");
 const { reviewNote } = require("./fsrs");
+const { reviewNote: reviewSm2 } = require("./sm2");
 const { gradeAnswerDetailed } = require("./numeric-grading");
 const { formatChoiceSet, isTrueFalseChoices, normalizeTrueFalse, parseChoiceSet } = require("./answer-types");
 const { parsePairs } = require("./matching");
@@ -212,11 +213,16 @@ function applyAttempt(fm, a, intervals, options) {
       nextReview: str(fm.next_review),
       examCap: null,
       target: Number(fm.target_seconds) || 0,
-      scheduler: fm.scheduler === "fsrs" ? "fsrs" : "ladder",
+      scheduler: ["fsrs", "sm2"].includes(fm.scheduler) ? fm.scheduler : "ladder",
       fsrsRating: 0,
       fsrsDays: 0,
       fsrsReplayed: 0,
       fsrsError: "",
+      sm2Rating: 0,
+      sm2Days: 0,
+      sm2Ease: 0,
+      sm2Replayed: 0,
+      sm2Error: "",
       grade: "",
       verdict: "",
       typedAnswer: "",
@@ -289,6 +295,18 @@ function applyAttempt(fm, a, intervals, options) {
       fsrsError = str(e && e.message);
     }
   }
+  // SM-2 is a clean-room alternative for decks that prefer Anki-style ease
+  // factors. It keeps its own state, so switching between schedulers remains
+  // lossless and no existing note is rewritten until it is reviewed again.
+  let sm2Review = null;
+  let sm2Error = "";
+  if (!fsrsReview && opts.scheduler === "sm2") {
+    try {
+      sm2Review = reviewSm2(fm, a, opts.sm2);
+    } catch (e) {
+      sm2Error = str(e && e.message);
+    }
+  }
 
   const now = fmtDateTime(a.now);
   const when = fmtDateTimeSec(a.now);
@@ -312,14 +330,17 @@ function applyAttempt(fm, a, intervals, options) {
   fm.result = a.correct ? "correct" : "incorrect";
   fm["date attempted"] = now;
   if (!fm.first_attempted) fm.first_attempted = now;
-  const scheduledReview = fsrsReview ? fsrsReview.nextReview : fmtDate(addDays(a.now, days));
+  const scheduledReview = fsrsReview ? fsrsReview.nextReview : sm2Review ? sm2Review.nextReview : fmtDate(addDays(a.now, days));
   const examCap = applyExamCap(fm, scheduledReview, opts.examCap, a.now);
   fm.next_review = examCap ? examCap.date : scheduledReview;
   if (fsrsReview) {
     fm.srs = fsrsReview.srs;
     fm.scheduler = "fsrs";
-  } else if (fm.srs) {
-    // Switching back to the ladder is lossless: keep the FSRS state for later.
+  } else if (sm2Review) {
+    fm.sm2 = sm2Review.sm2;
+    fm.scheduler = "sm2";
+  } else if (fm.srs || fm.sm2) {
+    // Switching back to the ladder is lossless: keep the other states for later.
     fm.scheduler = "ladder";
   }
   if (grade) fm.last_card_rating = grade;
@@ -344,11 +365,16 @@ function applyAttempt(fm, a, intervals, options) {
     nextReview: fm.next_review,
     examCap,
     target: Number(fm.target_seconds) || 0,
-    scheduler: fsrsReview ? "fsrs" : "ladder",
+    scheduler: fsrsReview ? "fsrs" : sm2Review ? "sm2" : "ladder",
     fsrsRating: fsrsReview ? fsrsReview.rating : 0,
     fsrsDays: fsrsReview ? fsrsReview.days : 0,
     fsrsReplayed: fsrsReview ? fsrsReview.replayed : 0,
     fsrsError,
+    sm2Rating: sm2Review ? sm2Review.rating : 0,
+    sm2Days: sm2Review ? sm2Review.days : 0,
+    sm2Ease: sm2Review ? sm2Review.ease : 0,
+    sm2Replayed: sm2Review ? sm2Review.replayed : 0,
+    sm2Error,
     grade,
     verdict: a.verdict || "",
     typedAnswer: a.typedAnswer === undefined ? "" : str(a.typedAnswer),

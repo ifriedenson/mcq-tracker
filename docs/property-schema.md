@@ -59,8 +59,10 @@ greater than `attempts`, and `accuracy` is derived rather than stored.
 | `last_confidence` | string | Self-reported confidence, when the review asks for it. |
 | `last_error_type` | string | Error tag such as `careless` or `misread`. |
 | `flagged` | boolean | Whether the learner flagged the note for later. |
-| `next_review` | string | `YYYY-MM-DD` due date for the simple ladder or FSRS. |
+| `next_review` | string | `YYYY-MM-DD` due date for the simple ladder, SM-2 or FSRS. |
 | `srs` | string | Compact FSRS state. Empty when FSRS has not scheduled the note. |
+| `sm2` | string | Compact SM-2 state (`reps`, interval, ease, due, last review, lapses). Empty when SM-2 has not scheduled the note. |
+| `scheduler` | string | Which scheduler last wrote the review: `ladder`, `sm2` or `fsrs`. |
 | `history` | list | Append-only attempts, one string per attempt (see below). |
 
 `history` entries use:

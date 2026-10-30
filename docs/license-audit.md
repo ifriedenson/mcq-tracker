@@ -24,7 +24,8 @@ Everything else in `src/` is original for this plugin, including:
 - numeric grading, parameterized questions, computed verification and the local graph/calculator evaluators;
 - the Reference formula list, constants, unit factors and element facts;
 - the OCR prompts and Direct AI allow-listed tool protocol;
-- the SMILES parser/layout/SVG renderer in `src/smiles.js`.
+- the SMILES parser/layout/SVG renderer in `src/smiles.js`;
+- the clean-room SM-2 scheduler in `src/sm2.js` (no Better Recall, Anki or SuperMemo code copied).
 
 No GPL, AGPL, LGPL, MPL, non-commercial, no-derivatives or unlicensed code is bundled. No Desmos, RDKit, Ketcher, WKWebView, MathJax, mhchem, Chem or LearnKit source is copied into the bundle.
 
