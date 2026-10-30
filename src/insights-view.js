@@ -7,7 +7,7 @@ const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
 const { conceptMasteryRows } = require("./concept-mastery");
 const { renderBreakdown, renderCalibration, renderGrade, renderHeatmap, renderRetention, renderSkips } = require("./analytics-embed");
-const { bandQuestions, buildProgress, masteryScopes, scopeQuestions: questionsInScope } = require("./progress");
+const { MASTERY_WINDOWS, bandQuestions, buildProgress, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions: questionsInScope } = require("./progress");
 
 /* ------------------------------------------- weak spots and error log */
 
@@ -20,7 +20,8 @@ class InsightsView extends ItemView {
     this.tab = "weak"; // weak | progress | overview | concepts | errors
     this.overviewField = "skill";
     this.progressWeeks = 12;
-    this.masteryScope = "";
+    this.masteryScope = str(plugin.settings && plugin.settings.masteryScope);
+    this.masteryDays = masteryWindowDays(plugin.settings && plugin.settings.masteryDays);
     this.field = "skill";
     this.showAll = {};
     this.timer = null;
@@ -209,7 +210,7 @@ class InsightsView extends ItemView {
     const studyLog = p.settings.studyLog;
     const scopes = masteryScopes(questions);
     if (this.masteryScope && !scopes.some((scope) => scope.toLowerCase() === this.masteryScope.toLowerCase())) this.masteryScope = "";
-    const progress = buildProgress({ questions, cards, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope });
+    const progress = buildProgress({ questions, cards, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays });
     const dash = buildDashboard({ questions, cards, studyLog, field: this.overviewField, today: now, weeks: this.progressWeeks });
     if (!questions.length && !cards.length && !progress.study.weekMinutes) {
       root.createDiv({
@@ -263,7 +264,7 @@ class InsightsView extends ItemView {
       progress.mastery.total ? fmtPct(progress.mastery.total ? progress.mastery.mastered / progress.mastery.total : null) : "-",
       null,
       "",
-      `${progress.mastery.mastered} of ${progress.mastery.total} mastered`
+      `${progress.mastery.mastered} of ${progress.mastery.total} mastered${progress.masteryDays ? ` in the last ${progress.masteryDays} days` : ""}`
     );
 
     root.createEl("h3", { cls: "qt-today-section", text: "Question mastery" });
@@ -277,14 +278,34 @@ class InsightsView extends ItemView {
       picker.value = progress.masteryScope;
       picker.addEventListener("change", () => {
         this.masteryScope = picker.value;
+        if (p.settings) {
+          p.settings.masteryScope = this.masteryScope;
+          p.save();
+        }
+        this.render();
+      });
+    }
+    const windowRow = root.createDiv({ cls: "qt-chips qt-progress-window" });
+    for (const days of [0, ...MASTERY_WINDOWS]) {
+      const chip = windowRow.createEl("button", { text: days ? `Last ${days} days` : "All time", cls: "qt-chip" });
+      if (progress.masteryDays === days) chip.addClass("is-selected");
+      chip.setAttr("aria-pressed", progress.masteryDays === days ? "true" : "false");
+      chip.addEventListener("click", () => {
+        this.masteryDays = days;
+        if (p.settings) {
+          p.settings.masteryDays = days;
+          p.save();
+        }
         this.render();
       });
     }
     const scopeLabel = progress.masteryScope ? ` in ${progress.masteryScope}` : "";
+    const windowLabel = progress.masteryDays ? ` in the last ${progress.masteryDays} days` : "";
+    const practiceWindow = progress.masteryDays ? ` from the last ${progress.masteryDays} days` : "";
     root.createDiv({
       cls: "qt-hint",
       text: mastery.total
-        ? `${mastery.tried} of ${mastery.total} question${mastery.total === 1 ? "" : "s"}${scopeLabel} tried. Mastery is practice accuracy on each note, weakest band first.`
+        ? `${mastery.tried} of ${mastery.total} question${mastery.total === 1 ? "" : "s"}${scopeLabel} tried${windowLabel}. Mastery is practice accuracy on each note, weakest band first.`
         : progress.masteryScope
           ? `No questions in ${progress.masteryScope} yet.`
           : "No question notes yet. Every question you try lands in a band here.",
@@ -293,6 +314,9 @@ class InsightsView extends ItemView {
       root.createDiv({ cls: "qt-hint", text: "Add a course property to question notes to compare mastery by subject." });
     }
     if (mastery.total) {
+      const trend = progress.masteryTrend;
+      const change = trend && trend.hasComparison && trend.direction !== "same" ? ` is-${trend.direction}` : "";
+      root.createDiv({ cls: `qt-progress-delta qt-mastery-trend${change}`, text: masteryTrendText(trend) });
       const stack = root.createDiv({ cls: "qt-progress-stack" });
       for (const band of mastery.bands) {
         if (!band.count) continue;
@@ -310,11 +334,12 @@ class InsightsView extends ItemView {
         const go = line.createEl("button", { text: "Practice", cls: "qt-link" });
         go.setAttr(
           "aria-label",
-          `Practice ${band.count} ${band.label.toLowerCase()} question${band.count === 1 ? "" : "s"}${scopeLabel}`
+          `Practice ${band.count} ${band.label.toLowerCase()} question${band.count === 1 ? "" : "s"}${scopeLabel}${practiceWindow}`
         );
         go.addEventListener("click", () => {
-          const pool = bandQuestions(questionsInScope(questions, progress.masteryScope), band.id);
-          p.practiceQuestionPool(pool, `${band.label}${progress.masteryScope ? ` · ${progress.masteryScope}` : ""}`);
+          const pool = bandQuestions(questionsInScope(questions, progress.masteryScope), band.id, { days: progress.masteryDays, today: now });
+          const windowText = progress.masteryDays ? ` · last ${progress.masteryDays} days` : " · all time";
+          p.practiceQuestionPool(pool, `${band.label}${progress.masteryScope ? ` · ${progress.masteryScope}` : ""}${windowText}`);
         });
       }
     }

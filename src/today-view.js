@@ -11,6 +11,8 @@ const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus");
 const { buildDailyTasks } = require("./assignments");
+const { renderMastery } = require("./analytics-embed");
+const { MASTERY_WINDOWS, bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions } = require("./progress");
 
 /*
  * The phone-sized entry point: what is due, what is next, and one large
@@ -74,6 +76,7 @@ class TodayView extends ItemView {
     manage.createEl("button", { text: "Hidden items", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
     this.renderReminder(root, today, due, fresh);
+    this.renderMasteryCard(root, questions, today);
     const plan = this.renderStudyPlan(root);
     this.renderFrqReview(root, plan);
     this.renderDaily(root, today);
@@ -128,6 +131,60 @@ class TodayView extends ItemView {
       );
     }
     row.createEl("button", { text: "Dismiss today" }).addEventListener("click", () => p.dismissTodayReminder());
+  }
+
+  /** The Progress tab's selected scope and window, with exact band practice. */
+  renderMasteryCard(root, questions, today) {
+    const p = this.plugin;
+    const settings = p.settings || {};
+    const savedScope = String(settings.masteryScope || "").trim();
+    const scopes = masteryScopes(questions);
+    const scope = savedScope && scopes.some((entry) => entry.toLowerCase() === savedScope.toLowerCase()) ? savedScope : "";
+    const days = masteryWindowDays(settings.masteryDays);
+    const pool = scopeQuestions(questions, scope);
+    const mastery = buildMastery(pool, { days, today });
+    if (!mastery.total) return;
+    const trend = buildMasteryTrend(pool, { days, today });
+    const controls = (container) => {
+      if (scopes.length) {
+        const scopeRow = container.createDiv({ cls: "qt-progress-scope" });
+        scopeRow.createSpan({ cls: "qt-hint", text: "Show mastery for" });
+        const picker = scopeRow.createEl("select", { cls: "qt-select" });
+        picker.createEl("option", { value: "", text: "All questions" });
+        for (const entry of scopes) picker.createEl("option", { value: entry, text: entry });
+        picker.value = scope;
+        picker.addEventListener("change", () => {
+          p.settings.masteryScope = picker.value;
+          p.save();
+          this.render();
+        });
+      }
+      const range = container.createDiv({ cls: "qt-chips qt-progress-window" });
+      for (const option of [0, ...MASTERY_WINDOWS]) {
+        const chip = range.createEl("button", { text: option ? `Last ${option} days` : "All time", cls: "qt-chip" });
+        if (days === option) chip.addClass("is-selected");
+        chip.setAttr("aria-pressed", days === option ? "true" : "false");
+        chip.addEventListener("click", () => {
+          p.settings.masteryDays = option;
+          p.save();
+          this.render();
+        });
+      }
+      const change = trend.hasComparison && trend.direction !== "same" ? ` is-${trend.direction}` : "";
+      container.createDiv({ cls: `qt-progress-delta qt-mastery-trend${change}`, text: masteryTrendText(trend) });
+      const actions = container.createDiv({ cls: "qt-row qt-small-row" });
+      actions.createEl("button", { text: "Open progress", cls: "qt-link" }).addEventListener("click", () => p.activateInsights("progress"));
+    };
+    renderMastery(
+      root,
+      { mastery, masteryScope: scope, masteryDays: days },
+      {
+        onMasteryPractice: (band, label) => {
+          p.practiceQuestionPool(bandQuestions(pool, band, { days, today }), label);
+        },
+      },
+      controls
+    );
   }
 
   renderStudyPlan(root) {

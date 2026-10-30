@@ -1625,14 +1625,17 @@ __defs["analytics-embed"] = function (module, exports, require) {
 const { fmtPct } = require("./stats");
 const { fmtClock } = require("./util");
 const { BREAKDOWN_FIELDS, FIELD_LABELS } = require("./analytics");
+const { MASTERY_WINDOWS, masteryTrendText } = require("./progress");
 
-const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "calibration", "retention", "weak", "skips", "grades", "courses", "exam"];
+const DASHBOARD_METRICS = ["overview", "stats", "mastery", "heatmap", "calibration", "retention", "weak", "skips", "grades", "courses", "exam"];
 const ALIASES = {
   overview: "overview",
   dashboard: "overview",
   all: "overview",
   stats: "stats",
   summary: "stats",
+  mastery: "mastery",
+  bands: "mastery",
   heatmap: "heatmap",
   activity: "heatmap",
   calibration: "calibration",
@@ -1655,6 +1658,7 @@ const ALIASES = {
 const LABELS = {
   overview: "Study dashboard",
   stats: "Study stats",
+  mastery: "Question mastery",
   heatmap: "Study heatmap",
   calibration: "Confidence calibration",
   retention: "Retention trend",
@@ -1678,14 +1682,17 @@ function parseDashboardBlock(source) {
       const n = Math.round(Number(value));
       if (Number.isFinite(n)) opts.weeks = Math.max(1, Math.min(26, n));
     } else if (key === "course") opts.course = value;
-    else if (key === "field") opts.field = BREAKDOWN_FIELDS.includes(value.toLowerCase()) ? value.toLowerCase() : "skill";
+    else if (key === "masterydays") {
+      const days = Math.round(Number(value));
+      if (value !== "" && (days === 0 || MASTERY_WINDOWS.includes(days))) opts.masteryDays = days;
+    } else if (key === "field") opts.field = BREAKDOWN_FIELDS.includes(value.toLowerCase()) ? value.toLowerCase() : "skill";
     else if (key === "title") opts.title = value;
   }
   return opts;
 }
 
 function heading(container, text) {
-  container.createEl("h3", { cls: "qt-today-section", text });
+  return container.createEl("h3", { cls: "qt-today-section", text });
 }
 
 function tile(container, label, value, hint) {
@@ -1867,6 +1874,53 @@ function renderExam(container, data) {
   box.createDiv({ cls: "qt-today-meta", text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards` });
 }
 
+/** A compact copy of the Progress tab's bands, using the saved scope and window. */
+function renderMastery(container, data, hooks, controls) {
+  const mastery = data.mastery;
+  if (!mastery) return;
+  const windowLabel = data.masteryDays ? `Last ${data.masteryDays} days` : "All time";
+  const scope = String(data.masteryScope || "").trim();
+  const scopeLabel = scope ? ` in ${scope}` : "";
+  const windowText = data.masteryDays ? ` in the last ${data.masteryDays} days` : "";
+  const practiceWindow = data.masteryDays ? ` from the last ${data.masteryDays} days` : "";
+  const title = heading(container, `Question mastery · ${windowLabel}`);
+  const trend = data.masteryTrend;
+  if (trend && trend.hasComparison) {
+    const arrow = trend.direction === "up" ? "↑" : trend.direction === "down" ? "↓" : "→";
+    title.createSpan({ cls: `qt-mastery-arrow is-${trend.direction}`, text: `${arrow} ${Math.abs(trend.delta)}` });
+    title.setAttr("title", masteryTrendText(trend));
+  }
+  container.createDiv({
+    cls: "qt-hint",
+    text: mastery.total
+      ? `${mastery.tried} of ${mastery.total} question${mastery.total === 1 ? "" : "s"}${scopeLabel} tried${windowText}.`
+      : scope
+        ? `No questions in ${scope} yet.`
+        : "No question notes yet.",
+  });
+  if (controls) controls(container);
+  if (!mastery.total) return;
+  const stack = container.createDiv({ cls: "qt-progress-stack" });
+  for (const band of mastery.bands) {
+    if (!band.count) continue;
+    const seg = stack.createDiv({ cls: `qt-progress-seg is-${band.id}` });
+    seg.setCssProps({ "--qt-pct": `${band.pct * 100}%` });
+    seg.setAttr("title", `${band.label}: ${band.count} question${band.count === 1 ? "" : "s"} (${fmtPct(band.pct)})`);
+  }
+  const legend = container.createDiv({ cls: "qt-progress-legend" });
+  for (const band of mastery.bands) {
+    const line = legend.createDiv({ cls: "qt-progress-legend-row" });
+    line.createSpan({ cls: `qt-progress-swatch is-${band.id}` });
+    line.createSpan({ cls: "qt-progress-legend-label", text: band.label });
+    line.createSpan({ cls: "qt-progress-legend-count", text: `${band.count} · ${fmtPct(band.pct)}` });
+    if (!band.count || !(hooks && hooks.onMasteryPractice)) continue;
+    const go = line.createEl("button", { text: "Practice", cls: "qt-link" });
+    go.setAttr("aria-label", `Practice ${band.count} ${band.label.toLowerCase()} question${band.count === 1 ? "" : "s"}${scopeLabel}${practiceWindow}`);
+    const label = `${band.label}${scope ? ` · ${scope}` : ""}${data.masteryDays ? ` · last ${data.masteryDays} days` : " · all time"}`;
+    go.addEventListener("click", () => hooks.onMasteryPractice(band.id, label));
+  }
+}
+
 /** Draw one embed. `data` is the output of buildDashboard plus an optional `plan`. */
 function renderDashboardEmbed(container, data, options, hooks) {
   const opts = options || {};
@@ -1888,6 +1942,7 @@ function renderDashboardEmbed(container, data, options, hooks) {
 
   const show = (id) => metric === "overview" || metric === id;
   if (show("stats")) renderStats(container, data);
+  if (show("mastery")) renderMastery(container, data, hooks);
   if (show("heatmap")) renderHeatmap(container, data);
   if (show("calibration")) renderCalibration(container, data);
   if (show("retention")) renderRetention(container, data);
@@ -1907,6 +1962,7 @@ module.exports = {
   renderDashboardEmbed,
   renderGrade,
   renderHeatmap,
+  renderMastery,
   renderRetention,
   renderSkips,
 };
@@ -15101,6 +15157,8 @@ const DEFAULT_SETTINGS = {
   quickAdaptive: { enabled: false, useRecommended: true, minMinutes: 2, maxMinutes: 15, minCount: 3, maxCount: 20, lookbackDays: 21 },
   quickSession: null, // a Quick Practice queue in progress, so it survives closing Obsidian
   studyLog: { sessions: [], dailyGoalMinutes: 60, lastCourse: "" }, // focus sessions and manual study time
+  masteryScope: "", // Insights > Progress: the course whose mastery is shown; "" means all questions
+  masteryDays: 0, // Insights > Progress: 0 = all time, 7 or 30 = only attempts from that window
   reminder: { enabled: false, hour: 9, lastShown: "", dismissed: "" }, // local, once-a-day in-app nudge
   dailyQuiz: {
     enabled: false, // opt-in; no command, card or notifications until it is on
@@ -24109,7 +24167,7 @@ const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
 const { conceptMasteryRows } = require("./concept-mastery");
 const { renderBreakdown, renderCalibration, renderGrade, renderHeatmap, renderRetention, renderSkips } = require("./analytics-embed");
-const { bandQuestions, buildProgress, masteryScopes, scopeQuestions: questionsInScope } = require("./progress");
+const { MASTERY_WINDOWS, bandQuestions, buildProgress, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions: questionsInScope } = require("./progress");
 
 /* ------------------------------------------- weak spots and error log */
 
@@ -24122,7 +24180,8 @@ class InsightsView extends ItemView {
     this.tab = "weak"; // weak | progress | overview | concepts | errors
     this.overviewField = "skill";
     this.progressWeeks = 12;
-    this.masteryScope = "";
+    this.masteryScope = str(plugin.settings && plugin.settings.masteryScope);
+    this.masteryDays = masteryWindowDays(plugin.settings && plugin.settings.masteryDays);
     this.field = "skill";
     this.showAll = {};
     this.timer = null;
@@ -24311,7 +24370,7 @@ class InsightsView extends ItemView {
     const studyLog = p.settings.studyLog;
     const scopes = masteryScopes(questions);
     if (this.masteryScope && !scopes.some((scope) => scope.toLowerCase() === this.masteryScope.toLowerCase())) this.masteryScope = "";
-    const progress = buildProgress({ questions, cards, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope });
+    const progress = buildProgress({ questions, cards, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays });
     const dash = buildDashboard({ questions, cards, studyLog, field: this.overviewField, today: now, weeks: this.progressWeeks });
     if (!questions.length && !cards.length && !progress.study.weekMinutes) {
       root.createDiv({
@@ -24365,7 +24424,7 @@ class InsightsView extends ItemView {
       progress.mastery.total ? fmtPct(progress.mastery.total ? progress.mastery.mastered / progress.mastery.total : null) : "-",
       null,
       "",
-      `${progress.mastery.mastered} of ${progress.mastery.total} mastered`
+      `${progress.mastery.mastered} of ${progress.mastery.total} mastered${progress.masteryDays ? ` in the last ${progress.masteryDays} days` : ""}`
     );
 
     root.createEl("h3", { cls: "qt-today-section", text: "Question mastery" });
@@ -24379,14 +24438,34 @@ class InsightsView extends ItemView {
       picker.value = progress.masteryScope;
       picker.addEventListener("change", () => {
         this.masteryScope = picker.value;
+        if (p.settings) {
+          p.settings.masteryScope = this.masteryScope;
+          p.save();
+        }
+        this.render();
+      });
+    }
+    const windowRow = root.createDiv({ cls: "qt-chips qt-progress-window" });
+    for (const days of [0, ...MASTERY_WINDOWS]) {
+      const chip = windowRow.createEl("button", { text: days ? `Last ${days} days` : "All time", cls: "qt-chip" });
+      if (progress.masteryDays === days) chip.addClass("is-selected");
+      chip.setAttr("aria-pressed", progress.masteryDays === days ? "true" : "false");
+      chip.addEventListener("click", () => {
+        this.masteryDays = days;
+        if (p.settings) {
+          p.settings.masteryDays = days;
+          p.save();
+        }
         this.render();
       });
     }
     const scopeLabel = progress.masteryScope ? ` in ${progress.masteryScope}` : "";
+    const windowLabel = progress.masteryDays ? ` in the last ${progress.masteryDays} days` : "";
+    const practiceWindow = progress.masteryDays ? ` from the last ${progress.masteryDays} days` : "";
     root.createDiv({
       cls: "qt-hint",
       text: mastery.total
-        ? `${mastery.tried} of ${mastery.total} question${mastery.total === 1 ? "" : "s"}${scopeLabel} tried. Mastery is practice accuracy on each note, weakest band first.`
+        ? `${mastery.tried} of ${mastery.total} question${mastery.total === 1 ? "" : "s"}${scopeLabel} tried${windowLabel}. Mastery is practice accuracy on each note, weakest band first.`
         : progress.masteryScope
           ? `No questions in ${progress.masteryScope} yet.`
           : "No question notes yet. Every question you try lands in a band here.",
@@ -24395,6 +24474,9 @@ class InsightsView extends ItemView {
       root.createDiv({ cls: "qt-hint", text: "Add a course property to question notes to compare mastery by subject." });
     }
     if (mastery.total) {
+      const trend = progress.masteryTrend;
+      const change = trend && trend.hasComparison && trend.direction !== "same" ? ` is-${trend.direction}` : "";
+      root.createDiv({ cls: `qt-progress-delta qt-mastery-trend${change}`, text: masteryTrendText(trend) });
       const stack = root.createDiv({ cls: "qt-progress-stack" });
       for (const band of mastery.bands) {
         if (!band.count) continue;
@@ -24412,11 +24494,12 @@ class InsightsView extends ItemView {
         const go = line.createEl("button", { text: "Practice", cls: "qt-link" });
         go.setAttr(
           "aria-label",
-          `Practice ${band.count} ${band.label.toLowerCase()} question${band.count === 1 ? "" : "s"}${scopeLabel}`
+          `Practice ${band.count} ${band.label.toLowerCase()} question${band.count === 1 ? "" : "s"}${scopeLabel}${practiceWindow}`
         );
         go.addEventListener("click", () => {
-          const pool = bandQuestions(questionsInScope(questions, progress.masteryScope), band.id);
-          p.practiceQuestionPool(pool, `${band.label}${progress.masteryScope ? ` · ${progress.masteryScope}` : ""}`);
+          const pool = bandQuestions(questionsInScope(questions, progress.masteryScope), band.id, { days: progress.masteryDays, today: now });
+          const windowText = progress.masteryDays ? ` · last ${progress.masteryDays} days` : " · all time";
+          p.practiceQuestionPool(pool, `${band.label}${progress.masteryScope ? ` · ${progress.masteryScope}` : ""}${windowText}`);
         });
       }
     }
@@ -31472,6 +31555,7 @@ const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, p
 const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
+const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
 const { parseDashboardBlock, renderDashboardEmbed } = require("./analytics-embed");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { addResourceLink, classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
@@ -34347,20 +34431,35 @@ class QuestionTrackerPlugin extends Plugin {
     const draw = () => {
       el.empty();
       const box = el.createDiv({ cls: "qt-wrap qt-dash-embed" });
+      const questions = this.getQuestions();
+      const today = new Date();
       const data = buildDashboard({
-        questions: this.getQuestions(),
+        questions,
         cards: this.getCards ? this.getCards() : [],
         studyLog: this.settings.studyLog,
         confidenceLabels: this.settings.confidenceLabels,
-        today: new Date(),
+        today,
         course: opts.course,
         field: opts.field,
         weeks: opts.weeks,
       });
+      const requestedScope = data.course || str(this.settings.masteryScope).trim();
+      const scopes = masteryScopes(questions);
+      const masteryScope = !data.course && requestedScope && !scopes.some((scope) => scope.toLowerCase() === requestedScope.toLowerCase()) ? "" : requestedScope;
+      const masteryDays = opts.masteryDays === undefined ? masteryWindowDays(this.settings.masteryDays) : opts.masteryDays;
+      const scopedMastery = scopeQuestions(questions, masteryScope);
+      data.mastery = buildMastery(scopedMastery, { days: masteryDays, today });
+      data.masteryTrend = buildMasteryTrend(scopedMastery, { days: masteryDays, today });
+      data.masteryScope = masteryScope;
+      data.masteryDays = masteryDays;
       const plan = this.studyPlan ? this.studyPlan() : null;
       data.plan = plan && (!opts.course || courseMatches(plan.course, opts.course)) ? plan : null;
       renderDashboardEmbed(box, data, opts, {
         onPractice: (field, value) => this.practiceWith({ [field]: [value] }, "smart"),
+        onMasteryPractice: (band, label) => {
+          const pool = bandQuestions(scopedMastery, band, { days: masteryDays, today });
+          this.practiceQuestionPool(pool, label);
+        },
       });
       const footer = box.createDiv({ cls: "qt-row qt-small-row qt-dash-embed-footer" });
       footer.createSpan({ cls: "qt-hint", text: "Calculated locally." });
@@ -36510,7 +36609,7 @@ class PracticeView extends ItemView {
     if (kind === "count" && queue.length < value) {
       new Notice(`Only ${queue.length} question${queue.length === 1 ? "" : "s"} matched, so Quick Practice will use what is available.`, 5000);
     }
-    const session = createQuickSession(queue, { kind, value, mode: { due: "due" }[mode] || mode });
+    const session = createQuickSession(queue, { kind, value, mode: { due: "due" }[mode] || mode, label: opts.label });
     this.quickSession = session;
     p.settings.quickSession = packQuickSession(session);
     await p.save();
@@ -37310,7 +37409,9 @@ class PracticeView extends ItemView {
 
     // ---- header: where you are, timer, pause
     const bar = root.createDiv({ cls: "qt-bar qt-exam-bar" });
-    const meta = [fm.course, fm.unit ? `Unit ${fm.unit}` : "", fm.skill || fm.section, fm.difficulty]
+    const quickLabel = this.quickSession ? str(this.quickSession.label).trim() : "";
+    const labelHasCourse = quickLabel && fm.course && quickLabel.toLowerCase().includes(str(fm.course).toLowerCase());
+    const meta = [quickLabel, labelHasCourse ? "" : fm.course, fm.unit ? `Unit ${fm.unit}` : "", fm.skill || fm.section, fm.difficulty]
       .filter(Boolean)
       .join(" · ");
     bar.createDiv({ cls: "qt-meta", text: meta });
@@ -37877,6 +37978,9 @@ const MASTERY_BANDS = [
   { id: "mastered", label: "Mastered" },
 ];
 
+/** The finite mastery windows the page offers. 0 means all time. */
+const MASTERY_WINDOWS = [7, 30];
+
 function str(value) {
   return value === undefined || value === null ? "" : String(value);
 }
@@ -37907,7 +38011,35 @@ function addDays(date, n) {
   return d;
 }
 
-function accuracyOf(question) {
+/** 0 (all time) or one of the supported finite windows. Anything else falls back to all time. */
+function masteryWindowDays(value) {
+  const days = Math.round(Number(value) || 0);
+  return MASTERY_WINDOWS.includes(days) ? days : 0;
+}
+
+/** The inclusive first day of a window that ends today. */
+function masterySince(today, days) {
+  return dayKey(addDays(new Date(`${normalizeDay(today)}T00:00:00`), -(days - 1)));
+}
+
+/** All-time accuracy from the counters, or windowed accuracy from dated history rows. */
+function accuracyOf(question, options) {
+  const opts = options || {};
+  const days = masteryWindowDays(opts.days);
+  if (days) {
+    const today = normalizeDay(opts.today);
+    const since = masterySince(today, days);
+    let attempts = 0;
+    let correct = 0;
+    for (const entry of parseHistory(question && question.fm && question.fm.history)) {
+      const day = str(entry.when).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < since || day > today) continue;
+      if (entry.result !== "correct" && entry.result !== "incorrect") continue;
+      attempts++;
+      if (entry.result === "correct") correct++;
+    }
+    return attempts ? correct / attempts : null;
+  }
   const fm = (question && question.fm) || {};
   const attempts = Number(fm.attempts) || 0;
   if (!attempts) return null;
@@ -37915,8 +38047,8 @@ function accuracyOf(question) {
 }
 
 /** untried | weak (<60%) | developing (60–79%) | strong (80–99%) | mastered (100%). */
-function masteryBandOf(question) {
-  const accuracy = accuracyOf(question);
+function masteryBandOf(question, options) {
+  const accuracy = accuracyOf(question, options);
   if (accuracy === null) return "untried";
   if (accuracy >= 1) return "mastered";
   if (accuracy >= 0.8) return "strong";
@@ -37925,20 +38057,59 @@ function masteryBandOf(question) {
 }
 
 /** Counts and shares for each band. A question with no attempts counts as untried. */
-function buildMastery(questions) {
+function buildMastery(questions, options) {
+  const opts = options || {};
   const list = Array.isArray(questions) ? questions : [];
+  const days = masteryWindowDays(opts.days);
+  const today = normalizeDay(opts.today);
   const counts = new Map(MASTERY_BANDS.map((band) => [band.id, 0]));
   for (const question of list) {
-    const id = masteryBandOf(question);
+    const id = masteryBandOf(question, { days, today });
     counts.set(id, (counts.get(id) || 0) + 1);
   }
   const total = list.length;
   const bands = MASTERY_BANDS.map((band) => {
     const count = counts.get(band.id) || 0;
-    return { id: band.id, label: band.label, count, pct: total ? count / total : 0 };
+    const label = days && band.id === "untried" ? "Not tried recently" : band.label;
+    return { id: band.id, label, count, pct: total ? count / total : 0 };
   });
   const tried = total - (counts.get("untried") || 0);
-  return { total, tried, mastered: counts.get("mastered") || 0, bands };
+  return { total, tried, mastered: counts.get("mastered") || 0, bands, days, since: days ? masterySince(today, days) : "" };
+}
+
+/**
+ * Mastered questions now against the previous window of the same length.
+ * All time compares the last 7 days with the 7 days before it. A previous
+ * window with no attempts is not a useful baseline, so callers can say so.
+ */
+function buildMasteryTrend(questions, options) {
+  const opts = options || {};
+  const today = normalizeDay(opts.today);
+  const selected = masteryWindowDays(opts.days);
+  const days = selected || 7;
+  const current = buildMastery(questions, { days, today });
+  const previousEnd = dayKey(addDays(new Date(`${today}T00:00:00`), -days));
+  const previous = buildMastery(questions, { days, today: previousEnd });
+  const delta = current.mastered - previous.mastered;
+  return {
+    days,
+    allTime: !selected,
+    current,
+    previous,
+    delta,
+    direction: delta > 0 ? "up" : delta < 0 ? "down" : "same",
+    hasComparison: previous.tried > 0,
+  };
+}
+
+/** A plain-language one-line summary of a mastery trend. */
+function masteryTrendText(trend) {
+  if (!trend) return "";
+  const previous = `the previous ${trend.days} days`;
+  if (!trend.hasComparison) return `No earlier attempts in ${previous} to compare.`;
+  const period = trend.allTime ? " in the last 7 days" : "";
+  if (!trend.delta) return `No change in mastered questions${period} vs ${previous}.`;
+  return `${trend.delta > 0 ? "+" : ""}${trend.delta} mastered${period} vs ${previous}.`;
 }
 
 /** Distinct `course` values that can scope the mastery view, sorted. Blank values are skipped. */
@@ -37961,9 +38132,12 @@ function scopeQuestions(questions, scope) {
 }
 
 /** Questions in one mastery band. An unknown band returns nothing rather than guessing. */
-function bandQuestions(questions, band) {
+function bandQuestions(questions, band, options) {
   if (!MASTERY_BANDS.some((entry) => entry.id === band)) return [];
-  return (Array.isArray(questions) ? questions : []).filter((question) => masteryBandOf(question) === band);
+  const opts = options || {};
+  const days = masteryWindowDays(opts.days);
+  const today = normalizeDay(opts.today);
+  return (Array.isArray(questions) ? questions : []).filter((question) => masteryBandOf(question, { days, today }) === band);
 }
 
 /** Monday-first study weeks, oldest first. Attempts come from history; minutes from the study log. */
@@ -38076,6 +38250,8 @@ function buildProgress(options) {
   const study = studySummary(studyLog, today);
   const weeks = buildWeeks(questions, studyLog.sessions, today, opts.weeks || 4);
   const masteryScope = str(opts.masteryScope).trim();
+  const masteryDays = masteryWindowDays(opts.masteryDays);
+  const scopedMastery = scopeQuestions(questions, masteryScope);
   const goalMinutes = study.goalMinutes || 0;
   return {
     today,
@@ -38091,8 +38267,10 @@ function buildProgress(options) {
     },
     weeks,
     momentum: buildMomentum(weeks),
-    mastery: buildMastery(scopeQuestions(questions, masteryScope)),
+    mastery: buildMastery(scopedMastery, { days: masteryDays, today }),
+    masteryTrend: buildMasteryTrend(scopedMastery, { days: masteryDays, today }),
     masteryScope,
+    masteryDays,
     masteryScopes: masteryScopes(questions),
     courses: buildCourses(questions, studyLog.sessions, opts.courseLimit || 6),
     next: buildNext(questions, cards, today),
@@ -38101,16 +38279,20 @@ function buildProgress(options) {
 
 module.exports = {
   MASTERY_BANDS,
+  MASTERY_WINDOWS,
   accuracyOf,
   bandQuestions,
   buildCourses,
   buildMastery,
+  buildMasteryTrend,
+  masteryTrendText,
   buildMomentum,
   buildNext,
   buildProgress,
   buildWeeks,
   masteryBandOf,
   masteryScopes,
+  masteryWindowDays,
   scopeQuestions,
 };
 };
@@ -38329,6 +38511,7 @@ function createQuickSession(items, options, now) {
     paths: items.map((q) => q.file.path),
     index: 0,
     mode: str(options && options.mode) || "smart",
+    label: str(options && options.label),
     kind,
     value,
     startedAt,
@@ -38346,6 +38529,7 @@ function packQuickSession(session) {
     paths: Array.isArray(session.paths) ? session.paths.slice() : [],
     index: Math.max(0, Math.floor(Number(session.index) || 0)),
     mode: str(session.mode) || "smart",
+    label: str(session.label),
     kind: session.kind === "time" ? "time" : "count",
     value: Math.max(1, Math.round(Number(session.value) || 1)),
     startedAt: Number(session.startedAt) || 0,
@@ -44798,6 +44982,8 @@ const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus");
 const { buildDailyTasks } = require("./assignments");
+const { renderMastery } = require("./analytics-embed");
+const { MASTERY_WINDOWS, bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions } = require("./progress");
 
 /*
  * The phone-sized entry point: what is due, what is next, and one large
@@ -44861,6 +45047,7 @@ class TodayView extends ItemView {
     manage.createEl("button", { text: "Hidden items", cls: "qt-link" }).addEventListener("click", () => p.openStudyStatusManager());
 
     this.renderReminder(root, today, due, fresh);
+    this.renderMasteryCard(root, questions, today);
     const plan = this.renderStudyPlan(root);
     this.renderFrqReview(root, plan);
     this.renderDaily(root, today);
@@ -44915,6 +45102,60 @@ class TodayView extends ItemView {
       );
     }
     row.createEl("button", { text: "Dismiss today" }).addEventListener("click", () => p.dismissTodayReminder());
+  }
+
+  /** The Progress tab's selected scope and window, with exact band practice. */
+  renderMasteryCard(root, questions, today) {
+    const p = this.plugin;
+    const settings = p.settings || {};
+    const savedScope = String(settings.masteryScope || "").trim();
+    const scopes = masteryScopes(questions);
+    const scope = savedScope && scopes.some((entry) => entry.toLowerCase() === savedScope.toLowerCase()) ? savedScope : "";
+    const days = masteryWindowDays(settings.masteryDays);
+    const pool = scopeQuestions(questions, scope);
+    const mastery = buildMastery(pool, { days, today });
+    if (!mastery.total) return;
+    const trend = buildMasteryTrend(pool, { days, today });
+    const controls = (container) => {
+      if (scopes.length) {
+        const scopeRow = container.createDiv({ cls: "qt-progress-scope" });
+        scopeRow.createSpan({ cls: "qt-hint", text: "Show mastery for" });
+        const picker = scopeRow.createEl("select", { cls: "qt-select" });
+        picker.createEl("option", { value: "", text: "All questions" });
+        for (const entry of scopes) picker.createEl("option", { value: entry, text: entry });
+        picker.value = scope;
+        picker.addEventListener("change", () => {
+          p.settings.masteryScope = picker.value;
+          p.save();
+          this.render();
+        });
+      }
+      const range = container.createDiv({ cls: "qt-chips qt-progress-window" });
+      for (const option of [0, ...MASTERY_WINDOWS]) {
+        const chip = range.createEl("button", { text: option ? `Last ${option} days` : "All time", cls: "qt-chip" });
+        if (days === option) chip.addClass("is-selected");
+        chip.setAttr("aria-pressed", days === option ? "true" : "false");
+        chip.addEventListener("click", () => {
+          p.settings.masteryDays = option;
+          p.save();
+          this.render();
+        });
+      }
+      const change = trend.hasComparison && trend.direction !== "same" ? ` is-${trend.direction}` : "";
+      container.createDiv({ cls: `qt-progress-delta qt-mastery-trend${change}`, text: masteryTrendText(trend) });
+      const actions = container.createDiv({ cls: "qt-row qt-small-row" });
+      actions.createEl("button", { text: "Open progress", cls: "qt-link" }).addEventListener("click", () => p.activateInsights("progress"));
+    };
+    renderMastery(
+      root,
+      { mastery, masteryScope: scope, masteryDays: days },
+      {
+        onMasteryPractice: (band, label) => {
+          p.practiceQuestionPool(bandQuestions(pool, band, { days, today }), label);
+        },
+      },
+      controls
+    );
   }
 
   renderStudyPlan(root) {
@@ -47076,7 +47317,10 @@ QuestionTrackerPlugin.__test = {
   progress,
   buildProgress: progress.buildProgress,
   buildMastery: progress.buildMastery,
+  buildMasteryTrend: progress.buildMasteryTrend,
+  masteryTrendText: progress.masteryTrendText,
   masteryBandOf: progress.masteryBandOf,
+  masteryWindowDays: progress.masteryWindowDays,
   masteryScopes: progress.masteryScopes,
   scopeQuestions: progress.scopeQuestions,
   bandQuestions: progress.bandQuestions,

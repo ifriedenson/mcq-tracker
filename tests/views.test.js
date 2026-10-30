@@ -6,6 +6,11 @@ const { makeApp, makeDom } = require("./helpers/fake");
 const { T, Plugin: QT } = load();
 
 const day = "2026-10-20T10:00";
+function daysAgo(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 const NOTES = [
   { path: "Questions/sat/Q1.md", fm: { skill: "grammar", domain: "Conventions", difficulty: "hard", attempts: 6, correct_count: 2, time_spent_total: 300, result: "incorrect", last_error_type: "careless", "date attempted": day, history: ["d|incorrect|50|A|1|careless"], answer: "B" } },
   { path: "Questions/sat/sub/Q2.md", fm: { skill: "vocab", domain: "Words", difficulty: "medium", attempts: 4, correct_count: 4, time_spent_total: 120, result: "correct", answer: "C" } },
@@ -174,12 +179,98 @@ test("insights progress: mastery scopes to a course and a band starts practice",
   const button = dom.all.find((el) => el.meta && el.meta.attrs && /Practice 1 needs work question in Alpha/.test(String(el.meta.attrs["aria-label"] || "")));
   assert.ok(button, "the needs-work band has a practice button");
   await button.handlers.find((h) => h.ev === "click").fn({});
-  assert.deepEqual(started, [{ paths: ["Q/a.md"], label: "Needs work · Alpha" }]);
+  assert.deepEqual(started, [{ paths: ["Q/a.md"], label: "Needs work · Alpha · all time" }]);
   const picker = dom.all.find((el) => el.meta && el.meta.tag === "select" && el.handlers.some((h) => h.ev === "change"));
   picker.value = "Beta";
   await picker.handlers.find((h) => h.ev === "change").fn({});
   assert.equal(v.masteryScope, "Beta");
+  assert.equal(plugin.settings.masteryScope, "Beta");
+  assert.equal(plugin.saved.masteryScope, "Beta");
   assert.ok(dom.texts().some((text) => /1 of 1 question in Beta tried/.test(text)));
+  const dom2 = makeDom();
+  const v2 = new T.InsightsView({ app }, plugin);
+  v2.app = app;
+  v2.contentEl = dom2.root;
+  v2.tab = "progress";
+  v2.render();
+  assert.equal(v2.masteryScope, "Beta");
+  assert.ok(dom2.texts().some((text) => /1 of 1 question in Beta tried/.test(text)));
+});
+
+test("insights progress: a 30-day mastery window filters the bands and their practice pool", async () => {
+  const app = makeApp([
+    { path: "Q/recent.md", fm: { course: "Alpha", attempts: 1, correct_count: 1, history: [`${daysAgo(1)}T10:00:00|correct|10|A|1|`] } },
+    { path: "Q/old.md", fm: { course: "Alpha", attempts: 1, correct_count: 0, history: [`${daysAgo(40)}T10:00:00|incorrect|10|A|1|`] } },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const started = [];
+  plugin.practiceQuestionPool = async (pool, label) => started.push({ paths: pool.map((q) => q.file.path), label });
+  const dom = makeDom();
+  const v = new T.InsightsView({ app }, plugin);
+  v.app = app;
+  v.contentEl = dom.root;
+  v.tab = "progress";
+  v.masteryScope = "Alpha";
+  v.render();
+  assert.equal(v.masteryDays, 0);
+  assert.ok(dom.texts().some((text) => /2 of 2 questions in Alpha tried\./.test(text)));
+  assert.ok(dom.texts().includes("No earlier attempts in the previous 7 days to compare."));
+  await dom.click("Last 30 days");
+  assert.equal(v.masteryDays, 30);
+  assert.equal(plugin.settings.masteryDays, 30);
+  assert.equal(plugin.saved.masteryDays, 30);
+  assert.ok(dom.texts().some((text) => /1 of 2 questions in Alpha tried in the last 30 days/.test(text)));
+  assert.ok(dom.texts().includes("+1 mastered vs the previous 30 days."));
+  const button = dom.all.find((el) => el.meta && el.meta.attrs && /^Practice 1 mastered question in Alpha from the last 30 days$/.test(String(el.meta.attrs["aria-label"] || "")));
+  assert.ok(button, "the mastered band practice button uses the 30-day window");
+  await button.handlers.find((h) => h.ev === "click").fn({});
+  assert.deepEqual(started, [{ paths: ["Q/recent.md"], label: "Mastered · Alpha · last 30 days" }]);
+  const dom2 = makeDom();
+  const v2 = new T.InsightsView({ app }, plugin);
+  v2.app = app;
+  v2.contentEl = dom2.root;
+  v2.tab = "progress";
+  v2.render();
+  assert.equal(v2.masteryDays, 30);
+  assert.ok(dom2.texts().some((text) => /1 of 2 questions tried in the last 30 days/.test(text)));
+});
+
+test("insights progress: the 7-day mastery window persists and filters its practice pool", async () => {
+  const app = makeApp([
+    { path: "Q/recent.md", fm: { course: "Alpha", attempts: 1, correct_count: 1, history: [`${daysAgo(1)}T10:00:00|correct|10|A|1|`] } },
+    { path: "Q/old.md", fm: { course: "Alpha", attempts: 1, correct_count: 1, history: [`${daysAgo(10)}T10:00:00|correct|10|A|1|`] } },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const started = [];
+  plugin.practiceQuestionPool = async (pool, label) => started.push({ paths: pool.map((q) => q.file.path), label });
+  const dom = makeDom();
+  const v = new T.InsightsView({ app }, plugin);
+  v.app = app;
+  v.contentEl = dom.root;
+  v.tab = "progress";
+  v.masteryScope = "Alpha";
+  v.render();
+  assert.equal(v.masteryDays, 0);
+  await dom.click("Last 7 days");
+  assert.equal(v.masteryDays, 7);
+  assert.equal(plugin.settings.masteryDays, 7);
+  assert.equal(plugin.saved.masteryDays, 7);
+  assert.ok(dom.texts().some((text) => /1 of 2 questions in Alpha tried in the last 7 days/.test(text)));
+  assert.ok(dom.texts().includes("No change in mastered questions vs the previous 7 days."));
+  const button = dom.all.find((el) => el.meta && el.meta.attrs && /^Practice 1 mastered question in Alpha from the last 7 days$/.test(String(el.meta.attrs["aria-label"] || "")));
+  assert.ok(button, "the mastered band practice button uses the 7-day window");
+  await button.handlers.find((h) => h.ev === "click").fn({});
+  assert.deepEqual(started, [{ paths: ["Q/recent.md"], label: "Mastered · Alpha · last 7 days" }]);
+  const dom2 = makeDom();
+  const v2 = new T.InsightsView({ app }, plugin);
+  v2.app = app;
+  v2.contentEl = dom2.root;
+  v2.tab = "progress";
+  v2.render();
+  assert.equal(v2.masteryDays, 7);
+  assert.ok(dom2.texts().some((text) => /1 of 2 questions tried in the last 7 days/.test(text)));
 });
 
 test("plugin: a mastery band pool starts an exact quick session", async () => {
@@ -428,16 +519,28 @@ test("quick practice: offers a setup screen and starts a time-limited session", 
   assert.equal(plugin.settings.quickSession.index, 0);
 });
 
+test("quick practice: header shows the band and mastery window label", async () => {
+  const { app, plugin, dom } = await setup();
+  const v = makeView(T.PracticeView, plugin, app, dom);
+  const q = plugin.getQuestions()[0];
+  await v.startQuick("count", 1, { pool: [q], label: "Mastered · Alpha · last 7 days" });
+  assert.equal(v.quickSession.label, "Mastered · Alpha · last 7 days");
+  assert.equal(plugin.settings.quickSession.label, "Mastered · Alpha · last 7 days");
+  assert.ok(dom.texts().some((text) => text.includes("Mastered · Alpha · last 7 days")));
+});
+
 test("quick practice: serializes, resumes, and pauses a session without spending paused time", () => {
   const { buildQuickQueue, createQuickSession, packQuickSession, pauseQuickSession, quickRemainingSeconds, unpackQuickSession, resumeQuickSession } = T;
   const items = [{ file: { path: "Q/a.md" } }, { file: { path: "Q/b.md" } }];
-  const session = createQuickSession(items, { kind: "time", value: 2, mode: "smart" }, 100000);
+  const session = createQuickSession(items, { kind: "time", value: 2, mode: "smart", label: "Mastered · Alpha · last 7 days" }, 100000);
   assert.deepEqual(session.paths, ["Q/a.md", "Q/b.md"]);
+  assert.equal(session.label, "Mastered · Alpha · last 7 days");
   assert.equal(quickRemainingSeconds(session, 100000), 120);
   pauseQuickSession(session, 110000);
   assert.equal(quickRemainingSeconds(session, 200000), 110);
   const saved = packQuickSession(session);
   const restored = unpackQuickSession(saved, 200000);
+  assert.equal(restored.label, "Mastered · Alpha · last 7 days");
   assert.equal(restored.runningSince, 0);
   resumeQuickSession(restored, 200000);
   assert.equal(quickRemainingSeconds(restored, 200000), 110);

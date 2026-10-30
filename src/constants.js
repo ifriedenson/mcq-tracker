@@ -93,6 +93,8 @@ const DEFAULT_SETTINGS = {
   quickAdaptive: { enabled: false, useRecommended: true, minMinutes: 2, maxMinutes: 15, minCount: 3, maxCount: 20, lookbackDays: 21 },
   quickSession: null, // a Quick Practice queue in progress, so it survives closing Obsidian
   studyLog: { sessions: [], dailyGoalMinutes: 60, lastCourse: "" }, // focus sessions and manual study time
+  masteryScope: "", // Insights > Progress: the course whose mastery is shown; "" means all questions
+  masteryDays: 0, // Insights > Progress: 0 = all time, 7 or 30 = only attempts from that window
   reminder: { enabled: false, hour: 9, lastShown: "", dismissed: "" }, // local, once-a-day in-app nudge
   dailyQuiz: {
     enabled: false, // opt-in; no command, card or notifications until it is on

@@ -2770,6 +2770,25 @@
   color: var(--text-error);
 }
 
+.qt-mastery-trend {
+  margin: 0 0 8px;
+}
+
+.qt-mastery-arrow {
+  margin-left: 6px;
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.qt-mastery-arrow.is-up {
+  color: var(--text-success, var(--color-green));
+}
+
+.qt-mastery-arrow.is-down {
+  color: var(--text-error);
+}
+
 .qt-progress-stack {
   display: flex;
   height: 12px;
@@ -2826,6 +2845,10 @@
 
 .qt-progress-scope .qt-select {
   max-width: 100%;
+}
+
+.qt-progress-window {
+  margin: 2px 0 6px;
 }
 
 .qt-progress-legend-row {

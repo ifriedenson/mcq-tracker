@@ -61,6 +61,8 @@ The **Study plan** card appears in Today when the calendar is on and an upcoming
 
 The plan is recalculated every time Today renders, so a missed day does not leave a stale checklist. It uses the existing scheduler and queue; there is no second review system.
 
+The **Today** view also shows **Question mastery** for the Progress tab's saved scope and All time / 7-day / 30-day window. Its scope picker and window chips can change that saved choice without opening Insights, and **Open progress** goes to the full dashboard. Each non-empty band has a **Practice** button that starts exactly those questions, and Quick Practice names the band and window in its header. A trend line compares the mastered count with the previous period of the same length (or the previous 7 days for All time), and says when there are no earlier attempts to compare. The Progress tab shows the same line, and dashboard embeds put a compact ↑/↓/→ badge in the mastery heading.
+
 ## Analytics dashboard
 
 Open **Insights** and choose **Overview** (or run the **Open analytics dashboard** command). The dashboard combines:
@@ -88,7 +90,7 @@ title: Biology activity
 ```
 ````
 
-`metric` can be `overview`, `stats`, `heatmap`, `calibration`, `retention`, `weak`, `grades`, `courses` or `exam`. `field: domain` or `field: difficulty` changes the breakdown used by the `weak` and overview widgets. `weeks` is clamped to 1–26. `course` filters questions, cards and study sessions by the course property, and `title` overrides the heading. The block has a **Refresh** button and is read-only except for the **Practice** buttons on weak skills.
+`metric` can be `overview`, `stats`, `mastery`, `heatmap`, `calibration`, `retention`, `weak`, `grades`, `courses` or `exam`. `mastery` shows the Progress tab's selected All time / 7-day / 30-day window, and a `course` value in the block overrides the saved mastery scope. Add `masteryDays: 0`, `7` or `30` to choose a different window for that block; invalid values fall back to the saved window. Every non-empty band has a **Practice** button that starts exactly that band's questions. `field: domain` or `field: difficulty` changes the breakdown used by the `weak` and overview widgets. `weeks` is clamped to 1–26. `course` filters questions, cards and study sessions by the course property, and `title` overrides the heading. The block has a **Refresh** button and is read-only except for the **Practice** buttons on weak skills and mastery bands.
 
 ## Focus timer and study log
 

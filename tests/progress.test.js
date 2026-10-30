@@ -49,6 +49,95 @@ test("progress mastery scopes list courses once, filter case-insensitively and d
   assert.deepEqual(progress.masteryScopes, ["AP World History", "SAT Reading"]);
 });
 
+test("progress mastery can count only attempts from the last 30 days", () => {
+  const today = "2026-10-30";
+  const questions = [
+    question("Q/recent.md", {
+      attempts: 4,
+      correct_count: 2,
+      history: [
+        "2026-08-01T10:00:00|incorrect|10|A|1|",
+        "2026-08-02T10:00:00|incorrect|10|B|1|",
+        "2026-10-01T10:00:00|correct|10|A|1|", // first day in the window
+        "2026-10-30T10:00:00|correct|10|A|1|",
+      ],
+    }),
+    question("Q/old.md", { attempts: 1, correct_count: 1, history: ["2026-08-01T10:00:00|correct|10|A|1|"] }),
+    question("Q/outside.md", { attempts: 1, correct_count: 1, history: ["2026-09-30T10:00:00|correct|10|A|1|"] }),
+  ];
+  assert.equal(T.masteryBandOf(questions[0]), "weak");
+  assert.equal(T.masteryBandOf(questions[0], { days: 30, today }), "mastered");
+  assert.equal(T.masteryBandOf(questions[1], { days: 30, today }), "untried");
+  const window = T.buildMastery(questions, { days: 30, today });
+  assert.equal(window.days, 30);
+  assert.equal(window.since, "2026-10-01");
+  assert.equal(window.total, 3);
+  assert.equal(window.tried, 1);
+  assert.equal(window.mastered, 1);
+  assert.equal(window.bands[0].label, "Not tried recently");
+  assert.deepEqual(window.bands.map((band) => band.count), [2, 0, 0, 0, 1]);
+  assert.deepEqual(T.bandQuestions(questions, "mastered", { days: 30, today }).map((q) => q.file.path), ["Q/recent.md"]);
+  const progress = T.buildProgress({ questions, today, masteryDays: 30 });
+  assert.equal(progress.masteryDays, 30);
+  assert.equal(progress.mastery.since, "2026-10-01");
+  assert.equal(progress.mastery.bands.find((band) => band.id === "untried").count, 2);
+  const allTime = T.buildProgress({ questions, today });
+  assert.equal(allTime.masteryDays, 0);
+  assert.equal(allTime.mastery.total, 3);
+  assert.equal(allTime.mastery.bands[0].label, "Not tried");
+  assert.equal(allTime.mastery.bands.find((band) => band.id === "mastered").count, 2);
+});
+
+test("progress mastery can count only attempts from the last 7 days", () => {
+  const today = "2026-10-30";
+  const questions = [
+    question("Q/recent.md", { attempts: 1, correct_count: 1, history: ["2026-10-28T10:00:00|correct|10|A|1|"] }),
+    question("Q/old.md", { attempts: 1, correct_count: 1, history: ["2026-10-20T10:00:00|correct|10|A|1|"] }),
+  ];
+  const week = T.buildMastery(questions, { days: 7, today });
+  assert.equal(week.days, 7);
+  assert.equal(week.since, "2026-10-24");
+  assert.equal(week.total, 2);
+  assert.equal(week.tried, 1);
+  assert.equal(week.mastered, 1);
+  assert.deepEqual(week.bands.map((band) => band.count), [1, 0, 0, 0, 1]);
+  assert.deepEqual(T.bandQuestions(questions, "mastered", { days: 7, today }).map((q) => q.file.path), ["Q/recent.md"]);
+  assert.equal(T.masteryWindowDays(7), 7);
+  assert.equal(T.masteryWindowDays(30), 30);
+  assert.equal(T.masteryWindowDays(14), 0);
+  const progress = T.buildProgress({ questions, today, masteryDays: 7 });
+  assert.equal(progress.masteryDays, 7);
+  assert.equal(progress.mastery.since, "2026-10-24");
+  const month = T.buildMastery(questions, { days: 30, today });
+  assert.equal(month.since, "2026-10-01");
+  assert.equal(month.mastered, 2);
+});
+
+test("progress mastery trend compares mastered questions with the previous window", () => {
+  const today = "2026-10-30";
+  const questions = [
+    question("Q/now.md", { history: ["2026-10-30T10:00:00|correct|10|A|1|"] }),
+    question("Q/before.md", { history: ["2026-10-20T10:00:00|incorrect|10|A|1|"] }),
+  ];
+  const trend = T.buildMasteryTrend(questions, { days: 7, today });
+  assert.equal(trend.days, 7);
+  assert.equal(trend.current.mastered, 1);
+  assert.equal(trend.previous.mastered, 0);
+  assert.equal(trend.previous.tried, 1);
+  assert.equal(trend.delta, 1);
+  assert.equal(trend.direction, "up");
+  assert.equal(trend.hasComparison, true);
+
+  const noBaseline = T.buildMasteryTrend([questions[0]], { days: 7, today });
+  assert.equal(noBaseline.previous.tried, 0);
+  assert.equal(noBaseline.hasComparison, false);
+
+  const allTime = T.buildMasteryTrend(questions, { days: 0, today });
+  assert.equal(allTime.allTime, true);
+  assert.equal(allTime.days, 7);
+  assert.equal(allTime.delta, 1);
+});
+
 test("progress weeks bucket attempts and study minutes by Monday-start week", () => {
   const today = "2026-10-28"; // a Wednesday
   const questions = [

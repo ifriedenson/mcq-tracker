@@ -351,7 +351,7 @@ class PracticeView extends ItemView {
     if (kind === "count" && queue.length < value) {
       new Notice(`Only ${queue.length} question${queue.length === 1 ? "" : "s"} matched, so Quick Practice will use what is available.`, 5000);
     }
-    const session = createQuickSession(queue, { kind, value, mode: { due: "due" }[mode] || mode });
+    const session = createQuickSession(queue, { kind, value, mode: { due: "due" }[mode] || mode, label: opts.label });
     this.quickSession = session;
     p.settings.quickSession = packQuickSession(session);
     await p.save();
@@ -1151,7 +1151,9 @@ class PracticeView extends ItemView {
 
     // ---- header: where you are, timer, pause
     const bar = root.createDiv({ cls: "qt-bar qt-exam-bar" });
-    const meta = [fm.course, fm.unit ? `Unit ${fm.unit}` : "", fm.skill || fm.section, fm.difficulty]
+    const quickLabel = this.quickSession ? str(this.quickSession.label).trim() : "";
+    const labelHasCourse = quickLabel && fm.course && quickLabel.toLowerCase().includes(str(fm.course).toLowerCase());
+    const meta = [quickLabel, labelHasCourse ? "" : fm.course, fm.unit ? `Unit ${fm.unit}` : "", fm.skill || fm.section, fm.difficulty]
       .filter(Boolean)
       .join(" · ");
     bar.createDiv({ cls: "qt-meta", text: meta });

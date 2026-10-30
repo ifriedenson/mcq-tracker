@@ -18,6 +18,9 @@ const MASTERY_BANDS = [
   { id: "mastered", label: "Mastered" },
 ];
 
+/** The finite mastery windows the page offers. 0 means all time. */
+const MASTERY_WINDOWS = [7, 30];
+
 function str(value) {
   return value === undefined || value === null ? "" : String(value);
 }
@@ -48,7 +51,35 @@ function addDays(date, n) {
   return d;
 }
 
-function accuracyOf(question) {
+/** 0 (all time) or one of the supported finite windows. Anything else falls back to all time. */
+function masteryWindowDays(value) {
+  const days = Math.round(Number(value) || 0);
+  return MASTERY_WINDOWS.includes(days) ? days : 0;
+}
+
+/** The inclusive first day of a window that ends today. */
+function masterySince(today, days) {
+  return dayKey(addDays(new Date(`${normalizeDay(today)}T00:00:00`), -(days - 1)));
+}
+
+/** All-time accuracy from the counters, or windowed accuracy from dated history rows. */
+function accuracyOf(question, options) {
+  const opts = options || {};
+  const days = masteryWindowDays(opts.days);
+  if (days) {
+    const today = normalizeDay(opts.today);
+    const since = masterySince(today, days);
+    let attempts = 0;
+    let correct = 0;
+    for (const entry of parseHistory(question && question.fm && question.fm.history)) {
+      const day = str(entry.when).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < since || day > today) continue;
+      if (entry.result !== "correct" && entry.result !== "incorrect") continue;
+      attempts++;
+      if (entry.result === "correct") correct++;
+    }
+    return attempts ? correct / attempts : null;
+  }
   const fm = (question && question.fm) || {};
   const attempts = Number(fm.attempts) || 0;
   if (!attempts) return null;
@@ -56,8 +87,8 @@ function accuracyOf(question) {
 }
 
 /** untried | weak (<60%) | developing (60–79%) | strong (80–99%) | mastered (100%). */
-function masteryBandOf(question) {
-  const accuracy = accuracyOf(question);
+function masteryBandOf(question, options) {
+  const accuracy = accuracyOf(question, options);
   if (accuracy === null) return "untried";
   if (accuracy >= 1) return "mastered";
   if (accuracy >= 0.8) return "strong";
@@ -66,20 +97,59 @@ function masteryBandOf(question) {
 }
 
 /** Counts and shares for each band. A question with no attempts counts as untried. */
-function buildMastery(questions) {
+function buildMastery(questions, options) {
+  const opts = options || {};
   const list = Array.isArray(questions) ? questions : [];
+  const days = masteryWindowDays(opts.days);
+  const today = normalizeDay(opts.today);
   const counts = new Map(MASTERY_BANDS.map((band) => [band.id, 0]));
   for (const question of list) {
-    const id = masteryBandOf(question);
+    const id = masteryBandOf(question, { days, today });
     counts.set(id, (counts.get(id) || 0) + 1);
   }
   const total = list.length;
   const bands = MASTERY_BANDS.map((band) => {
     const count = counts.get(band.id) || 0;
-    return { id: band.id, label: band.label, count, pct: total ? count / total : 0 };
+    const label = days && band.id === "untried" ? "Not tried recently" : band.label;
+    return { id: band.id, label, count, pct: total ? count / total : 0 };
   });
   const tried = total - (counts.get("untried") || 0);
-  return { total, tried, mastered: counts.get("mastered") || 0, bands };
+  return { total, tried, mastered: counts.get("mastered") || 0, bands, days, since: days ? masterySince(today, days) : "" };
+}
+
+/**
+ * Mastered questions now against the previous window of the same length.
+ * All time compares the last 7 days with the 7 days before it. A previous
+ * window with no attempts is not a useful baseline, so callers can say so.
+ */
+function buildMasteryTrend(questions, options) {
+  const opts = options || {};
+  const today = normalizeDay(opts.today);
+  const selected = masteryWindowDays(opts.days);
+  const days = selected || 7;
+  const current = buildMastery(questions, { days, today });
+  const previousEnd = dayKey(addDays(new Date(`${today}T00:00:00`), -days));
+  const previous = buildMastery(questions, { days, today: previousEnd });
+  const delta = current.mastered - previous.mastered;
+  return {
+    days,
+    allTime: !selected,
+    current,
+    previous,
+    delta,
+    direction: delta > 0 ? "up" : delta < 0 ? "down" : "same",
+    hasComparison: previous.tried > 0,
+  };
+}
+
+/** A plain-language one-line summary of a mastery trend. */
+function masteryTrendText(trend) {
+  if (!trend) return "";
+  const previous = `the previous ${trend.days} days`;
+  if (!trend.hasComparison) return `No earlier attempts in ${previous} to compare.`;
+  const period = trend.allTime ? " in the last 7 days" : "";
+  if (!trend.delta) return `No change in mastered questions${period} vs ${previous}.`;
+  return `${trend.delta > 0 ? "+" : ""}${trend.delta} mastered${period} vs ${previous}.`;
 }
 
 /** Distinct `course` values that can scope the mastery view, sorted. Blank values are skipped. */
@@ -102,9 +172,12 @@ function scopeQuestions(questions, scope) {
 }
 
 /** Questions in one mastery band. An unknown band returns nothing rather than guessing. */
-function bandQuestions(questions, band) {
+function bandQuestions(questions, band, options) {
   if (!MASTERY_BANDS.some((entry) => entry.id === band)) return [];
-  return (Array.isArray(questions) ? questions : []).filter((question) => masteryBandOf(question) === band);
+  const opts = options || {};
+  const days = masteryWindowDays(opts.days);
+  const today = normalizeDay(opts.today);
+  return (Array.isArray(questions) ? questions : []).filter((question) => masteryBandOf(question, { days, today }) === band);
 }
 
 /** Monday-first study weeks, oldest first. Attempts come from history; minutes from the study log. */
@@ -217,6 +290,8 @@ function buildProgress(options) {
   const study = studySummary(studyLog, today);
   const weeks = buildWeeks(questions, studyLog.sessions, today, opts.weeks || 4);
   const masteryScope = str(opts.masteryScope).trim();
+  const masteryDays = masteryWindowDays(opts.masteryDays);
+  const scopedMastery = scopeQuestions(questions, masteryScope);
   const goalMinutes = study.goalMinutes || 0;
   return {
     today,
@@ -232,8 +307,10 @@ function buildProgress(options) {
     },
     weeks,
     momentum: buildMomentum(weeks),
-    mastery: buildMastery(scopeQuestions(questions, masteryScope)),
+    mastery: buildMastery(scopedMastery, { days: masteryDays, today }),
+    masteryTrend: buildMasteryTrend(scopedMastery, { days: masteryDays, today }),
     masteryScope,
+    masteryDays,
     masteryScopes: masteryScopes(questions),
     courses: buildCourses(questions, studyLog.sessions, opts.courseLimit || 6),
     next: buildNext(questions, cards, today),
@@ -242,15 +319,19 @@ function buildProgress(options) {
 
 module.exports = {
   MASTERY_BANDS,
+  MASTERY_WINDOWS,
   accuracyOf,
   bandQuestions,
   buildCourses,
   buildMastery,
+  buildMasteryTrend,
+  masteryTrendText,
   buildMomentum,
   buildNext,
   buildProgress,
   buildWeeks,
   masteryBandOf,
   masteryScopes,
+  masteryWindowDays,
   scopeQuestions,
 };

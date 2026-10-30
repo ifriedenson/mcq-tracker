@@ -15,6 +15,11 @@ const NOTES = [
 function dayKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+function daysAgo(n) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return dayKey(d);
+}
 
 async function setup() {
   const app = makeApp(NOTES);
@@ -44,6 +49,38 @@ test("today: shows due/new counts and starts a five-minute session with due ques
   assert.equal(call.mode, "due");
   assert.equal(call.pool.length, 1);
   assert.equal(call.pool[0].file.path, "Questions/due.md");
+});
+
+test("today: shows the selected mastery window and starts its band", async () => {
+  const app = makeApp([
+    { path: "Questions/recent.md", fm: { course: "Alpha", attempts: 1, correct_count: 1, history: [`${daysAgo(1)}|correct|10|A|1|`] } },
+    { path: "Questions/old.md", fm: { course: "Alpha", attempts: 1, correct_count: 0, history: [`${daysAgo(13)}|incorrect|10|A|1|`] } },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.masteryScope = "Alpha";
+  plugin.settings.masteryDays = 7;
+  const started = [];
+  plugin.practiceQuestionPool = async (pool, label) => started.push({ paths: pool.map((q) => q.file.path), label });
+  const dom = makeDom();
+  const view = new T.TodayView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+
+  assert.ok(dom.texts().includes("Question mastery · Last 7 days"));
+  assert.ok(dom.texts().some((text) => /1 of 2 questions in Alpha tried in the last 7 days/.test(text)));
+  assert.ok(dom.texts().includes("+1 mastered vs the previous 7 days."));
+  const button = dom.all.find((el) => el.meta && el.meta.attrs && /^Practice 1 mastered question in Alpha from the last 7 days$/.test(String(el.meta.attrs["aria-label"] || "")));
+  assert.ok(button, "the mastery band has a practice button");
+  await button.handlers.find((h) => h.ev === "click").fn({});
+  assert.deepEqual(started, [{ paths: ["Questions/recent.md"], label: "Mastered · Alpha · last 7 days" }]);
+
+  await dom.click("Last 30 days");
+  assert.equal(plugin.settings.masteryDays, 30);
+  assert.equal(plugin.saved.masteryDays, 30);
+  assert.ok(dom.texts().some((text) => /2 of 2 questions in Alpha tried in the last 30 days/.test(text)));
+  assert.ok(dom.texts().includes("No earlier attempts in the previous 30 days to compare."));
 });
 
 test("today: hidden questions are not counted as due, new or available", async () => {

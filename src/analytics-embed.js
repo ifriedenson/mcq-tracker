@@ -2,14 +2,17 @@
 const { fmtPct } = require("./stats");
 const { fmtClock } = require("./util");
 const { BREAKDOWN_FIELDS, FIELD_LABELS } = require("./analytics");
+const { MASTERY_WINDOWS, masteryTrendText } = require("./progress");
 
-const DASHBOARD_METRICS = ["overview", "stats", "heatmap", "calibration", "retention", "weak", "skips", "grades", "courses", "exam"];
+const DASHBOARD_METRICS = ["overview", "stats", "mastery", "heatmap", "calibration", "retention", "weak", "skips", "grades", "courses", "exam"];
 const ALIASES = {
   overview: "overview",
   dashboard: "overview",
   all: "overview",
   stats: "stats",
   summary: "stats",
+  mastery: "mastery",
+  bands: "mastery",
   heatmap: "heatmap",
   activity: "heatmap",
   calibration: "calibration",
@@ -32,6 +35,7 @@ const ALIASES = {
 const LABELS = {
   overview: "Study dashboard",
   stats: "Study stats",
+  mastery: "Question mastery",
   heatmap: "Study heatmap",
   calibration: "Confidence calibration",
   retention: "Retention trend",
@@ -55,14 +59,17 @@ function parseDashboardBlock(source) {
       const n = Math.round(Number(value));
       if (Number.isFinite(n)) opts.weeks = Math.max(1, Math.min(26, n));
     } else if (key === "course") opts.course = value;
-    else if (key === "field") opts.field = BREAKDOWN_FIELDS.includes(value.toLowerCase()) ? value.toLowerCase() : "skill";
+    else if (key === "masterydays") {
+      const days = Math.round(Number(value));
+      if (value !== "" && (days === 0 || MASTERY_WINDOWS.includes(days))) opts.masteryDays = days;
+    } else if (key === "field") opts.field = BREAKDOWN_FIELDS.includes(value.toLowerCase()) ? value.toLowerCase() : "skill";
     else if (key === "title") opts.title = value;
   }
   return opts;
 }
 
 function heading(container, text) {
-  container.createEl("h3", { cls: "qt-today-section", text });
+  return container.createEl("h3", { cls: "qt-today-section", text });
 }
 
 function tile(container, label, value, hint) {
@@ -244,6 +251,53 @@ function renderExam(container, data) {
   box.createDiv({ cls: "qt-today-meta", text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards` });
 }
 
+/** A compact copy of the Progress tab's bands, using the saved scope and window. */
+function renderMastery(container, data, hooks, controls) {
+  const mastery = data.mastery;
+  if (!mastery) return;
+  const windowLabel = data.masteryDays ? `Last ${data.masteryDays} days` : "All time";
+  const scope = String(data.masteryScope || "").trim();
+  const scopeLabel = scope ? ` in ${scope}` : "";
+  const windowText = data.masteryDays ? ` in the last ${data.masteryDays} days` : "";
+  const practiceWindow = data.masteryDays ? ` from the last ${data.masteryDays} days` : "";
+  const title = heading(container, `Question mastery · ${windowLabel}`);
+  const trend = data.masteryTrend;
+  if (trend && trend.hasComparison) {
+    const arrow = trend.direction === "up" ? "↑" : trend.direction === "down" ? "↓" : "→";
+    title.createSpan({ cls: `qt-mastery-arrow is-${trend.direction}`, text: `${arrow} ${Math.abs(trend.delta)}` });
+    title.setAttr("title", masteryTrendText(trend));
+  }
+  container.createDiv({
+    cls: "qt-hint",
+    text: mastery.total
+      ? `${mastery.tried} of ${mastery.total} question${mastery.total === 1 ? "" : "s"}${scopeLabel} tried${windowText}.`
+      : scope
+        ? `No questions in ${scope} yet.`
+        : "No question notes yet.",
+  });
+  if (controls) controls(container);
+  if (!mastery.total) return;
+  const stack = container.createDiv({ cls: "qt-progress-stack" });
+  for (const band of mastery.bands) {
+    if (!band.count) continue;
+    const seg = stack.createDiv({ cls: `qt-progress-seg is-${band.id}` });
+    seg.setCssProps({ "--qt-pct": `${band.pct * 100}%` });
+    seg.setAttr("title", `${band.label}: ${band.count} question${band.count === 1 ? "" : "s"} (${fmtPct(band.pct)})`);
+  }
+  const legend = container.createDiv({ cls: "qt-progress-legend" });
+  for (const band of mastery.bands) {
+    const line = legend.createDiv({ cls: "qt-progress-legend-row" });
+    line.createSpan({ cls: `qt-progress-swatch is-${band.id}` });
+    line.createSpan({ cls: "qt-progress-legend-label", text: band.label });
+    line.createSpan({ cls: "qt-progress-legend-count", text: `${band.count} · ${fmtPct(band.pct)}` });
+    if (!band.count || !(hooks && hooks.onMasteryPractice)) continue;
+    const go = line.createEl("button", { text: "Practice", cls: "qt-link" });
+    go.setAttr("aria-label", `Practice ${band.count} ${band.label.toLowerCase()} question${band.count === 1 ? "" : "s"}${scopeLabel}${practiceWindow}`);
+    const label = `${band.label}${scope ? ` · ${scope}` : ""}${data.masteryDays ? ` · last ${data.masteryDays} days` : " · all time"}`;
+    go.addEventListener("click", () => hooks.onMasteryPractice(band.id, label));
+  }
+}
+
 /** Draw one embed. `data` is the output of buildDashboard plus an optional `plan`. */
 function renderDashboardEmbed(container, data, options, hooks) {
   const opts = options || {};
@@ -265,6 +319,7 @@ function renderDashboardEmbed(container, data, options, hooks) {
 
   const show = (id) => metric === "overview" || metric === id;
   if (show("stats")) renderStats(container, data);
+  if (show("mastery")) renderMastery(container, data, hooks);
   if (show("heatmap")) renderHeatmap(container, data);
   if (show("calibration")) renderCalibration(container, data);
   if (show("retention")) renderRetention(container, data);
@@ -284,6 +339,7 @@ module.exports = {
   renderDashboardEmbed,
   renderGrade,
   renderHeatmap,
+  renderMastery,
   renderRetention,
   renderSkips,
 };

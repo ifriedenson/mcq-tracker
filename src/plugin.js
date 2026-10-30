@@ -40,6 +40,7 @@ const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, p
 const { cleanSubjectTitle, examMatchesCourse, examReviewCap, mergeCalendarSettings, nextClassStatus, nextExamForCourse, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
+const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
 const { parseDashboardBlock, renderDashboardEmbed } = require("./analytics-embed");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { addResourceLink, classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
@@ -2915,20 +2916,35 @@ class QuestionTrackerPlugin extends Plugin {
     const draw = () => {
       el.empty();
       const box = el.createDiv({ cls: "qt-wrap qt-dash-embed" });
+      const questions = this.getQuestions();
+      const today = new Date();
       const data = buildDashboard({
-        questions: this.getQuestions(),
+        questions,
         cards: this.getCards ? this.getCards() : [],
         studyLog: this.settings.studyLog,
         confidenceLabels: this.settings.confidenceLabels,
-        today: new Date(),
+        today,
         course: opts.course,
         field: opts.field,
         weeks: opts.weeks,
       });
+      const requestedScope = data.course || str(this.settings.masteryScope).trim();
+      const scopes = masteryScopes(questions);
+      const masteryScope = !data.course && requestedScope && !scopes.some((scope) => scope.toLowerCase() === requestedScope.toLowerCase()) ? "" : requestedScope;
+      const masteryDays = opts.masteryDays === undefined ? masteryWindowDays(this.settings.masteryDays) : opts.masteryDays;
+      const scopedMastery = scopeQuestions(questions, masteryScope);
+      data.mastery = buildMastery(scopedMastery, { days: masteryDays, today });
+      data.masteryTrend = buildMasteryTrend(scopedMastery, { days: masteryDays, today });
+      data.masteryScope = masteryScope;
+      data.masteryDays = masteryDays;
       const plan = this.studyPlan ? this.studyPlan() : null;
       data.plan = plan && (!opts.course || courseMatches(plan.course, opts.course)) ? plan : null;
       renderDashboardEmbed(box, data, opts, {
         onPractice: (field, value) => this.practiceWith({ [field]: [value] }, "smart"),
+        onMasteryPractice: (band, label) => {
+          const pool = bandQuestions(scopedMastery, band, { days: masteryDays, today });
+          this.practiceQuestionPool(pool, label);
+        },
       });
       const footer = box.createDiv({ cls: "qt-row qt-small-row qt-dash-embed-footer" });
       footer.createSpan({ cls: "qt-hint", text: "Calculated locally." });
