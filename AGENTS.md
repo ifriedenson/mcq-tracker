@@ -8,7 +8,7 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
-- Latest release: **1.158.0** (inline quiz result export), commit `5c6091a`, tagged and published on Oct 30, 2026 in [run 41114287076](https://github.com/ifriedenson/mcq-tracker/actions/runs/41114287076). Release: https://github.com/ifriedenson/mcq-tracker/releases/tag/1.158.0.
+- Latest release: **1.159.0** (inline reorder questions), commit `64c7be7`, tagged and published on Oct 30, 2026 in [run 41115235219](https://github.com/ifriedenson/mcq-tracker/actions/runs/41115235219). Release: https://github.com/ifriedenson/mcq-tracker/releases/tag/1.159.0.
 - **909 tests** pass and `main.js` is the build of `src/`. Release 1.159.0 adds opt-in reorder questions to inline quizzes; 1.158.0 added opt-in `quizResults` frontmatter export; 1.157.0 added the optional exam-ready badge; 1.156.0 added optional per-question hints; 1.155.0 added optional closed-book practice; 1.154.0 added exam coverage; 1.153.0 added the answer-free practice sheet; 1.152.0 added the optional needs-fixing flag; 1.151.0 added the daily-quiz streak freeze; 1.150.0 added the optional card reveal animation, 1.149.0 added Anki folder exclusions, 1.148.0 added Spaced Repetition quiz notes, 1.147.0 added Text2Anki, 1.146.0 added Auto Anki, 1.145.0 added Spaced Everything, 1.144.0 added the Simple Note Quiz, and 1.143.0 added Simple Quiz blocks, JSON/JavaScript card sources and local quiz charts.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
