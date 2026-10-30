@@ -355,6 +355,7 @@ Every practice and card review screen has **Known**, **Bury**, **Suspend** and *
 - Find a question by ID
 - Import questions from a file
 - Quick add questions from pasted text
+- Export a study bundle (backup of questions and cards)
 - Rename old source_question_id properties to official_question_id (one-time clean-up for notes imported before the rename)
 
 ## AP score calculator

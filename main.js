@@ -31602,6 +31602,7 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
+const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
@@ -31697,6 +31698,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
+    this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and cards)", callback: () => this.exportStudyBundle() });
     this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated notes", callback: () => this.undoLastAiWriteCommand() });
     this.addCommand({ id: "ai-undo-agent-edits", name: "AI: undo the last agent edits", callback: () => this.undoLastAgentEditCommand() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
@@ -34292,6 +34294,49 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (paths.length) this.refreshViews();
     return { created: paths.length, paths, errors };
+  }
+
+  /** Write every question and card, unchanged, into one portable ZIP backup. */
+  async exportStudyBundle() {
+    if (this.moduleOff("mcq")) return null;
+    const questions = [];
+    for (const item of this.getQuestions()) {
+      try {
+        questions.push({ path: item.file.path, text: await this.app.vault.cachedRead(item.file) });
+      } catch (e) {
+        // An unreadable note is left out rather than failing the whole backup.
+      }
+    }
+    const cards = [];
+    if (this.cardsEnabled()) {
+      for (const item of this.getCards()) {
+        try {
+          cards.push({ path: item.file.path, text: await this.app.vault.cachedRead(item.file) });
+        } catch (e) {
+          // Same as above: one unreadable card does not block the bundle.
+        }
+      }
+    }
+    if (!questions.length && !cards.length) {
+      new Notice("There are no questions or cards to export.");
+      return null;
+    }
+    const version = this.manifest && this.manifest.version ? this.manifest.version : "";
+    const built = buildStudyBundle({ questions, cards, date: localDate(), version });
+    const base = bundleFileName(localDate());
+    let path = base;
+    let n = 2;
+    while (this.app.vault.getAbstractFileByPath(path)) {
+      path = base.replace(/\.zip$/i, " " + n + ".zip");
+      n++;
+    }
+    const archive = built.archive;
+    const binary = archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength);
+    if (typeof this.app.vault.createBinary === "function") await this.app.vault.createBinary(path, binary);
+    else await this.app.vault.create(path, binary);
+    new Notice(`Exported ${built.manifest.counts.questions} questions and ${built.manifest.counts.cards} cards to ${path}.`, 6000);
+    this.refreshViews();
+    return { path, counts: built.manifest.counts, manifest: built.manifest };
   }
 
   /** Write an already-previewed transcript draft. */
@@ -44464,6 +44509,126 @@ module.exports = {
 };
 };
 
+/* ---- src/study-bundle.js ---- */
+__defs["study-bundle"] = function (module, exports, require) {
+/*
+ * A portable backup of the study vault: every question note and card note,
+ * with its properties and review history, inside one stored ZIP.
+ *
+ * The bundle is a restore path, not a second data store. Notes keep their
+ * original vault paths under `questions/` and `cards/`, and `manifest.json`
+ * records the mapping so a future importer can put them back. No note content
+ * is rewritten, so properties, `history`, scheduling and source links survive
+ * a round trip. Images and audio stay in the vault and are not bundled.
+ */
+const { str } = require("./util");
+const { zipStore } = require("./zip-write");
+
+const BUNDLE_SCHEMA = 1;
+const BUNDLE_PREFIX = "mcq-study-bundle";
+
+function safeDay(value) {
+  const text = str(value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "export";
+}
+
+function bundleFileName(date) {
+  return `${BUNDLE_PREFIX}-${safeDay(date)}.zip`;
+}
+
+/** One safe ZIP path segment; never allows a parent-directory hop. */
+function cleanSegment(value) {
+  const clean = str(value)
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return clean && clean !== "." && clean !== ".." ? clean : "_";
+}
+
+/** `Folder/Note.md` becomes `questions/Folder/Note.md`, with unique names. */
+function bundleNotePath(prefix, vaultPath, used, extension) {
+  const parts = str(vaultPath)
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((part) => part.trim())
+    .filter((part) => part && part !== "." && part !== "..");
+  let name = parts.pop() || "note";
+  if (!new RegExp(`\\.${extension}$`, "i").test(name)) name += `.${extension}`;
+  const dirs = parts.map(cleanSegment);
+  let candidate = [prefix, ...dirs, cleanSegment(name)].join("/");
+  const base = candidate.replace(new RegExp(`\\.${extension}$`, "i"), "");
+  let n = 2;
+  while (used.has(candidate.toLowerCase())) {
+    candidate = `${base} ${n}.${extension}`;
+    n++;
+  }
+  used.add(candidate.toLowerCase());
+  return candidate;
+}
+
+function bundleReadme(manifest) {
+  const counts = manifest.counts || {};
+  return [
+    "# MCQ Tracker study bundle",
+    "",
+    `Exported ${manifest.exported} with MCQ Tracker ${manifest.plugin_version || "(development build)"}.`,
+    "",
+    `- ${counts.questions} question note${counts.questions === 1 ? "" : "s"} under \`questions/\``,
+    `- ${counts.cards} card note${counts.cards === 1 ? "" : "s"} under \`cards/\``,
+    "",
+    "Every note is an unchanged Markdown copy, so its properties (including `history`, `next_review` and `srs`) are preserved.",
+    "To restore, extract the folder back into a vault and rescan; the notes are ordinary question and card notes.",
+    "",
+    "`manifest.json` records each original vault path. Images, audio and PDFs stay in the vault and are not bundled.",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Build the archive from already-read notes.
+ * `input` is { questions: [{ path, text }], cards: [...], date, version }.
+ */
+function buildStudyBundle(input) {
+  const data = input && typeof input === "object" ? input : {};
+  const used = new Set();
+  const entries = [];
+  const collect = (prefix, notes, extension) => {
+    const out = [];
+    for (const note of Array.isArray(notes) ? notes : []) {
+      const text = str(note && note.text);
+      if (!text.trim()) continue;
+      const path = bundleNotePath(prefix, note.path, used, extension);
+      entries.push({ name: path, data: text });
+      out.push({ path, source: str(note.path) });
+    }
+    return out;
+  };
+  const questions = collect("questions", data.questions, "md");
+  const cards = collect("cards", data.cards, "md");
+  const manifest = {
+    schema: BUNDLE_SCHEMA,
+    plugin: "mcq-tracker",
+    plugin_version: str(data.version),
+    exported: safeDay(data.date),
+    counts: { questions: questions.length, cards: cards.length },
+    notes: { questions, cards },
+  };
+  entries.unshift({ name: "manifest.json", data: JSON.stringify(manifest, null, 2) + "\n" });
+  entries.unshift({ name: "README.md", data: bundleReadme(manifest) });
+  return { archive: zipStore(entries), manifest, entries: entries.map((entry) => entry.name) };
+}
+
+module.exports = {
+  BUNDLE_SCHEMA,
+  buildStudyBundle,
+  bundleFileName,
+  bundleNotePath,
+  bundleReadme,
+  cleanSegment,
+  safeDay,
+};
+};
+
 /* ---- src/study-match-modal.js ---- */
 __defs["study-match-modal"] = function (module, exports, require) {
 /*
@@ -47540,6 +47705,7 @@ const calculator = require("./calculator");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
+const studyBundle = require("./study-bundle");
 const { MAX_OPENCODE_MAJOR, OpenCodeManager, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
@@ -47686,6 +47852,7 @@ QuestionTrackerPlugin.__test = {
   WeakSpotModal,
   QuickAddModal,
   quickAdd,
+  studyBundle,
   OpenCodeManager,
   MAX_OPENCODE_MAJOR,
   opencodeMajor,

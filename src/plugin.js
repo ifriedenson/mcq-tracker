@@ -87,6 +87,7 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
+const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
 const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./results-export");
 const { normalizeSupport } = require("./support");
@@ -182,6 +183,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "export-results-csv", name: "Export practice results to CSV", callback: () => this.exportResultsCsv() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
+    this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and cards)", callback: () => this.exportStudyBundle() });
     this.addCommand({ id: "ai-undo-last-write", name: "AI: undo the last generated notes", callback: () => this.undoLastAiWriteCommand() });
     this.addCommand({ id: "ai-undo-agent-edits", name: "AI: undo the last agent edits", callback: () => this.undoLastAgentEditCommand() });
     this.addCommand({ id: "course-notes-import", name: "Import course notes from a lecture or chapter", callback: () => this.openCourseNotesImport() });
@@ -2777,6 +2779,49 @@ class QuestionTrackerPlugin extends Plugin {
     }
     if (paths.length) this.refreshViews();
     return { created: paths.length, paths, errors };
+  }
+
+  /** Write every question and card, unchanged, into one portable ZIP backup. */
+  async exportStudyBundle() {
+    if (this.moduleOff("mcq")) return null;
+    const questions = [];
+    for (const item of this.getQuestions()) {
+      try {
+        questions.push({ path: item.file.path, text: await this.app.vault.cachedRead(item.file) });
+      } catch (e) {
+        // An unreadable note is left out rather than failing the whole backup.
+      }
+    }
+    const cards = [];
+    if (this.cardsEnabled()) {
+      for (const item of this.getCards()) {
+        try {
+          cards.push({ path: item.file.path, text: await this.app.vault.cachedRead(item.file) });
+        } catch (e) {
+          // Same as above: one unreadable card does not block the bundle.
+        }
+      }
+    }
+    if (!questions.length && !cards.length) {
+      new Notice("There are no questions or cards to export.");
+      return null;
+    }
+    const version = this.manifest && this.manifest.version ? this.manifest.version : "";
+    const built = buildStudyBundle({ questions, cards, date: localDate(), version });
+    const base = bundleFileName(localDate());
+    let path = base;
+    let n = 2;
+    while (this.app.vault.getAbstractFileByPath(path)) {
+      path = base.replace(/\.zip$/i, " " + n + ".zip");
+      n++;
+    }
+    const archive = built.archive;
+    const binary = archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength);
+    if (typeof this.app.vault.createBinary === "function") await this.app.vault.createBinary(path, binary);
+    else await this.app.vault.create(path, binary);
+    new Notice(`Exported ${built.manifest.counts.questions} questions and ${built.manifest.counts.cards} cards to ${path}.`, 6000);
+    this.refreshViews();
+    return { path, counts: built.manifest.counts, manifest: built.manifest };
   }
 
   /** Write an already-previewed transcript draft. */
