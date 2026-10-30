@@ -8,8 +8,8 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
-- Latest release: **1.118.0** (Progress tab with scoped mastery), tagged and published on Oct 30, 2026.
-- In the tree, unreleased: **1.127.0** (the Progress tab remembers the mastery scope and all-time/7-day/30-day window; the mcq-dashboard embed shows them, can override the window inline and can start band practice; Today and the Progress tab show a mastered-count trend and the embed has a compact version; Quick Practice names the band and window), verified with 703 tests; tag it only when the owner asks to release.
+- Latest release: **1.127.0** (scoped mastery windows, dashboard embed, Today/Progress trends and Quick Practice labels), tagged and published on Oct 30, 2026.
+- The release commit is `380212e`; 703 tests pass and `main.js` is the build of `src/`.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
 - The only unchecked item, **lighter multi-question authoring**, is new feature scope. Do not implement it without the owner explicitly ranking it.
