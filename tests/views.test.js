@@ -191,6 +191,51 @@ test("timed test: builds a test, scores it, logs only the answered questions, an
   assert.deepEqual(plugin.recorded.at(-1), ["error", v.items[missed].file.basename, "careless"]);
 });
 
+test("timed test: shuffles choices and reports a pass mark", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.recordAttempt = async () => {};
+  const v = makeView(T.TestView, plugin, app, dom);
+  v.render();
+  assert.ok(dom.texts().some((text) => /Shuffle answer choices/.test(text)));
+  await v.begin(1, 5, "random", { from: 1, to: 1, shuffleChoices: true, passScore: 80 });
+  assert.equal(v.items.length, 1);
+  const it = v.items[0];
+  assert.deepEqual([...it.optionOrder].sort(), ["A", "B", "C", "D"]);
+  assert.equal(v.passScore, 80);
+  const saved = JSON.parse(JSON.stringify(plugin.settings.testSession));
+  assert.deepEqual(saved.items[0].order, it.optionOrder);
+  assert.equal(saved.passScore, 80);
+  const dom2 = makeDom();
+  const v2 = makeView(T.TestView, plugin, app, dom2);
+  plugin.settings.testSession = saved;
+  await v2.onOpen();
+  assert.equal(v2.phase, "test");
+  assert.deepEqual(v2.items[0].optionOrder, it.optionOrder);
+  assert.equal(v2.passScore, 80);
+  v2.items[0].sel = v2.items[0].key;
+  await v2.finish(false);
+  assert.equal(v2.result.passScore, 80);
+  assert.equal(v2.result.passed, true);
+  assert.ok(dom2.texts().some((text) => /Pass mark 80%/.test(text)), "the review states the pass mark");
+  assert.ok(dom2.texts().some((text) => /Passed/.test(text)), "the review states the outcome");
+
+  const dom3 = makeDom();
+  const v3 = makeView(T.TestView, plugin, app, dom3);
+  await v3.begin(1, 5, "random", { from: 1, to: 1, passScore: 100 });
+  v3.items[0].sel = v3.items[0].key === "A" ? "B" : "A";
+  await v3.finish(false);
+  assert.equal(v3.result.passed, false);
+  assert.ok(dom3.texts().some((text) => /Not passed/.test(text)), "a failed pass mark is shown");
+
+  const dom4 = makeDom();
+  const v4 = makeView(T.TestView, plugin, app, dom4);
+  await v4.begin(4, 5, "random", { from: 1, to: 4, passScore: 40 });
+  v4.items.forEach((item, index) => (item.sel = index < 2 ? item.key : item.key === "A" ? "B" : "A"));
+  await v4.finish(false);
+  assert.equal(v4.result.passed, true, "a pass mark below 70% still passes at 50%");
+  assert.ok(dom4.all.some((el) => el.meta && el.meta.cls === "qt-banner is-correct"), "the passing banner stays green below the old 70% visual rule");
+});
+
 test("timed test: sections split the questions and run their own timers", async () => {
   const { app, plugin, dom } = await setup();
   plugin.recordAttempt = async () => {};

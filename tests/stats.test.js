@@ -180,3 +180,24 @@ test("a timed test is packed small and unpacked safely", () => {
   assert.equal(T.unpackTestSession({ v: 1, items: [{ path: "x" }], deadline: "soon", startedAt: 1, allowedSeconds: 1 }, 0), null);
   assert.equal(T.unpackTestSession({ ...s, idx: 99 }, 30000).idx, 1); // out-of-range position is clamped
 });
+
+test("a saved timed test keeps shuffled choice order and the pass mark", () => {
+  const items = [{ file: { path: "Q/a.md" }, sel: "C", seconds: 0, flagged: false, optionOrder: ["C", "A", "D", "B"] }];
+  const packed = T.packTestSession(items, {
+    idx: 0,
+    startedAt: 1000,
+    deadline: 61000,
+    allowedSeconds: 60,
+    shuffleChoices: true,
+    passScore: 85,
+  });
+  assert.deepEqual(packed.items[0].order, ["C", "A", "D", "B"]);
+  assert.equal(packed.shuffleChoices, true);
+  assert.equal(packed.passScore, 85);
+  const live = T.unpackTestSession(JSON.parse(JSON.stringify(packed)), 30000);
+  assert.deepEqual(live.items[0].order, ["C", "A", "D", "B"]);
+  assert.equal(live.shuffleChoices, true);
+  assert.equal(live.passScore, 85);
+  assert.equal(T.unpackTestSession({ ...packed, passScore: 150 }, 30000).passScore, 100);
+  assert.equal(T.unpackTestSession({ ...packed, passScore: -4 }, 30000).passScore, 0);
+});

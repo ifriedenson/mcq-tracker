@@ -76,7 +76,13 @@ test("blueprints are cleaned and rebuilt from saved settings", () => {
   assert.equal(bp.to, 0);
   assert.equal(bp.mode, "wrong");
   assert.equal(bp.sections.length, 2);
+  assert.equal(bp.shuffleChoices, false);
+  assert.equal(bp.passScore, 0);
   assert.equal(S.normalizeBlueprint({ name: "" }), null);
+  const gated = S.normalizeBlueprint({ name: "Gate", count: 4, minutes: 20, shuffleChoices: true, passScore: 105 });
+  assert.equal(gated.shuffleChoices, true);
+  assert.equal(gated.passScore, 100);
+  assert.equal(S.normalizeBlueprint({ name: "No gate", passScore: -3 }).passScore, 0);
 });
 
 test("blueprints keep an FRQ count", () => {

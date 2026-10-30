@@ -1,6 +1,6 @@
 # MCQ Tracker → Ultimate Study Tool: Product & Integration Plan
 
-**Status:** Implementation in progress — 1.116.0 adds Anki `.apkg` export, on top of 1.115.0's local-only in-plugin feedback survey, 1.114.0's LearnKit import/export, 1.113.0's Mochi `.mochi` export, 1.112.0's native fill-in and matching practice, 1.111.1's true/false key fixes and offline leech handling, 1.111.0's opt-in leech handling, 1.110.0's native true/false and select-all practice and 1.109.0's zipped Canvas/Blackboard QTI archives, 1.108.0's FlashQuiz, QuizPort and Markdown-quiz import, 1.107.0's Insights Concepts mastery list and multi-photo FRQ answers, 1.106.0's one-screen reference sheets, 1.105.0's Learn, Test and Match study modes, 1.104.0's opt-in photo-of-handwritten-work reading to the FRQ grader, 1.103.0's device file picker for Quizlet PDF import, 1.102.0's local Quizlet PDF/test-bank import, 1.101.0's full course registry, FRQ math preview and rubric categories, 1.100.0's mixed MCQ/SPR/FRQ timed tests, 1.99.0's score-based FRQ review schedule, 1.98.0's optional second grading pass and official/teacher rubric marker and 1.97.0's six-course AP FRQ pilot. Remaining blocked items: the real-Obsidian visual/screenshot pass, a real-device mobile audit, TTS and pronunciation validation on mobile audio, PDF form filling/full editor, and the bundled OCR engine (licence review). Human-scored FRQ calibration remains a quality gate, not an implementation gate.
+**Status:** Implementation in progress — 1.117.0 adds optional timed-test choice shuffling and a pass mark, on top of 1.116.0's Anki `.apkg` export, 1.115.0's local-only in-plugin feedback survey, 1.114.0's LearnKit import/export, 1.113.0's Mochi `.mochi` export, 1.112.0's native fill-in and matching practice, 1.111.1's true/false key fixes and offline leech handling, 1.111.0's opt-in leech handling, 1.110.0's native true/false and select-all practice and 1.109.0's zipped Canvas/Blackboard QTI archives, 1.108.0's FlashQuiz, QuizPort and Markdown-quiz import, 1.107.0's Insights Concepts mastery list and multi-photo FRQ answers, 1.106.0's one-screen reference sheets, 1.105.0's Learn, Test and Match study modes, 1.104.0's opt-in photo-of-handwritten-work reading to the FRQ grader, 1.103.0's device file picker for Quizlet PDF import, 1.102.0's local Quizlet PDF/test-bank import, 1.101.0's full course registry, FRQ math preview and rubric categories, 1.100.0's mixed MCQ/SPR/FRQ timed tests, 1.99.0's score-based FRQ review schedule, 1.98.0's optional second grading pass and official/teacher rubric marker and 1.97.0's six-course AP FRQ pilot. Remaining blocked items: the real-Obsidian visual/screenshot pass, a real-device mobile audit, TTS and pronunciation validation on mobile audio, PDF form filling/full editor, and the bundled OCR engine (licence review). Human-scored FRQ calibration remains a quality gate, not an implementation gate.
 **Prepared:** October 27, 2026
 **Revision:** Added decisions confirmed by the owner (§0), math/STEM (§5.16), typed/spoken flashcard answers (§5.17), AI assistant (§5.18), mobile quick sessions (§5.19), AP FRQ grader/score calculator/resource research (§5.20), growth plan (§10b), agent-driven quality gates (§8.5), the October 28 idea backlog (§5.22), and the Adaptive Practice parity audit (§5.23, Oct 29, 2026). Roadmap re-ordered (§7).
 **Base plugin:** [MCQ Tracker](https://community.obsidian.md/plugins/mcq-tracker) (MIT, v1.5.1 at time of research)
@@ -11,7 +11,9 @@
 
 ## Current focus (Oct 30, 2026)
 
-**Latest completed (1.116.0):** Cards can be exported as an **Anki package (.apkg)**. The plugin writes a real SQLite collection (col, notes, cards, revlog and graves) and wraps it in a stored ZIP, with decks, tags and Basic, Basic (and reversed), Cloze and multiple-choice notes. MCQ choices stay on the front and the key on the back; cloze markers are preserved. The Cards export dialog, Settings and the export command offer it, and the result warns when a card references images or audio that were not bundled. The writer and reader are local, original code; no SQLite engine, Anki code or dependency is added. Python's SQLite engine reports `integrity_check: ok` for a 1,200-note package, and the round-trip is covered by tests.
+**Latest completed (1.117.0):** Timed tests have two optional exam controls. **Shuffle answer choices** reorders each multiple-choice question's choices for that test; the saved answer letters still match the note, and the review and restored session keep the same displayed order. **Pass score** sets a percentage threshold shown in the result banner as Passed or Not passed, and it counts objective questions only when a test also includes written responses. Both settings are saved with test defaults, blueprints and a mid-test session, and a blank or 0 pass score means no mark. Nothing is uploaded and no dependency was added.
+
+**Previously (1.116.0):** Cards can be exported as an **Anki package (.apkg)**. The plugin writes a real SQLite collection (col, notes, cards, revlog and graves) and wraps it in a stored ZIP, with decks, tags and Basic, Basic (and reversed), Cloze and multiple-choice notes. MCQ choices stay on the front and the key on the back; cloze markers are preserved. The Cards export dialog, Settings and the export command offer it, and the result warns when a card references images or audio that were not bundled. The writer and reader are local, original code; no SQLite engine, Anki code or dependency is added. Python's SQLite engine reports `integrity_check: ok` for a 1,200-note package, and the round-trip is covered by tests.
 
 **Previously (1.115.0):** Settings, About has an optional **feedback survey**: a rating, what the learner uses the plugin for, free-text strengths and improvements, and a quote permission toggle. **Copy feedback** builds a Markdown summary for the clipboard; nothing is sent, saved to the vault or counted, and there is no telemetry. The form is local-only and every field except the rating is optional.
 
@@ -90,6 +92,7 @@
 | Study skin modes (§5.22.2) | **Done in 1.105.0** | Flashcards, Learn, Test and Match run over the same notes, queue and scheduler; a correct Match pair writes one normal attempt and a wrong tap writes none. |
 | Fill-in and matching practice (§13.9) | **Done in 1.112.0** | `fill_in` uses the SPR text/numeric grader with normalized text and variants; `matching` reads `## Pairs`, shuffles each row's options, requires every row, and grades per row in practice and timed tests. |
 | Mixed MCQ/SPR/FRQ timed tests (§5.6) | **Done in 1.100.0** | A timed test takes an optional FRQ count included in the section totals, writes responses in the test, restores them with the saved session, and offers **Grade this response** after the test with the answer prefilled in the existing grader. Objective score, confidence and skill breakdown count only MCQ/SPR items; written responses are reported separately. |
+| Timed-test choices and pass mark (§5.6, §13.9) | **Done in 1.117.0** | Optional per-test choice shuffling keeps saved letters aligned with the note across the review and a restored session. An optional pass percentage is shown as Passed or Not passed on objective questions; both settings persist in defaults and blueprints. |
 | Course registry (§5.8) | **Done in 1.101.0** | Settings, Calendar, Courses stores name, code, folder, color, semester, instructor and credit weight. A match drives class-note folders and calendar colors; credits feed the GPA when Assignments has no explicit course credit. |
 | FRQ math preview and rubric categories (§5.16.6, §5.20.1) | **Done in 1.101.0** | The answer box has a local **Math preview** for math and chemistry notation. Rubric rows accept an optional category tag, infer one from the label when omitted, show it in the grader, and preserve it in generated notes and the AI payload. |
 | Concept mastery overlay (§5.14) | **Done in 1.107.0** | Insights → Concepts lists one row per source note, weakest first, with practice accuracy and a colour band; **Reread this** and source backlinks ship since 1.36.0. |
@@ -102,7 +105,7 @@
 | PDF form filling / full editor | **Open** | Pen, highlighter, text boxes and highlight regions ship; true AcroForm filling needs an audited MIT PDF library and is not safe to approximate. |
 | README, screenshots, sample vault, license confirmation | **Partial — screenshots blocked** | README, NOTICES, `docs/license-audit.md` and `samples/sample-vault` exist. Screenshots still need a real Obsidian window. |
 
-**Whole-plan review (Oct 30, 2026, after 1.116.0).** Every checkbox in this document was checked against the code again after the Anki package export shipped. Closed in 1.89.0–1.116.0: the course registry, FRQ rubric categories, Quizlet PDF import with a device picker, the reference sheets, Mochi and LearnKit export, the feedback survey and card/question export. **No implementable partial remains.** The open `[~]` items are gated on a real Obsidian window (visual pass and screenshots), real iOS/Android hardware (mobile audit), an audited MIT PDF form library, a bundled OCR engine and licence decision, audio capture plus mobile validation (TTS and pronunciation), or human-scored FRQ fixtures; the only named implementation gap is the bundled OCR engine. The concept mastery overlay closed in 1.107.0, fill-in and matching practice closed in 1.112.0, Mochi `.mochi` export closed in 1.113.0, and LearnKit import/export closed in 1.114.0, the in-plugin survey closed in 1.115.0 and `.apkg` export closed in 1.116.0. Human-scored FRQ calibration remains a quality gate, not an implementation gate. There is now a single status list; the superseded copy is archived.
+**Whole-plan review (Oct 30, 2026, after 1.117.0).** Every checkbox in this document was checked against the code again after the timed-test option shuffle and pass mark shipped. This pass also corrected two stale competitor-matrix rows (question types and option shuffling) that still showed shipped features as absent. Closed in 1.89.0–1.117.0: the course registry, FRQ rubric categories, Quizlet PDF import with a device picker, the reference sheets, Mochi and LearnKit export, the feedback survey and card/question export. **No implementable partial remains.** The open `[~]` items are gated on a real Obsidian window (visual pass and screenshots), real iOS/Android hardware (mobile audit), an audited MIT PDF form library, a bundled OCR engine and licence decision, audio capture plus mobile validation (TTS and pronunciation), or human-scored FRQ fixtures; the only named implementation gap is the bundled OCR engine. The concept mastery overlay closed in 1.107.0, fill-in and matching practice closed in 1.112.0, Mochi `.mochi` export closed in 1.113.0, and LearnKit import/export closed in 1.114.0, the in-plugin survey closed in 1.115.0, `.apkg` export closed in 1.116.0 and timed-test choice shuffling and pass marks closed in 1.117.0. Human-scored FRQ calibration remains a quality gate, not an implementation gate. There is now a single status list; the superseded copy is archived.
 
 **Partial review (Oct 29, 2026, 1.104.0).** Every partial marker was re-read after the handwriting work. Closed in this release: photo-of-handwritten-work grading. Still gated with a concrete reason: the real-Obsidian visual/screenshot pass (no Obsidian window here), the mobile audit (no real device), TTS/audio commute (no provider or mobile speech validation), PDF form filling (no audited MIT form-filling library; approximating it would corrupt files), pronunciation feedback (needs audio capture plus mobile validation), and human-scored FRQ calibration (a quality gate, not code). `.apkg` export was open at that time because it needed a tested SQLite writer; it closed in 1.116.0, and reading `.apkg` already works. Also closed in 1.105.0: the Learn, Test and Match study-skin modes. Also closed in 1.106.0: the one-screen reference sheets.
 
@@ -1781,7 +1784,7 @@ Packaging, audience, calendar and flashcard priority, BYOK + OpenCode, mobile qu
 | Automatic grading | ✅ | ✅ | ✅ | ✅ | ❌ (self-grade) | ✅ |
 | Numeric answers (tolerance, units, sig figs) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Parameterized questions (random variants) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Select-all / true-false / fill-in / matching | ❌ | ◐ (cloze, typed, MCQ in decks) | ✅ | ✅ | ❌ | ❌ |
+| Select-all / true-false / fill-in / matching | ✅ (select-all/true-false 1.110.0; fill-in/matching 1.112.0) | ◐ (cloze, typed, MCQ in decks) | ✅ | ✅ | ❌ | ❌ |
 | Short / long free response | ◐ (self-grade + FRQ rubric) | ◐ (typed cards) | ✅ | ✅ | ◐ (self-graded) | ✅ (text answers) |
 | Spaced repetition | ✅ | ✅ | ❌ | ❌ (on roadmap) | ❌ | ❌ |
 | FSRS | ✅ (optional) | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -1796,7 +1799,8 @@ Packaging, audience, calendar and flashcard priority, BYOK + OpenCode, mobile qu
 | Progress stored in the note files | ✅ (properties) | ❌ (central data file) | ◐ (sidecar file) | — | ✅ | ✅ |
 | Many questions in one file | ❌ (one note each) | ✅ (deck files) | ✅ | ✅ | ✅ | ✅ |
 | Inline quiz rendering inside a note | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Question / option shuffling | ◐ (random pick mode) | ❌ | ✅ | ❌ | ✅ | ❌ |
+| Question / option shuffling | ✅ (per-test option shuffle in 1.117.0; random pick mode) | ❌ | ✅ | ❌ | ✅ | ❌ |
+| Pass-score threshold on timed tests | ✅ (1.117.0) | ❌ | ✅ | ❌ | ❌ | ❌ |
 | AI question generation | ✅ (optional) | ✅ | ❌ | ✅ | ❌ | ✅ (via Claudian / clipboard) |
 | Direct LLM API support | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
 | AI tutor / chat | ✅ (optional) | ✅ (objective-based) | ❌ | ❌ | ❌ | ❌ |
@@ -1817,16 +1821,16 @@ Packaging, audience, calendar and flashcard priority, BYOK + OpenCode, mobile qu
 | Multi-language generation | ❌ (not documented) | ◐ (tutor language) | ❌ | ✅ (22) | ❌ | ◐ (ja / en / same) |
 | Desktop + mobile | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-### 13.4 What competitors have that MCQ Tracker doesn't (candidate gaps)
+### 13.4 Competitor gaps and where they stand
 
-Ordered roughly by how often they appear across competitors and how much they matter for exam prep:
+Ordered roughly by how often they appear across competitors and how much they matter for exam prep. Shipped items stay for the record:
 
-1. **More question types:** select-all-that-apply, true/false, fill-in-the-blank and matching (CBT Exam Simulator and Quiz Generator both have all four).
+1. **More question types:** select-all-that-apply, true/false, fill-in-the-blank and matching (CBT Exam Simulator and Quiz Generator both have all four). **Shipped in 1.110.0 and 1.112.0.**
 2. **Lighter authoring:** every competitor except Spaceforge's decks lets you write many questions in a single file. MCQ Tracker needs one note per question with properties, which is heavy for hand-written questions. A plain-text quick-add or multi-question-per-file import would lower the barrier.
-3. **Shuffling:** question and answer-option shuffle (CBT, Omniscient).
-4. **Pass-score threshold** on timed tests (CBT).
+3. **Shuffling:** question and answer-option shuffle (CBT, Omniscient). **Shipped in 1.117.0** as an optional per-test answer-choice shuffle; question order comes from the existing pick modes.
+4. **Pass-score threshold** on timed tests (CBT). **Shipped in 1.117.0** as an optional percentage on the test setup screen.
 5. **`.apkg` export** to Anki (Spaceforge). **Shipped in 1.116.0.**
-6. **Leech handling** for repeatedly failed items (Spaceforge).
+6. **Leech handling** for repeatedly failed items (Spaceforge). **Shipped in 1.111.0.**
 7. **Multi-language generation** controls (Quiz Generator, Note Quiz Engine).
 8. **Inline quiz blocks** rendered inside a note (Note Quiz Engine).
 9. **Objective-based tutor / mind map / web lookup** (Spaceforge). These are large, so probably not worth chasing.
@@ -1871,11 +1875,11 @@ Limits of this analysis: "❌" means the feature is not documented in the README
 
 ### 13.9 What this changes in the backlog
 
-The analysis added four gaps that were not explicit in §5.22. The first and fourth have shipped; the remaining two stay unscheduled until the owner ranks them:
+The analysis added four gaps that were not explicit in §5.22. The first, third and fourth have shipped; lighter multi-question authoring stays unscheduled until the owner ranks it:
 
 - [x] **Native select-all, true/false, fill-in and matching practice.** True/false and select-all practice shipped in 1.110.0 with automatic set grading, selectable buttons, attempt history, timed-test support and result marking. Fill-in (`question_type: fill_in`, normalized text with `|` and `accepted_answers` variants) and matching (`question_type: matching`, `Left :: Right` pairs under `## Pairs`, shuffled row pickers, whole-set and per-row grading in practice and timed tests) shipped in 1.112.0. Import already understands `@sata`, `@tf` and QuizPort choice sets (1.108.0).
 - [ ] **Lighter multi-question authoring.** A plain-text quick-add (or rendering existing one-file quiz blocks) would reduce the one-note-per-question cost that Omniscient and Note Quiz Engine avoid.
-- [ ] **Timed-test option shuffling and a pass-score threshold.** CBT and Omniscient ship both; MCQ Tracker has a random pick mode but no per-test option shuffle or pass mark.
+- [x] **Timed-test option shuffling and a pass-score threshold.** Shipped in 1.117.0. The test setup screen has **Shuffle answer choices** and a pass percentage, both saved in defaults and blueprints. A shuffled order is stored with the session, so the review and a reopened test show the same order while saved answer letters still match the note. The pass mark is reported on objective questions.
 - [x] **Leech handling** for repeatedly failed items, shipped in 1.111.0 as an opt-in threshold with a flag or suspend action, `leech_lapses`/`leech_since` properties and automatic clearing on a correct answer. Distinct from the manual Suspend/Bury controls.
 
 Not planned: objective-based tutor workspace, mind maps and web lookup (Spaceforge's lane; large and outside the question-first positioning). `.apkg` export shipped in 1.116.0 with a tested SQLite writer, so it is no longer a gap.

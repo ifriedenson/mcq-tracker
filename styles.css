@@ -140,6 +140,27 @@
 }
 
 .qt-field label,
+.qt-test-options {
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.qt-test-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-ui-small);
+}
+
+.qt-test-option input[type="checkbox"] {
+  margin: 0;
+}
+
+.qt-test-option .qt-spr {
+  width: 70px;
+}
+
 .qt-label {
   font-size: var(--font-ui-small);
   color: var(--text-muted);

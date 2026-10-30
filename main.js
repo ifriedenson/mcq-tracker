@@ -15093,7 +15093,7 @@ const DEFAULT_SETTINGS = {
   studySkin: "off", // "off" | "flip" | "choice": an extra way to review the same MCQ notes
   activePreset: "",
   folderFilterStyle: "auto", // "auto" (search box when there are many folders) | "buttons" | "search"
-  testDefaults: { count: 10, minutes: 12, from: 1, to: 0, frq: 0 }, // from/to are optional 1-based question ranges; frq is included in count
+  testDefaults: { count: 10, minutes: 12, from: 1, to: 0, frq: 0, shuffleChoices: false, passScore: 0 }, // passScore 0 means no pass mark
   testSession: null, // a timed test in progress, so it survives closing Obsidian
   testBlueprints: [], // saved timed-test recipes: { name, count, minutes, from, to, mode, sections }
   quickDefaults: { count: 5, minutes: 5 },
@@ -16894,6 +16894,13 @@ function clampInt(value, min, max, fallback) {
   return Math.min(max, Math.max(min, n));
 }
 
+/** 0 means no pass mark; anything else is a whole percentage from 1 to 100. */
+function normalizePassScore(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(100, n);
+}
+
 /** Fit section counts/minutes to the requested totals without dropping the blueprint's shape. */
 function normalizeSections(raw, totalCount, totalMinutes) {
   const count = clampInt(totalCount, 1, 200, 10);
@@ -16993,6 +17000,8 @@ function normalizeBlueprint(raw) {
     to: Math.max(0, Math.round(Number(raw.to) || 0)),
     mode: str(raw.mode).trim() || "random",
     frq: clampInt(raw.frq, 0, 20, 0),
+    shuffleChoices: !!raw.shuffleChoices,
+    passScore: normalizePassScore(raw.passScore),
     sections: normalizeSections(raw.sections, count, minutes),
   };
 }
@@ -17001,6 +17010,7 @@ module.exports = {
   buildSections,
   clampInt,
   normalizeBlueprint,
+  normalizePassScore,
   normalizeSections,
   sectionAt,
 };
@@ -17021,7 +17031,7 @@ const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet, trueFalseLabels } =
 const { gradeMatching, parsePicks, shuffleForSeed } = require("./matching");
 const { variantSummary, variantValuesText } = require("./parameterized");
 const { NameModal } = require("./modals");
-const { buildSections, normalizeSections } = require("./exam-sections");
+const { buildSections, normalizePassScore, normalizeSections } = require("./exam-sections");
 
 /* ------------------------------------------------------- timed test */
 
@@ -17035,6 +17045,20 @@ function itemAnswered(it) {
     return picks.length === (it.pairs || []).length && picks.every((pick) => Number.isInteger(pick) && pick >= 0);
   }
   return !!str(it.sel).trim();
+}
+
+/** The letters a multiple-choice item can show, capped at the plugin's A-H range. */
+function choiceLetters(item) {
+  const count = Math.max(0, Math.min(8, Number(item.fm && item.fm.choices) || (item.sections && item.sections.choices.length) || 4));
+  return "ABCDEFGH".slice(0, count).split("");
+}
+
+/** A saved shuffled order is used only when it is a complete permutation of A-H. */
+function choiceOrder(item) {
+  const letters = choiceLetters(item);
+  const raw = Array.isArray(item.optionOrder) ? item.optionOrder.map((letter) => str(letter).trim().toUpperCase()) : [];
+  const clean = raw.filter((letter, index) => letters.includes(letter) && raw.indexOf(letter) === index);
+  return clean.length === letters.length ? clean : letters;
 }
 
 /** Only the course filter applies to FRQ prompts; other question filters do not describe them. */
@@ -17091,6 +17115,11 @@ class TestView extends ItemView {
     this.sectionIdx = 0;
     this.sectionsDraft = null;
     this.frqDraft = null;
+    this.shuffleDraft = null;
+    this.passDraft = null;
+    this.shuffleChoices = false;
+    this.passScore = 0;
+    this.optionSeed = "";
   }
   getViewType() {
     return VIEW_TYPE_TEST;
@@ -17129,7 +17158,16 @@ class TestView extends ItemView {
     const st = this.plugin.settings;
     if (this.phase === "test") {
       this.leave();
-      st.testSession = packTestSession(this.items, { idx: this.idx, startedAt: this.startedAt, deadline: this.deadline, allowedSeconds: this.allowedSeconds, sections: this.sections, sectionIdx: this.sectionIdx });
+      st.testSession = packTestSession(this.items, {
+        idx: this.idx,
+        startedAt: this.startedAt,
+        deadline: this.deadline,
+        allowedSeconds: this.allowedSeconds,
+        sections: this.sections,
+        sectionIdx: this.sectionIdx,
+        shuffleChoices: this.shuffleChoices,
+        passScore: this.passScore,
+      });
     } else st.testSession = null;
     await this.plugin.save();
   }
@@ -17170,6 +17208,7 @@ class TestView extends ItemView {
         flagged: row.flagged,
         conf: row.conf || 0,
         matchOrder: data.mode === "match" ? shuffleForSeed(data.pairs.map((_pair, i) => i), data.file.path) : [],
+        optionOrder: Array.isArray(row.order) ? row.order : [],
       });
     }
     if (!items.length) {
@@ -17192,6 +17231,8 @@ class TestView extends ItemView {
     this.startedAt = plan.startedAt;
     this.deadline = plan.deadline;
     this.allowedSeconds = plan.allowedSeconds;
+    this.shuffleChoices = !!plan.shuffleChoices;
+    this.passScore = normalizePassScore(plan.passScore);
     this.shownAt = Date.now();
     this.expanded = new Set();
     this.filter = "all";
@@ -17354,6 +17395,21 @@ class TestView extends ItemView {
     const toIn = rangeRow.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "1", placeholder: "To (last)" } });
     toIn.value = d.to ? String(d.to) : "";
     root.createDiv({ cls: "qt-hint", text: "Use a range for Bluebook-style section practice, for example 1 to 20. Leave To empty to use the last question." });
+
+    root.createDiv({ cls: "qt-label", text: "Test options" });
+    const optionsRow = root.createDiv({ cls: "qt-row qt-test-options" });
+    const shuffleWrap = optionsRow.createEl("label", { cls: "qt-test-option" });
+    const shuffleIn = shuffleWrap.createEl("input", { type: "checkbox" });
+    shuffleIn.checked = this.shuffleDraft === null ? !!d.shuffleChoices : !!this.shuffleDraft;
+    shuffleWrap.createSpan({ text: " Shuffle answer choices" });
+    shuffleIn.addEventListener("change", () => (this.shuffleDraft = !!shuffleIn.checked));
+    const passWrap = optionsRow.createEl("label", { cls: "qt-test-option" });
+    passWrap.createSpan({ text: "Pass score % " });
+    const passIn = passWrap.createEl("input", { type: "number", cls: "qt-spr", attr: { min: "0", max: "100", placeholder: "None" } });
+    const passDraft = this.passDraft === null ? normalizePassScore(d.passScore) : normalizePassScore(this.passDraft);
+    passIn.value = passDraft ? String(passDraft) : "";
+    passIn.addEventListener("input", () => (this.passDraft = normalizePassScore(passIn.value)));
+    root.createDiv({ cls: "qt-hint", text: "Shuffle changes the order of each multiple-choice question's choices; saved letters still match the note. A pass mark applies to objective questions; 0 or blank means none." });
     root.createDiv({ cls: "qt-label", text: "Pick questions" });
     const sel = root.createEl("select", { cls: "qt-select" });
     for (const [v, t] of MODES) sel.createEl("option", { value: v, text: t });
@@ -17381,6 +17437,8 @@ class TestView extends ItemView {
         toIn.value = bp.to ? String(bp.to) : "";
         sel.value = bp.mode;
         this.frqDraft = Math.max(0, Number(bp.frq) || 0);
+        this.shuffleDraft = !!bp.shuffleChoices;
+        this.passDraft = normalizePassScore(bp.passScore);
         this.render();
       });
     }
@@ -17403,6 +17461,8 @@ class TestView extends ItemView {
           to,
           mode: sel.value,
           frq: Math.max(0, Math.min(20, parseInt(frqIn.value, 10) || 0)),
+          shuffleChoices: !!shuffleIn.checked,
+          passScore: normalizePassScore(passIn.value),
           sections,
         };
         st.testBlueprints = st.testBlueprints.filter((bp) => bp.name.toLowerCase() !== name.toLowerCase());
@@ -17425,10 +17485,14 @@ class TestView extends ItemView {
       const from = Math.max(1, parseInt(fromIn.value, 10) || 1);
       const to = Math.max(0, parseInt(toIn.value, 10) || 0);
       const frq = Math.max(0, Math.min(20, parseInt(frqIn.value, 10) || 0));
-      st.testDefaults = { count: n, minutes, from, to, frq };
+      const shuffleChoices = !!shuffleIn.checked;
+      const passScore = normalizePassScore(passIn.value);
+      st.testDefaults = { count: n, minutes, from, to, frq, shuffleChoices, passScore };
       this.frqDraft = frq;
+      this.shuffleDraft = shuffleChoices;
+      this.passDraft = passScore;
       p.save();
-      this.begin(n, minutes, sel.value, { from, to, frq }, sections);
+      this.begin(n, minutes, sel.value, { from, to, frq, shuffleChoices, passScore }, sections);
     });
   }
 
@@ -17467,6 +17531,11 @@ class TestView extends ItemView {
     const rest = sliceQuestionRange(all, range && range.from, range && range.to);
     const today = fmtDate(new Date());
     const frqCount = Math.max(0, Math.min(20, Math.round(Number(range && range.frq) || 0)));
+    const shuffleChoices = !!(range && range.shuffleChoices);
+    const passScore = normalizePassScore(range && range.passScore);
+    this.shuffleChoices = shuffleChoices;
+    this.passScore = passScore;
+    this.optionSeed = `${Date.now()}|${Math.random()}`;
     const objectiveTarget = Math.max(0, n - frqCount);
     const specs = normalizeSections(sectionSpecs || (range && range.sections), n, minutes);
     const items = [];
@@ -17492,6 +17561,10 @@ class TestView extends ItemView {
         flagged: false,
         conf: 0,
         matchOrder: data.mode === "match" ? shuffleForSeed(data.pairs.map((_pair, i) => i), data.file.path) : [],
+        optionOrder:
+          shuffleChoices && (data.mode === "mcq" || data.mode === "multi")
+            ? shuffleForSeed(choiceLetters(data), `${data.file.path}|${this.optionSeed}|${items.length}`)
+            : [],
       });
     }
     const frqNotes = frqCount ? await this.frqCandidates(frqCount) : [];
@@ -17596,12 +17669,11 @@ class TestView extends ItemView {
 
     const ans = right.createDiv({ cls: "qt-answers" });
     if (it.mode === "mcq" || it.mode === "multi") {
-      const n = Number(it.fm.choices) || it.sections.choices.length || 4;
       const byLetter = Object.fromEntries(it.sections.choices.map((c) => [c.letter, c.text]));
       const multi = it.mode === "multi";
       const picked = new Set(parseChoiceSet(it.sel));
       const btns = [];
-      for (const L of "ABCDEFGH".slice(0, n).split("")) {
+      for (const L of choiceOrder(it)) {
         const b = ans.createEl("button", { cls: "qt-choice" });
         b.createSpan({ cls: "qt-letter", text: L });
         if (byLetter[L]) renderMarkdownInto(this.app, byLetter[L], b.createDiv({ cls: "qt-choice-text" }), path, this);
@@ -17611,15 +17683,15 @@ class TestView extends ItemView {
             if (picked.has(L)) picked.delete(L);
             else picked.add(L);
             it.sel = formatChoiceSet([...picked]);
-            btns.forEach((x, i) => x.toggleClass("is-selected", picked.has("ABCDEFGH"[i])));
+            btns.forEach(({ btn, letter }) => btn.toggleClass("is-selected", picked.has(letter)));
           } else {
             it.sel = it.sel === L ? "" : L; // tap again to clear
-            btns.forEach((x, i) => x.toggleClass("is-selected", "ABCDEFGH"[i] === it.sel));
+            btns.forEach(({ btn, letter }) => btn.toggleClass("is-selected", letter === it.sel));
           }
           this.paintNav();
           this.persist();
         });
-        btns.push(b);
+        btns.push({ btn: b, letter: L });
       }
       if (multi) ans.createDiv({ cls: "qt-hint", text: "Select all that apply." });
     } else if (it.mode === "tf") {
@@ -17800,10 +17872,13 @@ class TestView extends ItemView {
       };
     });
     const usedSeconds = Math.min(this.allowedSeconds, Math.round((Date.now() - this.startedAt) / 1000));
+    const passScore = normalizePassScore(this.passScore);
     this.result = {
       correct,
       answered,
       total: objective.length,
+      passScore,
+      passed: passScore && objective.length ? correct / objective.length >= passScore / 100 : null,
       frqTotal: written.length,
       frqAnswered,
       usedSeconds,
@@ -17825,15 +17900,22 @@ class TestView extends ItemView {
     const r = this.result;
     root.createEl("h3", { text: r.timeUp ? "Time's up" : "Test finished" });
     const pct = r.total ? r.correct / r.total : 0;
-    const card = root.createDiv({ cls: `qt-banner ${!r.total || pct >= 0.7 ? "is-correct" : "is-wrong"}` });
+    const passScore = normalizePassScore(r.passScore);
+    const passed = passScore ? !r.total || !!r.passed : !r.total || pct >= 0.7;
+    const card = root.createDiv({ cls: `qt-banner ${passed ? "is-correct" : "is-wrong"}` });
     const bannerBits = [
       r.total ? `${r.correct} of ${r.total} objective correct (${fmtPct(pct)})` : "No objective items",
       r.frqTotal ? `${r.frqTotal} written response${r.frqTotal === 1 ? "" : "s"} to grade` : "",
     ].filter(Boolean);
     card.createDiv({ cls: "qt-banner-title", text: bannerBits.join(" · ") });
+    const passText = passScore
+      ? `Pass mark ${passScore}% · ${r.total ? (r.passed ? "Passed" : "Not passed") : "No objective items"}`
+      : "";
     card.createDiv({
       cls: "qt-banner-sub",
-      text: `Answered ${r.answered}${r.frqTotal ? ` + ${r.frqAnswered} written` : ""} · ${fmtClock(r.usedSeconds)} used of ${fmtClock(r.allowed)}`,
+      text: [`Answered ${r.answered}${r.frqTotal ? ` + ${r.frqAnswered} written` : ""}`, `${fmtClock(r.usedSeconds)} used of ${fmtClock(r.allowed)}`, passText]
+        .filter(Boolean)
+        .join(" · "),
     });
 
     if (r.confidence && r.confidence.rated) {
@@ -17977,7 +18059,9 @@ class TestView extends ItemView {
     const mineSet = new Set(parseChoiceSet(it.sel));
     const tfKey = it.mode === "tf" ? normalizeTrueFalse(it.key, it.sections.choices) : "";
     const tfMine = it.mode === "tf" ? normalizeTrueFalse(it.sel, it.sections.choices) : "";
-    for (const c of it.sections.choices) {
+    const choicesByLetter = new Map(it.sections.choices.map((c) => [c.letter, c]));
+    const shownChoices = choiceOrder(it).map((letter) => choicesByLetter.get(letter)).filter(Boolean);
+    for (const c of shownChoices) {
       let isKey = false;
       let isMine = false;
       if (it.mode === "tf") {
@@ -31248,7 +31332,7 @@ const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./result
 const { normalizeSupport } = require("./support");
 const { migrateApiKeys } = require("./secret-keys");
 const { hasAttemptId, repairHistoryCounters } = require("./history");
-const { normalizeBlueprint } = require("./exam-sections");
+const { normalizeBlueprint, normalizePassScore } = require("./exam-sections");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -31709,6 +31793,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
+    this.settings.testDefaults.shuffleChoices = !!this.settings.testDefaults.shuffleChoices;
+    this.settings.testDefaults.passScore = normalizePassScore(this.settings.testDefaults.passScore);
     this.settings.testBlueprints = (Array.isArray(saved.testBlueprints) ? saved.testBlueprints : [])
       .map(normalizeBlueprint)
       .filter(Boolean)
@@ -43187,6 +43273,8 @@ function packTestSession(items, meta) {
     deadline: meta.deadline,
     allowedSeconds: meta.allowedSeconds,
     sectionIdx: Number(meta.sectionIdx) || 0,
+    shuffleChoices: !!meta.shuffleChoices,
+    passScore: Math.min(100, Math.max(0, Math.round(Number(meta.passScore) || 0))),
     sections,
     items: items.map((it) => ({
       path: it.file.path,
@@ -43195,6 +43283,9 @@ function packTestSession(items, meta) {
       sel: str(it.sel),
       seconds: Math.round(it.seconds || 0),
       flagged: !!it.flagged,
+      ...(Array.isArray(it.optionOrder) && it.optionOrder.length
+        ? { order: it.optionOrder.map((letter) => str(letter).trim().toUpperCase()).filter((letter) => /^[A-H]$/.test(letter)) }
+        : {}),
       ...(it.mode === "frq" ? { frq: true } : {}),
       ...(it.variant && it.variant.ok && Number.isFinite(Number(it.variant.seed)) ? { seed: Number(it.variant.seed) } : {}),
     })),
@@ -43204,6 +43295,16 @@ function packTestSession(items, meta) {
 /** What to do with a saved test: null to drop it, otherwise the rows to reload and whether the time already ran out. */
 function unpackTestSession(s, now) {
   if (!s || s.v !== 1 || !Array.isArray(s.items)) return null;
+  const cleanOrder = (value) => {
+    const seen = new Set();
+    return (Array.isArray(value) ? value : [])
+      .map((letter) => str(letter).trim().toUpperCase())
+      .filter((letter) => {
+        if (!/^[A-H]$/.test(letter) || seen.has(letter)) return false;
+        seen.add(letter);
+        return true;
+      });
+  };
   if (![s.deadline, s.startedAt, s.allowedSeconds].every((x) => Number.isFinite(x))) return null;
   if (now - s.deadline > TEST_SESSION_GRACE_MS) return null;
   const items = s.items
@@ -43215,6 +43316,7 @@ function unpackTestSession(s, now) {
       sel: str(r.sel),
       seconds: Number(r.seconds) || 0,
       flagged: !!r.flagged,
+      ...(cleanOrder(r.order).length ? { order: cleanOrder(r.order) } : {}),
       frq: r.frq === true,
       seed: Number.isFinite(Number(r.seed)) ? Number(r.seed) : undefined,
     }));
@@ -43232,6 +43334,8 @@ function unpackTestSession(s, now) {
     idx: Math.min(items.length - 1, Math.max(0, Number(s.idx) || 0)),
     sectionIdx: sections.length ? Math.min(sections.length - 1, Math.max(0, Number(s.sectionIdx) || 0)) : 0,
     sections,
+    shuffleChoices: !!s.shuffleChoices,
+    passScore: Math.min(100, Math.max(0, Math.round(Number(s.passScore) || 0))),
     startedAt: s.startedAt,
     deadline: s.deadline,
     allowedSeconds: s.allowedSeconds,

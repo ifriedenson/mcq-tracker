@@ -225,6 +225,8 @@ function packTestSession(items, meta) {
     deadline: meta.deadline,
     allowedSeconds: meta.allowedSeconds,
     sectionIdx: Number(meta.sectionIdx) || 0,
+    shuffleChoices: !!meta.shuffleChoices,
+    passScore: Math.min(100, Math.max(0, Math.round(Number(meta.passScore) || 0))),
     sections,
     items: items.map((it) => ({
       path: it.file.path,
@@ -233,6 +235,9 @@ function packTestSession(items, meta) {
       sel: str(it.sel),
       seconds: Math.round(it.seconds || 0),
       flagged: !!it.flagged,
+      ...(Array.isArray(it.optionOrder) && it.optionOrder.length
+        ? { order: it.optionOrder.map((letter) => str(letter).trim().toUpperCase()).filter((letter) => /^[A-H]$/.test(letter)) }
+        : {}),
       ...(it.mode === "frq" ? { frq: true } : {}),
       ...(it.variant && it.variant.ok && Number.isFinite(Number(it.variant.seed)) ? { seed: Number(it.variant.seed) } : {}),
     })),
@@ -242,6 +247,16 @@ function packTestSession(items, meta) {
 /** What to do with a saved test: null to drop it, otherwise the rows to reload and whether the time already ran out. */
 function unpackTestSession(s, now) {
   if (!s || s.v !== 1 || !Array.isArray(s.items)) return null;
+  const cleanOrder = (value) => {
+    const seen = new Set();
+    return (Array.isArray(value) ? value : [])
+      .map((letter) => str(letter).trim().toUpperCase())
+      .filter((letter) => {
+        if (!/^[A-H]$/.test(letter) || seen.has(letter)) return false;
+        seen.add(letter);
+        return true;
+      });
+  };
   if (![s.deadline, s.startedAt, s.allowedSeconds].every((x) => Number.isFinite(x))) return null;
   if (now - s.deadline > TEST_SESSION_GRACE_MS) return null;
   const items = s.items
@@ -253,6 +268,7 @@ function unpackTestSession(s, now) {
       sel: str(r.sel),
       seconds: Number(r.seconds) || 0,
       flagged: !!r.flagged,
+      ...(cleanOrder(r.order).length ? { order: cleanOrder(r.order) } : {}),
       frq: r.frq === true,
       seed: Number.isFinite(Number(r.seed)) ? Number(r.seed) : undefined,
     }));
@@ -270,6 +286,8 @@ function unpackTestSession(s, now) {
     idx: Math.min(items.length - 1, Math.max(0, Number(s.idx) || 0)),
     sectionIdx: sections.length ? Math.min(sections.length - 1, Math.max(0, Number(s.sectionIdx) || 0)) : 0,
     sections,
+    shuffleChoices: !!s.shuffleChoices,
+    passScore: Math.min(100, Math.max(0, Math.round(Number(s.passScore) || 0))),
     startedAt: s.startedAt,
     deadline: s.deadline,
     allowedSeconds: s.allowedSeconds,

@@ -35,7 +35,7 @@ test("settings load with safe defaults, and a bad folder style falls back to aut
   plugin.saved = { folderFilterStyle: "nonsense", testDefaults: { count: 5 }, ai: {} };
   await plugin.loadSettings();
   assert.equal(plugin.settings.folderFilterStyle, "auto");
-  assert.deepEqual(plugin.settings.testDefaults, { count: 5, minutes: 12, from: 1, to: 0, frq: 0 });
+  assert.deepEqual(plugin.settings.testDefaults, { count: 5, minutes: 12, from: 1, to: 0, frq: 0, shuffleChoices: false, passScore: 0 });
   assert.equal(plugin.settings.ai.autoDeclined, false);
   assert.equal(plugin.settings.ai.tutorRole, "private");
 });

@@ -11,6 +11,13 @@ function clampInt(value, min, max, fallback) {
   return Math.min(max, Math.max(min, n));
 }
 
+/** 0 means no pass mark; anything else is a whole percentage from 1 to 100. */
+function normalizePassScore(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(100, n);
+}
+
 /** Fit section counts/minutes to the requested totals without dropping the blueprint's shape. */
 function normalizeSections(raw, totalCount, totalMinutes) {
   const count = clampInt(totalCount, 1, 200, 10);
@@ -110,6 +117,8 @@ function normalizeBlueprint(raw) {
     to: Math.max(0, Math.round(Number(raw.to) || 0)),
     mode: str(raw.mode).trim() || "random",
     frq: clampInt(raw.frq, 0, 20, 0),
+    shuffleChoices: !!raw.shuffleChoices,
+    passScore: normalizePassScore(raw.passScore),
     sections: normalizeSections(raw.sections, count, minutes),
   };
 }
@@ -118,6 +127,7 @@ module.exports = {
   buildSections,
   clampInt,
   normalizeBlueprint,
+  normalizePassScore,
   normalizeSections,
   sectionAt,
 };

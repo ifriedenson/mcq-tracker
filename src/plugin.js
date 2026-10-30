@@ -89,7 +89,7 @@ const { buildAttemptsCsv, buildResultsCsv, resultFileNames } = require("./result
 const { normalizeSupport } = require("./support");
 const { migrateApiKeys } = require("./secret-keys");
 const { hasAttemptId, repairHistoryCounters } = require("./history");
-const { normalizeBlueprint } = require("./exam-sections");
+const { normalizeBlueprint, normalizePassScore } = require("./exam-sections");
 
 function noteBodyText(text) {
   const close = str(text).indexOf("\n---\n", 3);
@@ -550,6 +550,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
     this.settings.testDefaults = Object.assign({}, DEFAULT_SETTINGS.testDefaults, saved.testDefaults || {});
+    this.settings.testDefaults.shuffleChoices = !!this.settings.testDefaults.shuffleChoices;
+    this.settings.testDefaults.passScore = normalizePassScore(this.settings.testDefaults.passScore);
     this.settings.testBlueprints = (Array.isArray(saved.testBlueprints) ? saved.testBlueprints : [])
       .map(normalizeBlueprint)
       .filter(Boolean)
