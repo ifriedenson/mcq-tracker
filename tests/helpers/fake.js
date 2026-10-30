@@ -107,14 +107,30 @@ function makeApp(notes) {
   return app;
 }
 
-/** A page element that accepts any call; every button/input created is recorded so tests can click it. */
+/** A page element that accepts any call, records classes and parentage, and lets tests click it. */
 function makeDom() {
   const all = [];
-  const make = (meta) => {
-    const own = { meta, handlers: [] };
+  const make = (meta, parent) => {
+    const own = {
+      meta,
+      handlers: [],
+      classes: new Set(String(meta.cls || "").split(/\s+/).filter(Boolean)),
+      parent: parent || null,
+      children: [],
+    };
     all.push(own);
+    const setClass = (name, on) => {
+      if (on) own.classes.add(name);
+      else own.classes.delete(name);
+    };
+    const child = (tag, opts) => {
+      const element = make(Object.assign({ tag }, opts || {}), own);
+      own.children.push(element.__own);
+      return element;
+    };
     return new Proxy(function () {}, {
       get(_t, k) {
+        if (k === "__own") return own;
         if (k === Symbol.toPrimitive) return () => "";
         if (k === "then") return undefined;
         if (k === "style") {
@@ -122,18 +138,41 @@ function makeDom() {
           return own.style;
         }
         if (k === "value") return own.value === undefined ? "" : own.value;
-        if (k === "hasClass") return () => false;
+        if (k === "classList") {
+          return {
+            add: (...names) => names.forEach((name) => setClass(name, true)),
+            remove: (...names) => names.forEach((name) => setClass(name, false)),
+            contains: (name) => own.classes.has(name),
+            toggle: (name, force) => {
+              const on = force === undefined ? !own.classes.has(name) : !!force;
+              setClass(name, on);
+              return on;
+            },
+          };
+        }
+        if (k === "hasClass") return (name) => own.classes.has(name);
+        if (k === "addClass") return (...names) => names.forEach((name) => setClass(name, true));
+        if (k === "removeClass") return (...names) => names.forEach((name) => setClass(name, false));
+        if (k === "toggleClass") {
+          return (name, force) => {
+            const on = force === undefined ? !own.classes.has(name) : !!force;
+            setClass(name, on);
+            return on;
+          };
+        }
         if (k === "isConnected") return true;
         if (k === "scrollTop") return 0;
         if (k === "addEventListener") return (ev, fn) => own.handlers.push({ ev, fn });
-        if (k === "setAttr") return (name, value) => {
-          own.meta.attrs = own.meta.attrs || {};
-          own.meta.attrs[name] = value;
-        };
-        if (k === "getAttr") return (name) => (own.meta.attrs || {})[name];
-        if (k === "createEl" || k === "createDiv" || k === "createSpan") {
-          return (a, b) => make(k === "createEl" ? Object.assign({ tag: a }, b || {}) : Object.assign({ tag: k === "createDiv" ? "div" : "span" }, a || {}));
+        if (k === "setAttr") {
+          return (name, value) => {
+            own.meta.attrs = own.meta.attrs || {};
+            own.meta.attrs[name] = value;
+          };
         }
+        if (k === "getAttr") return (name) => (own.meta.attrs || {})[name];
+        if (k === "createEl") return (tag, opts) => child(tag, opts);
+        if (k === "createDiv") return (opts) => child("div", opts);
+        if (k === "createSpan") return (opts) => child("span", opts);
         return () => make({});
       },
       set(_t, k, v) {

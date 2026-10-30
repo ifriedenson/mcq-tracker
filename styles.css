@@ -3512,45 +3512,9 @@
   margin-top: 8px;
 }
 
-@media (min-width: 1600px) {
-  .qt-today-panel {
-    grid-column: span 3;
-  }
-
-  .qt-today-panel-wide {
-    grid-column: span 6;
-  }
-
-  .qt-today-panel-full {
-    grid-column: 1 / -1;
-  }
-}
-
-@media (max-width: 1100px) {
-  .qt-today-panel,
-  .qt-today-panel-wide {
-    grid-column: span 6;
-  }
-
-  .qt-today-panel-full {
-    grid-column: 1 / -1;
-  }
-}
-
 @media (max-width: 700px) {
   .qt-today {
-    max-width: none;
     padding: 16px 14px 24px;
-  }
-
-  .qt-today-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .qt-today-panel,
-  .qt-today-panel-wide,
-  .qt-today-panel-full {
-    grid-column: 1;
   }
 
   .qt-today-hero {
@@ -3569,6 +3533,47 @@
 
   .qt-today-start {
     min-height: 60px;
+  }
+}
+
+/* Window-width rules are only a fallback for Obsidian builds without
+   container-query support. Modern builds use the pane-width queries below. */
+@supports not (container-type: inline-size) {
+  @media (min-width: 1600px) {
+    .qt-today-panel {
+      grid-column: span 3;
+    }
+
+    .qt-today-panel-wide {
+      grid-column: span 6;
+    }
+
+    .qt-today-panel-full {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @media (max-width: 1100px) {
+    .qt-today-panel,
+    .qt-today-panel-wide {
+      grid-column: span 6;
+    }
+
+    .qt-today-panel-full {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @media (max-width: 700px) {
+    .qt-today-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .qt-today-panel,
+    .qt-today-panel-wide,
+    .qt-today-panel-full {
+      grid-column: 1;
+    }
   }
 }
 
