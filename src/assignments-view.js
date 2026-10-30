@@ -3,7 +3,7 @@ const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_ASSIGNMENTS } = require("./constants");
 const { localDate } = require("./util");
 const { AssignmentModal } = require("./assignments-modal");
-const { assignmentTasks, dueState } = require("./assignments");
+const { assignmentTasks, dueState, formatEstimate } = require("./assignments");
 
 const numberText = (value) => (value === null || value === undefined ? "—" : `${Math.round(Number(value) * 10) / 10}%`);
 
@@ -59,6 +59,14 @@ class AssignmentsView extends ItemView {
     const actions = root.createDiv({ cls: "qt-row qt-small-row" });
     actions.createEl("button", { text: "Add assignment", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.openNew());
     actions.createEl("button", { text: "Assignment settings" }).addEventListener("click", () => p.openSettings());
+
+    const work = stats.workload;
+    if (work && work.total) {
+      root.createDiv({
+        cls: "qt-assignment-workload",
+        text: `Estimated workload · today ${formatEstimate(work.todayMinutes) || "0m"} · next 7 days ${formatEstimate(work.weekMinutes) || "0m"}${work.overdueMinutes ? ` · overdue ${formatEstimate(work.overdueMinutes)}` : ""}`,
+      });
+    }
 
     if (stats.gpa !== null) {
       const card = root.createDiv({ cls: "qt-assignment-gpa" });
@@ -164,7 +172,7 @@ class AssignmentsView extends ItemView {
       main.createDiv({ cls: "qt-assignment-task-title", text: a.title });
       main.createDiv({
         cls: "qt-assignment-task-meta",
-        text: [a.course, a.typeLabel, a.due ? state.label : "No due date", a.percent === null ? "" : numberText(a.percent)].filter(Boolean).join(" · "),
+        text: [a.course, a.typeLabel, a.due ? state.label : "No due date", a.estimate ? `~${formatEstimate(a.estimate)}` : "", a.percent === null ? "" : numberText(a.percent)].filter(Boolean).join(" · "),
       });
       row.createSpan({ cls: `qt-assignment-status is-${a.status}`, text: a.statusLabel });
       const buttons = row.createDiv({ cls: "qt-assignment-task-actions" });

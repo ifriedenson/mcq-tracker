@@ -12,7 +12,7 @@ const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSetting
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { AssignmentsView } = require("./assignments-view");
 const { AssignmentModal } = require("./assignments-modal");
-const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskTitle } = require("./assignments");
+const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimateMinutes, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskEstimate, updateTaskTitle } = require("./assignments");
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
@@ -56,7 +56,7 @@ const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entry
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
-const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseFlashQuizText, parseGiftText, parseMarkdownQuiz, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizPortJson, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
+const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseFlashQuizText, parseGiftText, parseMarkdownQuiz, parseMarkdownTable, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizPortJson, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
 const { buildMochiArchive, cardsToMochiDecks, mochiMediaWarning } = require("./mochi-export");
 const { cardsToLearnKit, parseLearnKit } = require("./learnkit");
@@ -1578,6 +1578,9 @@ class QuestionTrackerPlugin extends Plugin {
       else delete fm.due;
       fm.status = status;
       fm.weight = Math.max(0.01, Number(data.weight) || 1);
+      const estimate = estimateMinutes(data.estimate);
+      if (estimate) fm.estimate = estimate;
+      else delete fm.estimate;
       if (String(data.points || "").trim() === "") delete fm.points;
       else fm.points = Number(data.points);
       if (String(data.score || "").trim() === "") delete fm.score;
@@ -1587,6 +1590,7 @@ class QuestionTrackerPlugin extends Plugin {
     });
     const text = await this.app.vault.read(file);
     let next = updateTaskTitle(updateTaskDue(text, data.due), data.title);
+    next = updateTaskEstimate(next, data.estimate);
     next = updateTaskCheckbox(next, status === "submitted" || status === "graded");
     if (next !== text) await this.app.vault.modify(file, next);
     this.refreshViews();
@@ -5849,6 +5853,32 @@ ${body}
     };
   }
 
+  /** Read the first Markdown table in a note without writing anything. */
+  async previewCardsMarkdownTable(path, options) {
+    const opts = options || {};
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That file is not in the vault.");
+    if (!/\.(md|markdown)$/i.test(String(file.path || ""))) {
+      throw new Error("Choose a .md or .markdown file with a Markdown table.");
+    }
+    const text = await this.app.vault.cachedRead(file);
+    const base = {
+      ...opts,
+      sourcePath: file.path,
+      deck: String(opts.deck || "").trim() || file.basename,
+    };
+    return this.decorateImportPreview(parseMarkdownTable(text, base));
+  }
+
+  /** Import the first Markdown table in a note as ordinary cards. */
+  async importCardsFromMarkdownTable(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    const parsed = await this.previewCardsMarkdownTable(path, opts);
+    const result = await this.importParsedCards(parsed.cards, { ...opts, errors: parsed.errors, skippedDetails: parsed.skippedDetails, source: parsed.source });
+    return { ...result, headers: parsed.headers, mapping: parsed.mapping, headerKey: parsed.headerKey, skippedRows: parsed.skipped, skippedDetails: parsed.skippedDetails, delimiter: parsed.delimiter };
+  }
+
   /** Read a generic CSV/TSV without writing anything, so the import dialog can preview its columns. */
   async previewCardsCsv(path, options) {
     const opts = options || {};
@@ -5995,6 +6025,9 @@ ${body}
         }
       } else if (kind === "csv") {
         const parsed = await this.previewCardsCsv(path, opts);
+        add(parsed);
+      } else if (kind === "mdtable") {
+        const parsed = await this.previewCardsMarkdownTable(path, opts);
         add(parsed);
       } else if (kind === "apkg") {
         const file = this.app.vault.getAbstractFileByPath(String(path || ""));

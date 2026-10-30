@@ -163,7 +163,7 @@ function taskLineOf(text) {
     const m = line.match(/^\s*[-*+]\s*\[([ xX])\]\s+(.+?)\s*$/);
     if (m) {
       const due = dueFromTask(m[2]);
-      return { checked: /x/i.test(m[1]), title: stripTaskMeta(m[2]), due, raw: m[2].trim() };
+      return { checked: /x/i.test(m[1]), title: stripTaskMeta(m[2]), due, estimate: estimateFromTask(m[2]), raw: m[2].trim() };
     }
   }
   return null;
@@ -178,9 +178,49 @@ function dueFromTask(line) {
   return scheduled ? normalizeDate(scheduled[1]) : "";
 }
 
+/** Parse a Tasks estimate: 45, 45m, 1h, 1h 30m, 1.5h or 90 min. Returns minutes. */
+function estimateMinutes(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? clamp(Math.round(value), 0, 10080) : 0;
+  const raw = str(value).trim().toLowerCase();
+  if (!raw) return 0;
+  if (/^\d+(?:\.\d+)?$/.test(raw)) return clamp(Math.round(Number(raw)), 0, 10080);
+  let total = 0;
+  let matched = false;
+  const hours = raw.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)(?![a-z])/);
+  const mins = raw.match(/(\d+(?:\.\d+)?)\s*(?:minutes?|mins?|m)(?![a-z])/);
+  if (hours) {
+    total += Number(hours[1]) * 60;
+    matched = true;
+  }
+  if (mins) {
+    total += Number(mins[1]);
+    matched = true;
+  }
+  return matched ? clamp(Math.round(total), 0, 10080) : 0;
+}
+
+/** Read the ⏱️ estimate from a Tasks line. */
+function estimateFromTask(line) {
+  const raw = str(line);
+  const at = raw.search(/⏱\uFE0F?/u);
+  if (at < 0) return 0;
+  const tail = raw.slice(at).replace(/^⏱\uFE0F?\s*/u, "").split(/[📅⏳🛫🔁✅#]/u)[0];
+  return estimateMinutes(tail);
+}
+
+function formatEstimate(minutes) {
+  const value = Math.max(0, Math.round(Number(minutes) || 0));
+  if (!value) return "";
+  const hours = Math.floor(value / 60);
+  const mins = value % 60;
+  if (!hours) return String(mins) + "m";
+  return mins ? String(hours) + "h " + String(mins) + "m" : String(hours) + "h";
+}
+
 function stripTaskMeta(line) {
   return str(line)
     .replace(/[📅⏳🛫🔁✅]\s*\d{4}-\d{1,2}-\d{1,2}/gu, "")
+    .replace(/⏱\uFE0F?\s*[^📅⏳🛫🔁✅#]+/gu, "")
     .replace(/🔁\s*[^#]+/gu, "")
     .replace(/\s+#[^\s]+/g, "")
     .replace(/\s+/g, " ")
@@ -314,6 +354,8 @@ function scoreOf(fm) {
 function parseAssignment(file, fm, text, settings) {
   const source = fm && typeof fm === "object" ? fm : {};
   const task = taskLineOf(text);
+  const explicitEstimate = source.estimate !== undefined && source.estimate !== null && str(source.estimate).trim() !== "" ? source.estimate : task && task.estimate;
+  const estimate = estimateMinutes(explicitEstimate);
   const type = typeId(source.type || source.assignment_type);
   const status = normalizeStatus(source.status, task && task.checked);
   const due = normalizeDate(source.due || source.due_date || source.deadline || (task && task.due));
@@ -330,6 +372,7 @@ function parseAssignment(file, fm, text, settings) {
     typeLabel: typeLabel(type),
     category: categoryFor(type, source.category),
     due,
+    estimate,
     weight: Math.max(0.01, num(source.weight, 1)),
     status,
     statusLabel: statusLabel(status),
@@ -406,6 +449,43 @@ function courseRow(settings, course, assignments) {
   };
 }
 
+/** Estimated open work for today, tomorrow and the next N days. */
+function workload(assignments, options) {
+  const opts = options || {};
+  const today = normalizeDate(opts.today) || localDate();
+  const days = Math.max(0, num(opts.days, 7));
+  const rows = (Array.isArray(assignments) ? assignments : []).filter((a) => a.open && a.due && a.estimate > 0);
+  const byDay = new Map();
+  let todayMinutes = 0;
+  let tomorrowMinutes = 0;
+  let weekMinutes = 0;
+  let overdueMinutes = 0;
+  for (const a of rows) {
+    const diff = dayDiff(today, a.due);
+    if (diff === null) continue;
+    if (diff < 0) {
+      overdueMinutes += a.estimate;
+      continue;
+    }
+    if (diff === 0) todayMinutes += a.estimate;
+    if (diff === 1) tomorrowMinutes += a.estimate;
+    if (diff <= days) {
+      weekMinutes += a.estimate;
+      byDay.set(a.due, (byDay.get(a.due) || 0) + a.estimate);
+    }
+  }
+  return {
+    today,
+    days,
+    todayMinutes,
+    tomorrowMinutes,
+    weekMinutes,
+    overdueMinutes,
+    total: rows.reduce((sum, a) => sum + a.estimate, 0),
+    byDay: [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, minutes]) => ({ date, minutes })),
+  };
+}
+
 function assignmentStats(assignments, settings, options) {
   const opts = options || {};
   const today = normalizeDate(opts.today) || localDate();
@@ -433,6 +513,7 @@ function assignmentStats(assignments, settings, options) {
   return {
     today,
     assignments: list,
+    workload: workload(list, { today }),
     courses,
     gpa,
     unweightedGpa: unweighted,
@@ -490,7 +571,8 @@ function buildDailyTasks(input) {
       id: `assignment-${row.assignment.id}`,
       kind: "assignment",
       title: row.assignment.title,
-      meta: [row.assignment.course, row.state.label].filter(Boolean).join(" · "),
+      meta: [row.assignment.course, row.state.label, row.assignment.estimate ? `~${formatEstimate(row.assignment.estimate)}` : ""].filter(Boolean).join(" · "),
+      minutes: row.assignment.estimate || 0,
       assignment: row.assignment,
     });
   }
@@ -510,9 +592,10 @@ function safeName(value) {
     .slice(0, 90);
 }
 
-function taskMarkdown(title, due) {
+function taskMarkdown(title, due, estimate) {
   const clean = stripTaskMeta(safeName(title)) || "Assignment";
-  return `- [ ] ${clean}${due ? ` 📅 ${due}` : ""}`;
+  const mins = estimateMinutes(estimate);
+  return `- [ ] ${clean}${due ? ` 📅 ${due}` : ""}${mins ? ` ⏱️ ${formatEstimate(mins)}` : ""}`;
 }
 
 function assignmentMarkdown(data, now) {
@@ -521,6 +604,7 @@ function assignmentMarkdown(data, now) {
   const title = safeName(opts.title) || "Assignment";
   const type = typeId(opts.type);
   const due = normalizeDate(opts.due);
+  const estimate = estimateMinutes(opts.estimate);
   const status = normalizeStatus(opts.status, false);
   const fm = {
     assignment: true,
@@ -536,8 +620,9 @@ function assignmentMarkdown(data, now) {
     score: opts.score === undefined || opts.score === "" ? "" : num(opts.score, ""),
     created: fmtDate(date),
   };
+  if (estimate) fm.estimate = estimate;
   if (status === "submitted" || status === "graded") fm.submitted = fmtDate(date);
-  return `---\n${stringifyYaml(fm)}---\n\n# ${title}\n\n${taskMarkdown(title, due)}\n\n## Notes\n\n`;
+  return `---\n${stringifyYaml(fm)}---\n\n# ${title}\n\n${taskMarkdown(title, due, estimate)}\n\n## Notes\n\n`;
 }
 
 function updateTaskCheckbox(text, checked) {
@@ -548,19 +633,29 @@ function updateTaskTitle(text, title) {
   const clean = stripTaskMeta(safeName(title));
   if (!clean) return str(text);
   return str(text).replace(
-    /^(\s*[-*+]\s+\[[ xX]\]\s+)(.*?)(?=\s*(?:📅|⏳)|\s*$)/m,
+    /^(\s*[-*+]\s+\[[ xX]\]\s+)(.*?)(?=\s*(?:📅|⏳|⏱)|\s*$)/m,
     `$1${clean}`
   );
 }
 
 function updateTaskDue(text, due) {
   const date = normalizeDate(due);
-  const startsWithTask = /^\s*[-*+]\s+\[[ xX]\]/m.test(str(text));
-  if (!startsWithTask) return str(text);
-  return str(text).replace(
-    /^(\s*[-*+]\s+\[[ xX]\]\s+.*?)(?:\s*(?:📅|⏳)\s*\d{4}-\d{1,2}-\d{1,2})?$/m,
-    (line, prefix) => (date ? `${prefix} 📅 ${date}` : prefix)
-  );
+  return str(text).replace(/^(\s*[-*+]\s+\[[ xX]\]\s+)(.*)$/m, (line, prefix, rest) => {
+    const estimate = estimateFromTask(rest);
+    const base = rest
+      .replace(/\s*(?:📅|⏳)\s*\d{4}-\d{1,2}-\d{1,2}/gu, "")
+      .replace(/\s*⏱\uFE0F?\s*[^📅⏳🛫🔁✅#]+/gu, "")
+      .trim();
+    return `${prefix}${base}${date ? ` 📅 ${date}` : ""}${estimate ? ` ⏱️ ${formatEstimate(estimate)}` : ""}`;
+  });
+}
+
+function updateTaskEstimate(text, minutes) {
+  const estimate = estimateMinutes(minutes);
+  return str(text).replace(/^(\s*[-*+]\s+\[[ xX]\]\s+)(.*)$/m, (line, prefix, rest) => {
+    const base = rest.replace(/\s*⏱\uFE0F?\s*[^📅⏳🛫🔁✅#]+/gu, "").trim();
+    return `${prefix}${base}${estimate ? ` ⏱️ ${formatEstimate(estimate)}` : ""}`;
+  });
 }
 
 function statusAfterCheckbox(status, checked) {
@@ -599,6 +694,9 @@ module.exports = {
   courseTarget,
   dueFromTask,
   dueState,
+  estimateFromTask,
+  estimateMinutes,
+  formatEstimate,
   gpaPointsFor,
   isAssignmentNote,
   isDone,
@@ -622,5 +720,7 @@ module.exports = {
   uniquePath,
   updateTaskCheckbox,
   updateTaskDue,
+  updateTaskEstimate,
   updateTaskTitle,
+  workload,
 };

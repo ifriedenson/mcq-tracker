@@ -60,8 +60,12 @@ class AssignmentModal extends Modal {
     const weight = field("Weight inside its category", "1");
     weight.inputEl.type = "number";
     weight.value = a ? String(a.weight) : "1";
+
+    const estimate = field("Time estimate (minutes)", "e.g. 45");
+    estimate.inputEl.type = "number";
+    estimate.value = a && a.estimate ? String(a.estimate) : "";
     const hint = contentEl.createDiv({ cls: "qt-hint" });
-    hint.setText("Category weights (homework, quizzes, tests, exams) are under Settings, Assignments, Grading. Weight here only orders assignments within one category.");
+    hint.setText("Category weights (homework, quizzes, tests, exams) are under Settings, Assignments, Grading. Weight here only orders assignments within one category. A time estimate is optional; 0 or blank means no estimate.");
 
     const row = contentEl.createDiv({ cls: "qt-row" });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
@@ -77,6 +81,7 @@ class AssignmentModal extends Modal {
         points: str(points.value).trim(),
         score: str(score.value).trim(),
         weight: str(weight.value).trim(),
+        estimate: str(estimate.value).trim(),
       };
       if (!data.title) {
         new Notice("Give the assignment a title.");

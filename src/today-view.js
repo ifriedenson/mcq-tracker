@@ -10,7 +10,7 @@ const { recommendApResource, resourceTitle } = require("./ap-exam-resources");
 const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus");
-const { buildDailyTasks } = require("./assignments");
+const { buildDailyTasks, formatEstimate, workload } = require("./assignments");
 const { renderMastery } = require("./analytics-embed");
 const { MASTERY_WINDOWS, bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions } = require("./progress");
 
@@ -387,6 +387,7 @@ class TodayView extends ItemView {
         : 0;
     const tasks = buildDailyTasks({ reviewCount: due.length + cardsDue, assignments, today });
     if (!tasks.length) return;
+    const work = workload(assignments, { today });
     root.createEl("h3", { cls: "qt-today-section", text: "Tasks" });
     const card = root.createDiv({ cls: "qt-today-card qt-tasks-card" });
     for (const task of tasks) {
@@ -403,6 +404,12 @@ class TodayView extends ItemView {
       } else if (task.assignment) {
         row.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => p.openAssignmentNote(task.assignment));
       }
+    }
+    if (work.total) {
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: `Estimated workload · today ${formatEstimate(work.todayMinutes) || "0m"} · next 7 days ${formatEstimate(work.weekMinutes) || "0m"}${work.overdueMinutes ? ` · overdue ${formatEstimate(work.overdueMinutes)}` : ""}`,
+      });
     }
     const actions = card.createDiv({ cls: "qt-row qt-small-row" });
     actions.createEl("button", { text: "Open Assignments" }).addEventListener("click", () => p.activateAssignments());

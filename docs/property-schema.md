@@ -133,7 +133,7 @@ update the existing note instead of creating a duplicate.
 | Property | Type | Meaning |
 | --- | --- | --- |
 | `import_source` | string | Source file or folder. |
-| `import_format` | string | Importer that created the note, for example `anki`, `quizlet`, `quizlet-pdf` or `csv`. |
+| `import_format` | string | Importer that created the note, for example `anki`, `quizlet`, `quizlet-pdf`, `csv` or `mdtable`. |
 | `imported_on` | string | Date of the import. |
 | `import_batch` | string | Groups notes written in one import. |
 | `import_key` | string | Stable key used to recognise the same source note on a later import. |
@@ -149,6 +149,22 @@ update the existing note instead of creating a duplicate.
 | `anki_last_sync` | string | ISO timestamp of the last successful AnkiConnect exchange. |
 | `answer_source` | string | On an FRQ attempt: `typed`, or `photo` when the answer began as a vision transcript of handwritten work. |
 | `answer_pages` | number | On a photo-sourced FRQ attempt: how many photos were read, in order. |
+
+## Assignment notes
+
+Assignments are ordinary notes with `assignment: true`. The gradebook reads these
+properties; the Tasks line is a mirror for Tasks/Dataview queries.
+
+| Property | Type | Meaning |
+| --- | --- | --- |
+| `assignment` | boolean | Marks the note as an assignment. |
+| `assignment_id` | string | Stable id used by the gradebook. |
+| `title`, `course`, `type` | string | Display title, course and one of `homework`, `quiz`, `test`, `exam`, `project`, `other`. |
+| `due` | string | ISO date, mirrored as `📅` in the Tasks line. |
+| `weight` | number | Weight inside its category. |
+| `status` | string | `todo`, `in-progress`, `submitted`, `graded`, `missing` or `excused`. |
+| `points`, `score` | number | Points possible and earned. A missing assignment is zero; ungraded work is left out. |
+| `estimate` | number | Optional planned minutes. Mirrored as `⏱️ 45m` and summed into workload totals. |
 
 ## Dataview examples
 

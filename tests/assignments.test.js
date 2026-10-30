@@ -120,8 +120,8 @@ test("assignments view: shows weighted grades, GPA and a working Mark done butto
   const app = makeApp([
     {
       path: "Assignments/paper.md",
-      fm: { assignment: true, assignment_id: "paper", title: "Paper", course: "Biology", type: "essay", due: "2026-12-01", status: "todo", points: 100, score: 90 },
-      text: "---\nassignment: true\nassignment_id: paper\ntitle: Paper\ncourse: Biology\ntype: essay\ndue: 2026-12-01\nstatus: todo\npoints: 100\nscore: 90\n---\n\n# Paper\n\n- [ ] Paper 📅 2026-12-01\n",
+      fm: { assignment: true, assignment_id: "paper", title: "Paper", course: "Biology", type: "essay", due: "2026-12-01", status: "todo", points: 100, score: 90, estimate: 45 },
+      text: "---\nassignment: true\nassignment_id: paper\ntitle: Paper\ncourse: Biology\ntype: essay\ndue: 2026-12-01\nstatus: todo\npoints: 100\nscore: 90\nestimate: 45\n---\n\n# Paper\n\n- [ ] Paper 📅 2026-12-01 ⏱️ 45m\n",
     },
   ]);
   const plugin = new QT(app);
@@ -139,6 +139,8 @@ test("assignments view: shows weighted grades, GPA and a working Mark done butto
   assert.ok(texts.includes("A-"));
   assert.ok(texts.some((t) => /you need 90% on the final/.test(t)));
   assert.ok(texts.some((t) => /3.70/.test(t)));
+  assert.ok(texts.some((t) => /Estimated workload/.test(t)));
+  assert.ok(texts.some((t) => /~45m/.test(t)));
   await dom.click("Mark done");
   assert.equal(app.files[0].fm.status, "submitted");
   assert.match(app.files[0].text, /- \[x\] Paper/);
@@ -155,12 +157,14 @@ test("plugin: creating an assignment writes the module note and a due task", asy
     due: "2026-11-14",
     points: 100,
     score: 87,
+    estimate: 45,
   });
   assert.equal(result.path, "Assignments/Unit 4 essay.md");
   assert.ok(app.folders.includes("Assignments"));
   assert.match(result.file.text, /assignment: true/);
   assert.match(result.file.text, /course: Biology/);
-  assert.match(result.file.text, /- \[ \] Unit 4 essay 📅 2026-11-14/);
+  assert.match(result.file.text, /estimate: 45/);
+  assert.match(result.file.text, /- \[ \] Unit 4 essay 📅 2026-11-14 ⏱️ 45m/);
 });
 
 test("assignments: settings normalize bad saved values and deduplicate courses", () => {
@@ -191,4 +195,46 @@ test("assignments: a calendar course credit fills the GPA when no explicit credi
   assert.equal(T.assignments.courseCredits(settings, "CHEM 101"), 5);
   assert.equal(T.assignments.courseCredits(settings, "Biology"), 4, "an explicit assignment credit wins");
   assert.equal(T.assignments.courseCredits({ courses: [] }, "Unknown"), 3);
+});
+
+test("assignments: task estimates parse, round-trip and feed the workload", () => {
+  const settings = A.normalizeAssignmentSettings({});
+  assert.equal(A.estimateMinutes(45), 45);
+  assert.equal(A.estimateMinutes("1h 30m"), 90);
+  assert.equal(A.estimateMinutes("1.5h"), 90);
+  assert.equal(A.estimateMinutes("90 min"), 90);
+  assert.equal(A.formatEstimate(75), "1h 15m");
+  assert.equal(A.formatEstimate(45), "45m");
+
+  const fromTask = parsed({ course: "Biology" }, "- [ ] Lab report 📅 2026-10-29 ⏱️ 1h 15m\n");
+  assert.equal(fromTask.estimate, 75);
+  assert.equal(fromTask.title, "Lab report");
+  const fromFrontmatter = parsed({ course: "Biology", estimate: 30 }, "- [ ] Lab report 📅 2026-10-29 ⏱️ 1h\n");
+  assert.equal(fromFrontmatter.estimate, 30, "frontmatter wins over the task line");
+
+  const md = A.assignmentMarkdown({ title: "Problem set", course: "Physics", due: "2026-10-30", estimate: 90 }, new Date("2026-10-01T12:00:00"));
+  assert.match(md, /estimate: 90/);
+  assert.match(md, /- \[ \] Problem set 📅 2026-10-30 ⏱️ 1h 30m/);
+  const dueChanged = A.updateTaskDue("- [ ] Lab report 📅 2026-10-29 ⏱️ 1h 15m", "2026-10-30");
+  assert.match(dueChanged, /📅 2026-10-30 ⏱️ 1h 15m/);
+  assert.match(A.updateTaskEstimate(dueChanged, 45), /📅 2026-10-30 ⏱️ 45m/);
+
+  const rows = [
+    parsed({ assignment_id: "today", course: "Bio", due: "2026-10-29", estimate: 45 }),
+    parsed({ assignment_id: "tomorrow", course: "Bio", due: "2026-10-30", estimate: 30 }),
+    parsed({ assignment_id: "late", course: "Bio", due: "2026-10-27", estimate: 60 }),
+    parsed({ assignment_id: "done", course: "Bio", due: "2026-10-29", estimate: 90, status: "submitted" }),
+    parsed({ assignment_id: "none", course: "Bio", due: "2026-10-29" }),
+  ];
+  const work = A.workload(rows, { today: "2026-10-29", days: 7 });
+  assert.equal(work.todayMinutes, 45);
+  assert.equal(work.tomorrowMinutes, 30);
+  assert.equal(work.weekMinutes, 75);
+  assert.equal(work.overdueMinutes, 60);
+  assert.equal(work.total, 135, "closed and estimate-free assignments are excluded");
+  assert.deepEqual(work.byDay, [
+    { date: "2026-10-29", minutes: 45 },
+    { date: "2026-10-30", minutes: 30 },
+  ]);
+  assert.equal(A.assignmentStats(rows, settings, { today: "2026-10-29" }).workload.todayMinutes, 45);
 });

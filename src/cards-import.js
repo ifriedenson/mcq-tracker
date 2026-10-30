@@ -16,7 +16,7 @@ const { parseCloze } = require("./cards");
 const { learnkitExportHint } = require("./learnkit");
 const { apkgExportHint } = require("./apkg-export");
 
-const IMPORT_TYPES = ["spaced", "mochi", "learnkit", "crowdanki", "anki", "apkg", "quizlet", "gift", "moodlexml", "qti", "flashquiz", "quizport", "mdquiz", "kahoot", "blooket", "gimkit", "csv"];
+const IMPORT_TYPES = ["spaced", "mochi", "learnkit", "crowdanki", "anki", "apkg", "quizlet", "gift", "moodlexml", "qti", "flashquiz", "quizport", "mdquiz", "kahoot", "blooket", "gimkit", "csv", "mdtable"];
 const QUESTION_SET_TYPES = ["kahoot", "blooket", "gimkit"];
 
 function stripFrontmatter(text) {
@@ -445,6 +445,155 @@ function parseGenericCsv(text, options) {
     });
   }
   return { cards, skipped, errors, source, format: "csv", delimiter, headers, hasHeader, mapping, detected, headerKey, preview: sample.length ? sample : dataRows.slice(0, 5).map(previewRow), skippedDetails };
+}
+
+/* ---- Markdown tables */
+
+/** Split one pipe-table row, honouring escaped pipes and inline code spans. */
+function markdownTableCells(line) {
+  const raw = str(line).trim().replace(/^\|/, "").replace(/\|$/, "");
+  const cells = [];
+  let cell = "";
+  let code = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch === "\\" && raw[i + 1] === "|") {
+      cell += "|";
+      i++;
+      continue;
+    }
+    if (ch === "`") {
+      code = !code;
+      cell += ch;
+      continue;
+    }
+    if (ch === "|" && !code) {
+      cells.push(cell.trim());
+      cell = "";
+      continue;
+    }
+    cell += ch;
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+function markdownTableSeparator(line) {
+  if (!/\|/.test(str(line))) return false;
+  const cells = markdownTableCells(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+/**
+ * Parse the first Markdown table in a note. The header row is mapped with the
+ * same aliases as the generic CSV importer (question/answer, term/definition,
+ * deck, course, tags, notes, type). Escaped pipes and inline-code pipes stay in
+ * their cell; <br> becomes a line break.
+ */
+function parseMarkdownTable(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "Markdown table");
+  const fallbackDeck = str(opts.deck).trim() || "Imported";
+  const body = stripFrontmatter(str(text)).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  const lines = body.split("\n");
+  let start = -1;
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (!/\|/.test(lines[i])) continue;
+    if (!markdownTableSeparator(lines[i + 1])) continue;
+    start = i;
+    break;
+  }
+  const empty = (message) => ({
+    cards: [],
+    skipped: 0,
+    errors: [message],
+    source,
+    format: "mdtable",
+    delimiter: "|",
+    headers: [],
+    hasHeader: false,
+    mapping: normalizeGenericMapping(null, 0),
+    detected: normalizeGenericMapping(null, 0),
+    headerKey: genericHeaderKey([], false, "|"),
+    preview: [],
+    skippedDetails: [],
+  });
+  if (start < 0) return empty("No Markdown table found. Add a header row and a | --- | separator row.");
+
+  const headers = markdownTableCells(lines[start]);
+  const dataRows = [];
+  for (let i = start + 2; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || !/\|/.test(line)) break;
+    if (markdownTableSeparator(line)) continue;
+    dataRows.push(markdownTableCells(line));
+  }
+  const width = Math.max(headers.length, ...dataRows.map((row) => row.length));
+  const paddedHeaders = headers.concat(Array.from({ length: Math.max(0, width - headers.length) }, (_, i) => `Column ${headers.length + i + 1}`));
+  const detected = detectGenericMapping(paddedHeaders);
+  if (detected.front < 0 && width > 0) detected.front = 0;
+  if (detected.back < 0 && width > 1) detected.back = 1;
+  const mapping = normalizeGenericMapping(opts.mapping === undefined ? detected : { ...detected, ...opts.mapping }, width);
+  const headerKey = genericHeaderKey(paddedHeaders, true, "|");
+  const previewRow = (row, r) => ({
+    row: start + 3 + r,
+    front: mapping.front >= 0 ? genericCell(row[mapping.front]) : "",
+    back: mapping.back >= 0 ? genericCell(row[mapping.back]) : "",
+    deck: mapping.deck >= 0 ? genericCell(row[mapping.deck]) : "",
+    course: mapping.course >= 0 ? genericCell(row[mapping.course]) : "",
+  });
+  const sample = dataRows.slice(0, 5).map(previewRow);
+  if (mapping.front < 0 || mapping.back < 0) {
+    return {
+      ...empty("Choose a Front column and a Back column before importing."),
+      headers: paddedHeaders,
+      hasHeader: true,
+      mapping,
+      detected,
+      headerKey,
+      preview: sample,
+    };
+  }
+
+  const rows = [];
+  const errors = [];
+  const preview = [];
+  let skipped = 0;
+  const skippedDetails = [];
+  const cellText = (value) => genericCell(value).replace(/<br\s*\/?>/gi, "\n");
+  for (let r = 0; r < dataRows.length; r++) {
+    const row = dataRows[r];
+    const front = mapping.front >= 0 ? cellText(row[mapping.front]) : "";
+    const back = mapping.back >= 0 ? cellText(row[mapping.back]) : "";
+    const rowNumber = start + 3 + r;
+    if (!front || !back) {
+      skipped++;
+      skippedDetails.push({ row: rowNumber, reason: "Needs both a front and a back" });
+      errors.push(`${source}: row ${rowNumber} needs both a front and a back.`);
+      continue;
+    }
+    const deck = (mapping.deck >= 0 ? genericCell(row[mapping.deck]) : "") || fallbackDeck;
+    const course = mapping.course >= 0 ? genericCell(row[mapping.course]) : "";
+    const notes = mapping.notes >= 0 ? cellText(row[mapping.notes]) : "";
+    const tags = mapping.tags >= 0 ? genericTags(row[mapping.tags]) : [];
+    const cardType = genericCardType(mapping.type >= 0 ? row[mapping.type] : "", front);
+    rows.push({
+      kind: "card",
+      cardType,
+      deck,
+      course,
+      front,
+      back,
+      notes,
+      tags,
+      importSource: source,
+      importFormat: "mdtable",
+      importedOn: opts.importedOn || localDate(),
+      importKey: `mdtable:${hashString(source + "|" + headerKey + "|" + front + "|" + back + "|" + deck)}`,
+    });
+    if (preview.length < 5) preview.push(previewRow(row, r));
+  }
+  return { cards: rows, skipped, errors, source, format: "mdtable", delimiter: "|", headers: paddedHeaders, hasHeader: true, mapping, detected, headerKey, preview: preview.length ? preview : sample, skippedDetails };
 }
 
 function csvCell(value) {
@@ -2058,6 +2207,7 @@ class CardImportModal extends Modal {
     type.createEl("option", { text: "FlashQuiz text (@mc / @sata / @tf)", value: "flashquiz" });
     type.createEl("option", { text: "QuizPort JSON (.json)", value: "quizport" });
     type.createEl("option", { text: "Markdown checkbox quiz (.md)", value: "mdquiz" });
+    type.createEl("option", { text: "Markdown table (Front / Back columns)", value: "mdtable" });
     type.createEl("option", { text: "Generic CSV / TSV (choose columns)", value: "csv" });
     type.createEl("option", { text: "Kahoot spreadsheet (CSV)", value: "kahoot" });
     type.createEl("option", { text: "Blooket spreadsheet (CSV)", value: "blooket" });
@@ -2124,7 +2274,7 @@ class CardImportModal extends Modal {
         if (!candidates.length) source.createEl("option", { text: missing, value: "" });
         for (const f of candidates) source.createEl("option", { text: f.path, value: f.path });
       }
-      const sourceLabels = { spaced: "Folder to scan", mochi: "Mochi Markdown folder", learnkit: "LearnKit note or folder", crowdanki: "CrowdAnki JSON file", quizlet: "Quizlet text export or PDF", anki: "Anki text export", apkg: "Anki package", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", flashquiz: "FlashQuiz text file", quizport: "QuizPort JSON file", mdquiz: "Markdown quiz note", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
+      const sourceLabels = { spaced: "Folder to scan", mochi: "Mochi Markdown folder", learnkit: "LearnKit note or folder", crowdanki: "CrowdAnki JSON file", quizlet: "Quizlet text export or PDF", anki: "Anki text export", apkg: "Anki package", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", flashquiz: "FlashQuiz text file", quizport: "QuizPort JSON file", mdquiz: "Markdown quiz note", mdtable: "Markdown table note", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
       sourceLabel.setText(sourceLabels[this.type] || "Import file");
     };
     refreshOptions();
@@ -2279,6 +2429,7 @@ class CardImportModal extends Modal {
       if (this.type === "flashquiz") return "FlashQuiz: save the quiz text as a .txt or .md file in this vault. A prompt is followed by @mc, @sata or @tf and its options; mark correct choices with [x] or +, or add an Answer: line.";
       if (this.type === "quizport") return "QuizPort: save the quiz .json in this vault. A question array, or an object with a questions array, is read; choices may be strings or { text, correct } objects, and correct accepts an index, a letter or the choice text.";
       if (this.type === "mdquiz") return "Markdown quiz: each ## or ### heading is a question and the - [ ] / - [x] lines under it are the choices. More than one box may be checked; an Answer: line works when no box is checked.";
+      if (this.type === "mdtable") return "Markdown table: the first table in the note is read. Its header row supplies the columns (Question/Answer or Front/Back, plus Deck, Course, Tags, Notes and Type). Escaped pipes stay in a cell, and <br> becomes a line break.";
       if (this.type === "csv") return "Read a CSV or TSV with a header row. Front/term/question and Back/definition/answer columns are detected automatically; check or change the mapping, then import. Mappings are remembered for the same header layout.";
       if (this.type === "anki") return ankiExportHint() + " To bring in a whole package with its notes and basic scheduling metadata, choose Anki package (.apkg) instead.";
       if (this.type === "apkg") return "Anki: File → Export → Anki Deck Package (.apkg), save it in this vault, then choose it here. Notes, decks, tags, cloze cards and basic review dates are read; images and audio are not imported. Newer zstd-compressed packages are rejected with a text-export hint.";
@@ -2475,8 +2626,10 @@ class CardImportModal extends Modal {
                   ? await p.importCardsFromQuizlet(path, options)
                   : this.type === "apkg"
                     ? await p.importCardsFromApkg(path, options)
-                    : this.type === "csv"
-                      ? await p.importCardsFromCsv(path, { ...options, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked })
+                    : this.type === "mdtable"
+                      ? await p.importCardsFromMarkdownTable(path, options)
+                      : this.type === "csv"
+                        ? await p.importCardsFromCsv(path, { ...options, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked })
                       : QUESTION_SET_TYPES.includes(this.type)
                         ? await p.importCardsFromQuestionSet(path, this.type, options)
                         : this.type === "flashquiz"
@@ -2608,6 +2761,8 @@ module.exports = {
   parseFlashQuizText,
   parseQuizPortJson,
   parseMarkdownQuiz,
+  parseMarkdownTable,
+  markdownTableCells,
   parseMochiMarkdown,
   parseCrowdAnkiJson,
   parseQuizletText,

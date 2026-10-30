@@ -5523,7 +5523,7 @@ function taskLineOf(text) {
     const m = line.match(/^\s*[-*+]\s*\[([ xX])\]\s+(.+?)\s*$/);
     if (m) {
       const due = dueFromTask(m[2]);
-      return { checked: /x/i.test(m[1]), title: stripTaskMeta(m[2]), due, raw: m[2].trim() };
+      return { checked: /x/i.test(m[1]), title: stripTaskMeta(m[2]), due, estimate: estimateFromTask(m[2]), raw: m[2].trim() };
     }
   }
   return null;
@@ -5538,9 +5538,49 @@ function dueFromTask(line) {
   return scheduled ? normalizeDate(scheduled[1]) : "";
 }
 
+/** Parse a Tasks estimate: 45, 45m, 1h, 1h 30m, 1.5h or 90 min. Returns minutes. */
+function estimateMinutes(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? clamp(Math.round(value), 0, 10080) : 0;
+  const raw = str(value).trim().toLowerCase();
+  if (!raw) return 0;
+  if (/^\d+(?:\.\d+)?$/.test(raw)) return clamp(Math.round(Number(raw)), 0, 10080);
+  let total = 0;
+  let matched = false;
+  const hours = raw.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)(?![a-z])/);
+  const mins = raw.match(/(\d+(?:\.\d+)?)\s*(?:minutes?|mins?|m)(?![a-z])/);
+  if (hours) {
+    total += Number(hours[1]) * 60;
+    matched = true;
+  }
+  if (mins) {
+    total += Number(mins[1]);
+    matched = true;
+  }
+  return matched ? clamp(Math.round(total), 0, 10080) : 0;
+}
+
+/** Read the ⏱️ estimate from a Tasks line. */
+function estimateFromTask(line) {
+  const raw = str(line);
+  const at = raw.search(/⏱\uFE0F?/u);
+  if (at < 0) return 0;
+  const tail = raw.slice(at).replace(/^⏱\uFE0F?\s*/u, "").split(/[📅⏳🛫🔁✅#]/u)[0];
+  return estimateMinutes(tail);
+}
+
+function formatEstimate(minutes) {
+  const value = Math.max(0, Math.round(Number(minutes) || 0));
+  if (!value) return "";
+  const hours = Math.floor(value / 60);
+  const mins = value % 60;
+  if (!hours) return String(mins) + "m";
+  return mins ? String(hours) + "h " + String(mins) + "m" : String(hours) + "h";
+}
+
 function stripTaskMeta(line) {
   return str(line)
     .replace(/[📅⏳🛫🔁✅]\s*\d{4}-\d{1,2}-\d{1,2}/gu, "")
+    .replace(/⏱\uFE0F?\s*[^📅⏳🛫🔁✅#]+/gu, "")
     .replace(/🔁\s*[^#]+/gu, "")
     .replace(/\s+#[^\s]+/g, "")
     .replace(/\s+/g, " ")
@@ -5674,6 +5714,8 @@ function scoreOf(fm) {
 function parseAssignment(file, fm, text, settings) {
   const source = fm && typeof fm === "object" ? fm : {};
   const task = taskLineOf(text);
+  const explicitEstimate = source.estimate !== undefined && source.estimate !== null && str(source.estimate).trim() !== "" ? source.estimate : task && task.estimate;
+  const estimate = estimateMinutes(explicitEstimate);
   const type = typeId(source.type || source.assignment_type);
   const status = normalizeStatus(source.status, task && task.checked);
   const due = normalizeDate(source.due || source.due_date || source.deadline || (task && task.due));
@@ -5690,6 +5732,7 @@ function parseAssignment(file, fm, text, settings) {
     typeLabel: typeLabel(type),
     category: categoryFor(type, source.category),
     due,
+    estimate,
     weight: Math.max(0.01, num(source.weight, 1)),
     status,
     statusLabel: statusLabel(status),
@@ -5766,6 +5809,43 @@ function courseRow(settings, course, assignments) {
   };
 }
 
+/** Estimated open work for today, tomorrow and the next N days. */
+function workload(assignments, options) {
+  const opts = options || {};
+  const today = normalizeDate(opts.today) || localDate();
+  const days = Math.max(0, num(opts.days, 7));
+  const rows = (Array.isArray(assignments) ? assignments : []).filter((a) => a.open && a.due && a.estimate > 0);
+  const byDay = new Map();
+  let todayMinutes = 0;
+  let tomorrowMinutes = 0;
+  let weekMinutes = 0;
+  let overdueMinutes = 0;
+  for (const a of rows) {
+    const diff = dayDiff(today, a.due);
+    if (diff === null) continue;
+    if (diff < 0) {
+      overdueMinutes += a.estimate;
+      continue;
+    }
+    if (diff === 0) todayMinutes += a.estimate;
+    if (diff === 1) tomorrowMinutes += a.estimate;
+    if (diff <= days) {
+      weekMinutes += a.estimate;
+      byDay.set(a.due, (byDay.get(a.due) || 0) + a.estimate);
+    }
+  }
+  return {
+    today,
+    days,
+    todayMinutes,
+    tomorrowMinutes,
+    weekMinutes,
+    overdueMinutes,
+    total: rows.reduce((sum, a) => sum + a.estimate, 0),
+    byDay: [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, minutes]) => ({ date, minutes })),
+  };
+}
+
 function assignmentStats(assignments, settings, options) {
   const opts = options || {};
   const today = normalizeDate(opts.today) || localDate();
@@ -5793,6 +5873,7 @@ function assignmentStats(assignments, settings, options) {
   return {
     today,
     assignments: list,
+    workload: workload(list, { today }),
     courses,
     gpa,
     unweightedGpa: unweighted,
@@ -5850,7 +5931,8 @@ function buildDailyTasks(input) {
       id: `assignment-${row.assignment.id}`,
       kind: "assignment",
       title: row.assignment.title,
-      meta: [row.assignment.course, row.state.label].filter(Boolean).join(" · "),
+      meta: [row.assignment.course, row.state.label, row.assignment.estimate ? `~${formatEstimate(row.assignment.estimate)}` : ""].filter(Boolean).join(" · "),
+      minutes: row.assignment.estimate || 0,
       assignment: row.assignment,
     });
   }
@@ -5870,9 +5952,10 @@ function safeName(value) {
     .slice(0, 90);
 }
 
-function taskMarkdown(title, due) {
+function taskMarkdown(title, due, estimate) {
   const clean = stripTaskMeta(safeName(title)) || "Assignment";
-  return `- [ ] ${clean}${due ? ` 📅 ${due}` : ""}`;
+  const mins = estimateMinutes(estimate);
+  return `- [ ] ${clean}${due ? ` 📅 ${due}` : ""}${mins ? ` ⏱️ ${formatEstimate(mins)}` : ""}`;
 }
 
 function assignmentMarkdown(data, now) {
@@ -5881,6 +5964,7 @@ function assignmentMarkdown(data, now) {
   const title = safeName(opts.title) || "Assignment";
   const type = typeId(opts.type);
   const due = normalizeDate(opts.due);
+  const estimate = estimateMinutes(opts.estimate);
   const status = normalizeStatus(opts.status, false);
   const fm = {
     assignment: true,
@@ -5896,8 +5980,9 @@ function assignmentMarkdown(data, now) {
     score: opts.score === undefined || opts.score === "" ? "" : num(opts.score, ""),
     created: fmtDate(date),
   };
+  if (estimate) fm.estimate = estimate;
   if (status === "submitted" || status === "graded") fm.submitted = fmtDate(date);
-  return `---\n${stringifyYaml(fm)}---\n\n# ${title}\n\n${taskMarkdown(title, due)}\n\n## Notes\n\n`;
+  return `---\n${stringifyYaml(fm)}---\n\n# ${title}\n\n${taskMarkdown(title, due, estimate)}\n\n## Notes\n\n`;
 }
 
 function updateTaskCheckbox(text, checked) {
@@ -5908,19 +5993,29 @@ function updateTaskTitle(text, title) {
   const clean = stripTaskMeta(safeName(title));
   if (!clean) return str(text);
   return str(text).replace(
-    /^(\s*[-*+]\s+\[[ xX]\]\s+)(.*?)(?=\s*(?:📅|⏳)|\s*$)/m,
+    /^(\s*[-*+]\s+\[[ xX]\]\s+)(.*?)(?=\s*(?:📅|⏳|⏱)|\s*$)/m,
     `$1${clean}`
   );
 }
 
 function updateTaskDue(text, due) {
   const date = normalizeDate(due);
-  const startsWithTask = /^\s*[-*+]\s+\[[ xX]\]/m.test(str(text));
-  if (!startsWithTask) return str(text);
-  return str(text).replace(
-    /^(\s*[-*+]\s+\[[ xX]\]\s+.*?)(?:\s*(?:📅|⏳)\s*\d{4}-\d{1,2}-\d{1,2})?$/m,
-    (line, prefix) => (date ? `${prefix} 📅 ${date}` : prefix)
-  );
+  return str(text).replace(/^(\s*[-*+]\s+\[[ xX]\]\s+)(.*)$/m, (line, prefix, rest) => {
+    const estimate = estimateFromTask(rest);
+    const base = rest
+      .replace(/\s*(?:📅|⏳)\s*\d{4}-\d{1,2}-\d{1,2}/gu, "")
+      .replace(/\s*⏱\uFE0F?\s*[^📅⏳🛫🔁✅#]+/gu, "")
+      .trim();
+    return `${prefix}${base}${date ? ` 📅 ${date}` : ""}${estimate ? ` ⏱️ ${formatEstimate(estimate)}` : ""}`;
+  });
+}
+
+function updateTaskEstimate(text, minutes) {
+  const estimate = estimateMinutes(minutes);
+  return str(text).replace(/^(\s*[-*+]\s+\[[ xX]\]\s+)(.*)$/m, (line, prefix, rest) => {
+    const base = rest.replace(/\s*⏱\uFE0F?\s*[^📅⏳🛫🔁✅#]+/gu, "").trim();
+    return `${prefix}${base}${estimate ? ` ⏱️ ${formatEstimate(estimate)}` : ""}`;
+  });
 }
 
 function statusAfterCheckbox(status, checked) {
@@ -5959,6 +6054,9 @@ module.exports = {
   courseTarget,
   dueFromTask,
   dueState,
+  estimateFromTask,
+  estimateMinutes,
+  formatEstimate,
   gpaPointsFor,
   isAssignmentNote,
   isDone,
@@ -5982,7 +6080,9 @@ module.exports = {
   uniquePath,
   updateTaskCheckbox,
   updateTaskDue,
+  updateTaskEstimate,
   updateTaskTitle,
+  workload,
 };
 };
 
@@ -6049,8 +6149,12 @@ class AssignmentModal extends Modal {
     const weight = field("Weight inside its category", "1");
     weight.inputEl.type = "number";
     weight.value = a ? String(a.weight) : "1";
+
+    const estimate = field("Time estimate (minutes)", "e.g. 45");
+    estimate.inputEl.type = "number";
+    estimate.value = a && a.estimate ? String(a.estimate) : "";
     const hint = contentEl.createDiv({ cls: "qt-hint" });
-    hint.setText("Category weights (homework, quizzes, tests, exams) are under Settings, Assignments, Grading. Weight here only orders assignments within one category.");
+    hint.setText("Category weights (homework, quizzes, tests, exams) are under Settings, Assignments, Grading. Weight here only orders assignments within one category. A time estimate is optional; 0 or blank means no estimate.");
 
     const row = contentEl.createDiv({ cls: "qt-row" });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
@@ -6066,6 +6170,7 @@ class AssignmentModal extends Modal {
         points: str(points.value).trim(),
         score: str(score.value).trim(),
         weight: str(weight.value).trim(),
+        estimate: str(estimate.value).trim(),
       };
       if (!data.title) {
         new Notice("Give the assignment a title.");
@@ -6359,7 +6464,7 @@ const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_ASSIGNMENTS } = require("./constants");
 const { localDate } = require("./util");
 const { AssignmentModal } = require("./assignments-modal");
-const { assignmentTasks, dueState } = require("./assignments");
+const { assignmentTasks, dueState, formatEstimate } = require("./assignments");
 
 const numberText = (value) => (value === null || value === undefined ? "—" : `${Math.round(Number(value) * 10) / 10}%`);
 
@@ -6415,6 +6520,14 @@ class AssignmentsView extends ItemView {
     const actions = root.createDiv({ cls: "qt-row qt-small-row" });
     actions.createEl("button", { text: "Add assignment", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.openNew());
     actions.createEl("button", { text: "Assignment settings" }).addEventListener("click", () => p.openSettings());
+
+    const work = stats.workload;
+    if (work && work.total) {
+      root.createDiv({
+        cls: "qt-assignment-workload",
+        text: `Estimated workload · today ${formatEstimate(work.todayMinutes) || "0m"} · next 7 days ${formatEstimate(work.weekMinutes) || "0m"}${work.overdueMinutes ? ` · overdue ${formatEstimate(work.overdueMinutes)}` : ""}`,
+      });
+    }
 
     if (stats.gpa !== null) {
       const card = root.createDiv({ cls: "qt-assignment-gpa" });
@@ -6520,7 +6633,7 @@ class AssignmentsView extends ItemView {
       main.createDiv({ cls: "qt-assignment-task-title", text: a.title });
       main.createDiv({
         cls: "qt-assignment-task-meta",
-        text: [a.course, a.typeLabel, a.due ? state.label : "No due date", a.percent === null ? "" : numberText(a.percent)].filter(Boolean).join(" · "),
+        text: [a.course, a.typeLabel, a.due ? state.label : "No due date", a.estimate ? `~${formatEstimate(a.estimate)}` : "", a.percent === null ? "" : numberText(a.percent)].filter(Boolean).join(" · "),
       });
       row.createSpan({ cls: `qt-assignment-status is-${a.status}`, text: a.statusLabel });
       const buttons = row.createDiv({ cls: "qt-assignment-task-actions" });
@@ -12468,7 +12581,7 @@ const { parseCloze } = require("./cards");
 const { learnkitExportHint } = require("./learnkit");
 const { apkgExportHint } = require("./apkg-export");
 
-const IMPORT_TYPES = ["spaced", "mochi", "learnkit", "crowdanki", "anki", "apkg", "quizlet", "gift", "moodlexml", "qti", "flashquiz", "quizport", "mdquiz", "kahoot", "blooket", "gimkit", "csv"];
+const IMPORT_TYPES = ["spaced", "mochi", "learnkit", "crowdanki", "anki", "apkg", "quizlet", "gift", "moodlexml", "qti", "flashquiz", "quizport", "mdquiz", "kahoot", "blooket", "gimkit", "csv", "mdtable"];
 const QUESTION_SET_TYPES = ["kahoot", "blooket", "gimkit"];
 
 function stripFrontmatter(text) {
@@ -12897,6 +13010,155 @@ function parseGenericCsv(text, options) {
     });
   }
   return { cards, skipped, errors, source, format: "csv", delimiter, headers, hasHeader, mapping, detected, headerKey, preview: sample.length ? sample : dataRows.slice(0, 5).map(previewRow), skippedDetails };
+}
+
+/* ---- Markdown tables */
+
+/** Split one pipe-table row, honouring escaped pipes and inline code spans. */
+function markdownTableCells(line) {
+  const raw = str(line).trim().replace(/^\|/, "").replace(/\|$/, "");
+  const cells = [];
+  let cell = "";
+  let code = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch === "\\" && raw[i + 1] === "|") {
+      cell += "|";
+      i++;
+      continue;
+    }
+    if (ch === "`") {
+      code = !code;
+      cell += ch;
+      continue;
+    }
+    if (ch === "|" && !code) {
+      cells.push(cell.trim());
+      cell = "";
+      continue;
+    }
+    cell += ch;
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+function markdownTableSeparator(line) {
+  if (!/\|/.test(str(line))) return false;
+  const cells = markdownTableCells(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+/**
+ * Parse the first Markdown table in a note. The header row is mapped with the
+ * same aliases as the generic CSV importer (question/answer, term/definition,
+ * deck, course, tags, notes, type). Escaped pipes and inline-code pipes stay in
+ * their cell; <br> becomes a line break.
+ */
+function parseMarkdownTable(text, options) {
+  const opts = options || {};
+  const source = str(opts.sourcePath || "Markdown table");
+  const fallbackDeck = str(opts.deck).trim() || "Imported";
+  const body = stripFrontmatter(str(text)).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  const lines = body.split("\n");
+  let start = -1;
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (!/\|/.test(lines[i])) continue;
+    if (!markdownTableSeparator(lines[i + 1])) continue;
+    start = i;
+    break;
+  }
+  const empty = (message) => ({
+    cards: [],
+    skipped: 0,
+    errors: [message],
+    source,
+    format: "mdtable",
+    delimiter: "|",
+    headers: [],
+    hasHeader: false,
+    mapping: normalizeGenericMapping(null, 0),
+    detected: normalizeGenericMapping(null, 0),
+    headerKey: genericHeaderKey([], false, "|"),
+    preview: [],
+    skippedDetails: [],
+  });
+  if (start < 0) return empty("No Markdown table found. Add a header row and a | --- | separator row.");
+
+  const headers = markdownTableCells(lines[start]);
+  const dataRows = [];
+  for (let i = start + 2; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || !/\|/.test(line)) break;
+    if (markdownTableSeparator(line)) continue;
+    dataRows.push(markdownTableCells(line));
+  }
+  const width = Math.max(headers.length, ...dataRows.map((row) => row.length));
+  const paddedHeaders = headers.concat(Array.from({ length: Math.max(0, width - headers.length) }, (_, i) => `Column ${headers.length + i + 1}`));
+  const detected = detectGenericMapping(paddedHeaders);
+  if (detected.front < 0 && width > 0) detected.front = 0;
+  if (detected.back < 0 && width > 1) detected.back = 1;
+  const mapping = normalizeGenericMapping(opts.mapping === undefined ? detected : { ...detected, ...opts.mapping }, width);
+  const headerKey = genericHeaderKey(paddedHeaders, true, "|");
+  const previewRow = (row, r) => ({
+    row: start + 3 + r,
+    front: mapping.front >= 0 ? genericCell(row[mapping.front]) : "",
+    back: mapping.back >= 0 ? genericCell(row[mapping.back]) : "",
+    deck: mapping.deck >= 0 ? genericCell(row[mapping.deck]) : "",
+    course: mapping.course >= 0 ? genericCell(row[mapping.course]) : "",
+  });
+  const sample = dataRows.slice(0, 5).map(previewRow);
+  if (mapping.front < 0 || mapping.back < 0) {
+    return {
+      ...empty("Choose a Front column and a Back column before importing."),
+      headers: paddedHeaders,
+      hasHeader: true,
+      mapping,
+      detected,
+      headerKey,
+      preview: sample,
+    };
+  }
+
+  const rows = [];
+  const errors = [];
+  const preview = [];
+  let skipped = 0;
+  const skippedDetails = [];
+  const cellText = (value) => genericCell(value).replace(/<br\s*\/?>/gi, "\n");
+  for (let r = 0; r < dataRows.length; r++) {
+    const row = dataRows[r];
+    const front = mapping.front >= 0 ? cellText(row[mapping.front]) : "";
+    const back = mapping.back >= 0 ? cellText(row[mapping.back]) : "";
+    const rowNumber = start + 3 + r;
+    if (!front || !back) {
+      skipped++;
+      skippedDetails.push({ row: rowNumber, reason: "Needs both a front and a back" });
+      errors.push(`${source}: row ${rowNumber} needs both a front and a back.`);
+      continue;
+    }
+    const deck = (mapping.deck >= 0 ? genericCell(row[mapping.deck]) : "") || fallbackDeck;
+    const course = mapping.course >= 0 ? genericCell(row[mapping.course]) : "";
+    const notes = mapping.notes >= 0 ? cellText(row[mapping.notes]) : "";
+    const tags = mapping.tags >= 0 ? genericTags(row[mapping.tags]) : [];
+    const cardType = genericCardType(mapping.type >= 0 ? row[mapping.type] : "", front);
+    rows.push({
+      kind: "card",
+      cardType,
+      deck,
+      course,
+      front,
+      back,
+      notes,
+      tags,
+      importSource: source,
+      importFormat: "mdtable",
+      importedOn: opts.importedOn || localDate(),
+      importKey: `mdtable:${hashString(source + "|" + headerKey + "|" + front + "|" + back + "|" + deck)}`,
+    });
+    if (preview.length < 5) preview.push(previewRow(row, r));
+  }
+  return { cards: rows, skipped, errors, source, format: "mdtable", delimiter: "|", headers: paddedHeaders, hasHeader: true, mapping, detected, headerKey, preview: preview.length ? preview : sample, skippedDetails };
 }
 
 function csvCell(value) {
@@ -14510,6 +14772,7 @@ class CardImportModal extends Modal {
     type.createEl("option", { text: "FlashQuiz text (@mc / @sata / @tf)", value: "flashquiz" });
     type.createEl("option", { text: "QuizPort JSON (.json)", value: "quizport" });
     type.createEl("option", { text: "Markdown checkbox quiz (.md)", value: "mdquiz" });
+    type.createEl("option", { text: "Markdown table (Front / Back columns)", value: "mdtable" });
     type.createEl("option", { text: "Generic CSV / TSV (choose columns)", value: "csv" });
     type.createEl("option", { text: "Kahoot spreadsheet (CSV)", value: "kahoot" });
     type.createEl("option", { text: "Blooket spreadsheet (CSV)", value: "blooket" });
@@ -14576,7 +14839,7 @@ class CardImportModal extends Modal {
         if (!candidates.length) source.createEl("option", { text: missing, value: "" });
         for (const f of candidates) source.createEl("option", { text: f.path, value: f.path });
       }
-      const sourceLabels = { spaced: "Folder to scan", mochi: "Mochi Markdown folder", learnkit: "LearnKit note or folder", crowdanki: "CrowdAnki JSON file", quizlet: "Quizlet text export or PDF", anki: "Anki text export", apkg: "Anki package", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", flashquiz: "FlashQuiz text file", quizport: "QuizPort JSON file", mdquiz: "Markdown quiz note", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
+      const sourceLabels = { spaced: "Folder to scan", mochi: "Mochi Markdown folder", learnkit: "LearnKit note or folder", crowdanki: "CrowdAnki JSON file", quizlet: "Quizlet text export or PDF", anki: "Anki text export", apkg: "Anki package", gift: "Moodle GIFT file", moodlexml: "Moodle XML file", qti: "QTI XML file", flashquiz: "FlashQuiz text file", quizport: "QuizPort JSON file", mdquiz: "Markdown quiz note", mdtable: "Markdown table note", csv: "CSV or TSV file", kahoot: "Kahoot CSV", blooket: "Blooket CSV", gimkit: "Gimkit CSV" };
       sourceLabel.setText(sourceLabels[this.type] || "Import file");
     };
     refreshOptions();
@@ -14731,6 +14994,7 @@ class CardImportModal extends Modal {
       if (this.type === "flashquiz") return "FlashQuiz: save the quiz text as a .txt or .md file in this vault. A prompt is followed by @mc, @sata or @tf and its options; mark correct choices with [x] or +, or add an Answer: line.";
       if (this.type === "quizport") return "QuizPort: save the quiz .json in this vault. A question array, or an object with a questions array, is read; choices may be strings or { text, correct } objects, and correct accepts an index, a letter or the choice text.";
       if (this.type === "mdquiz") return "Markdown quiz: each ## or ### heading is a question and the - [ ] / - [x] lines under it are the choices. More than one box may be checked; an Answer: line works when no box is checked.";
+      if (this.type === "mdtable") return "Markdown table: the first table in the note is read. Its header row supplies the columns (Question/Answer or Front/Back, plus Deck, Course, Tags, Notes and Type). Escaped pipes stay in a cell, and <br> becomes a line break.";
       if (this.type === "csv") return "Read a CSV or TSV with a header row. Front/term/question and Back/definition/answer columns are detected automatically; check or change the mapping, then import. Mappings are remembered for the same header layout.";
       if (this.type === "anki") return ankiExportHint() + " To bring in a whole package with its notes and basic scheduling metadata, choose Anki package (.apkg) instead.";
       if (this.type === "apkg") return "Anki: File → Export → Anki Deck Package (.apkg), save it in this vault, then choose it here. Notes, decks, tags, cloze cards and basic review dates are read; images and audio are not imported. Newer zstd-compressed packages are rejected with a text-export hint.";
@@ -14927,8 +15191,10 @@ class CardImportModal extends Modal {
                   ? await p.importCardsFromQuizlet(path, options)
                   : this.type === "apkg"
                     ? await p.importCardsFromApkg(path, options)
-                    : this.type === "csv"
-                      ? await p.importCardsFromCsv(path, { ...options, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked })
+                    : this.type === "mdtable"
+                      ? await p.importCardsFromMarkdownTable(path, options)
+                      : this.type === "csv"
+                        ? await p.importCardsFromCsv(path, { ...options, mapping: this.csvMapping, hasHeader: csvHeader.checked, saveMapping: saveMapping.checked })
                       : QUESTION_SET_TYPES.includes(this.type)
                         ? await p.importCardsFromQuestionSet(path, this.type, options)
                         : this.type === "flashquiz"
@@ -15060,6 +15326,8 @@ module.exports = {
   parseFlashQuizText,
   parseQuizPortJson,
   parseMarkdownQuiz,
+  parseMarkdownTable,
+  markdownTableCells,
   parseMochiMarkdown,
   parseCrowdAnkiJson,
   parseQuizletText,
@@ -35071,7 +35339,7 @@ const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSetting
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { AssignmentsView } = require("./assignments-view");
 const { AssignmentModal } = require("./assignments-modal");
-const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskTitle } = require("./assignments");
+const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimateMinutes, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskEstimate, updateTaskTitle } = require("./assignments");
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
@@ -35115,7 +35383,7 @@ const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entry
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
-const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseFlashQuizText, parseGiftText, parseMarkdownQuiz, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizPortJson, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
+const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseFlashQuizText, parseGiftText, parseMarkdownQuiz, parseMarkdownTable, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizPortJson, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
 const { buildMochiArchive, cardsToMochiDecks, mochiMediaWarning } = require("./mochi-export");
 const { cardsToLearnKit, parseLearnKit } = require("./learnkit");
@@ -36637,6 +36905,9 @@ class QuestionTrackerPlugin extends Plugin {
       else delete fm.due;
       fm.status = status;
       fm.weight = Math.max(0.01, Number(data.weight) || 1);
+      const estimate = estimateMinutes(data.estimate);
+      if (estimate) fm.estimate = estimate;
+      else delete fm.estimate;
       if (String(data.points || "").trim() === "") delete fm.points;
       else fm.points = Number(data.points);
       if (String(data.score || "").trim() === "") delete fm.score;
@@ -36646,6 +36917,7 @@ class QuestionTrackerPlugin extends Plugin {
     });
     const text = await this.app.vault.read(file);
     let next = updateTaskTitle(updateTaskDue(text, data.due), data.title);
+    next = updateTaskEstimate(next, data.estimate);
     next = updateTaskCheckbox(next, status === "submitted" || status === "graded");
     if (next !== text) await this.app.vault.modify(file, next);
     this.refreshViews();
@@ -40908,6 +41180,32 @@ ${body}
     };
   }
 
+  /** Read the first Markdown table in a note without writing anything. */
+  async previewCardsMarkdownTable(path, options) {
+    const opts = options || {};
+    const file = this.app.vault.getAbstractFileByPath(String(path || ""));
+    if (!file) throw new Error("That file is not in the vault.");
+    if (!/\.(md|markdown)$/i.test(String(file.path || ""))) {
+      throw new Error("Choose a .md or .markdown file with a Markdown table.");
+    }
+    const text = await this.app.vault.cachedRead(file);
+    const base = {
+      ...opts,
+      sourcePath: file.path,
+      deck: String(opts.deck || "").trim() || file.basename,
+    };
+    return this.decorateImportPreview(parseMarkdownTable(text, base));
+  }
+
+  /** Import the first Markdown table in a note as ordinary cards. */
+  async importCardsFromMarkdownTable(path, options) {
+    if (this.moduleOff("cards")) return { created: 0, skipped: 0, errors: [] };
+    const opts = options || {};
+    const parsed = await this.previewCardsMarkdownTable(path, opts);
+    const result = await this.importParsedCards(parsed.cards, { ...opts, errors: parsed.errors, skippedDetails: parsed.skippedDetails, source: parsed.source });
+    return { ...result, headers: parsed.headers, mapping: parsed.mapping, headerKey: parsed.headerKey, skippedRows: parsed.skipped, skippedDetails: parsed.skippedDetails, delimiter: parsed.delimiter };
+  }
+
   /** Read a generic CSV/TSV without writing anything, so the import dialog can preview its columns. */
   async previewCardsCsv(path, options) {
     const opts = options || {};
@@ -41054,6 +41352,9 @@ ${body}
         }
       } else if (kind === "csv") {
         const parsed = await this.previewCardsCsv(path, opts);
+        add(parsed);
+      } else if (kind === "mdtable") {
+        const parsed = await this.previewCardsMarkdownTable(path, opts);
         add(parsed);
       } else if (kind === "apkg") {
         const file = this.app.vault.getAbstractFileByPath(String(path || ""));
@@ -54354,7 +54655,7 @@ const { recommendApResource, resourceTitle } = require("./ap-exam-resources");
 const { dailyDone, dailyStreak, normalizeDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus");
-const { buildDailyTasks } = require("./assignments");
+const { buildDailyTasks, formatEstimate, workload } = require("./assignments");
 const { renderMastery } = require("./analytics-embed");
 const { MASTERY_WINDOWS, bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions } = require("./progress");
 
@@ -54731,6 +55032,7 @@ class TodayView extends ItemView {
         : 0;
     const tasks = buildDailyTasks({ reviewCount: due.length + cardsDue, assignments, today });
     if (!tasks.length) return;
+    const work = workload(assignments, { today });
     root.createEl("h3", { cls: "qt-today-section", text: "Tasks" });
     const card = root.createDiv({ cls: "qt-today-card qt-tasks-card" });
     for (const task of tasks) {
@@ -54747,6 +55049,12 @@ class TodayView extends ItemView {
       } else if (task.assignment) {
         row.createEl("button", { text: "Open", cls: "qt-link" }).addEventListener("click", () => p.openAssignmentNote(task.assignment));
       }
+    }
+    if (work.total) {
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: `Estimated workload · today ${formatEstimate(work.todayMinutes) || "0m"} · next 7 days ${formatEstimate(work.weekMinutes) || "0m"}${work.overdueMinutes ? ` · overdue ${formatEstimate(work.overdueMinutes)}` : ""}`,
+      });
     }
     const actions = card.createDiv({ cls: "qt-row qt-small-row" });
     actions.createEl("button", { text: "Open Assignments" }).addEventListener("click", () => p.activateAssignments());

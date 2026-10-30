@@ -1008,3 +1008,53 @@ test("qti archive: an archive without a quiz XML reports a clear error", () => {
   const zip = storedZip({ "imsmanifest.xml": "<manifest/>", "readme.txt": "nothing" });
   assert.throws(() => T.qtiArchive.parseQtiArchive(zip, { sourcePath: "empty.zip" }), /no quiz \.xml file/);
 });
+
+test("markdown table: aliases, escaped pipes, tags and a missing separator", () => {
+  const text = `# Spanish
+
+| Question | Answer | Deck | Course | Tags |
+| :--- | :---: | --- | --- | --- |
+| What is 2 \\| 2? | 4 | Math | MATH 101 | arithmetic, easy |
+| Capital of France? | Paris | Geo | | |
+| No answer | | | | |
+`;
+  const parsed = importer.parseMarkdownTable(text, { sourcePath: "imports/table.md", deck: "Fallback" });
+  assert.equal(parsed.cards.length, 2);
+  assert.equal(parsed.cards[0].front, "What is 2 | 2?");
+  assert.equal(parsed.cards[0].back, "4");
+  assert.equal(parsed.cards[0].deck, "Math");
+  assert.equal(parsed.cards[0].course, "MATH 101");
+  assert.deepEqual(parsed.cards[0].tags, ["arithmetic", "easy"]);
+  assert.match(parsed.cards[0].importKey, /^mdtable:/);
+  assert.equal(parsed.skipped, 1);
+  assert.equal(parsed.skippedDetails[0].row, 7);
+
+  const fallback = importer.parseMarkdownTable("| A | B |\n| --- | --- |\n| one | two |\n", { sourcePath: "plain.md" });
+  assert.equal(fallback.cards[0].front, "one");
+  assert.equal(fallback.cards[0].back, "two");
+
+  const broken = importer.parseMarkdownTable("| A | B |\n| one | two |\n", { sourcePath: "broken.md" });
+  assert.equal(broken.cards.length, 0);
+  assert.match(broken.errors[0], /No Markdown table found/);
+});
+
+test("plugin: imports a Markdown table through the card writer", async () => {
+  const notes = [
+    {
+      path: "imports/table.md",
+      text: "| Front | Back | Deck | Tags |\n| --- | --- | --- | --- |\n| hola | hello | Spanish | greeting |\n| adiós | goodbye | Spanish | farewell |\n",
+    },
+    { path: "imports/not-a-table.csv", text: "Front,Back\none,two\n" },
+  ];
+  const { app, plugin } = await setup(notes);
+  const preview = await plugin.previewCardsMarkdownTable("imports/table.md", { deck: "Fallback" });
+  assert.equal(preview.cards.length, 2);
+  assert.equal(preview.cards[0].deck, "Spanish");
+
+  const result = await plugin.importCardsFromMarkdownTable("imports/table.md", { deck: "Fallback" });
+  assert.equal(result.created, 2);
+  assert.equal(app.created.length, 2);
+  assert.match(app.created[0].text, /import_format: "mdtable"/);
+  assert.match(app.created[0].text, /import_key: "mdtable:/);
+  await assert.rejects(() => plugin.previewCardsMarkdownTable("imports/not-a-table.csv"), /Choose a \.md/);
+});
