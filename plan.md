@@ -7,6 +7,25 @@
 
 > **How to read the license notes.** License information below comes from each plugin's community page, README, or a stats/index site as seen during research on Oct 27, 2026. Items marked **Verify** were not confirmed. Before copying any code, open the repo's `LICENSE` file and `package.json` yourself. MIT allows reuse if you keep the copyright and license notice. This is not legal advice.
 
+## Handoff snapshot (Oct 30, 2026)
+
+**Start a new chat here.** The repository is the source of truth; this section records the current state so a fresh chat does not need the old conversation.
+
+- **Repository:** `ifriedenson/mcq-tracker`, branch `main`. The latest code release is **1.117.0** (`aca5eab`, tag `1.117.0`); the documentation audit before this handoff is `215f788`. This handoff is a docs-only commit.
+- **What is shipped:** the six-course AP FRQ pilot with self/AI grading, rubric categories, review scheduling and multi-photo answers; the course registry; unit-circle/trig/codon/Punnett sheets; Learn/Test/Match study modes; Quizlet PDF import with a device picker; Mochi `.mochi`, LearnKit and Anki `.apkg` export; the in-plugin feedback survey; timed-test answer-choice shuffling and pass marks. Earlier releases added the calendar, assignments/GPA, reference tools, PDF annotations, AI tutor, cards module, imports and analytics.
+- **Verification at handoff:** `npm test` passes all **687 tests**, and `npm run check` reports `main.js` is up to date. `main.js` is generated from `src/`; rebuild with `npm run build` after source edits.
+- **No implementable partial remains in this environment.**
+  - Real Obsidian window: visual/math audit and screenshots.
+  - Real iOS/Android hardware: mobile audit.
+  - Provider plus mobile audio: TTS and pronunciation validation.
+  - Audited MIT PDF library: AcroForm form filling.
+  - OCR engine and licence decision: bundled OCR (and the OCR-dependent AI summary/paper-scanner slices).
+  - Human-scored fixtures and go/no-go thresholds: AP FRQ calibration and any accuracy claim.
+- **One unchecked item, not a partial:** lighter multi-question authoring. It is a new feature request and stays unscheduled until the owner explicitly ranks it. Do not implement it silently.
+- **Release procedure:** update this plan first; bump `manifest.json` and `versions.json`; rebuild `main.js`; run `npm test` and `npm run check`; commit and push to `main`; create a tag equal to the manifest version and push it. `.github/workflows/release.yml` runs the tests and publishes `main.js`, `manifest.json` and `styles.css` with build attestations.
+- **Start a new chat:** open the same GitHub-connected project on branch `main` and say: “Read `AGENTS.md` and the Handoff snapshot in `plan.md`; continue from the verified 1.117.0 state.” The working tree is clean after this handoff commit.
+
+
 ---
 
 ## Current focus (Oct 30, 2026)
