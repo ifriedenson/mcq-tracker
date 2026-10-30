@@ -8,7 +8,7 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
-- Latest release: **1.148.0** (Spaced Repetition quiz notes: AI card generation previewed, saved as multiline `?` syntax and imported through the normal card store), tagged and published on Oct 30, 2026. The previous release is **1.147.0** (Text2Anki, commit `339c5a1`, [run 41092118644](https://github.com/ifriedenson/mcq-tracker/actions/runs/41092118644)).
+- Latest release: **1.148.0** (Spaced Repetition quiz notes: AI card generation previewed, saved as multiline `?` syntax and imported through the normal card store), commit `c661ee7`, tagged and published on Oct 30, 2026 in [run 41094115096](https://github.com/ifriedenson/mcq-tracker/actions/runs/41094115096). Release: https://github.com/ifriedenson/mcq-tracker/releases/tag/1.148.0. The previous release is **1.147.0** (Text2Anki, commit `339c5a1`, [run 41092118644](https://github.com/ifriedenson/mcq-tracker/actions/runs/41092118644)).
 - **854 tests** pass and `main.js` is the build of `src/`. Release 1.148.0 adds Spaced Repetition quiz notes; 1.147.0 added Text2Anki, 1.146.0 added Auto Anki, 1.145.0 added Spaced Everything, 1.144.0 added the Simple Note Quiz, and 1.143.0 added Simple Quiz blocks, JSON/JavaScript card sources and local quiz charts.
 - Branch: `main`
 - All remaining partials are externally gated (real Obsidian/mobile hardware, TTS/pronunciation validation, an audited MIT PDF-form library, a bundled OCR engine/licence, or human-scored FRQ calibration).
