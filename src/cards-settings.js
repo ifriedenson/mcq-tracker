@@ -5,10 +5,13 @@ const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 const { deckSummary, effectiveScheduler, normalizeDeckIntervals } = require("./cards");
 const { CARD_GENERATOR_STYLES, normalizeCardGenerator } = require("./card-generator");
 const { renderSettingsTabs } = require("./settings-ui");
+const { COUCHDB_PASSWORD_SECRET, normalizeCouchDb } = require("./couchdb-sync");
+const { hasSecretStorage, storeSecretValue } = require("./secret-keys");
 
 const CARDS_TABS = [
   { id: "decks", label: "Decks", icon: "layers" },
   { id: "review", label: "Review", icon: "repeat" },
+  { id: "sync", label: "Sync", icon: "refresh-cw" },
   { id: "about", label: "About", icon: "info" },
 ];
 
@@ -29,6 +32,7 @@ function renderCardsSettings(containerEl, plugin, redisplay, activeTab, setTab) 
     });
   }
   if (current === "review") return renderReview(section, plugin, redisplay);
+  if (current === "sync") return renderSync(section, plugin);
   if (current === "about") return renderAbout(section, plugin);
   renderDecks(section, plugin, redisplay);
 }
@@ -494,6 +498,83 @@ function ensureDeck(st, name) {
     st.decks.push(cfg);
   }
   return cfg;
+}
+
+function renderSync(containerEl, plugin) {
+  const current = normalizeCouchDb(plugin.settings.cards.couchdb);
+  new Setting(containerEl).setName("CouchDB sync").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Optional two-way sync of card review state. Only scheduling properties and review history are sent; card text stays in your vault. The newest review wins the schedule, while both histories are kept.",
+  });
+  new Setting(containerEl)
+    .setName("Enable CouchDB sync")
+    .setDesc("This is manual sync from Settings or the command palette; nothing runs in the background.")
+    .addToggle((t) =>
+      t.setValue(current.enabled).onChange(async (v) => {
+        plugin.settings.cards.couchdb = { ...normalizeCouchDb(plugin.settings.cards.couchdb), enabled: v };
+        await plugin.save();
+        containerEl.empty();
+        renderSync(containerEl, plugin);
+      })
+    );
+  new Setting(containerEl)
+    .setName("Server URL")
+    .setDesc("HTTPS for a remote CouchDB. Plain HTTP is allowed only for localhost, 127.0.0.1 or ::1.")
+    .addText((t) =>
+      t
+        .setPlaceholder("https://couch.example.com")
+        .setValue(current.url)
+        .onChange(async (v) => {
+          plugin.settings.cards.couchdb = { ...normalizeCouchDb(plugin.settings.cards.couchdb), url: v };
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Database")
+    .setDesc("Created automatically if it does not exist.")
+    .addText((t) =>
+      t
+        .setPlaceholder("mcq-tracker")
+        .setValue(current.database)
+        .onChange(async (v) => {
+          plugin.settings.cards.couchdb = { ...normalizeCouchDb(plugin.settings.cards.couchdb), database: v };
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Username")
+    .setDesc("Leave blank for an unauthenticated local database.")
+    .addText((t) =>
+      t
+        .setValue(current.username)
+        .onChange(async (v) => {
+          plugin.settings.cards.couchdb = { ...normalizeCouchDb(plugin.settings.cards.couchdb), username: v };
+          await plugin.save();
+        })
+    );
+  const secretReady = hasSecretStorage(plugin.app);
+  new Setting(containerEl)
+    .setName("Password")
+    .setDesc(secretReady ? "Stored in Obsidian Secret Storage, never in data.json. Leave blank to keep the saved password." : "Obsidian Secret Storage is unavailable in this app version, so no password can be saved.")
+    .addText((t) => {
+      t.inputEl.type = "password";
+      t.setPlaceholder(secretReady ? "Saved in Secret Storage" : "Secret Storage unavailable").onChange(async (v) => {
+        if (!secretReady || !String(v).trim()) return;
+        storeSecretValue(plugin.app, COUCHDB_PASSWORD_SECRET, v);
+        t.setValue("");
+      });
+    });
+  const actions = new Setting(containerEl)
+    .setName("Connection and sync")
+    .setDesc(current.lastSync ? `Last sync: ${current.lastSync}` : "No sync yet.")
+    .addButton((b) => b.setButtonText("Test connection").onClick(() => plugin.testCouchDbConnection()))
+    .addButton((b) => b.setButtonText("Sync now").setCta().onClick(() => plugin.syncCardsCouchDb()));
+  if (current.lastError) actions.setDesc(`Last error: ${current.lastError}`);
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Cards that exist only in CouchDB are counted but not created locally, because the note text is not stored remotely.",
+  });
 }
 
 function renderReview(containerEl, plugin, redisplay) {

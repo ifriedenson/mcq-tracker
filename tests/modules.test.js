@@ -23,7 +23,7 @@ test("settings: Global sits beside MCQ Tracker, Cards, Calendar and Reference an
   assert.deepEqual(T.GLOBAL_TABS.map((t) => t.id), ["modules", "general", "about"]);
   assert.deepEqual(T.ASSIGNMENTS_TABS.map((t) => t.id), ["grading", "courses", "about"]);
   assert.deepEqual(T.GLOBAL_TABS.map((t) => t.label), ["Modules", "General", "About"]);
-  assert.deepEqual(T.CARDS_TABS.map((t) => t.id), ["decks", "review", "about"]);
+  assert.deepEqual(T.CARDS_TABS.map((t) => t.id), ["decks", "review", "sync", "about"]);
   assert.deepEqual(T.REFERENCE_TABS.map((t) => t.id), ["tools", "about"]);
 });
 

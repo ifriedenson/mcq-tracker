@@ -19,6 +19,8 @@ class CardModal extends Modal {
     this.sourceContext = str(this.options.sourceContext).trim();
     this.initialFront = str(this.options.front);
     this.initialBack = str(this.options.back);
+    this.deckFolder = "";
+    this.deckCourse = "";
   }
 
   onOpen() {
@@ -40,7 +42,10 @@ class CardModal extends Modal {
     cardTypeOptions(typeSel);
     typeSel.value = "basic";
     this.cardType = "basic";
-    typeSel.addEventListener("change", () => (this.cardType = typeSel.value));
+    typeSel.addEventListener("change", () => {
+      this.cardType = typeSel.value;
+      if (typeof updatePreview === "function") updatePreview();
+    });
 
     const deckWrap = contentEl.createDiv({ cls: "qt-field" });
     deckWrap.createEl("label", { text: "Deck" });
@@ -56,6 +61,20 @@ class CardModal extends Modal {
     const newDeckWrap = contentEl.createDiv({ cls: "qt-field qt-hidden" });
     newDeckWrap.createEl("label", { text: "New deck name" });
     const newDeck = newDeckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Spanish verbs" } });
+    newDeckWrap.createEl("label", { text: "Deck folder (optional)" });
+    const newDeckFolder = newDeckWrap.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Defaults to Cards/<deck name>" },
+    });
+    newDeckWrap.createEl("label", { text: "Deck course (optional)" });
+    const newDeckCourse = newDeckWrap.createEl("input", {
+      type: "text",
+      attr: { placeholder: "e.g. BIOL 201" },
+    });
+    newDeckWrap.createDiv({
+      cls: "qt-hint",
+      text: "The deck and its folder/course settings are saved automatically with the first card.",
+    });
 
     const courseWrap = contentEl.createDiv({ cls: "qt-field" });
     courseWrap.createEl("label", { text: "Course (optional)" });
@@ -104,6 +123,13 @@ class CardModal extends Modal {
       attr: { placeholder: "Back expectation, e.g. country" },
     });
 
+    const previewWrap = contentEl.createDiv({ cls: "qt-field" });
+    previewWrap.createEl("label", { text: "Live preview" });
+    const preview = previewWrap.createEl("pre", { cls: "qt-card-preview" });
+    const updatePreview = () => {
+      preview.setText(cardPreview({ front: front.value, back: back.value, cardType: this.cardType, kind: this.kind }));
+    };
+
     const exampleWrap = contentEl.createDiv({ cls: "qt-field qt-hidden" });
     exampleWrap.createEl("label", { text: "Example sentence (optional)" });
     const example = exampleWrap.createEl("textarea", { attr: { rows: "2" } });
@@ -126,6 +152,7 @@ class CardModal extends Modal {
     kind.addEventListener("change", () => {
       this.kind = kind.value;
       applyKind();
+      updatePreview();
     });
     const applyDeck = () => {
       const isNew = deck.value === "__new";
@@ -134,8 +161,11 @@ class CardModal extends Modal {
       if (cfg && cfg.course) course.value = cfg.course;
     };
     deck.addEventListener("change", applyDeck);
+    front.addEventListener("input", updatePreview);
+    back.addEventListener("input", updatePreview);
     applyKind();
     applyDeck();
+    updatePreview();
 
     const row = contentEl.createDiv({ cls: "qt-row" });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
@@ -155,7 +185,9 @@ class CardModal extends Modal {
           kind: this.kind,
           cardType: this.cardType,
           deck: deckName,
-          course: course.value,
+          deckFolder: newDeckFolder.value,
+          deckCourse: newDeckCourse.value,
+          course: course.value || newDeckCourse.value,
           scheduler: scheduler.value,
           front: front.value,
           back: back.value,
@@ -183,6 +215,17 @@ class CardModal extends Modal {
   }
 }
 
+/** A small, dependency-free preview of the note the dialog will create. */
+function cardPreview(input) {
+  const data = input || {};
+  const front = str(data.front).trim() || "(front)";
+  const back = str(data.back).trim() || "(back)";
+  if (data.kind === "vocab") return `**Term**\n\n${front}\n\n**Definition**\n\n${back}`;
+  if (data.cardType === "cloze") return `**Cloze**\n\n${front}\n\n> The back is used for the answer side.`;
+  const reverse = data.cardType === "reversed" ? "\n\n**Also reviewed in reverse**" : "";
+  return `**Front**\n\n${front}\n\n---\n\n**Back**\n\n${back}${reverse}`;
+}
+
 function contentDiv(parent, cls) {
   return parent.createDiv({ cls });
 }
@@ -196,4 +239,4 @@ function cardTypeOptions(select) {
   }
 }
 
-module.exports = { CardModal, cardTypeOptions };
+module.exports = { CardModal, cardPreview, cardTypeOptions };

@@ -14,6 +14,7 @@ const { DEFAULT_ANKI_CONNECT, normalizeAnkiConnect } = require("./anki-connect")
 const { DEFAULT_PLAIN_CARDS, inferPlainCard, normalizePlainCards, plainDeckName } = require("./plain-cards");
 const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 const { adaptiveIntervalDays } = require("./card-learning");
+const { DEFAULT_COUCHDB, normalizeCouchDb } = require("./couchdb-sync");
 
 const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
 const CARD_TYPE_LABELS = {
@@ -104,6 +105,7 @@ function mergeCardSettings(saved, defaults) {
       decks: [],
       csvMappings: {},
       ankiConnect: { ...DEFAULT_ANKI_CONNECT, excalidraw: { ...DEFAULT_ANKI_CONNECT.excalidraw } },
+      couchdb: { ...DEFAULT_COUCHDB },
       plainMarkdown: { ...DEFAULT_PLAIN_CARDS },
     },
     defaults || {}
@@ -124,6 +126,7 @@ function mergeCardSettings(saved, defaults) {
   out.decks = normalizeDecks(src.decks === undefined ? base.decks : src.decks);
   out.csvMappings = src.csvMappings && typeof src.csvMappings === "object" && !Array.isArray(src.csvMappings) ? { ...src.csvMappings } : {};
   out.ankiConnect = normalizeAnkiConnect(src.ankiConnect === undefined ? base.ankiConnect : src.ankiConnect);
+  out.couchdb = normalizeCouchDb(src.couchdb === undefined ? base.couchdb : src.couchdb);
   out.plainMarkdown = normalizePlainCards(src.plainMarkdown === undefined ? base.plainMarkdown : src.plainMarkdown);
   return out;
 }

@@ -334,6 +334,7 @@ function applyAttempt(fm, a, intervals, options) {
   fm.result = a.correct ? "correct" : "incorrect";
   fm["date attempted"] = now;
   if (!fm.first_attempted) fm.first_attempted = now;
+  if (opts.reviewUpdated) fm.review_updated = str(opts.reviewUpdated);
   const scheduledReview = isSameDayReview(grade, opts.sameDayReviews)
     ? fmtDate(a.now)
     : fsrsReview

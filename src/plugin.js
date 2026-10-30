@@ -60,6 +60,7 @@ const { CardExtractModal } = require("./cards-extract-modal");
 const { buildMochiArchive, cardsToMochiDecks, mochiMediaWarning } = require("./mochi-export");
 const { cardsToLearnKit, parseLearnKit } = require("./learnkit");
 const { AnkiConnectModal, AnkiConnectClient, ankiExclusionReason, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, resolveSyncAction, syncDecision, syncHash } = require("./anki-connect");
+const { COUCHDB_PASSWORD_SECRET, CouchDbClient, applyCardSyncState, cardSyncState, errorMessage: couchErrorMessage, mergeCardSyncStates, normalizeCouchDb, sameState, stateTimestamp } = require("./couchdb-sync");
 const { parseApkg } = require("./apkg");
 const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
@@ -409,6 +410,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
     this.addCommand({ id: "push-vault-anki", name: "Cards: push the whole vault to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ vaultWide: true }) });
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
+    this.addCommand({ id: "test-couchdb", name: "Cards: test CouchDB connection", callback: () => this.testCouchDbConnection() });
+    this.addCommand({ id: "sync-cards-couchdb", name: "Cards: sync review state with CouchDB", callback: () => this.syncCardsCouchDb() });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
     this.addCommand({ id: "review-notes", name: "Review notes (whole-note queue)", callback: () => this.openNoteReview() });
     this.addCommand({ id: "generate-quiz", name: "Generate quiz questions from notes", callback: () => this.openQuizGenerator() });
@@ -4262,10 +4265,106 @@ class QuestionTrackerPlugin extends Plugin {
       ...(extra || {}),
       deck: (extra && extra.deck) || card.deck || (card.fm && card.fm.deck) || "",
       course: (extra && extra.course) || card.course || (card.fm && card.fm.course) || "",
+      reviewUpdated: new Date().toISOString(),
       sameDayReviews: this.settings.cards.sameDayReviews === true,
       adaptiveFrequency: this.settings.cards.adaptiveFrequency === true,
       now: new Date(),
     });
+  }
+
+  /** Create one client per operation so a changed URL/password is picked up immediately. */
+  couchDbClient() {
+    const config = normalizeCouchDb(this.settings.cards.couchdb);
+    const password = secretKeys.readSecretValue(this.app, COUCHDB_PASSWORD_SECRET);
+    return new CouchDbClient(config, {
+      password,
+      request: typeof this.couchDbRequest === "function" ? this.couchDbRequest : requestUrl,
+    });
+  }
+
+  /** Check the server and database before the user relies on sync. */
+  async testCouchDbConnection() {
+    if (this.moduleOff("cards")) return { ok: false, error: "Turn on Cards first." };
+    try {
+      await this.couchDbClient().ensureDatabase();
+      new Notice("CouchDB connection works and the database is ready.");
+      return { ok: true };
+    } catch (e) {
+      const message = couchErrorMessage(e);
+      this.settings.cards.couchdb = { ...normalizeCouchDb(this.settings.cards.couchdb), lastError: message };
+      await this.save();
+      new Notice(`CouchDB: ${message}`, 8000);
+      return { ok: false, error: message };
+    }
+  }
+
+  /**
+   * Sync card review state. The newest review wins the schedule, histories are
+   * unioned, and note text is never uploaded or overwritten.
+   */
+  async syncCardsCouchDb() {
+    if (this.moduleOff("cards")) return { pulled: 0, pushed: 0, error: "Turn on Cards first." };
+    let config = normalizeCouchDb(this.settings.cards.couchdb);
+    if (!config.enabled) {
+      new Notice("Turn on CouchDB sync in Settings → Cards → Sync first.");
+      return { pulled: 0, pushed: 0, error: "CouchDB sync is off." };
+    }
+    const client = this.couchDbClient();
+    let pulled = 0;
+    let pushed = 0;
+    let conflicts = 0;
+    let remoteOnly = 0;
+    try {
+      await client.ensureDatabase();
+      const remote = await client.allCards();
+      const byId = new Map();
+      for (const doc of remote) {
+        const id = String((doc.state && doc.state.card_id) || "").trim();
+        if (id) byId.set(id, doc);
+      }
+      const localIds = new Set();
+      for (const card of this.getCards()) {
+        const id = String((card.fm && card.fm.card_id) || "").trim();
+        if (!id) continue;
+        localIds.add(id);
+        const local = cardSyncState(card.fm);
+        const doc = byId.get(id);
+        if (!doc) {
+          await client.putCard(id, local, "");
+          pushed++;
+          continue;
+        }
+        const merged = mergeCardSyncStates(local, doc.state);
+        if (!sameState(merged, local)) {
+          await this.app.fileManager.processFrontMatter(card.file, (fm) => applyCardSyncState(fm, merged));
+          pulled++;
+        }
+        if (!sameState(merged, doc.state) || stateTimestamp(merged) !== stateTimestamp(doc.state)) {
+          try {
+            await client.putCard(id, merged, doc.rev);
+            pushed++;
+          } catch (e) {
+            // A second device wrote between our read and write. Keep the local
+            // note and retry the merge on the next manual sync.
+            if (/HTTP 409\b/.test(couchErrorMessage(e))) conflicts++;
+            else throw e;
+          }
+        }
+      }
+      for (const id of byId.keys()) if (!localIds.has(id)) remoteOnly++;
+      config = { ...config, lastSync: new Date().toISOString(), lastError: "" };
+      this.settings.cards.couchdb = config;
+      await this.save();
+      this.refreshViews();
+      new Notice(`CouchDB sync: ${pulled} pulled, ${pushed} pushed${conflicts ? `, ${conflicts} conflict${conflicts === 1 ? "" : "s"} left for next sync` : ""}.`);
+      return { pulled, pushed, conflicts, remoteOnly };
+    } catch (e) {
+      const message = couchErrorMessage(e);
+      this.settings.cards.couchdb = { ...config, lastError: message };
+      await this.save();
+      new Notice(`CouchDB sync failed: ${message}`, 9000);
+      return { pulled, pushed, conflicts, remoteOnly, error: message };
+    }
   }
 
   /* ---- optional AI second opinion for typed card answers */
@@ -4484,7 +4583,8 @@ class QuestionTrackerPlugin extends Plugin {
     const deck = String(data.deck || st.defaultDeck || "General").trim() || "General";
     let cfg = deckConfig(this.settings, deck);
     if (!cfg) {
-      cfg = { name: deck, folder: "", course: "" };
+      const folder = String(data.deckFolder || "").trim().replace(/^\/+|\/+$/g, "");
+      cfg = { name: deck, folder, course: String(data.deckCourse || "").trim() };
       st.decks = Array.isArray(st.decks) ? st.decks : [];
       st.decks.push(cfg);
       await this.save();
@@ -5448,6 +5548,7 @@ class QuestionTrackerPlugin extends Plugin {
         const sched = this.scheduleOptionsFor(fm, file.path, attempt.deck);
         summary = applyAttempt(fm, attempt, sched.intervals, {
           ...shared,
+          reviewUpdated: attempt.reviewUpdated,
           scheduler: sched.scheduler,
           fsrsRetention: sched.fsrsRetention,
           sm2: sched.sm2,
@@ -5501,6 +5602,7 @@ class QuestionTrackerPlugin extends Plugin {
             const attempt = unpackAttempt(entry.attempt);
             const sched = this.scheduleOptionsFor(fm, file.path, attempt.deck);
             applyAttempt(fm, attempt, sched.intervals, {
+              reviewUpdated: attempt.reviewUpdated,
               scheduler: sched.scheduler,
               fsrsRetention: sched.fsrsRetention,
               sm2: sched.sm2,

@@ -80,7 +80,8 @@ const { CALENDAR_TABS } = require("./calendar-settings");
 const cards = require("./cards");
 const plainCards = require("./plain-cards");
 const { CardView } = require("./cards-view");
-const { CardModal } = require("./card-modal");
+const { CardModal, cardPreview } = require("./card-modal");
+const couchdbSync = require("./couchdb-sync");
 const cardsImport = require("./cards-import");
 const ankiConnect = require("./anki-connect");
 const apkg = require("./apkg");
@@ -218,6 +219,8 @@ QuestionTrackerPlugin.__test = {
   quickAdd,
   quizBlock,
   sourceRecall,
+  couchdbSync,
+  cardPreview,
   noteReview,
   quizGenerator,
   cardGenerator,

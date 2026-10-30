@@ -10295,6 +10295,8 @@ class CardModal extends Modal {
     this.sourceContext = str(this.options.sourceContext).trim();
     this.initialFront = str(this.options.front);
     this.initialBack = str(this.options.back);
+    this.deckFolder = "";
+    this.deckCourse = "";
   }
 
   onOpen() {
@@ -10316,7 +10318,10 @@ class CardModal extends Modal {
     cardTypeOptions(typeSel);
     typeSel.value = "basic";
     this.cardType = "basic";
-    typeSel.addEventListener("change", () => (this.cardType = typeSel.value));
+    typeSel.addEventListener("change", () => {
+      this.cardType = typeSel.value;
+      if (typeof updatePreview === "function") updatePreview();
+    });
 
     const deckWrap = contentEl.createDiv({ cls: "qt-field" });
     deckWrap.createEl("label", { text: "Deck" });
@@ -10332,6 +10337,20 @@ class CardModal extends Modal {
     const newDeckWrap = contentEl.createDiv({ cls: "qt-field qt-hidden" });
     newDeckWrap.createEl("label", { text: "New deck name" });
     const newDeck = newDeckWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. Spanish verbs" } });
+    newDeckWrap.createEl("label", { text: "Deck folder (optional)" });
+    const newDeckFolder = newDeckWrap.createEl("input", {
+      type: "text",
+      attr: { placeholder: "Defaults to Cards/<deck name>" },
+    });
+    newDeckWrap.createEl("label", { text: "Deck course (optional)" });
+    const newDeckCourse = newDeckWrap.createEl("input", {
+      type: "text",
+      attr: { placeholder: "e.g. BIOL 201" },
+    });
+    newDeckWrap.createDiv({
+      cls: "qt-hint",
+      text: "The deck and its folder/course settings are saved automatically with the first card.",
+    });
 
     const courseWrap = contentEl.createDiv({ cls: "qt-field" });
     courseWrap.createEl("label", { text: "Course (optional)" });
@@ -10380,6 +10399,13 @@ class CardModal extends Modal {
       attr: { placeholder: "Back expectation, e.g. country" },
     });
 
+    const previewWrap = contentEl.createDiv({ cls: "qt-field" });
+    previewWrap.createEl("label", { text: "Live preview" });
+    const preview = previewWrap.createEl("pre", { cls: "qt-card-preview" });
+    const updatePreview = () => {
+      preview.setText(cardPreview({ front: front.value, back: back.value, cardType: this.cardType, kind: this.kind }));
+    };
+
     const exampleWrap = contentEl.createDiv({ cls: "qt-field qt-hidden" });
     exampleWrap.createEl("label", { text: "Example sentence (optional)" });
     const example = exampleWrap.createEl("textarea", { attr: { rows: "2" } });
@@ -10402,6 +10428,7 @@ class CardModal extends Modal {
     kind.addEventListener("change", () => {
       this.kind = kind.value;
       applyKind();
+      updatePreview();
     });
     const applyDeck = () => {
       const isNew = deck.value === "__new";
@@ -10410,8 +10437,11 @@ class CardModal extends Modal {
       if (cfg && cfg.course) course.value = cfg.course;
     };
     deck.addEventListener("change", applyDeck);
+    front.addEventListener("input", updatePreview);
+    back.addEventListener("input", updatePreview);
     applyKind();
     applyDeck();
+    updatePreview();
 
     const row = contentEl.createDiv({ cls: "qt-row" });
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
@@ -10431,7 +10461,9 @@ class CardModal extends Modal {
           kind: this.kind,
           cardType: this.cardType,
           deck: deckName,
-          course: course.value,
+          deckFolder: newDeckFolder.value,
+          deckCourse: newDeckCourse.value,
+          course: course.value || newDeckCourse.value,
           scheduler: scheduler.value,
           front: front.value,
           back: back.value,
@@ -10459,6 +10491,17 @@ class CardModal extends Modal {
   }
 }
 
+/** A small, dependency-free preview of the note the dialog will create. */
+function cardPreview(input) {
+  const data = input || {};
+  const front = str(data.front).trim() || "(front)";
+  const back = str(data.back).trim() || "(back)";
+  if (data.kind === "vocab") return `**Term**\n\n${front}\n\n**Definition**\n\n${back}`;
+  if (data.cardType === "cloze") return `**Cloze**\n\n${front}\n\n> The back is used for the answer side.`;
+  const reverse = data.cardType === "reversed" ? "\n\n**Also reviewed in reverse**" : "";
+  return `**Front**\n\n${front}\n\n---\n\n**Back**\n\n${back}${reverse}`;
+}
+
 function contentDiv(parent, cls) {
   return parent.createDiv({ cls });
 }
@@ -10472,7 +10515,7 @@ function cardTypeOptions(select) {
   }
 }
 
-module.exports = { CardModal, cardTypeOptions };
+module.exports = { CardModal, cardPreview, cardTypeOptions };
 };
 
 /* ---- src/card-write-diff.js ---- */
@@ -10556,6 +10599,7 @@ const { DEFAULT_ANKI_CONNECT, normalizeAnkiConnect } = require("./anki-connect")
 const { DEFAULT_PLAIN_CARDS, inferPlainCard, normalizePlainCards, plainDeckName } = require("./plain-cards");
 const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 const { adaptiveIntervalDays } = require("./card-learning");
+const { DEFAULT_COUCHDB, normalizeCouchDb } = require("./couchdb-sync");
 
 const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
 const CARD_TYPE_LABELS = {
@@ -10646,6 +10690,7 @@ function mergeCardSettings(saved, defaults) {
       decks: [],
       csvMappings: {},
       ankiConnect: { ...DEFAULT_ANKI_CONNECT, excalidraw: { ...DEFAULT_ANKI_CONNECT.excalidraw } },
+      couchdb: { ...DEFAULT_COUCHDB },
       plainMarkdown: { ...DEFAULT_PLAIN_CARDS },
     },
     defaults || {}
@@ -10666,6 +10711,7 @@ function mergeCardSettings(saved, defaults) {
   out.decks = normalizeDecks(src.decks === undefined ? base.decks : src.decks);
   out.csvMappings = src.csvMappings && typeof src.csvMappings === "object" && !Array.isArray(src.csvMappings) ? { ...src.csvMappings } : {};
   out.ankiConnect = normalizeAnkiConnect(src.ankiConnect === undefined ? base.ankiConnect : src.ankiConnect);
+  out.couchdb = normalizeCouchDb(src.couchdb === undefined ? base.couchdb : src.couchdb);
   out.plainMarkdown = normalizePlainCards(src.plainMarkdown === undefined ? base.plainMarkdown : src.plainMarkdown);
   return out;
 }
@@ -14305,10 +14351,13 @@ const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 const { deckSummary, effectiveScheduler, normalizeDeckIntervals } = require("./cards");
 const { CARD_GENERATOR_STYLES, normalizeCardGenerator } = require("./card-generator");
 const { renderSettingsTabs } = require("./settings-ui");
+const { COUCHDB_PASSWORD_SECRET, normalizeCouchDb } = require("./couchdb-sync");
+const { hasSecretStorage, storeSecretValue } = require("./secret-keys");
 
 const CARDS_TABS = [
   { id: "decks", label: "Decks", icon: "layers" },
   { id: "review", label: "Review", icon: "repeat" },
+  { id: "sync", label: "Sync", icon: "refresh-cw" },
   { id: "about", label: "About", icon: "info" },
 ];
 
@@ -14329,6 +14378,7 @@ function renderCardsSettings(containerEl, plugin, redisplay, activeTab, setTab) 
     });
   }
   if (current === "review") return renderReview(section, plugin, redisplay);
+  if (current === "sync") return renderSync(section, plugin);
   if (current === "about") return renderAbout(section, plugin);
   renderDecks(section, plugin, redisplay);
 }
@@ -14794,6 +14844,83 @@ function ensureDeck(st, name) {
     st.decks.push(cfg);
   }
   return cfg;
+}
+
+function renderSync(containerEl, plugin) {
+  const current = normalizeCouchDb(plugin.settings.cards.couchdb);
+  new Setting(containerEl).setName("CouchDB sync").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Optional two-way sync of card review state. Only scheduling properties and review history are sent; card text stays in your vault. The newest review wins the schedule, while both histories are kept.",
+  });
+  new Setting(containerEl)
+    .setName("Enable CouchDB sync")
+    .setDesc("This is manual sync from Settings or the command palette; nothing runs in the background.")
+    .addToggle((t) =>
+      t.setValue(current.enabled).onChange(async (v) => {
+        plugin.settings.cards.couchdb = { ...normalizeCouchDb(plugin.settings.cards.couchdb), enabled: v };
+        await plugin.save();
+        containerEl.empty();
+        renderSync(containerEl, plugin);
+      })
+    );
+  new Setting(containerEl)
+    .setName("Server URL")
+    .setDesc("HTTPS for a remote CouchDB. Plain HTTP is allowed only for localhost, 127.0.0.1 or ::1.")
+    .addText((t) =>
+      t
+        .setPlaceholder("https://couch.example.com")
+        .setValue(current.url)
+        .onChange(async (v) => {
+          plugin.settings.cards.couchdb = { ...normalizeCouchDb(plugin.settings.cards.couchdb), url: v };
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Database")
+    .setDesc("Created automatically if it does not exist.")
+    .addText((t) =>
+      t
+        .setPlaceholder("mcq-tracker")
+        .setValue(current.database)
+        .onChange(async (v) => {
+          plugin.settings.cards.couchdb = { ...normalizeCouchDb(plugin.settings.cards.couchdb), database: v };
+          await plugin.save();
+        })
+    );
+  new Setting(containerEl)
+    .setName("Username")
+    .setDesc("Leave blank for an unauthenticated local database.")
+    .addText((t) =>
+      t
+        .setValue(current.username)
+        .onChange(async (v) => {
+          plugin.settings.cards.couchdb = { ...normalizeCouchDb(plugin.settings.cards.couchdb), username: v };
+          await plugin.save();
+        })
+    );
+  const secretReady = hasSecretStorage(plugin.app);
+  new Setting(containerEl)
+    .setName("Password")
+    .setDesc(secretReady ? "Stored in Obsidian Secret Storage, never in data.json. Leave blank to keep the saved password." : "Obsidian Secret Storage is unavailable in this app version, so no password can be saved.")
+    .addText((t) => {
+      t.inputEl.type = "password";
+      t.setPlaceholder(secretReady ? "Saved in Secret Storage" : "Secret Storage unavailable").onChange(async (v) => {
+        if (!secretReady || !String(v).trim()) return;
+        storeSecretValue(plugin.app, COUCHDB_PASSWORD_SECRET, v);
+        t.setValue("");
+      });
+    });
+  const actions = new Setting(containerEl)
+    .setName("Connection and sync")
+    .setDesc(current.lastSync ? `Last sync: ${current.lastSync}` : "No sync yet.")
+    .addButton((b) => b.setButtonText("Test connection").onClick(() => plugin.testCouchDbConnection()))
+    .addButton((b) => b.setButtonText("Sync now").setCta().onClick(() => plugin.syncCardsCouchDb()));
+  if (current.lastError) actions.setDesc(`Last error: ${current.lastError}`);
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Cards that exist only in CouchDB are counted but not created locally, because the note text is not stored remotely.",
+  });
 }
 
 function renderReview(containerEl, plugin, redisplay) {
@@ -16563,6 +16690,304 @@ module.exports = {
   TRACKING_DEFAULTS,
   FOLDER_AUTO_MAX,
   STAT_FIELDS,
+};
+};
+
+/* ---- src/couchdb-sync.js ---- */
+__defs["couchdb-sync"] = function (module, exports, require) {
+/*
+ * Optional CouchDB sync for card review state.
+ *
+ * Only scheduling/review properties leave the vault. Card text stays in the
+ * Markdown note, so CouchDB is a review-state relay, not a note backup.
+ * Conflicts use "last review wins" for the schedule, while histories are
+ * unioned so no attempt is silently dropped from the append-only record.
+ */
+const { str } = require("./util");
+const { safeApiBase } = require("./url-safety");
+const { mergeHistory, repairHistoryCounters } = require("./history");
+
+const COUCHDB_PASSWORD_SECRET = "mcq-tracker-couchdb-password";
+const COUCHDB_SYNC_VERSION = 1;
+const DOC_PREFIX = "mcq-card-";
+
+const DEFAULT_COUCHDB = {
+  enabled: false,
+  url: "",
+  database: "mcq-tracker",
+  username: "",
+  lastSync: "",
+  lastError: "",
+};
+
+const SYNC_FIELDS = [
+  "card_id",
+  "attempts",
+  "correct_count",
+  "streak",
+  "first_attempted",
+  "date attempted",
+  "time_spent_total",
+  "last_time_spent",
+  "last_answer",
+  "last_confidence",
+  "last_error_type",
+  "result",
+  "last_attempt_id",
+  "history",
+  "next_review",
+  "scheduler",
+  "srs",
+  "sm2",
+  "last_card_rating",
+  "last_typed_answer",
+  "last_verdict",
+  "grade_status",
+  "graded_by",
+  "graded_on",
+  "grade_confidence",
+  "grade_feedback",
+  "study_status",
+  "known_until",
+  "buried_until",
+  "excluded_on",
+  "review_updated",
+];
+
+function normalizeCouchDb(value) {
+  const src = value && typeof value === "object" ? value : {};
+  const database = str(src.database).trim() || DEFAULT_COUCHDB.database;
+  return {
+    enabled: src.enabled === true,
+    url: str(src.url).trim().replace(/\/+$/, ""),
+    database: database.replace(/^\/+|\/+$/g, "").slice(0, 200),
+    username: str(src.username).trim(),
+    lastSync: str(src.lastSync).trim(),
+    lastError: str(src.lastError).trim().slice(0, 500),
+  };
+}
+
+function couchDbAddress(config) {
+  const c = normalizeCouchDb(config);
+  if (!c.url) throw new Error("Enter the CouchDB server URL first.");
+  if (!c.database) throw new Error("Enter a CouchDB database name.");
+  return `${safeApiBase(c.url)}/${encodeURIComponent(c.database)}`;
+}
+
+function base64(text) {
+  const raw = str(text);
+  if (typeof Buffer !== "undefined") return Buffer.from(raw, "utf8").toString("base64");
+  return btoa(unescape(encodeURIComponent(raw)));
+}
+
+function couchDbHeaders(config, json) {
+  const headers = { Accept: "application/json" };
+  if (json) headers["Content-Type"] = "application/json";
+  const c = { ...normalizeCouchDb(config), password: str(config && config.password) };
+  if (c.username) headers.Authorization = `Basic ${base64(`${c.username}:${c.password}`)}`;
+  return headers;
+}
+
+function couchDbDocId(cardId) {
+  return DOC_PREFIX + encodeURIComponent(str(cardId).trim());
+}
+
+function stateTimestamp(state) {
+  const s = state || {};
+  const explicit = str(s.review_updated).trim();
+  if (explicit) return explicit;
+  const dated = str(s["date attempted"]).trim();
+  return dated ? dated.replace(" ", "T") : "";
+}
+
+function newerState(local, remote) {
+  if (!local) return remote || null;
+  if (!remote) return local;
+  return stateTimestamp(remote) > stateTimestamp(local) ? remote : local;
+}
+
+function clone(value) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (e) {
+    return value;
+  }
+}
+
+/** A transport-safe snapshot of the review properties on a card note. */
+function cardSyncState(fm) {
+  const source = fm && typeof fm === "object" ? fm : {};
+  const state = {};
+  for (const key of SYNC_FIELDS) {
+    if (source[key] !== undefined && source[key] !== null && source[key] !== "") state[key] = clone(source[key]);
+  }
+  if (!state.review_updated) {
+    const latest = stateTimestamp(source);
+    if (latest) state.review_updated = latest;
+  }
+  return state;
+}
+
+function sameState(a, b) {
+  return JSON.stringify(cardSyncState(a)) === JSON.stringify(cardSyncState(b));
+}
+
+/**
+ * Merge two snapshots. The newest review decides scheduling state; both
+ * histories are kept and counters are rebuilt from the union.
+ */
+function mergeCardSyncStates(local, remote) {
+  if (!local) return cardSyncState(remote);
+  if (!remote) return cardSyncState(local);
+  const base = newerState(local, remote);
+  const merged = clone(base) || {};
+  const history = mergeHistory(local.history, remote.history);
+  merged.history = history;
+  const counters = { history: history.map((row) => row) };
+  const repaired = repairHistoryCounters(counters);
+  if (repaired.attempts) {
+    for (const key of ["attempts", "correct_count", "time_spent_total", "streak", "first_attempted", "date attempted", "result", "last_answer", "last_confidence", "last_error_type"]) {
+      if (counters[key] !== undefined) merged[key] = counters[key];
+    }
+  }
+  merged.review_updated = str(base.review_updated) || stateTimestamp(base);
+  return cardSyncState(merged);
+}
+
+/** Write a merged remote snapshot back onto a note's frontmatter. */
+function applyCardSyncState(fm, state) {
+  if (!fm || !state) return false;
+  const before = JSON.stringify(cardSyncState(fm));
+  for (const key of SYNC_FIELDS) {
+    if (state[key] === undefined) continue;
+    fm[key] = clone(state[key]);
+  }
+  return before !== JSON.stringify(cardSyncState(fm));
+}
+
+function errorMessage(error) {
+  const text = str(error && error.message ? error.message : error).trim();
+  return text || "CouchDB request failed.";
+}
+
+class CouchDbClient {
+  constructor(config, options) {
+    const opts = options || {};
+    this.config = { ...normalizeCouchDb(config), password: str(opts.password) };
+    this.address = couchDbAddress(this.config);
+    this.request = typeof opts.request === "function" ? opts.request : null;
+    if (!this.request) throw new Error("No HTTP transport was supplied for CouchDB.");
+  }
+
+  async call(method, path, body) {
+    const response = await this.request({
+      url: this.address + (path || ""),
+      method,
+      headers: couchDbHeaders(this.config, !!body),
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      throw: false,
+    });
+    let data = null;
+    try {
+      data = response && response.json ? response.json : response && response.text ? JSON.parse(response.text) : null;
+    } catch (e) {
+      data = null;
+    }
+    const status = Number(response && response.status) || 0;
+    if (status >= 400) {
+      const reason = data && (data.reason || data.error);
+      throw new Error(`CouchDB HTTP ${status}${reason ? `: ${reason}` : ""}`);
+    }
+    return data || {};
+  }
+
+  async ensureDatabase() {
+    let status = 0;
+    let data = null;
+    const response = await this.request({
+      url: this.address,
+      method: "GET",
+      headers: couchDbHeaders(this.config),
+      throw: false,
+    });
+    status = Number(response && response.status) || 0;
+    try {
+      data = response && response.json ? response.json : null;
+    } catch (e) {
+      data = null;
+    }
+    if (status === 404) {
+      await this.call("PUT", "");
+      return true;
+    }
+    if (status >= 400 || status === 0) {
+      const reason = data && (data.reason || data.error);
+      throw new Error(`CouchDB HTTP ${status}${reason ? `: ${reason}` : ""}`);
+    }
+    return true;
+  }
+
+  async allCards() {
+    // CouchDB expects startkey/endkey to be JSON values, including quotes for
+    // strings. Without the quotes a real server rejects the view request.
+    const query =
+      "startkey=" +
+      encodeURIComponent(JSON.stringify(DOC_PREFIX)) +
+      "&endkey=" +
+      encodeURIComponent(JSON.stringify(DOC_PREFIX + "\ufff0"));
+    const data = await this.call("GET", `/_all_docs?include_docs=true&${query}`);
+    const out = [];
+    for (const row of Array.isArray(data.rows) ? data.rows : []) {
+      const doc = row && row.doc;
+      if (!doc || !doc.state) continue;
+      out.push({ id: row.id, rev: doc._rev || "", state: cardSyncState(doc.state) });
+    }
+    return out;
+  }
+
+  async getCard(cardId) {
+    const id = couchDbDocId(cardId);
+    try {
+      const doc = await this.call("GET", `/${encodeURIComponent(id)}`);
+      return { id, rev: doc._rev || "", state: cardSyncState(doc.state) };
+    } catch (e) {
+      if (/HTTP 404\b/.test(errorMessage(e))) return null;
+      throw e;
+    }
+  }
+
+  async putCard(cardId, state, rev) {
+    const id = couchDbDocId(cardId);
+    const body = {
+      _id: id,
+      kind: "mcq-tracker-card-review",
+      version: COUCHDB_SYNC_VERSION,
+      card_id: str(cardId),
+      updated_at: stateTimestamp(state),
+      state: cardSyncState(state),
+    };
+    if (rev) body._rev = rev;
+    const data = await this.call("PUT", `/${encodeURIComponent(id)}`, body);
+    return { id, rev: data.rev || "" };
+  }
+}
+
+module.exports = {
+  COUCHDB_PASSWORD_SECRET,
+  COUCHDB_SYNC_VERSION,
+  DEFAULT_COUCHDB,
+  SYNC_FIELDS,
+  applyCardSyncState,
+  cardSyncState,
+  couchDbAddress,
+  couchDbDocId,
+  CouchDbClient,
+  errorMessage,
+  mergeCardSyncStates,
+  newerState,
+  normalizeCouchDb,
+  sameState,
+  stateTimestamp,
 };
 };
 
@@ -28283,6 +28708,7 @@ function applyAttempt(fm, a, intervals, options) {
   fm.result = a.correct ? "correct" : "incorrect";
   fm["date attempted"] = now;
   if (!fm.first_attempted) fm.first_attempted = now;
+  if (opts.reviewUpdated) fm.review_updated = str(opts.reviewUpdated);
   const scheduledReview = isSameDayReview(grade, opts.sameDayReviews)
     ? fmtDate(a.now)
     : fsrsReview
@@ -33476,6 +33902,7 @@ const { CardExtractModal } = require("./cards-extract-modal");
 const { buildMochiArchive, cardsToMochiDecks, mochiMediaWarning } = require("./mochi-export");
 const { cardsToLearnKit, parseLearnKit } = require("./learnkit");
 const { AnkiConnectModal, AnkiConnectClient, ankiExclusionReason, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, resolveSyncAction, syncDecision, syncHash } = require("./anki-connect");
+const { COUCHDB_PASSWORD_SECRET, CouchDbClient, applyCardSyncState, cardSyncState, errorMessage: couchErrorMessage, mergeCardSyncStates, normalizeCouchDb, sameState, stateTimestamp } = require("./couchdb-sync");
 const { parseApkg } = require("./apkg");
 const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
@@ -33825,6 +34252,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "push-cards-anki", name: "Cards: push to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush() });
     this.addCommand({ id: "push-vault-anki", name: "Cards: push the whole vault to Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ vaultWide: true }) });
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
+    this.addCommand({ id: "test-couchdb", name: "Cards: test CouchDB connection", callback: () => this.testCouchDbConnection() });
+    this.addCommand({ id: "sync-cards-couchdb", name: "Cards: sync review state with CouchDB", callback: () => this.syncCardsCouchDb() });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
     this.addCommand({ id: "review-notes", name: "Review notes (whole-note queue)", callback: () => this.openNoteReview() });
     this.addCommand({ id: "generate-quiz", name: "Generate quiz questions from notes", callback: () => this.openQuizGenerator() });
@@ -37678,10 +38107,106 @@ class QuestionTrackerPlugin extends Plugin {
       ...(extra || {}),
       deck: (extra && extra.deck) || card.deck || (card.fm && card.fm.deck) || "",
       course: (extra && extra.course) || card.course || (card.fm && card.fm.course) || "",
+      reviewUpdated: new Date().toISOString(),
       sameDayReviews: this.settings.cards.sameDayReviews === true,
       adaptiveFrequency: this.settings.cards.adaptiveFrequency === true,
       now: new Date(),
     });
+  }
+
+  /** Create one client per operation so a changed URL/password is picked up immediately. */
+  couchDbClient() {
+    const config = normalizeCouchDb(this.settings.cards.couchdb);
+    const password = secretKeys.readSecretValue(this.app, COUCHDB_PASSWORD_SECRET);
+    return new CouchDbClient(config, {
+      password,
+      request: typeof this.couchDbRequest === "function" ? this.couchDbRequest : requestUrl,
+    });
+  }
+
+  /** Check the server and database before the user relies on sync. */
+  async testCouchDbConnection() {
+    if (this.moduleOff("cards")) return { ok: false, error: "Turn on Cards first." };
+    try {
+      await this.couchDbClient().ensureDatabase();
+      new Notice("CouchDB connection works and the database is ready.");
+      return { ok: true };
+    } catch (e) {
+      const message = couchErrorMessage(e);
+      this.settings.cards.couchdb = { ...normalizeCouchDb(this.settings.cards.couchdb), lastError: message };
+      await this.save();
+      new Notice(`CouchDB: ${message}`, 8000);
+      return { ok: false, error: message };
+    }
+  }
+
+  /**
+   * Sync card review state. The newest review wins the schedule, histories are
+   * unioned, and note text is never uploaded or overwritten.
+   */
+  async syncCardsCouchDb() {
+    if (this.moduleOff("cards")) return { pulled: 0, pushed: 0, error: "Turn on Cards first." };
+    let config = normalizeCouchDb(this.settings.cards.couchdb);
+    if (!config.enabled) {
+      new Notice("Turn on CouchDB sync in Settings → Cards → Sync first.");
+      return { pulled: 0, pushed: 0, error: "CouchDB sync is off." };
+    }
+    const client = this.couchDbClient();
+    let pulled = 0;
+    let pushed = 0;
+    let conflicts = 0;
+    let remoteOnly = 0;
+    try {
+      await client.ensureDatabase();
+      const remote = await client.allCards();
+      const byId = new Map();
+      for (const doc of remote) {
+        const id = String((doc.state && doc.state.card_id) || "").trim();
+        if (id) byId.set(id, doc);
+      }
+      const localIds = new Set();
+      for (const card of this.getCards()) {
+        const id = String((card.fm && card.fm.card_id) || "").trim();
+        if (!id) continue;
+        localIds.add(id);
+        const local = cardSyncState(card.fm);
+        const doc = byId.get(id);
+        if (!doc) {
+          await client.putCard(id, local, "");
+          pushed++;
+          continue;
+        }
+        const merged = mergeCardSyncStates(local, doc.state);
+        if (!sameState(merged, local)) {
+          await this.app.fileManager.processFrontMatter(card.file, (fm) => applyCardSyncState(fm, merged));
+          pulled++;
+        }
+        if (!sameState(merged, doc.state) || stateTimestamp(merged) !== stateTimestamp(doc.state)) {
+          try {
+            await client.putCard(id, merged, doc.rev);
+            pushed++;
+          } catch (e) {
+            // A second device wrote between our read and write. Keep the local
+            // note and retry the merge on the next manual sync.
+            if (/HTTP 409\b/.test(couchErrorMessage(e))) conflicts++;
+            else throw e;
+          }
+        }
+      }
+      for (const id of byId.keys()) if (!localIds.has(id)) remoteOnly++;
+      config = { ...config, lastSync: new Date().toISOString(), lastError: "" };
+      this.settings.cards.couchdb = config;
+      await this.save();
+      this.refreshViews();
+      new Notice(`CouchDB sync: ${pulled} pulled, ${pushed} pushed${conflicts ? `, ${conflicts} conflict${conflicts === 1 ? "" : "s"} left for next sync` : ""}.`);
+      return { pulled, pushed, conflicts, remoteOnly };
+    } catch (e) {
+      const message = couchErrorMessage(e);
+      this.settings.cards.couchdb = { ...config, lastError: message };
+      await this.save();
+      new Notice(`CouchDB sync failed: ${message}`, 9000);
+      return { pulled, pushed, conflicts, remoteOnly, error: message };
+    }
   }
 
   /* ---- optional AI second opinion for typed card answers */
@@ -37900,7 +38425,8 @@ class QuestionTrackerPlugin extends Plugin {
     const deck = String(data.deck || st.defaultDeck || "General").trim() || "General";
     let cfg = deckConfig(this.settings, deck);
     if (!cfg) {
-      cfg = { name: deck, folder: "", course: "" };
+      const folder = String(data.deckFolder || "").trim().replace(/^\/+|\/+$/g, "");
+      cfg = { name: deck, folder, course: String(data.deckCourse || "").trim() };
       st.decks = Array.isArray(st.decks) ? st.decks : [];
       st.decks.push(cfg);
       await this.save();
@@ -38864,6 +39390,7 @@ class QuestionTrackerPlugin extends Plugin {
         const sched = this.scheduleOptionsFor(fm, file.path, attempt.deck);
         summary = applyAttempt(fm, attempt, sched.intervals, {
           ...shared,
+          reviewUpdated: attempt.reviewUpdated,
           scheduler: sched.scheduler,
           fsrsRetention: sched.fsrsRetention,
           sm2: sched.sm2,
@@ -38917,6 +39444,7 @@ class QuestionTrackerPlugin extends Plugin {
             const attempt = unpackAttempt(entry.attempt);
             const sched = this.scheduleOptionsFor(fm, file.path, attempt.deck);
             applyAttempt(fm, attempt, sched.intervals, {
+              reviewUpdated: attempt.reviewUpdated,
               scheduler: sched.scheduler,
               fsrsRetention: sched.fsrsRetention,
               sm2: sched.sm2,
@@ -52101,7 +52629,8 @@ const { CALENDAR_TABS } = require("./calendar-settings");
 const cards = require("./cards");
 const plainCards = require("./plain-cards");
 const { CardView } = require("./cards-view");
-const { CardModal } = require("./card-modal");
+const { CardModal, cardPreview } = require("./card-modal");
+const couchdbSync = require("./couchdb-sync");
 const cardsImport = require("./cards-import");
 const ankiConnect = require("./anki-connect");
 const apkg = require("./apkg");
@@ -52239,6 +52768,8 @@ QuestionTrackerPlugin.__test = {
   quickAdd,
   quizBlock,
   sourceRecall,
+  couchdbSync,
+  cardPreview,
   noteReview,
   quizGenerator,
   cardGenerator,
