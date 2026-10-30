@@ -13,6 +13,7 @@ const DEFAULT_ANKI_CONNECT = {
   url: "http://127.0.0.1:8765",
   deck: "", // blank keeps each card's own deck
   conflict: "report", // report | local | anki
+  contentAuthority: "two-way", // "two-way" | "obsidian" (Anki keeps scheduling)
   folderDecks: false, // optional: use the first card subfolder as the Anki deck
   deleteMissing: false, // optional: delete linked Anki notes after their local note is gone
   vaultTags: "", // optional extra tags applied to every Anki note
@@ -36,6 +37,7 @@ function normalizeAnkiConnect(value) {
     url: /^https?:\/\//i.test(url) ? url : DEFAULT_ANKI_CONNECT.url,
     deck: str(src.deck).trim(),
     conflict: ["report", "local", "anki"].includes(str(src.conflict).toLowerCase()) ? str(src.conflict).toLowerCase() : "report",
+    contentAuthority: str(src.contentAuthority).toLowerCase() === "obsidian" ? "obsidian" : "two-way",
     folderDecks: src.folderDecks === true,
     deleteMissing: src.deleteMissing === true,
     vaultTags: str(src.vaultTags).trim(),
@@ -159,6 +161,16 @@ function remoteSyncRecord(note, card) {
     reps: Math.max(0, Math.round(Number(cardInfo.reps) || 0)),
     lapses: Math.max(0, Math.round(Number(cardInfo.lapses) || 0)),
   });
+}
+
+/** Apply the conflict policy, or Obsidian's one-way content authority. */
+function resolveSyncAction(decision, options) {
+  const action = decision && decision.action ? decision.action : "none";
+  const opts = options || {};
+  if (opts.contentAuthority === "obsidian") return action === "none" ? "none" : "push";
+  if (action === "conflict" && opts.conflict === "local") return "push";
+  if (action === "conflict" && opts.conflict === "anki") return "pull";
+  return action;
 }
 
 /** Decide one direction without writing anything. */
@@ -396,11 +408,16 @@ function ankiExclusionReason(card, options) {
 }
 
 /** A local Obsidian URI, used only when the optional backlink is enabled. */
-function sourceBacklink(path, vaultName) {
+function sourceBacklink(path, vaultName, details) {
   const clean = str(path).trim();
   if (!clean) return "";
+  const opts = details || {};
   const vault = str(vaultName).trim();
-  const query = `${vault ? `vault=${encodeURIComponent(vault)}&` : ""}file=${encodeURIComponent(clean)}`;
+  const page = (str(opts.page).match(/\d+/) || [""])[0];
+  const heading = str(opts.heading).trim().replace(/^#+\s*/, "");
+  let query = `${vault ? `vault=${encodeURIComponent(vault)}&` : ""}file=${encodeURIComponent(clean)}`;
+  if (page) query += `&page=${encodeURIComponent(page)}`;
+  if (heading) query += `&heading=${encodeURIComponent(heading)}`;
   return `<br><br><a href="${escapeHtml(`obsidian://open?${query}`)}">Source note</a>`;
 }
 
@@ -461,8 +478,14 @@ function buildAnkiNotes(cards, options) {
     const cloze = /cloze/i.test(str(fm.card_type)) || /cloze/i.test(str(body.cardType));
     const imageName = mediaName(fm.image || "");
     const rawBack = prepareAnkiText(body.back || fm.back || fm.answer, opts);
-    const sourcePath = str(fm.source_note || fm.source_file || path).trim();
-    const backlink = opts.backlinks === true ? sourceBacklink(sourcePath, opts.vaultName) : "";
+    const sourcePath = str(fm.source_pdf || fm.source_document || fm.source_note || fm.source_file || fm.source_path || path).trim();
+    const backlink =
+      opts.backlinks === true
+        ? sourceBacklink(sourcePath, opts.vaultName, {
+            page: fm.source_page || fm.pdf_page || fm.page,
+            heading: fm.source_heading || fm.source_heading_text,
+          })
+        : "";
     const frontMedia = mediaRefs(rawFront, opts);
     const backMedia = mediaRefs(rawBack, opts);
     for (const ref of [...frontMedia, ...backMedia]) media.push({ ...ref, sourcePath: path });
@@ -754,6 +777,7 @@ module.exports = {
   localSyncRecord,
   remoteSyncRecord,
   syncDecision,
+  resolveSyncAction,
   AnkiConnectClient,
   AnkiConnectModal,
 };

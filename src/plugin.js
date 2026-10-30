@@ -59,7 +59,7 @@ const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cards
 const { CardExtractModal } = require("./cards-extract-modal");
 const { buildMochiArchive, cardsToMochiDecks, mochiMediaWarning } = require("./mochi-export");
 const { cardsToLearnKit, parseLearnKit } = require("./learnkit");
-const { AnkiConnectModal, AnkiConnectClient, ankiExclusionReason, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
+const { AnkiConnectModal, AnkiConnectClient, ankiExclusionReason, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, resolveSyncAction, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
 const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
@@ -2164,9 +2164,7 @@ class QuestionTrackerPlugin extends Plugin {
           local: str(record.fm.anki_synced_hash).trim(),
           remote: str(record.fm.anki_remote_hash).trim(),
         });
-        let action = decision.action;
-        if (action === "conflict" && settings.conflict === "local") action = "push";
-        if (action === "conflict" && settings.conflict === "anki") action = "pull";
+        const action = resolveSyncAction(decision, settings);
         if (action === "none") {
           counts.unchanged++;
           continue;
@@ -2176,7 +2174,15 @@ class QuestionTrackerPlugin extends Plugin {
           entries.push({ action: "conflict", path: record.file.path, noteId, detail: "Changed in both places; your conflict setting decides." });
         } else if (action === "push") {
           counts.update++;
-          entries.push({ action: "update", path: record.file.path, noteId, detail: "Local edit goes to Anki." });
+          entries.push({
+            action: "update",
+            path: record.file.path,
+            noteId,
+            detail:
+              settings.contentAuthority === "obsidian"
+                ? "Obsidian owns card content; Anki keeps its schedule."
+                : "Local edit goes to Anki.",
+          });
         } else if (action === "pull") {
           counts.pull++;
           entries.push({ action: "pull", path: record.file.path, noteId, detail: "Anki edit comes into the note." });
@@ -2366,9 +2372,7 @@ class QuestionTrackerPlugin extends Plugin {
           local: str(record.fm.anki_synced_hash).trim(),
           remote: str(record.fm.anki_remote_hash).trim(),
         });
-        let action = decision.action;
-        if (action === "conflict" && settings.conflict === "local") action = "push";
-        if (action === "conflict" && settings.conflict === "anki") action = "pull";
+        const action = resolveSyncAction(decision, settings);
         if (action === "conflict") {
           conflicts++;
           warnings.push(`${record.file.path}: changed in both Obsidian and Anki; kept the local card.`);

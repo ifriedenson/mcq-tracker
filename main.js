@@ -1984,6 +1984,7 @@ const DEFAULT_ANKI_CONNECT = {
   url: "http://127.0.0.1:8765",
   deck: "", // blank keeps each card's own deck
   conflict: "report", // report | local | anki
+  contentAuthority: "two-way", // "two-way" | "obsidian" (Anki keeps scheduling)
   folderDecks: false, // optional: use the first card subfolder as the Anki deck
   deleteMissing: false, // optional: delete linked Anki notes after their local note is gone
   vaultTags: "", // optional extra tags applied to every Anki note
@@ -2007,6 +2008,7 @@ function normalizeAnkiConnect(value) {
     url: /^https?:\/\//i.test(url) ? url : DEFAULT_ANKI_CONNECT.url,
     deck: str(src.deck).trim(),
     conflict: ["report", "local", "anki"].includes(str(src.conflict).toLowerCase()) ? str(src.conflict).toLowerCase() : "report",
+    contentAuthority: str(src.contentAuthority).toLowerCase() === "obsidian" ? "obsidian" : "two-way",
     folderDecks: src.folderDecks === true,
     deleteMissing: src.deleteMissing === true,
     vaultTags: str(src.vaultTags).trim(),
@@ -2130,6 +2132,16 @@ function remoteSyncRecord(note, card) {
     reps: Math.max(0, Math.round(Number(cardInfo.reps) || 0)),
     lapses: Math.max(0, Math.round(Number(cardInfo.lapses) || 0)),
   });
+}
+
+/** Apply the conflict policy, or Obsidian's one-way content authority. */
+function resolveSyncAction(decision, options) {
+  const action = decision && decision.action ? decision.action : "none";
+  const opts = options || {};
+  if (opts.contentAuthority === "obsidian") return action === "none" ? "none" : "push";
+  if (action === "conflict" && opts.conflict === "local") return "push";
+  if (action === "conflict" && opts.conflict === "anki") return "pull";
+  return action;
 }
 
 /** Decide one direction without writing anything. */
@@ -2367,11 +2379,16 @@ function ankiExclusionReason(card, options) {
 }
 
 /** A local Obsidian URI, used only when the optional backlink is enabled. */
-function sourceBacklink(path, vaultName) {
+function sourceBacklink(path, vaultName, details) {
   const clean = str(path).trim();
   if (!clean) return "";
+  const opts = details || {};
   const vault = str(vaultName).trim();
-  const query = `${vault ? `vault=${encodeURIComponent(vault)}&` : ""}file=${encodeURIComponent(clean)}`;
+  const page = (str(opts.page).match(/\d+/) || [""])[0];
+  const heading = str(opts.heading).trim().replace(/^#+\s*/, "");
+  let query = `${vault ? `vault=${encodeURIComponent(vault)}&` : ""}file=${encodeURIComponent(clean)}`;
+  if (page) query += `&page=${encodeURIComponent(page)}`;
+  if (heading) query += `&heading=${encodeURIComponent(heading)}`;
   return `<br><br><a href="${escapeHtml(`obsidian://open?${query}`)}">Source note</a>`;
 }
 
@@ -2432,8 +2449,14 @@ function buildAnkiNotes(cards, options) {
     const cloze = /cloze/i.test(str(fm.card_type)) || /cloze/i.test(str(body.cardType));
     const imageName = mediaName(fm.image || "");
     const rawBack = prepareAnkiText(body.back || fm.back || fm.answer, opts);
-    const sourcePath = str(fm.source_note || fm.source_file || path).trim();
-    const backlink = opts.backlinks === true ? sourceBacklink(sourcePath, opts.vaultName) : "";
+    const sourcePath = str(fm.source_pdf || fm.source_document || fm.source_note || fm.source_file || fm.source_path || path).trim();
+    const backlink =
+      opts.backlinks === true
+        ? sourceBacklink(sourcePath, opts.vaultName, {
+            page: fm.source_page || fm.pdf_page || fm.page,
+            heading: fm.source_heading || fm.source_heading_text,
+          })
+        : "";
     const frontMedia = mediaRefs(rawFront, opts);
     const backMedia = mediaRefs(rawBack, opts);
     for (const ref of [...frontMedia, ...backMedia]) media.push({ ...ref, sourcePath: path });
@@ -2725,6 +2748,7 @@ module.exports = {
   localSyncRecord,
   remoteSyncRecord,
   syncDecision,
+  resolveSyncAction,
   AnkiConnectClient,
   AnkiConnectModal,
 };
@@ -14312,7 +14336,7 @@ function renderDecks(containerEl, plugin, redisplay) {
     );
   new Setting(containerEl)
     .setName("Source backlink in Anki")
-    .setDesc("Optional. Appends a link to the source note (or the card note when there is no source) to each pushed Anki card. Off by default.")
+    .setDesc("Optional. Appends a link to the exact source note, PDF page or heading (or the card note when there is no source) to each pushed Anki card. Off by default.")
     .addToggle((t) =>
       t.setValue(anki.backlinks === true).onChange(async (v) => {
         anki.backlinks = v;
@@ -14407,6 +14431,19 @@ function renderDecks(containerEl, plugin, redisplay) {
       })
     );
 
+  new Setting(containerEl)
+    .setName("Card content authority")
+    .setDesc("Two-way merges edits from both sides. Obsidian owns content keeps the card text, deck and tags authored here while Anki keeps its review scheduling; an Anki content edit is overwritten on the next sync. Two-way is the default.")
+    .addDropdown((d) =>
+      d
+        .addOption("two-way", "Two-way (merge)")
+        .addOption("obsidian", "Obsidian owns content")
+        .setValue(anki.contentAuthority || "two-way")
+        .onChange(async (v) => {
+          anki.contentAuthority = v === "obsidian" ? "obsidian" : "two-way";
+          await plugin.save();
+        })
+    );
   new Setting(containerEl)
     .setName("Conflicting edits")
     .setDesc("When a linked card changed in both places, keep the local card and report it, push the local card, or pull Anki's version.")
@@ -16087,6 +16124,7 @@ const DEFAULT_SETTINGS = {
       deck: "",
       vaultTags: "",
       backlinks: false,
+      contentAuthority: "two-way",
       excludeTags: "",
       excludeDecks: "",
       omitRegex: "",
@@ -32906,7 +32944,7 @@ const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cards
 const { CardExtractModal } = require("./cards-extract-modal");
 const { buildMochiArchive, cardsToMochiDecks, mochiMediaWarning } = require("./mochi-export");
 const { cardsToLearnKit, parseLearnKit } = require("./learnkit");
-const { AnkiConnectModal, AnkiConnectClient, ankiExclusionReason, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, syncDecision, syncHash } = require("./anki-connect");
+const { AnkiConnectModal, AnkiConnectClient, ankiExclusionReason, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, resolveSyncAction, syncDecision, syncHash } = require("./anki-connect");
 const { parseApkg } = require("./apkg");
 const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
@@ -35011,9 +35049,7 @@ class QuestionTrackerPlugin extends Plugin {
           local: str(record.fm.anki_synced_hash).trim(),
           remote: str(record.fm.anki_remote_hash).trim(),
         });
-        let action = decision.action;
-        if (action === "conflict" && settings.conflict === "local") action = "push";
-        if (action === "conflict" && settings.conflict === "anki") action = "pull";
+        const action = resolveSyncAction(decision, settings);
         if (action === "none") {
           counts.unchanged++;
           continue;
@@ -35023,7 +35059,15 @@ class QuestionTrackerPlugin extends Plugin {
           entries.push({ action: "conflict", path: record.file.path, noteId, detail: "Changed in both places; your conflict setting decides." });
         } else if (action === "push") {
           counts.update++;
-          entries.push({ action: "update", path: record.file.path, noteId, detail: "Local edit goes to Anki." });
+          entries.push({
+            action: "update",
+            path: record.file.path,
+            noteId,
+            detail:
+              settings.contentAuthority === "obsidian"
+                ? "Obsidian owns card content; Anki keeps its schedule."
+                : "Local edit goes to Anki.",
+          });
         } else if (action === "pull") {
           counts.pull++;
           entries.push({ action: "pull", path: record.file.path, noteId, detail: "Anki edit comes into the note." });
@@ -35213,9 +35257,7 @@ class QuestionTrackerPlugin extends Plugin {
           local: str(record.fm.anki_synced_hash).trim(),
           remote: str(record.fm.anki_remote_hash).trim(),
         });
-        let action = decision.action;
-        if (action === "conflict" && settings.conflict === "local") action = "push";
-        if (action === "conflict" && settings.conflict === "anki") action = "pull";
+        const action = resolveSyncAction(decision, settings);
         if (action === "conflict") {
           conflicts++;
           warnings.push(`${record.file.path}: changed in both Obsidian and Anki; kept the local card.`);

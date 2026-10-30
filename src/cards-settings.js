@@ -272,7 +272,7 @@ function renderDecks(containerEl, plugin, redisplay) {
     );
   new Setting(containerEl)
     .setName("Source backlink in Anki")
-    .setDesc("Optional. Appends a link to the source note (or the card note when there is no source) to each pushed Anki card. Off by default.")
+    .setDesc("Optional. Appends a link to the exact source note, PDF page or heading (or the card note when there is no source) to each pushed Anki card. Off by default.")
     .addToggle((t) =>
       t.setValue(anki.backlinks === true).onChange(async (v) => {
         anki.backlinks = v;
@@ -367,6 +367,19 @@ function renderDecks(containerEl, plugin, redisplay) {
       })
     );
 
+  new Setting(containerEl)
+    .setName("Card content authority")
+    .setDesc("Two-way merges edits from both sides. Obsidian owns content keeps the card text, deck and tags authored here while Anki keeps its review scheduling; an Anki content edit is overwritten on the next sync. Two-way is the default.")
+    .addDropdown((d) =>
+      d
+        .addOption("two-way", "Two-way (merge)")
+        .addOption("obsidian", "Obsidian owns content")
+        .setValue(anki.contentAuthority || "two-way")
+        .onChange(async (v) => {
+          anki.contentAuthority = v === "obsidian" ? "obsidian" : "two-way";
+          await plugin.save();
+        })
+    );
   new Setting(containerEl)
     .setName("Conflicting edits")
     .setDesc("When a linked card changed in both places, keep the local card and report it, push the local card, or pull Anki's version.")

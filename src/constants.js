@@ -131,6 +131,7 @@ const DEFAULT_SETTINGS = {
       deck: "",
       vaultTags: "",
       backlinks: false,
+      contentAuthority: "two-way",
       excludeTags: "",
       excludeDecks: "",
       omitRegex: "",

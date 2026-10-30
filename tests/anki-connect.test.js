@@ -722,3 +722,128 @@ test("plugin: clearing a stale Anki link is off by default and opt-in", async ()
     obsidian.requestImpl = previous;
   }
 });
+
+test("AnkiConnect: content authority and exact source links are opt-in", () => {
+  assert.equal(anki.normalizeAnkiConnect({}).contentAuthority, "two-way");
+  assert.equal(anki.normalizeAnkiConnect({ contentAuthority: "obsidian" }).contentAuthority, "obsidian");
+  assert.equal(anki.normalizeAnkiConnect({ contentAuthority: "wizard" }).contentAuthority, "two-way");
+
+  assert.equal(anki.resolveSyncAction({ action: "conflict" }, { conflict: "report" }), "conflict");
+  assert.equal(anki.resolveSyncAction({ action: "conflict" }, { conflict: "anki" }), "pull");
+  assert.equal(anki.resolveSyncAction({ action: "pull" }, { contentAuthority: "obsidian" }), "push");
+  assert.equal(anki.resolveSyncAction({ action: "conflict" }, { contentAuthority: "obsidian", conflict: "report" }), "push");
+  assert.equal(anki.resolveSyncAction({ action: "none" }, { contentAuthority: "obsidian" }), "none");
+
+  const pdf = {
+    file: { path: "Cards/Bio/PDF.md" },
+    fm: { deck: "Biology", source_pdf: "Notes/Bio.pdf", source_page: "4-5" },
+    body: { front: "Q", back: "A" },
+  };
+  const pdfBuilt = anki.buildAnkiNotes([pdf], { defaultDeck: "General", backlinks: true, vaultName: "Study Vault" });
+  assert.match(pdfBuilt.notes[0].fields.Back, /file=Notes%2FBio\.pdf&amp;page=4/);
+
+  const heading = {
+    file: { path: "Cards/Bio/Heading.md" },
+    fm: { deck: "Biology", source_note: "Notes/Bio Lecture.md", source_heading: "## Cell theory" },
+    body: { front: "Q", back: "A" },
+  };
+  const headingBuilt = anki.buildAnkiNotes([heading], { defaultDeck: "General", backlinks: true, vaultName: "Study Vault" });
+  assert.match(headingBuilt.notes[0].fields.Back, /file=Notes%2FBio%20Lecture\.md&amp;heading=Cell%20theory/);
+});
+
+test("plugin: Obsidian content authority overwrites Anki text but pulls Anki scheduling", async () => {
+  const notes = [
+    {
+      path: "Cards/Bio/Authority.md",
+      noFm: true,
+      fm: {
+        card_id: "authority",
+        item_type: "card",
+        deck: "Biology",
+        tags: ["exam"],
+        source_note: "Notes/Bio.md",
+        source_heading: "Cell theory",
+        anki_note_id: "123",
+        anki_card_id: "456",
+        anki_synced_hash: "old-local",
+        anki_remote_hash: "old-remote",
+        attempts: 2,
+      },
+      text: "## Front\nLocal question?\n\n## Back\nLocal answer\n",
+    },
+  ];
+  const app = makeApp(notes);
+  app.files[0].fm = { ...notes[0].fm };
+  app.vault.getName = () => "Study Vault";
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  plugin.settings.cards.ankiConnect = {
+    enabled: true,
+    url: "http://127.0.0.1:8765",
+    deck: "",
+    backlinks: true,
+    contentAuthority: "obsidian",
+  };
+  const before = app.files[0].text;
+  const actions = [];
+  const previous = obsidian.requestImpl;
+  obsidian.requestImpl = async (req) => {
+    const body = JSON.parse(req.body);
+    actions.push({ action: body.action, params: body.params });
+    if (body.action === "notesInfo") {
+      return {
+        status: 200,
+        json: {
+          result: [
+            {
+              noteId: 123,
+              cards: [456],
+              modelName: "Basic",
+              tags: ["remote"],
+              fields: { Front: { value: "Remote question?", order: 0 }, Back: { value: "Remote answer", order: 1 } },
+            },
+          ],
+        },
+      };
+    }
+    if (body.action === "cardsInfo") {
+      return {
+        status: 200,
+        json: {
+          result: [{ cardId: 456, deckName: "Biology", modelName: "Basic", ord: 0, due: 9, interval: 12, reps: 34, lapses: 2 }],
+        },
+      };
+    }
+    return { status: 200, json: { result: 1 } };
+  };
+  try {
+    const plan = await plugin.previewAnkiSync({});
+    assert.equal(plan.counts.update, 1, JSON.stringify(plan));
+    assert.equal(plan.counts.conflict, 0);
+    assert.equal(plan.entries[0].action, "update");
+    assert.match(plan.entries[0].detail, /Obsidian owns card content/);
+    assert.equal(app.files[0].text, before, "preview does not write the local card");
+
+    const result = await plugin.syncCardsWithAnki({});
+    assert.equal(result.updated, 1, JSON.stringify(result));
+    assert.equal(result.pulled, 0);
+    assert.equal(result.conflicts, 0);
+    assert.deepEqual(result.errors, []);
+    assert.equal(app.files[0].text, before, "Anki text never replaces the Obsidian card");
+    assert.equal(app.files[0].fm.anki_note_id, "123");
+    assert.equal(app.files[0].fm.anki_due, 9);
+    assert.equal(app.files[0].fm.anki_interval, 12);
+    assert.equal(app.files[0].fm.anki_reps, 34);
+    assert.equal(app.files[0].fm.anki_lapses, 2);
+
+    const update = actions.find((entry) => entry.action === "updateNoteFields");
+    assert.ok(update, JSON.stringify(actions.map((entry) => entry.action)));
+    assert.equal(update.params.note.id, 123);
+    assert.match(update.params.note.fields.Back, /Local answer/);
+    assert.doesNotMatch(update.params.note.fields.Back, /Remote answer/);
+    assert.match(update.params.note.fields.Back, /file=Notes%2FBio\.md&amp;heading=Cell%20theory/);
+  } finally {
+    obsidian.requestImpl = previous;
+  }
+});
