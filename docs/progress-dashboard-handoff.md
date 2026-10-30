@@ -3,7 +3,7 @@
 **Purpose:** give a new agent everything it needs to continue this work without the original chat.
 **Repository:** `ifriedenson/mcq-tracker`
 **Branch:** `main` (committed and pushed)
-**Version in the tree:** `1.118.0` (manifest + `versions.json` bumped; not yet tagged or released)
+**Version:** `1.118.0` (tagged and released on Oct 30, 2026)
 **Last verified:** `npm test` → **696 passing, 0 failing**; `npm run check` → `main.js is up to date`.
 
 Read `AGENTS.md` and the **Current focus** section of `plan.md` first. `plan.md` remains the product source of truth; this document is only the implementation handoff for the progress dashboard work.
@@ -232,8 +232,5 @@ No browser/preview verification applies: this is an Obsidian plugin, not a web a
 2. `src/` is the source of truth; `main.js` is generated. After any source edit run `npm run build`, then `npm test` and `npm run check`.
 3. No dependencies may be added. Keep the plugin dependency-free and local-first.
 4. Update `plan.md` before pushing implementation work.
-5. The 1.118.0 changes are **committed and pushed to `main`**, but not tagged. To release them:
-   - confirm `npm test` and `npm run check` still pass on the tag commit;
-   - create a tag equal to `1.118.0` and push it; `.github/workflows/release.yml` then publishes `main.js`, `manifest.json` and `styles.css` with build attestations;
-   - do not bump the version again unless new scope is added.
+5. 1.118.0 is **tagged, released and published**; the workflow uploaded `main.js`, `manifest.json` and `styles.css`. For the next version: bump the version, rebuild, confirm `npm test` and `npm run check`, push `main`, then push a tag equal to the manifest version so `.github/workflows/release.yml` publishes it.
 6. Do not claim the community-directory problem is fixed without the owner's dashboard confirmation.
