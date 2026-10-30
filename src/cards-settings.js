@@ -4,6 +4,7 @@ const { localDate, str } = require("./util");
 const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 const { deckSummary, effectiveScheduler, normalizeDeckIntervals } = require("./cards");
 const { CARD_GENERATOR_STYLES, normalizeCardGenerator } = require("./card-generator");
+const { normalizeAutoAnki } = require("./auto-anki");
 const { renderSettingsTabs } = require("./settings-ui");
 const { COUCHDB_PASSWORD_SECRET, normalizeCouchDb } = require("./couchdb-sync");
 const { hasSecretStorage, storeSecretValue } = require("./secret-keys");
@@ -744,6 +745,40 @@ function renderReview(containerEl, plugin, redisplay) {
   new Setting(containerEl)
     .setName("Generate from this note or selection")
     .addButton((b) => b.setButtonText("Open generator").onClick(() => plugin.openCardGenerator()));
+
+  new Setting(containerEl).setName("Auto Anki").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "One command drafts cards from the open note or selection and sends only those cards through the existing AnkiConnect bridge. Re-running on unchanged source text reuses the existing cards instead of generating duplicates.",
+  });
+  const aa = normalizeAutoAnki(plugin.settings.autoAnki, st.defaultDeck);
+  const patchAutoAnki = async (values) => {
+    plugin.settings.autoAnki = normalizeAutoAnki({ ...normalizeAutoAnki(plugin.settings.autoAnki, st.defaultDeck), ...values }, st.defaultDeck);
+    await plugin.save();
+  };
+  new Setting(containerEl)
+    .setName("Auto Anki card count")
+    .setDesc("Between 1 and 20. The command can change this for one run.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.max = "20";
+      t.setValue(String(aa.count)).onChange(async (v) => {
+        const n = Math.round(Number(v));
+        if (Number.isFinite(n) && n > 0) await patchAutoAnki({ count: Math.min(20, n) });
+      });
+    });
+  new Setting(containerEl)
+    .setName("Auto Anki deck")
+    .setDesc("Deck for generated cards. Leave blank to use each card's deck or the configured default.")
+    .addText((t) =>
+      t.setValue(aa.deck).setPlaceholder(st.defaultDeck || "General").onChange(async (v) => {
+        await patchAutoAnki({ deck: v });
+      })
+    );
+  new Setting(containerEl)
+    .setName("Send this note or selection")
+    .addButton((b) => b.setButtonText("Open Auto Anki").onClick(() => plugin.openAutoAnki()));
 }
 
 function renderAbout(containerEl, plugin) {

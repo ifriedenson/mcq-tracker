@@ -66,6 +66,8 @@ const { NoteReviewModal } = require("./note-review-modal");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const quizGenerator = require("./quiz-generator");
 const cardGenerator = require("./card-generator");
+const autoAnki = require("./auto-anki");
+const { AutoAnkiModal } = require("./auto-anki-modal");
 const studyBundle = require("./study-bundle");
 const studyBundleImport = require("./study-bundle-import");
 const zipWrite = require("./zip-write");
@@ -233,6 +235,8 @@ QuestionTrackerPlugin.__test = {
   SpacedEverythingCaptureModal,
   quizGenerator,
   cardGenerator,
+  autoAnki,
+  AutoAnkiModal,
   studyBundle,
   studyBundleImport,
   zipWrite,

@@ -133,6 +133,7 @@ const DEFAULT_SETTINGS = {
     noteTemplate: "## Captured thought\n{{thought}}",
   },
   cardGenerator: { count: 8, customPrompt: "", style: "inline", separator: "::", hideInPreview: false, output: "notes", source: "auto", deck: "" }, // last flashcard-generator choices
+  autoAnki: { count: 8, deck: "" }, // Auto Anki: AI card creation sent through the existing Anki bridge
   quizGenerator: { folders: [], count: 5, language: "English", types: ["mcq"] }, // last AI quiz-generator choices
   cards: {
     enabled: false, // cards and vocabulary are opt-in; nothing else changes when this is off

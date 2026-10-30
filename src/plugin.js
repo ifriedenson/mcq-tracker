@@ -99,6 +99,8 @@ const { NoteReviewModal } = require("./note-review-modal");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const { CardGeneratorModal } = require("./card-generator-modal");
+const { AutoAnkiModal } = require("./auto-anki-modal");
+const { autoAnkiBatchPaths, autoAnkiCardInputs, autoAnkiSourceKey, chooseAutoAnkiSource, normalizeAutoAnki } = require("./auto-anki");
 const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator } = require("./card-generator");
 const { readActiveNoteContext } = require("./note-context");
 const { QuizGeneratorModal } = require("./quiz-generator-modal");
@@ -290,6 +292,17 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-card", name: "Create a flashcard or vocabulary card", callback: () => this.openNewCard() });
     this.addCommand({ id: "source-recall", name: "Create a source-anchored recall from selection", callback: () => this.openSourceRecall() });
     this.addCommand({ id: "generate-cards", name: "Generate flashcards from this note or selection", callback: () => this.openCardGenerator() });
+    this.addCommand({
+      id: "auto-anki-send",
+      name: "Auto Anki: send this note or selection",
+      checkCallback: (checking) => {
+        if (this.moduleOff("cards")) return false;
+        const file = this.app.workspace.getActiveFile();
+        if (!file || !/\.md$/i.test(file.path)) return false;
+        if (!checking) this.openAutoAnki();
+        return true;
+      },
+    });
     this.addCommand({ id: "new-image-occlusion", name: "Cards: create image occlusion cards", callback: () => this.openImageOcclusion() });
     this.addCommand({
       id: "practice-note",
@@ -680,6 +693,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.spacedEverything = normalizeSpacedEverything(saved.spacedEverything);
     this.settings.quizGenerator = normalizeQuizGenerator(saved.quizGenerator);
     this.settings.cardGenerator = normalizeCardGenerator(saved.cardGenerator);
+    this.settings.autoAnki = normalizeAutoAnki(saved.autoAnki, this.settings.cards.defaultDeck);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
     this.settings.assignments = normalizeAssignmentSettings(saved.assignments);
     this.settings.reference = mergeReferenceSettings(saved.reference);
@@ -2395,10 +2409,13 @@ class QuestionTrackerPlugin extends Plugin {
     const opts = options || {};
     const settings = normalizeAnkiConnect(this.settings.cards.ankiConnect);
     if (!settings.enabled) throw new Error("Turn on AnkiConnect sync under Settings, Cards, Decks first.");
-    const cards = opts.vaultWide === true
-      ? this.getCards()
-      : this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
-    if (!cards.length) throw new Error(opts.vaultWide === true ? "No card notes were found in the vault." : "No cards match the current deck and course filter.");
+    const selectedPaths = Array.isArray(opts.paths) ? new Set(opts.paths.map((path) => str(path).trim()).filter(Boolean)) : null;
+    const cards = selectedPaths
+      ? this.getCards().filter((card) => selectedPaths.has(card.file.path))
+      : opts.vaultWide === true
+        ? this.getCards()
+        : this.filteredCards({ deck: opts.deck, course: opts.course, includeHidden: true });
+    if (!cards.length) throw new Error(selectedPaths ? "The selected card notes were not found." : opts.vaultWide === true ? "No card notes were found in the vault." : "No cards match the current deck and course filter.");
     const buildOptions = this.ankiBuildOptions(opts, settings);
     const records = [];
     const warnings = [];
@@ -3964,6 +3981,86 @@ class QuestionTrackerPlugin extends Plugin {
     const modal = new CardGeneratorModal(this.app, this, onDone || (() => this.refreshViews()));
     modal.open();
     return modal;
+  }
+
+  openAutoAnki() {
+    if (!this.settings.ai.enabled) {
+      new Notice("Turn on AI features under Settings, Global, Modules, then choose a provider under MCQ Tracker, AI.");
+      return null;
+    }
+    if (this.moduleOff("cards")) {
+      new Notice("Turn on Cards under Settings, Global, Modules to use Auto Anki.");
+      return null;
+    }
+    const modal = new AutoAnkiModal(this.app, this);
+    modal.open();
+    return modal;
+  }
+
+  /**
+   * Generate cards from the active note (or selection) and push only those cards
+   * to Anki. A source/text batch is reused on a second run, so the AI is not
+   * called again and existing cards are never duplicated.
+   */
+  async runAutoAnki(options) {
+    if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
+    if (this.moduleOff("cards")) throw new Error("Turn on Cards to create flashcards.");
+    const anki = normalizeAnkiConnect(this.settings.cards.ankiConnect);
+    if (!anki.enabled) throw new Error("Turn on AnkiConnect sync under Settings, Cards, Sync first.");
+    const opts = options || {};
+    const context = opts.context && opts.context.path ? opts.context : await readActiveNoteContext(this.app);
+    if (!context || !context.path) throw new Error("Open a Markdown note first.");
+    const source = chooseAutoAnkiSource(context, opts.source || "auto");
+    const config = normalizeAutoAnki(
+      { ...normalizeAutoAnki(this.settings.autoAnki, this.settings.cards.defaultDeck), count: opts.count === undefined ? this.settings.autoAnki.count : opts.count },
+      this.settings.cards.defaultDeck
+    );
+    const deck = str(opts.deck).trim() || config.deck || this.settings.cards.defaultDeck || "General";
+    const batch = autoAnkiSourceKey(context.path, source.kind, source.text);
+    const existing = autoAnkiBatchPaths(this.getCards(), batch);
+    if (existing.length) {
+      const pushed = await this.pushCardsToAnki({ paths: existing, deck });
+      return {
+        batch,
+        reused: true,
+        sourceKind: source.kind,
+        cards: existing.length,
+        paths: existing,
+        created: 0,
+        skipped: existing.length,
+        pushed,
+      };
+    }
+
+    const generated = await this.generateCardsFromNote({ source: source.kind, count: config.count, deck });
+    if (!generated.items.length) throw new Error("The AI returned no usable cards. Try a different note or selection.");
+    const inputs = autoAnkiCardInputs(generated, { deck, batch });
+    if (!inputs.length) throw new Error("The AI returned no usable cards. Try a different note or selection.");
+    const beforePaths = new Set(this.app.vault.getMarkdownFiles().map((file) => file.path));
+    const write = await this.importParsedCards(inputs, {
+      deck,
+      course: generated.course,
+      duplicateMode: "skip",
+    });
+    const rowPaths = write.rows
+      .filter((row) => ["created", "updated", "copied", "skipped"].includes(row.status) && row.path)
+      .map((row) => row.path);
+    const paths = [...new Set([...autoAnkiBatchPaths(this.getCards(), batch), ...rowPaths])];
+    if (!paths.length) throw new Error("The generated cards could not be written to the vault.");
+    this.recordAiTranscriptWrite(generated, beforePaths);
+    const pushed = await this.pushCardsToAnki({ paths, deck });
+    return {
+      batch,
+      reused: false,
+      sourceKind: source.kind,
+      generated: generated.items.length,
+      created: write.created,
+      skipped: write.skipped,
+      cards: paths.length,
+      paths,
+      write,
+      pushed,
+    };
   }
 
   /* ---- whole-note review, using the same scheduler as questions and cards */

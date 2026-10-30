@@ -5495,3 +5495,14 @@
 .qt-spaced-capture-modal .qt-error {
   margin-top: 6px;
 }
+
+
+/* Auto Anki confirmation and excerpt. */
+.qt-auto-anki-excerpt {
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border-left: 3px solid var(--background-modifier-border);
+  padding: 4px 0 4px 10px;
+  color: var(--text-muted);
+}

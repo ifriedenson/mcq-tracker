@@ -424,6 +424,12 @@ Run **Generate quiz questions from notes** from the command palette. Choose sour
 
 Run **Generate flashcards from this note or selection**. If text is selected, the generator uses it; otherwise it reads the open note. Add an optional instruction and choose 1–20 cards. **Create tracked card notes** is the default: cards go through the normal importer, get a deck, source note and AI provenance, and use the same history and scheduler; **AI: undo the last generated notes** removes them. **Insert into this note** appends a block instead, using an inline `front :: back` or multiline `front` / `---` / `back` layout you can change, plus an optional `%%` wrapper that hides the block in reading view. Inserted blocks are not scheduled; undo the insertion with Ctrl/Cmd+Z. The last choices are remembered in settings, and Cards → Review exposes the default count, layout and hidden-block choice.
 
+### Auto Anki
+
+Run **Auto Anki: send this note or selection** on an open Markdown note. When text is selected it uses that passage; otherwise it uses the whole note. The confirmation window shows the source, card count and deck; **Generate and send** drafts cards with the configured AI provider, writes them as ordinary tracked card notes and pushes only those cards through AnkiConnect.
+
+Re-running on unchanged source text reuses the cards already generated for that source and sends them again without creating duplicates. The generated cards carry `import_format: auto-anki`, a stable import key and the source batch, so the existing card queue, history and scheduler still own them. AnkiConnect must be enabled under Settings → Cards → Sync. The default count and deck are under Settings → Cards → Decks, Auto Anki.
+
 ### Commands
 
 - Open practice view
