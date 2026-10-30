@@ -56,6 +56,7 @@ const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
 const quizBlock = require("./quiz-block");
 const noteReview = require("./note-review");
+const quizGenerator = require("./quiz-generator");
 const studyBundle = require("./study-bundle");
 const studyBundleImport = require("./study-bundle-import");
 const zipWrite = require("./zip-write");
@@ -207,6 +208,7 @@ QuestionTrackerPlugin.__test = {
   quickAdd,
   quizBlock,
   noteReview,
+  quizGenerator,
   studyBundle,
   studyBundleImport,
   zipWrite,

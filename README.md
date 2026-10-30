@@ -342,6 +342,10 @@ Why: The light reactions use CO2.
 
 Turn it on under Settings → MCQ Tracker → Review. One set per line: `Name | folders | tags | priority`. Folders include subfolders, and blank folders or tags mean any note. With no sets, only notes with `note_review: true` are reviewed. The command **Review notes (whole-note queue)** shows one note at a time with Again/Hard/Good/Easy; ratings go through the same ladder or FSRS scheduler and write the usual `history`, `attempts` and `next_review` properties. A status-bar count shows notes due. Question and card notes are excluded, and `note_review_priority: high|normal|low` changes queue order only.
 
+### AI quiz generation from notes
+
+Run **Generate quiz questions from notes** from the command palette. Choose source folders (blank means the whole vault), 1–20 questions, one or more of multiple-choice, select-all and true/false, and any of 22 output languages. Only notes in those folders are read; existing question and card notes are skipped, and the source is capped at 12 notes / 18,000 characters. Every draft is shown with its key before anything is written. Confirming creates ordinary question notes through Quick add, so generated questions use the same history, streak and ladder/FSRS schedule. This needs **Enable AI features** and a configured provider; nothing is sent until you press **Generate draft**. Malformed or duplicate model items are dropped, and the last choices are remembered.
+
 ### Commands
 
 - Open practice view
@@ -358,6 +362,7 @@ Turn it on under Settings → MCQ Tracker → Review. One set per line: `Name | 
 - Open study cards
 - Open Today
 - Review notes (whole-note queue)
+- Generate quiz questions from notes
 - Retry saving offline practice results
 - Open cards
 - Open assignments and grades

@@ -90,6 +90,8 @@ const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { gradeQuizBlockQuestion, parseQuizBlock, visibleQuizCount } = require("./quiz-block");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
+const { QuizGeneratorModal } = require("./quiz-generator-modal");
+const { buildQuizGeneratorPrompt, collectGeneratorSources, folderMatches, normalizeQuizGenerator, parseGeneratorQuestions } = require("./quiz-generator");
 const { buildStudyBundle, bundleFileName } = require("./study-bundle");
 const { parseStudyBundle, planStudyBundleRestore } = require("./study-bundle-import");
 const { buildWeakSpotPrompt, pickWeakSpot, weakSpotRows } = require("./weak-spot");
@@ -375,6 +377,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "sync-cards-anki", name: "Cards: sync with Anki (AnkiConnect)", callback: () => this.openAnkiConnectPush({ sync: true }) });
     this.addCommand({ id: "open-due-queue", name: "Open today's due queue", callback: () => this.openDueQueue() });
     this.addCommand({ id: "review-notes", name: "Review notes (whole-note queue)", callback: () => this.openNoteReview() });
+    this.addCommand({ id: "generate-quiz", name: "Generate quiz questions from notes", callback: () => this.openQuizGenerator() });
     this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
     this.addCommand({ id: "manage-study-status", name: "Manage hidden study items", callback: () => this.openStudyStatusManager() });
 
@@ -589,6 +592,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.noteReview = normalizeNoteReview(saved.noteReview);
+    this.settings.quizGenerator = normalizeQuizGenerator(saved.quizGenerator);
     this.settings.calendar = mergeCalendarSettings(saved.calendar);
     this.settings.assignments = normalizeAssignmentSettings(saved.assignments);
     this.settings.reference = mergeReferenceSettings(saved.reference);
@@ -2979,6 +2983,50 @@ class QuestionTrackerPlugin extends Plugin {
       });
     });
     cards.forEach((card, index) => card.toggleClass("qt-quiz-hidden", parsed.gated && index >= visibleQuizCount(parsed.questions.length, 0, true)));
+  }
+
+  /** Draft quiz questions from chosen notes and folders. This method writes nothing. */
+  async generateQuizFromNotes(options) {
+    if (!this.settings.ai.enabled) throw new Error("Turn on AI features under Settings, Global, Modules first.");
+    if (this.moduleOff("mcq")) throw new Error("Turn on MCQ Tracker to create practice questions.");
+    const config = normalizeQuizGenerator({ ...normalizeQuizGenerator(this.settings.quizGenerator), ...(options || {}) });
+    const sources = [];
+    for (const candidate of this.getNoteCandidates()) {
+      if (!folderMatches(candidate.file.path, config.folders)) continue;
+      try {
+        sources.push({ ...candidate, text: await this.app.vault.cachedRead(candidate.file) });
+      } catch (e) {
+        /* an unreadable note is left out rather than failing the whole draft */
+      }
+    }
+    const source = collectGeneratorSources(sources, { folders: config.folders, maxNotes: 12 });
+    if (!source.text.trim()) throw new Error("No readable notes matched those folders.");
+    const prompt = buildQuizGeneratorPrompt({ text: source.text, titles: source.titles, count: config.count, language: config.language, types: config.types });
+    const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: 4000 });
+    const parsed = parseGeneratorQuestions(reply, { count: config.count, types: config.types });
+    if (!parsed.items.length) throw new Error("The AI returned no usable questions. Try different notes or fewer types.");
+    return {
+      kind: "questions",
+      items: parsed.items,
+      issues: parsed.issues,
+      sourceCount: source.count,
+      truncated: source.truncated,
+      language: config.language,
+      types: config.types,
+      model: this.aiModelLabel("generation"),
+      ai: true,
+    };
+  }
+
+  openQuizGenerator(onDone) {
+    if (!this.settings.ai.enabled) {
+      new Notice("Turn on AI features under Settings, Global, Modules, then choose a provider under MCQ Tracker, AI.");
+      return null;
+    }
+    if (this.moduleOff("mcq")) return null;
+    const modal = new QuizGeneratorModal(this.app, this, onDone || (() => this.refreshViews()));
+    modal.open();
+    return modal;
   }
 
   /* ---- whole-note review, using the same scheduler as questions and cards */
