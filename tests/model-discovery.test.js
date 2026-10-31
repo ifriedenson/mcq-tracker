@@ -128,6 +128,10 @@ test("model discovery: missing configuration, HTTP errors and network failures a
     () => assert.rejects(() => client().listModels(), /empty model list/)
   );
   await withRequest(
+    async () => ({ status: 404, text: "not found" }),
+    () => assert.rejects(() => client().listModels(), /did not expose a model list/)
+  );
+  await withRequest(
     async () => ({ status: 200, json: { ok: true } }),
     () => assert.rejects(() => client().listModels(), /not in a recognised format/)
   );

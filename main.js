@@ -4427,7 +4427,6 @@ function friendlyApiError(e) {
   if (/ENOTFOUND|ECONNREFUSED|Failed to fetch|net::|ETIMEDOUT/i.test(m)) {
     return "Couldn't reach the provider. Check your internet connection and the base URL in settings.";
   }
-  if (/HTTP 404/.test(m)) return `The provider did not expose a model list at that address. Check the base URL. ${m}`;
   return m;
 }
 
@@ -4546,7 +4545,11 @@ class ApiClient {
     }
     if (response.status >= 400) {
       const detail = data && data.error ? data.error.message || data.error : response.text;
-      throw new Error(friendlyApiError(new Error(`HTTP ${response.status}: ${str(typeof detail === "string" ? detail : JSON.stringify(detail)).slice(0, 300)}`)));
+      const reason = str(typeof detail === "string" ? detail : JSON.stringify(detail)).slice(0, 300);
+      if (response.status === 404) {
+        throw new Error(`The provider did not expose a model list at that address. Check the base URL. HTTP 404: ${reason}`);
+      }
+      throw new Error(friendlyApiError(new Error(`HTTP ${response.status}: ${reason}`)));
     }
     const parsed = parseModelList(data);
     if (!parsed.models.length) throw new Error(parsed.issue || "The provider returned an empty model list.");
