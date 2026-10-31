@@ -183,6 +183,7 @@ const simpleNoteQuiz = require("./simple-note-quiz");
 const { SimpleNoteQuizModal } = require("./simple-note-quiz-modal");
 const adaptiveSession = require("./adaptive-session");
 const reminder = require("./reminder");
+const osNotifications = require("./os-notifications");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const provenance = require("./provenance");
 const transcript = require("./transcript");
@@ -476,6 +477,7 @@ QuestionTrackerPlugin.__test = {
   SimpleNoteQuizModal,
   adaptiveSession,
   reminder,
+  osNotifications,
   renderDailySettings,
   QUICK_TIME_OPTIONS,
   QUICK_COUNT_OPTIONS,

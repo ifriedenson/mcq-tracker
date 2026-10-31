@@ -117,7 +117,7 @@ class TodayView extends ItemView {
     this.renderNext(grid, now);
   }
 
-  /** A quiet, local nudge. It never uses an OS notification or the network. */
+  /** A quiet local nudge. OS delivery is opt-in and never uses the network. */
   renderReminder(root, today, due, fresh) {
     const p = this.plugin;
     if (!p.reminderInfo) return;
@@ -129,7 +129,7 @@ class TodayView extends ItemView {
     card.createDiv({ cls: "qt-today-title", text: info.text });
     card.createDiv({
       cls: "qt-today-meta",
-      text: `Local only · shown once a day from ${String(info.hour).padStart(2, "0")}:00 · no notification is sent`,
+      text: `Local only · shown once a day from ${String(info.hour).padStart(2, "0")}:00 · ${info.osNotifications ? "sent to the operating system when allowed" : "no notification is sent"}`,
     });
     const row = card.createDiv({ cls: "qt-row qt-small-row" });
     if (info.counts.daily) {

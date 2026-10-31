@@ -629,7 +629,7 @@ function renderGeneral(containerEl, plugin, redisplay) {
   const reminder = st.reminder || { enabled: false, hour: 9 };
   new Setting(containerEl)
     .setName("Daily study reminder")
-    .setDesc("A quiet in-app nudge on Today and in the status bar, at most once a day. It never uses an operating-system notification, sends nothing, and is off by default.")
+    .setDesc("A quiet in-app nudge on Today and in the status bar, at most once a day. It sends nothing, and is off by default. Operating-system delivery is a separate opt-in below.")
     .addToggle((t) =>
       t.setValue(reminder.enabled === true).onChange(async (v) => {
         st.reminder = { ...reminder, enabled: v };
@@ -653,6 +653,20 @@ function renderGeneral(containerEl, plugin, redisplay) {
       });
     })
     .addButton((b) => b.setButtonText("Dismiss today").onClick(() => plugin.dismissTodayReminder()));
+
+  new Setting(containerEl)
+    .setName("Operating-system notifications")
+    .setDesc("Ask the operating system to show the daily reminder as a desktop notification, at most once a day. Off by default; the in-app nudge stays on either way, nothing is sent over the network, and the permission prompt appears only when you turn this on or press the button.")
+    .addToggle((t) =>
+      t.setValue(reminder.osNotifications === true).onChange(async (v) => {
+        st.reminder = { ...reminder, osNotifications: v };
+        if (v && plugin.requestOsNotifications) await plugin.requestOsNotifications();
+        await plugin.save();
+        plugin.refreshReminder();
+        redisplay();
+      })
+    )
+    .addButton((b) => b.setButtonText("Request permission").onClick(() => plugin.requestOsNotifications()));
 
   new Setting(containerEl)
     .setName("Open the practice view when Obsidian starts")

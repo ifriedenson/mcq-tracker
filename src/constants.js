@@ -113,7 +113,7 @@ const DEFAULT_SETTINGS = {
   studyLog: { sessions: [], dailyGoalMinutes: 60, lastCourse: "" }, // focus sessions and manual study time
   masteryScope: "", // Insights > Progress: the course whose mastery is shown; "" means all questions
   masteryDays: 0, // Insights > Progress: 0 = all time, 7 or 30 = only attempts from that window
-  reminder: { enabled: false, hour: 9, lastShown: "", dismissed: "" }, // local, once-a-day in-app nudge
+  reminder: { enabled: false, osNotifications: false, hour: 9, lastShown: "", dismissed: "" }, // local, once-a-day nudge; OS delivery is opt-in
   dailyQuiz: {
     enabled: false, // opt-in; no command, card or notifications until it is on
     count: 5,
