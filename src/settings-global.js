@@ -208,6 +208,18 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("CBT exam blocks")
+    .setDesc("Run a local exam navigator with answer flags, per-exam attempt history and missed-first adaptive review in cbt-exam blocks. Attempts stay in plugin data and never edit the note.")
+    .addToggle((t) =>
+      t.setValue(plugin.cbtExamEnabled()).onChange(async (v) => {
+        st.cbtExam.enabled = v;
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("SFC-style card blocks")
     .setDesc("Study basic, reversed, cloze, essay, worked-solution, wrong-answer-sprint and source-marked cards in local sfc-cards blocks. Reveals and self-checks are not recorded.")
     .addToggle((t) =>

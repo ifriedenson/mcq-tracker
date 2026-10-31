@@ -805,6 +805,12 @@ Enable **SFC-style card blocks** under Settings, Global, Modules, then write an 
 
 Reveals, step-by-step solutions and self-checks happen in memory. The block does not write attempts, history, streaks or scheduler state, and it never edits the source note.
 
+## CBT exam blocks (independent module)
+
+Enable **CBT exam blocks** under Settings, Global, Modules, then write a `cbt-exam` fenced block. The header takes `Exam:` and an optional `Time:` in minutes. Separate questions with `---`; each question uses a `Q:` line, optional `Topic:`, at least two lettered choices, an `Answer:` letter and an optional `Why:`.
+
+The block renders a numbered **question navigator** with answered, flagged and current states, plus Previous, Next and **Flag for review** controls. **Submit exam** scores the attempt, shows a per-topic breakdown and lists the missed question numbers. **Adaptive review (missed first)** starts a fresh pass with the missed questions first. Each submitted attempt is stored in plugin data, keyed by note and exam name, and the last five attempts appear under History on this device. The block never edits the note, changes card scheduling or calls a provider. The binary `.vce` exam-file converter is not implemented because no format fixture or public specification is bundled.
+
 ## Reusable inline quizzes and partial credit
 
 A `quiz-definition` block is a reusable quiz. Give it an `Id:` and put it anywhere in the vault; a `playable-quiz` block with the same `Id:` plays it where you need it:

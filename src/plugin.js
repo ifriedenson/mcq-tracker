@@ -114,6 +114,7 @@ const quizNoteGate = require("./quiz-note-gate");
 const { parseExamBlock } = require("./exam-block");
 const { normalizeQuizMakerSettings, renderQuizMakerBlock: renderQuizMaker } = require("./quiz-maker");
 const { normalizeSfcCardsSettings, renderSfcCardsBlock: renderSfcCards } = require("./sfc-cards");
+const { normalizeCbtExamSettings, renderCbtExamBlock: renderCbtExam } = require("./cbt-exam");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
@@ -538,6 +539,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("exam", (source, el, ctx) => this.renderExamBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quiz-maker", (source, el, ctx) => this.renderQuizMakerBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("sfc-cards", (source, el, ctx) => this.renderSfcCardsBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("cbt-exam", (source, el, ctx) => this.renderCbtExamBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizport", (source, el, ctx) => this.renderQuizPortBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("simple-flashcards", (source, el, ctx) => this.renderSimpleFlashcardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("reading-plan", (source, el, ctx) => this.renderReadingPlanBlock(source, el, ctx));
@@ -781,6 +783,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quizIndex = studyWorkspace.normalizeQuizIndex(saved.quizIndex);
     this.settings.quizMaker = normalizeQuizMakerSettings(saved.quizMaker);
     this.settings.sfcCards = normalizeSfcCardsSettings(saved.sfcCards);
+    this.settings.cbtExam = normalizeCbtExamSettings(saved.cbtExam);
     this.settings.courseHub = studyWorkspace.normalizeCourseHub(saved.courseHub);
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks(saved.studyTasks);
     this.settings.annotations = studyWorkspace.normalizeAnnotations(saved.annotations);
@@ -1302,6 +1305,10 @@ class QuestionTrackerPlugin extends Plugin {
 
   sfcCardsEnabled() {
     return normalizeSfcCardsSettings(this.settings.sfcCards).enabled;
+  }
+
+  cbtExamEnabled() {
+    return normalizeCbtExamSettings(this.settings.cbtExam).enabled;
   }
 
   courseHubEnabled() {
@@ -4257,6 +4264,15 @@ class QuestionTrackerPlugin extends Plugin {
       return null;
     }
     return renderSfcCards(this, source, el, ctx);
+  }
+
+  /** Render a `cbt-exam` block with a navigator, sidecar history and adaptive review. */
+  async renderCbtExamBlock(source, el, ctx) {
+    if (!this.cbtExamEnabled()) {
+      el.createDiv({ cls: "qt-cbt-exam-issue", text: "CBT Exam is off. Turn it on in Settings, Global, Modules." });
+      return null;
+    }
+    return renderCbtExam(this, source, el, ctx);
   }
 
   /** Render a `simple-flashcards` block with the local reveal reader. */

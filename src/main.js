@@ -65,6 +65,7 @@ const quizClipboard = require("./quiz-clipboard");
 const examBlock = require("./exam-block");
 const quizMaker = require("./quiz-maker");
 const sfcCards = require("./sfc-cards");
+const cbtExam = require("./cbt-exam");
 const simpleFlashcards = require("./simple-flashcards");
 const quizBlock = require("./quiz-block");
 const studyTools = require("./study-tools");
@@ -250,6 +251,7 @@ QuestionTrackerPlugin.__test = {
   examBlock,
   quizMaker,
   sfcCards,
+  cbtExam,
   simpleFlashcards,
   quizBlock,
   quizNoteGate,

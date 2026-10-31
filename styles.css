@@ -6913,3 +6913,37 @@
 .qt-sfc-cards-step { white-space: pre-wrap; }
 .qt-sfc-cards-steps { display: flex; flex-direction: column; gap: 4px; }
 .qt-sfc-cards-issue { color: var(--text-error); font-size: 0.9em; margin-top: 4px; }
+
+/* CBT exam blocks: navigator, flags, attempt history and adaptive review. */
+.qt-cbt-exam {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 10px 0;
+  padding: 12px;
+}
+.qt-cbt-exam-title { font-weight: 600; }
+.qt-cbt-exam-meta,
+.qt-cbt-exam-topic,
+.qt-cbt-exam-counts,
+.qt-cbt-exam-history-label { color: var(--text-muted); font-size: 0.85em; }
+.qt-cbt-exam-nav { border-bottom: 1px solid var(--background-modifier-border); padding-bottom: 8px; }
+.qt-cbt-exam-grid { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.qt-cbt-exam-cell { min-width: 2.4em; padding: 4px 6px; }
+.qt-cbt-exam-cell.is-answered { background: var(--background-modifier-success); }
+.qt-cbt-exam-cell.is-flagged { border-color: var(--text-warning); }
+.qt-cbt-exam-cell.is-current { border-color: var(--interactive-accent); box-shadow: 0 0 0 1px var(--interactive-accent); }
+.qt-cbt-exam-question { margin-top: 10px; }
+.qt-cbt-exam-topic { font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+.qt-cbt-exam-prompt { margin: 4px 0 8px; white-space: pre-wrap; }
+.qt-cbt-exam-choices { display: flex; flex-direction: column; gap: 6px; }
+.qt-cbt-exam-choice { text-align: left; }
+.qt-cbt-exam-choice.is-picked { border-color: var(--interactive-accent); }
+.qt-cbt-exam-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.qt-cbt-exam-result { border-radius: var(--radius-s); margin-top: 10px; padding: 8px; }
+.qt-cbt-exam-score { font-size: 1.1em; font-weight: 700; }
+.qt-cbt-exam-topics,
+.qt-cbt-exam-missed { color: var(--text-muted); font-size: 0.9em; margin-top: 4px; }
+.qt-cbt-exam-history { border-top: 1px solid var(--background-modifier-border); margin-top: 10px; padding-top: 8px; }
+.qt-cbt-exam-history-row,
+.qt-cbt-exam-history-empty { font-size: 0.9em; }
+.qt-cbt-exam-issue { color: var(--text-error); font-size: 0.9em; margin-top: 4px; }
