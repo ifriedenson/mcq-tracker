@@ -1077,10 +1077,15 @@ function normalizeVocabWord(value) {
     term,
     definition: textValue(source.definition, MAX_TEXT),
     example: textValue(source.example, MAX_TEXT),
+    media: textValue(source.media, 500),
     language: textValue(source.language, MAX_TITLE),
     due: dayValue(source.due),
     interval: clamp(numberValue(source.interval, 0), 0, 3650),
     reviews: Math.max(0, Math.round(numberValue(source.reviews, 0))),
+    correct: clamp(numberValue(source.correct, 0), 0, Math.max(0, Math.round(numberValue(source.reviews, 0)))),
+    streak: Math.max(0, Math.round(numberValue(source.streak, 0))),
+    lapses: Math.max(0, Math.round(numberValue(source.lapses, 0))),
+    lastGrade: ["again", "hard", "good", "easy"].includes(str(source.lastGrade)) ? str(source.lastGrade) : "",
     last: dayValue(source.last),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
@@ -1106,7 +1111,11 @@ function createVocabWord(input, now) {
   return normalizeVocabWord({ ...source, createdAt: stamp });
 }
 
-/** Parse `term | definition | example` or `term :: definition` lines. */
+function looksLikeMedia(value) {
+  return /^(?:!?\[\[|https?:\/\/)/i.test(value) || /\.(?:png|jpe?g|gif|webp|svg|mp3|wav|m4a|mp4|pdf)$/i.test(value);
+}
+
+/** Parse `term | definition | example | media` or `term :: definition` lines. */
 function parseVocabLines(text) {
   const words = [];
   const issues = [];
@@ -1119,7 +1128,11 @@ function parseVocabLines(text) {
       issues.push(`Line ${index + 1}: use term | definition.`);
       continue;
     }
-    words.push({ term: parts[0], definition: parts[1], example: parts.slice(2).join(" | ") });
+    const word = { term: parts[0], definition: parts[1] };
+    if (parts[2]) word.example = parts[2];
+    if (parts[3] && looksLikeMedia(parts[3])) word.media = parts[3];
+    else if (parts.length > 3) word.example = [parts[2], ...parts.slice(3)].filter(Boolean).join(" | ");
+    words.push(word);
   }
   return { words, issues };
 }
@@ -1135,11 +1148,21 @@ function reviewVocabWord(word, grade, today) {
   if (value === "hard") interval = Math.max(1, current);
   else if (value === "good") interval = VOCAB_LADDER[Math.min(VOCAB_LADDER.length - 1, Math.max(0, VOCAB_LADDER.indexOf(current) + 1))] || 1;
   else if (value === "easy") interval = VOCAB_LADDER[Math.min(VOCAB_LADDER.length - 1, Math.max(0, VOCAB_LADDER.indexOf(current) + 2))] || 3;
+  const reviews = Math.max(0, Number(previous.reviews) || 0) + 1;
+  const correct = value === "again"
+    ? Math.max(0, Number(previous.correct) || 0)
+    : Math.min(reviews, Math.max(0, Number(previous.correct) || 0) + 1);
+  const streak = value === "again" ? 0 : Math.max(0, Number(previous.streak) || 0) + 1;
+  const lapses = Math.max(0, Number(previous.lapses) || 0) + (value === "again" ? 1 : 0);
   return {
     ...previous,
     due: addDays(day, interval),
     interval,
-    reviews: Math.max(0, Number(previous.reviews) || 0) + 1,
+    reviews,
+    correct,
+    streak,
+    lapses,
+    lastGrade: value,
     last: day,
   };
 }
@@ -1147,11 +1170,17 @@ function reviewVocabWord(word, grade, today) {
 function vocabSummary(words, today) {
   const day = dayValue(today) || localDate();
   const list = Array.isArray(words) ? words : [];
+  const reviews = list.reduce((sum, word) => sum + Math.max(0, Number(word.reviews) || 0), 0);
+  const correct = list.reduce((sum, word) => sum + Math.max(0, Number(word.correct) || 0), 0);
   return {
     total: list.length,
     due: list.filter((word) => !word.due || word.due <= day).length,
     fresh: list.filter((word) => !Number(word.reviews)).length,
     learned: list.filter((word) => Number(word.reviews) > 0).length,
+    reviews,
+    correct,
+    accuracy: reviews ? Math.round((correct / reviews) * 100) : 0,
+    withMedia: list.filter((word) => !!word.media).length,
   };
 }
 

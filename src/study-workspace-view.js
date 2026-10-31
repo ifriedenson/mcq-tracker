@@ -1064,9 +1064,10 @@ class StudyWorkspaceView extends ItemView {
     const definition = this.renderTextarea(form, "Definition", "Movement of water across a membrane", "", 2);
     const example = this.renderTextarea(form, "Example (optional)", "Water enters the cell.", "", 2);
     const language = this.renderField(form, "Language (optional)", "text", "Biology");
+    const media = this.renderField(form, "Media (optional)", "text", "![[diagram.png]]");
     const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
     actions.createEl("button", { text: "Add word", cls: "mod-cta" }).addEventListener("click", async () => {
-      const word = await this.plugin.addVocabWord({ term: term.value, definition: definition.value, example: example.value, language: language.value });
+      const word = await this.plugin.addVocabWord({ term: term.value, definition: definition.value, example: example.value, language: language.value, media: media.value });
       if (!word) {
         this.saveMessage("Add a term first.");
         this.render();
@@ -1077,7 +1078,7 @@ class StudyWorkspaceView extends ItemView {
     });
     const bulk = root.createDiv({ cls: "qt-study-card" });
     bulk.createEl("h3", { text: "Bulk import" });
-    bulk.createDiv({ cls: "qt-hint", text: "One word per line: term | definition | optional example." });
+    bulk.createDiv({ cls: "qt-hint", text: "One word per line: term | definition | optional example | optional media (a vault embed, link or file path)." });
     const bulkForm = bulk.createDiv({ cls: "qt-study-form" });
     const lines = this.renderTextarea(bulkForm, "Words", "ATP | energy currency | ATP powers the cell.", "", 5);
     const bulkActions = bulk.createDiv({ cls: "qt-row qt-study-actions" });
@@ -1096,6 +1097,7 @@ class StudyWorkspaceView extends ItemView {
     stat(summary.due, "due");
     stat(summary.fresh, "new");
     stat(summary.learned, "reviewed");
+    stat(summary.accuracy ? `${summary.accuracy}%` : "—", "accuracy");
     const listCard = root.createDiv({ cls: "qt-study-card" });
     listCard.createEl("h3", { text: "Dictionary" });
     const filter = listCard.createEl("input", { cls: "qt-input", type: "search" });
@@ -1106,7 +1108,7 @@ class StudyWorkspaceView extends ItemView {
       this.render();
     });
     const words = data.words
-      .filter((word) => !this.vocabFilter || `${word.term} ${word.definition} ${word.example} ${word.language}`.toLowerCase().includes(this.vocabFilter))
+      .filter((word) => !this.vocabFilter || `${word.term} ${word.definition} ${word.example} ${word.language} ${word.media}`.toLowerCase().includes(this.vocabFilter))
       .sort((a, b) => (!a.due ? "" : a.due).localeCompare(!b.due ? "" : b.due) || a.term.localeCompare(b.term));
     if (!words.length) {
       listCard.createDiv({ cls: "qt-study-empty", text: data.words.length ? "No word matches that search." : "No words yet. Add one or paste a list." });
@@ -1119,7 +1121,11 @@ class StudyWorkspaceView extends ItemView {
       main.createDiv({ cls: "qt-study-row-title", text: word.term });
       if (word.definition) main.createDiv({ cls: "qt-study-row-meta", text: word.definition });
       if (word.example) main.createDiv({ cls: "qt-study-row-meta", text: `Example: ${word.example}` });
-      main.createDiv({ cls: "qt-study-row-meta", text: `${word.language ? `${word.language} · ` : ""}${word.reviews ? `${word.reviews} review${word.reviews === 1 ? "" : "s"} · due ${word.due || "now"}` : "New"}` });
+      if (word.media) main.createDiv({ cls: "qt-study-row-meta", text: `Media: ${word.media}` });
+      const statsText = word.reviews
+        ? `${word.reviews} review${word.reviews === 1 ? "" : "s"} · ${word.correct || 0}/${word.reviews} correct · streak ${word.streak || 0}${word.lapses ? ` · ${word.lapses} lapse${word.lapses === 1 ? "" : "s"}` : ""} · due ${word.due || "now"}`
+        : "New";
+      main.createDiv({ cls: "qt-study-row-meta", text: `${word.language ? `${word.language} · ` : ""}${statsText}` });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
       for (const [grade, label] of [["again", "Again"], ["good", "Good"], ["easy", "Easy"]]) {
         buttons.createEl("button", { text: label }).addEventListener("click", async () => {
