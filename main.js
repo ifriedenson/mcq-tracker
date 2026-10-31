@@ -14371,7 +14371,8 @@ function parseQuizletText(text, options) {
 /* ---- Quizlet PDF / test-bank printouts */
 
 const PDF_PRINT_NOISE = [
-  /^quizlet(?:\.com)?$/i,
+  /^quizlet(?:\s|\.com|$)/i,
+  /^terms?\s+in\s+this\s+set\b/i,
   /^https?:\/\/(?:www\.)?quizlet\.com/i,
   /^\d{1,3}$/,
   /^\d{1,3}\s*\/\s*\d{1,3}$/,
@@ -14448,7 +14449,7 @@ function pdfCardLines(pages) {
     }
   }
   const repeated = (text) => {
-    if (pageLines.length < 3) return false;
+    if (pageLines.length < 2) return false;
     const count = counts.get(text) || 0;
     if (count < Math.max(2, Math.ceil(pageLines.length * 0.5))) return false;
     return text.length <= 80 && !text.includes("\t") && !/\?$/.test(text);
@@ -14482,7 +14483,14 @@ function pdfAnswerKey(lines) {
   for (let i = start + 1; i < lines.length; i++) {
     const text = lines[i].text;
     if (!text) continue;
-    const chunks = text.split(/\s{2,}|;\s*|\s+(?=\d{1,3}\s*[.)\-–—:]\s*[A-Ha-h]\b)/);
+    // A tab-separated answer-key table stores the number and letter in separate
+    // cells. Normalize those pairs before splitting; otherwise every tab becomes
+    // a useless chunk and the whole key is lost.
+    const normalized = str(text)
+      .replace(/(\d{1,3})\s*[.)\-–—:]?\s*\t+\s*([A-Ha-h])\b/g, "$1 $2")
+      .replace(/([A-Ha-h])\b\s*\t+\s*(\d{1,3})\b/g, "$1  $2")
+      .replace(/\t+/g, "  ");
+    const chunks = normalized.split(/\s{2,}|;\s*|\s+(?=\d{1,3}\s*[.)\-–—:]\s*[A-Ha-h]\b)/);
     for (const chunk of chunks) {
       const piece = chunk.trim();
       if (!piece) continue;
@@ -14683,51 +14691,68 @@ function parsePdfTerms(lines, options) {
     return true;
   };
 
-  const nonEmpty = lines.filter((line) => line.text);
+  const all = Array.isArray(lines) ? lines.filter((line) => line && line.text !== undefined) : [];
+  const nonEmpty = all.filter((line) => str(line.text).trim());
   if (!nonEmpty.length) return { cards, skipped: 0, errors };
 
-  const tabbed = nonEmpty.filter((line) => line.text.includes("\t"));
-  if (tabbed.length) {
-    for (const line of tabbed) {
-      const at = line.text.indexOf("\t");
-      add(line.text.slice(0, at), line.text.slice(at + 1).replace(/\t/g, " "), line.page);
-    }
-    if (cards.length) return { cards, skipped: 0, errors };
+  // Read tabbed term/definition rows first. Do not return: a print header can
+  // be the only tabbed line, and the real cards may all be plain lines.
+  const consumed = new Set();
+  for (const line of nonEmpty) {
+    const text = pdfCleanTextLine(line.text);
+    const at = text.indexOf("\t");
+    if (at < 0) continue;
+    const front = text.slice(0, at).trim();
+    const back = text.slice(at + 1).replace(/\t/g, " ").trim();
+    if (!front || !back || pdfLineIsNoise(front) || pdfLineIsNoise(back)) continue;
+    consumed.add(line);
+    add(front, back, line.page);
   }
 
-  const dashed = nonEmpty.filter((line) => /\s+[-–—]\s+/.test(line.text));
-  if (dashed.length >= 2 && dashed.length === nonEmpty.length) {
+  let rest = nonEmpty.filter((line) => !consumed.has(line));
+  const dashed = rest.filter((line) => /\s+[-\u2013\u2014]\s+/.test(line.text));
+  if (dashed.length >= 2 && dashed.length === rest.length) {
+    let handled = 0;
     for (const line of dashed) {
-      const match = line.text.match(/^(.*?)\s+[-–—]\s+([\s\S]*)$/);
-      if (match) add(match[1], match[2], line.page);
+      const match = line.text.match(/^(.*?)\s+[-\u2013\u2014]\s+([\s\S]*)$/);
+      if (!match) continue;
+      handled++;
+      add(match[1], match[2], line.page);
     }
-    if (cards.length) return { cards, skipped: 0, errors };
+    if (handled === dashed.length) rest = [];
   }
 
-  const blocks = [];
-  let block = [];
-  for (const line of lines) {
-    if (!line.text) {
-      if (block.length) blocks.push(block);
-      block = [];
-      continue;
+  if (rest.length) {
+    const blocks = [];
+    let block = [];
+    for (const line of all) {
+      if (!str(line.text).trim()) {
+        if (block.length) blocks.push(block);
+        block = [];
+        continue;
+      }
+      if (!rest.includes(line)) {
+        if (block.length) blocks.push(block);
+        block = [];
+        continue;
+      }
+      block.push(line);
     }
-    block.push(line);
-  }
-  if (block.length) blocks.push(block);
+    if (block.length) blocks.push(block);
 
-  for (const group of blocks) {
-    const text = group.map((line) => line.text);
-    if (text.length === 2) add(text[0], text[1], group[0].page);
-    else if (text.length > 2 && text[0].endsWith("?")) add(text[0], text.slice(1).join(" "), group[0].page);
-  }
-  if (cards.length) return { cards, skipped: 0, errors };
+    for (const group of blocks) {
+      const text = group.map((line) => line.text);
+      if (text.length === 2) add(text[0], text[1], group[0].page);
+      else if (text.length > 2 && text[0].endsWith("?")) add(text[0], text.slice(1).join(" "), group[0].page);
+    }
 
-  const plain = nonEmpty.map((line) => line.text);
-  if (plain.length >= 2 && plain.length % 2 === 0) {
-    for (let i = 0; i < plain.length; i += 2) {
-      const front = plain[i].replace(/^\s*\d{1,3}[.)]\s+/, "").trim();
-      add(front || plain[i], plain[i + 1], nonEmpty[i].page);
+    const beforeFallback = cards.length;
+    const plain = rest.map((line) => line.text);
+    if (cards.length === beforeFallback && plain.length >= 2 && plain.length % 2 === 0) {
+      for (let i = 0; i < plain.length; i += 2) {
+        const front = plain[i].replace(/^\s*\d{1,3}[.)]\s+/, "").trim();
+        add(front || plain[i], plain[i + 1], rest[i].page);
+      }
     }
   }
   return { cards, skipped: 0, errors };
@@ -35606,6 +35631,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { gradeNumericQuestion, gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
+const quizNoteGate = require("./quiz-note-gate");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
@@ -39076,6 +39102,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const staticMode = parsed.mode === "static";
     const box = el.createDiv({ cls: "qt-quiz-block" });
+    const noteGate = quizNoteGate.canGate(parsed, this.settings) ? quizNoteGate.begin(el, parsed.questions.length) : null;
     let answered = 0;
     const cards = [];
     const selections = {};
@@ -39142,6 +39169,7 @@ class QuestionTrackerPlugin extends Plugin {
       const label = result.correct ? "Correct" : result.band === "imprecise" ? "Imprecise" : "Not quite";
       card.createDiv({ cls: result.correct ? "qt-quiz-result is-correct" : "qt-quiz-result is-wrong", text: label });
       cards.forEach((item, i) => item.toggleClass("qt-quiz-hidden", parsed.gated && i >= visibleQuizCount(parsed.questions.length, answered, true)));
+      if (noteGate) noteGate.update(answered);
       paintSummary();
       try {
         await this.recordQuizBlockAnswer(question, result, (Date.now() - started) / 1000);
@@ -41375,7 +41403,7 @@ ${body}
     let sourcePath;
     let baseName;
     if (pdfData) {
-      bytes = Buffer.isBuffer(pdfData) ? pdfData : Buffer.from(pdfData);
+      bytes = pdfData instanceof Uint8Array ? pdfData : new Uint8Array(pdfData);
       sourcePath = name;
       baseName = name.replace(/^.*\//, "").replace(/\.pdf$/i, "");
     } else {
@@ -46206,6 +46234,81 @@ class QuizGeneratorModal extends Modal {
 }
 
 module.exports = { QuizGeneratorModal };
+};
+
+/* ---- src/quiz-note-gate.js ---- */
+__defs["quiz-note-gate"] = function (module, exports, require) {
+/*
+ * Quiz Blocks-style note gating.
+ *
+ * A `mcq-quiz` block with `gated: true` can hide the rest of its reading-view
+ * note until every question is answered. Only complete, supported quizzes are
+ * gated; malformed blocks and unavailable question types leave the note visible
+ * so a reader can never get stuck behind an unanswerable question.
+ */
+
+function canGate(parsed, settings) {
+  if (!parsed || parsed.gated !== true || parsed.mode === "static") return false;
+  const questions = Array.isArray(parsed.questions) ? parsed.questions : [];
+  if (!questions.length) return false;
+  const opts = settings || {};
+  return questions.every((question) => {
+    if (!question || question.valid !== true) return false;
+    if (question.sharedOptions && opts.inlineQuizSharedChoice !== true) return false;
+    if (question.type === "reorder" && opts.inlineQuizReorder !== true) return false;
+    if (question.type === "numeric" && opts.inlineQuizNumeric !== true) return false;
+    return true;
+  });
+}
+
+function begin(el, total) {
+  if (!el || typeof el.closest !== "function" || typeof el.createDiv !== "function") return null;
+  // Embedded notes are a reader inside another note; hiding the host's siblings
+  // would hide unrelated content outside the embed.
+  if (el.closest(".markdown-embed")) return null;
+  const root = el.closest(".markdown-preview-view") || el.closest(".markdown-reading-view");
+  if (!root) return null;
+
+  const hidden = [];
+  let node = el;
+  while (node && node !== root) {
+    let sibling = node.nextElementSibling;
+    while (sibling) {
+      if (sibling.style) {
+        hidden.push({ node: sibling, display: sibling.style.display || "" });
+        sibling.style.display = "none";
+      }
+      sibling = sibling.nextElementSibling;
+    }
+    if (!node.parentElement || node.parentElement === root) break;
+    node = node.parentElement;
+  }
+  if (!hidden.length) return null;
+
+  const panel = el.createDiv({ cls: "qt-quiz-note-gate" });
+  panel.createDiv({ cls: "qt-quiz-note-gate-title", text: "Finish the quiz to unlock this note" });
+  const progress = panel.createDiv({ cls: "qt-quiz-note-gate-progress", text: `0 of ${total} answered` });
+  panel.createDiv({ cls: "qt-quiz-note-gate-hint", text: "Answer every question above; the rest of the note will appear." });
+
+  let open = false;
+  const unlock = () => {
+    if (open) return;
+    open = true;
+    for (const item of hidden) {
+      if (item.node && item.node.style) item.node.style.display = item.display;
+    }
+    if (typeof panel.remove === "function") panel.remove();
+    else panel.style.display = "none";
+  };
+  const update = (answered) => {
+    if (open) return;
+    progress.setText(`${answered} of ${total} answered`);
+    if (answered >= total) unlock();
+  };
+  return { update, unlock };
+}
+
+module.exports = { canGate, begin };
 };
 
 /* ---- src/quizport.js ---- */
@@ -57612,6 +57715,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
 const quizBlock = require("./quiz-block");
+const quizNoteGate = require("./quiz-note-gate");
 const quizport = require("./quizport");
 const sourceRecall = require("./source-recall");
 const noteReview = require("./note-review");
@@ -57783,6 +57887,7 @@ QuestionTrackerPlugin.__test = {
   QuickAddModal,
   quickAdd,
   quizBlock,
+  quizNoteGate,
   quizport,
   sourceRecall,
   couchdbSync,

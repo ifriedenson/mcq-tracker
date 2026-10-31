@@ -172,6 +172,41 @@ test("quizlet PDF: two-column flashcard printout ignores headers and keeps pages
   assert.equal(result.cards[0].deck, "Spanish");
 });
 
+test("quizlet PDF: a tabbed print header does not swallow the plain rows", () => {
+  const lines = [
+    { text: "Quizlet\tSpanish Basics", y: 720 },
+    { text: "hola\thello", y: 700 },
+    { text: "adiós", y: 680 },
+    { text: "goodbye", y: 660 },
+  ];
+  const result = importer.parseQuizletPdf(
+    [{ n: 1, text: "Quizlet\tSpanish Basics\nhola\thello\nadiós\ngoodbye", lines }],
+    { deck: "Spanish" }
+  );
+  assert.equal(result.cards.length, 2);
+  assert.deepEqual(result.cards.map((card) => [card.front, card.back]), [
+    ["hola", "hello"],
+    ["adiós", "goodbye"],
+  ]);
+});
+
+test("quizlet PDF: tab-separated answer keys are read", () => {
+  const text = [
+    "1. Which planet is largest?",
+    "A. Mars",
+    "B. Jupiter",
+    "2. Which gas do plants take in?",
+    "A. Oxygen",
+    "B. Carbon dioxide",
+    "Answer Key",
+    "1.\tB\t2.\tB",
+  ].join("\n");
+  const result = importer.parseQuizletPdf([{ n: 1, text }], { deck: "Science" });
+  assert.equal(result.cards.length, 2);
+  assert.deepEqual(result.cards.map((card) => card.back), ["Jupiter", "Carbon dioxide"]);
+  assert.deepEqual(result.cards.map((card) => card.correctChoices), ["2", "2"]);
+});
+
 test("pdf lines: a wide gap between columns becomes a tab", () => {
   const lines = T.pdf.itemsToGapLines(
     [

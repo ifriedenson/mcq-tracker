@@ -96,6 +96,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { gradeNumericQuestion, gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
+const quizNoteGate = require("./quiz-note-gate");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
@@ -3566,6 +3567,7 @@ class QuestionTrackerPlugin extends Plugin {
     }
     const staticMode = parsed.mode === "static";
     const box = el.createDiv({ cls: "qt-quiz-block" });
+    const noteGate = quizNoteGate.canGate(parsed, this.settings) ? quizNoteGate.begin(el, parsed.questions.length) : null;
     let answered = 0;
     const cards = [];
     const selections = {};
@@ -3632,6 +3634,7 @@ class QuestionTrackerPlugin extends Plugin {
       const label = result.correct ? "Correct" : result.band === "imprecise" ? "Imprecise" : "Not quite";
       card.createDiv({ cls: result.correct ? "qt-quiz-result is-correct" : "qt-quiz-result is-wrong", text: label });
       cards.forEach((item, i) => item.toggleClass("qt-quiz-hidden", parsed.gated && i >= visibleQuizCount(parsed.questions.length, answered, true)));
+      if (noteGate) noteGate.update(answered);
       paintSummary();
       try {
         await this.recordQuizBlockAnswer(question, result, (Date.now() - started) / 1000);
@@ -5865,7 +5868,7 @@ ${body}
     let sourcePath;
     let baseName;
     if (pdfData) {
-      bytes = Buffer.isBuffer(pdfData) ? pdfData : Buffer.from(pdfData);
+      bytes = pdfData instanceof Uint8Array ? pdfData : new Uint8Array(pdfData);
       sourcePath = name;
       baseName = name.replace(/^.*\//, "").replace(/\.pdf$/i, "");
     } else {
