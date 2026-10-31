@@ -364,7 +364,7 @@ class StudyToolsView extends ItemView {
 
     const guide = root.createDiv({ cls: "qt-study-card" });
     guide.createEl("h3", { text: "Block format" });
-    guide.createDiv({ cls: "qt-hint", text: "Write a fenced cornell-note block in any note. Use one Cue: and Note: pair for each idea, then a Summary:." });
+    guide.createDiv({ cls: "qt-hint", text: "Write a fenced cornell-note block in any note. Use one Cue: and Note: pair for each idea, an optional Margin: for a key term or aside, then a Summary:." });
     const pre = guide.createEl("pre", { cls: "qt-study-template" });
     pre.setText(cornellTemplate("Cellular respiration", "Biology"));
   }

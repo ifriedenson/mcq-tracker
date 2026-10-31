@@ -51,7 +51,7 @@ function parseCornellNote(source) {
     }
     const cueMatch = line.match(/^cue\s*[:=]\s*(.*)$/i);
     if (cueMatch) {
-      current = { cue: [], note: [] };
+      current = { cue: [], note: [], margin: [] };
       cues.push(current);
       append(current.cue, cueMatch[1]);
       field = "cue";
@@ -68,6 +68,17 @@ function parseCornellNote(source) {
       field = "note";
       continue;
     }
+    const marginMatch = line.match(/^(?:margin|margin-note|aside)\s*[:=]\s*(.*)$/i);
+    if (marginMatch) {
+      if (!current) {
+        issues.push("Add a Cue: line before each Margin: line.");
+        field = "";
+        continue;
+      }
+      append(current.margin, marginMatch[1]);
+      field = "margin";
+      continue;
+    }
     const summaryMatch = line.match(/^summary\s*[:=]\s*(.*)$/i);
     if (summaryMatch) {
       append(summary, summaryMatch[1]);
@@ -79,15 +90,17 @@ function parseCornellNote(source) {
     else if (field === "summary") append(summary, line);
     else if (field === "cue" && current) append(current.cue, line);
     else if (field === "note" && current) append(current.note, line);
-    else issues.push(`Could not read "${line.slice(0, 60)}". Use Title, Course, Cue, Note or Summary.`);
+    else if (field === "margin" && current) append(current.margin, line);
+    else issues.push(`Could not read "${line.slice(0, 60)}". Use Title, Course, Cue, Note, Margin or Summary.`);
   }
 
   const rows = cues.map((row, index) => {
     const cue = clean(row.cue.join(" "));
     const note = clean(row.note.join(" "));
+    const margin = clean(row.margin.join(" "));
     if (!cue) issues.push(`Cue ${index + 1} is empty.`);
     if (!note) issues.push(`Cue ${index + 1} has no Note.`);
-    return { cue, note };
+    return { cue, note, margin };
   });
   if (!rows.length) issues.push("Add at least one Cue: and Note: pair.");
   if (!title.length) issues.push("Add a Title: line.");
@@ -111,6 +124,7 @@ function buildCornellBlockSource(input) {
     if (!row || (!clean(row.cue) && !clean(row.note))) continue;
     lines.push(`Cue: ${clean(row.cue)}`);
     lines.push(`Note: ${clean(row.note)}`);
+    if (clean(row.margin)) lines.push(`Margin: ${clean(row.margin)}`);
   }
   if (clean(data.summary)) lines.push(`Summary: ${clean(data.summary)}`);
   return lines.join("\n");
@@ -121,7 +135,7 @@ function cornellTemplate(title, course) {
     title: clean(title) || "Untitled Cornell note",
     course: clean(course),
     cues: [
-      { cue: "What is the main idea?", note: "Write the answer here after class." },
+      { cue: "What is the main idea?", note: "Write the answer here after class.", margin: "Add a key term or page number." },
       { cue: "What detail is easy to confuse?", note: "Add the distinction or example." },
     ],
     summary: "Summarise the note in two or three sentences.",

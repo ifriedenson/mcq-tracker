@@ -18841,7 +18841,7 @@ function parseCornellNote(source) {
     }
     const cueMatch = line.match(/^cue\s*[:=]\s*(.*)$/i);
     if (cueMatch) {
-      current = { cue: [], note: [] };
+      current = { cue: [], note: [], margin: [] };
       cues.push(current);
       append(current.cue, cueMatch[1]);
       field = "cue";
@@ -18858,6 +18858,17 @@ function parseCornellNote(source) {
       field = "note";
       continue;
     }
+    const marginMatch = line.match(/^(?:margin|margin-note|aside)\s*[:=]\s*(.*)$/i);
+    if (marginMatch) {
+      if (!current) {
+        issues.push("Add a Cue: line before each Margin: line.");
+        field = "";
+        continue;
+      }
+      append(current.margin, marginMatch[1]);
+      field = "margin";
+      continue;
+    }
     const summaryMatch = line.match(/^summary\s*[:=]\s*(.*)$/i);
     if (summaryMatch) {
       append(summary, summaryMatch[1]);
@@ -18869,15 +18880,17 @@ function parseCornellNote(source) {
     else if (field === "summary") append(summary, line);
     else if (field === "cue" && current) append(current.cue, line);
     else if (field === "note" && current) append(current.note, line);
-    else issues.push(`Could not read "${line.slice(0, 60)}". Use Title, Course, Cue, Note or Summary.`);
+    else if (field === "margin" && current) append(current.margin, line);
+    else issues.push(`Could not read "${line.slice(0, 60)}". Use Title, Course, Cue, Note, Margin or Summary.`);
   }
 
   const rows = cues.map((row, index) => {
     const cue = clean(row.cue.join(" "));
     const note = clean(row.note.join(" "));
+    const margin = clean(row.margin.join(" "));
     if (!cue) issues.push(`Cue ${index + 1} is empty.`);
     if (!note) issues.push(`Cue ${index + 1} has no Note.`);
-    return { cue, note };
+    return { cue, note, margin };
   });
   if (!rows.length) issues.push("Add at least one Cue: and Note: pair.");
   if (!title.length) issues.push("Add a Title: line.");
@@ -18901,6 +18914,7 @@ function buildCornellBlockSource(input) {
     if (!row || (!clean(row.cue) && !clean(row.note))) continue;
     lines.push(`Cue: ${clean(row.cue)}`);
     lines.push(`Note: ${clean(row.note)}`);
+    if (clean(row.margin)) lines.push(`Margin: ${clean(row.margin)}`);
   }
   if (clean(data.summary)) lines.push(`Summary: ${clean(data.summary)}`);
   return lines.join("\n");
@@ -18911,7 +18925,7 @@ function cornellTemplate(title, course) {
     title: clean(title) || "Untitled Cornell note",
     course: clean(course),
     cues: [
-      { cue: "What is the main idea?", note: "Write the answer here after class." },
+      { cue: "What is the main idea?", note: "Write the answer here after class.", margin: "Add a key term or page number." },
       { cue: "What detail is easy to confuse?", note: "Add the distinction or example." },
     ],
     summary: "Summarise the note in two or three sentences.",
@@ -18975,10 +18989,14 @@ function renderCornellBlock(plugin, source, el) {
   }
 
   const grid = box.createDiv({ cls: "qt-cornell-grid" });
+  const hasMargins = parsed.cues.some((row) => row.margin);
+  if (hasMargins) grid.addClass("has-margins");
   const cueColumn = grid.createDiv({ cls: "qt-cornell-cues" });
   const noteColumn = grid.createDiv({ cls: "qt-cornell-notes" });
+  const marginColumn = hasMargins ? grid.createDiv({ cls: "qt-cornell-margins" }) : null;
   cueColumn.createDiv({ cls: "qt-cornell-column-label", text: "Cues" });
   noteColumn.createDiv({ cls: "qt-cornell-column-label", text: "Notes" });
+  if (marginColumn) marginColumn.createDiv({ cls: "qt-cornell-column-label", text: "Margins" });
 
   let hiding = false;
   const rows = parsed.cues.map((row, index) => {
@@ -18987,13 +19005,16 @@ function renderCornellBlock(plugin, source, el) {
     cue.createSpan({ cls: "qt-cornell-cue-text", text: row.cue });
     const note = noteColumn.createDiv({ cls: "qt-cornell-note" });
     const text = note.createDiv({ cls: "qt-cornell-note-text", text: row.note });
+    const margin = marginColumn ? marginColumn.createDiv({ cls: "qt-cornell-margin" }) : null;
+    if (margin) margin.createDiv({ cls: "qt-cornell-margin-text", text: row.margin || "" });
     const reveal = note.createEl("button", { cls: "qt-cornell-reveal", text: "Reveal" });
     reveal.setAttr("aria-label", `Reveal note ${index + 1}`);
     reveal.addEventListener("click", () => {
       text.toggleClass("is-hidden", false);
+      if (margin) margin.toggleClass("is-hidden", false);
       reveal.toggleClass("is-hidden", true);
     });
-    return { note: text, reveal };
+    return { note: text, reveal, margin };
   });
 
   const setHiding = (next) => {
@@ -19002,6 +19023,7 @@ function renderCornellBlock(plugin, source, el) {
     recall.setAttr("aria-pressed", hiding ? "true" : "false");
     for (const row of rows) {
       row.note.toggleClass("is-hidden", hiding);
+      if (row.margin) row.margin.toggleClass("is-hidden", hiding);
       row.reveal.toggleClass("is-hidden", !hiding);
       if (!hiding) row.reveal.toggleClass("is-hidden", true);
     }
@@ -60334,7 +60356,7 @@ class StudyToolsView extends ItemView {
 
     const guide = root.createDiv({ cls: "qt-study-card" });
     guide.createEl("h3", { text: "Block format" });
-    guide.createDiv({ cls: "qt-hint", text: "Write a fenced cornell-note block in any note. Use one Cue: and Note: pair for each idea, then a Summary:." });
+    guide.createDiv({ cls: "qt-hint", text: "Write a fenced cornell-note block in any note. Use one Cue: and Note: pair for each idea, an optional Margin: for a key term or aside, then a Summary:." });
     const pre = guide.createEl("pre", { cls: "qt-study-template" });
     pre.setText(cornellTemplate("Cellular respiration", "Biology"));
   }

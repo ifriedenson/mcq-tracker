@@ -30,10 +30,14 @@ function renderCornellBlock(plugin, source, el) {
   }
 
   const grid = box.createDiv({ cls: "qt-cornell-grid" });
+  const hasMargins = parsed.cues.some((row) => row.margin);
+  if (hasMargins) grid.addClass("has-margins");
   const cueColumn = grid.createDiv({ cls: "qt-cornell-cues" });
   const noteColumn = grid.createDiv({ cls: "qt-cornell-notes" });
+  const marginColumn = hasMargins ? grid.createDiv({ cls: "qt-cornell-margins" }) : null;
   cueColumn.createDiv({ cls: "qt-cornell-column-label", text: "Cues" });
   noteColumn.createDiv({ cls: "qt-cornell-column-label", text: "Notes" });
+  if (marginColumn) marginColumn.createDiv({ cls: "qt-cornell-column-label", text: "Margins" });
 
   let hiding = false;
   const rows = parsed.cues.map((row, index) => {
@@ -42,13 +46,16 @@ function renderCornellBlock(plugin, source, el) {
     cue.createSpan({ cls: "qt-cornell-cue-text", text: row.cue });
     const note = noteColumn.createDiv({ cls: "qt-cornell-note" });
     const text = note.createDiv({ cls: "qt-cornell-note-text", text: row.note });
+    const margin = marginColumn ? marginColumn.createDiv({ cls: "qt-cornell-margin" }) : null;
+    if (margin) margin.createDiv({ cls: "qt-cornell-margin-text", text: row.margin || "" });
     const reveal = note.createEl("button", { cls: "qt-cornell-reveal", text: "Reveal" });
     reveal.setAttr("aria-label", `Reveal note ${index + 1}`);
     reveal.addEventListener("click", () => {
       text.toggleClass("is-hidden", false);
+      if (margin) margin.toggleClass("is-hidden", false);
       reveal.toggleClass("is-hidden", true);
     });
-    return { note: text, reveal };
+    return { note: text, reveal, margin };
   });
 
   const setHiding = (next) => {
@@ -57,6 +64,7 @@ function renderCornellBlock(plugin, source, el) {
     recall.setAttr("aria-pressed", hiding ? "true" : "false");
     for (const row of rows) {
       row.note.toggleClass("is-hidden", hiding);
+      if (row.margin) row.margin.toggleClass("is-hidden", hiding);
       row.reveal.toggleClass("is-hidden", !hiding);
       if (!hiding) row.reveal.toggleClass("is-hidden", true);
     }
