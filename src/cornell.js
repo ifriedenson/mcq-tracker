@@ -163,4 +163,24 @@ function buildCornellNote(title, course, now) {
   ].join("\n");
 }
 
-module.exports = { buildCornellBlockSource, buildCornellNote, cornellTemplate, parseCornellNote };
+/** Explicit key terms from `Key term:`, `Term:`, `Concept:`, `Definition:` or `See:` margin notes. */
+function cornellHighlightTerms(margin) {
+  const text = clean(margin);
+  if (!text) return [];
+  const terms = [];
+  const pattern = /(?:^|[;,])\s*(?:key\s*term|term|concept|definition|see)\s*:\s*([^;,]+)/gi;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    const term = clean(match[1]).replace(/[.!?]+$/, "");
+    if (term.length >= 2 && term.length <= 80) terms.push(term);
+  }
+  const seen = new Set();
+  return terms.filter((term) => {
+    const key = term.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+module.exports = { buildCornellBlockSource, buildCornellNote, cornellHighlightTerms, cornellTemplate, parseCornellNote };

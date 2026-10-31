@@ -6979,3 +6979,6 @@
   .qt-cornell-grid.has-margins { grid-template-columns: 1fr; }
   .qt-cornell-margins { border-left: 0; border-top: 1px solid var(--background-modifier-border); padding-left: 0; padding-top: 8px; }
 }
+
+/* Explicit Cornell margin terms highlighted in the cue and note. */
+.qt-cornell-highlight { background: var(--text-highlight-bg); color: inherit; padding: 0 1px; }

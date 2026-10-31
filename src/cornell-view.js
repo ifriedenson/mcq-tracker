@@ -3,7 +3,29 @@
  * Render a `cornell-note` block. The block is read-only and local: recall
  * mode hides note text until the reader reveals a cue, and nothing is written.
  */
-const { parseCornellNote } = require("./cornell");
+const { cornellHighlightTerms, parseCornellNote } = require("./cornell");
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+/** Render text with explicit margin terms wrapped in a mark, leaving other text intact. */
+function appendHighlighted(parent, text, terms) {
+  const list = (Array.isArray(terms) ? terms : []).filter(Boolean).sort((a, b) => b.length - a.length);
+  if (!list.length) {
+    parent.createSpan({ text });
+    return;
+  }
+  const pattern = new RegExp(`(${list.map(escapeRegExp).join("|")})`, "gi");
+  let last = 0;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > last) parent.createSpan({ text: text.slice(last, match.index) });
+    parent.createEl("mark", { cls: "qt-cornell-highlight", text: match[1] });
+    last = match.index + match[0].length;
+    if (!match[0].length) pattern.lastIndex += 1;
+  }
+  if (last < text.length) parent.createSpan({ text: text.slice(last) });
+}
 
 function renderCornellBlock(plugin, source, el) {
   if (plugin && typeof plugin.cornellNotesEnabled === "function" && !plugin.cornellNotesEnabled()) {
@@ -43,9 +65,11 @@ function renderCornellBlock(plugin, source, el) {
   const rows = parsed.cues.map((row, index) => {
     const cue = cueColumn.createDiv({ cls: "qt-cornell-cue" });
     cue.createSpan({ cls: "qt-cornell-number", text: String(index + 1).padStart(2, "0") });
-    cue.createSpan({ cls: "qt-cornell-cue-text", text: row.cue });
+    const cueText = cue.createSpan({ cls: "qt-cornell-cue-text" });
+    appendHighlighted(cueText, row.cue, cornellHighlightTerms(row.margin));
     const note = noteColumn.createDiv({ cls: "qt-cornell-note" });
-    const text = note.createDiv({ cls: "qt-cornell-note-text", text: row.note });
+    const text = note.createDiv({ cls: "qt-cornell-note-text" });
+    appendHighlighted(text, row.note, cornellHighlightTerms(row.margin));
     const margin = marginColumn ? marginColumn.createDiv({ cls: "qt-cornell-margin" }) : null;
     if (margin) margin.createDiv({ cls: "qt-cornell-margin-text", text: row.margin || "" });
     const reveal = note.createEl("button", { cls: "qt-cornell-reveal", text: "Reveal" });

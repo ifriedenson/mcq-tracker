@@ -41,3 +41,14 @@ test("cornell margins: the block renders a margin column and reveal restores it"
   await dom.click("Reveal");
   assert.ok(dom.texts().some((text) => /Splits glucose into pyruvate/.test(text)));
 });
+
+test("cornell margins: explicit key terms drive deterministic highlighting", async () => {
+  assert.deepEqual(C.cornellHighlightTerms("Key term: glycolysis; Term: ATP."), ["glycolysis", "ATP"]);
+  assert.deepEqual(C.cornellHighlightTerms("Key term: ATP; Concept: atp"), ["ATP"]);
+  assert.deepEqual(C.cornellHighlightTerms("Page 42"), []);
+  const dom = makeDom();
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  plugin.codeBlocks["cornell-note"]("Title: Respiration\nCue: What is glycolysis?\nNote: Glycolysis splits glucose.\nMargin: Key term: glycolysis", dom.root, {});
+  assert.ok(dom.texts().some((text) => text === "glycolysis"));
+});
