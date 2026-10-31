@@ -56,6 +56,7 @@ MCQ Tracker turns Obsidian into a local-first exam-prep workspace. Keep question
 - **Cards and vocabulary (optional module, off by default).** Create flashcards, reversed cards, cloze cards, image occlusion cards and vocabulary notes as ordinary Markdown notes. Import Quizlet text exports, PDF test banks or Markdown tables from the vault or directly from your device, organize cards into decks, inherit a course tag from a deck or folder, and review them with Again/Hard/Good/Easy using the same ladder or FSRS schedule as your questions. Export any filtered deck as Quizlet text, Anki text, an Anki `.apkg` package, a Mochi `.mochi` file, a LearnKit note or a quiz CSV (see [Cards and vocabulary](#cards-and-vocabulary-optional-module-off-by-default)).
 - **Study plan and cram mode.** When the calendar has an upcoming exam, Today builds a plan for matching courses: days left, readiness, due/new counts, card backlog and the weakest skill. **Start 10 min** practices the plan; **Cram 10 min** puts most-missed questions first and skips long-interval reviews unless an item was missed.
 - **Reading plans.** A `reading-plan` block schedules a book by page count, start and target dates, reading days and optional off days. It shows today's chunk, progress and the remaining schedule, and redistributes pages when you fall behind. Progress is logged locally and survives a restart; a passed target becomes **Off pace** rather than inventing a new deadline.
+- **Tag timers.** A `tag-timer` block turns Obsidian tags such as `#study/biology` into local stopwatches or countdowns, with start, pause, stop, reset and per-tag time analytics. State is stored locally and a running timer survives a restart.
 - **Optional local reminder.** Off by default, a quiet Today card and status-bar nudge appear once a day after the hour you choose. Dismiss it until tomorrow; it never sends an OS notification or a network request.
 - **Focus timer and study log.** Start a 15, 25 or 45 minute session tied to a course, pause and resume it, and log the result. Manual study entry covers offline work. Today shows today's minutes against a configurable daily goal, the current streak, the last seven days and your top courses.
 - **First-run welcome guide.** A short three-step guide on first install: what the plugin does, a preset chooser that sets the real module switches, and buttons for import, practice, Today, cards, calendar and settings. It is shown once per device, never blocks startup, stores progress locally and can be reopened from the command palette or Settings, Global, About.
@@ -99,6 +100,22 @@ read: 120
 `title`, `pages`, `start` and `target` are required. `days` accepts `everyday`, `weekdays`, `weekends`, a list such as `mon,wed,fri`, or a range such as `mon-fri`; leave it out to read every day. `off` takes comma-separated dates. `read` is the starting page count and defaults to 0. Add an optional `id:` when you want progress to stay attached after changing the dates; otherwise the title and dates make the id.
 
 The block spreads the pages over the reading days and shows today's chunk. **Log pages** stores progress in the plugin's local settings for that plan, so it survives a restart and never edits the note. When pages planned through yesterday are higher than the pages read, the block shows **Behind** and redistributes the remaining pages over the days that are left. Catching up clears the badge immediately. If the target date passes, the plan becomes **Off pace**, stops making new chunks, and waits for a new target date. This is separate from the question and card scheduler: it does not write attempts, history, streaks or review dates.
+
+## Tag timers
+
+Track study time by Obsidian tag with a local `tag-timer` block:
+
+````markdown
+```tag-timer
+#study/biology stopwatch
+#study/chemistry countdown 25
+#study/review countdown 0:30
+```
+````
+
+Each line starts with exactly one tag. A bare tag is a stopwatch; `countdown` accepts `25`, `25m`, `25:00` or `0:30` and defaults to 25 minutes when no time is given. Lines beginning with `//` are comments. A missing tag, more than one tag on a line, a duplicate tag, an unknown kind or an invalid duration shows an in-place message instead of creating a timer.
+
+**Start** begins a stopwatch or countdown; **Pause** freezes it and **Start** resumes; **Stop** logs the session; **Reset** clears the current run. A countdown that reaches zero stops and logs itself even if the note is reopened later. Timer state is local, keyed by note path and tag, and is stored from timestamps, so a running timer resumes after a restart. **Per-tag analytics** groups stopped sessions into today, the last seven days, total time and session count. This block does not edit notes or write attempts, history, streaks, review dates or scheduler state.
 
 ## Analytics dashboard
 

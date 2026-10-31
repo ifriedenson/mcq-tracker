@@ -6243,3 +6243,120 @@
   flex-basis: 100%;
   font-size: var(--font-ui-small);
 }
+
+/* Tag timers: local stopwatch/countdown cards with tag analytics. */
+.qt-tag-timer {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.qt-tag-timer-title {
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.qt-tag-timer-row {
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 9px;
+}
+
+.qt-tag-timer-head,
+.qt-tag-timer-clock,
+.qt-tag-timer-actions,
+.qt-tag-timer-analytics-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-tag-timer-tag {
+  font-weight: 700;
+}
+
+.qt-tag-timer-kind,
+.qt-tag-timer-detail,
+.qt-tag-timer-state {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-tag-timer-state {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.qt-tag-timer-state.is-running {
+  color: var(--text-success, var(--color-green));
+}
+
+.qt-tag-timer-state.is-paused,
+.qt-tag-timer-state.is-stopped {
+  color: var(--text-warning, var(--color-orange));
+}
+
+.qt-tag-timer-time {
+  font-size: 1.55rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.qt-tag-timer-bar {
+  background: var(--background-modifier-border);
+  border-radius: 999px;
+  height: 7px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.qt-tag-timer-fill {
+  background: var(--interactive-accent);
+  height: 100%;
+}
+
+.qt-tag-timer-actions button {
+  font-size: var(--font-ui-small);
+}
+
+.qt-tag-timer-analytics {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 5px;
+}
+
+.qt-tag-timer-analytics summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+}
+
+.qt-tag-timer-totals,
+.qt-tag-timer-analytics-row,
+.qt-tag-timer-empty {
+  font-size: var(--font-ui-small);
+  margin-top: 5px;
+}
+
+.qt-tag-timer-analytics-tag {
+  font-weight: 600;
+}
+
+.qt-tag-timer-analytics-time,
+.qt-tag-timer-empty {
+  color: var(--text-muted);
+}
+
+.qt-tag-timer-message,
+.qt-tag-timer-issue {
+  color: var(--text-error);
+  font-size: var(--font-ui-small);
+}

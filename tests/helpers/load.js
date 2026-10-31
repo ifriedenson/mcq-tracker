@@ -49,6 +49,18 @@ class Base {
     this.args = a;
   }
 }
+class MarkdownRenderChild extends Base {
+  constructor(containerEl) {
+    super(containerEl);
+    this.containerEl = containerEl;
+  }
+  load() {
+    if (this.onload) this.onload();
+  }
+  unload() {
+    if (this.onunload) this.onunload();
+  }
+}
 class Plugin extends Base {
   constructor(app) {
     super();
@@ -87,6 +99,7 @@ class TFolder {}
 
 const obsidian = {
   Plugin,
+  MarkdownRenderChild,
   ItemView: class extends Base {
     constructor(leaf) {
       super();

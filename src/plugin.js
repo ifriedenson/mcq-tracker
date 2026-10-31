@@ -17,6 +17,7 @@ const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-cl
 const { ApiClient } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const { normalizeReadingSettings } = require("./reading");
+const { normalizeTagTimerSettings, stopRunningTagTimers } = require("./tag-timer");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { readPdfPages } = require("./pdf");
@@ -86,6 +87,7 @@ const { extractSimpleQuizBlocks, legacyQuizJsNotice, normalizeSimpleQuiz, parseS
 const { renderQuizPortBlock } = require("./quizport-view");
 const { renderSimpleFlashcardsBlock } = require("./simple-flashcards-view");
 const { renderReadingPlanBlock } = require("./reading-view");
+const { renderTagTimerBlock } = require("./tag-timer-view");
 const { applySimpleNoteQuizMarks, clearSimpleNoteQuizMarks, normalizeSimpleNoteQuiz, parseSimpleNoteQuiz } = require("./simple-note-quiz");
 const { SimpleNoteQuizModal } = require("./simple-note-quiz-modal");
 const { normalizeTutorRole } = require("./tutor-presets");
@@ -225,6 +227,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-practice-view", name: "Open practice view", callback: () => this.activateView() });
     this.addCommand({ id: "open-welcome", name: "Open welcome guide", callback: () => this.openWelcome() });
     this.addCommand({ id: "focus-start", name: "Focus: start a 25-minute session", callback: () => this.startFocusSession(25, this.settings.studyLog.lastCourse) });
+    this.addCommand({ id: "tag-timer-stop-all", name: "Tag Timer: stop all running timers", callback: () => this.stopAllTagTimers() });
     this.addCommand({ id: "focus-log", name: "Focus: log study time", callback: () => this.openFocusLog() });
     this.addCommand({ id: "study-plan", name: "Study plan: start for the next exam", callback: () => this.startNextExamPlan() });
     this.addCommand({ id: "open-dashboard", name: "Open analytics dashboard", callback: () => this.activateInsights("overview") });
@@ -514,6 +517,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("quizport", (source, el, ctx) => this.renderQuizPortBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("simple-flashcards", (source, el, ctx) => this.renderSimpleFlashcardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("reading-plan", (source, el, ctx) => this.renderReadingPlanBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("tag-timer", (source, el, ctx) => this.renderTagTimerBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
     this.registerMarkdownCodeBlockProcessor("quizjs", (source, el) => this.renderSimpleQuizDataBlock(source, el, "js"));
@@ -738,6 +742,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.simpleQuiz = normalizeSimpleQuiz(saved.simpleQuiz);
     this.settings.simpleNoteQuiz = normalizeSimpleNoteQuiz(saved.simpleNoteQuiz);
     this.settings.reading = normalizeReadingSettings(saved.reading);
+    this.settings.tagTimers = normalizeTagTimerSettings(saved.tagTimers);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -4017,6 +4022,19 @@ class QuestionTrackerPlugin extends Plugin {
   /** Render a `reading-plan` block with local pace and progress tracking. */
   async renderReadingPlanBlock(source, el, ctx) {
     return renderReadingPlanBlock(this, source, el, ctx);
+  }
+
+  /** Render a `tag-timer` block with local timer state and per-tag analytics. */
+  async renderTagTimerBlock(source, el, ctx) {
+    return renderTagTimerBlock(this, source, el, ctx);
+  }
+
+  async stopAllTagTimers() {
+    const result = stopRunningTagTimers(this.settings.tagTimers, Date.now());
+    this.settings.tagTimers = result.settings;
+    if (result.count) await this.save();
+    new Notice(result.count ? `Stopped ${result.count} running tag timer${result.count === 1 ? "" : "s"}.` : "No tag timers are running.");
+    return result.count;
   }
 
   /** Render a `quizport` block with the local QuizPort player. */

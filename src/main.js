@@ -31,6 +31,7 @@ const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
+const tagTimer = require("./tag-timer");
 const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
@@ -206,6 +207,7 @@ QuestionTrackerPlugin.__test = {
   apiTurns,
   modelDiscovery,
   reading,
+  tagTimer,
   ChatPanel,
   tutorPresets,
   aiContext,

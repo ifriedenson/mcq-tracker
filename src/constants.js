@@ -132,6 +132,7 @@ const DEFAULT_SETTINGS = {
     shuffle: false, // shuffle the selected questions for this session
   },
   reading: { progress: {} }, // reading-plan progress keyed by plan id; local only
+  tagTimers: { timers: {}, sessions: [] }, // local tag-timer state and completed sessions
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
