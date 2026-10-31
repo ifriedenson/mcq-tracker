@@ -779,6 +779,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks(saved.studyTasks);
     this.settings.annotations = studyWorkspace.normalizeAnnotations(saved.annotations);
     this.settings.deepNotes = studyWorkspace.normalizeDeepNotes(saved.deepNotes);
+    this.settings.retention = studyWorkspace.normalizeRetention(saved.retention);
+    this.settings.vocabulary = studyWorkspace.normalizeVocabulary(saved.vocabulary);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -1304,8 +1306,16 @@ class QuestionTrackerPlugin extends Plugin {
     return studyWorkspace.normalizeDeepNotes(this.settings.deepNotes).enabled;
   }
 
+  retentionEnabled() {
+    return studyWorkspace.normalizeRetention(this.settings.retention).enabled;
+  }
+
+  vocabularyEnabled() {
+    return studyWorkspace.normalizeVocabulary(this.settings.vocabulary).enabled;
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -7672,6 +7682,57 @@ ${body}
     this.settings.deepNotes = studyWorkspace.normalizeDeepNotes({
       ...current,
       sessions: current.sessions.filter((session) => session.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async addVocabWord(input) {
+    const word = studyWorkspace.createVocabWord(input, Date.now());
+    if (!word) return null;
+    const current = this.studyWorkspaceSettings().vocabulary;
+    this.settings.vocabulary = studyWorkspace.normalizeVocabulary({
+      ...current,
+      words: current.words.concat(word).slice(-studyWorkspace.MAX_VOCAB),
+    });
+    await this.save();
+    this.refreshViews();
+    return word;
+  }
+
+  async importVocabWords(text) {
+    const parsed = studyWorkspace.parseVocabLines(text);
+    if (!parsed.words.length) return { count: 0, issues: parsed.issues };
+    const current = this.studyWorkspaceSettings().vocabulary;
+    const created = parsed.words.map((word) => studyWorkspace.createVocabWord(word, Date.now())).filter(Boolean);
+    this.settings.vocabulary = studyWorkspace.normalizeVocabulary({
+      ...current,
+      words: current.words.concat(created).slice(-studyWorkspace.MAX_VOCAB),
+    });
+    await this.save();
+    this.refreshViews();
+    return { count: created.length, issues: parsed.issues };
+  }
+
+  async reviewVocabWord(id, grade) {
+    const current = this.studyWorkspaceSettings().vocabulary;
+    const word = current.words.find((entry) => entry.id === id);
+    if (!word) return null;
+    const next = studyWorkspace.reviewVocabWord(word, grade, localDate());
+    this.settings.vocabulary = studyWorkspace.normalizeVocabulary({
+      ...current,
+      words: current.words.map((entry) => (entry.id === id ? next : entry)),
+    });
+    await this.save();
+    this.refreshViews();
+    return next;
+  }
+
+  async removeVocabWord(id) {
+    const current = this.studyWorkspaceSettings().vocabulary;
+    this.settings.vocabulary = studyWorkspace.normalizeVocabulary({
+      ...current,
+      words: current.words.filter((word) => word.id !== id),
     });
     await this.save();
     this.refreshViews();

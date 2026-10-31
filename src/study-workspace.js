@@ -21,6 +21,8 @@ const MAX_GRADES = 500;
 const MAX_TASKS = 500;
 const MAX_ANNOTATIONS = 500;
 const MAX_SOCRATIC = 100;
+const MAX_VOCAB = 1000;
+const VOCAB_LADDER = [1, 3, 7, 21, 60, 120];
 
 const FEYNMAN_STEPS = ["Explain it simply", "Find the gaps", "Simplify and connect", "Teach it back"];
 const FEYNMAN_KEYS = ["explain", "gaps", "simplify", "teach"];
@@ -909,6 +911,157 @@ function deepNotesStepKey(step) {
   return SOCRATIC_STEPS[clamp(numberValue(step, 0), 0, SOCRATIC_STEPS.length - 1)].key;
 }
 
+
+/* ---- Retention forecast (read-only Retain-style view) ------------------ */
+
+function retentionForecast(cards, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const today = dayValue(opts.today) || localDate();
+  const days = clamp(numberValue(opts.days, 30), 1, 90);
+  const list = (Array.isArray(cards) ? cards : []).filter((card) => card && card.fm);
+  const forecast = [];
+  const counts = new Map();
+  for (let offset = 0; offset < days; offset++) {
+    const date = addDays(today, offset);
+    forecast.push({ date, count: 0 });
+    counts.set(date, 0);
+  }
+  const rows = [];
+  let due = 0;
+  let fresh = 0;
+  let scheduled = 0;
+  let overdue = 0;
+  for (const card of list) {
+    const fm = asObject(card.fm);
+    const attempts = Math.max(0, Math.round(numberValue(fm.attempts, 0)));
+    const rawDue = str(fm.next_review || fm.due).slice(0, 10);
+    const cardDue = dayValue(rawDue);
+    const isNew = attempts === 0;
+    const isDue = isNew || !cardDue || cardDue <= today;
+    if (isNew) fresh++;
+    if (isDue) due++;
+    if (!isNew && !isDue) scheduled++;
+    if (cardDue && cardDue < today && !isNew) overdue++;
+    if (isDue) {
+      const key = today;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    } else if (cardDue && counts.has(cardDue)) {
+      counts.set(cardDue, (counts.get(cardDue) || 0) + 1);
+    }
+    rows.push({
+      path: str(card.file && card.file.path),
+      deck: str(card.deck) || "Unsorted",
+      course: str(card.course),
+      due: isDue ? today : cardDue,
+      attempts,
+      fresh: isNew,
+    });
+  }
+  for (const entry of forecast) entry.count = counts.get(entry.date) || 0;
+  return {
+    total: list.length,
+    due,
+    fresh,
+    scheduled,
+    overdue,
+    forecast,
+    rows: rows.sort((a, b) => (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31") || a.path.localeCompare(b.path)),
+  };
+}
+
+/* ---- Vocabulary dictionary (FSRS Vocabulary-style local module) -------- */
+
+function normalizeVocabWord(value) {
+  const source = asObject(value);
+  const term = textValue(source.term, MAX_TITLE);
+  if (!term) return null;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("vocab", [term, source.definition || "", source.createdAt || 0]),
+    term,
+    definition: textValue(source.definition, MAX_TEXT),
+    example: textValue(source.example, MAX_TEXT),
+    language: textValue(source.language, MAX_TITLE),
+    due: dayValue(source.due),
+    interval: clamp(numberValue(source.interval, 0), 0, 3650),
+    reviews: Math.max(0, Math.round(numberValue(source.reviews, 0))),
+    last: dayValue(source.last),
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function normalizeVocabulary(value) {
+  const source = asObject(value);
+  const words = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.words) ? source.words : []) {
+    const word = normalizeVocabWord(raw);
+    if (!word || seen.has(word.id)) continue;
+    seen.add(word.id);
+    words.push(word);
+    if (words.length >= MAX_VOCAB) break;
+  }
+  return { enabled: enabledValue(value), words };
+}
+
+function createVocabWord(input, now) {
+  const source = asObject(input);
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeVocabWord({ ...source, createdAt: stamp });
+}
+
+/** Parse `term | definition | example` or `term :: definition` lines. */
+function parseVocabLines(text) {
+  const words = [];
+  const issues = [];
+  const lines = str(text).replace(/\r\n?/g, "\n").split("\n");
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index].trim();
+    if (!line || line.startsWith("#")) continue;
+    const parts = line.split(/\s*\|\s*|\s*::\s*/).map((part) => part.trim());
+    if (parts.length < 2 || !parts[0] || !parts[1]) {
+      issues.push(`Line ${index + 1}: use term | definition.`);
+      continue;
+    }
+    words.push({ term: parts[0], definition: parts[1], example: parts.slice(2).join(" | ") });
+  }
+  return { words, issues };
+}
+
+function reviewVocabWord(word, grade, today) {
+  const previous = word && typeof word === "object" ? word : {};
+  const key = str(previous.id).trim();
+  if (!key) return null;
+  const day = dayValue(today) || localDate();
+  const value = ["again", "hard", "good", "easy"].includes(str(grade).toLowerCase()) ? str(grade).toLowerCase() : "good";
+  const current = Number(previous.interval) || 0;
+  let interval = 1;
+  if (value === "hard") interval = Math.max(1, current);
+  else if (value === "good") interval = VOCAB_LADDER[Math.min(VOCAB_LADDER.length - 1, Math.max(0, VOCAB_LADDER.indexOf(current) + 1))] || 1;
+  else if (value === "easy") interval = VOCAB_LADDER[Math.min(VOCAB_LADDER.length - 1, Math.max(0, VOCAB_LADDER.indexOf(current) + 2))] || 3;
+  return {
+    ...previous,
+    due: addDays(day, interval),
+    interval,
+    reviews: Math.max(0, Number(previous.reviews) || 0) + 1,
+    last: day,
+  };
+}
+
+function vocabSummary(words, today) {
+  const day = dayValue(today) || localDate();
+  const list = Array.isArray(words) ? words : [];
+  return {
+    total: list.length,
+    due: list.filter((word) => !word.due || word.due <= day).length,
+    fresh: list.filter((word) => !Number(word.reviews)).length,
+    learned: list.filter((word) => Number(word.reviews) > 0).length,
+  };
+}
+
+function normalizeRetention(value) {
+  return { enabled: enabledValue(value) };
+}
+
 function normalizeStudyWorkspaceSettings(value) {
   const source = asObject(value);
   return {
@@ -922,6 +1075,8 @@ function normalizeStudyWorkspaceSettings(value) {
     studyTasks: normalizeStudyTasks(source.studyTasks),
     annotations: normalizeAnnotations(source.annotations),
     deepNotes: normalizeDeepNotes(source.deepNotes),
+    retention: normalizeRetention(source.retention),
+    vocabulary: normalizeVocabulary(source.vocabulary),
   };
 }
 
@@ -938,6 +1093,8 @@ module.exports = {
   MAX_PLANS,
   MAX_SOCRATIC,
   MAX_TASKS,
+  MAX_VOCAB,
+  VOCAB_LADDER,
   MAX_QUIZ_ROWS,
   MAX_SUBJECTS,
   MAX_TOPICS,
@@ -955,10 +1112,13 @@ module.exports = {
   createPlannerPlan,
   createStudyTask,
   createSubject,
+  createVocabWord,
   daysBetween,
   deepNotesStepKey,
   dueStudyTasks,
   letterGrade,
+  normalizeVocabWord,
+  normalizeVocabulary,
   feynmanAverage,
   feynmanStepKey,
   feynmanWeakPoints,
@@ -974,7 +1134,11 @@ module.exports = {
   normalizePlanner,
   normalizeQuizIndex,
   normalizeRecallScheduler,
+  normalizeRetention,
   normalizeStudyFlow,
+  parseVocabLines,
+  retentionForecast,
+  reviewVocabWord,
   normalizeStudyTask,
   normalizeStudyTasks,
   normalizeStudyWorkspaceSettings,
@@ -988,4 +1152,5 @@ module.exports = {
   reviewRecallUnit,
   subjectSummary,
   taskSummary,
+  vocabSummary,
 };

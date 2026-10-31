@@ -244,6 +244,30 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Retention")
+    .setDesc("Read-only forecast of card due dates and overdue work. It never changes a card schedule or moves review data out of a note.")
+    .addToggle((t) =>
+      t.setValue(plugin.retentionEnabled()).onChange(async (v) => {
+        st.retention.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Vocabulary")
+    .setDesc("A local dictionary with bulk term/definition import, search, per-word review counts and a simple due-date ladder.")
+    .addToggle((t) =>
+      t.setValue(plugin.vocabularyEnabled()).onChange(async (v) => {
+        st.vocabulary.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>

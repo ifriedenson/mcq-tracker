@@ -151,6 +151,8 @@ const DEFAULT_SETTINGS = {
   studyTasks: { enabled: true, tasks: [] }, // manual and generated exam tasks with local reminders
   annotations: { enabled: true, annotations: [] }, // selection Q&A and annotation index
   deepNotes: { enabled: true, sessions: [] }, // guided Socratic sessions
+  retention: { enabled: true }, // read-only card forecast
+  vocabulary: { enabled: true, words: [] }, // local dictionary and per-word review ladder
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),

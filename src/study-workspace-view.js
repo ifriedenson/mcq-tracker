@@ -21,8 +21,10 @@ const {
   planSummary,
   recallStats,
   recallDueUnits,
+  retentionForecast,
   subjectSummary,
   taskSummary,
+  vocabSummary,
 } = require("./study-workspace");
 
 const TABS = [
@@ -35,6 +37,8 @@ const TABS = [
   { id: "tasks", label: "Tasks", module: "studyTasks" },
   { id: "annotations", label: "Annotations", module: "annotations" },
   { id: "deepNotes", label: "Deep Notes", module: "deepNotes" },
+  { id: "retention", label: "Retention", module: "retention" },
+  { id: "vocabulary", label: "Vocabulary", module: "vocabulary" },
   { id: "quizIndex", label: "Quiz index", module: "quizIndex" },
 ];
 
@@ -61,6 +65,8 @@ class StudyWorkspaceView extends ItemView {
     this.quizIndexLimit = "50";
     this.annotationFilter = "";
     this.deepNotesId = "";
+    this.retentionData = null;
+    this.vocabFilter = "";
   }
 
   getViewType() {
@@ -136,6 +142,8 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "tasks") this.renderTasks(wrap);
     else if (this.tab === "annotations") this.renderAnnotations(wrap);
     else if (this.tab === "deepNotes") this.renderDeepNotes(wrap);
+    else if (this.tab === "retention") this.renderRetention(wrap);
+    else if (this.tab === "vocabulary") this.renderVocabulary(wrap);
     else if (this.tab === "quizIndex") this.renderQuizIndex(wrap);
   }
 
@@ -144,7 +152,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes and the Quiz index each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary and the Quiz index each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -955,6 +963,152 @@ class StudyWorkspaceView extends ItemView {
       }
       this.render();
     });
+  }
+
+  /* ---- Retention ------------------------------------------------------- */
+
+  renderRetention(root) {
+    const controls = root.createDiv({ cls: "qt-study-card" });
+    controls.createEl("h3", { text: "Card retention forecast" });
+    controls.createDiv({
+      cls: "qt-hint",
+      text: "Read-only: this scans the cards you already have and projects their next due dates. It never changes a card schedule or moves review data out of a note.",
+    });
+    const actions = controls.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Scan cards", cls: "mod-cta" }).addEventListener("click", () => {
+      if (!this.plugin.cardsEnabled || !this.plugin.cardsEnabled()) {
+        this.saveMessage("Turn on Cards to forecast card retention.");
+        this.render();
+        return;
+      }
+      this.retentionData = retentionForecast(this.plugin.getCards ? this.plugin.getCards() : [], { today: localDate(), days: 30 });
+      this.saveMessage(`Scanned ${this.retentionData.total} card${this.retentionData.total === 1 ? "" : "s"}.`);
+      this.render();
+    });
+    if (!this.retentionData) {
+      this.renderTabsEmpty(root, "Scan the card module to see due work and a 30-day forecast.");
+      return;
+    }
+    const stats = root.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const card = stats.createDiv({ cls: "qt-study-stat" });
+      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      card.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(this.retentionData.total, "cards");
+    stat(this.retentionData.due, "due now");
+    stat(this.retentionData.fresh, "new");
+    stat(this.retentionData.overdue, "overdue");
+    const forecastCard = root.createDiv({ cls: "qt-study-card" });
+    forecastCard.createEl("h3", { text: "Next 14 days" });
+    const max = Math.max(1, ...this.retentionData.forecast.slice(0, 14).map((day) => day.count));
+    const forecast = forecastCard.createDiv({ cls: "qt-study-list" });
+    for (const day of this.retentionData.forecast.slice(0, 14)) {
+      const row = forecast.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: day.date });
+      const bar = main.createDiv({ cls: "qt-study-bar" });
+      bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = `${Math.round((day.count / max) * 100)}%`;
+      row.createSpan({ cls: "qt-study-row-meta", text: `${day.count} due` });
+    }
+    const listCard = root.createDiv({ cls: "qt-study-card" });
+    listCard.createEl("h3", { text: "Due and future cards" });
+    if (!this.retentionData.rows.length) {
+      listCard.createDiv({ cls: "qt-study-empty", text: "No cards are available in this vault yet." });
+      return;
+    }
+    const list = listCard.createDiv({ cls: "qt-study-list" });
+    for (const card of this.retentionData.rows.slice(0, 20)) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: card.deck || "Unsorted" });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${card.course ? `${card.course} · ` : ""}${card.fresh ? "New" : card.due || "Scheduled"}${card.attempts ? ` · ${card.attempts} review${card.attempts === 1 ? "" : "s"}` : ""}` });
+      if (card.path) row.createEl("button", { text: "Open" }).addEventListener("click", () => this.plugin.openStudyFlowSource(card.path));
+    }
+  }
+
+  /* ---- Vocabulary ------------------------------------------------------ */
+
+  renderVocabulary(root) {
+    const data = this.settings().vocabulary;
+    const summary = vocabSummary(data.words, localDate());
+    const add = root.createDiv({ cls: "qt-study-card" });
+    add.createEl("h3", { text: "Add a word" });
+    add.createDiv({ cls: "qt-hint", text: "The dictionary is local. Review ratings move each word along a simple 1/3/7/21-day ladder; no note or card schedule is changed." });
+    const form = add.createDiv({ cls: "qt-study-form" });
+    const term = this.renderField(form, "Term", "text", "osmosis");
+    const definition = this.renderTextarea(form, "Definition", "Movement of water across a membrane", "", 2);
+    const example = this.renderTextarea(form, "Example (optional)", "Water enters the cell.", "", 2);
+    const language = this.renderField(form, "Language (optional)", "text", "Biology");
+    const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add word", cls: "mod-cta" }).addEventListener("click", async () => {
+      const word = await this.plugin.addVocabWord({ term: term.value, definition: definition.value, example: example.value, language: language.value });
+      if (!word) {
+        this.saveMessage("Add a term first.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Word added.");
+      this.render();
+    });
+    const bulk = root.createDiv({ cls: "qt-study-card" });
+    bulk.createEl("h3", { text: "Bulk import" });
+    bulk.createDiv({ cls: "qt-hint", text: "One word per line: term | definition | optional example." });
+    const bulkForm = bulk.createDiv({ cls: "qt-study-form" });
+    const lines = this.renderTextarea(bulkForm, "Words", "ATP | energy currency | ATP powers the cell.", "", 5);
+    const bulkActions = bulk.createDiv({ cls: "qt-row qt-study-actions" });
+    bulkActions.createEl("button", { text: "Import words" }).addEventListener("click", async () => {
+      const result = await this.plugin.importVocabWords(lines.value);
+      this.saveMessage(result.count ? `Imported ${result.count} word${result.count === 1 ? "" : "s"}.${result.issues.length ? ` ${result.issues[0]}` : ""}` : "No valid lines. Use term | definition.");
+      this.render();
+    });
+    const stats = root.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const card = stats.createDiv({ cls: "qt-study-stat" });
+      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      card.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(summary.total, "words");
+    stat(summary.due, "due");
+    stat(summary.fresh, "new");
+    stat(summary.learned, "reviewed");
+    const listCard = root.createDiv({ cls: "qt-study-card" });
+    listCard.createEl("h3", { text: "Dictionary" });
+    const filter = listCard.createEl("input", { cls: "qt-input", type: "search" });
+    filter.placeholder = "Search terms, definitions and examples";
+    filter.value = this.vocabFilter;
+    filter.addEventListener("input", () => {
+      this.vocabFilter = filter.value.toLowerCase();
+      this.render();
+    });
+    const words = data.words
+      .filter((word) => !this.vocabFilter || `${word.term} ${word.definition} ${word.example} ${word.language}`.toLowerCase().includes(this.vocabFilter))
+      .sort((a, b) => (!a.due ? "" : a.due).localeCompare(!b.due ? "" : b.due) || a.term.localeCompare(b.term));
+    if (!words.length) {
+      listCard.createDiv({ cls: "qt-study-empty", text: data.words.length ? "No word matches that search." : "No words yet. Add one or paste a list." });
+      return;
+    }
+    const list = listCard.createDiv({ cls: "qt-study-list" });
+    for (const word of words) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: word.term });
+      if (word.definition) main.createDiv({ cls: "qt-study-row-meta", text: word.definition });
+      if (word.example) main.createDiv({ cls: "qt-study-row-meta", text: `Example: ${word.example}` });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${word.language ? `${word.language} · ` : ""}${word.reviews ? `${word.reviews} review${word.reviews === 1 ? "" : "s"} · due ${word.due || "now"}` : "New"}` });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      for (const [grade, label] of [["again", "Again"], ["good", "Good"], ["easy", "Easy"]]) {
+        buttons.createEl("button", { text: label }).addEventListener("click", async () => {
+          await this.plugin.reviewVocabWord(word.id, grade);
+          this.saveMessage(`Rated ${word.term} ${label.toLowerCase()}.`);
+          this.render();
+        });
+      }
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeVocabWord(word.id);
+        this.render();
+      });
+    }
   }
 
   /* ---- Subject Manager ------------------------------------------------- */

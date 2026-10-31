@@ -18287,6 +18287,8 @@ const DEFAULT_SETTINGS = {
   studyTasks: { enabled: true, tasks: [] }, // manual and generated exam tasks with local reminders
   annotations: { enabled: true, annotations: [] }, // selection Q&A and annotation index
   deepNotes: { enabled: true, sessions: [] }, // guided Socratic sessions
+  retention: { enabled: true }, // read-only card forecast
+  vocabulary: { enabled: true, words: [] }, // local dictionary and per-word review ladder
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
@@ -37075,6 +37077,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks(saved.studyTasks);
     this.settings.annotations = studyWorkspace.normalizeAnnotations(saved.annotations);
     this.settings.deepNotes = studyWorkspace.normalizeDeepNotes(saved.deepNotes);
+    this.settings.retention = studyWorkspace.normalizeRetention(saved.retention);
+    this.settings.vocabulary = studyWorkspace.normalizeVocabulary(saved.vocabulary);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -37600,8 +37604,16 @@ class QuestionTrackerPlugin extends Plugin {
     return studyWorkspace.normalizeDeepNotes(this.settings.deepNotes).enabled;
   }
 
+  retentionEnabled() {
+    return studyWorkspace.normalizeRetention(this.settings.retention).enabled;
+  }
+
+  vocabularyEnabled() {
+    return studyWorkspace.normalizeVocabulary(this.settings.vocabulary).enabled;
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -43968,6 +43980,57 @@ ${body}
     this.settings.deepNotes = studyWorkspace.normalizeDeepNotes({
       ...current,
       sessions: current.sessions.filter((session) => session.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async addVocabWord(input) {
+    const word = studyWorkspace.createVocabWord(input, Date.now());
+    if (!word) return null;
+    const current = this.studyWorkspaceSettings().vocabulary;
+    this.settings.vocabulary = studyWorkspace.normalizeVocabulary({
+      ...current,
+      words: current.words.concat(word).slice(-studyWorkspace.MAX_VOCAB),
+    });
+    await this.save();
+    this.refreshViews();
+    return word;
+  }
+
+  async importVocabWords(text) {
+    const parsed = studyWorkspace.parseVocabLines(text);
+    if (!parsed.words.length) return { count: 0, issues: parsed.issues };
+    const current = this.studyWorkspaceSettings().vocabulary;
+    const created = parsed.words.map((word) => studyWorkspace.createVocabWord(word, Date.now())).filter(Boolean);
+    this.settings.vocabulary = studyWorkspace.normalizeVocabulary({
+      ...current,
+      words: current.words.concat(created).slice(-studyWorkspace.MAX_VOCAB),
+    });
+    await this.save();
+    this.refreshViews();
+    return { count: created.length, issues: parsed.issues };
+  }
+
+  async reviewVocabWord(id, grade) {
+    const current = this.studyWorkspaceSettings().vocabulary;
+    const word = current.words.find((entry) => entry.id === id);
+    if (!word) return null;
+    const next = studyWorkspace.reviewVocabWord(word, grade, localDate());
+    this.settings.vocabulary = studyWorkspace.normalizeVocabulary({
+      ...current,
+      words: current.words.map((entry) => (entry.id === id ? next : entry)),
+    });
+    await this.save();
+    this.refreshViews();
+    return next;
+  }
+
+  async removeVocabWord(id) {
+    const current = this.studyWorkspaceSettings().vocabulary;
+    this.settings.vocabulary = studyWorkspace.normalizeVocabulary({
+      ...current,
+      words: current.words.filter((word) => word.id !== id),
     });
     await this.save();
     this.refreshViews();
@@ -52695,6 +52758,30 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Retention")
+    .setDesc("Read-only forecast of card due dates and overdue work. It never changes a card schedule or moves review data out of a note.")
+    .addToggle((t) =>
+      t.setValue(plugin.retentionEnabled()).onChange(async (v) => {
+        st.retention.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Vocabulary")
+    .setDesc("A local dictionary with bulk term/definition import, search, per-word review counts and a simple due-date ladder.")
+    .addToggle((t) =>
+      t.setValue(plugin.vocabularyEnabled()).onChange(async (v) => {
+        st.vocabulary.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>
@@ -58895,6 +58982,8 @@ const MAX_GRADES = 500;
 const MAX_TASKS = 500;
 const MAX_ANNOTATIONS = 500;
 const MAX_SOCRATIC = 100;
+const MAX_VOCAB = 1000;
+const VOCAB_LADDER = [1, 3, 7, 21, 60, 120];
 
 const FEYNMAN_STEPS = ["Explain it simply", "Find the gaps", "Simplify and connect", "Teach it back"];
 const FEYNMAN_KEYS = ["explain", "gaps", "simplify", "teach"];
@@ -59783,6 +59872,157 @@ function deepNotesStepKey(step) {
   return SOCRATIC_STEPS[clamp(numberValue(step, 0), 0, SOCRATIC_STEPS.length - 1)].key;
 }
 
+
+/* ---- Retention forecast (read-only Retain-style view) ------------------ */
+
+function retentionForecast(cards, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const today = dayValue(opts.today) || localDate();
+  const days = clamp(numberValue(opts.days, 30), 1, 90);
+  const list = (Array.isArray(cards) ? cards : []).filter((card) => card && card.fm);
+  const forecast = [];
+  const counts = new Map();
+  for (let offset = 0; offset < days; offset++) {
+    const date = addDays(today, offset);
+    forecast.push({ date, count: 0 });
+    counts.set(date, 0);
+  }
+  const rows = [];
+  let due = 0;
+  let fresh = 0;
+  let scheduled = 0;
+  let overdue = 0;
+  for (const card of list) {
+    const fm = asObject(card.fm);
+    const attempts = Math.max(0, Math.round(numberValue(fm.attempts, 0)));
+    const rawDue = str(fm.next_review || fm.due).slice(0, 10);
+    const cardDue = dayValue(rawDue);
+    const isNew = attempts === 0;
+    const isDue = isNew || !cardDue || cardDue <= today;
+    if (isNew) fresh++;
+    if (isDue) due++;
+    if (!isNew && !isDue) scheduled++;
+    if (cardDue && cardDue < today && !isNew) overdue++;
+    if (isDue) {
+      const key = today;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    } else if (cardDue && counts.has(cardDue)) {
+      counts.set(cardDue, (counts.get(cardDue) || 0) + 1);
+    }
+    rows.push({
+      path: str(card.file && card.file.path),
+      deck: str(card.deck) || "Unsorted",
+      course: str(card.course),
+      due: isDue ? today : cardDue,
+      attempts,
+      fresh: isNew,
+    });
+  }
+  for (const entry of forecast) entry.count = counts.get(entry.date) || 0;
+  return {
+    total: list.length,
+    due,
+    fresh,
+    scheduled,
+    overdue,
+    forecast,
+    rows: rows.sort((a, b) => (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31") || a.path.localeCompare(b.path)),
+  };
+}
+
+/* ---- Vocabulary dictionary (FSRS Vocabulary-style local module) -------- */
+
+function normalizeVocabWord(value) {
+  const source = asObject(value);
+  const term = textValue(source.term, MAX_TITLE);
+  if (!term) return null;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("vocab", [term, source.definition || "", source.createdAt || 0]),
+    term,
+    definition: textValue(source.definition, MAX_TEXT),
+    example: textValue(source.example, MAX_TEXT),
+    language: textValue(source.language, MAX_TITLE),
+    due: dayValue(source.due),
+    interval: clamp(numberValue(source.interval, 0), 0, 3650),
+    reviews: Math.max(0, Math.round(numberValue(source.reviews, 0))),
+    last: dayValue(source.last),
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function normalizeVocabulary(value) {
+  const source = asObject(value);
+  const words = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.words) ? source.words : []) {
+    const word = normalizeVocabWord(raw);
+    if (!word || seen.has(word.id)) continue;
+    seen.add(word.id);
+    words.push(word);
+    if (words.length >= MAX_VOCAB) break;
+  }
+  return { enabled: enabledValue(value), words };
+}
+
+function createVocabWord(input, now) {
+  const source = asObject(input);
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeVocabWord({ ...source, createdAt: stamp });
+}
+
+/** Parse `term | definition | example` or `term :: definition` lines. */
+function parseVocabLines(text) {
+  const words = [];
+  const issues = [];
+  const lines = str(text).replace(/\r\n?/g, "\n").split("\n");
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index].trim();
+    if (!line || line.startsWith("#")) continue;
+    const parts = line.split(/\s*\|\s*|\s*::\s*/).map((part) => part.trim());
+    if (parts.length < 2 || !parts[0] || !parts[1]) {
+      issues.push(`Line ${index + 1}: use term | definition.`);
+      continue;
+    }
+    words.push({ term: parts[0], definition: parts[1], example: parts.slice(2).join(" | ") });
+  }
+  return { words, issues };
+}
+
+function reviewVocabWord(word, grade, today) {
+  const previous = word && typeof word === "object" ? word : {};
+  const key = str(previous.id).trim();
+  if (!key) return null;
+  const day = dayValue(today) || localDate();
+  const value = ["again", "hard", "good", "easy"].includes(str(grade).toLowerCase()) ? str(grade).toLowerCase() : "good";
+  const current = Number(previous.interval) || 0;
+  let interval = 1;
+  if (value === "hard") interval = Math.max(1, current);
+  else if (value === "good") interval = VOCAB_LADDER[Math.min(VOCAB_LADDER.length - 1, Math.max(0, VOCAB_LADDER.indexOf(current) + 1))] || 1;
+  else if (value === "easy") interval = VOCAB_LADDER[Math.min(VOCAB_LADDER.length - 1, Math.max(0, VOCAB_LADDER.indexOf(current) + 2))] || 3;
+  return {
+    ...previous,
+    due: addDays(day, interval),
+    interval,
+    reviews: Math.max(0, Number(previous.reviews) || 0) + 1,
+    last: day,
+  };
+}
+
+function vocabSummary(words, today) {
+  const day = dayValue(today) || localDate();
+  const list = Array.isArray(words) ? words : [];
+  return {
+    total: list.length,
+    due: list.filter((word) => !word.due || word.due <= day).length,
+    fresh: list.filter((word) => !Number(word.reviews)).length,
+    learned: list.filter((word) => Number(word.reviews) > 0).length,
+  };
+}
+
+function normalizeRetention(value) {
+  return { enabled: enabledValue(value) };
+}
+
 function normalizeStudyWorkspaceSettings(value) {
   const source = asObject(value);
   return {
@@ -59796,6 +60036,8 @@ function normalizeStudyWorkspaceSettings(value) {
     studyTasks: normalizeStudyTasks(source.studyTasks),
     annotations: normalizeAnnotations(source.annotations),
     deepNotes: normalizeDeepNotes(source.deepNotes),
+    retention: normalizeRetention(source.retention),
+    vocabulary: normalizeVocabulary(source.vocabulary),
   };
 }
 
@@ -59812,6 +60054,8 @@ module.exports = {
   MAX_PLANS,
   MAX_SOCRATIC,
   MAX_TASKS,
+  MAX_VOCAB,
+  VOCAB_LADDER,
   MAX_QUIZ_ROWS,
   MAX_SUBJECTS,
   MAX_TOPICS,
@@ -59829,10 +60073,13 @@ module.exports = {
   createPlannerPlan,
   createStudyTask,
   createSubject,
+  createVocabWord,
   daysBetween,
   deepNotesStepKey,
   dueStudyTasks,
   letterGrade,
+  normalizeVocabWord,
+  normalizeVocabulary,
   feynmanAverage,
   feynmanStepKey,
   feynmanWeakPoints,
@@ -59848,7 +60095,11 @@ module.exports = {
   normalizePlanner,
   normalizeQuizIndex,
   normalizeRecallScheduler,
+  normalizeRetention,
   normalizeStudyFlow,
+  parseVocabLines,
+  retentionForecast,
+  reviewVocabWord,
   normalizeStudyTask,
   normalizeStudyTasks,
   normalizeStudyWorkspaceSettings,
@@ -59862,6 +60113,7 @@ module.exports = {
   reviewRecallUnit,
   subjectSummary,
   taskSummary,
+  vocabSummary,
 };
 };
 
@@ -59889,8 +60141,10 @@ const {
   planSummary,
   recallStats,
   recallDueUnits,
+  retentionForecast,
   subjectSummary,
   taskSummary,
+  vocabSummary,
 } = require("./study-workspace");
 
 const TABS = [
@@ -59903,6 +60157,8 @@ const TABS = [
   { id: "tasks", label: "Tasks", module: "studyTasks" },
   { id: "annotations", label: "Annotations", module: "annotations" },
   { id: "deepNotes", label: "Deep Notes", module: "deepNotes" },
+  { id: "retention", label: "Retention", module: "retention" },
+  { id: "vocabulary", label: "Vocabulary", module: "vocabulary" },
   { id: "quizIndex", label: "Quiz index", module: "quizIndex" },
 ];
 
@@ -59929,6 +60185,8 @@ class StudyWorkspaceView extends ItemView {
     this.quizIndexLimit = "50";
     this.annotationFilter = "";
     this.deepNotesId = "";
+    this.retentionData = null;
+    this.vocabFilter = "";
   }
 
   getViewType() {
@@ -60004,6 +60262,8 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "tasks") this.renderTasks(wrap);
     else if (this.tab === "annotations") this.renderAnnotations(wrap);
     else if (this.tab === "deepNotes") this.renderDeepNotes(wrap);
+    else if (this.tab === "retention") this.renderRetention(wrap);
+    else if (this.tab === "vocabulary") this.renderVocabulary(wrap);
     else if (this.tab === "quizIndex") this.renderQuizIndex(wrap);
   }
 
@@ -60012,7 +60272,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes and the Quiz index each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary and the Quiz index each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -60823,6 +61083,152 @@ class StudyWorkspaceView extends ItemView {
       }
       this.render();
     });
+  }
+
+  /* ---- Retention ------------------------------------------------------- */
+
+  renderRetention(root) {
+    const controls = root.createDiv({ cls: "qt-study-card" });
+    controls.createEl("h3", { text: "Card retention forecast" });
+    controls.createDiv({
+      cls: "qt-hint",
+      text: "Read-only: this scans the cards you already have and projects their next due dates. It never changes a card schedule or moves review data out of a note.",
+    });
+    const actions = controls.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Scan cards", cls: "mod-cta" }).addEventListener("click", () => {
+      if (!this.plugin.cardsEnabled || !this.plugin.cardsEnabled()) {
+        this.saveMessage("Turn on Cards to forecast card retention.");
+        this.render();
+        return;
+      }
+      this.retentionData = retentionForecast(this.plugin.getCards ? this.plugin.getCards() : [], { today: localDate(), days: 30 });
+      this.saveMessage(`Scanned ${this.retentionData.total} card${this.retentionData.total === 1 ? "" : "s"}.`);
+      this.render();
+    });
+    if (!this.retentionData) {
+      this.renderTabsEmpty(root, "Scan the card module to see due work and a 30-day forecast.");
+      return;
+    }
+    const stats = root.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const card = stats.createDiv({ cls: "qt-study-stat" });
+      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      card.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(this.retentionData.total, "cards");
+    stat(this.retentionData.due, "due now");
+    stat(this.retentionData.fresh, "new");
+    stat(this.retentionData.overdue, "overdue");
+    const forecastCard = root.createDiv({ cls: "qt-study-card" });
+    forecastCard.createEl("h3", { text: "Next 14 days" });
+    const max = Math.max(1, ...this.retentionData.forecast.slice(0, 14).map((day) => day.count));
+    const forecast = forecastCard.createDiv({ cls: "qt-study-list" });
+    for (const day of this.retentionData.forecast.slice(0, 14)) {
+      const row = forecast.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: day.date });
+      const bar = main.createDiv({ cls: "qt-study-bar" });
+      bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = `${Math.round((day.count / max) * 100)}%`;
+      row.createSpan({ cls: "qt-study-row-meta", text: `${day.count} due` });
+    }
+    const listCard = root.createDiv({ cls: "qt-study-card" });
+    listCard.createEl("h3", { text: "Due and future cards" });
+    if (!this.retentionData.rows.length) {
+      listCard.createDiv({ cls: "qt-study-empty", text: "No cards are available in this vault yet." });
+      return;
+    }
+    const list = listCard.createDiv({ cls: "qt-study-list" });
+    for (const card of this.retentionData.rows.slice(0, 20)) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: card.deck || "Unsorted" });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${card.course ? `${card.course} · ` : ""}${card.fresh ? "New" : card.due || "Scheduled"}${card.attempts ? ` · ${card.attempts} review${card.attempts === 1 ? "" : "s"}` : ""}` });
+      if (card.path) row.createEl("button", { text: "Open" }).addEventListener("click", () => this.plugin.openStudyFlowSource(card.path));
+    }
+  }
+
+  /* ---- Vocabulary ------------------------------------------------------ */
+
+  renderVocabulary(root) {
+    const data = this.settings().vocabulary;
+    const summary = vocabSummary(data.words, localDate());
+    const add = root.createDiv({ cls: "qt-study-card" });
+    add.createEl("h3", { text: "Add a word" });
+    add.createDiv({ cls: "qt-hint", text: "The dictionary is local. Review ratings move each word along a simple 1/3/7/21-day ladder; no note or card schedule is changed." });
+    const form = add.createDiv({ cls: "qt-study-form" });
+    const term = this.renderField(form, "Term", "text", "osmosis");
+    const definition = this.renderTextarea(form, "Definition", "Movement of water across a membrane", "", 2);
+    const example = this.renderTextarea(form, "Example (optional)", "Water enters the cell.", "", 2);
+    const language = this.renderField(form, "Language (optional)", "text", "Biology");
+    const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add word", cls: "mod-cta" }).addEventListener("click", async () => {
+      const word = await this.plugin.addVocabWord({ term: term.value, definition: definition.value, example: example.value, language: language.value });
+      if (!word) {
+        this.saveMessage("Add a term first.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Word added.");
+      this.render();
+    });
+    const bulk = root.createDiv({ cls: "qt-study-card" });
+    bulk.createEl("h3", { text: "Bulk import" });
+    bulk.createDiv({ cls: "qt-hint", text: "One word per line: term | definition | optional example." });
+    const bulkForm = bulk.createDiv({ cls: "qt-study-form" });
+    const lines = this.renderTextarea(bulkForm, "Words", "ATP | energy currency | ATP powers the cell.", "", 5);
+    const bulkActions = bulk.createDiv({ cls: "qt-row qt-study-actions" });
+    bulkActions.createEl("button", { text: "Import words" }).addEventListener("click", async () => {
+      const result = await this.plugin.importVocabWords(lines.value);
+      this.saveMessage(result.count ? `Imported ${result.count} word${result.count === 1 ? "" : "s"}.${result.issues.length ? ` ${result.issues[0]}` : ""}` : "No valid lines. Use term | definition.");
+      this.render();
+    });
+    const stats = root.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const card = stats.createDiv({ cls: "qt-study-stat" });
+      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      card.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(summary.total, "words");
+    stat(summary.due, "due");
+    stat(summary.fresh, "new");
+    stat(summary.learned, "reviewed");
+    const listCard = root.createDiv({ cls: "qt-study-card" });
+    listCard.createEl("h3", { text: "Dictionary" });
+    const filter = listCard.createEl("input", { cls: "qt-input", type: "search" });
+    filter.placeholder = "Search terms, definitions and examples";
+    filter.value = this.vocabFilter;
+    filter.addEventListener("input", () => {
+      this.vocabFilter = filter.value.toLowerCase();
+      this.render();
+    });
+    const words = data.words
+      .filter((word) => !this.vocabFilter || `${word.term} ${word.definition} ${word.example} ${word.language}`.toLowerCase().includes(this.vocabFilter))
+      .sort((a, b) => (!a.due ? "" : a.due).localeCompare(!b.due ? "" : b.due) || a.term.localeCompare(b.term));
+    if (!words.length) {
+      listCard.createDiv({ cls: "qt-study-empty", text: data.words.length ? "No word matches that search." : "No words yet. Add one or paste a list." });
+      return;
+    }
+    const list = listCard.createDiv({ cls: "qt-study-list" });
+    for (const word of words) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: word.term });
+      if (word.definition) main.createDiv({ cls: "qt-study-row-meta", text: word.definition });
+      if (word.example) main.createDiv({ cls: "qt-study-row-meta", text: `Example: ${word.example}` });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${word.language ? `${word.language} · ` : ""}${word.reviews ? `${word.reviews} review${word.reviews === 1 ? "" : "s"} · due ${word.due || "now"}` : "New"}` });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      for (const [grade, label] of [["again", "Again"], ["good", "Good"], ["easy", "Easy"]]) {
+        buttons.createEl("button", { text: label }).addEventListener("click", async () => {
+          await this.plugin.reviewVocabWord(word.id, grade);
+          this.saveMessage(`Rated ${word.term} ${label.toLowerCase()}.`);
+          this.render();
+        });
+      }
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeVocabWord(word.id);
+        this.render();
+      });
+    }
   }
 
   /* ---- Subject Manager ------------------------------------------------- */

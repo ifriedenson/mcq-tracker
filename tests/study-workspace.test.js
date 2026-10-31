@@ -14,9 +14,9 @@ async function setup(saved) {
   return plugin;
 }
 
-test("study workspace: ten independent modules default on and can be switched off", () => {
+test("study workspace: twelve independent modules default on and can be switched off", () => {
   const defaults = W.normalizeStudyWorkspaceSettings({});
-  assert.deepEqual(Object.keys(defaults), ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes"]);
+  assert.deepEqual(Object.keys(defaults), ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary"]);
   for (const value of Object.values(defaults)) assert.equal(value.enabled, true);
   const off = W.normalizeStudyWorkspaceSettings({
     feynmanLearning: { enabled: false },
@@ -29,6 +29,8 @@ test("study workspace: ten independent modules default on and can be switched of
     studyTasks: { enabled: false },
     annotations: { enabled: false },
     deepNotes: { enabled: false },
+    retention: { enabled: false },
+    vocabulary: { enabled: false },
   });
   assert.equal(Object.values(off).every((value) => value.enabled === false), true);
 });
@@ -195,6 +197,36 @@ test("Annotations and Deep Notes: keep local Q&A and complete the Socratic promp
   assert.equal(complete.answers.synthesis, "Variation plus selection.");
 });
 
+test("Retention: projects card due work without changing schedules", () => {
+  const cards = [
+    { file: { path: "Cards/A.md" }, deck: "Biology", fm: { attempts: 2, next_review: "2026-11-01" } },
+    { file: { path: "Cards/B.md" }, deck: "Chemistry", fm: { attempts: 0 } },
+    { file: { path: "Cards/C.md" }, deck: "Biology", fm: { attempts: 1, next_review: "2026-11-03" } },
+  ];
+  const forecast = W.retentionForecast(cards, { today: "2026-11-01", days: 3 });
+  assert.equal(forecast.total, 3);
+  assert.equal(forecast.due, 2);
+  assert.equal(forecast.fresh, 1);
+  assert.equal(forecast.scheduled, 1);
+  assert.equal(forecast.overdue, 0);
+  assert.equal(forecast.forecast[0].count, 2);
+  assert.equal(forecast.forecast[2].count, 1);
+});
+
+test("Vocabulary: parses bulk lines and advances a new word locally", () => {
+  const parsed = W.parseVocabLines("ATP | energy currency | ATP powers the cell.\nnot a valid line");
+  assert.equal(parsed.words.length, 1);
+  assert.equal(parsed.words[0].term, "ATP");
+  assert.equal(parsed.issues.length, 1);
+  const word = W.createVocabWord(parsed.words[0], 1);
+  assert.ok(word);
+  assert.equal(W.vocabSummary([word], "2026-11-01").due, 1);
+  const reviewed = W.reviewVocabWord(word, "good", "2026-11-01");
+  assert.equal(reviewed.due, "2026-11-02");
+  assert.equal(reviewed.reviews, 1);
+  assert.equal(W.vocabSummary([reviewed], "2026-11-01").due, 0);
+});
+
 test("plugin: workflow switches gate the view and workflow data survives a reload", async () => {
   const plugin = await setup();
   assert.equal(plugin.studyWorkspaceEnabled(), true);
@@ -212,6 +244,8 @@ test("plugin: workflow switches gate the view and workflow data survives a reloa
   assert.ok(dom.texts().includes("Tasks"));
   assert.ok(dom.texts().includes("Annotations"));
   assert.ok(dom.texts().includes("Deep Notes"));
+  assert.ok(dom.texts().includes("Retention"));
+  assert.ok(dom.texts().includes("Vocabulary"));
   assert.ok(dom.texts().includes("Quiz index"));
 
   const feynman = await plugin.addFeynmanSession({ topic: "Osmosis", course: "Biology" });
@@ -222,7 +256,8 @@ test("plugin: workflow switches gate the view and workflow data survives a reloa
   const task = await plugin.addStudyTask({ title: "Review osmosis", course: "Biology", due: "2026-11-02" });
   const annotation = await plugin.addAnnotation({ sourcePath: "Biology/Cells.md", quote: "Water crosses the membrane.", question: "How?", answer: "Osmosis." });
   const socratic = await plugin.addDeepNotesSession({ topic: "Osmosis", course: "Biology" });
-  assert.ok(feynman && excerpt && subject && plan && grade && task && annotation && socratic);
+  const vocab = await plugin.addVocabWord({ term: "osmosis", definition: "Water movement across a membrane" });
+  assert.ok(feynman && excerpt && subject && plan && grade && task && annotation && socratic && vocab);
   await plugin.addPlannerPass(plan.id, plugin.studyWorkspaceSettings().lerntracker.plans[0].topics[0].id);
   assert.equal(plugin.studyWorkspaceSettings().lerntracker.plans[0].topics[0].passes, 1);
 
@@ -237,13 +272,14 @@ test("plugin: workflow switches gate the view and workflow data survives a reloa
   assert.equal(restarted.studyWorkspaceSettings().studyTasks.tasks.length, 1);
   assert.equal(restarted.studyWorkspaceSettings().annotations.annotations.length, 1);
   assert.equal(restarted.studyWorkspaceSettings().deepNotes.sessions.length, 1);
+  assert.equal(restarted.studyWorkspaceSettings().vocabulary.words.length, 1);
 
-  for (const tab of ["courses", "tasks", "annotations", "deepNotes"]) {
+  for (const tab of ["courses", "tasks", "annotations", "deepNotes", "retention", "vocabulary"]) {
     view.setTab(tab);
     assert.equal(view.tab, tab);
   }
 
-  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes"]) {
+  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary"]) {
     restarted.settings[key].enabled = false;
   }
   assert.equal(restarted.studyWorkspaceEnabled(), false);
