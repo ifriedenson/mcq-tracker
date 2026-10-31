@@ -12440,9 +12440,61 @@ const SKIP_LABELS = new Set([
   "warning",
 ]);
 const CLOZE_RE = /==([^=\n]+)==|\{\{c?(\d*)::([\s\S]*?)\}\}/g;
+const DEFAULT_SEPARATORS = ["::", "→", "=>"];
+const QA_LABEL_RE = {
+  q: /^\s*(?:\*\*|__)?(?:Question|Q)\s*(?:\*\*|__)?\s*[:.]\s*(.*)$/i,
+  a: /^\s*(?:\*\*|__)?(?:Answer|A)\s*(?:\*\*|__)?\s*[:.]\s*(.*)$/i,
+};
 const MAX_FRONT = 240;
 const MAX_BACK = 1200;
 const MAX_CARDS = 200;
+
+function normalizeSeparators(value) {
+  const list = Array.isArray(value) ? value : DEFAULT_SEPARATORS;
+  const out = [];
+  for (const raw of list) {
+    const sep = str(raw).trim();
+    if (!sep || sep.length > 8 || /\s/.test(sep) || /[A-Za-z0-9]/.test(sep)) continue;
+    if (!out.includes(sep)) out.push(sep);
+  }
+  return out;
+}
+
+/** Read one `front :: back` line. Cloze lines and Markdown furniture are never separators. */
+function parseSeparatorCard(line, separators) {
+  let text = str(line).trim();
+  if (!text || /^(?:#{1,6}\s|>|\||```|~~~|<!--|%%|!\[)/.test(text)) return null;
+  if (/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]/.test(text)) return null;
+  text = text.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, "").trim();
+  if (!text || /==|\{\{c?\d*::/.test(text)) return null;
+  let best = null;
+  for (const sep of normalizeSeparators(separators)) {
+    const at = text.indexOf(sep);
+    if (at > 0 && at + sep.length < text.length) {
+      if (!best || at < best.at || (at === best.at && sep.length > best.sep.length)) best = { at, sep };
+    }
+  }
+  if (!best) return null;
+  const front = cleanInline(text.slice(0, best.at));
+  const back = cleanInline(text.slice(best.at + best.sep.length));
+  if (front.length < 2 || back.length < 2) return null;
+  return { front, back, separator: best.sep };
+}
+
+/** Reproducible ordering; a blank seed keeps the note's source order. */
+function orderCardsBySeed(cards, seed) {
+  const key = str(seed).trim().slice(0, 120);
+  if (!key) return cards.slice();
+  return cards
+    .map((card, index) => ({ card, index, rank: parseInt(hashString(`${key}\u0000${card.cardType}\u0000${card.front}\u0000${card.back}`), 36) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((row) => row.card);
+}
+
+function qaLabel(line, kind) {
+  const match = str(line).match(QA_LABEL_RE[kind]);
+  return match ? match[1].trim() : null;
+}
 
 function cleanInline(value) {
   return str(value)
@@ -12515,11 +12567,15 @@ function extractCardsFromMarkdown(text, options) {
   const deck = str(opts.deck).trim() || "Imported";
   const course = str(opts.course).trim();
   const tags = Array.isArray(opts.tags) ? opts.tags.map((tag) => str(tag).replace(/^#/, "").trim()).filter(Boolean) : [];
+  const seed = str(opts.seed).trim().slice(0, 120);
+  const separators = normalizeSeparators(opts.separators);
   const body = cleanBody(text);
   const cards = [];
   const warnings = [];
   const seen = new Set();
+  const claimed = new Set();
   let skipped = 0;
+  let malformedQa = 0;
 
   const add = (front, back, cardType, origin) => {
     const f = cleanInline(front).replace(/^[-*+]\s+/, "").trim();
@@ -12567,7 +12623,58 @@ function extractCardsFromMarkdown(text, options) {
     }
   }
 
-  // 1. Front/back or question/answer headings, including Term/Definition.
+  // 1. Explicit Question:/Answer: and Q./A. pairs, including multi-line sides.
+  for (let i = 0; i < lines.length; i++) {
+    const question = qaLabel(lines[i], "q");
+    if (question === null) continue;
+    let j = i + 1;
+    let answer = null;
+    const questionParts = question ? [question] : [];
+    while (j < lines.length) {
+      const nextAnswer = qaLabel(lines[j], "a");
+      if (nextAnswer !== null) {
+        answer = nextAnswer;
+        break;
+      }
+      if (qaLabel(lines[j], "q") !== null || /^(#{1,6})\s+/.test(lines[j])) break;
+      if (!lines[j].trim()) {
+        let k = j + 1;
+        while (k < lines.length && !lines[k].trim()) k++;
+        if (k < lines.length && qaLabel(lines[k], "a") !== null) {
+          answer = qaLabel(lines[k], "a");
+          j = k;
+        }
+        break;
+      }
+      questionParts.push(lines[j].trim());
+      j++;
+    }
+    if (answer === null) {
+      malformedQa++;
+      continue;
+    }
+    const answerParts = answer ? [answer] : [];
+    let k = j + 1;
+    while (k < lines.length && lines[k].trim() && qaLabel(lines[k], "q") === null && !/^(#{1,6})\s+/.test(lines[k])) {
+      answerParts.push(lines[k].trim());
+      k++;
+    }
+    add(questionParts.join(" "), answerParts.join(" "), "basic", "qa");
+    for (let x = i; x < k; x++) claimed.add(x);
+    i = k - 1;
+  }
+
+  // 2. Explicit front/back separators. These claim their line before the
+  // fuzzier definition rules can read the same text.
+  for (let i = 0; i < lines.length; i++) {
+    if (claimed.has(i)) continue;
+    const pair = parseSeparatorCard(lines[i], separators);
+    if (!pair) continue;
+    add(pair.front, pair.back, "basic", "separator");
+    claimed.add(i);
+  }
+
+  // 3. Front/back or question/answer headings, including Term/Definition.
   let pendingFront = "";
   for (const section of sections) {
     const bodyText = firstParagraph(section.lines.join("\n"));
@@ -12580,11 +12687,14 @@ function extractCardsFromMarkdown(text, options) {
     }
   }
 
-  // 2. Definition lines and "X means Y" sentences.
+  // 4. Definition lines and "X means Y" sentences.
   const meansRe = /\b([A-Z][A-Za-z0-9'’\- ]{1,60})\s+(?:means|refers to|is defined as)\s+([^.!?\n]{2,300})/g;
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    if (claimed.has(i)) continue;
+    const line = lines[i];
     if (/^\s*(?:#{1,6}\s|\||>|```|~~~)/.test(line)) continue;
     const bullet = line.match(/^\s*(?:[-*+]|\d+[.)])\s+(.+)$/);
+    if (qaLabel(line, "q") !== null || qaLabel(line, "a") !== null) continue;
     const content = cleanInline(bullet ? bullet[1] : line);
     if (!content || /==|\{\{c?\d*::/.test(content)) continue;
     const pair = content.match(/^(.{2,80}?)\s*(?::|—|–|\s+means\s+|\s+refers to\s+|\s+is defined as\s+)\s*(.{2,500})$/i);
@@ -12600,7 +12710,7 @@ function extractCardsFromMarkdown(text, options) {
     for (const match of content.matchAll(meansRe)) add(match[1], match[2], "basic", "sentence");
   }
 
-  // 3. Two-column tables. A header such as Term/Definition is honoured; a
+  // 5. Two-column tables. A header such as Term/Definition is honoured; a
   // plain two-column table is read as front/back from its first row.
   for (let i = 0; i < lines.length; i++) {
     if (!tableCells(lines[i])) continue;
@@ -12630,8 +12740,10 @@ function extractCardsFromMarkdown(text, options) {
     }
   }
 
-  // 4. Existing highlights and cloze marks, one card per marked line.
-  for (const line of lines) {
+  // 6. Existing highlights and cloze marks, one card per marked line.
+  for (let i = 0; i < lines.length; i++) {
+    if (claimed.has(i)) continue;
+    const line = lines[i];
     if (/^\s*(?:#{1,6}\s|\||```|~~~)/.test(line)) continue;
     if (!/==|{{c?\d*::/.test(line)) continue;
     const answers = [];
@@ -12648,11 +12760,18 @@ function extractCardsFromMarkdown(text, options) {
     add(cleaned, answers.join(" · "), "cloze", "cloze");
   }
 
-  if (!cards.length && !warnings.length) warnings.push("No card-like headings, definitions, tables or cloze marks were found.");
-  return { cards, skipped, warnings, source };
+  if (!cards.length && !warnings.length) {
+    warnings.push(
+      malformedQa
+        ? "Question/answer labels were found, but each pair needs both a question and an answer."
+        : "No card-like headings, definitions, separators, tables or cloze marks were found."
+    );
+  }
+  return { cards: orderCardsBySeed(cards, seed), skipped, warnings, source, seed };
 }
 
 module.exports = {
+  DEFAULT_SEPARATORS,
   FRONT_HEADS,
   BACK_HEADS,
   FRONT_COLS,
@@ -12661,6 +12780,9 @@ module.exports = {
   cleanInline,
   cleanBody,
   flashcardsFlag,
+  normalizeSeparators,
+  orderCardsBySeed,
+  parseSeparatorCard,
   extractCardsFromMarkdown,
 };
 };
@@ -12720,6 +12842,21 @@ class CardExtractModal extends Modal {
     const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
     course.value = preview.course || "";
 
+    const seedWrap = contentEl.createDiv({ cls: "qt-field" });
+    seedWrap.createEl("label", { text: "Order seed (optional)" });
+    const seedRow = seedWrap.createDiv({ cls: "qt-row" });
+    const seed = seedRow.createEl("input", { type: "text", attr: { placeholder: "e.g. midterm-1" } });
+    seed.value = preview.seed || "";
+    const reorder = seedRow.createEl("button", { text: "Preview seed" });
+    seedWrap.createDiv({
+      cls: "qt-hint",
+      text: "Same note and seed reproduce the same card order. Leave blank to keep the note's order.",
+    });
+    reorder.addEventListener("click", () => {
+      this.close();
+      p.openCardExtract(this.path, { ...this.options, seed: seed.value }, this.onDone);
+    });
+
     if (preview.cards.length) {
       const list = contentEl.createEl("ul", { cls: "qt-extract-preview" });
       for (const card of preview.cards.slice(0, 8)) {
@@ -12757,6 +12894,7 @@ class CardExtractModal extends Modal {
         const result = await p.extractCardsFromNote(this.path, {
           deck: deck.value,
           course: course.value,
+          seed: seed.value,
         });
         const bits = [`Created ${result.created} card${result.created === 1 ? "" : "s"}`];
         if (result.skipped) bits.push(`${result.skipped} already there`);
@@ -16503,6 +16641,7 @@ const { gradeTypedAnswer } = require("./card-grading");
 const { needsAi } = require("./card-grading-ai");
 const { pendingGradeCounts } = require("./card-grade-queue");
 const { splitSourceContext } = require("./source-recall");
+const { buildRetention } = require("./analytics");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
 const GRADE_LABELS = { again: "Again", hard: "Hard", good: "Good", easy: "Easy" };
@@ -16716,6 +16855,8 @@ class CardView extends ItemView {
     start.disabled = !shown.length;
     start.addEventListener("click", () => this.startReview(dueHere ? "due" : "all"));
 
+    this.renderCardRetention(root, shown, today);
+
     root.createEl("h3", { cls: "qt-cards-heading", text: "In this view" });
     if (!shown.length) {
       root.createDiv({ cls: "qt-hint", text: "No cards match this deck and course. Pick another deck or clear the course filter." });
@@ -16745,6 +16886,36 @@ class CardView extends ItemView {
     if (shown.length > preview.length) {
       root.createDiv({ cls: "qt-hint", text: `Showing ${preview.length} of ${shown.length}. Start a review for the rest.` });
     }
+  }
+
+  /** Repeat-review accuracy for the cards in the current deck/course filter. */
+  renderCardRetention(root, cards, today) {
+    const retention = buildRetention(cards, today, 8);
+    const box = root.createDiv({ cls: "qt-card-retention" });
+    box.createEl("h3", { cls: "qt-cards-heading", text: "Card retention" });
+    if (!retention.attempts) {
+      box.createDiv({
+        cls: "qt-hint",
+        text: "Card retention appears after a card's second review. The first review of each card is excluded.",
+      });
+      return;
+    }
+    const chart = box.createDiv({ cls: "qt-trend" });
+    for (const week of retention.weeks) {
+      const column = chart.createDiv({ cls: "qt-trend-col" });
+      column.setAttr(
+        "title",
+        week.attempts ? `${week.start}: ${Math.round((week.accuracy || 0) * 100)}% of ${week.attempts} repeat reviews` : `${week.start}: no repeat reviews`
+      );
+      const bar = column.createDiv({ cls: "qt-trend-bar" });
+      const band = week.accuracy === null ? "" : week.accuracy < 0.6 ? "is-low" : week.accuracy < 0.8 ? "is-mid" : "is-high";
+      bar.createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((week.accuracy || 0) * 100)}%` });
+      column.createDiv({ cls: "qt-hint qt-trend-lab", text: week.accuracy === null ? "" : `${Math.round(week.accuracy * 100)}%` });
+    }
+    box.createDiv({
+      cls: "qt-hint",
+      text: `${Math.round((retention.accuracy || 0) * 100)}% over ${retention.attempts} repeat review${retention.attempts === 1 ? "" : "s"} in the last ${retention.weeks.length} weeks.`,
+    });
   }
 
   renderDeckPicker(root, cards, today) {
@@ -40754,7 +40925,7 @@ ${body}
     const deck = str(opts.deck).trim() || str(fm.deck).trim() || str(this.settings.cards.defaultDeck).trim() || "Extracted";
     const course = str(opts.course).trim() || str(fm.course).trim() || courseForFolder(this.settings, file.path) || "";
     const tags = Array.isArray(fm.tags) ? fm.tags : [];
-    const parsed = extractCardsFromMarkdown(text, { sourcePath: file.path, deck, course, tags });
+    const parsed = extractCardsFromMarkdown(text, { sourcePath: file.path, deck, course, tags, seed: opts.seed, separators: opts.separators });
     // Keep a durable link to the lecture or source note, not just the import label.
     const cards = parsed.cards.map((card) => ({ ...card, sourceNote: file.path }));
     return { ...parsed, cards, file, fm, deck, course, flashcards: flag };

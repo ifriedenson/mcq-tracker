@@ -52,6 +52,21 @@ class CardExtractModal extends Modal {
     const course = courseWrap.createEl("input", { type: "text", attr: { placeholder: "e.g. BIOL 201" } });
     course.value = preview.course || "";
 
+    const seedWrap = contentEl.createDiv({ cls: "qt-field" });
+    seedWrap.createEl("label", { text: "Order seed (optional)" });
+    const seedRow = seedWrap.createDiv({ cls: "qt-row" });
+    const seed = seedRow.createEl("input", { type: "text", attr: { placeholder: "e.g. midterm-1" } });
+    seed.value = preview.seed || "";
+    const reorder = seedRow.createEl("button", { text: "Preview seed" });
+    seedWrap.createDiv({
+      cls: "qt-hint",
+      text: "Same note and seed reproduce the same card order. Leave blank to keep the note's order.",
+    });
+    reorder.addEventListener("click", () => {
+      this.close();
+      p.openCardExtract(this.path, { ...this.options, seed: seed.value }, this.onDone);
+    });
+
     if (preview.cards.length) {
       const list = contentEl.createEl("ul", { cls: "qt-extract-preview" });
       for (const card of preview.cards.slice(0, 8)) {
@@ -89,6 +104,7 @@ class CardExtractModal extends Modal {
         const result = await p.extractCardsFromNote(this.path, {
           deck: deck.value,
           course: course.value,
+          seed: seed.value,
         });
         const bits = [`Created ${result.created} card${result.created === 1 ? "" : "s"}`];
         if (result.skipped) bits.push(`${result.skipped} already there`);

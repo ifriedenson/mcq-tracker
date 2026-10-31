@@ -9,6 +9,7 @@ const { gradeTypedAnswer } = require("./card-grading");
 const { needsAi } = require("./card-grading-ai");
 const { pendingGradeCounts } = require("./card-grade-queue");
 const { splitSourceContext } = require("./source-recall");
+const { buildRetention } = require("./analytics");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
 const GRADE_LABELS = { again: "Again", hard: "Hard", good: "Good", easy: "Easy" };
@@ -222,6 +223,8 @@ class CardView extends ItemView {
     start.disabled = !shown.length;
     start.addEventListener("click", () => this.startReview(dueHere ? "due" : "all"));
 
+    this.renderCardRetention(root, shown, today);
+
     root.createEl("h3", { cls: "qt-cards-heading", text: "In this view" });
     if (!shown.length) {
       root.createDiv({ cls: "qt-hint", text: "No cards match this deck and course. Pick another deck or clear the course filter." });
@@ -251,6 +254,36 @@ class CardView extends ItemView {
     if (shown.length > preview.length) {
       root.createDiv({ cls: "qt-hint", text: `Showing ${preview.length} of ${shown.length}. Start a review for the rest.` });
     }
+  }
+
+  /** Repeat-review accuracy for the cards in the current deck/course filter. */
+  renderCardRetention(root, cards, today) {
+    const retention = buildRetention(cards, today, 8);
+    const box = root.createDiv({ cls: "qt-card-retention" });
+    box.createEl("h3", { cls: "qt-cards-heading", text: "Card retention" });
+    if (!retention.attempts) {
+      box.createDiv({
+        cls: "qt-hint",
+        text: "Card retention appears after a card's second review. The first review of each card is excluded.",
+      });
+      return;
+    }
+    const chart = box.createDiv({ cls: "qt-trend" });
+    for (const week of retention.weeks) {
+      const column = chart.createDiv({ cls: "qt-trend-col" });
+      column.setAttr(
+        "title",
+        week.attempts ? `${week.start}: ${Math.round((week.accuracy || 0) * 100)}% of ${week.attempts} repeat reviews` : `${week.start}: no repeat reviews`
+      );
+      const bar = column.createDiv({ cls: "qt-trend-bar" });
+      const band = week.accuracy === null ? "" : week.accuracy < 0.6 ? "is-low" : week.accuracy < 0.8 ? "is-mid" : "is-high";
+      bar.createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((week.accuracy || 0) * 100)}%` });
+      column.createDiv({ cls: "qt-hint qt-trend-lab", text: week.accuracy === null ? "" : `${Math.round(week.accuracy * 100)}%` });
+    }
+    box.createDiv({
+      cls: "qt-hint",
+      text: `${Math.round((retention.accuracy || 0) * 100)}% over ${retention.attempts} repeat review${retention.attempts === 1 ? "" : "s"} in the last ${retention.weeks.length} weeks.`,
+    });
   }
 
   renderDeckPicker(root, cards, today) {

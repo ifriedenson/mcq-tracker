@@ -4950,7 +4950,7 @@ ${body}
     const deck = str(opts.deck).trim() || str(fm.deck).trim() || str(this.settings.cards.defaultDeck).trim() || "Extracted";
     const course = str(opts.course).trim() || str(fm.course).trim() || courseForFolder(this.settings, file.path) || "";
     const tags = Array.isArray(fm.tags) ? fm.tags : [];
-    const parsed = extractCardsFromMarkdown(text, { sourcePath: file.path, deck, course, tags });
+    const parsed = extractCardsFromMarkdown(text, { sourcePath: file.path, deck, course, tags, seed: opts.seed, separators: opts.separators });
     // Keep a durable link to the lecture or source note, not just the import label.
     const cards = parsed.cards.map((card) => ({ ...card, sourceNote: file.path }));
     return { ...parsed, cards, file, fm, deck, course, flashcards: flag };
