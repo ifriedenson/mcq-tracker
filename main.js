@@ -4407,6 +4407,7 @@ const { requestUrl } = require("obsidian");
 const { str } = require("./util");
 const { resolveApiKey } = require("./secret-keys");
 const { safeApiBase } = require("./url-safety");
+const { parseModelList } = require("./model-discovery");
 
 /* ---------------------------------------------- Direct API chat (works on phones) */
 
@@ -4426,6 +4427,7 @@ function friendlyApiError(e) {
   if (/ENOTFOUND|ECONNREFUSED|Failed to fetch|net::|ETIMEDOUT/i.test(m)) {
     return "Couldn't reach the provider. Check your internet connection and the base URL in settings.";
   }
+  if (/HTTP 404/.test(m)) return `The provider did not expose a model list at that address. Check the base URL. ${m}`;
   return m;
 }
 
@@ -4515,6 +4517,40 @@ class ApiClient {
     }
     if (!text.trim()) throw new Error("The provider returned an empty reply.");
     return text;
+  }
+
+  /** Read the provider's current model list. This never sends a prompt or spends a generation request. */
+  async listModels() {
+    const { preset, base, key } = this.cfg();
+    if (!base) throw new Error("Add a base URL in the plugin settings.");
+    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    const anthropic = preset.kind === "anthropic";
+    const url = `${base}${anthropic ? "/v1/models?limit=1000" : "/models"}`;
+    const headers = anthropic
+      ? { "x-api-key": key, "anthropic-version": "2023-06-01" }
+      : key
+        ? { Authorization: `Bearer ${key}` }
+        : {};
+    let response;
+    try {
+      response = await requestUrl({ url, method: "GET", headers, throw: false });
+    } catch (e) {
+      throw new Error(friendlyApiError(e));
+    }
+    if (!response || typeof response !== "object") throw new Error("The provider returned no response.");
+    let data = null;
+    try {
+      data = response.json;
+    } catch (e) {
+      /* not JSON */
+    }
+    if (response.status >= 400) {
+      const detail = data && data.error ? data.error.message || data.error : response.text;
+      throw new Error(friendlyApiError(new Error(`HTTP ${response.status}: ${str(typeof detail === "string" ? detail : JSON.stringify(detail)).slice(0, 300)}`)));
+    }
+    const parsed = parseModelList(data);
+    if (!parsed.models.length) throw new Error(parsed.issue || "The provider returned an empty model list.");
+    return parsed;
   }
 
   async chat(system, messages, opts) {
@@ -17941,7 +17977,7 @@ const DEFAULT_SETTINGS = {
     sessionId: "",
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
-    api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", keys: {} },
+    api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", models: [], keys: {} },
     features: {}, // per-feature model overrides, filled by normalizeAiService
     limits: { ...DEFAULT_AI_LIMITS }, // one reply cap, optional daily and per-run request caps
   },
@@ -29737,6 +29773,111 @@ module.exports = {
 };
 };
 
+/* ---- src/model-discovery.js ---- */
+__defs["model-discovery"] = function (module, exports, require) {
+/*
+ * Runtime model discovery for the Direct AI provider. Providers return model
+ * lists in a few common shapes; normalize them, drop specialist non-chat models
+ * and cap the result so a settings dropdown cannot grow without bound.
+ */
+const { str } = require("./util");
+
+const MAX_MODELS = 200;
+
+// Model families that cannot answer a quiz prompt. Keep "vision" out of this
+// list: multimodal chat models are useful for OCR and answer-checking.
+const NON_CHAT = /(^|[-_/.])(embed|embedding|embeddings|whisper|tts|speech|transcribe|transcription|audio|moderation|rerank|clip|image|images|dall-e|imagen|sora|veo|realtime|guard|safety|ocr)([-_/.]|$)/i;
+
+function cleanId(value) {
+  return str(value)
+    .trim()
+    .replace(/^models\//i, "");
+}
+
+function entryId(entry) {
+  if (typeof entry === "string") return cleanId(entry);
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return "";
+  for (const key of ["id", "model", "name", "slug"]) {
+    const value = cleanId(entry[key]);
+    if (value) return value;
+  }
+  return "";
+}
+
+function isChatModel(id) {
+  return !!id && !NON_CHAT.test(id);
+}
+
+function listFrom(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return null;
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.models)) return payload.models;
+  return null;
+}
+
+/**
+ * Read a provider model payload. Returns chat models, how many specialist
+ * models were skipped and whether the 200-model cap truncated the list.
+ */
+function parseModelList(payload) {
+  const raw = listFrom(payload);
+  if (!raw) {
+    return {
+      models: [],
+      skipped: 0,
+      truncated: false,
+      issue: "The provider's model list was not in a recognised format.",
+    };
+  }
+  const ids = [];
+  const seen = new Set();
+  for (const entry of raw) {
+    const id = entryId(entry);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  if (!ids.length) {
+    return {
+      models: [],
+      skipped: 0,
+      truncated: false,
+      issue: raw.length ? "The provider's model list did not contain any model names." : "The provider returned an empty model list.",
+    };
+  }
+  const chat = ids.filter(isChatModel);
+  const skipped = ids.length - chat.length;
+  const models = chat.slice(0, MAX_MODELS);
+  if (!models.length) {
+    return {
+      models: [],
+      skipped,
+      truncated: false,
+      issue: "The provider returned only non-chat models (for example embeddings or speech). No quiz model can be selected from that list.",
+    };
+  }
+  return { models, skipped, truncated: chat.length > MAX_MODELS, issue: "" };
+}
+
+/** Keep a saved discovery result bounded and free of specialist models. */
+function normalizeModelList(value) {
+  const list = Array.isArray(value) ? value : [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of list) {
+    const id = cleanId(raw);
+    if (!id || seen.has(id) || !isChatModel(id)) continue;
+    seen.add(id);
+    out.push(id);
+    if (out.length >= MAX_MODELS) break;
+  }
+  return out;
+}
+
+module.exports = { MAX_MODELS, isChatModel, normalizeModelList, parseModelList };
+};
+
 /* ---- src/note-context.js ---- */
 __defs["note-context"] = function (module, exports, require) {
 /*
@@ -35673,6 +35814,7 @@ const { AssignmentModal } = require("./assignments-modal");
 const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimateMinutes, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskEstimate, updateTaskTitle } = require("./assignments");
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
+const modelDiscovery = require("./model-discovery");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { readPdfPages } = require("./pdf");
@@ -36358,6 +36500,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai = Object.assign({}, DEFAULT_SETTINGS.ai, saved.ai || {});
     const sa = (saved.ai && saved.ai.api) || {};
     this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys), secrets: Object.assign({}, sa.secrets) });
+    this.settings.ai.api.models = modelDiscovery.normalizeModelList(this.settings.ai.api.models);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
     this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
@@ -38861,6 +39004,25 @@ class QuestionTrackerPlugin extends Plugin {
 
   aiModelFor(feature) {
     return aiService.featureModel(this.settings.ai, feature, this.backend());
+  }
+
+  /** Ask the Direct AI provider for its current chat-model list. */
+  async refreshAiModels() {
+    if (this.backend() !== "api") throw new Error("Runtime model discovery is available for Direct AI. Choose Direct API in the AI settings.");
+    const ai = this.settings.ai;
+    const found = await new ApiClient(ai, this.app).listModels();
+    ai.api.models = found.models.slice();
+    await this.save();
+    return found;
+  }
+
+  /** Save one model chosen from the fetched list, or typed by hand. */
+  async selectAiModel(model) {
+    const id = str(model).trim().slice(0, 200);
+    if (!id) throw new Error("Choose a model from the fetched list, or type a model name.");
+    this.settings.ai.api.model = id;
+    await this.save();
+    return id;
   }
 
   /** The model name recorded in notes and shown in the UI for one feature. */
@@ -51681,6 +51843,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             api.provider = v;
             api.baseUrl = "";
             api.model = API_PRESETS[v].defaultModel;
+            api.models = [];
             await this.plugin.save();
             this.display();
           });
@@ -51692,6 +51855,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           .setDesc("Leave empty to use the provider's standard address.")
           .addText((t) =>
             t.setPlaceholder(preset.base || "https://.../v1").setValue(api.baseUrl).onChange(async (v) => {
+              if (api.baseUrl !== v.trim()) api.models = [];
               api.baseUrl = v.trim();
               await this.plugin.save();
             })
@@ -51728,6 +51892,21 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             });
         }
       }
+      const discovered = Array.isArray(api.models) ? api.models : [];
+      if (discovered.length) {
+        new Setting(containerEl)
+          .setName("Fetched models")
+          .setDesc("Choose a model, or type one below. This list came from your provider for the current address.")
+          .addDropdown((d) => {
+            d.addOption("", "Choose a fetched model...");
+            for (const id of discovered) d.addOption(id, id);
+            d.setValue(discovered.includes(api.model) ? api.model : "").onChange(async (v) => {
+              if (!v) return;
+              await this.plugin.selectAiModel(v);
+              this.display();
+            });
+          });
+      }
       new Setting(containerEl)
         .setName("Model")
         .setDesc("The model name exactly as your provider lists it.")
@@ -51735,6 +51914,25 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           t.setPlaceholder("model name").setValue(api.model).onChange(async (v) => {
             api.model = v.trim();
             await this.plugin.save();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Fetch available models")
+        .setDesc("Ask the provider for its current chat models. Embedding, speech and image models are filtered out. This reads the list only and sends no prompt.")
+        .addButton((b) =>
+          b.setButtonText("Fetch models").onClick(async () => {
+            b.setDisabled(true);
+            b.setButtonText("Fetching...");
+            try {
+              const found = await this.plugin.refreshAiModels();
+              const skipped = found.skipped ? ` Skipped ${found.skipped} non-chat model${found.skipped === 1 ? "" : "s"}.` : "";
+              new Notice(`Found ${found.models.length} chat model${found.models.length === 1 ? "" : "s"}.${skipped}`, 8000);
+              this.display();
+            } catch (e) {
+              b.setDisabled(false);
+              b.setButtonText("Fetch models");
+              new Notice(friendlyApiError(e), 10000);
+            }
           })
         );
       new Setting(containerEl).setName("Test").addButton((b) =>
@@ -58600,6 +58798,7 @@ const sm2 = require("./sm2");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
+const modelDiscovery = require("./model-discovery");
 const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
@@ -58773,6 +58972,7 @@ QuestionTrackerPlugin.__test = {
   ApiClient,
   friendlyApiError,
   apiTurns,
+  modelDiscovery,
   ChatPanel,
   tutorPresets,
   aiContext,

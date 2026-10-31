@@ -15,6 +15,7 @@ const { AssignmentModal } = require("./assignments-modal");
 const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimateMinutes, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskEstimate, updateTaskTitle } = require("./assignments");
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
+const modelDiscovery = require("./model-discovery");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { readPdfPages } = require("./pdf");
@@ -700,6 +701,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai = Object.assign({}, DEFAULT_SETTINGS.ai, saved.ai || {});
     const sa = (saved.ai && saved.ai.api) || {};
     this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys), secrets: Object.assign({}, sa.secrets) });
+    this.settings.ai.api.models = modelDiscovery.normalizeModelList(this.settings.ai.api.models);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
     this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
@@ -3203,6 +3205,25 @@ class QuestionTrackerPlugin extends Plugin {
 
   aiModelFor(feature) {
     return aiService.featureModel(this.settings.ai, feature, this.backend());
+  }
+
+  /** Ask the Direct AI provider for its current chat-model list. */
+  async refreshAiModels() {
+    if (this.backend() !== "api") throw new Error("Runtime model discovery is available for Direct AI. Choose Direct API in the AI settings.");
+    const ai = this.settings.ai;
+    const found = await new ApiClient(ai, this.app).listModels();
+    ai.api.models = found.models.slice();
+    await this.save();
+    return found;
+  }
+
+  /** Save one model chosen from the fetched list, or typed by hand. */
+  async selectAiModel(model) {
+    const id = str(model).trim().slice(0, 200);
+    if (!id) throw new Error("Choose a model from the fetched list, or type a model name.");
+    this.settings.ai.api.model = id;
+    await this.save();
+    return id;
   }
 
   /** The model name recorded in notes and shown in the UI for one feature. */

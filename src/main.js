@@ -29,6 +29,7 @@ const sm2 = require("./sm2");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
+const modelDiscovery = require("./model-discovery");
 const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
@@ -202,6 +203,7 @@ QuestionTrackerPlugin.__test = {
   ApiClient,
   friendlyApiError,
   apiTurns,
+  modelDiscovery,
   ChatPanel,
   tutorPresets,
   aiContext,

@@ -3,6 +3,7 @@ const { requestUrl } = require("obsidian");
 const { str } = require("./util");
 const { resolveApiKey } = require("./secret-keys");
 const { safeApiBase } = require("./url-safety");
+const { parseModelList } = require("./model-discovery");
 
 /* ---------------------------------------------- Direct API chat (works on phones) */
 
@@ -22,6 +23,7 @@ function friendlyApiError(e) {
   if (/ENOTFOUND|ECONNREFUSED|Failed to fetch|net::|ETIMEDOUT/i.test(m)) {
     return "Couldn't reach the provider. Check your internet connection and the base URL in settings.";
   }
+  if (/HTTP 404/.test(m)) return `The provider did not expose a model list at that address. Check the base URL. ${m}`;
   return m;
 }
 
@@ -111,6 +113,40 @@ class ApiClient {
     }
     if (!text.trim()) throw new Error("The provider returned an empty reply.");
     return text;
+  }
+
+  /** Read the provider's current model list. This never sends a prompt or spends a generation request. */
+  async listModels() {
+    const { preset, base, key } = this.cfg();
+    if (!base) throw new Error("Add a base URL in the plugin settings.");
+    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    const anthropic = preset.kind === "anthropic";
+    const url = `${base}${anthropic ? "/v1/models?limit=1000" : "/models"}`;
+    const headers = anthropic
+      ? { "x-api-key": key, "anthropic-version": "2023-06-01" }
+      : key
+        ? { Authorization: `Bearer ${key}` }
+        : {};
+    let response;
+    try {
+      response = await requestUrl({ url, method: "GET", headers, throw: false });
+    } catch (e) {
+      throw new Error(friendlyApiError(e));
+    }
+    if (!response || typeof response !== "object") throw new Error("The provider returned no response.");
+    let data = null;
+    try {
+      data = response.json;
+    } catch (e) {
+      /* not JSON */
+    }
+    if (response.status >= 400) {
+      const detail = data && data.error ? data.error.message || data.error : response.text;
+      throw new Error(friendlyApiError(new Error(`HTTP ${response.status}: ${str(typeof detail === "string" ? detail : JSON.stringify(detail)).slice(0, 300)}`)));
+    }
+    const parsed = parseModelList(data);
+    if (!parsed.models.length) throw new Error(parsed.issue || "The provider returned an empty model list.");
+    return parsed;
   }
 
   async chat(system, messages, opts) {

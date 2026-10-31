@@ -743,6 +743,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             api.provider = v;
             api.baseUrl = "";
             api.model = API_PRESETS[v].defaultModel;
+            api.models = [];
             await this.plugin.save();
             this.display();
           });
@@ -754,6 +755,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           .setDesc("Leave empty to use the provider's standard address.")
           .addText((t) =>
             t.setPlaceholder(preset.base || "https://.../v1").setValue(api.baseUrl).onChange(async (v) => {
+              if (api.baseUrl !== v.trim()) api.models = [];
               api.baseUrl = v.trim();
               await this.plugin.save();
             })
@@ -790,6 +792,21 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             });
         }
       }
+      const discovered = Array.isArray(api.models) ? api.models : [];
+      if (discovered.length) {
+        new Setting(containerEl)
+          .setName("Fetched models")
+          .setDesc("Choose a model, or type one below. This list came from your provider for the current address.")
+          .addDropdown((d) => {
+            d.addOption("", "Choose a fetched model...");
+            for (const id of discovered) d.addOption(id, id);
+            d.setValue(discovered.includes(api.model) ? api.model : "").onChange(async (v) => {
+              if (!v) return;
+              await this.plugin.selectAiModel(v);
+              this.display();
+            });
+          });
+      }
       new Setting(containerEl)
         .setName("Model")
         .setDesc("The model name exactly as your provider lists it.")
@@ -797,6 +814,25 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           t.setPlaceholder("model name").setValue(api.model).onChange(async (v) => {
             api.model = v.trim();
             await this.plugin.save();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Fetch available models")
+        .setDesc("Ask the provider for its current chat models. Embedding, speech and image models are filtered out. This reads the list only and sends no prompt.")
+        .addButton((b) =>
+          b.setButtonText("Fetch models").onClick(async () => {
+            b.setDisabled(true);
+            b.setButtonText("Fetching...");
+            try {
+              const found = await this.plugin.refreshAiModels();
+              const skipped = found.skipped ? ` Skipped ${found.skipped} non-chat model${found.skipped === 1 ? "" : "s"}.` : "";
+              new Notice(`Found ${found.models.length} chat model${found.models.length === 1 ? "" : "s"}.${skipped}`, 8000);
+              this.display();
+            } catch (e) {
+              b.setDisabled(false);
+              b.setButtonText("Fetch models");
+              new Notice(friendlyApiError(e), 10000);
+            }
           })
         );
       new Setting(containerEl).setName("Test").addButton((b) =>
