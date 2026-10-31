@@ -17917,6 +17917,7 @@ const DEFAULT_SETTINGS = {
   inlineQuizReorder: false, // opt-in: reorder questions in mcq-quiz blocks
   inlineQuizNumeric: false, // opt-in: typed numeric questions in mcq-quiz blocks
   inlineQuizSharedChoice: false, // opt-in: one option set reused by several mcq-quiz questions
+  examBlockMode: "study", // exam fenced blocks: "study" shows the key, "answer" grades a click
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
     managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)
@@ -20231,6 +20232,121 @@ function aiReady(plugin) {
 }
 
 module.exports = { QUICK_START_URL, aiReady, emptyState, hasValidQuestion, scanQuestionNotes };
+};
+
+/* ---- src/exam-block.js ---- */
+__defs["exam-block"] = function (module, exports, require) {
+/*
+ * Exam Plugin-compatible `exam` blocks. The block is one question written with
+ * XML-like tags:
+ *
+ *   <num>1</num>
+ *   <source>2022 practice</source>
+ *   <stem>The company aims to ___ its share.</stem>
+ *   <options>
+ *   A. increase
+ *   B. decrease
+ *   </options>
+ *   <answer>A</answer>
+ *   <analysis>increase means to make larger.</analysis>
+ *
+ * Parsing is local and never throws; malformed blocks return issues so the
+ * renderer can explain the format in place.
+ */
+const { str } = require("./util");
+
+const LETTERS = "ABCDEFGH";
+
+function decodeEntities(value) {
+  return str(value)
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;|&apos;/gi, "'")
+    .replace(/&#0*38;|&amp;/gi, "&");
+}
+
+function tagText(source, name) {
+  const match = str(source).match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}>`, "i"));
+  return match ? decodeEntities(match[1]).trim() : "";
+}
+
+function cleanLine(value) {
+  return str(value).replace(/[ \t]+$/g, "").trim();
+}
+
+function parseOptions(text) {
+  const options = [];
+  for (const raw of str(text).replace(/\r\n?/g, "\n").split("\n")) {
+    const line = cleanLine(raw);
+    if (!line) continue;
+    const match = line.match(/^(?:[-*+]\s*)?([A-H])\s*(?:[.)、:：]|\s)\s*(.+)$/i);
+    if (match) {
+      options.push({ letter: match[1].toUpperCase(), text: match[2].trim() });
+      continue;
+    }
+    if (options.length) options[options.length - 1].text += ` ${line}`;
+  }
+  return options;
+}
+
+function normalizeNumber(value) {
+  const text = cleanLine(value);
+  if (!text) return "";
+  if (!/^\d+$/.test(text)) return text;
+  return String(Number(text)).padStart(2, "0");
+}
+
+function parseAnswer(value, options) {
+  const raw = cleanLine(value).replace(/[，、/]/g, ",").toUpperCase();
+  if (!raw) return { answers: [], issue: "Add the key inside <answer>…</answer>, for example <answer>B</answer>." };
+  if (!/^[A-H](?:\s*[, ]\s*[A-H])*$/.test(raw)) {
+    return { answers: [], issue: "The <answer> must contain option letters, for example B or A,C." };
+  }
+  const wanted = [...new Set(raw.match(/[A-H]/g) || [])];
+  const available = new Set(options.map((option) => option.letter));
+  const missing = wanted.filter((letter) => !available.has(letter));
+  if (missing.length) {
+    return { answers: [], issue: `Answer ${missing.join(", ")} is not one of the options.` };
+  }
+  const order = new Map(options.map((option, index) => [option.letter, index]));
+  const answers = wanted.slice().sort((a, b) => order.get(a) - order.get(b));
+  return { answers, issue: "" };
+}
+
+/** Parse one `exam` block into a question, options and a key. */
+function parseExamBlock(source) {
+  const text = str(source).replace(/\r\n?/g, "\n");
+  const stem = tagText(text, "stem");
+  const sourceLabel = cleanLine(tagText(text, "source"));
+  const num = normalizeNumber(tagText(text, "num"));
+  const analysis = tagText(text, "analysis");
+  const options = parseOptions(tagText(text, "options"));
+  const issues = [];
+  if (!stem) issues.push("Add the question inside <stem>…</stem>.");
+  if (options.length < 2) {
+    issues.push('Add at least two options inside <options>…</options>, one per line as "A. …".');
+  }
+  if (new Set(options.map((option) => option.letter)).size !== options.length) {
+    issues.push("Each option needs its own letter.");
+  }
+  const answer = parseAnswer(tagText(text, "answer"), options);
+  if (answer.issue) issues.push(answer.issue);
+  return {
+    num,
+    source: sourceLabel,
+    stem,
+    options,
+    answers: answer.answers,
+    analysis,
+    valid: issues.length === 0,
+    issues,
+  };
+}
+
+module.exports = { LETTERS, parseExamBlock };
 };
 
 /* ---- src/exam-sections.js ---- */
@@ -35541,7 +35657,7 @@ module.exports = {
 
 /* ---- src/plugin.js ---- */
 __defs["plugin"] = function (module, exports, require) {
-const { normalizeExamReadyPasses } = require("./view-helpers");
+const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS } = require("./constants");
@@ -35640,6 +35756,7 @@ const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { noteQuizToQuickAdd } = require("./quiz-clipboard");
 const { findQuizBlockSource, gradeNumericQuestion, gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
 const quizNoteGate = require("./quiz-note-gate");
+const { parseExamBlock } = require("./exam-block");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
@@ -36047,6 +36164,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.registerMarkdownCodeBlockProcessor("mcq-dashboard", (source, el) => this.renderDashboardBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("mcq-quiz", (source, el, ctx) => this.renderQuizBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("exam", (source, el, ctx) => this.renderExamBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizport", (source, el, ctx) => this.renderQuizPortBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
@@ -36254,6 +36372,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.inlineQuizReorder = this.settings.inlineQuizReorder === true;
     this.settings.inlineQuizNumeric = this.settings.inlineQuizNumeric === true;
     this.settings.inlineQuizSharedChoice = this.settings.inlineQuizSharedChoice === true;
+    this.settings.examBlockMode = this.settings.examBlockMode === "answer" ? "answer" : "study";
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -39431,6 +39550,94 @@ class QuestionTrackerPlugin extends Plugin {
       });
     });
     if (!staticMode) cards.forEach((card, index) => card.toggleClass("qt-quiz-hidden", parsed.gated && index >= visibleQuizCount(parsed.questions.length, 0, true)));
+  }
+
+  /** Render an Exam Plugin-compatible `exam` XML question card. */
+  renderExamMarkdown(el, markdown, ctx) {
+    const source = str(markdown).replace(/_{3,}/g, '<span class="qt-exam-blank" aria-hidden="true"></span>');
+    renderMarkdownInto(this.app, source, el, ctx && ctx.sourcePath, this);
+  }
+
+  renderExamAnalysis(card, parsed, ctx, hidden) {
+    if (!parsed.analysis) return null;
+    const details = card.createEl("details", { cls: "qt-exam-analysis" });
+    details.createEl("summary", { text: "Show analysis" });
+    const body = details.createDiv({ cls: "qt-exam-analysis-body" });
+    this.renderExamMarkdown(body, parsed.analysis, ctx);
+    if (hidden) details.addClass("qt-hidden");
+    return details;
+  }
+
+  async renderExamBlock(source, el, ctx) {
+    const parsed = parseExamBlock(source);
+    const card = el.createDiv({ cls: "qt-exam-card" });
+    if (!parsed.valid) {
+      card.createDiv({ cls: "qt-exam-error", text: parsed.issues.join(" ") });
+      return;
+    }
+    const head = card.createDiv({ cls: "qt-exam-head" });
+    if (parsed.num) head.createSpan({ cls: "qt-exam-num", text: parsed.num });
+    if (parsed.source) head.createSpan({ cls: "qt-exam-source", text: parsed.source });
+    const stem = card.createDiv({ cls: "qt-exam-stem" });
+    this.renderExamMarkdown(stem, parsed.stem, ctx);
+
+    const correct = new Set(parsed.answers);
+    const choices = card.createDiv({ cls: "qt-exam-options" });
+    const mode = this.settings.examBlockMode === "answer" ? "answer" : "study";
+    if (mode === "study") {
+      for (const option of parsed.options) {
+        const row = choices.createDiv({ cls: `qt-exam-option${correct.has(option.letter) ? " is-correct" : ""}` });
+        row.createSpan({ cls: "qt-exam-option-letter", text: option.letter });
+        row.createSpan({ cls: "qt-exam-option-text", text: option.text });
+        if (correct.has(option.letter)) row.createSpan({ cls: "qt-exam-check", text: "✓" });
+      }
+      this.renderExamAnalysis(card, parsed, ctx, false);
+      return;
+    }
+
+    const feedback = card.createDiv({ cls: "qt-exam-feedback" });
+    const analysis = this.renderExamAnalysis(card, parsed, ctx, true);
+    const picked = new Set();
+    const buttons = [];
+    let graded = false;
+    const finish = () => {
+      if (graded) return;
+      graded = true;
+      const exact = picked.size === correct.size && [...picked].every((letter) => correct.has(letter));
+      for (const { option, button } of buttons) {
+        button.toggleClass("is-correct", correct.has(option.letter));
+        button.toggleClass("is-wrong", picked.has(option.letter) && !correct.has(option.letter));
+        button.toggleClass("is-picked", picked.has(option.letter));
+        button.disabled = true;
+      }
+      feedback.toggleClass("is-correct", exact);
+      feedback.toggleClass("is-wrong", !exact);
+      feedback.createDiv({ cls: "qt-exam-verdict", text: exact ? "Correct" : `Not quite. Correct answer: ${parsed.answers.join(", ")}` });
+      if (analysis) analysis.removeClass("qt-hidden");
+    };
+    const multi = parsed.answers.length > 1;
+    for (const option of parsed.options) {
+      const button = choices.createEl("button", { cls: "qt-exam-option", text: `${option.letter}. ${option.text}` });
+      buttons.push({ option, button });
+      button.addEventListener("click", () => {
+        if (graded) return;
+        if (!multi) {
+          picked.clear();
+          picked.add(option.letter);
+          finish();
+          return;
+        }
+        if (picked.has(option.letter)) picked.delete(option.letter);
+        else picked.add(option.letter);
+        button.toggleClass("is-picked", picked.has(option.letter));
+      });
+    }
+    if (multi) {
+      const submit = card.createEl("button", { cls: "qt-exam-submit", text: "Submit answer" });
+      submit.addEventListener("click", () => {
+        if (!graded && picked.size) finish();
+      });
+    }
   }
 
   /** Render a `quizport` block with the local QuizPort player. */
@@ -51351,6 +51558,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Exam block mode")
+      .setDesc("Choose Study to show the correct options and analysis immediately, or Answer to hide the key until the reader clicks a choice (multi-select needs Submit). The exam block is an fenced exam code block using num, source, stem, options, answer and analysis tags.")
+      .addDropdown((d) =>
+        d
+          .addOptions({ study: "Study (show answers)", answer: "Answer (grade clicks)" })
+          .setValue(st.examBlockMode === "answer" ? "answer" : "study")
+          .onChange(async (v) => {
+            st.examBlockMode = v === "answer" ? "answer" : "study";
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
+      );
+
+    new Setting(containerEl)
       .setName("Pause timer when the app is backgrounded (mobile)")
       .setDesc("Stops the clock if you switch apps or lock your phone.")
       .addToggle((t) =>
@@ -58067,6 +58288,7 @@ const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
 const quizClipboard = require("./quiz-clipboard");
+const examBlock = require("./exam-block");
 const quizBlock = require("./quiz-block");
 const quizNoteGate = require("./quiz-note-gate");
 const quizport = require("./quizport");
@@ -58240,6 +58462,7 @@ QuestionTrackerPlugin.__test = {
   QuickAddModal,
   quickAdd,
   quizClipboard,
+  examBlock,
   quizBlock,
   quizNoteGate,
   quizport,

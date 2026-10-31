@@ -5926,3 +5926,141 @@
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
+
+/* Exam Plugin-compatible `exam` blocks: one card per XML question. */
+.qt-exam-card {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.qt-exam-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-exam-num {
+  background: var(--interactive-accent);
+  border-radius: var(--radius-s);
+  color: var(--text-on-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+}
+
+.qt-exam-source {
+  color: var(--interactive-accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.qt-exam-stem {
+  line-height: 1.6;
+}
+
+.qt-exam-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qt-exam-option {
+  align-items: center;
+  background: var(--background-primary);
+  border: 1.5px solid var(--background-modifier-border-hover);
+  border-radius: var(--radius-m);
+  color: var(--text-normal);
+  display: flex;
+  gap: 10px;
+  justify-content: flex-start;
+  min-height: 46px;
+  padding: 9px 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.qt-exam-option.is-picked {
+  border-color: var(--interactive-accent);
+}
+
+.qt-exam-option.is-correct {
+  background: color-mix(in srgb, var(--text-success, var(--color-green)) 10%, var(--background-primary));
+  border-color: var(--text-success, var(--color-green));
+}
+
+.qt-exam-option.is-wrong {
+  background: color-mix(in srgb, var(--text-error) 8%, var(--background-primary));
+  border-color: var(--text-error);
+}
+
+.qt-exam-option-letter {
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: var(--text-muted);
+  display: inline-flex;
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.qt-exam-option-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.qt-exam-check {
+  color: var(--text-success, var(--color-green));
+  flex: none;
+  font-weight: 700;
+  margin-left: auto;
+}
+
+.qt-exam-feedback.is-correct .qt-exam-verdict {
+  color: var(--text-success, var(--color-green));
+  font-weight: 600;
+}
+
+.qt-exam-feedback.is-wrong .qt-exam-verdict {
+  color: var(--text-error);
+  font-weight: 600;
+}
+
+.qt-exam-submit {
+  align-self: flex-start;
+}
+
+.qt-exam-analysis {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 6px;
+}
+
+.qt-exam-analysis summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+}
+
+.qt-exam-analysis-body {
+  line-height: 1.55;
+  margin-top: 6px;
+}
+
+.qt-exam-blank {
+  border-bottom: 2px solid currentColor;
+  display: inline-block;
+  min-width: 4.5em;
+}
+
+.qt-exam-error {
+  color: var(--text-error);
+}

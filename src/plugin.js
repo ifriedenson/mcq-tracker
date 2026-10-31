@@ -1,5 +1,5 @@
 "use strict";
-const { normalizeExamReadyPasses } = require("./view-helpers");
+const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS } = require("./constants");
@@ -98,6 +98,7 @@ const { quickAddNote, quickAddTitle } = require("./quick-add");
 const { noteQuizToQuickAdd } = require("./quiz-clipboard");
 const { findQuizBlockSource, gradeNumericQuestion, gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
 const quizNoteGate = require("./quiz-note-gate");
+const { parseExamBlock } = require("./exam-block");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
@@ -505,6 +506,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.registerMarkdownCodeBlockProcessor("mcq-dashboard", (source, el) => this.renderDashboardBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("mcq-quiz", (source, el, ctx) => this.renderQuizBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("exam", (source, el, ctx) => this.renderExamBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizport", (source, el, ctx) => this.renderQuizPortBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
@@ -712,6 +714,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.inlineQuizReorder = this.settings.inlineQuizReorder === true;
     this.settings.inlineQuizNumeric = this.settings.inlineQuizNumeric === true;
     this.settings.inlineQuizSharedChoice = this.settings.inlineQuizSharedChoice === true;
+    this.settings.examBlockMode = this.settings.examBlockMode === "answer" ? "answer" : "study";
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -3889,6 +3892,94 @@ class QuestionTrackerPlugin extends Plugin {
       });
     });
     if (!staticMode) cards.forEach((card, index) => card.toggleClass("qt-quiz-hidden", parsed.gated && index >= visibleQuizCount(parsed.questions.length, 0, true)));
+  }
+
+  /** Render an Exam Plugin-compatible `exam` XML question card. */
+  renderExamMarkdown(el, markdown, ctx) {
+    const source = str(markdown).replace(/_{3,}/g, '<span class="qt-exam-blank" aria-hidden="true"></span>');
+    renderMarkdownInto(this.app, source, el, ctx && ctx.sourcePath, this);
+  }
+
+  renderExamAnalysis(card, parsed, ctx, hidden) {
+    if (!parsed.analysis) return null;
+    const details = card.createEl("details", { cls: "qt-exam-analysis" });
+    details.createEl("summary", { text: "Show analysis" });
+    const body = details.createDiv({ cls: "qt-exam-analysis-body" });
+    this.renderExamMarkdown(body, parsed.analysis, ctx);
+    if (hidden) details.addClass("qt-hidden");
+    return details;
+  }
+
+  async renderExamBlock(source, el, ctx) {
+    const parsed = parseExamBlock(source);
+    const card = el.createDiv({ cls: "qt-exam-card" });
+    if (!parsed.valid) {
+      card.createDiv({ cls: "qt-exam-error", text: parsed.issues.join(" ") });
+      return;
+    }
+    const head = card.createDiv({ cls: "qt-exam-head" });
+    if (parsed.num) head.createSpan({ cls: "qt-exam-num", text: parsed.num });
+    if (parsed.source) head.createSpan({ cls: "qt-exam-source", text: parsed.source });
+    const stem = card.createDiv({ cls: "qt-exam-stem" });
+    this.renderExamMarkdown(stem, parsed.stem, ctx);
+
+    const correct = new Set(parsed.answers);
+    const choices = card.createDiv({ cls: "qt-exam-options" });
+    const mode = this.settings.examBlockMode === "answer" ? "answer" : "study";
+    if (mode === "study") {
+      for (const option of parsed.options) {
+        const row = choices.createDiv({ cls: `qt-exam-option${correct.has(option.letter) ? " is-correct" : ""}` });
+        row.createSpan({ cls: "qt-exam-option-letter", text: option.letter });
+        row.createSpan({ cls: "qt-exam-option-text", text: option.text });
+        if (correct.has(option.letter)) row.createSpan({ cls: "qt-exam-check", text: "✓" });
+      }
+      this.renderExamAnalysis(card, parsed, ctx, false);
+      return;
+    }
+
+    const feedback = card.createDiv({ cls: "qt-exam-feedback" });
+    const analysis = this.renderExamAnalysis(card, parsed, ctx, true);
+    const picked = new Set();
+    const buttons = [];
+    let graded = false;
+    const finish = () => {
+      if (graded) return;
+      graded = true;
+      const exact = picked.size === correct.size && [...picked].every((letter) => correct.has(letter));
+      for (const { option, button } of buttons) {
+        button.toggleClass("is-correct", correct.has(option.letter));
+        button.toggleClass("is-wrong", picked.has(option.letter) && !correct.has(option.letter));
+        button.toggleClass("is-picked", picked.has(option.letter));
+        button.disabled = true;
+      }
+      feedback.toggleClass("is-correct", exact);
+      feedback.toggleClass("is-wrong", !exact);
+      feedback.createDiv({ cls: "qt-exam-verdict", text: exact ? "Correct" : `Not quite. Correct answer: ${parsed.answers.join(", ")}` });
+      if (analysis) analysis.removeClass("qt-hidden");
+    };
+    const multi = parsed.answers.length > 1;
+    for (const option of parsed.options) {
+      const button = choices.createEl("button", { cls: "qt-exam-option", text: `${option.letter}. ${option.text}` });
+      buttons.push({ option, button });
+      button.addEventListener("click", () => {
+        if (graded) return;
+        if (!multi) {
+          picked.clear();
+          picked.add(option.letter);
+          finish();
+          return;
+        }
+        if (picked.has(option.letter)) picked.delete(option.letter);
+        else picked.add(option.letter);
+        button.toggleClass("is-picked", picked.has(option.letter));
+      });
+    }
+    if (multi) {
+      const submit = card.createEl("button", { cls: "qt-exam-submit", text: "Submit answer" });
+      submit.addEventListener("click", () => {
+        if (!graded && picked.size) finish();
+      });
+    }
   }
 
   /** Render a `quizport` block with the local QuizPort player. */

@@ -320,6 +320,28 @@ explanation: "free lists memory and swap."
 
 `type: choice` accepts a 1-based `answer:` index, a letter, or an option's text. `type: text` takes `answer:` or an `answers:` list; extra accepted strings are written to the note's `accepted_answers` property, which the short-answer grader already reads. The command reads the clipboard only and calls no AI API. Malformed blocks are listed by block number and skipped; an empty clipboard, an unavailable clipboard or text without a `note-quiz` fence gets a specific message. The existing AI quiz generator's 22-language selector covers the Japanese/English generation choice, so this path adds no second language setting.
 
+### Exam XML blocks
+
+Add a fenced `exam` block to write one question with the XML tags used by Exam Plugin. No XML file or import step is needed.
+
+````xml
+```exam
+<num>5</num>
+<source>2022 practice</source>
+<stem>What is the capital of France? ___</stem>
+<options>
+A. London
+B. Paris
+C. Berlin
+D. Madrid
+</options>
+<answer>B</answer>
+<analysis>Paris is the capital of France.</analysis>
+```
+````
+
+`<num>` and `<source>` are optional; `<stem>`, at least two `<options>` and `<answer>` are required. `A.` options work with or without a space, and a multi-select key is written as `A,C`. Set **Settings → MCQ Tracker → Review → Exam block mode** to **Study** (default: correct options marked, analysis available) or **Answer** (single choice grades on click; multi-select needs **Submit answer**). `___` renders as a blank line, stem and analysis support Markdown and local images, and malformed tags show a specific message in the card. The block is local and read-only: it records no attempt, history, streak or scheduler state.
+
 ### Review scheduling
 
 **Leech handling (optional).** Set a leech threshold under Settings, Practice. When a question misses that many times in a row, the attempt marks it `leech: true` and the result view explains the mark; a correct answer clears it. The action can also suspend it so it leaves practice until you restore it under Hidden study items. The default threshold is 0, which leaves the feature off.

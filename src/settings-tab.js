@@ -627,6 +627,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Exam block mode")
+      .setDesc("Choose Study to show the correct options and analysis immediately, or Answer to hide the key until the reader clicks a choice (multi-select needs Submit). The exam block is an fenced exam code block using num, source, stem, options, answer and analysis tags.")
+      .addDropdown((d) =>
+        d
+          .addOptions({ study: "Study (show answers)", answer: "Answer (grade clicks)" })
+          .setValue(st.examBlockMode === "answer" ? "answer" : "study")
+          .onChange(async (v) => {
+            st.examBlockMode = v === "answer" ? "answer" : "study";
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          })
+      );
+
+    new Setting(containerEl)
       .setName("Pause timer when the app is backgrounded (mobile)")
       .setDesc("Stops the clock if you switch apps or lock your phone.")
       .addToggle((t) =>
