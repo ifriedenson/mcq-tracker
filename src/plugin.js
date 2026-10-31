@@ -14,6 +14,10 @@ const { AssignmentsView } = require("./assignments-view");
 const { StudyToolsView } = require("./study-tools-view");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const studyWorkspace = require("./study-workspace");
+const readAloud = require("./read-aloud");
+const lectureCompiler = require("./lecture-compiler");
+const audioBookmarks = require("./audio-bookmarks");
+const courseHealth = require("./course-health");
 const { buildCornellNote } = require("./cornell");
 const { renderCornellBlock } = require("./cornell-view");
 const studyTools = require("./study-tools");
@@ -323,6 +327,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "study-flow-capture", name: "Study Flow: capture a source excerpt", callback: () => this.activateStudyWorkspace("flow") });
     this.addCommand({ id: "subject-manager", name: "Subject Manager: open subjects", callback: () => this.activateStudyWorkspace("subjects") });
     this.addCommand({ id: "open-quiz-index", name: "Quiz index: scan quizzes and results", callback: () => this.activateStudyWorkspace("quizIndex") });
+    this.addCommand({ id: "read-aloud", name: "Read aloud: speak the active note", callback: () => this.activateStudyWorkspace("readAloud") });
+    this.addCommand({ id: "compile-lecture-notes", name: "Lecture notes: compile the log into one note", callback: () => this.activateStudyWorkspace("lectures") });
+    this.addCommand({ id: "course-health", name: "Course health: check the course list", callback: () => this.activateStudyWorkspace("health") });
+    this.addCommand({ id: "audio-bookmarks", name: "Audio bookmarks: timestamp an attachment", callback: () => this.activateStudyWorkspace("bookmarks") });
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
@@ -793,6 +801,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.deepNotes = studyWorkspace.normalizeDeepNotes(saved.deepNotes);
     this.settings.retention = studyWorkspace.normalizeRetention(saved.retention);
     this.settings.vocabulary = studyWorkspace.normalizeVocabulary(saved.vocabulary);
+    this.settings.readAloud = readAloud.normalizeReadAloudSettings(saved.readAloud);
+    this.settings.lectureCompiler = lectureCompiler.normalizeLectureCompilerSettings(saved.lectureCompiler);
+    this.settings.courseHealth = courseHealth.normalizeCourseHealthSettings(saved.courseHealth);
+    this.settings.audioBookmarks = audioBookmarks.normalizeAudioBookmarkSettings(saved.audioBookmarks);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -1342,8 +1354,24 @@ class QuestionTrackerPlugin extends Plugin {
     return studyWorkspace.normalizeVocabulary(this.settings.vocabulary).enabled;
   }
 
+  readAloudEnabled() {
+    return readAloud.normalizeReadAloudSettings(this.settings.readAloud).enabled;
+  }
+
+  lectureCompilerEnabled() {
+    return lectureCompiler.normalizeLectureCompilerSettings(this.settings.lectureCompiler).enabled;
+  }
+
+  courseHealthEnabled() {
+    return courseHealth.normalizeCourseHealthSettings(this.settings.courseHealth).enabled;
+  }
+
+  audioBookmarksEnabled() {
+    return audioBookmarks.normalizeAudioBookmarkSettings(this.settings.audioBookmarks).enabled;
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -7487,6 +7515,60 @@ ${body}
   async removeStudyLecture(id) {
     const current = this.studyToolsSettings().lectureLog;
     this.settings.lectureLog = { ...current, lectures: current.lectures.filter((lecture) => lecture.id !== id) };
+    await this.save();
+    this.refreshViews();
+  }
+
+  /* ---- read aloud, lecture compiler and audio bookmarks */
+
+  readAloudSettings() {
+    return readAloud.normalizeReadAloudSettings(this.settings.readAloud);
+  }
+
+  async updateReadAloud(patch) {
+    this.settings.readAloud = readAloud.normalizeReadAloudSettings({ ...this.readAloudSettings(), ...(patch || {}) });
+    await this.save();
+    this.refreshViews();
+    return this.settings.readAloud;
+  }
+
+  /** Write the compiled lecture note, never overwriting an existing file. */
+  async saveCompiledLectureNote(compiled) {
+    const source = compiled && typeof compiled === "object" ? compiled : null;
+    if (!source || !str(source.markdown).trim()) return null;
+    const settings = lectureCompiler.normalizeLectureCompilerSettings(this.settings.lectureCompiler);
+    const folder = str(source.folder).trim() || settings.folder;
+    if (folder) await ensureFolder(this.app, folder);
+    const base = lectureCompiler.safeFileTitle(source.fileTitle || source.title);
+    const prefix = folder ? `${folder}/` : "";
+    let path = `${prefix}${base}.md`;
+    for (let n = 2; this.app.vault.getAbstractFileByPath(path) && n < 100; n++) path = `${prefix}${base} ${n}.md`;
+    if (this.app.vault.getAbstractFileByPath(path)) return null;
+    await this.app.vault.create(path, source.markdown);
+    new Notice(`Saved ${path}.`);
+    return path;
+  }
+
+  async addAudioBookmark(input) {
+    const entry = audioBookmarks.addAudioBookmark(input, Date.now());
+    if (!entry) return null;
+    const current = studyWorkspace.normalizeAudioBookmarkSettings(this.settings.audioBookmarks);
+    if (current.entries.some((existing) => existing.path === entry.path && existing.at === entry.at && existing.label === entry.label)) return entry;
+    this.settings.audioBookmarks = studyWorkspace.normalizeAudioBookmarkSettings({
+      ...current,
+      entries: current.entries.concat(entry).slice(-audioBookmarks.MAX_BOOKMARKS),
+    });
+    await this.save();
+    this.refreshViews();
+    return entry;
+  }
+
+  async removeAudioBookmark(id) {
+    const current = studyWorkspace.normalizeAudioBookmarkSettings(this.settings.audioBookmarks);
+    this.settings.audioBookmarks = studyWorkspace.normalizeAudioBookmarkSettings({
+      ...current,
+      entries: current.entries.filter((entry) => entry.id !== id),
+    });
     await this.save();
     this.refreshViews();
   }

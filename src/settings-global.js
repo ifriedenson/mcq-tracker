@@ -7,6 +7,7 @@ const { Notice, Setting } = require("obsidian");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { normalizeSupport, supportLinks } = require("./support");
 const { SURVEY_ROLES, copySurveySummary } = require("./survey");
+const { READ_ALOUD_STYLES, normalizeReadAloudSettings } = require("./read-aloud");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
@@ -320,6 +321,74 @@ function renderModules(containerEl, plugin, redisplay) {
     .addToggle((t) =>
       t.setValue(plugin.vocabularyEnabled()).onChange(async (v) => {
         st.vocabulary.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Read aloud")
+    .setDesc("Speak a note with the device voice and highlight the current sentence. Styles include a 90-second briefing. No provider, key, upload or report is used.")
+    .addToggle((t) =>
+      t.setValue(plugin.readAloudEnabled()).onChange(async (v) => {
+        st.readAloud = { ...normalizeReadAloudSettings(st.readAloud), enabled: v };
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    )
+    .addDropdown((d) => {
+      for (const style of READ_ALOUD_STYLES) d.addOption(style.id, style.label);
+      d.setValue(normalizeReadAloudSettings(st.readAloud).style).onChange(async (v) => {
+        st.readAloud = { ...normalizeReadAloudSettings(st.readAloud), style: v };
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    })
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "0.5";
+      t.inputEl.max = "2";
+      t.inputEl.step = "0.1";
+      t.setValue(String(normalizeReadAloudSettings(st.readAloud).rate));
+      t.onChange(async (v) => {
+        st.readAloud = { ...normalizeReadAloudSettings(st.readAloud), rate: v };
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    });
+
+  new Setting(containerEl)
+    .setName("Lecture note compiler")
+    .setDesc("Turn the lecture log into one study note with an overview, key concepts, a vocabulary table and one section per lecture. Audio transcription is not included.")
+    .addToggle((t) =>
+      t.setValue(plugin.lectureCompilerEnabled()).onChange(async (v) => {
+        st.lectureCompiler = { ...plugin.settings.lectureCompiler, enabled: v };
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Course health")
+    .setDesc("Local checks for missing grades, low attendance, overdue course tasks and an exam that is close with topic passes left. No Canvas request or note write is made.")
+    .addToggle((t) =>
+      t.setValue(plugin.courseHealthEnabled()).onChange(async (v) => {
+        st.courseHealth = { ...plugin.settings.courseHealth, enabled: v };
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Audio bookmarks")
+    .setDesc("Timestamp bookmarks and chapters for an audio attachment, with a copyable Obsidian link. The plugin does not record, play or upload audio.")
+    .addToggle((t) =>
+      t.setValue(plugin.audioBookmarksEnabled()).onChange(async (v) => {
+        st.audioBookmarks = { ...plugin.settings.audioBookmarks, enabled: v };
         await plugin.save();
         await plugin.onStudyWorkspaceToggled();
         redisplay();

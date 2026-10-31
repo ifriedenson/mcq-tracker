@@ -172,6 +172,17 @@
  *
  * `src/math-rendering.js` and `src/smiles.js` are original code written for this plugin. The SMILES renderer implements a documented teaching subset and draws it as local SVG; no Chem, RDKit, Ketcher or other structure-rendering library is bundled. Complex or unsupported SMILES is rejected rather than approximated. It rewrites a small, conservative subset of `\ce{...}` notation into ordinary MathJax at display time. No MathJax, mhchem, KaTeX or other renderer code is bundled, and complex chemistry is left for the user's mhchem setup.
  *
+ * ## Read aloud, lecture compiler, course health and audio bookmarks
+ *
+ * Four local study modules adapt MIT-licensed plugin concepts. In each case the source was read as a feature reference only: no source file, function or stylesheet rule was copied, and the implementation in this repository is original, dependency-free JavaScript. The MIT licence texts below are recorded so the provenance of the ideas is auditable.
+ *
+ * - **Aloud TTS** — [obsidian-aloud-tts](https://github.com/adrianlyjak/obsidian-aloud-tts), MIT, Copyright (c) Adrian Lyjak (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: sentence-level highlight while reading a note aloud. `src/read-aloud.js` and the **Read aloud** tab in `src/study-workspace-view.js` build a local sentence plan and use the device speech voice; no audio is cached or uploaded.
+ * - **LearnKit** — [learnkit](https://github.com/ctrlaltwill/learnkit), MIT, Copyright (c) Will (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: read-aloud TTS access to note text. Only the idea of speaking a note is used; no LearnKit code, card type, scheduler or parameter-fit code is bundled.
+ * - **Voice Briefing** — [voice-note-obsidian](https://github.com/reallygood83/voice-note-obsidian), MIT, Copyright (c) reallygood83 (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: a short spoken briefing with style presets. The 90-second briefing, key-points and full-note styles in `src/read-aloud.js` are original implementations.
+ * - **Lecture Transcriber** — [obsidian-lecture-transcriber](https://github.com/AbyssLotus/obsidian-lecture-transcriber), MIT, Copyright (c) AbyssLotus (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: combine several lectures into one study note with an overview, key concepts and a vocabulary table. `src/lecture-compiler.js` is an original Markdown compiler over this plugin's own lecture log; it performs no transcription and calls no model.
+ * - **Course Command Center** — [CourseCommandCenter](https://github.com/flippinhutt/CourseCommandCenter), MIT, Copyright (c) flippinhutt (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: course health checks. `src/course-health.js` implements local checks over this plugin's course dashboard, planner and tasks; it has no Canvas client, OAuth flow or note-template code.
+ * - **Advanced Audio Recorder** — [advanced-audio-recorder](https://github.com/akhmialeuski/advanced-audio-recorder), MIT, Copyright (c) akhmialeuski (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: timestamp bookmarks, chapters and copyable timestamp links. `src/audio-bookmarks.js` stores timestamps in plugin data and builds Obsidian media-fragment links; it does not record, edit or play audio.
+ *
  * ## Not absorbed (yet)
  *
  * The product plan also names LearnKit as a future absorb source. It has **not** been copied
@@ -6701,6 +6712,144 @@ class AssignmentsView extends ItemView {
 }
 
 module.exports = { VIEW_TYPE_ASSIGNMENTS, AssignmentsView };
+};
+
+/* ---- src/audio-bookmarks.js ---- */
+__defs["audio-bookmarks"] = function (module, exports, require) {
+/*
+ * Local timestamp bookmarks and chapters for audio attachments. This is the
+ * non-recording part of Advanced Audio Recorder (MIT): the plugin stores the
+ * timestamp and builds a copyable link, but never records, uploads or plays
+ * audio itself. See NOTICES.md.
+ */
+const { hashString, str } = require("./util");
+
+const MAX_BOOKMARKS = 500;
+const AUDIO_PATTERN = /\.(mp3|m4a|wav|ogg|oga|flac|aac|opus|webm|mp4)$/i;
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function enabledValue(value) {
+  if (value === false) return false;
+  if (value && typeof value === "object" && value.enabled === false) return false;
+  return true;
+}
+
+function clamp(value, low, high) {
+  return Math.max(low, Math.min(high, Math.round(value)));
+}
+
+function normalizeAudioBookmarkSettings(value) {
+  const source = asObject(value);
+  const entries = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.entries) ? source.entries : []) {
+    const entry = normalizeBookmark(raw);
+    if (!entry || seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    entries.push(entry);
+    if (entries.length >= MAX_BOOKMARKS) break;
+  }
+  return { enabled: enabledValue(value), entries: entries.sort((a, b) => a.path.localeCompare(b.path) || a.at - b.at) };
+}
+
+function normalizeBookmark(value) {
+  const source = asObject(value);
+  const path = str(source.path).trim().replace(/^\/+/, "").slice(0, 500);
+  if (!path || !AUDIO_PATTERN.test(path)) return null;
+  const at = clamp(Number(source.at) || 0, 0, 24 * 3600);
+  return {
+    id: str(source.id).trim().slice(0, 160) || `audio-${hashString([path, at, source.label || ""].join("|"))}`,
+    path,
+    at,
+    label: str(source.label).replace(/\s+/g, " ").trim().slice(0, 160) || formatTimestamp(at),
+    createdAt: Math.max(0, Math.round(Number(source.createdAt) || 0)),
+  };
+}
+
+function isAudioPath(path) {
+  return AUDIO_PATTERN.test(str(path).trim());
+}
+
+/** `1:23`, `01:23:45` or `83s` becomes seconds; invalid input returns -1. */
+function parseTimestamp(value) {
+  const text = str(value).trim();
+  if (!text) return -1;
+  if (/^\d+s$/i.test(text)) return clamp(Number(text.slice(0, -1)), 0, 24 * 3600);
+  const parts = text.split(":").map((part) => part.trim());
+  if (parts.length < 2 || parts.length > 3) return -1;
+  if (parts.some((part) => !/^\d{1,3}$/.test(part))) return -1;
+  const numbers = parts.map(Number);
+  const seconds = numbers.length === 2
+    ? numbers[0] * 60 + numbers[1]
+    : numbers[0] * 3600 + numbers[1] * 60 + numbers[2];
+  if (numbers.length === 2 && numbers[1] > 59) return -1;
+  if (numbers.length === 3 && (numbers[1] > 59 || numbers[2] > 59)) return -1;
+  return clamp(seconds, 0, 24 * 3600);
+}
+
+function formatTimestamp(seconds) {
+  const total = clamp(Number(seconds) || 0, 0, 24 * 3600);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const rest = total % 60;
+  if (hours) return `${hours}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
+
+function addAudioBookmark(input, now) {
+  const source = asObject(input);
+  const stamp = Math.max(0, Math.round(Number(now) || Date.now()));
+  return normalizeBookmark({ ...source, createdAt: stamp });
+}
+
+/** Obsidian's media-fragment link, usable from any note. */
+function bookmarkLink(bookmark) {
+  const entry = normalizeBookmark(bookmark);
+  if (!entry) return "";
+  const base = entry.path.replace(/\.md$/i, "");
+  return `[[${base}#t=${entry.at}|${entry.label}]]`;
+}
+
+/** Group bookmarks for one audio file into ordered chapters. */
+function chaptersFor(entries, path) {
+  const wanted = str(path).trim().toLowerCase();
+  if (!wanted) return [];
+  return (Array.isArray(entries) ? entries : [])
+    .filter((entry) => entry && str(entry.path).trim().toLowerCase() === wanted)
+    .map(normalizeBookmark)
+    .filter(Boolean)
+    .sort((a, b) => a.at - b.at)
+    .map((entry, index) => ({ ...entry, chapter: index + 1, atLabel: formatTimestamp(entry.at) }));
+}
+
+/** All distinct audio paths that have at least one bookmark. */
+function bookmarkPaths(entries) {
+  const seen = new Set();
+  const out = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const path = str(entry && entry.path).trim();
+    if (!path || seen.has(path.toLowerCase())) continue;
+    seen.add(path.toLowerCase());
+    out.push(path);
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+}
+
+module.exports = {
+  MAX_BOOKMARKS,
+  addAudioBookmark,
+  bookmarkLink,
+  bookmarkPaths,
+  chaptersFor,
+  formatTimestamp,
+  isAudioPath,
+  normalizeAudioBookmarkSettings,
+  normalizeBookmark,
+  parseTimestamp,
+};
 };
 
 /* ---- src/auto-anki.js ---- */
@@ -18693,6 +18842,10 @@ const DEFAULT_SETTINGS = {
   deepNotes: { enabled: true, sessions: [] }, // guided Socratic sessions
   retention: { enabled: true }, // read-only card forecast
   vocabulary: { enabled: true, words: [] }, // local dictionary and per-word review ladder
+  readAloud: { enabled: true, style: "full", rate: 1, pitch: 1, voice: "" }, // device speech synthesis, local only
+  lectureCompiler: { enabled: true, folder: "Lecture notes", includeOverview: true, includeConcepts: true, includeVocabulary: true, includeSections: true }, // compile the lecture log into one study note
+  courseHealth: { enabled: true, attendanceThreshold: 75, examWindowDays: 14, minSessions: 3 }, // local course health checks
+  audioBookmarks: { enabled: true, entries: [] }, // timestamp bookmarks and chapters for audio attachments
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
@@ -19381,6 +19534,158 @@ module.exports = {
   normalizeCouchDb,
   sameState,
   stateTimestamp,
+};
+};
+
+/* ---- src/course-health.js ---- */
+__defs["course-health"] = function (module, exports, require) {
+/*
+ * Local course health checks over the course dashboard, topic plans and study
+ * tasks. This is the offline part of Course Command Center's health-check
+ * workflow (MIT): no Canvas request, no login and no note is written.
+ */
+const { str } = require("./util");
+const { dayValue, addDays } = require("./study-tools");
+
+const COURSE_HEALTH_LEVELS = ["ok", "warn"];
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function enabledValue(value) {
+  if (value === false) return false;
+  if (value && typeof value === "object" && value.enabled === false) return false;
+  return true;
+}
+
+function clamp(value, low, high) {
+  return Math.max(low, Math.min(high, Math.round(value)));
+}
+
+function clampOr(value, low, high, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? clamp(n, low, high) : fallback;
+}
+
+function normalizeCourseHealthSettings(value) {
+  const source = asObject(value);
+  return {
+    enabled: enabledValue(value),
+    attendanceThreshold: clampOr(source.attendanceThreshold, 0, 100, 75),
+    examWindowDays: clampOr(source.examWindowDays, 1, 120, 14),
+    minSessions: clampOr(source.minSessions, 1, 50, 3),
+  };
+}
+
+function daysBetween(start, end) {
+  const a = dayValue(start);
+  const b = dayValue(end);
+  if (!a || !b) return 0;
+  const [ay, am, ad] = a.split("-").map(Number);
+  const [by, bm, bd] = b.split("-").map(Number);
+  return Math.round((new Date(by, bm - 1, bd) - new Date(ay, am - 1, ad)) / 86400000);
+}
+
+function sameCourse(a, b) {
+  return str(a).trim().toLowerCase() === str(b).trim().toLowerCase() && !!str(a).trim();
+}
+
+/** Remaining topic passes and exam date for a course, from the topic planner. */
+function planForCourse(plans, course, today) {
+  const day = str(today);
+  const rows = (Array.isArray(plans) ? plans : []).filter((plan) => sameCourse(plan && plan.course, course));
+  const future = rows
+    .filter((plan) => dayValue(plan.examDate) && plan.examDate >= day)
+    .sort((a, b) => a.examDate.localeCompare(b.examDate));
+  const plan = future[0] || null;
+  if (!plan) return null;
+  let target = 0;
+  let passes = 0;
+  for (const topic of Array.isArray(plan.topics) ? plan.topics : []) {
+    target += Math.max(0, Number(topic.targetPasses) || Number(plan.targetPasses) || 1);
+    passes += Math.max(0, Number(topic.passes) || 0);
+  }
+  return { plan, examDate: plan.examDate, daysLeft: daysBetween(day, plan.examDate), remaining: Math.max(0, target - passes) };
+}
+
+/**
+ * Build one row per course with a status and the checks that explain it.
+ * `courses` is the course dashboard output (name, lectures, absences, graded,
+ * weighted, folder, attendance); `plans` and `tasks` are the local planner and
+ * task lists. Nothing is mutated.
+ */
+function courseHealthReport(input) {
+  const source = asObject(input);
+  const settings = normalizeCourseHealthSettings(source);
+  const today = dayValue(source.today) || dayValue(addDays("1970-01-01", 0));
+  const day = today || str(source.today).slice(0, 10);
+  const tasks = Array.isArray(source.tasks) ? source.tasks : [];
+  const plans = Array.isArray(source.plans) ? source.plans : [];
+  const courses = Array.isArray(source.courses) ? source.courses : [];
+
+  const rows = courses.map((course) => {
+    const checks = [];
+    const name = str(course && course.name).trim() || "Untitled course";
+    const attended = Math.max(0, Number(course && course.lectures) || 0);
+    const absences = Math.max(0, Number(course && course.absences) || 0);
+    const attendance = Number.isFinite(Number(course && course.attendance)) ? Number(course.attendance) : null;
+
+    if (!Number(course && course.graded)) {
+      checks.push({ id: "grades", level: "warn", text: "No grade items yet, so the course estimate is empty." });
+    }
+    if (!attended && !absences) {
+      checks.push({ id: "lectures", level: "warn", text: "No lectures or absences logged for this course." });
+    } else if (attendance !== null && attended + absences >= settings.minSessions && attendance < settings.attendanceThreshold) {
+      checks.push({
+        id: "attendance",
+        level: "warn",
+        text: `Attendance is ${attendance}% (${attended} of ${attended + absences}), under the ${settings.attendanceThreshold}% target.`,
+      });
+    }
+    const overdue = tasks.filter(
+      (task) => task && !task.done && dayValue(task.due) && task.due < day && sameCourse(task.course, name)
+    );
+    if (overdue.length) {
+      checks.push({
+        id: "tasks",
+        level: "warn",
+        text: `${overdue.length} open ${overdue.length === 1 ? "task is" : "tasks are"} overdue for this course.`,
+      });
+    }
+    const plan = planForCourse(plans, name, day);
+    if (plan && plan.remaining > 0 && plan.daysLeft <= settings.examWindowDays) {
+      checks.push({
+        id: "exam",
+        level: "warn",
+        text: `Exam in ${plan.daysLeft} ${plan.daysLeft === 1 ? "day" : "days"} with ${plan.remaining} topic ${plan.remaining === 1 ? "pass" : "passes"} left.`,
+      });
+    }
+    if (!str(course && course.folder).trim()) {
+      checks.push({ id: "folder", level: "ok", text: "No course folder set; notes are not grouped for this course." });
+    }
+    if (!checks.length) checks.push({ id: "clear", level: "ok", text: "No open issue found." });
+    const warnings = checks.filter((check) => check.level === "warn").length;
+    const status = warnings === 0 ? "good" : warnings === 1 ? "watch" : "at-risk";
+    return { name, status, warnings, attendance, lectures: attended, absences, checks };
+  }).sort((a, b) => a.status.localeCompare(b.status) === 0 ? a.name.localeCompare(b.name) : (a.status === "at-risk" ? -1 : b.status === "at-risk" ? 1 : a.status === "watch" ? -1 : 1));
+
+  return {
+    rows,
+    total: rows.length,
+    good: rows.filter((row) => row.status === "good").length,
+    watch: rows.filter((row) => row.status === "watch").length,
+    atRisk: rows.filter((row) => row.status === "at-risk").length,
+    warnings: rows.reduce((sum, row) => sum + row.warnings, 0),
+  };
+}
+
+module.exports = {
+  COURSE_HEALTH_LEVELS,
+  courseHealthReport,
+  daysBetween,
+  normalizeCourseHealthSettings,
+  planForCourse,
 };
 };
 
@@ -29852,6 +30157,197 @@ module.exports = {
 };
 };
 
+/* ---- src/lecture-compiler.js ---- */
+__defs["lecture-compiler"] = function (module, exports, require) {
+/*
+ * Compile the local lecture log into one study note: overview, key concepts,
+ * a vocabulary table and one section per lecture. This is the non-audio part of
+ * Lecture Transcriber's "many lectures into one study note" workflow (MIT).
+ * The implementation is original; no audio and no network request is involved.
+ */
+const { str } = require("./util");
+const { dayValue } = require("./study-tools");
+
+const MAX_LECTURES = 300;
+const MAX_CONCEPTS = 40;
+const MAX_TITLE = 160;
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function enabledValue(value) {
+  if (value === false) return false;
+  if (value && typeof value === "object" && value.enabled === false) return false;
+  return true;
+}
+
+function clamp(value, low, high) {
+  return Math.max(low, Math.min(high, Math.round(value)));
+}
+
+function normalizeLectureCompilerSettings(value) {
+  const source = asObject(value);
+  return {
+    enabled: enabledValue(value),
+    folder: str(source.folder).trim().replace(/^\/+|\/+$/g, "").slice(0, 400) || "Lecture notes",
+    includeOverview: source.includeOverview !== false,
+    includeConcepts: source.includeConcepts !== false,
+    includeVocabulary: source.includeVocabulary !== false,
+    includeSections: source.includeSections !== false,
+  };
+}
+
+/** Split a lecture's free-text topics into individual entries. */
+function parseTopicList(topics) {
+  return str(topics)
+    .split(/\n|;|·|,(?![^(]*\))/)
+    .map((entry) => entry.replace(/^[-*+]\s+/, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 60);
+}
+
+/** `Term: definition` becomes a vocabulary row; plain topics stay concepts. */
+function splitConcept(entry) {
+  const text = str(entry).trim();
+  const match = text.match(/^([^:]{2,80}?):\s*(.{2,})$/) || text.match(/^([^:]{2,80}?)\s+[–—-]\s+(.{2,})$/);
+  if (!match) return { term: text, detail: "" };
+  return { term: match[1].trim(), detail: match[2].trim() };
+}
+
+function normalizeLectureRow(value) {
+  const source = asObject(value);
+  const course = str(source.course).trim().slice(0, MAX_TITLE);
+  const title = str(source.title).trim().slice(0, MAX_TITLE);
+  const date = dayValue(source.date);
+  if (!course || !title || !date) return null;
+  return { course, title, date, topics: str(source.topics) };
+}
+
+function uniqueInOrder(values) {
+  const seen = new Set();
+  const out = [];
+  for (const value of values) {
+    const key = str(value).trim();
+    if (!key || seen.has(key.toLowerCase())) continue;
+    seen.add(key.toLowerCase());
+    out.push(key);
+  }
+  return out;
+}
+
+function markdownCell(text) {
+  return str(text).replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
+}
+
+function safeFileTitle(title) {
+  const cleaned = str(title).replace(/[\\/:*?"<>|#^[\]]/g, "-").replace(/\s+/g, " ").trim();
+  return (cleaned || "Lecture notes").slice(0, 120);
+}
+
+/**
+ * Compile lectures into one Markdown study note. Returns null when no valid
+ * lecture remains, so the caller can show a real message instead of an empty
+ * note. The output is deterministic: stable ordering and no timestamps.
+ */
+function compileLectureNote(lectures, options) {
+  const settings = normalizeLectureCompilerSettings(options);
+  const list = (Array.isArray(lectures) ? lectures : [])
+    .map(normalizeLectureRow)
+    .filter(Boolean)
+    .slice(0, MAX_LECTURES)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
+  if (!list.length) return null;
+
+  const courses = uniqueInOrder(list.map((lecture) => lecture.course));
+  const conceptCounts = new Map();
+  const vocabulary = new Map();
+  for (const lecture of list) {
+    for (const entry of parseTopicList(lecture.topics)) {
+      const { term, detail } = splitConcept(entry);
+      if (!term) continue;
+      const key = term.toLowerCase();
+      conceptCounts.set(key, { term, count: (conceptCounts.get(key) || { count: 0 }).count + 1 });
+      if (detail && !vocabulary.has(key)) vocabulary.set(key, { term, detail, source: `${lecture.date} — ${lecture.title}` });
+    }
+  }
+  const concepts = [...conceptCounts.values()]
+    .sort((a, b) => b.count - a.count || a.term.localeCompare(b.term))
+    .slice(0, MAX_CONCEPTS);
+  const vocabRows = [...vocabulary.values()].sort((a, b) => a.term.localeCompare(b.term));
+  const range = { from: list[0].date, to: list[list.length - 1].date };
+  const title = courses.length === 1 ? `${courses[0]} lecture notes` : "Lecture notes";
+
+  const lines = ["---", "source: mcq-tracker", `lectures: ${list.length}`, `courses: [${courses.join(", ")}]`, "---", `# ${title}`, ""];
+
+  if (settings.includeOverview) {
+    lines.push("## Overview", "");
+    lines.push(`- Lectures: ${list.length} (${range.from} to ${range.to})`);
+    lines.push(`- Courses: ${courses.join(", ")}`);
+    lines.push(`- Key concepts: ${concepts.length}`);
+    if (vocabRows.length) lines.push(`- Vocabulary entries: ${vocabRows.length}`);
+    lines.push("");
+  }
+
+  if (settings.includeConcepts && concepts.length) {
+    lines.push("## Key concepts", "");
+    for (const concept of concepts) {
+      lines.push(concept.count > 1 ? `- **${concept.term}** — covered in ${concept.count} lectures` : `- ${concept.term}`);
+    }
+    lines.push("");
+  }
+
+  if (settings.includeVocabulary && vocabRows.length) {
+    lines.push("## Vocabulary", "");
+    lines.push("| Term | Definition | Lecture |");
+    lines.push("| --- | --- | --- |");
+    for (const row of vocabRows) {
+      lines.push(`| ${markdownCell(row.term)} | ${markdownCell(row.detail)} | ${markdownCell(row.source)} |`);
+    }
+    lines.push("");
+  }
+
+  if (settings.includeSections) {
+    lines.push("## Lectures", "");
+    for (const lecture of list) {
+      lines.push(`### ${lecture.date} — ${lecture.title}`, "");
+      lines.push(`Course: ${lecture.course}`);
+      const topics = parseTopicList(lecture.topics);
+      if (topics.length) {
+        lines.push("", "Topics:");
+        for (const topic of topics) lines.push(`- ${topic}`);
+      }
+      lines.push("");
+    }
+  }
+
+  const markdown = `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trim()}\n`;
+  return {
+    markdown,
+    title,
+    fileTitle: safeFileTitle(`${title} ${range.to}`),
+    folder: settings.folder,
+    stats: {
+      lectures: list.length,
+      courses: courses.length,
+      concepts: concepts.length,
+      vocabulary: vocabRows.length,
+      from: range.from,
+      to: range.to,
+    },
+  };
+}
+
+module.exports = {
+  MAX_LECTURES,
+  compileLectureNote,
+  normalizeLectureCompilerSettings,
+  parseTopicList,
+  safeFileTitle,
+  splitConcept,
+};
+};
+
 /* ---- src/matching.js ---- */
 __defs["matching"] = function (module, exports, require) {
 /*
@@ -36854,6 +37350,10 @@ const { AssignmentsView } = require("./assignments-view");
 const { StudyToolsView } = require("./study-tools-view");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const studyWorkspace = require("./study-workspace");
+const readAloud = require("./read-aloud");
+const lectureCompiler = require("./lecture-compiler");
+const audioBookmarks = require("./audio-bookmarks");
+const courseHealth = require("./course-health");
 const { buildCornellNote } = require("./cornell");
 const { renderCornellBlock } = require("./cornell-view");
 const studyTools = require("./study-tools");
@@ -37163,6 +37663,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "study-flow-capture", name: "Study Flow: capture a source excerpt", callback: () => this.activateStudyWorkspace("flow") });
     this.addCommand({ id: "subject-manager", name: "Subject Manager: open subjects", callback: () => this.activateStudyWorkspace("subjects") });
     this.addCommand({ id: "open-quiz-index", name: "Quiz index: scan quizzes and results", callback: () => this.activateStudyWorkspace("quizIndex") });
+    this.addCommand({ id: "read-aloud", name: "Read aloud: speak the active note", callback: () => this.activateStudyWorkspace("readAloud") });
+    this.addCommand({ id: "compile-lecture-notes", name: "Lecture notes: compile the log into one note", callback: () => this.activateStudyWorkspace("lectures") });
+    this.addCommand({ id: "course-health", name: "Course health: check the course list", callback: () => this.activateStudyWorkspace("health") });
+    this.addCommand({ id: "audio-bookmarks", name: "Audio bookmarks: timestamp an attachment", callback: () => this.activateStudyWorkspace("bookmarks") });
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
@@ -37633,6 +38137,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.deepNotes = studyWorkspace.normalizeDeepNotes(saved.deepNotes);
     this.settings.retention = studyWorkspace.normalizeRetention(saved.retention);
     this.settings.vocabulary = studyWorkspace.normalizeVocabulary(saved.vocabulary);
+    this.settings.readAloud = readAloud.normalizeReadAloudSettings(saved.readAloud);
+    this.settings.lectureCompiler = lectureCompiler.normalizeLectureCompilerSettings(saved.lectureCompiler);
+    this.settings.courseHealth = courseHealth.normalizeCourseHealthSettings(saved.courseHealth);
+    this.settings.audioBookmarks = audioBookmarks.normalizeAudioBookmarkSettings(saved.audioBookmarks);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -38182,8 +38690,24 @@ class QuestionTrackerPlugin extends Plugin {
     return studyWorkspace.normalizeVocabulary(this.settings.vocabulary).enabled;
   }
 
+  readAloudEnabled() {
+    return readAloud.normalizeReadAloudSettings(this.settings.readAloud).enabled;
+  }
+
+  lectureCompilerEnabled() {
+    return lectureCompiler.normalizeLectureCompilerSettings(this.settings.lectureCompiler).enabled;
+  }
+
+  courseHealthEnabled() {
+    return courseHealth.normalizeCourseHealthSettings(this.settings.courseHealth).enabled;
+  }
+
+  audioBookmarksEnabled() {
+    return audioBookmarks.normalizeAudioBookmarkSettings(this.settings.audioBookmarks).enabled;
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -44331,6 +44855,60 @@ ${body}
     this.refreshViews();
   }
 
+  /* ---- read aloud, lecture compiler and audio bookmarks */
+
+  readAloudSettings() {
+    return readAloud.normalizeReadAloudSettings(this.settings.readAloud);
+  }
+
+  async updateReadAloud(patch) {
+    this.settings.readAloud = readAloud.normalizeReadAloudSettings({ ...this.readAloudSettings(), ...(patch || {}) });
+    await this.save();
+    this.refreshViews();
+    return this.settings.readAloud;
+  }
+
+  /** Write the compiled lecture note, never overwriting an existing file. */
+  async saveCompiledLectureNote(compiled) {
+    const source = compiled && typeof compiled === "object" ? compiled : null;
+    if (!source || !str(source.markdown).trim()) return null;
+    const settings = lectureCompiler.normalizeLectureCompilerSettings(this.settings.lectureCompiler);
+    const folder = str(source.folder).trim() || settings.folder;
+    if (folder) await ensureFolder(this.app, folder);
+    const base = lectureCompiler.safeFileTitle(source.fileTitle || source.title);
+    const prefix = folder ? `${folder}/` : "";
+    let path = `${prefix}${base}.md`;
+    for (let n = 2; this.app.vault.getAbstractFileByPath(path) && n < 100; n++) path = `${prefix}${base} ${n}.md`;
+    if (this.app.vault.getAbstractFileByPath(path)) return null;
+    await this.app.vault.create(path, source.markdown);
+    new Notice(`Saved ${path}.`);
+    return path;
+  }
+
+  async addAudioBookmark(input) {
+    const entry = audioBookmarks.addAudioBookmark(input, Date.now());
+    if (!entry) return null;
+    const current = studyWorkspace.normalizeAudioBookmarkSettings(this.settings.audioBookmarks);
+    if (current.entries.some((existing) => existing.path === entry.path && existing.at === entry.at && existing.label === entry.label)) return entry;
+    this.settings.audioBookmarks = studyWorkspace.normalizeAudioBookmarkSettings({
+      ...current,
+      entries: current.entries.concat(entry).slice(-audioBookmarks.MAX_BOOKMARKS),
+    });
+    await this.save();
+    this.refreshViews();
+    return entry;
+  }
+
+  async removeAudioBookmark(id) {
+    const current = studyWorkspace.normalizeAudioBookmarkSettings(this.settings.audioBookmarks);
+    this.settings.audioBookmarks = studyWorkspace.normalizeAudioBookmarkSettings({
+      ...current,
+      entries: current.entries.filter((entry) => entry.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
   /* ---- study workspace: guided workflows and local indexes */
 
   async addFeynmanSession(input) {
@@ -49797,6 +50375,154 @@ async function renderQuizPortBlock(plugin, source, el, ctx) {
 module.exports = { renderQuizPortBlock, resolveQuizPortFile };
 };
 
+/* ---- src/read-aloud.js ---- */
+__defs["read-aloud"] = function (module, exports, require) {
+/*
+ * Read-aloud helpers: turn a note into speakable sentences and keep the
+ * speaking plan stable so the view can highlight the current sentence.
+ *
+ * Adapted from the read-aloud workflows of Aloud TTS, LearnKit and Voice
+ * Briefing (all MIT). The implementation is original and dependency-free; it
+ * uses the device speech-synthesis voice, so no provider, key or request is
+ * involved. See NOTICES.md.
+ */
+const { str } = require("./util");
+
+const MAX_READ_TEXT = 20000;
+const MAX_SENTENCES = 400;
+const READ_ALOUD_STYLES = [
+  { id: "full", label: "Full note", sentences: 0, rate: 1 },
+  { id: "briefing", label: "90-second briefing", sentences: 14, rate: 1.1 },
+  { id: "keypoints", label: "Key points", sentences: 6, rate: 1.15 },
+];
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function enabledValue(value) {
+  if (value === false) return false;
+  if (value && typeof value === "object" && value.enabled === false) return false;
+  return true;
+}
+
+function clampNumber(value, low, high, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(low, Math.min(high, Math.round(n * 100) / 100));
+}
+
+function styleById(id) {
+  const key = str(id).trim().toLowerCase();
+  return READ_ALOUD_STYLES.find((style) => style.id === key) || READ_ALOUD_STYLES[0];
+}
+
+function normalizeReadAloudSettings(value) {
+  const source = asObject(value);
+  return {
+    enabled: enabledValue(value),
+    style: styleById(source.style).id,
+    rate: clampNumber(source.rate, 0.5, 2, 1),
+    pitch: clampNumber(source.pitch, 0.5, 1.5, 1),
+    voice: str(source.voice).trim().slice(0, 200),
+  };
+}
+
+/** Remove frontmatter, code, images and markup so the plain text reads well. */
+function stripForSpeech(text) {
+  let body = str(text).replace(/\r\n?/g, "\n").slice(0, MAX_READ_TEXT);
+  body = body.replace(/^---\n[\s\S]*?\n---\n?/, "");
+  body = body.replace(/```[\s\S]*?```/g, " ");
+  body = body.replace(/`([^`]*)`/g, "$1");
+  body = body.replace(/!\[\[[^\]]*\]\]/g, " ");
+  body = body.replace(/!\[[^\]]*\]\([^)]*\)/g, " ");
+  body = body.replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2");
+  body = body.replace(/\[\[([^\]]*)\]\]/g, "$1");
+  body = body.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+  body = body.replace(/<[^>]+>/g, " ");
+  body = body.replace(/^\s{0,3}#{1,6}\s+/gm, "");
+  body = body.replace(/^\s{0,3}>\s?/gm, "");
+  body = body.replace(/^\s*[-*+]\s+/gm, "");
+  body = body.replace(/^\s*\d+[.)]\s+/gm, "");
+  body = body.replace(/[*_~]{1,3}([^*_~]+)[*_~]{1,3}/g, "$1");
+  body = body.replace(/\[[ xX]\]\s*/g, "");
+  return body.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Split cleaned text into sentence-sized chunks, keeping abbreviations usable. */
+function splitSentences(text) {
+  const cleaned = stripForSpeech(text);
+  if (!cleaned) return [];
+  const sentences = [];
+  for (const line of cleaned.split(/\n+/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.match(/[^.!?…]+[.!?…]+["')\]]*|[^.!?…]+$/g) || [trimmed];
+    for (const part of parts) {
+      const sentence = part.replace(/\s+/g, " ").trim();
+      if (sentence.length < 2) continue;
+      sentences.push(sentence.slice(0, 500));
+      if (sentences.length >= MAX_SENTENCES) return sentences;
+    }
+  }
+  return sentences;
+}
+
+/** Words per minute is a rough average for a single narrator voice. */
+function estimateSpeechSeconds(text, rate) {
+  const words = stripForSpeech(text).split(/\s+/).filter(Boolean).length;
+  if (!words) return 0;
+  const speed = clampNumber(rate, 0.5, 2, 1);
+  return Math.max(1, Math.round((words / (2.6 * speed)) * 1));
+}
+
+function durationLabel(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  if (!total) return "0 s";
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  if (!minutes) return `${rest} s`;
+  if (!rest) return `${minutes} min`;
+  return `${minutes} min ${rest} s`;
+}
+
+/**
+ * Build the ordered speaking plan for a note. A briefing style keeps the first
+ * N sentences (the note's own lead), which is what a spoken summary should be.
+ */
+function buildReadAloudPlan(text, options) {
+  const opts = asObject(options);
+  const style = styleById(opts.style);
+  const rate = clampNumber(opts.rate, 0.5, 2, 1);
+  const all = splitSentences(text);
+  const limited = style.sentences > 0 ? all.slice(0, style.sentences) : all;
+  const spoken = limited.join(" ");
+  return {
+    style: style.id,
+    label: style.label,
+    rate,
+    sentences: limited,
+    truncated: limited.length < all.length,
+    total: all.length,
+    text: spoken,
+    estimatedSeconds: estimateSpeechSeconds(spoken, rate),
+  };
+}
+
+module.exports = {
+  MAX_READ_TEXT,
+  MAX_SENTENCES,
+  READ_ALOUD_STYLES,
+  buildReadAloudPlan,
+  durationLabel,
+  estimateSpeechSeconds,
+  normalizeReadAloudSettings,
+  splitSentences,
+  stripForSpeech,
+  styleById,
+};
+};
+
 /* ---- src/reading.js ---- */
 __defs["reading"] = function (module, exports, require) {
 /*
@@ -53925,6 +54651,7 @@ const { Notice, Setting } = require("obsidian");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { normalizeSupport, supportLinks } = require("./support");
 const { SURVEY_ROLES, copySurveySummary } = require("./survey");
+const { READ_ALOUD_STYLES, normalizeReadAloudSettings } = require("./read-aloud");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
@@ -54238,6 +54965,74 @@ function renderModules(containerEl, plugin, redisplay) {
     .addToggle((t) =>
       t.setValue(plugin.vocabularyEnabled()).onChange(async (v) => {
         st.vocabulary.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Read aloud")
+    .setDesc("Speak a note with the device voice and highlight the current sentence. Styles include a 90-second briefing. No provider, key, upload or report is used.")
+    .addToggle((t) =>
+      t.setValue(plugin.readAloudEnabled()).onChange(async (v) => {
+        st.readAloud = { ...normalizeReadAloudSettings(st.readAloud), enabled: v };
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    )
+    .addDropdown((d) => {
+      for (const style of READ_ALOUD_STYLES) d.addOption(style.id, style.label);
+      d.setValue(normalizeReadAloudSettings(st.readAloud).style).onChange(async (v) => {
+        st.readAloud = { ...normalizeReadAloudSettings(st.readAloud), style: v };
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    })
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "0.5";
+      t.inputEl.max = "2";
+      t.inputEl.step = "0.1";
+      t.setValue(String(normalizeReadAloudSettings(st.readAloud).rate));
+      t.onChange(async (v) => {
+        st.readAloud = { ...normalizeReadAloudSettings(st.readAloud), rate: v };
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    });
+
+  new Setting(containerEl)
+    .setName("Lecture note compiler")
+    .setDesc("Turn the lecture log into one study note with an overview, key concepts, a vocabulary table and one section per lecture. Audio transcription is not included.")
+    .addToggle((t) =>
+      t.setValue(plugin.lectureCompilerEnabled()).onChange(async (v) => {
+        st.lectureCompiler = { ...plugin.settings.lectureCompiler, enabled: v };
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Course health")
+    .setDesc("Local checks for missing grades, low attendance, overdue course tasks and an exam that is close with topic passes left. No Canvas request or note write is made.")
+    .addToggle((t) =>
+      t.setValue(plugin.courseHealthEnabled()).onChange(async (v) => {
+        st.courseHealth = { ...plugin.settings.courseHealth, enabled: v };
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Audio bookmarks")
+    .setDesc("Timestamp bookmarks and chapters for an audio attachment, with a copyable Obsidian link. The plugin does not record, play or upload audio.")
+    .addToggle((t) =>
+      t.setValue(plugin.audioBookmarksEnabled()).onChange(async (v) => {
+        st.audioBookmarks = { ...plugin.settings.audioBookmarks, enabled: v };
         await plugin.save();
         await plugin.onStudyWorkspaceToggled();
         redisplay();
@@ -60852,6 +61647,10 @@ __defs["study-workspace"] = function (module, exports, require) {
 const { hashString, localDate, str } = require("./util");
 const { addDays, dayValue } = require("./study-tools");
 const { fencedQuizBlocks, parseQuizBlock } = require("./quiz-block");
+const readAloud = require("./read-aloud");
+const lectureCompiler = require("./lecture-compiler");
+const courseHealth = require("./course-health");
+const audioBookmarks = require("./audio-bookmarks");
 
 const MAX_TEXT = 12000;
 const MAX_TITLE = 200;
@@ -62075,6 +62874,10 @@ function normalizeStudyWorkspaceSettings(value) {
     deepNotes: normalizeDeepNotes(source.deepNotes),
     retention: normalizeRetention(source.retention),
     vocabulary: normalizeVocabulary(source.vocabulary),
+    readAloud: readAloud.normalizeReadAloudSettings(source.readAloud),
+    lectureCompiler: lectureCompiler.normalizeLectureCompilerSettings(source.lectureCompiler),
+    courseHealth: courseHealth.normalizeCourseHealthSettings(source.courseHealth),
+    audioBookmarks: audioBookmarks.normalizeAudioBookmarkSettings(source.audioBookmarks),
   };
 }
 
@@ -62167,6 +62970,10 @@ __defs["study-workspace-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
 const { localDate, str } = require("./util");
+const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
+const { compileLectureNote } = require("./lecture-compiler");
+const { courseHealthReport } = require("./course-health");
+const { bookmarkLink, bookmarkPaths, chaptersFor, formatTimestamp, parseTimestamp } = require("./audio-bookmarks");
 const {
   FEYNMAN_STEPS,
   SOCRATIC_STEPS,
@@ -62200,6 +63007,10 @@ const TABS = [
   { id: "retention", label: "Retention", module: "retention" },
   { id: "vocabulary", label: "Vocabulary", module: "vocabulary" },
   { id: "quizIndex", label: "Quiz index", module: "quizIndex" },
+  { id: "health", label: "Course health", module: "courseHealth" },
+  { id: "lectures", label: "Lecture notes", module: "lectureCompiler" },
+  { id: "readAloud", label: "Read aloud", module: "readAloud" },
+  { id: "bookmarks", label: "Bookmarks", module: "audioBookmarks" },
 ];
 
 const SCORE_LABELS = { clarity: "Clarity", accuracy: "Accuracy", simplicity: "Simplicity" };
@@ -62227,6 +63038,18 @@ class StudyWorkspaceView extends ItemView {
     this.deepNotesId = "";
     this.retentionData = null;
     this.vocabFilter = "";
+    this.lecturePreview = null;
+    this.readAloudText = "";
+    this.readAloudPlan = null;
+    this.readAloudIndex = -1;
+    this.readAloudPlaying = false;
+    this.bookmarkPath = "";
+    this.bookmarkAt = "";
+    this.bookmarkLabel = "";
+  }
+
+  async onClose() {
+    this.stopReadAloud(false);
   }
 
   getViewType() {
@@ -62305,6 +63128,10 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "retention") this.renderRetention(wrap);
     else if (this.tab === "vocabulary") this.renderVocabulary(wrap);
     else if (this.tab === "quizIndex") this.renderQuizIndex(wrap);
+    else if (this.tab === "health") this.renderCourseHealth(wrap);
+    else if (this.tab === "lectures") this.renderLectureCompiler(wrap);
+    else if (this.tab === "readAloud") this.renderReadAloud(wrap);
+    else if (this.tab === "bookmarks") this.renderAudioBookmarks(wrap);
   }
 
   renderOff(root) {
@@ -62312,7 +63139,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary and the Quiz index each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud and audio Bookmarks each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -63433,6 +64260,319 @@ class StudyWorkspaceView extends ItemView {
         await this.plugin.removeStudyAbsence(absence.id);
         this.render();
       });
+    }
+  }
+
+  /* ---- Course health (Course Command Center-style local checks) -------- */
+
+  renderCourseHealth(root) {
+    const data = this.settings();
+    const dashboard = courseDashboard(
+      data.subjectManager.subjects,
+      this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [],
+      data.subjectManager.absences,
+      data.courseHub.grades
+    );
+    const report = courseHealthReport({
+      courses: dashboard,
+      plans: data.lerntracker.plans,
+      tasks: data.studyTasks.tasks,
+      today: localDate(),
+      ...data.courseHealth,
+    });
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Course health" });
+    card.createDiv({ cls: "qt-hint", text: "Local checks over the course dashboard, topic planner and tasks. No Canvas request, login or note write is made." });
+    card.createDiv({ cls: "qt-study-row-meta", text: `${report.total} courses · ${report.good} good · ${report.watch} to watch · ${report.atRisk} at risk · ${report.warnings} warning${report.warnings === 1 ? "" : "s"}` });
+    if (!report.rows.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "Add a subject, a lecture or a grade to build the course list." });
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of report.rows) {
+      const item = list.createDiv({ cls: "qt-study-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: `${row.name} · ${row.status === "at-risk" ? "At risk" : row.status === "watch" ? "Watch" : "Good"}` });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${row.lectures} lecture${row.lectures === 1 ? "" : "s"} · ${row.absences} absence${row.absences === 1 ? "" : "s"}${row.attendance !== null ? ` · ${row.attendance}% attendance` : ""}` });
+      for (const check of row.checks) {
+        main.createDiv({ cls: "qt-study-row-meta", text: `${check.level === "warn" ? "⚠" : "·"} ${check.text}` });
+      }
+    }
+  }
+
+  /* ---- Lecture note compiler (Lecture Transcriber-style, no audio) ----- */
+
+  renderLectureCompiler(root) {
+    const data = this.settings().lectureCompiler;
+    const lectures = this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [];
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Compile one study note" });
+    card.createDiv({ cls: "qt-hint", text: "Turns the local lecture log into one note with an overview, key concepts, a vocabulary table and one section per lecture. Audio transcription stays out of scope." });
+    card.createDiv({ cls: "qt-study-row-meta", text: `${lectures.length} lecture${lectures.length === 1 ? "" : "s"} in the log · saves to ${data.folder}` });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Preview", cls: "mod-cta" }).addEventListener("click", () => {
+      const compiled = compileLectureNote(lectures, data);
+      if (!compiled) {
+        this.lecturePreview = null;
+        this.saveMessage("Add lectures with a course, title, date and topics first.");
+        this.render();
+        return;
+      }
+      this.lecturePreview = compiled;
+      this.saveMessage("Preview built. Save it when it looks right.");
+      this.render();
+    });
+    if (this.lecturePreview) {
+      actions.createEl("button", { text: "Save study note" }).addEventListener("click", async () => {
+        const path = await this.plugin.saveCompiledLectureNote(this.lecturePreview);
+        this.saveMessage(path ? `Saved ${path}.` : "Could not save the study note.");
+        this.render();
+      });
+      const stats = this.lecturePreview.stats;
+      card.createDiv({ cls: "qt-study-row-meta", text: `${stats.lectures} lectures · ${stats.concepts} concepts · ${stats.vocabulary} vocabulary rows · ${stats.from} to ${stats.to}` });
+      const preview = card.createEl("pre", { cls: "qt-lecture-preview" });
+      preview.setText(this.lecturePreview.markdown);
+    }
+  }
+
+  /* ---- Read aloud (device speech synthesis) ---------------------------- */
+
+  speech() {
+    try {
+      return typeof window !== "undefined" && window.speechSynthesis ? window.speechSynthesis : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  stopReadAloud(redraw) {
+    const synth = this.speech();
+    if (synth) {
+      try {
+        synth.cancel();
+      } catch (e) {
+        /* the device can refuse to cancel after the view closes */
+      }
+    }
+    this.readAloudPlaying = false;
+    this.readAloudIndex = -1;
+    if (redraw !== false) this.render();
+  }
+
+  highlightSentence(index) {
+    const nodes = this.contentEl.querySelectorAll(".qt-read-aloud-sentence");
+    nodes.forEach((node, position) => {
+      if (position === index) node.addClass("is-speaking");
+      else node.removeClass("is-speaking");
+    });
+  }
+
+  speakSentence(index) {
+    const plan = this.readAloudPlan;
+    const synth = this.speech();
+    if (!plan || !synth || !this.readAloudPlaying) return;
+    if (index >= plan.sentences.length) {
+      this.readAloudPlaying = false;
+      this.readAloudIndex = -1;
+      this.saveMessage("Finished reading.");
+      this.render();
+      return;
+    }
+    const settings = this.settings().readAloud;
+    const Utterance = typeof window !== "undefined" ? window.SpeechSynthesisUtterance : null;
+    if (!Utterance) {
+      this.saveMessage("This device has no speech synthesis available.");
+      this.readAloudPlaying = false;
+      this.render();
+      return;
+    }
+    const utterance = new Utterance(plan.sentences[index]);
+    utterance.rate = plan.rate;
+    utterance.pitch = settings.pitch;
+    if (settings.voice && typeof synth.getVoices === "function") {
+      const match = synth.getVoices().find((voice) => String(voice.name).toLowerCase() === settings.voice.toLowerCase());
+      if (match) utterance.voice = match;
+    }
+    utterance.onstart = () => this.highlightSentence(index);
+    utterance.onend = () => {
+      if (!this.readAloudPlaying) return;
+      this.readAloudIndex = index + 1;
+      this.speakSentence(index + 1);
+    };
+    this.readAloudIndex = index;
+    try {
+      synth.speak(utterance);
+    } catch (e) {
+      this.saveMessage("The device refused to speak this sentence.");
+      this.readAloudPlaying = false;
+      this.render();
+    }
+  }
+
+  renderReadAloud(root) {
+    const data = this.settings().readAloud;
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Read aloud" });
+    card.createDiv({ cls: "qt-hint", text: "Speaks a note with the device voice and highlights the current sentence. Nothing is uploaded; the voice, rate and pitch stay on this device." });
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const style = this.renderSelect(form, "Style", READ_ALOUD_STYLES.map((entry) => ({ value: entry.id, label: entry.label })), data.style);
+    style.addEventListener("change", async () => {
+      await this.plugin.updateReadAloud({ style: style.value });
+      this.render();
+    });
+    const rate = this.renderField(form, "Rate", "number", "1", String(data.rate));
+    rate.min = "0.5";
+    rate.max = "2";
+    rate.step = "0.1";
+    rate.addEventListener("change", async () => {
+      await this.plugin.updateReadAloud({ rate: rate.value });
+      this.render();
+    });
+    const load = card.createDiv({ cls: "qt-row qt-study-actions" });
+    load.createEl("button", { text: "Load the active note" }).addEventListener("click", async () => {
+      const file = this.app.workspace.getActiveFile();
+      if (!file) {
+        this.saveMessage("Open a note first.");
+        this.render();
+        return;
+      }
+      this.readAloudText = await this.app.vault.read(file);
+      this.readAloudPlan = null;
+      this.saveMessage(`Loaded ${file.path}.`);
+      this.render();
+    });
+    const textarea = this.renderTextarea(card, "Text to read", "Load the active note or paste text here", this.readAloudText, 6);
+    textarea.addEventListener("input", () => {
+      this.readAloudText = textarea.value;
+      this.readAloudPlan = null;
+    });
+    const plan = this.readAloudPlan || buildReadAloudPlan(this.readAloudText, data);
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Start", cls: "mod-cta" }).addEventListener("click", () => {
+      const synth = this.speech();
+      if (!synth) {
+        this.saveMessage("This device has no speech synthesis available.");
+        this.render();
+        return;
+      }
+      const current = buildReadAloudPlan(this.readAloudText, data);
+      if (!current.sentences.length) {
+        this.saveMessage("Load a note or paste text first.");
+        this.render();
+        return;
+      }
+      try {
+        synth.cancel();
+      } catch (e) {
+        /* nothing to cancel */
+      }
+      this.readAloudPlan = current;
+      this.readAloudIndex = 0;
+      this.readAloudPlaying = true;
+      this.saveMessage(`Reading ${current.sentences.length} sentence${current.sentences.length === 1 ? "" : "s"} · about ${durationLabel(current.estimatedSeconds)}.`);
+      this.render();
+      this.speakSentence(0);
+    });
+    actions.createEl("button", { text: "Pause" }).addEventListener("click", () => {
+      const synth = this.speech();
+      if (synth && synth.pause) synth.pause();
+    });
+    actions.createEl("button", { text: "Resume" }).addEventListener("click", () => {
+      const synth = this.speech();
+      if (synth && synth.resume) synth.resume();
+    });
+    actions.createEl("button", { text: "Stop" }).addEventListener("click", () => this.stopReadAloud(true));
+    if (!plan.sentences.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "Load a note or paste text to build a speaking plan." });
+      return;
+    }
+    card.createDiv({ cls: "qt-study-row-meta", text: `${plan.sentences.length} sentences · about ${durationLabel(plan.estimatedSeconds)}${plan.truncated ? ` · shortened from ${plan.total}` : ""}` });
+    const list = card.createDiv({ cls: "qt-study-list qt-read-aloud-list" });
+    plan.sentences.forEach((sentence, index) => {
+      const line = list.createDiv({ cls: "qt-read-aloud-sentence", text: sentence });
+      if (index === this.readAloudIndex) line.addClass("is-speaking");
+      line.addEventListener("click", () => {
+        if (!this.readAloudPlan) return;
+        const synth = this.speech();
+        if (synth) {
+          try {
+            synth.cancel();
+          } catch (e) {
+            /* nothing to cancel */
+          }
+        }
+        this.readAloudPlaying = true;
+        this.speakSentence(index);
+      });
+    });
+  }
+
+  /* ---- Audio bookmarks and chapters ------------------------------------ */
+
+  renderAudioBookmarks(root) {
+    const data = this.settings().audioBookmarks;
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Add a timestamp bookmark" });
+    card.createDiv({ cls: "qt-hint", text: "Stores a timestamp for an audio attachment and builds a copyable Obsidian link. The plugin does not record or upload audio." });
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const path = this.renderField(form, "Audio file", "text", "Recordings/lecture-01.mp3", this.bookmarkPath);
+    path.addEventListener("input", () => (this.bookmarkPath = path.value));
+    const at = this.renderField(form, "Timestamp", "text", "12:30", this.bookmarkAt);
+    at.addEventListener("input", () => (this.bookmarkAt = at.value));
+    const label = this.renderField(form, "Label (optional)", "text", "Cell respiration", this.bookmarkLabel);
+    label.addEventListener("input", () => (this.bookmarkLabel = label.value));
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add bookmark", cls: "mod-cta" }).addEventListener("click", async () => {
+      const seconds = parseTimestamp(this.bookmarkAt || "0:00");
+      if (seconds < 0) {
+        this.saveMessage("Use a timestamp like 1:23 or 01:02:03.");
+        this.render();
+        return;
+      }
+      const entry = await this.plugin.addAudioBookmark({ path: this.bookmarkPath, at: seconds, label: this.bookmarkLabel });
+      if (!entry) {
+        this.saveMessage("Use an audio path that ends in mp3, m4a, wav, ogg, flac, aac, opus, webm or mp4.");
+        this.render();
+        return;
+      }
+      this.bookmarkPath = entry.path;
+      this.bookmarkAt = "";
+      this.bookmarkLabel = "";
+      this.saveMessage(`Bookmark saved at ${formatTimestamp(entry.at)}.`);
+      this.render();
+    });
+    const paths = bookmarkPaths(data.entries);
+    if (!paths.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "No bookmarks yet. Add the first timestamp above." });
+      return;
+    }
+    const listCard = root.createDiv({ cls: "qt-study-card" });
+    listCard.createEl("h3", { text: "Chapters" });
+    const list = listCard.createDiv({ cls: "qt-study-list" });
+    for (const audioPath of paths) {
+      const chapters = chaptersFor(data.entries, audioPath);
+      const group = list.createDiv({ cls: "qt-study-row" });
+      const main = group.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: audioPath });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${chapters.length} bookmark${chapters.length === 1 ? "" : "s"}` });
+      for (const chapter of chapters) {
+        const row = main.createDiv({ cls: "qt-study-row-meta qt-audio-chapter" });
+        row.createSpan({ text: `${chapter.chapter}. ${chapter.atLabel} — ${chapter.label}` });
+        row.createEl("button", { text: "Copy link" }).addEventListener("click", async () => {
+          const link = bookmarkLink(chapter);
+          try {
+            await navigator.clipboard.writeText(link);
+            this.saveMessage(`Copied ${link}.`);
+          } catch (e) {
+            this.saveMessage(link);
+          }
+          this.render();
+        });
+        row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+          await this.plugin.removeAudioBookmark(chapter.id);
+          this.render();
+        });
+      }
     }
   }
 }
@@ -66700,6 +67840,10 @@ const cornell = require("./cornell");
 const intervalPreview = require("./interval-preview");
 const { StudyToolsView } = require("./study-tools-view");
 const studyWorkspace = require("./study-workspace");
+const readAloud = require("./read-aloud");
+const lectureCompiler = require("./lecture-compiler");
+const courseHealth = require("./course-health");
+const audioBookmarks = require("./audio-bookmarks");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const quizNoteGate = require("./quiz-note-gate");
 const quizport = require("./quizport");
@@ -67046,6 +68190,10 @@ QuestionTrackerPlugin.__test = {
   StudyWorkspaceView,
   studyTools,
   studyWorkspace,
+  readAloud,
+  lectureCompiler,
+  courseHealth,
+  audioBookmarks,
   cornell,
   CardView,
   CardModal,

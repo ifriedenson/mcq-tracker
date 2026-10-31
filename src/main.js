@@ -74,6 +74,10 @@ const cornell = require("./cornell");
 const intervalPreview = require("./interval-preview");
 const { StudyToolsView } = require("./study-tools-view");
 const studyWorkspace = require("./study-workspace");
+const readAloud = require("./read-aloud");
+const lectureCompiler = require("./lecture-compiler");
+const courseHealth = require("./course-health");
+const audioBookmarks = require("./audio-bookmarks");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const quizNoteGate = require("./quiz-note-gate");
 const quizport = require("./quizport");
@@ -420,6 +424,10 @@ QuestionTrackerPlugin.__test = {
   StudyWorkspaceView,
   studyTools,
   studyWorkspace,
+  readAloud,
+  lectureCompiler,
+  courseHealth,
+  audioBookmarks,
   cornell,
   CardView,
   CardModal,

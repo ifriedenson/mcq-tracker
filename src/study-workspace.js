@@ -7,6 +7,10 @@
 const { hashString, localDate, str } = require("./util");
 const { addDays, dayValue } = require("./study-tools");
 const { fencedQuizBlocks, parseQuizBlock } = require("./quiz-block");
+const readAloud = require("./read-aloud");
+const lectureCompiler = require("./lecture-compiler");
+const courseHealth = require("./course-health");
+const audioBookmarks = require("./audio-bookmarks");
 
 const MAX_TEXT = 12000;
 const MAX_TITLE = 200;
@@ -1230,6 +1234,10 @@ function normalizeStudyWorkspaceSettings(value) {
     deepNotes: normalizeDeepNotes(source.deepNotes),
     retention: normalizeRetention(source.retention),
     vocabulary: normalizeVocabulary(source.vocabulary),
+    readAloud: readAloud.normalizeReadAloudSettings(source.readAloud),
+    lectureCompiler: lectureCompiler.normalizeLectureCompilerSettings(source.lectureCompiler),
+    courseHealth: courseHealth.normalizeCourseHealthSettings(source.courseHealth),
+    audioBookmarks: audioBookmarks.normalizeAudioBookmarkSettings(source.audioBookmarks),
   };
 }
 

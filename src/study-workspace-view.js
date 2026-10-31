@@ -7,6 +7,10 @@
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
 const { localDate, str } = require("./util");
+const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
+const { compileLectureNote } = require("./lecture-compiler");
+const { courseHealthReport } = require("./course-health");
+const { bookmarkLink, bookmarkPaths, chaptersFor, formatTimestamp, parseTimestamp } = require("./audio-bookmarks");
 const {
   FEYNMAN_STEPS,
   SOCRATIC_STEPS,
@@ -40,6 +44,10 @@ const TABS = [
   { id: "retention", label: "Retention", module: "retention" },
   { id: "vocabulary", label: "Vocabulary", module: "vocabulary" },
   { id: "quizIndex", label: "Quiz index", module: "quizIndex" },
+  { id: "health", label: "Course health", module: "courseHealth" },
+  { id: "lectures", label: "Lecture notes", module: "lectureCompiler" },
+  { id: "readAloud", label: "Read aloud", module: "readAloud" },
+  { id: "bookmarks", label: "Bookmarks", module: "audioBookmarks" },
 ];
 
 const SCORE_LABELS = { clarity: "Clarity", accuracy: "Accuracy", simplicity: "Simplicity" };
@@ -67,6 +75,18 @@ class StudyWorkspaceView extends ItemView {
     this.deepNotesId = "";
     this.retentionData = null;
     this.vocabFilter = "";
+    this.lecturePreview = null;
+    this.readAloudText = "";
+    this.readAloudPlan = null;
+    this.readAloudIndex = -1;
+    this.readAloudPlaying = false;
+    this.bookmarkPath = "";
+    this.bookmarkAt = "";
+    this.bookmarkLabel = "";
+  }
+
+  async onClose() {
+    this.stopReadAloud(false);
   }
 
   getViewType() {
@@ -145,6 +165,10 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "retention") this.renderRetention(wrap);
     else if (this.tab === "vocabulary") this.renderVocabulary(wrap);
     else if (this.tab === "quizIndex") this.renderQuizIndex(wrap);
+    else if (this.tab === "health") this.renderCourseHealth(wrap);
+    else if (this.tab === "lectures") this.renderLectureCompiler(wrap);
+    else if (this.tab === "readAloud") this.renderReadAloud(wrap);
+    else if (this.tab === "bookmarks") this.renderAudioBookmarks(wrap);
   }
 
   renderOff(root) {
@@ -152,7 +176,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary and the Quiz index each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud and audio Bookmarks each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -1273,6 +1297,319 @@ class StudyWorkspaceView extends ItemView {
         await this.plugin.removeStudyAbsence(absence.id);
         this.render();
       });
+    }
+  }
+
+  /* ---- Course health (Course Command Center-style local checks) -------- */
+
+  renderCourseHealth(root) {
+    const data = this.settings();
+    const dashboard = courseDashboard(
+      data.subjectManager.subjects,
+      this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [],
+      data.subjectManager.absences,
+      data.courseHub.grades
+    );
+    const report = courseHealthReport({
+      courses: dashboard,
+      plans: data.lerntracker.plans,
+      tasks: data.studyTasks.tasks,
+      today: localDate(),
+      ...data.courseHealth,
+    });
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Course health" });
+    card.createDiv({ cls: "qt-hint", text: "Local checks over the course dashboard, topic planner and tasks. No Canvas request, login or note write is made." });
+    card.createDiv({ cls: "qt-study-row-meta", text: `${report.total} courses · ${report.good} good · ${report.watch} to watch · ${report.atRisk} at risk · ${report.warnings} warning${report.warnings === 1 ? "" : "s"}` });
+    if (!report.rows.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "Add a subject, a lecture or a grade to build the course list." });
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of report.rows) {
+      const item = list.createDiv({ cls: "qt-study-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: `${row.name} · ${row.status === "at-risk" ? "At risk" : row.status === "watch" ? "Watch" : "Good"}` });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${row.lectures} lecture${row.lectures === 1 ? "" : "s"} · ${row.absences} absence${row.absences === 1 ? "" : "s"}${row.attendance !== null ? ` · ${row.attendance}% attendance` : ""}` });
+      for (const check of row.checks) {
+        main.createDiv({ cls: "qt-study-row-meta", text: `${check.level === "warn" ? "⚠" : "·"} ${check.text}` });
+      }
+    }
+  }
+
+  /* ---- Lecture note compiler (Lecture Transcriber-style, no audio) ----- */
+
+  renderLectureCompiler(root) {
+    const data = this.settings().lectureCompiler;
+    const lectures = this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [];
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Compile one study note" });
+    card.createDiv({ cls: "qt-hint", text: "Turns the local lecture log into one note with an overview, key concepts, a vocabulary table and one section per lecture. Audio transcription stays out of scope." });
+    card.createDiv({ cls: "qt-study-row-meta", text: `${lectures.length} lecture${lectures.length === 1 ? "" : "s"} in the log · saves to ${data.folder}` });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Preview", cls: "mod-cta" }).addEventListener("click", () => {
+      const compiled = compileLectureNote(lectures, data);
+      if (!compiled) {
+        this.lecturePreview = null;
+        this.saveMessage("Add lectures with a course, title, date and topics first.");
+        this.render();
+        return;
+      }
+      this.lecturePreview = compiled;
+      this.saveMessage("Preview built. Save it when it looks right.");
+      this.render();
+    });
+    if (this.lecturePreview) {
+      actions.createEl("button", { text: "Save study note" }).addEventListener("click", async () => {
+        const path = await this.plugin.saveCompiledLectureNote(this.lecturePreview);
+        this.saveMessage(path ? `Saved ${path}.` : "Could not save the study note.");
+        this.render();
+      });
+      const stats = this.lecturePreview.stats;
+      card.createDiv({ cls: "qt-study-row-meta", text: `${stats.lectures} lectures · ${stats.concepts} concepts · ${stats.vocabulary} vocabulary rows · ${stats.from} to ${stats.to}` });
+      const preview = card.createEl("pre", { cls: "qt-lecture-preview" });
+      preview.setText(this.lecturePreview.markdown);
+    }
+  }
+
+  /* ---- Read aloud (device speech synthesis) ---------------------------- */
+
+  speech() {
+    try {
+      return typeof window !== "undefined" && window.speechSynthesis ? window.speechSynthesis : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  stopReadAloud(redraw) {
+    const synth = this.speech();
+    if (synth) {
+      try {
+        synth.cancel();
+      } catch (e) {
+        /* the device can refuse to cancel after the view closes */
+      }
+    }
+    this.readAloudPlaying = false;
+    this.readAloudIndex = -1;
+    if (redraw !== false) this.render();
+  }
+
+  highlightSentence(index) {
+    const nodes = this.contentEl.querySelectorAll(".qt-read-aloud-sentence");
+    nodes.forEach((node, position) => {
+      if (position === index) node.addClass("is-speaking");
+      else node.removeClass("is-speaking");
+    });
+  }
+
+  speakSentence(index) {
+    const plan = this.readAloudPlan;
+    const synth = this.speech();
+    if (!plan || !synth || !this.readAloudPlaying) return;
+    if (index >= plan.sentences.length) {
+      this.readAloudPlaying = false;
+      this.readAloudIndex = -1;
+      this.saveMessage("Finished reading.");
+      this.render();
+      return;
+    }
+    const settings = this.settings().readAloud;
+    const Utterance = typeof window !== "undefined" ? window.SpeechSynthesisUtterance : null;
+    if (!Utterance) {
+      this.saveMessage("This device has no speech synthesis available.");
+      this.readAloudPlaying = false;
+      this.render();
+      return;
+    }
+    const utterance = new Utterance(plan.sentences[index]);
+    utterance.rate = plan.rate;
+    utterance.pitch = settings.pitch;
+    if (settings.voice && typeof synth.getVoices === "function") {
+      const match = synth.getVoices().find((voice) => String(voice.name).toLowerCase() === settings.voice.toLowerCase());
+      if (match) utterance.voice = match;
+    }
+    utterance.onstart = () => this.highlightSentence(index);
+    utterance.onend = () => {
+      if (!this.readAloudPlaying) return;
+      this.readAloudIndex = index + 1;
+      this.speakSentence(index + 1);
+    };
+    this.readAloudIndex = index;
+    try {
+      synth.speak(utterance);
+    } catch (e) {
+      this.saveMessage("The device refused to speak this sentence.");
+      this.readAloudPlaying = false;
+      this.render();
+    }
+  }
+
+  renderReadAloud(root) {
+    const data = this.settings().readAloud;
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Read aloud" });
+    card.createDiv({ cls: "qt-hint", text: "Speaks a note with the device voice and highlights the current sentence. Nothing is uploaded; the voice, rate and pitch stay on this device." });
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const style = this.renderSelect(form, "Style", READ_ALOUD_STYLES.map((entry) => ({ value: entry.id, label: entry.label })), data.style);
+    style.addEventListener("change", async () => {
+      await this.plugin.updateReadAloud({ style: style.value });
+      this.render();
+    });
+    const rate = this.renderField(form, "Rate", "number", "1", String(data.rate));
+    rate.min = "0.5";
+    rate.max = "2";
+    rate.step = "0.1";
+    rate.addEventListener("change", async () => {
+      await this.plugin.updateReadAloud({ rate: rate.value });
+      this.render();
+    });
+    const load = card.createDiv({ cls: "qt-row qt-study-actions" });
+    load.createEl("button", { text: "Load the active note" }).addEventListener("click", async () => {
+      const file = this.app.workspace.getActiveFile();
+      if (!file) {
+        this.saveMessage("Open a note first.");
+        this.render();
+        return;
+      }
+      this.readAloudText = await this.app.vault.read(file);
+      this.readAloudPlan = null;
+      this.saveMessage(`Loaded ${file.path}.`);
+      this.render();
+    });
+    const textarea = this.renderTextarea(card, "Text to read", "Load the active note or paste text here", this.readAloudText, 6);
+    textarea.addEventListener("input", () => {
+      this.readAloudText = textarea.value;
+      this.readAloudPlan = null;
+    });
+    const plan = this.readAloudPlan || buildReadAloudPlan(this.readAloudText, data);
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Start", cls: "mod-cta" }).addEventListener("click", () => {
+      const synth = this.speech();
+      if (!synth) {
+        this.saveMessage("This device has no speech synthesis available.");
+        this.render();
+        return;
+      }
+      const current = buildReadAloudPlan(this.readAloudText, data);
+      if (!current.sentences.length) {
+        this.saveMessage("Load a note or paste text first.");
+        this.render();
+        return;
+      }
+      try {
+        synth.cancel();
+      } catch (e) {
+        /* nothing to cancel */
+      }
+      this.readAloudPlan = current;
+      this.readAloudIndex = 0;
+      this.readAloudPlaying = true;
+      this.saveMessage(`Reading ${current.sentences.length} sentence${current.sentences.length === 1 ? "" : "s"} · about ${durationLabel(current.estimatedSeconds)}.`);
+      this.render();
+      this.speakSentence(0);
+    });
+    actions.createEl("button", { text: "Pause" }).addEventListener("click", () => {
+      const synth = this.speech();
+      if (synth && synth.pause) synth.pause();
+    });
+    actions.createEl("button", { text: "Resume" }).addEventListener("click", () => {
+      const synth = this.speech();
+      if (synth && synth.resume) synth.resume();
+    });
+    actions.createEl("button", { text: "Stop" }).addEventListener("click", () => this.stopReadAloud(true));
+    if (!plan.sentences.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "Load a note or paste text to build a speaking plan." });
+      return;
+    }
+    card.createDiv({ cls: "qt-study-row-meta", text: `${plan.sentences.length} sentences · about ${durationLabel(plan.estimatedSeconds)}${plan.truncated ? ` · shortened from ${plan.total}` : ""}` });
+    const list = card.createDiv({ cls: "qt-study-list qt-read-aloud-list" });
+    plan.sentences.forEach((sentence, index) => {
+      const line = list.createDiv({ cls: "qt-read-aloud-sentence", text: sentence });
+      if (index === this.readAloudIndex) line.addClass("is-speaking");
+      line.addEventListener("click", () => {
+        if (!this.readAloudPlan) return;
+        const synth = this.speech();
+        if (synth) {
+          try {
+            synth.cancel();
+          } catch (e) {
+            /* nothing to cancel */
+          }
+        }
+        this.readAloudPlaying = true;
+        this.speakSentence(index);
+      });
+    });
+  }
+
+  /* ---- Audio bookmarks and chapters ------------------------------------ */
+
+  renderAudioBookmarks(root) {
+    const data = this.settings().audioBookmarks;
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Add a timestamp bookmark" });
+    card.createDiv({ cls: "qt-hint", text: "Stores a timestamp for an audio attachment and builds a copyable Obsidian link. The plugin does not record or upload audio." });
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const path = this.renderField(form, "Audio file", "text", "Recordings/lecture-01.mp3", this.bookmarkPath);
+    path.addEventListener("input", () => (this.bookmarkPath = path.value));
+    const at = this.renderField(form, "Timestamp", "text", "12:30", this.bookmarkAt);
+    at.addEventListener("input", () => (this.bookmarkAt = at.value));
+    const label = this.renderField(form, "Label (optional)", "text", "Cell respiration", this.bookmarkLabel);
+    label.addEventListener("input", () => (this.bookmarkLabel = label.value));
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add bookmark", cls: "mod-cta" }).addEventListener("click", async () => {
+      const seconds = parseTimestamp(this.bookmarkAt || "0:00");
+      if (seconds < 0) {
+        this.saveMessage("Use a timestamp like 1:23 or 01:02:03.");
+        this.render();
+        return;
+      }
+      const entry = await this.plugin.addAudioBookmark({ path: this.bookmarkPath, at: seconds, label: this.bookmarkLabel });
+      if (!entry) {
+        this.saveMessage("Use an audio path that ends in mp3, m4a, wav, ogg, flac, aac, opus, webm or mp4.");
+        this.render();
+        return;
+      }
+      this.bookmarkPath = entry.path;
+      this.bookmarkAt = "";
+      this.bookmarkLabel = "";
+      this.saveMessage(`Bookmark saved at ${formatTimestamp(entry.at)}.`);
+      this.render();
+    });
+    const paths = bookmarkPaths(data.entries);
+    if (!paths.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "No bookmarks yet. Add the first timestamp above." });
+      return;
+    }
+    const listCard = root.createDiv({ cls: "qt-study-card" });
+    listCard.createEl("h3", { text: "Chapters" });
+    const list = listCard.createDiv({ cls: "qt-study-list" });
+    for (const audioPath of paths) {
+      const chapters = chaptersFor(data.entries, audioPath);
+      const group = list.createDiv({ cls: "qt-study-row" });
+      const main = group.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: audioPath });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${chapters.length} bookmark${chapters.length === 1 ? "" : "s"}` });
+      for (const chapter of chapters) {
+        const row = main.createDiv({ cls: "qt-study-row-meta qt-audio-chapter" });
+        row.createSpan({ text: `${chapter.chapter}. ${chapter.atLabel} — ${chapter.label}` });
+        row.createEl("button", { text: "Copy link" }).addEventListener("click", async () => {
+          const link = bookmarkLink(chapter);
+          try {
+            await navigator.clipboard.writeText(link);
+            this.saveMessage(`Copied ${link}.`);
+          } catch (e) {
+            this.saveMessage(link);
+          }
+          this.render();
+        });
+        row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+          await this.plugin.removeAudioBookmark(chapter.id);
+          this.render();
+        });
+      }
     }
   }
 }

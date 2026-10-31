@@ -139,6 +139,17 @@ Board.
 
 `src/math-rendering.js` and `src/smiles.js` are original code written for this plugin. The SMILES renderer implements a documented teaching subset and draws it as local SVG; no Chem, RDKit, Ketcher or other structure-rendering library is bundled. Complex or unsupported SMILES is rejected rather than approximated. It rewrites a small, conservative subset of `\ce{...}` notation into ordinary MathJax at display time. No MathJax, mhchem, KaTeX or other renderer code is bundled, and complex chemistry is left for the user's mhchem setup.
 
+## Read aloud, lecture compiler, course health and audio bookmarks
+
+Four local study modules adapt MIT-licensed plugin concepts. In each case the source was read as a feature reference only: no source file, function or stylesheet rule was copied, and the implementation in this repository is original, dependency-free JavaScript. The MIT licence texts below are recorded so the provenance of the ideas is auditable.
+
+- **Aloud TTS** — [obsidian-aloud-tts](https://github.com/adrianlyjak/obsidian-aloud-tts), MIT, Copyright (c) Adrian Lyjak (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: sentence-level highlight while reading a note aloud. `src/read-aloud.js` and the **Read aloud** tab in `src/study-workspace-view.js` build a local sentence plan and use the device speech voice; no audio is cached or uploaded.
+- **LearnKit** — [learnkit](https://github.com/ctrlaltwill/learnkit), MIT, Copyright (c) Will (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: read-aloud TTS access to note text. Only the idea of speaking a note is used; no LearnKit code, card type, scheduler or parameter-fit code is bundled.
+- **Voice Briefing** — [voice-note-obsidian](https://github.com/reallygood83/voice-note-obsidian), MIT, Copyright (c) reallygood83 (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: a short spoken briefing with style presets. The 90-second briefing, key-points and full-note styles in `src/read-aloud.js` are original implementations.
+- **Lecture Transcriber** — [obsidian-lecture-transcriber](https://github.com/AbyssLotus/obsidian-lecture-transcriber), MIT, Copyright (c) AbyssLotus (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: combine several lectures into one study note with an overview, key concepts and a vocabulary table. `src/lecture-compiler.js` is an original Markdown compiler over this plugin's own lecture log; it performs no transcription and calls no model.
+- **Course Command Center** — [CourseCommandCenter](https://github.com/flippinhutt/CourseCommandCenter), MIT, Copyright (c) flippinhutt (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: course health checks. `src/course-health.js` implements local checks over this plugin's course dashboard, planner and tasks; it has no Canvas client, OAuth flow or note-template code.
+- **Advanced Audio Recorder** — [advanced-audio-recorder](https://github.com/akhmialeuski/advanced-audio-recorder), MIT, Copyright (c) akhmialeuski (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: timestamp bookmarks, chapters and copyable timestamp links. `src/audio-bookmarks.js` stores timestamps in plugin data and builds Obsidian media-fragment links; it does not record, edit or play audio.
+
 ## Not absorbed (yet)
 
 The product plan also names LearnKit as a future absorb source. It has **not** been copied
