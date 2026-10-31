@@ -2388,7 +2388,9 @@ The mission asked for every remaining plan item to be implemented. These cannot 
 
 ### Decision queue (Oct 31, 2026)
 
-**Sweep result.** `plan.md` has **104 checked `[x]` items, 10 `[~]` partial/blocked items and 0 unchecked `[ ]` items**. §3.9.3 has **10 W1 rows (all complete), 22 W2 rows, 13 W3 rows and 1 Quizzable decision row**. §11 has **10 active "Still open" questions** (item 6 is resolved), **11 active mission questions** (items 8–9 are resolved) and **7 active later questions** (items 14, 15 and 18–22; items 16–17 are resolved). Those counts overlap; this queue is the deduplicated decision set.
+**Clean-install verification (Oct 31, 2026):** `npm ci --ignore-scripts` completed with 0 vulnerabilities, the full suite passed **1088/1088**, `npm run check` reported no dynamic code in **186 files** and `main.js` current, and `package.json` and `manifest.json` both report **1.166.0**. No version bump or release was made.
+
+**Sweep result.** `plan.md` has **104 checked `[x]` items, 10 `[~]` partial/blocked items and 0 unchecked `[ ]` items**. §3.9.3 has **10 W1 rows (all complete), 9 gated W2 rows, 13 W3 rows and 1 Quizzable decision row**. §11 has **10 active "Still open" questions** (item 6 is resolved), **11 active mission questions** (items 8–9 are resolved) and **7 active later questions** (items 14, 15 and 18–22; items 16–17 are resolved). Those counts overlap; this queue is the deduplicated decision set.
 
 **The approved local implementation batch is complete.** Eight independent study modules and the Quizzable slice ship unreleased. The remaining W2 rows and every W3 external integration are skipped in this pass; each is listed below with its blocker. A row that needs an owner product/API decision is recorded as a question rather than guessed.
 
