@@ -6,6 +6,7 @@
  */
 const { hashString, localDate, str } = require("./util");
 const { addDays, dayValue } = require("./study-tools");
+const { fencedQuizBlocks, parseQuizBlock } = require("./quiz-block");
 
 const MAX_TEXT = 12000;
 const MAX_TITLE = 200;
@@ -15,6 +16,7 @@ const MAX_SUBJECTS = 80;
 const MAX_ABSENCES = 500;
 const MAX_PLANS = 80;
 const MAX_TOPICS = 80;
+const MAX_QUIZ_ROWS = 500;
 
 const FEYNMAN_STEPS = ["Explain it simply", "Find the gaps", "Simplify and connect", "Teach it back"];
 const FEYNMAN_KEYS = ["explain", "gaps", "simplify", "teach"];
@@ -544,6 +546,88 @@ function recallStats(reviews, today) {
   };
 }
 
+function normalizeQuizIndex(value) {
+  const source = asObject(value);
+  return {
+    enabled: enabledValue(value),
+    folder: textValue(source.folder, 500).replace(/^\/+|\/+$/g, ""),
+    limit: clamp(numberValue(source.limit, 50), 1, 200),
+  };
+}
+
+function quizResult(value) {
+  if (!value || typeof value !== "object") return null;
+  const percentage = clamp(numberValue(value.percentage, 0), 0, 100);
+  return {
+    percentage,
+    passed: value.passed === true,
+    score: Math.max(0, Math.round(numberValue(value.score, 0))),
+    totalPoints: Math.max(0, Math.round(numberValue(value.totalPoints, 0))),
+  };
+}
+
+/** Scan parsed notes for quiz blocks and the existing opt-in quizResults data. */
+function collectQuizIndex(entries, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const limit = clamp(numberValue(opts.limit, 50), 1, 200);
+  const rows = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const path = str(entry && entry.path).trim();
+    const text = str(entry && entry.text);
+    if (!path || !text) continue;
+    const fm = asObject(entry.fm);
+    const blocks = [...fencedQuizBlocks(text), ...fencedQuizBlocks(text, "quiz-definition")];
+    for (let index = 0; index < blocks.length; index++) {
+      let parsed;
+      try {
+        parsed = parseQuizBlock(blocks[index]);
+      } catch (e) {
+        continue;
+      }
+      if (!parsed.questions.length) continue;
+      const id = str(parsed.id).trim() || `untitled-${rows.length + 1}`;
+      const levels = {};
+      const types = {};
+      for (const question of parsed.questions) {
+        const level = str(question.level).trim() || "Unlevelled";
+        const type = str(question.type).trim() || "choice";
+        levels[level] = (levels[level] || 0) + 1;
+        types[type] = (types[type] || 0) + 1;
+      }
+      rows.push({
+        path,
+        id,
+        title: str(parsed.questions[0].question).slice(0, 160),
+        count: parsed.questions.length,
+        levels,
+        types,
+        result: quizResult(fm.quizResults && fm.quizResults[id]),
+      });
+      if (rows.length >= MAX_QUIZ_ROWS) break;
+    }
+    if (rows.length >= MAX_QUIZ_ROWS) break;
+  }
+  const results = rows.map((row) => row.result).filter(Boolean);
+  const levels = {};
+  const types = {};
+  for (const row of rows) {
+    for (const [key, count] of Object.entries(row.levels)) levels[key] = (levels[key] || 0) + count;
+    for (const [key, count] of Object.entries(row.types)) types[key] = (types[key] || 0) + count;
+  }
+  return {
+    rows: rows.slice(0, limit),
+    stats: {
+      quizzes: rows.length,
+      questions: rows.reduce((sum, row) => sum + row.count, 0),
+      withResults: results.length,
+      passed: results.filter((result) => result.passed).length,
+      average: results.length ? Math.round(results.reduce((sum, result) => sum + result.percentage, 0) / results.length) : 0,
+      levels,
+      types,
+    },
+  };
+}
+
 function normalizeStudyWorkspaceSettings(value) {
   const source = asObject(value);
   return {
@@ -552,6 +636,7 @@ function normalizeStudyWorkspaceSettings(value) {
     lerntracker: normalizePlanner(source.lerntracker),
     studyFlow: normalizeStudyFlow(source.studyFlow),
     subjectManager: normalizeSubjectManager(source.subjectManager),
+    quizIndex: normalizeQuizIndex(source.quizIndex),
   };
 }
 
@@ -564,10 +649,12 @@ module.exports = {
   MAX_EXCERPTS,
   MAX_FEYNMAN,
   MAX_PLANS,
+  MAX_QUIZ_ROWS,
   MAX_SUBJECTS,
   MAX_TOPICS,
   RECALL_MODES,
   allocatePlan,
+  collectQuizIndex,
   createAbsence,
   createFeynmanSession,
   createFlowExcerpt,
@@ -582,6 +669,7 @@ module.exports = {
   normalizeFeynmanSettings,
   normalizeFlowExcerpt,
   normalizePlanner,
+  normalizeQuizIndex,
   normalizeRecallScheduler,
   normalizeStudyFlow,
   normalizeStudyWorkspaceSettings,

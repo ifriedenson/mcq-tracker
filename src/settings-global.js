@@ -184,6 +184,18 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Quiz index")
+    .setDesc("Scan the vault for inline quizzes and show question, level, type and recorded result counts. Reads the existing quizResults properties and never creates attempts.")
+    .addToggle((t) =>
+      t.setValue(plugin.quizIndexEnabled()).onChange(async (v) => {
+        st.quizIndex.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>

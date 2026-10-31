@@ -146,6 +146,7 @@ const DEFAULT_SETTINGS = {
   lerntracker: { enabled: true, plans: [] }, // topic-pass planner with exam buffer days
   studyFlow: { enabled: true, excerpts: [] }, // source excerpt -> understanding -> card draft inbox
   subjectManager: { enabled: true, subjects: [], absences: [] }, // subjects and absence log
+  quizIndex: { enabled: true, folder: "", limit: 50 }, // cross-vault quiz dashboard/index
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),

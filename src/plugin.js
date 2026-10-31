@@ -318,6 +318,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-topic-plan", name: "Topic planner: create an exam plan", callback: () => this.activateStudyWorkspace("planner") });
     this.addCommand({ id: "study-flow-capture", name: "Study Flow: capture a source excerpt", callback: () => this.activateStudyWorkspace("flow") });
     this.addCommand({ id: "subject-manager", name: "Subject Manager: open subjects", callback: () => this.activateStudyWorkspace("subjects") });
+    this.addCommand({ id: "open-quiz-index", name: "Quiz index: scan quizzes and results", callback: () => this.activateStudyWorkspace("quizIndex") });
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
@@ -773,6 +774,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.lerntracker = studyWorkspace.normalizePlanner(saved.lerntracker);
     this.settings.studyFlow = studyWorkspace.normalizeStudyFlow(saved.studyFlow);
     this.settings.subjectManager = studyWorkspace.normalizeSubjectManager(saved.subjectManager);
+    this.settings.quizIndex = studyWorkspace.normalizeQuizIndex(saved.quizIndex);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -1278,8 +1280,12 @@ class QuestionTrackerPlugin extends Plugin {
     return studyWorkspace.normalizeSubjectManager(this.settings.subjectManager).enabled;
   }
 
+  quizIndexEnabled() {
+    return studyWorkspace.normalizeQuizIndex(this.settings.quizIndex).enabled;
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -7570,6 +7576,23 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+  }
+
+  async buildQuizIndex(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const folder = str(opts.folder).trim().replace(/^\/+|\/+$/g, "");
+    const entries = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (folder && file.path !== folder && !file.path.startsWith(`${folder}/`)) continue;
+      let text = "";
+      try {
+        text = this.app.vault.cachedRead ? await this.app.vault.cachedRead(file) : await this.app.vault.read(file);
+      } catch (e) {
+        continue;
+      }
+      entries.push({ path: file.path, text, fm: this.app.metadataCache.getFileCache(file)?.frontmatter || {} });
+    }
+    return studyWorkspace.collectQuizIndex(entries, { limit: opts.limit || this.settings.quizIndex.limit });
   }
 
   async buildRecallQueue(options) {

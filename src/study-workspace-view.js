@@ -28,6 +28,7 @@ const TABS = [
   { id: "planner", label: "Topic planner", module: "lerntracker" },
   { id: "flow", label: "Study Flow", module: "studyFlow" },
   { id: "subjects", label: "Subjects", module: "subjectManager" },
+  { id: "quizIndex", label: "Quiz index", module: "quizIndex" },
 ];
 
 const SCORE_LABELS = { clarity: "Clarity", accuracy: "Accuracy", simplicity: "Simplicity" };
@@ -48,6 +49,9 @@ class StudyWorkspaceView extends ItemView {
     this.recallRevealed = false;
     this.recallBuilt = false;
     this.subjectFilter = "";
+    this.quizIndexData = null;
+    this.quizIndexFolder = "";
+    this.quizIndexLimit = "50";
   }
 
   getViewType() {
@@ -119,6 +123,7 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "planner") this.renderPlanner(wrap);
     else if (this.tab === "flow") this.renderFlow(wrap);
     else if (this.tab === "subjects") this.renderSubjects(wrap);
+    else if (this.tab === "quizIndex") this.renderQuizIndex(wrap);
   }
 
   renderOff(root) {
@@ -126,7 +131,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow and Subject Manager each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager and the Quiz index each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -548,6 +553,78 @@ class StudyWorkspaceView extends ItemView {
         await this.plugin.removeFlowExcerpt(excerpt.id);
         this.render();
       });
+    }
+  }
+
+  /* ---- Quiz index ------------------------------------------------------ */
+
+  renderQuizIndex(root) {
+    const data = this.settings().quizIndex;
+    const controls = root.createDiv({ cls: "qt-study-card" });
+    controls.createEl("h3", { text: "Quiz index" });
+    controls.createDiv({
+      cls: "qt-hint",
+      text: "Scan inline quizzes across the vault. Counts and recorded results come from the existing quiz blocks and opt-in quizResults properties; scanning never creates attempts or changes a note.",
+    });
+    const form = controls.createDiv({ cls: "qt-study-form" });
+    const folder = this.renderField(form, "Folder (optional)", "text", "Quizzes", this.quizIndexFolder || data.folder);
+    const limit = this.renderField(form, "Limit", "number", "50", this.quizIndexLimit || String(data.limit));
+    const actions = controls.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Scan vault", cls: "mod-cta" }).addEventListener("click", async () => {
+      this.quizIndexFolder = str(folder.value).trim();
+      this.quizIndexLimit = str(limit.value).trim() || "50";
+      try {
+        this.quizIndexData = await this.plugin.buildQuizIndex({
+          folder: this.quizIndexFolder,
+          limit: this.quizIndexLimit,
+        });
+        const stats = this.quizIndexData.stats;
+        this.saveMessage(`Found ${stats.quizzes} quiz${stats.quizzes === 1 ? "" : "zes"} with ${stats.questions} question${stats.questions === 1 ? "" : "s"}.`);
+        this.render();
+      } catch (e) {
+        new Notice(`Could not scan quizzes: ${str(e && e.message ? e.message : e)}`);
+      }
+    });
+    if (!this.quizIndexData) {
+      this.renderTabsEmpty(root, "Scan the vault to build the quiz index.");
+      return;
+    }
+    const stats = this.quizIndexData.stats;
+    const statGrid = root.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const card = statGrid.createDiv({ cls: "qt-study-stat" });
+      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      card.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(stats.quizzes, "quizzes");
+    stat(stats.questions, "questions");
+    stat(stats.withResults, "recorded results");
+    stat(stats.average ? `${stats.average}%` : "—", stats.withResults ? "average result" : "no results yet");
+    const levels = Object.entries(stats.levels || {});
+    const types = Object.entries(stats.types || {});
+    const index = root.createDiv({ cls: "qt-study-card" });
+    index.createEl("h3", { text: "Index" });
+    if (levels.length) index.createDiv({ cls: "qt-study-row-meta", text: `Levels: ${levels.map(([key, count]) => `${key} ${count}`).join(" · ")}` });
+    if (types.length) index.createDiv({ cls: "qt-study-row-meta", text: `Types: ${types.map(([key, count]) => `${key} ${count}`).join(" · ")}` });
+    if (!this.quizIndexData.rows.length) {
+      index.createDiv({ cls: "qt-study-empty", text: "No inline quizzes were found in that scope." });
+      return;
+    }
+    const list = index.createDiv({ cls: "qt-study-list" });
+    for (const row of this.quizIndexData.rows) {
+      const item = list.createDiv({ cls: "qt-study-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: `${row.id} · ${row.count} question${row.count === 1 ? "" : "s"}` });
+      if (row.title) main.createDiv({ cls: "qt-study-row-meta", text: row.title });
+      main.createDiv({ cls: "qt-study-row-meta", text: row.path });
+      if (row.result) {
+        main.createDiv({
+          cls: "qt-study-row-meta",
+          text: `Recorded: ${row.result.percentage}% (${row.result.score}/${row.result.totalPoints})${row.result.passed ? " · passed" : ""}`,
+        });
+      }
+      const buttons = item.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: "Open note" }).addEventListener("click", () => this.plugin.openStudyFlowSource(row.path));
     }
   }
 

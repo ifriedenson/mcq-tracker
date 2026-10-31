@@ -18282,6 +18282,7 @@ const DEFAULT_SETTINGS = {
   lerntracker: { enabled: true, plans: [] }, // topic-pass planner with exam buffer days
   studyFlow: { enabled: true, excerpts: [] }, // source excerpt -> understanding -> card draft inbox
   subjectManager: { enabled: true, subjects: [], absences: [] }, // subjects and absence log
+  quizIndex: { enabled: true, folder: "", limit: 50 }, // cross-vault quiz dashboard/index
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
@@ -36609,6 +36610,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-topic-plan", name: "Topic planner: create an exam plan", callback: () => this.activateStudyWorkspace("planner") });
     this.addCommand({ id: "study-flow-capture", name: "Study Flow: capture a source excerpt", callback: () => this.activateStudyWorkspace("flow") });
     this.addCommand({ id: "subject-manager", name: "Subject Manager: open subjects", callback: () => this.activateStudyWorkspace("subjects") });
+    this.addCommand({ id: "open-quiz-index", name: "Quiz index: scan quizzes and results", callback: () => this.activateStudyWorkspace("quizIndex") });
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
@@ -37064,6 +37066,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.lerntracker = studyWorkspace.normalizePlanner(saved.lerntracker);
     this.settings.studyFlow = studyWorkspace.normalizeStudyFlow(saved.studyFlow);
     this.settings.subjectManager = studyWorkspace.normalizeSubjectManager(saved.subjectManager);
+    this.settings.quizIndex = studyWorkspace.normalizeQuizIndex(saved.quizIndex);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -37569,8 +37572,12 @@ class QuestionTrackerPlugin extends Plugin {
     return studyWorkspace.normalizeSubjectManager(this.settings.subjectManager).enabled;
   }
 
+  quizIndexEnabled() {
+    return studyWorkspace.normalizeQuizIndex(this.settings.quizIndex).enabled;
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -43861,6 +43868,23 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+  }
+
+  async buildQuizIndex(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const folder = str(opts.folder).trim().replace(/^\/+|\/+$/g, "");
+    const entries = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (folder && file.path !== folder && !file.path.startsWith(`${folder}/`)) continue;
+      let text = "";
+      try {
+        text = this.app.vault.cachedRead ? await this.app.vault.cachedRead(file) : await this.app.vault.read(file);
+      } catch (e) {
+        continue;
+      }
+      entries.push({ path: file.path, text, fm: this.app.metadataCache.getFileCache(file)?.frontmatter || {} });
+    }
+    return studyWorkspace.collectQuizIndex(entries, { limit: opts.limit || this.settings.quizIndex.limit });
   }
 
   async buildRecallQueue(options) {
@@ -52441,6 +52465,18 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Quiz index")
+    .setDesc("Scan the vault for inline quizzes and show question, level, type and recorded result counts. Reads the existing quizResults properties and never creates attempts.")
+    .addToggle((t) =>
+      t.setValue(plugin.quizIndexEnabled()).onChange(async (v) => {
+        st.quizIndex.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>
@@ -58626,6 +58662,7 @@ __defs["study-workspace"] = function (module, exports, require) {
  */
 const { hashString, localDate, str } = require("./util");
 const { addDays, dayValue } = require("./study-tools");
+const { fencedQuizBlocks, parseQuizBlock } = require("./quiz-block");
 
 const MAX_TEXT = 12000;
 const MAX_TITLE = 200;
@@ -58635,6 +58672,7 @@ const MAX_SUBJECTS = 80;
 const MAX_ABSENCES = 500;
 const MAX_PLANS = 80;
 const MAX_TOPICS = 80;
+const MAX_QUIZ_ROWS = 500;
 
 const FEYNMAN_STEPS = ["Explain it simply", "Find the gaps", "Simplify and connect", "Teach it back"];
 const FEYNMAN_KEYS = ["explain", "gaps", "simplify", "teach"];
@@ -59164,6 +59202,88 @@ function recallStats(reviews, today) {
   };
 }
 
+function normalizeQuizIndex(value) {
+  const source = asObject(value);
+  return {
+    enabled: enabledValue(value),
+    folder: textValue(source.folder, 500).replace(/^\/+|\/+$/g, ""),
+    limit: clamp(numberValue(source.limit, 50), 1, 200),
+  };
+}
+
+function quizResult(value) {
+  if (!value || typeof value !== "object") return null;
+  const percentage = clamp(numberValue(value.percentage, 0), 0, 100);
+  return {
+    percentage,
+    passed: value.passed === true,
+    score: Math.max(0, Math.round(numberValue(value.score, 0))),
+    totalPoints: Math.max(0, Math.round(numberValue(value.totalPoints, 0))),
+  };
+}
+
+/** Scan parsed notes for quiz blocks and the existing opt-in quizResults data. */
+function collectQuizIndex(entries, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const limit = clamp(numberValue(opts.limit, 50), 1, 200);
+  const rows = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const path = str(entry && entry.path).trim();
+    const text = str(entry && entry.text);
+    if (!path || !text) continue;
+    const fm = asObject(entry.fm);
+    const blocks = [...fencedQuizBlocks(text), ...fencedQuizBlocks(text, "quiz-definition")];
+    for (let index = 0; index < blocks.length; index++) {
+      let parsed;
+      try {
+        parsed = parseQuizBlock(blocks[index]);
+      } catch (e) {
+        continue;
+      }
+      if (!parsed.questions.length) continue;
+      const id = str(parsed.id).trim() || `untitled-${rows.length + 1}`;
+      const levels = {};
+      const types = {};
+      for (const question of parsed.questions) {
+        const level = str(question.level).trim() || "Unlevelled";
+        const type = str(question.type).trim() || "choice";
+        levels[level] = (levels[level] || 0) + 1;
+        types[type] = (types[type] || 0) + 1;
+      }
+      rows.push({
+        path,
+        id,
+        title: str(parsed.questions[0].question).slice(0, 160),
+        count: parsed.questions.length,
+        levels,
+        types,
+        result: quizResult(fm.quizResults && fm.quizResults[id]),
+      });
+      if (rows.length >= MAX_QUIZ_ROWS) break;
+    }
+    if (rows.length >= MAX_QUIZ_ROWS) break;
+  }
+  const results = rows.map((row) => row.result).filter(Boolean);
+  const levels = {};
+  const types = {};
+  for (const row of rows) {
+    for (const [key, count] of Object.entries(row.levels)) levels[key] = (levels[key] || 0) + count;
+    for (const [key, count] of Object.entries(row.types)) types[key] = (types[key] || 0) + count;
+  }
+  return {
+    rows: rows.slice(0, limit),
+    stats: {
+      quizzes: rows.length,
+      questions: rows.reduce((sum, row) => sum + row.count, 0),
+      withResults: results.length,
+      passed: results.filter((result) => result.passed).length,
+      average: results.length ? Math.round(results.reduce((sum, result) => sum + result.percentage, 0) / results.length) : 0,
+      levels,
+      types,
+    },
+  };
+}
+
 function normalizeStudyWorkspaceSettings(value) {
   const source = asObject(value);
   return {
@@ -59172,6 +59292,7 @@ function normalizeStudyWorkspaceSettings(value) {
     lerntracker: normalizePlanner(source.lerntracker),
     studyFlow: normalizeStudyFlow(source.studyFlow),
     subjectManager: normalizeSubjectManager(source.subjectManager),
+    quizIndex: normalizeQuizIndex(source.quizIndex),
   };
 }
 
@@ -59184,10 +59305,12 @@ module.exports = {
   MAX_EXCERPTS,
   MAX_FEYNMAN,
   MAX_PLANS,
+  MAX_QUIZ_ROWS,
   MAX_SUBJECTS,
   MAX_TOPICS,
   RECALL_MODES,
   allocatePlan,
+  collectQuizIndex,
   createAbsence,
   createFeynmanSession,
   createFlowExcerpt,
@@ -59202,6 +59325,7 @@ module.exports = {
   normalizeFeynmanSettings,
   normalizeFlowExcerpt,
   normalizePlanner,
+  normalizeQuizIndex,
   normalizeRecallScheduler,
   normalizeStudyFlow,
   normalizeStudyWorkspaceSettings,
@@ -59247,6 +59371,7 @@ const TABS = [
   { id: "planner", label: "Topic planner", module: "lerntracker" },
   { id: "flow", label: "Study Flow", module: "studyFlow" },
   { id: "subjects", label: "Subjects", module: "subjectManager" },
+  { id: "quizIndex", label: "Quiz index", module: "quizIndex" },
 ];
 
 const SCORE_LABELS = { clarity: "Clarity", accuracy: "Accuracy", simplicity: "Simplicity" };
@@ -59267,6 +59392,9 @@ class StudyWorkspaceView extends ItemView {
     this.recallRevealed = false;
     this.recallBuilt = false;
     this.subjectFilter = "";
+    this.quizIndexData = null;
+    this.quizIndexFolder = "";
+    this.quizIndexLimit = "50";
   }
 
   getViewType() {
@@ -59338,6 +59466,7 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "planner") this.renderPlanner(wrap);
     else if (this.tab === "flow") this.renderFlow(wrap);
     else if (this.tab === "subjects") this.renderSubjects(wrap);
+    else if (this.tab === "quizIndex") this.renderQuizIndex(wrap);
   }
 
   renderOff(root) {
@@ -59345,7 +59474,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow and Subject Manager each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager and the Quiz index each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -59767,6 +59896,78 @@ class StudyWorkspaceView extends ItemView {
         await this.plugin.removeFlowExcerpt(excerpt.id);
         this.render();
       });
+    }
+  }
+
+  /* ---- Quiz index ------------------------------------------------------ */
+
+  renderQuizIndex(root) {
+    const data = this.settings().quizIndex;
+    const controls = root.createDiv({ cls: "qt-study-card" });
+    controls.createEl("h3", { text: "Quiz index" });
+    controls.createDiv({
+      cls: "qt-hint",
+      text: "Scan inline quizzes across the vault. Counts and recorded results come from the existing quiz blocks and opt-in quizResults properties; scanning never creates attempts or changes a note.",
+    });
+    const form = controls.createDiv({ cls: "qt-study-form" });
+    const folder = this.renderField(form, "Folder (optional)", "text", "Quizzes", this.quizIndexFolder || data.folder);
+    const limit = this.renderField(form, "Limit", "number", "50", this.quizIndexLimit || String(data.limit));
+    const actions = controls.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Scan vault", cls: "mod-cta" }).addEventListener("click", async () => {
+      this.quizIndexFolder = str(folder.value).trim();
+      this.quizIndexLimit = str(limit.value).trim() || "50";
+      try {
+        this.quizIndexData = await this.plugin.buildQuizIndex({
+          folder: this.quizIndexFolder,
+          limit: this.quizIndexLimit,
+        });
+        const stats = this.quizIndexData.stats;
+        this.saveMessage(`Found ${stats.quizzes} quiz${stats.quizzes === 1 ? "" : "zes"} with ${stats.questions} question${stats.questions === 1 ? "" : "s"}.`);
+        this.render();
+      } catch (e) {
+        new Notice(`Could not scan quizzes: ${str(e && e.message ? e.message : e)}`);
+      }
+    });
+    if (!this.quizIndexData) {
+      this.renderTabsEmpty(root, "Scan the vault to build the quiz index.");
+      return;
+    }
+    const stats = this.quizIndexData.stats;
+    const statGrid = root.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const card = statGrid.createDiv({ cls: "qt-study-stat" });
+      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      card.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(stats.quizzes, "quizzes");
+    stat(stats.questions, "questions");
+    stat(stats.withResults, "recorded results");
+    stat(stats.average ? `${stats.average}%` : "—", stats.withResults ? "average result" : "no results yet");
+    const levels = Object.entries(stats.levels || {});
+    const types = Object.entries(stats.types || {});
+    const index = root.createDiv({ cls: "qt-study-card" });
+    index.createEl("h3", { text: "Index" });
+    if (levels.length) index.createDiv({ cls: "qt-study-row-meta", text: `Levels: ${levels.map(([key, count]) => `${key} ${count}`).join(" · ")}` });
+    if (types.length) index.createDiv({ cls: "qt-study-row-meta", text: `Types: ${types.map(([key, count]) => `${key} ${count}`).join(" · ")}` });
+    if (!this.quizIndexData.rows.length) {
+      index.createDiv({ cls: "qt-study-empty", text: "No inline quizzes were found in that scope." });
+      return;
+    }
+    const list = index.createDiv({ cls: "qt-study-list" });
+    for (const row of this.quizIndexData.rows) {
+      const item = list.createDiv({ cls: "qt-study-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: `${row.id} · ${row.count} question${row.count === 1 ? "" : "s"}` });
+      if (row.title) main.createDiv({ cls: "qt-study-row-meta", text: row.title });
+      main.createDiv({ cls: "qt-study-row-meta", text: row.path });
+      if (row.result) {
+        main.createDiv({
+          cls: "qt-study-row-meta",
+          text: `Recorded: ${row.result.percentage}% (${row.result.score}/${row.result.totalPoints})${row.result.passed ? " · passed" : ""}`,
+        });
+      }
+      const buttons = item.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: "Open note" }).addEventListener("click", () => this.plugin.openStudyFlowSource(row.path));
     }
   }
 

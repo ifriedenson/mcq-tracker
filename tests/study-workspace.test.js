@@ -14,9 +14,9 @@ async function setup(saved) {
   return plugin;
 }
 
-test("study workspace: five independent modules default on and can be switched off", () => {
+test("study workspace: six independent modules default on and can be switched off", () => {
   const defaults = W.normalizeStudyWorkspaceSettings({});
-  assert.deepEqual(Object.keys(defaults), ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager"]);
+  assert.deepEqual(Object.keys(defaults), ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex"]);
   for (const value of Object.values(defaults)) assert.equal(value.enabled, true);
   const off = W.normalizeStudyWorkspaceSettings({
     feynmanLearning: { enabled: false },
@@ -24,6 +24,7 @@ test("study workspace: five independent modules default on and can be switched o
     lerntracker: { enabled: false },
     studyFlow: { enabled: false },
     subjectManager: { enabled: false },
+    quizIndex: { enabled: false },
   });
   assert.equal(Object.values(off).every((value) => value.enabled === false), true);
 });
@@ -105,6 +106,37 @@ test("Recall Scheduler: parses headings and fragments, schedules them and filter
   assert.equal(W.recallDueUnits(headings, reviews, "2026-11-04").length, 2);
 });
 
+test("Quiz index: counts parsed quizzes, levels and recorded results without creating attempts", () => {
+  const text = [
+    "```mcq-quiz",
+    "Id: biology-1",
+    "Level: L2",
+    "Q: Which gas do plants take in?",
+    "A. Oxygen",
+    "B. Carbon dioxide",
+    "Answer: B",
+    "```",
+    "",
+    "```quiz-definition",
+    "Id: biology-2",
+    "Q: What is ATP?",
+    "A. Energy currency",
+    "B. A protein",
+    "Answer: A",
+    "```",
+  ].join("\n");
+  const index = W.collectQuizIndex([{ path: "Biology/Quiz.md", text, fm: { quizResults: { "biology-1": { percentage: 100, passed: true, score: 1, totalPoints: 1 } } } }]);
+  assert.equal(index.stats.quizzes, 2);
+  assert.equal(index.stats.questions, 2);
+  assert.equal(index.stats.withResults, 1);
+  assert.equal(index.stats.average, 100);
+  assert.deepEqual(index.stats.levels, { L2: 1, Unlevelled: 1 });
+  assert.deepEqual(index.stats.types, { choice: 2 });
+  assert.equal(index.rows[0].result.passed, true);
+  assert.equal(index.rows[1].result, null);
+  assert.equal(W.normalizeQuizIndex({ limit: 999 }).limit, 200);
+});
+
 test("plugin: workflow switches gate the view and workflow data survives a reload", async () => {
   const plugin = await setup();
   assert.equal(plugin.studyWorkspaceEnabled(), true);
@@ -118,6 +150,7 @@ test("plugin: workflow switches gate the view and workflow data survives a reloa
   assert.ok(dom.texts().includes("Topic planner"));
   assert.ok(dom.texts().includes("Study Flow"));
   assert.ok(dom.texts().includes("Subjects"));
+  assert.ok(dom.texts().includes("Quiz index"));
 
   const feynman = await plugin.addFeynmanSession({ topic: "Osmosis", course: "Biology" });
   const excerpt = await plugin.addFlowExcerpt({ sourcePath: "Readings/bio.md", quote: "Water moves across a membrane." });
@@ -135,7 +168,7 @@ test("plugin: workflow switches gate the view and workflow data survives a reloa
   assert.equal(restarted.studyWorkspaceSettings().subjectManager.subjects.length, 1);
   assert.equal(restarted.studyWorkspaceSettings().lerntracker.plans.length, 1);
 
-  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager"]) {
+  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex"]) {
     restarted.settings[key].enabled = false;
   }
   assert.equal(restarted.studyWorkspaceEnabled(), false);
