@@ -195,6 +195,17 @@
  * - **Gemini Helper** — [obsidian-gemini-helper](https://github.com/takeshy/obsidian-gemini-helper), MIT, Copyright (c) takeshy (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: search results with citations. `src/vault-search.js` ranks notes with a local index and links each snippet; no model or network request is made.
  * - **LLM Hub** — [obsidian-llm-hub](https://github.com/takeshy/obsidian-llm-hub), MIT, Copyright (c) takeshy (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: cited vault search across study notes. `src/vault-search.js` implements the local ranking and snippet citation.
  *
+ * ## Portable card archive and study nudge (October 31, 2026)
+ *
+ * Two more MIT-licensed concepts are adapted. The source projects were read as feature references; the implementations are original, dependency-free JavaScript, and no source file, function or stylesheet rule was copied.
+ *
+ * - **Retain** — [retain](https://github.com/sejder/retain), MIT, Copyright (c) sejder (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: keeping card data in a store outside the notes. `src/card-archive.js` writes and restores one portable JSON archive; it does not move schedules out of notes or change the scheduler.
+ * - **Better Task** — [better-task](https://github.com/st-vin/better-task), MIT, Copyright (c) st-vin (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: due-work reminders. `src/study-nudge.js` shows one in-app Notice per day and a ribbon label with quiet hours; it requests no OS notification permission and sends nothing.
+ *
+ * ## Course note templates (October 31, 2026)
+ *
+ * - **Course Command Center** — [CourseCommandCenter](https://github.com/flippinhutt/CourseCommandCenter), MIT, Copyright (c) flippinhutt (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: note-type/template mapping for course notes. `src/course-templates.js` implements local templates and note creation; it contains no Canvas client, OAuth flow or network request.
+ *
  * ## Not absorbed (yet)
  *
  * The product plan also names LearnKit as a future absorb source. It has **not** been copied
@@ -10674,6 +10685,192 @@ module.exports = {
 };
 };
 
+/* ---- src/card-archive.js ---- */
+__defs["card-archive"] = function (module, exports, require) {
+/*
+ * A portable card archive: every card note's Markdown in one JSON file that
+ * can leave the plugin data folder and be restored on another machine. This
+ * is the non-migration part of Retain's "schedules out of notes" idea: the
+ * archive carries the note text, so a restore cannot lose a schedule, and a
+ * merge is explicit (skip existing notes or overwrite them).
+ */
+const { localDate, str } = require("./util");
+
+const ARCHIVE_SCHEMA = 1;
+const MAX_CARDS = 5000;
+const MAX_TEXT = 400000;
+
+function normalizeCardArchiveSettings(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const folder = str(source.folder).trim().replace(/^\/+|\/+$/g, "");
+  return {
+    enabled: !(value === false || source.enabled === false),
+    folder: folder && !/\.\./.test(folder) ? folder.slice(0, 160) : "Archive",
+  };
+}
+
+function safeCardPath(value) {
+  const clean = str(value).replace(/\\/g, "/").replace(/^\/+/, "").trim();
+  if (!clean || clean.includes("..") || !/\.md$/i.test(clean)) return "";
+  return clean.slice(0, 500);
+}
+
+/** `[{ path, text, deck, course }]` becomes a versioned, JSON-safe archive. */
+function buildCardArchive(entries, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const cards = [];
+  const issues = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (cards.length >= MAX_CARDS) {
+      issues.push(`Only the first ${MAX_CARDS} cards are archived.`);
+      break;
+    }
+    const path = safeCardPath(entry && entry.path);
+    const text = str(entry && entry.text).slice(0, MAX_TEXT);
+    if (!path) {
+      issues.push(`Skipped a card without a safe .md path: ${str(entry && entry.path).slice(0, 80)}`);
+      continue;
+    }
+    cards.push({ path, deck: str(entry.deck).trim(), course: str(entry.course).trim(), text });
+  }
+  cards.sort((a, b) => a.path.localeCompare(b.path));
+  return {
+    schema: ARCHIVE_SCHEMA,
+    exportedAt: str(opts.exportedAt) || new Date().toISOString(),
+    count: cards.length,
+    cards,
+    issues,
+  };
+}
+
+function parseCardArchive(value) {
+  let data = value;
+  if (typeof value === "string") {
+    try {
+      data = JSON.parse(value);
+    } catch (e) {
+      return { ok: false, error: `That is not JSON: ${str(e && e.message ? e.message : e)}`, archive: null };
+    }
+  }
+  if (!data || typeof data !== "object" || !Array.isArray(data.cards)) {
+    return { ok: false, error: "The archive needs a cards array.", archive: null };
+  }
+  if (Number(data.schema) !== ARCHIVE_SCHEMA) {
+    return { ok: false, error: `Unsupported archive schema ${str(data.schema) || "(missing)"}; expected ${ARCHIVE_SCHEMA}.`, archive: null };
+  }
+  const cards = [];
+  const issues = [];
+  for (const raw of data.cards.slice(0, MAX_CARDS)) {
+    const path = safeCardPath(raw && raw.path);
+    if (!path) {
+      issues.push(`Skipped an archive entry without a safe .md path: ${str(raw && raw.path).slice(0, 80)}`);
+      continue;
+    }
+    const text = str(raw && raw.text).slice(0, MAX_TEXT);
+    if (!text.trim()) {
+      issues.push(`Skipped ${path}: no note text.`);
+      continue;
+    }
+    cards.push({ path, deck: str(raw.deck).trim(), course: str(raw.course).trim(), text });
+  }
+  return { ok: true, error: "", archive: { schema: ARCHIVE_SCHEMA, exportedAt: str(data.exportedAt), count: cards.length, cards, issues: [] }, issues };
+}
+
+/** Decide what a restore does without touching the vault. */
+function mergeCardArchive(existingPaths, archive, mode) {
+  const existing = new Set((Array.isArray(existingPaths) ? existingPaths : []).map((path) => str(path).toLowerCase()));
+  const overwrite = mode === "overwrite";
+  const report = { create: [], update: [], skip: [] };
+  for (const card of (archive && archive.cards) || []) {
+    if (!card || !card.path) continue;
+    if (!existing.has(card.path.toLowerCase())) report.create.push(card.path);
+    else if (overwrite) report.update.push(card.path);
+    else report.skip.push(card.path);
+  }
+  return report;
+}
+
+function archiveFileName(date) {
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(str(date)) ? str(date) : localDate();
+  return `mcq-cards-${day}.json`;
+}
+
+class CardArchiveImportModal {
+  constructor(app, plugin) {
+    this.app = app;
+    this.plugin = plugin;
+    this.text = "";
+    this.mode = "skip";
+    this.error = "";
+    this.busy = false;
+    const { Modal } = require("obsidian");
+    this.modal = new Modal(app);
+    this.modal.onOpen = () => this.draw();
+    this.modal.onClose = () => this.modal.contentEl.empty();
+  }
+
+  open() {
+    this.modal.open();
+  }
+
+  draw() {
+    const el = this.modal.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Import a card archive" });
+    el.createDiv({
+      cls: "qt-hint",
+      text: "Paste the JSON written by Cards: export a portable archive. Existing notes are skipped unless you choose overwrite. Nothing is deleted.",
+    });
+    const box = el.createEl("textarea", { cls: "qt-input" });
+    box.rows = 12;
+    box.placeholder = '{ "schema": 1, "cards": [ { "path": "Cards/…md", "text": "…" } ] }';
+    box.value = this.text;
+    box.addEventListener("input", () => (this.text = box.value));
+    const row = el.createDiv({ cls: "qt-row" });
+    const select = row.createEl("select", { cls: "dropdown" });
+    for (const [value, label] of [["skip", "Skip existing notes"], ["overwrite", "Overwrite existing notes"]]) {
+      const option = select.createEl("option", { text: label, value });
+      if (value === this.mode) option.selected = true;
+    }
+    select.addEventListener("change", () => (this.mode = select.value));
+    if (this.error) el.createDiv({ cls: "qt-error", text: this.error });
+    const actions = el.createDiv({ cls: "qt-row" });
+    const importButton = actions.createEl("button", { text: this.busy ? "Importing…" : "Import", cls: "mod-cta" });
+    importButton.disabled = this.busy;
+    importButton.addEventListener("click", () => this.run());
+    actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.modal.close());
+  }
+
+  async run() {
+    if (this.busy) return;
+    this.busy = true;
+    this.error = "";
+    this.draw();
+    try {
+      const report = await this.plugin.importCardArchiveText(this.text, this.mode);
+      const { Notice } = require("obsidian");
+      new Notice(`Card archive: ${report.create.length} created, ${report.update.length} updated, ${report.skip.length} skipped.`, 6000);
+      this.modal.close();
+    } catch (e) {
+      this.busy = false;
+      this.error = str(e && e.message ? e.message : e) || "Could not import the archive.";
+      this.draw();
+    }
+  }
+}
+
+module.exports = {
+  ARCHIVE_SCHEMA,
+  CardArchiveImportModal,
+  archiveFileName,
+  buildCardArchive,
+  mergeCardArchive,
+  normalizeCardArchiveSettings,
+  parseCardArchive,
+  safeCardPath,
+};
+};
+
 /* ---- src/card-generator.js ---- */
 __defs["card-generator"] = function (module, exports, require) {
 /*
@@ -18846,6 +19043,9 @@ const DEFAULT_SETTINGS = {
   quizIndex: { enabled: true, folder: "", limit: 50 }, // cross-vault quiz dashboard/index
   quizMaker: { enabled: true }, // Quiz Maker block: four formats and named packs
   satMath: { enabled: true }, // SAT Math block: local step-by-step solver, no score estimate
+  cardArchive: { enabled: true, folder: "Archive" }, // portable JSON card archive export/import
+  studyNudge: { enabled: false, hour: 9, quietFrom: 22, quietTo: 7, ribbonLabel: true, lastShown: "" }, // opt-in in-app nudge
+  courseTemplates: { enabled: true, folder: "Courses", templates: [] }, // Course Command Center note-type/template mapping
   schedulerFit: { enabled: true, minSamples: 20 }, // LearnKit/Qard-style desired-retention self-fitting from card review counters
   studyMap: { enabled: true, terms: 8, depth: 4 }, // Spaceforge-style local outline/mind-map and key-term map
   vaultSearch: { enabled: true, limit: 5 }, // Gemini Helper/LLM Hub-style cited local vault search, no model call
@@ -20128,6 +20328,246 @@ module.exports = {
   buildCourseNote,
   uniquePath,
   CourseNotesModal,
+};
+};
+
+/* ---- src/course-templates.js ---- */
+__defs["course-templates"] = function (module, exports, require) {
+/*
+ * Course note templates. Course Command Center's remaining local idea is
+ * note-type/template mapping: choose a note type (lecture, unit, review,
+ * assignment, syllabus) and get a consistent course note. Everything is local
+ * and the templates are editable text in settings. No Canvas client, OAuth
+ * flow or network request is involved.
+ */
+const { localDate, str } = require("./util");
+
+const MAX_TEMPLATES = 20;
+const MAX_BODY = 20000;
+const DEFAULT_FOLDER = "Courses";
+const NOTE_TYPES = ["lecture", "unit", "review", "assignment", "syllabus"];
+
+const DEFAULT_TEMPLATES = [
+  {
+    id: "lecture",
+    name: "Lecture notes",
+    type: "lecture",
+    body: "## Overview\n\n## Key concepts\n\n## Worked examples\n\n## Questions to follow up\n",
+  },
+  {
+    id: "unit",
+    name: "Unit plan",
+    type: "unit",
+    body: "## Learning objectives\n\n## Topics\n\n## Readings\n\n## Practice\n",
+  },
+  {
+    id: "review",
+    name: "Exam review",
+    type: "review",
+    body: "## What the exam covers\n\n## Weak spots\n\n## Practice plan\n\n## Formula and definition sheet\n",
+  },
+  {
+    id: "assignment",
+    name: "Assignment brief",
+    type: "assignment",
+    body: "## Task\n\n## Requirements\n\n## Sources\n\n## Checklist\n",
+  },
+  {
+    id: "syllabus",
+    name: "Course syllabus",
+    type: "syllabus",
+    body: "## Course description\n\n## Grading breakdown\n\n## Schedule\n\n## Policies\n",
+  },
+];
+
+function slug(value, fallback) {
+  const clean = str(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return clean || fallback;
+}
+
+function normalizeTemplate(value, index) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const type = NOTE_TYPES.includes(str(source.type).toLowerCase()) ? str(source.type).toLowerCase() : "lecture";
+  const name = str(source.name).replace(/\s+/g, " ").trim().slice(0, 120) || `${type[0].toUpperCase()}${type.slice(1)} notes`;
+  const body = str(source.body).slice(0, MAX_BODY) || DEFAULT_TEMPLATES.find((entry) => entry.type === type).body;
+  return { id: slug(source.id || name, `template-${index + 1}`), name, type, body };
+}
+
+function normalizeCourseTemplates(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const folder = str(source.folder).trim().replace(/^\/+|\/+$/g, "");
+  const raw = Array.isArray(source.templates) ? source.templates : DEFAULT_TEMPLATES;
+  const templates = [];
+  const seen = new Set();
+  for (const entry of raw) {
+    const template = normalizeTemplate(entry, templates.length);
+    if (seen.has(template.id)) continue;
+    seen.add(template.id);
+    templates.push(template);
+    if (templates.length >= MAX_TEMPLATES) break;
+  }
+  return {
+    enabled: !(value === false || source.enabled === false),
+    folder: folder && !/\.\./.test(folder) ? folder.slice(0, 160) : DEFAULT_FOLDER,
+    templates: templates.length ? templates : DEFAULT_TEMPLATES.map((entry, index) => normalizeTemplate(entry, index)),
+  };
+}
+
+function templateVariables(input) {
+  const source = input && typeof input === "object" ? input : {};
+  return {
+    course: str(source.course).trim().slice(0, 120),
+    title: str(source.title).trim().slice(0, 160),
+    date: /^\d{4}-\d{2}-\d{2}$/.test(str(source.date)) ? str(source.date) : localDate(),
+    type: str(source.type).trim().toLowerCase() || "lecture",
+  };
+}
+
+function fillTemplate(body, variables) {
+  const vars = templateVariables(variables);
+  return str(body).replace(/\{\{\s*(course|title|date|type)\s*\}\}/gi, (_match, key) => vars[key.toLowerCase()] || "");
+}
+
+function findTemplate(settings, typeOrId) {
+  const wanted = str(typeOrId).trim().toLowerCase();
+  return (
+    settings.templates.find((template) => template.id === wanted) ||
+    settings.templates.find((template) => template.type === wanted) ||
+    settings.templates[0]
+  );
+}
+
+function safeFileName(value) {
+  return (
+    str(value)
+      .replace(/[\\/:*?"<>|#^[\]]+/g, "-")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 90) || "Course note"
+  );
+}
+
+/**
+ * Render one course note. `template` may be an id or a note type; an unknown
+ * value falls back to the first template so a note is still produced.
+ */
+function renderCourseNote(input, settingsValue) {
+  const settings = normalizeCourseTemplates(settingsValue);
+  const vars = templateVariables(input);
+  const template = findTemplate(settings, input && (input.template || input.type));
+  const title = vars.title || `${vars.course || "Course"} ${template.name}`;
+  const fileName = safeFileName(title);
+  const lines = [
+    "---",
+    "type: course-note",
+  ];
+  if (vars.course) lines.push(`course: ${JSON.stringify(vars.course)}`);
+  lines.push(`course_note_type: ${template.type}`, `created: ${vars.date}`, "---", "", `# ${title}`, "");
+  if (vars.course) lines.push(`**Course:** ${vars.course}`, "");
+  lines.push(fillTemplate(template.body, { ...vars, title }).trim(), "");
+  return {
+    title,
+    fileName,
+    type: template.type,
+    templateId: template.id,
+    folder: settings.folder,
+    path: `${settings.folder}/${fileName}.md`,
+    markdown: `${lines.join("\n").trim()}\n`,
+  };
+}
+
+function templateChoices(settingsValue) {
+  return normalizeCourseTemplates(settingsValue).templates.map((template) => ({ value: template.id, label: `${template.name} (${template.type})` }));
+}
+
+class CourseTemplateModal {
+  constructor(app, plugin) {
+    this.app = app;
+    this.plugin = plugin;
+    this.error = "";
+    this.busy = false;
+    const settings = normalizeCourseTemplates(plugin && plugin.settings && plugin.settings.courseTemplates);
+    this.values = { course: "", title: "", date: localDate(), template: settings.templates[0].id };
+    const { Modal } = require("obsidian");
+    this.modal = new Modal(app);
+    this.modal.onOpen = () => this.draw();
+    this.modal.onClose = () => this.modal.contentEl.empty();
+  }
+
+  open() {
+    this.modal.open();
+  }
+
+  field(parent, label, type, placeholder, key) {
+    const wrap = parent.createDiv({ cls: "qt-field" });
+    wrap.createEl("label", { text: label });
+    const input = wrap.createEl("input", { cls: "qt-input" });
+    input.type = type || "text";
+    if (placeholder) input.placeholder = placeholder;
+    input.value = this.values[key] || "";
+    input.addEventListener("input", () => (this.values[key] = input.value));
+    return input;
+  }
+
+  draw() {
+    const el = this.modal.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Create a course note" });
+    el.createDiv({ cls: "qt-hint", text: "Choose a note type and fill the fields. The template body is editable in Settings, Global, Modules." });
+    this.field(el, "Course", "text", "Biology", "course");
+    this.field(el, "Title", "text", "Unit 3 — Cell respiration", "title");
+    this.field(el, "Date", "date", "", "date");
+    const wrap = el.createDiv({ cls: "qt-field" });
+    wrap.createEl("label", { text: "Note type" });
+    const select = wrap.createEl("select", { cls: "dropdown" });
+    for (const choice of templateChoices(this.plugin.settings.courseTemplates)) {
+      const option = select.createEl("option", { text: choice.label, value: choice.value });
+      if (choice.value === this.values.template) option.selected = true;
+    }
+    select.addEventListener("change", () => (this.values.template = select.value));
+    if (this.error) el.createDiv({ cls: "qt-error", text: this.error });
+    const row = el.createDiv({ cls: "qt-row" });
+    const create = row.createEl("button", { text: this.busy ? "Creating…" : "Create note", cls: "mod-cta" });
+    create.disabled = this.busy;
+    create.addEventListener("click", () => this.create());
+    row.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.modal.close());
+  }
+
+  async create() {
+    if (this.busy) return;
+    this.busy = true;
+    this.error = "";
+    this.draw();
+    try {
+      const result = await this.plugin.createCourseNote(this.values);
+      const { Notice } = require("obsidian");
+      new Notice(`Course note created: ${result.path}`, 5000);
+      this.modal.close();
+    } catch (e) {
+      this.busy = false;
+      this.error = str(e && e.message ? e.message : e) || "Could not create the course note.";
+      this.draw();
+    }
+  }
+}
+
+module.exports = {
+  DEFAULT_FOLDER,
+  DEFAULT_TEMPLATES,
+  MAX_TEMPLATES,
+  NOTE_TYPES,
+  CourseTemplateModal,
+  fillTemplate,
+  findTemplate,
+  normalizeCourseTemplates,
+  renderCourseNote,
+  safeFileName,
+  templateChoices,
+  templateVariables,
 };
 };
 
@@ -37840,6 +38280,9 @@ const { normalizeQuizMakerSettings, renderQuizMakerBlock: renderQuizMaker } = re
 const { normalizeSatMathSettings, renderSatMathBlock: renderSatMath } = require("./sat-math");
 const { normalizeSfcCardsSettings, renderSfcCardsBlock: renderSfcCards } = require("./sfc-cards");
 const { normalizeCbtExamSettings, renderCbtExamBlock: renderCbtExam } = require("./cbt-exam");
+const { CardArchiveImportModal, archiveFileName, buildCardArchive, mergeCardArchive, normalizeCardArchiveSettings, parseCardArchive } = require("./card-archive");
+const { markNudgeShown, normalizeStudyNudgeSettings, nudgeState: computeNudgeState } = require("./study-nudge");
+const { CourseTemplateModal, normalizeCourseTemplates, renderCourseNote } = require("./course-templates");
 const { collectReviewRecords, fitRetention, normalizeSchedulerFitSettings } = require("./scheduler-fit");
 const { normalizeStudyMapSettings, renderStudyMapBlock: renderStudyMap } = require("./study-map");
 const { normalizeVaultSearchSettings, renderVaultSearchBlock: renderVaultSearch } = require("./vault-search");
@@ -37929,6 +38372,7 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.manager = new OpenCodeManager(this);
     this.setupReminder();
+    this.setupStudyNudge();
     this.setupNoteReviewStatus();
     this.app.workspace.onLayoutReady(() => {
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
@@ -38254,6 +38698,10 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "generate-quiz", name: "Generate quiz questions from notes", callback: () => this.openQuizGenerator() });
+    this.addCommand({ id: "cards-export-archive", name: "Cards: export a portable archive", callback: () => this.exportCardArchive().catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not export the archive.", 6000)) });
+    this.addCommand({ id: "cards-import-archive", name: "Cards: import a portable archive", callback: () => this.openCardArchiveImport() });
+    this.addCommand({ id: "study-nudge-show", name: "Show today's study nudge", callback: () => this.maybeShowStudyNudge(new Date()) });
+    this.addCommand({ id: "course-note-from-template", name: "Course notes: create a note from a template", callback: () => this.openCourseNoteBuilder() });
     this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
     this.addCommand({ id: "manage-study-status", name: "Manage hidden study items", callback: () => this.openStudyStatusManager() });
 
@@ -38522,6 +38970,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.satMath = normalizeSatMathSettings(saved.satMath);
     this.settings.sfcCards = normalizeSfcCardsSettings(saved.sfcCards);
     this.settings.cbtExam = normalizeCbtExamSettings(saved.cbtExam);
+    this.settings.cardArchive = normalizeCardArchiveSettings(saved.cardArchive);
+    this.settings.studyNudge = normalizeStudyNudgeSettings(saved.studyNudge);
+    this.settings.courseTemplates = normalizeCourseTemplates(saved.courseTemplates);
     this.settings.schedulerFit = normalizeSchedulerFitSettings(saved.schedulerFit);
     this.settings.studyMap = normalizeStudyMapSettings(saved.studyMap);
     this.settings.vaultSearch = normalizeVaultSearchSettings(saved.vaultSearch);
@@ -39074,6 +39525,22 @@ class QuestionTrackerPlugin extends Plugin {
     return normalizeVaultSearchSettings(this.settings.vaultSearch).enabled;
   }
 
+  cardArchiveEnabled() {
+    return normalizeCardArchiveSettings(this.settings.cardArchive).enabled;
+  }
+
+  studyNudgeEnabled() {
+    return normalizeStudyNudgeSettings(this.settings.studyNudge).enabled;
+  }
+
+  courseTemplatesEnabled() {
+    return normalizeCourseTemplates(this.settings.courseTemplates).enabled;
+  }
+
+  courseTemplatesSettings() {
+    return normalizeCourseTemplates(this.settings.courseTemplates);
+  }
+
   courseHubEnabled() {
     return studyWorkspace.normalizeCourseHub(this.settings.courseHub).enabled;
   }
@@ -39192,6 +39659,7 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("study-tools");
     if (this.studyWorkspaceEnabled()) this.addModuleRibbon("study-workspace", "workflow", "Open Study Workspace", () => this.activateStudyWorkspace());
     else this.removeModuleRibbon("study-workspace");
+    this.refreshStudyNudgeLabel();
   }
 
   setupCalendarRibbon() {
@@ -45488,6 +45956,167 @@ ${body}
     const options = normalizeSchedulerFitSettings(this.settings.schedulerFit);
     const cards = typeof this.getCards === "function" ? this.getCards() : [];
     return fitRetention(collectReviewRecords(cards), { minSamples: options.minSamples, current: this.settings.fsrsRetention });
+  }
+
+  /* ---- portable card archive (Retain-style storage outside plugin data) */
+
+  /** Write every card note into one versioned JSON file in the vault. */
+  async exportCardArchive() {
+    if (!this.cardArchiveEnabled()) throw new Error("Card archive is off. Turn it on in Settings, Global, Modules.");
+    if (!this.cardsEnabled()) throw new Error("Turn on Cards before exporting a card archive.");
+    const entries = [];
+    for (const card of this.getCards()) {
+      const path = str(card.file && card.file.path);
+      if (!path) continue;
+      try {
+        const text = await this.app.vault.cachedRead(card.file);
+        entries.push({ path, text, deck: card.deck, course: card.course });
+      } catch (e) {
+        // an unreadable card is skipped rather than producing an empty entry
+      }
+    }
+    const archive = buildCardArchive(entries, { exportedAt: new Date().toISOString() });
+    const folder = normalizeCardArchiveSettings(this.settings.cardArchive).folder;
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        // the folder may already exist
+      }
+    }
+    const path = `${folder}/${archiveFileName(localDate())}`;
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    const body = JSON.stringify(archive, null, 2);
+    if (existing) await this.app.vault.modify(existing, body);
+    else await this.app.vault.create(path, body);
+    new Notice(`Exported ${archive.count} card${archive.count === 1 ? "" : "s"} to ${path}.`, 6000);
+    return { path, count: archive.count, issues: archive.issues };
+  }
+
+  /** Restore a card archive. `skip` leaves existing notes untouched. */
+  async importCardArchiveText(text, mode) {
+    if (!this.cardArchiveEnabled()) throw new Error("Card archive is off. Turn it on in Settings, Global, Modules.");
+    const parsed = parseCardArchive(text);
+    if (!parsed.ok) throw new Error(parsed.error);
+    const paths = this.app.vault.getMarkdownFiles().map((file) => str(file.path));
+    const report = mergeCardArchive(paths, parsed.archive, mode === "overwrite" ? "overwrite" : "skip");
+    const create = new Set(report.create.map((path) => path.toLowerCase()));
+    const update = new Set(report.update.map((path) => path.toLowerCase()));
+    for (const card of parsed.archive.cards) {
+      const lower = card.path.toLowerCase();
+      const slash = card.path.lastIndexOf("/");
+      if (slash > 0) {
+        const folder = card.path.slice(0, slash);
+        if (!this.app.vault.getAbstractFileByPath(folder)) {
+          try {
+            await this.app.vault.createFolder(folder);
+          } catch (e) {
+            // created concurrently or already present
+          }
+        }
+      }
+      if (create.has(lower)) await this.app.vault.create(card.path, card.text);
+      else if (update.has(lower)) {
+        const existing = this.app.vault.getAbstractFileByPath(card.path);
+        if (existing) await this.app.vault.modify(existing, card.text);
+      }
+    }
+    if (typeof this.refreshPlainCards === "function") this.refreshPlainCards().catch(() => {});
+    return report;
+  }
+
+  openCardArchiveImport() {
+    if (!this.cardArchiveEnabled()) {
+      new Notice("Card archive is off. Turn it on in Settings, Global, Modules.", 6000);
+      this.openSettings();
+      return null;
+    }
+    const modal = new CardArchiveImportModal(this.app, this);
+    modal.open();
+    return modal;
+  }
+
+  /* ---- in-app study nudge (no OS notification) */
+
+  setupStudyNudge() {
+    this.refreshStudyNudgeLabel();
+    if (!this.studyNudgeEnabled()) return;
+    activeWindow.setTimeout(() => {
+      try {
+        this.maybeShowStudyNudge();
+      } catch (e) {
+        // a nudge must never break startup
+      }
+    }, 1800);
+  }
+
+  studyNudgeCounts() {
+    const today = localDate();
+    const questions = this.mcqEnabled() ? this.getQuestions() : [];
+    const dueQuestions = questions.filter((question) => isStudyable(question.fm, today) && isDue(question.fm, today)).length;
+    const cards = this.cardsEnabled() ? this.getCards().filter((card) => {
+      const fm = card.fm || {};
+      const raw = str(fm.next_review || fm.due).slice(0, 10);
+      return !Number(fm.attempts) || !raw || raw <= today;
+    }).length : 0;
+    const tasks = this.studyTasksEnabled() ? studyWorkspace.dueStudyTasks(this.settings.studyTasks.tasks, today).length : 0;
+    return { questions: dueQuestions, cards, tasks };
+  }
+
+  studyNudgeInfo(now) {
+    return computeNudgeState(this.settings.studyNudge, this.studyNudgeCounts(), now);
+  }
+
+  refreshStudyNudgeLabel() {
+    const button = this.ribbonButtons && (this.ribbonButtons.today || this.ribbonButtons.mcq);
+    if (!button || typeof button.setAttr !== "function") return;
+    const info = this.studyNudgeInfo();
+    button.setAttr("aria-label", info.badge ? `${info.badge}. Open Today.` : "Open today");
+  }
+
+  maybeShowStudyNudge(now) {
+    const info = this.studyNudgeInfo(now);
+    this.refreshStudyNudgeLabel();
+    if (!info.visible) return null;
+    new Notice(`Study nudge: ${info.banner}`, 8000);
+    this.settings.studyNudge = markNudgeShown(this.settings.studyNudge, now || new Date());
+    this.save();
+    return info;
+  }
+
+  /* ---- course note templates (Course Command Center, local part) */
+
+  /** Create one course note from a local note-type template. */
+  async createCourseNote(input) {
+    if (!this.courseTemplatesEnabled()) throw new Error("Course templates are off. Turn them on in Settings, Global, Modules.");
+    const note = renderCourseNote(input, this.settings.courseTemplates);
+    const folder = note.folder;
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        // the folder may already exist
+      }
+    }
+    let path = note.path;
+    let suffix = 2;
+    while (this.app.vault.getAbstractFileByPath(path) && suffix <= 50) {
+      path = `${folder}/${note.fileName} ${suffix}.md`;
+      suffix += 1;
+    }
+    await this.app.vault.create(path, note.markdown);
+    return { path, title: note.title, type: note.type };
+  }
+
+  openCourseNoteBuilder() {
+    if (!this.courseTemplatesEnabled()) {
+      new Notice("Course templates are off. Turn them on in Settings, Global, Modules.", 6000);
+      this.openSettings();
+      return null;
+    }
+    const modal = new CourseTemplateModal(this.app, this);
+    modal.open();
+    return modal;
   }
 
   async addStudySubject(input) {
@@ -55579,6 +56208,40 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Portable card archive")
+    .setDesc("Export every card note into one versioned JSON file and restore it later, skipping or overwriting existing notes. The archive lives in your vault, not in plugin data.")
+    .addToggle((t) =>
+      t.setValue(plugin.cardArchiveEnabled()).onChange(async (v) => {
+        st.cardArchive.enabled = v;
+        await plugin.save();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Study nudge")
+    .setDesc("An opt-in in-app Notice and ribbon label for due questions, cards and tasks. Off by default; no OS notification permission is requested.")
+    .addToggle((t) =>
+      t.setValue(plugin.studyNudgeEnabled()).onChange(async (v) => {
+        st.studyNudge.enabled = v;
+        await plugin.save();
+        plugin.refreshStudyNudgeLabel();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Course note templates")
+    .setDesc("Create lecture, unit, review, assignment and syllabus notes from local templates with course, title and date placeholders. The templates are editable text; no Canvas login or network request is involved.")
+    .addToggle((t) =>
+      t.setValue(plugin.courseTemplatesEnabled()).onChange(async (v) => {
+        st.courseTemplates.enabled = v;
+        await plugin.save();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("SFC-style card blocks")
     .setDesc("Study basic, reversed, cloze, essay, worked-solution, wrong-answer-sprint and source-marked cards in local sfc-cards blocks. Reveals and self-checks are not recorded.")
     .addToggle((t) =>
@@ -61234,6 +61897,102 @@ class StudyMatchModal extends Modal {
 }
 
 module.exports = { StudyMatchModal };
+};
+
+/* ---- src/study-nudge.js ---- */
+__defs["study-nudge"] = function (module, exports, require) {
+/*
+ * In-app study nudge. Better Task's reminder idea, kept inside Obsidian: a
+ * single Notice at startup (or when the user asks) plus a ribbon label that
+ * names today's due work. No OS notification permission is requested and no
+ * network request is made. Off by default.
+ */
+const { fmtDate, str } = require("./util");
+
+const DEFAULT_STUDY_NUDGE = {
+  enabled: false,
+  hour: 9,
+  quietFrom: 22,
+  quietTo: 7,
+  ribbonLabel: true,
+  lastShown: "",
+};
+
+function clampHour(value, fallback) {
+  const hour = Math.round(Number(value));
+  return Number.isFinite(hour) ? Math.max(0, Math.min(23, hour)) : fallback;
+}
+
+function normalizeStudyNudgeSettings(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    enabled: source.enabled === true,
+    hour: clampHour(source.hour, DEFAULT_STUDY_NUDGE.hour),
+    quietFrom: clampHour(source.quietFrom, DEFAULT_STUDY_NUDGE.quietFrom),
+    quietTo: clampHour(source.quietTo, DEFAULT_STUDY_NUDGE.quietTo),
+    ribbonLabel: source.ribbonLabel !== false,
+    lastShown: /^\d{4}-\d{2}-\d{2}$/.test(str(source.lastShown).slice(0, 10)) ? str(source.lastShown).slice(0, 10) : "",
+  };
+}
+
+function nudgeCounts(input) {
+  const counts = input && typeof input === "object" ? input : {};
+  return {
+    questions: Math.max(0, Math.round(Number(counts.questions) || 0)),
+    cards: Math.max(0, Math.round(Number(counts.cards) || 0)),
+    tasks: Math.max(0, Math.round(Number(counts.tasks) || 0)),
+  };
+}
+
+function nudgeText(input) {
+  const counts = nudgeCounts(input);
+  const parts = [];
+  if (counts.questions) parts.push(`${counts.questions} question${counts.questions === 1 ? "" : "s"}`);
+  if (counts.cards) parts.push(`${counts.cards} card${counts.cards === 1 ? "" : "s"}`);
+  if (counts.tasks) parts.push(`${counts.tasks} task${counts.tasks === 1 ? "" : "s"}`);
+  return parts.length ? `${parts.join(", ")} due today.` : "";
+}
+
+function inQuietHours(hour, from, to) {
+  if (from === to) return false;
+  return from > to ? hour >= from || hour < to : hour >= from && hour < to;
+}
+
+function nudgeState(value, counts, now) {
+  const cfg = normalizeStudyNudgeSettings(value);
+  const date = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+  const today = fmtDate(date);
+  const hour = date.getHours();
+  const text = nudgeText(counts);
+  const quiet = inQuietHours(hour, cfg.quietFrom, cfg.quietTo);
+  const visible = cfg.enabled && !!text && hour >= cfg.hour && !quiet && cfg.lastShown !== today;
+  return {
+    enabled: cfg.enabled,
+    visible,
+    text,
+    today,
+    hour,
+    quiet,
+    banner: nudgeText(counts),
+    badge: cfg.ribbonLabel && cfg.enabled && text ? `MCQ · ${nudgeText(counts).replace(" due today.", "")} due` : "",
+  };
+}
+
+function markNudgeShown(value, now) {
+  const cfg = normalizeStudyNudgeSettings(value);
+  const date = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+  return { ...cfg, lastShown: fmtDate(date) };
+}
+
+module.exports = {
+  DEFAULT_STUDY_NUDGE,
+  inQuietHours,
+  markNudgeShown,
+  nudgeCounts,
+  nudgeState,
+  nudgeText,
+  normalizeStudyNudgeSettings,
+};
 };
 
 /* ---- src/study-plan.js ---- */
@@ -69192,6 +69951,9 @@ const quizMaker = require("./quiz-maker");
 const satMath = require("./sat-math");
 const sfcCards = require("./sfc-cards");
 const cbtExam = require("./cbt-exam");
+const cardArchive = require("./card-archive");
+const studyNudge = require("./study-nudge");
+const courseTemplates = require("./course-templates");
 const schedulerFit = require("./scheduler-fit");
 const studyMap = require("./study-map");
 const vaultSearch = require("./vault-search");
@@ -69390,6 +70152,9 @@ QuestionTrackerPlugin.__test = {
   satMath,
   sfcCards,
   cbtExam,
+  cardArchive,
+  studyNudge,
+  courseTemplates,
   schedulerFit,
   studyMap,
   vaultSearch,

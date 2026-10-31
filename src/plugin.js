@@ -123,6 +123,9 @@ const { normalizeQuizMakerSettings, renderQuizMakerBlock: renderQuizMaker } = re
 const { normalizeSatMathSettings, renderSatMathBlock: renderSatMath } = require("./sat-math");
 const { normalizeSfcCardsSettings, renderSfcCardsBlock: renderSfcCards } = require("./sfc-cards");
 const { normalizeCbtExamSettings, renderCbtExamBlock: renderCbtExam } = require("./cbt-exam");
+const { CardArchiveImportModal, archiveFileName, buildCardArchive, mergeCardArchive, normalizeCardArchiveSettings, parseCardArchive } = require("./card-archive");
+const { markNudgeShown, normalizeStudyNudgeSettings, nudgeState: computeNudgeState } = require("./study-nudge");
+const { CourseTemplateModal, normalizeCourseTemplates, renderCourseNote } = require("./course-templates");
 const { collectReviewRecords, fitRetention, normalizeSchedulerFitSettings } = require("./scheduler-fit");
 const { normalizeStudyMapSettings, renderStudyMapBlock: renderStudyMap } = require("./study-map");
 const { normalizeVaultSearchSettings, renderVaultSearchBlock: renderVaultSearch } = require("./vault-search");
@@ -212,6 +215,7 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.manager = new OpenCodeManager(this);
     this.setupReminder();
+    this.setupStudyNudge();
     this.setupNoteReviewStatus();
     this.app.workspace.onLayoutReady(() => {
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
@@ -537,6 +541,10 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "generate-quiz", name: "Generate quiz questions from notes", callback: () => this.openQuizGenerator() });
+    this.addCommand({ id: "cards-export-archive", name: "Cards: export a portable archive", callback: () => this.exportCardArchive().catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not export the archive.", 6000)) });
+    this.addCommand({ id: "cards-import-archive", name: "Cards: import a portable archive", callback: () => this.openCardArchiveImport() });
+    this.addCommand({ id: "study-nudge-show", name: "Show today's study nudge", callback: () => this.maybeShowStudyNudge(new Date()) });
+    this.addCommand({ id: "course-note-from-template", name: "Course notes: create a note from a template", callback: () => this.openCourseNoteBuilder() });
     this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
     this.addCommand({ id: "manage-study-status", name: "Manage hidden study items", callback: () => this.openStudyStatusManager() });
 
@@ -805,6 +813,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.satMath = normalizeSatMathSettings(saved.satMath);
     this.settings.sfcCards = normalizeSfcCardsSettings(saved.sfcCards);
     this.settings.cbtExam = normalizeCbtExamSettings(saved.cbtExam);
+    this.settings.cardArchive = normalizeCardArchiveSettings(saved.cardArchive);
+    this.settings.studyNudge = normalizeStudyNudgeSettings(saved.studyNudge);
+    this.settings.courseTemplates = normalizeCourseTemplates(saved.courseTemplates);
     this.settings.schedulerFit = normalizeSchedulerFitSettings(saved.schedulerFit);
     this.settings.studyMap = normalizeStudyMapSettings(saved.studyMap);
     this.settings.vaultSearch = normalizeVaultSearchSettings(saved.vaultSearch);
@@ -1357,6 +1368,22 @@ class QuestionTrackerPlugin extends Plugin {
     return normalizeVaultSearchSettings(this.settings.vaultSearch).enabled;
   }
 
+  cardArchiveEnabled() {
+    return normalizeCardArchiveSettings(this.settings.cardArchive).enabled;
+  }
+
+  studyNudgeEnabled() {
+    return normalizeStudyNudgeSettings(this.settings.studyNudge).enabled;
+  }
+
+  courseTemplatesEnabled() {
+    return normalizeCourseTemplates(this.settings.courseTemplates).enabled;
+  }
+
+  courseTemplatesSettings() {
+    return normalizeCourseTemplates(this.settings.courseTemplates);
+  }
+
   courseHubEnabled() {
     return studyWorkspace.normalizeCourseHub(this.settings.courseHub).enabled;
   }
@@ -1475,6 +1502,7 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("study-tools");
     if (this.studyWorkspaceEnabled()) this.addModuleRibbon("study-workspace", "workflow", "Open Study Workspace", () => this.activateStudyWorkspace());
     else this.removeModuleRibbon("study-workspace");
+    this.refreshStudyNudgeLabel();
   }
 
   setupCalendarRibbon() {
@@ -7771,6 +7799,167 @@ ${body}
     const options = normalizeSchedulerFitSettings(this.settings.schedulerFit);
     const cards = typeof this.getCards === "function" ? this.getCards() : [];
     return fitRetention(collectReviewRecords(cards), { minSamples: options.minSamples, current: this.settings.fsrsRetention });
+  }
+
+  /* ---- portable card archive (Retain-style storage outside plugin data) */
+
+  /** Write every card note into one versioned JSON file in the vault. */
+  async exportCardArchive() {
+    if (!this.cardArchiveEnabled()) throw new Error("Card archive is off. Turn it on in Settings, Global, Modules.");
+    if (!this.cardsEnabled()) throw new Error("Turn on Cards before exporting a card archive.");
+    const entries = [];
+    for (const card of this.getCards()) {
+      const path = str(card.file && card.file.path);
+      if (!path) continue;
+      try {
+        const text = await this.app.vault.cachedRead(card.file);
+        entries.push({ path, text, deck: card.deck, course: card.course });
+      } catch (e) {
+        // an unreadable card is skipped rather than producing an empty entry
+      }
+    }
+    const archive = buildCardArchive(entries, { exportedAt: new Date().toISOString() });
+    const folder = normalizeCardArchiveSettings(this.settings.cardArchive).folder;
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        // the folder may already exist
+      }
+    }
+    const path = `${folder}/${archiveFileName(localDate())}`;
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    const body = JSON.stringify(archive, null, 2);
+    if (existing) await this.app.vault.modify(existing, body);
+    else await this.app.vault.create(path, body);
+    new Notice(`Exported ${archive.count} card${archive.count === 1 ? "" : "s"} to ${path}.`, 6000);
+    return { path, count: archive.count, issues: archive.issues };
+  }
+
+  /** Restore a card archive. `skip` leaves existing notes untouched. */
+  async importCardArchiveText(text, mode) {
+    if (!this.cardArchiveEnabled()) throw new Error("Card archive is off. Turn it on in Settings, Global, Modules.");
+    const parsed = parseCardArchive(text);
+    if (!parsed.ok) throw new Error(parsed.error);
+    const paths = this.app.vault.getMarkdownFiles().map((file) => str(file.path));
+    const report = mergeCardArchive(paths, parsed.archive, mode === "overwrite" ? "overwrite" : "skip");
+    const create = new Set(report.create.map((path) => path.toLowerCase()));
+    const update = new Set(report.update.map((path) => path.toLowerCase()));
+    for (const card of parsed.archive.cards) {
+      const lower = card.path.toLowerCase();
+      const slash = card.path.lastIndexOf("/");
+      if (slash > 0) {
+        const folder = card.path.slice(0, slash);
+        if (!this.app.vault.getAbstractFileByPath(folder)) {
+          try {
+            await this.app.vault.createFolder(folder);
+          } catch (e) {
+            // created concurrently or already present
+          }
+        }
+      }
+      if (create.has(lower)) await this.app.vault.create(card.path, card.text);
+      else if (update.has(lower)) {
+        const existing = this.app.vault.getAbstractFileByPath(card.path);
+        if (existing) await this.app.vault.modify(existing, card.text);
+      }
+    }
+    if (typeof this.refreshPlainCards === "function") this.refreshPlainCards().catch(() => {});
+    return report;
+  }
+
+  openCardArchiveImport() {
+    if (!this.cardArchiveEnabled()) {
+      new Notice("Card archive is off. Turn it on in Settings, Global, Modules.", 6000);
+      this.openSettings();
+      return null;
+    }
+    const modal = new CardArchiveImportModal(this.app, this);
+    modal.open();
+    return modal;
+  }
+
+  /* ---- in-app study nudge (no OS notification) */
+
+  setupStudyNudge() {
+    this.refreshStudyNudgeLabel();
+    if (!this.studyNudgeEnabled()) return;
+    activeWindow.setTimeout(() => {
+      try {
+        this.maybeShowStudyNudge();
+      } catch (e) {
+        // a nudge must never break startup
+      }
+    }, 1800);
+  }
+
+  studyNudgeCounts() {
+    const today = localDate();
+    const questions = this.mcqEnabled() ? this.getQuestions() : [];
+    const dueQuestions = questions.filter((question) => isStudyable(question.fm, today) && isDue(question.fm, today)).length;
+    const cards = this.cardsEnabled() ? this.getCards().filter((card) => {
+      const fm = card.fm || {};
+      const raw = str(fm.next_review || fm.due).slice(0, 10);
+      return !Number(fm.attempts) || !raw || raw <= today;
+    }).length : 0;
+    const tasks = this.studyTasksEnabled() ? studyWorkspace.dueStudyTasks(this.settings.studyTasks.tasks, today).length : 0;
+    return { questions: dueQuestions, cards, tasks };
+  }
+
+  studyNudgeInfo(now) {
+    return computeNudgeState(this.settings.studyNudge, this.studyNudgeCounts(), now);
+  }
+
+  refreshStudyNudgeLabel() {
+    const button = this.ribbonButtons && (this.ribbonButtons.today || this.ribbonButtons.mcq);
+    if (!button || typeof button.setAttr !== "function") return;
+    const info = this.studyNudgeInfo();
+    button.setAttr("aria-label", info.badge ? `${info.badge}. Open Today.` : "Open today");
+  }
+
+  maybeShowStudyNudge(now) {
+    const info = this.studyNudgeInfo(now);
+    this.refreshStudyNudgeLabel();
+    if (!info.visible) return null;
+    new Notice(`Study nudge: ${info.banner}`, 8000);
+    this.settings.studyNudge = markNudgeShown(this.settings.studyNudge, now || new Date());
+    this.save();
+    return info;
+  }
+
+  /* ---- course note templates (Course Command Center, local part) */
+
+  /** Create one course note from a local note-type template. */
+  async createCourseNote(input) {
+    if (!this.courseTemplatesEnabled()) throw new Error("Course templates are off. Turn them on in Settings, Global, Modules.");
+    const note = renderCourseNote(input, this.settings.courseTemplates);
+    const folder = note.folder;
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        // the folder may already exist
+      }
+    }
+    let path = note.path;
+    let suffix = 2;
+    while (this.app.vault.getAbstractFileByPath(path) && suffix <= 50) {
+      path = `${folder}/${note.fileName} ${suffix}.md`;
+      suffix += 1;
+    }
+    await this.app.vault.create(path, note.markdown);
+    return { path, title: note.title, type: note.type };
+  }
+
+  openCourseNoteBuilder() {
+    if (!this.courseTemplatesEnabled()) {
+      new Notice("Course templates are off. Turn them on in Settings, Global, Modules.", 6000);
+      this.openSettings();
+      return null;
+    }
+    const modal = new CourseTemplateModal(this.app, this);
+    modal.open();
+    return modal;
   }
 
   async addStudySubject(input) {

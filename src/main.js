@@ -67,6 +67,9 @@ const quizMaker = require("./quiz-maker");
 const satMath = require("./sat-math");
 const sfcCards = require("./sfc-cards");
 const cbtExam = require("./cbt-exam");
+const cardArchive = require("./card-archive");
+const studyNudge = require("./study-nudge");
+const courseTemplates = require("./course-templates");
 const schedulerFit = require("./scheduler-fit");
 const studyMap = require("./study-map");
 const vaultSearch = require("./vault-search");
@@ -265,6 +268,9 @@ QuestionTrackerPlugin.__test = {
   satMath,
   sfcCards,
   cbtExam,
+  cardArchive,
+  studyNudge,
+  courseTemplates,
   schedulerFit,
   studyMap,
   vaultSearch,

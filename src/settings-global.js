@@ -280,6 +280,40 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Portable card archive")
+    .setDesc("Export every card note into one versioned JSON file and restore it later, skipping or overwriting existing notes. The archive lives in your vault, not in plugin data.")
+    .addToggle((t) =>
+      t.setValue(plugin.cardArchiveEnabled()).onChange(async (v) => {
+        st.cardArchive.enabled = v;
+        await plugin.save();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Study nudge")
+    .setDesc("An opt-in in-app Notice and ribbon label for due questions, cards and tasks. Off by default; no OS notification permission is requested.")
+    .addToggle((t) =>
+      t.setValue(plugin.studyNudgeEnabled()).onChange(async (v) => {
+        st.studyNudge.enabled = v;
+        await plugin.save();
+        plugin.refreshStudyNudgeLabel();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Course note templates")
+    .setDesc("Create lecture, unit, review, assignment and syllabus notes from local templates with course, title and date placeholders. The templates are editable text; no Canvas login or network request is involved.")
+    .addToggle((t) =>
+      t.setValue(plugin.courseTemplatesEnabled()).onChange(async (v) => {
+        st.courseTemplates.enabled = v;
+        await plugin.save();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("SFC-style card blocks")
     .setDesc("Study basic, reversed, cloze, essay, worked-solution, wrong-answer-sprint and source-marked cards in local sfc-cards blocks. Reveals and self-checks are not recorded.")
     .addToggle((t) =>
