@@ -152,6 +152,16 @@ Four local study modules adapt MIT-licensed plugin concepts. In each case the so
 - **Feynman Learning** — [obsidian-feynman-learning](https://github.com/jialingxiao/obsidian-feynman-learning), MIT, Copyright (c) jialingxiao (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: automatic evaluation of a Feynman explanation. The four-step cycle and manual scoring were already original work here; `src/feynman-ai.js` adds an optional AI second opinion through the plugin's existing bring-your-own-key AI settings, stored beside the manual score. No upstream prompt, rubric or code is copied.
 - **Pick Me** — [pickme](https://github.com/sxinyuhoo/pickme), MIT, Copyright (c) sxinyuhoo (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: an annotation index with page and source navigation. `src/pdf-annotation-index.js` is an original read-only reader of this plugin's own PDF annotation sidecars; it has no PDF parsing, rendering or writing code.
 
+## Scheduler fitting, study map and cited vault search (October 31, 2026)
+
+Three more MIT-licensed plugin concepts are adapted here. The source projects were read as feature references; the implementations are original, dependency-free JavaScript, and no source file, function or stylesheet rule was copied.
+
+- **LearnKit** — [learnkit](https://github.com/ctrlaltwill/learnkit), MIT, Copyright (c) Will (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: fitting the desired-retention target from the learner's own review history. `src/scheduler-fit.js` reads this plugin's own card counters and proposes a bounded target; no LearnKit scheduler or parameter-fit code is bundled.
+- **Qard** — [qard-obsidian](https://github.com/kylianmarceau/qard-obsidian), MIT, Copyright (c) Kylian Marceau (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: FSRS self-fitting once enough ratings exist. `src/scheduler-fit.js` implements the local fit.
+- **Spaceforge** — [spaceforge](https://github.com/dralkh/spaceforge), MIT, Copyright (c) dralkh (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: a visualise/summary workspace with a mind-map view. `src/study-map.js` builds an outline tree and key-term list from this plugin's own notes; it calls no model.
+- **Gemini Helper** — [obsidian-gemini-helper](https://github.com/takeshy/obsidian-gemini-helper), MIT, Copyright (c) takeshy (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: search results with citations. `src/vault-search.js` ranks notes with a local index and links each snippet; no model or network request is made.
+- **LLM Hub** — [obsidian-llm-hub](https://github.com/takeshy/obsidian-llm-hub), MIT, Copyright (c) takeshy (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: cited vault search across study notes. `src/vault-search.js` implements the local ranking and snippet citation.
+
 ## Not absorbed (yet)
 
 The product plan also names LearnKit as a future absorb source. It has **not** been copied
