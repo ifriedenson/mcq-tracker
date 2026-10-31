@@ -39837,6 +39837,9 @@ class QuestionTrackerPlugin extends Plugin {
     const result = stopRunningTagTimers(this.settings.tagTimers, Date.now());
     this.settings.tagTimers = result.settings;
     if (result.count) await this.save();
+    if (result.count && typeof activeDocument !== "undefined" && typeof activeDocument.dispatchEvent === "function") {
+      activeDocument.dispatchEvent(new Event("mcq-tag-timer-change"));
+    }
     new Notice(result.count ? `Stopped ${result.count} running tag timer${result.count === 1 ? "" : "s"}.` : "No tag timers are running.");
     return result.count;
   }
@@ -57471,13 +57474,20 @@ class TagTimerBlock extends MarkdownRenderChild {
     this.message = "";
     this.messageEl = null;
     this.needsSave = false;
+    this.onExternalChange = () => this.render();
   }
 
   onload() {
     this.render();
+    if (typeof activeDocument !== "undefined" && typeof activeDocument.addEventListener === "function") {
+      activeDocument.addEventListener("mcq-tag-timer-change", this.onExternalChange);
+    }
   }
 
   onunload() {
+    if (typeof activeDocument !== "undefined" && typeof activeDocument.removeEventListener === "function") {
+      activeDocument.removeEventListener("mcq-tag-timer-change", this.onExternalChange);
+    }
     this.stopTicker();
   }
 

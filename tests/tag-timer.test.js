@@ -208,6 +208,28 @@ test("tag timer: malformed and empty blocks stay readable", async () => {
   assert.ok(bad.all.some((option) => option.classes.has("qt-tag-timer-issue")));
 });
 
+test("tag timer: stop all refreshes an open block and records running timers", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  let now = 1000;
+  const dom = makeDom();
+  await plugin.renderTagTimerBlock("#study/biology stopwatch", dom.root, {
+    sourcePath: "Notes/Live.md",
+    today: "2026-10-31",
+    now: () => now,
+  });
+  await dom.click("Start");
+  const key = TT.tagTimerKey("Notes/Live.md", "#study/biology");
+  assert.equal(plugin.settings.tagTimers.timers[key].state, "running");
+  const count = await plugin.stopAllTagTimers();
+  assert.equal(count, 1);
+  assert.equal(plugin.settings.tagTimers.timers[key].state, "stopped");
+  assert.equal(plugin.settings.tagTimers.sessions.length, 1);
+  assert.ok(dom.texts().includes("Stopped"));
+  assert.ok(plugin.commands.some((command) => command.id === "tag-timer-stop-all"));
+});
+
 test("tag timer: stop all records running timers and the command is registered", async () => {
   const plugin = new QT(makeApp([]));
   await plugin.onload();

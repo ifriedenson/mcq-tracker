@@ -4033,6 +4033,9 @@ class QuestionTrackerPlugin extends Plugin {
     const result = stopRunningTagTimers(this.settings.tagTimers, Date.now());
     this.settings.tagTimers = result.settings;
     if (result.count) await this.save();
+    if (result.count && typeof activeDocument !== "undefined" && typeof activeDocument.dispatchEvent === "function") {
+      activeDocument.dispatchEvent(new Event("mcq-tag-timer-change"));
+    }
     new Notice(result.count ? `Stopped ${result.count} running tag timer${result.count === 1 ? "" : "s"}.` : "No tag timers are running.");
     return result.count;
   }

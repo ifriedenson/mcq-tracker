@@ -165,7 +165,20 @@ function load(fileOverride) {
     },
     clearTimeout: (t) => clearTimeout(t),
   };
-  global.activeDocument = { hidden: false };
+  global.activeDocument = {
+    hidden: false,
+    listeners: {},
+    addEventListener(name, fn) {
+      (this.listeners[name] = this.listeners[name] || []).push(fn);
+    },
+    removeEventListener(name, fn) {
+      const list = this.listeners[name];
+      if (list) this.listeners[name] = list.filter((item) => item !== fn);
+    },
+    dispatchEvent(event) {
+      for (const fn of this.listeners[event && event.type] || []) fn(event);
+    },
+  };
   const file = fileOverride || (process.env.MCQ_MAIN ? path.resolve(process.env.MCQ_MAIN) : path.join(__dirname, "..", "..", "main.js"));
   delete require.cache[require.resolve(file)];
   const Plugin_ = require(file);

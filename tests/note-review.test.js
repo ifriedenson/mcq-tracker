@@ -47,7 +47,8 @@ test("note review: an empty set list falls back to explicitly marked notes", () 
 });
 
 test("note review: ratings map to the existing attempt shape", () => {
-  assert.deepEqual(N.noteReviewAttempt("again", 12), { grade: "again", chosen: "again", correct: false, conf: 0, seconds: 12, now: N.noteReviewAttempt("again", 12).now });
+  const again = N.noteReviewAttempt("again", 12);
+  assert.deepEqual(again, { grade: "again", chosen: "again", correct: false, conf: 0, seconds: 12, now: again.now });
   const good = N.noteReviewAttempt("good", 20);
   assert.equal(good.correct, true);
   assert.equal(good.conf, 2);

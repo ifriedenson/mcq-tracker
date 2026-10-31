@@ -50,13 +50,20 @@ class TagTimerBlock extends MarkdownRenderChild {
     this.message = "";
     this.messageEl = null;
     this.needsSave = false;
+    this.onExternalChange = () => this.render();
   }
 
   onload() {
     this.render();
+    if (typeof activeDocument !== "undefined" && typeof activeDocument.addEventListener === "function") {
+      activeDocument.addEventListener("mcq-tag-timer-change", this.onExternalChange);
+    }
   }
 
   onunload() {
+    if (typeof activeDocument !== "undefined" && typeof activeDocument.removeEventListener === "function") {
+      activeDocument.removeEventListener("mcq-tag-timer-change", this.onExternalChange);
+    }
     this.stopTicker();
   }
 
