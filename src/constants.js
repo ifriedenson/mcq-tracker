@@ -149,6 +149,9 @@ const DEFAULT_SETTINGS = {
   quizIndex: { enabled: true, folder: "", limit: 50 }, // cross-vault quiz dashboard/index
   quizMaker: { enabled: true }, // Quiz Maker block: four formats and named packs
   satMath: { enabled: true }, // SAT Math block: local step-by-step solver, no score estimate
+  schedulerFit: { enabled: true, minSamples: 20 }, // LearnKit/Qard-style desired-retention self-fitting from card review counters
+  studyMap: { enabled: true, terms: 8, depth: 4 }, // Spaceforge-style local outline/mind-map and key-term map
+  vaultSearch: { enabled: true, limit: 5 }, // Gemini Helper/LLM Hub-style cited local vault search, no model call
   sfcCards: { enabled: true }, // SFC-style typed card block: seven card types, read-only
   cbtExam: { enabled: true, history: {} }, // CBT exam navigator, local sidecar history and adaptive review
   courseHub: { enabled: true, grades: [] }, // course dashboard and local grade chips

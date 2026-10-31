@@ -120,6 +120,9 @@ const { normalizeQuizMakerSettings, renderQuizMakerBlock: renderQuizMaker } = re
 const { normalizeSatMathSettings, renderSatMathBlock: renderSatMath } = require("./sat-math");
 const { normalizeSfcCardsSettings, renderSfcCardsBlock: renderSfcCards } = require("./sfc-cards");
 const { normalizeCbtExamSettings, renderCbtExamBlock: renderCbtExam } = require("./cbt-exam");
+const { collectReviewRecords, fitRetention, normalizeSchedulerFitSettings } = require("./scheduler-fit");
+const { normalizeStudyMapSettings, renderStudyMapBlock: renderStudyMap } = require("./study-map");
+const { normalizeVaultSearchSettings, renderVaultSearchBlock: renderVaultSearch } = require("./vault-search");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
@@ -550,6 +553,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("sat-math", (source, el, ctx) => this.renderSatMathBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("sfc-cards", (source, el, ctx) => this.renderSfcCardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("cbt-exam", (source, el, ctx) => this.renderCbtExamBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("study-map", (source, el) => this.renderStudyMapBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("vault-search", (source, el) => this.renderVaultSearchBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("quizport", (source, el, ctx) => this.renderQuizPortBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("simple-flashcards", (source, el, ctx) => this.renderSimpleFlashcardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("reading-plan", (source, el, ctx) => this.renderReadingPlanBlock(source, el, ctx));
@@ -795,6 +800,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.satMath = normalizeSatMathSettings(saved.satMath);
     this.settings.sfcCards = normalizeSfcCardsSettings(saved.sfcCards);
     this.settings.cbtExam = normalizeCbtExamSettings(saved.cbtExam);
+    this.settings.schedulerFit = normalizeSchedulerFitSettings(saved.schedulerFit);
+    this.settings.studyMap = normalizeStudyMapSettings(saved.studyMap);
+    this.settings.vaultSearch = normalizeVaultSearchSettings(saved.vaultSearch);
     this.settings.courseHub = studyWorkspace.normalizeCourseHub(saved.courseHub);
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks(saved.studyTasks);
     this.settings.annotations = studyWorkspace.normalizeAnnotations(saved.annotations);
@@ -1328,6 +1336,18 @@ class QuestionTrackerPlugin extends Plugin {
 
   cbtExamEnabled() {
     return normalizeCbtExamSettings(this.settings.cbtExam).enabled;
+  }
+
+  schedulerFitEnabled() {
+    return normalizeSchedulerFitSettings(this.settings.schedulerFit).enabled;
+  }
+
+  studyMapEnabled() {
+    return normalizeStudyMapSettings(this.settings.studyMap).enabled;
+  }
+
+  vaultSearchEnabled() {
+    return normalizeVaultSearchSettings(this.settings.vaultSearch).enabled;
   }
 
   courseHubEnabled() {
@@ -4324,6 +4344,24 @@ class QuestionTrackerPlugin extends Plugin {
       return null;
     }
     return renderCbtExam(this, source, el, ctx);
+  }
+
+  /** Render a `study-map` block: a read-only outline map with key terms. */
+  async renderStudyMapBlock(source, el) {
+    if (!this.studyMapEnabled()) {
+      el.createDiv({ cls: "qt-study-map-issue", text: "Study map is off. Turn it on in Settings, Global, Modules." });
+      return null;
+    }
+    return renderStudyMap(this, source, el);
+  }
+
+  /** Render a `vault-search` block with cited local results. */
+  async renderVaultSearchBlock(source, el) {
+    if (!this.vaultSearchEnabled()) {
+      el.createDiv({ cls: "qt-vault-search-issue", text: "Vault search is off. Turn it on in Settings, Global, Modules." });
+      return null;
+    }
+    return renderVaultSearch(this, source, el);
   }
 
   /** Render a `simple-flashcards` block with the local reveal reader. */
@@ -7655,6 +7693,13 @@ ${body}
       return;
     }
     this.app.workspace.openLinkText(file.path, "", false);
+  }
+
+  /** Read-only desired-retention fit from the review counters already on cards. */
+  schedulerFitReport() {
+    const options = normalizeSchedulerFitSettings(this.settings.schedulerFit);
+    const cards = typeof this.getCards === "function" ? this.getCards() : [];
+    return fitRetention(collectReviewRecords(cards), { minSamples: options.minSamples, current: this.settings.fsrsRetention });
   }
 
   async addStudySubject(input) {

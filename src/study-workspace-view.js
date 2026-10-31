@@ -75,6 +75,7 @@ class StudyWorkspaceView extends ItemView {
     this.deepNotesId = "";
     this.retentionData = null;
     this.vocabFilter = "";
+    this.fitReport = null;
     this.lecturePreview = null;
     this.readAloudText = "";
     this.readAloudPlan = null;
@@ -1016,6 +1017,7 @@ class StudyWorkspaceView extends ItemView {
   /* ---- Retention ------------------------------------------------------- */
 
   renderRetention(root) {
+    if (typeof this.plugin.schedulerFitEnabled === "function" && this.plugin.schedulerFitEnabled()) this.renderSchedulerFit(root);
     const controls = root.createDiv({ cls: "qt-study-card" });
     controls.createEl("h3", { text: "Card retention forecast" });
     controls.createDiv({
@@ -1072,6 +1074,56 @@ class StudyWorkspaceView extends ItemView {
       main.createDiv({ cls: "qt-study-row-title", text: card.deck || "Unsorted" });
       main.createDiv({ cls: "qt-study-row-meta", text: `${card.course ? `${card.course} · ` : ""}${card.fresh ? "New" : card.due || "Scheduled"}${card.attempts ? ` · ${card.attempts} review${card.attempts === 1 ? "" : "s"}` : ""}` });
       if (card.path) row.createEl("button", { text: "Open" }).addEventListener("click", () => this.plugin.openStudyFlowSource(card.path));
+    }
+  }
+
+  renderSchedulerFit(root) {
+    const card = root.createDiv({ cls: "qt-study-card qt-scheduler-fit" });
+    card.createEl("h3", { text: "Desired-retention fit" });
+    card.createDiv({ cls: "qt-hint", text: "Uses the review counters already stored on your cards. Fitting is local; Apply only changes the FSRS desired-retention setting." });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Fit target", cls: "mod-cta" }).addEventListener("click", () => {
+      this.fitReport = this.plugin.schedulerFitReport();
+      this.saveMessage(describeFit(this.fitReport));
+      this.render();
+    });
+    const fit = this.fitReport;
+    if (!fit) {
+      card.createDiv({ cls: "qt-study-empty", text: "Rate a few cards, then fit a target from your own recall." });
+      return;
+    }
+    const stats = card.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const box = stats.createDiv({ cls: "qt-study-stat" });
+      box.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      box.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(fit.reviews, "reviews");
+    stat(fit.ready ? `${fit.observedPercent}%` : "—", "observed recall");
+    stat(fit.ready && typeof fit.recommended === "number" ? fit.recommended.toFixed(2) : "—", "suggested target");
+    stat(fit.confidence, "confidence");
+    for (const advice of fit.advice) card.createDiv({ cls: "qt-study-row-meta", text: advice });
+    const used = fit.buckets.filter((bucket) => bucket.reviews > 0);
+    if (used.length) {
+      const list = card.createDiv({ cls: "qt-study-list" });
+      for (const bucket of used) {
+        const row = list.createDiv({ cls: "qt-study-row" });
+        const main = row.createDiv({ cls: "qt-study-row-main" });
+        main.createDiv({ cls: "qt-study-row-title", text: bucket.label });
+        main.createDiv({ cls: "qt-study-row-meta", text: `${Math.round(bucket.accuracy * 100)}% recall · ${bucket.reviews} review${bucket.reviews === 1 ? "" : "s"}` });
+      }
+    }
+    if (fit.ready && typeof fit.recommended === "number" && Math.abs((fit.current || 0) - fit.recommended) >= 0.001) {
+      const apply = card.createDiv({ cls: "qt-row qt-study-actions" });
+      apply.createEl("button", { text: `Apply target ${fit.recommended.toFixed(2)}`, cls: "mod-cta" }).addEventListener("click", async () => {
+        this.plugin.settings.fsrsRetention = fit.recommended;
+        await this.plugin.save();
+        this.fitReport = null;
+        this.saveMessage(`Desired retention set to ${fit.recommended.toFixed(2)}.`);
+        this.render();
+      });
+    } else if (fit.ready) {
+      card.createDiv({ cls: "qt-study-row-meta", text: "The current target already matches the fit." });
     }
   }
 

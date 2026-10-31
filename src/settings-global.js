@@ -244,6 +244,42 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Scheduler fitting")
+    .setDesc("Fit the FSRS desired-retention target from the reviews already recorded on your cards. The Retention tab shows the recommendation and applies it only when you press the button.")
+    .addToggle((t) =>
+      t.setValue(plugin.schedulerFitEnabled()).onChange(async (v) => {
+        st.schedulerFit.enabled = v;
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Study map")
+    .setDesc("Outline a note or an inline outline as a read-only mind map with key terms. Like Spaceforge's visualize workspace, but local: no model and no note changes.")
+    .addToggle((t) =>
+      t.setValue(plugin.studyMapEnabled()).onChange(async (v) => {
+        st.studyMap.enabled = v;
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Vault search")
+    .setDesc("Rank notes with a local BM25-style index and show cited snippets in vault-search blocks. No model, embedding request or network call is made.")
+    .addToggle((t) =>
+      t.setValue(plugin.vaultSearchEnabled()).onChange(async (v) => {
+        st.vaultSearch.enabled = v;
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("SFC-style card blocks")
     .setDesc("Study basic, reversed, cloze, essay, worked-solution, wrong-answer-sprint and source-marked cards in local sfc-cards blocks. Reveals and self-checks are not recorded.")
     .addToggle((t) =>

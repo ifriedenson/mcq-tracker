@@ -183,6 +183,16 @@
  * - **Course Command Center** — [CourseCommandCenter](https://github.com/flippinhutt/CourseCommandCenter), MIT, Copyright (c) flippinhutt (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: course health checks. `src/course-health.js` implements local checks over this plugin's course dashboard, planner and tasks; it has no Canvas client, OAuth flow or note-template code.
  * - **Advanced Audio Recorder** — [advanced-audio-recorder](https://github.com/akhmialeuski/advanced-audio-recorder), MIT, Copyright (c) akhmialeuski (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: timestamp bookmarks, chapters and copyable timestamp links. `src/audio-bookmarks.js` stores timestamps in plugin data and builds Obsidian media-fragment links; it does not record, edit or play audio.
  *
+ * ## Scheduler fitting, study map and cited vault search (October 31, 2026)
+ *
+ * Three more MIT-licensed plugin concepts are adapted here. The source projects were read as feature references; the implementations are original, dependency-free JavaScript, and no source file, function or stylesheet rule was copied.
+ *
+ * - **LearnKit** — [learnkit](https://github.com/ctrlaltwill/learnkit), MIT, Copyright (c) Will (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: fitting the desired-retention target from the learner's own review history. `src/scheduler-fit.js` reads this plugin's own card counters and proposes a bounded target; no LearnKit scheduler or parameter-fit code is bundled.
+ * - **Qard** — [qard-obsidian](https://github.com/kylianmarceau/qard-obsidian), MIT, Copyright (c) Kylian Marceau (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: FSRS self-fitting once enough ratings exist. `src/scheduler-fit.js` implements the local fit.
+ * - **Spaceforge** — [spaceforge](https://github.com/dralkh/spaceforge), MIT, Copyright (c) dralkh (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: a visualise/summary workspace with a mind-map view. `src/study-map.js` builds an outline tree and key-term list from this plugin's own notes; it calls no model.
+ * - **Gemini Helper** — [obsidian-gemini-helper](https://github.com/takeshy/obsidian-gemini-helper), MIT, Copyright (c) takeshy (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: search results with citations. `src/vault-search.js` ranks notes with a local index and links each snippet; no model or network request is made.
+ * - **LLM Hub** — [obsidian-llm-hub](https://github.com/takeshy/obsidian-llm-hub), MIT, Copyright (c) takeshy (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: cited vault search across study notes. `src/vault-search.js` implements the local ranking and snippet citation.
+ *
  * ## Not absorbed (yet)
  *
  * The product plan also names LearnKit as a future absorb source. It has **not** been copied
@@ -18834,6 +18844,9 @@ const DEFAULT_SETTINGS = {
   quizIndex: { enabled: true, folder: "", limit: 50 }, // cross-vault quiz dashboard/index
   quizMaker: { enabled: true }, // Quiz Maker block: four formats and named packs
   satMath: { enabled: true }, // SAT Math block: local step-by-step solver, no score estimate
+  schedulerFit: { enabled: true, minSamples: 20 }, // LearnKit/Qard-style desired-retention self-fitting from card review counters
+  studyMap: { enabled: true, terms: 8, depth: 4 }, // Spaceforge-style local outline/mind-map and key-term map
+  vaultSearch: { enabled: true, limit: 5 }, // Gemini Helper/LLM Hub-style cited local vault search, no model call
   sfcCards: { enabled: true }, // SFC-style typed card block: seven card types, read-only
   cbtExam: { enabled: true, history: {} }, // CBT exam navigator, local sidecar history and adaptive review
   courseHub: { enabled: true, grades: [] }, // course dashboard and local grade chips
@@ -37456,6 +37469,9 @@ const { normalizeQuizMakerSettings, renderQuizMakerBlock: renderQuizMaker } = re
 const { normalizeSatMathSettings, renderSatMathBlock: renderSatMath } = require("./sat-math");
 const { normalizeSfcCardsSettings, renderSfcCardsBlock: renderSfcCards } = require("./sfc-cards");
 const { normalizeCbtExamSettings, renderCbtExamBlock: renderCbtExam } = require("./cbt-exam");
+const { collectReviewRecords, fitRetention, normalizeSchedulerFitSettings } = require("./scheduler-fit");
+const { normalizeStudyMapSettings, renderStudyMapBlock: renderStudyMap } = require("./study-map");
+const { normalizeVaultSearchSettings, renderVaultSearchBlock: renderVaultSearch } = require("./vault-search");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
@@ -37886,6 +37902,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("sat-math", (source, el, ctx) => this.renderSatMathBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("sfc-cards", (source, el, ctx) => this.renderSfcCardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("cbt-exam", (source, el, ctx) => this.renderCbtExamBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("study-map", (source, el) => this.renderStudyMapBlock(source, el));
+    this.registerMarkdownCodeBlockProcessor("vault-search", (source, el) => this.renderVaultSearchBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("quizport", (source, el, ctx) => this.renderQuizPortBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("simple-flashcards", (source, el, ctx) => this.renderSimpleFlashcardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("reading-plan", (source, el, ctx) => this.renderReadingPlanBlock(source, el, ctx));
@@ -38131,6 +38149,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.satMath = normalizeSatMathSettings(saved.satMath);
     this.settings.sfcCards = normalizeSfcCardsSettings(saved.sfcCards);
     this.settings.cbtExam = normalizeCbtExamSettings(saved.cbtExam);
+    this.settings.schedulerFit = normalizeSchedulerFitSettings(saved.schedulerFit);
+    this.settings.studyMap = normalizeStudyMapSettings(saved.studyMap);
+    this.settings.vaultSearch = normalizeVaultSearchSettings(saved.vaultSearch);
     this.settings.courseHub = studyWorkspace.normalizeCourseHub(saved.courseHub);
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks(saved.studyTasks);
     this.settings.annotations = studyWorkspace.normalizeAnnotations(saved.annotations);
@@ -38664,6 +38685,18 @@ class QuestionTrackerPlugin extends Plugin {
 
   cbtExamEnabled() {
     return normalizeCbtExamSettings(this.settings.cbtExam).enabled;
+  }
+
+  schedulerFitEnabled() {
+    return normalizeSchedulerFitSettings(this.settings.schedulerFit).enabled;
+  }
+
+  studyMapEnabled() {
+    return normalizeStudyMapSettings(this.settings.studyMap).enabled;
+  }
+
+  vaultSearchEnabled() {
+    return normalizeVaultSearchSettings(this.settings.vaultSearch).enabled;
   }
 
   courseHubEnabled() {
@@ -41660,6 +41693,24 @@ class QuestionTrackerPlugin extends Plugin {
       return null;
     }
     return renderCbtExam(this, source, el, ctx);
+  }
+
+  /** Render a `study-map` block: a read-only outline map with key terms. */
+  async renderStudyMapBlock(source, el) {
+    if (!this.studyMapEnabled()) {
+      el.createDiv({ cls: "qt-study-map-issue", text: "Study map is off. Turn it on in Settings, Global, Modules." });
+      return null;
+    }
+    return renderStudyMap(this, source, el);
+  }
+
+  /** Render a `vault-search` block with cited local results. */
+  async renderVaultSearchBlock(source, el) {
+    if (!this.vaultSearchEnabled()) {
+      el.createDiv({ cls: "qt-vault-search-issue", text: "Vault search is off. Turn it on in Settings, Global, Modules." });
+      return null;
+    }
+    return renderVaultSearch(this, source, el);
   }
 
   /** Render a `simple-flashcards` block with the local reveal reader. */
@@ -44991,6 +45042,13 @@ ${body}
       return;
     }
     this.app.workspace.openLinkText(file.path, "", false);
+  }
+
+  /** Read-only desired-retention fit from the review counters already on cards. */
+  schedulerFitReport() {
+    const options = normalizeSchedulerFitSettings(this.settings.schedulerFit);
+    const cards = typeof this.getCards === "function" ? this.getCards() : [];
+    return fitRetention(collectReviewRecords(cards), { minSamples: options.minSamples, current: this.settings.fsrsRetention });
   }
 
   async addStudySubject(input) {
@@ -54499,6 +54557,152 @@ module.exports = {
 };
 };
 
+/* ---- src/scheduler-fit.js ---- */
+__defs["scheduler-fit"] = function (module, exports, require) {
+/*
+ * Scheduler self-fitting. LearnKit and Qard both fit the desired retention
+ * from the user's own review history instead of leaving one global target.
+ * This module does the same locally and conservatively: it reads the counters
+ * every card note already keeps, groups them by scheduled interval, and
+ * recommends a desired-retention value inside a safe band. It never writes a
+ * schedule by itself; the Retention tab offers the recommendation as a button
+ * that changes the existing `fsrsRetention` setting.
+ */
+const { str } = require("./util");
+
+const DEFAULT_MIN_SAMPLES = 20;
+const MIN_SAMPLES = 10;
+const MAX_SAMPLES = 500;
+const RETENTION_FLOOR = 0.8;
+const RETENTION_CEILING = 0.95;
+const RETENTION_STEP = 0.05;
+
+const BUCKETS = [
+  { key: "short", label: "1-3 days", low: 0, high: 3 },
+  { key: "week", label: "4-10 days", low: 4, high: 10 },
+  { key: "fortnight", label: "11-30 days", low: 11, high: 30 },
+  { key: "month", label: "31-90 days", low: 31, high: 90 },
+  { key: "long", label: "90+ days", low: 91, high: Infinity },
+];
+
+function normalizeSchedulerFitSettings(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const raw = Number(source.minSamples);
+  return {
+    enabled: !(value === false || source.enabled === false),
+    minSamples: Number.isFinite(raw) ? Math.max(MIN_SAMPLES, Math.min(MAX_SAMPLES, Math.round(raw))) : DEFAULT_MIN_SAMPLES,
+  };
+}
+
+/** Review counters from card notes. Fresh cards (no reviews) are skipped. */
+function collectReviewRecords(cards) {
+  const records = [];
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const fm = card && card.fm && typeof card.fm === "object" ? card.fm : null;
+    if (!fm) continue;
+    const attempts = Math.max(0, Math.round(Number(fm.attempts) || 0));
+    if (!attempts) continue;
+    const correct = Math.max(0, Math.min(attempts, Math.round(Number(fm.correct_count) || 0)));
+    const interval = Math.max(0, Math.round(Number(fm.interval) || 0));
+    records.push({
+      path: str(card.file && card.file.path),
+      deck: str(card.deck).trim() || "Unsorted",
+      attempts,
+      correct,
+      interval,
+    });
+  }
+  return records;
+}
+
+function bucketFor(interval) {
+  return BUCKETS.find((bucket) => interval >= bucket.low && interval <= bucket.high) || BUCKETS[0];
+}
+
+function roundRetention(value) {
+  const stepped = Math.round(value / RETENTION_STEP) * RETENTION_STEP;
+  return Math.round(Math.max(RETENTION_FLOOR, Math.min(RETENTION_CEILING, stepped)) * 100) / 100;
+}
+
+/**
+ * Fit a desired retention from observed recall. `fitRetention` is pure: the
+ * caller decides whether to apply the suggestion.
+ */
+function fitRetention(records, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const settings = normalizeSchedulerFitSettings({ minSamples: opts.minSamples });
+  const list = Array.isArray(records) ? records : [];
+  const buckets = BUCKETS.map((bucket) => ({ key: bucket.key, label: bucket.label, reviews: 0, correct: 0, accuracy: 0 }));
+  let reviews = 0;
+  let correct = 0;
+  for (const record of list) {
+    const fm = record && record.fm && typeof record.fm === "object" ? record.fm : record;
+    if (!fm || typeof fm !== "object") continue;
+    const attempts = Math.max(0, Math.round(Number(fm.attempts) || 0));
+    if (!attempts) continue;
+    const hits = Math.max(0, Math.min(attempts, Math.round(Number(fm.correct_count !== undefined ? fm.correct_count : fm.correct) || 0)));
+    reviews += attempts;
+    correct += hits;
+    const bucket = buckets.find((entry) => entry.key === bucketFor(Math.max(0, Number(fm.interval) || 0)).key);
+    if (bucket) {
+      bucket.reviews += attempts;
+      bucket.correct += hits;
+    }
+  }
+  for (const bucket of buckets) bucket.accuracy = bucket.reviews ? bucket.correct / bucket.reviews : 0;
+  const observed = reviews ? correct / reviews : 0;
+  const ready = reviews >= settings.minSamples;
+  const recommended = ready ? roundRetention(observed) : null;
+  const used = buckets.filter((bucket) => bucket.reviews >= 3);
+  const trend = used.length >= 2 ? used[used.length - 1].accuracy - used[0].accuracy : 0;
+  const confidence = reviews >= 100 ? "high" : reviews >= settings.minSamples ? "medium" : "low";
+  const advice = [];
+  if (!ready) {
+    advice.push(`Rate at least ${settings.minSamples} reviews before fitting; ${reviews} recorded so far.`);
+  } else {
+    if (observed < RETENTION_FLOOR) advice.push("Observed recall is below the safe band; keep the default target and shorten intervals instead.");
+    if (observed > RETENTION_CEILING) advice.push("Observed recall is high; a slightly lower target trades a little recall for fewer reviews.");
+    if (trend < -0.15) advice.push("Recall drops sharply on long intervals; review those cards sooner.");
+  }
+  return {
+    cards: list.length,
+    reviews,
+    correct,
+    observed,
+    observedPercent: reviews ? Math.round(observed * 100) : 0,
+    ready,
+    recommended,
+    confidence,
+    minSamples: settings.minSamples,
+    current: Number.isFinite(Number(opts.current)) ? Math.round(Number(opts.current) * 100) / 100 : null,
+    buckets,
+    trend,
+    advice,
+  };
+}
+
+function describeFit(fit) {
+  if (!fit || !Number.isFinite(fit.reviews)) return "No review history yet.";
+  if (!fit.ready) return `${fit.reviews} review${fit.reviews === 1 ? "" : "s"} recorded. Fit needs at least ${fit.minSamples || DEFAULT_MIN_SAMPLES}.`;
+  const target = typeof fit.recommended === "number" ? fit.recommended.toFixed(2) : "—";
+  const change = fit.current !== null && typeof fit.recommended === "number" && Math.abs(fit.current - fit.recommended) >= 0.001
+    ? ` (currently ${fit.current.toFixed(2)})`
+    : "";
+  return `Observed recall ${fit.observedPercent}% across ${fit.reviews} reviews. Suggested target ${target}${change}.`;
+}
+
+module.exports = {
+  BUCKETS,
+  DEFAULT_MIN_SAMPLES,
+  RETENTION_CEILING,
+  RETENTION_FLOOR,
+  collectReviewRecords,
+  describeFit,
+  fitRetention,
+  normalizeSchedulerFitSettings,
+};
+};
+
 /* ---- src/secret-keys.js ---- */
 __defs["secret-keys"] = function (module, exports, require) {
 /*
@@ -54881,6 +55085,42 @@ function renderModules(containerEl, plugin, redisplay) {
     .addToggle((t) =>
       t.setValue(plugin.cbtExamEnabled()).onChange(async (v) => {
         st.cbtExam.enabled = v;
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Scheduler fitting")
+    .setDesc("Fit the FSRS desired-retention target from the reviews already recorded on your cards. The Retention tab shows the recommendation and applies it only when you press the button.")
+    .addToggle((t) =>
+      t.setValue(plugin.schedulerFitEnabled()).onChange(async (v) => {
+        st.schedulerFit.enabled = v;
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Study map")
+    .setDesc("Outline a note or an inline outline as a read-only mind map with key terms. Like Spaceforge's visualize workspace, but local: no model and no note changes.")
+    .addToggle((t) =>
+      t.setValue(plugin.studyMapEnabled()).onChange(async (v) => {
+        st.studyMap.enabled = v;
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Vault search")
+    .setDesc("Rank notes with a local BM25-style index and show cited snippets in vault-search blocks. No model, embedding request or network call is made.")
+    .addToggle((t) =>
+      t.setValue(plugin.vaultSearchEnabled()).onChange(async (v) => {
+        st.vaultSearch.enabled = v;
         await plugin.save();
         plugin.refreshViews();
         redisplay();
@@ -60126,6 +60366,242 @@ module.exports = {
 };
 };
 
+/* ---- src/study-map.js ---- */
+__defs["study-map"] = function (module, exports, require) {
+/*
+ * A local study map: outline a note (or an inline outline) as a mind-map tree
+ * and pull out the key terms and a one-line summary. Spaceforge's visualize
+ * workspace is the reference idea; this implementation is original, offline
+ * and read-only. It never edits the source note.
+ *
+ *   ```study-map
+ *   Source: Biology/Cell respiration.md
+ *   Depth: 3
+ *   Terms: 8
+ *   ```
+ *
+ *   ```study-map
+ *   Title: Osmosis
+ *   # Osmosis
+ *   ## Definition
+ *   - Water crosses a membrane
+ *   ```
+ */
+const { str } = require("./util");
+
+const MAX_LINES = 400;
+const MAX_SOURCE = 20000;
+const MAX_DEPTH = 6;
+
+const STOPWORDS = new Set(
+  "about above after again against also although among and another any are because been before being below between both but came can could did does doing down during each either enough even ever every few for from further had has have having here hers him his how however into its itself just like made make many may might more most much must near need neither never next none nor not now off often once only other our ours out over own perhaps quite rather same should since some still such than that the their theirs them then there these they this those though through thus too toward under until upon very want was way were what when where whether which while who whom whose why will with within without would yet you your".split(
+    /\s+/
+  )
+);
+
+function normalizeStudyMapSettings(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const terms = Number(source.terms);
+  const depth = Number(source.depth);
+  return {
+    enabled: !(value === false || source.enabled === false),
+    terms: Number.isFinite(terms) ? Math.max(3, Math.min(20, Math.round(terms))) : 8,
+    depth: Number.isFinite(depth) ? Math.max(1, Math.min(MAX_DEPTH, Math.round(depth))) : 4,
+  };
+}
+
+function parseStudyMapSource(source) {
+  const out = { path: "", title: "", depth: 0, terms: 0, lines: [], issues: [] };
+  for (const raw of str(source).replace(/\r\n?/g, "\n").split("\n")) {
+    const line = raw.replace(/\s+$/, "");
+    const match = line.match(/^\s*(Source|File|Path|Title|Depth|Terms)\s*:\s*(.*)$/i);
+    if (!match) {
+      out.lines.push(line);
+      continue;
+    }
+    const key = match[1].toLowerCase();
+    const value = match[2].trim();
+    if (key === "source" || key === "file" || key === "path") out.path = value;
+    else if (key === "title") out.title = value;
+    else if (key === "depth") out.depth = Math.max(0, Math.min(MAX_DEPTH, Math.round(Number(value) || 0)));
+    else if (key === "terms") out.terms = Math.max(0, Math.min(20, Math.round(Number(value) || 0)));
+  }
+  return out;
+}
+
+/** Key terms are repeated, non-stopword words; a capitalised use scores higher. */
+function extractKeyTerms(text, limit) {
+  const body = str(text)
+    .replace(/^---\n[\s\S]*?\n---\n/, " ")
+    .replace(/```[\s\S]*?```/g, " ");
+  const counts = new Map();
+  for (const match of body.matchAll(/([A-Za-z][A-Za-z'-]{2,})/g)) {
+    const word = match[1];
+    const key = word.toLowerCase();
+    if (STOPWORDS.has(key) || key.length < 4) continue;
+    const entry = counts.get(key) || { word: key, count: 0, capitalised: 0 };
+    entry.count += 1;
+    if (/^[A-Z]/.test(word)) entry.capitalised += 1;
+    counts.set(key, entry);
+  }
+  const scored = [...counts.values()]
+    .map((entry) => ({ term: entry.word, count: entry.count, score: entry.count + entry.capitalised * 0.5 }))
+    .filter((entry) => entry.count >= 2)
+    .sort((a, b) => b.score - a.score || a.term.localeCompare(b.term));
+  const wanted = Math.max(1, Math.min(20, Math.round(Number(limit) || 8)));
+  return scored.slice(0, wanted);
+}
+
+function makeNode(depth, text) {
+  return { depth, text: str(text).trim().slice(0, 200), children: [] };
+}
+
+function buildOutline(text, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const maxDepth = Math.max(1, Math.min(MAX_DEPTH, Math.round(Number(opts.depth) || 4)));
+  const roots = [];
+  const stack = [];
+  const issues = [];
+  let headingDepth = 0;
+  let seen = 0;
+  for (const raw of str(text).replace(/\r\n?/g, "\n").split("\n")) {
+    if (seen >= MAX_LINES) {
+      issues.push(`Only the first ${MAX_LINES} lines are mapped.`);
+      break;
+    }
+    const line = raw.replace(/\s+$/, "");
+    if (!line.trim() || /^\s*```/.test(line)) continue;
+    seen += 1;
+    const heading = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+    const bullet = line.match(/^(\s*)[-*+]\s+(.+)$/);
+    let node = null;
+    if (heading) {
+      headingDepth = Math.min(maxDepth, heading[1].length);
+      node = makeNode(headingDepth, heading[2]);
+    } else if (bullet) {
+      const indent = Math.floor(bullet[1].replace(/\t/g, "  ").length / 2);
+      node = makeNode(Math.min(maxDepth, headingDepth + 1 + indent), bullet[2]);
+    }
+    if (!node) continue; // prose stays out of the tree; it still feeds the key terms
+    while (stack.length && stack[stack.length - 1].depth >= node.depth) stack.pop();
+    if (stack.length) stack[stack.length - 1].children.push(node);
+    else roots.push(node);
+    stack.push(node);
+  }
+  if (!roots.length) {
+    // No headings or bullets: fall back to the first meaningful lines so a short note still maps.
+    for (const raw of str(text).split("\n")) {
+      const line = raw.trim();
+      if (!line || /^\s*```/.test(line) || /^---/.test(line)) continue;
+      const node = makeNode(1, line);
+      roots.push(node);
+      if (roots.length >= 20) break;
+    }
+    if (roots.length) issues.push("No headings or bullets found; mapping the first lines instead.");
+    else issues.push("Add headings or bullet points to build a study map.");
+  }
+  return { nodes: roots, issues };
+}
+
+function countNodes(nodes) {
+  let total = 0;
+  for (const node of nodes || []) total += 1 + countNodes(node.children);
+  return total;
+}
+
+function buildStudyMap(text, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const settings = normalizeStudyMapSettings(opts);
+  const depth = opts.depth || settings.depth;
+  const terms = opts.terms || settings.terms;
+  const body = str(text).slice(0, MAX_SOURCE);
+  const outline = buildOutline(body, { depth });
+  const keyTerms = extractKeyTerms(body, terms);
+  const summaryParts = [];
+  const sections = outline.nodes.length;
+  summaryParts.push(`${sections} section${sections === 1 ? "" : "s"}`);
+  summaryParts.push(`${countNodes(outline.nodes)} node${countNodes(outline.nodes) === 1 ? "" : "s"}`);
+  if (keyTerms.length) summaryParts.push(`focus: ${keyTerms.slice(0, 3).map((term) => term.term).join(", ")}`);
+  return {
+    title: str(opts.title).trim() || "Study map",
+    nodes: outline.nodes,
+    nodeCount: countNodes(outline.nodes),
+    terms: keyTerms,
+    summary: summaryParts.join(" · "),
+    issues: outline.issues,
+  };
+}
+
+function renderNodes(parent, nodes) {
+  for (const node of nodes) {
+    const row = parent.createDiv({ cls: `qt-study-map-node qt-study-map-depth-${Math.min(6, node.depth)}` });
+    row.createSpan({ cls: "qt-study-map-bullet", text: "•" });
+    row.createSpan({ cls: "qt-study-map-text", text: node.text });
+    if (node.children && node.children.length) renderNodes(row.createDiv({ cls: "qt-study-map-children" }), node.children);
+  }
+}
+
+/**
+ * Render a `study-map` block. When `Source:` is set the note is read through
+ * the vault; otherwise the block's own outline is used. Read-only either way.
+ */
+async function renderStudyMapBlock(plugin, source, el) {
+  if (plugin && typeof plugin.studyMapEnabled === "function" && !plugin.studyMapEnabled()) {
+    el.createDiv({ cls: "qt-study-map-issue", text: "Study map is off. Turn it on in Settings, Global, Modules." });
+    return null;
+  }
+  const parsed = parseStudyMapSource(source);
+  let text = parsed.lines.join("\n").trim();
+  let sourcePath = "";
+  if (parsed.path) {
+    sourcePath = parsed.path;
+    const file = plugin && plugin.app && typeof plugin.app.vault.getAbstractFileByPath === "function"
+      ? plugin.app.vault.getAbstractFileByPath(parsed.path)
+      : null;
+    if (!file) {
+      el.createDiv({ cls: "qt-study-map-issue", text: `Source note not found: ${parsed.path}` });
+      return null;
+    }
+    try {
+      text = str(await plugin.app.vault.cachedRead(file));
+    } catch (e) {
+      el.createDiv({ cls: "qt-study-map-issue", text: `Could not read ${parsed.path}: ${str(e && e.message ? e.message : e)}` });
+      return null;
+    }
+  }
+  if (!text) {
+    el.createDiv({ cls: "qt-study-map-issue", text: "Add a Source: note path or an inline outline with headings or bullets." });
+    return null;
+  }
+  const map = buildStudyMap(text, { title: parsed.title || (parsed.path ? parsed.path.replace(/^.*\//, "").replace(/\.md$/i, "") : "Study map"), depth: parsed.depth, terms: parsed.terms });
+  const box = el.createDiv({ cls: "qt-study-map" });
+  box.createDiv({ cls: "qt-study-map-title", text: map.title });
+  box.createDiv({ cls: "qt-study-map-meta", text: map.summary });
+  for (const issue of map.issues.slice(0, 4)) box.createDiv({ cls: "qt-study-map-issue", text: issue });
+  if (map.terms.length) {
+    const terms = box.createDiv({ cls: "qt-study-map-terms" });
+    for (const term of map.terms) terms.createSpan({ cls: "qt-study-map-term", text: `${term.term} (${term.count})` });
+  }
+  renderNodes(box.createDiv({ cls: "qt-study-map-tree" }), map.nodes);
+  if (sourcePath) {
+    const row = box.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Open source" }).addEventListener("click", () => {
+      if (plugin && typeof plugin.openStudyFlowSource === "function") plugin.openStudyFlowSource(sourcePath);
+    });
+  }
+  return map;
+}
+
+module.exports = {
+  buildOutline,
+  buildStudyMap,
+  extractKeyTerms,
+  normalizeStudyMapSettings,
+  parseStudyMapSource,
+  renderStudyMapBlock,
+};
+};
+
 /* ---- src/study-match-modal.js ---- */
 __defs["study-match-modal"] = function (module, exports, require) {
 /*
@@ -63038,6 +63514,7 @@ class StudyWorkspaceView extends ItemView {
     this.deepNotesId = "";
     this.retentionData = null;
     this.vocabFilter = "";
+    this.fitReport = null;
     this.lecturePreview = null;
     this.readAloudText = "";
     this.readAloudPlan = null;
@@ -63979,6 +64456,7 @@ class StudyWorkspaceView extends ItemView {
   /* ---- Retention ------------------------------------------------------- */
 
   renderRetention(root) {
+    if (typeof this.plugin.schedulerFitEnabled === "function" && this.plugin.schedulerFitEnabled()) this.renderSchedulerFit(root);
     const controls = root.createDiv({ cls: "qt-study-card" });
     controls.createEl("h3", { text: "Card retention forecast" });
     controls.createDiv({
@@ -64035,6 +64513,56 @@ class StudyWorkspaceView extends ItemView {
       main.createDiv({ cls: "qt-study-row-title", text: card.deck || "Unsorted" });
       main.createDiv({ cls: "qt-study-row-meta", text: `${card.course ? `${card.course} · ` : ""}${card.fresh ? "New" : card.due || "Scheduled"}${card.attempts ? ` · ${card.attempts} review${card.attempts === 1 ? "" : "s"}` : ""}` });
       if (card.path) row.createEl("button", { text: "Open" }).addEventListener("click", () => this.plugin.openStudyFlowSource(card.path));
+    }
+  }
+
+  renderSchedulerFit(root) {
+    const card = root.createDiv({ cls: "qt-study-card qt-scheduler-fit" });
+    card.createEl("h3", { text: "Desired-retention fit" });
+    card.createDiv({ cls: "qt-hint", text: "Uses the review counters already stored on your cards. Fitting is local; Apply only changes the FSRS desired-retention setting." });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Fit target", cls: "mod-cta" }).addEventListener("click", () => {
+      this.fitReport = this.plugin.schedulerFitReport();
+      this.saveMessage(describeFit(this.fitReport));
+      this.render();
+    });
+    const fit = this.fitReport;
+    if (!fit) {
+      card.createDiv({ cls: "qt-study-empty", text: "Rate a few cards, then fit a target from your own recall." });
+      return;
+    }
+    const stats = card.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const box = stats.createDiv({ cls: "qt-study-stat" });
+      box.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      box.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(fit.reviews, "reviews");
+    stat(fit.ready ? `${fit.observedPercent}%` : "—", "observed recall");
+    stat(fit.ready && typeof fit.recommended === "number" ? fit.recommended.toFixed(2) : "—", "suggested target");
+    stat(fit.confidence, "confidence");
+    for (const advice of fit.advice) card.createDiv({ cls: "qt-study-row-meta", text: advice });
+    const used = fit.buckets.filter((bucket) => bucket.reviews > 0);
+    if (used.length) {
+      const list = card.createDiv({ cls: "qt-study-list" });
+      for (const bucket of used) {
+        const row = list.createDiv({ cls: "qt-study-row" });
+        const main = row.createDiv({ cls: "qt-study-row-main" });
+        main.createDiv({ cls: "qt-study-row-title", text: bucket.label });
+        main.createDiv({ cls: "qt-study-row-meta", text: `${Math.round(bucket.accuracy * 100)}% recall · ${bucket.reviews} review${bucket.reviews === 1 ? "" : "s"}` });
+      }
+    }
+    if (fit.ready && typeof fit.recommended === "number" && Math.abs((fit.current || 0) - fit.recommended) >= 0.001) {
+      const apply = card.createDiv({ cls: "qt-row qt-study-actions" });
+      apply.createEl("button", { text: `Apply target ${fit.recommended.toFixed(2)}`, cls: "mod-cta" }).addEventListener("click", async () => {
+        this.plugin.settings.fsrsRetention = fit.recommended;
+        await this.plugin.save();
+        this.fitReport = null;
+        this.saveMessage(`Desired retention set to ${fit.recommended.toFixed(2)}.`);
+        this.render();
+      });
+    } else if (fit.ready) {
+      card.createDiv({ cls: "qt-study-row-meta", text: "The current target already matches the fit." });
     }
   }
 
@@ -67010,6 +67538,237 @@ module.exports = {
 };
 };
 
+/* ---- src/vault-search.js ---- */
+__defs["vault-search"] = function (module, exports, require) {
+/*
+ * Local vault search with citations, adapting the semantic-search idea from
+ * Gemini Helper and LLM Hub without any model or network call. A block ranks
+ * Markdown notes with BM25-style term scoring, shows a snippet and links back
+ * to the source note, so an AI answer or a study answer always has a citation
+ * the reader can open.
+ *
+ *   ```vault-search
+ *   Query: oxidative phosphorylation
+ *   Folder: Biology
+ *   Limit: 5
+ *   ```
+ */
+const { str } = require("./util");
+
+const MAX_FILE_CHARS = 200000;
+const MAX_SCAN_FILES = 400;
+const DEFAULT_LIMIT = 5;
+const SNIPPET_WIDTH = 220;
+
+const STOPWORDS = new Set(
+  "about above after again against all also and any are because been before being below between both but can could did does doing down during each every few for from further had has have having here how into its itself just like made make many may more most much must near need neither never next none nor not now off often once only other our out over own perhaps quite rather same should since some still such than that the their them then there these they this those though through thus too under until upon very want was way were what when where whether which while who will with within without would your".split(
+    /\s+/
+  )
+);
+
+function normalizeVaultSearchSettings(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const limit = Number(source.limit);
+  return {
+    enabled: !(value === false || source.enabled === false),
+    limit: Number.isFinite(limit) ? Math.max(1, Math.min(20, Math.round(limit))) : DEFAULT_LIMIT,
+  };
+}
+
+function parseVaultSearchSource(source) {
+  const out = { query: "", folder: "", limit: 0, headingsOnly: false, issues: [] };
+  const rest = [];
+  for (const raw of str(source).replace(/\r\n?/g, "\n").split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const match = line.match(/^(Query|Search|Folder|Path|Limit|Headings)\s*:\s*(.*)$/i);
+    if (!match) {
+      rest.push(line);
+      continue;
+    }
+    const key = match[1].toLowerCase();
+    const value = match[2].trim();
+    if (key === "query" || key === "search") out.query = value;
+    else if (key === "folder" || key === "path") out.folder = value;
+    else if (key === "limit") out.limit = Math.max(0, Math.min(20, Math.round(Number(value) || 0)));
+    else if (key === "headings") out.headingsOnly = /^(on|true|yes)$/i.test(value);
+  }
+  if (!out.query && rest.length) out.query = rest.join(" ").trim();
+  if (!out.query) out.issues.push("Add a Query: line, for example Query: oxidative phosphorylation.");
+  return out;
+}
+
+function tokenize(text) {
+  const tokens = [];
+  for (const match of str(text).toLowerCase().matchAll(/[a-z0-9][a-z0-9'-]{1,}/g)) {
+    const word = match[0].replace(/^[-']+|[-']+$/g, "");
+    if (!word || STOPWORDS.has(word)) continue;
+    tokens.push(word);
+  }
+  return tokens;
+}
+
+function uniqueTerms(query) {
+  return [...new Set(tokenize(query))];
+}
+
+function scoreDocument(doc, terms, stats) {
+  const text = str(doc.text);
+  const lower = text.toLowerCase();
+  const length = Math.max(1, tokenize(text).length);
+  let score = 0;
+  let matched = 0;
+  for (const term of terms) {
+    const count = lower.split(term).length - 1;
+    if (!count) continue;
+    matched += 1;
+    const df = stats.frequency.get(term) || 0;
+    const idf = Math.log(1 + (stats.documents - df + 0.5) / (df + 0.5));
+    const tf = (count * 2.2) / (count + 1.2 * (0.25 + 0.75 * (length / stats.averageLength)));
+    score += idf * tf;
+  }
+  const phrase = str(doc.phrase || "").toLowerCase();
+  if (phrase && phrase.length > 2 && lower.includes(phrase)) score += 1.6;
+  score += Math.min(1.5, matched * 0.15);
+  return { score, matched };
+}
+
+function makeSnippet(text, terms) {
+  const clean = str(text).replace(/\r\n?/g, "\n");
+  const paragraphs = clean
+    .split(/\n{2,}/)
+    .map((part) => part.replace(/\s+/g, " ").trim())
+    .filter((part) => part && !part.startsWith("---"));
+  let best = { text: "", hits: -1 };
+  for (const paragraph of paragraphs) {
+    const lower = paragraph.toLowerCase();
+    const hits = terms.filter((term) => lower.includes(term)).length;
+    if (hits > best.hits) best = { text: paragraph, hits };
+    if (hits === terms.length && terms.length) break;
+  }
+  if (!best.text) {
+    const line = clean.split("\n").map((part) => part.trim()).find((part) => part && !part.startsWith("---"));
+    if (!line) return "";
+    best = { text: line.replace(/\s+/g, " "), hits: 0 };
+  }
+  if (best.text.length <= SNIPPET_WIDTH) return best.text;
+  const lower = best.text.toLowerCase();
+  let at = -1;
+  for (const term of terms) {
+    const index = lower.indexOf(term);
+    if (index >= 0 && (at < 0 || index < at)) at = index;
+  }
+  const start = Math.max(0, (at < 0 ? 0 : at) - 60);
+  const end = Math.min(best.text.length, start + SNIPPET_WIDTH);
+  return `${start > 0 ? "…" : ""}${best.text.slice(start, end).trim()}${end < best.text.length ? "…" : ""}`;
+}
+
+/**
+ * Rank documents for a query. `docs` is `[{ path, text }]`; ranking is local
+ * and deterministic, and every result carries the snippet used as a citation.
+ */
+function searchDocs(docs, query, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const terms = uniqueTerms(query);
+  const folder = str(opts.folder).trim().replace(/^\/+|\/+$/g, "").toLowerCase();
+  const limit = Math.max(1, Math.min(20, Math.round(Number(opts.limit) || DEFAULT_LIMIT)));
+  const list = (Array.isArray(docs) ? docs : []).filter((doc) => {
+    if (!doc || !str(doc.path)) return false;
+    if (!folder) return true;
+    return str(doc.path).toLowerCase().startsWith(folder + "/");
+  });
+  if (!terms.length) {
+    return { results: [], query: str(query), terms, issues: ["Add a query with at least one meaningful word."], scanned: list.length };
+  }
+  const frequency = new Map();
+  let totalLength = 0;
+  for (const doc of list) {
+    const words = tokenize(doc.text);
+    totalLength += words.length;
+    for (const word of new Set(words)) frequency.set(word, (frequency.get(word) || 0) + 1);
+  }
+  const stats = { frequency, documents: Math.max(1, list.length), averageLength: Math.max(1, totalLength / Math.max(1, list.length)) };
+  const scored = [];
+  for (const doc of list) {
+    const result = scoreDocument({ text: doc.text, phrase: query }, terms, stats);
+    if (result.score <= 0) continue;
+    scored.push({
+      path: str(doc.path),
+      score: Math.round(result.score * 1000) / 1000,
+      matched: result.matched,
+      snippet: makeSnippet(doc.text, terms),
+    });
+  }
+  scored.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+  const issues = [];
+  if (!scored.length) issues.push("No note matched. Try fewer or more specific words.");
+  return { results: scored.slice(0, limit), query: str(query), terms, issues, scanned: list.length };
+}
+
+async function collectVaultDocs(plugin, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const files = plugin && plugin.app && typeof plugin.app.vault.getMarkdownFiles === "function"
+    ? plugin.app.vault.getMarkdownFiles()
+    : [];
+  const folder = str(opts.folder).trim().replace(/^\/+|\/+$/g, "").toLowerCase();
+  const docs = [];
+  for (const file of files) {
+    if (docs.length >= (opts.maxFiles || MAX_SCAN_FILES)) break;
+    const path = str(file && file.path);
+    if (!path || (folder && !path.toLowerCase().startsWith(folder + "/"))) continue;
+    try {
+      const text = str(await plugin.app.vault.cachedRead(file)).slice(0, MAX_FILE_CHARS);
+      docs.push({ path, text });
+    } catch (e) {
+      // unreadable notes are skipped rather than failing the whole search
+    }
+  }
+  return docs;
+}
+
+async function renderVaultSearchBlock(plugin, source, el) {
+  if (plugin && typeof plugin.vaultSearchEnabled === "function" && !plugin.vaultSearchEnabled()) {
+    el.createDiv({ cls: "qt-vault-search-issue", text: "Vault search is off. Turn it on in Settings, Global, Modules." });
+    return null;
+  }
+  const parsed = parseVaultSearchSource(source);
+  const box = el.createDiv({ cls: "qt-vault-search" });
+  box.createDiv({ cls: "qt-vault-search-title", text: parsed.query ? `Cited lookup · ${parsed.query}` : "Cited lookup" });
+  for (const issue of parsed.issues.slice(0, 4)) box.createDiv({ cls: "qt-vault-search-issue", text: issue });
+  if (!parsed.query) return parsed;
+  const docs = await collectVaultDocs(plugin, { folder: parsed.folder });
+  const found = searchDocs(docs, parsed.query, { folder: parsed.folder, limit: parsed.limit || normalizeVaultSearchSettings(plugin && plugin.settings && plugin.settings.vaultSearch).limit });
+  box.createDiv({
+    cls: "qt-vault-search-meta",
+    text: `${found.results.length} result${found.results.length === 1 ? "" : "s"} · scanned ${found.scanned} note${found.scanned === 1 ? "" : "s"} · local index, no network`,
+  });
+  for (const issue of found.issues.slice(0, 4)) box.createDiv({ cls: "qt-vault-search-issue", text: issue });
+  const list = box.createDiv({ cls: "qt-vault-search-list" });
+  for (const result of found.results) {
+    const row = list.createDiv({ cls: "qt-vault-search-row" });
+    const head = row.createDiv({ cls: "qt-vault-search-head" });
+    head.createSpan({ cls: "qt-vault-search-path", text: `[[${result.path}]]` });
+    head.createSpan({ cls: "qt-vault-search-score", text: result.score.toFixed(2) });
+    row.createDiv({ cls: "qt-vault-search-snippet", text: result.snippet });
+    row.createEl("button", { text: "Open note" }).addEventListener("click", () => {
+      if (plugin && typeof plugin.openStudyFlowSource === "function") plugin.openStudyFlowSource(result.path);
+    });
+  }
+  return found;
+}
+
+module.exports = {
+  DEFAULT_LIMIT,
+  collectVaultDocs,
+  makeSnippet,
+  normalizeVaultSearchSettings,
+  parseVaultSearchSource,
+  renderVaultSearchBlock,
+  searchDocs,
+  tokenize,
+};
+};
+
 /* ---- src/view-helpers.js ---- */
 __defs["view-helpers"] = function (module, exports, require) {
 const { MarkdownRenderer } = require("obsidian");
@@ -67833,6 +68592,9 @@ const quizMaker = require("./quiz-maker");
 const satMath = require("./sat-math");
 const sfcCards = require("./sfc-cards");
 const cbtExam = require("./cbt-exam");
+const schedulerFit = require("./scheduler-fit");
+const studyMap = require("./study-map");
+const vaultSearch = require("./vault-search");
 const simpleFlashcards = require("./simple-flashcards");
 const quizBlock = require("./quiz-block");
 const studyTools = require("./study-tools");
@@ -68025,6 +68787,9 @@ QuestionTrackerPlugin.__test = {
   satMath,
   sfcCards,
   cbtExam,
+  schedulerFit,
+  studyMap,
+  vaultSearch,
   intervalPreview,
   simpleFlashcards,
   quizBlock,

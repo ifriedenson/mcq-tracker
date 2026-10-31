@@ -150,6 +150,16 @@ Four local study modules adapt MIT-licensed plugin concepts. In each case the so
 - **Course Command Center** — [CourseCommandCenter](https://github.com/flippinhutt/CourseCommandCenter), MIT, Copyright (c) flippinhutt (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: course health checks. `src/course-health.js` implements local checks over this plugin's course dashboard, planner and tasks; it has no Canvas client, OAuth flow or note-template code.
 - **Advanced Audio Recorder** — [advanced-audio-recorder](https://github.com/akhmialeuski/advanced-audio-recorder), MIT, Copyright (c) akhmialeuski (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: timestamp bookmarks, chapters and copyable timestamp links. `src/audio-bookmarks.js` stores timestamps in plugin data and builds Obsidian media-fragment links; it does not record, edit or play audio.
 
+## Scheduler fitting, study map and cited vault search (October 31, 2026)
+
+Three more MIT-licensed plugin concepts are adapted here. The source projects were read as feature references; the implementations are original, dependency-free JavaScript, and no source file, function or stylesheet rule was copied.
+
+- **LearnKit** — [learnkit](https://github.com/ctrlaltwill/learnkit), MIT, Copyright (c) Will (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: fitting the desired-retention target from the learner's own review history. `src/scheduler-fit.js` reads this plugin's own card counters and proposes a bounded target; no LearnKit scheduler or parameter-fit code is bundled.
+- **Qard** — [qard-obsidian](https://github.com/kylianmarceau/qard-obsidian), MIT, Copyright (c) Kylian Marceau (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: FSRS self-fitting once enough ratings exist. `src/scheduler-fit.js` implements the local fit.
+- **Spaceforge** — [spaceforge](https://github.com/dralkh/spaceforge), MIT, Copyright (c) dralkh (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: a visualise/summary workspace with a mind-map view. `src/study-map.js` builds an outline tree and key-term list from this plugin's own notes; it calls no model.
+- **Gemini Helper** — [obsidian-gemini-helper](https://github.com/takeshy/obsidian-gemini-helper), MIT, Copyright (c) takeshy (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: search results with citations. `src/vault-search.js` ranks notes with a local index and links each snippet; no model or network request is made.
+- **LLM Hub** — [obsidian-llm-hub](https://github.com/takeshy/obsidian-llm-hub), MIT, Copyright (c) takeshy (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: cited vault search across study notes. `src/vault-search.js` implements the local ranking and snippet citation.
+
 ## Not absorbed (yet)
 
 The product plan also names LearnKit as a future absorb source. It has **not** been copied

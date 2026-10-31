@@ -7000,3 +7000,49 @@
 .qt-sat-math-step { color: var(--text-muted); font-size: 0.9em; margin: 2px 0 2px 12px; }
 .qt-sat-math-issue,
 .qt-sat-math-error { color: var(--text-error); font-size: 0.9em; }
+
+/* Scheduler fitting (Retention tab) — local, read-only until Apply. */
+.qt-scheduler-fit .qt-study-stats { margin-bottom: 8px; }
+
+/* Study map: local outline/mind-map block. */
+.qt-study-map {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 10px 0;
+  padding: 12px;
+}
+.qt-study-map-title { font-weight: 600; }
+.qt-study-map-meta,
+.qt-study-map-issue { color: var(--text-muted); font-size: 0.85em; }
+.qt-study-map-issue { color: var(--text-error); }
+.qt-study-map-terms { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.qt-study-map-term {
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  font-size: 0.8em;
+  padding: 2px 8px;
+}
+.qt-study-map-tree { margin-top: 6px; }
+.qt-study-map-node { margin: 2px 0; }
+.qt-study-map-bullet { color: var(--text-faint); margin-right: 6px; }
+.qt-study-map-children { border-left: 1px solid var(--background-modifier-border); margin-left: 8px; padding-left: 10px; }
+.qt-study-map-depth-1 .qt-study-map-text { font-weight: 600; }
+.qt-study-map-depth-3 .qt-study-map-text,
+.qt-study-map-depth-4 .qt-study-map-text { color: var(--text-muted); }
+
+/* Cited vault search block. */
+.qt-vault-search {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 10px 0;
+  padding: 12px;
+}
+.qt-vault-search-title { font-weight: 600; }
+.qt-vault-search-meta,
+.qt-vault-search-issue { color: var(--text-muted); font-size: 0.85em; }
+.qt-vault-search-issue { color: var(--text-error); }
+.qt-vault-search-row { border-top: 1px solid var(--background-modifier-border); padding: 8px 0; }
+.qt-vault-search-head { display: flex; justify-content: space-between; gap: 8px; }
+.qt-vault-search-path { font-family: var(--font-monospace); font-size: 0.85em; }
+.qt-vault-search-score { color: var(--text-faint); font-size: 0.8em; }
+.qt-vault-search-snippet { color: var(--text-muted); font-size: 0.9em; margin: 4px 0; }
