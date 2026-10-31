@@ -16654,6 +16654,7 @@ const { gradeTypedAnswer } = require("./card-grading");
 const { needsAi } = require("./card-grading-ai");
 const { pendingGradeCounts } = require("./card-grade-queue");
 const { splitSourceContext } = require("./source-recall");
+const { formatInterval, intervalPreviews } = require("./interval-preview");
 const { buildRetention } = require("./analytics");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
@@ -17357,6 +17358,7 @@ class CardView extends ItemView {
     }
 
     const ratings = root.createDiv({ cls: "qt-cards-ratings" });
+    const previews = intervalPreviews(this.current.fm, this.current.deck, this.plugin.settings, new Date());
     const buttons = [
       ["again", "Again", "1"],
       ["hard", "Hard", "2"],
@@ -17368,6 +17370,9 @@ class CardView extends ItemView {
       if (grade === this.suggestedGrade) b.addClass("is-suggested");
       if (this.aiChecking) b.disabled = true;
       b.createSpan({ cls: "qt-cards-rate-key", text: key });
+      if (previews && previews[grade] !== null && previews[grade] !== undefined) {
+        b.createSpan({ cls: "qt-cards-rate-interval", text: formatInterval(previews[grade]) });
+      }
       b.addEventListener("click", () => this.rate(grade));
     }
     const manage = root.createDiv({ cls: "qt-row qt-cards-manage" });
@@ -29288,6 +29293,78 @@ class InsightsView extends ItemView {
 module.exports = {
   VIEW_TYPE_INSIGHTS,
   InsightsView,
+};
+};
+
+/* ---- src/interval-preview.js ---- */
+__defs["interval-preview"] = function (module, exports, require) {
+/*
+ * Read-only rating previews for card review. Given the card's current state and
+ * its deck scheduler, return the interval each rating would schedule without
+ * writing anything. Ladder timing mirrors notes.applyAttempt; SM-2 and FSRS use
+ * their own pure reviewNote helpers.
+ */
+const sm2 = require("./sm2");
+const fsrs = require("./fsrs");
+const { schedulerForDeck } = require("./cards");
+
+const RATING_GRADES = [
+  ["again", 1],
+  ["hard", 2],
+  ["good", 3],
+  ["easy", 4],
+];
+
+function asDate(value) {
+  return value instanceof Date && !isNaN(value.getTime()) ? value : new Date();
+}
+
+function ladderDays(fm, intervals, grade) {
+  const iv = Array.isArray(intervals) && intervals.length ? intervals : [1, 3, 7, 21, 60];
+  const streak = Math.max(0, Math.round(Number(fm && fm.streak) || 0));
+  if (grade === "again") return 1;
+  if (grade === "hard") return 2;
+  if (grade === "easy") return iv[Math.min(Math.max(streak, 1), iv.length - 1)];
+  return iv[Math.min(Math.max(streak, 1) - 1, iv.length - 1)];
+}
+
+/** Days per rating for the card's current deck, or null entries on error. */
+function intervalPreviews(fm, deckName, settings, now) {
+  const at = asDate(now);
+  const cfg = schedulerForDeck(settings || {}, deckName, fm);
+  const out = {};
+  for (const [grade, rating] of RATING_GRADES) {
+    try {
+      if (cfg.scheduler === "fsrs") {
+        out[grade] = fsrs.reviewNote(fm, { rating, now: at }, cfg.fsrsRetention).days;
+      } else if (cfg.scheduler === "sm2") {
+        out[grade] = sm2.reviewNote(fm, { rating, now: at }, cfg.sm2).days;
+      } else {
+        out[grade] = ladderDays(fm, cfg.intervals, grade);
+      }
+    } catch (e) {
+      out[grade] = null;
+    }
+  }
+  return out;
+}
+
+/** Compact label for a day count: 1d, 2w, 3mo, 1.2y. */
+function formatInterval(days) {
+  const d = Math.max(0, Math.round(Number(days) || 0));
+  if (!d) return "today";
+  if (d === 1) return "1d";
+  if (d < 14) return `${d}d`;
+  if (d < 60) return `${Math.round(d / 7)}w`;
+  if (d < 365) return `${Math.round(d / 30)}mo`;
+  return `${(d / 365).toFixed(1)}y`;
+}
+
+module.exports = {
+  RATING_GRADES,
+  formatInterval,
+  intervalPreviews,
+  ladderDays,
 };
 };
 
@@ -65971,6 +66048,7 @@ const simpleFlashcards = require("./simple-flashcards");
 const quizBlock = require("./quiz-block");
 const studyTools = require("./study-tools");
 const cornell = require("./cornell");
+const intervalPreview = require("./interval-preview");
 const { StudyToolsView } = require("./study-tools-view");
 const studyWorkspace = require("./study-workspace");
 const { StudyWorkspaceView } = require("./study-workspace-view");
@@ -66153,6 +66231,7 @@ QuestionTrackerPlugin.__test = {
   quizMaker,
   sfcCards,
   cbtExam,
+  intervalPreview,
   simpleFlashcards,
   quizBlock,
   quizNoteGate,

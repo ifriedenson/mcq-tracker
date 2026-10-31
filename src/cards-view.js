@@ -9,6 +9,7 @@ const { gradeTypedAnswer } = require("./card-grading");
 const { needsAi } = require("./card-grading-ai");
 const { pendingGradeCounts } = require("./card-grade-queue");
 const { splitSourceContext } = require("./source-recall");
+const { formatInterval, intervalPreviews } = require("./interval-preview");
 const { buildRetention } = require("./analytics");
 
 const REVIEW_KEYS = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
@@ -712,6 +713,7 @@ class CardView extends ItemView {
     }
 
     const ratings = root.createDiv({ cls: "qt-cards-ratings" });
+    const previews = intervalPreviews(this.current.fm, this.current.deck, this.plugin.settings, new Date());
     const buttons = [
       ["again", "Again", "1"],
       ["hard", "Hard", "2"],
@@ -723,6 +725,9 @@ class CardView extends ItemView {
       if (grade === this.suggestedGrade) b.addClass("is-suggested");
       if (this.aiChecking) b.disabled = true;
       b.createSpan({ cls: "qt-cards-rate-key", text: key });
+      if (previews && previews[grade] !== null && previews[grade] !== undefined) {
+        b.createSpan({ cls: "qt-cards-rate-interval", text: formatInterval(previews[grade]) });
+      }
       b.addEventListener("click", () => this.rate(grade));
     }
     const manage = root.createDiv({ cls: "qt-row qt-cards-manage" });

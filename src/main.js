@@ -70,6 +70,7 @@ const simpleFlashcards = require("./simple-flashcards");
 const quizBlock = require("./quiz-block");
 const studyTools = require("./study-tools");
 const cornell = require("./cornell");
+const intervalPreview = require("./interval-preview");
 const { StudyToolsView } = require("./study-tools-view");
 const studyWorkspace = require("./study-workspace");
 const { StudyWorkspaceView } = require("./study-workspace-view");
@@ -252,6 +253,7 @@ QuestionTrackerPlugin.__test = {
   quizMaker,
   sfcCards,
   cbtExam,
+  intervalPreview,
   simpleFlashcards,
   quizBlock,
   quizNoteGate,
