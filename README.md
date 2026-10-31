@@ -780,6 +780,17 @@ Open **Study Workspace** from the command palette or the ribbon. It contains twe
 
 These workflows are original implementations of the feature ideas in the research matrix. They do not copy third-party source, call a network service or change question/card scheduling unless you explicitly use the existing review actions.
 
+## Quiz Maker blocks (independent module)
+
+Enable **Quiz Maker blocks** under Settings, Global, Modules, then write a `quiz-maker` fenced block. The optional `Pack:` line names the study pack. Separate questions with `---` and use one of four formats:
+
+- `assertion` with `Assertion:`, `Reason:`, `Answer:` (`explains`, `true-no-explain`, `assertion-only`, `reason-only` or `both-false`) and an optional `Why:`.
+- `correction` with `Statement:` and the corrected `Answer:`.
+- `evidence` with a `Question:`, two or more lettered choices and an `Answer:` letter.
+- `branch` with a `Scenario:`, lettered choices and optional `Outcome A:` lines or `=> outcome` text.
+
+The block is a local preview: choices are graded in memory and no attempt, history, streak or scheduler state is written.
+
 ## Reusable inline quizzes and partial credit
 
 A `quiz-definition` block is a reusable quiz. Give it an `Id:` and put it anywhere in the vault; a `playable-quiz` block with the same `Id:` plays it where you need it:

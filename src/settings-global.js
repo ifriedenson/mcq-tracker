@@ -196,6 +196,18 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Quiz Maker blocks")
+    .setDesc("Play assertion-and-reason, error-correction, evidence-selection and branching-scenario packs in local quiz-maker blocks. Answers are not recorded.")
+    .addToggle((t) =>
+      t.setValue(plugin.quizMakerEnabled()).onChange(async (v) => {
+        st.quizMaker.enabled = v;
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Course hub")
     .setDesc("A course dashboard with weighted grade chips, lecture counts and absences. Reads the lecture log and Subject Manager without changing their data.")
     .addToggle((t) =>

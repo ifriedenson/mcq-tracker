@@ -5774,6 +5774,72 @@
 .qt-quiz-choice.is-static.is-correct { border-color: var(--interactive-accent); }
 
 
+/* Quiz Maker packs: assertion/reason, correction, evidence and branching. */
+.qt-quiz-maker {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 10px 0;
+  padding: 12px;
+}
+.qt-quiz-maker-title {
+  font-weight: 600;
+}
+.qt-quiz-maker-meta,
+.qt-quiz-maker-type,
+.qt-quiz-maker-reason {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+.qt-quiz-maker-type {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.qt-quiz-maker-question {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.qt-quiz-maker-prompt {
+  margin: 4px 0;
+}
+.qt-quiz-maker-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.qt-quiz-maker-choice {
+  text-align: left;
+}
+.qt-quiz-maker-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.qt-quiz-maker-input input {
+  flex: 1 1 220px;
+}
+.qt-quiz-maker-feedback.is-correct {
+  background: var(--background-modifier-success);
+  color: var(--text-success);
+}
+.qt-quiz-maker-feedback.is-wrong {
+  background: var(--background-modifier-error);
+  color: var(--text-error);
+}
+.qt-quiz-maker-feedback {
+  border-radius: var(--radius-s);
+  margin-top: 8px;
+  padding: 6px 8px;
+}
+.qt-quiz-maker-issue {
+  color: var(--text-error);
+  font-size: 0.9em;
+  margin-top: 4px;
+}
+
 /* Simple Quiz blocks, daily counters and dependency-free charts. */
 .qt-simple-quiz, .qt-simple-quiz-today, .qt-simple-quiz-charts, .qt-simple-quiz-data {
   border: 1px solid var(--background-modifier-border);

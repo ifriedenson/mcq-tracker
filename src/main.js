@@ -63,6 +63,7 @@ const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
 const quizClipboard = require("./quiz-clipboard");
 const examBlock = require("./exam-block");
+const quizMaker = require("./quiz-maker");
 const simpleFlashcards = require("./simple-flashcards");
 const quizBlock = require("./quiz-block");
 const studyTools = require("./study-tools");
@@ -246,6 +247,7 @@ QuestionTrackerPlugin.__test = {
   quickAdd,
   quizClipboard,
   examBlock,
+  quizMaker,
   simpleFlashcards,
   quizBlock,
   quizNoteGate,
