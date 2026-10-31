@@ -845,7 +845,7 @@ Three further rows ship as their own Global → Modules switches, alongside the 
 
 **Tests.** `tests/scheduler-fit.test.js` (5), `tests/study-map.test.js` (5) and `tests/vault-search.test.js` (5), plus the updated calendar block-registration list. Full suite **1120 passing**. `npm run check` reports no dynamic code and `main.js` is rebuilt from `src/`.
 
-**Still gated after this wave:** audio recording and transcription (hardware/provider), provider TTS voices, AI tutor scoring and RAG embeddings (provider decision), web lookup and AnkiWeb search (network), Canvas LMS/Google Classroom OAuth, code execution (security), the CBT `.vce` converter (no fixture), SAT score prediction (official curve), OS notifications (permission), PDF annotation indexing and out-of-note card storage (migration), and the real-Obsidian visual/mobile audits. **Question needed before those are implemented:** which external providers and credentials are approved, and what real-device/audio/PDF validation will be run. The owner asked not to be interrupted during this pass, so those rows were skipped and recorded here.
+**Still gated after this wave:** audio recording and transcription (hardware/provider), provider TTS voices, AI tutor scoring and RAG embeddings (provider decision), web lookup and AnkiWeb search (network), Canvas LMS/Google Classroom OAuth, code execution (security), the CBT `.vce` converter (no fixture), SAT score prediction (official curve), OS notifications (permission), out-of-note card storage (migration) and the real-Obsidian visual/mobile audits. **Question needed before those are implemented:** which external providers and credentials are approved, and what real-device/audio/PDF validation will be run. The owner asked not to be interrupted during this pass, so those rows were skipped and recorded here.
 
 ### 3.9.5 Eighth MIT parity wave: portable archive and in-app nudge (Oct 31, 2026, unreleased)
 
@@ -873,6 +873,55 @@ Three more rows ship as their own Global → Modules switches. All are local; no
 - NEEDS USER DECISION: which audited MIT PDF form-filling library and bundled OCR engine are approved, including their licence review.
 - NEEDS USER DECISION: when a real-Obsidian visual pass and real iOS/Android device audit will be run; both are manual gates, not code gaps.
 - NEEDS USER DECISION: whether card schedules should migrate fully out of notes (with edited-card history), or stay note-backed with the portable archive as the escape hatch.
+- NEEDS USER DECISION: is in-plugin code execution (Code Runner) acceptable at all, and if so which sandbox, language allow-list and confirmation flow are approved?
+- NEEDS USER DECISION: which named-misconception list, re-check timing (immediate or queued), AI-off fallback and storage field should misconception diagnosis use?
+- NEEDS USER DECISION: should keyboard-first practice add only Space/Enter to reveal and Esc to end, or a specific fuller key map, and which Obsidian hotkeys must stay untouched?
+- NEEDS USER DECISION: should Hold Course / uni-calendar notes be read-only mapped or editable two-way, and can one sample note from each plugin be supplied?
+- NEEDS USER DECISION: when will the live AnkiConnect smoke test and a two-device CouchDB conflict test be run, and against which versions?
+- NEEDS USER DECISION: which human-scored FRQ fixture set and go/no-go accuracy thresholds are approved before any AP FRQ accuracy claim?
+- NEEDS USER DECISION: who spot-checks AI-generated Spaced Repetition quizzes for factual accuracy in a real vault, and what rejection threshold applies?
+- NEEDS USER DECISION: may the plugin be resubmitted to the community directory, and what were the dashboard's blocking errors?
+- NEEDS USER DECISION: should a similarity/licence scan be run before distribution, and how should human design and review records be kept?
+- NEEDS USER DECISION: will the plugin be commercially distributed, and if so what question-bank import policy may it advertise?
+- NEEDS USER DECISION: is the chemistry/biology/circuit rendering cluster in scope, and may any of the unresolved-link sources be used (none currently has a permissive licence)?
+- NEEDS USER DECISION: is a Qwen provider preset required, and what endpoint and test key should validate it?
+
+### 3.9.6 Final unimplemented-row audit (Oct 31, 2026, verified at `3f93365`)
+
+**Verified starting state.** Local `HEAD` and `origin/main` were both `3f93365` (`Add local course note templates`) at the start of this pass; `npm test` reported **1143 passing, 0 failing**, `npm run check` reported no dynamic code across **199 files** with `main.js` current, `npm run build` exited 0 and the working tree was clean.
+
+**Class (a) — feasible now using only in-repo code, Obsidian-local APIs and offline computation: none.** No remaining row can be implemented without a provider, credential, paid API, audio hardware, an external fixture, a bundled third-party engine, a real device/window or a product-policy decision. The thirty-one shipped local modules already cover every locally implementable MIT parity row, so no new module was invented for this pass.
+
+**Class (b) — blocked rows, each with its reason and its decision line.**
+
+| Blocked row | Why it cannot be implemented here | Decision line |
+|---|---|---|
+| Whisper, Lecture Transcriber and Advanced Audio Recorder recording | Needs a recording/transcription provider or local Whisper build plus microphone and mobile audio validation | 1 |
+| Aloud TTS, Voice Briefing cached playback and OS media controls | Needs an approved provider voice; the device voice path already ships | 2 |
+| Pronunciation feedback | Needs audio capture and a speech-scoring service, then mobile validation | 1-2 |
+| AI tutor scoring, Feynman automatic scoring and embedding RAG | Needs an approved paid provider and model allow-list | 3 |
+| Web lookup, AnkiWeb search and off-device semantic search | Needs an endpoint, citation and rate-limit policy; local cited vault search already ships | 4 |
+| Canvas LMS sync and Google Classroom OAuth | Needs registered OAuth clients and an owning account | 5 |
+| CBT `.vce` converter | No public format fixture or specification is available | 6 |
+| SAT scaled-score prediction | Needs a licensed official raw-to-scaled curve; the local step-by-step solver already ships | 6 |
+| OS notifications | Needs a permission decision; the in-app Study nudge already ships | 7 |
+| PDF form filling, bundled OCR engine, and the OCR-dependent course-note summary and paper-scanner remainder | Needs an audited MIT form library and a permissively licensed OCR engine | 8 |
+| Real-Obsidian visual/math audit, screenshots and real iOS/Android mobile audit | Needs a real Obsidian window and physical devices | 9 |
+| Card schedules fully out of notes plus edited-card history | Needs a migration and rollback decision; the portable archive is the shipped middle step | 10 |
+| Code Runner in-plugin execution | Needs a security decision and a sandbox/language allow-list | 11 |
+| Misconception diagnosis on a miss (§11 item 13) | The named taxonomy, re-check timing, provider fallback and storage field are unspecified | 12 |
+| Omniscient keyboard-first practice shortcuts (§11 item 14) | The MCQ key map and Obsidian hotkey conflict policy are unresolved | 13 |
+| Hold Course / uni-calendar property interop (§11 D5) | Needs one sample note per plugin and a read-only-versus-editable scope decision | 14 |
+| Live AnkiConnect smoke test and live CouchDB two-device verification | Needs a real Anki desktop, a CouchDB 3.x server and two devices | 15 |
+| AP FRQ accuracy claims and human-scored calibration | Needs a human-scored fixture set and go/no-go thresholds | 16 |
+| Factual spot-check of AI-generated Spaced Repetition quizzes | Needs an owner review in a real vault; syntax is already validated by round-trip import | 17 |
+| Community-directory relisting | Needs the owner's signed-in dashboard error and a resubmission | 18 |
+| Similarity/licence scan before distribution | Needs a decision to run one and to keep design/review records | 19 |
+| Commercial distribution and exam-content import policy | Business and legal policy, not a code path | 20 |
+| Chemistry/biology/circuit rendering cluster and the unresolved link dump (§11 items 21-22) | Scoping decision; several sources are unlicensed or non-permissive | 21 |
+| Qwen provider preset (§11 item 6) | Needs a confirmed endpoint and a real request test | 22 |
+
+**Remaining work is entirely gated on the decisions listed above.** No class (a) implementation gap remains as of Oct 31, 2026, verified at commit `3f93365`; the next change requires an owner answer to at least one decision line in §3.9.5.
 
 ### 3.10 Licence allow-list: what may and may not be integrated
 
@@ -2467,7 +2516,7 @@ The mission asked for every remaining plan item to be implemented. These cannot 
 
 **Clean-install verification (Oct 31, 2026):** `npm ci --ignore-scripts` completed with 0 vulnerabilities, the full suite passed **1095/1095**, `npm run check` reported no dynamic code in **187 files** and `main.js` current, and `package.json` and `manifest.json` both report **1.166.0**. No version bump or release was made.
 
-**Sweep result.** `plan.md` has **104 checked `[x]` items, 10 `[~]` partial/blocked items and 0 unchecked `[ ]` items**. §3.9.3 has **10 W1 rows (all complete), 8 W2 rows (LearnKit read-aloud, Lecture Transcriber compilation, Advanced Audio Recorder bookmarks and Course Command Center health are partial; Feynman Learning and Pick Me are complete), 13 W3 rows (Aloud TTS and Voice Briefing are partial) and 1 Quizzable decision row**, plus 19 explicit needs-user-answer lines for the remaining gated rows. §11 has **10 active "Still open" questions** (item 6 is resolved), **11 active mission questions** (items 8–9 are resolved) and **7 active later questions** (items 14, 15 and 18–22; items 16–17 are resolved). Those counts overlap; this queue is the deduplicated decision set.
+**Sweep result.** `plan.md` has **121 checked `[x]` items, 10 `[~]` partial/blocked items and 0 unchecked `[ ]` items** (the one literal `[ ]` in the document is a Markdown-checkbox example inside historical prose, not a task). §3.9.6 records the final classification: no feasible local row remains and every blocked row carries an exact decision line. §3.9.3 has **10 W1 rows (all complete), 8 W2 rows (LearnKit read-aloud, Lecture Transcriber compilation, Advanced Audio Recorder bookmarks and Course Command Center health are partial; Feynman Learning and Pick Me are complete), 13 W3 rows (Aloud TTS and Voice Briefing are partial) and 1 Quizzable decision row**, plus 22 `NEEDS USER DECISION` lines for the remaining gated rows. §11 has **10 active "Still open" questions** (item 6 is resolved), **11 active mission questions** (items 8–9 are resolved) and **7 active later questions** (items 14, 15 and 18–22; items 16–17 are resolved). Those counts overlap; this queue is the deduplicated decision set.
 
 **The approved local implementation batch is complete.** Eight independent study modules and the Quizzable slice ship unreleased. The remaining W2 rows and every W3 external integration are skipped in this pass; each is listed below with its blocker. A row that needs an owner product/API decision is recorded as a question rather than guessed.
 
