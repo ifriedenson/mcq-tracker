@@ -208,6 +208,18 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("SFC-style card blocks")
+    .setDesc("Study basic, reversed, cloze, essay, worked-solution, wrong-answer-sprint and source-marked cards in local sfc-cards blocks. Reveals and self-checks are not recorded.")
+    .addToggle((t) =>
+      t.setValue(plugin.sfcCardsEnabled()).onChange(async (v) => {
+        st.sfcCards.enabled = v;
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Course hub")
     .setDesc("A course dashboard with weighted grade chips, lecture counts and absences. Reads the lecture log and Subject Manager without changing their data.")
     .addToggle((t) =>

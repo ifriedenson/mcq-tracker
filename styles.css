@@ -6884,3 +6884,32 @@
   font-size: 0.86rem;
   padding: 6px 0;
 }
+
+/* SFC-style typed cards: seven card types, local reveals only. */
+.qt-sfc-cards {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 10px 0;
+  padding: 12px;
+}
+.qt-sfc-cards-title { font-weight: 600; }
+.qt-sfc-cards-meta,
+.qt-sfc-cards-type,
+.qt-sfc-cards-source { color: var(--text-muted); font-size: 0.85em; }
+.qt-sfc-cards-type { font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+.qt-sfc-cards-card { border-top: 1px solid var(--background-modifier-border); margin-top: 10px; padding-top: 10px; }
+.qt-sfc-cards-prompt { margin: 4px 0; white-space: pre-wrap; }
+.qt-sfc-cards-choices { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.qt-sfc-cards-choice { text-align: left; }
+.qt-sfc-cards-choices button:disabled { cursor: default; }
+.qt-sfc-cards-criteria,
+.qt-sfc-cards-steps { margin-top: 6px; }
+.qt-sfc-cards-model { color: var(--text-muted); font-size: 0.9em; margin-top: 6px; }
+.qt-sfc-cards-selfcheck { display: flex; gap: 8px; margin-top: 8px; }
+.qt-sfc-cards-feedback { border-radius: var(--radius-s); margin-top: 8px; padding: 6px 8px; }
+.qt-sfc-cards-feedback.is-correct { background: var(--background-modifier-success); color: var(--text-success); }
+.qt-sfc-cards-feedback.is-wrong { background: var(--background-modifier-error); color: var(--text-error); }
+.qt-sfc-cards-answer,
+.qt-sfc-cards-step { white-space: pre-wrap; }
+.qt-sfc-cards-steps { display: flex; flex-direction: column; gap: 4px; }
+.qt-sfc-cards-issue { color: var(--text-error); font-size: 0.9em; margin-top: 4px; }

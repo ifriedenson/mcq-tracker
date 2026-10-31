@@ -148,6 +148,7 @@ const DEFAULT_SETTINGS = {
   subjectManager: { enabled: true, subjects: [], absences: [] }, // subjects and absence log
   quizIndex: { enabled: true, folder: "", limit: 50 }, // cross-vault quiz dashboard/index
   quizMaker: { enabled: true }, // Quiz Maker block: four formats and named packs
+  sfcCards: { enabled: true }, // SFC-style typed card block: seven card types, read-only
   courseHub: { enabled: true, grades: [] }, // course dashboard and local grade chips
   studyTasks: { enabled: true, tasks: [] }, // manual and generated exam tasks with local reminders
   annotations: { enabled: true, annotations: [] }, // selection Q&A and annotation index

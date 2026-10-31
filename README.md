@@ -791,6 +791,20 @@ Enable **Quiz Maker blocks** under Settings, Global, Modules, then write a `quiz
 
 The block is a local preview: choices are graded in memory and no attempt, history, streak or scheduler state is written.
 
+## SFC-style card blocks (independent module)
+
+Enable **SFC-style card blocks** under Settings, Global, Modules, then write an `sfc-cards` fenced block. The optional `Deck:` line names the deck. Separate cards with `---` and use one of seven `Type:` values:
+
+- `basic` with `Front:` and `Back:`.
+- `reversed` with `Front:` and `Back:`; the back is shown as the prompt.
+- `cloze` with `Text:` containing one or more `{{blanks}}`.
+- `essay` with `Prompt:`, one or more `Criterion:` lines and an optional `Model:` answer; **Covered it** and **Needs work** are local self-checks.
+- `worked` with `Problem:`, repeated `Step:` lines and an optional `Answer:`; steps reveal one at a time.
+- `sprint` with `Question:`, lettered choices, an `Answer:` letter and an optional `Why:`.
+- `source` with `Prompt:`, `Answer:` and an optional `Source:` marker.
+
+Reveals, step-by-step solutions and self-checks happen in memory. The block does not write attempts, history, streaks or scheduler state, and it never edits the source note.
+
 ## Reusable inline quizzes and partial credit
 
 A `quiz-definition` block is a reusable quiz. Give it an `Id:` and put it anywhere in the vault; a `playable-quiz` block with the same `Id:` plays it where you need it:
