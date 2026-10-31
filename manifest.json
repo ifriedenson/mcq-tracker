@@ -1,7 +1,7 @@
 {
   "id": "mcq-tracker",
   "name": "MCQ Tracker",
-  "version": "1.165.0",
+  "version": "1.166.0",
   "minAppVersion": "1.8.7",
   "description": "Practice MCQs and FRQs from your notes, review with spaced cards, plan courses and exams, track grades, and add optional bring-your-own-key AI.",
   "author": "Isaac Friedenson",
