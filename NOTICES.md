@@ -162,6 +162,13 @@ Three more MIT-licensed plugin concepts are adapted here. The source projects we
 - **Gemini Helper** — [obsidian-gemini-helper](https://github.com/takeshy/obsidian-gemini-helper), MIT, Copyright (c) takeshy (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: search results with citations. `src/vault-search.js` ranks notes with a local index and links each snippet; no model or network request is made.
 - **LLM Hub** — [obsidian-llm-hub](https://github.com/takeshy/obsidian-llm-hub), MIT, Copyright (c) takeshy (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: cited vault search across study notes. `src/vault-search.js` implements the local ranking and snippet citation.
 
+## Portable card archive and study nudge (October 31, 2026)
+
+Two more MIT-licensed concepts are adapted. The source projects were read as feature references; the implementations are original, dependency-free JavaScript, and no source file, function or stylesheet rule was copied.
+
+- **Retain** — [retain](https://github.com/sejder/retain), MIT, Copyright (c) sejder (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: keeping card data in a store outside the notes. `src/card-archive.js` writes and restores one portable JSON archive; it does not move schedules out of notes or change the scheduler.
+- **Better Task** — [better-task](https://github.com/st-vin/better-task), MIT, Copyright (c) st-vin (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: due-work reminders. `src/study-nudge.js` shows one in-app Notice per day and a ribbon label with quiet hours; it requests no OS notification permission and sends nothing.
+
 ## Not absorbed (yet)
 
 The product plan also names LearnKit as a future absorb source. It has **not** been copied

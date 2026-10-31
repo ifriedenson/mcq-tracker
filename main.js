@@ -195,6 +195,13 @@
  * - **Gemini Helper** — [obsidian-gemini-helper](https://github.com/takeshy/obsidian-gemini-helper), MIT, Copyright (c) takeshy (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: search results with citations. `src/vault-search.js` ranks notes with a local index and links each snippet; no model or network request is made.
  * - **LLM Hub** — [obsidian-llm-hub](https://github.com/takeshy/obsidian-llm-hub), MIT, Copyright (c) takeshy (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: cited vault search across study notes. `src/vault-search.js` implements the local ranking and snippet citation.
  *
+ * ## Portable card archive and study nudge (October 31, 2026)
+ *
+ * Two more MIT-licensed concepts are adapted. The source projects were read as feature references; the implementations are original, dependency-free JavaScript, and no source file, function or stylesheet rule was copied.
+ *
+ * - **Retain** — [retain](https://github.com/sejder/retain), MIT, Copyright (c) sejder (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: keeping card data in a store outside the notes. `src/card-archive.js` writes and restores one portable JSON archive; it does not move schedules out of notes or change the scheduler.
+ * - **Better Task** — [better-task](https://github.com/st-vin/better-task), MIT, Copyright (c) st-vin (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: due-work reminders. `src/study-nudge.js` shows one in-app Notice per day and a ribbon label with quiet hours; it requests no OS notification permission and sends nothing.
+ *
  * ## Not absorbed (yet)
  *
  * The product plan also names LearnKit as a future absorb source. It has **not** been copied
@@ -10674,6 +10681,192 @@ module.exports = {
 };
 };
 
+/* ---- src/card-archive.js ---- */
+__defs["card-archive"] = function (module, exports, require) {
+/*
+ * A portable card archive: every card note's Markdown in one JSON file that
+ * can leave the plugin data folder and be restored on another machine. This
+ * is the non-migration part of Retain's "schedules out of notes" idea: the
+ * archive carries the note text, so a restore cannot lose a schedule, and a
+ * merge is explicit (skip existing notes or overwrite them).
+ */
+const { localDate, str } = require("./util");
+
+const ARCHIVE_SCHEMA = 1;
+const MAX_CARDS = 5000;
+const MAX_TEXT = 400000;
+
+function normalizeCardArchiveSettings(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const folder = str(source.folder).trim().replace(/^\/+|\/+$/g, "");
+  return {
+    enabled: !(value === false || source.enabled === false),
+    folder: folder && !/\.\./.test(folder) ? folder.slice(0, 160) : "Archive",
+  };
+}
+
+function safeCardPath(value) {
+  const clean = str(value).replace(/\\/g, "/").replace(/^\/+/, "").trim();
+  if (!clean || clean.includes("..") || !/\.md$/i.test(clean)) return "";
+  return clean.slice(0, 500);
+}
+
+/** `[{ path, text, deck, course }]` becomes a versioned, JSON-safe archive. */
+function buildCardArchive(entries, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const cards = [];
+  const issues = [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (cards.length >= MAX_CARDS) {
+      issues.push(`Only the first ${MAX_CARDS} cards are archived.`);
+      break;
+    }
+    const path = safeCardPath(entry && entry.path);
+    const text = str(entry && entry.text).slice(0, MAX_TEXT);
+    if (!path) {
+      issues.push(`Skipped a card without a safe .md path: ${str(entry && entry.path).slice(0, 80)}`);
+      continue;
+    }
+    cards.push({ path, deck: str(entry.deck).trim(), course: str(entry.course).trim(), text });
+  }
+  cards.sort((a, b) => a.path.localeCompare(b.path));
+  return {
+    schema: ARCHIVE_SCHEMA,
+    exportedAt: str(opts.exportedAt) || new Date().toISOString(),
+    count: cards.length,
+    cards,
+    issues,
+  };
+}
+
+function parseCardArchive(value) {
+  let data = value;
+  if (typeof value === "string") {
+    try {
+      data = JSON.parse(value);
+    } catch (e) {
+      return { ok: false, error: `That is not JSON: ${str(e && e.message ? e.message : e)}`, archive: null };
+    }
+  }
+  if (!data || typeof data !== "object" || !Array.isArray(data.cards)) {
+    return { ok: false, error: "The archive needs a cards array.", archive: null };
+  }
+  if (Number(data.schema) !== ARCHIVE_SCHEMA) {
+    return { ok: false, error: `Unsupported archive schema ${str(data.schema) || "(missing)"}; expected ${ARCHIVE_SCHEMA}.`, archive: null };
+  }
+  const cards = [];
+  const issues = [];
+  for (const raw of data.cards.slice(0, MAX_CARDS)) {
+    const path = safeCardPath(raw && raw.path);
+    if (!path) {
+      issues.push(`Skipped an archive entry without a safe .md path: ${str(raw && raw.path).slice(0, 80)}`);
+      continue;
+    }
+    const text = str(raw && raw.text).slice(0, MAX_TEXT);
+    if (!text.trim()) {
+      issues.push(`Skipped ${path}: no note text.`);
+      continue;
+    }
+    cards.push({ path, deck: str(raw.deck).trim(), course: str(raw.course).trim(), text });
+  }
+  return { ok: true, error: "", archive: { schema: ARCHIVE_SCHEMA, exportedAt: str(data.exportedAt), count: cards.length, cards, issues: [] }, issues };
+}
+
+/** Decide what a restore does without touching the vault. */
+function mergeCardArchive(existingPaths, archive, mode) {
+  const existing = new Set((Array.isArray(existingPaths) ? existingPaths : []).map((path) => str(path).toLowerCase()));
+  const overwrite = mode === "overwrite";
+  const report = { create: [], update: [], skip: [] };
+  for (const card of (archive && archive.cards) || []) {
+    if (!card || !card.path) continue;
+    if (!existing.has(card.path.toLowerCase())) report.create.push(card.path);
+    else if (overwrite) report.update.push(card.path);
+    else report.skip.push(card.path);
+  }
+  return report;
+}
+
+function archiveFileName(date) {
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(str(date)) ? str(date) : localDate();
+  return `mcq-cards-${day}.json`;
+}
+
+class CardArchiveImportModal {
+  constructor(app, plugin) {
+    this.app = app;
+    this.plugin = plugin;
+    this.text = "";
+    this.mode = "skip";
+    this.error = "";
+    this.busy = false;
+    const { Modal } = require("obsidian");
+    this.modal = new Modal(app);
+    this.modal.onOpen = () => this.draw();
+    this.modal.onClose = () => this.modal.contentEl.empty();
+  }
+
+  open() {
+    this.modal.open();
+  }
+
+  draw() {
+    const el = this.modal.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Import a card archive" });
+    el.createDiv({
+      cls: "qt-hint",
+      text: "Paste the JSON written by Cards: export a portable archive. Existing notes are skipped unless you choose overwrite. Nothing is deleted.",
+    });
+    const box = el.createEl("textarea", { cls: "qt-input" });
+    box.rows = 12;
+    box.placeholder = '{ "schema": 1, "cards": [ { "path": "Cards/…md", "text": "…" } ] }';
+    box.value = this.text;
+    box.addEventListener("input", () => (this.text = box.value));
+    const row = el.createDiv({ cls: "qt-row" });
+    const select = row.createEl("select", { cls: "dropdown" });
+    for (const [value, label] of [["skip", "Skip existing notes"], ["overwrite", "Overwrite existing notes"]]) {
+      const option = select.createEl("option", { text: label, value });
+      if (value === this.mode) option.selected = true;
+    }
+    select.addEventListener("change", () => (this.mode = select.value));
+    if (this.error) el.createDiv({ cls: "qt-error", text: this.error });
+    const actions = el.createDiv({ cls: "qt-row" });
+    const importButton = actions.createEl("button", { text: this.busy ? "Importing…" : "Import", cls: "mod-cta" });
+    importButton.disabled = this.busy;
+    importButton.addEventListener("click", () => this.run());
+    actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.modal.close());
+  }
+
+  async run() {
+    if (this.busy) return;
+    this.busy = true;
+    this.error = "";
+    this.draw();
+    try {
+      const report = await this.plugin.importCardArchiveText(this.text, this.mode);
+      const { Notice } = require("obsidian");
+      new Notice(`Card archive: ${report.create.length} created, ${report.update.length} updated, ${report.skip.length} skipped.`, 6000);
+      this.modal.close();
+    } catch (e) {
+      this.busy = false;
+      this.error = str(e && e.message ? e.message : e) || "Could not import the archive.";
+      this.draw();
+    }
+  }
+}
+
+module.exports = {
+  ARCHIVE_SCHEMA,
+  CardArchiveImportModal,
+  archiveFileName,
+  buildCardArchive,
+  mergeCardArchive,
+  normalizeCardArchiveSettings,
+  parseCardArchive,
+  safeCardPath,
+};
+};
+
 /* ---- src/card-generator.js ---- */
 __defs["card-generator"] = function (module, exports, require) {
 /*
@@ -18846,6 +19039,8 @@ const DEFAULT_SETTINGS = {
   quizIndex: { enabled: true, folder: "", limit: 50 }, // cross-vault quiz dashboard/index
   quizMaker: { enabled: true }, // Quiz Maker block: four formats and named packs
   satMath: { enabled: true }, // SAT Math block: local step-by-step solver, no score estimate
+  cardArchive: { enabled: true, folder: "Archive" }, // portable JSON card archive export/import
+  studyNudge: { enabled: false, hour: 9, quietFrom: 22, quietTo: 7, ribbonLabel: true, lastShown: "" }, // opt-in in-app nudge
   schedulerFit: { enabled: true, minSamples: 20 }, // LearnKit/Qard-style desired-retention self-fitting from card review counters
   studyMap: { enabled: true, terms: 8, depth: 4 }, // Spaceforge-style local outline/mind-map and key-term map
   vaultSearch: { enabled: true, limit: 5 }, // Gemini Helper/LLM Hub-style cited local vault search, no model call
@@ -37734,6 +37929,8 @@ const { normalizeQuizMakerSettings, renderQuizMakerBlock: renderQuizMaker } = re
 const { normalizeSatMathSettings, renderSatMathBlock: renderSatMath } = require("./sat-math");
 const { normalizeSfcCardsSettings, renderSfcCardsBlock: renderSfcCards } = require("./sfc-cards");
 const { normalizeCbtExamSettings, renderCbtExamBlock: renderCbtExam } = require("./cbt-exam");
+const { CardArchiveImportModal, archiveFileName, buildCardArchive, mergeCardArchive, normalizeCardArchiveSettings, parseCardArchive } = require("./card-archive");
+const { markNudgeShown, normalizeStudyNudgeSettings, nudgeState: computeNudgeState } = require("./study-nudge");
 const { collectReviewRecords, fitRetention, normalizeSchedulerFitSettings } = require("./scheduler-fit");
 const { normalizeStudyMapSettings, renderStudyMapBlock: renderStudyMap } = require("./study-map");
 const { normalizeVaultSearchSettings, renderVaultSearchBlock: renderVaultSearch } = require("./vault-search");
@@ -37823,6 +38020,7 @@ class QuestionTrackerPlugin extends Plugin {
 
     this.manager = new OpenCodeManager(this);
     this.setupReminder();
+    this.setupStudyNudge();
     this.setupNoteReviewStatus();
     this.app.workspace.onLayoutReady(() => {
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
@@ -38148,6 +38346,9 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "generate-quiz", name: "Generate quiz questions from notes", callback: () => this.openQuizGenerator() });
+    this.addCommand({ id: "cards-export-archive", name: "Cards: export a portable archive", callback: () => this.exportCardArchive().catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not export the archive.", 6000)) });
+    this.addCommand({ id: "cards-import-archive", name: "Cards: import a portable archive", callback: () => this.openCardArchiveImport() });
+    this.addCommand({ id: "study-nudge-show", name: "Show today's study nudge", callback: () => this.maybeShowStudyNudge(new Date()) });
     this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
     this.addCommand({ id: "manage-study-status", name: "Manage hidden study items", callback: () => this.openStudyStatusManager() });
 
@@ -38416,6 +38617,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.satMath = normalizeSatMathSettings(saved.satMath);
     this.settings.sfcCards = normalizeSfcCardsSettings(saved.sfcCards);
     this.settings.cbtExam = normalizeCbtExamSettings(saved.cbtExam);
+    this.settings.cardArchive = normalizeCardArchiveSettings(saved.cardArchive);
+    this.settings.studyNudge = normalizeStudyNudgeSettings(saved.studyNudge);
     this.settings.schedulerFit = normalizeSchedulerFitSettings(saved.schedulerFit);
     this.settings.studyMap = normalizeStudyMapSettings(saved.studyMap);
     this.settings.vaultSearch = normalizeVaultSearchSettings(saved.vaultSearch);
@@ -38968,6 +39171,14 @@ class QuestionTrackerPlugin extends Plugin {
     return normalizeVaultSearchSettings(this.settings.vaultSearch).enabled;
   }
 
+  cardArchiveEnabled() {
+    return normalizeCardArchiveSettings(this.settings.cardArchive).enabled;
+  }
+
+  studyNudgeEnabled() {
+    return normalizeStudyNudgeSettings(this.settings.studyNudge).enabled;
+  }
+
   courseHubEnabled() {
     return studyWorkspace.normalizeCourseHub(this.settings.courseHub).enabled;
   }
@@ -39086,6 +39297,7 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("study-tools");
     if (this.studyWorkspaceEnabled()) this.addModuleRibbon("study-workspace", "workflow", "Open Study Workspace", () => this.activateStudyWorkspace());
     else this.removeModuleRibbon("study-workspace");
+    this.refreshStudyNudgeLabel();
   }
 
   setupCalendarRibbon() {
@@ -45372,6 +45584,132 @@ ${body}
     const options = normalizeSchedulerFitSettings(this.settings.schedulerFit);
     const cards = typeof this.getCards === "function" ? this.getCards() : [];
     return fitRetention(collectReviewRecords(cards), { minSamples: options.minSamples, current: this.settings.fsrsRetention });
+  }
+
+  /* ---- portable card archive (Retain-style storage outside plugin data) */
+
+  /** Write every card note into one versioned JSON file in the vault. */
+  async exportCardArchive() {
+    if (!this.cardArchiveEnabled()) throw new Error("Card archive is off. Turn it on in Settings, Global, Modules.");
+    if (!this.cardsEnabled()) throw new Error("Turn on Cards before exporting a card archive.");
+    const entries = [];
+    for (const card of this.getCards()) {
+      const path = str(card.file && card.file.path);
+      if (!path) continue;
+      try {
+        const text = await this.app.vault.cachedRead(card.file);
+        entries.push({ path, text, deck: card.deck, course: card.course });
+      } catch (e) {
+        // an unreadable card is skipped rather than producing an empty entry
+      }
+    }
+    const archive = buildCardArchive(entries, { exportedAt: new Date().toISOString() });
+    const folder = normalizeCardArchiveSettings(this.settings.cardArchive).folder;
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        // the folder may already exist
+      }
+    }
+    const path = `${folder}/${archiveFileName(localDate())}`;
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    const body = JSON.stringify(archive, null, 2);
+    if (existing) await this.app.vault.modify(existing, body);
+    else await this.app.vault.create(path, body);
+    new Notice(`Exported ${archive.count} card${archive.count === 1 ? "" : "s"} to ${path}.`, 6000);
+    return { path, count: archive.count, issues: archive.issues };
+  }
+
+  /** Restore a card archive. `skip` leaves existing notes untouched. */
+  async importCardArchiveText(text, mode) {
+    if (!this.cardArchiveEnabled()) throw new Error("Card archive is off. Turn it on in Settings, Global, Modules.");
+    const parsed = parseCardArchive(text);
+    if (!parsed.ok) throw new Error(parsed.error);
+    const paths = this.app.vault.getMarkdownFiles().map((file) => str(file.path));
+    const report = mergeCardArchive(paths, parsed.archive, mode === "overwrite" ? "overwrite" : "skip");
+    const create = new Set(report.create.map((path) => path.toLowerCase()));
+    const update = new Set(report.update.map((path) => path.toLowerCase()));
+    for (const card of parsed.archive.cards) {
+      const lower = card.path.toLowerCase();
+      const slash = card.path.lastIndexOf("/");
+      if (slash > 0) {
+        const folder = card.path.slice(0, slash);
+        if (!this.app.vault.getAbstractFileByPath(folder)) {
+          try {
+            await this.app.vault.createFolder(folder);
+          } catch (e) {
+            // created concurrently or already present
+          }
+        }
+      }
+      if (create.has(lower)) await this.app.vault.create(card.path, card.text);
+      else if (update.has(lower)) {
+        const existing = this.app.vault.getAbstractFileByPath(card.path);
+        if (existing) await this.app.vault.modify(existing, card.text);
+      }
+    }
+    if (typeof this.refreshPlainCards === "function") this.refreshPlainCards().catch(() => {});
+    return report;
+  }
+
+  openCardArchiveImport() {
+    if (!this.cardArchiveEnabled()) {
+      new Notice("Card archive is off. Turn it on in Settings, Global, Modules.", 6000);
+      this.openSettings();
+      return null;
+    }
+    const modal = new CardArchiveImportModal(this.app, this);
+    modal.open();
+    return modal;
+  }
+
+  /* ---- in-app study nudge (no OS notification) */
+
+  setupStudyNudge() {
+    this.refreshStudyNudgeLabel();
+    if (!this.studyNudgeEnabled()) return;
+    activeWindow.setTimeout(() => {
+      try {
+        this.maybeShowStudyNudge();
+      } catch (e) {
+        // a nudge must never break startup
+      }
+    }, 1800);
+  }
+
+  studyNudgeCounts() {
+    const today = localDate();
+    const questions = this.mcqEnabled() ? this.getQuestions() : [];
+    const dueQuestions = questions.filter((question) => isStudyable(question.fm, today) && isDue(question.fm, today)).length;
+    const cards = this.cardsEnabled() ? this.getCards().filter((card) => {
+      const fm = card.fm || {};
+      const raw = str(fm.next_review || fm.due).slice(0, 10);
+      return !Number(fm.attempts) || !raw || raw <= today;
+    }).length : 0;
+    const tasks = this.studyTasksEnabled() ? studyWorkspace.dueStudyTasks(this.settings.studyTasks.tasks, today).length : 0;
+    return { questions: dueQuestions, cards, tasks };
+  }
+
+  studyNudgeInfo(now) {
+    return computeNudgeState(this.settings.studyNudge, this.studyNudgeCounts(), now);
+  }
+
+  refreshStudyNudgeLabel() {
+    const button = this.ribbonButtons && (this.ribbonButtons.today || this.ribbonButtons.mcq);
+    if (!button || typeof button.setAttr !== "function") return;
+    const info = this.studyNudgeInfo();
+    button.setAttr("aria-label", info.badge ? `${info.badge}. Open Today.` : "Open today");
+  }
+
+  maybeShowStudyNudge(now) {
+    const info = this.studyNudgeInfo(now);
+    this.refreshStudyNudgeLabel();
+    if (!info.visible) return null;
+    new Notice(`Study nudge: ${info.banner}`, 8000);
+    this.settings.studyNudge = markNudgeShown(this.settings.studyNudge, now || new Date());
+    this.save();
+    return info;
   }
 
   async addStudySubject(input) {
@@ -55451,6 +55789,29 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Portable card archive")
+    .setDesc("Export every card note into one versioned JSON file and restore it later, skipping or overwriting existing notes. The archive lives in your vault, not in plugin data.")
+    .addToggle((t) =>
+      t.setValue(plugin.cardArchiveEnabled()).onChange(async (v) => {
+        st.cardArchive.enabled = v;
+        await plugin.save();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Study nudge")
+    .setDesc("An opt-in in-app Notice and ribbon label for due questions, cards and tasks. Off by default; no OS notification permission is requested.")
+    .addToggle((t) =>
+      t.setValue(plugin.studyNudgeEnabled()).onChange(async (v) => {
+        st.studyNudge.enabled = v;
+        await plugin.save();
+        plugin.refreshStudyNudgeLabel();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("SFC-style card blocks")
     .setDesc("Study basic, reversed, cloze, essay, worked-solution, wrong-answer-sprint and source-marked cards in local sfc-cards blocks. Reveals and self-checks are not recorded.")
     .addToggle((t) =>
@@ -61092,6 +61453,102 @@ class StudyMatchModal extends Modal {
 }
 
 module.exports = { StudyMatchModal };
+};
+
+/* ---- src/study-nudge.js ---- */
+__defs["study-nudge"] = function (module, exports, require) {
+/*
+ * In-app study nudge. Better Task's reminder idea, kept inside Obsidian: a
+ * single Notice at startup (or when the user asks) plus a ribbon label that
+ * names today's due work. No OS notification permission is requested and no
+ * network request is made. Off by default.
+ */
+const { fmtDate, str } = require("./util");
+
+const DEFAULT_STUDY_NUDGE = {
+  enabled: false,
+  hour: 9,
+  quietFrom: 22,
+  quietTo: 7,
+  ribbonLabel: true,
+  lastShown: "",
+};
+
+function clampHour(value, fallback) {
+  const hour = Math.round(Number(value));
+  return Number.isFinite(hour) ? Math.max(0, Math.min(23, hour)) : fallback;
+}
+
+function normalizeStudyNudgeSettings(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    enabled: source.enabled === true,
+    hour: clampHour(source.hour, DEFAULT_STUDY_NUDGE.hour),
+    quietFrom: clampHour(source.quietFrom, DEFAULT_STUDY_NUDGE.quietFrom),
+    quietTo: clampHour(source.quietTo, DEFAULT_STUDY_NUDGE.quietTo),
+    ribbonLabel: source.ribbonLabel !== false,
+    lastShown: /^\d{4}-\d{2}-\d{2}$/.test(str(source.lastShown).slice(0, 10)) ? str(source.lastShown).slice(0, 10) : "",
+  };
+}
+
+function nudgeCounts(input) {
+  const counts = input && typeof input === "object" ? input : {};
+  return {
+    questions: Math.max(0, Math.round(Number(counts.questions) || 0)),
+    cards: Math.max(0, Math.round(Number(counts.cards) || 0)),
+    tasks: Math.max(0, Math.round(Number(counts.tasks) || 0)),
+  };
+}
+
+function nudgeText(input) {
+  const counts = nudgeCounts(input);
+  const parts = [];
+  if (counts.questions) parts.push(`${counts.questions} question${counts.questions === 1 ? "" : "s"}`);
+  if (counts.cards) parts.push(`${counts.cards} card${counts.cards === 1 ? "" : "s"}`);
+  if (counts.tasks) parts.push(`${counts.tasks} task${counts.tasks === 1 ? "" : "s"}`);
+  return parts.length ? `${parts.join(", ")} due today.` : "";
+}
+
+function inQuietHours(hour, from, to) {
+  if (from === to) return false;
+  return from > to ? hour >= from || hour < to : hour >= from && hour < to;
+}
+
+function nudgeState(value, counts, now) {
+  const cfg = normalizeStudyNudgeSettings(value);
+  const date = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+  const today = fmtDate(date);
+  const hour = date.getHours();
+  const text = nudgeText(counts);
+  const quiet = inQuietHours(hour, cfg.quietFrom, cfg.quietTo);
+  const visible = cfg.enabled && !!text && hour >= cfg.hour && !quiet && cfg.lastShown !== today;
+  return {
+    enabled: cfg.enabled,
+    visible,
+    text,
+    today,
+    hour,
+    quiet,
+    banner: nudgeText(counts),
+    badge: cfg.ribbonLabel && cfg.enabled && text ? `MCQ · ${nudgeText(counts).replace(" due today.", "")} due` : "",
+  };
+}
+
+function markNudgeShown(value, now) {
+  const cfg = normalizeStudyNudgeSettings(value);
+  const date = now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date();
+  return { ...cfg, lastShown: fmtDate(date) };
+}
+
+module.exports = {
+  DEFAULT_STUDY_NUDGE,
+  inQuietHours,
+  markNudgeShown,
+  nudgeCounts,
+  nudgeState,
+  nudgeText,
+  normalizeStudyNudgeSettings,
+};
 };
 
 /* ---- src/study-plan.js ---- */
@@ -69050,6 +69507,8 @@ const quizMaker = require("./quiz-maker");
 const satMath = require("./sat-math");
 const sfcCards = require("./sfc-cards");
 const cbtExam = require("./cbt-exam");
+const cardArchive = require("./card-archive");
+const studyNudge = require("./study-nudge");
 const schedulerFit = require("./scheduler-fit");
 const studyMap = require("./study-map");
 const vaultSearch = require("./vault-search");
@@ -69247,6 +69706,8 @@ QuestionTrackerPlugin.__test = {
   satMath,
   sfcCards,
   cbtExam,
+  cardArchive,
+  studyNudge,
   schedulerFit,
   studyMap,
   vaultSearch,
