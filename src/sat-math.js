@@ -1,7 +1,7 @@
 "use strict";
 /*
- * SAT Math-style fenced blocks. A block contains one or more Solve, System,
- * Quadratic, Percent or Ratio commands. Everything is local and read-only.
+ * SAT Math-style fenced blocks. A block contains one or more Solve, Inequality,
+ * Line, System, Quadratic, Percent or Ratio commands. Everything is local and read-only.
  * Score prediction is deliberately not estimated: a scaled SAT score needs an
  * official curve, so this module only shows the mathematics.
  *
@@ -15,7 +15,7 @@
  */
 const { str } = require("./util");
 
-const COMMAND = /^(Solve|Equation|System|Quadratic|Percent|Ratio)\s*:\s*(.*)$/i;
+const COMMAND = /^(Solve|Equation|Inequality|System|Quadratic|Percent|Ratio|Line)\s*:\s*(.*)$/i;
 const NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
 
 function clean(value) {
@@ -109,6 +109,57 @@ function solveLinear(equation) {
   const right = parseSide(parts[1], ["x"]);
   if (!left || !right) return invalid("Linear equation", clean(equation), "Use only numbers, x, +, - and multiplication, with no powers or division.");
   return linearFromCoefficients(left.coef.x - right.coef.x, right.constant - left.constant, equation);
+}
+
+function solveInequality(input) {
+  const prompt = clean(input).replace(/≤/g, "<=").replace(/≥/g, ">=");
+  const match = prompt.match(/(<=|>=|<|>)/);
+  if (!match) return invalid("Inequality", prompt, "Use an inequality sign such as <, <=, > or >=.");
+  const at = prompt.indexOf(match[1]);
+  const left = parseSide(prompt.slice(0, at), ["x"]);
+  const right = parseSide(prompt.slice(at + match[1].length), ["x"]);
+  if (!left || !right) return invalid("Inequality", prompt, "Use only numbers, x, +, - and multiplication, with no powers or division.");
+  const a = left.coef.x - right.coef.x;
+  const b = right.constant - left.constant;
+  let op = match[1];
+  const steps = [`Start: ${prompt}.`, `Collect the x terms: ${fmt(a)}x ${op} ${fmt(b)}.`];
+  if (a === 0) {
+    const holds = op === "<" ? 0 < b : op === "<=" ? 0 <= b : op === ">" ? 0 > b : 0 >= b;
+    steps.push(`The x terms cancel, leaving 0 ${op} ${fmt(b)}, which is ${holds ? "true" : "false"}.`);
+    return { valid: true, kind: "Inequality", prompt, answer: holds ? "Every real value of x works." : "No solution.", steps };
+  }
+  if (a < 0) {
+    op = op === "<" ? ">" : op === "<=" ? ">=" : op === ">" ? "<" : "<=";
+    steps.push("Divide by a negative number and flip the inequality sign.");
+  }
+  const x = b / a;
+  steps.push(`Divide both sides by ${fmt(a)}: x ${op} ${fmt(x)}.`);
+  return { valid: true, kind: "Inequality", prompt, answer: `x ${op} ${fmt(x)}`, steps };
+}
+
+function solveLine(input) {
+  const prompt = clean(input).replace(/^line\s*:\s*/i, "");
+  const points = [...prompt.matchAll(/\(\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*\)/g)].map((match) => ({ x: Number(match[1]), y: Number(match[2]) }));
+  if (points.length !== 2) return invalid("Line", prompt, "Use two points like (1, 2) and (3, 6).");
+  const [first, second] = points;
+  if (first.x === second.x && first.y === second.y) return invalid("Line", prompt, "Use two different points.");
+  const steps = [`Start: ${prompt}.`];
+  if (first.x === second.x) {
+    steps.push(`The x-values are equal (${fmt(first.x)}), so the line is vertical and the slope is undefined.`);
+    return { valid: true, kind: "Line", prompt, answer: `x = ${fmt(first.x)}`, steps };
+  }
+  const slope = (second.y - first.y) / (second.x - first.x);
+  const intercept = first.y - slope * first.x;
+  steps.push(`Slope = (y2 - y1) / (x2 - x1) = (${fmt(second.y)} - ${fmt(first.y)}) / (${fmt(second.x)} - ${fmt(first.x)}) = ${fmt(slope)}.`);
+  steps.push(`Use y = mx + b at (${fmt(first.x)}, ${fmt(first.y)}): b = ${fmt(first.y)} - (${fmt(slope)})(${fmt(first.x)}) = ${fmt(intercept)}.`);
+  let equation;
+  if (slope === 0) equation = `y = ${fmt(intercept)}`;
+  else {
+    const m = slope === 1 ? "x" : slope === -1 ? "-x" : `${fmt(slope)}x`;
+    equation = intercept === 0 ? `y = ${m}` : `y = ${m} ${intercept > 0 ? "+" : "-"} ${fmt(Math.abs(intercept))}`;
+  }
+  steps.push(`The line is ${equation}.`);
+  return { valid: true, kind: "Line", prompt, answer: equation, steps };
 }
 
 /** Parse a quadratic side into ax² + bx + c. */
@@ -250,6 +301,7 @@ function solveRatio(input) {
 }
 
 function detectKind(text) {
+  if (/(<=|>=|<|>|≤|≥)/.test(text)) return "inequality";
   if (/;/.test(text)) return "system";
   if (/\^2/.test(text)) return "quadratic";
   if (/%/.test(text)) return "percent";
@@ -261,6 +313,8 @@ function solveCommand(kind, input) {
   const text = clean(input);
   if (!text) return invalid("SAT Math", "", "Add an expression after the command.");
   const resolved = kind === "solve" || kind === "equation" ? detectKind(text) : kind;
+  if (resolved === "inequality") return solveInequality(text);
+  if (resolved === "line") return solveLine(text);
   if (resolved === "system") return solveSystem(text);
   if (resolved === "quadratic") return solveQuadratic(text);
   if (resolved === "percent") return solvePercent(text);
@@ -290,7 +344,7 @@ function parseSatMath(source) {
       continue;
     }
     if (!pending) {
-      issues.push(`Could not read "${text.slice(0, 60)}". Start each problem with Solve:, System:, Quadratic:, Percent: or Ratio:.`);
+      issues.push(`Could not read "${text.slice(0, 60)}". Start each problem with Solve:, Inequality:, Line:, System:, Quadratic:, Percent: or Ratio:.`);
       continue;
     }
     pending.input = pending.input ? `${pending.input}${pending.kind === "system" ? "; " : " "}${text}` : text;
@@ -337,6 +391,8 @@ module.exports = {
   parseSatMath,
   renderSatMathBlock,
   solveCommand,
+  solveInequality,
+  solveLine,
   solveLinear,
   solvePercent,
   solveQuadratic,

@@ -28,6 +28,21 @@ test("sat math: solves quadratics, systems, percentages and ratios", () => {
   assert.equal(S.solveRatio("3:4 = 9:x").answer, "x = 12");
 });
 
+test("sat math: solves inequalities and flips the sign for a negative divisor", () => {
+  assert.equal(S.solveInequality("2x + 3 < 11").answer, "x < 4");
+  assert.equal(S.solveInequality("-2x >= 6").answer, "x <= -3");
+  assert.equal(S.solveInequality("x + 1 > x + 2").answer, "No solution.");
+  assert.equal(S.solveInequality("2(x + 1) < 4").valid, false);
+});
+
+test("sat math: two points produce a slope and line equation", () => {
+  const line = S.solveLine("Line: (1, 2) and (3, 6)");
+  assert.equal(line.answer, "y = 2x");
+  assert.ok(line.steps.some((step) => /Slope/.test(step)));
+  assert.equal(S.solveLine("(2, 1) and (2, 5)").answer, "x = 2");
+  assert.equal(S.solveLine("(1, 2) and (1, 2)").valid, false);
+});
+
 test("sat math: parses a block and explains malformed commands", () => {
   const parsed = S.parseSatMath("Solve: 2x + 3 = 11\nQuadratic: x^2 - 5x + 6 = 0\nPercent: 15% of 80");
   assert.equal(parsed.problems.length, 3);
