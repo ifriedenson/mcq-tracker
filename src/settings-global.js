@@ -396,6 +396,30 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Feynman AI scoring")
+    .setDesc("An optional second opinion on a completed Feynman explanation, scored 1–5 on clarity, accuracy and simplicity and stored beside your own score. It uses the existing AI provider and only sends the four answers when you press the button.")
+    .addToggle((t) =>
+      t.setValue(plugin.feynmanAiEnabled()).onChange(async (v) => {
+        st.feynmanAi = { enabled: v };
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("PDF annotation index")
+    .setDesc("A read-only list of the PDF annotation sidecars already in the vault, with page, type, color and a backlink to the PDF. It never creates, edits or deletes an annotation.")
+    .addToggle((t) =>
+      t.setValue(plugin.pdfAnnotationIndexEnabled()).onChange(async (v) => {
+        st.pdfAnnotationIndex = { ...plugin.settings.pdfAnnotationIndex, enabled: v };
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>

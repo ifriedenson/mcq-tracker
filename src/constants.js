@@ -161,6 +161,8 @@ const DEFAULT_SETTINGS = {
   lectureCompiler: { enabled: true, folder: "Lecture notes", includeOverview: true, includeConcepts: true, includeVocabulary: true, includeSections: true }, // compile the lecture log into one study note
   courseHealth: { enabled: true, attendanceThreshold: 75, examWindowDays: 14, minSessions: 3 }, // local course health checks
   audioBookmarks: { enabled: true, entries: [] }, // timestamp bookmarks and chapters for audio attachments
+  feynmanAi: { enabled: true }, // optional AI second opinion on a completed Feynman explanation (uses the existing AI settings)
+  pdfAnnotationIndex: { enabled: true, folder: "", limit: 200 }, // read-only index of PDF annotation sidecars
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),

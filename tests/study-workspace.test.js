@@ -16,7 +16,7 @@ async function setup(saved) {
 
 test("study workspace: twelve independent modules default on and can be switched off", () => {
   const defaults = W.normalizeStudyWorkspaceSettings({});
-  assert.deepEqual(Object.keys(defaults), ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks"]);
+  assert.deepEqual(Object.keys(defaults), ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex"]);
   for (const value of Object.values(defaults)) assert.equal(value.enabled, true);
   const off = W.normalizeStudyWorkspaceSettings({
     feynmanLearning: { enabled: false },
@@ -35,6 +35,8 @@ test("study workspace: twelve independent modules default on and can be switched
     lectureCompiler: { enabled: false },
     courseHealth: { enabled: false },
     audioBookmarks: { enabled: false },
+    feynmanAi: { enabled: false },
+    pdfAnnotationIndex: { enabled: false },
   });
   assert.equal(Object.values(off).every((value) => value.enabled === false), true);
 });
@@ -283,7 +285,7 @@ test("plugin: workflow switches gate the view and workflow data survives a reloa
     assert.equal(view.tab, tab);
   }
 
-  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks"]) {
+  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex"]) {
     restarted.settings[key].enabled = false;
   }
   assert.equal(restarted.studyWorkspaceEnabled(), false);

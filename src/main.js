@@ -78,6 +78,8 @@ const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
 const courseHealth = require("./course-health");
 const audioBookmarks = require("./audio-bookmarks");
+const feynmanAi = require("./feynman-ai");
+const pdfAnnotationIndex = require("./pdf-annotation-index");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const quizNoteGate = require("./quiz-note-gate");
 const quizport = require("./quizport");
@@ -428,6 +430,8 @@ QuestionTrackerPlugin.__test = {
   lectureCompiler,
   courseHealth,
   audioBookmarks,
+  feynmanAi,
+  pdfAnnotationIndex,
   cornell,
   CardView,
   CardModal,

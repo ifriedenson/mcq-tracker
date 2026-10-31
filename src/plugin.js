@@ -18,6 +18,8 @@ const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
 const audioBookmarks = require("./audio-bookmarks");
 const courseHealth = require("./course-health");
+const feynmanAi = require("./feynman-ai");
+const pdfAnnotationIndex = require("./pdf-annotation-index");
 const { buildCornellNote } = require("./cornell");
 const { renderCornellBlock } = require("./cornell-view");
 const studyTools = require("./study-tools");
@@ -331,6 +333,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "compile-lecture-notes", name: "Lecture notes: compile the log into one note", callback: () => this.activateStudyWorkspace("lectures") });
     this.addCommand({ id: "course-health", name: "Course health: check the course list", callback: () => this.activateStudyWorkspace("health") });
     this.addCommand({ id: "audio-bookmarks", name: "Audio bookmarks: timestamp an attachment", callback: () => this.activateStudyWorkspace("bookmarks") });
+    this.addCommand({ id: "feynman-ai-feedback", name: "Feynman: get AI feedback on an explanation", callback: () => this.activateStudyWorkspace("feynmanAi") });
+    this.addCommand({ id: "pdf-annotation-index", name: "PDF annotations: index the vault sidecars", callback: () => this.activateStudyWorkspace("pdfAnnotations") });
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
@@ -805,6 +809,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.lectureCompiler = lectureCompiler.normalizeLectureCompilerSettings(saved.lectureCompiler);
     this.settings.courseHealth = courseHealth.normalizeCourseHealthSettings(saved.courseHealth);
     this.settings.audioBookmarks = audioBookmarks.normalizeAudioBookmarkSettings(saved.audioBookmarks);
+    this.settings.feynmanAi = feynmanAi.normalizeFeynmanAiSettings(saved.feynmanAi);
+    this.settings.pdfAnnotationIndex = pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(saved.pdfAnnotationIndex);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -1370,8 +1376,16 @@ class QuestionTrackerPlugin extends Plugin {
     return audioBookmarks.normalizeAudioBookmarkSettings(this.settings.audioBookmarks).enabled;
   }
 
+  feynmanAiEnabled() {
+    return feynmanAi.normalizeFeynmanAiSettings(this.settings.feynmanAi).enabled;
+  }
+
+  pdfAnnotationIndexEnabled() {
+    return pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(this.settings.pdfAnnotationIndex).enabled;
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -7571,6 +7585,52 @@ ${body}
     });
     await this.save();
     this.refreshViews();
+  }
+
+  /* ---- Feynman AI second opinion and PDF annotation index */
+
+  /** Ask the configured AI for a second opinion; the manual score is untouched. */
+  async scoreFeynmanSessionAi(id) {
+    const current = this.studyWorkspaceSettings().feynmanLearning;
+    const session = current.sessions.find((entry) => entry.id === id);
+    if (!session) return null;
+    const request = feynmanAi.buildFeynmanScoreRequest(session);
+    if (!request) return null;
+    const reply = await this.aiComplete(request.system, request.user, { feature: "generation", maxTokens: 400 });
+    const result = feynmanAi.parseFeynmanScoreReply(reply);
+    const scored = feynmanAi.mergeFeynmanAiResult(session, result, Date.now());
+    const sessions = current.sessions.map((entry) => (entry.id === id ? scored : entry));
+    this.settings.feynmanLearning = studyWorkspace.normalizeFeynmanSettings({ ...current, sessions });
+    await this.save();
+    this.refreshViews();
+    return this.settings.feynmanLearning.sessions.find((entry) => entry.id === id) || null;
+  }
+
+  async clearFeynmanAiFeedback(id) {
+    const current = this.studyWorkspaceSettings().feynmanLearning;
+    const sessions = current.sessions.map((entry) => (entry.id === id ? { ...entry, aiScores: null, aiAverage: 0, aiFeedback: "", aiScoredAt: 0 } : entry));
+    this.settings.feynmanLearning = studyWorkspace.normalizeFeynmanSettings({ ...current, sessions });
+    await this.save();
+    this.refreshViews();
+  }
+
+  /** Read-only: list the PDF annotation sidecars already in the vault. */
+  async getPdfAnnotationIndex() {
+    const settings = pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(this.settings.pdfAnnotationIndex);
+    const entries = [];
+    const files = this.app.vault.getMarkdownFiles ? this.app.vault.getMarkdownFiles() : [];
+    for (const file of files) {
+      if (!/\.annotations\.md$/i.test(file.path)) continue;
+      if (entries.length >= pdfAnnotationIndex.MAX_FILES) break;
+      let text = "";
+      try {
+        text = await this.app.vault.cachedRead(file);
+      } catch (e) {
+        continue;
+      }
+      entries.push({ path: file.path, text });
+    }
+    return pdfAnnotationIndex.collectPdfAnnotations(entries, settings);
   }
 
   /* ---- study workspace: guided workflows and local indexes */

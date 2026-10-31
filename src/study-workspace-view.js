@@ -48,6 +48,8 @@ const TABS = [
   { id: "lectures", label: "Lecture notes", module: "lectureCompiler" },
   { id: "readAloud", label: "Read aloud", module: "readAloud" },
   { id: "bookmarks", label: "Bookmarks", module: "audioBookmarks" },
+  { id: "feynmanAi", label: "AI feedback", module: "feynmanAi" },
+  { id: "pdfAnnotations", label: "PDF annotations", module: "pdfAnnotationIndex" },
 ];
 
 const SCORE_LABELS = { clarity: "Clarity", accuracy: "Accuracy", simplicity: "Simplicity" };
@@ -83,6 +85,8 @@ class StudyWorkspaceView extends ItemView {
     this.bookmarkPath = "";
     this.bookmarkAt = "";
     this.bookmarkLabel = "";
+    this.feynmanAiId = "";
+    this.pdfAnnotationData = null;
   }
 
   async onClose() {
@@ -169,6 +173,8 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "lectures") this.renderLectureCompiler(wrap);
     else if (this.tab === "readAloud") this.renderReadAloud(wrap);
     else if (this.tab === "bookmarks") this.renderAudioBookmarks(wrap);
+    else if (this.tab === "feynmanAi") this.renderFeynmanAi(wrap);
+    else if (this.tab === "pdfAnnotations") this.renderPdfAnnotations(wrap);
   }
 
   renderOff(root) {
@@ -176,7 +182,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud and audio Bookmarks each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback and the PDF annotation index each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -1297,6 +1303,101 @@ class StudyWorkspaceView extends ItemView {
         await this.plugin.removeStudyAbsence(absence.id);
         this.render();
       });
+    }
+  }
+
+  /* ---- Feynman AI feedback (optional second opinion) ------------------- */
+
+  renderFeynmanAi(root) {
+    const aiOn = !!(this.plugin.settings && this.plugin.settings.ai && this.plugin.settings.ai.enabled);
+    const feynman = this.settings().feynmanLearning;
+    const sessions = feynman.sessions.filter((session) => session.completed || ["explain", "gaps", "simplify", "teach"].some((key) => session.answers && session.answers[key]));
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Feynman AI feedback" });
+    card.createDiv({ cls: "qt-hint", text: "An optional second opinion on a saved explanation. Your own 1-5 score stays unchanged; this adds separate AI scores and two sentences of feedback." });
+    if (!sessions.length) {
+      this.renderTabsEmpty(root, "No explanation has an answer yet. Complete a Feynman cycle first.");
+      return;
+    }
+    if (!this.feynmanAiId || !sessions.some((session) => session.id === this.feynmanAiId)) this.feynmanAiId = sessions[0].id;
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const select = this.renderSelect(
+      form,
+      "Explanation",
+      sessions.map((session) => ({ value: session.id, label: `${session.topic}${session.course ? ` · ${session.course}` : ""}` })),
+      this.feynmanAiId
+    );
+    select.addEventListener("change", () => {
+      this.feynmanAiId = select.value;
+      this.render();
+    });
+    const active = sessions.find((session) => session.id === this.feynmanAiId) || sessions[0];
+    if (!aiOn) card.createDiv({ cls: "qt-study-row-meta", text: "AI features are off. Turn them on under Settings, MCQ Tracker, AI and choose a provider first." });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    const scoreButton = actions.createEl("button", { text: "Score with AI", cls: "mod-cta" });
+    if (!aiOn) scoreButton.disabled = true;
+    scoreButton.addEventListener("click", async () => {
+      try {
+        const updated = await this.plugin.scoreFeynmanSessionAi(active.id);
+        this.saveMessage(updated ? `Scored: clarity ${updated.aiScores.clarity}/5, accuracy ${updated.aiScores.accuracy}/5, simplicity ${updated.aiScores.simplicity}/5.` : "This explanation has no answers to score yet.");
+      } catch (e) {
+        this.saveMessage(String((e && e.message) || "The AI request failed."));
+      }
+      this.render();
+    });
+    if (active.aiScores) {
+      const scores = active.aiScores;
+      card.createDiv({ cls: "qt-study-row-meta", text: `AI average ${active.aiAverage || 0}/5 · clarity ${scores.clarity} · accuracy ${scores.accuracy} · simplicity ${scores.simplicity}` });
+      if (active.aiFeedback) card.createDiv({ cls: "qt-study-next-meta", text: active.aiFeedback });
+      actions.createEl("button", { text: "Clear AI feedback", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.clearFeynmanAiFeedback(active.id);
+        this.saveMessage("AI feedback cleared; your manual scores are kept.");
+        this.render();
+      });
+    } else {
+      card.createDiv({ cls: "qt-study-row-meta", text: "No AI feedback stored for this explanation yet." });
+    }
+  }
+
+  /* ---- PDF annotation index (read-only) -------------------------------- */
+
+  renderPdfAnnotations(root) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "PDF annotations" });
+    card.createDiv({ cls: "qt-hint", text: "Read-only index of the .annotations.md sidecars already in the vault. Nothing is created, edited or opened automatically." });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Scan annotations", cls: "mod-cta" }).addEventListener("click", async () => {
+      try {
+        this.pdfAnnotationData = await this.plugin.getPdfAnnotationIndex();
+        this.saveMessage(`Found ${this.pdfAnnotationData.stats.annotations} annotation(s) in ${this.pdfAnnotationData.stats.files} sidecar file(s).`);
+      } catch (e) {
+        this.saveMessage(String((e && e.message) || "Could not read the annotation sidecars."));
+      }
+      this.render();
+    });
+    const data = this.pdfAnnotationData;
+    if (!data) {
+      this.renderTabsEmpty(root, "Scan to list the PDF annotations already in this vault.");
+      return;
+    }
+    const stats = data.stats;
+    card.createDiv({ cls: "qt-study-row-meta", text: `${stats.annotations} annotations · ${stats.pdfs} PDFs · ${stats.files} sidecars · ${stats.pages} annotated pages` });
+    const typeText = Object.entries(stats.byType).map(([type, count]) => `${type} ${count}`).join(" · ");
+    if (typeText) card.createDiv({ cls: "qt-study-row-meta", text: typeText });
+    for (const issue of data.issues.slice(0, 5)) card.createDiv({ cls: "qt-study-row-meta", text: `Warning: ${issue}` });
+    if (!data.rows.length) {
+      this.renderTabsEmpty(root, "No sidecar annotations found. Annotate a PDF first.");
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of data.rows) {
+      const item = list.createDiv({ cls: "qt-study-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: `${row.pdfPath} · page ${row.page}` });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${row.type} · ${row.color}: ${row.summary}` });
+      const buttons = item.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: "Open PDF" }).addEventListener("click", () => this.app.workspace.openLinkText(row.pdfPath, "", false));
+      buttons.createEl("button", { text: "Open sidecar" }).addEventListener("click", () => this.app.workspace.openLinkText(row.sidecarPath, "", false));
     }
   }
 

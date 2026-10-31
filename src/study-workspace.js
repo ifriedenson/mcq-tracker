@@ -11,6 +11,8 @@ const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
 const courseHealth = require("./course-health");
 const audioBookmarks = require("./audio-bookmarks");
+const feynmanAi = require("./feynman-ai");
+const pdfAnnotationIndex = require("./pdf-annotation-index");
 
 const MAX_TEXT = 12000;
 const MAX_TITLE = 200;
@@ -91,6 +93,8 @@ function normalizeFeynmanSession(value) {
   }
   const step = clamp(numberValue(source.step, 0), 0, FEYNMAN_STEPS.length);
   const completed = source.completed === true || step >= FEYNMAN_STEPS.length;
+  const aiScores = normalizeFeynmanScores(source.aiScores);
+  const hasAi = Object.values(aiScores).every((value) => value > 0);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("feynman", [topic, source.course || "", source.createdAt || 0]),
     topic,
@@ -98,6 +102,10 @@ function normalizeFeynmanSession(value) {
     step: completed ? FEYNMAN_STEPS.length : step,
     answers,
     scores: normalizeFeynmanScores(source.scores),
+    aiScores: hasAi ? aiScores : null,
+    aiAverage: hasAi ? feynmanAi.feynmanAiAverage(aiScores) : 0,
+    aiFeedback: textValue(source.aiFeedback, 2000),
+    aiScoredAt: Math.max(0, Math.round(numberValue(source.aiScoredAt, 0))),
     completed,
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
     updatedAt: Math.max(0, Math.round(numberValue(source.updatedAt, 0))),
@@ -1238,6 +1246,8 @@ function normalizeStudyWorkspaceSettings(value) {
     lectureCompiler: lectureCompiler.normalizeLectureCompilerSettings(source.lectureCompiler),
     courseHealth: courseHealth.normalizeCourseHealthSettings(source.courseHealth),
     audioBookmarks: audioBookmarks.normalizeAudioBookmarkSettings(source.audioBookmarks),
+    feynmanAi: feynmanAi.normalizeFeynmanAiSettings(source.feynmanAi),
+    pdfAnnotationIndex: pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(source.pdfAnnotationIndex),
   };
 }
 
