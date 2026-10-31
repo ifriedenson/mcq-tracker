@@ -55,6 +55,7 @@ MCQ Tracker turns Obsidian into a local-first exam-prep workspace. Keep question
 - **Optional AI tutor** through your own API key, or a local OpenCode agent (desktop) (see [AI assistant](#ai-assistant-optional-and-off-by-default)). Direct AI agent mode is allow-listed: it can propose a new question, a new card or one safe body-section edit, and nothing is written until you review and apply it.
 - **Cards and vocabulary (optional module, off by default).** Create flashcards, reversed cards, cloze cards, image occlusion cards and vocabulary notes as ordinary Markdown notes. Import Quizlet text exports, PDF test banks or Markdown tables from the vault or directly from your device, organize cards into decks, inherit a course tag from a deck or folder, and review them with Again/Hard/Good/Easy using the same ladder or FSRS schedule as your questions. Export any filtered deck as Quizlet text, Anki text, an Anki `.apkg` package, a Mochi `.mochi` file, a LearnKit note or a quiz CSV (see [Cards and vocabulary](#cards-and-vocabulary-optional-module-off-by-default)).
 - **Study plan and cram mode.** When the calendar has an upcoming exam, Today builds a plan for matching courses: days left, readiness, due/new counts, card backlog and the weakest skill. **Start 10 min** practices the plan; **Cram 10 min** puts most-missed questions first and skips long-interval reviews unless an item was missed.
+- **Reading plans.** A `reading-plan` block schedules a book by page count, start and target dates, reading days and optional off days. It shows today's chunk, progress and the remaining schedule, and redistributes pages when you fall behind. Progress is logged locally and survives a restart; a passed target becomes **Off pace** rather than inventing a new deadline.
 - **Optional local reminder.** Off by default, a quiet Today card and status-bar nudge appear once a day after the hour you choose. Dismiss it until tomorrow; it never sends an OS notification or a network request.
 - **Focus timer and study log.** Start a 15, 25 or 45 minute session tied to a course, pause and resume it, and log the result. Manual study entry covers offline work. Today shows today's minutes against a configurable daily goal, the current streak, the last seven days and your top courses.
 - **First-run welcome guide.** A short three-step guide on first install: what the plugin does, a preset chooser that sets the real module switches, and buttons for import, practice, Today, cards, calendar and settings. It is shown once per device, never blocks startup, stores progress locally and can be reopened from the command palette or Settings, Global, About.
@@ -77,6 +78,27 @@ The **Study plan** card appears in Today when the calendar is on and an upcoming
 The plan is recalculated every time Today renders, so a missed day does not leave a stale checklist. It uses the existing scheduler and queue; there is no second review system.
 
 The **Today** view also shows **Question mastery** for the Progress tab's saved scope and All time / 7-day / 30-day window. Its scope picker and window chips can change that saved choice without opening Insights, and **Open progress** goes to the full dashboard. Each non-empty band has a **Practice** button that starts exactly those questions, and Quick Practice names the band and window in its header. A trend line compares the mastered count with the previous period of the same length (or the previous 7 days for All time), and says when there are no earlier attempts to compare. The Progress tab shows the same line, and dashboard embeds put a compact ↑/↓/→ badge in the mastery heading.
+
+## Reading plans
+
+Put one `reading-plan` block in a note for each book:
+
+````markdown
+```reading-plan
+title: Deep Work
+author: Cal Newport
+pages: 304
+start: 2026-10-01
+target: 2026-11-15
+days: mon-fri
+off: 2026-10-12, 2026-10-13
+read: 120
+```
+````
+
+`title`, `pages`, `start` and `target` are required. `days` accepts `everyday`, `weekdays`, `weekends`, a list such as `mon,wed,fri`, or a range such as `mon-fri`; leave it out to read every day. `off` takes comma-separated dates. `read` is the starting page count and defaults to 0. Add an optional `id:` when you want progress to stay attached after changing the dates; otherwise the title and dates make the id.
+
+The block spreads the pages over the reading days and shows today's chunk. **Log pages** stores progress in the plugin's local settings for that plan, so it survives a restart and never edits the note. When pages planned through yesterday are higher than the pages read, the block shows **Behind** and redistributes the remaining pages over the days that are left. Catching up clears the badge immediately. If the target date passes, the plan becomes **Off pace**, stops making new chunks, and waits for a new target date. This is separate from the question and card scheduler: it does not write attempts, history, streaks or review dates.
 
 ## Analytics dashboard
 

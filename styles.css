@@ -6128,3 +6128,118 @@
 .qt-flashcards-issue {
   color: var(--text-error);
 }
+
+/* Reading plans: one book per block with local pace and progress. */
+.qt-reading-plan {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px 16px;
+}
+
+.qt-reading-title {
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.qt-reading-author {
+  color: var(--text-muted);
+  margin-top: -6px;
+}
+
+.qt-reading-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-reading-status {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  padding: 2px 9px;
+}
+
+.qt-reading-status.is-behind,
+.qt-reading-status.is-off-pace {
+  color: var(--text-error);
+}
+
+.qt-reading-status.is-on-track,
+.qt-reading-status.is-ahead,
+.qt-reading-status.is-complete {
+  color: var(--text-success, var(--color-green));
+}
+
+.qt-reading-count,
+.qt-reading-pct {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-reading-bar {
+  background: var(--background-modifier-border);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.qt-reading-fill {
+  background: var(--interactive-accent);
+  height: 100%;
+}
+
+.qt-reading-today {
+  font-weight: 600;
+}
+
+.qt-reading-schedule {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 4px;
+}
+
+.qt-reading-schedule summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+}
+
+.qt-reading-days {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 5px;
+}
+
+.qt-reading-day {
+  font-size: var(--font-ui-small);
+}
+
+.qt-reading-log {
+  align-items: center;
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 9px;
+}
+
+.qt-reading-pages {
+  width: 110px;
+}
+
+.qt-reading-message,
+.qt-reading-issue {
+  color: var(--text-error);
+}
+
+.qt-reading-message {
+  flex-basis: 100%;
+  font-size: var(--font-ui-small);
+}

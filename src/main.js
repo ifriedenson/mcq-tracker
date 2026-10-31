@@ -30,6 +30,7 @@ const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, m
 const { PracticeView } = require("./practice-view");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
+const reading = require("./reading");
 const { ChatPanel } = require("./chat-panel");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
@@ -204,6 +205,7 @@ QuestionTrackerPlugin.__test = {
   friendlyApiError,
   apiTurns,
   modelDiscovery,
+  reading,
   ChatPanel,
   tutorPresets,
   aiContext,

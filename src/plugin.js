@@ -16,6 +16,7 @@ const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimate
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
+const { normalizeReadingSettings } = require("./reading");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { readPdfPages } = require("./pdf");
@@ -84,6 +85,7 @@ const { dismissReminder, markReminderShown, normalizeReminder, reminderState: co
 const { extractSimpleQuizBlocks, legacyQuizJsNotice, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
 const { renderQuizPortBlock } = require("./quizport-view");
 const { renderSimpleFlashcardsBlock } = require("./simple-flashcards-view");
+const { renderReadingPlanBlock } = require("./reading-view");
 const { applySimpleNoteQuizMarks, clearSimpleNoteQuizMarks, normalizeSimpleNoteQuiz, parseSimpleNoteQuiz } = require("./simple-note-quiz");
 const { SimpleNoteQuizModal } = require("./simple-note-quiz-modal");
 const { normalizeTutorRole } = require("./tutor-presets");
@@ -511,6 +513,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("exam", (source, el, ctx) => this.renderExamBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizport", (source, el, ctx) => this.renderQuizPortBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("simple-flashcards", (source, el, ctx) => this.renderSimpleFlashcardsBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("reading-plan", (source, el, ctx) => this.renderReadingPlanBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
     this.registerMarkdownCodeBlockProcessor("quizjs", (source, el) => this.renderSimpleQuizDataBlock(source, el, "js"));
@@ -734,6 +737,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.dailyQuiz = normalizeDailyQuiz(saved.dailyQuiz);
     this.settings.simpleQuiz = normalizeSimpleQuiz(saved.simpleQuiz);
     this.settings.simpleNoteQuiz = normalizeSimpleNoteQuiz(saved.simpleNoteQuiz);
+    this.settings.reading = normalizeReadingSettings(saved.reading);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -4008,6 +4012,11 @@ class QuestionTrackerPlugin extends Plugin {
   /** Render a `simple-flashcards` block with the local reveal reader. */
   async renderSimpleFlashcardsBlock(source, el, ctx) {
     return renderSimpleFlashcardsBlock(this, source, el, ctx);
+  }
+
+  /** Render a `reading-plan` block with local pace and progress tracking. */
+  async renderReadingPlanBlock(source, el, ctx) {
+    return renderReadingPlanBlock(this, source, el, ctx);
   }
 
   /** Render a `quizport` block with the local QuizPort player. */
