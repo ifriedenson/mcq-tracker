@@ -6763,6 +6763,23 @@
   margin-right: 7px;
   width: 9px;
 }
+
+.qt-workspace-grade {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: var(--background-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.qt-workspace-grade.is-a { border-color: var(--color-green); }
+.qt-workspace-grade.is-b { border-color: var(--color-blue); }
+.qt-workspace-grade.is-c { border-color: var(--color-yellow); }
+.qt-workspace-grade.is-d,
+.qt-workspace-grade.is-f { border-color: var(--color-red); }
+
 .qt-study-workspace .qt-workspace-inline-form {
   margin-top: 8px;
 }

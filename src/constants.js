@@ -147,6 +147,10 @@ const DEFAULT_SETTINGS = {
   studyFlow: { enabled: true, excerpts: [] }, // source excerpt -> understanding -> card draft inbox
   subjectManager: { enabled: true, subjects: [], absences: [] }, // subjects and absence log
   quizIndex: { enabled: true, folder: "", limit: 50 }, // cross-vault quiz dashboard/index
+  courseHub: { enabled: true, grades: [] }, // course dashboard and local grade chips
+  studyTasks: { enabled: true, tasks: [] }, // manual and generated exam tasks with local reminders
+  annotations: { enabled: true, annotations: [] }, // selection Q&A and annotation index
+  deepNotes: { enabled: true, sessions: [] }, // guided Socratic sessions
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),

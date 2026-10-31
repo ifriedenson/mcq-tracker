@@ -761,15 +761,19 @@ Study Tools contains local workflows that do not belong in Practice, Cards, Cale
 - **Lecture log.** Keep a local list of lectures by course, date, title and optional topics. Add one at a time or paste lines in the form `Course | YYYY-MM-DD | Lecture title | Topics`. Today shows the next upcoming lecture. No audio, transcript or network request is involved.
 - **Study goals.** Set a goal, optional course, target minutes and due date; log progress in 15- or 30-minute steps and mark it done. **Use next exam** creates a goal from the current study plan. Open goals appear on Today with a progress bar. Goals are stored in plugin data, not in your notes.
 
-## Study Workspace (six independent modules)
+## Study Workspace (ten independent modules)
 
-Open **Study Workspace** from the command palette or the ribbon. It contains six local workflows, each with its own switch under Settings, Global, Modules. The tabs reuse the Study Tools cards, forms and responsive breakpoint; on phones the forms and score rows stack and the tab strip scrolls.
+Open **Study Workspace** from the command palette or the ribbon. It contains ten local workflows, each with its own switch under Settings, Global, Modules. The tabs reuse the Study Tools cards, forms and responsive breakpoint; on phones the forms and score rows stack and the tab strip scrolls.
 
 - **Feynman Learning.** Start a four-step cycle for a concept: explain it simply, find the gaps, simplify it with an example, and teach it back. Finish by scoring clarity, accuracy and simplicity from 1 to 5. Saved cycles show their average and highlight weak dimensions. Scoring is local; no model is called.
 - **Recall Scheduler.** Build a queue from note headings or longer knowledge fragments. Choose an optional folder and limit, reveal a unit, then rate it Again, Hard, Good or Easy. The local ladder schedules the next due date; review state lives in plugin data and note text is never rewritten.
 - **Topic planner.** Create an exam plan with a course, exam date, buffer days and repeated-pass topics. The day-level allocation fills the study days before the buffer, and **+1 pass** advances each topic. All calculations are local.
 - **Study Flow.** Capture a source path, excerpt, your explanation and an optional card draft. Move the item from Inbox to Reviewing or Understood, open the source note, and keep the source untouched. The inbox is stored locally.
 - **Subject Manager.** Track subjects, folders and colors, log absences, and see lecture and absence counts. It uses the local lecture log when that module is enabled.
+- **Courses.** Combine subjects, the lecture log and local weighted grade entries into course cards with grade chips, lecture counts and absences. It reads the other modules without changing their data.
+- **Tasks.** Keep manual study tasks and generate repeated topic passes before an exam date. **Remind** lists due work in Obsidian; it does not request OS notification permission.
+- **Annotations.** Capture the current Markdown selection, a question and an answer in a searchable local index, with source navigation. Source notes stay untouched.
+- **Deep Notes.** Work through five Socratic prompts: claim, assumptions, evidence, counterexample and synthesis. Answers are saved locally and no model is called.
 - **Quiz index.** Scan the vault for `mcq-quiz` and `quiz-definition` blocks. The index counts quizzes and questions, groups questions by level and type, and shows the percentage from existing opt-in `quizResults` properties. It does not create attempts, infer first-attempt accuracy or modify a note.
 
 These workflows are original implementations of the feature ideas in the research matrix. They do not copy third-party source, call a network service or change question/card scheduling unless you explicitly use the existing review actions.

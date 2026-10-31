@@ -18283,6 +18283,10 @@ const DEFAULT_SETTINGS = {
   studyFlow: { enabled: true, excerpts: [] }, // source excerpt -> understanding -> card draft inbox
   subjectManager: { enabled: true, subjects: [], absences: [] }, // subjects and absence log
   quizIndex: { enabled: true, folder: "", limit: 50 }, // cross-vault quiz dashboard/index
+  courseHub: { enabled: true, grades: [] }, // course dashboard and local grade chips
+  studyTasks: { enabled: true, tasks: [] }, // manual and generated exam tasks with local reminders
+  annotations: { enabled: true, annotations: [] }, // selection Q&A and annotation index
+  deepNotes: { enabled: true, sessions: [] }, // guided Socratic sessions
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
@@ -37067,6 +37071,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.studyFlow = studyWorkspace.normalizeStudyFlow(saved.studyFlow);
     this.settings.subjectManager = studyWorkspace.normalizeSubjectManager(saved.subjectManager);
     this.settings.quizIndex = studyWorkspace.normalizeQuizIndex(saved.quizIndex);
+    this.settings.courseHub = studyWorkspace.normalizeCourseHub(saved.courseHub);
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks(saved.studyTasks);
+    this.settings.annotations = studyWorkspace.normalizeAnnotations(saved.annotations);
+    this.settings.deepNotes = studyWorkspace.normalizeDeepNotes(saved.deepNotes);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -37576,8 +37584,24 @@ class QuestionTrackerPlugin extends Plugin {
     return studyWorkspace.normalizeQuizIndex(this.settings.quizIndex).enabled;
   }
 
+  courseHubEnabled() {
+    return studyWorkspace.normalizeCourseHub(this.settings.courseHub).enabled;
+  }
+
+  studyTasksEnabled() {
+    return studyWorkspace.normalizeStudyTasks(this.settings.studyTasks).enabled;
+  }
+
+  annotationsEnabled() {
+    return studyWorkspace.normalizeAnnotations(this.settings.annotations).enabled;
+  }
+
+  deepNotesEnabled() {
+    return studyWorkspace.normalizeDeepNotes(this.settings.deepNotes).enabled;
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -43798,6 +43822,152 @@ ${body}
     this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({
       ...current,
       absences: current.absences.filter((absence) => absence.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  /* ---- Course hub ------------------------------------------------------ */
+
+  async addCourseGrade(input) {
+    const grade = studyWorkspace.createGrade(input, Date.now());
+    if (!grade) return null;
+    const current = this.studyWorkspaceSettings().courseHub;
+    this.settings.courseHub = studyWorkspace.normalizeCourseHub({
+      ...current,
+      grades: current.grades.concat(grade).slice(-studyWorkspace.MAX_GRADES),
+    });
+    await this.save();
+    this.refreshViews();
+    return grade;
+  }
+
+  async removeCourseGrade(id) {
+    const current = this.studyWorkspaceSettings().courseHub;
+    this.settings.courseHub = studyWorkspace.normalizeCourseHub({
+      ...current,
+      grades: current.grades.filter((grade) => grade.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  /* ---- Study tasks ----------------------------------------------------- */
+
+  async addStudyTask(input) {
+    const task = studyWorkspace.createStudyTask(input, Date.now());
+    if (!task) return null;
+    const current = this.studyWorkspaceSettings().studyTasks;
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
+      ...current,
+      tasks: current.tasks.concat(task).slice(-studyWorkspace.MAX_TASKS),
+    });
+    await this.save();
+    this.refreshViews();
+    return task;
+  }
+
+  async updateStudyTask(id, patch) {
+    const current = this.studyWorkspaceSettings().studyTasks;
+    const tasks = current.tasks.map((task) => (task.id === id ? { ...task, ...(patch || {}) } : task));
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...current, tasks });
+    await this.save();
+    this.refreshViews();
+    return this.settings.studyTasks.tasks.find((task) => task.id === id) || null;
+  }
+
+  async removeStudyTask(id) {
+    const current = this.studyWorkspaceSettings().studyTasks;
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
+      ...current,
+      tasks: current.tasks.filter((task) => task.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async generateStudyTasks(input) {
+    const tasks = studyWorkspace.planExamTasks(input, localDate(), Date.now());
+    if (!tasks.length) return [];
+    const current = this.studyWorkspaceSettings().studyTasks;
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
+      ...current,
+      tasks: current.tasks.concat(tasks).slice(-studyWorkspace.MAX_TASKS),
+    });
+    await this.save();
+    this.refreshViews();
+    return tasks;
+  }
+
+  async remindStudyTasks() {
+    const current = this.studyWorkspaceSettings().studyTasks;
+    const due = studyWorkspace.dueStudyTasks(current.tasks, localDate());
+    new Notice(
+      due.length
+        ? `${due.length} study task${due.length === 1 ? "" : "s"} due: ${due.slice(0, 4).map((task) => task.title).join("; ")}${due.length > 4 ? "; …" : ""}`
+        : "No study tasks are due today.",
+      6000
+    );
+    return due;
+  }
+
+  /* ---- Selection annotations ------------------------------------------ */
+
+  async addAnnotation(input) {
+    const annotation = studyWorkspace.createAnnotation(input, Date.now());
+    if (!annotation) return null;
+    const current = this.studyWorkspaceSettings().annotations;
+    this.settings.annotations = studyWorkspace.normalizeAnnotations({
+      ...current,
+      annotations: current.annotations.concat(annotation).slice(-studyWorkspace.MAX_ANNOTATIONS),
+    });
+    await this.save();
+    this.refreshViews();
+    return annotation;
+  }
+
+  async removeAnnotation(id) {
+    const current = this.studyWorkspaceSettings().annotations;
+    this.settings.annotations = studyWorkspace.normalizeAnnotations({
+      ...current,
+      annotations: current.annotations.filter((annotation) => annotation.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  /* ---- Deep Notes ------------------------------------------------------ */
+
+  async addDeepNotesSession(input) {
+    const session = studyWorkspace.createDeepNotesSession(input, Date.now());
+    if (!session) return null;
+    const current = this.studyWorkspaceSettings().deepNotes;
+    this.settings.deepNotes = studyWorkspace.normalizeDeepNotes({
+      ...current,
+      sessions: current.sessions.concat(session).slice(-studyWorkspace.MAX_SOCRATIC),
+    });
+    await this.save();
+    this.refreshViews();
+    return session;
+  }
+
+  async updateDeepNotesSession(id, patch) {
+    const current = this.studyWorkspaceSettings().deepNotes;
+    const sessions = current.sessions.map((session) => {
+      if (session.id !== id) return session;
+      return { ...session, ...(patch || {}), updatedAt: Date.now() };
+    });
+    this.settings.deepNotes = studyWorkspace.normalizeDeepNotes({ ...current, sessions });
+    await this.save();
+    this.refreshViews();
+    return this.settings.deepNotes.sessions.find((session) => session.id === id) || null;
+  }
+
+  async removeDeepNotesSession(id) {
+    const current = this.studyWorkspaceSettings().deepNotes;
+    this.settings.deepNotes = studyWorkspace.normalizeDeepNotes({
+      ...current,
+      sessions: current.sessions.filter((session) => session.id !== id),
     });
     await this.save();
     this.refreshViews();
@@ -52477,6 +52647,54 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Course hub")
+    .setDesc("A course dashboard with weighted grade chips, lecture counts and absences. Reads the lecture log and Subject Manager without changing their data.")
+    .addToggle((t) =>
+      t.setValue(plugin.courseHubEnabled()).onChange(async (v) => {
+        st.courseHub.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Study tasks")
+    .setDesc("Manual tasks plus generated exam study tasks. Remind shows due items in Obsidian; it does not request OS notification permission.")
+    .addToggle((t) =>
+      t.setValue(plugin.studyTasksEnabled()).onChange(async (v) => {
+        st.studyTasks.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Annotations")
+    .setDesc("Capture a selection, a question and an answer in a local annotation index. Source notes are read-only.")
+    .addToggle((t) =>
+      t.setValue(plugin.annotationsEnabled()).onChange(async (v) => {
+        st.annotations.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Deep Notes")
+    .setDesc("Guided Socratic sessions with five local prompts: claim, assumptions, evidence, counterexample and synthesis. No model is called.")
+    .addToggle((t) =>
+      t.setValue(plugin.deepNotesEnabled()).onChange(async (v) => {
+        st.deepNotes.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>
@@ -58673,12 +58891,23 @@ const MAX_ABSENCES = 500;
 const MAX_PLANS = 80;
 const MAX_TOPICS = 80;
 const MAX_QUIZ_ROWS = 500;
+const MAX_GRADES = 500;
+const MAX_TASKS = 500;
+const MAX_ANNOTATIONS = 500;
+const MAX_SOCRATIC = 100;
 
 const FEYNMAN_STEPS = ["Explain it simply", "Find the gaps", "Simplify and connect", "Teach it back"];
 const FEYNMAN_KEYS = ["explain", "gaps", "simplify", "teach"];
 const FEYNMAN_DIMENSIONS = ["clarity", "accuracy", "simplicity"];
 const FLOW_STATUSES = ["inbox", "review", "understood"];
 const RECALL_MODES = ["headings", "fragments"];
+const SOCRATIC_STEPS = [
+  { key: "clarify", title: "Clarify the claim", prompt: "State the idea in one sentence. What exactly are you trying to understand?" },
+  { key: "assumptions", title: "Surface assumptions", prompt: "What must already be true for this idea to work? Which assumptions are weakest?" },
+  { key: "evidence", title: "Find the evidence", prompt: "What observation, example or source would support this? What would contradict it?" },
+  { key: "counterexample", title: "Test a counterexample", prompt: "Invent a case where the idea breaks. What does that case reveal?" },
+  { key: "synthesis", title: "Synthesize", prompt: "Explain the idea again, including the boundary you found and how you would teach it." },
+];
 
 function enabledValue(value) {
   if (value === false) return false;
@@ -59284,6 +59513,276 @@ function collectQuizIndex(entries, options) {
   };
 }
 
+
+/* ---- Course hub (Hold Course-style dashboard) --------------------------- */
+
+function normalizeGrade(value) {
+  const source = asObject(value);
+  const course = textValue(source.course, MAX_TITLE);
+  const title = textValue(source.title, MAX_TITLE);
+  if (!course || !title) return null;
+  const weight = numberValue(source.weight, 1);
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("grade", [course, title, source.date || "", source.score || 0]),
+    course,
+    title,
+    score: clamp(numberValue(source.score, 0), 0, 100),
+    weight: Math.round(Math.max(0.1, Math.min(100, weight)) * 100) / 100,
+    date: dayValue(source.date),
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function normalizeCourseHub(value) {
+  const source = asObject(value);
+  const grades = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.grades) ? source.grades : []) {
+    const grade = normalizeGrade(raw);
+    if (!grade || seen.has(grade.id)) continue;
+    seen.add(grade.id);
+    grades.push(grade);
+    if (grades.length >= MAX_GRADES) break;
+  }
+  return { enabled: enabledValue(value), grades };
+}
+
+function createGrade(input, now) {
+  const source = asObject(input);
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeGrade({ ...source, createdAt: stamp });
+}
+
+function letterGrade(score) {
+  const value = Number(score);
+  if (!Number.isFinite(value)) return "—";
+  if (value >= 90) return "A";
+  if (value >= 80) return "B";
+  if (value >= 70) return "C";
+  if (value >= 60) return "D";
+  return "F";
+}
+
+/** Combine the independent subject, lecture and grade data without writing any of it back. */
+function courseDashboard(subjects, lectures, absences, grades) {
+  const courses = new Map();
+  const ensure = (name) => {
+    const key = str(name).trim().toLowerCase();
+    if (!key) return null;
+    if (!courses.has(key)) courses.set(key, { name: str(name).trim(), color: "#7c9cf5", folder: "", grades: [] });
+    return courses.get(key);
+  };
+  for (const subject of Array.isArray(subjects) ? subjects : []) {
+    const course = ensure(subject && subject.name);
+    if (!course) continue;
+    course.color = /^#[0-9a-f]{6}$/i.test(str(subject.color)) ? str(subject.color).toLowerCase() : course.color;
+    course.folder = str(subject.folder);
+  }
+  const lectureList = Array.isArray(lectures) ? lectures : [];
+  const absenceList = Array.isArray(absences) ? absences : [];
+  for (const lecture of lectureList) ensure(lecture && lecture.course);
+  for (const grade of Array.isArray(grades) ? grades : []) {
+    const course = ensure(grade && grade.course);
+    if (course) course.grades.push(grade);
+  }
+  return [...courses.values()].map((course) => {
+    const key = course.name.toLowerCase();
+    const ownLectures = lectureList.filter((lecture) => str(lecture.course).trim().toLowerCase() === key);
+    const ownAbsences = absenceList.filter((absence) => str(absence.subject).trim().toLowerCase() === key);
+    const ownGrades = course.grades.slice().sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.createdAt - a.createdAt);
+    const weight = ownGrades.reduce((sum, grade) => sum + grade.weight, 0);
+    const weighted = weight ? Math.round((ownGrades.reduce((sum, grade) => sum + grade.score * grade.weight, 0) / weight) * 10) / 10 : 0;
+    return {
+      ...course,
+      lectures: ownLectures.length,
+      absences: ownAbsences.length,
+      lastLecture: ownLectures.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null,
+      lastAbsence: ownAbsences.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null,
+      grades: ownGrades,
+      graded: ownGrades.length,
+      weighted,
+      letter: ownGrades.length ? letterGrade(weighted) : "—",
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/* ---- Study tasks (Better Task-style planning and local reminders) -------- */
+
+function normalizeStudyTask(value) {
+  const source = asObject(value);
+  const title = textValue(source.title, MAX_TITLE);
+  if (!title) return null;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("task", [title, source.course || "", source.due || "", source.createdAt || 0]),
+    title,
+    course: textValue(source.course, MAX_TITLE),
+    due: dayValue(source.due),
+    done: source.done === true,
+    source: textValue(source.source, 40) || "manual",
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function normalizeStudyTasks(value) {
+  const source = asObject(value);
+  const tasks = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.tasks) ? source.tasks : []) {
+    const task = normalizeStudyTask(raw);
+    if (!task || seen.has(task.id)) continue;
+    seen.add(task.id);
+    tasks.push(task);
+    if (tasks.length >= MAX_TASKS) break;
+  }
+  return { enabled: enabledValue(value), tasks };
+}
+
+function createStudyTask(input, now) {
+  const source = asObject(input);
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeStudyTask({ ...source, createdAt: stamp });
+}
+
+/** Generate one task per topic pass and spread them evenly before the exam. */
+function planExamTasks(input, today, now) {
+  const source = asObject(input);
+  const course = textValue(source.course, MAX_TITLE);
+  const exam = dayValue(source.examDate);
+  const start = dayValue(source.startDate) || dayValue(today) || localDate();
+  if (!course || !exam || exam <= start) return [];
+  const rawTopics = Array.isArray(source.topics) ? source.topics : str(source.topics).split(/\n|,/);
+  const topics = rawTopics.map((topic) => textValue(typeof topic === "string" ? topic : topic && topic.name, MAX_TITLE)).filter(Boolean);
+  if (!topics.length) return [];
+  const passes = clamp(numberValue(source.passes, 2), 1, 3);
+  const last = addDays(exam, -1);
+  const days = [];
+  for (let day = start; day && day <= last; day = addDays(day, 1)) days.push(day);
+  if (!days.length) return [];
+  const total = Math.min(MAX_TASKS, topics.length * passes);
+  const tasks = [];
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  for (let index = 0; index < total; index++) {
+    const pass = Math.floor(index / topics.length) + 1;
+    const topic = topics[index % topics.length];
+    const due = days[Math.min(days.length - 1, Math.floor((index * days.length) / total))];
+    tasks.push(normalizeStudyTask({
+      title: passes === 1 ? `Study ${topic}` : `Study ${topic} (pass ${pass})`,
+      course,
+      due,
+      source: "exam",
+      createdAt: stamp + index,
+    }));
+  }
+  return tasks.filter(Boolean);
+}
+
+function taskSummary(tasks, today) {
+  const day = dayValue(today) || localDate();
+  const list = Array.isArray(tasks) ? tasks : [];
+  const open = list.filter((task) => !task.done).sort((a, b) => (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31") || a.createdAt - b.createdAt);
+  return {
+    total: list.length,
+    open: open.length,
+    done: list.length - open.length,
+    overdue: open.filter((task) => task.due && task.due < day).length,
+    dueToday: open.filter((task) => task.due === day).length,
+    upcoming: open.filter((task) => !task.due || task.due > day).length,
+    next: open[0] || null,
+  };
+}
+
+function dueStudyTasks(tasks, today) {
+  const day = dayValue(today) || localDate();
+  return (Array.isArray(tasks) ? tasks : [])
+    .filter((task) => !task.done && task.due && task.due <= day)
+    .sort((a, b) => a.due.localeCompare(b.due) || a.createdAt - b.createdAt);
+}
+
+/* ---- Selection annotations (Pick Me-style note index) ------------------- */
+
+function normalizeAnnotation(value) {
+  const source = asObject(value);
+  const quote = textValue(source.quote, MAX_TEXT);
+  if (!quote) return null;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("annotation", [source.sourcePath || "", quote, source.createdAt || 0]),
+    sourcePath: textValue(source.sourcePath, 500),
+    quote,
+    question: textValue(source.question, MAX_TEXT),
+    answer: textValue(source.answer, MAX_TEXT),
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function normalizeAnnotations(value) {
+  const source = asObject(value);
+  const annotations = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.annotations) ? source.annotations : []) {
+    const annotation = normalizeAnnotation(raw);
+    if (!annotation || seen.has(annotation.id)) continue;
+    seen.add(annotation.id);
+    annotations.push(annotation);
+    if (annotations.length >= MAX_ANNOTATIONS) break;
+  }
+  return { enabled: enabledValue(value), annotations };
+}
+
+function createAnnotation(input, now) {
+  const source = asObject(input);
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeAnnotation({ ...source, createdAt: stamp });
+}
+
+/* ---- Deep Notes (guided Socratic sessions) ----------------------------- */
+
+function normalizeDeepNotesSession(value) {
+  const source = asObject(value);
+  const topic = textValue(source.topic, MAX_TITLE);
+  if (!topic) return null;
+  const answers = {};
+  const rawAnswers = asObject(source.answers);
+  for (const step of SOCRATIC_STEPS) answers[step.key] = textValue(rawAnswers[step.key] || source[step.key], MAX_TEXT);
+  const step = clamp(numberValue(source.step, 0), 0, SOCRATIC_STEPS.length);
+  const completed = source.completed === true || step >= SOCRATIC_STEPS.length;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("socratic", [topic, source.createdAt || 0]),
+    topic,
+    course: textValue(source.course, MAX_TITLE),
+    step: completed ? SOCRATIC_STEPS.length : step,
+    answers,
+    completed,
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+    updatedAt: Math.max(0, Math.round(numberValue(source.updatedAt, 0))),
+  };
+}
+
+function normalizeDeepNotes(value) {
+  const source = asObject(value);
+  const sessions = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.sessions) ? source.sessions : []) {
+    const session = normalizeDeepNotesSession(raw);
+    if (!session || seen.has(session.id)) continue;
+    seen.add(session.id);
+    sessions.push(session);
+    if (sessions.length >= MAX_SOCRATIC) break;
+  }
+  return { enabled: enabledValue(value), sessions };
+}
+
+function createDeepNotesSession(input, now) {
+  const source = asObject(input);
+  const topic = textValue(source.topic, MAX_TITLE);
+  if (!topic) return null;
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeDeepNotesSession({ ...source, id: idFor("socratic", [topic, source.course || "", stamp]), createdAt: stamp, updatedAt: stamp });
+}
+
+function deepNotesStepKey(step) {
+  return SOCRATIC_STEPS[clamp(numberValue(step, 0), 0, SOCRATIC_STEPS.length - 1)].key;
+}
+
 function normalizeStudyWorkspaceSettings(value) {
   const source = asObject(value);
   return {
@@ -59293,6 +59792,10 @@ function normalizeStudyWorkspaceSettings(value) {
     studyFlow: normalizeStudyFlow(source.studyFlow),
     subjectManager: normalizeSubjectManager(source.subjectManager),
     quizIndex: normalizeQuizIndex(source.quizIndex),
+    courseHub: normalizeCourseHub(source.courseHub),
+    studyTasks: normalizeStudyTasks(source.studyTasks),
+    annotations: normalizeAnnotations(source.annotations),
+    deepNotes: normalizeDeepNotes(source.deepNotes),
   };
 }
 
@@ -59303,40 +59806,62 @@ module.exports = {
   FLOW_STATUSES,
   MAX_ABSENCES,
   MAX_EXCERPTS,
+  MAX_ANNOTATIONS,
   MAX_FEYNMAN,
+  MAX_GRADES,
   MAX_PLANS,
+  MAX_SOCRATIC,
+  MAX_TASKS,
   MAX_QUIZ_ROWS,
   MAX_SUBJECTS,
   MAX_TOPICS,
   RECALL_MODES,
+  SOCRATIC_STEPS,
   allocatePlan,
   collectQuizIndex,
+  courseDashboard,
   createAbsence,
+  createAnnotation,
+  createDeepNotesSession,
   createFeynmanSession,
   createFlowExcerpt,
+  createGrade,
   createPlannerPlan,
+  createStudyTask,
   createSubject,
   daysBetween,
+  deepNotesStepKey,
+  dueStudyTasks,
+  letterGrade,
   feynmanAverage,
   feynmanStepKey,
   feynmanWeakPoints,
   flowStats,
+  normalizeAnnotations,
+  normalizeCourseHub,
+  normalizeDeepNotes,
+  normalizeDeepNotesSession,
   normalizeFeynmanSession,
   normalizeFeynmanSettings,
   normalizeFlowExcerpt,
+  normalizeGrade,
   normalizePlanner,
   normalizeQuizIndex,
   normalizeRecallScheduler,
   normalizeStudyFlow,
+  normalizeStudyTask,
+  normalizeStudyTasks,
   normalizeStudyWorkspaceSettings,
   normalizeSubjectManager,
   parseRecallUnits,
+  planExamTasks,
   planProgress,
   planSummary,
   recallDueUnits,
   recallStats,
   reviewRecallUnit,
   subjectSummary,
+  taskSummary,
 };
 };
 
@@ -59352,7 +59877,9 @@ const { VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
 const { localDate, str } = require("./util");
 const {
   FEYNMAN_STEPS,
+  SOCRATIC_STEPS,
   allocatePlan,
+  courseDashboard,
   feynmanAverage,
   feynmanStepKey,
   feynmanWeakPoints,
@@ -59363,6 +59890,7 @@ const {
   recallStats,
   recallDueUnits,
   subjectSummary,
+  taskSummary,
 } = require("./study-workspace");
 
 const TABS = [
@@ -59371,6 +59899,10 @@ const TABS = [
   { id: "planner", label: "Topic planner", module: "lerntracker" },
   { id: "flow", label: "Study Flow", module: "studyFlow" },
   { id: "subjects", label: "Subjects", module: "subjectManager" },
+  { id: "courses", label: "Courses", module: "courseHub" },
+  { id: "tasks", label: "Tasks", module: "studyTasks" },
+  { id: "annotations", label: "Annotations", module: "annotations" },
+  { id: "deepNotes", label: "Deep Notes", module: "deepNotes" },
   { id: "quizIndex", label: "Quiz index", module: "quizIndex" },
 ];
 
@@ -59395,6 +59927,8 @@ class StudyWorkspaceView extends ItemView {
     this.quizIndexData = null;
     this.quizIndexFolder = "";
     this.quizIndexLimit = "50";
+    this.annotationFilter = "";
+    this.deepNotesId = "";
   }
 
   getViewType() {
@@ -59466,6 +60000,10 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "planner") this.renderPlanner(wrap);
     else if (this.tab === "flow") this.renderFlow(wrap);
     else if (this.tab === "subjects") this.renderSubjects(wrap);
+    else if (this.tab === "courses") this.renderCourses(wrap);
+    else if (this.tab === "tasks") this.renderTasks(wrap);
+    else if (this.tab === "annotations") this.renderAnnotations(wrap);
+    else if (this.tab === "deepNotes") this.renderDeepNotes(wrap);
     else if (this.tab === "quizIndex") this.renderQuizIndex(wrap);
   }
 
@@ -59474,7 +60012,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager and the Quiz index each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes and the Quiz index each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -59969,6 +60507,322 @@ class StudyWorkspaceView extends ItemView {
       const buttons = item.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Open note" }).addEventListener("click", () => this.plugin.openStudyFlowSource(row.path));
     }
+  }
+
+  /* ---- Course hub ------------------------------------------------------ */
+
+  renderCourses(root) {
+    const data = this.settings().courseHub;
+    const subjects = this.settings().subjectManager.subjects;
+    const absences = this.settings().subjectManager.absences;
+    const lectures = this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [];
+    const dashboard = courseDashboard(subjects, lectures, absences, data.grades);
+    const add = root.createDiv({ cls: "qt-study-card" });
+    add.createEl("h3", { text: "Add a course grade" });
+    add.createDiv({ cls: "qt-hint", text: "Grade chips are local estimates from weighted entries. Subjects and lectures are read from their own modules; nothing is written back to those notes." });
+    const form = add.createDiv({ cls: "qt-study-form" });
+    const course = this.renderField(form, "Course", "text", "Biology");
+    const title = this.renderField(form, "Grade item", "text", "Midterm");
+    const score = this.renderField(form, "Score", "number", "85");
+    const weight = this.renderField(form, "Weight", "number", "1");
+    const date = this.renderField(form, "Date", "date", "", localDate());
+    const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add grade", cls: "mod-cta" }).addEventListener("click", async () => {
+      const grade = await this.plugin.addCourseGrade({ course: course.value, title: title.value, score: score.value, weight: weight.value, date: date.value });
+      if (!grade) {
+        this.saveMessage("Add a course and a grade-item name first.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Grade added.");
+      this.render();
+    });
+    if (!dashboard.length) {
+      this.renderTabsEmpty(root, "Add a grade or a subject to build the course dashboard.");
+      return;
+    }
+    const graded = dashboard.filter((entry) => entry.graded);
+    const totalWeight = data.grades.reduce((sum, grade) => sum + grade.weight, 0);
+    const overall = totalWeight ? Math.round((data.grades.reduce((sum, grade) => sum + grade.score * grade.weight, 0) / totalWeight) * 10) / 10 : 0;
+    const stats = root.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const card = stats.createDiv({ cls: "qt-study-stat" });
+      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      card.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(dashboard.length, "courses");
+    stat(data.grades.length, "grades");
+    stat(totalWeight ? `${overall}%` : "—", "weighted average");
+    stat(graded.length, "courses graded");
+    const cards = root.createDiv({ cls: "qt-study-grid" });
+    for (const entry of dashboard) {
+      const card = cards.createDiv({ cls: "qt-study-card qt-course-card" });
+      const head = card.createDiv({ cls: "qt-workspace-head" });
+      const heading = head.createEl("h3");
+      const dot = heading.createSpan({ cls: "qt-workspace-subject-dot" });
+      dot.style.background = entry.color;
+      heading.createSpan({ text: entry.name });
+      const chip = head.createSpan({ cls: "qt-workspace-grade", text: entry.graded ? `${entry.letter} · ${entry.weighted}%` : "No grades" });
+      if (entry.graded) chip.addClass(`is-${entry.letter.toLowerCase()}`);
+      card.createDiv({ cls: "qt-study-row-meta", text: `${entry.lectures} lecture${entry.lectures === 1 ? "" : "s"} · ${entry.absences} absence${entry.absences === 1 ? "" : "s"}${entry.folder ? ` · ${entry.folder}` : ""}` });
+      if (entry.lastLecture) card.createDiv({ cls: "qt-study-row-meta", text: `Last lecture: ${entry.lastLecture.date} · ${entry.lastLecture.title}` });
+      if (entry.grades.length) {
+        const list = card.createDiv({ cls: "qt-study-list" });
+        for (const grade of entry.grades.slice(0, 8)) {
+          const row = list.createDiv({ cls: "qt-study-row" });
+          const main = row.createDiv({ cls: "qt-study-row-main" });
+          main.createDiv({ cls: "qt-study-row-title", text: `${grade.title} · ${grade.score}%` });
+          main.createDiv({ cls: "qt-study-row-meta", text: `${grade.date || "No date"} · weight ${grade.weight}` });
+          row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+            await this.plugin.removeCourseGrade(grade.id);
+            this.render();
+          });
+        }
+      }
+    }
+  }
+
+  /* ---- Study tasks ----------------------------------------------------- */
+
+  renderTasks(root) {
+    const data = this.settings().studyTasks;
+    const summary = taskSummary(data.tasks, localDate());
+    const add = root.createDiv({ cls: "qt-study-card" });
+    add.createEl("h3", { text: "Add a study task" });
+    add.createDiv({ cls: "qt-hint", text: "Tasks are local. Remind shows due work inside Obsidian; it does not use OS notifications." });
+    const form = add.createDiv({ cls: "qt-study-form" });
+    const title = this.renderField(form, "Task", "text", "Review cell respiration");
+    const course = this.renderField(form, "Course", "text", "Biology");
+    const due = this.renderField(form, "Due", "date", "", localDate());
+    const addActions = add.createDiv({ cls: "qt-row qt-study-actions" });
+    addActions.createEl("button", { text: "Add task", cls: "mod-cta" }).addEventListener("click", async () => {
+      const task = await this.plugin.addStudyTask({ title: title.value, course: course.value, due: due.value });
+      if (!task) {
+        this.saveMessage("Add a task name first.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Task added.");
+      this.render();
+    });
+
+    const generate = root.createDiv({ cls: "qt-study-card" });
+    generate.createEl("h3", { text: "Generate exam tasks" });
+    generate.createDiv({ cls: "qt-hint", text: "Spreads repeated topic passes over the days before the exam. Tasks are previews of work, not scheduled cards." });
+    const genForm = generate.createDiv({ cls: "qt-study-form" });
+    const genCourse = this.renderField(genForm, "Course", "text", "Biology");
+    const exam = this.renderField(genForm, "Exam date", "date", "", "");
+    const topics = this.renderTextarea(genForm, "Topics (one per line)", "Cells\nRespiration\nPhotosynthesis", "", 4);
+    const passes = this.renderField(genForm, "Passes", "number", "2", "2");
+    const genActions = generate.createDiv({ cls: "qt-row qt-study-actions" });
+    genActions.createEl("button", { text: "Generate tasks" }).addEventListener("click", async () => {
+      const created = await this.plugin.generateStudyTasks({ course: genCourse.value, examDate: exam.value, topics: topics.value, passes: passes.value });
+      this.saveMessage(created.length ? `Generated ${created.length} task${created.length === 1 ? "" : "s"}.` : "Add a course, a future exam date and at least one topic.");
+      this.render();
+    });
+
+    const summaryCard = root.createDiv({ cls: "qt-study-card" });
+    const summaryHead = summaryCard.createDiv({ cls: "qt-workspace-head" });
+    summaryHead.createEl("h3", { text: "Task queue" });
+    summaryHead.createSpan({ cls: "qt-study-row-meta", text: `${summary.open} open · ${summary.overdue} overdue · ${summary.dueToday} due today · ${summary.done} done` });
+    const summaryActions = summaryCard.createDiv({ cls: "qt-row qt-study-actions" });
+    summaryActions.createEl("button", { text: "Remind" }).addEventListener("click", async () => {
+      await this.plugin.remindStudyTasks();
+    });
+    if (!data.tasks.length) {
+      summaryCard.createDiv({ cls: "qt-study-empty", text: "No tasks yet. Add one or generate an exam plan." });
+      return;
+    }
+    const list = summaryCard.createDiv({ cls: "qt-study-list" });
+    const tasks = data.tasks.slice().sort((a, b) => (a.done === b.done ? 0 : a.done ? 1 : -1) || (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31"));
+    for (const task of tasks) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: task.title });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${task.course ? `${task.course} · ` : ""}${task.due || "No due date"}${task.source === "exam" ? " · exam plan" : ""}` });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: task.done ? "Reopen" : "Done" }).addEventListener("click", async () => {
+        await this.plugin.updateStudyTask(task.id, { done: !task.done });
+        this.render();
+      });
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeStudyTask(task.id);
+        this.render();
+      });
+    }
+  }
+
+  /* ---- Selection annotations ------------------------------------------ */
+
+  renderAnnotations(root) {
+    const data = this.settings().annotations;
+    const add = root.createDiv({ cls: "qt-study-card" });
+    add.createEl("h3", { text: "Capture a selection" });
+    add.createDiv({ cls: "qt-hint", text: "Keep a quote, a question and your answer together. The source note is never modified; Open source only navigates to it." });
+    const form = add.createDiv({ cls: "qt-study-form" });
+    const sourcePath = this.renderField(form, "Source path", "text", "Biology/Cells.md");
+    const quote = this.renderTextarea(form, "Quote", "Paste a passage or use the current selection", "", 4);
+    const question = this.renderTextarea(form, "Your question", "Why does this happen?", "", 2);
+    const answer = this.renderTextarea(form, "Your answer", "Write the answer in your own words", "", 3);
+    const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Use current selection" }).addEventListener("click", () => {
+      const active = this.plugin.app.workspace.activeEditor;
+      const editor = active && active.editor;
+      if (!editor || typeof editor.getSelection !== "function") {
+        this.saveMessage("Open a Markdown note and select some text first.");
+        this.render();
+        return;
+      }
+      const picked = editor.getSelection();
+      if (!picked.trim()) {
+        this.saveMessage("Select some text in the active note first.");
+        this.render();
+        return;
+      }
+      quote.value = picked;
+      if (active.file && active.file.path) sourcePath.value = active.file.path;
+    });
+    actions.createEl("button", { text: "Add annotation", cls: "mod-cta" }).addEventListener("click", async () => {
+      const annotation = await this.plugin.addAnnotation({ sourcePath: sourcePath.value, quote: quote.value, question: question.value, answer: answer.value });
+      if (!annotation) {
+        this.saveMessage("Add a quote first.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Annotation added.");
+      this.render();
+    });
+    const search = root.createDiv({ cls: "qt-study-card" });
+    search.createEl("h3", { text: "Annotation index" });
+    const filter = search.createEl("input", { cls: "qt-input", type: "search" });
+    filter.placeholder = "Search quotes, questions and sources";
+    filter.value = this.annotationFilter;
+    filter.addEventListener("input", () => {
+      this.annotationFilter = filter.value.toLowerCase();
+      this.render();
+    });
+    const entries = data.annotations
+      .filter((entry) => !this.annotationFilter || `${entry.quote} ${entry.question} ${entry.answer} ${entry.sourcePath}`.toLowerCase().includes(this.annotationFilter))
+      .sort((a, b) => b.createdAt - a.createdAt);
+    if (!entries.length) {
+      search.createDiv({ cls: "qt-study-empty", text: data.annotations.length ? "No annotation matches that search." : "No annotations yet. Select a passage and capture your question." });
+      return;
+    }
+    const list = search.createDiv({ cls: "qt-study-list" });
+    for (const entry of entries) {
+      const row = list.createDiv({ cls: "qt-study-row qt-workspace-flow-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: entry.sourcePath || "Unlinked source" });
+      main.createDiv({ cls: "qt-workspace-flow-quote", text: entry.quote });
+      if (entry.question) main.createDiv({ cls: "qt-study-row-meta", text: `Q: ${entry.question}` });
+      if (entry.answer) main.createDiv({ cls: "qt-study-row-meta", text: `A: ${entry.answer}` });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      if (entry.sourcePath) buttons.createEl("button", { text: "Open source" }).addEventListener("click", () => this.plugin.openStudyFlowSource(entry.sourcePath));
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeAnnotation(entry.id);
+        this.render();
+      });
+    }
+  }
+
+  /* ---- Deep Notes ------------------------------------------------------ */
+
+  renderDeepNotes(root) {
+    const data = this.settings().deepNotes;
+    const add = root.createDiv({ cls: "qt-study-card" });
+    add.createEl("h3", { text: "Start a guided Socratic session" });
+    add.createDiv({ cls: "qt-hint", text: "Five local prompts move from a claim to assumptions, evidence, a counterexample and synthesis. No model is called." });
+    const form = add.createDiv({ cls: "qt-study-form" });
+    const topic = this.renderField(form, "Topic", "text", "Natural selection");
+    const course = this.renderField(form, "Course", "text", "Biology");
+    const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Start session", cls: "mod-cta" }).addEventListener("click", async () => {
+      const session = await this.plugin.addDeepNotesSession({ topic: topic.value, course: course.value });
+      if (!session) {
+        this.saveMessage("Add a topic first.");
+        this.render();
+        return;
+      }
+      this.deepNotesId = session.id;
+      this.saveMessage("Session started.");
+      this.render();
+    });
+    const sessions = data.sessions.slice().sort((a, b) => b.updatedAt - a.updatedAt || b.createdAt - a.createdAt);
+    if (!sessions.length) {
+      this.renderTabsEmpty(root, "No Deep Notes sessions yet. Start with one idea you want to interrogate.");
+      return;
+    }
+    if (!this.deepNotesId || !sessions.some((session) => session.id === this.deepNotesId)) {
+      this.deepNotesId = (sessions.find((session) => !session.completed) || sessions[0]).id;
+    }
+    const active = sessions.find((session) => session.id === this.deepNotesId);
+    if (active) this.renderDeepNotesActive(root, active);
+    const listCard = root.createDiv({ cls: "qt-study-card" });
+    listCard.createEl("h3", { text: "Saved sessions" });
+    const list = listCard.createDiv({ cls: "qt-study-list" });
+    for (const session of sessions) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: session.topic });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${session.course ? `${session.course} · ` : ""}${session.completed ? "Complete" : `Step ${session.step + 1} of ${SOCRATIC_STEPS.length}`}` });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: session.id === this.deepNotesId ? "Open" : "Review" }).addEventListener("click", () => {
+        this.deepNotesId = session.id;
+        this.render();
+      });
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeDeepNotesSession(session.id);
+        if (this.deepNotesId === session.id) this.deepNotesId = "";
+        this.render();
+      });
+    }
+  }
+
+  renderDeepNotesActive(root, session) {
+    const card = root.createDiv({ cls: "qt-study-card qt-workspace-active" });
+    const head = card.createDiv({ cls: "qt-workspace-head" });
+    head.createEl("h3", { text: session.topic });
+    head.createSpan({ cls: "qt-study-row-meta", text: session.completed ? "Complete" : `Step ${session.step + 1} of ${SOCRATIC_STEPS.length}` });
+    if (session.completed) {
+      card.createDiv({ cls: "qt-study-empty", text: "You reached synthesis. Review the answers below or start another session." });
+      for (const step of SOCRATIC_STEPS) {
+        if (!session.answers[step.key]) continue;
+        card.createDiv({ cls: "qt-workspace-step-label", text: step.title });
+        card.createDiv({ cls: "qt-study-row-meta", text: session.answers[step.key] });
+      }
+      return;
+    }
+    const step = Math.min(session.step, SOCRATIC_STEPS.length - 1);
+    const current = SOCRATIC_STEPS[step];
+    card.createDiv({ cls: "qt-workspace-step-label", text: `Step ${step + 1}: ${current.title}` });
+    card.createDiv({ cls: "qt-hint", text: current.prompt });
+    const textarea = card.createEl("textarea", { cls: "qt-study-bulk qt-workspace-answer" });
+    textarea.rows = 7;
+    textarea.value = session.answers[current.key] || "";
+    textarea.placeholder = "Write your answer in your own words.";
+    const controls = card.createDiv({ cls: "qt-row qt-study-actions" });
+    if (step > 0) {
+      controls.createEl("button", { text: "Back" }).addEventListener("click", async () => {
+        await this.plugin.updateDeepNotesSession(session.id, { step: step - 1, answers: { ...session.answers, [current.key]: textarea.value } });
+        this.render();
+      });
+    }
+    controls.createEl("button", { text: step === SOCRATIC_STEPS.length - 1 ? "Finish session" : "Next prompt", cls: "mod-cta" }).addEventListener("click", async () => {
+      if (!str(textarea.value).trim()) {
+        this.saveMessage("Write an answer before moving on.");
+        this.render();
+        return;
+      }
+      const answers = { ...session.answers, [current.key]: textarea.value };
+      if (step < SOCRATIC_STEPS.length - 1) {
+        await this.plugin.updateDeepNotesSession(session.id, { step: step + 1, answers });
+        this.saveMessage("Saved. Next prompt.");
+      } else {
+        await this.plugin.updateDeepNotesSession(session.id, { step: SOCRATIC_STEPS.length, completed: true, answers });
+        this.saveMessage("Session complete.");
+      }
+      this.render();
+    });
   }
 
   /* ---- Subject Manager ------------------------------------------------- */

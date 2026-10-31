@@ -775,6 +775,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.studyFlow = studyWorkspace.normalizeStudyFlow(saved.studyFlow);
     this.settings.subjectManager = studyWorkspace.normalizeSubjectManager(saved.subjectManager);
     this.settings.quizIndex = studyWorkspace.normalizeQuizIndex(saved.quizIndex);
+    this.settings.courseHub = studyWorkspace.normalizeCourseHub(saved.courseHub);
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks(saved.studyTasks);
+    this.settings.annotations = studyWorkspace.normalizeAnnotations(saved.annotations);
+    this.settings.deepNotes = studyWorkspace.normalizeDeepNotes(saved.deepNotes);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -1284,8 +1288,24 @@ class QuestionTrackerPlugin extends Plugin {
     return studyWorkspace.normalizeQuizIndex(this.settings.quizIndex).enabled;
   }
 
+  courseHubEnabled() {
+    return studyWorkspace.normalizeCourseHub(this.settings.courseHub).enabled;
+  }
+
+  studyTasksEnabled() {
+    return studyWorkspace.normalizeStudyTasks(this.settings.studyTasks).enabled;
+  }
+
+  annotationsEnabled() {
+    return studyWorkspace.normalizeAnnotations(this.settings.annotations).enabled;
+  }
+
+  deepNotesEnabled() {
+    return studyWorkspace.normalizeDeepNotes(this.settings.deepNotes).enabled;
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -7506,6 +7526,152 @@ ${body}
     this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({
       ...current,
       absences: current.absences.filter((absence) => absence.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  /* ---- Course hub ------------------------------------------------------ */
+
+  async addCourseGrade(input) {
+    const grade = studyWorkspace.createGrade(input, Date.now());
+    if (!grade) return null;
+    const current = this.studyWorkspaceSettings().courseHub;
+    this.settings.courseHub = studyWorkspace.normalizeCourseHub({
+      ...current,
+      grades: current.grades.concat(grade).slice(-studyWorkspace.MAX_GRADES),
+    });
+    await this.save();
+    this.refreshViews();
+    return grade;
+  }
+
+  async removeCourseGrade(id) {
+    const current = this.studyWorkspaceSettings().courseHub;
+    this.settings.courseHub = studyWorkspace.normalizeCourseHub({
+      ...current,
+      grades: current.grades.filter((grade) => grade.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  /* ---- Study tasks ----------------------------------------------------- */
+
+  async addStudyTask(input) {
+    const task = studyWorkspace.createStudyTask(input, Date.now());
+    if (!task) return null;
+    const current = this.studyWorkspaceSettings().studyTasks;
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
+      ...current,
+      tasks: current.tasks.concat(task).slice(-studyWorkspace.MAX_TASKS),
+    });
+    await this.save();
+    this.refreshViews();
+    return task;
+  }
+
+  async updateStudyTask(id, patch) {
+    const current = this.studyWorkspaceSettings().studyTasks;
+    const tasks = current.tasks.map((task) => (task.id === id ? { ...task, ...(patch || {}) } : task));
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...current, tasks });
+    await this.save();
+    this.refreshViews();
+    return this.settings.studyTasks.tasks.find((task) => task.id === id) || null;
+  }
+
+  async removeStudyTask(id) {
+    const current = this.studyWorkspaceSettings().studyTasks;
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
+      ...current,
+      tasks: current.tasks.filter((task) => task.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async generateStudyTasks(input) {
+    const tasks = studyWorkspace.planExamTasks(input, localDate(), Date.now());
+    if (!tasks.length) return [];
+    const current = this.studyWorkspaceSettings().studyTasks;
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
+      ...current,
+      tasks: current.tasks.concat(tasks).slice(-studyWorkspace.MAX_TASKS),
+    });
+    await this.save();
+    this.refreshViews();
+    return tasks;
+  }
+
+  async remindStudyTasks() {
+    const current = this.studyWorkspaceSettings().studyTasks;
+    const due = studyWorkspace.dueStudyTasks(current.tasks, localDate());
+    new Notice(
+      due.length
+        ? `${due.length} study task${due.length === 1 ? "" : "s"} due: ${due.slice(0, 4).map((task) => task.title).join("; ")}${due.length > 4 ? "; …" : ""}`
+        : "No study tasks are due today.",
+      6000
+    );
+    return due;
+  }
+
+  /* ---- Selection annotations ------------------------------------------ */
+
+  async addAnnotation(input) {
+    const annotation = studyWorkspace.createAnnotation(input, Date.now());
+    if (!annotation) return null;
+    const current = this.studyWorkspaceSettings().annotations;
+    this.settings.annotations = studyWorkspace.normalizeAnnotations({
+      ...current,
+      annotations: current.annotations.concat(annotation).slice(-studyWorkspace.MAX_ANNOTATIONS),
+    });
+    await this.save();
+    this.refreshViews();
+    return annotation;
+  }
+
+  async removeAnnotation(id) {
+    const current = this.studyWorkspaceSettings().annotations;
+    this.settings.annotations = studyWorkspace.normalizeAnnotations({
+      ...current,
+      annotations: current.annotations.filter((annotation) => annotation.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  /* ---- Deep Notes ------------------------------------------------------ */
+
+  async addDeepNotesSession(input) {
+    const session = studyWorkspace.createDeepNotesSession(input, Date.now());
+    if (!session) return null;
+    const current = this.studyWorkspaceSettings().deepNotes;
+    this.settings.deepNotes = studyWorkspace.normalizeDeepNotes({
+      ...current,
+      sessions: current.sessions.concat(session).slice(-studyWorkspace.MAX_SOCRATIC),
+    });
+    await this.save();
+    this.refreshViews();
+    return session;
+  }
+
+  async updateDeepNotesSession(id, patch) {
+    const current = this.studyWorkspaceSettings().deepNotes;
+    const sessions = current.sessions.map((session) => {
+      if (session.id !== id) return session;
+      return { ...session, ...(patch || {}), updatedAt: Date.now() };
+    });
+    this.settings.deepNotes = studyWorkspace.normalizeDeepNotes({ ...current, sessions });
+    await this.save();
+    this.refreshViews();
+    return this.settings.deepNotes.sessions.find((session) => session.id === id) || null;
+  }
+
+  async removeDeepNotesSession(id) {
+    const current = this.studyWorkspaceSettings().deepNotes;
+    this.settings.deepNotes = studyWorkspace.normalizeDeepNotes({
+      ...current,
+      sessions: current.sessions.filter((session) => session.id !== id),
     });
     await this.save();
     this.refreshViews();

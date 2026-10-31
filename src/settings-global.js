@@ -196,6 +196,54 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Course hub")
+    .setDesc("A course dashboard with weighted grade chips, lecture counts and absences. Reads the lecture log and Subject Manager without changing their data.")
+    .addToggle((t) =>
+      t.setValue(plugin.courseHubEnabled()).onChange(async (v) => {
+        st.courseHub.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Study tasks")
+    .setDesc("Manual tasks plus generated exam study tasks. Remind shows due items in Obsidian; it does not request OS notification permission.")
+    .addToggle((t) =>
+      t.setValue(plugin.studyTasksEnabled()).onChange(async (v) => {
+        st.studyTasks.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Annotations")
+    .setDesc("Capture a selection, a question and an answer in a local annotation index. Source notes are read-only.")
+    .addToggle((t) =>
+      t.setValue(plugin.annotationsEnabled()).onChange(async (v) => {
+        st.annotations.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Deep Notes")
+    .setDesc("Guided Socratic sessions with five local prompts: claim, assumptions, evidence, counterexample and synthesis. No model is called.")
+    .addToggle((t) =>
+      t.setValue(plugin.deepNotesEnabled()).onChange(async (v) => {
+        st.deepNotes.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>

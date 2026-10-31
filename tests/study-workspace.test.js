@@ -14,9 +14,9 @@ async function setup(saved) {
   return plugin;
 }
 
-test("study workspace: six independent modules default on and can be switched off", () => {
+test("study workspace: ten independent modules default on and can be switched off", () => {
   const defaults = W.normalizeStudyWorkspaceSettings({});
-  assert.deepEqual(Object.keys(defaults), ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex"]);
+  assert.deepEqual(Object.keys(defaults), ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes"]);
   for (const value of Object.values(defaults)) assert.equal(value.enabled, true);
   const off = W.normalizeStudyWorkspaceSettings({
     feynmanLearning: { enabled: false },
@@ -25,6 +25,10 @@ test("study workspace: six independent modules default on and can be switched of
     studyFlow: { enabled: false },
     subjectManager: { enabled: false },
     quizIndex: { enabled: false },
+    courseHub: { enabled: false },
+    studyTasks: { enabled: false },
+    annotations: { enabled: false },
+    deepNotes: { enabled: false },
   });
   assert.equal(Object.values(off).every((value) => value.enabled === false), true);
 });
@@ -137,6 +141,60 @@ test("Quiz index: counts parsed quizzes, levels and recorded results without cre
   assert.equal(W.normalizeQuizIndex({ limit: 999 }).limit, 200);
 });
 
+test("Course hub: combines lectures, absences and weighted grade chips", () => {
+  const biology = W.createSubject({ name: "Biology", folder: "Courses/Biology", color: "#123456" }, 1);
+  const grades = [
+    W.createGrade({ course: "Biology", title: "Quiz", score: 90, weight: 1, date: "2026-10-01" }, 2),
+    W.createGrade({ course: "Biology", title: "Midterm", score: 80, weight: 3, date: "2026-10-20" }, 3),
+    W.createGrade({ course: "Chemistry", title: "Lab", score: 95, weight: 1 }, 4),
+  ];
+  const dashboard = W.courseDashboard(
+    [biology],
+    [{ course: "Biology", date: "2026-10-10", title: "Cells" }, { course: "Biology", date: "2026-10-24", title: "Respiration" }],
+    [{ subject: "Biology", date: "2026-10-12" }],
+    grades
+  );
+  const bio = dashboard.find((entry) => entry.name === "Biology");
+  assert.equal(bio.lectures, 2);
+  assert.equal(bio.absences, 1);
+  assert.equal(bio.graded, 2);
+  assert.equal(bio.weighted, 82.5);
+  assert.equal(bio.letter, "B");
+  assert.equal(bio.lastLecture.title, "Respiration");
+  const chem = dashboard.find((entry) => entry.name === "Chemistry");
+  assert.equal(chem.letter, "A");
+  assert.equal(W.letterGrade(59), "F");
+});
+
+test("Study tasks: generates and sorts exam tasks, and finds due work", () => {
+  const tasks = W.planExamTasks({ course: "Biology", examDate: "2026-11-10", startDate: "2026-11-01", topics: ["Cells", "Respiration"], passes: 2 }, "2026-11-01", 1);
+  assert.equal(tasks.length, 4);
+  assert.equal(tasks[0].source, "exam");
+  assert.equal(tasks[0].due, "2026-11-01");
+  assert.equal(tasks.every((task) => task.due < "2026-11-10"), true);
+  assert.equal(tasks.filter((task) => /pass 2/.test(task.title)).length, 2);
+  const manual = W.createStudyTask({ title: "Review cells", course: "Biology", due: "2026-10-31" }, 9);
+  const summary = W.taskSummary([...tasks, { ...manual, done: true }], "2026-11-02");
+  assert.equal(summary.total, 5);
+  assert.equal(summary.done, 1);
+  assert.equal(summary.open, 4);
+  assert.equal(summary.overdue, 1);
+  assert.equal(W.dueStudyTasks([...tasks, manual], "2026-11-02").length, 2);
+  assert.deepEqual(W.planExamTasks({ course: "Biology", examDate: "2026-11-01", topics: ["Cells"] }, "2026-11-01", 1), []);
+});
+
+test("Annotations and Deep Notes: keep local Q&A and complete the Socratic prompts", () => {
+  const annotation = W.createAnnotation({ sourcePath: "Biology/Cells.md", quote: "Water crosses the membrane.", question: "How?", answer: "Osmosis." }, 1);
+  assert.equal(annotation.question, "How?");
+  assert.equal(W.createAnnotation({ quote: "  " }, 1), null);
+  const session = W.createDeepNotesSession({ topic: "Natural selection", course: "Biology" }, 2);
+  assert.equal(session.step, 0);
+  assert.equal(W.deepNotesStepKey(4), "synthesis");
+  const complete = W.normalizeDeepNotesSession({ ...session, step: 5, answers: { synthesis: "Variation plus selection." } });
+  assert.equal(complete.completed, true);
+  assert.equal(complete.answers.synthesis, "Variation plus selection.");
+});
+
 test("plugin: workflow switches gate the view and workflow data survives a reload", async () => {
   const plugin = await setup();
   assert.equal(plugin.studyWorkspaceEnabled(), true);
@@ -150,13 +208,21 @@ test("plugin: workflow switches gate the view and workflow data survives a reloa
   assert.ok(dom.texts().includes("Topic planner"));
   assert.ok(dom.texts().includes("Study Flow"));
   assert.ok(dom.texts().includes("Subjects"));
+  assert.ok(dom.texts().includes("Courses"));
+  assert.ok(dom.texts().includes("Tasks"));
+  assert.ok(dom.texts().includes("Annotations"));
+  assert.ok(dom.texts().includes("Deep Notes"));
   assert.ok(dom.texts().includes("Quiz index"));
 
   const feynman = await plugin.addFeynmanSession({ topic: "Osmosis", course: "Biology" });
   const excerpt = await plugin.addFlowExcerpt({ sourcePath: "Readings/bio.md", quote: "Water moves across a membrane." });
   const subject = await plugin.addStudySubject({ name: "Biology", folder: "Courses/Biology" });
   const plan = await plugin.addPlannerPlan({ course: "Biology", examDate: "2099-01-10", bufferDays: 1, topics: ["Osmosis"] });
-  assert.ok(feynman && excerpt && subject && plan);
+  const grade = await plugin.addCourseGrade({ course: "Biology", title: "Midterm", score: 91, weight: 2, date: "2026-10-30" });
+  const task = await plugin.addStudyTask({ title: "Review osmosis", course: "Biology", due: "2026-11-02" });
+  const annotation = await plugin.addAnnotation({ sourcePath: "Biology/Cells.md", quote: "Water crosses the membrane.", question: "How?", answer: "Osmosis." });
+  const socratic = await plugin.addDeepNotesSession({ topic: "Osmosis", course: "Biology" });
+  assert.ok(feynman && excerpt && subject && plan && grade && task && annotation && socratic);
   await plugin.addPlannerPass(plan.id, plugin.studyWorkspaceSettings().lerntracker.plans[0].topics[0].id);
   assert.equal(plugin.studyWorkspaceSettings().lerntracker.plans[0].topics[0].passes, 1);
 
@@ -167,8 +233,17 @@ test("plugin: workflow switches gate the view and workflow data survives a reloa
   assert.equal(restarted.studyWorkspaceSettings().studyFlow.excerpts.length, 1);
   assert.equal(restarted.studyWorkspaceSettings().subjectManager.subjects.length, 1);
   assert.equal(restarted.studyWorkspaceSettings().lerntracker.plans.length, 1);
+  assert.equal(restarted.studyWorkspaceSettings().courseHub.grades.length, 1);
+  assert.equal(restarted.studyWorkspaceSettings().studyTasks.tasks.length, 1);
+  assert.equal(restarted.studyWorkspaceSettings().annotations.annotations.length, 1);
+  assert.equal(restarted.studyWorkspaceSettings().deepNotes.sessions.length, 1);
 
-  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex"]) {
+  for (const tab of ["courses", "tasks", "annotations", "deepNotes"]) {
+    view.setTab(tab);
+    assert.equal(view.tab, tab);
+  }
+
+  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes"]) {
     restarted.settings[key].enabled = false;
   }
   assert.equal(restarted.studyWorkspaceEnabled(), false);

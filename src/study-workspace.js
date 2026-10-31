@@ -17,12 +17,23 @@ const MAX_ABSENCES = 500;
 const MAX_PLANS = 80;
 const MAX_TOPICS = 80;
 const MAX_QUIZ_ROWS = 500;
+const MAX_GRADES = 500;
+const MAX_TASKS = 500;
+const MAX_ANNOTATIONS = 500;
+const MAX_SOCRATIC = 100;
 
 const FEYNMAN_STEPS = ["Explain it simply", "Find the gaps", "Simplify and connect", "Teach it back"];
 const FEYNMAN_KEYS = ["explain", "gaps", "simplify", "teach"];
 const FEYNMAN_DIMENSIONS = ["clarity", "accuracy", "simplicity"];
 const FLOW_STATUSES = ["inbox", "review", "understood"];
 const RECALL_MODES = ["headings", "fragments"];
+const SOCRATIC_STEPS = [
+  { key: "clarify", title: "Clarify the claim", prompt: "State the idea in one sentence. What exactly are you trying to understand?" },
+  { key: "assumptions", title: "Surface assumptions", prompt: "What must already be true for this idea to work? Which assumptions are weakest?" },
+  { key: "evidence", title: "Find the evidence", prompt: "What observation, example or source would support this? What would contradict it?" },
+  { key: "counterexample", title: "Test a counterexample", prompt: "Invent a case where the idea breaks. What does that case reveal?" },
+  { key: "synthesis", title: "Synthesize", prompt: "Explain the idea again, including the boundary you found and how you would teach it." },
+];
 
 function enabledValue(value) {
   if (value === false) return false;
@@ -628,6 +639,276 @@ function collectQuizIndex(entries, options) {
   };
 }
 
+
+/* ---- Course hub (Hold Course-style dashboard) --------------------------- */
+
+function normalizeGrade(value) {
+  const source = asObject(value);
+  const course = textValue(source.course, MAX_TITLE);
+  const title = textValue(source.title, MAX_TITLE);
+  if (!course || !title) return null;
+  const weight = numberValue(source.weight, 1);
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("grade", [course, title, source.date || "", source.score || 0]),
+    course,
+    title,
+    score: clamp(numberValue(source.score, 0), 0, 100),
+    weight: Math.round(Math.max(0.1, Math.min(100, weight)) * 100) / 100,
+    date: dayValue(source.date),
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function normalizeCourseHub(value) {
+  const source = asObject(value);
+  const grades = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.grades) ? source.grades : []) {
+    const grade = normalizeGrade(raw);
+    if (!grade || seen.has(grade.id)) continue;
+    seen.add(grade.id);
+    grades.push(grade);
+    if (grades.length >= MAX_GRADES) break;
+  }
+  return { enabled: enabledValue(value), grades };
+}
+
+function createGrade(input, now) {
+  const source = asObject(input);
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeGrade({ ...source, createdAt: stamp });
+}
+
+function letterGrade(score) {
+  const value = Number(score);
+  if (!Number.isFinite(value)) return "—";
+  if (value >= 90) return "A";
+  if (value >= 80) return "B";
+  if (value >= 70) return "C";
+  if (value >= 60) return "D";
+  return "F";
+}
+
+/** Combine the independent subject, lecture and grade data without writing any of it back. */
+function courseDashboard(subjects, lectures, absences, grades) {
+  const courses = new Map();
+  const ensure = (name) => {
+    const key = str(name).trim().toLowerCase();
+    if (!key) return null;
+    if (!courses.has(key)) courses.set(key, { name: str(name).trim(), color: "#7c9cf5", folder: "", grades: [] });
+    return courses.get(key);
+  };
+  for (const subject of Array.isArray(subjects) ? subjects : []) {
+    const course = ensure(subject && subject.name);
+    if (!course) continue;
+    course.color = /^#[0-9a-f]{6}$/i.test(str(subject.color)) ? str(subject.color).toLowerCase() : course.color;
+    course.folder = str(subject.folder);
+  }
+  const lectureList = Array.isArray(lectures) ? lectures : [];
+  const absenceList = Array.isArray(absences) ? absences : [];
+  for (const lecture of lectureList) ensure(lecture && lecture.course);
+  for (const grade of Array.isArray(grades) ? grades : []) {
+    const course = ensure(grade && grade.course);
+    if (course) course.grades.push(grade);
+  }
+  return [...courses.values()].map((course) => {
+    const key = course.name.toLowerCase();
+    const ownLectures = lectureList.filter((lecture) => str(lecture.course).trim().toLowerCase() === key);
+    const ownAbsences = absenceList.filter((absence) => str(absence.subject).trim().toLowerCase() === key);
+    const ownGrades = course.grades.slice().sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.createdAt - a.createdAt);
+    const weight = ownGrades.reduce((sum, grade) => sum + grade.weight, 0);
+    const weighted = weight ? Math.round((ownGrades.reduce((sum, grade) => sum + grade.score * grade.weight, 0) / weight) * 10) / 10 : 0;
+    return {
+      ...course,
+      lectures: ownLectures.length,
+      absences: ownAbsences.length,
+      lastLecture: ownLectures.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null,
+      lastAbsence: ownAbsences.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null,
+      grades: ownGrades,
+      graded: ownGrades.length,
+      weighted,
+      letter: ownGrades.length ? letterGrade(weighted) : "—",
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/* ---- Study tasks (Better Task-style planning and local reminders) -------- */
+
+function normalizeStudyTask(value) {
+  const source = asObject(value);
+  const title = textValue(source.title, MAX_TITLE);
+  if (!title) return null;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("task", [title, source.course || "", source.due || "", source.createdAt || 0]),
+    title,
+    course: textValue(source.course, MAX_TITLE),
+    due: dayValue(source.due),
+    done: source.done === true,
+    source: textValue(source.source, 40) || "manual",
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function normalizeStudyTasks(value) {
+  const source = asObject(value);
+  const tasks = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.tasks) ? source.tasks : []) {
+    const task = normalizeStudyTask(raw);
+    if (!task || seen.has(task.id)) continue;
+    seen.add(task.id);
+    tasks.push(task);
+    if (tasks.length >= MAX_TASKS) break;
+  }
+  return { enabled: enabledValue(value), tasks };
+}
+
+function createStudyTask(input, now) {
+  const source = asObject(input);
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeStudyTask({ ...source, createdAt: stamp });
+}
+
+/** Generate one task per topic pass and spread them evenly before the exam. */
+function planExamTasks(input, today, now) {
+  const source = asObject(input);
+  const course = textValue(source.course, MAX_TITLE);
+  const exam = dayValue(source.examDate);
+  const start = dayValue(source.startDate) || dayValue(today) || localDate();
+  if (!course || !exam || exam <= start) return [];
+  const rawTopics = Array.isArray(source.topics) ? source.topics : str(source.topics).split(/\n|,/);
+  const topics = rawTopics.map((topic) => textValue(typeof topic === "string" ? topic : topic && topic.name, MAX_TITLE)).filter(Boolean);
+  if (!topics.length) return [];
+  const passes = clamp(numberValue(source.passes, 2), 1, 3);
+  const last = addDays(exam, -1);
+  const days = [];
+  for (let day = start; day && day <= last; day = addDays(day, 1)) days.push(day);
+  if (!days.length) return [];
+  const total = Math.min(MAX_TASKS, topics.length * passes);
+  const tasks = [];
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  for (let index = 0; index < total; index++) {
+    const pass = Math.floor(index / topics.length) + 1;
+    const topic = topics[index % topics.length];
+    const due = days[Math.min(days.length - 1, Math.floor((index * days.length) / total))];
+    tasks.push(normalizeStudyTask({
+      title: passes === 1 ? `Study ${topic}` : `Study ${topic} (pass ${pass})`,
+      course,
+      due,
+      source: "exam",
+      createdAt: stamp + index,
+    }));
+  }
+  return tasks.filter(Boolean);
+}
+
+function taskSummary(tasks, today) {
+  const day = dayValue(today) || localDate();
+  const list = Array.isArray(tasks) ? tasks : [];
+  const open = list.filter((task) => !task.done).sort((a, b) => (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31") || a.createdAt - b.createdAt);
+  return {
+    total: list.length,
+    open: open.length,
+    done: list.length - open.length,
+    overdue: open.filter((task) => task.due && task.due < day).length,
+    dueToday: open.filter((task) => task.due === day).length,
+    upcoming: open.filter((task) => !task.due || task.due > day).length,
+    next: open[0] || null,
+  };
+}
+
+function dueStudyTasks(tasks, today) {
+  const day = dayValue(today) || localDate();
+  return (Array.isArray(tasks) ? tasks : [])
+    .filter((task) => !task.done && task.due && task.due <= day)
+    .sort((a, b) => a.due.localeCompare(b.due) || a.createdAt - b.createdAt);
+}
+
+/* ---- Selection annotations (Pick Me-style note index) ------------------- */
+
+function normalizeAnnotation(value) {
+  const source = asObject(value);
+  const quote = textValue(source.quote, MAX_TEXT);
+  if (!quote) return null;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("annotation", [source.sourcePath || "", quote, source.createdAt || 0]),
+    sourcePath: textValue(source.sourcePath, 500),
+    quote,
+    question: textValue(source.question, MAX_TEXT),
+    answer: textValue(source.answer, MAX_TEXT),
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function normalizeAnnotations(value) {
+  const source = asObject(value);
+  const annotations = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.annotations) ? source.annotations : []) {
+    const annotation = normalizeAnnotation(raw);
+    if (!annotation || seen.has(annotation.id)) continue;
+    seen.add(annotation.id);
+    annotations.push(annotation);
+    if (annotations.length >= MAX_ANNOTATIONS) break;
+  }
+  return { enabled: enabledValue(value), annotations };
+}
+
+function createAnnotation(input, now) {
+  const source = asObject(input);
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeAnnotation({ ...source, createdAt: stamp });
+}
+
+/* ---- Deep Notes (guided Socratic sessions) ----------------------------- */
+
+function normalizeDeepNotesSession(value) {
+  const source = asObject(value);
+  const topic = textValue(source.topic, MAX_TITLE);
+  if (!topic) return null;
+  const answers = {};
+  const rawAnswers = asObject(source.answers);
+  for (const step of SOCRATIC_STEPS) answers[step.key] = textValue(rawAnswers[step.key] || source[step.key], MAX_TEXT);
+  const step = clamp(numberValue(source.step, 0), 0, SOCRATIC_STEPS.length);
+  const completed = source.completed === true || step >= SOCRATIC_STEPS.length;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("socratic", [topic, source.createdAt || 0]),
+    topic,
+    course: textValue(source.course, MAX_TITLE),
+    step: completed ? SOCRATIC_STEPS.length : step,
+    answers,
+    completed,
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+    updatedAt: Math.max(0, Math.round(numberValue(source.updatedAt, 0))),
+  };
+}
+
+function normalizeDeepNotes(value) {
+  const source = asObject(value);
+  const sessions = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.sessions) ? source.sessions : []) {
+    const session = normalizeDeepNotesSession(raw);
+    if (!session || seen.has(session.id)) continue;
+    seen.add(session.id);
+    sessions.push(session);
+    if (sessions.length >= MAX_SOCRATIC) break;
+  }
+  return { enabled: enabledValue(value), sessions };
+}
+
+function createDeepNotesSession(input, now) {
+  const source = asObject(input);
+  const topic = textValue(source.topic, MAX_TITLE);
+  if (!topic) return null;
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeDeepNotesSession({ ...source, id: idFor("socratic", [topic, source.course || "", stamp]), createdAt: stamp, updatedAt: stamp });
+}
+
+function deepNotesStepKey(step) {
+  return SOCRATIC_STEPS[clamp(numberValue(step, 0), 0, SOCRATIC_STEPS.length - 1)].key;
+}
+
 function normalizeStudyWorkspaceSettings(value) {
   const source = asObject(value);
   return {
@@ -637,6 +918,10 @@ function normalizeStudyWorkspaceSettings(value) {
     studyFlow: normalizeStudyFlow(source.studyFlow),
     subjectManager: normalizeSubjectManager(source.subjectManager),
     quizIndex: normalizeQuizIndex(source.quizIndex),
+    courseHub: normalizeCourseHub(source.courseHub),
+    studyTasks: normalizeStudyTasks(source.studyTasks),
+    annotations: normalizeAnnotations(source.annotations),
+    deepNotes: normalizeDeepNotes(source.deepNotes),
   };
 }
 
@@ -647,38 +932,60 @@ module.exports = {
   FLOW_STATUSES,
   MAX_ABSENCES,
   MAX_EXCERPTS,
+  MAX_ANNOTATIONS,
   MAX_FEYNMAN,
+  MAX_GRADES,
   MAX_PLANS,
+  MAX_SOCRATIC,
+  MAX_TASKS,
   MAX_QUIZ_ROWS,
   MAX_SUBJECTS,
   MAX_TOPICS,
   RECALL_MODES,
+  SOCRATIC_STEPS,
   allocatePlan,
   collectQuizIndex,
+  courseDashboard,
   createAbsence,
+  createAnnotation,
+  createDeepNotesSession,
   createFeynmanSession,
   createFlowExcerpt,
+  createGrade,
   createPlannerPlan,
+  createStudyTask,
   createSubject,
   daysBetween,
+  deepNotesStepKey,
+  dueStudyTasks,
+  letterGrade,
   feynmanAverage,
   feynmanStepKey,
   feynmanWeakPoints,
   flowStats,
+  normalizeAnnotations,
+  normalizeCourseHub,
+  normalizeDeepNotes,
+  normalizeDeepNotesSession,
   normalizeFeynmanSession,
   normalizeFeynmanSettings,
   normalizeFlowExcerpt,
+  normalizeGrade,
   normalizePlanner,
   normalizeQuizIndex,
   normalizeRecallScheduler,
   normalizeStudyFlow,
+  normalizeStudyTask,
+  normalizeStudyTasks,
   normalizeStudyWorkspaceSettings,
   normalizeSubjectManager,
   parseRecallUnits,
+  planExamTasks,
   planProgress,
   planSummary,
   recallDueUnits,
   recallStats,
   reviewRecallUnit,
   subjectSummary,
+  taskSummary,
 };
