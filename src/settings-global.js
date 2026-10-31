@@ -196,6 +196,17 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Record inline quiz attempts")
+    .setDesc("Keep a local per-question log when an identified mcq-quiz block is completed, so the Quiz index can show first-attempt accuracy, a folder topic index and a wrong-answer index. Off by default; no note is changed.")
+    .addToggle((t) =>
+      t.setValue(plugin.settings.quizIndex.recordAttempts === true).onChange(async (v) => {
+        st.quizIndex.recordAttempts = v;
+        await plugin.save();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Quiz Maker blocks")
     .setDesc("Play assertion-and-reason, error-correction, evidence-selection and branching-scenario packs in local quiz-maker blocks. Answers are not recorded.")
     .addToggle((t) =>

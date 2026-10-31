@@ -621,12 +621,30 @@ class StudyWorkspaceView extends ItemView {
     stat(stats.questions, "questions");
     stat(stats.withResults, "recorded results");
     stat(stats.average ? `${stats.average}%` : "—", stats.withResults ? "average result" : "no results yet");
+    stat(stats.attempts || 0, "recorded attempts");
+    stat(stats.attempts ? `${stats.firstAttempt}%` : "—", "first-attempt accuracy");
     const levels = Object.entries(stats.levels || {});
     const types = Object.entries(stats.types || {});
     const index = root.createDiv({ cls: "qt-study-card" });
     index.createEl("h3", { text: "Index" });
     if (levels.length) index.createDiv({ cls: "qt-study-row-meta", text: `Levels: ${levels.map(([key, count]) => `${key} ${count}`).join(" · ")}` });
     if (types.length) index.createDiv({ cls: "qt-study-row-meta", text: `Types: ${types.map(([key, count]) => `${key} ${count}`).join(" · ")}` });
+    const topics = stats.topics || [];
+    if (topics.length) {
+      const topicCard = root.createDiv({ cls: "qt-study-card" });
+      topicCard.createEl("h3", { text: "Topic index" });
+      for (const topic of topics) {
+        topicCard.createDiv({ cls: "qt-study-row-meta", text: `${topic.topic}: ${topic.correct}/${topic.total} · ${topic.percentage}%` });
+      }
+    }
+    const wrongAnswers = stats.wrongAnswers || [];
+    if (wrongAnswers.length) {
+      const wrongCard = root.createDiv({ cls: "qt-study-card" });
+      wrongCard.createEl("h3", { text: "Wrong-answer index" });
+      for (const item of wrongAnswers) {
+        wrongCard.createDiv({ cls: "qt-study-row-meta", text: `${item.count}× ${item.question}` });
+      }
+    }
     if (!this.quizIndexData.rows.length) {
       index.createDiv({ cls: "qt-study-empty", text: "No inline quizzes were found in that scope." });
       return;
@@ -642,6 +660,12 @@ class StudyWorkspaceView extends ItemView {
         main.createDiv({
           cls: "qt-study-row-meta",
           text: `Recorded: ${row.result.percentage}% (${row.result.score}/${row.result.totalPoints})${row.result.passed ? " · passed" : ""}`,
+        });
+      }
+      if (row.attempts) {
+        main.createDiv({
+          cls: "qt-study-row-meta",
+          text: `Attempts: ${row.attempts} · first ${row.firstAttempt}% · last ${row.lastAttempt}%`,
         });
       }
       const buttons = item.createDiv({ cls: "qt-study-row-actions" });

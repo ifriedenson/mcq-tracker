@@ -17,6 +17,7 @@ const MAX_ABSENCES = 500;
 const MAX_PLANS = 80;
 const MAX_TOPICS = 80;
 const MAX_QUIZ_ROWS = 500;
+const MAX_QUIZ_ATTEMPTS = 500;
 const MAX_GRADES = 500;
 const MAX_TASKS = 500;
 const MAX_ANNOTATIONS = 500;
@@ -565,6 +566,8 @@ function normalizeQuizIndex(value) {
     enabled: enabledValue(value),
     folder: textValue(source.folder, 500).replace(/^\/+|\/+$/g, ""),
     limit: clamp(numberValue(source.limit, 50), 1, 200),
+    recordAttempts: source.recordAttempts === true,
+    attempts: normalizeQuizAttempts(source.attempts),
   };
 }
 
@@ -577,6 +580,59 @@ function quizResult(value) {
     score: Math.max(0, Math.round(numberValue(value.score, 0))),
     totalPoints: Math.max(0, Math.round(numberValue(value.totalPoints, 0))),
   };
+}
+
+function normalizeQuizAttempt(value) {
+  const source = asObject(value);
+  const path = textValue(source.path, 500);
+  const id = textValue(source.id, 160);
+  const total = clamp(numberValue(source.total, 0), 0, 200);
+  if (!path || !id || !total) return null;
+  const correct = clamp(numberValue(source.correct, 0), 0, total);
+  const missed = [];
+  for (const raw of Array.isArray(source.missed) ? source.missed : []) {
+    const label = textValue(raw, 160);
+    if (label) missed.push(label);
+    if (missed.length >= 200) break;
+  }
+  const folder = path.includes("/") ? path.split("/")[0] : "General";
+  return {
+    path,
+    id,
+    at: Math.max(0, Math.round(numberValue(source.at, 0))),
+    total,
+    correct,
+    percentage: Math.round((correct / total) * 100),
+    missed,
+    topic: textValue(source.topic, 120) || folder || "General",
+  };
+}
+
+function normalizeQuizAttempts(value) {
+  const out = [];
+  for (const raw of Array.isArray(value) ? value : []) {
+    const attempt = normalizeQuizAttempt(raw);
+    if (attempt) out.push(attempt);
+  }
+  return out.sort((a, b) => a.at - b.at).slice(-MAX_QUIZ_ATTEMPTS);
+}
+
+/** Build one compact attempt from a completed inline quiz and its graded selections. */
+function buildQuizAttempt(path, id, questions, selections, now) {
+  const list = Array.isArray(questions) ? questions : [];
+  const picks = selections && typeof selections === "object" ? selections : {};
+  let total = 0;
+  let correct = 0;
+  const missed = [];
+  list.forEach((question, index) => {
+    if (!question || question.valid === false) return;
+    total += 1;
+    const pick = picks[index];
+    if (pick && typeof pick === "object" && pick.correct === true) correct += 1;
+    else missed.push(textValue(question.question, 160) || `Question ${index + 1}`);
+  });
+  if (!total) return null;
+  return normalizeQuizAttempt({ path, id, at: now || Date.now(), total, correct, missed });
 }
 
 /** Scan parsed notes for quiz blocks and the existing opt-in quizResults data. */
@@ -620,7 +676,44 @@ function collectQuizIndex(entries, options) {
     }
     if (rows.length >= MAX_QUIZ_ROWS) break;
   }
+  const attempts = normalizeQuizAttempts(opts.attempts);
+  const byQuiz = new Map();
+  for (const attempt of attempts) {
+    const key = `${attempt.path}::${attempt.id}`;
+    const entry = byQuiz.get(key) || { count: 0, first: null, last: null };
+    entry.count += 1;
+    if (!entry.first || attempt.at < entry.first.at) entry.first = attempt;
+    if (!entry.last || attempt.at >= entry.last.at) entry.last = attempt;
+    byQuiz.set(key, entry);
+  }
+  for (const row of rows) {
+    const entry = byQuiz.get(`${row.path}::${row.id}`);
+    row.attempts = entry ? entry.count : 0;
+    row.firstAttempt = entry ? entry.first.percentage : null;
+    row.lastAttempt = entry ? entry.last.percentage : null;
+  }
   const results = rows.map((row) => row.result).filter(Boolean);
+  const firsts = [...byQuiz.values()].map((entry) => entry.first).filter(Boolean);
+  const firstCorrect = firsts.reduce((sum, attempt) => sum + attempt.correct, 0);
+  const firstTotal = firsts.reduce((sum, attempt) => sum + attempt.total, 0);
+  const topicStats = {};
+  for (const attempt of attempts) {
+    const topic = attempt.topic || "General";
+    if (!topicStats[topic]) topicStats[topic] = { correct: 0, total: 0 };
+    topicStats[topic].correct += attempt.correct;
+    topicStats[topic].total += attempt.total;
+  }
+  const topics = Object.entries(topicStats)
+    .map(([topic, counts]) => ({ topic, correct: counts.correct, total: counts.total, percentage: Math.round((counts.correct / counts.total) * 100) }))
+    .sort((a, b) => a.topic.localeCompare(b.topic));
+  const wrongCounts = new Map();
+  for (const attempt of attempts) {
+    for (const label of attempt.missed) wrongCounts.set(label, (wrongCounts.get(label) || 0) + 1);
+  }
+  const wrongAnswers = [...wrongCounts.entries()]
+    .map(([question, count]) => ({ question, count }))
+    .sort((a, b) => b.count - a.count || a.question.localeCompare(b.question))
+    .slice(0, 10);
   const levels = {};
   const types = {};
   for (const row of rows) {
@@ -637,6 +730,10 @@ function collectQuizIndex(entries, options) {
       average: results.length ? Math.round(results.reduce((sum, result) => sum + result.percentage, 0) / results.length) : 0,
       levels,
       types,
+      attempts: attempts.length,
+      firstAttempt: firstTotal ? Math.round((firstCorrect / firstTotal) * 100) : 0,
+      topics,
+      wrongAnswers,
     },
   };
 }
@@ -1101,7 +1198,9 @@ module.exports = {
   RECALL_MODES,
   SOCRATIC_STEPS,
   allocatePlan,
+  buildQuizAttempt,
   collectQuizIndex,
+  normalizeQuizAttempts,
   courseDashboard,
   createAbsence,
   createAnnotation,

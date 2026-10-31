@@ -4006,6 +4006,13 @@ class QuestionTrackerPlugin extends Plugin {
           new Notice(`Could not export this quiz result: ${str(e && e.message ? e.message : e)}`, 8000);
         }
       }
+      if (this.settings.quizIndex && this.settings.quizIndex.recordAttempts === true && parsed.id && score.answered === score.total) {
+        try {
+          await this.recordInlineQuizAttempt(ctx && ctx.sourcePath, parsed.id, parsed.questions, selections);
+        } catch (e) {
+          new Notice(`Could not record this quiz attempt: ${str(e && e.message ? e.message : e)}`, 8000);
+        }
+      }
     };
 
     parsed.questions.forEach((question, index) => {
@@ -4307,6 +4314,18 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /** Write one completed inline-quiz result into the source note's frontmatter. */
+  /** Append an opt-in per-question attempt for a completed inline quiz. */
+  async recordInlineQuizAttempt(path, id, questions, selections) {
+    if (!this.settings.quizIndex || this.settings.quizIndex.recordAttempts !== true) return null;
+    const attempt = studyWorkspace.buildQuizAttempt(path, id, questions, selections, Date.now());
+    if (!attempt) return null;
+    const attempts = studyWorkspace.normalizeQuizAttempts(this.settings.quizIndex.attempts);
+    attempts.push(attempt);
+    this.settings.quizIndex.attempts = attempts.slice(-500);
+    await this.save();
+    return attempt;
+  }
+
   async exportInlineQuizResult(sourcePath, quizId, score) {
     const path = str(sourcePath).trim();
     const prop = quizResultProperties(quizId, score);
@@ -7867,7 +7886,10 @@ ${body}
       }
       entries.push({ path: file.path, text, fm: this.app.metadataCache.getFileCache(file)?.frontmatter || {} });
     }
-    return studyWorkspace.collectQuizIndex(entries, { limit: opts.limit || this.settings.quizIndex.limit });
+    return studyWorkspace.collectQuizIndex(entries, {
+      limit: opts.limit || this.settings.quizIndex.limit,
+      attempts: this.settings.quizIndex.attempts,
+    });
   }
 
   async buildRecallQueue(options) {
