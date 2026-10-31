@@ -148,6 +148,7 @@ const DEFAULT_SETTINGS = {
   subjectManager: { enabled: true, subjects: [], absences: [] }, // subjects and absence log
   quizIndex: { enabled: true, folder: "", limit: 50 }, // cross-vault quiz dashboard/index
   quizMaker: { enabled: true }, // Quiz Maker block: four formats and named packs
+  satMath: { enabled: true }, // SAT Math block: local step-by-step solver, no score estimate
   sfcCards: { enabled: true }, // SFC-style typed card block: seven card types, read-only
   cbtExam: { enabled: true, history: {} }, // CBT exam navigator, local sidecar history and adaptive review
   courseHub: { enabled: true, grades: [] }, // course dashboard and local grade chips

@@ -113,6 +113,7 @@ const { findQuizBlockSource, gradeNumericQuestion, gradeQuizBlockQuestion, grade
 const quizNoteGate = require("./quiz-note-gate");
 const { parseExamBlock } = require("./exam-block");
 const { normalizeQuizMakerSettings, renderQuizMakerBlock: renderQuizMaker } = require("./quiz-maker");
+const { normalizeSatMathSettings, renderSatMathBlock: renderSatMath } = require("./sat-math");
 const { normalizeSfcCardsSettings, renderSfcCardsBlock: renderSfcCards } = require("./sfc-cards");
 const { normalizeCbtExamSettings, renderCbtExamBlock: renderCbtExam } = require("./cbt-exam");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
@@ -538,6 +539,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("playable-quiz", (source, el, ctx) => this.renderPlayableQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("exam", (source, el, ctx) => this.renderExamBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quiz-maker", (source, el, ctx) => this.renderQuizMakerBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("sat-math", (source, el, ctx) => this.renderSatMathBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("sfc-cards", (source, el, ctx) => this.renderSfcCardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("cbt-exam", (source, el, ctx) => this.renderCbtExamBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizport", (source, el, ctx) => this.renderQuizPortBlock(source, el, ctx));
@@ -782,6 +784,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.subjectManager = studyWorkspace.normalizeSubjectManager(saved.subjectManager);
     this.settings.quizIndex = studyWorkspace.normalizeQuizIndex(saved.quizIndex);
     this.settings.quizMaker = normalizeQuizMakerSettings(saved.quizMaker);
+    this.settings.satMath = normalizeSatMathSettings(saved.satMath);
     this.settings.sfcCards = normalizeSfcCardsSettings(saved.sfcCards);
     this.settings.cbtExam = normalizeCbtExamSettings(saved.cbtExam);
     this.settings.courseHub = studyWorkspace.normalizeCourseHub(saved.courseHub);
@@ -1301,6 +1304,10 @@ class QuestionTrackerPlugin extends Plugin {
 
   quizMakerEnabled() {
     return normalizeQuizMakerSettings(this.settings.quizMaker).enabled;
+  }
+
+  satMathEnabled() {
+    return normalizeSatMathSettings(this.settings.satMath).enabled;
   }
 
   sfcCardsEnabled() {
@@ -4262,6 +4269,15 @@ class QuestionTrackerPlugin extends Plugin {
       return null;
     }
     return renderQuizMaker(this, source, el, ctx);
+  }
+
+  /** Render a `sat-math` block with local step-by-step solutions. */
+  async renderSatMathBlock(source, el, ctx) {
+    if (!this.satMathEnabled()) {
+      el.createDiv({ cls: "qt-sat-math-issue", text: "SAT Math is off. Turn it on in Settings, Global, Modules." });
+      return null;
+    }
+    return renderSatMath(this, source, el, ctx);
   }
 
   /** Render an `sfc-cards` block with seven read-only card types. */

@@ -6982,3 +6982,21 @@
 
 /* Explicit Cornell margin terms highlighted in the cue and note. */
 .qt-cornell-highlight { background: var(--text-highlight-bg); color: inherit; padding: 0 1px; }
+
+/* SAT Math: local step-by-step solver. */
+.qt-sat-math {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 10px 0;
+  padding: 12px;
+}
+.qt-sat-math-title { font-weight: 600; }
+.qt-sat-math-meta,
+.qt-sat-math-kind { color: var(--text-muted); font-size: 0.85em; }
+.qt-sat-math-kind { font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+.qt-sat-math-problem { border-top: 1px solid var(--background-modifier-border); margin-top: 10px; padding-top: 10px; }
+.qt-sat-math-prompt { margin: 4px 0; }
+.qt-sat-math-answer { color: var(--text-accent); font-weight: 600; margin: 6px 0; }
+.qt-sat-math-step { color: var(--text-muted); font-size: 0.9em; margin: 2px 0 2px 12px; }
+.qt-sat-math-issue,
+.qt-sat-math-error { color: var(--text-error); font-size: 0.9em; }

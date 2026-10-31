@@ -219,6 +219,18 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("SAT math solver")
+    .setDesc("Solve linear equations, quadratics, 2×2 systems, percentages and ratios with step-by-step local working in sat-math blocks. No score is estimated without an official curve.")
+    .addToggle((t) =>
+      t.setValue(plugin.satMathEnabled()).onChange(async (v) => {
+        st.satMath.enabled = v;
+        await plugin.save();
+        plugin.refreshViews();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("CBT exam blocks")
     .setDesc("Run a local exam navigator with answer flags, per-exam attempt history and missed-first adaptive review in cbt-exam blocks. Attempts stay in plugin data and never edit the note.")
     .addToggle((t) =>
