@@ -3,6 +3,7 @@ const { DEFAULT_REFERENCE_SETTINGS } = require("./reference-data");
 const { DEFAULT_ASSIGNMENT_SETTINGS } = require("./assignments");
 const { DEFAULT_SUPPORT } = require("./support");
 const { DEFAULT_AI_LIMITS } = require("./ai-service");
+const { DEFAULT_THINK_FIRST_SECONDS } = require("./think-first");
 
 const VIEW_TYPE = "question-tracker-view";
 const VIEW_TYPE_TODAY = "question-tracker-today";
@@ -79,6 +80,8 @@ const DEFAULT_SETTINGS = {
     agentShell: false, // Agent mode: shell commands stay off unless explicitly enabled
     reviewAgentEdits: true, // agent mode: pause file edits and show a diff before applying them
     tutorRole: "private", // "private" | "socratic" | "language"
+    thinkFirst: false, // opt-in: block chat sends until a short in-session countdown ends
+    thinkFirstSeconds: DEFAULT_THINK_FIRST_SECONDS, // 5-120; a conservative default, configurable in AI settings
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
     verification: "mark", // after AI writes an answer: "mark" mismatches for review, or "drop" them
     sessionId: "",

@@ -17425,6 +17425,7 @@ const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
 const { buildCurrentNoteContext } = require("./note-context");
+const { thinkFirstLabel, thinkFirstRemainingMs } = require("./think-first");
 const { AgentEditReviewModal } = require("./agent-edit-review-modal");
 const { AiToolReviewModal } = require("./ai-tool-review-modal");
 const { toolProtocol } = require("./ai-tools");
@@ -17464,6 +17465,54 @@ class ChatPanel {
 
   serverReady() {
     return this.view.plugin.backend() === "api" || !this.ai.managed || this.view.plugin.manager.isRunning();
+  }
+
+  /** One countdown per chat session; New chat starts a fresh one. */
+  startThinkFirst() {
+    this.stopThinkFirstTicker();
+    this.thinkFirstStartedAt = this.ai.thinkFirst === true ? Date.now() : 0;
+    this.thinkFirstStatus = false;
+    if (this.status && !this.busy) this.status.setText("");
+    this.refreshThinkFirst();
+    if (this.ai.thinkFirst === true && this.thinkFirstRemaining() > 0) {
+      this.thinkFirstTicker = activeWindow.setInterval(() => this.refreshThinkFirst(), 250);
+      if (this.view && typeof this.view.registerInterval === "function") this.view.registerInterval(this.thinkFirstTicker);
+    }
+  }
+
+  stopThinkFirstTicker() {
+    if (!this.thinkFirstTicker) return;
+    activeWindow.clearInterval(this.thinkFirstTicker);
+    this.thinkFirstTicker = 0;
+  }
+
+  thinkFirstRemaining(now) {
+    if (this.ai.thinkFirst !== true) return 0;
+    const current = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    if (!this.thinkFirstStartedAt) this.thinkFirstStartedAt = current;
+    return thinkFirstRemainingMs(this.thinkFirstStartedAt, this.ai.thinkFirstSeconds, current);
+  }
+
+  thinkFirstText(now) {
+    const remaining = this.thinkFirstRemaining(now);
+    return remaining > 0 ? thinkFirstLabel(remaining) : "";
+  }
+
+  refreshThinkFirst(now) {
+    if (!this.thinkFirstNote) return;
+    const remaining = this.thinkFirstRemaining(now);
+    const waiting = this.ai.thinkFirst === true && remaining > 0;
+    this.thinkFirstNote.toggleClass("qt-hidden", !waiting);
+    this.thinkFirstNote.setText(waiting ? thinkFirstLabel(remaining) : "");
+    if (this.sendBtn) this.sendBtn.disabled = this.busy || waiting;
+    if (waiting) {
+      this.thinkFirstStatus = true;
+      if (this.status && !this.busy) this.status.setText(`Think first: ${Math.ceil(remaining / 1000)}s remaining.`);
+      return;
+    }
+    if (this.thinkFirstStatus && this.status && !this.busy) this.status.setText("");
+    this.thinkFirstStatus = false;
+    this.stopThinkFirstTicker();
   }
 
   apiHistory() {
@@ -17512,6 +17561,7 @@ class ChatPanel {
       this.includeSelection = false;
       this.currentNoteContext = "";
       this.paintContext();
+      this.startThinkFirst();
       this.draw();
     });
     this.hint = root.createDiv({ cls: "qt-hint" });
@@ -17528,6 +17578,7 @@ class ChatPanel {
 
     this.transcript = root.createDiv({ cls: "qt-chat" });
     this.status = root.createDiv({ cls: "qt-hint" });
+    this.thinkFirstNote = root.createDiv({ cls: "qt-hint qt-think-first qt-hidden", text: "" });
 
     const row = root.createDiv({ cls: "qt-row" });
     this.input = row.createEl("textarea", {
@@ -17565,6 +17616,7 @@ class ChatPanel {
       }
       command.value = "";
     });
+    this.startThinkFirst();
     this.draw();
   }
 
@@ -17653,14 +17705,18 @@ class ChatPanel {
   setBusy(b) {
     this.busy = b;
     if (!this.sendBtn) return;
-    this.sendBtn.disabled = b;
     this.stopBtn.toggleClass("qt-hidden", !(b && this.view.plugin.backend() !== "api"));
+    this.sendBtn.disabled = b || this.thinkFirstRemaining() > 0;
     this.status.setText(b ? "Working..." : "");
   }
 
   async send(text) {
     text = str(text).trim();
     if (!text || this.busy || !this.ai.enabled) return;
+    if (this.thinkFirstRemaining() > 0) {
+      this.refreshThinkFirst();
+      return;
+    }
     const currentNote = await this.prepareContext();
     if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote);
     const plugin = this.view.plugin;
@@ -18083,6 +18139,7 @@ const { DEFAULT_REFERENCE_SETTINGS } = require("./reference-data");
 const { DEFAULT_ASSIGNMENT_SETTINGS } = require("./assignments");
 const { DEFAULT_SUPPORT } = require("./support");
 const { DEFAULT_AI_LIMITS } = require("./ai-service");
+const { DEFAULT_THINK_FIRST_SECONDS } = require("./think-first");
 
 const VIEW_TYPE = "question-tracker-view";
 const VIEW_TYPE_TODAY = "question-tracker-today";
@@ -18159,6 +18216,8 @@ const DEFAULT_SETTINGS = {
     agentShell: false, // Agent mode: shell commands stay off unless explicitly enabled
     reviewAgentEdits: true, // agent mode: pause file edits and show a diff before applying them
     tutorRole: "private", // "private" | "socratic" | "language"
+    thinkFirst: false, // opt-in: block chat sends until a short in-session countdown ends
+    thinkFirstSeconds: DEFAULT_THINK_FIRST_SECONDS, // 5-120; a conservative default, configurable in AI settings
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
     verification: "mark", // after AI writes an answer: "mark" mismatches for review, or "drop" them
     sessionId: "",
@@ -36004,6 +36063,7 @@ const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimate
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
+const { normalizeThinkFirstSeconds } = require("./think-first");
 const { normalizeReadingSettings } = require("./reading");
 const { normalizeTagTimerSettings, stopRunningTagTimers } = require("./tag-timer");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
@@ -36698,6 +36758,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys), secrets: Object.assign({}, sa.secrets) });
     this.settings.ai.api.models = modelDiscovery.normalizeModelList(this.settings.ai.api.models);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
+    this.settings.ai.thinkFirst = this.settings.ai.thinkFirst === true;
+    this.settings.ai.thinkFirstSeconds = normalizeThinkFirstSeconds(this.settings.ai.thinkFirstSeconds);
     this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
     aiService.normalizeAiService(this.settings.ai);
@@ -51768,6 +51830,7 @@ const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-s
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_MODE_LABELS, STUDY_SKIN_LABELS, normalizeStudyMode, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
+const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SECONDS, normalizeThinkFirstSeconds } = require("./think-first");
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
 const { normalizeVerificationMode } = require("./answer-verification");
@@ -52425,6 +52488,29 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       cls: "setting-item-description",
       text: `Tutor commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}. Type one at the start of a chat message to steer the next reply.`,
     });
+    new Setting(containerEl)
+      .setName("Think-first timer")
+      .setDesc(`Blocks chat sends until a countdown ends, so the first reply is not a reflex. Off by default; ${DEFAULT_THINK_FIRST_SECONDS} seconds is the default. The countdown starts when a chat opens or you press New chat, and applies to both AI backends.`)
+      .addToggle((t) =>
+        t.setValue(ai.thinkFirst === true).onChange(async (v) => {
+          ai.thinkFirst = v;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Think-first delay (seconds)")
+      .setDesc(`Seconds to wait before chat sending is allowed (${MIN_THINK_FIRST_SECONDS}-${MAX_THINK_FIRST_SECONDS}). The next chat uses the new value.`)
+      .addSlider((s) =>
+        s
+          .setLimits(MIN_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, 1)
+          .setValue(normalizeThinkFirstSeconds(ai.thinkFirstSeconds))
+          .setDynamicTooltip()
+          .onChange(async (v) => {
+            ai.thinkFirstSeconds = normalizeThinkFirstSeconds(v);
+            await this.plugin.save();
+          })
+      );
     new Setting(containerEl)
       .setName("Check AI-written answers")
       .setDesc("AI-written multiple-choice answers are checked by a second independent call. Numeric answers with a calculation or answer formula are checked locally by arithmetic. Flag a disagreement for review, or drop a mismatched multiple-choice item.")
@@ -57946,6 +58032,45 @@ module.exports = {
 };
 };
 
+/* ---- src/think-first.js ---- */
+__defs["think-first"] = function (module, exports, require) {
+
+/** Conservative chat nudge: short enough for normal use, long enough to interrupt autopilot. */
+const DEFAULT_THINK_FIRST_SECONDS = 15;
+const MIN_THINK_FIRST_SECONDS = 5;
+const MAX_THINK_FIRST_SECONDS = 120;
+
+/** Keep a saved threshold usable even if data.json was edited or came from an older build. */
+function normalizeThinkFirstSeconds(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return DEFAULT_THINK_FIRST_SECONDS;
+  return Math.min(MAX_THINK_FIRST_SECONDS, Math.max(MIN_THINK_FIRST_SECONDS, n));
+}
+
+/** Milliseconds left in a countdown that began at `startedAt`; 0 when there is no start. */
+function thinkFirstRemainingMs(startedAt, seconds, now) {
+  const start = Number(startedAt);
+  if (!Number.isFinite(start) || start <= 0) return 0;
+  const current = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+  const elapsed = Math.max(0, current - start);
+  return Math.max(0, normalizeThinkFirstSeconds(seconds) * 1000 - elapsed);
+}
+
+function thinkFirstLabel(remainingMs) {
+  const seconds = Math.max(0, Math.ceil(Number(remainingMs) / 1000));
+  return seconds > 0 ? `Think first · ${seconds}s` : "";
+}
+
+module.exports = {
+  DEFAULT_THINK_FIRST_SECONDS,
+  MIN_THINK_FIRST_SECONDS,
+  MAX_THINK_FIRST_SECONDS,
+  normalizeThinkFirstSeconds,
+  thinkFirstRemainingMs,
+  thinkFirstLabel,
+};
+};
+
 /* ---- src/today-view.js ---- */
 __defs["today-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
@@ -60505,6 +60630,7 @@ QuestionTrackerPlugin.__test = {
   TranscriptPracticeModal,
   resultsExport,
   support,
+  thinkFirst: require("./think-first"),
   AssignmentsView,
   AssignmentModal,
   renderAssignmentsSettings,

@@ -5,6 +5,7 @@ const { str } = require("./util");
 const { friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole, tutorRole } = require("./tutor-presets");
 const { buildCurrentNoteContext } = require("./note-context");
+const { thinkFirstLabel, thinkFirstRemainingMs } = require("./think-first");
 const { AgentEditReviewModal } = require("./agent-edit-review-modal");
 const { AiToolReviewModal } = require("./ai-tool-review-modal");
 const { toolProtocol } = require("./ai-tools");
@@ -44,6 +45,54 @@ class ChatPanel {
 
   serverReady() {
     return this.view.plugin.backend() === "api" || !this.ai.managed || this.view.plugin.manager.isRunning();
+  }
+
+  /** One countdown per chat session; New chat starts a fresh one. */
+  startThinkFirst() {
+    this.stopThinkFirstTicker();
+    this.thinkFirstStartedAt = this.ai.thinkFirst === true ? Date.now() : 0;
+    this.thinkFirstStatus = false;
+    if (this.status && !this.busy) this.status.setText("");
+    this.refreshThinkFirst();
+    if (this.ai.thinkFirst === true && this.thinkFirstRemaining() > 0) {
+      this.thinkFirstTicker = activeWindow.setInterval(() => this.refreshThinkFirst(), 250);
+      if (this.view && typeof this.view.registerInterval === "function") this.view.registerInterval(this.thinkFirstTicker);
+    }
+  }
+
+  stopThinkFirstTicker() {
+    if (!this.thinkFirstTicker) return;
+    activeWindow.clearInterval(this.thinkFirstTicker);
+    this.thinkFirstTicker = 0;
+  }
+
+  thinkFirstRemaining(now) {
+    if (this.ai.thinkFirst !== true) return 0;
+    const current = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+    if (!this.thinkFirstStartedAt) this.thinkFirstStartedAt = current;
+    return thinkFirstRemainingMs(this.thinkFirstStartedAt, this.ai.thinkFirstSeconds, current);
+  }
+
+  thinkFirstText(now) {
+    const remaining = this.thinkFirstRemaining(now);
+    return remaining > 0 ? thinkFirstLabel(remaining) : "";
+  }
+
+  refreshThinkFirst(now) {
+    if (!this.thinkFirstNote) return;
+    const remaining = this.thinkFirstRemaining(now);
+    const waiting = this.ai.thinkFirst === true && remaining > 0;
+    this.thinkFirstNote.toggleClass("qt-hidden", !waiting);
+    this.thinkFirstNote.setText(waiting ? thinkFirstLabel(remaining) : "");
+    if (this.sendBtn) this.sendBtn.disabled = this.busy || waiting;
+    if (waiting) {
+      this.thinkFirstStatus = true;
+      if (this.status && !this.busy) this.status.setText(`Think first: ${Math.ceil(remaining / 1000)}s remaining.`);
+      return;
+    }
+    if (this.thinkFirstStatus && this.status && !this.busy) this.status.setText("");
+    this.thinkFirstStatus = false;
+    this.stopThinkFirstTicker();
   }
 
   apiHistory() {
@@ -92,6 +141,7 @@ class ChatPanel {
       this.includeSelection = false;
       this.currentNoteContext = "";
       this.paintContext();
+      this.startThinkFirst();
       this.draw();
     });
     this.hint = root.createDiv({ cls: "qt-hint" });
@@ -108,6 +158,7 @@ class ChatPanel {
 
     this.transcript = root.createDiv({ cls: "qt-chat" });
     this.status = root.createDiv({ cls: "qt-hint" });
+    this.thinkFirstNote = root.createDiv({ cls: "qt-hint qt-think-first qt-hidden", text: "" });
 
     const row = root.createDiv({ cls: "qt-row" });
     this.input = row.createEl("textarea", {
@@ -145,6 +196,7 @@ class ChatPanel {
       }
       command.value = "";
     });
+    this.startThinkFirst();
     this.draw();
   }
 
@@ -233,14 +285,18 @@ class ChatPanel {
   setBusy(b) {
     this.busy = b;
     if (!this.sendBtn) return;
-    this.sendBtn.disabled = b;
     this.stopBtn.toggleClass("qt-hidden", !(b && this.view.plugin.backend() !== "api"));
+    this.sendBtn.disabled = b || this.thinkFirstRemaining() > 0;
     this.status.setText(b ? "Working..." : "");
   }
 
   async send(text) {
     text = str(text).trim();
     if (!text || this.busy || !this.ai.enabled) return;
+    if (this.thinkFirstRemaining() > 0) {
+      this.refreshThinkFirst();
+      return;
+    }
     const currentNote = await this.prepareContext();
     if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote);
     const plugin = this.view.plugin;

@@ -138,6 +138,7 @@ function makeDom() {
           return own.style;
         }
         if (k === "value") return own.value === undefined ? "" : own.value;
+        if (k === "disabled") return own.disabled === true;
         if (k === "classList") {
           return {
             add: (...names) => names.forEach((name) => setClass(name, true)),
@@ -177,6 +178,7 @@ function makeDom() {
       },
       set(_t, k, v) {
         if (k === "value") own.value = v;
+        if (k === "disabled") own.disabled = v === true;
         return true;
       },
     });

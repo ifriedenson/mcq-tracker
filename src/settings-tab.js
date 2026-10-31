@@ -21,6 +21,7 @@ const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-s
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { STUDY_MODE_LABELS, STUDY_SKIN_LABELS, normalizeStudyMode, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
+const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SECONDS, normalizeThinkFirstSeconds } = require("./think-first");
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
 const { normalizeVerificationMode } = require("./answer-verification");
@@ -678,6 +679,29 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       cls: "setting-item-description",
       text: `Tutor commands: ${TUTOR_COMMANDS.map((c) => `/${c.id}`).join(", ")}. Type one at the start of a chat message to steer the next reply.`,
     });
+    new Setting(containerEl)
+      .setName("Think-first timer")
+      .setDesc(`Blocks chat sends until a countdown ends, so the first reply is not a reflex. Off by default; ${DEFAULT_THINK_FIRST_SECONDS} seconds is the default. The countdown starts when a chat opens or you press New chat, and applies to both AI backends.`)
+      .addToggle((t) =>
+        t.setValue(ai.thinkFirst === true).onChange(async (v) => {
+          ai.thinkFirst = v;
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+    new Setting(containerEl)
+      .setName("Think-first delay (seconds)")
+      .setDesc(`Seconds to wait before chat sending is allowed (${MIN_THINK_FIRST_SECONDS}-${MAX_THINK_FIRST_SECONDS}). The next chat uses the new value.`)
+      .addSlider((s) =>
+        s
+          .setLimits(MIN_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, 1)
+          .setValue(normalizeThinkFirstSeconds(ai.thinkFirstSeconds))
+          .setDynamicTooltip()
+          .onChange(async (v) => {
+            ai.thinkFirstSeconds = normalizeThinkFirstSeconds(v);
+            await this.plugin.save();
+          })
+      );
     new Setting(containerEl)
       .setName("Check AI-written answers")
       .setDesc("AI-written multiple-choice answers are checked by a second independent call. Numeric answers with a calculation or answer formula are checked locally by arithmetic. Flag a disagreement for review, or drop a mismatched multiple-choice item.")

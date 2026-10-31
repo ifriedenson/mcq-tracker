@@ -16,6 +16,7 @@ const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimate
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
+const { normalizeThinkFirstSeconds } = require("./think-first");
 const { normalizeReadingSettings } = require("./reading");
 const { normalizeTagTimerSettings, stopRunningTagTimers } = require("./tag-timer");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
@@ -710,6 +711,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.api = Object.assign({}, DEFAULT_SETTINGS.ai.api, sa, { keys: Object.assign({}, sa.keys), secrets: Object.assign({}, sa.secrets) });
     this.settings.ai.api.models = modelDiscovery.normalizeModelList(this.settings.ai.api.models);
     this.settings.ai.tutorRole = normalizeTutorRole(this.settings.ai.tutorRole);
+    this.settings.ai.thinkFirst = this.settings.ai.thinkFirst === true;
+    this.settings.ai.thinkFirstSeconds = normalizeThinkFirstSeconds(this.settings.ai.thinkFirstSeconds);
     this.settings.ai.context = normalizeAiContext(this.settings.ai.context);
     this.settings.ai.verification = normalizeVerificationMode(this.settings.ai.verification);
     aiService.normalizeAiService(this.settings.ai);

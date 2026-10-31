@@ -988,6 +988,11 @@ Choose **Private tutor**, **Socratic tutor**, or **Language partner** under **Se
 
 Type a command at the start of a message to steer the next reply: `/guide`, `/quiz`, `/confuse`, `/gap`, `/predict`, `/feynman`, or `/mock`. The **Tutor commands** menu inserts one for you. They are prompts to the same assistant, not a separate feature: `/feynman`, for example, asks you to teach the idea back before the assistant points out the gaps.
 
+### Think-first timer
+
+The general assistant chat has an optional **Think-first timer**, off by default under **Settings → MCQ Tracker → AI**. When it is on, **Send**, Ctrl/Cmd+Enter and the quick-action prompts stay blocked until a countdown that started when the chat opened (or when you pressed **New chat**) finishes. There is one countdown per chat session, not one before every message. It defaults to **15 seconds** and can be set from **5 to 120 seconds**. There is no skip button inside the chat. The same gate runs before both the Direct API and OpenCode backends. The countdown is local; nothing is sent while it runs.
+
+
 ### Study context (read-only)
 
 Three default-off toggles under **Settings → MCQ Tracker → AI → Study context** let the assistant see aggregate study state: **Practice statistics** (question and attempt counts, accuracy, the weakest skill with at least three attempts), **Due work** (due and unseen questions, due and new cards), and **Next exam** (the next calendar exam, its date and countdown). Only the selected lines are added to the chat request, and no note text, question text, answers or personal notes are included. Nothing is built or sent while AI features are off, and the toggles stay off until you turn them on.

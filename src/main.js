@@ -377,6 +377,7 @@ QuestionTrackerPlugin.__test = {
   TranscriptPracticeModal,
   resultsExport,
   support,
+  thinkFirst: require("./think-first"),
   AssignmentsView,
   AssignmentModal,
   renderAssignmentsSettings,

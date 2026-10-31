@@ -1775,6 +1775,11 @@
   overflow-y: auto;
 }
 
+.qt-think-first {
+  color: var(--text-accent);
+  font-variant-numeric: tabular-nums;
+}
+
 .qt-msg {
   border-radius: var(--radius-m);
   padding: 8px 12px;
