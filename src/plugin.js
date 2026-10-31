@@ -124,6 +124,7 @@ const { normalizeSfcCardsSettings, renderSfcCardsBlock: renderSfcCards } = requi
 const { normalizeCbtExamSettings, renderCbtExamBlock: renderCbtExam } = require("./cbt-exam");
 const { CardArchiveImportModal, archiveFileName, buildCardArchive, mergeCardArchive, normalizeCardArchiveSettings, parseCardArchive } = require("./card-archive");
 const { markNudgeShown, normalizeStudyNudgeSettings, nudgeState: computeNudgeState } = require("./study-nudge");
+const { CourseTemplateModal, normalizeCourseTemplates, renderCourseNote } = require("./course-templates");
 const { collectReviewRecords, fitRetention, normalizeSchedulerFitSettings } = require("./scheduler-fit");
 const { normalizeStudyMapSettings, renderStudyMapBlock: renderStudyMap } = require("./study-map");
 const { normalizeVaultSearchSettings, renderVaultSearchBlock: renderVaultSearch } = require("./vault-search");
@@ -542,6 +543,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "cards-export-archive", name: "Cards: export a portable archive", callback: () => this.exportCardArchive().catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not export the archive.", 6000)) });
     this.addCommand({ id: "cards-import-archive", name: "Cards: import a portable archive", callback: () => this.openCardArchiveImport() });
     this.addCommand({ id: "study-nudge-show", name: "Show today's study nudge", callback: () => this.maybeShowStudyNudge(new Date()) });
+    this.addCommand({ id: "course-note-from-template", name: "Course notes: create a note from a template", callback: () => this.openCourseNoteBuilder() });
     this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
     this.addCommand({ id: "manage-study-status", name: "Manage hidden study items", callback: () => this.openStudyStatusManager() });
 
@@ -812,6 +814,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.cbtExam = normalizeCbtExamSettings(saved.cbtExam);
     this.settings.cardArchive = normalizeCardArchiveSettings(saved.cardArchive);
     this.settings.studyNudge = normalizeStudyNudgeSettings(saved.studyNudge);
+    this.settings.courseTemplates = normalizeCourseTemplates(saved.courseTemplates);
     this.settings.schedulerFit = normalizeSchedulerFitSettings(saved.schedulerFit);
     this.settings.studyMap = normalizeStudyMapSettings(saved.studyMap);
     this.settings.vaultSearch = normalizeVaultSearchSettings(saved.vaultSearch);
@@ -1370,6 +1373,14 @@ class QuestionTrackerPlugin extends Plugin {
 
   studyNudgeEnabled() {
     return normalizeStudyNudgeSettings(this.settings.studyNudge).enabled;
+  }
+
+  courseTemplatesEnabled() {
+    return normalizeCourseTemplates(this.settings.courseTemplates).enabled;
+  }
+
+  courseTemplatesSettings() {
+    return normalizeCourseTemplates(this.settings.courseTemplates);
   }
 
   courseHubEnabled() {
@@ -7903,6 +7914,41 @@ ${body}
     this.settings.studyNudge = markNudgeShown(this.settings.studyNudge, now || new Date());
     this.save();
     return info;
+  }
+
+  /* ---- course note templates (Course Command Center, local part) */
+
+  /** Create one course note from a local note-type template. */
+  async createCourseNote(input) {
+    if (!this.courseTemplatesEnabled()) throw new Error("Course templates are off. Turn them on in Settings, Global, Modules.");
+    const note = renderCourseNote(input, this.settings.courseTemplates);
+    const folder = note.folder;
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        // the folder may already exist
+      }
+    }
+    let path = note.path;
+    let suffix = 2;
+    while (this.app.vault.getAbstractFileByPath(path) && suffix <= 50) {
+      path = `${folder}/${note.fileName} ${suffix}.md`;
+      suffix += 1;
+    }
+    await this.app.vault.create(path, note.markdown);
+    return { path, title: note.title, type: note.type };
+  }
+
+  openCourseNoteBuilder() {
+    if (!this.courseTemplatesEnabled()) {
+      new Notice("Course templates are off. Turn them on in Settings, Global, Modules.", 6000);
+      this.openSettings();
+      return null;
+    }
+    const modal = new CourseTemplateModal(this.app, this);
+    modal.open();
+    return modal;
   }
 
   async addStudySubject(input) {

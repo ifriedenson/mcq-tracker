@@ -169,6 +169,10 @@ Two more MIT-licensed concepts are adapted. The source projects were read as fea
 - **Retain** — [retain](https://github.com/sejder/retain), MIT, Copyright (c) sejder (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: keeping card data in a store outside the notes. `src/card-archive.js` writes and restores one portable JSON archive; it does not move schedules out of notes or change the scheduler.
 - **Better Task** — [better-task](https://github.com/st-vin/better-task), MIT, Copyright (c) st-vin (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: due-work reminders. `src/study-nudge.js` shows one in-app Notice per day and a ribbon label with quiet hours; it requests no OS notification permission and sends nothing.
 
+## Course note templates (October 31, 2026)
+
+- **Course Command Center** — [CourseCommandCenter](https://github.com/flippinhutt/CourseCommandCenter), MIT, Copyright (c) flippinhutt (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: note-type/template mapping for course notes. `src/course-templates.js` implements local templates and note creation; it contains no Canvas client, OAuth flow or network request.
+
 ## Not absorbed (yet)
 
 The product plan also names LearnKit as a future absorb source. It has **not** been copied

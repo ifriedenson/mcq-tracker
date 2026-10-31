@@ -202,6 +202,10 @@
  * - **Retain** — [retain](https://github.com/sejder/retain), MIT, Copyright (c) sejder (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: keeping card data in a store outside the notes. `src/card-archive.js` writes and restores one portable JSON archive; it does not move schedules out of notes or change the scheduler.
  * - **Better Task** — [better-task](https://github.com/st-vin/better-task), MIT, Copyright (c) st-vin (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: due-work reminders. `src/study-nudge.js` shows one in-app Notice per day and a ribbon label with quiet hours; it requests no OS notification permission and sends nothing.
  *
+ * ## Course note templates (October 31, 2026)
+ *
+ * - **Course Command Center** — [CourseCommandCenter](https://github.com/flippinhutt/CourseCommandCenter), MIT, Copyright (c) flippinhutt (licence verified via the repository's `LICENSE`, October 30, 2026). Concept adapted: note-type/template mapping for course notes. `src/course-templates.js` implements local templates and note creation; it contains no Canvas client, OAuth flow or network request.
+ *
  * ## Not absorbed (yet)
  *
  * The product plan also names LearnKit as a future absorb source. It has **not** been copied
@@ -19041,6 +19045,7 @@ const DEFAULT_SETTINGS = {
   satMath: { enabled: true }, // SAT Math block: local step-by-step solver, no score estimate
   cardArchive: { enabled: true, folder: "Archive" }, // portable JSON card archive export/import
   studyNudge: { enabled: false, hour: 9, quietFrom: 22, quietTo: 7, ribbonLabel: true, lastShown: "" }, // opt-in in-app nudge
+  courseTemplates: { enabled: true, folder: "Courses", templates: [] }, // Course Command Center note-type/template mapping
   schedulerFit: { enabled: true, minSamples: 20 }, // LearnKit/Qard-style desired-retention self-fitting from card review counters
   studyMap: { enabled: true, terms: 8, depth: 4 }, // Spaceforge-style local outline/mind-map and key-term map
   vaultSearch: { enabled: true, limit: 5 }, // Gemini Helper/LLM Hub-style cited local vault search, no model call
@@ -20323,6 +20328,246 @@ module.exports = {
   buildCourseNote,
   uniquePath,
   CourseNotesModal,
+};
+};
+
+/* ---- src/course-templates.js ---- */
+__defs["course-templates"] = function (module, exports, require) {
+/*
+ * Course note templates. Course Command Center's remaining local idea is
+ * note-type/template mapping: choose a note type (lecture, unit, review,
+ * assignment, syllabus) and get a consistent course note. Everything is local
+ * and the templates are editable text in settings. No Canvas client, OAuth
+ * flow or network request is involved.
+ */
+const { localDate, str } = require("./util");
+
+const MAX_TEMPLATES = 20;
+const MAX_BODY = 20000;
+const DEFAULT_FOLDER = "Courses";
+const NOTE_TYPES = ["lecture", "unit", "review", "assignment", "syllabus"];
+
+const DEFAULT_TEMPLATES = [
+  {
+    id: "lecture",
+    name: "Lecture notes",
+    type: "lecture",
+    body: "## Overview\n\n## Key concepts\n\n## Worked examples\n\n## Questions to follow up\n",
+  },
+  {
+    id: "unit",
+    name: "Unit plan",
+    type: "unit",
+    body: "## Learning objectives\n\n## Topics\n\n## Readings\n\n## Practice\n",
+  },
+  {
+    id: "review",
+    name: "Exam review",
+    type: "review",
+    body: "## What the exam covers\n\n## Weak spots\n\n## Practice plan\n\n## Formula and definition sheet\n",
+  },
+  {
+    id: "assignment",
+    name: "Assignment brief",
+    type: "assignment",
+    body: "## Task\n\n## Requirements\n\n## Sources\n\n## Checklist\n",
+  },
+  {
+    id: "syllabus",
+    name: "Course syllabus",
+    type: "syllabus",
+    body: "## Course description\n\n## Grading breakdown\n\n## Schedule\n\n## Policies\n",
+  },
+];
+
+function slug(value, fallback) {
+  const clean = str(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return clean || fallback;
+}
+
+function normalizeTemplate(value, index) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const type = NOTE_TYPES.includes(str(source.type).toLowerCase()) ? str(source.type).toLowerCase() : "lecture";
+  const name = str(source.name).replace(/\s+/g, " ").trim().slice(0, 120) || `${type[0].toUpperCase()}${type.slice(1)} notes`;
+  const body = str(source.body).slice(0, MAX_BODY) || DEFAULT_TEMPLATES.find((entry) => entry.type === type).body;
+  return { id: slug(source.id || name, `template-${index + 1}`), name, type, body };
+}
+
+function normalizeCourseTemplates(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const folder = str(source.folder).trim().replace(/^\/+|\/+$/g, "");
+  const raw = Array.isArray(source.templates) ? source.templates : DEFAULT_TEMPLATES;
+  const templates = [];
+  const seen = new Set();
+  for (const entry of raw) {
+    const template = normalizeTemplate(entry, templates.length);
+    if (seen.has(template.id)) continue;
+    seen.add(template.id);
+    templates.push(template);
+    if (templates.length >= MAX_TEMPLATES) break;
+  }
+  return {
+    enabled: !(value === false || source.enabled === false),
+    folder: folder && !/\.\./.test(folder) ? folder.slice(0, 160) : DEFAULT_FOLDER,
+    templates: templates.length ? templates : DEFAULT_TEMPLATES.map((entry, index) => normalizeTemplate(entry, index)),
+  };
+}
+
+function templateVariables(input) {
+  const source = input && typeof input === "object" ? input : {};
+  return {
+    course: str(source.course).trim().slice(0, 120),
+    title: str(source.title).trim().slice(0, 160),
+    date: /^\d{4}-\d{2}-\d{2}$/.test(str(source.date)) ? str(source.date) : localDate(),
+    type: str(source.type).trim().toLowerCase() || "lecture",
+  };
+}
+
+function fillTemplate(body, variables) {
+  const vars = templateVariables(variables);
+  return str(body).replace(/\{\{\s*(course|title|date|type)\s*\}\}/gi, (_match, key) => vars[key.toLowerCase()] || "");
+}
+
+function findTemplate(settings, typeOrId) {
+  const wanted = str(typeOrId).trim().toLowerCase();
+  return (
+    settings.templates.find((template) => template.id === wanted) ||
+    settings.templates.find((template) => template.type === wanted) ||
+    settings.templates[0]
+  );
+}
+
+function safeFileName(value) {
+  return (
+    str(value)
+      .replace(/[\\/:*?"<>|#^[\]]+/g, "-")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 90) || "Course note"
+  );
+}
+
+/**
+ * Render one course note. `template` may be an id or a note type; an unknown
+ * value falls back to the first template so a note is still produced.
+ */
+function renderCourseNote(input, settingsValue) {
+  const settings = normalizeCourseTemplates(settingsValue);
+  const vars = templateVariables(input);
+  const template = findTemplate(settings, input && (input.template || input.type));
+  const title = vars.title || `${vars.course || "Course"} ${template.name}`;
+  const fileName = safeFileName(title);
+  const lines = [
+    "---",
+    "type: course-note",
+  ];
+  if (vars.course) lines.push(`course: ${JSON.stringify(vars.course)}`);
+  lines.push(`course_note_type: ${template.type}`, `created: ${vars.date}`, "---", "", `# ${title}`, "");
+  if (vars.course) lines.push(`**Course:** ${vars.course}`, "");
+  lines.push(fillTemplate(template.body, { ...vars, title }).trim(), "");
+  return {
+    title,
+    fileName,
+    type: template.type,
+    templateId: template.id,
+    folder: settings.folder,
+    path: `${settings.folder}/${fileName}.md`,
+    markdown: `${lines.join("\n").trim()}\n`,
+  };
+}
+
+function templateChoices(settingsValue) {
+  return normalizeCourseTemplates(settingsValue).templates.map((template) => ({ value: template.id, label: `${template.name} (${template.type})` }));
+}
+
+class CourseTemplateModal {
+  constructor(app, plugin) {
+    this.app = app;
+    this.plugin = plugin;
+    this.error = "";
+    this.busy = false;
+    const settings = normalizeCourseTemplates(plugin && plugin.settings && plugin.settings.courseTemplates);
+    this.values = { course: "", title: "", date: localDate(), template: settings.templates[0].id };
+    const { Modal } = require("obsidian");
+    this.modal = new Modal(app);
+    this.modal.onOpen = () => this.draw();
+    this.modal.onClose = () => this.modal.contentEl.empty();
+  }
+
+  open() {
+    this.modal.open();
+  }
+
+  field(parent, label, type, placeholder, key) {
+    const wrap = parent.createDiv({ cls: "qt-field" });
+    wrap.createEl("label", { text: label });
+    const input = wrap.createEl("input", { cls: "qt-input" });
+    input.type = type || "text";
+    if (placeholder) input.placeholder = placeholder;
+    input.value = this.values[key] || "";
+    input.addEventListener("input", () => (this.values[key] = input.value));
+    return input;
+  }
+
+  draw() {
+    const el = this.modal.contentEl;
+    el.empty();
+    el.createEl("h3", { text: "Create a course note" });
+    el.createDiv({ cls: "qt-hint", text: "Choose a note type and fill the fields. The template body is editable in Settings, Global, Modules." });
+    this.field(el, "Course", "text", "Biology", "course");
+    this.field(el, "Title", "text", "Unit 3 — Cell respiration", "title");
+    this.field(el, "Date", "date", "", "date");
+    const wrap = el.createDiv({ cls: "qt-field" });
+    wrap.createEl("label", { text: "Note type" });
+    const select = wrap.createEl("select", { cls: "dropdown" });
+    for (const choice of templateChoices(this.plugin.settings.courseTemplates)) {
+      const option = select.createEl("option", { text: choice.label, value: choice.value });
+      if (choice.value === this.values.template) option.selected = true;
+    }
+    select.addEventListener("change", () => (this.values.template = select.value));
+    if (this.error) el.createDiv({ cls: "qt-error", text: this.error });
+    const row = el.createDiv({ cls: "qt-row" });
+    const create = row.createEl("button", { text: this.busy ? "Creating…" : "Create note", cls: "mod-cta" });
+    create.disabled = this.busy;
+    create.addEventListener("click", () => this.create());
+    row.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.modal.close());
+  }
+
+  async create() {
+    if (this.busy) return;
+    this.busy = true;
+    this.error = "";
+    this.draw();
+    try {
+      const result = await this.plugin.createCourseNote(this.values);
+      const { Notice } = require("obsidian");
+      new Notice(`Course note created: ${result.path}`, 5000);
+      this.modal.close();
+    } catch (e) {
+      this.busy = false;
+      this.error = str(e && e.message ? e.message : e) || "Could not create the course note.";
+      this.draw();
+    }
+  }
+}
+
+module.exports = {
+  DEFAULT_FOLDER,
+  DEFAULT_TEMPLATES,
+  MAX_TEMPLATES,
+  NOTE_TYPES,
+  CourseTemplateModal,
+  fillTemplate,
+  findTemplate,
+  normalizeCourseTemplates,
+  renderCourseNote,
+  safeFileName,
+  templateChoices,
+  templateVariables,
 };
 };
 
@@ -37931,6 +38176,7 @@ const { normalizeSfcCardsSettings, renderSfcCardsBlock: renderSfcCards } = requi
 const { normalizeCbtExamSettings, renderCbtExamBlock: renderCbtExam } = require("./cbt-exam");
 const { CardArchiveImportModal, archiveFileName, buildCardArchive, mergeCardArchive, normalizeCardArchiveSettings, parseCardArchive } = require("./card-archive");
 const { markNudgeShown, normalizeStudyNudgeSettings, nudgeState: computeNudgeState } = require("./study-nudge");
+const { CourseTemplateModal, normalizeCourseTemplates, renderCourseNote } = require("./course-templates");
 const { collectReviewRecords, fitRetention, normalizeSchedulerFitSettings } = require("./scheduler-fit");
 const { normalizeStudyMapSettings, renderStudyMapBlock: renderStudyMap } = require("./study-map");
 const { normalizeVaultSearchSettings, renderVaultSearchBlock: renderVaultSearch } = require("./vault-search");
@@ -38349,6 +38595,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "cards-export-archive", name: "Cards: export a portable archive", callback: () => this.exportCardArchive().catch((e) => new Notice(str(e && e.message ? e.message : e) || "Could not export the archive.", 6000)) });
     this.addCommand({ id: "cards-import-archive", name: "Cards: import a portable archive", callback: () => this.openCardArchiveImport() });
     this.addCommand({ id: "study-nudge-show", name: "Show today's study nudge", callback: () => this.maybeShowStudyNudge(new Date()) });
+    this.addCommand({ id: "course-note-from-template", name: "Course notes: create a note from a template", callback: () => this.openCourseNoteBuilder() });
     this.addCommand({ id: "mixed-review", name: "Start mixed review", callback: () => this.openMixedReview() });
     this.addCommand({ id: "manage-study-status", name: "Manage hidden study items", callback: () => this.openStudyStatusManager() });
 
@@ -38619,6 +38866,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.cbtExam = normalizeCbtExamSettings(saved.cbtExam);
     this.settings.cardArchive = normalizeCardArchiveSettings(saved.cardArchive);
     this.settings.studyNudge = normalizeStudyNudgeSettings(saved.studyNudge);
+    this.settings.courseTemplates = normalizeCourseTemplates(saved.courseTemplates);
     this.settings.schedulerFit = normalizeSchedulerFitSettings(saved.schedulerFit);
     this.settings.studyMap = normalizeStudyMapSettings(saved.studyMap);
     this.settings.vaultSearch = normalizeVaultSearchSettings(saved.vaultSearch);
@@ -39177,6 +39425,14 @@ class QuestionTrackerPlugin extends Plugin {
 
   studyNudgeEnabled() {
     return normalizeStudyNudgeSettings(this.settings.studyNudge).enabled;
+  }
+
+  courseTemplatesEnabled() {
+    return normalizeCourseTemplates(this.settings.courseTemplates).enabled;
+  }
+
+  courseTemplatesSettings() {
+    return normalizeCourseTemplates(this.settings.courseTemplates);
   }
 
   courseHubEnabled() {
@@ -45710,6 +45966,41 @@ ${body}
     this.settings.studyNudge = markNudgeShown(this.settings.studyNudge, now || new Date());
     this.save();
     return info;
+  }
+
+  /* ---- course note templates (Course Command Center, local part) */
+
+  /** Create one course note from a local note-type template. */
+  async createCourseNote(input) {
+    if (!this.courseTemplatesEnabled()) throw new Error("Course templates are off. Turn them on in Settings, Global, Modules.");
+    const note = renderCourseNote(input, this.settings.courseTemplates);
+    const folder = note.folder;
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        // the folder may already exist
+      }
+    }
+    let path = note.path;
+    let suffix = 2;
+    while (this.app.vault.getAbstractFileByPath(path) && suffix <= 50) {
+      path = `${folder}/${note.fileName} ${suffix}.md`;
+      suffix += 1;
+    }
+    await this.app.vault.create(path, note.markdown);
+    return { path, title: note.title, type: note.type };
+  }
+
+  openCourseNoteBuilder() {
+    if (!this.courseTemplatesEnabled()) {
+      new Notice("Course templates are off. Turn them on in Settings, Global, Modules.", 6000);
+      this.openSettings();
+      return null;
+    }
+    const modal = new CourseTemplateModal(this.app, this);
+    modal.open();
+    return modal;
   }
 
   async addStudySubject(input) {
@@ -55807,6 +56098,17 @@ function renderModules(containerEl, plugin, redisplay) {
         st.studyNudge.enabled = v;
         await plugin.save();
         plugin.refreshStudyNudgeLabel();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Course note templates")
+    .setDesc("Create lecture, unit, review, assignment and syllabus notes from local templates with course, title and date placeholders. The templates are editable text; no Canvas login or network request is involved.")
+    .addToggle((t) =>
+      t.setValue(plugin.courseTemplatesEnabled()).onChange(async (v) => {
+        st.courseTemplates.enabled = v;
+        await plugin.save();
         redisplay();
       })
     );
@@ -69509,6 +69811,7 @@ const sfcCards = require("./sfc-cards");
 const cbtExam = require("./cbt-exam");
 const cardArchive = require("./card-archive");
 const studyNudge = require("./study-nudge");
+const courseTemplates = require("./course-templates");
 const schedulerFit = require("./scheduler-fit");
 const studyMap = require("./study-map");
 const vaultSearch = require("./vault-search");
@@ -69708,6 +70011,7 @@ QuestionTrackerPlugin.__test = {
   cbtExam,
   cardArchive,
   studyNudge,
+  courseTemplates,
   schedulerFit,
   studyMap,
   vaultSearch,

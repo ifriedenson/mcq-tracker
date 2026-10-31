@@ -151,6 +151,7 @@ const DEFAULT_SETTINGS = {
   satMath: { enabled: true }, // SAT Math block: local step-by-step solver, no score estimate
   cardArchive: { enabled: true, folder: "Archive" }, // portable JSON card archive export/import
   studyNudge: { enabled: false, hour: 9, quietFrom: 22, quietTo: 7, ribbonLabel: true, lastShown: "" }, // opt-in in-app nudge
+  courseTemplates: { enabled: true, folder: "Courses", templates: [] }, // Course Command Center note-type/template mapping
   schedulerFit: { enabled: true, minSamples: 20 }, // LearnKit/Qard-style desired-retention self-fitting from card review counters
   studyMap: { enabled: true, terms: 8, depth: 4 }, // Spaceforge-style local outline/mind-map and key-term map
   vaultSearch: { enabled: true, limit: 5 }, // Gemini Helper/LLM Hub-style cited local vault search, no model call

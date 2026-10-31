@@ -303,6 +303,17 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Course note templates")
+    .setDesc("Create lecture, unit, review, assignment and syllabus notes from local templates with course, title and date placeholders. The templates are editable text; no Canvas login or network request is involved.")
+    .addToggle((t) =>
+      t.setValue(plugin.courseTemplatesEnabled()).onChange(async (v) => {
+        st.courseTemplates.enabled = v;
+        await plugin.save();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("SFC-style card blocks")
     .setDesc("Study basic, reversed, cloze, essay, worked-solution, wrong-answer-sprint and source-marked cards in local sfc-cards blocks. Reveals and self-checks are not recorded.")
     .addToggle((t) =>
