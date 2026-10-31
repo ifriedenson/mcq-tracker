@@ -360,6 +360,10 @@ Add `Level: L1` (or `Cognitive level: L1`) at the top of an `mcq-quiz` block to 
 
 Add `Mode: static` (or `mode: static`) at the top of an `mcq-quiz` block to render it as a read-only answer key. Correct answer choices are marked, each `Why A:` feedback line and the `Why:` explanation appear, and no answer inputs or Check button are created. Nothing is written: no attempt, history, streak, next review, `quizResults` export or scheduler state changes, and `gated:` is ignored in this mode. Remove the line to return to interactive practice.
 
+### Mirrored quiz blocks
+
+Give a source `mcq-quiz` block an `Id:` line, then mirror it from another block with `Bind: <id>` (read-only answer key) or `Copy: <id>` (answerable, keeping the source's mode). Add `Stem: off` to the mirror to show only its options. The id is resolved in the current note first, then across the vault; a missing or nested mirror explains itself in place. Mirrors ignore the source's `gated:` setting, so a mirror cannot hide the rest of the note, and they add no new write path: a `Copy` still records through the source's `ID:` lines exactly like the source block. Favourites are not included.
+
 ### Closed-book practice (optional)
 
 Turn on **Settings → MCQ Tracker → Review → Closed-book practice** to hide the **Open note** shortcut during a question. The question, choices and timer stay visible; the source row, answer note and explanation unlock only after you submit. The option is off by default, and it changes no attempts, history, streak, next review or scheduling. The toggle is a saved setting, so it stays on across practice sessions and plugin restarts; turn it off to restore the Open note shortcut.

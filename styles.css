@@ -3640,6 +3640,14 @@
   font-size: 0.9rem;
 }
 
+.qt-cards-tools {
+  flex-wrap: wrap;
+}
+
+.qt-cards-tools button {
+  flex: 1 1 8.5rem;
+}
+
 .qt-cards-pending-count {
   color: var(--text-accent);
   font-weight: 600;
@@ -4254,7 +4262,12 @@
 }
 
 .qt-ref-tabs {
+  flex-wrap: wrap;
   margin-bottom: 14px;
+}
+
+.qt-ref-tabs .qt-ref-tab {
+  flex: 1 1 6.5rem;
 }
 
 .qt-ref-search,
@@ -5021,6 +5034,7 @@
   border-left: 3px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 9px 10px;
 }
@@ -5042,9 +5056,7 @@
 
 .qt-assignment-task-title {
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .qt-assignment-task-meta {
@@ -5847,3 +5859,70 @@
 .qt-quizport-missed { border-top: 1px solid var(--background-modifier-border); margin-top: 10px; padding-top: 8px; }
 .qt-quizport-missed-title { font-weight: 600; margin-bottom: 4px; }
 .qt-quizport-missed-item { color: var(--text-muted); margin: 2px 0; }
+
+/* ---- laptop layouts: 701-1100 px of usable pane width ---- */
+/* The shared 960/1040 px column still leaves split panes, stat grids and
+   toolbar rows cramped on a 1280x800 laptop with the sidebar open. These
+   rules only touch that middle band; the phone rules below 700 px and the
+   full-width Today overrides are unchanged. */
+@container (min-width: 701px) and (max-width: 1100px) {
+  .qt-split {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 42%) minmax(0, 1fr);
+  }
+
+  .qt-split.is-single {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .qt-pane {
+    padding: 14px 18px 22px;
+  }
+
+  .qt-pane-left {
+    border-right: none;
+    border-bottom: 3px solid var(--background-modifier-border-hover);
+  }
+
+  .qt-split.is-single .qt-pane-right {
+    max-width: none;
+  }
+
+  .qt-ins-row {
+    grid-template-columns: minmax(0, 1fr) 84px auto;
+  }
+
+  .qt-dash-course .qt-ins-meter {
+    width: 84px;
+  }
+
+  .qt-ref-tabs {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .qt-ref-tabs .qt-ref-tab {
+    flex: none;
+  }
+
+  .qt-ref-canvas {
+    height: clamp(220px, 32vh, 320px);
+  }
+
+  .qt-assignment-task-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+}
+
+@container (min-width: 701px) and (max-width: 899px) {
+  .qt-dash-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 900px) and (max-width: 1100px) {
+  .qt-dash-stats {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}

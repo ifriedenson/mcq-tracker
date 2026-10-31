@@ -129,6 +129,9 @@ function parseQuizBlock(text) {
   let mode = "interactive";
   let level = "";
   let quizId = "";
+  let bind = "";
+  let copy = "";
+  let keepStem = true;
   let pass = DEFAULT_PASS;
   let imprecise = DEFAULT_IMPRECISE;
   const questions = [];
@@ -168,6 +171,18 @@ function parseQuizBlock(text) {
     const blockId = line.match(/^(?:(?:quiz[\s-]*)?id)\s*[:=]\s*(.*)$/i);
     if (!cur && blockId) {
       quizId = clean(blockId[1]).slice(0, 120);
+      continue;
+    }
+    const binding = line.match(/^(bind|copy)\s*[:=]\s*(.*)$/i);
+    if (!cur && binding) {
+      const target = clean(binding[2]).slice(0, 120);
+      if (binding[1].toLowerCase() === "bind") bind = target;
+      else copy = target;
+      continue;
+    }
+    const stemLine = line.match(/^stem\s*[:=]\s*(.*)$/i);
+    if (!cur && stemLine) {
+      keepStem = !/^(?:off|false|no|hide|hidden)$/i.test(clean(stemLine[1]));
       continue;
     }
     const passLine = line.match(/^(?:pass(?:ing)?(?:\s*score)?|min_score_to_pass)\s*[:=]\s*(\d+(?:\.\d+)?)$/i);
@@ -338,7 +353,30 @@ function parseQuizBlock(text) {
     question.imprecise = imprecise;
     question.valid = question.issues.length === 0;
   }
-  return { gated, id: quizId, pass, imprecise, mode, questions };
+  return { gated, id: quizId, bind, copy, keepStem, pass, imprecise, mode, questions };
+}
+
+/** Every `mcq-quiz` fenced block in a note, in document order. */
+function fencedQuizBlocks(text) {
+  const blocks = [];
+  const fence = /^[ \t]*```+[ \t]*mcq-quiz\b[^\n]*\r?\n([\s\S]*?)^[ \t]*```+[ \t]*$/gm;
+  let match = fence.exec(str(text));
+  while (match) {
+    blocks.push(match[1]);
+    match = fence.exec(str(text));
+  }
+  return blocks;
+}
+
+/** Find the source of the one block with a stable id, ignoring mirror blocks. */
+function findQuizBlockSource(text, id) {
+  const wanted = str(id).trim();
+  if (!wanted) return "";
+  for (const source of fencedQuizBlocks(text)) {
+    const parsed = parseQuizBlock(source);
+    if (parsed.id === wanted && !parsed.bind && !parsed.copy) return source;
+  }
+  return "";
 }
 
 /** Grade one multiple-choice selection and mark every option with its feedback. */
@@ -554,6 +592,7 @@ module.exports = {
   DEFAULT_PASS,
   LETTERS,
   bandForScore,
+  findQuizBlockSource,
   gradeQuizBlockQuestion,
   gradeNumericQuestion,
   gradeQuizQuestion,

@@ -1666,7 +1666,14 @@ function pdfRawPageLines(page) {
 
 /** Inserts blank lines where the printed page leaves a larger-than-normal vertical gap. */
 function pdfPageLines(page) {
-  const raw = pdfRawPageLines(page);
+  const all = pdfRawPageLines(page);
+  // A Quizlet printout starts with the site name and the set title above the
+  // "Terms in this set" line. That title is not furniture on a single page,
+  // so drop everything before the marker; otherwise a one-page printout
+  // pairs the title with the first term and shifts every card by one.
+  const anchor = all.findIndex((line) => /^terms?\s+in\s+this\s+set\b/i.test(line.text));
+  const raw = anchor >= 0 ? all.slice(anchor + 1) : all;
+  if (!raw.length) return [];
   const ys = raw.map((line) => line.y).filter((y) => Number.isFinite(y));
   if (ys.length < 2) return raw;
   const gaps = [];

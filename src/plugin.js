@@ -95,7 +95,7 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
-const { gradeNumericQuestion, gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
+const { findQuizBlockSource, gradeNumericQuestion, gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
 const quizNoteGate = require("./quiz-note-gate");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
@@ -3558,9 +3558,57 @@ class QuestionTrackerPlugin extends Plugin {
     return parseQuizAiEvaluation(reply);
   }
 
+  /** Find the source of an `mcq-quiz` block by its stable id, current note first. */
+  async findQuizBlockSourceById(id, sourcePath) {
+    const wanted = str(id).trim();
+    if (!wanted) return "";
+    const files = this.app.vault.getMarkdownFiles ? this.app.vault.getMarkdownFiles() : [];
+    const ordered = files.slice().sort((a, b) => (a.path === sourcePath ? -1 : b.path === sourcePath ? 1 : 0));
+    for (const file of ordered) {
+      let text = "";
+      try {
+        text = await this.app.vault.cachedRead(file);
+      } catch (e) {
+        continue;
+      }
+      const found = findQuizBlockSource(text, wanted);
+      if (found) return found;
+    }
+    return "";
+  }
+
   /** Render an `mcq-quiz` fenced block: choices, sliders, text and weighted scoring. */
   async renderQuizBlock(source, el, ctx) {
-    const parsed = parseQuizBlock(source);
+    let parsed = parseQuizBlock(source);
+    const bindingId = str(parsed.bind || parsed.copy).trim();
+    if (bindingId) {
+      if (parsed.bind && parsed.copy) {
+        el.createDiv({ cls: "qt-quiz-empty", text: "Use either Bind: or Copy: on a mirror block, not both." });
+        return;
+      }
+      const readOnly = !!parsed.bind;
+      const targetSource = await this.findQuizBlockSourceById(bindingId, ctx && ctx.sourcePath);
+      if (!targetSource) {
+        el.createDiv({
+          cls: "qt-quiz-empty",
+          text: `This ${readOnly ? "bind" : "copy"} block points to "${bindingId}", but no mcq-quiz block with that id was found. Add Id: ${bindingId} to the source block or check the spelling.`,
+        });
+        return;
+      }
+      const target = parseQuizBlock(targetSource);
+      if (target.bind || target.copy) {
+        el.createDiv({ cls: "qt-quiz-empty", text: `The block with id "${bindingId}" is itself a mirror. Point it at a block that contains questions.` });
+        return;
+      }
+      if (!target.questions.length) {
+        el.createDiv({ cls: "qt-quiz-empty", text: `The block with id "${bindingId}" has no questions to mirror.` });
+        return;
+      }
+      if (readOnly) target.mode = "static";
+      target.gated = false;
+      if (parsed.keepStem === false) target.keepStem = false;
+      parsed = target;
+    }
     if (!parsed.questions.length) {
       el.createDiv({ cls: "qt-quiz-empty", text: "This quiz block has no questions. Start a question with Q: and add choices with A., B., ..." });
       return;
@@ -3654,12 +3702,12 @@ class QuestionTrackerPlugin extends Plugin {
     parsed.questions.forEach((question, index) => {
       const card = box.createDiv({ cls: "qt-quiz-card" });
       if (question.sharedOptions && this.settings.inlineQuizSharedChoice !== true) {
-        card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
+        if (parsed.keepStem !== false) card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
         card.createDiv({ cls: "qt-quiz-issue", text: "Shared-option questions are off. Turn on Shared-option quiz questions under Settings → MCQ Review." });
         return;
       }
       cards.push(card);
-      card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
+      if (parsed.keepStem !== false) card.createDiv({ cls: "qt-quiz-question", text: `${index + 1}. ${question.question}` });
       if (question.level) card.createDiv({ cls: "qt-quiz-level", text: `Level ${question.level}` });
       if (question.weight !== 1) card.createDiv({ cls: "qt-quiz-weight", text: `Weight ${question.weight}` });
       if (!question.valid) {
