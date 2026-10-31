@@ -7246,6 +7246,12 @@ function splitProperty(line) {
   return { name: tokens[0].toUpperCase(), params, value };
 }
 
+/** ICS extension `X-MCQ-WEEK-PARITY: odd|even`; unknown values are ignored. */
+function normalizeWeekParity(value) {
+  const parity = String(value || "").trim().toLowerCase();
+  return parity === "odd" || parity === "even" ? parity : "";
+}
+
 /**
  * Parses VEVENT blocks into raw events. Recurrence is expanded separately by expandIcs,
  * so a cancelled instance can suppress its parent occurrence.
@@ -7275,6 +7281,7 @@ function parseIcs(text) {
     else if (name === "DESCRIPTION") cur.description = unescapeIcs(value);
     else if (name === "LOCATION") cur.location = unescapeIcs(value);
     else if (name === "STATUS") cur.status = String(value).trim().toUpperCase();
+    else if (name === "X-MCQ-WEEK-PARITY") cur.weekParity = normalizeWeekParity(value);
     else if (name === "UID") cur.uid = String(value).trim();
     else if (name === "RRULE") cur.rrule = String(value).trim();
     else if (name === "DURATION") cur.durationMs = parseDuration(value);
@@ -7494,6 +7501,7 @@ function expandIcs(baseEvents, windowStart, windowEnd) {
       if (!ov.summary && parent.summary) ov.summary = parent.summary;
       if (!ov.location && parent.location) ov.location = parent.location;
       if (!ov.description && parent.description) ov.description = parent.description;
+      if (!ov.weekParity && parent.weekParity) ov.weekParity = parent.weekParity;
     }
   }
 
@@ -7574,6 +7582,8 @@ function exportIcs(events, options) {
     }
     if (ev.location) lines.push(`LOCATION:${escapeIcs(ev.location)}`);
     if (ev.description) lines.push(`DESCRIPTION:${escapeIcs(ev.description)}`);
+    const weekParity = normalizeWeekParity(ev.weekParity);
+    if (weekParity) lines.push(`X-MCQ-WEEK-PARITY:${weekParity}`);
     lines.push("END:VEVENT");
   });
   lines.push("END:VCALENDAR");
@@ -7659,6 +7669,7 @@ module.exports = {
   unescapeIcs,
   escapeIcs,
   unfoldIcs,
+  normalizeWeekParity,
   parseIcs,
   parseRrule,
   rruleOccurrences,
@@ -7852,7 +7863,7 @@ __defs["calendar-model"] = function (module, exports, require) {
  * baseline commit 35778e473a1d7ad7827c83c065b0f61dcbefdbc5. Labels are English-first;
  * see NOTICES.md.
  */
-const { dateKey, parseDateKey } = require("./calendar-ics");
+const { dateKey, normalizeWeekParity, parseDateKey } = require("./calendar-ics");
 
 const pad2 = (n) => String(n).padStart(2, "0");
 
@@ -8160,6 +8171,8 @@ function applyTermWeeks(settings, events) {
     }
     const info = termWeekInfo(settings, event.dateKey);
     if (!info || !info.inTerm) continue;
+    const parity = normalizeWeekParity(event.weekParity);
+    if (parity && (info.week % 2 === 1 ? "odd" : "even") !== parity) continue;
     const copy = Object.assign({}, event, { termWeek: info.week });
     if (info.readingWeek) {
       copy.termReadingWeek = true;

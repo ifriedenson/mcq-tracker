@@ -75,6 +75,44 @@ test("ics: reads timed and all-day events, folded lines and escaped text", () =>
   assert.equal(ics.dateKey(parsed[1].dtstart), "2026-12-15");
 });
 
+test("ics: X-MCQ-WEEK-PARITY reads odd/even, ignores invalid values, and survives export", () => {
+  const parsed = ics.parseIcs(
+    wrap(
+      event({ uid: "odd", start: "20261005T100000", end: "20261005T110000", extra: ["X-MCQ-WEEK-PARITY:ODD"] }),
+      event({ uid: "invalid", start: "20261005T100000", end: "20261005T110000", extra: ["X-MCQ-WEEK-PARITY:sometimes"] })
+    )
+  );
+  assert.equal(parsed[0].weekParity, "odd");
+  assert.equal(parsed[1].weekParity, "");
+  const exported = ics.exportIcs([{ ...parsed[0], dateKey: "2026-10-05" }], { now: new Date(2026, 9, 1) });
+  assert.match(exported, /X-MCQ-WEEK-PARITY:odd/);
+});
+
+test("ics: a moved occurrence inherits the series parity unless it sets its own", () => {
+  const base = ics.parseIcs(
+    wrap(
+      event({
+        uid: "series",
+        start: "20261005T100000",
+        end: "20261005T110000",
+        rrule: "FREQ=WEEKLY;COUNT=3",
+        extra: ["X-MCQ-WEEK-PARITY:odd"],
+      }),
+      event({ uid: "series", start: "20261013T140000", end: "20261013T150000", recurrenceId: "20261012T100000" }),
+      event({
+        uid: "series",
+        start: "20261019T160000",
+        end: "20261019T170000",
+        recurrenceId: "20261019T100000",
+        extra: ["X-MCQ-WEEK-PARITY:even"],
+      })
+    )
+  );
+  const expanded = ics.expandIcs(base, new Date(2026, 9, 1), new Date(2026, 9, 31, 23, 59));
+  assert.equal(expanded.find((ev) => ev.dateKey === "2026-10-13").weekParity, "odd");
+  assert.equal(expanded.find((ev) => ev.dateKey === "2026-10-19").weekParity, "even");
+});
+
 test("ics: UTC timestamps become the same instant, and DURATION fills in the end", () => {
   const parsed = ics.parseIcs(
     wrap(line("BEGIN:VEVENT", "UID:z", "SUMMARY:Office hours", "DTSTART:20261005T080000Z", "DURATION:PT90M", "END:VEVENT"))

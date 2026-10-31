@@ -116,6 +116,26 @@ test("term filtering: classes outside the semester are hidden, reading classes a
   assert.equal(model.applyTermWeeks(off, events), events, "with no semester start the same event list is returned");
 });
 
+test("term parity: odd/even classes follow the numbered term week, exams stay, and the schema is inert without a start", () => {
+  const settings = termSettings();
+  const events = [
+    { uid: "odd-week1", summary: "Linear Algebra", dateKey: "2026-09-07", weekParity: "ODD" },
+    { uid: "even-week1", summary: "Linear Algebra", dateKey: "2026-09-07", weekParity: "even" },
+    { uid: "odd-week2", summary: "Linear Algebra", dateKey: "2026-09-14", weekParity: "odd" },
+    { uid: "even-week2", summary: "Linear Algebra", dateKey: "2026-09-14", weekParity: "even" },
+    { uid: "odd-reading", summary: "Linear Algebra", dateKey: "2026-10-20", weekParity: "odd" },
+    { uid: "even-reading", summary: "Linear Algebra", dateKey: "2026-10-20", weekParity: "even" },
+    { uid: "exam", summary: "Linear Algebra - Final Exam", dateKey: "2026-09-08", weekParity: "even" },
+  ];
+  const kept = model.applyTermWeeks(settings, events);
+  assert.deepEqual(kept.map((event) => event.uid), ["odd-week1", "even-week2", "odd-reading", "exam"]);
+  assert.equal(kept[2].termReadingWeek, true);
+  assert.equal(kept[3].termReadingWeek, undefined, "exams are never suspended by parity");
+
+  const off = model.mergeCalendarSettings({});
+  assert.equal(model.applyTermWeeks(off, events), events, "parity is inert until a semester start is set");
+});
+
 test("next class: reading-week classes are skipped without changing event history", () => {
   const settings = termSettings();
   const morning = { uid: "morning", summary: "Linear Algebra", dateKey: "2026-10-20", dtstart: new Date(2026, 9, 20, 9), dtend: new Date(2026, 9, 20, 10) };

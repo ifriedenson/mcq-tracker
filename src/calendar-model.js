@@ -9,7 +9,7 @@
  * baseline commit 35778e473a1d7ad7827c83c065b0f61dcbefdbc5. Labels are English-first;
  * see NOTICES.md.
  */
-const { dateKey, parseDateKey } = require("./calendar-ics");
+const { dateKey, normalizeWeekParity, parseDateKey } = require("./calendar-ics");
 
 const pad2 = (n) => String(n).padStart(2, "0");
 
@@ -317,6 +317,8 @@ function applyTermWeeks(settings, events) {
     }
     const info = termWeekInfo(settings, event.dateKey);
     if (!info || !info.inTerm) continue;
+    const parity = normalizeWeekParity(event.weekParity);
+    if (parity && (info.week % 2 === 1 ? "odd" : "even") !== parity) continue;
     const copy = Object.assign({}, event, { termWeek: info.week });
     if (info.readingWeek) {
       copy.termReadingWeek = true;
