@@ -35637,6 +35637,7 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
+const { noteQuizToQuickAdd } = require("./quiz-clipboard");
 const { findQuizBlockSource, gradeNumericQuestion, gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
 const quizNoteGate = require("./quiz-note-gate");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
@@ -35770,6 +35771,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "export-review-sheet", name: "Export an error-log review sheet", callback: () => this.exportReviewSheet() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
+    this.addCommand({ id: "import-quiz-clipboard", name: "Import a generated quiz from the clipboard", callback: () => this.openQuizClipboardImport() });
     this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and cards)", callback: () => this.exportStudyBundle() });
     this.addCommand({
       id: "import-study-bundle",
@@ -38918,6 +38920,44 @@ class QuestionTrackerPlugin extends Plugin {
   openQuickAdd() {
     if (this.moduleOff("mcq")) return;
     new QuickAddModal(this.app, this, () => this.refreshViews()).open();
+  }
+
+  /** Read Note Quiz Engine-style Markdown from the clipboard without writing anything. */
+  async readQuizFromClipboard() {
+    const empty = { text: "", found: 0, valid: 0, issues: [], errors: [] };
+    if (this.moduleOff("mcq")) return { ...empty, errors: ["Turn on MCQ Tracker to import questions."] };
+    const clipboard = typeof navigator !== "undefined" && navigator ? navigator.clipboard : null;
+    if (!clipboard || typeof clipboard.readText !== "function") {
+      return {
+        ...empty,
+        errors: ["This build cannot read the clipboard. Copy the generated Markdown and use Quick add questions instead."],
+      };
+    }
+    let raw = "";
+    try {
+      raw = await clipboard.readText();
+    } catch (e) {
+      return { ...empty, errors: [`The clipboard could not be read (${str(e && e.message ? e.message : e)}). Copy the generated Markdown and try again.`] };
+    }
+    if (!str(raw).trim()) return { ...empty, errors: ["The clipboard is empty. Copy the generated Markdown first."] };
+    return noteQuizToQuickAdd(raw);
+  }
+
+  /** Read a generated note-quiz block and pre-fill the previewed Quick add dialog. */
+  async openQuizClipboardImport() {
+    if (this.moduleOff("mcq")) return null;
+    const parsed = await this.readQuizFromClipboard();
+    if (!parsed.valid) {
+      const issue = parsed.issues && parsed.issues[0];
+      const message = (parsed.errors && parsed.errors[0]) || (issue && issue.message) || "No note-quiz blocks were found on the clipboard.";
+      new Notice(message, 10000);
+      return parsed;
+    }
+    new QuickAddModal(this.app, this, () => this.refreshViews(), {
+      text: parsed.text,
+      note: `Read ${parsed.valid} question${parsed.valid === 1 ? "" : "s"} from the clipboard. Review the preview, then press Create.`,
+    }).open();
+    return parsed;
   }
 
   /** Write already-previewed quick-add items as ordinary question notes. */
@@ -44819,6 +44859,13 @@ const NAMED_FIELDS = {
   rationale: "explanation",
   hint: "hint",
   clue: "hint",
+  accepted: "accepted",
+  "accepted answer": "accepted",
+  "accepted answers": "accepted",
+  alternate: "accepted",
+  alternates: "accepted",
+  alternative: "accepted",
+  alternatives: "accepted",
   course: "course",
   skill: "skill",
   difficulty: "difficulty",
@@ -44832,7 +44879,7 @@ function fieldAt(line) {
   if (question) return { key: "question", text: question[1] };
   const choice = line.match(/^[-*+]?\s*([A-H])\s*[.):]\s*(.*)$/);
   if (choice) return { key: "choice", text: choice[2] };
-  const named = line.match(/^(Stimulus|Passage|Source|Answer|Key|Correct answer|Correct|Why|Explanation|Rationale|Hint|Clue|Course|Skill|Difficulty|Unit|Test)\s*[:.)]\s*(.*)$/i);
+  const named = line.match(/^(Stimulus|Passage|Source|Answer|Key|Correct answer|Correct|Why|Explanation|Rationale|Hint|Clue|Accepted answers?|Accepted|Alternates?|Alternatives?|Course|Skill|Difficulty|Unit|Test)\s*[:.)]\s*(.*)$/i);
   if (named) {
     const key = NAMED_FIELDS[named[1].toLowerCase().replace(/\s+/g, " ")];
     if (key) return { key, text: named[2] };
@@ -44840,11 +44887,11 @@ function fieldAt(line) {
   return null;
 }
 
-const TEXT_FIELDS = new Set(["question", "stimulus", "explanation", "hint"]);
+const TEXT_FIELDS = new Set(["question", "stimulus", "explanation", "hint", "accepted"]);
 const META_FIELDS = new Set(["course", "skill", "difficulty", "unit", "test"]);
 
 function emptyBlock() {
-  return { question: "", stimulus: "", explanation: "", hint: "", answer: "", choices: [], meta: {}, last: null };
+  return { question: "", stimulus: "", explanation: "", hint: "", answer: "", accepted: "", choices: [], meta: {}, last: null };
 }
 
 /** Split pasted text into blocks. Everything before the first "Q:" line is ignored. */
@@ -44900,6 +44947,15 @@ function splitBlocks(text) {
 
 const cleanText = (value) => str(value).replace(/[ \t]+\n/g, "\n").trim();
 
+/** A note may accept several equivalent text answers, separated by | or new lines. */
+function splitAccepted(value) {
+  return str(value)
+    .split("|")
+    .flatMap((part) => part.split(/\n+/))
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 /**
  * Read the key the user typed. A choice's own text, a letter and a set
  * ("A, C") all resolve to the letter(s) the note needs.
@@ -44922,6 +44978,7 @@ function normalizeBlock(block, defaults) {
   const question = cleanText(block.question);
   const choices = block.choices.map((choice) => cleanText(choice)).filter(Boolean);
   const rawKey = cleanText(block.answer);
+  const acceptedAll = splitAccepted(block.accepted);
   const issues = [];
 
   if (!question) issues.push('Add the question text on a line starting with "Q:".');
@@ -44931,9 +44988,10 @@ function normalizeBlock(block, defaults) {
   let answer = "";
   let questionType = "";
   if (!choices.length) {
-    if (!rawKey) issues.push('Add the key with "Answer:", for example "Answer: 12.5".');
+    const primary = rawKey || acceptedAll[0] || "";
+    if (!primary) issues.push('Add the key with "Answer:", for example "Answer: 12.5".');
     else {
-      answer = rawKey;
+      answer = primary;
       questionType = "spr";
     }
   } else if (!rawKey) {
@@ -44953,6 +45011,7 @@ function normalizeBlock(block, defaults) {
     hint: cleanText(block.hint),
     choices,
     answer,
+    accepted: choices.length ? [] : acceptedAll.filter((value) => value.toLowerCase() !== answer.toLowerCase()),
     explanation: cleanText(block.explanation),
     questionType,
     test: pick("test"),
@@ -45000,6 +45059,8 @@ function quickAddNote(item, qid) {
   fm.question_type = data.questionType || (choices.length ? "mcq" : "spr");
   if (choices.length) fm.choices = choices.length;
   fm.answer = str(data.answer).trim();
+  const accepted = Array.isArray(data.accepted) ? data.accepted.map((value) => str(value).trim()).filter(Boolean) : [];
+  if (accepted.length) fm.accepted_answers = accepted;
 
   const lines = ["---", stringifyYaml(fm).trimEnd(), "---", ""];
   const stimulus = str(data.stimulus).trim();
@@ -45061,11 +45122,13 @@ Answer: 0.75`;
  * question. Pasting never writes on its own: the preview always comes first.
  */
 class QuickAddModal extends Modal {
-  constructor(app, plugin, onDone) {
+  constructor(app, plugin, onDone, options) {
     super(app);
     this.plugin = plugin;
     this.onDone = onDone || (() => {});
-    this.text = "";
+    const opts = options || {};
+    this.text = str(opts.text || "");
+    this.note = str(opts.note || "");
     this.course = "";
     this.folder = str(plugin.settings.questionFolder).trim() || "Questions";
     this.items = [];
@@ -45083,6 +45146,7 @@ class QuickAddModal extends Modal {
       cls: "setting-item-description",
       text: "Paste one or more questions. Each one starts with \"Q:\", its choices go on lines like \"A.\", and the key goes on \"Answer:\". Nothing is written until you press Create.",
     });
+    if (this.note) el.createEl("p", { cls: "qt-hint", text: this.note });
     el.createEl("pre", { cls: "qt-quick-add-example", text: EXAMPLE });
 
     this.box = el.createEl("textarea", {
@@ -45916,6 +45980,200 @@ module.exports = {
   resolveOrder,
   visibleQuizCount,
 };
+};
+
+/* ---- src/quiz-clipboard.js ---- */
+__defs["quiz-clipboard"] = function (module, exports, require) {
+/*
+ * Import the `note-quiz` Markdown that Note Quiz Engine (and AI tools following
+ * its prompt) produces, and turn it into Quick add text. Nothing here touches
+ * the vault or the clipboard: the command reads the clipboard in plugin.js,
+ * and the existing Quick add dialog still previews before writing.
+ *
+ *   ```note-quiz
+ *   quiz:
+ *   type: choice
+ *   question: "Which command shows memory?"
+ *   options:
+ *   - "df"
+ *   - "free"
+ *   answer: 2
+ *   explanation: "free shows memory and swap."
+ *   ```
+ */
+const { str } = require("./util");
+
+const LETTERS = "ABCDEFGH";
+
+function unquote(value) {
+  const text = str(value).trim();
+  if (/^".*"$/.test(text)) {
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return text.slice(1, -1).replace(/\\"/g, '"');
+    }
+  }
+  if (/^'.*'$/.test(text)) return text.slice(1, -1).replace(/''/g, "'");
+  return text;
+}
+
+/** A deliberately small YAML reader for the fields Note Quiz Engine emits. */
+function parseNoteQuizFields(source) {
+  const out = { options: [], answers: [] };
+  const lines = str(source).replace(/\r\n?/g, "\n").split("\n");
+  let list = "";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith("#")) continue;
+    if (/^quiz\s*:\s*$/i.test(line)) continue;
+    const item = line.match(/^-\s+(.*)$/);
+    if (item && list) {
+      out[list].push(unquote(item[1]));
+      continue;
+    }
+    const field = line.match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
+    if (!field) continue;
+    const key = field[1].toLowerCase();
+    const value = field[2].trim();
+    if (key === "options" || key === "answers") {
+      list = key;
+      if (value) out[key].push(unquote(value));
+      continue;
+    }
+    list = "";
+    if (/^[|>][-+]?$/.test(value)) {
+      const block = [];
+      while (i + 1 < lines.length) {
+        const next = lines[i + 1];
+        if (!next.trim()) {
+          block.push("");
+          i++;
+          continue;
+        }
+        if (!/^\s{2,}/.test(next)) break;
+        block.push(next.replace(/^\s{2,}/, ""));
+        i++;
+      }
+      out[key] = value.startsWith(">") ? block.join(" ").trim() : block.join("\n").trim();
+      continue;
+    }
+    out[key] = unquote(value);
+  }
+  return out;
+}
+
+function cleanText(value) {
+  return str(value).replace(/[ \t]+$/gm, "").trim();
+}
+
+function choiceLetter(answer, options) {
+  const raw = str(answer).trim();
+  if (/^\d+$/.test(raw)) {
+    const at = Number(raw) - 1;
+    return at >= 0 && at < options.length ? LETTERS[at] : "";
+  }
+  if (/^[A-Ha-h]$/.test(raw)) {
+    const at = LETTERS.indexOf(raw.toUpperCase());
+    return at >= 0 && at < options.length ? raw.toUpperCase() : "";
+  }
+  const at = options.findIndex((option) => option.trim().toLowerCase() === raw.toLowerCase());
+  return at >= 0 ? LETTERS[at] : "";
+}
+
+function typeOf(value) {
+  const text = str(value).trim().toLowerCase();
+  if (/choice|mcq|multiple|選択/.test(text)) return "choice";
+  if (/text|short|spr|written|記述/.test(text)) return "text";
+  return "";
+}
+
+/**
+ * Parse every fenced `note-quiz` block. Invalid blocks stay out of the text
+ * and are reported by block number so the preview can explain them.
+ */
+function noteQuizToQuickAdd(text) {
+  const source = str(text).replace(/\r\n?/g, "\n");
+  const blocks = [];
+  const fence = /^[ \t]*```+[ \t]*note-quiz\b[^\n]*\n([\s\S]*?)^[ \t]*```+[ \t]*$/gm;
+  let match = fence.exec(source);
+  while (match) {
+    blocks.push(match[1]);
+    match = fence.exec(source);
+  }
+  if (!blocks.length) {
+    return {
+      text: "",
+      found: 0,
+      valid: 0,
+      issues: [
+        {
+          index: 0,
+          message:
+            "No note-quiz blocks were found on the clipboard. Copy the Markdown your AI generated, including the ```note-quiz fences, then try again.",
+        },
+      ],
+      format: "note-quiz",
+    };
+  }
+
+  const issues = [];
+  const chunks = [];
+  blocks.forEach((block, index) => {
+    const data = parseNoteQuizFields(block);
+    const question = cleanText(data.question);
+    const explanation = cleanText(data.explanation);
+    const type = typeOf(data.type);
+    if (!question) {
+      issues.push({ index, message: `Block ${index + 1} has no question. Add question: "…".` });
+      return;
+    }
+    if (!type) {
+      issues.push({ index, message: `Block ${index + 1} has an unsupported type "${str(data.type)}". Use choice or text.` });
+      return;
+    }
+
+    const lines = [`Q: ${question}`];
+    if (type === "choice") {
+      const options = (data.options || []).map(cleanText).filter(Boolean);
+      if (options.length < 2) {
+        issues.push({ index, message: `Block ${index + 1} needs at least two options.` });
+        return;
+      }
+      const key = choiceLetter(data.answer, options);
+      if (!key) {
+        issues.push({ index, message: `Block ${index + 1} has no answer that matches one of its options.` });
+        return;
+      }
+      options.forEach((option, at) => lines.push(`${LETTERS[at]}. ${option}`));
+      lines.push(`Answer: ${key}`);
+    } else {
+      const answers = [];
+      for (const value of [...(data.answers || []), data.answer]) {
+        const answer = cleanText(value);
+        if (answer && !answers.some((seen) => seen.toLowerCase() === answer.toLowerCase())) answers.push(answer);
+      }
+      if (!answers.length) {
+        issues.push({ index, message: `Block ${index + 1} has no answers. Add answers: or answer:.` });
+        return;
+      }
+      lines.push(`Answer: ${answers[0]}`);
+      if (answers.length > 1) lines.push(`Accepted: ${answers.slice(1).join(" | ")}`);
+    }
+    if (explanation) lines.push(`Why: ${explanation}`);
+    chunks.push(lines.join("\n"));
+  });
+
+  return {
+    text: chunks.join("\n\n---\n\n"),
+    found: blocks.length,
+    valid: chunks.length,
+    issues,
+    format: "note-quiz",
+  };
+}
+
+module.exports = { noteQuizToQuickAdd, parseNoteQuizFields };
 };
 
 /* ---- src/quiz-generator.js ---- */
@@ -57808,6 +58066,7 @@ const calculator = require("./calculator");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
+const quizClipboard = require("./quiz-clipboard");
 const quizBlock = require("./quiz-block");
 const quizNoteGate = require("./quiz-note-gate");
 const quizport = require("./quizport");
@@ -57980,6 +58239,7 @@ QuestionTrackerPlugin.__test = {
   WeakSpotModal,
   QuickAddModal,
   quickAdd,
+  quizClipboard,
   quizBlock,
   quizNoteGate,
   quizport,

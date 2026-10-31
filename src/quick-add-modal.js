@@ -19,11 +19,13 @@ Answer: 0.75`;
  * question. Pasting never writes on its own: the preview always comes first.
  */
 class QuickAddModal extends Modal {
-  constructor(app, plugin, onDone) {
+  constructor(app, plugin, onDone, options) {
     super(app);
     this.plugin = plugin;
     this.onDone = onDone || (() => {});
-    this.text = "";
+    const opts = options || {};
+    this.text = str(opts.text || "");
+    this.note = str(opts.note || "");
     this.course = "";
     this.folder = str(plugin.settings.questionFolder).trim() || "Questions";
     this.items = [];
@@ -41,6 +43,7 @@ class QuickAddModal extends Modal {
       cls: "setting-item-description",
       text: "Paste one or more questions. Each one starts with \"Q:\", its choices go on lines like \"A.\", and the key goes on \"Answer:\". Nothing is written until you press Create.",
     });
+    if (this.note) el.createEl("p", { cls: "qt-hint", text: this.note });
     el.createEl("pre", { cls: "qt-quick-add-example", text: EXAMPLE });
 
     this.box = el.createEl("textarea", {

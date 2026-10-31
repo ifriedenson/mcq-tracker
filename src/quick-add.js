@@ -33,6 +33,13 @@ const NAMED_FIELDS = {
   rationale: "explanation",
   hint: "hint",
   clue: "hint",
+  accepted: "accepted",
+  "accepted answer": "accepted",
+  "accepted answers": "accepted",
+  alternate: "accepted",
+  alternates: "accepted",
+  alternative: "accepted",
+  alternatives: "accepted",
   course: "course",
   skill: "skill",
   difficulty: "difficulty",
@@ -46,7 +53,7 @@ function fieldAt(line) {
   if (question) return { key: "question", text: question[1] };
   const choice = line.match(/^[-*+]?\s*([A-H])\s*[.):]\s*(.*)$/);
   if (choice) return { key: "choice", text: choice[2] };
-  const named = line.match(/^(Stimulus|Passage|Source|Answer|Key|Correct answer|Correct|Why|Explanation|Rationale|Hint|Clue|Course|Skill|Difficulty|Unit|Test)\s*[:.)]\s*(.*)$/i);
+  const named = line.match(/^(Stimulus|Passage|Source|Answer|Key|Correct answer|Correct|Why|Explanation|Rationale|Hint|Clue|Accepted answers?|Accepted|Alternates?|Alternatives?|Course|Skill|Difficulty|Unit|Test)\s*[:.)]\s*(.*)$/i);
   if (named) {
     const key = NAMED_FIELDS[named[1].toLowerCase().replace(/\s+/g, " ")];
     if (key) return { key, text: named[2] };
@@ -54,11 +61,11 @@ function fieldAt(line) {
   return null;
 }
 
-const TEXT_FIELDS = new Set(["question", "stimulus", "explanation", "hint"]);
+const TEXT_FIELDS = new Set(["question", "stimulus", "explanation", "hint", "accepted"]);
 const META_FIELDS = new Set(["course", "skill", "difficulty", "unit", "test"]);
 
 function emptyBlock() {
-  return { question: "", stimulus: "", explanation: "", hint: "", answer: "", choices: [], meta: {}, last: null };
+  return { question: "", stimulus: "", explanation: "", hint: "", answer: "", accepted: "", choices: [], meta: {}, last: null };
 }
 
 /** Split pasted text into blocks. Everything before the first "Q:" line is ignored. */
@@ -114,6 +121,15 @@ function splitBlocks(text) {
 
 const cleanText = (value) => str(value).replace(/[ \t]+\n/g, "\n").trim();
 
+/** A note may accept several equivalent text answers, separated by | or new lines. */
+function splitAccepted(value) {
+  return str(value)
+    .split("|")
+    .flatMap((part) => part.split(/\n+/))
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 /**
  * Read the key the user typed. A choice's own text, a letter and a set
  * ("A, C") all resolve to the letter(s) the note needs.
@@ -136,6 +152,7 @@ function normalizeBlock(block, defaults) {
   const question = cleanText(block.question);
   const choices = block.choices.map((choice) => cleanText(choice)).filter(Boolean);
   const rawKey = cleanText(block.answer);
+  const acceptedAll = splitAccepted(block.accepted);
   const issues = [];
 
   if (!question) issues.push('Add the question text on a line starting with "Q:".');
@@ -145,9 +162,10 @@ function normalizeBlock(block, defaults) {
   let answer = "";
   let questionType = "";
   if (!choices.length) {
-    if (!rawKey) issues.push('Add the key with "Answer:", for example "Answer: 12.5".');
+    const primary = rawKey || acceptedAll[0] || "";
+    if (!primary) issues.push('Add the key with "Answer:", for example "Answer: 12.5".');
     else {
-      answer = rawKey;
+      answer = primary;
       questionType = "spr";
     }
   } else if (!rawKey) {
@@ -167,6 +185,7 @@ function normalizeBlock(block, defaults) {
     hint: cleanText(block.hint),
     choices,
     answer,
+    accepted: choices.length ? [] : acceptedAll.filter((value) => value.toLowerCase() !== answer.toLowerCase()),
     explanation: cleanText(block.explanation),
     questionType,
     test: pick("test"),
@@ -214,6 +233,8 @@ function quickAddNote(item, qid) {
   fm.question_type = data.questionType || (choices.length ? "mcq" : "spr");
   if (choices.length) fm.choices = choices.length;
   fm.answer = str(data.answer).trim();
+  const accepted = Array.isArray(data.accepted) ? data.accepted.map((value) => str(value).trim()).filter(Boolean) : [];
+  if (accepted.length) fm.accepted_answers = accepted;
 
   const lines = ["---", stringifyYaml(fm).trimEnd(), "---", ""];
   const stimulus = str(data.stimulus).trim();

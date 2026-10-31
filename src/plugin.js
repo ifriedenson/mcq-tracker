@@ -95,6 +95,7 @@ const { TranscriptPracticeModal } = require("./transcript-modal");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const { quickAddNote, quickAddTitle } = require("./quick-add");
+const { noteQuizToQuickAdd } = require("./quiz-clipboard");
 const { findQuizBlockSource, gradeNumericQuestion, gradeQuizBlockQuestion, gradeQuizQuestion, gradeReorderQuestion, parseQuizAiEvaluation, parseQuizBlock, quizBlockScore, quizResultProperties, visibleQuizCount } = require("./quiz-block");
 const quizNoteGate = require("./quiz-note-gate");
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
@@ -228,6 +229,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "export-review-sheet", name: "Export an error-log review sheet", callback: () => this.exportReviewSheet() });
     this.addCommand({ id: "import-pdf", name: "Import questions from a file (PDF, PowerPoint, Word)", callback: () => this.openPdfImport() });
     this.addCommand({ id: "quick-add", name: "Quick add questions from pasted text", callback: () => this.openQuickAdd() });
+    this.addCommand({ id: "import-quiz-clipboard", name: "Import a generated quiz from the clipboard", callback: () => this.openQuizClipboardImport() });
     this.addCommand({ id: "export-study-bundle", name: "Export a study bundle (backup of questions and cards)", callback: () => this.exportStudyBundle() });
     this.addCommand({
       id: "import-study-bundle",
@@ -3376,6 +3378,44 @@ class QuestionTrackerPlugin extends Plugin {
   openQuickAdd() {
     if (this.moduleOff("mcq")) return;
     new QuickAddModal(this.app, this, () => this.refreshViews()).open();
+  }
+
+  /** Read Note Quiz Engine-style Markdown from the clipboard without writing anything. */
+  async readQuizFromClipboard() {
+    const empty = { text: "", found: 0, valid: 0, issues: [], errors: [] };
+    if (this.moduleOff("mcq")) return { ...empty, errors: ["Turn on MCQ Tracker to import questions."] };
+    const clipboard = typeof navigator !== "undefined" && navigator ? navigator.clipboard : null;
+    if (!clipboard || typeof clipboard.readText !== "function") {
+      return {
+        ...empty,
+        errors: ["This build cannot read the clipboard. Copy the generated Markdown and use Quick add questions instead."],
+      };
+    }
+    let raw = "";
+    try {
+      raw = await clipboard.readText();
+    } catch (e) {
+      return { ...empty, errors: [`The clipboard could not be read (${str(e && e.message ? e.message : e)}). Copy the generated Markdown and try again.`] };
+    }
+    if (!str(raw).trim()) return { ...empty, errors: ["The clipboard is empty. Copy the generated Markdown first."] };
+    return noteQuizToQuickAdd(raw);
+  }
+
+  /** Read a generated note-quiz block and pre-fill the previewed Quick add dialog. */
+  async openQuizClipboardImport() {
+    if (this.moduleOff("mcq")) return null;
+    const parsed = await this.readQuizFromClipboard();
+    if (!parsed.valid) {
+      const issue = parsed.issues && parsed.issues[0];
+      const message = (parsed.errors && parsed.errors[0]) || (issue && issue.message) || "No note-quiz blocks were found on the clipboard.";
+      new Notice(message, 10000);
+      return parsed;
+    }
+    new QuickAddModal(this.app, this, () => this.refreshViews(), {
+      text: parsed.text,
+      note: `Read ${parsed.valid} question${parsed.valid === 1 ? "" : "s"} from the clipboard. Review the preview, then press Create.`,
+    }).open();
+    return parsed;
   }
 
   /** Write already-previewed quick-add items as ordinary question notes. */

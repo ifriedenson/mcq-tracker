@@ -58,6 +58,7 @@ const calculator = require("./calculator");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
+const quizClipboard = require("./quiz-clipboard");
 const quizBlock = require("./quiz-block");
 const quizNoteGate = require("./quiz-note-gate");
 const quizport = require("./quizport");
@@ -230,6 +231,7 @@ QuestionTrackerPlugin.__test = {
   WeakSpotModal,
   QuickAddModal,
   quickAdd,
+  quizClipboard,
   quizBlock,
   quizNoteGate,
   quizport,

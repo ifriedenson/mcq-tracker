@@ -301,6 +301,25 @@ Difficulty: easy
 
 `Q:` starts a block. `A.` to `H.` lines are answer choices, `Answer:` or `Key:` takes a letter, a choice's own text or a set such as `A, C`, and `Why:` or `Explanation:` is the rationale. `Stimulus:`, `Course:`, `Skill:`, `Difficulty:`, `Unit:` and `Test:` are optional; wrapped lines continue the field above them and `---` separates blocks. A block with no choices becomes a numeric or short-answer (SPR) note. The dialog lists every block that needs attention, writes only the valid ones into the folder you choose, and numbers repeated titles instead of overwriting. The notes are normal question notes: no AI or import properties and no pre-filled tracking state.
 
+### Import a generated quiz from the clipboard
+
+Run **Import a generated quiz from the clipboard** when an AI tool has produced Note Quiz Engine-style Markdown. Copy the whole answer, including the fences, then run the command. Every `note-quiz` block is converted into the Quick add preview; nothing is written until **Create questions** is pressed.
+
+````markdown
+```note-quiz
+quiz:
+type: choice
+question: "Which command shows memory usage?"
+options:
+- "df"
+- "free"
+answer: 2
+explanation: "free lists memory and swap."
+```
+````
+
+`type: choice` accepts a 1-based `answer:` index, a letter, or an option's text. `type: text` takes `answer:` or an `answers:` list; extra accepted strings are written to the note's `accepted_answers` property, which the short-answer grader already reads. The command reads the clipboard only and calls no AI API. Malformed blocks are listed by block number and skipped; an empty clipboard, an unavailable clipboard or text without a `note-quiz` fence gets a specific message. The existing AI quiz generator's 22-language selector covers the Japanese/English generation choice, so this path adds no second language setting.
+
 ### Review scheduling
 
 **Leech handling (optional).** Set a leech threshold under Settings, Practice. When a question misses that many times in a row, the attempt marks it `leech: true` and the result view explains the mark; a correct answer clears it. The action can also suspend it so it leaves practice until you restore it under Hidden study items. The default threshold is 0, which leaves the feature off.
