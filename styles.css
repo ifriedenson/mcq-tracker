@@ -6064,3 +6064,67 @@
 .qt-exam-error {
   color: var(--text-error);
 }
+
+/* Simple Flashcards-compatible `simple-flashcards` blocks. */
+.qt-flashcards {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.qt-flashcards-title {
+  font-weight: 700;
+}
+
+.qt-flashcards-summary,
+.qt-flashcards-kind,
+.qt-flashcards-deck {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-flashcards-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.qt-flashcards-head {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-flashcards-count {
+  background: var(--interactive-accent);
+  border-radius: var(--radius-s);
+  color: var(--text-on-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 2px 8px;
+}
+
+.qt-flashcards-prompt {
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.qt-flashcards-answer {
+  border-left: 3px solid var(--interactive-accent);
+  line-height: 1.6;
+  padding-left: 12px;
+}
+
+.qt-flashcards-reveal,
+.qt-flashcards-next {
+  align-self: flex-start;
+}
+
+.qt-flashcards-issue {
+  color: var(--text-error);
+}

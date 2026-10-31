@@ -342,6 +342,28 @@ D. Madrid
 
 `<num>` and `<source>` are optional; `<stem>`, at least two `<options>` and `<answer>` are required. `A.` options work with or without a space, and a multi-select key is written as `A,C`. Set **Settings → MCQ Tracker → Review → Exam block mode** to **Study** (default: correct options marked, analysis available) or **Answer** (single choice grades on click; multi-select needs **Submit answer**). `___` renders as a blank line, stem and analysis support Markdown and local images, and malformed tags show a specific message in the card. The block is local and read-only: it records no attempt, history, streak or scheduler state.
 
+### Simple Flashcards blocks
+
+Write RemNote-style cards in a fenced `simple-flashcards` block. A bullet ending in `:::` opens a block, and only its direct child bullets become cards.
+
+````markdown
+```simple-flashcards
+- French vocab :::
+  - Capital of France :: Paris
+  - el perro >> the dog
+  - the dog << el perro
+  - uno <> one
+  - The sky is {blue}
+  - Inner planets ;;
+    - Mercury
+    - Venus, Earth, Mars
+```
+````
+
+`::` and `>>` prompt from the left, `<<` prompts from the right, and `<>` creates one card in each direction. `{blue}` hides one cloze; numbered groups such as `{1|Paris}` hide several blanks together. A `;;` card uses its nested bullets as the answer. Put `#deck/Name` on the header or a card to label a deck. Plain and deeper-nested bullets stay notes rather than cards.
+
+The block is a local reveal reader: **Show answer**, **Next card** and **Review again** work in memory, and malformed cards explain the missing delimiter or answer in place. It records no attempt, history, streak or scheduler state.
+
 ### Review scheduling
 
 **Leech handling (optional).** Set a leech threshold under Settings, Practice. When a question misses that many times in a row, the attempt marks it `leech: true` and the result view explains the mark; a correct answer clears it. The action can also suspend it so it leaves practice until you restore it under Hidden study items. The default threshold is 0, which leaves the feature off.
