@@ -220,3 +220,38 @@ Answer: A`;
   assert.ok(dom.texts().includes("Level L4"));
   assert.ok(!dom.texts().includes("Level L9"));
 });
+
+test("Quizzable parity: partial credit uses a wrong-pick penalty", () => {
+  const parsed = Q.parseQuizBlock("Partial: true\nPenalty: 0.25\nQ: Pick both correct statements\nA. Alpha\nB. Beta\nC. Gamma\nD. Delta\nAnswer: A, C");
+  assert.equal(parsed.partial, true);
+  assert.equal(parsed.penalty, 0.25);
+  const partial = Q.gradeQuizBlockQuestion(parsed.questions[0], "A");
+  assert.equal(partial.correct, false);
+  assert.equal(partial.partialCredit, true);
+  assert.equal(partial.score, 50);
+  const penalized = Q.gradeQuizBlockQuestion(parsed.questions[0], "A, D");
+  assert.equal(penalized.score, 38);
+  const exact = Q.gradeQuizBlockQuestion(parsed.questions[0], "C, A");
+  assert.equal(exact.correct, true);
+  assert.equal(exact.score, 100);
+});
+
+test("Quizzable parity: definitions can be reused by playable blocks", () => {
+  const note = [
+    "```quiz-definition",
+    "Id: box-1",
+    "Q: Which gas do plants take in?",
+    "A. Oxygen",
+    "B. Carbon dioxide",
+    "Answer: B",
+    "```",
+    "",
+    "```playable-quiz",
+    "Id: box-1",
+    "```",
+  ].join("\n");
+  const source = Q.findQuizBlockSource(note, "box-1", "quiz-definition");
+  assert.match(source, /Carbon dioxide/);
+  assert.equal(Q.findQuizBlockSource(note, "box-1"), "", "the playable block is not an mcq-quiz source");
+  assert.equal(Q.parseQuizBlock(source).questions.length, 1);
+});

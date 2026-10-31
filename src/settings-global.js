@@ -124,6 +124,66 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Feynman Learning")
+    .setDesc("A guided four-step explanation cycle with local self-scoring and weak-dimension review. Independent from Cornell notes and the other study tools.")
+    .addToggle((t) =>
+      t.setValue(plugin.feynmanLearningEnabled()).onChange(async (v) => {
+        st.feynmanLearning.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Recall Scheduler")
+    .setDesc("Build review queues from note headings or knowledge fragments, with local due dates and Again/Hard/Good/Easy ratings. Does not rewrite notes.")
+    .addToggle((t) =>
+      t.setValue(plugin.recallSchedulerEnabled()).onChange(async (v) => {
+        st.recallScheduler.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Topic planner")
+    .setDesc("Plan repeated passes over course topics, reserve buffer days before an exam and see a day-level allocation. Independent from Study goals.")
+    .addToggle((t) =>
+      t.setValue(plugin.lerntrackerEnabled()).onChange(async (v) => {
+        st.lerntracker.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Study Flow")
+    .setDesc("Keep a source excerpt, your explanation and a card draft together, with a local inbox and back-to-source review. The source note is never modified.")
+    .addToggle((t) =>
+      t.setValue(plugin.studyFlowEnabled()).onChange(async (v) => {
+        st.studyFlow.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Subject Manager")
+    .setDesc("Track subjects, folders and absences, with lecture and absence counts. Uses the local lecture log when it is enabled.")
+    .addToggle((t) =>
+      t.setValue(plugin.subjectManagerEnabled()).onChange(async (v) => {
+        st.subjectManager.enabled = v;
+        await plugin.save();
+        await plugin.onStudyWorkspaceToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>
@@ -149,7 +209,7 @@ function renderModules(containerEl, plugin, redisplay) {
 
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "The settings for a module stay on its own page: MCQ Tracker, Cards, Calendar, Assignments and Reference.",
+    text: "The settings for a module stay on its own page: MCQ Tracker, Cards, Calendar, Assignments and Reference. The study workflows each have their own switch above."
   });
 }
 

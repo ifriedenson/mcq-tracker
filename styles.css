@@ -6684,3 +6684,120 @@
     flex-basis: 100%;
   }
 }
+
+/* Study Workspace: guided workflows reuse the Study Tools cards and tabs. */
+.qt-study-field-wide {
+  grid-column: 1 / -1;
+}
+.qt-workspace-head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  justify-content: space-between;
+}
+.qt-workspace-head h3 {
+  margin: 0;
+}
+.qt-workspace-step-label {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.qt-workspace-answer {
+  min-height: 150px;
+  resize: vertical;
+}
+.qt-workspace-scores {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 10px;
+}
+.qt-workspace-quote {
+  background: var(--background-primary);
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: var(--radius-s);
+  margin: 8px 0;
+  padding: 10px 12px;
+}
+.qt-workspace-quote.is-hidden {
+  display: none;
+}
+.qt-workspace-quote-text,
+.qt-workspace-flow-quote {
+  white-space: pre-wrap;
+}
+.qt-workspace-flow-quote {
+  border-left: 2px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  padding-left: 8px;
+}
+.qt-workspace-days {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.qt-workspace-day {
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  gap: 12px;
+  padding-top: 5px;
+}
+.qt-workspace-day-date {
+  color: var(--text-muted);
+  flex: 0 0 7.5em;
+  font-variant-numeric: tabular-nums;
+}
+.qt-workspace-day-topic {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.qt-workspace-subject-dot {
+  border-radius: 50%;
+  display: inline-block;
+  height: 9px;
+  margin-right: 7px;
+  width: 9px;
+}
+.qt-study-workspace .qt-workspace-inline-form {
+  margin-top: 8px;
+}
+
+@media (max-width: 700px) {
+  .qt-workspace-scores {
+    grid-template-columns: 1fr;
+  }
+  .qt-workspace-day {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .qt-workspace-day-date {
+    flex-basis: auto;
+  }
+}
+
+.qt-quiz-definition {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 8px 0;
+  padding: 10px 12px;
+}
+.qt-quiz-definition-title {
+  font-weight: 700;
+}
+.qt-quiz-definition-meta,
+.qt-quiz-definition-hint {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  margin-top: 3px;
+}
+.qt-quiz-definition-error {
+  color: var(--text-error);
+  font-size: 0.86rem;
+  padding: 6px 0;
+}

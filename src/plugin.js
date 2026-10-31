@@ -2,7 +2,7 @@
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -12,6 +12,8 @@ const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSetting
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { AssignmentsView } = require("./assignments-view");
 const { StudyToolsView } = require("./study-tools-view");
+const { StudyWorkspaceView } = require("./study-workspace-view");
+const studyWorkspace = require("./study-workspace");
 const { buildCornellNote } = require("./cornell");
 const { renderCornellBlock } = require("./cornell-view");
 const studyTools = require("./study-tools");
@@ -226,6 +228,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_REFERENCE, (leaf) => new ReferenceView(leaf, this));
     this.registerView(VIEW_TYPE_ASSIGNMENTS, (leaf) => new AssignmentsView(leaf, this));
     this.registerView(VIEW_TYPE_STUDY_TOOLS, (leaf) => new StudyToolsView(leaf, this));
+    this.registerView(VIEW_TYPE_STUDY_WORKSPACE, (leaf) => new StudyWorkspaceView(leaf, this));
     this.ribbonButtons = {};
     this.ribbonAdded = {};
     this.refreshRibbon();
@@ -309,6 +312,12 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-assignments", name: "Open assignments and grades", callback: () => this.activateAssignments() });
     this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });
     this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
+    this.addCommand({ id: "open-study-workspace", name: "Open Study Workspace", callback: () => this.activateStudyWorkspace() });
+    this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
+    this.addCommand({ id: "build-recall-queue", name: "Recall Scheduler: build a queue", callback: () => this.activateStudyWorkspace("recall") });
+    this.addCommand({ id: "new-topic-plan", name: "Topic planner: create an exam plan", callback: () => this.activateStudyWorkspace("planner") });
+    this.addCommand({ id: "study-flow-capture", name: "Study Flow: capture a source excerpt", callback: () => this.activateStudyWorkspace("flow") });
+    this.addCommand({ id: "subject-manager", name: "Subject Manager: open subjects", callback: () => this.activateStudyWorkspace("subjects") });
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
@@ -521,6 +530,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("mcq-schedule", renderBlock);
     this.registerMarkdownCodeBlockProcessor("mcq-dashboard", (source, el) => this.renderDashboardBlock(source, el));
     this.registerMarkdownCodeBlockProcessor("mcq-quiz", (source, el, ctx) => this.renderQuizBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("quiz-definition", (source, el, ctx) => this.renderQuizDefinitionBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("playable-quiz", (source, el, ctx) => this.renderPlayableQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("exam", (source, el, ctx) => this.renderExamBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizport", (source, el, ctx) => this.renderQuizPortBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("simple-flashcards", (source, el, ctx) => this.renderSimpleFlashcardsBlock(source, el, ctx));
@@ -757,6 +768,11 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.cornellNotes = studyTools.normalizeCornellSettings(saved.cornellNotes);
     this.settings.lectureLog = studyTools.normalizeLectureLog(saved.lectureLog);
     this.settings.studyGoals = studyTools.normalizeStudyGoals(saved.studyGoals);
+    this.settings.feynmanLearning = studyWorkspace.normalizeFeynmanSettings(saved.feynmanLearning);
+    this.settings.recallScheduler = studyWorkspace.normalizeRecallScheduler(saved.recallScheduler);
+    this.settings.lerntracker = studyWorkspace.normalizePlanner(saved.lerntracker);
+    this.settings.studyFlow = studyWorkspace.normalizeStudyFlow(saved.studyFlow);
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager(saved.subjectManager);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -1150,6 +1166,9 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_STUDY_TOOLS)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_STUDY_WORKSPACE)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
     this.refreshNoteReviewStatus();
     this.decorateFileExplorer();
   }
@@ -1238,6 +1257,35 @@ class QuestionTrackerPlugin extends Plugin {
     return studyTools.normalizeStudyToolsSettings(this.settings);
   }
 
+  /** Guided/local workflow modules are independent switches. */
+  feynmanLearningEnabled() {
+    return studyWorkspace.normalizeFeynmanSettings(this.settings.feynmanLearning).enabled;
+  }
+
+  recallSchedulerEnabled() {
+    return studyWorkspace.normalizeRecallScheduler(this.settings.recallScheduler).enabled;
+  }
+
+  lerntrackerEnabled() {
+    return studyWorkspace.normalizePlanner(this.settings.lerntracker).enabled;
+  }
+
+  studyFlowEnabled() {
+    return studyWorkspace.normalizeStudyFlow(this.settings.studyFlow).enabled;
+  }
+
+  subjectManagerEnabled() {
+    return studyWorkspace.normalizeSubjectManager(this.settings.subjectManager).enabled;
+  }
+
+  studyWorkspaceEnabled() {
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled();
+  }
+
+  studyWorkspaceSettings() {
+    return studyWorkspace.normalizeStudyWorkspaceSettings(this.settings);
+  }
+
   /** Assignments and grades are on unless the module was turned off. */
   assignmentsEnabled() {
     return !!(this.settings.assignments && this.settings.assignments.enabled !== false);
@@ -1298,6 +1346,8 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("assignments");
     if (this.studyToolsEnabled()) this.addModuleRibbon("study-tools", "notebook-pen", "Open Study Tools", () => this.activateStudyTools());
     else this.removeModuleRibbon("study-tools");
+    if (this.studyWorkspaceEnabled()) this.addModuleRibbon("study-workspace", "workflow", "Open Study Workspace", () => this.activateStudyWorkspace());
+    else this.removeModuleRibbon("study-workspace");
   }
 
   setupCalendarRibbon() {
@@ -1391,6 +1441,15 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshRibbon();
     if (!this.studyToolsEnabled()) {
       this.detachModuleLeaves([VIEW_TYPE_STUDY_TOOLS]);
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onStudyWorkspaceToggled() {
+    this.refreshRibbon();
+    if (!this.studyWorkspaceEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_STUDY_WORKSPACE]);
       return;
     }
     this.refreshViews();
@@ -1611,6 +1670,25 @@ class QuestionTrackerPlugin extends Plugin {
     if (!leaf) {
       leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
       await leaf.setViewState({ type: VIEW_TYPE_STUDY_TOOLS, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.setTab && tab) leaf.view.setTab(tab);
+    else if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
+  async activateStudyWorkspace(tab) {
+    if (!this.studyWorkspaceEnabled()) {
+      new Notice("All study workflow modules are off. Turn them on in Settings, Global, Modules.");
+      this.openSettings();
+      return null;
+    }
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_STUDY_WORKSPACE)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_STUDY_WORKSPACE, active: true });
     }
     if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
     await ws.revealLeaf(leaf);
@@ -3705,7 +3783,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   /** Find the source of an `mcq-quiz` block by its stable id, current note first. */
-  async findQuizBlockSourceById(id, sourcePath) {
+  async findQuizBlockSourceById(id, sourcePath, blockName) {
     const wanted = str(id).trim();
     if (!wanted) return "";
     const files = this.app.vault.getMarkdownFiles ? this.app.vault.getMarkdownFiles() : [];
@@ -3717,10 +3795,38 @@ class QuestionTrackerPlugin extends Plugin {
       } catch (e) {
         continue;
       }
-      const found = findQuizBlockSource(text, wanted);
+      const found = findQuizBlockSource(text, wanted, blockName);
       if (found) return found;
     }
     return "";
+  }
+
+  /** A definition block is a reusable quiz; it is not played in place. */
+  renderQuizDefinitionBlock(source, el, ctx) {
+    const parsed = parseQuizBlock(source);
+    const card = el.createDiv({ cls: "qt-quiz-definition" });
+    card.createDiv({ cls: "qt-quiz-definition-title", text: "Quiz definition" });
+    card.createDiv({
+      cls: "qt-quiz-definition-meta",
+      text: `${parsed.id ? `ID: ${parsed.id} · ` : "No ID · "}${parsed.questions.length} question${parsed.questions.length === 1 ? "" : "s"}`,
+    });
+    if (!parsed.id) card.createDiv({ cls: "qt-quiz-definition-hint", text: "Add an ID to this block so a playable-quiz block can find it." });
+    if (parsed.issues && parsed.issues.length) card.createDiv({ cls: "qt-quiz-definition-hint", text: parsed.issues.join(" ") });
+  }
+
+  /** Play the questions from a quiz-definition block somewhere else in the vault. */
+  async renderPlayableQuizBlock(source, el, ctx) {
+    const parsed = parseQuizBlock(source);
+    if (!parsed.id) {
+      el.createDiv({ cls: "qt-quiz-definition-error", text: "playable-quiz needs an Id: line naming a quiz-definition block." });
+      return;
+    }
+    const target = await this.findQuizBlockSourceById(parsed.id, ctx && ctx.sourcePath, "quiz-definition");
+    if (!target) {
+      el.createDiv({ cls: "qt-quiz-definition-error", text: `No quiz-definition block with ID "${parsed.id}" was found.` });
+      return;
+    }
+    await this.renderQuizBlock(target, el, ctx);
   }
 
   /** Render an `mcq-quiz` fenced block: choices, sliders, text and weighted scoring. */
@@ -7264,6 +7370,238 @@ ${body}
     this.settings.lectureLog = { ...current, lectures: current.lectures.filter((lecture) => lecture.id !== id) };
     await this.save();
     this.refreshViews();
+  }
+
+  /* ---- study workspace: guided workflows and local indexes */
+
+  async addFeynmanSession(input) {
+    const session = studyWorkspace.createFeynmanSession(input, Date.now());
+    if (!session) return null;
+    const current = this.studyWorkspaceSettings().feynmanLearning;
+    this.settings.feynmanLearning = studyWorkspace.normalizeFeynmanSettings({
+      ...current,
+      sessions: current.sessions.concat(session).slice(-studyWorkspace.MAX_FEYNMAN),
+    });
+    await this.save();
+    this.refreshViews();
+    return session;
+  }
+
+  async updateFeynmanSession(id, patch) {
+    const current = this.studyWorkspaceSettings().feynmanLearning;
+    const sessions = current.sessions.map((session) =>
+      session.id === id ? { ...session, ...(patch || {}), updatedAt: Date.now() } : session
+    );
+    this.settings.feynmanLearning = studyWorkspace.normalizeFeynmanSettings({ ...current, sessions });
+    await this.save();
+    this.refreshViews();
+    return this.settings.feynmanLearning.sessions.find((session) => session.id === id) || null;
+  }
+
+  async removeFeynmanSession(id) {
+    const current = this.studyWorkspaceSettings().feynmanLearning;
+    this.settings.feynmanLearning = studyWorkspace.normalizeFeynmanSettings({
+      ...current,
+      sessions: current.sessions.filter((session) => session.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async addFlowExcerpt(input) {
+    const excerpt = studyWorkspace.createFlowExcerpt(input, Date.now());
+    if (!excerpt) return null;
+    const current = this.studyWorkspaceSettings().studyFlow;
+    this.settings.studyFlow = studyWorkspace.normalizeStudyFlow({
+      ...current,
+      excerpts: current.excerpts.concat(excerpt).slice(-studyWorkspace.MAX_EXCERPTS),
+    });
+    await this.save();
+    this.refreshViews();
+    return excerpt;
+  }
+
+  async updateFlowExcerpt(id, patch) {
+    const current = this.studyWorkspaceSettings().studyFlow;
+    const excerpts = current.excerpts.map((excerpt) => {
+      if (excerpt.id !== id) return excerpt;
+      const next = { ...excerpt, ...(patch || {}) };
+      if (next.status === "understood" && !next.reviewedAt) next.reviewedAt = Date.now();
+      return next;
+    });
+    this.settings.studyFlow = studyWorkspace.normalizeStudyFlow({ ...current, excerpts });
+    await this.save();
+    this.refreshViews();
+    return this.settings.studyFlow.excerpts.find((excerpt) => excerpt.id === id) || null;
+  }
+
+  async removeFlowExcerpt(id) {
+    const current = this.studyWorkspaceSettings().studyFlow;
+    this.settings.studyFlow = studyWorkspace.normalizeStudyFlow({
+      ...current,
+      excerpts: current.excerpts.filter((excerpt) => excerpt.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  openStudyFlowSource(path) {
+    const target = str(path).trim();
+    if (!target) return;
+    const file = this.app.vault.getAbstractFileByPath(target);
+    if (!file) {
+      new Notice(`Source not found: ${target}`, 6000);
+      return;
+    }
+    this.app.workspace.openLinkText(file.path, "", false);
+  }
+
+  async addStudySubject(input) {
+    const subject = studyWorkspace.createSubject(input, Date.now());
+    if (!subject) return null;
+    const current = this.studyWorkspaceSettings().subjectManager;
+    if (current.subjects.some((entry) => entry.name.toLowerCase() === subject.name.toLowerCase())) return subject;
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({
+      ...current,
+      subjects: current.subjects.concat(subject).slice(-studyWorkspace.MAX_SUBJECTS),
+    });
+    await this.save();
+    this.refreshViews();
+    return subject;
+  }
+
+  async removeStudySubject(id) {
+    const current = this.studyWorkspaceSettings().subjectManager;
+    const subject = current.subjects.find((entry) => entry.id === id);
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({
+      ...current,
+      subjects: current.subjects.filter((entry) => entry.id !== id),
+      absences: subject ? current.absences.filter((absence) => absence.subject.toLowerCase() !== subject.name.toLowerCase()) : current.absences,
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async addStudyAbsence(input) {
+    const absence = studyWorkspace.createAbsence(input, Date.now());
+    if (!absence) return null;
+    const current = this.studyWorkspaceSettings().subjectManager;
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({
+      ...current,
+      absences: current.absences.concat(absence).slice(-studyWorkspace.MAX_ABSENCES),
+    });
+    await this.save();
+    this.refreshViews();
+    return absence;
+  }
+
+  async removeStudyAbsence(id) {
+    const current = this.studyWorkspaceSettings().subjectManager;
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({
+      ...current,
+      absences: current.absences.filter((absence) => absence.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async addPlannerPlan(input) {
+    const plan = studyWorkspace.createPlannerPlan(input, Date.now());
+    if (!plan) return null;
+    const current = this.studyWorkspaceSettings().lerntracker;
+    this.settings.lerntracker = studyWorkspace.normalizePlanner({
+      ...current,
+      plans: current.plans.concat(plan).slice(-studyWorkspace.MAX_PLANS),
+    });
+    await this.save();
+    this.refreshViews();
+    return plan;
+  }
+
+  async addPlannerTopic(id, input) {
+    const current = this.studyWorkspaceSettings().lerntracker;
+    const plan = current.plans.find((entry) => entry.id === id);
+    if (!plan) return null;
+    const topics = plan.topics.concat([{ name: input && input.name, targetPasses: input && input.targetPasses }]);
+    const next = studyWorkspace.normalizePlanner({
+      ...current,
+      plans: current.plans.map((entry) => (entry.id === id ? { ...entry, topics } : entry)),
+    });
+    this.settings.lerntracker = next;
+    await this.save();
+    this.refreshViews();
+    return next.plans.find((entry) => entry.id === id) || null;
+  }
+
+  async addPlannerPass(planId, topicId) {
+    const current = this.studyWorkspaceSettings().lerntracker;
+    const plan = current.plans.find((entry) => entry.id === planId);
+    if (!plan) return null;
+    const topics = plan.topics.map((topic) =>
+      topic.id === topicId ? { ...topic, passes: Math.min(topic.targetPasses, topic.passes + 1) } : topic
+    );
+    const next = studyWorkspace.normalizePlanner({
+      ...current,
+      plans: current.plans.map((entry) => (entry.id === planId ? { ...entry, topics } : entry)),
+    });
+    this.settings.lerntracker = next;
+    await this.save();
+    this.refreshViews();
+    return next.plans.find((entry) => entry.id === planId) || null;
+  }
+
+  async removePlannerTopic(planId, topicId) {
+    const current = this.studyWorkspaceSettings().lerntracker;
+    this.settings.lerntracker = studyWorkspace.normalizePlanner({
+      ...current,
+      plans: current.plans.map((plan) =>
+        plan.id === planId ? { ...plan, topics: plan.topics.filter((topic) => topic.id !== topicId) } : plan
+      ),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async removePlannerPlan(id) {
+    const current = this.studyWorkspaceSettings().lerntracker;
+    this.settings.lerntracker = studyWorkspace.normalizePlanner({
+      ...current,
+      plans: current.plans.filter((plan) => plan.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async buildRecallQueue(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const mode = opts.mode === "fragments" ? "fragments" : "headings";
+    const folder = str(opts.folder).trim().replace(/^\/+|\/+$/g, "");
+    const limit = Math.max(1, Math.min(100, Math.round(Number(opts.limit) || 20)));
+    const units = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (folder && file.path !== folder && !file.path.startsWith(`${folder}/`)) continue;
+      let text = "";
+      try {
+        text = this.app.vault.cachedRead ? await this.app.vault.cachedRead(file) : await this.app.vault.read(file);
+      } catch (e) {
+        continue;
+      }
+      units.push(...studyWorkspace.parseRecallUnits(text, file.path, mode));
+    }
+    const settings = this.studyWorkspaceSettings().recallScheduler;
+    return studyWorkspace.recallDueUnits(units, settings.reviews, localDate()).slice(0, limit);
+  }
+
+  async reviewRecallUnit(unit, grade) {
+    const current = this.studyWorkspaceSettings().recallScheduler;
+    const previous = current.reviews[unit && unit.key] || null;
+    const next = studyWorkspace.reviewRecallUnit(unit, grade, localDate(), previous);
+    if (!next) return null;
+    const reviews = { ...current.reviews, [next.key]: next };
+    this.settings.recallScheduler = studyWorkspace.normalizeRecallScheduler({ ...current, reviews });
+    await this.save();
+    this.refreshViews();
+    return next;
   }
 
   async createCornellNote(input) {

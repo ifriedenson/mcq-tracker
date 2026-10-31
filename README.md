@@ -761,6 +761,38 @@ Study Tools contains local workflows that do not belong in Practice, Cards, Cale
 - **Lecture log.** Keep a local list of lectures by course, date, title and optional topics. Add one at a time or paste lines in the form `Course | YYYY-MM-DD | Lecture title | Topics`. Today shows the next upcoming lecture. No audio, transcript or network request is involved.
 - **Study goals.** Set a goal, optional course, target minutes and due date; log progress in 15- or 30-minute steps and mark it done. **Use next exam** creates a goal from the current study plan. Open goals appear on Today with a progress bar. Goals are stored in plugin data, not in your notes.
 
+## Study Workspace (five independent modules)
+
+Open **Study Workspace** from the command palette or the ribbon. It contains five local workflows, each with its own switch under Settings, Global, Modules. The tabs reuse the Study Tools cards, forms and responsive breakpoint; on phones the forms and score rows stack and the tab strip scrolls.
+
+- **Feynman Learning.** Start a four-step cycle for a concept: explain it simply, find the gaps, simplify it with an example, and teach it back. Finish by scoring clarity, accuracy and simplicity from 1 to 5. Saved cycles show their average and highlight weak dimensions. Scoring is local; no model is called.
+- **Recall Scheduler.** Build a queue from note headings or longer knowledge fragments. Choose an optional folder and limit, reveal a unit, then rate it Again, Hard, Good or Easy. The local ladder schedules the next due date; review state lives in plugin data and note text is never rewritten.
+- **Topic planner.** Create an exam plan with a course, exam date, buffer days and repeated-pass topics. The day-level allocation fills the study days before the buffer, and **+1 pass** advances each topic. All calculations are local.
+- **Study Flow.** Capture a source path, excerpt, your explanation and an optional card draft. Move the item from Inbox to Reviewing or Understood, open the source note, and keep the source untouched. The inbox is stored locally.
+- **Subject Manager.** Track subjects, folders and colors, log absences, and see lecture and absence counts. It uses the local lecture log when that module is enabled.
+
+These workflows are original implementations of the feature ideas in the research matrix. They do not copy third-party source, call a network service or change question/card scheduling unless you explicitly use the existing review actions.
+
+## Reusable inline quizzes and partial credit
+
+A `quiz-definition` block is a reusable quiz. Give it an `Id:` and put it anywhere in the vault; a `playable-quiz` block with the same `Id:` plays it where you need it:
+
+````markdown
+```quiz-definition
+Id: bio-respiration
+Q: Which gas do plants take in?
+A. Oxygen
+B. Carbon dioxide
+Answer: B
+```
+
+```playable-quiz
+Id: bio-respiration
+```
+````
+
+For a select-all question, add `Partial: true` to the block. A selection that finds some correct answers earns proportional credit; each wrong pick subtracts `Penalty:` points (0.5 by default, from 0 to 1). Exact selections still score 100, and result bands use the existing `Pass:` and `Imprecise:` thresholds. Partial credit is off unless the block asks for it.
+
 ## Reference (optional module, off by default)
 
 Turn it on under **Settings, Global, Modules**, then open **Reference** from the ribbon or the command palette. The view has ten tabs:

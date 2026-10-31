@@ -115,6 +115,8 @@ function newQuestion() {
     step: 1,
     tolerance: 0,
     weight: 1,
+    partial: false,
+    penalty: 0.5,
     issues: [],
   };
 }
@@ -134,6 +136,8 @@ function parseQuizBlock(text) {
   let keepStem = true;
   let pass = DEFAULT_PASS;
   let imprecise = DEFAULT_IMPRECISE;
+  let partial = false;
+  let penalty = 0.5;
   const questions = [];
   const sharedChoices = [];
   let cur = null;
@@ -142,6 +146,8 @@ function parseQuizBlock(text) {
   const start = () => {
     cur = newQuestion();
     cur.level = level;
+    cur.partial = partial;
+    cur.penalty = penalty;
     questions.push(cur);
     last = null;
   };
@@ -171,6 +177,16 @@ function parseQuizBlock(text) {
     const blockId = line.match(/^(?:(?:quiz[\s-]*)?id)\s*[:=]\s*(.*)$/i);
     if (!cur && blockId) {
       quizId = clean(blockId[1]).slice(0, 120);
+      continue;
+    }
+    const partialLine = line.match(/^(?:partial(?:\s*credit)?|allow\s+partial)\s*[:=]\s*(true|yes|on|1)$/i);
+    if (!cur && partialLine) {
+      partial = true;
+      continue;
+    }
+    const penaltyLine = line.match(/^penalty\s*[:=]\s*(\d+(?:\.\d+)?)$/i);
+    if (!cur && penaltyLine) {
+      penalty = Math.max(0, Math.min(1, number(penaltyLine[1], 0.5)));
       continue;
     }
     const binding = line.match(/^(bind|copy)\s*[:=]\s*(.*)$/i);
@@ -351,15 +367,18 @@ function parseQuizBlock(text) {
     }
     question.pass = pass;
     question.imprecise = imprecise;
+    question.partial = partial;
+    question.penalty = penalty;
     question.valid = question.issues.length === 0;
   }
-  return { gated, id: quizId, bind, copy, keepStem, pass, imprecise, mode, questions };
+  return { gated, id: quizId, bind, copy, keepStem, pass, imprecise, partial, penalty, mode, questions };
 }
 
-/** Every `mcq-quiz` fenced block in a note, in document order. */
-function fencedQuizBlocks(text) {
+/** Every fenced block of one quiz kind in a note, in document order. */
+function fencedQuizBlocks(text, blockName) {
   const blocks = [];
-  const fence = /^[ \t]*```+[ \t]*mcq-quiz\b[^\n]*\r?\n([\s\S]*?)^[ \t]*```+[ \t]*$/gm;
+  const name = str(blockName || "mcq-quiz").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const fence = new RegExp(`^[ \\t]*\`\`\`+[ \\t]*${name}\\b[^\\n]*\\r?\\n([\\s\\S]*?)^[ \\t]*\`\`\`+[ \\t]*$`, "gm");
   let match = fence.exec(str(text));
   while (match) {
     blocks.push(match[1]);
@@ -369,10 +388,10 @@ function fencedQuizBlocks(text) {
 }
 
 /** Find the source of the one block with a stable id, ignoring mirror blocks. */
-function findQuizBlockSource(text, id) {
+function findQuizBlockSource(text, id, blockName) {
   const wanted = str(id).trim();
   if (!wanted) return "";
-  for (const source of fencedQuizBlocks(text)) {
+  for (const source of fencedQuizBlocks(text, blockName)) {
     const parsed = parseQuizBlock(source);
     if (parsed.id === wanted && !parsed.bind && !parsed.copy) return source;
   }
@@ -384,7 +403,15 @@ function gradeQuizBlockQuestion(question, selected) {
   const q = question || {};
   const key = parseChoiceSet(q.answer);
   const picked = parseChoiceSet(selected);
-  const correct = key.length > 0 && key.length === picked.length && key.every((letter) => picked.includes(letter));
+  const exact = key.length > 0 && key.length === picked.length && key.every((letter) => picked.includes(letter));
+  let score = exact ? 100 : 0;
+  if (!exact && q.partial && key.length > 1) {
+    const hits = picked.filter((letter) => key.includes(letter)).length;
+    const wrong = picked.filter((letter) => !key.includes(letter)).length;
+    const penalty = Math.max(0, Math.min(1, Number(q.penalty) || 0));
+    score = Math.max(0, Math.min(100, Math.round(((hits - wrong * penalty) / key.length) * 100)));
+  }
+  const correct = score >= 100;
   const options = (Array.isArray(q.choices) ? q.choices : []).map((choice) => ({
     letter: str(choice.letter).toUpperCase(),
     text: str(choice.text),
@@ -394,7 +421,8 @@ function gradeQuizBlockQuestion(question, selected) {
   }));
   return {
     correct,
-    score: correct ? 100 : 0,
+    partialCredit: score > 0 && score < 100,
+    score,
     mode: "choice",
     type: "choice",
     weight: Number(q.weight) || 1,
@@ -402,7 +430,7 @@ function gradeQuizBlockQuestion(question, selected) {
     selected: picked.join(", "),
     options,
     explanation: str(q.explanation),
-    band: correct ? "pass" : "fail",
+    band: bandForScore(score, q.pass, q.imprecise),
   };
 }
 
@@ -592,6 +620,7 @@ module.exports = {
   DEFAULT_PASS,
   LETTERS,
   bandForScore,
+  fencedQuizBlocks,
   findQuizBlockSource,
   gradeQuizBlockQuestion,
   gradeNumericQuestion,

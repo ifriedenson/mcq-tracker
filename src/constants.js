@@ -12,6 +12,7 @@ const VIEW_TYPE_CARDS = "question-tracker-cards";
 const VIEW_TYPE_REFERENCE = "question-tracker-reference";
 const VIEW_TYPE_ASSIGNMENTS = "question-tracker-assignments";
 const VIEW_TYPE_STUDY_TOOLS = "question-tracker-study-tools";
+const VIEW_TYPE_STUDY_WORKSPACE = "question-tracker-study-workspace";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -140,6 +141,11 @@ const DEFAULT_SETTINGS = {
   cornellNotes: { enabled: true }, // independent local Cornell-note module
   lectureLog: { enabled: true, lectures: [] }, // independent local lecture-log module
   studyGoals: { enabled: true, goals: [] }, // independent local study-goal module
+  feynmanLearning: { enabled: true, sessions: [] }, // independent guided Feynman-cycle module
+  recallScheduler: { enabled: true, mode: "headings", folder: "", limit: 20, reviews: {} }, // heading/fragment recall queue
+  lerntracker: { enabled: true, plans: [] }, // topic-pass planner with exam buffer days
+  studyFlow: { enabled: true, excerpts: [] }, // source excerpt -> understanding -> card draft inbox
+  subjectManager: { enabled: true, subjects: [], absences: [] }, // subjects and absence log
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
@@ -225,6 +231,7 @@ module.exports = {
   VIEW_TYPE_REFERENCE,
   VIEW_TYPE_ASSIGNMENTS,
   VIEW_TYPE_STUDY_TOOLS,
+  VIEW_TYPE_STUDY_WORKSPACE,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,
