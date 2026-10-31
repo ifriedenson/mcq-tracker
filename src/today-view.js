@@ -13,6 +13,7 @@ const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus"
 const { buildDailyTasks, formatEstimate, workload } = require("./assignments");
 const { renderMastery } = require("./analytics-embed");
 const { MASTERY_WINDOWS, bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions } = require("./progress");
+const { formatStudyMinutes, goalPercent, goalSummary, nextLecture, normalizeStudyToolsSettings } = require("./study-tools");
 
 /*
  * The phone-sized entry point: what is due, what is next, and one large
@@ -110,6 +111,7 @@ class TodayView extends ItemView {
     this.renderDaily(grid, today);
     this.renderTasks(grid, today, due, visible);
     this.renderFocus(grid, today);
+    this.renderStudyTools(grid, today);
     this.renderDueQueue(grid);
     this.renderCards(grid);
     this.renderNext(grid, now);
@@ -288,6 +290,40 @@ class TodayView extends ItemView {
     card
       .createEl("button", { text: done ? "Practice again" : "Start daily quiz", cls: "mod-cta qt-primary" })
       .addEventListener("click", () => p.startDailyQuiz());
+  }
+
+  /** Local goals and the upcoming lecture, only when their independent modules are on. */
+  renderStudyTools(root, today) {
+    const p = this.plugin;
+    if (typeof p.studyToolsEnabled !== "function" || !p.studyToolsEnabled()) return;
+    const data = normalizeStudyToolsSettings(p.settings);
+    const summary = data.studyGoals.enabled ? goalSummary(data.studyGoals.goals) : null;
+    const lecture = data.lectureLog.enabled ? nextLecture(data.lectureLog.lectures, today) : null;
+    if ((!summary || !summary.next) && !lecture) return;
+    const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-wide qt-today-study-tools" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Study Tools" });
+    const card = panel.createDiv({ cls: "qt-today-card" });
+    if (lecture) {
+      card.createDiv({ cls: "qt-today-kicker", text: "Next lecture" });
+      card.createDiv({ cls: "qt-today-title", text: lecture.title });
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: `${lecture.course} · ${lecture.date}${lecture.topics ? ` · ${lecture.topics}` : ""}`,
+      });
+    }
+    if (summary && summary.next) {
+      const goal = summary.next;
+      card.createDiv({ cls: "qt-today-kicker", text: lecture ? "Open goal" : "Study goal" });
+      card.createDiv({ cls: "qt-today-title", text: goal.title });
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: `${goal.course ? `${goal.course} · ` : ""}${formatStudyMinutes(goal.minutes)} of ${formatStudyMinutes(goal.targetMinutes)}${goal.due ? ` · due ${goal.due}` : ""}`,
+      });
+      const bar = card.createDiv({ cls: "qt-study-bar" });
+      bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = `${goalPercent(goal)}%`;
+    }
+    const row = card.createDiv({ cls: "qt-row qt-small-row" });
+    row.createEl("button", { text: "Open Study Tools", cls: "mod-cta" }).addEventListener("click", () => p.activateStudyTools());
   }
 
   /** One mixed list when both modules have due work; the dedicated buttons stay below. */

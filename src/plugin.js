@@ -2,7 +2,7 @@
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -11,6 +11,10 @@ const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./moda
 const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { AssignmentsView } = require("./assignments-view");
+const { StudyToolsView } = require("./study-tools-view");
+const { buildCornellNote } = require("./cornell");
+const { renderCornellBlock } = require("./cornell-view");
+const studyTools = require("./study-tools");
 const { AssignmentModal } = require("./assignments-modal");
 const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimateMinutes, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskEstimate, updateTaskTitle } = require("./assignments");
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
@@ -221,6 +225,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_CARDS, (leaf) => new CardView(leaf, this));
     this.registerView(VIEW_TYPE_REFERENCE, (leaf) => new ReferenceView(leaf, this));
     this.registerView(VIEW_TYPE_ASSIGNMENTS, (leaf) => new AssignmentsView(leaf, this));
+    this.registerView(VIEW_TYPE_STUDY_TOOLS, (leaf) => new StudyToolsView(leaf, this));
     this.ribbonButtons = {};
     this.ribbonAdded = {};
     this.refreshRibbon();
@@ -302,6 +307,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
     this.addCommand({ id: "open-assignments", name: "Open assignments and grades", callback: () => this.activateAssignments() });
+    this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });
+    this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
@@ -519,6 +526,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("simple-flashcards", (source, el, ctx) => this.renderSimpleFlashcardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("reading-plan", (source, el, ctx) => this.renderReadingPlanBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("tag-timer", (source, el, ctx) => this.renderTagTimerBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("cornell-note", (source, el) => renderCornellBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
     this.registerMarkdownCodeBlockProcessor("quizjs", (source, el) => this.renderSimpleQuizDataBlock(source, el, "js"));
@@ -746,6 +754,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.simpleNoteQuiz = normalizeSimpleNoteQuiz(saved.simpleNoteQuiz);
     this.settings.reading = normalizeReadingSettings(saved.reading);
     this.settings.tagTimers = normalizeTagTimerSettings(saved.tagTimers);
+    this.settings.cornellNotes = studyTools.normalizeCornellSettings(saved.cornellNotes);
+    this.settings.lectureLog = studyTools.normalizeLectureLog(saved.lectureLog);
+    this.settings.studyGoals = studyTools.normalizeStudyGoals(saved.studyGoals);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -1136,6 +1147,9 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_ASSIGNMENTS)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_STUDY_TOOLS)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
     this.refreshNoteReviewStatus();
     this.decorateFileExplorer();
   }
@@ -1200,6 +1214,30 @@ class QuestionTrackerPlugin extends Plugin {
     return !!(this.settings.reference && this.settings.reference.enabled);
   }
 
+  /** Cornell notes are an independent local module. */
+  cornellNotesEnabled() {
+    return studyTools.normalizeCornellSettings(this.settings.cornellNotes).enabled;
+  }
+
+  /** The local lecture log is an independent module. */
+  lectureLogEnabled() {
+    return studyTools.normalizeLectureLog(this.settings.lectureLog).enabled;
+  }
+
+  /** Local study goals are an independent module. */
+  studyGoalsEnabled() {
+    return studyTools.normalizeStudyGoals(this.settings.studyGoals).enabled;
+  }
+
+  /** Any of the independent study tools is enabled. */
+  studyToolsEnabled() {
+    return this.cornellNotesEnabled() || this.lectureLogEnabled() || this.studyGoalsEnabled();
+  }
+
+  studyToolsSettings() {
+    return studyTools.normalizeStudyToolsSettings(this.settings);
+  }
+
   /** Assignments and grades are on unless the module was turned off. */
   assignmentsEnabled() {
     return !!(this.settings.assignments && this.settings.assignments.enabled !== false);
@@ -1258,6 +1296,8 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("reference");
     if (this.assignmentsEnabled()) this.addModuleRibbon("assignments", "clipboard-list", "Open assignments and grades", () => this.activateAssignments());
     else this.removeModuleRibbon("assignments");
+    if (this.studyToolsEnabled()) this.addModuleRibbon("study-tools", "notebook-pen", "Open Study Tools", () => this.activateStudyTools());
+    else this.removeModuleRibbon("study-tools");
   }
 
   setupCalendarRibbon() {
@@ -1342,6 +1382,15 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshRibbon();
     if (!this.assignmentsEnabled()) {
       this.detachModuleLeaves([VIEW_TYPE_ASSIGNMENTS]);
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onStudyToolToggled() {
+    this.refreshRibbon();
+    if (!this.studyToolsEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_STUDY_TOOLS]);
       return;
     }
     this.refreshViews();
@@ -1548,6 +1597,25 @@ class QuestionTrackerPlugin extends Plugin {
     if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
     await ws.revealLeaf(leaf);
     if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
+  async activateStudyTools(tab) {
+    if (!this.studyToolsEnabled()) {
+      new Notice("All Study Tools are off. Turn on Cornell notes, the lecture log or study goals in Settings, Global, Modules.");
+      this.openSettings();
+      return null;
+    }
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_STUDY_TOOLS)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_STUDY_TOOLS, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.setTab && tab) leaf.view.setTab(tab);
+    else if (leaf.view && leaf.view.render) leaf.view.render();
     return leaf.view;
   }
 
@@ -7134,6 +7202,89 @@ ${body}
 
   async saveMyNotes(file, text) {
     await this.app.vault.process(file, (data) => replaceMyNotes(data, text));
+  }
+
+  async addStudyGoal(input) {
+    const goal = studyTools.createStudyGoal(input, Date.now());
+    if (!goal) return null;
+    const current = this.studyToolsSettings().studyGoals;
+    this.settings.studyGoals = { ...current, goals: current.goals.concat(goal).slice(-studyTools.MAX_GOALS) };
+    await this.save();
+    this.refreshViews();
+    return goal;
+  }
+
+  async updateStudyGoal(id, patch) {
+    const current = this.studyToolsSettings().studyGoals;
+    const goals = current.goals.map((goal) => (goal.id === id ? { ...goal, ...(patch || {}) } : goal));
+    const normalized = studyTools.normalizeStudyGoals({ ...current, goals });
+    this.settings.studyGoals = normalized;
+    await this.save();
+    this.refreshViews();
+    return normalized.goals.find((goal) => goal.id === id) || null;
+  }
+
+  async addStudyGoalProgress(id, minutes) {
+    const current = this.studyToolsSettings().studyGoals;
+    const goal = current.goals.find((entry) => entry.id === id);
+    if (!goal) return null;
+    return this.updateStudyGoal(id, { minutes: Math.min(goal.targetMinutes, goal.minutes + Math.max(0, Number(minutes) || 0)) });
+  }
+
+  async removeStudyGoal(id) {
+    const current = this.studyToolsSettings().studyGoals;
+    this.settings.studyGoals = { ...current, goals: current.goals.filter((goal) => goal.id !== id) };
+    await this.save();
+    this.refreshViews();
+  }
+
+  async addStudyLecture(input) {
+    const lecture = studyTools.createLecture(input, Date.now());
+    if (!lecture) return null;
+    const current = this.studyToolsSettings().lectureLog;
+    this.settings.lectureLog = { ...current, lectures: current.lectures.concat(lecture).slice(-studyTools.MAX_LECTURES) };
+    await this.save();
+    this.refreshViews();
+    return lecture;
+  }
+
+  async addStudyLectures(inputs) {
+    const current = this.studyToolsSettings().lectureLog;
+    const incoming = (Array.isArray(inputs) ? inputs : []).map((entry) => studyTools.createLecture(entry, Date.now())).filter(Boolean);
+    if (!incoming.length) return 0;
+    const before = current.lectures.length;
+    this.settings.lectureLog = studyTools.normalizeLectureLog({ ...current, lectures: current.lectures.concat(incoming) });
+    await this.save();
+    this.refreshViews();
+    return this.settings.lectureLog.lectures.length - before;
+  }
+
+  async removeStudyLecture(id) {
+    const current = this.studyToolsSettings().lectureLog;
+    this.settings.lectureLog = { ...current, lectures: current.lectures.filter((lecture) => lecture.id !== id) };
+    await this.save();
+    this.refreshViews();
+  }
+
+  async createCornellNote(input) {
+    const data = input && typeof input === "object" ? input : {};
+    const title = str(data.title).trim();
+    if (!title) return null;
+    const folder = "Study Tools/Cornell";
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      await this.app.vault.createFolder(folder);
+    }
+    const base = safeName(title, "Cornell note");
+    let path = `${folder}/${base}.md`;
+    let suffix = 2;
+    while (this.app.vault.getAbstractFileByPath(path)) {
+      path = `${folder}/${base} ${suffix}.md`;
+      suffix++;
+    }
+    const file = await this.app.vault.create(path, buildCornellNote(title, data.course));
+    const leaf = this.app.workspace.getLeaf ? this.app.workspace.getLeaf("tab") : null;
+    if (leaf && leaf.openFile) await leaf.openFile(file);
+    return file;
   }
 
   async addMissingFields(files) {

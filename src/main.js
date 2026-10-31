@@ -65,6 +65,9 @@ const quizClipboard = require("./quiz-clipboard");
 const examBlock = require("./exam-block");
 const simpleFlashcards = require("./simple-flashcards");
 const quizBlock = require("./quiz-block");
+const studyTools = require("./study-tools");
+const cornell = require("./cornell");
+const { StudyToolsView } = require("./study-tools-view");
 const quizNoteGate = require("./quiz-note-gate");
 const quizport = require("./quizport");
 const sourceRecall = require("./source-recall");
@@ -401,6 +404,9 @@ QuestionTrackerPlugin.__test = {
   studyStatus,
   studySkin,
   StudyStatusModal,
+  StudyToolsView,
+  studyTools,
+  cornell,
   CardView,
   CardModal,
   renderSettingsTabs,

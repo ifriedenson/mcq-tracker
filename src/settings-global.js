@@ -88,6 +88,42 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Cornell notes")
+    .setDesc("A read-only Cornell-note block with cues, notes, a summary and a recall mode, plus a creator in Study Tools. This module does not change questions, cards or scheduling.")
+    .addToggle((t) =>
+      t.setValue(plugin.cornellNotesEnabled()).onChange(async (v) => {
+        st.cornellNotes.enabled = v;
+        await plugin.save();
+        await plugin.onStudyToolToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Lecture log")
+    .setDesc("A local log of lectures by course, date and topic, with bulk paste and an upcoming-lecture card on Today. No audio, transcript or network request is added.")
+    .addToggle((t) =>
+      t.setValue(plugin.lectureLogEnabled()).onChange(async (v) => {
+        st.lectureLog.enabled = v;
+        await plugin.save();
+        await plugin.onStudyToolToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Study goals")
+    .setDesc("Small, local study goals with minute progress, optional due dates and a next-exam shortcut. Goals are stored in plugin data and appear on Today when one is open.")
+    .addToggle((t) =>
+      t.setValue(plugin.studyGoalsEnabled()).onChange(async (v) => {
+        st.studyGoals.enabled = v;
+        await plugin.save();
+        await plugin.onStudyToolToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>

@@ -6365,3 +6365,322 @@
   color: var(--text-error);
   font-size: var(--font-ui-small);
 }
+
+
+/* ---- Study tools: independent Cornell, lecture-log and goal modules ---- */
+.qt-study-tools-wrap {
+  max-width: 1120px;
+}
+.qt-study-header {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  justify-content: space-between;
+}
+.qt-study-heading h2 {
+  margin: 0;
+}
+.qt-study-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 8px;
+}
+.qt-wrap .qt-study-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  min-height: 36px;
+  padding: 6px 10px;
+}
+.qt-wrap .qt-study-tab.is-active {
+  background: var(--background-secondary);
+  border-color: var(--background-modifier-border);
+  color: var(--text-normal);
+  font-weight: 600;
+}
+.qt-study-message {
+  color: var(--text-accent);
+  font-size: var(--font-ui-small);
+}
+.qt-study-stats {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.qt-study-stat {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 12px 14px;
+}
+.qt-study-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+.qt-study-stat-label {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+.qt-study-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.qt-study-card {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px 16px;
+}
+.qt-study-card h3 {
+  font-size: 1rem;
+  margin: 0;
+}
+.qt-study-empty {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.qt-study-next-title {
+  font-weight: 600;
+}
+.qt-study-next-meta,
+.qt-study-row-meta {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+.qt-study-bar {
+  background: var(--background-modifier-border);
+  border-radius: 999px;
+  height: 7px;
+  overflow: hidden;
+}
+.qt-study-bar-fill {
+  background: var(--interactive-accent);
+  height: 100%;
+  min-width: 0;
+  transition: width 160ms ease;
+}
+.qt-study-form {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.qt-study-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.qt-study-field label {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+.qt-study-field .qt-input,
+.qt-study-bulk {
+  box-sizing: border-box;
+  width: 100%;
+}
+.qt-study-actions {
+  flex-wrap: wrap;
+}
+.qt-study-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.qt-study-row {
+  align-items: center;
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding-top: 8px;
+}
+.qt-study-row-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.qt-study-row-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.qt-study-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.qt-wrap .qt-study-row-actions button {
+  font-size: 0.76rem;
+  min-height: 32px;
+  padding: 3px 7px;
+}
+.qt-study-issues {
+  border-left: 3px solid var(--text-error);
+  padding-left: 8px;
+}
+.qt-study-issue {
+  color: var(--text-error);
+  font-size: 0.82rem;
+}
+.qt-study-template {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  font-size: 0.8rem;
+  overflow: auto;
+  padding: 8px;
+  white-space: pre-wrap;
+}
+.qt-cornell {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 0;
+  padding: 14px 16px;
+}
+.qt-cornell-head {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  justify-content: space-between;
+}
+.qt-cornell-title {
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+.qt-cornell-course,
+.qt-cornell-column-label {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.qt-wrap .qt-cornell-recall {
+  min-height: 34px;
+  padding: 4px 9px;
+}
+.qt-cornell-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+}
+.qt-cornell-cues,
+.qt-cornell-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.qt-cornell-cue,
+.qt-cornell-note {
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  gap: 7px;
+  padding-top: 6px;
+}
+.qt-cornell-number {
+  color: var(--text-faint);
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
+}
+.qt-cornell-cue-text {
+  font-weight: 600;
+}
+.qt-cornell-note {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.qt-cornell-note-text {
+  flex: 1 1 180px;
+  min-width: 0;
+  transition: filter 120ms ease, opacity 120ms ease;
+}
+.qt-cornell-note-text.is-hidden,
+.qt-cornell-reveal.is-hidden {
+  display: none;
+}
+.qt-wrap .qt-cornell-reveal {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  min-height: 30px;
+  padding: 3px 7px;
+}
+.qt-cornell-summary {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 8px;
+}
+.qt-cornell-summary-text {
+  margin-top: 3px;
+}
+.qt-cornell-issues {
+  color: var(--text-error);
+}
+.qt-cornell-issue-title {
+  font-weight: 700;
+}
+.qt-cornell-issue,
+.qt-cornell-empty {
+  font-size: 0.84rem;
+}
+.qt-cornell-empty {
+  color: var(--text-muted);
+}
+
+@media (max-width: 700px) {
+  .qt-study-tools-wrap {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .qt-study-stats,
+  .qt-study-grid,
+  .qt-study-form,
+  .qt-cornell-grid {
+    grid-template-columns: 1fr;
+  }
+  .qt-study-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+  .qt-wrap .qt-study-tab {
+    flex: 0 0 auto;
+  }
+  .qt-study-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .qt-study-row-actions {
+    justify-content: flex-start;
+  }
+  .qt-wrap .qt-study-row-actions button,
+  .qt-wrap .qt-study-actions button {
+    flex: 1 1 40%;
+  }
+  .qt-cornell {
+    padding: 12px;
+  }
+  .qt-cornell-note-text {
+    flex-basis: 100%;
+  }
+}

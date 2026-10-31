@@ -753,6 +753,14 @@ When Today's **Next exam** is an AP course, it shows one saved resource for that
 
 **Attach to exam** binds that note to the exact calendar exam by writing `exam_uid`, `exam_date` and `exam_title`. An explicitly attached note wins over a generic course match on later visits, and the row changes to **Attached resource**. The calendar's **Upcoming exams** panel then shows **Attached: <note>** under that exam with an **Open** action. **Detach from exam** on Today removes the binding; you can also edit or delete the three properties by hand. Free-time study blocks use the same notes: the chooser suggests a saved resource for the next class, and **Attach to this block** stores `study_slot_date`, `study_slot_start` and `study_slot_subject` on the note. Detaching clears only those three properties, leaving the exam binding and the link untouched. When an exam has an attached resource, its calendar row also offers **Add to note**: it creates the exam's class note if needed and adds a `## AP resources` section with a wikilink, once. The Reference saved-resource list shows **Attached to exam** and **Study block** labels, with **Detach exam** and **Detach block** actions that remove one binding without disturbing the other.
 
+## Study Tools (three independent modules)
+
+Study Tools contains local workflows that do not belong in Practice, Cards, Calendar or Assignments. Each has its own switch under Settings, Global, Modules, so you can use only the one you want. On laptops the tools use a two-column card layout; on phones the cards, forms and Cornell cue/note columns stack into one column and the tab strip scrolls horizontally.
+
+- **Cornell notes.** Put a `cornell-note` block in any note with `Title:`, optional `Course:`, repeated `Cue:`/`Note:` pairs and a `Summary:`. The block renders a cue column, note column and summary. **Start recall** hides every note; reveal each answer when you have tried the cue. The Study Tools view can create a new Cornell note in `Study Tools/Cornell`. The block is read-only and never changes questions, cards or scheduling.
+- **Lecture log.** Keep a local list of lectures by course, date, title and optional topics. Add one at a time or paste lines in the form `Course | YYYY-MM-DD | Lecture title | Topics`. Today shows the next upcoming lecture. No audio, transcript or network request is involved.
+- **Study goals.** Set a goal, optional course, target minutes and due date; log progress in 15- or 30-minute steps and mark it done. **Use next exam** creates a goal from the current study plan. Open goals appear on Today with a progress bar. Goals are stored in plugin data, not in your notes.
+
 ## Reference (optional module, off by default)
 
 Turn it on under **Settings, Global, Modules**, then open **Reference** from the ribbon or the command palette. The view has ten tabs:

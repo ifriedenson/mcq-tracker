@@ -11,6 +11,7 @@ const VIEW_TYPE_CALENDAR = "question-tracker-calendar";
 const VIEW_TYPE_CARDS = "question-tracker-cards";
 const VIEW_TYPE_REFERENCE = "question-tracker-reference";
 const VIEW_TYPE_ASSIGNMENTS = "question-tracker-assignments";
+const VIEW_TYPE_STUDY_TOOLS = "question-tracker-study-tools";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -136,6 +137,9 @@ const DEFAULT_SETTINGS = {
   },
   reading: { progress: {} }, // reading-plan progress keyed by plan id; local only
   tagTimers: { timers: {}, sessions: [] }, // local tag-timer state and completed sessions
+  cornellNotes: { enabled: true }, // independent local Cornell-note module
+  lectureLog: { enabled: true, lectures: [] }, // independent local lecture-log module
+  studyGoals: { enabled: true, goals: [] }, // independent local study-goal module
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
@@ -220,6 +224,7 @@ module.exports = {
   VIEW_TYPE_CARDS,
   VIEW_TYPE_REFERENCE,
   VIEW_TYPE_ASSIGNMENTS,
+  VIEW_TYPE_STUDY_TOOLS,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,

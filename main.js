@@ -18147,6 +18147,7 @@ const VIEW_TYPE_CALENDAR = "question-tracker-calendar";
 const VIEW_TYPE_CARDS = "question-tracker-cards";
 const VIEW_TYPE_REFERENCE = "question-tracker-reference";
 const VIEW_TYPE_ASSIGNMENTS = "question-tracker-assignments";
+const VIEW_TYPE_STUDY_TOOLS = "question-tracker-study-tools";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -18272,6 +18273,9 @@ const DEFAULT_SETTINGS = {
   },
   reading: { progress: {} }, // reading-plan progress keyed by plan id; local only
   tagTimers: { timers: {}, sessions: [] }, // local tag-timer state and completed sessions
+  cornellNotes: { enabled: true }, // independent local Cornell-note module
+  lectureLog: { enabled: true, lectures: [] }, // independent local lecture-log module
+  studyGoals: { enabled: true, goals: [] }, // independent local study-goal module
   reference: Object.assign({}, DEFAULT_REFERENCE_SETTINGS), // optional local formula sheet and unit converter
   assignments: Object.assign({}, DEFAULT_ASSIGNMENT_SETTINGS, {
     categories: DEFAULT_ASSIGNMENT_SETTINGS.categories.map((category) => ({ ...category })),
@@ -18356,6 +18360,7 @@ module.exports = {
   VIEW_TYPE_CARDS,
   VIEW_TYPE_REFERENCE,
   VIEW_TYPE_ASSIGNMENTS,
+  VIEW_TYPE_STUDY_TOOLS,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,
@@ -18363,6 +18368,238 @@ module.exports = {
   FOLDER_AUTO_MAX,
   STAT_FIELDS,
 };
+};
+
+/* ---- src/cornell.js ---- */
+__defs["cornell"] = function (module, exports, require) {
+/*
+ * Cornell notes are ordinary fenced blocks:
+ *
+ *   ```cornell-note
+ *   Title: Cell respiration
+ *   Course: Biology
+ *   Cue: What is glycolysis?
+ *   Note: Splits glucose into pyruvate and produces ATP and NADH.
+ *   Cue: Where does the Krebs cycle happen?
+ *   Note: In the mitochondrial matrix.
+ *   Summary: Respiration transfers energy from glucose to ATP.
+ *   ```
+ *
+ * The block is read-only. Recall mode only hides notes in the current view.
+ */
+const { str } = require("./util");
+
+function clean(value) {
+  return str(value).replace(/\s+/g, " ").trim();
+}
+
+function parseCornellNote(source) {
+  const title = [];
+  const course = [];
+  const summary = [];
+  const cues = [];
+  const issues = [];
+  let current = null;
+  let field = "";
+
+  const append = (target, value) => {
+    const text = clean(value);
+    if (text) target.push(text);
+  };
+
+  for (const raw of str(source).replace(/\r\n?/g, "\n").split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const titleMatch = line.match(/^title\s*[:=]\s*(.*)$/i);
+    if (titleMatch) {
+      append(title, titleMatch[1]);
+      field = "title";
+      continue;
+    }
+    const courseMatch = line.match(/^course\s*[:=]\s*(.*)$/i);
+    if (courseMatch) {
+      append(course, courseMatch[1]);
+      field = "course";
+      continue;
+    }
+    const cueMatch = line.match(/^cue\s*[:=]\s*(.*)$/i);
+    if (cueMatch) {
+      current = { cue: [], note: [] };
+      cues.push(current);
+      append(current.cue, cueMatch[1]);
+      field = "cue";
+      continue;
+    }
+    const noteMatch = line.match(/^(?:note|notes)\s*[:=]\s*(.*)$/i);
+    if (noteMatch) {
+      if (!current) {
+        issues.push("Add a Cue: line before each Note: line.");
+        field = "";
+        continue;
+      }
+      append(current.note, noteMatch[1]);
+      field = "note";
+      continue;
+    }
+    const summaryMatch = line.match(/^summary\s*[:=]\s*(.*)$/i);
+    if (summaryMatch) {
+      append(summary, summaryMatch[1]);
+      field = "summary";
+      continue;
+    }
+    if (field === "title") append(title, line);
+    else if (field === "course") append(course, line);
+    else if (field === "summary") append(summary, line);
+    else if (field === "cue" && current) append(current.cue, line);
+    else if (field === "note" && current) append(current.note, line);
+    else issues.push(`Could not read "${line.slice(0, 60)}". Use Title, Course, Cue, Note or Summary.`);
+  }
+
+  const rows = cues.map((row, index) => {
+    const cue = clean(row.cue.join(" "));
+    const note = clean(row.note.join(" "));
+    if (!cue) issues.push(`Cue ${index + 1} is empty.`);
+    if (!note) issues.push(`Cue ${index + 1} has no Note.`);
+    return { cue, note };
+  });
+  if (!rows.length) issues.push("Add at least one Cue: and Note: pair.");
+  if (!title.length) issues.push("Add a Title: line.");
+
+  return {
+    title: clean(title.join(" ")),
+    course: clean(course.join(" ")),
+    summary: clean(summary.join(" ")),
+    cues: rows,
+    issues,
+    valid: rows.length > 0 && rows.every((row) => row.cue && row.note) && title.length > 0 && issues.length === 0,
+  };
+}
+
+function buildCornellBlockSource(input) {
+  const data = input && typeof input === "object" ? input : {};
+  const cues = Array.isArray(data.cues) ? data.cues : [];
+  const lines = [`Title: ${clean(data.title) || "Untitled Cornell note"}`];
+  if (clean(data.course)) lines.push(`Course: ${clean(data.course)}`);
+  for (const row of cues) {
+    if (!row || (!clean(row.cue) && !clean(row.note))) continue;
+    lines.push(`Cue: ${clean(row.cue)}`);
+    lines.push(`Note: ${clean(row.note)}`);
+  }
+  if (clean(data.summary)) lines.push(`Summary: ${clean(data.summary)}`);
+  return lines.join("\n");
+}
+
+function cornellTemplate(title, course) {
+  return buildCornellBlockSource({
+    title: clean(title) || "Untitled Cornell note",
+    course: clean(course),
+    cues: [
+      { cue: "What is the main idea?", note: "Write the answer here after class." },
+      { cue: "What detail is easy to confuse?", note: "Add the distinction or example." },
+    ],
+    summary: "Summarise the note in two or three sentences.",
+  });
+}
+
+function buildCornellNote(title, course, now) {
+  const date = now instanceof Date ? now : new Date();
+  const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const heading = clean(title) || "Untitled Cornell note";
+  return [
+    "---",
+    "cornell: true",
+    `title: ${JSON.stringify(heading)}`,
+    `course: ${JSON.stringify(clean(course))}`,
+    `created: ${day}`,
+    "---",
+    "",
+    `# ${heading}`,
+    "",
+    "```cornell-note",
+    cornellTemplate(heading, course),
+    "```",
+    "",
+  ].join("\n");
+}
+
+module.exports = { buildCornellBlockSource, buildCornellNote, cornellTemplate, parseCornellNote };
+};
+
+/* ---- src/cornell-view.js ---- */
+__defs["cornell-view"] = function (module, exports, require) {
+/*
+ * Render a `cornell-note` block. The block is read-only and local: recall
+ * mode hides note text until the reader reveals a cue, and nothing is written.
+ */
+const { parseCornellNote } = require("./cornell");
+
+function renderCornellBlock(plugin, source, el) {
+  if (plugin && typeof plugin.cornellNotesEnabled === "function" && !plugin.cornellNotesEnabled()) {
+    el.createDiv({
+      cls: "qt-cornell-empty",
+      text: "Cornell notes are off. Turn on Cornell notes under Settings, Global, Modules.",
+    });
+    return;
+  }
+  const parsed = parseCornellNote(source);
+  const box = el.createDiv({ cls: "qt-cornell" });
+  const head = box.createDiv({ cls: "qt-cornell-head" });
+  const titleWrap = head.createDiv({ cls: "qt-cornell-title-wrap" });
+  titleWrap.createDiv({ cls: "qt-cornell-title", text: parsed.title || "Cornell note" });
+  if (parsed.course) titleWrap.createDiv({ cls: "qt-cornell-course", text: parsed.course });
+  const recall = head.createEl("button", { cls: "qt-cornell-recall", text: "Start recall" });
+  recall.setAttr("aria-pressed", "false");
+
+  if (!parsed.valid) {
+    const issues = box.createDiv({ cls: "qt-cornell-issues" });
+    issues.createDiv({ cls: "qt-cornell-issue-title", text: "This Cornell note needs a small fix" });
+    for (const issue of parsed.issues.slice(0, 8)) issues.createDiv({ cls: "qt-cornell-issue", text: issue });
+    return;
+  }
+
+  const grid = box.createDiv({ cls: "qt-cornell-grid" });
+  const cueColumn = grid.createDiv({ cls: "qt-cornell-cues" });
+  const noteColumn = grid.createDiv({ cls: "qt-cornell-notes" });
+  cueColumn.createDiv({ cls: "qt-cornell-column-label", text: "Cues" });
+  noteColumn.createDiv({ cls: "qt-cornell-column-label", text: "Notes" });
+
+  let hiding = false;
+  const rows = parsed.cues.map((row, index) => {
+    const cue = cueColumn.createDiv({ cls: "qt-cornell-cue" });
+    cue.createSpan({ cls: "qt-cornell-number", text: String(index + 1).padStart(2, "0") });
+    cue.createSpan({ cls: "qt-cornell-cue-text", text: row.cue });
+    const note = noteColumn.createDiv({ cls: "qt-cornell-note" });
+    const text = note.createDiv({ cls: "qt-cornell-note-text", text: row.note });
+    const reveal = note.createEl("button", { cls: "qt-cornell-reveal", text: "Reveal" });
+    reveal.setAttr("aria-label", `Reveal note ${index + 1}`);
+    reveal.addEventListener("click", () => {
+      text.toggleClass("is-hidden", false);
+      reveal.toggleClass("is-hidden", true);
+    });
+    return { note: text, reveal };
+  });
+
+  const setHiding = (next) => {
+    hiding = next;
+    recall.setText(hiding ? "Show notes" : "Start recall");
+    recall.setAttr("aria-pressed", hiding ? "true" : "false");
+    for (const row of rows) {
+      row.note.toggleClass("is-hidden", hiding);
+      row.reveal.toggleClass("is-hidden", !hiding);
+      if (!hiding) row.reveal.toggleClass("is-hidden", true);
+    }
+    box.toggleClass("is-recall", hiding);
+  };
+  recall.addEventListener("click", () => setHiding(!hiding));
+
+  if (parsed.summary) {
+    const summary = box.createDiv({ cls: "qt-cornell-summary" });
+    summary.createDiv({ cls: "qt-cornell-column-label", text: "Summary" });
+    summary.createDiv({ cls: "qt-cornell-summary-text", text: parsed.summary });
+  }
+}
+
+module.exports = { renderCornellBlock };
 };
 
 /* ---- src/couchdb-sync.js ---- */
@@ -36049,7 +36286,7 @@ __defs["plugin"] = function (module, exports, require) {
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -36058,6 +36295,10 @@ const { ConfirmModal, FindQuestionModal, QuestionFolderModal } = require("./moda
 const { cloneFilters, fvals, hasFilters, isDue, matchSets, renameFolderInSettings } = require("./filters");
 const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { AssignmentsView } = require("./assignments-view");
+const { StudyToolsView } = require("./study-tools-view");
+const { buildCornellNote } = require("./cornell");
+const { renderCornellBlock } = require("./cornell-view");
+const studyTools = require("./study-tools");
 const { AssignmentModal } = require("./assignments-modal");
 const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimateMinutes, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskEstimate, updateTaskTitle } = require("./assignments");
 const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
@@ -36268,6 +36509,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_CARDS, (leaf) => new CardView(leaf, this));
     this.registerView(VIEW_TYPE_REFERENCE, (leaf) => new ReferenceView(leaf, this));
     this.registerView(VIEW_TYPE_ASSIGNMENTS, (leaf) => new AssignmentsView(leaf, this));
+    this.registerView(VIEW_TYPE_STUDY_TOOLS, (leaf) => new StudyToolsView(leaf, this));
     this.ribbonButtons = {};
     this.ribbonAdded = {};
     this.refreshRibbon();
@@ -36349,6 +36591,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "calendar-export", name: "Calendar: export the visible schedule to .ics", callback: () => this.exportCalendarIcs() });
     this.addCommand({ id: "open-cards", name: "Open cards", callback: () => this.activateCards() });
     this.addCommand({ id: "open-assignments", name: "Open assignments and grades", callback: () => this.activateAssignments() });
+    this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });
+    this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
@@ -36566,6 +36810,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("simple-flashcards", (source, el, ctx) => this.renderSimpleFlashcardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("reading-plan", (source, el, ctx) => this.renderReadingPlanBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("tag-timer", (source, el, ctx) => this.renderTagTimerBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("cornell-note", (source, el) => renderCornellBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
     this.registerMarkdownCodeBlockProcessor("quizjs", (source, el) => this.renderSimpleQuizDataBlock(source, el, "js"));
@@ -36793,6 +37038,9 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.simpleNoteQuiz = normalizeSimpleNoteQuiz(saved.simpleNoteQuiz);
     this.settings.reading = normalizeReadingSettings(saved.reading);
     this.settings.tagTimers = normalizeTagTimerSettings(saved.tagTimers);
+    this.settings.cornellNotes = studyTools.normalizeCornellSettings(saved.cornellNotes);
+    this.settings.lectureLog = studyTools.normalizeLectureLog(saved.lectureLog);
+    this.settings.studyGoals = studyTools.normalizeStudyGoals(saved.studyGoals);
     this.settings.quickAdaptive = normalizeQuickAdaptive(saved.quickAdaptive);
     this.settings.reminder = normalizeReminder(saved.reminder);
     this.settings.practicePath = str(this.settings.practicePath).trim();
@@ -37183,6 +37431,9 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_ASSIGNMENTS)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_STUDY_TOOLS)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
     this.refreshNoteReviewStatus();
     this.decorateFileExplorer();
   }
@@ -37247,6 +37498,30 @@ class QuestionTrackerPlugin extends Plugin {
     return !!(this.settings.reference && this.settings.reference.enabled);
   }
 
+  /** Cornell notes are an independent local module. */
+  cornellNotesEnabled() {
+    return studyTools.normalizeCornellSettings(this.settings.cornellNotes).enabled;
+  }
+
+  /** The local lecture log is an independent module. */
+  lectureLogEnabled() {
+    return studyTools.normalizeLectureLog(this.settings.lectureLog).enabled;
+  }
+
+  /** Local study goals are an independent module. */
+  studyGoalsEnabled() {
+    return studyTools.normalizeStudyGoals(this.settings.studyGoals).enabled;
+  }
+
+  /** Any of the independent study tools is enabled. */
+  studyToolsEnabled() {
+    return this.cornellNotesEnabled() || this.lectureLogEnabled() || this.studyGoalsEnabled();
+  }
+
+  studyToolsSettings() {
+    return studyTools.normalizeStudyToolsSettings(this.settings);
+  }
+
   /** Assignments and grades are on unless the module was turned off. */
   assignmentsEnabled() {
     return !!(this.settings.assignments && this.settings.assignments.enabled !== false);
@@ -37305,6 +37580,8 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("reference");
     if (this.assignmentsEnabled()) this.addModuleRibbon("assignments", "clipboard-list", "Open assignments and grades", () => this.activateAssignments());
     else this.removeModuleRibbon("assignments");
+    if (this.studyToolsEnabled()) this.addModuleRibbon("study-tools", "notebook-pen", "Open Study Tools", () => this.activateStudyTools());
+    else this.removeModuleRibbon("study-tools");
   }
 
   setupCalendarRibbon() {
@@ -37389,6 +37666,15 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshRibbon();
     if (!this.assignmentsEnabled()) {
       this.detachModuleLeaves([VIEW_TYPE_ASSIGNMENTS]);
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onStudyToolToggled() {
+    this.refreshRibbon();
+    if (!this.studyToolsEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_STUDY_TOOLS]);
       return;
     }
     this.refreshViews();
@@ -37595,6 +37881,25 @@ class QuestionTrackerPlugin extends Plugin {
     if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
     await ws.revealLeaf(leaf);
     if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
+  async activateStudyTools(tab) {
+    if (!this.studyToolsEnabled()) {
+      new Notice("All Study Tools are off. Turn on Cornell notes, the lecture log or study goals in Settings, Global, Modules.");
+      this.openSettings();
+      return null;
+    }
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_STUDY_TOOLS)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_STUDY_TOOLS, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.setTab && tab) leaf.view.setTab(tab);
+    else if (leaf.view && leaf.view.render) leaf.view.render();
     return leaf.view;
   }
 
@@ -43181,6 +43486,89 @@ ${body}
 
   async saveMyNotes(file, text) {
     await this.app.vault.process(file, (data) => replaceMyNotes(data, text));
+  }
+
+  async addStudyGoal(input) {
+    const goal = studyTools.createStudyGoal(input, Date.now());
+    if (!goal) return null;
+    const current = this.studyToolsSettings().studyGoals;
+    this.settings.studyGoals = { ...current, goals: current.goals.concat(goal).slice(-studyTools.MAX_GOALS) };
+    await this.save();
+    this.refreshViews();
+    return goal;
+  }
+
+  async updateStudyGoal(id, patch) {
+    const current = this.studyToolsSettings().studyGoals;
+    const goals = current.goals.map((goal) => (goal.id === id ? { ...goal, ...(patch || {}) } : goal));
+    const normalized = studyTools.normalizeStudyGoals({ ...current, goals });
+    this.settings.studyGoals = normalized;
+    await this.save();
+    this.refreshViews();
+    return normalized.goals.find((goal) => goal.id === id) || null;
+  }
+
+  async addStudyGoalProgress(id, minutes) {
+    const current = this.studyToolsSettings().studyGoals;
+    const goal = current.goals.find((entry) => entry.id === id);
+    if (!goal) return null;
+    return this.updateStudyGoal(id, { minutes: Math.min(goal.targetMinutes, goal.minutes + Math.max(0, Number(minutes) || 0)) });
+  }
+
+  async removeStudyGoal(id) {
+    const current = this.studyToolsSettings().studyGoals;
+    this.settings.studyGoals = { ...current, goals: current.goals.filter((goal) => goal.id !== id) };
+    await this.save();
+    this.refreshViews();
+  }
+
+  async addStudyLecture(input) {
+    const lecture = studyTools.createLecture(input, Date.now());
+    if (!lecture) return null;
+    const current = this.studyToolsSettings().lectureLog;
+    this.settings.lectureLog = { ...current, lectures: current.lectures.concat(lecture).slice(-studyTools.MAX_LECTURES) };
+    await this.save();
+    this.refreshViews();
+    return lecture;
+  }
+
+  async addStudyLectures(inputs) {
+    const current = this.studyToolsSettings().lectureLog;
+    const incoming = (Array.isArray(inputs) ? inputs : []).map((entry) => studyTools.createLecture(entry, Date.now())).filter(Boolean);
+    if (!incoming.length) return 0;
+    const before = current.lectures.length;
+    this.settings.lectureLog = studyTools.normalizeLectureLog({ ...current, lectures: current.lectures.concat(incoming) });
+    await this.save();
+    this.refreshViews();
+    return this.settings.lectureLog.lectures.length - before;
+  }
+
+  async removeStudyLecture(id) {
+    const current = this.studyToolsSettings().lectureLog;
+    this.settings.lectureLog = { ...current, lectures: current.lectures.filter((lecture) => lecture.id !== id) };
+    await this.save();
+    this.refreshViews();
+  }
+
+  async createCornellNote(input) {
+    const data = input && typeof input === "object" ? input : {};
+    const title = str(data.title).trim();
+    if (!title) return null;
+    const folder = "Study Tools/Cornell";
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      await this.app.vault.createFolder(folder);
+    }
+    const base = safeName(title, "Cornell note");
+    let path = `${folder}/${base}.md`;
+    let suffix = 2;
+    while (this.app.vault.getAbstractFileByPath(path)) {
+      path = `${folder}/${base} ${suffix}.md`;
+      suffix++;
+    }
+    const file = await this.app.vault.create(path, buildCornellNote(title, data.course));
+    const leaf = this.app.workspace.getLeaf ? this.app.workspace.getLeaf("tab") : null;
+    if (leaf && leaf.openFile) await leaf.openFile(file);
+    return file;
   }
 
   async addMissingFields(files) {
@@ -51583,6 +51971,42 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
+    .setName("Cornell notes")
+    .setDesc("A read-only Cornell-note block with cues, notes, a summary and a recall mode, plus a creator in Study Tools. This module does not change questions, cards or scheduling.")
+    .addToggle((t) =>
+      t.setValue(plugin.cornellNotesEnabled()).onChange(async (v) => {
+        st.cornellNotes.enabled = v;
+        await plugin.save();
+        await plugin.onStudyToolToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Lecture log")
+    .setDesc("A local log of lectures by course, date and topic, with bulk paste and an upcoming-lecture card on Today. No audio, transcript or network request is added.")
+    .addToggle((t) =>
+      t.setValue(plugin.lectureLogEnabled()).onChange(async (v) => {
+        st.lectureLog.enabled = v;
+        await plugin.save();
+        await plugin.onStudyToolToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
+    .setName("Study goals")
+    .setDesc("Small, local study goals with minute progress, optional due dates and a next-exam shortcut. Goals are stored in plugin data and appear on Today when one is open.")
+    .addToggle((t) =>
+      t.setValue(plugin.studyGoalsEnabled()).onChange(async (v) => {
+        st.studyGoals.enabled = v;
+        await plugin.save();
+        await plugin.onStudyToolToggled();
+        redisplay();
+      })
+    );
+
+  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>
@@ -57112,6 +57536,653 @@ class StudyStatusModal extends Modal {
 module.exports = { StudyStatusModal };
 };
 
+/* ---- src/study-tools.js ---- */
+__defs["study-tools"] = function (module, exports, require) {
+/*
+ * Local study-tool data. These helpers are deliberately independent of
+ * Obsidian so the view, the Today card and the tests share the same rules.
+ */
+const { hashString, localDate, str } = require("./util");
+
+const MAX_LECTURES = 300;
+const MAX_GOALS = 200;
+const MAX_TITLE = 160;
+const MAX_TOPICS = 1000;
+const MAX_GOAL_MINUTES = 100000;
+
+function enabledValue(value, fallback) {
+  if (value === false) return false;
+  if (value === true) return true;
+  if (value && typeof value === "object" && value.enabled === false) return false;
+  return fallback;
+}
+
+function dayValue(value) {
+  const text = str(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return "";
+  const [year, month, day] = text.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  if (
+    !Number.isFinite(date.getTime()) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return "";
+  }
+  return text;
+}
+
+function addDays(day, count) {
+  const text = dayValue(day);
+  if (!text) return "";
+  const [year, month, date] = text.split("-").map(Number);
+  const at = new Date(year, month - 1, date);
+  at.setDate(at.getDate() + Math.round(Number(count) || 0));
+  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+}
+
+function idFor(prefix, parts) {
+  return `${prefix}-${hashString(parts.join("|"))}`;
+}
+
+function numberValue(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function clamp(value, low, high) {
+  return Math.max(low, Math.min(high, Math.round(value)));
+}
+
+function normalizeCornellSettings(value) {
+  return { enabled: enabledValue(value, true) };
+}
+
+function normalizeLecture(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const course = str(source.course).trim().slice(0, MAX_TITLE);
+  const title = str(source.title).trim().slice(0, MAX_TITLE);
+  const date = dayValue(source.date);
+  if (!course || !title || !date) return null;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("lecture", [course, date, title]),
+    course,
+    date,
+    title,
+    topics: str(source.topics).replace(/\s+/g, " ").trim().slice(0, MAX_TOPICS),
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function normalizeLectureLog(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const lectures = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.lectures) ? source.lectures : []) {
+    const lecture = normalizeLecture(raw);
+    if (!lecture || seen.has(lecture.id)) continue;
+    seen.add(lecture.id);
+    lectures.push(lecture);
+    if (lectures.length >= MAX_LECTURES) break;
+  }
+  return { enabled: enabledValue(value, true), lectures };
+}
+
+function normalizeGoal(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const title = str(source.title).trim().slice(0, MAX_TITLE);
+  if (!title) return null;
+  const targetMinutes = clamp(numberValue(source.targetMinutes, 60), 1, MAX_GOAL_MINUTES);
+  const minutes = clamp(numberValue(source.minutes, 0), 0, MAX_GOAL_MINUTES);
+  const done = source.done === true || minutes >= targetMinutes;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("goal", [title, source.course, source.due]),
+    title,
+    course: str(source.course).trim().slice(0, MAX_TITLE),
+    targetMinutes,
+    minutes: done ? Math.max(minutes, targetMinutes) : minutes,
+    due: dayValue(source.due),
+    done,
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function normalizeStudyGoals(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const goals = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.goals) ? source.goals : []) {
+    const goal = normalizeGoal(raw);
+    if (!goal || seen.has(goal.id)) continue;
+    seen.add(goal.id);
+    goals.push(goal);
+    if (goals.length >= MAX_GOALS) break;
+  }
+  return { enabled: enabledValue(value, true), goals };
+}
+
+function normalizeStudyToolsSettings(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    cornellNotes: normalizeCornellSettings(source.cornellNotes),
+    lectureLog: normalizeLectureLog(source.lectureLog),
+    studyGoals: normalizeStudyGoals(source.studyGoals),
+  };
+}
+
+/** `Course | 2026-11-02 | Lecture title | Optional topics` */
+function parseLectureLines(text) {
+  const lectures = [];
+  const issues = [];
+  const lines = str(text).replace(/\r\n?/g, "\n").split("\n");
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index].trim();
+    if (!line || line.startsWith("#")) continue;
+    const parts = line.split("|").map((part) => part.trim());
+    if (parts.length < 3) {
+      issues.push(`Line ${index + 1}: use Course | YYYY-MM-DD | Lecture title.`);
+      continue;
+    }
+    const [course, date, title, ...rest] = parts;
+    const lecture = normalizeLecture({
+      course,
+      date,
+      title,
+      topics: rest.join(" | "),
+      createdAt: Date.now(),
+    });
+    if (!lecture) {
+      issues.push(`Line ${index + 1}: add a course, a real YYYY-MM-DD date and a title.`);
+      continue;
+    }
+    lectures.push(lecture);
+  }
+  return { lectures, issues };
+}
+
+function createStudyGoal(input, now) {
+  const source = input && typeof input === "object" ? input : {};
+  const title = str(source.title).trim();
+  if (!title) return null;
+  return normalizeGoal({
+    ...source,
+    id: idFor("goal", [title, source.course || "", source.due || "", now || 0]),
+    createdAt: Math.max(0, Math.round(numberValue(now, Date.now()))),
+  });
+}
+
+function createLecture(input, now) {
+  return normalizeLecture({
+    ...(input || {}),
+    id: idFor("lecture", [input && input.course, input && input.date, input && input.title, now || 0]),
+    createdAt: Math.max(0, Math.round(numberValue(now, Date.now()))),
+  });
+}
+
+function goalPercent(goal) {
+  if (!goal || !goal.targetMinutes) return 0;
+  return Math.max(0, Math.min(100, Math.round((Number(goal.minutes) / Number(goal.targetMinutes)) * 100)));
+}
+
+function openGoals(goals) {
+  return (Array.isArray(goals) ? goals : [])
+    .filter((goal) => goal && goal.done !== true)
+    .sort((a, b) => {
+      const ad = str(a.due);
+      const bd = str(b.due);
+      if (ad && bd && ad !== bd) return ad.localeCompare(bd);
+      if (ad !== bd) return ad ? -1 : 1;
+      return (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
+    });
+}
+
+function goalSummary(goals) {
+  const list = Array.isArray(goals) ? goals : [];
+  const open = openGoals(list);
+  const done = list.filter((goal) => goal && goal.done);
+  const minutes = list.reduce((sum, goal) => sum + (Number(goal.minutes) || 0), 0);
+  const target = list.reduce((sum, goal) => sum + (Number(goal.targetMinutes) || 0), 0);
+  return {
+    total: list.length,
+    open: open.length,
+    done: done.length,
+    minutes,
+    target,
+    percent: target ? Math.max(0, Math.min(100, Math.round((minutes / target) * 100))) : 0,
+    next: open[0] || null,
+  };
+}
+
+function nextLecture(lectures, today) {
+  const day = dayValue(today) || localDate();
+  return (Array.isArray(lectures) ? lectures : [])
+    .filter((lecture) => lecture && lecture.date >= day)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title))[0] || null;
+}
+
+function formatStudyMinutes(value) {
+  const minutes = Math.max(0, Math.round(numberValue(value, 0)));
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours && rest) return `${hours}h ${rest}m`;
+  if (hours) return `${hours}h`;
+  return `${rest}m`;
+}
+
+/** Build a conservative goal from the existing next-exam study plan. */
+function examGoalFromPlan(plan, today) {
+  if (!plan || !str(plan.course).trim()) return null;
+  const days = Math.max(0, Math.round(numberValue(plan.daysLeft, 0)));
+  return createStudyGoal(
+    {
+      title: `${str(plan.course).trim()} exam prep`,
+      course: str(plan.course).trim(),
+      targetMinutes: Math.max(60, days * 45),
+      due: addDays(today, days),
+    },
+    Date.now()
+  );
+}
+
+module.exports = {
+  MAX_GOALS,
+  MAX_LECTURES,
+  addDays,
+  createLecture,
+  createStudyGoal,
+  dayValue,
+  examGoalFromPlan,
+  formatStudyMinutes,
+  goalPercent,
+  goalSummary,
+  nextLecture,
+  normalizeCornellSettings,
+  normalizeLecture,
+  normalizeLectureLog,
+  normalizeStudyGoals,
+  normalizeStudyToolsSettings,
+  openGoals,
+  parseLectureLines,
+};
+};
+
+/* ---- src/study-tools-view.js ---- */
+__defs["study-tools-view"] = function (module, exports, require) {
+/*
+ * One consistent view for the independent local study modules. Each tab is
+ * shown only when its own Global → Modules switch is on; the modules share
+ * visual language, not a single data model.
+ */
+const { ItemView, Notice } = require("obsidian");
+const { VIEW_TYPE_STUDY_TOOLS } = require("./constants");
+const { localDate, str } = require("./util");
+const { cornellTemplate } = require("./cornell");
+const {
+  examGoalFromPlan,
+  formatStudyMinutes,
+  goalPercent,
+  goalSummary,
+  nextLecture,
+  normalizeStudyToolsSettings,
+  openGoals,
+  parseLectureLines,
+} = require("./study-tools");
+
+const TABS = [
+  { id: "overview", label: "Overview" },
+  { id: "goals", label: "Goals", module: "studyGoals" },
+  { id: "lectures", label: "Lectures", module: "lectureLog" },
+  { id: "cornell", label: "Cornell notes", module: "cornellNotes" },
+];
+
+class StudyToolsView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this.tab = "overview";
+    this.message = "";
+    this.issues = [];
+  }
+
+  getViewType() {
+    return VIEW_TYPE_STUDY_TOOLS;
+  }
+
+  getDisplayText() {
+    return "Study Tools";
+  }
+
+  getIcon() {
+    return "notebook-pen";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-root");
+    this.contentEl.addClass("qt-study-tools");
+    this.render();
+  }
+
+  settings() {
+    return normalizeStudyToolsSettings(this.plugin.settings);
+  }
+
+  enabledTabs() {
+    const data = this.settings();
+    return TABS.filter((tab) => !tab.module || data[tab.module].enabled);
+  }
+
+  setTab(tab) {
+    this.tab = TABS.some((entry) => entry.id === tab) ? tab : "overview";
+    if (!this.enabledTabs().some((entry) => entry.id === this.tab)) this.tab = "overview";
+    this.render();
+  }
+
+  saveMessage(text) {
+    this.message = str(text);
+  }
+
+  async refresh() {
+    this.render();
+  }
+
+  render() {
+    const root = this.contentEl;
+    root.empty();
+    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap" });
+    if (!this.plugin.studyToolsEnabled()) {
+      this.renderOff(wrap);
+      return;
+    }
+    const tabs = this.enabledTabs();
+    if (!tabs.some((tab) => tab.id === this.tab)) this.tab = tabs[0] ? tabs[0].id : "overview";
+    const header = wrap.createDiv({ cls: "qt-study-header" });
+    const title = header.createDiv({ cls: "qt-study-heading" });
+    title.createEl("h2", { text: "Study Tools" });
+    title.createDiv({ cls: "qt-hint", text: "Local study workflows that do not belong in Practice, Cards, Calendar or Assignments." });
+    const nav = wrap.createDiv({ cls: "qt-study-tabs" });
+    for (const tab of tabs) {
+      const button = nav.createEl("button", { cls: "qt-study-tab", text: tab.label });
+      if (tab.id === this.tab) button.addClass("is-active");
+      button.setAttr("aria-pressed", tab.id === this.tab ? "true" : "false");
+      button.addEventListener("click", () => this.setTab(tab.id));
+    }
+    if (this.message) wrap.createDiv({ cls: "qt-study-message", text: this.message });
+    if (this.tab === "overview") this.renderOverview(wrap);
+    else if (this.tab === "goals") this.renderGoals(wrap);
+    else if (this.tab === "lectures") this.renderLectures(wrap);
+    else if (this.tab === "cornell") this.renderCornell(wrap);
+  }
+
+  renderOff(root) {
+    const card = root.createDiv({ cls: "qt-onboard-card" });
+    card.createEl("h3", { text: "Study Tools are off" });
+    card.createDiv({
+      cls: "qt-onboard-text",
+      text: "Cornell notes, the lecture log and study goals each have their own switch under Settings, Global, Modules. Your notes and saved data are untouched while they are off.",
+    });
+    card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
+  }
+
+  renderOverview(root) {
+    const data = this.settings();
+    const goals = data.studyGoals.goals;
+    const lectures = data.lectureLog.lectures;
+    const summary = goalSummary(goals);
+    const next = nextLecture(lectures, localDate());
+    const stats = root.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const card = stats.createDiv({ cls: "qt-study-stat" });
+      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      card.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    if (data.studyGoals.enabled) stat(summary.open, "open goals");
+    if (data.lectureLog.enabled) stat(lectures.length, "lectures logged");
+    if (data.cornellNotes.enabled) stat("Note", "Cornell blocks");
+    if (!data.studyGoals.enabled && !data.lectureLog.enabled && !data.cornellNotes.enabled) {
+      root.createDiv({ cls: "qt-study-empty", text: "Turn on at least one study tool in Settings." });
+      return;
+    }
+
+    const grid = root.createDiv({ cls: "qt-study-grid" });
+    if (data.studyGoals.enabled) {
+      const card = grid.createDiv({ cls: "qt-study-card" });
+      card.createEl("h3", { text: "Study goals" });
+      if (summary.next) {
+        const row = card.createDiv({ cls: "qt-study-next" });
+        row.createDiv({ cls: "qt-study-next-title", text: summary.next.title });
+        row.createDiv({
+          cls: "qt-study-next-meta",
+          text: `${summary.next.course ? `${summary.next.course} · ` : ""}${formatStudyMinutes(summary.next.minutes)} of ${formatStudyMinutes(summary.next.targetMinutes)}${summary.next.due ? ` · due ${summary.next.due}` : ""}`,
+        });
+        const bar = card.createDiv({ cls: "qt-study-bar" });
+        bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = `${goalPercent(summary.next)}%`;
+      } else {
+        card.createDiv({ cls: "qt-study-empty", text: "No open goals yet. Set one to keep a small, concrete target in view." });
+      }
+      card.createEl("button", { text: summary.next ? "Open goals" : "Set a goal", cls: "qt-link" }).addEventListener("click", () => this.setTab("goals"));
+    }
+    if (data.lectureLog.enabled) {
+      const card = grid.createDiv({ cls: "qt-study-card" });
+      card.createEl("h3", { text: "Next lecture" });
+      if (next) {
+        card.createDiv({ cls: "qt-study-next-title", text: next.title });
+        card.createDiv({ cls: "qt-study-next-meta", text: `${next.course} · ${next.date}${next.topics ? ` · ${next.topics}` : ""}` });
+      } else {
+        card.createDiv({ cls: "qt-study-empty", text: "No upcoming lecture is logged. Add one after class or paste a whole timetable line." });
+      }
+      card.createEl("button", { text: "Open lecture log", cls: "qt-link" }).addEventListener("click", () => this.setTab("lectures"));
+    }
+    if (data.cornellNotes.enabled) {
+      const card = grid.createDiv({ cls: "qt-study-card" });
+      card.createEl("h3", { text: "Cornell notes" });
+      card.createDiv({ cls: "qt-study-next-meta", text: "Create a cue-first note, then use Recall mode in the block to hide the notes until you answer each cue." });
+      card.createEl("button", { text: "Create Cornell note", cls: "qt-link" }).addEventListener("click", () => this.setTab("cornell"));
+    }
+  }
+
+  renderField(form, label, type, placeholder, value) {
+    const field = form.createDiv({ cls: "qt-study-field" });
+    field.createEl("label", { text: label });
+    const input = field.createEl("input", { cls: "qt-input" });
+    input.type = type || "text";
+    if (placeholder) input.placeholder = placeholder;
+    if (value) input.value = value;
+    return input;
+  }
+
+  renderGoals(root) {
+    const data = this.settings();
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Add a study goal" });
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const title = this.renderField(form, "Goal", "text", "Finish the biology unit 3 practice set");
+    const course = this.renderField(form, "Course", "text", "Biology");
+    const target = this.renderField(form, "Target minutes", "number", "60", "60");
+    const due = this.renderField(form, "Due date", "date", "", "");
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add goal", cls: "mod-cta" }).addEventListener("click", async () => {
+      const goal = await this.plugin.addStudyGoal({
+        title: title.value,
+        course: course.value,
+        targetMinutes: target.value,
+        due: due.value,
+      });
+      if (!goal) {
+        this.saveMessage("Add a goal name first.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Goal added.");
+      this.render();
+    });
+    if (typeof this.plugin.studyPlan === "function" && this.plugin.studyPlan()) {
+      actions.createEl("button", { text: "Use next exam" }).addEventListener("click", async () => {
+        const goal = examGoalFromPlan(this.plugin.studyPlan(), localDate());
+        if (!goal) return;
+        await this.plugin.addStudyGoal(goal);
+        this.saveMessage("Exam goal added.");
+        this.render();
+      });
+    }
+
+    const goals = data.studyGoals.goals;
+    const summary = goalSummary(goals);
+    const listCard = root.createDiv({ cls: "qt-study-card" });
+    listCard.createEl("h3", { text: "Goals" });
+    if (!goals.length) {
+      listCard.createDiv({ cls: "qt-study-empty", text: "No goals yet. A goal can be one focused study block." });
+      return;
+    }
+    listCard.createDiv({
+      cls: "qt-study-next-meta",
+      text: `${summary.open} open · ${summary.done} done · ${formatStudyMinutes(summary.minutes)} of ${formatStudyMinutes(summary.target)} logged`,
+    });
+    const list = listCard.createDiv({ cls: "qt-study-list" });
+    for (const goal of goals.slice().sort((a, b) => Number(a.done) - Number(b.done) || (a.due || "9999").localeCompare(b.due || "9999"))) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: goal.title });
+      main.createDiv({
+        cls: "qt-study-row-meta",
+        text: `${goal.course ? `${goal.course} · ` : ""}${formatStudyMinutes(goal.minutes)} / ${formatStudyMinutes(goal.targetMinutes)}${goal.due ? ` · due ${goal.due}` : ""}`,
+      });
+      const bar = main.createDiv({ cls: "qt-study-bar" });
+      bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = `${goalPercent(goal)}%`;
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      if (!goal.done) {
+        buttons.createEl("button", { text: "+15m" }).addEventListener("click", async () => {
+          await this.plugin.addStudyGoalProgress(goal.id, 15);
+          this.render();
+        });
+        buttons.createEl("button", { text: "+30m" }).addEventListener("click", async () => {
+          await this.plugin.addStudyGoalProgress(goal.id, 30);
+          this.render();
+        });
+        buttons.createEl("button", { text: "Done" }).addEventListener("click", async () => {
+          await this.plugin.updateStudyGoal(goal.id, { done: true });
+          this.render();
+        });
+      } else {
+        buttons.createEl("button", { text: "Reopen" }).addEventListener("click", async () => {
+          await this.plugin.updateStudyGoal(goal.id, { done: false, minutes: Math.min(goal.minutes, goal.targetMinutes - 1) });
+          this.render();
+        });
+      }
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeStudyGoal(goal.id);
+        this.render();
+      });
+    }
+  }
+
+  renderLectures(root) {
+    const data = this.settings();
+    const addCard = root.createDiv({ cls: "qt-study-card" });
+    addCard.createEl("h3", { text: "Log a lecture" });
+    const form = addCard.createDiv({ cls: "qt-study-form" });
+    const course = this.renderField(form, "Course", "text", "Biology");
+    const date = this.renderField(form, "Date", "date", "", localDate());
+    const title = this.renderField(form, "Lecture", "text", "Cellular respiration");
+    const topics = this.renderField(form, "Topics", "text", "glycolysis, Krebs cycle");
+    const actions = addCard.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add lecture", cls: "mod-cta" }).addEventListener("click", async () => {
+      const lecture = await this.plugin.addStudyLecture({
+        course: course.value,
+        date: date.value,
+        title: title.value,
+        topics: topics.value,
+      });
+      if (!lecture) {
+        this.saveMessage("Add a course, a real date and a lecture title.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Lecture added.");
+      this.render();
+    });
+
+    const bulkCard = root.createDiv({ cls: "qt-study-card" });
+    bulkCard.createEl("h3", { text: "Bulk add" });
+    bulkCard.createDiv({ cls: "qt-hint", text: "One lecture per line: Course | YYYY-MM-DD | Lecture title | Optional topics" });
+    const textarea = bulkCard.createEl("textarea", { cls: "qt-study-bulk" });
+    textarea.placeholder = "Biology | 2026-11-02 | Cellular respiration | glycolysis, Krebs cycle";
+    textarea.rows = 4;
+    const bulkActions = bulkCard.createDiv({ cls: "qt-row qt-study-actions" });
+    bulkActions.createEl("button", { text: "Add pasted lectures" }).addEventListener("click", async () => {
+      const parsed = parseLectureLines(textarea.value);
+      if (!parsed.lectures.length) {
+        this.issues = parsed.issues;
+        this.saveMessage("No lectures were added.");
+        this.render();
+        return;
+      }
+      const added = await this.plugin.addStudyLectures(parsed.lectures);
+      this.issues = parsed.issues;
+      this.saveMessage(`Added ${added} lecture${added === 1 ? "" : "s"}.`);
+      this.render();
+    });
+    if (this.issues.length) {
+      const issues = bulkCard.createDiv({ cls: "qt-study-issues" });
+      for (const issue of this.issues.slice(0, 8)) issues.createDiv({ cls: "qt-study-issue", text: issue });
+    }
+
+    const listCard = root.createDiv({ cls: "qt-study-card" });
+    listCard.createEl("h3", { text: "Lecture log" });
+    const lectures = data.lectureLog.lectures.slice().sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+    if (!lectures.length) {
+      listCard.createDiv({ cls: "qt-study-empty", text: "No lectures logged yet." });
+      return;
+    }
+    const list = listCard.createDiv({ cls: "qt-study-list" });
+    for (const lecture of lectures) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: lecture.title });
+      main.createDiv({
+        cls: "qt-study-row-meta",
+        text: `${lecture.course} · ${lecture.date}${lecture.topics ? ` · ${lecture.topics}` : ""}`,
+      });
+      row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeStudyLecture(lecture.id);
+        this.render();
+      });
+    }
+  }
+
+  renderCornell(root) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Create a Cornell note" });
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const title = this.renderField(form, "Title", "text", "Cellular respiration");
+    const course = this.renderField(form, "Course", "text", "Biology");
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Create note", cls: "mod-cta" }).addEventListener("click", async () => {
+      if (!str(title.value).trim()) {
+        this.saveMessage("Add a title first.");
+        this.render();
+        return;
+      }
+      try {
+        const file = await this.plugin.createCornellNote({ title: title.value, course: course.value });
+        this.saveMessage(`Created ${file.path}.`);
+        this.render();
+      } catch (e) {
+        new Notice(`Could not create the Cornell note: ${str(e && e.message ? e.message : e)}`);
+      }
+    });
+
+    const guide = root.createDiv({ cls: "qt-study-card" });
+    guide.createEl("h3", { text: "Block format" });
+    guide.createDiv({ cls: "qt-hint", text: "Write a fenced cornell-note block in any note. Use one Cue: and Note: pair for each idea, then a Summary:." });
+    const pre = guide.createEl("pre", { cls: "qt-study-template" });
+    pre.setText(cornellTemplate("Cellular respiration", "Biology"));
+  }
+}
+
+module.exports = { StudyToolsView };
+};
+
 /* ---- src/support.js ---- */
 __defs["support"] = function (module, exports, require) {
 /*
@@ -58087,6 +59158,7 @@ const { elapsedFocusMs, focusRemainingMs, formatFocusClock } = require("./focus"
 const { buildDailyTasks, formatEstimate, workload } = require("./assignments");
 const { renderMastery } = require("./analytics-embed");
 const { MASTERY_WINDOWS, bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions } = require("./progress");
+const { formatStudyMinutes, goalPercent, goalSummary, nextLecture, normalizeStudyToolsSettings } = require("./study-tools");
 
 /*
  * The phone-sized entry point: what is due, what is next, and one large
@@ -58184,6 +59256,7 @@ class TodayView extends ItemView {
     this.renderDaily(grid, today);
     this.renderTasks(grid, today, due, visible);
     this.renderFocus(grid, today);
+    this.renderStudyTools(grid, today);
     this.renderDueQueue(grid);
     this.renderCards(grid);
     this.renderNext(grid, now);
@@ -58362,6 +59435,40 @@ class TodayView extends ItemView {
     card
       .createEl("button", { text: done ? "Practice again" : "Start daily quiz", cls: "mod-cta qt-primary" })
       .addEventListener("click", () => p.startDailyQuiz());
+  }
+
+  /** Local goals and the upcoming lecture, only when their independent modules are on. */
+  renderStudyTools(root, today) {
+    const p = this.plugin;
+    if (typeof p.studyToolsEnabled !== "function" || !p.studyToolsEnabled()) return;
+    const data = normalizeStudyToolsSettings(p.settings);
+    const summary = data.studyGoals.enabled ? goalSummary(data.studyGoals.goals) : null;
+    const lecture = data.lectureLog.enabled ? nextLecture(data.lectureLog.lectures, today) : null;
+    if ((!summary || !summary.next) && !lecture) return;
+    const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-wide qt-today-study-tools" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Study Tools" });
+    const card = panel.createDiv({ cls: "qt-today-card" });
+    if (lecture) {
+      card.createDiv({ cls: "qt-today-kicker", text: "Next lecture" });
+      card.createDiv({ cls: "qt-today-title", text: lecture.title });
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: `${lecture.course} · ${lecture.date}${lecture.topics ? ` · ${lecture.topics}` : ""}`,
+      });
+    }
+    if (summary && summary.next) {
+      const goal = summary.next;
+      card.createDiv({ cls: "qt-today-kicker", text: lecture ? "Open goal" : "Study goal" });
+      card.createDiv({ cls: "qt-today-title", text: goal.title });
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: `${goal.course ? `${goal.course} · ` : ""}${formatStudyMinutes(goal.minutes)} of ${formatStudyMinutes(goal.targetMinutes)}${goal.due ? ` · due ${goal.due}` : ""}`,
+      });
+      const bar = card.createDiv({ cls: "qt-study-bar" });
+      bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = `${goalPercent(goal)}%`;
+    }
+    const row = card.createDiv({ cls: "qt-row qt-small-row" });
+    row.createEl("button", { text: "Open Study Tools", cls: "mod-cta" }).addEventListener("click", () => p.activateStudyTools());
   }
 
   /** One mixed list when both modules have due work; the dedicated buttons stay below. */
@@ -60318,6 +61425,9 @@ const quizClipboard = require("./quiz-clipboard");
 const examBlock = require("./exam-block");
 const simpleFlashcards = require("./simple-flashcards");
 const quizBlock = require("./quiz-block");
+const studyTools = require("./study-tools");
+const cornell = require("./cornell");
+const { StudyToolsView } = require("./study-tools-view");
 const quizNoteGate = require("./quiz-note-gate");
 const quizport = require("./quizport");
 const sourceRecall = require("./source-recall");
@@ -60654,6 +61764,9 @@ QuestionTrackerPlugin.__test = {
   studyStatus,
   studySkin,
   StudyStatusModal,
+  StudyToolsView,
+  studyTools,
+  cornell,
   CardView,
   CardModal,
   renderSettingsTabs,
