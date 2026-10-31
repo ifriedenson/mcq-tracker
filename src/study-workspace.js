@@ -203,6 +203,19 @@ function flowStats(excerpts) {
 
 /* ---- Subject Manager ----------------------------------------------------- */
 
+function normalizeSubjectProject(value) {
+  const source = asObject(value);
+  const title = textValue(source.title, MAX_TITLE);
+  if (!title) return null;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("project", [title, source.due || "", source.createdAt || 0]),
+    title,
+    due: dayValue(source.due),
+    done: source.done === true,
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
 function normalizeSubject(value) {
   const source = asObject(value);
   const name = textValue(source.name, MAX_TITLE);
@@ -214,6 +227,7 @@ function normalizeSubject(value) {
     folder: textValue(source.folder, 500).replace(/^\/+|\/+$/g, ""),
     color,
     notes: textValue(source.notes, MAX_TEXT),
+    projects: (Array.isArray(source.projects) ? source.projects : []).map(normalizeSubjectProject).filter(Boolean).slice(0, 50),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }
@@ -261,6 +275,12 @@ function createSubject(input, now) {
   return { ...subject, createdAt: Math.max(0, Math.round(numberValue(now, Date.now()))) };
 }
 
+function createSubjectProject(input, now) {
+  const project = normalizeSubjectProject(input);
+  if (!project) return null;
+  return { ...project, createdAt: Math.max(0, Math.round(numberValue(now, Date.now()))) };
+}
+
 function createAbsence(input, now) {
   const absence = normalizeAbsence(input);
   if (!absence) return null;
@@ -276,12 +296,19 @@ function subjectSummary(subjects, absences, lectures) {
     const subjectAbsences = absenceList
       .filter((absence) => str(absence.subject).trim().toLowerCase() === key)
       .sort((a, b) => b.date.localeCompare(a.date));
+    const projects = Array.isArray(subject.projects) ? subject.projects : [];
+    const open = projects.filter((project) => !project.done);
+    const totalSessions = subjectLectures.length + subjectAbsences.length;
     return {
       ...subject,
       lectures: subjectLectures.length,
       lastLecture: subjectLectures.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null,
       absences: subjectAbsences.length,
       lastAbsence: subjectAbsences[0] || null,
+      openProjects: open.length,
+      doneProjects: projects.length - open.length,
+      nextProject: open.filter((project) => project.due).sort((a, b) => a.due.localeCompare(b.due))[0] || null,
+      attendance: totalSessions ? Math.round((subjectLectures.length / totalSessions) * 100) : null,
     };
   });
 }
@@ -1240,6 +1267,7 @@ module.exports = {
   createPlannerPlan,
   createStudyTask,
   createSubject,
+  createSubjectProject,
   createVocabWord,
   daysBetween,
   deepNotesStepKey,

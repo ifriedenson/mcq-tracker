@@ -7608,6 +7608,52 @@ ${body}
     this.refreshViews();
   }
 
+  async addStudyProject(input) {
+    const source = input && typeof input === "object" ? input : {};
+    const name = str(source.subject).trim().toLowerCase();
+    const current = this.studyWorkspaceSettings().subjectManager;
+    const subject = current.subjects.find((entry) => entry.name.toLowerCase() === name);
+    if (!subject) return null;
+    const project = studyWorkspace.createSubjectProject(source, Date.now());
+    if (!project) return null;
+    const subjects = current.subjects.map((entry) =>
+      entry.id === subject.id ? { ...entry, projects: (entry.projects || []).concat(project).slice(-50) } : entry
+    );
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({ ...current, subjects });
+    await this.save();
+    this.refreshViews();
+    return project;
+  }
+
+  async toggleStudyProject(subjectId, projectId) {
+    const current = this.studyWorkspaceSettings().subjectManager;
+    let changed = null;
+    const subjects = current.subjects.map((subject) => {
+      if (subject.id !== subjectId) return subject;
+      const projects = (subject.projects || []).map((project) => {
+        if (project.id !== projectId) return project;
+        changed = { ...project, done: !project.done };
+        return changed;
+      });
+      return { ...subject, projects };
+    });
+    if (!changed) return null;
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({ ...current, subjects });
+    await this.save();
+    this.refreshViews();
+    return changed;
+  }
+
+  async removeStudyProject(subjectId, projectId) {
+    const current = this.studyWorkspaceSettings().subjectManager;
+    const subjects = current.subjects.map((subject) =>
+      subject.id === subjectId ? { ...subject, projects: (subject.projects || []).filter((project) => project.id !== projectId) } : subject
+    );
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({ ...current, subjects });
+    await this.save();
+    this.refreshViews();
+  }
+
   /* ---- Course hub ------------------------------------------------------ */
 
   async addCourseGrade(input) {

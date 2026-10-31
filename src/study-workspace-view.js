@@ -1147,7 +1147,7 @@ class StudyWorkspaceView extends ItemView {
     const data = this.settings().subjectManager;
     const lectures = this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [];
     const summary = subjectSummary(data.subjects, data.absences, lectures);
-    const filtered = summary.filter((subject) => !this.subjectFilter || `${subject.name} ${subject.folder} ${subject.notes}`.toLowerCase().includes(this.subjectFilter));
+    const filtered = summary.filter((subject) => !this.subjectFilter || `${subject.name} ${subject.folder} ${subject.notes} ${(subject.projects || []).map((project) => project.title).join(" ")}`.toLowerCase().includes(this.subjectFilter));
     const add = root.createDiv({ cls: "qt-study-card" });
     add.createEl("h3", { text: "Add a subject" });
     const form = add.createDiv({ cls: "qt-study-form" });
@@ -1187,14 +1187,54 @@ class StudyWorkspaceView extends ItemView {
         title.createSpan({ text: subject.name });
         main.createDiv({
           cls: "qt-study-row-meta",
-          text: `${subject.lectures} lecture${subject.lectures === 1 ? "" : "s"} · ${subject.absences} absence${subject.absences === 1 ? "" : "s"}${subject.folder ? ` · ${subject.folder}` : ""}`,
+          text: `${subject.lectures} lecture${subject.lectures === 1 ? "" : "s"} · ${subject.absences} absence${subject.absences === 1 ? "" : "s"} · ${subject.openProjects} open project${subject.openProjects === 1 ? "" : "s"}${subject.attendance !== null ? ` · ${subject.attendance}% attendance` : ""}${subject.folder ? ` · ${subject.folder}` : ""}`,
         });
+        if (subject.nextProject) main.createDiv({ cls: "qt-study-row-meta", text: `Next project: ${subject.nextProject.title} · due ${subject.nextProject.due}` });
+        for (const project of (subject.projects || []).slice(0, 8)) {
+          const projectRow = main.createDiv({ cls: "qt-study-project-row qt-study-row-meta" });
+          projectRow.createSpan({ text: `${project.done ? "✓" : "○"} ${project.title}${project.due ? ` · due ${project.due}` : ""}` });
+          projectRow.createEl("button", { text: project.done ? "Reopen" : "Done" }).addEventListener("click", async () => {
+            await this.plugin.toggleStudyProject(subject.id, project.id);
+            this.render();
+          });
+          projectRow.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+            await this.plugin.removeStudyProject(subject.id, project.id);
+            this.render();
+          });
+        }
         const buttons = row.createDiv({ cls: "qt-study-row-actions" });
         buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
           await this.plugin.removeStudySubject(subject.id);
           this.render();
         });
       }
+    }
+    const projectCard = root.createDiv({ cls: "qt-study-card" });
+    projectCard.createEl("h3", { text: "Add a project" });
+    if (!data.subjects.length) {
+      projectCard.createDiv({ cls: "qt-study-empty", text: "Add a subject before adding a project." });
+    } else {
+      projectCard.createDiv({ cls: "qt-hint", text: "Projects are local to the subject and never create notes. Mark one done when it is submitted." });
+      const projectForm = projectCard.createDiv({ cls: "qt-study-form" });
+      const projectSubject = this.renderSelect(
+        projectForm,
+        "Subject",
+        data.subjects.map((subject) => ({ value: subject.name, label: subject.name })),
+        data.subjects[0].name
+      );
+      const projectTitle = this.renderField(projectForm, "Project", "text", "Cell lab report");
+      const projectDue = this.renderField(projectForm, "Due (optional)", "date", "", "");
+      const projectActions = projectCard.createDiv({ cls: "qt-row qt-study-actions" });
+      projectActions.createEl("button", { text: "Add project", cls: "mod-cta" }).addEventListener("click", async () => {
+        const project = await this.plugin.addStudyProject({ subject: projectSubject.value, title: projectTitle.value, due: projectDue.value });
+        if (!project) {
+          this.saveMessage("Add a project title first.");
+          this.render();
+          return;
+        }
+        this.saveMessage("Project added.");
+        this.render();
+      });
     }
     const absenceCard = root.createDiv({ cls: "qt-study-card" });
     absenceCard.createEl("h3", { text: "Log an absence" });

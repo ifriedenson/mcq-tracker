@@ -44381,6 +44381,52 @@ ${body}
     this.refreshViews();
   }
 
+  async addStudyProject(input) {
+    const source = input && typeof input === "object" ? input : {};
+    const name = str(source.subject).trim().toLowerCase();
+    const current = this.studyWorkspaceSettings().subjectManager;
+    const subject = current.subjects.find((entry) => entry.name.toLowerCase() === name);
+    if (!subject) return null;
+    const project = studyWorkspace.createSubjectProject(source, Date.now());
+    if (!project) return null;
+    const subjects = current.subjects.map((entry) =>
+      entry.id === subject.id ? { ...entry, projects: (entry.projects || []).concat(project).slice(-50) } : entry
+    );
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({ ...current, subjects });
+    await this.save();
+    this.refreshViews();
+    return project;
+  }
+
+  async toggleStudyProject(subjectId, projectId) {
+    const current = this.studyWorkspaceSettings().subjectManager;
+    let changed = null;
+    const subjects = current.subjects.map((subject) => {
+      if (subject.id !== subjectId) return subject;
+      const projects = (subject.projects || []).map((project) => {
+        if (project.id !== projectId) return project;
+        changed = { ...project, done: !project.done };
+        return changed;
+      });
+      return { ...subject, projects };
+    });
+    if (!changed) return null;
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({ ...current, subjects });
+    await this.save();
+    this.refreshViews();
+    return changed;
+  }
+
+  async removeStudyProject(subjectId, projectId) {
+    const current = this.studyWorkspaceSettings().subjectManager;
+    const subjects = current.subjects.map((subject) =>
+      subject.id === subjectId ? { ...subject, projects: (subject.projects || []).filter((project) => project.id !== projectId) } : subject
+    );
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({ ...current, subjects });
+    await this.save();
+    this.refreshViews();
+  }
+
   /* ---- Course hub ------------------------------------------------------ */
 
   async addCourseGrade(input) {
@@ -60503,6 +60549,19 @@ function flowStats(excerpts) {
 
 /* ---- Subject Manager ----------------------------------------------------- */
 
+function normalizeSubjectProject(value) {
+  const source = asObject(value);
+  const title = textValue(source.title, MAX_TITLE);
+  if (!title) return null;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("project", [title, source.due || "", source.createdAt || 0]),
+    title,
+    due: dayValue(source.due),
+    done: source.done === true,
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
 function normalizeSubject(value) {
   const source = asObject(value);
   const name = textValue(source.name, MAX_TITLE);
@@ -60514,6 +60573,7 @@ function normalizeSubject(value) {
     folder: textValue(source.folder, 500).replace(/^\/+|\/+$/g, ""),
     color,
     notes: textValue(source.notes, MAX_TEXT),
+    projects: (Array.isArray(source.projects) ? source.projects : []).map(normalizeSubjectProject).filter(Boolean).slice(0, 50),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }
@@ -60561,6 +60621,12 @@ function createSubject(input, now) {
   return { ...subject, createdAt: Math.max(0, Math.round(numberValue(now, Date.now()))) };
 }
 
+function createSubjectProject(input, now) {
+  const project = normalizeSubjectProject(input);
+  if (!project) return null;
+  return { ...project, createdAt: Math.max(0, Math.round(numberValue(now, Date.now()))) };
+}
+
 function createAbsence(input, now) {
   const absence = normalizeAbsence(input);
   if (!absence) return null;
@@ -60576,12 +60642,19 @@ function subjectSummary(subjects, absences, lectures) {
     const subjectAbsences = absenceList
       .filter((absence) => str(absence.subject).trim().toLowerCase() === key)
       .sort((a, b) => b.date.localeCompare(a.date));
+    const projects = Array.isArray(subject.projects) ? subject.projects : [];
+    const open = projects.filter((project) => !project.done);
+    const totalSessions = subjectLectures.length + subjectAbsences.length;
     return {
       ...subject,
       lectures: subjectLectures.length,
       lastLecture: subjectLectures.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null,
       absences: subjectAbsences.length,
       lastAbsence: subjectAbsences[0] || null,
+      openProjects: open.length,
+      doneProjects: projects.length - open.length,
+      nextProject: open.filter((project) => project.due).sort((a, b) => a.due.localeCompare(b.due))[0] || null,
+      attendance: totalSessions ? Math.round((subjectLectures.length / totalSessions) * 100) : null,
     };
   });
 }
@@ -61540,6 +61613,7 @@ module.exports = {
   createPlannerPlan,
   createStudyTask,
   createSubject,
+  createSubjectProject,
   createVocabWord,
   daysBetween,
   deepNotesStepKey,
@@ -62734,7 +62808,7 @@ class StudyWorkspaceView extends ItemView {
     const data = this.settings().subjectManager;
     const lectures = this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [];
     const summary = subjectSummary(data.subjects, data.absences, lectures);
-    const filtered = summary.filter((subject) => !this.subjectFilter || `${subject.name} ${subject.folder} ${subject.notes}`.toLowerCase().includes(this.subjectFilter));
+    const filtered = summary.filter((subject) => !this.subjectFilter || `${subject.name} ${subject.folder} ${subject.notes} ${(subject.projects || []).map((project) => project.title).join(" ")}`.toLowerCase().includes(this.subjectFilter));
     const add = root.createDiv({ cls: "qt-study-card" });
     add.createEl("h3", { text: "Add a subject" });
     const form = add.createDiv({ cls: "qt-study-form" });
@@ -62774,14 +62848,54 @@ class StudyWorkspaceView extends ItemView {
         title.createSpan({ text: subject.name });
         main.createDiv({
           cls: "qt-study-row-meta",
-          text: `${subject.lectures} lecture${subject.lectures === 1 ? "" : "s"} · ${subject.absences} absence${subject.absences === 1 ? "" : "s"}${subject.folder ? ` · ${subject.folder}` : ""}`,
+          text: `${subject.lectures} lecture${subject.lectures === 1 ? "" : "s"} · ${subject.absences} absence${subject.absences === 1 ? "" : "s"} · ${subject.openProjects} open project${subject.openProjects === 1 ? "" : "s"}${subject.attendance !== null ? ` · ${subject.attendance}% attendance` : ""}${subject.folder ? ` · ${subject.folder}` : ""}`,
         });
+        if (subject.nextProject) main.createDiv({ cls: "qt-study-row-meta", text: `Next project: ${subject.nextProject.title} · due ${subject.nextProject.due}` });
+        for (const project of (subject.projects || []).slice(0, 8)) {
+          const projectRow = main.createDiv({ cls: "qt-study-project-row qt-study-row-meta" });
+          projectRow.createSpan({ text: `${project.done ? "✓" : "○"} ${project.title}${project.due ? ` · due ${project.due}` : ""}` });
+          projectRow.createEl("button", { text: project.done ? "Reopen" : "Done" }).addEventListener("click", async () => {
+            await this.plugin.toggleStudyProject(subject.id, project.id);
+            this.render();
+          });
+          projectRow.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+            await this.plugin.removeStudyProject(subject.id, project.id);
+            this.render();
+          });
+        }
         const buttons = row.createDiv({ cls: "qt-study-row-actions" });
         buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
           await this.plugin.removeStudySubject(subject.id);
           this.render();
         });
       }
+    }
+    const projectCard = root.createDiv({ cls: "qt-study-card" });
+    projectCard.createEl("h3", { text: "Add a project" });
+    if (!data.subjects.length) {
+      projectCard.createDiv({ cls: "qt-study-empty", text: "Add a subject before adding a project." });
+    } else {
+      projectCard.createDiv({ cls: "qt-hint", text: "Projects are local to the subject and never create notes. Mark one done when it is submitted." });
+      const projectForm = projectCard.createDiv({ cls: "qt-study-form" });
+      const projectSubject = this.renderSelect(
+        projectForm,
+        "Subject",
+        data.subjects.map((subject) => ({ value: subject.name, label: subject.name })),
+        data.subjects[0].name
+      );
+      const projectTitle = this.renderField(projectForm, "Project", "text", "Cell lab report");
+      const projectDue = this.renderField(projectForm, "Due (optional)", "date", "", "");
+      const projectActions = projectCard.createDiv({ cls: "qt-row qt-study-actions" });
+      projectActions.createEl("button", { text: "Add project", cls: "mod-cta" }).addEventListener("click", async () => {
+        const project = await this.plugin.addStudyProject({ subject: projectSubject.value, title: projectTitle.value, due: projectDue.value });
+        if (!project) {
+          this.saveMessage("Add a project title first.");
+          this.render();
+          return;
+        }
+        this.saveMessage("Project added.");
+        this.render();
+      });
     }
     const absenceCard = root.createDiv({ cls: "qt-study-card" });
     absenceCard.createEl("h3", { text: "Log an absence" });
