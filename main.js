@@ -917,8 +917,8 @@ const FEATURE_IDS = AI_FEATURES.map((feature) => feature.id);
 
 const DEFAULT_AI_LIMITS = {
   maxTokens: 4000, // hard cap for one reply, even if a feature asks for more
-  dailyRequests: 0, // 0 = no daily cap
-  runRequests: 0, // 0 = no cap on one burst of work (a run resets after 10 idle minutes)
+  dailyRequests: 100, // conservative fresh-install cap; 0 = no daily cap
+  runRequests: 20, // conservative fresh-install cap; 0 = no cap on one burst of work
 };
 
 const AI_CAPABILITIES = {
@@ -1682,13 +1682,21 @@ function confidenceLabelsOf(labels) {
   return DEFAULT_CONFIDENCE_LABELS.map((fallback, index) => String(source[index] || fallback).trim() || fallback);
 }
 
-/** Accuracy at each stated confidence level. Empty confidence (timed tests) is ignored. */
+/** Accuracy at each stated confidence level. Explicit 0 is unrated; blank confidence (timed tests) is ignored. */
 function buildCalibration(questions, labels) {
   const buckets = confidenceLabelsOf(labels).map((label, index) => ({ confidence: index + 1, label, attempts: 0, correct: 0, credit: 0, accuracy: null }));
   let total = 0;
+  const unrated = { attempts: 0, correct: 0, credit: 0, accuracy: null };
   for (const q of questions || []) {
     for (const entry of parseHistory(q.fm && q.fm.history)) {
-      const confidence = Math.round(Number(entry.conf));
+      const raw = entry.conf === null || entry.conf === undefined ? "" : String(entry.conf).trim();
+      const confidence = Math.round(Number(raw));
+      if (raw !== "" && confidence === 0) {
+        unrated.attempts++;
+        if (entry.result === "correct") unrated.correct++;
+        unrated.credit += creditOf(entry);
+        continue;
+      }
       if (!Number.isFinite(confidence) || confidence < 1 || confidence > 3) continue;
       const bucket = buckets[confidence - 1];
       bucket.attempts++;
@@ -1698,7 +1706,8 @@ function buildCalibration(questions, labels) {
     }
   }
   for (const bucket of buckets) bucket.accuracy = bucket.attempts ? bucket.credit / bucket.attempts : null;
-  return { buckets, total };
+  unrated.accuracy = unrated.attempts ? unrated.credit / unrated.attempts : null;
+  return { buckets, total, unrated };
 }
 
 /** Accuracy on repeat attempts only: the first attempt on a question is learning, later ones are retention. */
@@ -1937,7 +1946,7 @@ __defs["analytics-embed"] = function (module, exports, require) {
 const { fmtPct } = require("./stats");
 const { fmtClock } = require("./util");
 const { BREAKDOWN_FIELDS, FIELD_LABELS } = require("./analytics");
-const { masteryTrendText } = require("./progress");
+const { MASTERY_POOL_NOTE, masteryTrendText } = require("./progress");
 
 const DASHBOARD_METRICS = ["overview", "stats", "mastery", "heatmap", "calibration", "retention", "weak", "skips", "grades", "courses", "exam"];
 const ALIASES = {
@@ -2051,22 +2060,31 @@ function renderHeatmap(container, data) {
 function renderCalibration(container, data) {
   heading(container, "Confidence calibration");
   const calibration = data.calibration;
-  if (!calibration || !calibration.total) {
+  const unrated = calibration && calibration.unrated ? calibration.unrated : { attempts: 0, accuracy: null };
+  if (!calibration || (!calibration.total && !unrated.attempts)) {
     container.createDiv({ cls: "qt-hint", text: "No confidence ratings yet. Rate how sure you are when you answer." });
     return;
   }
-  const list = container.createDiv({ cls: "qt-ins-list" });
-  for (const bucket of calibration.buckets) {
-    const line = list.createDiv({ cls: "qt-ins-row qt-cal-row" });
-    const main = line.createDiv({ cls: "qt-ins-main" });
-    main.createDiv({ cls: "qt-ins-name", text: bucket.label });
-    main.createDiv({ cls: "qt-hint", text: `${bucket.attempts} attempt${bucket.attempts === 1 ? "" : "s"} at this level` });
-    const meter = line.createDiv({ cls: "qt-ins-meter" });
-    const band = bucket.accuracy === null ? "" : bucket.accuracy < 0.6 ? "is-low" : bucket.accuracy < 0.8 ? "is-mid" : "is-high";
-    meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((bucket.accuracy || 0) * 100)}%` });
-    line.createSpan({ cls: "qt-ins-pct", text: fmtPct(bucket.accuracy) });
+  if (calibration.total) {
+    const list = container.createDiv({ cls: "qt-ins-list" });
+    for (const bucket of calibration.buckets) {
+      const line = list.createDiv({ cls: "qt-ins-row qt-cal-row" });
+      const main = line.createDiv({ cls: "qt-ins-main" });
+      main.createDiv({ cls: "qt-ins-name", text: bucket.label });
+      main.createDiv({ cls: "qt-hint", text: `${bucket.attempts} attempt${bucket.attempts === 1 ? "" : "s"} at this level` });
+      const meter = line.createDiv({ cls: "qt-ins-meter" });
+      const band = bucket.accuracy === null ? "" : bucket.accuracy < 0.6 ? "is-low" : bucket.accuracy < 0.8 ? "is-mid" : "is-high";
+      meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((bucket.accuracy || 0) * 100)}%` });
+      line.createSpan({ cls: "qt-ins-pct", text: fmtPct(bucket.accuracy) });
+    }
+    container.createDiv({ cls: "qt-hint", text: "Bars show how often you were right when you chose each confidence level." });
   }
-  container.createDiv({ cls: "qt-hint", text: "Bars show how often you were right when you chose each confidence level." });
+  if (unrated.attempts) {
+    container.createDiv({
+      cls: "qt-hint",
+      text: `${unrated.attempts} attempt${unrated.attempts === 1 ? "" : "s"} had no confidence rating (${fmtPct(unrated.accuracy)} correct); unrated attempts are not a confidence level.`,
+    });
+  }
 }
 
 function renderRetention(container, data) {
@@ -2257,7 +2275,7 @@ function renderMastery(container, data, hooks, controls) {
   }
   container.createDiv({
     cls: "qt-hint",
-    text: "Band counts include hidden, suspended and excluded questions; band practice starts only the studyable ones.",
+    text: MASTERY_POOL_NOTE,
   });
 }
 
@@ -9686,12 +9704,12 @@ function renderCourses(containerEl, plugin, redisplay) {
     new Setting(card)
       .setName("Name and code")
       .setDesc("The name matches a class subject; the code also matches titles such as CHEM 101 - Lecture.")
-      .addText((t) =>
-        t.setPlaceholder("Course name").setValue(course.name).onChange(async (v) => {
-          course.name = v.trim();
-          await plugin.save();
-        })
-      )
+      .addText((t) => {
+        const field = t.setPlaceholder("Course name").setValue(course.name);
+        field.inputEl.addEventListener("blur", async () => {
+          if (await plugin.renameCalendarCourse(course.id, field.inputEl.value)) redisplay();
+        });
+      })
       .addText((t) =>
         t.setPlaceholder("Code").setValue(course.code).onChange(async (v) => {
           course.code = v.trim();
@@ -12905,6 +12923,8 @@ function cardNote(input, now) {
   }
   if (data.sourcePdf) lines.push(`source_pdf: ${yamlString(data.sourcePdf)}`);
   if (data.sourceNote) lines.push(`source_note: ${yamlString(data.sourceNote)}`);
+  if (data.lectureId) lines.push(`lecture_id: ${yamlString(data.lectureId)}`);
+  if (data.lecturePath) lines.push(`lecture_path: ${yamlString(data.lecturePath)}`);
   if (data.sourcePage) lines.push(`source_page: ${yamlString(data.sourcePage)}`);
   if (data.sourceHeading) lines.push(`source_heading: ${yamlString(data.sourceHeading)}`);
   if (data.sourceQuote) lines.push(`source_quote: ${yamlString(data.sourceQuote)}`);
@@ -19248,6 +19268,7 @@ const { DEFAULT_ASSIGNMENT_SETTINGS } = require("./assignments");
 const { DEFAULT_SUPPORT } = require("./support");
 const { DEFAULT_AI_LIMITS } = require("./ai-service");
 const { DEFAULT_THINK_FIRST_SECONDS } = require("./think-first");
+const { DEFAULT_HISTORY_LIMIT } = require("./history");
 
 const VIEW_TYPE = "question-tracker-view";
 const VIEW_TYPE_TODAY = "question-tracker-today";
@@ -19297,6 +19318,7 @@ const DEFAULT_SETTINGS = {
   errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed", "setup error", "algebra/arithmetic slip", "unit error", "sign error", "wrong formula"],
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
   knownDays: 14, // default snooze length for the Known button
+  historyLimit: DEFAULT_HISTORY_LIMIT, // newest review rows kept per note (100-5000)
   knownDaysByCourse: {}, // optional course-specific snooze overrides
   studyPlanDays: 30, // how far ahead studyPlans() looks for exams (1-365)
   dueQueue: { dailyCap: 0 }, // 0 = no cap; otherwise hold overflow for another day
@@ -20001,7 +20023,7 @@ __defs["couchdb-sync"] = function (module, exports, require) {
  */
 const { str } = require("./util");
 const { safeApiBase } = require("./url-safety");
-const { mergeHistory, repairHistoryCounters } = require("./history");
+const { mergeHistoryLimited, repairHistoryCounters } = require("./history");
 
 const COUCHDB_PASSWORD_SECRET = "mcq-tracker-couchdb-password";
 const COUCHDB_SYNC_VERSION = 1;
@@ -20132,12 +20154,12 @@ function sameState(a, b) {
  * Merge two snapshots. The newest review decides scheduling state; both
  * histories are kept and counters are rebuilt from the union.
  */
-function mergeCardSyncStates(local, remote) {
+function mergeCardSyncStates(local, remote, historyLimit) {
   if (!local) return cardSyncState(remote);
   if (!remote) return cardSyncState(local);
   const base = newerState(local, remote);
   const merged = clone(base) || {};
-  const history = mergeHistory(local.history, remote.history);
+  const history = mergeHistoryLimited(historyLimit, local.history, remote.history);
   merged.history = history;
   const counters = { history: history.map((row) => row) };
   const repaired = repairHistoryCounters(counters);
@@ -21055,6 +21077,7 @@ function courseOverview(courseId, ctx) {
     : listExams({ settings, events: input.events, assignments: input.assignments, plans: input.plans, today, includePast: true });
   const futureExams = exams.filter((exam) => exam.date >= today && same(exam.course)).sort((a, b) => a.date.localeCompare(b.date));
   const nextExam = futureExams[0] || null;
+  const studyPlan = input.studyPlan && (!input.studyPlan.course || same(input.studyPlan.course)) && (!nextExam || input.studyPlan.examDay === nextExam.date) ? input.studyPlan : null;
   const lastPast = exams.filter((exam) => exam.date < today && same(exam.course)).sort((a, b) => b.date.localeCompare(a.date))[0] || null;
   const lectures = (Array.isArray(input.lectures) ? input.lectures : [])
     .filter((lecture) => same(lecture.course) && (!lastPast || !lecture.date || lecture.date > lastPast.date))
@@ -21082,15 +21105,24 @@ function courseOverview(courseId, ctx) {
 
   const sections = [];
   if (nextExam) {
+    const topics = Array.isArray(nextExam.topics) ? nextExam.topics : [];
+    const readiness = studyPlan
+      ? ` · ${studyPlan.daysLeft} day${studyPlan.daysLeft === 1 ? "" : "s"} left · ${studyPlan.readiness === null ? "readiness not set" : `readiness ${studyPlan.readiness}%`}`
+      : "";
+    const evidence = studyPlan && Array.isArray(studyPlan.readinessEvidence)
+      ? studyPlan.readinessEvidence.map((row) => `${row.label}: ${row.value == null ? "—" : row.value}${row.detail ? ` (${row.detail})` : ""}`).join(" · ")
+      : "";
     sections.push({
       id: "exam",
       title: "Next exam",
       rows: [{
         id: nextExam.id,
         label: nextExam.title,
-        detail: `${nextExam.date}${nextExam.time ? ` · ${nextExam.time}` : ""}${nextExam.weight ? ` · weight ${nextExam.weight}` : ""}`,
+        detail: `${nextExam.date}${nextExam.time ? ` · ${nextExam.time}` : ""}${nextExam.weight ? ` · weight ${nextExam.weight}` : ""}${readiness}${topics.length ? ` · topics: ${topics.join(", ")}` : ""}`,
         source: "exam",
         exam: nextExam,
+        path: nextExam.assignment && nextExam.assignment.file ? nextExam.assignment.file.path : "",
+        evidence,
       }],
     });
   }
@@ -21131,6 +21163,7 @@ function courseOverview(courseId, ctx) {
         detail: `${reading.pagesRemaining} pages left${reading.behindPages ? ` · ${reading.behindPages} behind` : ""}${reading.dueDate ? ` · due ${reading.dueDate}` : ""}`,
         source: "reading",
         reading,
+        path: reading.sourcePath || reading.path || "",
       })),
     });
   }
@@ -21158,6 +21191,7 @@ function courseOverview(courseId, ctx) {
         detail: task.due ? `due ${task.due}` : "no due date",
         source: "task",
         task,
+        path: task.path || "",
       })),
     });
   }
@@ -21181,6 +21215,7 @@ function courseOverview(courseId, ctx) {
     color: info.color || (course && course.color) || "",
     folder: info.folder || (course && course.folder) || "",
     nextExam,
+    studyPlan,
     lectures,
     readings,
     assignments,
@@ -21237,9 +21272,15 @@ class CourseOverviewModal extends Modal {
         const main = item.createDiv({ cls: "qt-study-row-main" });
         main.createDiv({ cls: "qt-study-row-title", text: row.label });
         if (row.detail) main.createDiv({ cls: "qt-study-row-meta", text: row.detail });
-        if (row.widget || row.notePath || row.path) {
-          item.createEl("button", { text: "Open" }).addEventListener("click", () => this.openRow(row));
-        }
+        if (row.evidence) main.createDiv({ cls: "qt-study-row-meta", text: row.evidence });
+        const canOpen = !!(
+          row.widget ||
+          row.notePath ||
+          row.path ||
+          ["plan", "reading", "task", "assignment", "grade"].includes(row.source) ||
+          (row.source === "exam" && row.exam && row.exam.calendarEvent)
+        );
+        if (canOpen) item.createEl("button", { text: "Open" }).addEventListener("click", () => this.openRow(row));
       }
     }
   }
@@ -21269,7 +21310,7 @@ class CourseOverviewModal extends Modal {
       this.plugin.activateStudyWorkspace("tasks");
       return;
     }
-    if (row.source === "assignment") {
+    if (row.source === "assignment" || row.source === "grade") {
       this.plugin.activateAssignments();
     }
   }
@@ -21979,6 +22020,101 @@ function renderDailySettings(containerEl, plugin, redisplay) {
 
 module.exports = {
   renderDailySettings,
+};
+};
+
+/* ---- src/distractor-quality.js ---- */
+__defs["distractor-quality"] = function (module, exports, require) {
+/*
+ * Deterministic multiple-choice distractor checks.
+ *
+ * These rules catch defects that do not need a model: empty or duplicate
+ * options, "all/none of the above" filler, a correct option repeated among the
+ * distractors, and a correct option that is conspicuously longer than every
+ * distractor. The caller decides whether a failed check is marked or dropped.
+ */
+const { str } = require("./util");
+const { parseChoiceSet } = require("./answer-types");
+
+const ALL_NONE = /^(?:all|none)\s+of\s+(?:the\s+)?(?:above|these|them)$/i;
+
+function optionText(choice) {
+  return str(choice && choice.text !== undefined ? choice.text : choice).replace(/\s+/g, " ").trim();
+}
+
+function normalizeOption(text) {
+  return optionText(text)
+    .toLowerCase()
+    .replace(/[.!?]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isTrueFalsePair(choices) {
+  if (choices.length !== 2) return false;
+  const left = normalizeOption(choices[0]);
+  const right = normalizeOption(choices[1]);
+  return (left === "true" && right === "false") || (left === "false" && right === "true");
+}
+
+function correctIndexes(item, choices) {
+  const letters = parseChoiceSet(item && item.answer);
+  const indexes = letters
+    .map((letter) => letter.charCodeAt(0) - 65)
+    .filter((index) => index >= 0 && index < choices.length);
+  if (indexes.length) return [...new Set(indexes)].sort((a, b) => a - b);
+  const key = normalizeOption(item && item.answer);
+  if (!key) return [];
+  const index = choices.findIndex((choice) => normalizeOption(choice) === key);
+  return index >= 0 ? [index] : [];
+}
+
+/**
+ * Returns { ok, reasons }. Reasons are short user-facing phrases used by the
+ * normal verification badge; the writer refuses the question whenever ok is
+ * false, even when the verification setting is "mark".
+ */
+function checkDistractorQuality(item) {
+  const data = item && typeof item === "object" ? item : {};
+  const choices = (Array.isArray(data.choices) ? data.choices : []).map(optionText);
+  if (!choices.length) return { ok: true, reasons: [] };
+  if (choices.length < 2) return { ok: false, reasons: ["fewer than two choices"] };
+
+  const reasons = [];
+  if (choices.some((choice) => !choice)) reasons.push("an empty choice");
+  if (isTrueFalsePair(choices)) return { ok: reasons.length === 0, reasons };
+
+  const seen = new Map();
+  for (const choice of choices) {
+    const key = normalizeOption(choice);
+    if (!key) continue;
+    if (seen.has(key)) reasons.push(`duplicate choice "${choice}"`);
+    else seen.set(key, choice);
+  }
+
+  for (const choice of choices) {
+    if (ALL_NONE.test(choice)) reasons.push(`"${choice}" is not a real distractor`);
+  }
+
+  const keyed = correctIndexes(data, choices);
+  if (keyed.length === 1 && choices.length >= 3) {
+    const correct = choices[keyed[0]];
+    const others = choices.filter((_, index) => index !== keyed[0]);
+    const maxOther = Math.max(...others.map((choice) => choice.length));
+    if (correct.length >= 50 && correct.length >= maxOther * 2 && correct.length - maxOther >= 30) {
+      reasons.push("the correct choice is much longer than every distractor");
+    }
+  }
+
+  return { ok: reasons.length === 0, reasons: [...new Set(reasons)] };
+}
+
+module.exports = {
+  ALL_NONE,
+  checkDistractorQuality,
+  correctIndexes,
+  normalizeOption,
+  optionText,
 };
 };
 
@@ -29581,6 +29717,25 @@ const { fmtDate, str } = require("./util");
 
 const VALID_RESULTS = new Set(["correct", "incorrect"]);
 const NEEDS_FIXING_DAYS = 5;
+// History is the durable replay source, so keep enough rows for the scheduler's
+// MAX_REPLAY (500) while still bounding a note that is reviewed every day.
+const DEFAULT_HISTORY_LIMIT = 500;
+const MIN_HISTORY_LIMIT = 100;
+const MAX_HISTORY_LIMIT = 5000;
+
+function normalizeHistoryLimit(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return DEFAULT_HISTORY_LIMIT;
+  return Math.max(MIN_HISTORY_LIMIT, Math.min(MAX_HISTORY_LIMIT, n));
+}
+
+/** Keep the newest rows, because schedulers replay the most recent history. */
+function trimHistory(list, limit) {
+  const rows = Array.isArray(list) ? list.slice() : [];
+  const cap = normalizeHistoryLimit(limit);
+  if (rows.length <= cap) return { rows, removed: 0 };
+  return { rows: rows.slice(rows.length - cap), removed: rows.length - cap };
+}
 
 function splitRow(line) {
   return str(line).split("|");
@@ -29597,12 +29752,12 @@ function hasAttemptId(list, id) {
 }
 
 /** Append one row unless its attempt id is already present. */
-function appendHistory(list, line, id) {
+function appendHistory(list, line, id, limit) {
   const out = Array.isArray(list) ? list.slice() : [];
   const wanted = str(id).trim();
   if (wanted && hasAttemptId(out, wanted)) return out;
   out.push(str(line));
-  return out;
+  return trimHistory(out, limit).rows;
 }
 
 /**
@@ -29610,7 +29765,7 @@ function appendHistory(list, line, id) {
  * one are identified by their full text. Sorting by the ISO timestamp keeps a
  * phone and desktop merge in chronological order without dropping either side.
  */
-function mergeHistory(...lists) {
+function mergeHistoryLimited(limit, ...lists) {
   const seen = new Set();
   const rows = [];
   for (const list of lists) {
@@ -29623,11 +29778,17 @@ function mergeHistory(...lists) {
       rows.push(text);
     }
   }
-  return rows.sort((a, b) => {
+  rows.sort((a, b) => {
     const whenA = str(splitRow(a)[0]);
     const whenB = str(splitRow(b)[0]);
     return whenA.localeCompare(whenB);
   });
+  return trimHistory(rows, limit).rows;
+}
+
+/** Merge histories with the documented default cap when no limit is supplied. */
+function mergeHistory(...lists) {
+  return mergeHistoryLimited(DEFAULT_HISTORY_LIMIT, ...lists);
 }
 
 /** Update the error tag on one attempt, preserving its id, or on the latest row. */
@@ -29841,8 +30002,14 @@ function repairHistoryCounters(fm) {
 }
 
 module.exports = {
+  DEFAULT_HISTORY_LIMIT,
+  MAX_HISTORY_LIMIT,
+  MIN_HISTORY_LIMIT,
   NEEDS_FIXING_DAYS,
   VALID_RESULTS,
+  normalizeHistoryLimit,
+  trimHistory,
+  mergeHistoryLimited,
   applyNeedsFixing,
   dayKey,
   markNeedsFixingFixed,
@@ -31097,6 +31264,12 @@ function finalizeNote(text, meta, qid, stamp) {
     if (heading) fm.source_heading = heading;
     fm.source_link = str(src.source_link) || sourceLink(fm.source_pdf || fm.source_document || fm.source_note, page, heading);
   }
+  // A generated batch can name the lecture row directly. Optional, so old
+  // notes and imports without lecture metadata load unchanged.
+  const lectureId = str(stamp.lectureId || src.lecture_id).trim().slice(0, 160);
+  if (lectureId) fm.lecture_id = lectureId;
+  const lecturePath = str(stamp.lecturePath || src.lecture_path).trim().replace(/^\/+|\/+$/g, "").slice(0, 500);
+  if (lecturePath) fm.lecture_path = lecturePath;
   for (const k of ["source_scan_id", "scan_date", "ocr_source", "ocr_confidence"]) {
     if (src[k] !== undefined && src[k] !== null && str(src[k]).trim() !== "") fm[k] = src[k];
   }
@@ -31210,13 +31383,15 @@ module.exports = {
 __defs["insights-view"] = function (module, exports, require) {
 const { ItemView } = require("obsidian");
 const { WEAK_MIN_ATTEMPTS, computeStats, errorLog, fmtPct, overallStats, trendBy, trendDelta, weakestRow, weeklyAccuracy } = require("./stats");
-const { fmtClock, str } = require("./util");
+const { fmtClock, localDate, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
+const { courseHealthReport } = require("./course-health");
+const { courseDashboard } = require("./study-workspace");
 const { conceptMasteryRows } = require("./concept-mastery");
 const { renderBreakdown, renderCalibration, renderGrade, renderHeatmap, renderRetention, renderSkips } = require("./analytics-embed");
-const { MASTERY_WINDOWS, bandQuestions, buildProgress, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions: questionsInScope } = require("./progress");
+const { MASTERY_POOL_NOTE, MASTERY_WINDOWS, bandQuestions, buildProgress, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions: questionsInScope } = require("./progress");
 
 /* ------------------------------------------- weak spots and error log */
 
@@ -31226,7 +31401,7 @@ class InsightsView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
-    this.tab = "weak"; // weak | progress | overview | concepts | errors
+    this.tab = "overview"; // overview | progress | weak | concepts | errors
     this.overviewField = "skill";
     this.progressWeeks = 12;
     this.masteryScope = str(plugin.settings && plugin.settings.masteryScope);
@@ -31261,6 +31436,31 @@ class InsightsView extends ItemView {
     }, 600);
   }
 
+  /** Course health from the same subject, lecture, grade and planner data as Study Workspace. */
+  courseHealth() {
+    const p = this.plugin;
+    if (!p.studyWorkspaceSettings) return null;
+    const data = p.studyWorkspaceSettings();
+    if (data.courseHealth && data.courseHealth.enabled === false) return null;
+    const settings = p.calendarSettings ? p.calendarSettings() : undefined;
+    const courses = courseDashboard(
+      data.subjectManager.subjects,
+      p.studyToolsSettings ? p.studyToolsSettings().lectureLog.lectures : [],
+      data.subjectManager.absences,
+      data.courseHub.grades,
+      { settings }
+    );
+    return courseHealthReport({
+      courses,
+      plans: data.lerntracker.plans,
+      tasks: data.studyTasks.tasks,
+      exams: p.getExams ? p.getExams({ includePast: true }) : [],
+      settings,
+      today: localDate(),
+      ...data.courseHealth,
+    });
+  }
+
   render() {
     const el = this.contentEl;
     const top = el.scrollTop;
@@ -31271,7 +31471,7 @@ class InsightsView extends ItemView {
       return;
     }
     const tabs = root.createDiv({ cls: "qt-row qt-small-row" });
-    for (const [id, label] of [["progress", "Progress"], ["overview", "Overview"], ["weak", "Weak spots"], ["concepts", "Concepts"], ["errors", "Error log"]]) {
+    for (const [id, label] of [["overview", "Overview"], ["progress", "Progress"], ["weak", "Weak spots"], ["concepts", "Concepts"], ["errors", "Error log"]]) {
       const b = tabs.createEl("button", { text: label });
       if (this.tab === id) b.addClass("mod-cta");
       b.addEventListener("click", () => {
@@ -31310,7 +31510,7 @@ class InsightsView extends ItemView {
     el.scrollTop = top;
   }
 
-  /** One local dashboard: attempts, study heatmap, course time, weak skills and the next exam. */
+  /** One local dashboard: grades, course health, FSRS memory, due load, readiness, heatmap and course time. */
   renderOverview(root, questions) {
     const p = this.plugin;
     const cards = p.getCards ? p.getCards() : [];
@@ -31330,6 +31530,8 @@ class InsightsView extends ItemView {
           today: new Date(),
         });
     const o = data.overall;
+    const plan = p.studyPlan ? p.studyPlan() : null;
+    const health = this.courseHealth();
     const activeDays = data.heatmap.reduce((n, week) => n + week.days.filter((d) => !d.future && (d.minutes || d.attempts)).length, 0);
     const studyMinutes = data.heatmap.reduce((n, week) => n + week.days.reduce((m, d) => m + d.minutes, 0), 0);
 
@@ -31339,6 +31541,76 @@ class InsightsView extends ItemView {
         text: "No study activity yet. Answer a question, save an FRQ attempt or start a focus session and this dashboard fills in.",
       });
       return;
+    }
+
+    root.createEl("h3", { cls: "qt-today-section", text: "At a glance" });
+    root.createDiv({
+      cls: "qt-hint",
+      text: "Grades, course health, FSRS memory, the next seven days of reviews and exam readiness in one place.",
+    });
+    const glance = root.createDiv({ cls: "qt-dash-stats" });
+    const summary = (label, value, hint) => {
+      const box = glance.createDiv({ cls: "qt-dash-stat" });
+      box.createDiv({ cls: "qt-dash-value", text: value });
+      box.createDiv({ cls: "qt-dash-label", text: label });
+      box.createDiv({ cls: "qt-hint", text: hint });
+    };
+    const gradedCourses = data.gradebook && Array.isArray(data.gradebook.courses) ? data.gradebook.courses.filter((row) => row.current !== null) : [];
+    const practiceGrade = data.grades && data.grades.overall && data.grades.overall.attempts ? data.grades.overall : null;
+    summary(
+      "Grades",
+      practiceGrade ? practiceGrade.grade : gradedCourses.length ? gradedCourses.slice(0, 3).map((row) => row.letter).join(" · ") : "—",
+      practiceGrade
+        ? `${fmtPct(practiceGrade.accuracy)} practice${gradedCourses.length ? ` · ${gradedCourses.length} graded course${gradedCourses.length === 1 ? "" : "s"}` : ""}`
+        : gradedCourses.length
+          ? `${gradedCourses.length} weighted gradebook course${gradedCourses.length === 1 ? "" : "s"}`
+          : "Nothing graded yet"
+    );
+    summary(
+      "Course health",
+      health && health.total ? `${health.good}/${health.total}` : "—",
+      health && health.total ? `${health.watch} to watch · ${health.atRisk} at risk` : "No courses tracked yet"
+    );
+    const memoryCards = data.memory && data.memory.cards ? data.memory.cards : 0;
+    summary(
+      "FSRS depth",
+      memoryCards ? fmtPct(data.memory.now) : "—",
+      memoryCards
+        ? `${memoryCards} card${memoryCards === 1 ? "" : "s"}${data.retention && data.retention.attempts ? ` · ${fmtPct(data.retention.accuracy)} on repeats` : ""}`
+        : "No FSRS cards yet"
+    );
+    const dueDays = data.forward.days.filter((day) => day.count).length;
+    summary(
+      "Due load",
+      String(data.forward.total),
+      `${data.cardStats.due} card${data.cardStats.due === 1 ? "" : "s"} due now · ${dueDays} day${dueDays === 1 ? "" : "s"} ahead`
+    );
+    summary(
+      "Readiness",
+      plan ? `${plan.readiness}%` : "—",
+      plan ? `${plan.course} · ${plan.daysLeft === 0 ? "exam today" : `${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"} away`}` : "No exam in the plan window"
+    );
+
+    root.createEl("h3", { cls: "qt-today-section", text: "Courses to watch" });
+    if (!health || !health.total) {
+      root.createDiv({ cls: "qt-hint", text: "Add a subject, a lecture or a grade item in Study Workspace to build course health." });
+    } else if (!health.watch && !health.atRisk) {
+      root.createDiv({
+        cls: "qt-hint",
+        text: `All ${health.total} course${health.total === 1 ? "" : "s"} clear: no warning in grades, attendance, overdue tasks or upcoming exams.`,
+      });
+    } else {
+      root.createDiv({
+        cls: "qt-hint",
+        text: `${health.good} good · ${health.watch} to watch · ${health.atRisk} at risk · ${health.warnings} warning${health.warnings === 1 ? "" : "s"}. Checks run locally.`,
+      });
+      const healthList = root.createDiv({ cls: "qt-ins-list" });
+      for (const row of health.rows.filter((entry) => entry.status !== "good")) {
+        const line = healthList.createDiv({ cls: "qt-ins-row" });
+        const main = line.createDiv({ cls: "qt-ins-main" });
+        main.createDiv({ cls: "qt-ins-name", text: `${row.name} · ${row.status === "at-risk" ? "At risk" : "Watch"}` });
+        for (const check of row.checks.filter((entry) => entry.level === "warn").slice(0, 3)) main.createDiv({ cls: "qt-hint", text: check.text });
+      }
     }
 
     const tiles = root.createDiv({ cls: "qt-dash-stats" });
@@ -31408,7 +31680,6 @@ class InsightsView extends ItemView {
       }
     }
 
-    const plan = p.studyPlan ? p.studyPlan() : null;
     if (plan) {
       root.createEl("h3", { cls: "qt-today-section", text: "Next exam" });
       const box = root.createDiv({ cls: "qt-dash-exam" });
@@ -31566,6 +31837,7 @@ class InsightsView extends ItemView {
           p.practiceQuestionPool(pool, `${band.label}${progress.masteryScope ? ` · ${progress.masteryScope}` : ""}${windowText}`);
         });
       }
+      root.createDiv({ cls: "qt-hint", text: MASTERY_POOL_NOTE });
     }
 
     const range = root.createDiv({ cls: "qt-chips" });
@@ -35358,7 +35630,9 @@ function applyAttempt(fm, a, intervals, options) {
   // date|result|seconds|answer|confidence|error_type|attempt_id|variant|score
   // The variant and score fields are optional; older rows and readers stop at the id.
   const row = `${when}|${a.correct ? "correct" : "incorrect"}|${a.seconds}|${chosen}|${a.conf}||${attemptId}${variant || score !== null ? `|${variant}` : ""}${score !== null ? `|${score}` : ""}`;
-  fm.history = appendHistory(fm.history, row, attemptId);
+  const historyBefore = Array.isArray(fm.history) ? fm.history.length : 0;
+  fm.history = appendHistory(fm.history, row, attemptId, opts.historyLimit);
+  const historyPruned = Math.max(0, historyBefore + 1 - fm.history.length);
   if (score !== null) fm.last_score = score;
   if (variant) fm.last_variant = variant;
   if (a.variantSeed !== undefined && Number.isFinite(Number(a.variantSeed))) fm.variant_seed = Number(a.variantSeed);
@@ -35442,24 +35716,28 @@ function applyAttempt(fm, a, intervals, options) {
     typedAnswer: a.typedAnswer === undefined ? "" : str(a.typedAnswer),
     verdictOverride: a.verdictOverride === true,
     score,
+    historyPruned,
     attemptId: opts.attemptId || "",
   };
 }
 
 /** A deliberate "don't know" is not a wrong answer: keep counters, log the skip, and pull the next review forward. */
-function applySkip(fm, now, attemptId) {
+function applySkip(fm, now, attemptId, options) {
+  const opts = options || {};
   const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
   const id = str(attemptId).trim();
   const when = fmtDateTimeSec(at);
   const row = `${when}|skipped|0||||${id}`;
-  fm.history = appendHistory(fm.history, row, id);
+  const historyBefore = Array.isArray(fm.history) ? fm.history.length : 0;
+  fm.history = appendHistory(fm.history, row, id, opts.historyLimit);
+  const historyPruned = Math.max(0, historyBefore + 1 - fm.history.length);
   fm.skip_count = (Number(fm.skip_count) || 0) + 1;
   fm.last_skipped = fmtDate(at);
   const tomorrow = fmtDate(addDays(at, 1));
   const current = str(fm.next_review).slice(0, 10);
   if (!current || current > tomorrow) fm.next_review = tomorrow;
   if (id) fm.last_attempt_id = id;
-  return { skipped: true, nextReview: str(fm.next_review), skippedCount: fm.skip_count, attemptId: id };
+  return { skipped: true, nextReview: str(fm.next_review), skippedCount: fm.skip_count, historyPruned, attemptId: id };
 }
 
 function setLastErrorType(fm, type) {
@@ -40954,7 +41232,8 @@ const secretKeys = require("./secret-keys");
 const { calendarText, safeCalendarFeedUrl } = require("./url-safety");
 const { safeSvg } = require("./svg-safety");
 const fileExplorer = require("./file-explorer");
-const { NEEDS_FIXING_DAYS, hasAttemptId, markNeedsFixingFixed, repairHistoryCounters } = require("./history");
+const { NEEDS_FIXING_DAYS, hasAttemptId, markNeedsFixingFixed, normalizeHistoryLimit, repairHistoryCounters } = require("./history");
+const { checkDistractorQuality } = require("./distractor-quality");
 const { normalizeBlueprint, normalizePassScore } = require("./exam-sections");
 
 function noteBodyText(text) {
@@ -41031,6 +41310,11 @@ class QuestionTrackerPlugin extends Plugin {
       }
       if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
       this.decorateFileExplorer();
+      this.indexReadingPlans()
+        .then((count) => {
+          if (count) this.refreshViews();
+        })
+        .catch(() => {});
       this.flushPendingAttempts().then((r) => {
         if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
       }).catch(() => {});
@@ -41655,6 +41939,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.inlineQuizSharedChoice = this.settings.inlineQuizSharedChoice === true;
     this.settings.examBlockMode = this.settings.examBlockMode === "answer" ? "answer" : "study";
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
+    this.settings.historyLimit = normalizeHistoryLimit(this.settings.historyLimit);
     this.settings.studyPlanDays = normalizeStudyPlanDays(this.settings.studyPlanDays);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -42411,6 +42696,22 @@ class QuestionTrackerPlugin extends Plugin {
     await this.save();
     this.refreshCalendarViews();
     return this.settings.calendar.examOverrides[key];
+  }
+
+  /** Rename one registry course without orphaning the old name. */
+  async renameCalendarCourse(id, name) {
+    const courses = (this.settings.calendar && this.settings.calendar.courses) || [];
+    const course = courses.find((row) => row && row.id === id);
+    const next = str(name).trim();
+    if (!course || !next || next === course.name) return false;
+    this.settings.calendar = mergeCalendarSettings({
+      ...this.calendarSettings(),
+      courses: courseIdentity.renameCourse(courses, id, next),
+    });
+    this.invalidateCalendar();
+    await this.save();
+    this.refreshViews();
+    return true;
   }
 
   /** A saved timed test is still in progress (the test view is the only writer of testSession). */
@@ -44103,6 +44404,33 @@ class QuestionTrackerPlugin extends Plugin {
     new TranscriptPracticeModal(this.app, this, { ...(options || {}), path: target }, () => this.refreshViews()).open();
   }
 
+  /** Count generated cards and questions linked to one lecture row. */
+  lecturePracticeSummary(lectureId) {
+    const wanted = str(lectureId).trim();
+    if (!wanted) return { cards: 0, questions: 0 };
+    const matches = (item) => str(item && item.fm && item.fm.lecture_id).trim() === wanted;
+    return {
+      cards: this.getCards().filter(matches).length,
+      questions: this.getQuestions().filter(matches).length,
+    };
+  }
+
+  /** Open the existing transcript generator with an explicit lecture identity. */
+  openLecturePractice(lecture) {
+    const data = lecture && typeof lecture === "object" ? lecture : {};
+    const source = str(data.processedPath || data.notePath).trim();
+    const file = source ? this.app.vault.getAbstractFileByPath(source) : null;
+    if (!(file instanceof TFile)) {
+      new Notice("Attach a lecture note or compile the lecture log before generating practice.");
+      return;
+    }
+    this.openTranscriptPractice(file.path, {
+      force: true,
+      lectureId: str(data.id).trim(),
+      lecturePath: file.path,
+    });
+  }
+
   weakSpotChoices() {
     return weakSpotRows(this.getQuestions())
       .slice(0, 8)
@@ -44379,6 +44707,26 @@ class QuestionTrackerPlugin extends Plugin {
     for (const item of list) {
       if (!item || typeof item !== "object") continue;
       const answerText = str(item.answer).trim();
+      const quality = checkDistractorQuality(item);
+      if (!quality.ok) {
+        // Structural distractor defects are never written, even in "mark"
+        // mode: a question with an invalid option is not usable practice.
+        item.verification = {
+          status: "mismatch",
+          match: false,
+          reasons: quality.reasons,
+          answer: "",
+          key: answerText,
+          model: "local quality rule",
+          date,
+          drop: true,
+          quality: true,
+        };
+        checked++;
+        dropped++;
+        failed++;
+        continue;
+      }
       const numeric = Number(answerText.replace(/[^0-9+-.eE]/g, ""));
       if (!answerText || (!(Array.isArray(item.choices) && item.choices.length) && !Number.isFinite(numeric))) {
         item.verification = { status: "unchecked", match: null, answer: "", key: answerText, model, date, drop: false };
@@ -44688,7 +45036,10 @@ class QuestionTrackerPlugin extends Plugin {
       ? info.fm.generated_subtopics.map((v) => str(v).trim()).filter(Boolean).slice(-12)
       : [];
     const folder = str(opts.folder).trim() || str(this.settings.questionFolder).trim() || "Questions";
-    const base = { kind, sourcePath: info.path, title: info.title, course, folder, difficulty, coveredSubtopics, items: [], errors: [], ai: false, model: "" };
+    const sourceLectureId = str(opts.lectureId).trim() ||
+      (Array.isArray(info.fm && info.fm.lecture_ids) && info.fm.lecture_ids.length === 1 ? str(info.fm.lecture_ids[0]).trim() : str(info.fm && info.fm.lecture_id).trim());
+    const lecturePath = str(opts.lecturePath).trim() || (sourceLectureId ? info.path : "");
+    const base = { kind, sourcePath: info.path, title: info.title, course, folder, difficulty, coveredSubtopics, lectureId: sourceLectureId, lecturePath, items: [], errors: [], ai: false, model: "" };
 
     if (kind === "cards" && opts.local) {
       const preview = await this.previewNoteCards(info.path, {
@@ -46346,6 +46697,7 @@ ${body}
         scheduler,
         fsrsRetention: this.settings.fsrsRetention,
         grade: attempt.grade,
+        historyLimit: this.settings.historyLimit,
       });
       const priorStreak = Number(fm.note_lapse_streak) || 0;
       fm.note_lapse_streak = attempt.grade === "again" ? priorStreak + 1 : 0;
@@ -46800,6 +47152,8 @@ ${body}
         importSource: g.sourcePath,
         importFormat: g.ai ? "transcript-ai" : "outline",
         importedOn: localDate(),
+        lectureId: g.lectureId,
+        lecturePath: g.lecturePath,
         aiGenerated: g.ai ? g.model : "",
         aiModel: g.ai ? g.model : "",
         importKey: `transcript:${hashString(`${g.sourcePath}|${card.front}|${card.back}`)}`,
@@ -46830,11 +47184,16 @@ ${body}
       }
       const qid = path.replace(/^.*\//, "").replace(/\.md$/i, "");
       try {
+        const quality = checkDistractorQuality(item);
+        if (!quality.ok) {
+          errors.push(`${title}: ${quality.reasons[0] || "invalid choices"}`);
+          continue;
+        }
         const note = questionNote(
           item,
           { course: g.course, source: g.title },
           qid,
-          { model: g.model || this.aiModelLabel("generation"), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note", verification: item.verification }
+          { model: g.model || this.aiModelLabel("generation"), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note", lectureId: g.lectureId, lecturePath: g.lecturePath, verification: item.verification }
         );
         assertAllowedWritePath(path, this.settings);
         await this.app.vault.create(path, note);
@@ -47072,7 +47431,19 @@ ${body}
     const cards = this.cardsEnabled() ? this.getCards().filter((c) => matches(c.course || (c.fm && c.fm.course))) : [];
     const frq = this.getFrqReviewQueue({ course });
     const registered = findRegisteredCourse(settings, course);
-    const lectures = this.studyToolsSettings().lectureLog.lectures.filter((lecture) => matches(lecture.course));
+    const examTopics = (Array.isArray(exam.topics) ? exam.topics : [])
+      .map((topic) => str(topic).trim().toLowerCase())
+      .filter(Boolean);
+    const priorExams = this.getExams({ includePast: true, horizonDays: 3650 })
+      .filter((row) => row.date < exam.date && matches(row.course))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const previousExam = priorExams[priorExams.length - 1] || null;
+    const lectures = this.studyToolsSettings().lectureLog.lectures.filter((lecture) => {
+      if (!matches(lecture.course)) return false;
+      const topics = Array.isArray(lecture.topicList) ? lecture.topicList : studyTools.parseTopicList(lecture.topics);
+      const topicMatch = examTopics.length > 0 && topics.some((topic) => examTopics.includes(str(topic).trim().toLowerCase()));
+      return topicMatch || !previousExam || (!!lecture.date && lecture.date > previousExam.date);
+    });
     const readings = this.getReadingPlans().filter((reading) => !reading.course || matches(reading.course));
     const planner = this.studyWorkspaceSettings().lerntracker.plans.find((plan) => matches(plan.course));
     const plannerRemaining = planner
@@ -47094,12 +47465,34 @@ ${body}
     );
   }
 
-  /** Reading plans are registered by their rendered blocks; no vault scan is required. */
+  /** Rendered blocks register immediately; the startup index fills the rest. */
   rememberReadingPlan(parsed, ctx) {
     if (!parsed || !parsed.id) return null;
     if (!this._readingPlans) this._readingPlans = new Map();
     this._readingPlans.set(parsed.id, { ...parsed, sourcePath: ctx && ctx.sourcePath ? ctx.sourcePath : "" });
     return this._readingPlans.get(parsed.id);
+  }
+
+  /** Read `reading-plan` fences once so Today and plans work before a block renders. */
+  async indexReadingPlans() {
+    const files = this.app.vault && typeof this.app.vault.getMarkdownFiles === "function" ? this.app.vault.getMarkdownFiles() : [];
+    const next = new Map();
+    for (const file of files) {
+      let text = "";
+      try {
+        text = await this.app.vault.cachedRead(file);
+      } catch (e) {
+        continue;
+      }
+      const pattern = /```reading-plan\b[^\n]*\n([\s\S]*?)```/gi;
+      let match;
+      while ((match = pattern.exec(text))) {
+        const parsed = readingModel.parseReadingPlan(match[1]);
+        if (parsed && parsed.valid) next.set(parsed.id, { ...parsed, sourcePath: file.path });
+      }
+    }
+    this._readingPlans = next;
+    return next.size;
   }
 
   getReadingPlans() {
@@ -47123,11 +47516,15 @@ ${body}
     const settings = this.calendarSettings();
     const lectures = this.studyToolsSettings().lectureLog.lectures;
     const courses = studyWorkspace.courseDashboard(data.subjectManager.subjects, lectures, data.subjectManager.absences, data.courseHub.grades, { settings });
+    const exams = this.getExams({ includePast: true, horizonDays: 3650 });
+    const today = localDate();
+    const nextExam = exams.find((exam) => exam.date >= today && courseIdentity.sameCourse(settings, exam.course, courseId));
     return courseOverview(courseId, {
       settings,
-      today: localDate(),
+      today,
       courses,
-      exams: this.getExams({ includePast: true, horizonDays: 3650 }),
+      exams,
+      studyPlan: nextExam ? this.buildExamPlan(nextExam) : null,
       lectures,
       readings: this.getReadingPlans(),
       assignments: this.getAssignments(),
@@ -47687,7 +48084,7 @@ ${body}
           pushed++;
           continue;
         }
-        const merged = mergeCardSyncStates(local, doc.state);
+        const merged = mergeCardSyncStates(local, doc.state, this.settings.historyLimit);
         if (!sameState(merged, local)) {
           await this.app.fileManager.processFrontMatter(card.file, (fm) => applyCardSyncState(fm, merged));
           pulled++;
@@ -48894,7 +49291,7 @@ ${body}
     let summary;
     try {
       await this.app.fileManager.processFrontMatter(file, (fm) => {
-        summary = applySkip(fm, new Date(), attemptId);
+        summary = applySkip(fm, new Date(), attemptId, { historyLimit: this.settings.historyLimit });
       });
     } catch (e) {
       throw new Error(str(e && e.message) || "Could not log this skip.");
@@ -48914,6 +49311,7 @@ ${body}
     const attempt = { ...a, attemptId: a.attemptId || newAttemptId(a.now) };
     const shared = {
       attemptId: attempt.attemptId,
+      historyLimit: this.settings.historyLimit,
       leechThreshold: this.settings.leechThreshold,
       leechAction: this.settings.leechAction,
       needsFixingDays: this.settings.needsFixing ? NEEDS_FIXING_DAYS : 0,
@@ -49017,6 +49415,7 @@ ${body}
               sameDayReviews: attempt.sameDayReviews === true,
               adaptiveFrequency: attempt.adaptiveFrequency === true,
               attemptId: entry.id,
+              historyLimit: this.settings.historyLimit,
               leechThreshold: this.settings.leechThreshold,
               leechAction: this.settings.leechAction,
               needsFixingDays: this.settings.needsFixing ? NEEDS_FIXING_DAYS : 0,
@@ -53069,6 +53468,9 @@ const MASTERY_BANDS = [
 /** The finite mastery windows the page offers. 0 means all time. */
 const MASTERY_WINDOWS = [7, 30];
 
+/** Kept beside the counts so Today, Progress and the embed explain the same pool rule. */
+const MASTERY_POOL_NOTE = "Band counts include hidden, suspended and excluded questions; band practice starts only the studyable ones.";
+
 function str(value) {
   return value === undefined || value === null ? "" : String(value);
 }
@@ -53416,6 +53818,7 @@ function buildProgress(options) {
 module.exports = {
   MASTERY_BANDS,
   MASTERY_WINDOWS,
+  MASTERY_POOL_NOTE,
   accuracyOf,
   bandQuestions,
   buildCourses,
@@ -62711,6 +63114,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Review history limit")
+      .setDesc("Keep this many newest history rows per note; older rows are trimmed. Default 500, which matches the scheduler replay window. Allowed: 100-5000.")
+      .addText((t) =>
+        t.setValue(String(st.historyLimit || 500)).onChange(async (v) => {
+          const n = parseInt(v, 10);
+          if (Number.isFinite(n)) {
+            st.historyLimit = Math.max(100, Math.min(5000, n));
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          }
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Known snooze (days)")
       .setDesc("How long the Known button hides a question or card before it returns as due. You can still use the note property for a different period.")
       .addText((t) =>
@@ -63775,19 +64192,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     );
     limitRow(
       "Daily request cap",
-      "Stop AI requests after this many in one local day. 0 means no daily cap. Counts are per device and reset at local midnight.",
+      "Stop AI requests after this many in one local day. The conservative fresh-install default is 100; set 0 for no daily cap. Counts are per device and reset at local midnight.",
       "dailyRequests",
       0,
       10000,
-      0
+      100
     );
     limitRow(
       "Per-run request cap",
-      "Stop one burst of work after this many requests. 0 means no cap. A run resets after 10 idle minutes, so the next import, chat or grading batch starts fresh.",
+      "Stop one burst of work after this many requests. The conservative fresh-install default is 20; set 0 for no cap. A run resets after 10 idle minutes, so the next import, chat or grading batch starts fresh.",
       "runRequests",
       0,
       1000,
-      0
+      20
     );
     containerEl.createEl("p", { cls: "setting-item-description", text: "What each feature sends:" });
     for (const feature of AI_FEATURES) {
@@ -71948,11 +72365,22 @@ class StudyToolsView extends ItemView {
       const row = list.createDiv({ cls: "qt-study-row" });
       const main = row.createDiv({ cls: "qt-study-row-main" });
       main.createDiv({ cls: "qt-study-row-title", text: lecture.title });
+      const generated = typeof this.plugin.lecturePracticeSummary === "function"
+        ? this.plugin.lecturePracticeSummary(lecture.id)
+        : { cards: 0, questions: 0 };
+      const linked = [];
+      if (generated.cards) linked.push(`${generated.cards} card${generated.cards === 1 ? "" : "s"}`);
+      if (generated.questions) linked.push(`${generated.questions} question${generated.questions === 1 ? "" : "s"}`);
       main.createDiv({
         cls: "qt-study-row-meta",
-        text: `${lecture.course} · ${lecture.date}${lecture.topics ? ` · ${lecture.topics}` : ""} · ${lecture.processed ? `Compiled${lecture.processedOn ? ` ${lecture.processedOn}` : ""}` : "Not compiled"}`,
+        text: `${lecture.course} · ${lecture.date}${lecture.topics ? ` · ${lecture.topics}` : ""} · ${lecture.processed ? `Compiled${lecture.processedOn ? ` ${lecture.processedOn}` : ""}` : "Not compiled"}${linked.length ? ` · Generated: ${linked.join(", ")}` : ""}`,
       });
-      row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+      const actions = row.createDiv({ cls: "qt-study-row-actions" });
+      const sourcePath = str(lecture.processedPath || lecture.notePath).trim();
+      if (sourcePath) {
+        actions.createEl("button", { text: "Generate practice" }).addEventListener("click", () => this.plugin.openLecturePractice(lecture));
+      }
+      actions.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
         await this.plugin.removeStudyLecture(lecture.id);
         this.render();
       });
@@ -76248,7 +76676,7 @@ __defs["today-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_TODAY } = require("./constants");
 const { pendingGradeCounts } = require("./card-grade-queue");
-const { fmtDate } = require("./util");
+const { fmtDate, str } = require("./util");
 const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
@@ -76388,6 +76816,30 @@ class TodayView extends ItemView {
     this.refreshNext(at);
   }
 
+  /** The merged exam list, so a manual exam is visible before it reaches a calendar feed. */
+  nextExam(now) {
+    const p = this.plugin;
+    if (typeof p.getExams === "function") {
+      const rows = p.getExams({ today: fmtDate(now), horizonDays: 3650 }) || [];
+      const exam = rows[0];
+      if (exam) {
+        const dateKey = str(exam.date || exam.dateKey).slice(0, 10);
+        const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+        const dtstart = (exam.calendarEvent && exam.calendarEvent.dtstart) ||
+          (parts ? new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])) : now);
+        return {
+          ...exam,
+          summary: exam.title || exam.summary,
+          dateKey,
+          dtstart,
+          uid: (exam.calendarEvent && exam.calendarEvent.uid) || exam.uid || "",
+        };
+      }
+    }
+    const events = p.calendarEvents ? p.calendarEvents() || [] : [];
+    return upcomingExams(events, now, 1)[0];
+  }
+
   /** Update the existing next-class/exam cards, or rebuild if their shape changed. */
   refreshNext(now) {
     const p = this.plugin;
@@ -76395,7 +76847,7 @@ class TodayView extends ItemView {
     const events = p.calendarEvents() || [];
     const settings = p.calendarSettings();
     const classStatus = nextClassStatus(events.filter((ev) => !isExamEvent(ev)), now);
-    const exam = upcomingExams(events, now, 1)[0];
+    const exam = this.nextExam(now);
     if (!!classStatus.event !== !!this.nextClassWhenEl || !!exam !== !!this.nextExamMetaEl) return this.render();
     if (classStatus.event && this.nextClassKickerEl && this.nextClassWhenEl) {
       const event = classStatus.event;
@@ -76550,6 +77002,9 @@ class TodayView extends ItemView {
     const row = card.createDiv({ cls: "qt-row qt-small-row" });
     row.createEl("button", { text: "Start 10 min", cls: "mod-cta" }).addEventListener("click", () => p.startStudyPlan(plan, false));
     row.createEl("button", { text: "Cram 10 min" }).addEventListener("click", () => p.startStudyPlan(plan, true));
+    if (typeof p.openCourseOverview === "function") {
+      row.createEl("button", { text: "Course overview" }).addEventListener("click", () => p.openCourseOverview(plan.course));
+    }
     if (plan.frqNext) {
       row.createEl("button", { text: "Practice FRQ" }).addEventListener("click", () => p.openFrqGrader({ path: plan.frqNext.path }));
     }
@@ -76866,7 +77321,7 @@ class TodayView extends ItemView {
     const events = p.calendarEvents() || [];
     const settings = p.calendarSettings();
     const classStatus = nextClassStatus(events.filter((ev) => !isExamEvent(ev)), now);
-    const exam = upcomingExams(events, now, 1)[0];
+    const exam = this.nextExam(now);
     if (!classStatus.event && !exam) return;
 
     const panel = root.createDiv({ cls: "qt-today-panel" });
@@ -77319,6 +77774,8 @@ class TranscriptPracticeModal extends Modal {
     this.onDone = onDone || (() => {});
     this.path = str(this.options.path).trim();
     this.force = this.options.force === true;
+    this.lectureId = str(this.options.lectureId).trim();
+    this.lecturePath = str(this.options.lecturePath).trim();
     this.difficulty = "mixed";
     this.info = null;
     this.error = "";
@@ -77500,6 +77957,8 @@ class TranscriptPracticeModal extends Modal {
         difficulty: this.difficulty,
         folder: this.folder,
         deck: this.deck,
+        lectureId: this.lectureId,
+        lecturePath: this.lecturePath,
       });
       this.generated = result;
       if (!result.items.length) {
@@ -78850,6 +79309,7 @@ const urlSafety = require("./url-safety");
 const svgSafety = require("./svg-safety");
 const fileExplorer = require("./file-explorer");
 const history = require("./history");
+const distractorQuality = require("./distractor-quality");
 const testSections = require("./exam-sections");
 const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
@@ -78886,6 +79346,7 @@ const studyWorkspace = require("./study-workspace");
 const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
 const courseHealth = require("./course-health");
+const { CourseOverviewModal } = require("./course-overview-modal");
 const audioBookmarks = require("./audio-bookmarks");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
@@ -79073,6 +79534,7 @@ QuestionTrackerPlugin.__test = {
   svgSafety,
   fileExplorer,
   history,
+  distractorQuality,
   testSections,
   aiWrites,
   weakSpot,
@@ -79287,6 +79749,7 @@ QuestionTrackerPlugin.__test = {
   readAloud,
   lectureCompiler,
   courseHealth,
+  CourseOverviewModal,
   audioBookmarks,
   feynmanAi,
   pdfAnnotationIndex,

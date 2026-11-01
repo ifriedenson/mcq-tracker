@@ -197,6 +197,34 @@ test("reading block: renders pace and persists logged progress across a restart"
   assert.deepEqual(restarted.settings.reading, plugin.settings.reading);
 });
 
+test("reading block: the startup index exposes a plan before the block renders", async () => {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const target = new Date(start);
+  target.setDate(target.getDate() + 5);
+  const iso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const text = `# Reading\n\n\`\`\`reading-plan\ntitle: Deep Work\npages: 50\nstart: ${iso(start)}\ntarget: ${iso(target)}\ndays: everyday\nread: 0\n\`\`\`\n`;
+  const app = makeApp([{ path: "Reading/Deep.md", noFm: true, text }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  assert.equal(plugin.getReadingPlans().length, 0, "onload alone has not rendered a block yet");
+
+  const count = await plugin.indexReadingPlans();
+  const plans = plugin.getReadingPlans();
+  assert.equal(count, 1);
+  assert.equal(plans[0].sourcePath, "Reading/Deep.md");
+  assert.ok(plans[0].todayChunk > 0);
+
+  plugin.studyPlan = () => null;
+  const dom = makeDom();
+  const view = new T.TodayView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+  assert.ok(dom.texts().includes("Readings"));
+  assert.ok(dom.texts().includes("Deep Work"));
+});
+
 test("reading block: an empty or malformed block shows a useful message", async () => {
   const plugin = new QT(makeApp([]));
   await plugin.onload();

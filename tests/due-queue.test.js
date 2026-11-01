@@ -53,6 +53,22 @@ test("plugin: the due queue respects the enabled modules and connects to real ca
   assert.equal(plugin.getDueQueue({ today: "2026-10-29" }).counts.total, 0);
 });
 
+test("plugin: the due queue applies the saved daily cap", async () => {
+  const notes = [1, 2, 3].map((n) => ({
+    path: `Questions/q${n}.md`,
+    fm: { attempts: 1, next_review: `2020-01-0${n}`, answer: "B" },
+  }));
+  const app = makeApp(notes);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.dueQueue = { dailyCap: 2 };
+  const queue = plugin.getDueQueue({ today: "2026-10-29", limit: 10 });
+  assert.equal(queue.counts.total, 3);
+  assert.equal(queue.shown.total, 2);
+  assert.equal(queue.items.length, 2);
+  assert.equal(queue.deferred, 1);
+});
+
 test("due queue: a daily cap holds overflow without dropping or rescheduling it", () => {
   const questions = [1, 2, 3, 4].map((n) => ({
     file: { path: `Questions/q${n}.md`, basename: `q${n}` },

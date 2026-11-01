@@ -2,7 +2,7 @@
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_TODAY } = require("./constants");
 const { pendingGradeCounts } = require("./card-grade-queue");
-const { fmtDate } = require("./util");
+const { fmtDate, str } = require("./util");
 const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
 const { cleanSubjectTitle, examCountdown, formatDateValue, formatTime, humanizeDuration, isExamEvent, nextClassStatus, parseClassDetails, upcomingExams } = require("./calendar-model");
@@ -142,6 +142,30 @@ class TodayView extends ItemView {
     this.refreshNext(at);
   }
 
+  /** The merged exam list, so a manual exam is visible before it reaches a calendar feed. */
+  nextExam(now) {
+    const p = this.plugin;
+    if (typeof p.getExams === "function") {
+      const rows = p.getExams({ today: fmtDate(now), horizonDays: 3650 }) || [];
+      const exam = rows[0];
+      if (exam) {
+        const dateKey = str(exam.date || exam.dateKey).slice(0, 10);
+        const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+        const dtstart = (exam.calendarEvent && exam.calendarEvent.dtstart) ||
+          (parts ? new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])) : now);
+        return {
+          ...exam,
+          summary: exam.title || exam.summary,
+          dateKey,
+          dtstart,
+          uid: (exam.calendarEvent && exam.calendarEvent.uid) || exam.uid || "",
+        };
+      }
+    }
+    const events = p.calendarEvents ? p.calendarEvents() || [] : [];
+    return upcomingExams(events, now, 1)[0];
+  }
+
   /** Update the existing next-class/exam cards, or rebuild if their shape changed. */
   refreshNext(now) {
     const p = this.plugin;
@@ -149,7 +173,7 @@ class TodayView extends ItemView {
     const events = p.calendarEvents() || [];
     const settings = p.calendarSettings();
     const classStatus = nextClassStatus(events.filter((ev) => !isExamEvent(ev)), now);
-    const exam = upcomingExams(events, now, 1)[0];
+    const exam = this.nextExam(now);
     if (!!classStatus.event !== !!this.nextClassWhenEl || !!exam !== !!this.nextExamMetaEl) return this.render();
     if (classStatus.event && this.nextClassKickerEl && this.nextClassWhenEl) {
       const event = classStatus.event;
@@ -304,6 +328,9 @@ class TodayView extends ItemView {
     const row = card.createDiv({ cls: "qt-row qt-small-row" });
     row.createEl("button", { text: "Start 10 min", cls: "mod-cta" }).addEventListener("click", () => p.startStudyPlan(plan, false));
     row.createEl("button", { text: "Cram 10 min" }).addEventListener("click", () => p.startStudyPlan(plan, true));
+    if (typeof p.openCourseOverview === "function") {
+      row.createEl("button", { text: "Course overview" }).addEventListener("click", () => p.openCourseOverview(plan.course));
+    }
     if (plan.frqNext) {
       row.createEl("button", { text: "Practice FRQ" }).addEventListener("click", () => p.openFrqGrader({ path: plan.frqNext.path }));
     }
@@ -620,7 +647,7 @@ class TodayView extends ItemView {
     const events = p.calendarEvents() || [];
     const settings = p.calendarSettings();
     const classStatus = nextClassStatus(events.filter((ev) => !isExamEvent(ev)), now);
-    const exam = upcomingExams(events, now, 1)[0];
+    const exam = this.nextExam(now);
     if (!classStatus.event && !exam) return;
 
     const panel = root.createDiv({ cls: "qt-today-panel" });

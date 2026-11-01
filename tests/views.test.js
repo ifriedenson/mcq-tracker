@@ -84,6 +84,7 @@ test("practice view: shows and clears the practice-this-note-only banner", async
 test("weak spots: shows the weakest skill and starts practising it", async () => {
   const { app, plugin, dom } = await setup();
   const v = makeView(T.InsightsView, plugin, app, dom);
+  v.tab = "weak";
   v.render();
   assert.ok(dom.texts().includes("Practice my weakest skill: grammar"));
   await dom.click("Practice my weakest skill: grammar");
@@ -126,6 +127,7 @@ test("insights overview: shows the study heatmap, course time and weak skills", 
   v.render();
   const texts = dom.texts();
   assert.ok(texts.includes("Overview"));
+  assert.ok(texts.includes("At a glance"));
   assert.ok(texts.includes("Study heatmap"));
   assert.ok(texts.includes("Study time by course"));
   assert.ok(texts.includes("Confidence calibration"));
@@ -138,6 +140,33 @@ test("insights overview: shows the study heatmap, course time and weak skills", 
   assert.ok(dom.texts().includes("Domain breakdown"));
   await dom.click("Weak spots");
   assert.equal(v.tab, "weak");
+});
+
+test("insights opens on Overview with grades, course health, FSRS depth, due load and readiness together", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.studyPlan = () => ({ course: "Biology", daysLeft: 3, readiness: 55, due: 1, fresh: 0, cardsDue: 0, topics: null });
+  plugin.studyWorkspaceSettings = () => ({
+    subjectManager: { subjects: [{ name: "Biology" }], absences: [] },
+    courseHub: { grades: [{ course: "Biology", score: 90, weight: 1, date: "2026-10-01", createdAt: 1 }] },
+    lerntracker: { plans: [] },
+    studyTasks: { tasks: [] },
+    courseHealth: { enabled: true, attendanceThreshold: 75, examWindowDays: 14, minSessions: 3 },
+  });
+  plugin.studyToolsSettings = () => ({ lectureLog: { lectures: [] } });
+  const v = makeView(T.InsightsView, plugin, app, dom);
+  assert.equal(v.tab, "overview", "Insights opens on Overview");
+  v.render();
+  const texts = dom.texts();
+  for (const label of ["At a glance", "Grades", "Course health", "FSRS depth", "Due load", "Readiness"]) {
+    assert.ok(texts.includes(label), `${label} is part of the combined dashboard`);
+  }
+  assert.ok(texts.includes("0/1"), "course health shows good/total");
+  assert.ok(texts.includes("1 to watch · 0 at risk"));
+  assert.ok(texts.includes("Biology · 3 days away"), "readiness names the exam course and countdown");
+  assert.ok(texts.includes("55%"), "readiness shows its percentage");
+  assert.ok(texts.includes("Courses to watch"));
+  assert.ok(texts.some((text) => /No lectures or absences logged for this course/.test(text)));
+  assert.ok(texts.includes("Next exam"), "the existing next-exam section is still below");
 });
 
 test("insights progress: shows the goal, weekly momentum, mastery and next steps", async () => {
@@ -178,6 +207,7 @@ test("insights progress: mastery scopes to a course and a band starts practice",
   v.masteryScope = "Alpha";
   v.render();
   assert.ok(dom.texts().some((text) => /2 of 2 questions in Alpha tried/.test(text)));
+  assert.ok(dom.texts().some((text) => /Band counts include hidden/.test(text)), "the band/practice difference is stated in Progress");
   assert.ok(dom.all.some((el) => el.meta && el.meta.tag === "option" && el.meta.text === "Beta"));
   const button = dom.all.find((el) => el.meta && el.meta.attrs && /Practice 1 needs work question in Alpha/.test(String(el.meta.attrs["aria-label"] || "")));
   assert.ok(button, "the needs-work band has a practice button");
@@ -295,6 +325,7 @@ test("weak spots and error log have friendly empty states", async () => {
   await plugin.onload();
   const dom = makeDom();
   const v = makeView(T.InsightsView, plugin, app, dom);
+  v.tab = "weak";
   v.render();
   assert.ok(dom.texts().some((t) => /none attempted yet/.test(t)));
   v.tab = "errors";
@@ -706,6 +737,7 @@ test("weak spots: shows the weekly chart and trend text once there is history", 
   await plugin.onload();
   const dom = makeDom();
   const v = makeView(T.InsightsView, plugin, app, dom);
+  v.tab = "weak";
   v.render();
   const t = dom.texts();
   assert.ok(t.includes("Accuracy by week"));

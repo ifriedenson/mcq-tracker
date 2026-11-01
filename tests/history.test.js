@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { load } = require("./helpers/load");
-const { makeApp } = require("./helpers/fake");
+const { makeApp, NOTE_TEXT } = require("./helpers/fake");
 
 const { T, Plugin: QT } = load();
 const H = T.history;
@@ -118,4 +118,37 @@ test("the repair command fixes counters from history", async () => {
   assert.equal(fm.streak, 1);
   const ids = plugin.commands.map((c) => c.id);
   assert.ok(ids.includes("repair-review-history"));
+});
+
+test("historyLimit keeps the newest rows and reports the trimmed count", () => {
+  const rows = Array.from({ length: 120 }, (_, i) => `2026-09-${String((i % 28) + 1).padStart(2, "0")}T10:00:00|correct|5|A|2||old-${i}`);
+  const fm = { history: rows };
+  const summary = T.applyAttempt(fm, { correct: true, chosen: "B", conf: 2, seconds: 10, now: LATER }, [1, 3, 7], { attemptId: "new-1", historyLimit: 100 });
+  assert.equal(fm.history.length, 100);
+  assert.equal(summary.historyPruned, 21);
+  assert.match(fm.history[99], /new-1/);
+
+  const skipped = { history: rows };
+  const skip = T.applySkip(skipped, LATER, "skip-1", { historyLimit: 100 });
+  assert.equal(skipped.history.length, 100);
+  assert.equal(skip.historyPruned, 21);
+});
+
+test("historyLimit is documented, bounded and enforced through the plugin paths", async () => {
+  assert.equal(T.history.DEFAULT_HISTORY_LIMIT, 500);
+  assert.equal(T.history.normalizeHistoryLimit(undefined), 500);
+  assert.equal(T.history.normalizeHistoryLimit(1), 100);
+  assert.equal(T.history.normalizeHistoryLimit(99999), 5000);
+
+  const rows = Array.from({ length: 120 }, (_, i) => `2026-09-${String((i % 28) + 1).padStart(2, "0")}T10:00:00|correct|5|A|2||old-${i}`);
+  const app = makeApp([{ path: "Questions/q.md", fm: { history: rows, attempts: 120, correct_count: 120 }, text: NOTE_TEXT("q", "A") }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.historyLimit = 100;
+  const summary = await plugin.recordAttempt(app.files[0], { correct: true, chosen: "A", conf: 2, seconds: 10, now: NOW });
+  assert.equal(app.files[0].fm.history.length, 100);
+  assert.equal(summary.historyPruned, 21);
+  const skip = await plugin.recordSkip(app.files[0]);
+  assert.equal(app.files[0].fm.history.length, 100);
+  assert.equal(skip.historyPruned, 1);
 });

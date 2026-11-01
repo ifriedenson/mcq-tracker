@@ -329,11 +329,22 @@ class StudyToolsView extends ItemView {
       const row = list.createDiv({ cls: "qt-study-row" });
       const main = row.createDiv({ cls: "qt-study-row-main" });
       main.createDiv({ cls: "qt-study-row-title", text: lecture.title });
+      const generated = typeof this.plugin.lecturePracticeSummary === "function"
+        ? this.plugin.lecturePracticeSummary(lecture.id)
+        : { cards: 0, questions: 0 };
+      const linked = [];
+      if (generated.cards) linked.push(`${generated.cards} card${generated.cards === 1 ? "" : "s"}`);
+      if (generated.questions) linked.push(`${generated.questions} question${generated.questions === 1 ? "" : "s"}`);
       main.createDiv({
         cls: "qt-study-row-meta",
-        text: `${lecture.course} · ${lecture.date}${lecture.topics ? ` · ${lecture.topics}` : ""} · ${lecture.processed ? `Compiled${lecture.processedOn ? ` ${lecture.processedOn}` : ""}` : "Not compiled"}`,
+        text: `${lecture.course} · ${lecture.date}${lecture.topics ? ` · ${lecture.topics}` : ""} · ${lecture.processed ? `Compiled${lecture.processedOn ? ` ${lecture.processedOn}` : ""}` : "Not compiled"}${linked.length ? ` · Generated: ${linked.join(", ")}` : ""}`,
       });
-      row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+      const actions = row.createDiv({ cls: "qt-study-row-actions" });
+      const sourcePath = str(lecture.processedPath || lecture.notePath).trim();
+      if (sourcePath) {
+        actions.createEl("button", { text: "Generate practice" }).addEventListener("click", () => this.plugin.openLecturePractice(lecture));
+      }
+      actions.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
         await this.plugin.removeStudyLecture(lecture.id);
         this.render();
       });

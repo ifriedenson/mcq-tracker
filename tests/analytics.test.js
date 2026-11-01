@@ -52,6 +52,23 @@ test("analytics calibration reports accuracy at each confidence level", () => {
   assert.equal(calibration.buckets[2].accuracy, null);
 });
 
+test("analytics calibration exposes unrated attempts without inventing a confidence level", () => {
+  const questions = [
+    q("Q/a.md", {
+      history: [
+        "2026-10-20|correct|10|A|0|",
+        "2026-10-21|incorrect|10|B|0|",
+        "2026-10-22|correct|10|C||",
+      ],
+    }),
+  ];
+  const calibration = T.buildCalibration(questions, ["Guess", "Unsure", "Sure"]);
+  assert.equal(calibration.total, 0);
+  assert.equal(calibration.unrated.attempts, 2);
+  assert.equal(calibration.unrated.correct, 1);
+  assert.equal(calibration.unrated.accuracy, 0.5);
+});
+
 test("analytics retention counts review attempts but not each question's first try", () => {
   const question = q("Q/a.md", {
     history: [

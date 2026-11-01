@@ -15,6 +15,8 @@ class TranscriptPracticeModal extends Modal {
     this.onDone = onDone || (() => {});
     this.path = str(this.options.path).trim();
     this.force = this.options.force === true;
+    this.lectureId = str(this.options.lectureId).trim();
+    this.lecturePath = str(this.options.lecturePath).trim();
     this.difficulty = "mixed";
     this.info = null;
     this.error = "";
@@ -196,6 +198,8 @@ class TranscriptPracticeModal extends Modal {
         difficulty: this.difficulty,
         folder: this.folder,
         deck: this.deck,
+        lectureId: this.lectureId,
+        lecturePath: this.lecturePath,
       });
       this.generated = result;
       if (!result.items.length) {

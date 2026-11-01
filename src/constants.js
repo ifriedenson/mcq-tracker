@@ -4,6 +4,7 @@ const { DEFAULT_ASSIGNMENT_SETTINGS } = require("./assignments");
 const { DEFAULT_SUPPORT } = require("./support");
 const { DEFAULT_AI_LIMITS } = require("./ai-service");
 const { DEFAULT_THINK_FIRST_SECONDS } = require("./think-first");
+const { DEFAULT_HISTORY_LIMIT } = require("./history");
 
 const VIEW_TYPE = "question-tracker-view";
 const VIEW_TYPE_TODAY = "question-tracker-today";
@@ -53,6 +54,7 @@ const DEFAULT_SETTINGS = {
   errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed", "setup error", "algebra/arithmetic slip", "unit error", "sign error", "wrong formula"],
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
   knownDays: 14, // default snooze length for the Known button
+  historyLimit: DEFAULT_HISTORY_LIMIT, // newest review rows kept per note (100-5000)
   knownDaysByCourse: {}, // optional course-specific snooze overrides
   studyPlanDays: 30, // how far ahead studyPlans() looks for exams (1-365)
   dueQueue: { dailyCap: 0 }, // 0 = no cap; otherwise hold overflow for another day

@@ -178,7 +178,8 @@ const secretKeys = require("./secret-keys");
 const { calendarText, safeCalendarFeedUrl } = require("./url-safety");
 const { safeSvg } = require("./svg-safety");
 const fileExplorer = require("./file-explorer");
-const { NEEDS_FIXING_DAYS, hasAttemptId, markNeedsFixingFixed, repairHistoryCounters } = require("./history");
+const { NEEDS_FIXING_DAYS, hasAttemptId, markNeedsFixingFixed, normalizeHistoryLimit, repairHistoryCounters } = require("./history");
+const { checkDistractorQuality } = require("./distractor-quality");
 const { normalizeBlueprint, normalizePassScore } = require("./exam-sections");
 
 function noteBodyText(text) {
@@ -255,6 +256,11 @@ class QuestionTrackerPlugin extends Plugin {
       }
       if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
       this.decorateFileExplorer();
+      this.indexReadingPlans()
+        .then((count) => {
+          if (count) this.refreshViews();
+        })
+        .catch(() => {});
       this.flushPendingAttempts().then((r) => {
         if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
       }).catch(() => {});
@@ -879,6 +885,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.inlineQuizSharedChoice = this.settings.inlineQuizSharedChoice === true;
     this.settings.examBlockMode = this.settings.examBlockMode === "answer" ? "answer" : "study";
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
+    this.settings.historyLimit = normalizeHistoryLimit(this.settings.historyLimit);
     this.settings.studyPlanDays = normalizeStudyPlanDays(this.settings.studyPlanDays);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
@@ -1635,6 +1642,22 @@ class QuestionTrackerPlugin extends Plugin {
     await this.save();
     this.refreshCalendarViews();
     return this.settings.calendar.examOverrides[key];
+  }
+
+  /** Rename one registry course without orphaning the old name. */
+  async renameCalendarCourse(id, name) {
+    const courses = (this.settings.calendar && this.settings.calendar.courses) || [];
+    const course = courses.find((row) => row && row.id === id);
+    const next = str(name).trim();
+    if (!course || !next || next === course.name) return false;
+    this.settings.calendar = mergeCalendarSettings({
+      ...this.calendarSettings(),
+      courses: courseIdentity.renameCourse(courses, id, next),
+    });
+    this.invalidateCalendar();
+    await this.save();
+    this.refreshViews();
+    return true;
   }
 
   /** A saved timed test is still in progress (the test view is the only writer of testSession). */
@@ -3327,6 +3350,33 @@ class QuestionTrackerPlugin extends Plugin {
     new TranscriptPracticeModal(this.app, this, { ...(options || {}), path: target }, () => this.refreshViews()).open();
   }
 
+  /** Count generated cards and questions linked to one lecture row. */
+  lecturePracticeSummary(lectureId) {
+    const wanted = str(lectureId).trim();
+    if (!wanted) return { cards: 0, questions: 0 };
+    const matches = (item) => str(item && item.fm && item.fm.lecture_id).trim() === wanted;
+    return {
+      cards: this.getCards().filter(matches).length,
+      questions: this.getQuestions().filter(matches).length,
+    };
+  }
+
+  /** Open the existing transcript generator with an explicit lecture identity. */
+  openLecturePractice(lecture) {
+    const data = lecture && typeof lecture === "object" ? lecture : {};
+    const source = str(data.processedPath || data.notePath).trim();
+    const file = source ? this.app.vault.getAbstractFileByPath(source) : null;
+    if (!(file instanceof TFile)) {
+      new Notice("Attach a lecture note or compile the lecture log before generating practice.");
+      return;
+    }
+    this.openTranscriptPractice(file.path, {
+      force: true,
+      lectureId: str(data.id).trim(),
+      lecturePath: file.path,
+    });
+  }
+
   weakSpotChoices() {
     return weakSpotRows(this.getQuestions())
       .slice(0, 8)
@@ -3603,6 +3653,26 @@ class QuestionTrackerPlugin extends Plugin {
     for (const item of list) {
       if (!item || typeof item !== "object") continue;
       const answerText = str(item.answer).trim();
+      const quality = checkDistractorQuality(item);
+      if (!quality.ok) {
+        // Structural distractor defects are never written, even in "mark"
+        // mode: a question with an invalid option is not usable practice.
+        item.verification = {
+          status: "mismatch",
+          match: false,
+          reasons: quality.reasons,
+          answer: "",
+          key: answerText,
+          model: "local quality rule",
+          date,
+          drop: true,
+          quality: true,
+        };
+        checked++;
+        dropped++;
+        failed++;
+        continue;
+      }
       const numeric = Number(answerText.replace(/[^0-9+-.eE]/g, ""));
       if (!answerText || (!(Array.isArray(item.choices) && item.choices.length) && !Number.isFinite(numeric))) {
         item.verification = { status: "unchecked", match: null, answer: "", key: answerText, model, date, drop: false };
@@ -3912,7 +3982,10 @@ class QuestionTrackerPlugin extends Plugin {
       ? info.fm.generated_subtopics.map((v) => str(v).trim()).filter(Boolean).slice(-12)
       : [];
     const folder = str(opts.folder).trim() || str(this.settings.questionFolder).trim() || "Questions";
-    const base = { kind, sourcePath: info.path, title: info.title, course, folder, difficulty, coveredSubtopics, items: [], errors: [], ai: false, model: "" };
+    const sourceLectureId = str(opts.lectureId).trim() ||
+      (Array.isArray(info.fm && info.fm.lecture_ids) && info.fm.lecture_ids.length === 1 ? str(info.fm.lecture_ids[0]).trim() : str(info.fm && info.fm.lecture_id).trim());
+    const lecturePath = str(opts.lecturePath).trim() || (sourceLectureId ? info.path : "");
+    const base = { kind, sourcePath: info.path, title: info.title, course, folder, difficulty, coveredSubtopics, lectureId: sourceLectureId, lecturePath, items: [], errors: [], ai: false, model: "" };
 
     if (kind === "cards" && opts.local) {
       const preview = await this.previewNoteCards(info.path, {
@@ -5570,6 +5643,7 @@ ${body}
         scheduler,
         fsrsRetention: this.settings.fsrsRetention,
         grade: attempt.grade,
+        historyLimit: this.settings.historyLimit,
       });
       const priorStreak = Number(fm.note_lapse_streak) || 0;
       fm.note_lapse_streak = attempt.grade === "again" ? priorStreak + 1 : 0;
@@ -6024,6 +6098,8 @@ ${body}
         importSource: g.sourcePath,
         importFormat: g.ai ? "transcript-ai" : "outline",
         importedOn: localDate(),
+        lectureId: g.lectureId,
+        lecturePath: g.lecturePath,
         aiGenerated: g.ai ? g.model : "",
         aiModel: g.ai ? g.model : "",
         importKey: `transcript:${hashString(`${g.sourcePath}|${card.front}|${card.back}`)}`,
@@ -6054,11 +6130,16 @@ ${body}
       }
       const qid = path.replace(/^.*\//, "").replace(/\.md$/i, "");
       try {
+        const quality = checkDistractorQuality(item);
+        if (!quality.ok) {
+          errors.push(`${title}: ${quality.reasons[0] || "invalid choices"}`);
+          continue;
+        }
         const note = questionNote(
           item,
           { course: g.course, source: g.title },
           qid,
-          { model: g.model || this.aiModelLabel("generation"), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note", verification: item.verification }
+          { model: g.model || this.aiModelLabel("generation"), date: localDate(), sourcePath: g.sourcePath, sourceKind: "note", lectureId: g.lectureId, lecturePath: g.lecturePath, verification: item.verification }
         );
         assertAllowedWritePath(path, this.settings);
         await this.app.vault.create(path, note);
@@ -6296,7 +6377,19 @@ ${body}
     const cards = this.cardsEnabled() ? this.getCards().filter((c) => matches(c.course || (c.fm && c.fm.course))) : [];
     const frq = this.getFrqReviewQueue({ course });
     const registered = findRegisteredCourse(settings, course);
-    const lectures = this.studyToolsSettings().lectureLog.lectures.filter((lecture) => matches(lecture.course));
+    const examTopics = (Array.isArray(exam.topics) ? exam.topics : [])
+      .map((topic) => str(topic).trim().toLowerCase())
+      .filter(Boolean);
+    const priorExams = this.getExams({ includePast: true, horizonDays: 3650 })
+      .filter((row) => row.date < exam.date && matches(row.course))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const previousExam = priorExams[priorExams.length - 1] || null;
+    const lectures = this.studyToolsSettings().lectureLog.lectures.filter((lecture) => {
+      if (!matches(lecture.course)) return false;
+      const topics = Array.isArray(lecture.topicList) ? lecture.topicList : studyTools.parseTopicList(lecture.topics);
+      const topicMatch = examTopics.length > 0 && topics.some((topic) => examTopics.includes(str(topic).trim().toLowerCase()));
+      return topicMatch || !previousExam || (!!lecture.date && lecture.date > previousExam.date);
+    });
     const readings = this.getReadingPlans().filter((reading) => !reading.course || matches(reading.course));
     const planner = this.studyWorkspaceSettings().lerntracker.plans.find((plan) => matches(plan.course));
     const plannerRemaining = planner
@@ -6318,12 +6411,34 @@ ${body}
     );
   }
 
-  /** Reading plans are registered by their rendered blocks; no vault scan is required. */
+  /** Rendered blocks register immediately; the startup index fills the rest. */
   rememberReadingPlan(parsed, ctx) {
     if (!parsed || !parsed.id) return null;
     if (!this._readingPlans) this._readingPlans = new Map();
     this._readingPlans.set(parsed.id, { ...parsed, sourcePath: ctx && ctx.sourcePath ? ctx.sourcePath : "" });
     return this._readingPlans.get(parsed.id);
+  }
+
+  /** Read `reading-plan` fences once so Today and plans work before a block renders. */
+  async indexReadingPlans() {
+    const files = this.app.vault && typeof this.app.vault.getMarkdownFiles === "function" ? this.app.vault.getMarkdownFiles() : [];
+    const next = new Map();
+    for (const file of files) {
+      let text = "";
+      try {
+        text = await this.app.vault.cachedRead(file);
+      } catch (e) {
+        continue;
+      }
+      const pattern = /```reading-plan\b[^\n]*\n([\s\S]*?)```/gi;
+      let match;
+      while ((match = pattern.exec(text))) {
+        const parsed = readingModel.parseReadingPlan(match[1]);
+        if (parsed && parsed.valid) next.set(parsed.id, { ...parsed, sourcePath: file.path });
+      }
+    }
+    this._readingPlans = next;
+    return next.size;
   }
 
   getReadingPlans() {
@@ -6347,11 +6462,15 @@ ${body}
     const settings = this.calendarSettings();
     const lectures = this.studyToolsSettings().lectureLog.lectures;
     const courses = studyWorkspace.courseDashboard(data.subjectManager.subjects, lectures, data.subjectManager.absences, data.courseHub.grades, { settings });
+    const exams = this.getExams({ includePast: true, horizonDays: 3650 });
+    const today = localDate();
+    const nextExam = exams.find((exam) => exam.date >= today && courseIdentity.sameCourse(settings, exam.course, courseId));
     return courseOverview(courseId, {
       settings,
-      today: localDate(),
+      today,
       courses,
-      exams: this.getExams({ includePast: true, horizonDays: 3650 }),
+      exams,
+      studyPlan: nextExam ? this.buildExamPlan(nextExam) : null,
       lectures,
       readings: this.getReadingPlans(),
       assignments: this.getAssignments(),
@@ -6911,7 +7030,7 @@ ${body}
           pushed++;
           continue;
         }
-        const merged = mergeCardSyncStates(local, doc.state);
+        const merged = mergeCardSyncStates(local, doc.state, this.settings.historyLimit);
         if (!sameState(merged, local)) {
           await this.app.fileManager.processFrontMatter(card.file, (fm) => applyCardSyncState(fm, merged));
           pulled++;
@@ -8118,7 +8237,7 @@ ${body}
     let summary;
     try {
       await this.app.fileManager.processFrontMatter(file, (fm) => {
-        summary = applySkip(fm, new Date(), attemptId);
+        summary = applySkip(fm, new Date(), attemptId, { historyLimit: this.settings.historyLimit });
       });
     } catch (e) {
       throw new Error(str(e && e.message) || "Could not log this skip.");
@@ -8138,6 +8257,7 @@ ${body}
     const attempt = { ...a, attemptId: a.attemptId || newAttemptId(a.now) };
     const shared = {
       attemptId: attempt.attemptId,
+      historyLimit: this.settings.historyLimit,
       leechThreshold: this.settings.leechThreshold,
       leechAction: this.settings.leechAction,
       needsFixingDays: this.settings.needsFixing ? NEEDS_FIXING_DAYS : 0,
@@ -8241,6 +8361,7 @@ ${body}
               sameDayReviews: attempt.sameDayReviews === true,
               adaptiveFrequency: attempt.adaptiveFrequency === true,
               attemptId: entry.id,
+              historyLimit: this.settings.historyLimit,
               leechThreshold: this.settings.leechThreshold,
               leechAction: this.settings.leechAction,
               needsFixingDays: this.settings.needsFixing ? NEEDS_FIXING_DAYS : 0,

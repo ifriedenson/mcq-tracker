@@ -59,13 +59,21 @@ function confidenceLabelsOf(labels) {
   return DEFAULT_CONFIDENCE_LABELS.map((fallback, index) => String(source[index] || fallback).trim() || fallback);
 }
 
-/** Accuracy at each stated confidence level. Empty confidence (timed tests) is ignored. */
+/** Accuracy at each stated confidence level. Explicit 0 is unrated; blank confidence (timed tests) is ignored. */
 function buildCalibration(questions, labels) {
   const buckets = confidenceLabelsOf(labels).map((label, index) => ({ confidence: index + 1, label, attempts: 0, correct: 0, credit: 0, accuracy: null }));
   let total = 0;
+  const unrated = { attempts: 0, correct: 0, credit: 0, accuracy: null };
   for (const q of questions || []) {
     for (const entry of parseHistory(q.fm && q.fm.history)) {
-      const confidence = Math.round(Number(entry.conf));
+      const raw = entry.conf === null || entry.conf === undefined ? "" : String(entry.conf).trim();
+      const confidence = Math.round(Number(raw));
+      if (raw !== "" && confidence === 0) {
+        unrated.attempts++;
+        if (entry.result === "correct") unrated.correct++;
+        unrated.credit += creditOf(entry);
+        continue;
+      }
       if (!Number.isFinite(confidence) || confidence < 1 || confidence > 3) continue;
       const bucket = buckets[confidence - 1];
       bucket.attempts++;
@@ -75,7 +83,8 @@ function buildCalibration(questions, labels) {
     }
   }
   for (const bucket of buckets) bucket.accuracy = bucket.attempts ? bucket.credit / bucket.attempts : null;
-  return { buckets, total };
+  unrated.accuracy = unrated.attempts ? unrated.credit / unrated.attempts : null;
+  return { buckets, total, unrated };
 }
 
 /** Accuracy on repeat attempts only: the first attempt on a question is learning, later ones are retention. */

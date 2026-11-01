@@ -53,8 +53,8 @@ const FEATURE_IDS = AI_FEATURES.map((feature) => feature.id);
 
 const DEFAULT_AI_LIMITS = {
   maxTokens: 4000, // hard cap for one reply, even if a feature asks for more
-  dailyRequests: 0, // 0 = no daily cap
-  runRequests: 0, // 0 = no cap on one burst of work (a run resets after 10 idle minutes)
+  dailyRequests: 100, // conservative fresh-install cap; 0 = no daily cap
+  runRequests: 20, // conservative fresh-install cap; 0 = no cap on one burst of work
 };
 
 const AI_CAPABILITIES = {

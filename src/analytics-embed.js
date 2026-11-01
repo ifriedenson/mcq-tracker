@@ -2,7 +2,7 @@
 const { fmtPct } = require("./stats");
 const { fmtClock } = require("./util");
 const { BREAKDOWN_FIELDS, FIELD_LABELS } = require("./analytics");
-const { masteryTrendText } = require("./progress");
+const { MASTERY_POOL_NOTE, masteryTrendText } = require("./progress");
 
 const DASHBOARD_METRICS = ["overview", "stats", "mastery", "heatmap", "calibration", "retention", "weak", "skips", "grades", "courses", "exam"];
 const ALIASES = {
@@ -116,22 +116,31 @@ function renderHeatmap(container, data) {
 function renderCalibration(container, data) {
   heading(container, "Confidence calibration");
   const calibration = data.calibration;
-  if (!calibration || !calibration.total) {
+  const unrated = calibration && calibration.unrated ? calibration.unrated : { attempts: 0, accuracy: null };
+  if (!calibration || (!calibration.total && !unrated.attempts)) {
     container.createDiv({ cls: "qt-hint", text: "No confidence ratings yet. Rate how sure you are when you answer." });
     return;
   }
-  const list = container.createDiv({ cls: "qt-ins-list" });
-  for (const bucket of calibration.buckets) {
-    const line = list.createDiv({ cls: "qt-ins-row qt-cal-row" });
-    const main = line.createDiv({ cls: "qt-ins-main" });
-    main.createDiv({ cls: "qt-ins-name", text: bucket.label });
-    main.createDiv({ cls: "qt-hint", text: `${bucket.attempts} attempt${bucket.attempts === 1 ? "" : "s"} at this level` });
-    const meter = line.createDiv({ cls: "qt-ins-meter" });
-    const band = bucket.accuracy === null ? "" : bucket.accuracy < 0.6 ? "is-low" : bucket.accuracy < 0.8 ? "is-mid" : "is-high";
-    meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((bucket.accuracy || 0) * 100)}%` });
-    line.createSpan({ cls: "qt-ins-pct", text: fmtPct(bucket.accuracy) });
+  if (calibration.total) {
+    const list = container.createDiv({ cls: "qt-ins-list" });
+    for (const bucket of calibration.buckets) {
+      const line = list.createDiv({ cls: "qt-ins-row qt-cal-row" });
+      const main = line.createDiv({ cls: "qt-ins-main" });
+      main.createDiv({ cls: "qt-ins-name", text: bucket.label });
+      main.createDiv({ cls: "qt-hint", text: `${bucket.attempts} attempt${bucket.attempts === 1 ? "" : "s"} at this level` });
+      const meter = line.createDiv({ cls: "qt-ins-meter" });
+      const band = bucket.accuracy === null ? "" : bucket.accuracy < 0.6 ? "is-low" : bucket.accuracy < 0.8 ? "is-mid" : "is-high";
+      meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round((bucket.accuracy || 0) * 100)}%` });
+      line.createSpan({ cls: "qt-ins-pct", text: fmtPct(bucket.accuracy) });
+    }
+    container.createDiv({ cls: "qt-hint", text: "Bars show how often you were right when you chose each confidence level." });
   }
-  container.createDiv({ cls: "qt-hint", text: "Bars show how often you were right when you chose each confidence level." });
+  if (unrated.attempts) {
+    container.createDiv({
+      cls: "qt-hint",
+      text: `${unrated.attempts} attempt${unrated.attempts === 1 ? "" : "s"} had no confidence rating (${fmtPct(unrated.accuracy)} correct); unrated attempts are not a confidence level.`,
+    });
+  }
 }
 
 function renderRetention(container, data) {
@@ -322,7 +331,7 @@ function renderMastery(container, data, hooks, controls) {
   }
   container.createDiv({
     cls: "qt-hint",
-    text: "Band counts include hidden, suspended and excluded questions; band practice starts only the studyable ones.",
+    text: MASTERY_POOL_NOTE,
   });
 }
 

@@ -28,6 +28,7 @@ function courseOverview(courseId, ctx) {
     : listExams({ settings, events: input.events, assignments: input.assignments, plans: input.plans, today, includePast: true });
   const futureExams = exams.filter((exam) => exam.date >= today && same(exam.course)).sort((a, b) => a.date.localeCompare(b.date));
   const nextExam = futureExams[0] || null;
+  const studyPlan = input.studyPlan && (!input.studyPlan.course || same(input.studyPlan.course)) && (!nextExam || input.studyPlan.examDay === nextExam.date) ? input.studyPlan : null;
   const lastPast = exams.filter((exam) => exam.date < today && same(exam.course)).sort((a, b) => b.date.localeCompare(a.date))[0] || null;
   const lectures = (Array.isArray(input.lectures) ? input.lectures : [])
     .filter((lecture) => same(lecture.course) && (!lastPast || !lecture.date || lecture.date > lastPast.date))
@@ -55,15 +56,24 @@ function courseOverview(courseId, ctx) {
 
   const sections = [];
   if (nextExam) {
+    const topics = Array.isArray(nextExam.topics) ? nextExam.topics : [];
+    const readiness = studyPlan
+      ? ` · ${studyPlan.daysLeft} day${studyPlan.daysLeft === 1 ? "" : "s"} left · ${studyPlan.readiness === null ? "readiness not set" : `readiness ${studyPlan.readiness}%`}`
+      : "";
+    const evidence = studyPlan && Array.isArray(studyPlan.readinessEvidence)
+      ? studyPlan.readinessEvidence.map((row) => `${row.label}: ${row.value == null ? "—" : row.value}${row.detail ? ` (${row.detail})` : ""}`).join(" · ")
+      : "";
     sections.push({
       id: "exam",
       title: "Next exam",
       rows: [{
         id: nextExam.id,
         label: nextExam.title,
-        detail: `${nextExam.date}${nextExam.time ? ` · ${nextExam.time}` : ""}${nextExam.weight ? ` · weight ${nextExam.weight}` : ""}`,
+        detail: `${nextExam.date}${nextExam.time ? ` · ${nextExam.time}` : ""}${nextExam.weight ? ` · weight ${nextExam.weight}` : ""}${readiness}${topics.length ? ` · topics: ${topics.join(", ")}` : ""}`,
         source: "exam",
         exam: nextExam,
+        path: nextExam.assignment && nextExam.assignment.file ? nextExam.assignment.file.path : "",
+        evidence,
       }],
     });
   }
@@ -104,6 +114,7 @@ function courseOverview(courseId, ctx) {
         detail: `${reading.pagesRemaining} pages left${reading.behindPages ? ` · ${reading.behindPages} behind` : ""}${reading.dueDate ? ` · due ${reading.dueDate}` : ""}`,
         source: "reading",
         reading,
+        path: reading.sourcePath || reading.path || "",
       })),
     });
   }
@@ -131,6 +142,7 @@ function courseOverview(courseId, ctx) {
         detail: task.due ? `due ${task.due}` : "no due date",
         source: "task",
         task,
+        path: task.path || "",
       })),
     });
   }
@@ -154,6 +166,7 @@ function courseOverview(courseId, ctx) {
     color: info.color || (course && course.color) || "",
     folder: info.folder || (course && course.folder) || "",
     nextExam,
+    studyPlan,
     lectures,
     readings,
     assignments,

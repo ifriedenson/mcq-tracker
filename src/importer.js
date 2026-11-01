@@ -360,6 +360,12 @@ function finalizeNote(text, meta, qid, stamp) {
     if (heading) fm.source_heading = heading;
     fm.source_link = str(src.source_link) || sourceLink(fm.source_pdf || fm.source_document || fm.source_note, page, heading);
   }
+  // A generated batch can name the lecture row directly. Optional, so old
+  // notes and imports without lecture metadata load unchanged.
+  const lectureId = str(stamp.lectureId || src.lecture_id).trim().slice(0, 160);
+  if (lectureId) fm.lecture_id = lectureId;
+  const lecturePath = str(stamp.lecturePath || src.lecture_path).trim().replace(/^\/+|\/+$/g, "").slice(0, 500);
+  if (lecturePath) fm.lecture_path = lecturePath;
   for (const k of ["source_scan_id", "scan_date", "ocr_source", "ocr_confidence"]) {
     if (src[k] !== undefined && src[k] !== null && str(src[k]).trim() !== "") fm[k] = src[k];
   }

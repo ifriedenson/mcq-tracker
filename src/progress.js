@@ -24,6 +24,9 @@ const MASTERY_BANDS = [
 /** The finite mastery windows the page offers. 0 means all time. */
 const MASTERY_WINDOWS = [7, 30];
 
+/** Kept beside the counts so Today, Progress and the embed explain the same pool rule. */
+const MASTERY_POOL_NOTE = "Band counts include hidden, suspended and excluded questions; band practice starts only the studyable ones.";
+
 function str(value) {
   return value === undefined || value === null ? "" : String(value);
 }
@@ -371,6 +374,7 @@ function buildProgress(options) {
 module.exports = {
   MASTERY_BANDS,
   MASTERY_WINDOWS,
+  MASTERY_POOL_NOTE,
   accuracyOf,
   bandQuestions,
   buildCourses,

@@ -567,6 +567,8 @@ function cardNote(input, now) {
   }
   if (data.sourcePdf) lines.push(`source_pdf: ${yamlString(data.sourcePdf)}`);
   if (data.sourceNote) lines.push(`source_note: ${yamlString(data.sourceNote)}`);
+  if (data.lectureId) lines.push(`lecture_id: ${yamlString(data.lectureId)}`);
+  if (data.lecturePath) lines.push(`lecture_path: ${yamlString(data.lecturePath)}`);
   if (data.sourcePage) lines.push(`source_page: ${yamlString(data.sourcePage)}`);
   if (data.sourceHeading) lines.push(`source_heading: ${yamlString(data.sourceHeading)}`);
   if (data.sourceQuote) lines.push(`source_quote: ${yamlString(data.sourceQuote)}`);

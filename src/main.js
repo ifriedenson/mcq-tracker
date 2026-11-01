@@ -55,6 +55,7 @@ const urlSafety = require("./url-safety");
 const svgSafety = require("./svg-safety");
 const fileExplorer = require("./file-explorer");
 const history = require("./history");
+const distractorQuality = require("./distractor-quality");
 const testSections = require("./exam-sections");
 const aiWrites = require("./ai-writes");
 const weakSpot = require("./weak-spot");
@@ -91,6 +92,7 @@ const studyWorkspace = require("./study-workspace");
 const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
 const courseHealth = require("./course-health");
+const { CourseOverviewModal } = require("./course-overview-modal");
 const audioBookmarks = require("./audio-bookmarks");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
@@ -278,6 +280,7 @@ QuestionTrackerPlugin.__test = {
   svgSafety,
   fileExplorer,
   history,
+  distractorQuality,
   testSections,
   aiWrites,
   weakSpot,
@@ -492,6 +495,7 @@ QuestionTrackerPlugin.__test = {
   readAloud,
   lectureCompiler,
   courseHealth,
+  CourseOverviewModal,
   audioBookmarks,
   feynmanAi,
   pdfAnnotationIndex,

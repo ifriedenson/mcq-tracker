@@ -23,12 +23,13 @@ test("AI service: feature models fall back to the backend model and unknown feat
   const settings = {
     model: "opencode-default",
     api: { model: "api-default" },
-    features: { chat: { model: " cheap-chat " }, ocr: { model: "vision" } },
+    features: { chat: { model: " cheap-chat " }, ocr: { model: "vision" }, verification: { model: "verifier" } },
   };
   assert.equal(ai.featureModel(settings, "chat", "api"), "cheap-chat");
   assert.equal(ai.featureModel(settings, "generation", "api"), "api-default");
   assert.equal(ai.featureModel(settings, "generation", "opencode"), "opencode-default");
   assert.equal(ai.featureModel(settings, "ocr", "api"), "vision");
+  assert.equal(ai.featureModel(settings, "verification", "api"), "verifier");
   assert.equal(ai.featureModel(settings, "not-a-feature", "api"), "cheap-chat");
 });
 
@@ -45,7 +46,9 @@ test("AI service: settings normalize without losing unknown fields or allowing u
   assert.deepEqual(out.features.chat, { model: "chat-model" });
   assert.equal(out.features.bogus, undefined);
   assert.deepEqual(out.limits, { maxTokens: 256, dailyRequests: 0, runRequests: 12 });
-  assert.deepEqual(ai.normalizeLimits({ maxTokens: "nope" }), { maxTokens: 4000, dailyRequests: 0, runRequests: 0 });
+  assert.deepEqual(ai.DEFAULT_AI_LIMITS, { maxTokens: 4000, dailyRequests: 100, runRequests: 20 });
+  assert.deepEqual(ai.normalizeLimits({ maxTokens: "nope" }), { maxTokens: 4000, dailyRequests: 100, runRequests: 20 });
+  assert.deepEqual(ai.normalizeLimits({ dailyRequests: 0, runRequests: 7 }), { maxTokens: 4000, dailyRequests: 0, runRequests: 7 });
 });
 
 test("AI service: a feature never asks for more tokens than the cap allows", () => {
@@ -186,6 +189,31 @@ test("plugin: a daily cap blocks before another request is sent", async () => {
   }
 });
 
+test("plugin: blind verification uses the per-feature verification model", async () => {
+  const { plugin } = await startPlugin();
+  plugin.settings.ai.features.verification.model = "verifier";
+  let request = null;
+  obsidian.requestImpl = async (req) => {
+    request = req;
+    return { status: 200, json: { choices: [{ message: { content: '{"answer":"B","confidence":"high","reason":"two"}' } }] } };
+  };
+  try {
+    const result = await plugin.verifyQuestionDraft({
+      question: "Which choice is correct?",
+      choices: [
+        { letter: "A", text: "one" },
+        { letter: "B", text: "two" },
+      ],
+      answer: "B",
+    });
+    assert.equal(result.match, true);
+    assert.equal(JSON.parse(request.body).model, "verifier");
+    assert.equal(plugin.aiBudget().features.verification.requests, 1);
+  } finally {
+    obsidian.requestImpl = null;
+  }
+});
+
 test("plugin: vision OCR is refused on OpenCode before anything is started", async () => {
   const { plugin } = await startPlugin();
   plugin.settings.ai.backend = "opencode";
@@ -194,4 +222,14 @@ test("plugin: vision OCR is refused on OpenCode before anything is started", asy
     /needs page images/i
   );
   assert.equal(plugin.aiBudget().used, 0, "a refused capability spends nothing");
+});
+
+test("plugin: a fresh install gets finite non-zero AI caps and keeps an explicit 0 unlimited", async () => {
+  const { plugin } = await startPlugin();
+  assert.deepEqual(plugin.settings.ai.limits, { maxTokens: 4000, dailyRequests: 100, runRequests: 20 });
+  plugin.settings.ai.limits.dailyRequests = 0;
+  plugin.settings.ai.limits.runRequests = 5;
+  ai.normalizeAiService(plugin.settings.ai);
+  assert.equal(plugin.settings.ai.limits.dailyRequests, 0);
+  assert.equal(plugin.settings.ai.limits.runRequests, 5);
 });

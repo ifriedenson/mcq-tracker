@@ -336,12 +336,12 @@ function renderCourses(containerEl, plugin, redisplay) {
     new Setting(card)
       .setName("Name and code")
       .setDesc("The name matches a class subject; the code also matches titles such as CHEM 101 - Lecture.")
-      .addText((t) =>
-        t.setPlaceholder("Course name").setValue(course.name).onChange(async (v) => {
-          course.name = v.trim();
-          await plugin.save();
-        })
-      )
+      .addText((t) => {
+        const field = t.setPlaceholder("Course name").setValue(course.name);
+        field.inputEl.addEventListener("blur", async () => {
+          if (await plugin.renameCalendarCourse(course.id, field.inputEl.value)) redisplay();
+        });
+      })
       .addText((t) =>
         t.setPlaceholder("Code").setValue(course.code).onChange(async (v) => {
           course.code = v.trim();

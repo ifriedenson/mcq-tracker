@@ -240,6 +240,20 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Review history limit")
+      .setDesc("Keep this many newest history rows per note; older rows are trimmed. Default 500, which matches the scheduler replay window. Allowed: 100-5000.")
+      .addText((t) =>
+        t.setValue(String(st.historyLimit || 500)).onChange(async (v) => {
+          const n = parseInt(v, 10);
+          if (Number.isFinite(n)) {
+            st.historyLimit = Math.max(100, Math.min(5000, n));
+            await this.plugin.save();
+            this.plugin.refreshViews();
+          }
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Known snooze (days)")
       .setDesc("How long the Known button hides a question or card before it returns as due. You can still use the note property for a different period.")
       .addText((t) =>
@@ -1304,19 +1318,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     );
     limitRow(
       "Daily request cap",
-      "Stop AI requests after this many in one local day. 0 means no daily cap. Counts are per device and reset at local midnight.",
+      "Stop AI requests after this many in one local day. The conservative fresh-install default is 100; set 0 for no daily cap. Counts are per device and reset at local midnight.",
       "dailyRequests",
       0,
       10000,
-      0
+      100
     );
     limitRow(
       "Per-run request cap",
-      "Stop one burst of work after this many requests. 0 means no cap. A run resets after 10 idle minutes, so the next import, chat or grading batch starts fresh.",
+      "Stop one burst of work after this many requests. The conservative fresh-install default is 20; set 0 for no cap. A run resets after 10 idle minutes, so the next import, chat or grading batch starts fresh.",
       "runRequests",
       0,
       1000,
-      0
+      20
     );
     containerEl.createEl("p", { cls: "setting-item-description", text: "What each feature sends:" });
     for (const feature of AI_FEATURES) {

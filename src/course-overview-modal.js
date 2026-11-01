@@ -39,9 +39,15 @@ class CourseOverviewModal extends Modal {
         const main = item.createDiv({ cls: "qt-study-row-main" });
         main.createDiv({ cls: "qt-study-row-title", text: row.label });
         if (row.detail) main.createDiv({ cls: "qt-study-row-meta", text: row.detail });
-        if (row.widget || row.notePath || row.path) {
-          item.createEl("button", { text: "Open" }).addEventListener("click", () => this.openRow(row));
-        }
+        if (row.evidence) main.createDiv({ cls: "qt-study-row-meta", text: row.evidence });
+        const canOpen = !!(
+          row.widget ||
+          row.notePath ||
+          row.path ||
+          ["plan", "reading", "task", "assignment", "grade"].includes(row.source) ||
+          (row.source === "exam" && row.exam && row.exam.calendarEvent)
+        );
+        if (canOpen) item.createEl("button", { text: "Open" }).addEventListener("click", () => this.openRow(row));
       }
     }
   }
@@ -71,7 +77,7 @@ class CourseOverviewModal extends Modal {
       this.plugin.activateStudyWorkspace("tasks");
       return;
     }
-    if (row.source === "assignment") {
+    if (row.source === "assignment" || row.source === "grade") {
       this.plugin.activateAssignments();
     }
   }

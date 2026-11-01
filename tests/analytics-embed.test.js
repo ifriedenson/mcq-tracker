@@ -81,10 +81,17 @@ test("dashboard embed draws only the requested metric and keeps the empty state 
   assert.ok(!heatText.includes("Attempts"));
   assert.ok(!heatText.includes("Weak spots"));
 
+  const calibrationData = Object.assign({}, data, {
+    calibration: T.buildCalibration(
+      [q("Q/unrated.md", { history: ["2026-10-27|correct|10|A|1|", "2026-10-28|incorrect|10|B|0|"] })],
+      ["Guessing", "Unsure", "Confident"]
+    ),
+  });
   const calibration = makeDom();
-  T.renderDashboardEmbed(calibration.root, data, { metric: "calibration" });
+  T.renderDashboardEmbed(calibration.root, calibrationData, { metric: "calibration" });
   assert.ok(calibration.texts().includes("Confidence calibration"));
   assert.ok(calibration.texts().includes("Guessing"));
+  assert.ok(calibration.texts().some((text) => /1 attempt had no confidence rating/.test(text)));
   assert.ok(!calibration.texts().includes("Retention trend"));
 
   const retention = makeDom();

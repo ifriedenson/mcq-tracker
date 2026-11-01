@@ -1,13 +1,15 @@
 "use strict";
 const { ItemView } = require("obsidian");
 const { WEAK_MIN_ATTEMPTS, computeStats, errorLog, fmtPct, overallStats, trendBy, trendDelta, weakestRow, weeklyAccuracy } = require("./stats");
-const { fmtClock, str } = require("./util");
+const { fmtClock, localDate, str } = require("./util");
 const { STAT_FIELDS } = require("./constants");
 const { folderLabel, officialIdOf } = require("./filters");
 const { buildDashboard } = require("./analytics");
+const { courseHealthReport } = require("./course-health");
+const { courseDashboard } = require("./study-workspace");
 const { conceptMasteryRows } = require("./concept-mastery");
 const { renderBreakdown, renderCalibration, renderGrade, renderHeatmap, renderRetention, renderSkips } = require("./analytics-embed");
-const { MASTERY_WINDOWS, bandQuestions, buildProgress, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions: questionsInScope } = require("./progress");
+const { MASTERY_POOL_NOTE, MASTERY_WINDOWS, bandQuestions, buildProgress, masteryScopes, masteryTrendText, masteryWindowDays, scopeQuestions: questionsInScope } = require("./progress");
 
 /* ------------------------------------------- weak spots and error log */
 
@@ -17,7 +19,7 @@ class InsightsView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
-    this.tab = "weak"; // weak | progress | overview | concepts | errors
+    this.tab = "overview"; // overview | progress | weak | concepts | errors
     this.overviewField = "skill";
     this.progressWeeks = 12;
     this.masteryScope = str(plugin.settings && plugin.settings.masteryScope);
@@ -52,6 +54,31 @@ class InsightsView extends ItemView {
     }, 600);
   }
 
+  /** Course health from the same subject, lecture, grade and planner data as Study Workspace. */
+  courseHealth() {
+    const p = this.plugin;
+    if (!p.studyWorkspaceSettings) return null;
+    const data = p.studyWorkspaceSettings();
+    if (data.courseHealth && data.courseHealth.enabled === false) return null;
+    const settings = p.calendarSettings ? p.calendarSettings() : undefined;
+    const courses = courseDashboard(
+      data.subjectManager.subjects,
+      p.studyToolsSettings ? p.studyToolsSettings().lectureLog.lectures : [],
+      data.subjectManager.absences,
+      data.courseHub.grades,
+      { settings }
+    );
+    return courseHealthReport({
+      courses,
+      plans: data.lerntracker.plans,
+      tasks: data.studyTasks.tasks,
+      exams: p.getExams ? p.getExams({ includePast: true }) : [],
+      settings,
+      today: localDate(),
+      ...data.courseHealth,
+    });
+  }
+
   render() {
     const el = this.contentEl;
     const top = el.scrollTop;
@@ -62,7 +89,7 @@ class InsightsView extends ItemView {
       return;
     }
     const tabs = root.createDiv({ cls: "qt-row qt-small-row" });
-    for (const [id, label] of [["progress", "Progress"], ["overview", "Overview"], ["weak", "Weak spots"], ["concepts", "Concepts"], ["errors", "Error log"]]) {
+    for (const [id, label] of [["overview", "Overview"], ["progress", "Progress"], ["weak", "Weak spots"], ["concepts", "Concepts"], ["errors", "Error log"]]) {
       const b = tabs.createEl("button", { text: label });
       if (this.tab === id) b.addClass("mod-cta");
       b.addEventListener("click", () => {
@@ -101,7 +128,7 @@ class InsightsView extends ItemView {
     el.scrollTop = top;
   }
 
-  /** One local dashboard: attempts, study heatmap, course time, weak skills and the next exam. */
+  /** One local dashboard: grades, course health, FSRS memory, due load, readiness, heatmap and course time. */
   renderOverview(root, questions) {
     const p = this.plugin;
     const cards = p.getCards ? p.getCards() : [];
@@ -121,6 +148,8 @@ class InsightsView extends ItemView {
           today: new Date(),
         });
     const o = data.overall;
+    const plan = p.studyPlan ? p.studyPlan() : null;
+    const health = this.courseHealth();
     const activeDays = data.heatmap.reduce((n, week) => n + week.days.filter((d) => !d.future && (d.minutes || d.attempts)).length, 0);
     const studyMinutes = data.heatmap.reduce((n, week) => n + week.days.reduce((m, d) => m + d.minutes, 0), 0);
 
@@ -130,6 +159,76 @@ class InsightsView extends ItemView {
         text: "No study activity yet. Answer a question, save an FRQ attempt or start a focus session and this dashboard fills in.",
       });
       return;
+    }
+
+    root.createEl("h3", { cls: "qt-today-section", text: "At a glance" });
+    root.createDiv({
+      cls: "qt-hint",
+      text: "Grades, course health, FSRS memory, the next seven days of reviews and exam readiness in one place.",
+    });
+    const glance = root.createDiv({ cls: "qt-dash-stats" });
+    const summary = (label, value, hint) => {
+      const box = glance.createDiv({ cls: "qt-dash-stat" });
+      box.createDiv({ cls: "qt-dash-value", text: value });
+      box.createDiv({ cls: "qt-dash-label", text: label });
+      box.createDiv({ cls: "qt-hint", text: hint });
+    };
+    const gradedCourses = data.gradebook && Array.isArray(data.gradebook.courses) ? data.gradebook.courses.filter((row) => row.current !== null) : [];
+    const practiceGrade = data.grades && data.grades.overall && data.grades.overall.attempts ? data.grades.overall : null;
+    summary(
+      "Grades",
+      practiceGrade ? practiceGrade.grade : gradedCourses.length ? gradedCourses.slice(0, 3).map((row) => row.letter).join(" · ") : "—",
+      practiceGrade
+        ? `${fmtPct(practiceGrade.accuracy)} practice${gradedCourses.length ? ` · ${gradedCourses.length} graded course${gradedCourses.length === 1 ? "" : "s"}` : ""}`
+        : gradedCourses.length
+          ? `${gradedCourses.length} weighted gradebook course${gradedCourses.length === 1 ? "" : "s"}`
+          : "Nothing graded yet"
+    );
+    summary(
+      "Course health",
+      health && health.total ? `${health.good}/${health.total}` : "—",
+      health && health.total ? `${health.watch} to watch · ${health.atRisk} at risk` : "No courses tracked yet"
+    );
+    const memoryCards = data.memory && data.memory.cards ? data.memory.cards : 0;
+    summary(
+      "FSRS depth",
+      memoryCards ? fmtPct(data.memory.now) : "—",
+      memoryCards
+        ? `${memoryCards} card${memoryCards === 1 ? "" : "s"}${data.retention && data.retention.attempts ? ` · ${fmtPct(data.retention.accuracy)} on repeats` : ""}`
+        : "No FSRS cards yet"
+    );
+    const dueDays = data.forward.days.filter((day) => day.count).length;
+    summary(
+      "Due load",
+      String(data.forward.total),
+      `${data.cardStats.due} card${data.cardStats.due === 1 ? "" : "s"} due now · ${dueDays} day${dueDays === 1 ? "" : "s"} ahead`
+    );
+    summary(
+      "Readiness",
+      plan ? `${plan.readiness}%` : "—",
+      plan ? `${plan.course} · ${plan.daysLeft === 0 ? "exam today" : `${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"} away`}` : "No exam in the plan window"
+    );
+
+    root.createEl("h3", { cls: "qt-today-section", text: "Courses to watch" });
+    if (!health || !health.total) {
+      root.createDiv({ cls: "qt-hint", text: "Add a subject, a lecture or a grade item in Study Workspace to build course health." });
+    } else if (!health.watch && !health.atRisk) {
+      root.createDiv({
+        cls: "qt-hint",
+        text: `All ${health.total} course${health.total === 1 ? "" : "s"} clear: no warning in grades, attendance, overdue tasks or upcoming exams.`,
+      });
+    } else {
+      root.createDiv({
+        cls: "qt-hint",
+        text: `${health.good} good · ${health.watch} to watch · ${health.atRisk} at risk · ${health.warnings} warning${health.warnings === 1 ? "" : "s"}. Checks run locally.`,
+      });
+      const healthList = root.createDiv({ cls: "qt-ins-list" });
+      for (const row of health.rows.filter((entry) => entry.status !== "good")) {
+        const line = healthList.createDiv({ cls: "qt-ins-row" });
+        const main = line.createDiv({ cls: "qt-ins-main" });
+        main.createDiv({ cls: "qt-ins-name", text: `${row.name} · ${row.status === "at-risk" ? "At risk" : "Watch"}` });
+        for (const check of row.checks.filter((entry) => entry.level === "warn").slice(0, 3)) main.createDiv({ cls: "qt-hint", text: check.text });
+      }
     }
 
     const tiles = root.createDiv({ cls: "qt-dash-stats" });
@@ -199,7 +298,6 @@ class InsightsView extends ItemView {
       }
     }
 
-    const plan = p.studyPlan ? p.studyPlan() : null;
     if (plan) {
       root.createEl("h3", { cls: "qt-today-section", text: "Next exam" });
       const box = root.createDiv({ cls: "qt-dash-exam" });
@@ -357,6 +455,7 @@ class InsightsView extends ItemView {
           p.practiceQuestionPool(pool, `${band.label}${progress.masteryScope ? ` · ${progress.masteryScope}` : ""}${windowText}`);
         });
       }
+      root.createDiv({ cls: "qt-hint", text: MASTERY_POOL_NOTE });
     }
 
     const range = root.createDiv({ cls: "qt-chips" });

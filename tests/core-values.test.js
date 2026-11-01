@@ -132,6 +132,7 @@ test("G3: a no-question plan still exposes lecture, reading and planner work, re
   return plugin.onload().then(() => {
     let horizon = null;
     plugin.getExams = (opts) => {
+      if (opts && opts.includePast) return [EXAM];
       horizon = opts.horizonDays;
       return [EXAM, { ...EXAM, date: "2026-11-13", title: "MATH 101 Quiz" }];
     };
@@ -205,19 +206,115 @@ test("G6: course overview combines exam, topics, lectures, readings, assignments
   const view = courseOverview("math", {
     settings: SETTINGS,
     today: "2026-11-01",
-    exams: [examModel.assignmentRow({ id: "e", title: "Final", course: "MATH 101", type: "exam", due: "2026-11-10", weight: 25, topics: ["Limits"] }, SETTINGS)],
+    exams: [{
+      id: "e",
+      title: "Final",
+      date: "2026-11-10",
+      dateKey: "2026-11-10",
+      course: "MATH 101",
+      weight: 25,
+      topics: ["Limits"],
+      assignment: { file: { path: "Assignments/Final.md" } },
+    }],
+    studyPlan: { course: "MATH 101", examDay: "2026-11-10", daysLeft: 9, readiness: 72, readinessEvidence: [{ id: "accuracy", label: "Accuracy", value: 80, detail: "4 attempted" }] },
     plans,
     lectures: [{ id: "l", course: "Calc", date: "2026-11-02", title: "Limits", topicList: ["Limits"], notePath: "Classes/Limits.md" }],
-    readings: [{ id: "r", title: "Calculus", course: "MATH 101", pagesRemaining: 30, behindPages: 5, dueDate: "2026-11-10" }],
+    readings: [{ id: "r", title: "Calculus", course: "MATH 101", pagesRemaining: 30, behindPages: 5, dueDate: "2026-11-10", sourcePath: "Reading/Calc.md" }],
     assignments: [{ id: "a", course: "MATH 101", title: "Problem set", open: true, due: "2026-11-05", file: { path: "Assignments/PS.md" } }],
-    tasks: [{ id: "t", course: "MATH 101", title: "Review limits", done: false, due: "2026-11-04" }],
+    tasks: [{ id: "t", course: "MATH 101", title: "Review limits", done: false, due: "2026-11-04", path: "Tasks/limits.md" }],
     courses: [{ name: "MATH 101 - Calculus", current: 85, letter: "B", weighted: 85, graded: 2 }],
   });
   assert.equal(view.name, "MATH 101 - Calculus");
   assert.deepEqual(view.sections.map((section) => section.id), ["exam", "topics", "lectures", "readings", "assignments", "tasks", "grades"]);
   assert.equal(view.sections.find((section) => section.id === "readings").rows[0].detail.includes("5 behind"), true);
+  assert.equal(view.sections.find((section) => section.id === "readings").rows[0].path, "Reading/Calc.md");
+  assert.equal(view.sections.find((section) => section.id === "tasks").rows[0].path, "Tasks/limits.md");
+  assert.equal(view.studyPlan.readiness, 72);
+  const examRow = view.sections.find((section) => section.id === "exam").rows[0];
+  assert.equal(examRow.path, "Assignments/Final.md");
+  assert.match(examRow.detail, /readiness 72%/);
+  assert.match(examRow.detail, /topics: Limits/);
+  assert.match(examRow.evidence, /Accuracy: 80/);
   const empty = courseOverview("unknown", { settings: SETTINGS, today: "2026-11-01" });
   assert.equal(empty.sections.length, 0);
+});
+
+test("G1 plugin: renaming a registered course writes aliases and resolves old names", async () => {
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  plugin.settings.calendar = { ...plugin.settings.calendar, courses: JSON.parse(JSON.stringify(REGISTRY)) };
+  let invalidated = 0;
+  plugin.invalidateCalendar = () => { invalidated += 1; };
+  const changed = await plugin.renameCalendarCourse("math", "Calculus I");
+  assert.equal(changed, true);
+  assert.equal(invalidated, 1);
+  const course = plugin.settings.calendar.courses[0];
+  assert.equal(course.name, "Calculus I");
+  assert.ok(course.aliases.includes("MATH 101 - Calculus"));
+  assert.ok(course.aliases.includes("MATH 101"));
+  assert.equal(identity.resolveCourse(plugin.calendarSettings(), "MATH 101").name, "Calculus I");
+  assert.equal(await plugin.renameCalendarCourse("math", "Calculus I"), false, "an unchanged name does not save or invalidate twice");
+});
+
+test("G3 plugin: exam plans use lectures after the last exam or matching exam topics", async () => {
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+  plugin.settings.calendar = { ...plugin.settings.calendar, courses: JSON.parse(JSON.stringify(REGISTRY)) };
+  const final = { id: "final", title: "MATH 101 Final", course: "MATH 101", date: "2026-11-10", topics: ["Series"] };
+  const midterm = { id: "mid", title: "MATH 101 Midterm", course: "MATH 101", date: "2026-10-15", topics: ["Limits"] };
+  plugin.getExams = (opts) => (opts && opts.includePast ? [midterm, final] : [final]);
+  plugin.getQuestions = () => [];
+  plugin.getAssignments = () => [];
+  plugin.getReadingPlans = () => [];
+  plugin.studyToolsSettings = () => ({
+    lectureLog: {
+      lectures: [
+        { id: "old-limits", course: "MATH 101", title: "Old Limits", date: "2026-09-01", topics: "Limits" },
+        { id: "new-integration", course: "MATH 101", title: "Recent Integration", date: "2026-11-01", topics: "Integration" },
+        { id: "old-series", course: "MATH 101", title: "Old Series", date: "2026-09-02", topics: "Series" },
+      ],
+    },
+  });
+  plugin.studyWorkspaceSettings = () => ({ lerntracker: { plans: [] }, subjectManager: { subjects: [], absences: [] }, studyTasks: { tasks: [] } });
+  plugin.getFrqReviewQueue = () => [];
+  plugin.cardsEnabled = () => false;
+  const plan = plugin.buildExamPlan(final);
+  const titles = plan.lectures.map((lecture) => lecture.title).sort();
+  assert.deepEqual(titles, ["Old Series", "Recent Integration"]);
+});
+
+test("G6 UI: course-overview rows open a source file or their destination", async () => {
+  const app = makeApp([]);
+  const opened = [];
+  app.workspace.openLinkText = (...args) => opened.push(args);
+  let assignments = 0;
+  const plugin = {
+    app,
+    courseOverviewData: () => ({
+      name: "MATH 101",
+      color: "#123456",
+      grade: null,
+      sections: [{
+        id: "sources",
+        title: "Sources",
+        rows: [
+          { id: "reading", label: "Calculus", source: "reading", path: "Reading/Calc.md" },
+          { id: "grade", label: "Grade", source: "grade" },
+        ],
+      }],
+    }),
+    activateAssignments: () => { assignments += 1; },
+  };
+  const dom = makeDom();
+  const modal = new T.CourseOverviewModal(app, plugin, "math");
+  modal.contentEl = dom.root;
+  modal.onOpen();
+  const buttons = dom.all.filter((option) => option.meta && option.meta.text === "Open");
+  assert.equal(buttons.length, 2);
+  buttons[0].handlers.find((handler) => handler.ev === "click").fn({});
+  assert.equal(opened[0][0], "Reading/Calc.md");
+  buttons[1].handlers.find((handler) => handler.ev === "click").fn({});
+  assert.equal(assignments, 1);
 });
 
 test("G3b: the study-plan window is a bounded setting with a 30-day default", () => {

@@ -328,7 +328,9 @@ function applyAttempt(fm, a, intervals, options) {
   // date|result|seconds|answer|confidence|error_type|attempt_id|variant|score
   // The variant and score fields are optional; older rows and readers stop at the id.
   const row = `${when}|${a.correct ? "correct" : "incorrect"}|${a.seconds}|${chosen}|${a.conf}||${attemptId}${variant || score !== null ? `|${variant}` : ""}${score !== null ? `|${score}` : ""}`;
-  fm.history = appendHistory(fm.history, row, attemptId);
+  const historyBefore = Array.isArray(fm.history) ? fm.history.length : 0;
+  fm.history = appendHistory(fm.history, row, attemptId, opts.historyLimit);
+  const historyPruned = Math.max(0, historyBefore + 1 - fm.history.length);
   if (score !== null) fm.last_score = score;
   if (variant) fm.last_variant = variant;
   if (a.variantSeed !== undefined && Number.isFinite(Number(a.variantSeed))) fm.variant_seed = Number(a.variantSeed);
@@ -412,24 +414,28 @@ function applyAttempt(fm, a, intervals, options) {
     typedAnswer: a.typedAnswer === undefined ? "" : str(a.typedAnswer),
     verdictOverride: a.verdictOverride === true,
     score,
+    historyPruned,
     attemptId: opts.attemptId || "",
   };
 }
 
 /** A deliberate "don't know" is not a wrong answer: keep counters, log the skip, and pull the next review forward. */
-function applySkip(fm, now, attemptId) {
+function applySkip(fm, now, attemptId, options) {
+  const opts = options || {};
   const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
   const id = str(attemptId).trim();
   const when = fmtDateTimeSec(at);
   const row = `${when}|skipped|0||||${id}`;
-  fm.history = appendHistory(fm.history, row, id);
+  const historyBefore = Array.isArray(fm.history) ? fm.history.length : 0;
+  fm.history = appendHistory(fm.history, row, id, opts.historyLimit);
+  const historyPruned = Math.max(0, historyBefore + 1 - fm.history.length);
   fm.skip_count = (Number(fm.skip_count) || 0) + 1;
   fm.last_skipped = fmtDate(at);
   const tomorrow = fmtDate(addDays(at, 1));
   const current = str(fm.next_review).slice(0, 10);
   if (!current || current > tomorrow) fm.next_review = tomorrow;
   if (id) fm.last_attempt_id = id;
-  return { skipped: true, nextReview: str(fm.next_review), skippedCount: fm.skip_count, attemptId: id };
+  return { skipped: true, nextReview: str(fm.next_review), skippedCount: fm.skip_count, historyPruned, attemptId: id };
 }
 
 function setLastErrorType(fm, type) {

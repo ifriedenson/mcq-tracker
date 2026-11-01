@@ -91,6 +91,7 @@ test("today: shows the selected mastery window and starts its band", async () =>
   view.render();
 
   assert.ok(dom.texts().includes("Question mastery · Last 7 days"));
+  assert.ok(dom.texts().some((text) => /Band counts include hidden/.test(text)), "the band/practice difference is stated in Today");
   assert.ok(dom.texts().some((text) => /1 of 2 questions in Alpha tried in the last 7 days/.test(text)));
   assert.ok(dom.texts().includes("+1 mastered vs the previous 7 days."));
   const button = dom.all.find((el) => el.meta && el.meta.attrs && /^Practice 1 mastered question in Alpha from the last 7 days$/.test(String(el.meta.attrs["aria-label"] || "")));
@@ -161,6 +162,17 @@ test("today: shows the next class and exam from an enabled calendar", async () =
   assert.ok(texts.includes("Linear Algebra"));
   assert.ok(texts.includes("Next exam"));
   assert.ok(texts.some((t) => /Final Exam/.test(t)));
+});
+
+test("today: the next-exam card uses the merged exam list", async () => {
+  const { plugin, dom, view } = await setup();
+  plugin.settings.calendar.enabled = true;
+  plugin.calendarEvents = () => [];
+  plugin.getExams = () => [{ id: "manual", uid: "manual-1", title: "Manual Final", date: "2099-12-31", course: "MATH 101", source: "manual" }];
+  view.render();
+
+  assert.ok(dom.texts().includes("Next exam"));
+  assert.ok(dom.texts().includes("Manual Final"));
 });
 
 test("today: shows one due list when questions and cards are both due", async () => {

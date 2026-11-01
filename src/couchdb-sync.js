@@ -9,7 +9,7 @@
  */
 const { str } = require("./util");
 const { safeApiBase } = require("./url-safety");
-const { mergeHistory, repairHistoryCounters } = require("./history");
+const { mergeHistoryLimited, repairHistoryCounters } = require("./history");
 
 const COUCHDB_PASSWORD_SECRET = "mcq-tracker-couchdb-password";
 const COUCHDB_SYNC_VERSION = 1;
@@ -140,12 +140,12 @@ function sameState(a, b) {
  * Merge two snapshots. The newest review decides scheduling state; both
  * histories are kept and counters are rebuilt from the union.
  */
-function mergeCardSyncStates(local, remote) {
+function mergeCardSyncStates(local, remote, historyLimit) {
   if (!local) return cardSyncState(remote);
   if (!remote) return cardSyncState(local);
   const base = newerState(local, remote);
   const merged = clone(base) || {};
-  const history = mergeHistory(local.history, remote.history);
+  const history = mergeHistoryLimited(historyLimit, local.history, remote.history);
   merged.history = history;
   const counters = { history: history.map((row) => row) };
   const repaired = repairHistoryCounters(counters);

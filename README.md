@@ -31,7 +31,7 @@ MCQ Tracker turns Obsidian into a local-first exam-prep workspace. Keep question
 - **Counts and folder search.** Every filter button shows how many notes it holds. The Folder filter switches to a type-ahead search box when you have many folders (or whenever you choose), and the choice is a setting.
 - **Weak spots.** Accuracy and average time by skill, domain, difficulty and folder, a bar chart of your accuracy by week, an up or down note on each row when your last two weeks differ from before, and a **Practice my weakest skill** button plus a Practice button on every row.
 - **Error log.** Questions you missed, grouped by the reason you gave, with a button to practice each group and a button that exports every due question as a review sheet.
-- **Analytics dashboard.** Insights → Overview collects attempts and accuracy, logged skips and their per-skill rate, confidence calibration, a review-retention trend, a practice-derived grade snapshot, skill/domain/difficulty breakdowns, a 12-week study heatmap, study time by course, your weakest skills with one-tap practice, cards due, and the next exam plan. All of it is calculated locally.
+- **Analytics dashboard.** Insights opens on **Overview**, whose **At a glance** row combines grades, course health, FSRS depth, seven-day due load and exam readiness, followed by **Courses to watch** and the detailed attempts, skips, calibration, retention, breakdowns, heatmap, course time, cards, assignments and next-exam sections. All of it is calculated locally.
 - **Dashboard widgets in notes.** Put a `mcq-dashboard` block in any note to embed one metric or the whole dashboard, optionally scoped to a course.
 - **Timed test.** Build a test from one or more timed sections, optionally save the recipe as a blueprint, restrict the bank to a range such as 1–20, choose how many FRQ prompts to include alongside multiple-choice and short-answer items, shuffle each multiple-choice question's answer choices, and set an optional pass mark. FRQ responses count toward each section's items, are written in the test, and are graded afterward through the existing FRQ grader with the answer prefilled. Answer with a countdown and no explanations, mark how sure you were, then see your objective score, a confidence-calibration summary, average time per answered item, a by-section and by-skill breakdown, and a full review. Each section has its own timer, and the number bar only shows the current section. A shuffled order survives a reopened test, and the pass mark is reported against objective questions. If you close Obsidian mid-test, it picks the test back up when you reopen it (and marks it if the time ran out meanwhile).
 - **Practice from your files.** Right-click any folder that holds questions and choose **Practice this folder**, or use the commands. Find any question by its official ID.
@@ -120,17 +120,17 @@ Each line starts with exactly one tag. A bare tag is a stopwatch; `countdown` ac
 
 ## Analytics dashboard
 
-Open **Insights** and choose **Overview** (or run the **Open analytics dashboard** command). The dashboard combines:
+Open **Insights**; it opens on **Overview**. The first row, **At a glance**, combines five answers in one place:
 
-- attempts, questions tried and accuracy, with average time per question;
-- a 12-week heatmap where a day grows with focus-session minutes and question attempts;
-- accuracy at each confidence level, so guessing and confident answers are compared directly;
-- a review-retention trend built from repeat attempts, excluding each question's first try;
-- today's study minutes, the current streak, and total logged study time by course;
-- the five weakest skills, each with a **Practice** button;
-- cards due and new, plus the next exam plan and its readiness evidence when the calendar module is on.
+- **Grades** — the practice-derived grade, or the weighted gradebook letter when there is no practice grade.
+- **Course health** — good courses out of the total, with how many are worth watching or at risk. The local checks look at grade items, attendance, overdue course tasks and exams inside the warning window.
+- **FSRS depth** — memory-now across cards with a stability estimate, plus repeat-attempt retention when there is history.
+- **Due load** — how much is scheduled over the next seven days, with cards due now.
+- **Readiness** — the next exam's readiness percentage, course and countdown.
 
-The heatmap and totals come from note properties and your local study log. No analytics service, chart library or network request is involved.
+Below that, **Courses to watch** lists every course with a warning and the specific check behind it. The rest of Overview keeps attempts, questions tried and accuracy, logged skips and their per-skill rate, confidence calibration (including attempts with no confidence rating), a review-retention trend, practice and gradebook grades side by side, skill/domain/difficulty breakdowns, a 12-week heatmap with card reviews, study time by course, assignments, and the next exam plan with its readiness evidence.
+
+Course health is assembled from the same local subjects, lectures, absences, grades, topic plans, tasks and merged exams as Study Workspace; its thresholds live in Settings. The heatmap and totals come from note properties and your local study log. No analytics service, chart library or network request is involved.
 
 ### Dashboard widgets
 

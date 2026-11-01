@@ -68,7 +68,7 @@ Sections, top to bottom:
 
 - New command: **Open progress dashboard** (`open-progress`) → `plugin.activateInsights("progress")` in `src/plugin.js`.
 - Existing `Open analytics dashboard` still opens the Overview tab.
-- The default Insights tab remains `weak`, so existing behaviour and tests are unchanged.
+- Insights now opens on the **Overview** tab, which starts with the combined **At a glance** summary; the Progress tab remains one click away.
 
 ### 2.3 Band practice plumbing
 

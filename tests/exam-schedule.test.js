@@ -185,3 +185,47 @@ test("plugin: a question and a card are both capped for their course exam", asyn
   assert.equal(app.files[1].fm.next_review, expectedCap);
   assert.equal(app.files[1].fm.exam_cap_name, "Calculus Final Exam");
 });
+
+test("plugin: a manual assignment exam caps reviews without a calendar feed", async () => {
+  const now = new Date();
+  const examDay = plusDays(now, 5);
+  const notes = [
+    { path: "Questions/q.md", fm: { course: "Calculus", answer: "B" } },
+    {
+      path: "Assignments/calculus-final.md",
+      noFm: true,
+      fm: {
+        assignment: true,
+        assignment_id: "calculus-final",
+        title: "Calculus Final",
+        course: "Calculus",
+        type: "exam",
+        due: key(examDay),
+        status: "todo",
+      },
+    },
+  ];
+  const app = makeApp(notes);
+  app.files[1].fm = notes[1].fm;
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.calendar.enabled = true;
+  plugin.settings.scheduler = "ladder";
+  plugin.settings.intervals = [1, 3, 7, 21, 60];
+  // Seed a long ladder rung so the computed review would land after the exam.
+  app.files[0].fm.streak = 3;
+  plugin.calendarEvents = () => [];
+
+  const expectedCap = key(plusDays(now, 2));
+  const summary = await plugin.recordAttempt(app.files[0], {
+    correct: true,
+    chosen: "B",
+    conf: 3,
+    seconds: 20,
+    now,
+  });
+  assert.equal(summary.examCap.date, expectedCap);
+  assert.equal(summary.examCap.stage, "T-3");
+  assert.equal(app.files[0].fm.next_review, expectedCap);
+  assert.equal(app.files[0].fm.exam_cap_name, "Calculus Final");
+});

@@ -12,6 +12,25 @@ const { fmtDate, str } = require("./util");
 
 const VALID_RESULTS = new Set(["correct", "incorrect"]);
 const NEEDS_FIXING_DAYS = 5;
+// History is the durable replay source, so keep enough rows for the scheduler's
+// MAX_REPLAY (500) while still bounding a note that is reviewed every day.
+const DEFAULT_HISTORY_LIMIT = 500;
+const MIN_HISTORY_LIMIT = 100;
+const MAX_HISTORY_LIMIT = 5000;
+
+function normalizeHistoryLimit(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return DEFAULT_HISTORY_LIMIT;
+  return Math.max(MIN_HISTORY_LIMIT, Math.min(MAX_HISTORY_LIMIT, n));
+}
+
+/** Keep the newest rows, because schedulers replay the most recent history. */
+function trimHistory(list, limit) {
+  const rows = Array.isArray(list) ? list.slice() : [];
+  const cap = normalizeHistoryLimit(limit);
+  if (rows.length <= cap) return { rows, removed: 0 };
+  return { rows: rows.slice(rows.length - cap), removed: rows.length - cap };
+}
 
 function splitRow(line) {
   return str(line).split("|");
@@ -28,12 +47,12 @@ function hasAttemptId(list, id) {
 }
 
 /** Append one row unless its attempt id is already present. */
-function appendHistory(list, line, id) {
+function appendHistory(list, line, id, limit) {
   const out = Array.isArray(list) ? list.slice() : [];
   const wanted = str(id).trim();
   if (wanted && hasAttemptId(out, wanted)) return out;
   out.push(str(line));
-  return out;
+  return trimHistory(out, limit).rows;
 }
 
 /**
@@ -41,7 +60,7 @@ function appendHistory(list, line, id) {
  * one are identified by their full text. Sorting by the ISO timestamp keeps a
  * phone and desktop merge in chronological order without dropping either side.
  */
-function mergeHistory(...lists) {
+function mergeHistoryLimited(limit, ...lists) {
   const seen = new Set();
   const rows = [];
   for (const list of lists) {
@@ -54,11 +73,17 @@ function mergeHistory(...lists) {
       rows.push(text);
     }
   }
-  return rows.sort((a, b) => {
+  rows.sort((a, b) => {
     const whenA = str(splitRow(a)[0]);
     const whenB = str(splitRow(b)[0]);
     return whenA.localeCompare(whenB);
   });
+  return trimHistory(rows, limit).rows;
+}
+
+/** Merge histories with the documented default cap when no limit is supplied. */
+function mergeHistory(...lists) {
+  return mergeHistoryLimited(DEFAULT_HISTORY_LIMIT, ...lists);
 }
 
 /** Update the error tag on one attempt, preserving its id, or on the latest row. */
@@ -272,8 +297,14 @@ function repairHistoryCounters(fm) {
 }
 
 module.exports = {
+  DEFAULT_HISTORY_LIMIT,
+  MAX_HISTORY_LIMIT,
+  MIN_HISTORY_LIMIT,
   NEEDS_FIXING_DAYS,
   VALID_RESULTS,
+  normalizeHistoryLimit,
+  trimHistory,
+  mergeHistoryLimited,
   applyNeedsFixing,
   dayKey,
   markNeedsFixingFixed,
