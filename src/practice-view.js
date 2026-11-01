@@ -44,6 +44,7 @@ class PracticeView extends ItemView {
     this.study = null;
     this.matchOrder = [];
     this.hintShown = false;
+    this.mobileTab = "question";
   }
 
   getViewType() {
@@ -1152,14 +1153,19 @@ class PracticeView extends ItemView {
     }
     root.addClass("qt-exam");
     root.addClass("qt-wide");
+    // Phones get their own question screen: one slim bar, Passage/Question tabs,
+    // an answer bar that only appears once a choice is picked, and a More sheet.
+    const mobile = Platform.isMobile === true;
+    if (mobile) root.addClass("qt-mobile");
 
-    // ---- header: where you are, timer, pause
-    const bar = root.createDiv({ cls: "qt-bar qt-exam-bar" });
+    // ---- header: where you are, timer, pause, flag, more
+    const bar = root.createDiv({ cls: "qt-bar qt-exam-bar" + (mobile ? " qt-m-bar" : "") });
     const quickLabel = this.quickSession ? str(this.quickSession.label).trim() : "";
     const labelHasCourse = quickLabel && fm.course && quickLabel.toLowerCase().includes(str(fm.course).toLowerCase());
     const meta = [quickLabel, labelHasCourse ? "" : fm.course, fm.unit ? `Unit ${fm.unit}` : "", fm.skill || fm.section, fm.difficulty]
       .filter(Boolean)
       .join(" · ");
+    if (mobile) bar.createDiv({ cls: "qt-qnum qt-m-qnum", text: String(this.tally.n + 1) });
     bar.createDiv({ cls: "qt-meta", text: meta });
     const tw = bar.createDiv({ cls: "qt-timer-wrap" });
     this.timerEl = tw.createSpan({ cls: "qt-timer" });
@@ -1180,28 +1186,81 @@ class PracticeView extends ItemView {
       this.render();
     });
     const tools = bar.createDiv({ cls: "qt-exam-tools" });
-    if (!closedBook) {
+    if (!closedBook && !mobile) {
       const open = tools.createEl("button", { cls: "qt-icon-btn", attr: { "aria-label": "Open note" } });
       setIcon(open, "file-text");
       open.addEventListener("click", () => this.app.workspace.getLeaf("tab").openFile(q.file));
     }
+    const flagged0 = fm.flagged === true;
+    const makeFlagButton = (host, compact) => {
+      const fb = host.createEl("button", { cls: compact ? "qt-icon-btn qt-m-flag" : "qt-flag" });
+      const paintFlag = (on) => {
+        fb.empty();
+        const ic = fb.createSpan({ cls: "qt-flag-ic" });
+        setIcon(ic, on ? "bookmark-check" : "bookmark");
+        if (!compact) fb.createSpan({ text: on ? "Flagged" : "Flag for review" });
+        fb.toggleClass("is-on", !!on);
+        if (compact) fb.setAttr("aria-label", on ? "Flagged" : "Flag for review");
+      };
+      if (compact) fb.setAttr("aria-label", flagged0 ? "Flagged" : "Flag for review");
+      paintFlag(flagged0);
+      fb.addEventListener("click", async () => {
+        const now = await this.plugin.toggleFlag(q.file);
+        q.fm.flagged = now;
+        paintFlag(now);
+      });
+      return fb;
+    };
+    let moreBtn = null;
+    if (mobile) {
+      makeFlagButton(tools, true);
+      moreBtn = tools.createEl("button", { cls: "qt-icon-btn qt-m-more", attr: { "aria-label": "More actions", "aria-haspopup": "dialog" } });
+      setIcon(moreBtn, "more-horizontal");
+    }
 
     // ---- two panes: passage on the left, question + choices on the right
     const hasStim = !!q.sections.stimulus;
-    const split = root.createDiv({ cls: `qt-split${hasStim ? "" : " is-single"}` });
-    const left = hasStim ? split.createDiv({ cls: "qt-pane qt-pane-left" }) : null;
-    const right = split.createDiv({ cls: "qt-pane qt-pane-right" });
+    // On a phone the passage becomes a tab so the question gets the whole screen.
+    const tabs = mobile && hasStim ? root.createDiv({ cls: "qt-m-tabs", attr: { role: "tablist" } }) : null;
+    const split = root.createDiv({ cls: `qt-split${hasStim && !mobile ? "" : " is-single"}${mobile ? " qt-m-split" : ""}` });
+    const left = hasStim ? split.createDiv({ cls: `qt-pane qt-pane-left${mobile ? " qt-m-passage" : ""}` }) : null;
+    const right = split.createDiv({ cls: `qt-pane qt-pane-right${mobile ? " qt-m-question" : ""}` });
+    // The phone question body scrolls on its own so the answer bar can stay put.
+    const body = mobile ? right.createDiv({ cls: "qt-m-scroll" }) : right;
+    if (tabs && left) {
+      const tabButtons = [];
+      const show = (which) => {
+        this.mobileTab = which;
+        left.toggleClass("is-hidden", which !== "passage");
+        right.toggleClass("is-hidden", which !== "question");
+        for (const [btn, id] of tabButtons) {
+          btn.toggleClass("is-active", id === which);
+          btn.setAttr("aria-selected", String(id === which));
+        }
+      };
+      for (const [id, label] of [["passage", "Passage"], ["question", "Question"]]) {
+        const btn = tabs.createEl("button", { cls: "qt-m-tab", text: label, attr: { role: "tab" } });
+        btn.addEventListener("click", () => show(id));
+        tabButtons.push([btn, id]);
+      }
+      show(this.mobileTab === "passage" ? "passage" : "question");
+    }
+    if (mobile) {
+      // One slim bar instead of three: it slides away while reading down and returns on the way up.
+      let lastTop = 0;
+      const hideBar = (ev) => {
+        const scroller = ev && ev.target;
+        const top = scroller && typeof scroller.scrollTop === "number" ? scroller.scrollTop : 0;
+        bar.toggleClass("is-hidden", top > 24 && top > lastTop);
+        lastTop = top;
+      };
+      body.addEventListener("scroll", hideBar);
+      if (left) left.addEventListener("scroll", hideBar);
+    }
 
-    // ---- controls live at the bottom of the right pane: confidence, submit, skip/end
-    const ctl = right.createDiv({ cls: "qt-ctl" });
-    const fc = ctl.createDiv({ cls: "qt-foot-center" });
-    const fr = ctl.createDiv({ cls: "qt-foot-right" });
-    const fl = ctl.createDiv({ cls: "qt-foot-left" });
-    const skip = fl.createEl("button", { text: "Skip (don't log)" });
-    skip.addEventListener("click", () => this.next());
-    const dontKnow = fl.createEl("button", { text: "Don't know", cls: "qt-status-btn" });
-    dontKnow.setAttr("title", "Log that you don't know this; it is not a wrong answer, but the next review comes sooner.");
-    dontKnow.addEventListener("click", async () => {
+    // ---- secondary actions: desktop keeps its footer row, phones put them behind the More sheet
+    const doSkip = () => this.next();
+    const doDontKnow = async () => {
       if (this.busy) return;
       this.busy = true;
       try {
@@ -1213,70 +1272,110 @@ class PracticeView extends ItemView {
       } finally {
         this.busy = false;
       }
-    });
-    const known = fl.createEl("button", { text: `Known ${p.knownDaysForFile(q.file)}d`, cls: "qt-status-btn" });
-    known.setAttr("title", "Hide this question for a while, then return it as due.");
-    known.addEventListener("click", () => this.setCurrentStudyStatus("known"));
-    const bury = fl.createEl("button", { text: "Bury", cls: "qt-status-btn" });
-    bury.setAttr("title", "Hide this question until tomorrow.");
-    bury.addEventListener("click", () => this.setCurrentStudyStatus("buried"));
-    const suspend = fl.createEl("button", { text: "Suspend", cls: "qt-status-btn" });
-    suspend.setAttr("title", "Hide this question until you restore it.");
-    suspend.addEventListener("click", () => this.setCurrentStudyStatus("suspended"));
-    const exclude = fl.createEl("button", { text: "Exclude", cls: "qt-status-btn qt-status-exclude" });
-    exclude.setAttr("title", "Keep the note but skip it in every practice queue.");
-    exclude.addEventListener("click", () => this.setCurrentStudyStatus("excluded"));
-    const end = fl.createEl("button", { text: "End" });
-    end.addEventListener("click", () => {
+    };
+    const doKnown = () => this.setCurrentStudyStatus("known");
+    const doBury = () => this.setCurrentStudyStatus("buried");
+    const doSuspend = () => this.setCurrentStudyStatus("suspended");
+    const doExclude = () => this.setCurrentStudyStatus("excluded");
+    const doEnd = () => {
       if (this.quickSession) this.finishQuick("Quick Practice ended.");
       else {
         this.plugin.clearSession();
         this.state = "idle";
         this.render();
       }
-    });
+    };
+    let ctl = null;
+    let fc = null;
+    let fr = null;
+    if (!mobile) {
+      ctl = right.createDiv({ cls: "qt-ctl" });
+      fc = ctl.createDiv({ cls: "qt-foot-center" });
+      fr = ctl.createDiv({ cls: "qt-foot-right" });
+      const fl = ctl.createDiv({ cls: "qt-foot-left" });
+      const skip = fl.createEl("button", { text: "Skip (don't log)" });
+      skip.addEventListener("click", doSkip);
+      const dontKnow = fl.createEl("button", { text: "Don't know", cls: "qt-status-btn" });
+      dontKnow.setAttr("title", "Log that you don't know this; it is not a wrong answer, but the next review comes sooner.");
+      dontKnow.addEventListener("click", doDontKnow);
+      const known = fl.createEl("button", { text: `Known ${p.knownDaysForFile(q.file)}d`, cls: "qt-status-btn" });
+      known.setAttr("title", "Hide this question for a while, then return it as due.");
+      known.addEventListener("click", doKnown);
+      const bury = fl.createEl("button", { text: "Bury", cls: "qt-status-btn" });
+      bury.setAttr("title", "Hide this question until tomorrow.");
+      bury.addEventListener("click", doBury);
+      const suspend = fl.createEl("button", { text: "Suspend", cls: "qt-status-btn" });
+      suspend.setAttr("title", "Hide this question until you restore it.");
+      suspend.addEventListener("click", doSuspend);
+      const exclude = fl.createEl("button", { text: "Exclude", cls: "qt-status-btn qt-status-exclude" });
+      exclude.setAttr("title", "Keep the note but skip it in every practice queue.");
+      exclude.addEventListener("click", doExclude);
+      const end = fl.createEl("button", { text: "End" });
+      end.addEventListener("click", doEnd);
+    } else {
+      const backdrop = root.createDiv({ cls: "qt-m-sheet-backdrop" });
+      const sheet = root.createDiv({ cls: "qt-m-sheet", attr: { role: "dialog", "aria-label": "Question actions", "aria-modal": "true" } });
+      const closeSheet = () => {
+        sheet.removeClass("is-open");
+        backdrop.removeClass("is-open");
+      };
+      const add = (label, fn, cls) => {
+        const b = sheet.createEl("button", { text: label, cls: cls || "" });
+        b.addEventListener("click", async () => {
+          closeSheet();
+          await fn();
+        });
+      };
+      sheet.createDiv({ cls: "qt-m-sheet-title", text: "Question actions" });
+      add("Skip", doSkip);
+      add("Don't know", doDontKnow);
+      add(`Known ${p.knownDaysForFile(q.file)}d`, doKnown);
+      add("Bury", doBury);
+      add("Suspend", doSuspend);
+      add("Exclude", doExclude, "qt-status-exclude");
+      if (!closedBook) add("Open question note", () => this.app.workspace.getLeaf("tab").openFile(q.file));
+      add("End session", doEnd);
+      const close = sheet.createEl("button", { text: "Close", cls: "qt-m-sheet-close" });
+      close.addEventListener("click", closeSheet);
+      backdrop.addEventListener("click", closeSheet);
+      moreBtn.addEventListener("click", () => {
+        const open = sheet.hasClass("is-open");
+        sheet.toggleClass("is-open", !open);
+        backdrop.toggleClass("is-open", !open);
+      });
+    }
 
     if (paused) {
-      right.createDiv({ cls: "qt-paused", text: "Timer paused. Tap play to continue." });
-      right.appendChild(ctl);
-      fc.remove();
-      fr.remove();
+      body.createDiv({ cls: "qt-paused", text: "Timer paused. Tap play to continue." });
+      if (!mobile) {
+        right.appendChild(ctl);
+        fc.remove();
+        fr.remove();
+      }
       return;
     }
 
     if (left) this.md(q.sections.stimulus, left.createDiv({ cls: "qt-stimulus" }), path);
 
-    // question header: number badge + flag (like "Mark for Review")
-    const qh = right.createDiv({ cls: "qt-qhead" });
-    qh.createSpan({ cls: "qt-qnum", text: String(this.tally.n + 1) });
-    const flagged0 = fm.flagged === true;
-    const fb = qh.createEl("button", { cls: "qt-flag" });
-    const paintFlag = (on) => {
-      fb.empty();
-      const ic = fb.createSpan({ cls: "qt-flag-ic" });
-      setIcon(ic, on ? "bookmark-check" : "bookmark");
-      fb.createSpan({ text: on ? "Flagged" : "Flag for review" });
-      fb.toggleClass("is-on", !!on);
-    };
-    paintFlag(flagged0);
-    fb.addEventListener("click", async () => {
-      const now = await this.plugin.toggleFlag(q.file);
-      q.fm.flagged = now;
-      paintFlag(now);
-    });
+    // question header: number badge + flag (like "Mark for Review"); the phone bar already carries both
+    if (!mobile) {
+      const qh = body.createDiv({ cls: "qt-qhead" });
+      qh.createSpan({ cls: "qt-qnum", text: String(this.tally.n + 1) });
+      makeFlagButton(qh, false);
+    }
 
     if (closedBook) {
-      right.createDiv({
+      body.createDiv({
         cls: "qt-hint qt-closed-book",
         text: "Closed book: the source, answer note and explanation unlock after you submit.",
       });
     }
 
-    this.md(q.sections.question || "*No `## Question` section found in this note.*", right.createDiv({ cls: "qt-stem" }), path);
+    this.md(q.sections.question || "*No `## Question` section found in this note.*", body.createDiv({ cls: "qt-stem" }), path);
 
     const hintText = str(q.sections.hint).trim();
     if (hintText && p.settings.hints === true && !closedBook) {
-      const hintRow = right.createDiv({ cls: "qt-hint qt-question-hint" });
+      const hintRow = body.createDiv({ cls: "qt-hint qt-question-hint" });
       const hintBtn = hintRow.createEl("button", {
         text: this.hintShown ? "Hide hint" : "Show hint",
         cls: "qt-link",
@@ -1290,7 +1389,9 @@ class PracticeView extends ItemView {
     }
 
     const mode = q.mode;
-    const submit = fr.createEl("button", { text: "Submit", cls: "mod-cta qt-submit" });
+    const answerBar = mobile ? right.createDiv({ cls: "qt-m-answerbar" }) : null;
+    const submitHost = mobile ? answerBar : fr;
+    let submit = null;
     const ready = () => {
       if (!this.sel) return false;
       if (mode !== "match") return true;
@@ -1298,11 +1399,13 @@ class PracticeView extends ItemView {
       return picks.length === q.pairs.length && picks.every((pick) => pick >= 0);
     };
     const refresh = () => {
-      submit.disabled = !(ready() && this.conf);
+      const armed = ready();
+      if (submit) submit.disabled = !(armed && this.conf);
+      if (answerBar) answerBar.toggleClass("is-armed", armed);
     };
 
     // answer input
-    const ans = right.createDiv({ cls: "qt-answers" });
+    const ans = body.createDiv({ cls: "qt-answers" });
     if (mode === "mcq" || mode === "multi") {
       const n = Number(fm.choices) || q.sections.choices.length || 4;
       const letters = "ABCDEFGH".slice(0, n).split("");
@@ -1396,10 +1499,11 @@ class PracticeView extends ItemView {
       }
     }
 
-    right.appendChild(ctl); // keep the controls below the choices
-    // confidence
-    fc.createSpan({ cls: "qt-foot-label", text: "How sure are you?" });
-    const crow = fc.createDiv({ cls: "qt-conf-row" });
+    if (!mobile) right.appendChild(ctl); // keep the controls below the choices
+    // confidence: desktop keeps it under the choices; the phone bar reveals it with an answer
+    const confHost = mobile ? answerBar : fc;
+    confHost.createSpan({ cls: "qt-foot-label", text: mobile ? "How sure?" : "How sure are you?" });
+    const crow = confHost.createDiv({ cls: "qt-conf-row" });
     const cbtns = [];
     p.settings.confidenceLabels.slice(0, 3).forEach((label, i) => {
       const b = crow.createEl("button", { text: label, cls: "qt-conf" });
@@ -1412,6 +1516,7 @@ class PracticeView extends ItemView {
       cbtns.push(b);
     });
 
+    submit = submitHost.createEl("button", { text: "Submit", cls: "mod-cta qt-submit" });
     refresh();
     submit.addEventListener("click", () => {
       submit.disabled = true;
