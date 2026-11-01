@@ -7321,3 +7321,103 @@
 .qt-vault-search-path { font-family: var(--font-monospace); font-size: 0.85em; }
 .qt-vault-search-score { color: var(--text-faint); font-size: 0.8em; }
 .qt-vault-search-snippet { color: var(--text-muted); font-size: 0.9em; margin: 4px 0; }
+
+/* ---- Spaceforge-derived study tools: docked note review, review calendar,
+   study statistics and local events. All selectors stay inside their views or
+   the dock so they cannot affect Obsidian's own chrome. ---- */
+.theme-dark .qt-note-review-dock,
+.theme-light .qt-note-review-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+}
+.qt-note-review-dock-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.qt-note-review-dock-title { font-weight: 700; }
+.qt-note-review-dock-meta { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qt-note-review-dock-close { margin-left: auto; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 18px; line-height: 1; }
+.qt-note-review-dock-grades { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.qt-note-review-dock-grade { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px; border-radius: 8px; border: 1px solid var(--background-modifier-border); background: var(--background-secondary); cursor: pointer; }
+.qt-note-review-dock-grade:hover { border-color: var(--interactive-accent); }
+.qt-note-review-dock-grade.is-again { border-color: var(--color-red); }
+.qt-note-review-dock-grade.is-hard { border-color: var(--color-orange); }
+.qt-note-review-dock-grade.is-good { border-color: var(--color-green); }
+.qt-note-review-dock-grade.is-easy { border-color: var(--color-blue); }
+.qt-note-review-dock-grade-label { font-weight: 600; }
+.qt-note-review-dock-grade-interval { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qt-note-review-dock-secondary { margin-top: 8px; gap: 6px; flex-wrap: wrap; }
+.qt-note-review-dock-hint { margin-top: 6px; color: var(--text-faint); font-size: var(--font-ui-smaller); }
+.qt-note-review-dock-message { margin-top: 8px; color: var(--text-muted); }
+.qt-note-review-dock-lapse { margin-top: 8px; }
+.qt-note-review-dock-actions { margin-top: 6px; gap: 6px; flex-wrap: wrap; }
+
+.qt-review-calendar-stats, .qt-study-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 12px 0; }
+.qt-study-stat { padding: 10px; border: 1px solid var(--background-modifier-border); border-radius: 8px; background: var(--background-secondary); }
+.qt-study-stat-value { font-size: 22px; font-weight: 700; }
+.qt-study-stat-label { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qt-study-card { margin: 12px 0; padding: 12px; border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-primary); }
+.qt-study-card h3 { margin: 0 0 8px; }
+.qt-review-calendar-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.qt-review-calendar-day { padding: 8px; border: 1px solid var(--background-modifier-border); border-radius: 8px; text-align: center; cursor: pointer; }
+.qt-review-calendar-day.is-today { border-color: var(--interactive-accent); }
+.qt-review-calendar-day-count { font-size: 18px; font-weight: 700; }
+.qt-review-calendar-day-label, .qt-review-calendar-day-minutes { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qt-review-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.qt-review-calendar-weekday, .qt-local-events-weekday { padding: 4px; color: var(--text-muted); font-size: var(--font-ui-smaller); text-align: center; }
+.qt-review-calendar-cell, .qt-local-events-cell { min-height: 54px; padding: 4px; border: 1px solid var(--background-modifier-border); border-radius: 6px; cursor: pointer; overflow: hidden; }
+.qt-review-calendar-cell.is-other-month, .qt-local-events-cell.is-other-month { opacity: 0.45; }
+.qt-review-calendar-cell.is-today, .qt-local-events-cell.is-today { border-color: var(--interactive-accent); }
+.qt-review-calendar-cell.is-selected, .qt-local-events-cell.is-selected { background: var(--background-modifier-hover); }
+.qt-review-calendar-cell-count { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qt-review-calendar-month-title { display: flex; align-items: center; justify-content: space-between; }
+
+.qt-study-stats-table { display: flex; flex-direction: column; gap: 4px; }
+.qt-study-stats-row { display: grid; grid-template-columns: 1.4fr 0.8fr 1.4fr; gap: 8px; align-items: center; padding: 4px 0; }
+.qt-study-stats-row.is-head { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qt-study-stats-row.is-total { border-top: 1px solid var(--background-modifier-border); font-weight: 600; }
+.qt-study-stats-retention { display: flex; align-items: center; gap: 6px; }
+.qt-stat-bar { height: 7px; flex: 1; overflow: hidden; border-radius: 999px; background: var(--background-modifier-border); }
+.qt-stat-bar-fill { height: 100%; border-radius: inherit; background: var(--interactive-accent); }
+.qt-stat-bar.is-retention .qt-stat-bar-fill { background: var(--color-green); }
+.qt-stat-bar.is-memory .qt-stat-bar-fill { background: var(--color-blue); }
+.qt-study-stats-memory { display: flex; align-items: baseline; gap: 8px; }
+.qt-study-stats-big { font-size: 28px; font-weight: 700; }
+.qt-study-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.qt-study-stats-dist-title { font-weight: 600; margin-bottom: 4px; }
+.qt-study-stats-dist-row { display: grid; grid-template-columns: 66px 1fr 24px; gap: 6px; align-items: center; font-size: var(--font-ui-smaller); }
+.qt-study-stats-dist-count { text-align: right; color: var(--text-muted); }
+.qt-study-stats-weekday { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; align-items: end; }
+.qt-study-stats-weekday-col { text-align: center; }
+.qt-study-stats-weekday-track { height: 90px; display: flex; align-items: flex-end; justify-content: center; }
+.qt-study-stats-weekday-fill { width: 60%; min-height: 2px; border-radius: 4px 4px 0 0; background: var(--interactive-accent); }
+.qt-study-stats-weekday-label, .qt-study-stats-weekday-count { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qt-study-list { display: flex; flex-direction: column; gap: 4px; }
+.qt-study-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--background-modifier-border); }
+.qt-study-row-main { min-width: 0; flex: 1; }
+.qt-study-row-title { font-weight: 600; overflow-wrap: anywhere; }
+.qt-study-row-meta { color: var(--text-muted); font-size: var(--font-ui-smaller); overflow-wrap: anywhere; }
+.qt-study-row-actions { display: flex; gap: 4px; flex: none; }
+.qt-study-empty { color: var(--text-muted); padding: 8px 0; }
+.qt-study-stats-day-detail { margin: 6px 0 10px 12px; padding-left: 10px; border-left: 2px solid var(--background-modifier-border); }
+
+.qt-local-events-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0; }
+.qt-local-events-tab { border: 1px solid var(--background-modifier-border); border-radius: 999px; padding: 3px 9px; background: var(--background-secondary); cursor: pointer; }
+.qt-local-events-tab.is-active { border-color: var(--interactive-accent); background: var(--background-modifier-hover); }
+.qt-local-events-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.qt-local-events-day { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+.qt-local-events-tab-item { margin: 2px 0; padding: 2px 4px; border-radius: 4px; color: var(--text-on-accent); font-size: 10px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.qt-local-event-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.qt-study-field { display: flex; flex-direction: column; gap: 4px; }
+.qt-study-field-wide { grid-column: 1 / -1; }
+.qt-study-field label { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+@media (max-width: 640px) {
+  .qt-note-review-dock-grades { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qt-review-calendar-week, .qt-review-calendar-grid, .qt-local-events-grid { gap: 1px; }
+  .qt-review-calendar-cell, .qt-local-events-cell { min-height: 44px; }
+  .qt-local-event-form { grid-template-columns: 1fr; }
+}

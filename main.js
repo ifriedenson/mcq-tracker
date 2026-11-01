@@ -18907,6 +18907,9 @@ const VIEW_TYPE_REFERENCE = "question-tracker-reference";
 const VIEW_TYPE_ASSIGNMENTS = "question-tracker-assignments";
 const VIEW_TYPE_STUDY_TOOLS = "question-tracker-study-tools";
 const VIEW_TYPE_STUDY_WORKSPACE = "question-tracker-study-workspace";
+const VIEW_TYPE_REVIEW_CALENDAR = "question-tracker-review-calendar";
+const VIEW_TYPE_STUDY_STATS = "question-tracker-study-stats";
+const VIEW_TYPE_LOCAL_EVENTS = "question-tracker-local-events";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -19069,6 +19072,10 @@ const DEFAULT_SETTINGS = {
     courses: [],
   }),
   noteReview: { enabled: false, limit: 20, sets: [] }, // optional whole-note review queue
+  noteReviewDock: { enabled: true, keyboard: true, lapseThreshold: 8 }, // docked whole-note review bar
+  reviewCalendar: { enabled: true, noteMinutes: 2, cardMinutes: 1, showCards: true, detectMainNote: true, weekStartsOn: "monday" }, // due-date calendar and workload
+  studyStats: { enabled: true, leechThreshold: 5, maxRows: 200 }, // Anki-style statistics
+  localEvents: { enabled: true, defaultCategory: "study", weekStartsOn: "monday", events: [] }, // local-only event calendar
   spacedEverything: {
     enabled: false, // optional whole-note SM-2 queue, separate from standard note review
     defaultInterval: 1,
@@ -19149,6 +19156,9 @@ module.exports = {
   VIEW_TYPE_ASSIGNMENTS,
   VIEW_TYPE_STUDY_TOOLS,
   VIEW_TYPE_STUDY_WORKSPACE,
+  VIEW_TYPE_REVIEW_CALENDAR,
+  VIEW_TYPE_STUDY_STATS,
+  VIEW_TYPE_LOCAL_EVENTS,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,
@@ -30943,6 +30953,515 @@ module.exports = {
 };
 };
 
+/* ---- src/local-events.js ---- */
+__defs["local-events"] = function (module, exports, require) {
+/*
+ * Local calendar events: a small, dependency-free event store that is completely
+ * separate from imported .ics feeds and read-only Full Calendar notes.
+ *
+ * Dates are date-only strings (YYYY-MM-DD) and recurrence is expanded with UTC
+ * arithmetic, so a clock change never moves an event to another day. Monthly and
+ * yearly recurrences are always calculated from the original anchor date: a
+ * 31 January event becomes 28/29 February, then returns to 31 March rather than
+ * drifting forward one month at a time.
+ */
+const { hashString, str } = require("./util");
+
+const LOCAL_EVENT_CATEGORIES = [
+  { id: "work", label: "Work", color: "#5b8def" },
+  { id: "personal", label: "Personal", color: "#d97757" },
+  { id: "study", label: "Study", color: "#4f9d69" },
+  { id: "meeting", label: "Meeting", color: "#8b6fd6" },
+  { id: "health", label: "Health", color: "#d65b8f" },
+  { id: "social", label: "Social", color: "#d9a441" },
+  { id: "other", label: "Other", color: "#7a8494" },
+];
+
+const REPEAT_KINDS = ["none", "daily", "weekly", "monthly", "yearly"];
+const WEEK_STARTS = ["monday", "sunday"];
+const MAX_EVENTS = 1000;
+const MAX_OCCURRENCES = 2000;
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function pad(value, length) {
+  return String(value).padStart(length || 2, "0");
+}
+
+function parseDateKey(value) {
+  const match = DATE_RE.exec(str(value).trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return date;
+}
+
+function dateKey(date) {
+  const d = date instanceof Date && !isNaN(date.getTime()) ? date : new Date();
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+function todayKey(now) {
+  const date = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function addDaysKey(key, days) {
+  const date = parseDateKey(key);
+  if (!date) return key;
+  return dateKey(new Date(date.getTime() + Math.round(days) * 86400000));
+}
+
+/** Add whole months from an anchor day, clamping 29/30/31 to the target month. */
+function addMonthsKey(key, months) {
+  const date = parseDateKey(key);
+  if (!date) return key;
+  const anchorDay = date.getUTCDate();
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + Math.round(months), 1));
+  const last = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(anchorDay, last));
+  return dateKey(target);
+}
+
+/** Add whole years from an anchor date, clamping 29 February to 28 February. */
+function addYearsKey(key, years) {
+  const date = parseDateKey(key);
+  if (!date) return key;
+  const anchorMonth = date.getUTCMonth();
+  const anchorDay = date.getUTCDate();
+  const target = new Date(Date.UTC(date.getUTCFullYear() + Math.round(years), anchorMonth, 1));
+  const last = new Date(Date.UTC(target.getUTCFullYear(), anchorMonth + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(anchorDay, last));
+  return dateKey(target);
+}
+
+function categoryOf(value) {
+  const text = str(value).trim().toLowerCase();
+  return LOCAL_EVENT_CATEGORIES.find((item) => item.id === text) || LOCAL_EVENT_CATEGORIES.find((item) => item.id === "other");
+}
+
+function normalizeCategory(value) {
+  return categoryOf(value).id;
+}
+
+function normalizeColor(value, category) {
+  const text = str(value).trim();
+  return /^#[0-9a-f]{6}$/i.test(text) ? text.toLowerCase() : categoryOf(category).color;
+}
+
+function normalizeRepeat(value) {
+  const text = str(value).trim().toLowerCase();
+  return REPEAT_KINDS.includes(text) ? text : "none";
+}
+
+function normalizeTime(value) {
+  const text = str(value).trim();
+  return TIME_RE.test(text) ? text : "";
+}
+
+function normalizeEvent(input, now, defaults) {
+  const src = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const fallbackDate = todayKey(now);
+  const date = parseDateKey(src.date) ? str(src.date).trim() : fallbackDate;
+  const title = str(src.title).trim().slice(0, 200) || "Untitled event";
+  const category = normalizeCategory(src.category || (defaults && defaults.defaultCategory));
+  const repeat = normalizeRepeat(src.repeat || src.recurrence);
+  const repeatEveryRaw = Number(src.repeatEvery ?? src.recurrenceEvery);
+  const repeatEvery = Math.min(365, Math.max(1, Math.round(Number.isFinite(repeatEveryRaw) ? repeatEveryRaw : 1)));
+  const untilCandidate = str(src.repeatUntil ?? src.until).trim();
+  const repeatUntil = parseDateKey(untilCandidate) && untilCandidate >= date ? untilCandidate : "";
+  const id = str(src.id).trim().slice(0, 120) || `le-${hashString(`${title}|${date}|${category}|${repeat}`)}`;
+  return {
+    id,
+    title,
+    date,
+    endDate: parseDateKey(src.endDate) && str(src.endDate).trim() >= date ? str(src.endDate).trim() : "",
+    startTime: normalizeTime(src.startTime),
+    endTime: normalizeTime(src.endTime),
+    category,
+    color: normalizeColor(src.color, category),
+    notes: str(src.notes).slice(0, 2000),
+    repeat,
+    repeatEvery,
+    repeatUntil,
+    createdAt: Number(src.createdAt) || Number(now) || Date.now(),
+    updatedAt: Number(src.updatedAt) || Number(now) || Date.now(),
+  };
+}
+
+function normalizeLocalEventsSettings(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const events = (Array.isArray(src.events) ? src.events : [])
+    .map((event) => normalizeEvent(event, Date.now(), src))
+    .slice(0, MAX_EVENTS);
+  const seen = new Set();
+  const unique = [];
+  for (const event of events) {
+    let id = event.id;
+    let n = 2;
+    while (seen.has(id)) id = `${event.id}-${n++}`;
+    seen.add(id);
+    unique.push({ ...event, id });
+  }
+  return {
+    enabled: src.enabled !== false,
+    defaultCategory: normalizeCategory(src.defaultCategory || "study"),
+    weekStartsOn: WEEK_STARTS.includes(str(src.weekStartsOn).toLowerCase()) ? str(src.weekStartsOn).toLowerCase() : "monday",
+    events: unique,
+  };
+}
+
+/** Every occurrence of one event between two inclusive date keys. */
+function expandRecurrence(event, rangeStart, rangeEnd) {
+  const clean = normalizeEvent(event, Date.now());
+  const start = parseDateKey(rangeStart) ? rangeStart : clean.date;
+  const end = parseDateKey(rangeEnd) ? rangeEnd : clean.date;
+  if (end < start) return [];
+  const out = [];
+  const push = (key) => {
+    if (key < clean.date) return;
+    if (clean.repeatUntil && key > clean.repeatUntil) return false;
+    if (key >= start && key <= end) out.push(key);
+    if (out.length >= MAX_OCCURRENCES) return false;
+    return true;
+  };
+
+  if (clean.repeat === "none") {
+    if (clean.date >= start && clean.date <= end) out.push(clean.date);
+    return out;
+  }
+
+  for (let index = 0; index < MAX_OCCURRENCES; index++) {
+    let key;
+    if (clean.repeat === "daily") key = addDaysKey(clean.date, index * clean.repeatEvery);
+    else if (clean.repeat === "weekly") key = addDaysKey(clean.date, index * 7 * clean.repeatEvery);
+    else if (clean.repeat === "monthly") key = addMonthsKey(clean.date, index * clean.repeatEvery);
+    else key = addYearsKey(clean.date, index * clean.repeatEvery);
+    if (key > end) break;
+    if (push(key) === false) break;
+  }
+  return out;
+}
+
+function eventsOnDate(events, key) {
+  const out = [];
+  for (const event of Array.isArray(events) ? events : []) {
+    if (expandRecurrence(event, key, key).length) out.push(event);
+  }
+  return out.sort((a, b) => (a.startTime || "99:99").localeCompare(b.startTime || "99:99") || a.title.localeCompare(b.title));
+}
+
+function eventsInRange(events, rangeStart, rangeEnd) {
+  const rows = [];
+  for (const event of Array.isArray(events) ? events : []) {
+    for (const key of expandRecurrence(event, rangeStart, rangeEnd)) rows.push({ key, event });
+  }
+  return rows.sort((a, b) => a.key.localeCompare(b.key) || (a.event.startTime || "99:99").localeCompare(b.event.startTime || "99:99"));
+}
+
+function upsertLocalEvent(value, input, now) {
+  const settings = normalizeLocalEventsSettings(value);
+  const event = normalizeEvent(input, now, settings);
+  const existing = settings.events.findIndex((item) => item.id === event.id);
+  const events = settings.events.slice();
+  if (existing >= 0) events[existing] = { ...event, createdAt: events[existing].createdAt || event.createdAt, updatedAt: Number(now) || Date.now() };
+  else events.unshift(event);
+  return { settings: { ...settings, events: events.slice(0, MAX_EVENTS) }, event };
+}
+
+function removeLocalEvent(value, id) {
+  const settings = normalizeLocalEventsSettings(value);
+  const events = settings.events.filter((event) => event.id !== id);
+  return { settings: { ...settings, events }, removed: events.length !== settings.events.length };
+}
+
+function monthCells(year, month, weekStartsOn, now) {
+  const first = new Date(year, month, 1);
+  const startOffset = weekStartsOn === "sunday" ? first.getDay() : (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrev = new Date(year, month, 0).getDate();
+  const cells = [];
+  const push = (date, inMonth) => cells.push({ key: dateKey(new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))), day: date.getDate(), inMonth });
+  for (let i = startOffset; i > 0; i--) push(new Date(year, month - 1, daysInPrev - i + 1), false);
+  for (let day = 1; day <= daysInMonth; day++) push(new Date(year, month, day), true);
+  while (cells.length % 7) push(new Date(year, month + 1, cells.length - startOffset - daysInMonth + 1), false);
+  return cells.map((cell) => ({ ...cell, isToday: cell.key === todayKey(now) }));
+}
+
+module.exports = {
+  LOCAL_EVENT_CATEGORIES,
+  MAX_EVENTS,
+  REPEAT_KINDS,
+  WEEK_STARTS,
+  addDaysKey,
+  addMonthsKey,
+  addYearsKey,
+  dateKey,
+  eventsInRange,
+  eventsOnDate,
+  expandRecurrence,
+  monthCells,
+  normalizeCategory,
+  normalizeEvent,
+  normalizeLocalEventsSettings,
+  removeLocalEvent,
+  todayKey,
+  upsertLocalEvent,
+};
+};
+
+/* ---- src/local-events-view.js ---- */
+__defs["local-events-view"] = function (module, exports, require) {
+/* Local event calendar: CRUD, categories, colour tabs and recurrence. */
+const { ItemView, Modal, Notice } = require("obsidian");
+const { VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
+const { LOCAL_EVENT_CATEGORIES, eventsInRange, monthCells, todayKey } = require("./local-events");
+const { str } = require("./util");
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+class LocalEventModal extends Modal {
+  constructor(app, plugin, event) {
+    super(app);
+    this.plugin = plugin;
+    this.event = event || null;
+    this.result = null;
+  }
+
+  onOpen() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl("h2", { text: this.event ? "Edit event" : "New event" });
+    const form = el.createDiv({ cls: "qt-local-event-form" });
+    const field = (label, type, value, placeholder) => {
+      const row = form.createDiv({ cls: "qt-study-field" });
+      row.createEl("label", { text: label });
+      const input = row.createEl("input", { cls: "qt-input" });
+      input.type = type || "text";
+      input.value = value || "";
+      if (placeholder) input.placeholder = placeholder;
+      return input;
+    };
+    const current = this.event || {};
+    const title = field("Title", "text", current.title, "Study group");
+    const date = field("Date", "date", current.date || todayKey(new Date()));
+    const start = field("Start time", "time", current.startTime);
+    const end = field("End time", "time", current.endTime);
+    const categoryRow = form.createDiv({ cls: "qt-study-field" });
+    categoryRow.createEl("label", { text: "Category" });
+    const category = categoryRow.createEl("select", { cls: "dropdown" });
+    for (const item of LOCAL_EVENT_CATEGORIES) category.createEl("option", { value: item.id, text: item.label });
+    category.value = current.category || this.plugin.settings.localEvents.defaultCategory || "study";
+    const colorRow = form.createDiv({ cls: "qt-study-field" });
+    colorRow.createEl("label", { text: "Colour" });
+    const color = colorRow.createEl("input", { cls: "qt-input" });
+    color.type = "color";
+    color.value = current.color || "#4f9d69";
+    const repeatRow = form.createDiv({ cls: "qt-study-field" });
+    repeatRow.createEl("label", { text: "Repeat" });
+    const repeat = repeatRow.createEl("select", { cls: "dropdown" });
+    for (const [value, label] of [["none", "Does not repeat"], ["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"], ["yearly", "Yearly"]]) {
+      repeat.createEl("option", { value, text: label });
+    }
+    repeat.value = current.repeat || "none";
+    const every = field("Repeat every", "number", String(current.repeatEvery || 1));
+    every.min = "1";
+    every.max = "365";
+    const until = field("Repeat until", "date", current.repeatUntil);
+    const notesRow = form.createDiv({ cls: "qt-study-field qt-study-field-wide" });
+    notesRow.createEl("label", { text: "Notes" });
+    const notes = notesRow.createEl("textarea", { cls: "qt-study-bulk" });
+    notes.rows = 3;
+    notes.value = current.notes || "";
+    const actions = el.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
+    actions.createEl("button", { text: "Save", cls: "mod-cta" }).addEventListener("click", async () => {
+      const value = {
+        id: current.id,
+        title: title.value,
+        date: date.value,
+        startTime: start.value,
+        endTime: end.value,
+        category: category.value,
+        color: color.value,
+        repeat: repeat.value,
+        repeatEvery: every.value,
+        repeatUntil: until.value,
+        notes: notes.value,
+      };
+      try {
+        await this.plugin.saveLocalEvent(value);
+        this.close();
+      } catch (e) {
+        new Notice(str(e && e.message ? e.message : e) || "Could not save the event.");
+      }
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+class LocalEventsView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this.cursor = new Date();
+    this.filter = "all";
+    this.selected = "";
+  }
+
+  getViewType() {
+    return VIEW_TYPE_LOCAL_EVENTS;
+  }
+
+  getDisplayText() {
+    return "Local events";
+  }
+
+  getIcon() {
+    return "calendar-plus";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-root");
+    this.selected = todayKey(new Date());
+    this.render();
+  }
+
+  async onClose() {}
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    const root = el.createDiv({ cls: "qt-wrap qt-local-events" });
+    if (!this.plugin.localEventsEnabled()) {
+      const card = root.createDiv({ cls: "qt-onboard-card" });
+      card.createEl("h3", { text: "Local events is off" });
+      card.createDiv({ cls: "qt-onboard-text", text: "Turn it on in Settings → Local events." });
+      card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
+      return;
+    }
+    const settings = this.plugin.settings.localEvents;
+    const head = root.createDiv({ cls: "qt-local-events-head" });
+    head.createEl("h2", { text: "Local events" });
+    head.createDiv({ cls: "qt-hint", text: "Stored in plugin data and separate from imported .ics feeds and Full Calendar notes. Recurrence is expanded locally." });
+    const actions = root.createDiv({ cls: "qt-row qt-local-events-actions" });
+    actions.createEl("button", { text: "New event", cls: "mod-cta" }).addEventListener("click", () => this.openNew());
+    actions.createEl("button", { text: "Previous month" }).addEventListener("click", () => this.shiftMonth(-1));
+    actions.createEl("button", { text: "Today" }).addEventListener("click", () => this.goToday());
+    actions.createEl("button", { text: "Next month" }).addEventListener("click", () => this.shiftMonth(1));
+
+    const tabs = root.createDiv({ cls: "qt-local-events-tabs" });
+    for (const [id, label] of [["all", "All"], ...LOCAL_EVENT_CATEGORIES.map((item) => [item.id, item.label])]) {
+      const button = tabs.createEl("button", { cls: "qt-local-events-tab", text: label });
+      if (this.filter === id) button.addClass("is-active");
+      button.addEventListener("click", () => {
+        this.filter = id;
+        this.render();
+      });
+    }
+
+    const events = (settings.events || []).filter((event) => this.filter === "all" || event.category === this.filter);
+    const first = new Date(this.cursor.getFullYear(), this.cursor.getMonth(), 1);
+    const last = new Date(this.cursor.getFullYear(), this.cursor.getMonth() + 1, 0);
+    const rows = eventsInRange(events, this.key(first), this.key(last));
+    const byDay = new Map();
+    for (const row of rows) {
+      if (!byDay.has(row.key)) byDay.set(row.key, []);
+      byDay.get(row.key).push(row.event);
+    }
+
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: `${MONTHS[this.cursor.getMonth()]} ${this.cursor.getFullYear()}` });
+    const grid = card.createDiv({ cls: "qt-local-events-grid" });
+    const weekStartsOn = settings.weekStartsOn === "sunday" ? "sunday" : "monday";
+    const labels = weekStartsOn === "sunday" ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    for (const label of labels) grid.createDiv({ cls: "qt-local-events-weekday", text: label });
+    for (const cell of monthCells(this.cursor.getFullYear(), this.cursor.getMonth(), weekStartsOn, new Date())) {
+      const day = grid.createDiv({ cls: "qt-local-events-cell" });
+      if (!cell.inMonth) day.addClass("is-other-month");
+      if (cell.isToday) day.addClass("is-today");
+      if (cell.key === this.selected) day.addClass("is-selected");
+      day.createDiv({ cls: "qt-local-events-day", text: String(cell.day) });
+      const dayEvents = byDay.get(cell.key) || [];
+      for (const event of dayEvents.slice(0, 3)) {
+        const tab = day.createDiv({ cls: "qt-local-events-tab-item", text: event.title });
+        if (tab.style) tab.style.backgroundColor = event.color;
+        tab.addEventListener("click", (ev) => {
+          if (ev && ev.stopPropagation) ev.stopPropagation();
+          this.openEdit(event.id);
+        });
+      }
+      day.addEventListener("click", () => {
+        this.selected = cell.key;
+        this.render();
+      });
+    }
+
+    const listCard = root.createDiv({ cls: "qt-study-card" });
+    listCard.createEl("h3", { text: this.selected });
+    const selectedEvents = (byDay.get(this.selected) || []).slice();
+    if (!selectedEvents.length) {
+      listCard.createDiv({ cls: "qt-study-empty", text: "No events on this day." });
+      return;
+    }
+    const list = listCard.createDiv({ cls: "qt-study-list" });
+    for (const event of selectedEvents) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      const title = main.createDiv({ cls: "qt-study-row-title", text: event.title });
+      if (title.style) title.style.color = event.color;
+      main.createDiv({
+        cls: "qt-study-row-meta",
+        text: `${event.startTime ? `${event.startTime}${event.endTime ? `–${event.endTime}` : ""} · ` : ""}${event.category}${event.repeat !== "none" ? ` · repeats ${event.repeat}` : ""}${event.repeatUntil ? ` until ${event.repeatUntil}` : ""}`,
+      });
+      if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: "Edit" }).addEventListener("click", () => this.openEdit(event.id));
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.deleteLocalEvent(event.id);
+        this.render();
+      });
+    }
+  }
+
+  key(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
+  openNew() {
+    new LocalEventModal(this.plugin.app, this.plugin, null).open();
+  }
+
+  openEdit(id) {
+    const event = (this.plugin.settings.localEvents.events || []).find((item) => item.id === id);
+    if (event) new LocalEventModal(this.plugin.app, this.plugin, event).open();
+  }
+
+  shiftMonth(delta) {
+    this.cursor = new Date(this.cursor.getFullYear(), this.cursor.getMonth() + delta, 1);
+    this.render();
+  }
+
+  goToday() {
+    const now = new Date();
+    this.cursor = new Date(now.getFullYear(), now.getMonth(), 1);
+    this.selected = todayKey(now);
+    this.render();
+  }
+}
+
+module.exports = {
+  LocalEventModal,
+  LocalEventsView,
+};
+};
+
 /* ---- src/matching.js ---- */
 __defs["matching"] = function (module, exports, require) {
 /*
@@ -32198,9 +32717,9 @@ function noteSetFor(note, sets) {
   for (const set of Array.isArray(sets) ? sets : []) {
     if (matchesNoteSet(note, set)) return set;
   }
-  if (!Array.isArray(sets) || !sets.length) {
-    if (note && note.fm && note.fm.note_review === true) return { name: "Marked notes", folders: [], tags: [], priority: "normal" };
-  }
+  // An explicitly marked note joins the queue even when sets exist, so the
+  // "Add this note to review" action works without editing a set by hand.
+  if (note && note.fm && note.fm.note_review === true) return { name: "Marked notes", folders: [], tags: [], priority: "normal" };
   return null;
 }
 
@@ -32236,6 +32755,7 @@ function buildNoteQueue(notes, options) {
     const set = noteSetFor(note, sets);
     if (!set) continue;
     const fm = note.fm || {};
+    if (fm.note_review_excluded === true) continue;
     if (!isStudyable(fm, today)) continue;
     const isNew = !Number(fm.attempts);
     const dueDate = noteDueDate(fm);
@@ -32301,6 +32821,428 @@ module.exports = {
   noteSetFor,
   parseNoteSets,
   tagsOf,
+};
+};
+
+/* ---- src/note-review-dock.js ---- */
+__defs["note-review-dock"] = function (module, exports, require) {
+/*
+ * Docked whole-note review: pure preview/restore helpers plus the DOM bar.
+ *
+ * The bar does not own a queue or a scheduler. It asks the plugin for the
+ * existing whole-note queue, writes through recordNoteReview (applyAttempt),
+ * and restores a small snapshot for Undo.
+ */
+const { MarkdownView } = require("obsidian");
+const { str } = require("./util");
+const { applyAttempt } = require("./notes");
+const { noteReviewAttempt } = require("./note-review");
+const { formatInterval } = require("./interval-preview");
+
+const GRADES = ["again", "hard", "good", "easy"];
+const GRADE_LABELS = { again: "Again", hard: "Hard", good: "Good", easy: "Easy" };
+const SNAPSHOT_KEYS = [
+  "history",
+  "attempts",
+  "correct_count",
+  "streak",
+  "time_spent_total",
+  "last_time_spent",
+  "last_answer",
+  "last_confidence",
+  "last_error_type",
+  "result",
+  "date attempted",
+  "next_review",
+  "srs",
+  "sm2",
+  "scheduler",
+  "last_card_rating",
+  "note_lapse_streak",
+  "review_updated",
+  "leech",
+  "leech_lapses",
+  "leech_since",
+  "needs_fixing",
+  "needs_fixing_miss_days",
+  "exam_cap",
+  "exam_cap_name",
+  "exam_cap_exam_date",
+];
+
+function clampNumber(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function normalizeNoteReviewDockSettings(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    enabled: src.enabled !== false,
+    keyboard: src.keyboard !== false,
+    lapseThreshold: Math.round(clampNumber(src.lapseThreshold, 1, 50, 8)),
+  };
+}
+
+function schedulerForNote(fm, settings) {
+  const declared = str(fm && fm.scheduler);
+  if (declared === "fsrs" || declared === "sm2") return declared;
+  return settings && settings.scheduler === "fsrs" ? "fsrs" : "ladder";
+}
+
+function cloneFrontmatter(fm) {
+  try {
+    return JSON.parse(JSON.stringify(fm || {}));
+  } catch (_) {
+    return {};
+  }
+}
+
+function previewForGrade(fm, grade, settings, now) {
+  const copy = cloneFrontmatter(fm);
+  const attempt = noteReviewAttempt(grade, 0, now);
+  const summary = applyAttempt(copy, attempt, settings.intervals, {
+    scheduler: schedulerForNote(fm, settings),
+    fsrsRetention: settings.fsrsRetention,
+    grade,
+  });
+  const due = str(summary.nextReview).slice(0, 10);
+  const today = dayKey(now);
+  const days = due ? Math.max(0, Math.round((new Date(`${due}T12:00:00`) - new Date(`${today}T12:00:00`)) / 86400000)) : 0;
+  return { days, label: formatInterval(days), nextReview: due, summary };
+}
+
+/** Exact next interval for each rating, using the same applyAttempt path as the review. */
+function noteReviewPreviews(fm, settings, now) {
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  const out = {};
+  for (const grade of GRADES) out[grade] = previewForGrade(fm, grade, settings || {}, at);
+  return out;
+}
+
+function gradeForKey(key, scheduler) {
+  const digit = String(key || "");
+  if (!/^[0-5]$/.test(digit)) return "";
+  const value = Number(digit);
+  if (scheduler === "sm2") {
+    if (value <= 2) return "again";
+    if (value === 3) return "hard";
+    if (value === 4) return "good";
+    return "easy";
+  }
+  if (value === 0) return "again";
+  if (value === 1) return "again";
+  if (value === 2) return "hard";
+  if (value === 3) return "good";
+  return "easy";
+}
+
+function noteReviewSnapshot(fm) {
+  const snapshot = {};
+  for (const key of SNAPSHOT_KEYS) {
+    if (fm && Object.prototype.hasOwnProperty.call(fm, key)) snapshot[key] = cloneFrontmatter({ value: fm[key] }).value;
+  }
+  return snapshot;
+}
+
+function restoreNoteReviewSnapshot(fm, snapshot) {
+  for (const key of SNAPSHOT_KEYS) delete fm[key];
+  for (const [key, value] of Object.entries(snapshot || {})) {
+    if (SNAPSHOT_KEYS.includes(key)) fm[key] = cloneFrontmatter({ value }).value;
+  }
+}
+
+function lapseThresholdReached(fm, threshold) {
+  return (Number(fm && fm.note_lapse_streak) || 0) >= Math.max(1, Number(threshold) || 8);
+}
+
+function postponeDays(now, days) {
+  const date = new Date(now instanceof Date && !isNaN(now.getTime()) ? now.getTime() : Date.now());
+  date.setDate(date.getDate() + Math.max(1, Math.round(Number(days) || 1)));
+  return dayKey(date);
+}
+
+function resetNoteSchedule(fm, now) {
+  delete fm.srs;
+  delete fm.sm2;
+  delete fm.streak;
+  delete fm.last_card_rating;
+  delete fm.note_lapse_streak;
+  fm.next_review = dayKey(now || new Date());
+  // Keep the append-only history and attempt counters: this resets the
+  // schedule, not the record of what was studied.
+}
+
+function applyLapseAction(fm, action, now) {
+  const kind = str(action).toLowerCase();
+  if (kind === "reset") resetNoteSchedule(fm, now);
+  else if (kind === "rest") {
+    fm.next_review = postponeDays(now, 7);
+    fm.note_lapse_streak = 0;
+  } else if (kind === "remove") {
+    fm.note_review_excluded = true;
+    fm.next_review = "";
+    fm.note_lapse_streak = 0;
+  } else if (kind === "carry") {
+    fm.note_lapse_streak = 0;
+  }
+  return kind;
+}
+
+function dayKey(date) {
+  const d = date instanceof Date && !isNaN(date.getTime()) ? date : new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function activeMarkdownView(app) {
+  try {
+    const workspace = app.workspace;
+    if (MarkdownView && typeof workspace.getActiveViewOfType === "function") {
+      const view = workspace.getActiveViewOfType(MarkdownView);
+      if (view) return view;
+    }
+    const leaf = workspace.activeLeaf || (workspace.getMostRecentLeaf && workspace.getMostRecentLeaf());
+    return leaf && leaf.view && leaf.view.file ? leaf.view : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** The docked bar for the active Markdown note. */
+class NoteReviewDock {
+  constructor(plugin) {
+    this.plugin = plugin;
+    this.bar = null;
+    this.host = null;
+    this.path = "";
+    this.pendingLapse = null;
+    this.lastUndo = null;
+    this.done = false;
+  }
+
+  settings() {
+    return normalizeNoteReviewDockSettings(this.plugin.settings.noteReviewDock);
+  }
+
+  remove() {
+    if (this.bar && typeof this.bar.remove === "function") this.bar.remove();
+    else if (this.bar && this.bar.parentNode) this.bar.parentNode.removeChild(this.bar);
+    if (this.host && typeof this.host.removeClass === "function") this.host.removeClass("qt-note-review-host");
+    this.bar = null;
+    this.host = null;
+    this.path = "";
+    this.pendingLapse = null;
+    this.done = false;
+  }
+
+  refresh() {
+    const plugin = this.plugin;
+    const config = this.settings();
+    if (!config.enabled || !plugin.noteReviewDockEnabled || !plugin.noteReviewDockEnabled()) return this.remove();
+    const view = activeMarkdownView(plugin.app);
+    if (!view || !view.file) return this.remove();
+    const queue = plugin.getNoteQueue({ limit: 0 });
+    const item = (queue.all || []).find((row) => row.path === view.file.path);
+    if (!item) return this.remove();
+    this.path = view.file.path;
+    this.host = view.containerEl || view.contentEl;
+    if (!this.host) return this.remove();
+    this.render(view, item, queue);
+  }
+
+  render(view, item, queue) {
+    const host = view.containerEl || view.contentEl;
+    this.host = host;
+    if (!host || typeof host.createDiv !== "function") return;
+    if (!this.bar || !this.bar.isConnected) {
+      this.bar = host.createDiv({ cls: "qt-note-review-dock" });
+      if (typeof host.addClass === "function") host.addClass("qt-note-review-host");
+    }
+    const bar = this.bar;
+    bar.empty();
+    const head = bar.createDiv({ cls: "qt-note-review-dock-head" });
+    head.createSpan({ cls: "qt-note-review-dock-title", text: "Whole-note review" });
+    head.createSpan({ cls: "qt-note-review-dock-meta", text: `${item.title} · ${item.set} · ${item.isNew ? "new" : `due ${item.dueDate}`}` });
+    const close = head.createEl("button", { cls: "qt-note-review-dock-close", text: "×" });
+    close.setAttr("aria-label", "Hide the review bar");
+    close.addEventListener("click", () => {
+      this.done = true;
+      this.remove();
+    });
+
+    if (this.done) {
+      bar.createDiv({ cls: "qt-note-review-dock-message", text: "Review finished for this note." });
+      return;
+    }
+
+    if (this.pendingLapse) {
+      const panel = bar.createDiv({ cls: "qt-note-review-dock-lapse" });
+      panel.createDiv({
+        cls: "qt-note-review-dock-message",
+        text: `This note has lapsed ${this.pendingLapse.streak} times in a row. What should happen next?`,
+      });
+      const actions = panel.createDiv({ cls: "qt-row qt-note-review-dock-actions" });
+      for (const [action, label] of [
+        ["reset", "Reset progress"],
+        ["rest", "Rest for a week"],
+        ["remove", "Remove from review"],
+        ["carry", "Carry on"],
+      ]) {
+        actions.createEl("button", { text: label }).addEventListener("click", () => this.lapseAction(action));
+      }
+      return;
+    }
+
+    const previews = noteReviewPreviews(item.note.fm, this.plugin.settings, new Date());
+    const grades = bar.createDiv({ cls: "qt-note-review-dock-grades" });
+    for (const grade of GRADES) {
+      const preview = previews[grade];
+      const button = grades.createEl("button", { cls: `qt-note-review-dock-grade is-${grade}` });
+      button.createSpan({ cls: "qt-note-review-dock-grade-label", text: GRADE_LABELS[grade] });
+      button.createSpan({ cls: "qt-note-review-dock-grade-interval", text: preview.label });
+      button.setAttr("aria-label", `${GRADE_LABELS[grade]}, next review ${preview.label}`);
+      button.addEventListener("click", () => this.grade(grade));
+    }
+
+    const secondary = bar.createDiv({ cls: "qt-row qt-note-review-dock-secondary" });
+    secondary.createEl("button", { text: "Skip" }).addEventListener("click", () => this.skip());
+    secondary.createEl("button", { text: "Postpone 1 day" }).addEventListener("click", () => this.postpone());
+    const undo = secondary.createEl("button", { text: "Undo" });
+    undo.disabled = !this.lastUndo || this.lastUndo.path !== item.path;
+    undo.addEventListener("click", () => this.undo());
+    secondary.createEl("button", { text: "Open next" }).addEventListener("click", () => this.openNext(item.path));
+    bar.createDiv({
+      cls: "qt-note-review-dock-hint",
+      text: this.settings().keyboard ? "Keys: 1–4 or 0–5 to grade · n skip · p postpone · u undo" : "Keyboard grading is off in settings.",
+    });
+    bar.setAttr("aria-label", `Whole-note review for ${item.title}`);
+  }
+
+  async grade(grade) {
+    const plugin = this.plugin;
+    const view = activeMarkdownView(plugin.app);
+    if (!view || !view.file || view.file.path !== this.path) return;
+    const file = view.file;
+    const confirmed = plugin.getNoteQueue({ limit: 0 }).all.find((row) => row.path === file.path);
+    if (!confirmed) {
+      this.remove();
+      return;
+    }
+    try {
+      const summary = await plugin.recordNoteReview(file, grade, 0);
+      this.lastUndo = { path: file.path, snapshot: summary && summary.previous };
+      const config = this.settings();
+      if (grade === "again" && summary && lapseThresholdReached({ note_lapse_streak: summary.lapseStreak }, config.lapseThreshold)) {
+        this.pendingLapse = { streak: summary.lapseStreak };
+        this.refresh();
+        return;
+      }
+      await this.openNext(file.path);
+    } catch (e) {
+      this.showMessage(str(e && e.message ? e.message : e) || "Could not record the review.");
+    }
+  }
+
+  async lapseAction(action) {
+    const file = this.plugin.app.vault.getAbstractFileByPath(this.path);
+    if (file && this.plugin.applyNoteLapseAction) await this.plugin.applyNoteLapseAction(file, action);
+    this.pendingLapse = null;
+    this.lastUndo = null;
+    await this.openNext(this.path);
+  }
+
+  async postpone() {
+    const file = this.plugin.app.vault.getAbstractFileByPath(this.path);
+    if (file && this.plugin.postponeNoteReview) await this.plugin.postponeNoteReview(file, 1);
+    this.lastUndo = null;
+    await this.openNext(this.path);
+  }
+
+  async undo() {
+    if (!this.lastUndo || !this.lastUndo.snapshot) return;
+    const file = this.plugin.app.vault.getAbstractFileByPath(this.lastUndo.path);
+    if (!file) return;
+    await this.plugin.undoNoteReview(file, this.lastUndo.snapshot);
+    this.lastUndo = null;
+    this.pendingLapse = null;
+    this.done = false;
+    this.refresh();
+  }
+
+  async skip() {
+    await this.openNext(this.path);
+  }
+
+  async openNext(fromPath) {
+    const queue = this.plugin.getNoteQueue({ limit: 0 }).all;
+    const current = queue.findIndex((row) => row.path === fromPath);
+    const next = queue[current + 1] || queue[(current + 1) % Math.max(1, queue.length)];
+    if (!next || next.path === fromPath) {
+      this.done = true;
+      this.refresh();
+      return;
+    }
+    await this.plugin.app.workspace.getLeaf(false).openFile(next.file);
+    this.done = false;
+    this.pendingLapse = null;
+    this.refresh();
+  }
+
+  showMessage(text) {
+    if (!this.bar) return;
+    this.bar.empty();
+    this.bar.createDiv({ cls: "qt-note-review-dock-message", text });
+  }
+
+  onKey(event) {
+    const config = this.settings();
+    if (!config.enabled || !config.keyboard || !this.bar || this.pendingLapse) return;
+    const target = event && event.target;
+    if (target) {
+      const tag = str(target.tagName).toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select" || target.isContentEditable) return;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const key = str(event.key).toLowerCase();
+    if (key === "n") {
+      event.preventDefault();
+      this.skip();
+      return;
+    }
+    if (key === "p") {
+      event.preventDefault();
+      this.postpone();
+      return;
+    }
+    if (key === "u") {
+      event.preventDefault();
+      this.undo();
+      return;
+    }
+    const view = activeMarkdownView(this.plugin.app);
+    const fm = view && view.file ? (this.plugin.app.metadataCache.getFileCache(view.file) || {}).frontmatter || {} : {};
+    const grade = gradeForKey(key, schedulerForNote(fm, this.plugin.settings));
+    if (!grade) return;
+    event.preventDefault();
+    this.grade(grade);
+  }
+}
+
+module.exports = {
+  GRADES,
+  GRADE_LABELS,
+  NoteReviewDock,
+  applyLapseAction,
+  gradeForKey,
+  lapseThresholdReached,
+  noteReviewPreviews,
+  noteReviewSnapshot,
+  normalizeNoteReviewDockSettings,
+  postponeDays,
+  resetNoteSchedule,
+  restoreNoteReviewSnapshot,
+  schedulerForNote,
 };
 };
 
@@ -38159,7 +39101,7 @@ __defs["plugin"] = function (module, exports, require) {
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -38289,6 +39231,14 @@ const { normalizeVaultSearchSettings, renderVaultSearchBlock: renderVaultSearch 
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
+const reviewCalendar = require("./review-calendar");
+const studyStats = require("./study-stats");
+const localEvents = require("./local-events");
+const noteReviewDock = require("./note-review-dock");
+const { NoteReviewDock } = require("./note-review-dock");
+const { ReviewCalendarView } = require("./review-calendar-view");
+const { StudyStatsView } = require("./study-stats-view");
+const { LocalEventModal, LocalEventsView } = require("./local-events-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const { CardGeneratorModal } = require("./card-generator-modal");
@@ -38404,6 +39354,16 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_ASSIGNMENTS, (leaf) => new AssignmentsView(leaf, this));
     this.registerView(VIEW_TYPE_STUDY_TOOLS, (leaf) => new StudyToolsView(leaf, this));
     this.registerView(VIEW_TYPE_STUDY_WORKSPACE, (leaf) => new StudyWorkspaceView(leaf, this));
+    this.registerView(VIEW_TYPE_REVIEW_CALENDAR, (leaf) => new ReviewCalendarView(leaf, this));
+    this.registerView(VIEW_TYPE_STUDY_STATS, (leaf) => new StudyStatsView(leaf, this));
+    this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
+    this.noteReviewDock = new NoteReviewDock(this);
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshNoteReviewDock()));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.refreshNoteReviewDock()));
+    this.registerEvent(this.app.metadataCache.on("changed", () => this.refreshNoteReviewDock()));
+    if (typeof activeDocument !== "undefined" && activeDocument) {
+      this.registerDomEvent(activeDocument, "keydown", (event) => this.noteReviewDock.onKey(event));
+    }
     this.ribbonButtons = {};
     this.ribbonAdded = {};
     this.refreshRibbon();
@@ -38476,6 +39436,14 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => this.activateCalendar() });
+    this.addCommand({ id: "open-review-calendar", name: "Open review calendar", callback: () => this.activateReviewCalendar() });
+    this.addCommand({ id: "review-calendar-add-note", name: "Review calendar: add this note to review", callback: () => this.addActiveNoteToReview() });
+    this.addCommand({ id: "review-calendar-add-folder", name: "Review calendar: add this folder to review", callback: () => this.addActiveFolderToReview() });
+    this.addCommand({ id: "open-study-stats", name: "Open study statistics", callback: () => this.activateStudyStats() });
+    this.addCommand({ id: "open-local-events", name: "Open local events", callback: () => this.activateLocalEvents() });
+    this.addCommand({ id: "new-local-event", name: "Local events: create an event", callback: () => this.openNewLocalEvent() });
+    this.addCommand({ id: "open-next-due-note", name: "Note review: open the next due note", callback: () => this.openNextDueNote() });
+    this.addCommand({ id: "note-review-dock-toggle", name: "Note review: show or hide the review bar", callback: () => this.toggleNoteReviewDock() });
     this.addCommand({ id: "calendar-add-schedule", name: "Calendar: add an .ics schedule", callback: () => this.openCalendarImport() });
     this.addCommand({
       id: "calendar-note-next-class",
@@ -38994,6 +39962,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.noteReview = normalizeNoteReview(saved.noteReview);
+    this.settings.noteReviewDock = noteReviewDock.normalizeNoteReviewDockSettings(saved.noteReviewDock);
+    this.settings.reviewCalendar = reviewCalendar.normalizeReviewCalendarSettings(saved.reviewCalendar);
+    this.settings.studyStats = studyStats.normalizeStudyStatsSettings(saved.studyStats);
+    this.settings.localEvents = localEvents.normalizeLocalEventsSettings(saved.localEvents);
     this.settings.spacedEverything = normalizeSpacedEverything(saved.spacedEverything);
     this.settings.quizGenerator = normalizeQuizGenerator(saved.quizGenerator);
     this.settings.cardGenerator = normalizeCardGenerator(saved.cardGenerator);
@@ -39384,6 +40356,12 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_STUDY_WORKSPACE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
+    for (const type of [VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS]) {
+      for (const leaf of this.app.workspace.getLeavesOfType(type)) {
+        if (leaf.view && leaf.view.render) leaf.view.render();
+      }
+    }
+    this.refreshNoteReviewDock();
     this.refreshNoteReviewStatus();
     this.decorateFileExplorer();
   }
@@ -39441,6 +40419,22 @@ class QuestionTrackerPlugin extends Plugin {
   /** Flashcards and vocabulary are opt-in. */
   cardsEnabled() {
     return !!(this.settings.cards && this.settings.cards.enabled);
+  }
+
+  noteReviewDockEnabled() {
+    return noteReviewDock.normalizeNoteReviewDockSettings(this.settings.noteReviewDock).enabled;
+  }
+
+  reviewCalendarEnabled() {
+    return reviewCalendar.normalizeReviewCalendarSettings(this.settings.reviewCalendar).enabled;
+  }
+
+  studyStatsEnabled() {
+    return studyStats.normalizeStudyStatsSettings(this.settings.studyStats).enabled;
+  }
+
+  localEventsEnabled() {
+    return localEvents.normalizeLocalEventsSettings(this.settings.localEvents).enabled;
   }
 
   /** The local formula sheet and unit converter are opt-in. */
@@ -39659,6 +40653,14 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("study-tools");
     if (this.studyWorkspaceEnabled()) this.addModuleRibbon("study-workspace", "workflow", "Open Study Workspace", () => this.activateStudyWorkspace());
     else this.removeModuleRibbon("study-workspace");
+    if (this.noteReviewDockEnabled()) this.addModuleRibbon("note-review", "repeat", "Open the next due note", () => this.openNextDueNote());
+    else this.removeModuleRibbon("note-review");
+    if (this.reviewCalendarEnabled()) this.addModuleRibbon("review-calendar", "calendar-clock", "Open review calendar", () => this.activateReviewCalendar());
+    else this.removeModuleRibbon("review-calendar");
+    if (this.studyStatsEnabled()) this.addModuleRibbon("study-stats", "bar-chart-3", "Open study statistics", () => this.activateStudyStats());
+    else this.removeModuleRibbon("study-stats");
+    if (this.localEventsEnabled()) this.addModuleRibbon("local-events", "calendar-plus", "Open local events", () => this.activateLocalEvents());
+    else this.removeModuleRibbon("local-events");
     this.refreshStudyNudgeLabel();
   }
 
@@ -39715,6 +40717,33 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshRibbon();
     if (!this.cardsEnabled()) {
       this.detachModuleLeaves([VIEW_TYPE_CARDS]);
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onReviewCalendarToggled() {
+    this.refreshRibbon();
+    if (!this.reviewCalendarEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_REVIEW_CALENDAR]);
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onStudyStatsToggled() {
+    this.refreshRibbon();
+    if (!this.studyStatsEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_STUDY_STATS]);
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onLocalEventsToggled() {
+    this.refreshRibbon();
+    if (!this.localEventsEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_LOCAL_EVENTS]);
       return;
     }
     this.refreshViews();
@@ -43386,14 +44415,248 @@ ${body}
     const attempt = noteReviewAttempt(grade, seconds);
     let summary;
     await this.app.fileManager.processFrontMatter(file, (fm) => {
+      const previous = noteReviewDock.noteReviewSnapshot(fm);
+      const scheduler = noteReviewDock.schedulerForNote(fm, this.settings);
       summary = applyAttempt(fm, attempt, this.settings.intervals, {
-        scheduler: this.settings.scheduler,
+        scheduler,
         fsrsRetention: this.settings.fsrsRetention,
         grade: attempt.grade,
       });
+      const priorStreak = Number(fm.note_lapse_streak) || 0;
+      fm.note_lapse_streak = attempt.grade === "again" ? priorStreak + 1 : 0;
+      summary.previous = previous;
+      summary.lapseStreak = fm.note_lapse_streak;
     });
     this.refreshViews();
     return summary;
+  }
+
+  refreshNoteReviewDock() {
+    if (!this.noteReviewDock) return;
+    try {
+      this.noteReviewDock.refresh();
+    } catch (e) {
+      /* the dock is an optional overlay; a render error must not break the plugin */
+    }
+  }
+
+  async toggleNoteReviewDock() {
+    const config = noteReviewDock.normalizeNoteReviewDockSettings(this.settings.noteReviewDock);
+    config.enabled = !config.enabled;
+    this.settings.noteReviewDock = config;
+    await this.save();
+    this.refreshNoteReviewDock();
+    new Notice(config.enabled ? "The whole-note review bar is shown." : "The whole-note review bar is hidden.");
+  }
+
+  async undoNoteReview(file, snapshot) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      noteReviewDock.restoreNoteReviewSnapshot(fm, snapshot);
+    });
+    this.refreshViews();
+  }
+
+  async postponeNoteReview(file, days) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      fm.next_review = noteReviewDock.postponeDays(new Date(), days);
+      fm.note_lapse_streak = 0;
+    });
+    this.refreshViews();
+  }
+
+  async applyNoteLapseAction(file, action) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      noteReviewDock.applyLapseAction(fm, action, new Date());
+    });
+    this.refreshViews();
+  }
+
+  reviewCalendarSettings() {
+    return reviewCalendar.normalizeReviewCalendarSettings(this.settings.reviewCalendar);
+  }
+
+  reviewCalendarSnapshot(options) {
+    const opts = options || {};
+    const config = this.reviewCalendarSettings();
+    const noteConfig = normalizeNoteReview(this.settings.noteReview);
+    const cards = config.showCards && this.cardsEnabled() ? this.getCards() : [];
+    return reviewCalendar.buildReviewForecast({
+      notes: this.getNoteCandidates(),
+      cards,
+      settings: config,
+      sets: noteConfig.sets,
+      today: localDate(),
+      days: opts.days || 45,
+    });
+  }
+
+  async addNoteToReview(file, options) {
+    const opts = options || {};
+    const target = file || this.app.workspace.getActiveFile();
+    if (!target || !/\.md$/i.test(target.path || "")) {
+      if (!opts.silent) new Notice("Open a Markdown note first.");
+      return null;
+    }
+    const fm = this.app.metadataCache.getFileCache(target)?.frontmatter || {};
+    if (!noteReview.isNoteCandidate({ file: target, fm })) {
+      if (!opts.silent) new Notice("Question and card notes are already reviewed by their own queues.");
+      return null;
+    }
+    await this.app.fileManager.processFrontMatter(target, (noteFm) => {
+      noteFm.note_review = true;
+      noteFm.note_review_excluded = false;
+      if (!str(noteFm.next_review).trim()) noteFm.next_review = localDate();
+    });
+    const config = normalizeNoteReview(this.settings.noteReview);
+    config.enabled = true;
+    this.settings.noteReview = config;
+    await this.save();
+    this.refreshViews();
+    if (!opts.silent) new Notice(`${target.basename} is now in whole-note review.`);
+    return target.path;
+  }
+
+  async addActiveNoteToReview() {
+    return this.addNoteToReview(this.app.workspace.getActiveFile());
+  }
+
+  folderMainNote(folder) {
+    const root = str(folder).trim().replace(/^\/+|\/+$/g, "");
+    if (!root) return null;
+    const rows = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (file.path !== root && !file.path.startsWith(`${root}/`)) continue;
+      const cache = this.app.metadataCache.getFileCache(file) || {};
+      rows.push({ path: file.path, title: file.basename, links: Array.isArray(cache.links) ? cache.links.length : 0 });
+    }
+    return reviewCalendar.pickMainNote(rows);
+  }
+
+  async addFolderToReview(folder, options) {
+    const opts = options || {};
+    const root = str(folder).trim().replace(/^\/+|\/+$/g, "");
+    if (!root) {
+      if (!opts.silent) new Notice("Open a note inside the folder first.");
+      return null;
+    }
+    const config = normalizeNoteReview(this.settings.noteReview);
+    const result = reviewCalendar.addFolderSet(config.sets, root, `Folder: ${root}`);
+    config.sets = result.sets;
+    config.enabled = true;
+    this.settings.noteReview = config;
+    if (opts.detectMainNote !== false && this.reviewCalendarSettings().detectMainNote) {
+      const main = this.folderMainNote(root);
+      if (main) await this.addNoteToReview(this.app.vault.getAbstractFileByPath(main.path), { silent: true });
+    }
+    await this.save();
+    this.refreshViews();
+    if (!opts.silent) new Notice(result.added ? `Added ${root} to whole-note review.` : `${root} is already in whole-note review.`);
+    return result.added ? root : null;
+  }
+
+  async addActiveFolderToReview() {
+    const file = this.app.workspace.getActiveFile();
+    if (!file || !file.parent) {
+      new Notice("Open a note inside the folder first.");
+      return null;
+    }
+    return this.addFolderToReview(file.parent.path);
+  }
+
+  studyStatsSnapshot() {
+    return studyStats.buildStudyStats({
+      cards: this.getCards(),
+      questions: this.getQuestions(),
+      notes: this.getNoteCandidates(),
+      settings: this.settings.studyStats,
+      fsrsRetention: this.settings.fsrsRetention,
+      now: new Date(),
+    });
+  }
+
+  async saveLocalEvent(value) {
+    const result = localEvents.upsertLocalEvent(this.settings.localEvents, value, new Date());
+    this.settings.localEvents = result.settings;
+    await this.save();
+    this.refreshViews();
+    return result.event;
+  }
+
+  async deleteLocalEvent(id) {
+    const result = localEvents.removeLocalEvent(this.settings.localEvents, id);
+    this.settings.localEvents = result.settings;
+    await this.save();
+    this.refreshViews();
+    return result.removed;
+  }
+
+  openNewLocalEvent() {
+    if (!this.localEventsEnabled()) {
+      new Notice("Turn on Local events in Settings → Local events.");
+      return null;
+    }
+    const modal = new LocalEventModal(this.app, this, null);
+    modal.open();
+    return modal;
+  }
+
+  openLocalEvent(id) {
+    const event = (this.settings.localEvents.events || []).find((item) => item.id === id);
+    if (!event) return null;
+    const modal = new LocalEventModal(this.app, this, event);
+    modal.open();
+    return modal;
+  }
+
+  async openNextDueNote() {
+    const queue = this.getNoteQueue({ limit: 0 });
+    if (!queue.all.length) {
+      new Notice("No whole notes are due for review.");
+      return null;
+    }
+    const active = this.app.workspace.getActiveFile();
+    const current = active ? queue.all.findIndex((row) => row.path === active.path) : -1;
+    const next = queue.all[current + 1] || queue.all[0];
+    await this.app.workspace.getLeaf(false).openFile(next.file);
+    this.refreshNoteReviewDock();
+    return next.file;
+  }
+
+  async activateReviewCalendar() {
+    if (!this.reviewCalendarEnabled()) {
+      new Notice("Turn on Review calendar in Settings → Review calendar.");
+      return null;
+    }
+    return this.activateModuleView(VIEW_TYPE_REVIEW_CALENDAR);
+  }
+
+  async activateStudyStats() {
+    if (!this.studyStatsEnabled()) {
+      new Notice("Turn on Study statistics in Settings → Study statistics.");
+      return null;
+    }
+    return this.activateModuleView(VIEW_TYPE_STUDY_STATS);
+  }
+
+  async activateLocalEvents() {
+    if (!this.localEventsEnabled()) {
+      new Notice("Turn on Local events in Settings → Local events.");
+      return null;
+    }
+    return this.activateModuleView(VIEW_TYPE_LOCAL_EVENTS);
+  }
+
+  async activateModuleView(type) {
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(type)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
   }
 
   async setNotePriority(file, priority) {
@@ -55338,6 +56601,690 @@ module.exports = {
 };
 };
 
+/* ---- src/review-calendar.js ---- */
+__defs["review-calendar"] = function (module, exports, require) {
+/*
+ * Review calendar and workload: the due-date view for whole-note review and
+ * cards. It reads the same `next_review` properties and note sets as the normal
+ * queues, and only estimates time; it never schedules or writes anything.
+ */
+const { str } = require("./util");
+const { isStudyable } = require("./study-status");
+const { isNoteCandidate, noteDueDate, notePriority, noteSetFor, normalizePriority } = require("./note-review");
+
+const WEEK_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function clampNumber(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function normalizeReviewCalendarSettings(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    enabled: src.enabled !== false,
+    noteMinutes: clampNumber(src.noteMinutes, 0.25, 60, 2),
+    cardMinutes: clampNumber(src.cardMinutes, 0.25, 60, 1),
+    showCards: src.showCards !== false,
+    detectMainNote: src.detectMainNote !== false,
+    weekStartsOn: str(src.weekStartsOn).toLowerCase() === "sunday" ? "sunday" : "monday",
+  };
+}
+
+function pad(value) {
+  return String(value).padStart(2, "0");
+}
+
+function dayKey(date) {
+  const d = date instanceof Date && !isNaN(date.getTime()) ? date : new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function addDays(key, days) {
+  const date = new Date(`${key}T12:00:00`);
+  if (isNaN(date.getTime())) return key;
+  date.setDate(date.getDate() + Math.round(days));
+  return dayKey(date);
+}
+
+function validDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(str(value).trim()) ? str(value).trim() : "";
+}
+
+function titleOf(file, fm) {
+  return str(fm && fm.title).trim() || str(file && file.basename).trim() || str(file && file.path).replace(/^.*\//, "").replace(/\.md$/i, "");
+}
+
+function estimateMinutes(fm, fallback) {
+  const attempts = Number(fm && fm.attempts) || 0;
+  const seconds = Number(fm && fm.time_spent_total) || 0;
+  if (attempts > 0 && seconds > 0) return Math.min(30, Math.max(0.25, seconds / attempts / 60));
+  return fallback;
+}
+
+/**
+ * Every whole note that belongs to a review set, with its next due date.
+ * New notes are due today; overdue notes are kept as-is so the forecast can
+ * fold them into today's workload.
+ */
+function noteScheduleRows(notes, options) {
+  const opts = options || {};
+  const sets = Array.isArray(opts.sets) ? opts.sets : [];
+  const today = validDate(opts.today) || dayKey(new Date());
+  const rows = [];
+  for (const note of Array.isArray(notes) ? notes : []) {
+    const fm = note && note.fm ? note.fm : {};
+    if (!isNoteCandidate(note)) continue;
+    if (fm.note_review_excluded === true) continue;
+    const set = noteSetFor(note, sets);
+    if (!set) continue;
+    if (!isStudyable(fm, today)) continue;
+    const attempts = Number(fm.attempts) || 0;
+    const due = validDate(noteDueDate(fm)) || today;
+    rows.push({
+      kind: "note",
+      path: str(note.file && note.file.path),
+      title: titleOf(note.file, fm),
+      date: attempts ? due : today,
+      due,
+      isNew: !attempts,
+      priority: notePriority(note, set),
+      set: set.name,
+      minutes: estimateMinutes(fm, opts.noteMinutes === undefined ? 2 : Number(opts.noteMinutes)),
+    });
+  }
+  return rows;
+}
+
+function cardScheduleRows(cards, options) {
+  const opts = options || {};
+  const today = validDate(opts.today) || dayKey(new Date());
+  const rows = [];
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const fm = card && card.fm ? card.fm : {};
+    if (!isStudyable(fm, today)) continue;
+    const attempts = Number(fm.attempts) || 0;
+    const due = validDate(fm.next_review) || today;
+    rows.push({
+      kind: "card",
+      path: str(card.file && card.file.path),
+      title: titleOf(card.file, fm),
+      deck: str(card.deck || fm.deck),
+      date: attempts ? due : today,
+      due,
+      isNew: !attempts,
+      minutes: estimateMinutes(fm, opts.cardMinutes === undefined ? 1 : Number(opts.cardMinutes)),
+    });
+  }
+  return rows;
+}
+
+function buildReviewForecast(input) {
+  const opts = input || {};
+  const settings = normalizeReviewCalendarSettings(opts.settings);
+  const today = validDate(opts.today) || dayKey(new Date());
+  const days = Math.max(1, Math.min(400, Math.round(Number(opts.days) || 45)));
+  const noteRows = noteScheduleRows(opts.notes, { ...settings, sets: Array.isArray(opts.sets) ? opts.sets : [], today });
+  const cardRows = settings.showCards ? cardScheduleRows(opts.cards, { ...settings, today }) : [];
+  const map = new Map();
+  for (let index = 0; index < days; index++) {
+    const key = addDays(today, index);
+    map.set(key, { date: key, notes: [], cards: [], minutes: 0 });
+  }
+  let overdue = 0;
+  const add = (row) => {
+    if (!row.date) return;
+    let key = row.date;
+    if (key < today) {
+      key = today;
+      overdue++;
+    }
+    const bucket = map.get(key);
+    if (!bucket) return;
+    if (row.kind === "note") bucket.notes.push(row);
+    else bucket.cards.push(row);
+    bucket.minutes += row.minutes;
+  };
+  for (const row of noteRows) add(row);
+  for (const row of cardRows) add(row);
+  const list = [...map.values()].map((bucket) => ({
+    ...bucket,
+    total: bucket.notes.length + bucket.cards.length,
+    minutes: Math.round(bucket.minutes * 10) / 10,
+  }));
+  const next7 = list.slice(0, 7);
+  return {
+    today,
+    days: list,
+    notes: noteRows,
+    cards: cardRows,
+    overdue,
+    totals: {
+      notes: noteRows.length,
+      cards: cardRows.length,
+      due: noteRows.length + cardRows.length,
+      minutes: Math.round(list.reduce((sum, day) => sum + day.minutes, 0) * 10) / 10,
+    },
+    next7: {
+      days: next7,
+      total: next7.reduce((sum, day) => sum + day.total, 0),
+      minutes: Math.round(next7.reduce((sum, day) => sum + day.minutes, 0) * 10) / 10,
+    },
+  };
+}
+
+function workloadLabel(minutes) {
+  const value = Math.max(0, Number(minutes) || 0);
+  if (!value) return "no work";
+  if (value < 60) return `${Math.round(value)} min`;
+  const hours = Math.floor(value / 60);
+  const rest = Math.round(value - hours * 60);
+  return rest ? `${hours} h ${rest} min` : `${hours} h`;
+}
+
+function calendarCells(forecast, year, month, weekStartsOn, now) {
+  const first = new Date(year, month, 1);
+  const startOffset = weekStartsOn === "sunday" ? first.getDay() : (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrev = new Date(year, month, 0).getDate();
+  const map = new Map((forecast && forecast.days ? forecast.days : []).map((day) => [day.date, day]));
+  const today = dayKey(now || new Date());
+  const cells = [];
+  const push = (y, m, d, inMonth) => {
+    const key = `${y}-${pad(m)}-${pad(d)}`;
+    const bucket = map.get(key);
+    cells.push({ key, day: d, inMonth, isToday: key === today, total: bucket ? bucket.total : 0, minutes: bucket ? bucket.minutes : 0 });
+  };
+  for (let i = startOffset; i > 0; i--) push(month === 0 ? year - 1 : year, month === 0 ? 12 : month, daysInPrev - i + 1, false);
+  for (let day = 1; day <= daysInMonth; day++) push(year, month + 1, day, true);
+  while (cells.length % 7) {
+    const nextDay = cells.length - startOffset - daysInMonth + 1;
+    push(month === 11 ? year + 1 : year, month === 11 ? 1 : month + 2, nextDay, false);
+  }
+  return cells;
+}
+
+function pickMainNote(notes) {
+  const rows = (Array.isArray(notes) ? notes : [])
+    .map((note) => ({
+      path: str(note && note.path),
+      title: str(note && note.title) || str(note && note.path).replace(/^.*\//, "").replace(/\.md$/i, ""),
+      links: Array.isArray(note && note.links) ? note.links.length : Math.max(0, Number(note && note.links) || 0),
+    }))
+    .filter((note) => note.path);
+  rows.sort((a, b) => b.links - a.links || a.path.localeCompare(b.path));
+  return rows[0] || null;
+}
+
+function addFolderSet(sets, folder, name) {
+  const clean = str(folder).trim().replace(/^\/+|\/+$/g, "");
+  if (!clean) return { sets: Array.isArray(sets) ? sets : [], added: false };
+  const list = Array.isArray(sets) ? sets : [];
+  if (list.some((set) => (set.folders || []).includes(clean))) return { sets: list, added: false };
+  return {
+    sets: list.concat({
+      name: str(name).trim() || `Folder: ${clean}`,
+      folders: [clean],
+      tags: [],
+      priority: "normal",
+    }),
+    added: true,
+  };
+}
+
+function weekdayRhythm(rows) {
+  const buckets = WEEK_DAYS.map((label) => ({ label, attempts: 0, correct: 0 }));
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const date = new Date(`${row.date}T12:00:00`);
+    if (isNaN(date.getTime())) continue;
+    const index = (date.getDay() + 6) % 7;
+    buckets[index].attempts++;
+    if (row.correct) buckets[index].correct++;
+  }
+  return buckets.map((bucket) => ({ ...bucket, accuracy: bucket.attempts ? bucket.correct / bucket.attempts : null }));
+}
+
+module.exports = {
+  WEEK_DAYS,
+  addDays,
+  addFolderSet,
+  buildReviewForecast,
+  calendarCells,
+  cardScheduleRows,
+  dayKey,
+  estimateMinutes,
+  noteScheduleRows,
+  normalizeReviewCalendarSettings,
+  pad,
+  pickMainNote,
+  validDate,
+  weekdayRhythm,
+  workloadLabel,
+};
+};
+
+/* ---- src/review-calendar-view.js ---- */
+__defs["review-calendar-view"] = function (module, exports, require) {
+/* Review calendar: due-date grid and next-7-day workload. */
+const { ItemView, Notice } = require("obsidian");
+const { VIEW_TYPE_REVIEW_CALENDAR } = require("./constants");
+const { calendarCells, workloadLabel } = require("./review-calendar");
+const { localDate, str } = require("./util");
+
+const WEEK_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+class ReviewCalendarView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this.cursor = new Date();
+    this.selected = "";
+  }
+
+  getViewType() {
+    return VIEW_TYPE_REVIEW_CALENDAR;
+  }
+
+  getDisplayText() {
+    return "Review calendar";
+  }
+
+  getIcon() {
+    return "calendar-clock";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-root");
+    this.selected = localDate();
+    this.render();
+  }
+
+  async onClose() {}
+
+  settings() {
+    return this.plugin.reviewCalendarSettings();
+  }
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    const root = el.createDiv({ cls: "qt-wrap qt-review-calendar" });
+    if (!this.plugin.reviewCalendarEnabled()) {
+      this.renderOff(root);
+      return;
+    }
+    const snapshot = this.plugin.reviewCalendarSnapshot({ days: 400 });
+    const today = snapshot.today;
+    if (!this.selected || !/^\d{4}-\d{2}-\d{2}$/.test(this.selected)) this.selected = today;
+    const head = root.createDiv({ cls: "qt-review-calendar-head" });
+    head.createEl("h2", { text: "Review calendar" });
+    head.createDiv({ cls: "qt-hint", text: "Due whole notes and cards from their own next_review properties. Separate from classes and exams." });
+
+    const stats = root.createDiv({ cls: "qt-review-calendar-stats" });
+    const stat = (value, label) => {
+      const card = stats.createDiv({ cls: "qt-study-stat" });
+      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      card.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(snapshot.totals.notes, "notes due");
+    stat(snapshot.totals.cards, "cards due");
+    stat(snapshot.next7.total, "next 7 days");
+    stat(workloadLabel(snapshot.next7.minutes), "estimated work");
+
+    const actions = root.createDiv({ cls: "qt-row qt-review-calendar-actions" });
+    actions.createEl("button", { text: "Add this note", cls: "mod-cta" }).addEventListener("click", () => this.addNote());
+    actions.createEl("button", { text: "Add this folder" }).addEventListener("click", () => this.addFolder());
+    actions.createEl("button", { text: "Previous month" }).addEventListener("click", () => this.shiftMonth(-1));
+    actions.createEl("button", { text: "Today" }).addEventListener("click", () => this.goToday());
+    actions.createEl("button", { text: "Next month" }).addEventListener("click", () => this.shiftMonth(1));
+
+    this.renderWorkload(root, snapshot);
+    this.renderMonth(root, snapshot);
+    this.renderSelected(root, snapshot);
+  }
+
+  renderOff(root) {
+    const card = root.createDiv({ cls: "qt-onboard-card" });
+    card.createEl("h3", { text: "Review calendar is off" });
+    card.createDiv({ cls: "qt-onboard-text", text: "Turn it on in Settings → Review calendar." });
+    card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
+  }
+
+  renderWorkload(root, snapshot) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Next 7 days" });
+    const row = card.createDiv({ cls: "qt-review-calendar-week" });
+    for (const day of snapshot.next7.days) {
+      const cell = row.createDiv({ cls: "qt-review-calendar-day" });
+      if (day.date === snapshot.today) cell.addClass("is-today");
+      cell.createDiv({ cls: "qt-review-calendar-day-label", text: day.date.slice(5) });
+      cell.createDiv({ cls: "qt-review-calendar-day-count", text: String(day.total) });
+      cell.createDiv({ cls: "qt-review-calendar-day-minutes", text: workloadLabel(day.minutes) });
+      cell.addEventListener("click", () => {
+        this.selected = day.date;
+        this.render();
+      });
+    }
+  }
+
+  renderMonth(root, snapshot) {
+    const settings = this.settings();
+    const card = root.createDiv({ cls: "qt-study-card" });
+    const title = card.createDiv({ cls: "qt-review-calendar-month-title" });
+    title.createEl("h3", { text: `${MONTHS[this.cursor.getMonth()]} ${this.cursor.getFullYear()}` });
+    const grid = card.createDiv({ cls: "qt-review-calendar-grid" });
+    const labels = settings.weekStartsOn === "sunday" ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] : WEEK_LABELS;
+    for (const label of labels) grid.createDiv({ cls: "qt-review-calendar-weekday", text: label });
+    for (const cell of calendarCells(snapshot, this.cursor.getFullYear(), this.cursor.getMonth(), settings.weekStartsOn, new Date())) {
+      const day = grid.createDiv({ cls: "qt-review-calendar-cell" });
+      if (!cell.inMonth) day.addClass("is-other-month");
+      if (cell.isToday) day.addClass("is-today");
+      if (cell.key === this.selected) day.addClass("is-selected");
+      day.createDiv({ cls: "qt-review-calendar-cell-day", text: String(cell.day) });
+      if (cell.total) day.createDiv({ cls: "qt-review-calendar-cell-count", text: `${cell.total}` });
+      day.addEventListener("click", () => {
+        this.selected = cell.key;
+        this.render();
+      });
+    }
+  }
+
+  renderSelected(root, snapshot) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: this.selected });
+    const day = (snapshot.days || []).find((item) => item.date === this.selected);
+    if (!day || !day.total) {
+      card.createDiv({ cls: "qt-study-empty", text: "No notes or cards due on this day." });
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of [...day.notes, ...day.cards]) {
+      const item = list.createDiv({ cls: "qt-study-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: row.title });
+      main.createDiv({
+        cls: "qt-study-row-meta",
+        text: `${row.kind === "note" ? `Note · ${row.set}` : `Card · ${row.deck || "Deck"}`} · ${row.isNew ? "new" : `due ${row.due}`} · ${workloadLabel(row.minutes)}`,
+      });
+      const buttons = item.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: "Open" }).addEventListener("click", () => this.openPath(row.path));
+    }
+  }
+
+  openPath(path) {
+    const file = this.plugin.app.vault.getAbstractFileByPath(path);
+    if (file) this.plugin.app.workspace.getLeaf("tab").openFile(file);
+  }
+
+  async addNote() {
+    const result = await this.plugin.addActiveNoteToReview();
+    if (result) new Notice(result);
+    this.render();
+  }
+
+  async addFolder() {
+    const result = await this.plugin.addActiveFolderToReview();
+    if (result) new Notice(result);
+    this.render();
+  }
+
+  shiftMonth(delta) {
+    this.cursor = new Date(this.cursor.getFullYear(), this.cursor.getMonth() + delta, 1);
+    this.render();
+  }
+
+  goToday() {
+    const now = new Date();
+    this.cursor = new Date(now.getFullYear(), now.getMonth(), 1);
+    this.selected = localDate();
+    this.render();
+  }
+}
+
+module.exports = {
+  REVIEW_CALENDAR_MONTHS: MONTHS,
+  ReviewCalendarView,
+};
+};
+
+/* ---- src/review-settings.js ---- */
+__defs["review-settings"] = function (module, exports, require) {
+/* Settings pages for the four Spaceforge-derived study tools. */
+const { Setting } = require("obsidian");
+const { LOCAL_EVENT_CATEGORIES } = require("./local-events");
+const { normalizeNoteReviewDockSettings } = require("./note-review-dock");
+const { normalizeReviewCalendarSettings, workloadLabel } = require("./review-calendar");
+const { normalizeStudyStatsSettings } = require("./study-stats");
+
+function heading(containerEl, title, description) {
+  containerEl.createEl("h2", { text: title });
+  containerEl.createEl("p", { cls: "setting-item-description", text: description });
+}
+
+function renderNoteReviewSettings(containerEl, plugin, redisplay) {
+  const st = plugin.settings;
+  st.noteReviewDock = normalizeNoteReviewDockSettings(st.noteReviewDock);
+  heading(
+    containerEl,
+    "Note review",
+    "A grading bar docked under the open note. It reuses the whole-note queue and the same ladder, FSRS or SM-2 scheduler as the review modal; no second schedule is kept."
+  );
+  new Setting(containerEl)
+    .setName("Enable the docked review bar")
+    .setDesc("Show Again/Hard/Good/Easy under a due note, with the exact next interval on each button.")
+    .addToggle((t) =>
+      t.setValue(plugin.noteReviewDockEnabled()).onChange(async (v) => {
+        st.noteReviewDock.enabled = v;
+        await plugin.save();
+        plugin.refreshNoteReviewDock();
+        redisplay();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Keyboard grading")
+    .setDesc("Use 1–4 (or 0–5) to grade, n to skip, p to postpone one day and u to undo. Typing in a field is left alone.")
+    .addToggle((t) =>
+      t.setValue(st.noteReviewDock.keyboard).onChange(async (v) => {
+        st.noteReviewDock.keyboard = v;
+        await plugin.save();
+        plugin.refreshNoteReviewDock();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Lapse checkpoint")
+    .setDesc("After this many Again ratings in a row, offer Reset, Rest for a week, Remove from review or Carry on.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.max = "50";
+      t.setValue(String(st.noteReviewDock.lapseThreshold));
+      t.onChange(async (v) => {
+        st.noteReviewDock = normalizeNoteReviewDockSettings({ ...st.noteReviewDock, lapseThreshold: v });
+        await plugin.save();
+      });
+    });
+  const queue = plugin.getNoteQueue({ limit: 0 });
+  new Setting(containerEl)
+    .setName("Due now")
+    .setDesc(`${queue.counts.due} note${queue.counts.due === 1 ? "" : "s"} in the whole-note queue; ${queue.counts.new} new.`)
+    .addButton((b) => b.setButtonText("Open next due note").onClick(() => plugin.openNextDueNote()));
+  new Setting(containerEl)
+    .setName("Whole-note queue settings")
+    .setDesc("Note sets, priorities and the review limit stay on the MCQ Tracker page, Review tab.")
+    .addButton((b) => b.setButtonText("Open review settings").onClick(() => plugin.openSettings()));
+}
+
+function renderReviewCalendarSettings(containerEl, plugin, redisplay) {
+  const st = plugin.settings;
+  st.reviewCalendar = normalizeReviewCalendarSettings(st.reviewCalendar);
+  heading(
+    containerEl,
+    "Review calendar",
+    "A due-date calendar and next-7-day workload estimate for whole notes and cards. It reads next_review; imported .ics classes and exam-aware question scheduling are not involved."
+  );
+  new Setting(containerEl)
+    .setName("Enable Review calendar")
+    .setDesc("Adds its view, ribbon button and commands.")
+    .addToggle((t) =>
+      t.setValue(plugin.reviewCalendarEnabled()).onChange(async (v) => {
+        st.reviewCalendar.enabled = v;
+        await plugin.save();
+        await plugin.onReviewCalendarToggled();
+        redisplay();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Minutes per note review")
+    .setDesc("Fallback estimate for notes with no recorded review time. Recorded average times are used when available.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "0.25";
+      t.inputEl.max = "60";
+      t.inputEl.step = "0.25";
+      t.setValue(String(st.reviewCalendar.noteMinutes));
+      t.onChange(async (v) => {
+        st.reviewCalendar = normalizeReviewCalendarSettings({ ...st.reviewCalendar, noteMinutes: v });
+        await plugin.save();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Minutes per card review")
+    .setDesc("Fallback estimate for cards with no recorded review time.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "0.25";
+      t.inputEl.max = "60";
+      t.inputEl.step = "0.25";
+      t.setValue(String(st.reviewCalendar.cardMinutes));
+      t.onChange(async (v) => {
+        st.reviewCalendar = normalizeReviewCalendarSettings({ ...st.reviewCalendar, cardMinutes: v });
+        await plugin.save();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Include cards")
+    .setDesc("Show card due dates beside whole-note due dates.")
+    .addToggle((t) =>
+      t.setValue(st.reviewCalendar.showCards !== false).onChange(async (v) => {
+        st.reviewCalendar.showCards = v;
+        await plugin.save();
+        plugin.refreshViews();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Detect a folder's main note")
+    .setDesc("When adding a folder, offer the note with the most outgoing links as its main note.")
+    .addToggle((t) =>
+      t.setValue(st.reviewCalendar.detectMainNote !== false).onChange(async (v) => {
+        st.reviewCalendar.detectMainNote = v;
+        await plugin.save();
+      })
+    );
+  const forecast = plugin.reviewCalendarSnapshot({ days: 7 });
+  new Setting(containerEl)
+    .setName("Next 7 days")
+    .setDesc(`${forecast.next7.total} review${forecast.next7.total === 1 ? "" : "s"} · ${workloadLabel(forecast.next7.minutes)} estimated.`)
+    .addButton((b) => b.setButtonText("Open review calendar").onClick(() => plugin.activateReviewCalendar()))
+    .addButton((b) => b.setButtonText("Add this note").onClick(() => plugin.addActiveNoteToReview()))
+    .addButton((b) => b.setButtonText("Add this folder").onClick(() => plugin.addActiveFolderToReview()));
+}
+
+function renderStudyStatsSettings(containerEl, plugin, redisplay) {
+  const st = plugin.settings;
+  st.studyStats = normalizeStudyStatsSettings(st.studyStats);
+  heading(
+    containerEl,
+    "Study statistics",
+    "An Anki-style, read-only dashboard: true retention by card maturity, memory-now, interval/ease/stability/difficulty distributions, weekday rhythm, day detail and leeches."
+  );
+  new Setting(containerEl)
+    .setName("Enable Study statistics")
+    .setDesc("Adds its view, ribbon button and command.")
+    .addToggle((t) =>
+      t.setValue(plugin.studyStatsEnabled()).onChange(async (v) => {
+        st.studyStats.enabled = v;
+        await plugin.save();
+        await plugin.onStudyStatsToggled();
+        redisplay();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Leech list threshold")
+    .setDesc("Show an item after this many lapses. It is only a report; no item is suspended here.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.max = "50";
+      t.setValue(String(st.studyStats.leechThreshold));
+      t.onChange(async (v) => {
+        st.studyStats = normalizeStudyStatsSettings({ ...st.studyStats, leechThreshold: v });
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Open the dashboard")
+    .setDesc("The dashboard is independent of the accuracy-by-skill charts on the Insights page.")
+    .addButton((b) => b.setButtonText("Open Study statistics").onClick(() => plugin.activateStudyStats()));
+}
+
+function renderLocalEventsSettings(containerEl, plugin, redisplay) {
+  const st = plugin.settings;
+  heading(
+    containerEl,
+    "Local events",
+    "Your own calendar events, stored in plugin data. They are separate from imported .ics feeds and read-only Full Calendar notes; recurrence is expanded locally and no network request is made."
+  );
+  new Setting(containerEl)
+    .setName("Enable Local events")
+    .setDesc("Adds its view, ribbon button and commands.")
+    .addToggle((t) =>
+      t.setValue(plugin.localEventsEnabled()).onChange(async (v) => {
+        st.localEvents.enabled = v;
+        await plugin.save();
+        await plugin.onLocalEventsToggled();
+        redisplay();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Default category")
+    .setDesc("The category selected for a new event.")
+    .addDropdown((d) => {
+      for (const category of LOCAL_EVENT_CATEGORIES) d.addOption(category.id, category.label);
+      d.setValue(st.localEvents.defaultCategory || "study").onChange(async (v) => {
+        st.localEvents.defaultCategory = v;
+        await plugin.save();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Week starts on")
+    .setDesc("Used by the month grid.")
+    .addDropdown((d) => {
+      d.addOption("monday", "Monday");
+      d.addOption("sunday", "Sunday");
+      d.setValue(st.localEvents.weekStartsOn || "monday").onChange(async (v) => {
+        st.localEvents.weekStartsOn = v;
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Events")
+    .setDesc(`${(st.localEvents.events || []).length} local event${(st.localEvents.events || []).length === 1 ? "" : "s"}.`)
+    .addButton((b) => b.setButtonText("Open events").onClick(() => plugin.activateLocalEvents()))
+    .addButton((b) => b.setButtonText("New event").onClick(() => plugin.openNewLocalEvent()));
+}
+
+module.exports = {
+  renderLocalEventsSettings,
+  renderNoteReviewSettings,
+  renderReviewCalendarSettings,
+  renderStudyStatsSettings,
+};
+};
+
 /* ---- src/sat-math.js ---- */
 __defs["sat-math"] = function (module, exports, require) {
 /*
@@ -56771,6 +58718,7 @@ const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
+const { renderLocalEventsSettings, renderNoteReviewSettings, renderReviewCalendarSettings, renderStudyStatsSettings } = require("./review-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { normalizeQuickAdaptive } = require("./adaptive-session");
@@ -56795,6 +58743,10 @@ const SETTINGS_MODULES = [
   { id: "mcq", label: "MCQ Tracker", icon: "list-checks" },
   { id: "cards", label: "Cards", icon: "layers" },
   { id: "calendar", label: "Calendar", icon: "graduation-cap" },
+  { id: "note-review", label: "Note review", icon: "repeat" },
+  { id: "review-calendar", label: "Review calendar", icon: "calendar-clock" },
+  { id: "study-stats", label: "Study statistics", icon: "bar-chart-3" },
+  { id: "local-events", label: "Local events", icon: "calendar-plus" },
   { id: "assignments", label: "Assignments", icon: "clipboard-list" },
   { id: "reference", label: "Reference", icon: "book-open" },
 ];
@@ -56869,6 +58821,26 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.display();
         }
       );
+      return;
+    }
+
+    if (this.activeModule === "note-review") {
+      renderNoteReviewSettings(containerEl, this.plugin, () => this.display());
+      return;
+    }
+
+    if (this.activeModule === "review-calendar") {
+      renderReviewCalendarSettings(containerEl, this.plugin, () => this.display());
+      return;
+    }
+
+    if (this.activeModule === "study-stats") {
+      renderStudyStatsSettings(containerEl, this.plugin, () => this.display());
+      return;
+    }
+
+    if (this.activeModule === "local-events") {
+      renderLocalEventsSettings(containerEl, this.plugin, () => this.display());
       return;
     }
 
@@ -62432,6 +64404,586 @@ module.exports = {
   studyAttemptForFlip,
   studyAttemptForChoice,
   studyProgress,
+};
+};
+
+/* ---- src/study-stats.js ---- */
+__defs["study-stats"] = function (module, exports, require) {
+/*
+ * Anki-style study statistics. Everything here is derived from properties the
+ * plugin already stores: card/question/note history, FSRS or SM-2 state, and
+ * leech counters. It is read-only and never schedules a review.
+ */
+const { str } = require("./util");
+const { parseHistory } = require("./stats");
+const fsrs = require("./fsrs");
+const sm2 = require("./sm2");
+const fsrsLib = require("./fsrs-lib");
+const { isNoteCandidate } = require("./note-review");
+
+const MATURITY_LABELS = {
+  learning: "Learning (<1d)",
+  young: "Young (<21d)",
+  mature: "Mature (21d+)",
+};
+const MATURITY_ORDER = ["learning", "young", "mature"];
+const WEEK_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function clampNumber(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function normalizeStudyStatsSettings(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    enabled: src.enabled !== false,
+    leechThreshold: clampNumber(src.leechThreshold, 1, 50, 5),
+    maxRows: clampNumber(src.maxRows, 20, 500, 200),
+  };
+}
+
+function pad(value) {
+  return String(value).padStart(2, "0");
+}
+
+function dayKey(date) {
+  const d = date instanceof Date && !isNaN(date.getTime()) ? date : new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function maturityOf(intervalDays) {
+  const days = Math.max(0, Number(intervalDays) || 0);
+  if (days < 1) return "learning";
+  if (days < 21) return "young";
+  return "mature";
+}
+
+function reviewDate(when) {
+  const text = str(when).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function ratingFor(entry, fm) {
+  return {
+    correct: entry.result === "correct",
+    conf: Number(entry.conf) || 0,
+    seconds: Number(entry.seconds) || 0,
+    target: Number(fm && fm.target_seconds) || 0,
+  };
+}
+
+/** Replay FSRS history to recover each review's interval before it happened. */
+function fsrsRows(card, entries, retention) {
+  if (!entries.length) return [];
+  const scheduler = fsrs.makeScheduler(retention);
+  let state = fsrsLib.createEmptyCard(new Date(entries[0].when));
+  const rows = [];
+  for (const entry of entries) {
+    const at = new Date(entry.when);
+    if (isNaN(at.getTime())) continue;
+    const rating = fsrs.gradeForAttempt(entry.result === "correct", entry.conf, entry.seconds, card.fm && card.fm.target_seconds);
+    const interval = Number(state.scheduled_days) || 0;
+    const row = reviewRow(card, entry, maturityOf(interval), interval);
+    if (row) rows.push(row);
+    try {
+      state = scheduler.next(state, at, rating).card;
+    } catch (_) {
+      break;
+    }
+  }
+  return rows;
+}
+
+function sm2Rows(card, entries) {
+  let state = {
+    reps: 0,
+    interval: 0,
+    ease: sm2.DEFAULT_SM2.startingEase,
+    due: new Date(),
+    last: null,
+    lapses: 0,
+  };
+  const rows = [];
+  for (const entry of entries) {
+    const at = new Date(entry.when);
+    if (isNaN(at.getTime())) continue;
+    const rating = sm2.gradeForAttempt(entry.result === "correct", entry.conf, entry.seconds, card.fm && card.fm.target_seconds);
+    const row = reviewRow(card, entry, maturityOf(state.interval), state.interval);
+    if (row) rows.push(row);
+    try {
+      state = sm2.scheduleState(state, rating, at, card.fm && card.fm.sm2);
+    } catch (_) {
+      break;
+    }
+  }
+  return rows;
+}
+
+function ladderRows(card, entries) {
+  let streak = 0;
+  return entries
+    .map((entry) => {
+      const interval = entry.result === "correct" ? Math.max(1, streak + 1) : 1;
+      const row = reviewRow(card, entry, maturityOf(interval), interval);
+      streak = entry.result === "correct" ? streak + 1 : 0;
+      return row;
+    })
+    .filter(Boolean);
+}
+
+function reviewRow(source, entry, maturity, interval) {
+  const date = reviewDate(entry.when);
+  if (!date) return null;
+  return {
+    kind: source.kind,
+    path: str(source.file && source.file.path),
+    title: str(source.fm && source.fm.title).trim() || str(source.file && source.file.basename) || "",
+    date,
+    when: str(entry.when),
+    correct: entry.result === "correct",
+    seconds: Number(entry.seconds) || 0,
+    maturity,
+    interval: Math.max(0, Number(interval) || 0),
+  };
+}
+
+function cardReviewRows(card, settings) {
+  const fm = card.fm || {};
+  const entries = parseHistory(fm.history).filter((entry) => entry.result === "correct" || entry.result === "incorrect");
+  const source = { kind: "card", file: card.file, fm };
+  if (str(fm.srs).startsWith("fsrs")) return fsrsRows(source, entries, settings.fsrsRetention);
+  if (str(fm.sm2).startsWith("sm2")) return sm2Rows(source, entries);
+  return ladderRows(source, entries);
+}
+
+function historyRows(records, kind) {
+  const rows = [];
+  for (const record of Array.isArray(records) ? records : []) {
+    const fm = record.fm || {};
+    if (kind === "note" && !isNoteCandidate({ file: record.file, fm })) continue;
+    for (const entry of parseHistory(fm.history)) {
+      if (entry.result !== "correct" && entry.result !== "incorrect") continue;
+      const row = reviewRow({ kind, file: record.file, fm }, entry, "learning", 0);
+      if (row) rows.push(row);
+    }
+  }
+  return rows;
+}
+
+function retentionByMaturity(rows) {
+  const out = {};
+  for (const maturity of MATURITY_ORDER) out[maturity] = { maturity, label: MATURITY_LABELS[maturity], attempts: 0, correct: 0, retention: null };
+  const all = { maturity: "all", label: "All reviews", attempts: 0, correct: 0, retention: null };
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row) continue;
+    const bucket = out[row.maturity] || out.learning;
+    bucket.attempts++;
+    all.attempts++;
+    if (row.correct) {
+      bucket.correct++;
+      all.correct++;
+    }
+  }
+  for (const bucket of [...Object.values(out), all]) {
+    bucket.retention = bucket.attempts ? bucket.correct / bucket.attempts : null;
+  }
+  return { byMaturity: out, all };
+}
+
+function distribution(values, edges, labels) {
+  const list = (Array.isArray(values) ? values : []).filter((value) => Number.isFinite(Number(value))).map(Number).sort((a, b) => a - b);
+  const buckets = [];
+  let last = -Infinity;
+  for (let index = 0; index < edges.length; index++) {
+    const edge = edges[index];
+    const count = list.filter((value) => value >= last && value < edge).length;
+    buckets.push({ label: labels[index] || `${last}–${edge}`, count });
+    last = edge;
+  }
+  const tail = list.filter((value) => value >= last).length;
+  buckets.push({ label: labels[labels.length - 1] || `${last}+`, count: tail });
+  const total = list.length;
+  for (const bucket of buckets) bucket.share = total ? bucket.count / total : 0;
+  return { buckets, total, min: list.length ? list[0] : null, max: list.length ? list[list.length - 1] : null };
+}
+
+function cardMetrics(cards, now) {
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  const today = dayKey(at);
+  const intervals = [];
+  const eases = [];
+  const stabilities = [];
+  const difficulties = [];
+  let memoryTotal = 0;
+  let memoryCount = 0;
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const fm = card.fm || {};
+    const srs = fsrs.decodeSrs(fm.srs);
+    const sm2State = sm2.decodeSm2(fm.sm2);
+    let interval = 0;
+    if (srs) {
+      interval = Number(srs.scheduled_days) || 0;
+      stabilities.push(srs.stability);
+      difficulties.push(srs.difficulty);
+      if (srs.stability > 0) {
+        const last = srs.last_review instanceof Date ? srs.last_review : null;
+        const elapsed = last ? Math.max(0, (at.getTime() - last.getTime()) / 86400000) : 0;
+        memoryTotal += fsrsLib.forgetting_curve(fsrsLib.default_w, elapsed, srs.stability);
+        memoryCount++;
+      }
+    } else if (sm2State) {
+      interval = Number(sm2State.interval) || 0;
+      eases.push(sm2State.ease);
+    } else {
+      const due = /^\d{4}-\d{2}-\d{2}$/.test(str(fm.next_review)) ? new Date(`${str(fm.next_review)}T12:00:00`) : null;
+      interval = due && !isNaN(due.getTime()) ? Math.max(0, Math.round((due - new Date(`${today}T12:00:00`)) / 86400000)) : 0;
+    }
+    if (interval > 0) intervals.push(interval);
+  }
+  return {
+    intervals: distribution(intervals, [1, 7, 21, 60, 180], ["<1d", "1–7d", "7–21d", "21–60d", "60–180d", "180d+"]),
+    ease: distribution(eases, [1.5, 2, 2.5, 3], ["<1.5", "1.5–2", "2–2.5", "2.5–3", "3+"]),
+    stability: distribution(stabilities, [1, 7, 30, 90, 365], ["<1d", "1–7d", "7–30d", "30–90d", "90–365d", "365d+"]),
+    difficulty: distribution(difficulties, [3, 5, 7, 9], ["<3", "3–5", "5–7", "7–9", "9–10"]),
+    memoryNow: memoryCount ? memoryTotal / memoryCount : null,
+    memoryCards: memoryCount,
+    intervalCards: intervals.length,
+  };
+}
+
+function weekdayRhythm(rows) {
+  const buckets = WEEK_DAYS.map((label) => ({ label, attempts: 0, correct: 0 }));
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const date = new Date(`${row.date}T12:00:00`);
+    if (isNaN(date.getTime())) continue;
+    const index = (date.getDay() + 6) % 7;
+    buckets[index].attempts++;
+    if (row.correct) buckets[index].correct++;
+  }
+  return buckets.map((bucket) => ({ ...bucket, accuracy: bucket.attempts ? bucket.correct / bucket.attempts : null }));
+}
+
+function dayDetail(rows) {
+  const map = new Map();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!map.has(row.date)) map.set(row.date, { date: row.date, attempts: 0, correct: 0, seconds: 0, cards: 0, questions: 0, notes: 0, items: [] });
+    const bucket = map.get(row.date);
+    bucket.attempts++;
+    if (row.correct) bucket.correct++;
+    bucket.seconds += Number(row.seconds) || 0;
+    if (row.kind === "card") bucket.cards++;
+    else if (row.kind === "note") bucket.notes++;
+    else bucket.questions++;
+    bucket.items.push(row);
+  }
+  return [...map.values()]
+    .map((bucket) => ({
+      ...bucket,
+      accuracy: bucket.attempts ? bucket.correct / bucket.attempts : null,
+      minutes: Math.round((bucket.seconds / 60) * 10) / 10,
+      items: bucket.items.slice(-50),
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function leechList(questions, cards, notes, threshold) {
+  const limit = Math.max(1, Number(threshold) || 5);
+  const rows = [];
+  for (const question of Array.isArray(questions) ? questions : []) {
+    const fm = question.fm || {};
+    const lapses = Math.max(Number(fm.leech_lapses) || 0, Number(fm.leech) ? limit : 0);
+    if (lapses >= limit) rows.push({ kind: "question", path: question.file.path, title: str(fm.title) || question.file.basename, lapses });
+  }
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const fm = card.fm || {};
+    const state = fsrs.decodeSrs(fm.srs) || sm2.decodeSm2(fm.sm2);
+    const lapses = Math.max(Number(state && state.lapses) || 0, Number(fm.leech_lapses) || 0, Number(fm.leech) ? limit : 0);
+    if (lapses >= limit) rows.push({ kind: "card", path: card.file.path, title: str(fm.title) || card.file.basename, lapses });
+  }
+  for (const note of Array.isArray(notes) ? notes : []) {
+    const fm = note.fm || {};
+    if (!isNoteCandidate(note)) continue;
+    const lapses = Number(fm.note_lapse_streak) || 0;
+    if (lapses >= limit) rows.push({ kind: "note", path: note.file.path, title: str(fm.title) || note.file.basename, lapses });
+  }
+  return rows.sort((a, b) => b.lapses - a.lapses || a.path.localeCompare(b.path));
+}
+
+function buildStudyStats(input) {
+  const opts = input || {};
+  const settings = normalizeStudyStatsSettings(opts.settings);
+  const cards = Array.isArray(opts.cards) ? opts.cards : [];
+  const questions = Array.isArray(opts.questions) ? opts.questions : [];
+  const notes = Array.isArray(opts.notes) ? opts.notes : [];
+  const now = opts.now instanceof Date && !isNaN(opts.now.getTime()) ? opts.now : new Date();
+  const cardRows = [];
+  for (const card of cards) cardRows.push(...cardReviewRows(card, { ...settings, fsrsRetention: opts.fsrsRetention }));
+  const rows = [...cardRows, ...historyRows(questions, "question"), ...historyRows(notes, "note")].sort((a, b) => b.when.localeCompare(a.when));
+  const retention = retentionByMaturity(cardRows);
+  const metrics = cardMetrics(cards, now);
+  const days = dayDetail(rows);
+  return {
+    rows: rows.slice(0, settings.maxRows),
+    cardRows,
+    retention,
+    metrics,
+    weekday: weekdayRhythm(rows),
+    days,
+    leeches: leechList(questions, cards, notes, settings.leechThreshold),
+    totals: {
+      cards: cards.length,
+      questions: questions.length,
+      notes: notes.length,
+      reviews: rows.length,
+      cardReviews: cardRows.length,
+      studyDays: days.length,
+    },
+    settings,
+  };
+}
+
+module.exports = {
+  MATURITY_LABELS,
+  MATURITY_ORDER,
+  WEEK_DAYS,
+  buildStudyStats,
+  cardMetrics,
+  cardReviewRows,
+  dayDetail,
+  distribution,
+  historyRows,
+  leechList,
+  maturityOf,
+  normalizeStudyStatsSettings,
+  retentionByMaturity,
+  weekdayRhythm,
+};
+};
+
+/* ---- src/study-stats-view.js ---- */
+__defs["study-stats-view"] = function (module, exports, require) {
+/* Anki-style study statistics, separate from the existing Insights dashboard. */
+const { ItemView, Notice } = require("obsidian");
+const { VIEW_TYPE_STUDY_STATS } = require("./constants");
+const { MATURITY_ORDER, WEEK_DAYS } = require("./study-stats");
+const { workloadLabel } = require("./review-calendar");
+const { str } = require("./util");
+
+function pct(value) {
+  return value === null || value === undefined ? "—" : `${Math.round(Number(value) * 100)}%`;
+}
+
+function bar(container, value, max, cls) {
+  const track = container.createDiv({ cls: `qt-stat-bar ${cls || ""}`.trim() });
+  const width = max > 0 ? Math.max(0, Math.min(100, (Number(value) / max) * 100)) : 0;
+  const fill = track.createDiv({ cls: "qt-stat-bar-fill" });
+  if (fill.style) fill.style.width = `${width}%`;
+  return track;
+}
+
+class StudyStatsView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this.selectedDay = "";
+  }
+
+  getViewType() {
+    return VIEW_TYPE_STUDY_STATS;
+  }
+
+  getDisplayText() {
+    return "Study statistics";
+  }
+
+  getIcon() {
+    return "bar-chart-3";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-root");
+    this.render();
+  }
+
+  async onClose() {}
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    const root = el.createDiv({ cls: "qt-wrap qt-study-stats-view" });
+    if (!this.plugin.studyStatsEnabled()) {
+      this.renderOff(root);
+      return;
+    }
+    const data = this.plugin.studyStatsSnapshot();
+    const head = root.createDiv({ cls: "qt-study-stats-head" });
+    head.createEl("h2", { text: "Study statistics" });
+    head.createDiv({ cls: "qt-hint", text: "Read-only: true retention by maturity, memory-now, distributions, weekday rhythm, day detail and leeches." });
+
+    const stats = root.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const card = stats.createDiv({ cls: "qt-study-stat" });
+      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      card.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(data.totals.reviews, "reviews");
+    stat(data.totals.cardReviews, "card reviews");
+    stat(data.totals.studyDays, "study days");
+    stat(data.metrics.memoryNow === null ? "—" : pct(data.metrics.memoryNow), "memory now");
+    stat(data.leeches.length, "leeches");
+
+    this.renderRetention(root, data);
+    this.renderMemory(root, data);
+    this.renderDistributions(root, data);
+    this.renderWeekday(root, data);
+    this.renderDays(root, data);
+    this.renderLeeches(root, data);
+  }
+
+  renderOff(root) {
+    const card = root.createDiv({ cls: "qt-onboard-card" });
+    card.createEl("h3", { text: "Study statistics is off" });
+    card.createDiv({ cls: "qt-onboard-text", text: "Turn it on in Settings → Study statistics." });
+    card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
+  }
+
+  renderRetention(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "True retention by maturity" });
+    const table = card.createDiv({ cls: "qt-study-stats-table" });
+    const header = table.createDiv({ cls: "qt-study-stats-row is-head" });
+    for (const label of ["Maturity", "Reviews", "Retention"]) header.createDiv({ text: label });
+    for (const id of MATURITY_ORDER) {
+      const row = data.retention.byMaturity[id];
+      const line = table.createDiv({ cls: "qt-study-stats-row" });
+      line.createDiv({ text: row.label });
+      line.createDiv({ text: String(row.attempts) });
+      const value = line.createDiv({ cls: "qt-study-stats-retention" });
+      value.createSpan({ text: pct(row.retention) });
+      bar(value, row.retention === null ? 0 : row.retention * 100, 100, "is-retention");
+    }
+    const total = table.createDiv({ cls: "qt-study-stats-row is-total" });
+    total.createDiv({ text: "All reviews" });
+    total.createDiv({ text: String(data.retention.all.attempts) });
+    total.createDiv({ cls: "qt-study-stats-retention", text: pct(data.retention.all.retention) });
+  }
+
+  renderMemory(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Memory now" });
+    if (data.metrics.memoryNow === null) {
+      card.createDiv({ cls: "qt-study-empty", text: "No FSRS card state yet. Review a card with FSRS to estimate recall." });
+      return;
+    }
+    const line = card.createDiv({ cls: "qt-study-stats-memory" });
+    line.createDiv({ cls: "qt-study-stats-big", text: pct(data.metrics.memoryNow) });
+    line.createDiv({ cls: "qt-study-row-meta", text: `${data.metrics.memoryCards} FSRS card${data.metrics.memoryCards === 1 ? "" : "s"} with a stability estimate.` });
+    bar(card, data.metrics.memoryNow * 100, 100, "is-memory");
+  }
+
+  renderDistributions(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Distributions" });
+    const grid = card.createDiv({ cls: "qt-study-stats-grid" });
+    for (const [key, label] of [
+      ["intervals", "Interval"],
+      ["ease", "Ease"],
+      ["stability", "FSRS stability"],
+      ["difficulty", "FSRS difficulty"],
+    ]) {
+      const block = grid.createDiv({ cls: "qt-study-stats-dist" });
+      block.createDiv({ cls: "qt-study-stats-dist-title", text: label });
+      const dist = data.metrics[key];
+      if (!dist || !dist.total) {
+        block.createDiv({ cls: "qt-study-empty", text: "No data yet." });
+        continue;
+      }
+      const max = Math.max(...dist.buckets.map((bucket) => bucket.count), 1);
+      for (const bucket of dist.buckets) {
+        const row = block.createDiv({ cls: "qt-study-stats-dist-row" });
+        row.createSpan({ cls: "qt-study-stats-dist-label", text: bucket.label });
+        bar(row, bucket.count, max, "is-dist");
+        row.createSpan({ cls: "qt-study-stats-dist-count", text: String(bucket.count) });
+      }
+    }
+  }
+
+  renderWeekday(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Weekday rhythm" });
+    const max = Math.max(...data.weekday.map((day) => day.attempts), 1);
+    const grid = card.createDiv({ cls: "qt-study-stats-weekday" });
+    for (const day of data.weekday) {
+      const block = grid.createDiv({ cls: "qt-study-stats-weekday-col" });
+      block.createDiv({ cls: "qt-study-stats-weekday-count", text: String(day.attempts) });
+      const track = block.createDiv({ cls: "qt-study-stats-weekday-track" });
+      const fill = track.createDiv({ cls: "qt-study-stats-weekday-fill" });
+      if (fill.style) fill.style.height = `${Math.round((day.attempts / max) * 100)}%`;
+      block.createDiv({ cls: "qt-study-stats-weekday-label", text: day.label });
+      block.createDiv({ cls: "qt-study-row-meta", text: pct(day.accuracy) });
+    }
+  }
+
+  renderDays(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Day detail" });
+    if (!data.days.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "No review history yet." });
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const day of data.days.slice(0, 30)) {
+      const row = list.createDiv({ cls: "qt-study-row qt-study-stats-day" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: day.date });
+      main.createDiv({
+        cls: "qt-study-row-meta",
+        text: `${day.attempts} review${day.attempts === 1 ? "" : "s"} · ${pct(day.accuracy)} · ${day.minutes} min · ${day.cards} cards · ${day.questions} questions · ${day.notes} notes`,
+      });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: day.date === this.selectedDay ? "Shown" : "Show" }).addEventListener("click", () => {
+        this.selectedDay = this.selectedDay === day.date ? "" : day.date;
+        this.render();
+      });
+      if (this.selectedDay === day.date) {
+        const detail = card.createDiv({ cls: "qt-study-stats-day-detail" });
+        for (const item of day.items) {
+          detail.createDiv({
+            cls: "qt-study-row-meta",
+            text: `${item.kind} · ${item.title} · ${item.correct ? "correct" : "missed"} · ${item.maturity}`,
+          });
+        }
+      }
+    }
+  }
+
+  renderLeeches(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Leeches worth refactoring" });
+    if (!data.leeches.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "No item has reached the leech threshold." });
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of data.leeches) {
+      const line = list.createDiv({ cls: "qt-study-row" });
+      const main = line.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: row.title });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${row.kind} · ${row.lapses} lapse${row.lapses === 1 ? "" : "s"} · ${row.path}` });
+      const buttons = line.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: "Open" }).addEventListener("click", () => {
+        const file = this.plugin.app.vault.getAbstractFileByPath(row.path);
+        if (file) this.plugin.app.workspace.getLeaf("tab").openFile(file);
+      });
+    }
+  }
+}
+
+module.exports = {
+  StudyStatsView,
+  pct,
 };
 };
 
@@ -70080,6 +72632,14 @@ const quizNoteGate = require("./quiz-note-gate");
 const quizport = require("./quizport");
 const sourceRecall = require("./source-recall");
 const noteReview = require("./note-review");
+const reviewCalendar = require("./review-calendar");
+const studyStats = require("./study-stats");
+const localEvents = require("./local-events");
+const noteReviewDock = require("./note-review-dock");
+const { NoteReviewDock } = require("./note-review-dock");
+const { ReviewCalendarView } = require("./review-calendar-view");
+const { StudyStatsView } = require("./study-stats-view");
+const { LocalEventModal, LocalEventsView } = require("./local-events-view");
 const spacedEverything = require("./spaced-everything");
 const { NoteReviewModal } = require("./note-review-modal");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
@@ -70272,6 +72832,15 @@ QuestionTrackerPlugin.__test = {
   couchdbSync,
   cardPreview,
   noteReview,
+  reviewCalendar,
+  studyStats,
+  localEvents,
+  noteReviewDock,
+  NoteReviewDock,
+  ReviewCalendarView,
+  StudyStatsView,
+  LocalEventsView,
+  LocalEventModal,
   spacedEverything,
   NoteReviewModal,
   SpacedEverythingCaptureModal,

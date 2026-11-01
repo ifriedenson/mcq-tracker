@@ -2,7 +2,7 @@
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -132,6 +132,14 @@ const { normalizeVaultSearchSettings, renderVaultSearchBlock: renderVaultSearch 
 const { buildSourceRecall, findQuoteRange } = require("./source-recall");
 const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttempt } = require("./note-review");
 const { NoteReviewModal } = require("./note-review-modal");
+const reviewCalendar = require("./review-calendar");
+const studyStats = require("./study-stats");
+const localEvents = require("./local-events");
+const noteReviewDock = require("./note-review-dock");
+const { NoteReviewDock } = require("./note-review-dock");
+const { ReviewCalendarView } = require("./review-calendar-view");
+const { StudyStatsView } = require("./study-stats-view");
+const { LocalEventModal, LocalEventsView } = require("./local-events-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const { CardGeneratorModal } = require("./card-generator-modal");
@@ -247,6 +255,16 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_ASSIGNMENTS, (leaf) => new AssignmentsView(leaf, this));
     this.registerView(VIEW_TYPE_STUDY_TOOLS, (leaf) => new StudyToolsView(leaf, this));
     this.registerView(VIEW_TYPE_STUDY_WORKSPACE, (leaf) => new StudyWorkspaceView(leaf, this));
+    this.registerView(VIEW_TYPE_REVIEW_CALENDAR, (leaf) => new ReviewCalendarView(leaf, this));
+    this.registerView(VIEW_TYPE_STUDY_STATS, (leaf) => new StudyStatsView(leaf, this));
+    this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
+    this.noteReviewDock = new NoteReviewDock(this);
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshNoteReviewDock()));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.refreshNoteReviewDock()));
+    this.registerEvent(this.app.metadataCache.on("changed", () => this.refreshNoteReviewDock()));
+    if (typeof activeDocument !== "undefined" && activeDocument) {
+      this.registerDomEvent(activeDocument, "keydown", (event) => this.noteReviewDock.onKey(event));
+    }
     this.ribbonButtons = {};
     this.ribbonAdded = {};
     this.refreshRibbon();
@@ -319,6 +337,14 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "open-calendar", name: "Open calendar", callback: () => this.activateCalendar() });
+    this.addCommand({ id: "open-review-calendar", name: "Open review calendar", callback: () => this.activateReviewCalendar() });
+    this.addCommand({ id: "review-calendar-add-note", name: "Review calendar: add this note to review", callback: () => this.addActiveNoteToReview() });
+    this.addCommand({ id: "review-calendar-add-folder", name: "Review calendar: add this folder to review", callback: () => this.addActiveFolderToReview() });
+    this.addCommand({ id: "open-study-stats", name: "Open study statistics", callback: () => this.activateStudyStats() });
+    this.addCommand({ id: "open-local-events", name: "Open local events", callback: () => this.activateLocalEvents() });
+    this.addCommand({ id: "new-local-event", name: "Local events: create an event", callback: () => this.openNewLocalEvent() });
+    this.addCommand({ id: "open-next-due-note", name: "Note review: open the next due note", callback: () => this.openNextDueNote() });
+    this.addCommand({ id: "note-review-dock-toggle", name: "Note review: show or hide the review bar", callback: () => this.toggleNoteReviewDock() });
     this.addCommand({ id: "calendar-add-schedule", name: "Calendar: add an .ics schedule", callback: () => this.openCalendarImport() });
     this.addCommand({
       id: "calendar-note-next-class",
@@ -837,6 +863,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.quickSession = saved.quickSession && typeof saved.quickSession === "object" ? saved.quickSession : null;
     this.settings.cards = mergeCardSettings(saved.cards, DEFAULT_SETTINGS.cards);
     this.settings.noteReview = normalizeNoteReview(saved.noteReview);
+    this.settings.noteReviewDock = noteReviewDock.normalizeNoteReviewDockSettings(saved.noteReviewDock);
+    this.settings.reviewCalendar = reviewCalendar.normalizeReviewCalendarSettings(saved.reviewCalendar);
+    this.settings.studyStats = studyStats.normalizeStudyStatsSettings(saved.studyStats);
+    this.settings.localEvents = localEvents.normalizeLocalEventsSettings(saved.localEvents);
     this.settings.spacedEverything = normalizeSpacedEverything(saved.spacedEverything);
     this.settings.quizGenerator = normalizeQuizGenerator(saved.quizGenerator);
     this.settings.cardGenerator = normalizeCardGenerator(saved.cardGenerator);
@@ -1227,6 +1257,12 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_STUDY_WORKSPACE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
+    for (const type of [VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS]) {
+      for (const leaf of this.app.workspace.getLeavesOfType(type)) {
+        if (leaf.view && leaf.view.render) leaf.view.render();
+      }
+    }
+    this.refreshNoteReviewDock();
     this.refreshNoteReviewStatus();
     this.decorateFileExplorer();
   }
@@ -1284,6 +1320,22 @@ class QuestionTrackerPlugin extends Plugin {
   /** Flashcards and vocabulary are opt-in. */
   cardsEnabled() {
     return !!(this.settings.cards && this.settings.cards.enabled);
+  }
+
+  noteReviewDockEnabled() {
+    return noteReviewDock.normalizeNoteReviewDockSettings(this.settings.noteReviewDock).enabled;
+  }
+
+  reviewCalendarEnabled() {
+    return reviewCalendar.normalizeReviewCalendarSettings(this.settings.reviewCalendar).enabled;
+  }
+
+  studyStatsEnabled() {
+    return studyStats.normalizeStudyStatsSettings(this.settings.studyStats).enabled;
+  }
+
+  localEventsEnabled() {
+    return localEvents.normalizeLocalEventsSettings(this.settings.localEvents).enabled;
   }
 
   /** The local formula sheet and unit converter are opt-in. */
@@ -1502,6 +1554,14 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("study-tools");
     if (this.studyWorkspaceEnabled()) this.addModuleRibbon("study-workspace", "workflow", "Open Study Workspace", () => this.activateStudyWorkspace());
     else this.removeModuleRibbon("study-workspace");
+    if (this.noteReviewDockEnabled()) this.addModuleRibbon("note-review", "repeat", "Open the next due note", () => this.openNextDueNote());
+    else this.removeModuleRibbon("note-review");
+    if (this.reviewCalendarEnabled()) this.addModuleRibbon("review-calendar", "calendar-clock", "Open review calendar", () => this.activateReviewCalendar());
+    else this.removeModuleRibbon("review-calendar");
+    if (this.studyStatsEnabled()) this.addModuleRibbon("study-stats", "bar-chart-3", "Open study statistics", () => this.activateStudyStats());
+    else this.removeModuleRibbon("study-stats");
+    if (this.localEventsEnabled()) this.addModuleRibbon("local-events", "calendar-plus", "Open local events", () => this.activateLocalEvents());
+    else this.removeModuleRibbon("local-events");
     this.refreshStudyNudgeLabel();
   }
 
@@ -1558,6 +1618,33 @@ class QuestionTrackerPlugin extends Plugin {
     this.refreshRibbon();
     if (!this.cardsEnabled()) {
       this.detachModuleLeaves([VIEW_TYPE_CARDS]);
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onReviewCalendarToggled() {
+    this.refreshRibbon();
+    if (!this.reviewCalendarEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_REVIEW_CALENDAR]);
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onStudyStatsToggled() {
+    this.refreshRibbon();
+    if (!this.studyStatsEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_STUDY_STATS]);
+      return;
+    }
+    this.refreshViews();
+  }
+
+  async onLocalEventsToggled() {
+    this.refreshRibbon();
+    if (!this.localEventsEnabled()) {
+      this.detachModuleLeaves([VIEW_TYPE_LOCAL_EVENTS]);
       return;
     }
     this.refreshViews();
@@ -5229,14 +5316,248 @@ ${body}
     const attempt = noteReviewAttempt(grade, seconds);
     let summary;
     await this.app.fileManager.processFrontMatter(file, (fm) => {
+      const previous = noteReviewDock.noteReviewSnapshot(fm);
+      const scheduler = noteReviewDock.schedulerForNote(fm, this.settings);
       summary = applyAttempt(fm, attempt, this.settings.intervals, {
-        scheduler: this.settings.scheduler,
+        scheduler,
         fsrsRetention: this.settings.fsrsRetention,
         grade: attempt.grade,
       });
+      const priorStreak = Number(fm.note_lapse_streak) || 0;
+      fm.note_lapse_streak = attempt.grade === "again" ? priorStreak + 1 : 0;
+      summary.previous = previous;
+      summary.lapseStreak = fm.note_lapse_streak;
     });
     this.refreshViews();
     return summary;
+  }
+
+  refreshNoteReviewDock() {
+    if (!this.noteReviewDock) return;
+    try {
+      this.noteReviewDock.refresh();
+    } catch (e) {
+      /* the dock is an optional overlay; a render error must not break the plugin */
+    }
+  }
+
+  async toggleNoteReviewDock() {
+    const config = noteReviewDock.normalizeNoteReviewDockSettings(this.settings.noteReviewDock);
+    config.enabled = !config.enabled;
+    this.settings.noteReviewDock = config;
+    await this.save();
+    this.refreshNoteReviewDock();
+    new Notice(config.enabled ? "The whole-note review bar is shown." : "The whole-note review bar is hidden.");
+  }
+
+  async undoNoteReview(file, snapshot) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      noteReviewDock.restoreNoteReviewSnapshot(fm, snapshot);
+    });
+    this.refreshViews();
+  }
+
+  async postponeNoteReview(file, days) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      fm.next_review = noteReviewDock.postponeDays(new Date(), days);
+      fm.note_lapse_streak = 0;
+    });
+    this.refreshViews();
+  }
+
+  async applyNoteLapseAction(file, action) {
+    await this.app.fileManager.processFrontMatter(file, (fm) => {
+      noteReviewDock.applyLapseAction(fm, action, new Date());
+    });
+    this.refreshViews();
+  }
+
+  reviewCalendarSettings() {
+    return reviewCalendar.normalizeReviewCalendarSettings(this.settings.reviewCalendar);
+  }
+
+  reviewCalendarSnapshot(options) {
+    const opts = options || {};
+    const config = this.reviewCalendarSettings();
+    const noteConfig = normalizeNoteReview(this.settings.noteReview);
+    const cards = config.showCards && this.cardsEnabled() ? this.getCards() : [];
+    return reviewCalendar.buildReviewForecast({
+      notes: this.getNoteCandidates(),
+      cards,
+      settings: config,
+      sets: noteConfig.sets,
+      today: localDate(),
+      days: opts.days || 45,
+    });
+  }
+
+  async addNoteToReview(file, options) {
+    const opts = options || {};
+    const target = file || this.app.workspace.getActiveFile();
+    if (!target || !/\.md$/i.test(target.path || "")) {
+      if (!opts.silent) new Notice("Open a Markdown note first.");
+      return null;
+    }
+    const fm = this.app.metadataCache.getFileCache(target)?.frontmatter || {};
+    if (!noteReview.isNoteCandidate({ file: target, fm })) {
+      if (!opts.silent) new Notice("Question and card notes are already reviewed by their own queues.");
+      return null;
+    }
+    await this.app.fileManager.processFrontMatter(target, (noteFm) => {
+      noteFm.note_review = true;
+      noteFm.note_review_excluded = false;
+      if (!str(noteFm.next_review).trim()) noteFm.next_review = localDate();
+    });
+    const config = normalizeNoteReview(this.settings.noteReview);
+    config.enabled = true;
+    this.settings.noteReview = config;
+    await this.save();
+    this.refreshViews();
+    if (!opts.silent) new Notice(`${target.basename} is now in whole-note review.`);
+    return target.path;
+  }
+
+  async addActiveNoteToReview() {
+    return this.addNoteToReview(this.app.workspace.getActiveFile());
+  }
+
+  folderMainNote(folder) {
+    const root = str(folder).trim().replace(/^\/+|\/+$/g, "");
+    if (!root) return null;
+    const rows = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (file.path !== root && !file.path.startsWith(`${root}/`)) continue;
+      const cache = this.app.metadataCache.getFileCache(file) || {};
+      rows.push({ path: file.path, title: file.basename, links: Array.isArray(cache.links) ? cache.links.length : 0 });
+    }
+    return reviewCalendar.pickMainNote(rows);
+  }
+
+  async addFolderToReview(folder, options) {
+    const opts = options || {};
+    const root = str(folder).trim().replace(/^\/+|\/+$/g, "");
+    if (!root) {
+      if (!opts.silent) new Notice("Open a note inside the folder first.");
+      return null;
+    }
+    const config = normalizeNoteReview(this.settings.noteReview);
+    const result = reviewCalendar.addFolderSet(config.sets, root, `Folder: ${root}`);
+    config.sets = result.sets;
+    config.enabled = true;
+    this.settings.noteReview = config;
+    if (opts.detectMainNote !== false && this.reviewCalendarSettings().detectMainNote) {
+      const main = this.folderMainNote(root);
+      if (main) await this.addNoteToReview(this.app.vault.getAbstractFileByPath(main.path), { silent: true });
+    }
+    await this.save();
+    this.refreshViews();
+    if (!opts.silent) new Notice(result.added ? `Added ${root} to whole-note review.` : `${root} is already in whole-note review.`);
+    return result.added ? root : null;
+  }
+
+  async addActiveFolderToReview() {
+    const file = this.app.workspace.getActiveFile();
+    if (!file || !file.parent) {
+      new Notice("Open a note inside the folder first.");
+      return null;
+    }
+    return this.addFolderToReview(file.parent.path);
+  }
+
+  studyStatsSnapshot() {
+    return studyStats.buildStudyStats({
+      cards: this.getCards(),
+      questions: this.getQuestions(),
+      notes: this.getNoteCandidates(),
+      settings: this.settings.studyStats,
+      fsrsRetention: this.settings.fsrsRetention,
+      now: new Date(),
+    });
+  }
+
+  async saveLocalEvent(value) {
+    const result = localEvents.upsertLocalEvent(this.settings.localEvents, value, new Date());
+    this.settings.localEvents = result.settings;
+    await this.save();
+    this.refreshViews();
+    return result.event;
+  }
+
+  async deleteLocalEvent(id) {
+    const result = localEvents.removeLocalEvent(this.settings.localEvents, id);
+    this.settings.localEvents = result.settings;
+    await this.save();
+    this.refreshViews();
+    return result.removed;
+  }
+
+  openNewLocalEvent() {
+    if (!this.localEventsEnabled()) {
+      new Notice("Turn on Local events in Settings → Local events.");
+      return null;
+    }
+    const modal = new LocalEventModal(this.app, this, null);
+    modal.open();
+    return modal;
+  }
+
+  openLocalEvent(id) {
+    const event = (this.settings.localEvents.events || []).find((item) => item.id === id);
+    if (!event) return null;
+    const modal = new LocalEventModal(this.app, this, event);
+    modal.open();
+    return modal;
+  }
+
+  async openNextDueNote() {
+    const queue = this.getNoteQueue({ limit: 0 });
+    if (!queue.all.length) {
+      new Notice("No whole notes are due for review.");
+      return null;
+    }
+    const active = this.app.workspace.getActiveFile();
+    const current = active ? queue.all.findIndex((row) => row.path === active.path) : -1;
+    const next = queue.all[current + 1] || queue.all[0];
+    await this.app.workspace.getLeaf(false).openFile(next.file);
+    this.refreshNoteReviewDock();
+    return next.file;
+  }
+
+  async activateReviewCalendar() {
+    if (!this.reviewCalendarEnabled()) {
+      new Notice("Turn on Review calendar in Settings → Review calendar.");
+      return null;
+    }
+    return this.activateModuleView(VIEW_TYPE_REVIEW_CALENDAR);
+  }
+
+  async activateStudyStats() {
+    if (!this.studyStatsEnabled()) {
+      new Notice("Turn on Study statistics in Settings → Study statistics.");
+      return null;
+    }
+    return this.activateModuleView(VIEW_TYPE_STUDY_STATS);
+  }
+
+  async activateLocalEvents() {
+    if (!this.localEventsEnabled()) {
+      new Notice("Turn on Local events in Settings → Local events.");
+      return null;
+    }
+    return this.activateModuleView(VIEW_TYPE_LOCAL_EVENTS);
+  }
+
+  async activateModuleView(type) {
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(type)[0];
+    if (!leaf) {
+      leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
   }
 
   async setNotePriority(file, priority) {

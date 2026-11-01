@@ -89,9 +89,9 @@ function noteSetFor(note, sets) {
   for (const set of Array.isArray(sets) ? sets : []) {
     if (matchesNoteSet(note, set)) return set;
   }
-  if (!Array.isArray(sets) || !sets.length) {
-    if (note && note.fm && note.fm.note_review === true) return { name: "Marked notes", folders: [], tags: [], priority: "normal" };
-  }
+  // An explicitly marked note joins the queue even when sets exist, so the
+  // "Add this note to review" action works without editing a set by hand.
+  if (note && note.fm && note.fm.note_review === true) return { name: "Marked notes", folders: [], tags: [], priority: "normal" };
   return null;
 }
 
@@ -127,6 +127,7 @@ function buildNoteQueue(notes, options) {
     const set = noteSetFor(note, sets);
     if (!set) continue;
     const fm = note.fm || {};
+    if (fm.note_review_excluded === true) continue;
     if (!isStudyable(fm, today)) continue;
     const isNew = !Number(fm.attempts);
     const dueDate = noteDueDate(fm);

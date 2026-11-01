@@ -8,6 +8,7 @@ const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
+const { renderLocalEventsSettings, renderNoteReviewSettings, renderReviewCalendarSettings, renderStudyStatsSettings } = require("./review-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { normalizeQuickAdaptive } = require("./adaptive-session");
@@ -32,6 +33,10 @@ const SETTINGS_MODULES = [
   { id: "mcq", label: "MCQ Tracker", icon: "list-checks" },
   { id: "cards", label: "Cards", icon: "layers" },
   { id: "calendar", label: "Calendar", icon: "graduation-cap" },
+  { id: "note-review", label: "Note review", icon: "repeat" },
+  { id: "review-calendar", label: "Review calendar", icon: "calendar-clock" },
+  { id: "study-stats", label: "Study statistics", icon: "bar-chart-3" },
+  { id: "local-events", label: "Local events", icon: "calendar-plus" },
   { id: "assignments", label: "Assignments", icon: "clipboard-list" },
   { id: "reference", label: "Reference", icon: "book-open" },
 ];
@@ -106,6 +111,26 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.display();
         }
       );
+      return;
+    }
+
+    if (this.activeModule === "note-review") {
+      renderNoteReviewSettings(containerEl, this.plugin, () => this.display());
+      return;
+    }
+
+    if (this.activeModule === "review-calendar") {
+      renderReviewCalendarSettings(containerEl, this.plugin, () => this.display());
+      return;
+    }
+
+    if (this.activeModule === "study-stats") {
+      renderStudyStatsSettings(containerEl, this.plugin, () => this.display());
+      return;
+    }
+
+    if (this.activeModule === "local-events") {
+      renderLocalEventsSettings(containerEl, this.plugin, () => this.display());
       return;
     }
 

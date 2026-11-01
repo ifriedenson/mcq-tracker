@@ -91,6 +91,14 @@ const quizNoteGate = require("./quiz-note-gate");
 const quizport = require("./quizport");
 const sourceRecall = require("./source-recall");
 const noteReview = require("./note-review");
+const reviewCalendar = require("./review-calendar");
+const studyStats = require("./study-stats");
+const localEvents = require("./local-events");
+const noteReviewDock = require("./note-review-dock");
+const { NoteReviewDock } = require("./note-review-dock");
+const { ReviewCalendarView } = require("./review-calendar-view");
+const { StudyStatsView } = require("./study-stats-view");
+const { LocalEventModal, LocalEventsView } = require("./local-events-view");
 const spacedEverything = require("./spaced-everything");
 const { NoteReviewModal } = require("./note-review-modal");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
@@ -283,6 +291,15 @@ QuestionTrackerPlugin.__test = {
   couchdbSync,
   cardPreview,
   noteReview,
+  reviewCalendar,
+  studyStats,
+  localEvents,
+  noteReviewDock,
+  NoteReviewDock,
+  ReviewCalendarView,
+  StudyStatsView,
+  LocalEventsView,
+  LocalEventModal,
   spacedEverything,
   NoteReviewModal,
   SpacedEverythingCaptureModal,

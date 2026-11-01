@@ -713,7 +713,7 @@ These are relevant only if MCQ adds science notation or subject-specific renderi
 |---|---|---|---|---|
 | **LearnKit** | [GitHub](https://github.com/ctrlaltwill/learnkit) · [Directory](https://community.obsidian.md/plugins/learnkit) | MIT | **Read-aloud ships unreleased (Oct 31, 2026):** the **Read aloud** tab speaks the active note with the device speech voice, highlights the current sentence and supports Full note / 90-second briefing / Key points styles, rate and pitch. **Fitting also ships unreleased (Oct 31, 2026):** the Retention tab fits a desired-retention target from the review counters cards already keep, with a minimum-sample gate, interval buckets and an Apply button. OS media controls and a provider TTS voice remain gated. | Done (provider TTS gated) |
 | **Qard** | [GitHub](https://github.com/kylianmarceau/qard-obsidian) | MIT | **Implemented (unreleased, Oct 31, 2026):** self-fitting after enough ratings ships with LearnKit's row above — observed recall is bucketed by scheduled interval and a bounded 0.80–0.95 target is suggested; exam coverage and needs-fixing already ship here. | Done |
-| **Spaceforge** | [GitHub](https://github.com/dralkh/spaceforge) · [Directory](https://community.obsidian.md/plugins/spaceforge) | MIT | **Local visualize part implemented (unreleased, Oct 31, 2026):** a `study-map` block turns a note or an inline outline into a read-only mind-map tree with key terms and a summary line. The 30-day due forecast and retention statistics already ship in the Retention tab. The objective AI tutor, cited web lookup, AnkiWeb search and wider provider list remain gated. | W2 for the local map; W3 for the rest |
+| **Spaceforge** | [GitHub](https://github.com/dralkh/spaceforge) · [Directory](https://community.obsidian.md/plugins/spaceforge) | MIT | **Local visualize part implemented (unreleased, Oct 31, 2026):** a `study-map` block turns a note or an inline outline into a read-only mind-map tree with key terms and a summary line. The 30-day due forecast and retention statistics already ship in the Retention tab. The Nov 1, 2026 audit in §3.9.7 adds the docked note-review bar, lapse checkpoints, review calendar/workload estimate, Anki-style maturity statistics, local calendar events and MDC document-import parity as proposed rows; the objective tutor, cited web lookup, AnkiWeb search, wider providers and central storage remain gated. | W2 for the local map; W3 for the rest |
 | **CBT Exam Simulator** | [GitHub](https://github.com/nazdridoy/obsidian-cbt-exam) · [Directory](https://community.obsidian.md/plugins/cbt-exam) | MIT | **Implemented except the VCE converter (unreleased, Oct 31, 2026):** an independent **cbt-exam** block provides a numbered question navigator with answered/flagged/current states, answer flags, a submit score, per-topic breakdown, per-exam sidecar attempt history in plugin data and a missed-first adaptive review pass. The binary `.vce` converter is skipped (no format fixture). | Done |
 | **Quizzable** | [GitHub](https://github.com/monapdx/Quizzable) | MIT | **Implemented (unreleased, Oct 31, 2026):** `quiz-definition`/`playable-quiz` reuse and opt-in multi-select partial credit with a configurable wrong-pick penalty. | Done |
 | **Quiz Blocks** | [GitHub](https://github.com/xamgore/obsidian-quiz-blocks) | MIT | `gated: true` hides the surrounding note until Submit. Per-option feedback and shared-option choice already ship. **Gated-note behavior shipped unreleased Oct 31, 2026:** the rest of a Reading-view note is hidden until every supported question is answered and restored afterward; static, malformed, unsupported and embedded cases stay visible. | W1 ✅ |
@@ -782,6 +782,10 @@ These are MIT-licensed study plugins or built-in features already represented by
 
 | Tool | Link | Why it is not in the study queue |
 |---|---|---|
+| **SeerAI** | [GitHub](https://github.com/dralkh/seerai) | MIT; Zotero research assistant (RAG, federated scholarly search, systematic review), not an Obsidian study plugin. |
+| **Hatch** | [GitHub](https://github.com/dralkh/hatch) | MIT; pixel-art pet generator, not a study tool. |
+| **Naqsh** | [GitHub](https://github.com/dralkh/naqsh) | MIT; Arabic calligraphy avatar generator, not a study tool. |
+| **Aurora** | [GitHub](https://github.com/dralkh/aurora) | MIT; sleep calculator and reminder app, not an Obsidian study plugin. |
 | **Ideaverse Maps** | [GitHub](https://github.com/nickmilo/ideaverse-maps) | Vault navigation/visual maps, not a study workflow. |
 | **Width Wizard** | [GitHub](https://github.com/ferhatyurdakul/width-wizard) | Editor width and table-column resizing; presentation utility. |
 | **Dashboard Gallery** | [GitHub](https://github.com/InlitX/Obsidian-Dashboard-Gallery) | Dashboard templates, not a scheduler or quiz feature. |
@@ -925,6 +929,30 @@ Three more rows ship as their own Global → Modules switches. All are local; no
 
 **Remaining work is entirely gated on the decisions listed above.** No class (a) implementation gap remains as of Oct 31, 2026, verified at commit `3f93365`; the next change requires an owner answer to at least one decision line in §3.9.5.
 
+### 3.9.7 Ninth MIT audit: Spaceforge's sibling repositories (Nov 1, 2026)
+
+**Method.** Opened all six `dralkh` repositories and read each root `LICENSE` from `raw.githubusercontent.com` on Nov 1, 2026. All six are MIT; no code was copied. This section records what is new relative to §3.9.3 and §13.2, and classifies each repository instead of adding another module by default.
+
+| Repository | Licence evidence | Kind | Features not in MCQ Tracker | Verdict |
+|---|---|---|---|---|
+| **Spaceforge** (`dralkh/spaceforge`) | MIT, `LICENSE` read Nov 1, 2026; bundles `ts-fsrs` and `fzstd`, both MIT | Obsidian spaced-repetition and AI study suite | Docked whole-note review bar with per-grade interval previews, keyboard grading, skip/postpone/undo and lapse checkpoints; review-schedule calendar with estimated completion times and add-note/folder-by-link-hierarchy; Anki-style statistics (true retention by maturity, memory-now, interval/ease/stability/difficulty distributions, weekday rhythm, click-through day breakdown, leeches, per-deck summaries); local calendar events with categories and daily/weekly/monthly/yearly recurrence; adaptive objective tutor (explain → recall → apply, per-objective understanding/recall/transfer, two-day durable recall, resume, per-objective conversation, domain awareness, optional cited web lookup, report written back as notes/cards); central data file with a custom path and migration | R1–R4 implemented locally (Nov 1, 2026); keep the tutor, web lookup and central storage gated on the existing decision lines |
+| **MDC** (`dralkh/mdc`) | MIT, `LICENSE` read Nov 1, 2026 | Document → Markdown CLI with an Obsidian plugin | AI vision image-to-text for slide and document images; generated table of contents; attachment/media extraction; batch conversion; minimal-output mode; OpenAI/Gemini/Ollama/Together/OpenRouter parity | Add as a conditional document-import row (R5); legacy `.ppt`, `.ppsx` and `.doc` are also absent here, while `.pptx`, `.pptm`, `.docx`, `.docm`, `.odt`, `.odp` text already imports |
+| **SeerAI** (`dralkh/seerai`) | MIT, `LICENSE` read Nov 1, 2026 | Zotero research assistant, not an Obsidian plugin | Federated scholarly search across 11 providers; RAG over papers; AI paper-comparison tables; PRISMA-style systematic review; citation export; OCR; cloud storage; MCP/agent tools | Adjacent research workflow, outside the question-first exam scope; record only, no parity work |
+| **Hatch** (`dralkh/hatch`) | MIT, `LICENSE` read Nov 1, 2026 | Pixel-art pet generator | None for study | Not relevant; no plan row |
+| **Naqsh** (`dralkh/naqsh`) | MIT, `LICENSE` read Nov 1, 2026 | Arabic calligraphy avatar generator | None for study | Not relevant; no plan row |
+| **Aurora** (`dralkh/aurora`) | MIT, `LICENSE` read Nov 1, 2026 | Sleep calculator and reminder tray app | Sleep-cycle calculator, bedtime/wake reminders, sleep diary | Not a study tool; no plan row |
+
+**Rows R1–R4 were implemented on Nov 1, 2026 and are UI-reachable.** Each has its own settings module plus a command and ribbon entry point; R5 remains gated. The licence section is unchanged.
+
+- **R1 — Docked whole-note review — Implemented.** Move the existing whole-note queue from a modal into an optional bar docked under the note, with Again/Hard/Good/Easy interval previews, 1–4 (ladder/FSRS) or 0–5 (SM-2) keys, skip/postpone/undo and a configurable lapse checkpoint that offers reset, rest for a week, remove from the schedule or carry on. Local; reuses `buildNoteQueue` and the existing schedulers. No new provider. **Where:** `src/note-review-dock.js` (bar, previews, keyboard, snapshot/undo and lapse actions), `src/review-settings.js` (Note review settings module), and `Plugin.recordNoteReview` / `undoNoteReview` / `postponeNoteReview` / `applyNoteLapseAction` in `src/plugin.js`.
+- **R2 — Review calendar and workload estimate — Implemented.** Add a read-only calendar of due whole-note and card reviews, a next-7-day workload estimate and an "add this note or folder to review" action; optionally detect a folder's main note by its link graph. Local; reads existing `next_review` data. **Where:** `src/review-calendar.js`, `src/review-calendar-view.js` and the Review calendar settings module; commands `open-review-calendar`, `review-calendar-add-note` and `review-calendar-add-folder`.
+- **R3 — Anki-style review statistics — Implemented.** Add true retention by maturity, a memory-now estimate for FSRS cards, interval/ease/stability/difficulty distributions, weekday rhythm, click-through day detail and a leech list to Insights/Retention. Local and read-only. **Where:** `src/study-stats.js` and `src/study-stats-view.js`, with its own Study statistics settings module and `open-study-stats` command/ribbon. It reads existing history and FSRS/SM-2 state; the existing Insights charts are unchanged.
+- **R4 — Local calendar events — Implemented.** Add create/edit/delete events with categories, color tabs and daily/weekly/monthly/yearly recurrence, separate from imported `.ics` feeds and Full Calendar notes. Local; never overwrites an imported event. **Where:** `src/local-events.js` (date-only recurrence), `src/local-events-view.js` (CRUD modal and colour tabs), and the Local events settings module; commands `open-local-events` and `new-local-event`. Stored only in plugin data, separate from imported `.ics` feeds and Full Calendar notes.
+- **R5 — MDC document-import parity — Still gated.** Add AI vision extraction for slide/document images, an optional generated table of contents, attachment extraction and batch conversion, and accept legacy `.ppt`, `.ppsx` and `.doc` where a parser can be added dependency-free. Conditional on the existing AI-provider settings and model allow-list, plus a document fixture. **NEEDS USER DECISION:** approve a document fixture and confirm the AI vision provider/model before this row is implemented; no source was copied.
+- **Gated, not scheduled:** the objective tutor, cited web lookup and AnkiWeb search (existing provider/network decision lines), and central schedule storage with a custom data path (existing migration decision line 10).
+
+**Licence note.** All six repositories are MIT and are added to the §3.10 allow-list. No source file was copied in this audit; the rows above are feature descriptions only.
+
 ### 3.10 Licence allow-list: what may and may not be integrated
 
 **Read this before copying anything.** This section is the source of truth for reuse; the per-row notes in §3.1–§3.9 are commentary on top of it. If an entry here disagrees with a row above, this table wins.
@@ -971,6 +999,9 @@ Core study systems:
 | Plugin | Repository | Licence |
 |---|---|---|
 | MCQ Tracker (this project) | `ifriedenson/mcq-tracker` | MIT |
+| Spaceforge | `dralkh/spaceforge` | MIT (`LICENSE` read Nov 1, 2026; bundles ts-fsrs and fzstd, both MIT) |
+| MDC (Markdown Document Converter) | `dralkh/mdc` | MIT (`LICENSE` read Nov 1, 2026) |
+| SeerAI (Zotero) | `dralkh/seerai` | MIT (`LICENSE` read Nov 1, 2026) |
 | Spaced Repetition | `st3v3nmw/obsidian-spaced-repetition` | MIT |
 | Obsidian Tutor | `st3v3nmw/obsidian-tutor` | MIT |
 | LearnKit | `ctrlaltwill/learnkit` | MIT |
@@ -2707,7 +2738,7 @@ The mission asked for every remaining plan item to be implemented. These cannot 
 - **What it does:** spaced repetition for whole notes plus an AI study suite. This is the **closest overlapping competitor** and it ships updates constantly.
 - **Features:** FSRS and SM-2 scheduling; review bar docked under the note; leech handling and lapse checkpoints; AI-generated MCQs per note; adaptive AI tutor that charts a note into learning objectives and tracks understanding/recall/transfer (recall counts as durable only after two different days); study workspace with Learn, Visualize, Mind map and Summary; optional web lookup with citations; Anki-style deck engine (flip, reversed, MCQ, cloze, typed answer) with `.apkg` import and export, AnkiConnect background sync, and AnkiWeb search; statistics page (heatmap, 30-day forecast, true retention, leeches); Pomodoro timer; calendar events with recurrence and categories; 20+ AI providers including local servers and agent CLIs; optional progress file that travels with the vault; 22 commands.
 - **Storage:** review data in the plugin's central data file, keeping note frontmatter clean.
-- **Has that you don't:** objective-based AI tutor, mind map/visualize/summary workspace, web lookup, SM-2, AnkiWeb search, review-forecast and true-retention stats, wider provider list, whole-note scheduling.
+- **Has that you don't:** objective-based AI tutor, cited web lookup and AnkiWeb search (all gated), the docked whole-note review bar with lapse checkpoints, a review-schedule calendar with estimated completion, Anki-style maturity/memory-now/interval-distribution statistics, local calendar event creation with recurrence and categories, and a central data file. Mind map/visualize/summary, SM-2 (per-deck cards), whole-note review, the 30-day forecast and leech flags now ship here.
 - **You have that it doesn't:** question-first MCQ practice with passages, timed multi-section tests, per-question timing, confidence calibration, mistake tags, PDF/document → question import with figures, numeric/units/parameterized questions, FRQ rubric grading, gradebook/GPA, AP tools, Quizlet/Kahoot/Moodle formats, exam-aware scheduling, progress stored in each question's own properties.
 
 #### Omniscient
@@ -2737,9 +2768,10 @@ The mission asked for every remaining plan item to be implemented. These cannot 
 | Select-all / true-false / fill-in / matching | ✅ (select-all/true-false 1.110.0; fill-in/matching 1.112.0) | ◐ (cloze, typed, MCQ in decks) | ✅ | ✅ | ❌ | ❌ |
 | Short / long free response | ◐ (self-grade + FRQ rubric) | ◐ (typed cards) | ✅ | ✅ | ◐ (self-graded) | ✅ (text answers) |
 | Spaced repetition | ✅ | ✅ | ❌ | ❌ (on roadmap) | ❌ | ❌ |
+| Whole-note review | ✅ (optional note queues, modal) | ✅ (docked bar) | ❌ | ❌ | ❌ | ❌ |
 | FSRS | ✅ (optional) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| SM-2 | ❌ (ladder instead) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Leech / lapse handling | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| SM-2 | ✅ (per-deck cards; whole-note review uses the ladder or FSRS) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Leech / lapse handling | ✅ (question leech flag or suspend; note-level lapse checkpoints are proposed) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Timed test / exam mode | ✅ (multi-section) | ❌ | ✅ | ❌ (on roadmap) | ❌ | ❌ |
 | Per-question timing | ✅ | ❌ | ◐ (total time) | ❌ | ❌ | ❌ |
 | Confidence ratings + calibration | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -2767,14 +2799,16 @@ The mission asked for every remaining plan item to be implemented. These cannot 
 | Anki `.apkg` export | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | AnkiConnect sync | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Quizlet / Kahoot / Moodle import-export | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Calendar | ✅ (.ics) | ✅ (own events) | ❌ | ❌ | ❌ | ❌ |
+| Calendar | ✅ (.ics; Full Calendar notes read-only) | ✅ (own event CRUD + recurrence) | ❌ | ❌ | ❌ | ❌ |
 | Focus / Pomodoro timer | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Exam-aware scheduling / cram mode | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Assignments + gradebook / GPA | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Reference tools (calculator, periodic table, AP estimator) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Mind map / visualize / summary views | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Mind map / visualize / summary views | ✅ (`study-map` block and local summary, unreleased; no Visualize canvas) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Multi-language generation | ❌ (not documented) | ◐ (tutor language) | ❌ | ✅ (22) | ❌ | ◐ (ja / en / same) |
 | Desktop + mobile | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+**Updated Nov 1, 2026:** corrected the stale SM-2, leech/lapse and mind-map rows now that per-deck SM-2 cards, question leech handling and the `study-map` block ship; added whole-note review and noted that Spaceforge's own event CRUD and review-schedule calendar are still gaps. The snapshot date for the rest of the table remains 2026-10-29.
 
 ### 13.4 Competitor gaps and where they stand
 
@@ -2837,7 +2871,7 @@ The analysis added four gaps that were not explicit in §5.22. All four have shi
 - [x] **Timed-test option shuffling and a pass-score threshold.** Shipped in 1.117.0. The test setup screen has **Shuffle answer choices** and a pass percentage, both saved in defaults and blueprints. A shuffled order is stored with the session, so the review and a reopened test show the same order while saved answer letters still match the note. The pass mark is reported on objective questions.
 - [x] **Leech handling** for repeatedly failed items, shipped in 1.111.0 as an opt-in threshold with a flag or suspend action, `leech_lapses`/`leech_since` properties and automatic clearing on a correct answer. Distinct from the manual Suspend/Bury controls.
 
-Not planned: objective-based tutor workspace, mind maps and web lookup (Spaceforge's lane; large and outside the question-first positioning). `.apkg` export shipped in 1.116.0 with a tested SQLite writer, so it is no longer a gap.
+**Status update (Nov 1, 2026):** the local mind-map/summary slice shipped as the `study-map` block and `vault-search` covers cited local lookup, so mind maps are no longer a gap. The objective-based tutor and cited web lookup remain gated on a provider/network decision (§3.9.7), so they are deferred rather than rejected. The Spaceforge audit also adds four local rows (docked note review, review calendar/workload, Anki-style statistics and local calendar events) in §3.9.7. `.apkg` export shipped in 1.116.0 with a tested SQLite writer, so it is no longer a gap.
 
 ---
 
