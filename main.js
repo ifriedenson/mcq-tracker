@@ -5443,6 +5443,7 @@ __defs["assignments"] = function (module, exports, require) {
  */
 const { addDays, fmtDate, localDate, str } = require("./util");
 const { stringifyYaml } = require("obsidian");
+const courseIdentity = require("./course-identity");
 
 const ASSIGNMENT_TYPES = [
   { id: "homework", label: "Homework", category: "homework" },
@@ -5530,6 +5531,22 @@ function clamp(value, min, max) {
 
 function pct(value) {
   return value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Math.round(Number(value) * 10) / 10;
+}
+
+function normalizeTopicList(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[,;]/);
+  const out = [];
+  for (const item of raw) {
+    const text = str(item).replace(/\s+/g, " ").trim().slice(0, 200);
+    if (text && !out.some((entry) => entry.toLowerCase() === text.toLowerCase())) out.push(text);
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
+function normalizeTime(value) {
+  const match = str(value).trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  return match ? `${match[1]}:${match[2]}` : "";
 }
 
 function normalizeDate(value) {
@@ -5685,6 +5702,8 @@ function normalizeCourses(value) {
     seen.add(key);
     out.push({
       name,
+      courseId: str(raw.courseId).trim(),
+      aliases: normalizeTopicList(raw.aliases),
       credits: clamp(num(raw.credits, 3), 0, 30),
       target: raw.target === null || raw.target === undefined || raw.target === "" ? null : clamp(num(raw.target, 90), 0, 100),
       finalWeight: raw.finalWeight === null || raw.finalWeight === undefined || raw.finalWeight === "" ? null : clamp(num(raw.finalWeight, 20), 0, 100),
@@ -5708,7 +5727,13 @@ function normalizeAssignmentSettings(value) {
 function courseConfig(settings, course) {
   const key = str(course).trim().toLowerCase();
   if (!key) return null;
-  const row = (settings && settings.courses ? settings.courses : []).find((c) => str(c.name).trim().toLowerCase() === key);
+  const registry = settings && settings.registry;
+  const resolved = courseIdentity.resolveCourse(registry || settings, course);
+  const row = (settings && settings.courses ? settings.courses : []).find((c) => {
+    if (resolved && str(c.courseId).trim() && str(c.courseId).trim() === str(resolved.id).trim()) return true;
+    if (resolved && courseIdentity.sameCourse(registry, c.name, course)) return true;
+    return str(c.name).trim().toLowerCase() === key;
+  });
   return row || null;
 }
 
@@ -5723,6 +5748,8 @@ function courseFinalWeight(settings, course) {
 }
 
 function courseCredits(settings, course) {
+  const resolved = courseIdentity.resolveCourse(settings && settings.registry ? settings.registry : settings, course);
+  if (resolved && Number.isFinite(Number(resolved.credits))) return Number(resolved.credits);
   const cfg = courseConfig(settings, course);
   if (cfg && Number.isFinite(cfg.credits)) return cfg.credits;
   const key = str(course).trim().toLowerCase();
@@ -5797,15 +5824,20 @@ function parseAssignment(file, fm, text, settings) {
   const score = scoreOf(source);
   const graded = status === "missing" || (status !== "excused" && score.percent !== null);
   const percent = status === "missing" ? 0 : graded ? score.percent : null;
+  const courseInfo = courseIdentity.courseDetails(settings && settings.registry, source.course);
   return {
     id: str(source.assignment_id).trim() || (file && file.path) || title,
     file,
     title,
     course: str(source.course).trim(),
+    courseId: courseInfo.id,
+    courseName: courseInfo.name || str(source.course).trim(),
     type,
     typeLabel: typeLabel(type),
     category: categoryFor(type, source.category),
     due,
+    examTime: normalizeTime(source.exam_time || source.examTime),
+    topics: normalizeTopicList(source.topics),
     estimate,
     weight: Math.max(0.01, num(source.weight, 1)),
     status,
@@ -5819,6 +5851,10 @@ function parseAssignment(file, fm, text, settings) {
     text: str(text),
     fm: source,
   };
+}
+
+function sameAssignmentCourse(settings, a, b) {
+  return courseIdentity.sameCourse(settings, a, b);
 }
 
 function weightedAverage(rows, valueKey, weightKey) {
@@ -5835,7 +5871,10 @@ function weightedAverage(rows, valueKey, weightKey) {
 }
 
 function courseRow(settings, course, assignments) {
-  const list = assignments.filter((a) => a.course && a.course.toLowerCase() === course.toLowerCase());
+  const registry = settings && settings.registry ? settings.registry : settings;
+  const info = courseIdentity.courseDetails(registry, course);
+  const target = info.name || str(course).trim();
+  const list = assignments.filter((a) => sameAssignmentCourse(registry, a.course, course));
   const categories = settings.categories.map((cat) => {
     const rows = list.filter((a) => a.category === cat.id && a.status !== "excused");
     const graded = rows.filter((a) => a.percent !== null);
@@ -5865,17 +5904,18 @@ function courseRow(settings, course, assignments) {
     const average = weightedAverage(graded.map((a) => ({ percent: a.percent, weight: a.weight })), "percent", "weight");
     if (average.value !== null) current = pct(average.value);
   }
-  const target = courseTarget(settings, course);
+  const targetGrade = courseTarget(settings, course);
   const finalWeight = courseFinalWeight(settings, course);
   return {
-    course,
+    course: info.name || str(course).trim(),
+    courseId: info.id,
     credits: courseCredits(settings, course),
     current,
     letter: letterForPercent(current),
     gpaPoints: current === null ? null : gpaPointsFor(current),
-    target,
+    target: targetGrade,
     finalWeight,
-    neededFinal: current === null ? null : neededOnFinal(current, target, finalWeight),
+    neededFinal: current === null ? null : neededOnFinal(current, targetGrade, finalWeight),
     total: list.length,
     open: list.filter((a) => a.open).length,
     graded: list.filter((a) => a.percent !== null).length,
@@ -5935,6 +5975,7 @@ function assignmentStats(assignments, settings, options) {
     names.push(clean);
   };
   for (const course of (settings && settings.courses) || []) add(course.name);
+  for (const course of courseIdentity.registryOf(settings)) add(course.name);
   for (const a of list) add(a.course);
   const courses = names.map((name) => courseRow(settings, name, list)).sort((a, b) => a.course.localeCompare(b.course, undefined, { numeric: true }));
   const gradedCourses = courses.filter((c) => c.current !== null && c.credits > 0);
@@ -6037,10 +6078,12 @@ function assignmentMarkdown(data, now) {
   const date = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
   const title = safeName(opts.title) || "Assignment";
   const type = typeId(opts.type);
-  const due = normalizeDate(opts.due);
-  const estimate = estimateMinutes(opts.estimate);
-  const status = normalizeStatus(opts.status, false);
-  const fm = {
+  const due = normalizeDate(opts.due);    const estimate = estimateMinutes(opts.estimate);
+    const status = normalizeStatus(opts.status, false);
+    const topics = normalizeTopicList(opts.topics);
+    const examTime = normalizeTime(opts.examTime || opts.exam_time);
+    const fm = {
+
     assignment: true,
     assignment_id: str(opts.id).trim() || assignmentId(date),
     title,
@@ -6054,6 +6097,8 @@ function assignmentMarkdown(data, now) {
     score: opts.score === undefined || opts.score === "" ? "" : num(opts.score, ""),
     created: fmtDate(date),
   };
+  if (topics.length) fm.topics = topics;
+  if (examTime) fm.exam_time = examTime;
   if (estimate) fm.estimate = estimate;
   if (status === "submitted" || status === "graded") fm.submitted = fmtDate(date);
   return `---\n${stringifyYaml(fm)}---\n\n# ${title}\n\n${taskMarkdown(title, due, estimate)}\n\n## Notes\n\n`;
@@ -6123,6 +6168,7 @@ module.exports = {
   buildDailyTasks,
   categoryFor,
   courseConfig,
+  courseRow,
   courseCredits,
   courseFinalWeight,
   courseTarget,
@@ -6141,6 +6187,8 @@ module.exports = {
   normalizeAssignmentSettings,
   normalizeDate,
   normalizeStatus,
+  normalizeTime,
+  normalizeTopicList,
   parseAssignment,
   safeName,
   scoreOf,
@@ -8112,7 +8160,8 @@ const DEFAULT_CALENDAR_SETTINGS = {
   excludedSubjects: [],
   excludedKeywords: [],
   subjectFolders: {},
-  courses: [], // { id, name, code, folder, color, semester, instructor, credits, totalTopics }
+  courses: [], // { id, name, code, folder, color, semester, instructor, credits, totalTopics, aliases }
+  examOverrides: {}, // { "calendar_uid|YYYY-MM-DD": true|false }
   classColors: {},
   subjectColors: {},
   classNames: {},
@@ -8158,6 +8207,7 @@ function normalizeCourseRegistry(value) {
     ids.add(id);
     const credits = Math.round(Number(raw.credits));
     const totalTopics = Math.round(Number(raw.totalTopics));
+    const aliases = [...new Set((Array.isArray(raw.aliases) ? raw.aliases : []).map((value) => str(value).trim()).filter(Boolean))].slice(0, 50);
     out.push({
       id,
       name: name || code,
@@ -8168,6 +8218,7 @@ function normalizeCourseRegistry(value) {
       instructor: str(raw.instructor).trim(),
       credits: Number.isFinite(credits) ? Math.max(0, Math.min(30, credits)) : 3,
       totalTopics: Number.isFinite(totalTopics) ? Math.max(0, Math.min(500, totalTopics)) : 0,
+      aliases,
     });
   }
   return out;
@@ -8224,6 +8275,7 @@ function mergeCalendarSettings(saved) {
   out.excludedKeywords = (Array.isArray(out.excludedKeywords) ? out.excludedKeywords : []).map(str).filter(Boolean);
   out.subjectFolders = plainObject(out.subjectFolders);
   out.courses = normalizeCourseRegistry(out.courses);
+  out.examOverrides = normalizeExamOverrides(out.examOverrides);
   out.eventNoteFolder = normalizeFolder(out.eventNoteFolder);
   out.classColors = plainObject(out.classColors);
   out.subjectColors = plainObject(out.subjectColors);
@@ -8498,10 +8550,36 @@ function detectCategory(group, text) {
 }
 
 const EXAM_WORDS = ["egzamin", "kolokwium", "zaliczenie", "exam", "midterm", "final", "klausur", "prüfung", "examen", "partiel", "esame", "prova", "экзамен", "зачет", "сессия", "考试", "期末", "期中", "試験", "テスト", "시험", "중간고사", "기말고사"];
+const NON_EXAM_PHRASES = [
+  /\bfinal\s+(project|presentation|portfolio|paper|essay|review)\b/i,
+  /\b(test|exam|quiz)\s+(prep|preparation|review|practice|corrections?)\b/i,
+  /\b(practice|mock)\s+(test|exam|quiz)\b/i,
+  /\bproject\s+(presentation|showcase)\b/i,
+];
 
 function detectExam(text) {
-  if (hasAny(text, EXAM_WORDS)) return true;
-  return /\btest\b/.test(text);
+  const clean = str(text).replace(/\s+/g, " ").trim();
+  if (NON_EXAM_PHRASES.some((re) => re.test(clean))) return false;
+  if (hasAny(clean.toLowerCase(), EXAM_WORDS)) return true;
+  return /\btest\b/.test(clean.toLowerCase());
+}
+
+function normalizeExamOverrides(value) {
+  const out = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const [key, raw] of Object.entries(value)) {
+    const id = str(key).trim().slice(0, 240);
+    if (!id) continue;
+    if (raw === true || raw === "true") out[id] = true;
+    else if (raw === false || raw === "false") out[id] = false;
+  }
+  return out;
+}
+
+function eventKey(event) {
+  const date = str(event && event.dateKey).trim();
+  const uid = str(event && event.uid).trim();
+  return uid && date ? `${uid}|${date}` : `${str(event && event.summary).trim()}|${date}`;
 }
 
 /**
@@ -8564,8 +8642,13 @@ function classColor(settings, details, subject) {
   return (CATEGORY_BY_ID[base] || CATEGORY_BY_ID.inne).color;
 }
 
-function isExamEvent(event) {
-  if (event.isExam === true) return true;
+function isExamEvent(event, overrides) {
+  const override = overrides && Object.prototype.hasOwnProperty.call(overrides, eventKey(event)) ? overrides[eventKey(event)] : undefined;
+  if (override === false) return false;
+  if (override === true) return true;
+  if (event && event.examOverride === false) return false;
+  if (event && event.examOverride === true) return true;
+  if (event && event.isExam === true) return true;
   const details = event.details || parseClassDetails(event.summary, event.description, event.location);
   return details.isExam;
 }
@@ -8744,13 +8827,13 @@ function examCountdown(event, now) {
 }
 
 /** Future exams, soonest first, without duplicates from recurring feeds. */
-function upcomingExams(events, now, limit) {
+function upcomingExams(events, now, limit, overrides) {
   const at = now || new Date();
   const start = new Date(at.getFullYear(), at.getMonth(), at.getDate());
   const seen = new Set();
   const out = [];
   for (const ev of (events || []).slice().sort(byStart)) {
-    if (!ev.dtstart || ev.dtstart < start || !isExamEvent(ev)) continue;
+    if (!ev.dtstart || ev.dtstart < start || !isExamEvent(ev, overrides)) continue;
     const key = `${subjectKey(ev.summary)}|${ev.dateKey}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -8800,10 +8883,14 @@ function nextExamForCourse(events, course, now) {
  * an exam today can only be reviewed today.
  */
 function examReviewCap(event, now) {
-  if (!event || !event.dtstart) return null;
+  if (!event) return null;
   const at = now || new Date();
   const today = new Date(at.getFullYear(), at.getMonth(), at.getDate());
-  const examDay = new Date(event.dtstart.getFullYear(), event.dtstart.getMonth(), event.dtstart.getDate());
+  const parsedDay = event.dateKey ? parseDateKey(event.dateKey) : null;
+  const examDay = event.dtstart
+    ? new Date(event.dtstart.getFullYear(), event.dtstart.getMonth(), event.dtstart.getDate())
+    : parsedDay;
+  if (!examDay || isNaN(examDay.getTime())) return null;
   if (examDay < today) return null;
   const dayBefore = new Date(examDay.getFullYear(), examDay.getMonth(), examDay.getDate() - 1);
   const capDay = dayBefore < today ? today : dayBefore;
@@ -8901,6 +8988,9 @@ module.exports = {
   examMatchesCourse,
   nextExamForCourse,
   examReviewCap,
+  eventKey,
+  normalizeExamOverrides,
+  detectExam,
   resolveSubjectFolder,
 };
 };
@@ -9936,6 +10026,25 @@ function renderEventCard(plugin, timeline, event, key, options) {
   badge.setAttr("title", foreign ? "Open event note" : exists ? "Open note" : "Click to create note");
   setIcon(badge, exists ? "file-text" : "plus");
   badge.createSpan({ text: foreign ? "Event note" : exists ? "Note exists" : "Missing note" });
+
+  if (!foreign && !details.isExam && plugin.logCalendarLecture) {
+    const attend = left.createEl("button", { text: "Attended", cls: "qt-link" });
+    attend.addEventListener("click", async (e) => {
+      if (e && e.stopPropagation) e.stopPropagation();
+      await plugin.logCalendarLecture(event, key, true);
+    });
+    const absent = left.createEl("button", { text: "Absent", cls: "qt-link" });
+    absent.addEventListener("click", async (e) => {
+      if (e && e.stopPropagation) e.stopPropagation();
+      await plugin.logCalendarLecture(event, key, false);
+    });
+  }
+  if (!foreign && details.isExam && plugin.setExamOverride) {
+    left.createEl("button", { text: "Not an exam", cls: "qt-link" }).addEventListener("click", async (e) => {
+      if (e && e.stopPropagation) e.stopPropagation();
+      await plugin.setExamOverride(event, false);
+    });
+  }
 
   const label = str(event.summary) || "this class";
   card.setAttr("aria-label", `${foreign ? "Open event note for" : exists ? "Open note for" : "Create note for"} ${label}${event.termReadingWeek ? ", reading week class" : ""}`);
@@ -19779,6 +19888,7 @@ __defs["course-health"] = function (module, exports, require) {
  */
 const { str } = require("./util");
 const { dayValue, addDays } = require("./study-tools");
+const courseIdentity = require("./course-identity");
 
 const COURSE_HEALTH_LEVELS = ["ok", "warn"];
 
@@ -19820,14 +19930,15 @@ function daysBetween(start, end) {
   return Math.round((new Date(by, bm - 1, bd) - new Date(ay, am - 1, ad)) / 86400000);
 }
 
-function sameCourse(a, b) {
+function sameCourse(a, b, settings) {
+  if (settings) return courseIdentity.sameCourse(settings, a, b);
   return str(a).trim().toLowerCase() === str(b).trim().toLowerCase() && !!str(a).trim();
 }
 
 /** Remaining topic passes and exam date for a course, from the topic planner. */
-function planForCourse(plans, course, today) {
+function planForCourse(plans, course, today, settings) {
   const day = str(today);
-  const rows = (Array.isArray(plans) ? plans : []).filter((plan) => sameCourse(plan && plan.course, course));
+  const rows = (Array.isArray(plans) ? plans : []).filter((plan) => sameCourse(plan && plan.course, course, settings));
   const future = rows
     .filter((plan) => dayValue(plan.examDate) && plan.examDate >= day)
     .sort((a, b) => a.examDate.localeCompare(b.examDate));
@@ -19856,6 +19967,7 @@ function courseHealthReport(input) {
   const tasks = Array.isArray(source.tasks) ? source.tasks : [];
   const plans = Array.isArray(source.plans) ? source.plans : [];
   const courses = Array.isArray(source.courses) ? source.courses : [];
+  const examList = Array.isArray(source.exams) ? source.exams : null;
 
   const rows = courses.map((course) => {
     const checks = [];
@@ -19877,7 +19989,7 @@ function courseHealthReport(input) {
       });
     }
     const overdue = tasks.filter(
-      (task) => task && !task.done && dayValue(task.due) && task.due < day && sameCourse(task.course, name)
+      (task) => task && !task.done && dayValue(task.due) && task.due < day && sameCourse(task.course, name, source.settings)
     );
     if (overdue.length) {
       checks.push({
@@ -19886,8 +19998,21 @@ function courseHealthReport(input) {
         text: `${overdue.length} open ${overdue.length === 1 ? "task is" : "tasks are"} overdue for this course.`,
       });
     }
-    const plan = planForCourse(plans, name, day);
-    if (plan && plan.remaining > 0 && plan.daysLeft <= settings.examWindowDays) {
+    const plan = planForCourse(plans, name, day, source.settings);
+    const exam = examList
+      ? examList
+          .filter((entry) => entry && dayValue(entry.date) && entry.date >= day && sameCourse(entry.course, name, source.settings))
+          .sort((a, b) => a.date.localeCompare(b.date))[0] || null
+      : null;
+    const examDays = exam ? daysBetween(day, exam.date) : null;
+    if (exam && examDays <= settings.examWindowDays) {
+      const remaining = plan ? plan.remaining : 0;
+      checks.push({
+        id: "exam",
+        level: "warn",
+        text: `Exam ${exam.title || ""} in ${examDays} ${examDays === 1 ? "day" : "days"}${remaining > 0 ? ` with ${remaining} topic ${remaining === 1 ? "pass" : "passes"} left` : ""}.`,
+      });
+    } else if (!examList && plan && plan.remaining > 0 && plan.daysLeft <= settings.examWindowDays) {
       checks.push({
         id: "exam",
         level: "warn",
@@ -19919,6 +20044,155 @@ module.exports = {
   daysBetween,
   normalizeCourseHealthSettings,
   planForCourse,
+};
+};
+
+/* ---- src/course-identity.js ---- */
+__defs["course-identity"] = function (module, exports, require) {
+/*
+ * Shared course identity. The calendar course registry is the source of truth;
+ * every other note-backed store keeps its original text and is resolved here at
+ * read time. A missing registry entry falls back to the old lowercase-name
+ * behaviour, so existing vaults do not need a migration.
+ */
+const { str } = require("./util");
+
+function normalizeText(value) {
+  return str(value).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function normalizeKey(value) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function registryOf(settings) {
+  if (Array.isArray(settings)) return settings;
+  if (!settings || typeof settings !== "object") return [];
+  if (Array.isArray(settings.registry)) return settings.registry;
+  if (settings.calendar && Array.isArray(settings.calendar.courses)) return settings.calendar.courses;
+  if (Array.isArray(settings.courses)) {
+    const looksRegistered = settings.courses.some((row) => row && (row.code !== undefined || row.aliases !== undefined || row.id));
+    if (looksRegistered) return settings.courses;
+  }
+  return [];
+}
+
+function aliasesOf(course) {
+  const raw = course && Array.isArray(course.aliases) ? course.aliases : [];
+  return raw.map(normalizeText).filter(Boolean);
+}
+
+function courseCandidates(course) {
+  if (!course || typeof course !== "object") return [];
+  const values = [course.name, course.code, course.folder, course.id, ...aliasesOf(course)];
+  const folder = str(course.folder).trim();
+  if (folder) values.push(folder.split("/").filter(Boolean).pop());
+  const out = [];
+  for (const value of values) {
+    const key = normalizeKey(value);
+    if (key && !out.includes(key)) out.push(key);
+  }
+  return out;
+}
+
+function registryKeys(course) {
+  return courseCandidates(course);
+}
+
+/**
+ * Resolve a name, code, folder, alias or id to one registry row. Returns null
+ * when no registry is present or nothing matches.
+ */
+function resolveCourse(settings, input) {
+  const registry = registryOf(settings);
+  if (!registry.length) return null;
+  const value = input && typeof input === "object" ? input.name || input.code || input.folder || input.id : input;
+  const key = normalizeKey(value);
+  if (!key) return null;
+  for (const course of registry) {
+    if (!course || typeof course !== "object") continue;
+    if (normalizeText(input && input.id) && normalizeText(input.id) === normalizeText(course.id)) return course;
+    const candidates = courseCandidates(course);
+    if (candidates.includes(key)) return course;
+  }
+  for (const course of registry) {
+    if (!course || typeof course !== "object") continue;
+    const code = normalizeKey(course.code);
+    if (code && (key === code || key.startsWith(`${code} `) || key.startsWith(`${code}-`) || key.startsWith(`${code}:`))) return course;
+  }
+  for (const course of registry) {
+    if (!course || typeof course !== "object") continue;
+    const candidates = courseCandidates(course).filter((candidate) => candidate.length >= 4);
+    if (candidates.some((candidate) => key.includes(candidate) || candidate.includes(key))) return course;
+  }
+  return null;
+}
+
+function courseKey(settings, input) {
+  const resolved = resolveCourse(settings, input);
+  if (resolved) return normalizeText(resolved.id || resolved.name || resolved.code);
+  const raw = input && typeof input === "object" ? input.name || input.code || input.folder || "" : input;
+  return normalizeKey(raw);
+}
+
+function courseDetails(settings, input) {
+  const resolved = resolveCourse(settings, input);
+  if (resolved) {
+    return {
+      id: str(resolved.id),
+      name: str(resolved.name || resolved.code),
+      code: str(resolved.code),
+      folder: str(resolved.folder),
+      color: str(resolved.color),
+      credits: Number.isFinite(Number(resolved.credits)) ? Number(resolved.credits) : 3,
+      totalTopics: Math.max(0, Number(resolved.totalTopics) || 0),
+      aliases: aliasesOf(resolved),
+      resolved: true,
+    };
+  }
+  const raw = input && typeof input === "object" ? input.name || input.code || input.folder || "" : input;
+  return {
+    id: "",
+    name: str(raw).trim(),
+    code: "",
+    folder: "",
+    color: "",
+    credits: 3,
+    totalTopics: 0,
+    aliases: [],
+    resolved: false,
+  };
+}
+
+function sameCourse(settings, a, b) {
+  const ka = courseKey(settings, a);
+  const kb = courseKey(settings, b);
+  return !!ka && ka === kb;
+}
+
+/** Add the old name/code to aliases instead of rewriting stored course strings. */
+function renameCourse(courses, id, name) {
+  const nextName = str(name).trim();
+  if (!nextName) return Array.isArray(courses) ? courses.slice() : [];
+  return (Array.isArray(courses) ? courses : []).map((course) => {
+    if (!course || str(course.id) !== str(id)) return course;
+    const aliases = [...new Set([...(Array.isArray(course.aliases) ? course.aliases : []), course.name, course.code].map(str).map((v) => v.trim()).filter(Boolean))];
+    return { ...course, name: nextName, aliases };
+  });
+}
+
+module.exports = {
+  aliasesOf,
+  courseCandidates,
+  courseDetails,
+  courseKey,
+  normalizeKey,
+  normalizeText,
+  registryOf,
+  registryKeys,
+  renameCourse,
+  resolveCourse,
+  sameCourse,
 };
 };
 
@@ -20345,6 +20619,264 @@ module.exports = {
   uniquePath,
   CourseNotesModal,
 };
+};
+
+/* ---- src/course-overview.js ---- */
+__defs["course-overview"] = function (module, exports, require) {
+/*
+ * One read-only "what do I need to learn for this course" view. Every section
+ * is derived from an existing store; this module never writes.
+ */
+const { str, localDate } = require("./util");
+const courseIdentity = require("./course-identity");
+const { listExams } = require("./exams");
+const { planProgress } = require("./study-workspace");
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function openAssignment(assignment) {
+  return assignment && assignment.open !== false && assignment.done !== true;
+}
+
+function courseOverview(courseId, ctx) {
+  const input = asObject(ctx);
+  const settings = input.settings || {};
+  const today = str(input.today || localDate()).slice(0, 10);
+  const info = courseIdentity.courseDetails(settings, courseId);
+  const name = info.name || str(courseId);
+  const same = (value) => courseIdentity.sameCourse(settings, value, courseId);
+  const exams = Array.isArray(input.exams)
+    ? input.exams
+    : listExams({ settings, events: input.events, assignments: input.assignments, plans: input.plans, today, includePast: true });
+  const futureExams = exams.filter((exam) => exam.date >= today && same(exam.course)).sort((a, b) => a.date.localeCompare(b.date));
+  const nextExam = futureExams[0] || null;
+  const lastPast = exams.filter((exam) => exam.date < today && same(exam.course)).sort((a, b) => b.date.localeCompare(a.date))[0] || null;
+  const lectures = (Array.isArray(input.lectures) ? input.lectures : [])
+    .filter((lecture) => same(lecture.course) && (!lastPast || !lecture.date || lecture.date > lastPast.date))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const readings = (Array.isArray(input.readings) ? input.readings : [])
+    .filter((reading) => !reading.course || same(reading.course))
+    .map((reading) => ({
+      ...reading,
+      course: name,
+      pagesRemaining: Math.max(0, Number(reading.pagesRemaining ?? reading.remainingPages) || 0),
+      behindPages: Math.max(0, Number(reading.behindPages ?? reading.behindBy) || 0),
+      dueDate: str(reading.dueDate || reading.due || "").slice(0, 10),
+      source: "reading",
+    }));
+  const assignments = (Array.isArray(input.assignments) ? input.assignments : [])
+    .filter((assignment) => same(assignment.course) && openAssignment(assignment))
+    .sort((a, b) => str(a.due || "9999-12-31").localeCompare(str(b.due || "9999-12-31")));
+  const tasks = (Array.isArray(input.tasks) ? input.tasks : [])
+    .filter((task) => same(task.course) && !task.done)
+    .sort((a, b) => str(a.due || "9999-12-31").localeCompare(str(b.due || "9999-12-31")));
+  const plan = (Array.isArray(input.plans) ? input.plans : []).find((row) => same(row.course)) || null;
+  const progress = plan ? planProgress(plan) : { passes: 0, target: 0, percent: 0, complete: false };
+  const course = (Array.isArray(input.courses) ? input.courses : []).find((row) => same(row.name || row.course)) || null;
+  const grade = course ? { current: course.current ?? null, letter: course.letter || "", weighted: course.weighted ?? null, graded: Number(course.graded) || 0, credits: Number(course.credits) || 0 } : null;
+
+  const sections = [];
+  if (nextExam) {
+    sections.push({
+      id: "exam",
+      title: "Next exam",
+      rows: [{
+        id: nextExam.id,
+        label: nextExam.title,
+        detail: `${nextExam.date}${nextExam.time ? ` · ${nextExam.time}` : ""}${nextExam.weight ? ` · weight ${nextExam.weight}` : ""}`,
+        source: "exam",
+        exam: nextExam,
+      }],
+    });
+  }
+  if (!progress.complete && progress.target > 0) {
+    sections.push({
+      id: "topics",
+      title: "Topics",
+      rows: [{
+        id: "topic-plan",
+        label: `${Math.max(0, progress.target - progress.passes)} topic ${progress.target - progress.passes === 1 ? "pass" : "passes"} left`,
+        detail: `${progress.passes}/${progress.target} passes complete`,
+        source: "plan",
+        plan,
+      }],
+    });
+  }
+  if (lectures.length) {
+    sections.push({
+      id: "lectures",
+      title: "Lectures",
+      rows: lectures.slice(0, 8).map((lecture) => ({
+        id: lecture.id,
+        label: lecture.title,
+        detail: `${lecture.date}${lecture.topicList && lecture.topicList.length ? ` · ${lecture.topicList.join(", ")}` : ""}`,
+        source: "lecture",
+        notePath: lecture.notePath || "",
+        lecture,
+      })),
+    });
+  }
+  if (readings.length) {
+    sections.push({
+      id: "readings",
+      title: "Readings",
+      rows: readings.map((reading) => ({
+        id: reading.id,
+        label: reading.title || "Reading",
+        detail: `${reading.pagesRemaining} pages left${reading.behindPages ? ` · ${reading.behindPages} behind` : ""}${reading.dueDate ? ` · due ${reading.dueDate}` : ""}`,
+        source: "reading",
+        reading,
+      })),
+    });
+  }
+  if (assignments.length) {
+    sections.push({
+      id: "assignments",
+      title: "Assignments",
+      rows: assignments.slice(0, 10).map((assignment) => ({
+        id: assignment.id,
+        label: assignment.title,
+        detail: `${assignment.typeLabel || assignment.type || "Assignment"}${assignment.due ? ` · due ${assignment.due}` : ""}`,
+        source: "assignment",
+        path: assignment.file && assignment.file.path ? assignment.file.path : "",
+        assignment,
+      })),
+    });
+  }
+  if (tasks.length) {
+    sections.push({
+      id: "tasks",
+      title: "Tasks",
+      rows: tasks.slice(0, 10).map((task) => ({
+        id: task.id,
+        label: task.title,
+        detail: task.due ? `due ${task.due}` : "no due date",
+        source: "task",
+        task,
+      })),
+    });
+  }
+  if (grade && (grade.graded || grade.current !== null)) {
+    sections.push({
+      id: "grades",
+      title: "Grade",
+      rows: [{
+        id: "grade-summary",
+        label: `${grade.letter || "Grade"}${grade.weighted !== null ? ` · ${grade.weighted}%` : ""}`,
+        detail: `${grade.graded} graded item${grade.graded === 1 ? "" : "s"}`,
+        source: "grade",
+        grade,
+      }],
+    });
+  }
+  return {
+    id: info.id || str(courseId),
+    name,
+    course: name,
+    color: info.color || (course && course.color) || "",
+    folder: info.folder || (course && course.folder) || "",
+    nextExam,
+    lectures,
+    readings,
+    assignments,
+    tasks,
+    plan,
+    progress,
+    grade,
+    sections,
+  };
+}
+
+module.exports = { courseOverview };
+};
+
+/* ---- src/course-overview-modal.js ---- */
+__defs["course-overview-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { str } = require("./util");
+
+class CourseOverviewModal extends Modal {
+  constructor(app, plugin, courseId) {
+    super(app);
+    this.plugin = plugin;
+    this.courseId = courseId;
+  }
+
+  onOpen() {
+    const data = this.plugin.courseOverviewData(this.courseId);
+    const { contentEl } = this;
+    contentEl.empty();
+    if (!data) {
+      contentEl.createEl("h3", { text: "Course overview" });
+      contentEl.createDiv({ cls: "qt-hint", text: "That course is no longer in the registry or dashboard." });
+      return;
+    }
+    const head = contentEl.createDiv({ cls: "qt-workspace-head" });
+    const title = head.createEl("h3");
+    const dot = title.createSpan({ cls: "qt-workspace-subject-dot" });
+    dot.style.background = data.color || "#7c9cf5";
+    title.createSpan({ text: data.name });
+    head.createSpan({ cls: "qt-workspace-grade", text: data.grade && data.grade.letter ? `${data.grade.letter}${data.grade.weighted !== null ? ` · ${data.grade.weighted}%` : ""}` : "No grades" });
+    contentEl.createDiv({ cls: "qt-hint", text: "Everything here is derived from your notes and local settings. Open a row to jump to its source." });
+
+    if (!data.sections.length) {
+      contentEl.createDiv({ cls: "qt-study-empty", text: "Nothing is scheduled or due for this course yet." });
+      return;
+    }
+    for (const section of data.sections) {
+      const card = contentEl.createDiv({ cls: "qt-study-card" });
+      card.createEl("h4", { text: section.title });
+      const list = card.createDiv({ cls: "qt-study-list" });
+      for (const row of section.rows) {
+        const item = list.createDiv({ cls: "qt-study-row" });
+        const main = item.createDiv({ cls: "qt-study-row-main" });
+        main.createDiv({ cls: "qt-study-row-title", text: row.label });
+        if (row.detail) main.createDiv({ cls: "qt-study-row-meta", text: row.detail });
+        if (row.widget || row.notePath || row.path) {
+          item.createEl("button", { text: "Open" }).addEventListener("click", () => this.openRow(row));
+        }
+      }
+    }
+  }
+
+  openRow(row) {
+    if (row.notePath) {
+      this.plugin.app.workspace.openLinkText(row.notePath, "", false);
+      return;
+    }
+    if (row.path) {
+      this.plugin.app.workspace.openLinkText(row.path, "", false);
+      return;
+    }
+    if (row.source === "exam" && row.exam && row.exam.calendarEvent) {
+      this.plugin.openClassNote(row.exam.calendarEvent, row.exam.date);
+      return;
+    }
+    if (row.source === "plan") {
+      this.plugin.activateStudyWorkspace("planner");
+      return;
+    }
+    if (row.source === "reading") {
+      this.plugin.activateStudyWorkspace("readingLibrary");
+      return;
+    }
+    if (row.source === "task") {
+      this.plugin.activateStudyWorkspace("tasks");
+      return;
+    }
+    if (row.source === "assignment") {
+      this.plugin.activateAssignments();
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = { CourseOverviewModal };
 };
 
 /* ---- src/course-templates.js ---- */
@@ -22232,6 +22764,91 @@ function parseExamBlock(source) {
 module.exports = { LETTERS, parseExamBlock };
 };
 
+/* ---- src/exam-modal.js ---- */
+__defs["exam-modal"] = function (module, exports, require) {
+const { Modal, Notice } = require("obsidian");
+const { localDate, str } = require("./util");
+
+/* Manual exams are ordinary assignment notes with type: exam. */
+class ExamModal extends Modal {
+  constructor(app, plugin, options, onDone) {
+    super(app);
+    this.plugin = plugin;
+    this.options = options || {};
+    this.onDone = onDone || (() => {});
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h3", { text: "Add an exam" });
+    contentEl.createDiv({
+      cls: "qt-hint",
+      text: "This creates a normal assignment note with type Exam. It is included in review-date caps, the study plan, course health and the course overview.",
+    });
+    const field = (label, placeholder, type) => {
+      const wrap = contentEl.createDiv({ cls: "qt-field" });
+      wrap.createEl("label", { text: label });
+      return wrap.createEl("input", { type: type || "text", attr: { placeholder: placeholder || "" } });
+    };
+    const title = field("Exam title", "e.g. Biology final", "text");
+    title.value = str(this.options.title || "");
+    const course = field("Course", "e.g. Biology", "text");
+    course.value = str(this.options.course || "");
+    const date = field("Exam date", "", "date");
+    date.value = str(this.options.date || localDate());
+    const time = field("Start time (optional)", "", "time");
+    const weight = field("Weight inside exams (optional)", "e.g. 25", "number");
+    const topicsWrap = contentEl.createDiv({ cls: "qt-field" });
+    topicsWrap.createEl("label", { text: "Topics (comma or newline separated)" });
+    const topics = topicsWrap.createEl("textarea", { attr: { rows: "3", placeholder: "Cells, Genetics, Respiration" } });
+
+    const row = contentEl.createDiv({ cls: "qt-row" });
+    row.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
+    const save = row.createEl("button", { text: "Create exam", cls: "mod-cta qt-grow" });
+    save.addEventListener("click", async () => {
+      if (!str(title.value).trim()) {
+        new Notice("Give the exam a title.");
+        return;
+      }
+      if (!str(course.value).trim()) {
+        new Notice("Add the course this exam belongs to.");
+        return;
+      }
+      if (!str(date.value).trim()) {
+        new Notice("Choose the exam date.");
+        return;
+      }
+      save.disabled = true;
+      try {
+        const result = await this.plugin.createAssignment({
+          title: str(title.value).trim(),
+          course: str(course.value).trim(),
+          type: "exam",
+          category: "exam",
+          due: str(date.value).trim(),
+          examTime: str(time.value).trim(),
+          weight: str(weight.value).trim() || "1",
+          topics: str(topics.value).split(/[,;\n]/).map((part) => part.trim()).filter(Boolean),
+          status: "todo",
+        });
+        this.close();
+        this.onDone(result);
+      } catch (e) {
+        save.disabled = false;
+        new Notice(str(e && e.message) || "Could not create the exam note.");
+      }
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+module.exports = { ExamModal };
+};
+
 /* ---- src/exam-sections.js ---- */
 __defs["exam-sections"] = function (module, exports, require) {
 /*
@@ -23483,6 +24100,224 @@ class TestView extends ItemView {
 module.exports = {
   VIEW_TYPE_TEST,
   TestView,
+};
+};
+
+/* ---- src/exams.js ---- */
+__defs["exams"] = function (module, exports, require) {
+/*
+ * One exam list for the calendar, assignment notes and the topic planner.
+ * Calendar events and topic plans are read-only; manual exams are ordinary
+ * assignment notes with `type: exam`, plus optional topics, weight and time.
+ */
+const { str, localDate } = require("./util");
+const courseIdentity = require("./course-identity");
+const { cleanSubjectTitle, isExamEvent } = require("./calendar-model");
+
+const EXAM_TYPES = ["midterm", "final", "quiz", "sat", "ap", "other"];
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function dateKeyOf(value) {
+  if (!value) return "";
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  }
+  const text = str(value).trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
+}
+
+function timeOf(value) {
+  if (!(value instanceof Date) || isNaN(value.getTime())) return "";
+  return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
+}
+
+function typeOf(text, fallback) {
+  const raw = str(fallback).trim().toLowerCase();
+  const value = `${str(text)} ${raw}`.toLowerCase();
+  if (/\bsat\b/.test(value)) return "sat";
+  if (/\bap\b/.test(value) || /\badvanced placement\b/.test(value)) return "ap";
+  if (/\bmidterm\b|\bmid-term\b/.test(value)) return "midterm";
+  if (/\bfinal\b/.test(value)) return "final";
+  if (/\bquiz\b/.test(value)) return "quiz";
+  if (raw === "test") return "midterm";
+  if (raw === "exam") return "other";
+  return EXAM_TYPES.includes(raw) ? raw : "other";
+}
+
+function normalizeTopics(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[,;]/);
+  const out = [];
+  for (const item of raw) {
+    const text = str(item).replace(/\s+/g, " ").trim().slice(0, 200);
+    if (text && !out.some((entry) => entry.toLowerCase() === text.toLowerCase())) out.push(text);
+    if (out.length >= 100) break;
+  }
+  return out;
+}
+
+function rank(row) {
+  if (!row) return 0;
+  let score = row.source === "assignment" ? 40 : row.source === "planner" ? 20 : 10;
+  if (row.topics && row.topics.length) score += 8;
+  if (row.weight !== null && row.weight !== undefined && row.weight !== "") score += 4;
+  if (row.time) score += 2;
+  return score;
+}
+
+function mergeRows(primary, secondary) {
+  const out = { ...secondary, ...primary };
+  if (!out.topics || !out.topics.length) out.topics = secondary.topics || [];
+  if (out.weight === null || out.weight === undefined || out.weight === "") out.weight = secondary.weight;
+  if (!out.time) out.time = secondary.time || "";
+  if (!out.type || out.type === "other") out.type = secondary.type || out.type;
+  out.sources = [...new Set([...(secondary.sources || []), ...(primary.sources || [])])];
+  out.source = out.sources.length > 1 ? "merged" : out.sources[0] || out.source;
+  return out;
+}
+
+function courseFromTitle(title, explicit) {
+  if (str(explicit).trim()) return str(explicit).trim();
+  return cleanSubjectTitle(title)
+    .replace(/\s*[-–—:]\s*$/g, "")
+    .replace(/\s+\b(final|midterm|exam|test|quiz|assessment|sat|ap)\b.*$/i, "")
+    .trim() || str(title).trim();
+}
+
+function eventRow(event, settings) {
+  const date = dateKeyOf(event.dateKey || event.dtstart);
+  if (!date) return null;
+  const rawCourse = courseFromTitle(event.summary, event.course || event.subject);
+  const info = courseIdentity.courseDetails(settings, rawCourse);
+  return {
+    id: `calendar-${str(event.uid || event.dateKey || event.summary).replace(/[^a-z0-9]+/gi, "-").slice(0, 80)}`,
+    courseId: info.id,
+    course: info.name || rawCourse,
+    title: str(event.summary).trim() || "Exam",
+    date,
+    time: timeOf(event.dtstart),
+    type: typeOf(event.summary, "other"),
+    weight: null,
+    topics: [],
+    source: "calendar",
+    sources: ["calendar"],
+    calendarEvent: event,
+  };
+}
+
+function assignmentRow(assignment, settings) {
+  const date = dateKeyOf(assignment && assignment.due);
+  if (!date) return null;
+  const type = str(assignment.type).toLowerCase();
+  if (!(type === "exam" || type === "test" || type === "final" || assignment.category === "exam")) return null;
+  const rawCourse = courseFromTitle(assignment.title, assignment.course);
+  const info = courseIdentity.courseDetails(settings, rawCourse);
+  return {
+    id: `assignment-${str(assignment.id || assignment.file && assignment.file.path || assignment.title).replace(/[^a-z0-9]+/gi, "-").slice(0, 80)}`,
+    courseId: info.id,
+    course: info.name || rawCourse,
+    title: str(assignment.title).trim() || "Exam",
+    date,
+    time: str(assignment.examTime || assignment.exam_time).trim(),
+    type: typeOf(assignment.title, type),
+    weight: assignment.weight === undefined || assignment.weight === null ? null : Number(assignment.weight),
+    topics: normalizeTopics(assignment.topics),
+    source: "assignment",
+    sources: ["assignment"],
+    assignment,
+  };
+}
+
+function planRow(plan, settings) {
+  const date = dateKeyOf(plan && plan.examDate);
+  if (!date) return null;
+  const rawCourse = str(plan.course).trim() || "Course";
+  const info = courseIdentity.courseDetails(settings, rawCourse);
+  return {
+    id: `planner-${str(plan.id || `${rawCourse}-${date}`).replace(/[^a-z0-9]+/gi, "-").slice(0, 80)}`,
+    courseId: info.id,
+    course: info.name || rawCourse,
+    title: `${info.name || rawCourse || "Course"} exam`,
+    date,
+    time: "",
+    type: "other",
+    weight: null,
+    topics: normalizeTopics((plan.topics || []).map((topic) => topic && topic.name ? topic.name : topic)),
+    source: "planner",
+    sources: ["planner"],
+    plan,
+  };
+}
+
+function listExams(ctx) {
+  const opts = asObject(ctx);
+  const settings = opts.settings || {};
+  const today = dateKeyOf(opts.today) || localDate();
+  const horizon = Number.isFinite(Number(opts.horizonDays)) ? Math.max(0, Number(opts.horizonDays)) : 365;
+  const overrides = opts.overrides || (settings.calendar && settings.calendar.examOverrides) || {};
+  const rows = [];
+  for (const event of Array.isArray(opts.events) ? opts.events : []) {
+    if (!isExamEvent(event, overrides)) continue;
+    const row = eventRow(event, settings);
+    if (row) rows.push(row);
+  }
+  for (const assignment of Array.isArray(opts.assignments) ? opts.assignments : []) {
+    const row = assignmentRow(assignment, settings);
+    if (row) rows.push(row);
+  }
+  for (const plan of Array.isArray(opts.plans) ? opts.plans : []) {
+    const row = planRow(plan, settings);
+    if (row) rows.push(row);
+  }
+  const byKey = new Map();
+  for (const row of rows) {
+    if (opts.includePast !== true && row.date < today) continue;
+    if (horizon && row.date > addDays(today, horizon)) continue;
+    const courseKey = row.courseId || courseIdentity.normalizeKey(row.course) || "exam";
+    const key = `${courseKey}|${row.date}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, row);
+      continue;
+    }
+    const preferred = rank(row) >= rank(existing) ? mergeRows(row, existing) : mergeRows(existing, row);
+    preferred.sources = [...new Set([...(existing.sources || []), ...(row.sources || [])])];
+    preferred.source = preferred.sources.length > 1 ? "merged" : preferred.sources[0] || preferred.source;
+    byKey.set(key, preferred);
+  }
+  return [...byKey.values()].sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
+}
+
+function addDays(key, count) {
+  const date = new Date(`${key}T00:00:00`);
+  if (isNaN(date.getTime())) return "";
+  date.setDate(date.getDate() + count);
+  return dateKeyOf(date);
+}
+
+function nextExam(exams, course, settings, today) {
+  const day = dateKeyOf(today) || localDate();
+  return (Array.isArray(exams) ? exams : [])
+    .filter((exam) => exam.date >= day && (!course || courseIdentity.sameCourse(settings, exam.course, course)))
+    .sort((a, b) => a.date.localeCompare(b.date))[0] || null;
+}
+
+module.exports = {
+  EXAM_TYPES,
+  asObject,
+  assignmentRow,
+  courseFromTitle,
+  dateKeyOf,
+  eventRow,
+  listExams,
+  mergeRows,
+  nextExam,
+  normalizeTopics,
+  planRow,
+  typeOf,
 };
 };
 
@@ -39299,6 +40134,11 @@ const { AssignmentsView } = require("./assignments-view");
 const { StudyToolsView } = require("./study-tools-view");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const studyWorkspace = require("./study-workspace");
+const courseIdentity = require("./course-identity");
+const exams = require("./exams");
+const { courseOverview } = require("./course-overview");
+const { ExamModal } = require("./exam-modal");
+const { CourseOverviewModal } = require("./course-overview-modal");
 const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
 const audioBookmarks = require("./audio-bookmarks");
@@ -39315,7 +40155,8 @@ const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-cl
 const { ApiClient } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const { normalizeThinkFirstSeconds } = require("./think-first");
-const { normalizeReadingSettings } = require("./reading");
+const readingModel = require("./reading");
+const { normalizeReadingSettings } = readingModel;
 const { normalizeTagTimerSettings, stopRunningTagTimers } = require("./tag-timer");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
@@ -39341,7 +40182,7 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { applyTermWeeks, cleanSubjectTitle, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, nextExamForCourse, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
@@ -39672,6 +40513,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "feynman-ai-feedback", name: "Feynman: get AI feedback on an explanation", callback: () => this.activateStudyWorkspace("feynmanAi") });
     this.addCommand({ id: "pdf-annotation-index", name: "PDF annotations: index the vault sidecars", callback: () => this.activateStudyWorkspace("pdfAnnotations") });
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
+    this.addCommand({ id: "new-exam", name: "Exams: add an exam", callback: () => new ExamModal(this.app, this, {}, (result) => { if (result && result.path) new Notice(`Created ${result.path}.`); this.refreshViews(); }).open() });
+    this.addCommand({ id: "calendar-class-attended", name: "Calendar: mark this class note attended", checkCallback: (checking) => { if (!this.classNoteEvent()) return false; if (!checking) this.logClassNoteAttendance(null, true); return true; } });
+    this.addCommand({ id: "calendar-class-absent", name: "Calendar: mark this class note absent", checkCallback: (checking) => { if (!this.classNoteEvent()) return false; if (!checking) this.logClassNoteAttendance(null, false); return true; } });
+    this.addCommand({ id: "course-overview", name: "Courses: open the course overview", checkCallback: (checking) => { const course = this.settings.calendar && this.settings.calendar.courses && this.settings.calendar.courses[0]; if (!course) return false; if (!checking) this.openCourseOverview(course.id || course.name); return true; } });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
     this.addCommand({ id: "open-ap-resources", name: "Open AP resources", callback: () => this.openApResources() });
@@ -39977,6 +40822,10 @@ class QuestionTrackerPlugin extends Plugin {
         }
         if (!(file instanceof TFile) || !/\.md$/i.test(file.path)) return;
         const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (fm && fm.calendar_uid && fm.calendar_date) {
+          menu.addItem((item) => item.setTitle("Calendar: mark attended").setIcon("check").onClick(() => this.logClassNoteAttendance(file, true)));
+          menu.addItem((item) => item.setTitle("Calendar: mark absent").setIcon("x").onClick(() => this.logClassNoteAttendance(file, false)));
+        }
         if (fm && fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "") {
           menu.addItem((item) =>
             item
@@ -40845,16 +41694,45 @@ class QuestionTrackerPlugin extends Plugin {
 
   assignmentSettings() {
     const base = this.settings.assignments;
+    const registry = (this.settings.calendar && this.settings.calendar.courses) || [];
     const registryCredits = {};
-    for (const course of (this.settings.calendar && this.settings.calendar.courses) || []) {
+    for (const course of registry) {
       const credits = Number(course.credits);
       if (!Number.isFinite(credits)) continue;
-      for (const name of [course.name, course.code]) {
+      for (const name of [course.name, course.code, ...(course.aliases || [])]) {
         const key = str(name).trim().toLowerCase();
         if (key) registryCredits[key] = credits;
       }
     }
-    return { ...base, registryCredits };
+    return { ...base, registry, registryCredits };
+  }
+
+  /** All exams from calendar events, manual exam notes and topic plans. */
+  getExams(options) {
+    const opts = options || {};
+    return exams.listExams({
+      settings: this.calendarSettings(),
+      events: this.calendarEvents(),
+      assignments: this.getAssignments(),
+      plans: this.studyWorkspaceSettings().lerntracker.plans,
+      overrides: this.settings.calendar.examOverrides,
+      today: opts.today || localDate(),
+      horizonDays: opts.horizonDays === undefined ? 365 : opts.horizonDays,
+      includePast: opts.includePast === true,
+    });
+  }
+
+  async setExamOverride(event, value) {
+    const key = eventKey(event);
+    if (!key) return null;
+    this.settings.calendar = mergeCalendarSettings({
+      ...this.calendarSettings(),
+      examOverrides: { ...(this.settings.calendar.examOverrides || {}), [key]: value },
+    });
+    this.invalidateCalendar();
+    await this.save();
+    this.refreshCalendarViews();
+    return this.settings.calendar.examOverrides[key];
   }
 
   /** A saved timed test is still in progress (the test view is the only writer of testSession). */
@@ -41062,10 +41940,10 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** The next review date compression for a course's upcoming exam, if there is one. */
   examCapFor(course, now) {
-    if (!this.calendarEnabled() || !String(course || "").trim()) return null;
+    if (!String(course || "").trim()) return null;
     const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
-    const exam = nextExamForCourse(this.calendarEvents(at), course, at);
-    return exam ? examReviewCap(exam, at) : null;
+    const exam = exams.nextExam(this.getExams({ today: localDate(), horizonDays: 365 }), course, this.calendarSettings(), localDate());
+    return exam ? examReviewCap({ dateKey: exam.date, summary: exam.title || "Exam" }, at) : null;
   }
 
   /** Cached index of class notes by `calendar_uid|calendar_date`. */
@@ -41104,7 +41982,7 @@ class QuestionTrackerPlugin extends Plugin {
     const cal = this.calendarSettings();
     const foreignNotes = fullCalendarNotes(this.app, cal.eventNoteFolder, range);
     const termSignature = `${cal.semesterStart}|${cal.semesterEnd}|${(cal.readingWeeks || []).map((r) => `${r.start}:${r.end}:${r.label}`).join(",")}`;
-    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${termSignature}|${foreignNotes.signature}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
+    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${termSignature}|${JSON.stringify(cal.examOverrides || {})}|${foreignNotes.signature}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
     if (this._calendarCache && this._calendarCache.signature === signature) return this._calendarCache.events;
     const all = [];
     const errors = [];
@@ -41117,6 +41995,11 @@ class QuestionTrackerPlugin extends Plugin {
       }
     }
     all.push(...foreignNotes.events);
+    const overrides = cal.examOverrides || {};
+    for (const event of all) {
+      if (!Object.prototype.hasOwnProperty.call(overrides, eventKey(event))) continue;
+      event.examOverride = overrides[eventKey(event)];
+    }
     const events = applyTermWeeks(this.calendarSettings(), visibleEvents(this.calendarSettings(), all));
     this._calendarCache = { signature, events };
     this._calendarErrors = errors;
@@ -45321,23 +46204,160 @@ ${body}
     return { ...result, added: added.added };
   }
 
-  /** The next exam's plan, scoped to matching question and card courses. */
+  /** Plans for every exam in the next 30 days, soonest first. */
+  studyPlans() {
+    return this.getExams({ horizonDays: 30 })
+      .map((exam) => this.buildExamPlan(exam))
+      .filter(Boolean);
+  }
+
+  /** The soonest exam plan, kept for the existing Today and command callers. */
   studyPlan() {
-    if (!this.calendarEnabled()) return null;
-    const exam = upcomingExams(this.calendarEvents(), new Date(), 1)[0];
-    if (!exam) return null;
-    const title = cleanSubjectTitle(exam.summary) || str(exam.summary);
-    const course =
-      str(exam.course).trim() ||
-      title.replace(/\s*[-–—:]\s*(final|midterm|exam|test|quiz|assessment)\b.*$/i, "").replace(/\s+(final|midterm|exam|test|quiz|assessment)(\s+exam)?\s*$/i, "").trim() ||
-      title;
-    const matches = (value) => !!str(value).trim() && examMatchesCourse({ summary: value }, course);
+    return this.studyPlans()[0] || null;
+  }
+
+  buildExamPlan(exam) {
+    if (!exam || !exam.date) return null;
+    const course = str(exam.course || exam.title).trim();
+    if (!course) return null;
+    const settings = this.calendarSettings();
+    const matches = (value) => !!str(value).trim() && (courseIdentity.sameCourse(settings, value, course) || examMatchesCourse({ summary: value, course: value }, course));
     const questions = this.getQuestions().filter((q) => matches(q.fm.course) || matches(q.fm.test));
-    if (!questions.length) return null;
     const cards = this.cardsEnabled() ? this.getCards().filter((c) => matches(c.course || (c.fm && c.fm.course))) : [];
     const frq = this.getFrqReviewQueue({ course });
-    const registered = findRegisteredCourse(this.settings.calendar, course);
-    return buildStudyPlan(exam, questions, cards, { today: localDate(), course, frq, totalTopics: registered ? registered.totalTopics : 0 });
+    const registered = findRegisteredCourse(settings, course);
+    const lectures = this.studyToolsSettings().lectureLog.lectures.filter((lecture) => matches(lecture.course));
+    const readings = this.getReadingPlans().filter((reading) => !reading.course || matches(reading.course));
+    const planner = this.studyWorkspaceSettings().lerntracker.plans.find((plan) => matches(plan.course));
+    const plannerRemaining = planner
+      ? (planner.topics || []).reduce((sum, topic) => sum + Math.max(0, (Number(topic.targetPasses) || Number(planner.targetPasses) || 1) - (Number(topic.passes) || 0)), 0)
+      : 0;
+    const assignments = this.getAssignments().filter((assignment) =>
+      matches(assignment.course) &&
+      assignment.open !== false &&
+      assignment.done !== true &&
+      assignment.type !== "exam" &&
+      assignment.type !== "test" &&
+      (!assignment.due || assignment.due <= exam.date)
+    );
+    return buildStudyPlan(
+      { ...exam, summary: exam.title, dateKey: exam.date, course },
+      questions,
+      cards,
+      { today: localDate(), examDate: exam.date, course, frq, totalTopics: registered ? registered.totalTopics : 0, lectures, readings, plannerRemaining, assignments }
+    );
+  }
+
+  /** Reading plans are registered by their rendered blocks; no vault scan is required. */
+  rememberReadingPlan(parsed, ctx) {
+    if (!parsed || !parsed.id) return null;
+    if (!this._readingPlans) this._readingPlans = new Map();
+    this._readingPlans.set(parsed.id, { ...parsed, sourcePath: ctx && ctx.sourcePath ? ctx.sourcePath : "" });
+    return this._readingPlans.get(parsed.id);
+  }
+
+  getReadingPlans() {
+    if (!this._readingPlans) return [];
+    const progress = this.settings.reading && this.settings.reading.progress ? this.settings.reading.progress : {};
+    const today = localDate();
+    const rows = [];
+    for (const parsed of this._readingPlans.values()) {
+      if (!parsed || !parsed.valid) continue;
+      const read = Number.isFinite(Number(progress[parsed.id])) ? Number(progress[parsed.id]) : parsed.read;
+      const plan = readingModel.planReading(parsed, { today, read });
+      if (!plan.ok) continue;
+      const status = readingModel.readingStatus(plan);
+      rows.push({ ...parsed, ...status, sourcePath: parsed.sourcePath || "" });
+    }
+    return rows;
+  }
+
+  courseOverviewData(courseId) {
+    const data = this.studyWorkspaceSettings();
+    const settings = this.calendarSettings();
+    const lectures = this.studyToolsSettings().lectureLog.lectures;
+    const courses = studyWorkspace.courseDashboard(data.subjectManager.subjects, lectures, data.subjectManager.absences, data.courseHub.grades, { settings });
+    return courseOverview(courseId, {
+      settings,
+      today: localDate(),
+      courses,
+      exams: this.getExams({ includePast: true, horizonDays: 3650 }),
+      lectures,
+      readings: this.getReadingPlans(),
+      assignments: this.getAssignments(),
+      tasks: data.studyTasks.tasks,
+      plans: data.lerntracker.plans,
+    });
+  }
+
+  openCourseOverview(courseId) {
+    new CourseOverviewModal(this.app, this, courseId).open();
+  }
+
+  /** The calendar event behind a class note, read from its durable frontmatter. */
+  classNoteEvent(file) {
+    const target = file || this.app.workspace.getActiveFile();
+    if (!target) return null;
+    const fm = (this.app.metadataCache.getFileCache(target) || {}).frontmatter || {};
+    const uid = str(fm.calendar_uid).trim();
+    const date = str(fm.calendar_date).slice(0, 10);
+    if (!uid || !date) return null;
+    return {
+      uid,
+      dateKey: date,
+      course: str(fm.course).trim(),
+      summary: str(fm.calendar_title || fm.title || target.basename).trim(),
+      description: str(fm.topics).trim(),
+    };
+  }
+
+  /** Mark a class note attended/absent without opening the calendar. */
+  async logClassNoteAttendance(file, attended) {
+    const event = this.classNoteEvent(file);
+    if (!event) {
+      new Notice("This note is not linked to a calendar class.");
+      return null;
+    }
+    const result = await this.logCalendarLecture(event, event.dateKey, attended);
+    new Notice(attended ? `Marked ${event.summary || "class"} attended.` : `Marked ${event.summary || "class"} absent.`);
+    return result;
+  }
+
+  /** Idempotent attendance action used by calendar events and class notes. */
+  async logCalendarLecture(event, key, attended) {
+    if (!event) return null;
+    const date = String(key || event.dateKey || "").slice(0, 10);
+    if (!date) return null;
+    const course = str(event.course).trim() || cleanSubjectTitle(event.summary) || str(event.summary).trim();
+    if (!course) return null;
+    const id = `calendar-${hashString(`${event.uid || event.summary}|${date}`)}`;
+    const absenceId = `${id}-absence`;
+    const current = this.studyToolsSettings();
+    const workspace = this.studyWorkspaceSettings();
+    const note = this.findCalendarNote(event, date);
+    let lectures = current.lectureLog.lectures.filter((lecture) => lecture.id !== id);
+    let absences = workspace.subjectManager.absences.filter((absence) => absence.id !== absenceId);
+    if (attended) {
+      const lecture = studyTools.normalizeLecture({
+        id,
+        course,
+        date,
+        title: str(event.summary).trim() || "Class",
+        topics: str(event.description || "").trim(),
+        notePath: note ? note.path : "",
+        createdAt: Date.now(),
+      });
+      if (lecture) lectures = lectures.concat(lecture).slice(-studyTools.MAX_LECTURES);
+    } else {
+      const absence = studyWorkspace.normalizeAbsence({ id: absenceId, subject: course, date, reason: "Calendar class" });
+      if (absence) absences = absences.concat(absence).slice(-studyWorkspace.MAX_ABSENCES);
+    }
+    this.settings.lectureLog = { ...current.lectureLog, lectures };
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({ ...workspace.subjectManager, absences });
+    await this.save();
+    this.refreshViews();
+    this.refreshCalendarViews();
+    return attended ? { id, course, date, attended: true } : { id: absenceId, course, date, attended: false };
   }
 
   async startStudyPlan(plan, cram) {
@@ -54472,6 +55492,8 @@ function parseReadingPlan(source) {
   const targetDate = parseDay(target);
   if (!startDate) issues.push("Add start: as a date in YYYY-MM-DD form.");
   if (!targetDate) issues.push("Add target: as a date in YYYY-MM-DD form.");
+  const due = str(fields.due).trim();
+  if (due && !parseDay(due)) issues.push("Add due: as a date in YYYY-MM-DD form.");
   if (startDate && targetDate) {
     if (startDate > targetDate) issues.push("The start date must be on or before the target date.");
     else if ((targetDate - startDate) / DAY_MS > MAX_SPAN_DAYS) issues.push("This schedule is longer than ten years. Choose a nearer target date.");
@@ -54500,6 +55522,9 @@ function parseReadingPlan(source) {
   return {
     title,
     author: str(fields.author).trim(),
+    course: str(fields.course).trim().slice(0, 200),
+    exam: str(fields.exam).trim().slice(0, 240),
+    due: due || target,
     pages: validPages ? pages : 0,
     start,
     target,
@@ -54617,13 +55642,35 @@ function planReading(parsed, options) {
     totalReadingDays: allDays.length,
     daysLeft: remainingDays.length,
     remainingPages,
+    pagesRemaining: remainingPages,
     expectedThroughYesterday: throughYesterday,
     behindBy,
+    behindPages: behindBy,
+    dueDate: parsed.due || parsed.target,
     aheadBy,
     todayChunk: todayChunk ? todayChunk.pages : 0,
     nextDate: schedule.length ? schedule[0].date : "",
     status,
     issue: "",
+  };
+}
+
+function readingStatus(plan, today) {
+  const source = plan && typeof plan === "object" ? plan : {};
+  if (source.ok === false) {
+    return { ok: false, status: source.status || "invalid", pagesRemaining: 0, behindPages: 0, dueDate: "", todayChunk: 0 };
+  }
+  const parsed = source.parsed || {};
+  return {
+    ok: source.ok !== false,
+    status: source.status || "on-track",
+    pagesRemaining: Math.max(0, Number(source.pagesRemaining ?? source.remainingPages) || 0),
+    behindPages: Math.max(0, Number(source.behindPages ?? source.behindBy) || 0),
+    dueDate: str(source.dueDate || parsed.due || parsed.target).slice(0, 10),
+    todayChunk: Math.max(0, Number(source.todayChunk) || 0),
+    daysLeft: Math.max(0, Number(source.daysLeft) || 0),
+    read: Math.max(0, Number(source.read) || 0),
+    pages: Math.max(0, Number(parsed.pages) || 0),
   };
 }
 
@@ -54640,6 +55687,7 @@ module.exports = {
   distributePages,
   normalizeReadingSettings,
   planReading,
+  readingStatus,
 };
 };
 
@@ -54721,6 +55769,8 @@ function normalizeBook(value, index) {
     id: str(source.id).trim() || `book-${hashString(`${title}|${index}`)}`,
     title,
     author: textValue(source.author, MAX_AUTHOR),
+    course: textValue(source.course, MAX_TITLE),
+    due: normalizeDate(source.due),
     totalPages,
     currentPage,
     status,
@@ -54764,6 +55814,8 @@ function createBook(input, today) {
       ...source,
       id,
       title,
+      course: textValue(source.course, MAX_TITLE),
+      due: normalizeDate(source.due),
       status,
       totalPages,
       currentPage,
@@ -54953,6 +56005,7 @@ function todayText(plan) {
 
 async function renderReadingPlanBlock(plugin, source, el, ctx) {
   const parsed = parseReadingPlan(source);
+  if (plugin.rememberReadingPlan) plugin.rememberReadingPlan(parsed, ctx);
   const box = el.createDiv({ cls: "qt-reading-plan" });
   const today = ctx && ctx.today ? ctx.today : localDate();
 
@@ -54960,6 +56013,9 @@ async function renderReadingPlanBlock(plugin, source, el, ctx) {
     box.empty();
     box.createDiv({ cls: "qt-reading-title", text: parsed.title || "Reading plan" });
     if (parsed.author) box.createDiv({ cls: "qt-reading-author", text: parsed.author });
+    if (parsed.course || parsed.due) {
+      box.createDiv({ cls: "qt-reading-author", text: [parsed.course ? `Course: ${parsed.course}` : "", parsed.due ? `Due: ${parsed.due}` : ""].filter(Boolean).join(" · ") });
+    }
 
     if (!parsed.valid) {
       for (const issue of parsed.issues) box.createDiv({ cls: "qt-reading-issue", text: issue });
@@ -66633,6 +67689,57 @@ function buildStudyPlan(exam, questions, cards, options) {
   const frq = Array.isArray(opts.frq) ? opts.frq.filter(Boolean) : [];
   const frqDue = frq.filter((row) => row.due).length;
   const course = str(opts.course || (exam && exam.course) || "").trim() || (exam && str(exam.summary).replace(/\s*[-–—:]\s*(final|exam|midterm|test).*$/i, "").trim()) || "Your exam";
+  const lectures = (Array.isArray(opts.lectures) ? opts.lectures : []).filter(Boolean);
+  const readings = (Array.isArray(opts.readings) ? opts.readings : []).filter(Boolean);
+  const assignments = (Array.isArray(opts.assignments) ? opts.assignments : []).filter(Boolean);
+  const plannerRemaining = Math.max(0, Math.round(Number(opts.plannerRemaining) || 0));
+  const readingPages = readings.reduce((sum, row) => sum + Math.max(0, Number(row.pagesRemaining ?? row.remainingPages) || 0), 0);
+  const readingBehind = readings.reduce((sum, row) => sum + Math.max(0, Number(row.behindPages ?? row.behindBy) || 0), 0);
+  const workItems = [];
+  if (lectures.length) {
+    workItems.push({
+      type: "lectures",
+      label: `Review ${lectures.length} lecture${lectures.length === 1 ? "" : "s"}`,
+      count: lectures.length,
+      detail: lectures.slice(0, 5).map((lecture) => `${lecture.date || ""} ${lecture.title || "Lecture"}`.trim()).join(" · "),
+      lectures,
+    });
+  }
+  if (readingPages > 0) {
+    workItems.push({
+      type: "readings",
+      label: `Read ${readingPages} page${readingPages === 1 ? "" : "s"}`,
+      count: readingPages,
+      detail: readingBehind ? `${readingBehind} page${readingBehind === 1 ? "" : "s"} behind` : "",
+      readings,
+    });
+  }
+  if (plannerRemaining > 0) {
+    workItems.push({
+      type: "planner",
+      label: `Finish ${plannerRemaining} topic pass${plannerRemaining === 1 ? "" : "es"}`,
+      count: plannerRemaining,
+      detail: "From the topic planner",
+    });
+  }
+  if (assignments.length) {
+    workItems.push({
+      type: "assignments",
+      label: `Finish ${assignments.length} assignment${assignments.length === 1 ? "" : "s"}`,
+      count: assignments.length,
+      detail: "Due before the exam",
+      assignments,
+    });
+  }
+  const coverage = list.length ? attempted.length / list.length : null;
+  const readinessEvidence = [
+    { id: "accuracy", label: "Accuracy", value: accuracyOf(list), detail: list.length ? `${attempted.length} attempted` : "No matching questions" },
+    { id: "coverage", label: "Question coverage", value: coverage, detail: `${attempted.length}/${list.length} questions practised` },
+    { id: "backlog", label: "Due backlog", value: list.length ? due : null, detail: `${due} due question${due === 1 ? "" : "s"}` },
+  ];
+  if (opts.totalTopics) readinessEvidence.push({ id: "topics", label: "Topic coverage", value: topicCoverage(list, opts.totalTopics)?.pct ?? null, detail: `${topicCoverage(list, opts.totalTopics)?.mastered || 0}/${opts.totalTopics} topics mastered` });
+  if (readings.length) readinessEvidence.push({ id: "readings", label: "Reading workload", value: readingBehind, detail: readingBehind ? `${readingBehind} pages behind` : `${readingPages} pages remaining` });
+  const readiness = list.length ? readinessScore(list, due, daysLeft) : null;
   return {
     exam,
     course,
@@ -66650,7 +67757,13 @@ function buildStudyPlan(exam, questions, cards, options) {
     frqDue,
     frqTotal: frq.length,
     frqNext: frq.find((row) => row.due) || frq.find((row) => row.state === "scheduled") || frq[0] || null,
-    readiness: readinessScore(list, due, daysLeft),
+    readiness,
+    readinessEvidence,
+    workItems,
+    lectures,
+    readings,
+    assignments,
+    plannerRemaining,
     topics: topicCoverage(list, opts.totalTopics),
     pool: list.slice(),
     cramPool: buildCramPool(list, today, opts.cramLimit || 40),
@@ -68897,18 +70010,32 @@ function normalizeCornellSettings(value) {
   return { enabled: enabledValue(value, true) };
 }
 
+function parseTopicList(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[,;]/);
+  const out = [];
+  for (const item of raw) {
+    const topic = str(item).replace(/\s+/g, " ").trim().slice(0, 200);
+    if (topic && !out.some((entry) => entry.toLowerCase() === topic.toLowerCase())) out.push(topic);
+    if (out.length >= 100) break;
+  }
+  return out;
+}
+
 function normalizeLecture(value) {
   const source = value && typeof value === "object" ? value : {};
   const course = str(source.course).trim().slice(0, MAX_TITLE);
   const title = str(source.title).trim().slice(0, MAX_TITLE);
   const date = dayValue(source.date);
   if (!course || !title || !date) return null;
+  const topics = str(source.topics).replace(/\s+/g, " ").trim().slice(0, MAX_TOPICS);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("lecture", [course, date, title]),
     course,
     date,
     title,
-    topics: str(source.topics).replace(/\s+/g, " ").trim().slice(0, MAX_TOPICS),
+    topics,
+    topicList: parseTopicList(source.topicList !== undefined ? source.topicList : topics),
+    notePath: str(source.notePath || source.note_path).trim().slice(0, 500),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }
@@ -69011,9 +70138,10 @@ function createStudyGoal(input, now) {
 }
 
 function createLecture(input, now) {
+  const source = input && typeof input === "object" ? input : {};
   return normalizeLecture({
-    ...(input || {}),
-    id: idFor("lecture", [input && input.course, input && input.date, input && input.title, now || 0]),
+    ...source,
+    id: str(source.id).trim() || idFor("lecture", [source.course, source.date, source.title, now || 0]),
     createdAt: Math.max(0, Math.round(numberValue(now, Date.now()))),
   });
 }
@@ -69102,6 +70230,7 @@ module.exports = {
   normalizeStudyToolsSettings,
   openGoals,
   parseLectureLines,
+  parseTopicList,
 };
 };
 
@@ -69490,6 +70619,7 @@ __defs["study-workspace"] = function (module, exports, require) {
  */
 const { hashString, localDate, str } = require("./util");
 const { addDays, dayValue } = require("./study-tools");
+const courseIdentity = require("./course-identity");
 const { fencedQuizBlocks, parseQuizBlock } = require("./quiz-block");
 const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
@@ -69784,20 +70914,25 @@ function createAbsence(input, now) {
   return { ...absence, createdAt: Math.max(0, Math.round(numberValue(now, Date.now()))) };
 }
 
-function subjectSummary(subjects, absences, lectures) {
+function subjectSummary(subjects, absences, lectures, options) {
+  const settings = options && options.settings ? options.settings : options;
   const lectureList = Array.isArray(lectures) ? lectures : [];
   const absenceList = Array.isArray(absences) ? absences : [];
   return (Array.isArray(subjects) ? subjects : []).map((subject) => {
-    const key = str(subject.name).trim().toLowerCase();
-    const subjectLectures = lectureList.filter((lecture) => str(lecture.course).trim().toLowerCase() === key);
+    const identity = courseIdentity.courseDetails(settings, subject);
+    const subjectLectures = lectureList.filter((lecture) => courseIdentity.sameCourse(settings, lecture.course, subject));
     const subjectAbsences = absenceList
-      .filter((absence) => str(absence.subject).trim().toLowerCase() === key)
+      .filter((absence) => courseIdentity.sameCourse(settings, absence.subject, subject))
       .sort((a, b) => b.date.localeCompare(a.date));
     const projects = Array.isArray(subject.projects) ? subject.projects : [];
     const open = projects.filter((project) => !project.done);
     const totalSessions = subjectLectures.length + subjectAbsences.length;
     return {
       ...subject,
+      name: identity.name || subject.name,
+      courseId: identity.id,
+      folder: identity.folder || subject.folder,
+      color: identity.color || subject.color,
       lectures: subjectLectures.length,
       lastLecture: subjectLectures.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null,
       absences: subjectAbsences.length,
@@ -70313,40 +71448,70 @@ function letterGrade(score) {
 }
 
 /** Combine the independent subject, lecture and grade data without writing any of it back. */
-function courseDashboard(subjects, lectures, absences, grades) {
+function courseDashboard(subjects, lectures, absences, grades, options) {
+  const settings = options && options.settings ? options.settings : options;
   const courses = new Map();
-  const ensure = (name) => {
-    const key = str(name).trim().toLowerCase();
+  const ensure = (input) => {
+    const info = courseIdentity.courseDetails(settings, input);
+    const key = info.id || info.name.toLowerCase();
     if (!key) return null;
-    if (!courses.has(key)) courses.set(key, { name: str(name).trim(), color: "#7c9cf5", folder: "", grades: [] });
+    if (!courses.has(key)) {
+      courses.set(key, {
+        name: info.name,
+        courseId: info.id,
+        id: info.id,
+        color: info.color || "#7c9cf5",
+        folder: info.folder || "",
+        credits: info.credits,
+        totalTopics: info.totalTopics,
+        gradeRows: [],
+        lectureRows: [],
+        absenceRows: [],
+      });
+    }
     return courses.get(key);
   };
+  for (const registered of courseIdentity.registryOf(settings)) ensure(registered);
   for (const subject of Array.isArray(subjects) ? subjects : []) {
     const course = ensure(subject && subject.name);
     if (!course) continue;
-    course.color = /^#[0-9a-f]{6}$/i.test(str(subject.color)) ? str(subject.color).toLowerCase() : course.color;
-    course.folder = str(subject.folder);
+    const registered = courseIdentity.resolveCourse(settings, subject);
+    if (!registered && /^#[0-9a-f]{6}$/i.test(str(subject.color))) course.color = str(subject.color).toLowerCase();
+    if (!registered && str(subject.folder)) course.folder = str(subject.folder);
   }
   const lectureList = Array.isArray(lectures) ? lectures : [];
   const absenceList = Array.isArray(absences) ? absences : [];
-  for (const lecture of lectureList) ensure(lecture && lecture.course);
+  for (const lecture of lectureList) {
+    const course = ensure(lecture && lecture.course);
+    if (course) course.lectureRows.push(lecture);
+  }
+  for (const absence of absenceList) {
+    const course = ensure(absence && absence.subject);
+    if (course) course.absenceRows.push(absence);
+  }
   for (const grade of Array.isArray(grades) ? grades : []) {
     const course = ensure(grade && grade.course);
-    if (course) course.grades.push(grade);
+    if (course) course.gradeRows.push(grade);
   }
   return [...courses.values()].map((course) => {
-    const key = course.name.toLowerCase();
-    const ownLectures = lectureList.filter((lecture) => str(lecture.course).trim().toLowerCase() === key);
-    const ownAbsences = absenceList.filter((absence) => str(absence.subject).trim().toLowerCase() === key);
-    const ownGrades = course.grades.slice().sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.createdAt - a.createdAt);
+    const ownLectures = course.lectureRows.slice().sort((a, b) => b.date.localeCompare(a.date));
+    const ownAbsences = course.absenceRows.slice().sort((a, b) => b.date.localeCompare(a.date));
+    const ownGrades = course.gradeRows.slice().sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.createdAt - a.createdAt);
     const weight = ownGrades.reduce((sum, grade) => sum + grade.weight, 0);
     const weighted = weight ? Math.round((ownGrades.reduce((sum, grade) => sum + grade.score * grade.weight, 0) / weight) * 10) / 10 : 0;
     return {
-      ...course,
+      name: course.name,
+      course: course.name,
+      courseId: course.courseId,
+      id: course.id,
+      color: course.color,
+      folder: course.folder,
+      credits: course.credits,
+      totalTopics: course.totalTopics,
       lectures: ownLectures.length,
       absences: ownAbsences.length,
-      lastLecture: ownLectures.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null,
-      lastAbsence: ownAbsences.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null,
+      lastLecture: ownLectures[0] || null,
+      lastAbsence: ownAbsences[0] || null,
       grades: ownGrades,
       graded: ownGrades.length,
       weighted,
@@ -70763,6 +71928,7 @@ module.exports = {
   normalizeQuizAttempts,
   courseDashboard,
   createAbsence,
+  normalizeAbsence,
   createAnnotation,
   createDeepNotesSession,
   createFeynmanSession,
@@ -70829,6 +71995,7 @@ const { localDate, str } = require("./util");
 const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
+const courseIdentity = require("./course-identity");
 const { bookmarkLink, bookmarkPaths, chaptersFor, formatTimestamp, parseTimestamp } = require("./audio-bookmarks");
 const { STATUS_LABELS: READING_LABELS, bookProgress, librarySummary, shelfBooks } = require("./reading-library");
 const {
@@ -71259,6 +72426,23 @@ class StudyWorkspaceView extends ItemView {
     const buffer = this.renderField(form, "Buffer days", "number", "2", "2");
     const target = this.renderField(form, "Passes per topic", "number", "3", "3");
     const topics = this.renderTextarea(form, "Topics (one per line)", "Cell structure\nRespiration\nPhotosynthesis", "", 4);
+    const seed = add.createDiv({ cls: "qt-row qt-study-actions" });
+    seed.createEl("button", { text: "Use exam topics" }).addEventListener("click", () => {
+      const wantedCourse = str(course.value).trim();
+      const found = this.plugin.getExams({ today: localDate(), horizonDays: 3650 }).find((entry) => {
+        if (exam.value && entry.date !== exam.value) return false;
+        if (!wantedCourse) return true;
+        return courseIdentity.sameCourse(this.plugin.calendarSettings(), entry.course, wantedCourse);
+      });
+      if (!found || !Array.isArray(found.topics) || !found.topics.length) {
+        this.saveMessage("No matching exam topics found. Add topics to the exam note or type them here.");
+        return;
+      }
+      topics.value = found.topics.join("\n");
+      if (!course.value.trim() && found.course) course.value = found.course;
+      if (!exam.value && found.date) exam.value = found.date;
+      this.saveMessage(`Loaded ${found.topics.length} topic${found.topics.length === 1 ? "" : "s"} from ${found.title || "the exam"}.`);
+    });
     const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
     actions.createEl("button", { text: "Create plan", cls: "mod-cta" }).addEventListener("click", async () => {
       const names = topics.value.split("\n").map((line) => line.trim()).filter(Boolean);
@@ -71534,7 +72718,7 @@ class StudyWorkspaceView extends ItemView {
     const subjects = this.settings().subjectManager.subjects;
     const absences = this.settings().subjectManager.absences;
     const lectures = this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [];
-    const dashboard = courseDashboard(subjects, lectures, absences, data.grades);
+    const dashboard = courseDashboard(subjects, lectures, absences, data.grades, { settings: this.plugin.calendarSettings() });
     const add = root.createDiv({ cls: "qt-study-card" });
     add.createEl("h3", { text: "Add a course grade" });
     add.createDiv({ cls: "qt-hint", text: "Grade chips are local estimates from weighted entries. Subjects and lectures are read from their own modules; nothing is written back to those notes." });
@@ -71582,6 +72766,7 @@ class StudyWorkspaceView extends ItemView {
       heading.createSpan({ text: entry.name });
       const chip = head.createSpan({ cls: "qt-workspace-grade", text: entry.graded ? `${entry.letter} · ${entry.weighted}%` : "No grades" });
       if (entry.graded) chip.addClass(`is-${entry.letter.toLowerCase()}`);
+      head.createEl("button", { text: "Overview", cls: "qt-link" }).addEventListener("click", () => this.plugin.openCourseOverview(entry.courseId || entry.name));
       card.createDiv({ cls: "qt-study-row-meta", text: `${entry.lectures} lecture${entry.lectures === 1 ? "" : "s"} · ${entry.absences} absence${entry.absences === 1 ? "" : "s"}${entry.folder ? ` · ${entry.folder}` : ""}` });
       if (entry.lastLecture) card.createDiv({ cls: "qt-study-row-meta", text: `Last lecture: ${entry.lastLecture.date} · ${entry.lastLecture.title}` });
       if (entry.grades.length) {
@@ -72051,7 +73236,7 @@ class StudyWorkspaceView extends ItemView {
   renderSubjects(root) {
     const data = this.settings().subjectManager;
     const lectures = this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [];
-    const summary = subjectSummary(data.subjects, data.absences, lectures);
+    const summary = subjectSummary(data.subjects, data.absences, lectures, { settings: this.plugin.calendarSettings() });
     const filtered = summary.filter((subject) => !this.subjectFilter || `${subject.name} ${subject.folder} ${subject.notes} ${(subject.projects || []).map((project) => project.title).join(" ")}`.toLowerCase().includes(this.subjectFilter));
     const add = root.createDiv({ cls: "qt-study-card" });
     add.createEl("h3", { text: "Add a subject" });
@@ -72303,6 +73488,8 @@ class StudyWorkspaceView extends ItemView {
     const form = add.createDiv({ cls: "qt-study-form" });
     const title = this.renderField(form, "Title", "text", "Deep Work");
     const author = this.renderField(form, "Author (optional)", "text", "Cal Newport");
+    const bookCourse = this.renderField(form, "Course (optional)", "text", "Econ 101");
+    const bookDue = this.renderField(form, "Due (optional)", "date", "");
     const pages = this.renderField(form, "Pages (optional)", "number", "300");
     const status = this.renderSelect(form, "Shelf", [
       { value: "want", label: "Want to read" },
@@ -72311,7 +73498,7 @@ class StudyWorkspaceView extends ItemView {
     ], "want");
     const addActions = add.createDiv({ cls: "qt-row qt-study-actions" });
     addActions.createEl("button", { text: "Add book", cls: "mod-cta" }).addEventListener("click", async () => {
-      const book = await this.plugin.addReadingBook({ title: title.value, author: author.value, totalPages: pages.value, status: status.value });
+      const book = await this.plugin.addReadingBook({ title: title.value, author: author.value, course: bookCourse.value, due: bookDue.value, totalPages: pages.value, status: status.value });
       if (!book) {
         this.saveMessage("Add a title first, and avoid adding the same book twice.");
         this.render();
@@ -72348,7 +73535,8 @@ class StudyWorkspaceView extends ItemView {
     const main = item.createDiv({ cls: "qt-study-row-main" });
     main.createDiv({ cls: "qt-study-row-title", text: `${book.title}${book.author ? ` · ${book.author}` : ""}` });
     const progress = bookProgress(book);
-    main.createDiv({ cls: "qt-study-row-meta", text: `${READING_LABELS[book.status]} · ${progress.known ? `${book.currentPage}/${book.totalPages} pages (${progress.percent}%)` : `${book.currentPage} pages`}${book.rating ? ` · ${book.rating}/5` : ""}` });
+    const links = [book.course ? `Course: ${book.course}` : "", book.due ? `Due ${book.due}` : ""].filter(Boolean).join(" · ");
+    main.createDiv({ cls: "qt-study-row-meta", text: `${READING_LABELS[book.status]} · ${progress.known ? `${book.currentPage}/${book.totalPages} pages (${progress.percent}%)` : `${book.currentPage} pages`}${book.rating ? ` · ${book.rating}/5` : ""}${links ? ` · ${links}` : ""}` });
     if (progress.known) {
       const bar = main.createDiv({ cls: "qt-study-bar" });
       bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = `${progress.percent}%`;
@@ -72434,12 +73622,15 @@ class StudyWorkspaceView extends ItemView {
       data.subjectManager.subjects,
       this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [],
       data.subjectManager.absences,
-      data.courseHub.grades
+      data.courseHub.grades,
+      { settings: this.plugin.calendarSettings() }
     );
     const report = courseHealthReport({
       courses: dashboard,
       plans: data.lerntracker.plans,
       tasks: data.studyTasks.tasks,
+      exams: this.plugin.getExams ? this.plugin.getExams({ includePast: true }) : [],
+      settings: this.plugin.calendarSettings ? this.plugin.calendarSettings() : undefined,
       today: localDate(),
       ...data.courseHealth,
     });
@@ -73821,6 +75012,7 @@ class TodayView extends ItemView {
     this.renderReminder(grid, today, due, fresh);
     this.renderMasteryCard(grid, questions, today);
     const plan = this.renderStudyPlan(grid);
+    this.renderReadings(grid);
     this.renderFrqReview(grid, plan);
     this.renderDaily(grid, today);
     this.renderTasks(grid, today, due, visible);
@@ -73923,12 +75115,17 @@ class TodayView extends ItemView {
     card.createDiv({ cls: "qt-today-title", text: plan.course });
     card.createDiv({
       cls: "qt-today-meta",
-      text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.frqTotal ? ` · ${plan.frqDue} FRQ due` : ""}${plan.topics ? ` · ${plan.topics.mastered}/${plan.topics.declared} topics mastered (${plan.topics.pct}%)` : ""}`,
+      text: `${plan.readiness === null ? "Readiness not set" : `Readiness ${plan.readiness}%`} · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.frqTotal ? ` · ${plan.frqDue} FRQ due` : ""}${plan.topics ? ` · ${plan.topics.mastered}/${plan.topics.declared} topics mastered (${plan.topics.pct}%)` : ""}`,
     });
-    const evidence = [`${plan.attempted}/${plan.total} questions practised`];
-    if (plan.accuracy !== null) evidence.push(`${Math.round(plan.accuracy * 100)}% accuracy`);
-    if (plan.weakSkill) evidence.push(`weakest: ${plan.weakSkill}`);
+    const evidence = plan.readinessEvidence
+      ? plan.readinessEvidence.map((row) => `${row.label}: ${row.value === null ? "—" : row.value}${row.detail ? ` (${row.detail})` : ""}`)
+      : [`${plan.attempted}/${plan.total} questions practised`];
+    if (!plan.readinessEvidence && plan.accuracy !== null) evidence.push(`${Math.round(plan.accuracy * 100)}% accuracy`);
+    if (!plan.readinessEvidence && plan.weakSkill) evidence.push(`weakest: ${plan.weakSkill}`);
     card.createDiv({ cls: "qt-toggle-hint", text: evidence.join(" · ") });
+    if (plan.workItems && plan.workItems.length) {
+      card.createDiv({ cls: "qt-toggle-hint", text: plan.workItems.map((item) => `${item.label}${item.detail ? ` · ${item.detail}` : ""}`).join(" · ") });
+    }
     if (plan.frqTotal) {
       const next = plan.frqNext;
       card.createDiv({
@@ -73945,6 +75142,25 @@ class TodayView extends ItemView {
       row.createEl("button", { text: "Practice FRQ" }).addEventListener("click", () => p.openFrqGrader({ path: plan.frqNext.path }));
     }
     return plan;
+  }
+
+  /** Today's reading chunk, when a reading-plan block has registered itself. */
+  renderReadings(root) {
+    const p = this.plugin;
+    if (typeof p.getReadingPlans !== "function") return;
+    const rows = p.getReadingPlans().filter((row) => row.todayChunk > 0 || row.behindPages > 0);
+    if (!rows.length) return;
+    const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-side" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Readings" });
+    const card = panel.createDiv({ cls: "qt-today-card" });
+    for (const row of rows.slice(0, 4)) {
+      card.createDiv({ cls: "qt-today-kicker", text: row.course || "Reading plan" });
+      card.createDiv({ cls: "qt-today-title", text: row.title || "Reading" });
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: `${row.todayChunk ? `Today: ${row.todayChunk} pages` : "No pages scheduled today"}${row.behindPages ? ` · ${row.behindPages} behind` : ""}${row.dueDate ? ` · due ${row.dueDate}` : ""}`,
+      });
+    }
   }
 
   /** Due FRQ prompts when the exam plan is not already showing them. */

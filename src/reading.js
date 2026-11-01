@@ -124,6 +124,8 @@ function parseReadingPlan(source) {
   const targetDate = parseDay(target);
   if (!startDate) issues.push("Add start: as a date in YYYY-MM-DD form.");
   if (!targetDate) issues.push("Add target: as a date in YYYY-MM-DD form.");
+  const due = str(fields.due).trim();
+  if (due && !parseDay(due)) issues.push("Add due: as a date in YYYY-MM-DD form.");
   if (startDate && targetDate) {
     if (startDate > targetDate) issues.push("The start date must be on or before the target date.");
     else if ((targetDate - startDate) / DAY_MS > MAX_SPAN_DAYS) issues.push("This schedule is longer than ten years. Choose a nearer target date.");
@@ -152,6 +154,9 @@ function parseReadingPlan(source) {
   return {
     title,
     author: str(fields.author).trim(),
+    course: str(fields.course).trim().slice(0, 200),
+    exam: str(fields.exam).trim().slice(0, 240),
+    due: due || target,
     pages: validPages ? pages : 0,
     start,
     target,
@@ -269,13 +274,35 @@ function planReading(parsed, options) {
     totalReadingDays: allDays.length,
     daysLeft: remainingDays.length,
     remainingPages,
+    pagesRemaining: remainingPages,
     expectedThroughYesterday: throughYesterday,
     behindBy,
+    behindPages: behindBy,
+    dueDate: parsed.due || parsed.target,
     aheadBy,
     todayChunk: todayChunk ? todayChunk.pages : 0,
     nextDate: schedule.length ? schedule[0].date : "",
     status,
     issue: "",
+  };
+}
+
+function readingStatus(plan, today) {
+  const source = plan && typeof plan === "object" ? plan : {};
+  if (source.ok === false) {
+    return { ok: false, status: source.status || "invalid", pagesRemaining: 0, behindPages: 0, dueDate: "", todayChunk: 0 };
+  }
+  const parsed = source.parsed || {};
+  return {
+    ok: source.ok !== false,
+    status: source.status || "on-track",
+    pagesRemaining: Math.max(0, Number(source.pagesRemaining ?? source.remainingPages) || 0),
+    behindPages: Math.max(0, Number(source.behindPages ?? source.behindBy) || 0),
+    dueDate: str(source.dueDate || parsed.due || parsed.target).slice(0, 10),
+    todayChunk: Math.max(0, Number(source.todayChunk) || 0),
+    daysLeft: Math.max(0, Number(source.daysLeft) || 0),
+    read: Math.max(0, Number(source.read) || 0),
+    pages: Math.max(0, Number(parsed.pages) || 0),
   };
 }
 
@@ -292,4 +319,5 @@ module.exports = {
   distributePages,
   normalizeReadingSettings,
   planReading,
+  readingStatus,
 };

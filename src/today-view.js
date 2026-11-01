@@ -107,6 +107,7 @@ class TodayView extends ItemView {
     this.renderReminder(grid, today, due, fresh);
     this.renderMasteryCard(grid, questions, today);
     const plan = this.renderStudyPlan(grid);
+    this.renderReadings(grid);
     this.renderFrqReview(grid, plan);
     this.renderDaily(grid, today);
     this.renderTasks(grid, today, due, visible);
@@ -209,12 +210,17 @@ class TodayView extends ItemView {
     card.createDiv({ cls: "qt-today-title", text: plan.course });
     card.createDiv({
       cls: "qt-today-meta",
-      text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.frqTotal ? ` · ${plan.frqDue} FRQ due` : ""}${plan.topics ? ` · ${plan.topics.mastered}/${plan.topics.declared} topics mastered (${plan.topics.pct}%)` : ""}`,
+      text: `${plan.readiness === null ? "Readiness not set" : `Readiness ${plan.readiness}%`} · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.frqTotal ? ` · ${plan.frqDue} FRQ due` : ""}${plan.topics ? ` · ${plan.topics.mastered}/${plan.topics.declared} topics mastered (${plan.topics.pct}%)` : ""}`,
     });
-    const evidence = [`${plan.attempted}/${plan.total} questions practised`];
-    if (plan.accuracy !== null) evidence.push(`${Math.round(plan.accuracy * 100)}% accuracy`);
-    if (plan.weakSkill) evidence.push(`weakest: ${plan.weakSkill}`);
+    const evidence = plan.readinessEvidence
+      ? plan.readinessEvidence.map((row) => `${row.label}: ${row.value === null ? "—" : row.value}${row.detail ? ` (${row.detail})` : ""}`)
+      : [`${plan.attempted}/${plan.total} questions practised`];
+    if (!plan.readinessEvidence && plan.accuracy !== null) evidence.push(`${Math.round(plan.accuracy * 100)}% accuracy`);
+    if (!plan.readinessEvidence && plan.weakSkill) evidence.push(`weakest: ${plan.weakSkill}`);
     card.createDiv({ cls: "qt-toggle-hint", text: evidence.join(" · ") });
+    if (plan.workItems && plan.workItems.length) {
+      card.createDiv({ cls: "qt-toggle-hint", text: plan.workItems.map((item) => `${item.label}${item.detail ? ` · ${item.detail}` : ""}`).join(" · ") });
+    }
     if (plan.frqTotal) {
       const next = plan.frqNext;
       card.createDiv({
@@ -231,6 +237,25 @@ class TodayView extends ItemView {
       row.createEl("button", { text: "Practice FRQ" }).addEventListener("click", () => p.openFrqGrader({ path: plan.frqNext.path }));
     }
     return plan;
+  }
+
+  /** Today's reading chunk, when a reading-plan block has registered itself. */
+  renderReadings(root) {
+    const p = this.plugin;
+    if (typeof p.getReadingPlans !== "function") return;
+    const rows = p.getReadingPlans().filter((row) => row.todayChunk > 0 || row.behindPages > 0);
+    if (!rows.length) return;
+    const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-side" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Readings" });
+    const card = panel.createDiv({ cls: "qt-today-card" });
+    for (const row of rows.slice(0, 4)) {
+      card.createDiv({ cls: "qt-today-kicker", text: row.course || "Reading plan" });
+      card.createDiv({ cls: "qt-today-title", text: row.title || "Reading" });
+      card.createDiv({
+        cls: "qt-today-meta",
+        text: `${row.todayChunk ? `Today: ${row.todayChunk} pages` : "No pages scheduled today"}${row.behindPages ? ` · ${row.behindPages} behind` : ""}${row.dueDate ? ` · due ${row.dueDate}` : ""}`,
+      });
+    }
   }
 
   /** Due FRQ prompts when the exam plan is not already showing them. */

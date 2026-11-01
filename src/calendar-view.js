@@ -242,6 +242,25 @@ function renderEventCard(plugin, timeline, event, key, options) {
   setIcon(badge, exists ? "file-text" : "plus");
   badge.createSpan({ text: foreign ? "Event note" : exists ? "Note exists" : "Missing note" });
 
+  if (!foreign && !details.isExam && plugin.logCalendarLecture) {
+    const attend = left.createEl("button", { text: "Attended", cls: "qt-link" });
+    attend.addEventListener("click", async (e) => {
+      if (e && e.stopPropagation) e.stopPropagation();
+      await plugin.logCalendarLecture(event, key, true);
+    });
+    const absent = left.createEl("button", { text: "Absent", cls: "qt-link" });
+    absent.addEventListener("click", async (e) => {
+      if (e && e.stopPropagation) e.stopPropagation();
+      await plugin.logCalendarLecture(event, key, false);
+    });
+  }
+  if (!foreign && details.isExam && plugin.setExamOverride) {
+    left.createEl("button", { text: "Not an exam", cls: "qt-link" }).addEventListener("click", async (e) => {
+      if (e && e.stopPropagation) e.stopPropagation();
+      await plugin.setExamOverride(event, false);
+    });
+  }
+
   const label = str(event.summary) || "this class";
   card.setAttr("aria-label", `${foreign ? "Open event note for" : exists ? "Open note for" : "Create note for"} ${label}${event.termReadingWeek ? ", reading week class" : ""}`);
 

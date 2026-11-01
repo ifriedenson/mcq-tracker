@@ -85,7 +85,8 @@ const DEFAULT_CALENDAR_SETTINGS = {
   excludedSubjects: [],
   excludedKeywords: [],
   subjectFolders: {},
-  courses: [], // { id, name, code, folder, color, semester, instructor, credits, totalTopics }
+  courses: [], // { id, name, code, folder, color, semester, instructor, credits, totalTopics, aliases }
+  examOverrides: {}, // { "calendar_uid|YYYY-MM-DD": true|false }
   classColors: {},
   subjectColors: {},
   classNames: {},
@@ -131,6 +132,7 @@ function normalizeCourseRegistry(value) {
     ids.add(id);
     const credits = Math.round(Number(raw.credits));
     const totalTopics = Math.round(Number(raw.totalTopics));
+    const aliases = [...new Set((Array.isArray(raw.aliases) ? raw.aliases : []).map((value) => str(value).trim()).filter(Boolean))].slice(0, 50);
     out.push({
       id,
       name: name || code,
@@ -141,6 +143,7 @@ function normalizeCourseRegistry(value) {
       instructor: str(raw.instructor).trim(),
       credits: Number.isFinite(credits) ? Math.max(0, Math.min(30, credits)) : 3,
       totalTopics: Number.isFinite(totalTopics) ? Math.max(0, Math.min(500, totalTopics)) : 0,
+      aliases,
     });
   }
   return out;
@@ -197,6 +200,7 @@ function mergeCalendarSettings(saved) {
   out.excludedKeywords = (Array.isArray(out.excludedKeywords) ? out.excludedKeywords : []).map(str).filter(Boolean);
   out.subjectFolders = plainObject(out.subjectFolders);
   out.courses = normalizeCourseRegistry(out.courses);
+  out.examOverrides = normalizeExamOverrides(out.examOverrides);
   out.eventNoteFolder = normalizeFolder(out.eventNoteFolder);
   out.classColors = plainObject(out.classColors);
   out.subjectColors = plainObject(out.subjectColors);
@@ -471,10 +475,36 @@ function detectCategory(group, text) {
 }
 
 const EXAM_WORDS = ["egzamin", "kolokwium", "zaliczenie", "exam", "midterm", "final", "klausur", "prüfung", "examen", "partiel", "esame", "prova", "экзамен", "зачет", "сессия", "考试", "期末", "期中", "試験", "テスト", "시험", "중간고사", "기말고사"];
+const NON_EXAM_PHRASES = [
+  /\bfinal\s+(project|presentation|portfolio|paper|essay|review)\b/i,
+  /\b(test|exam|quiz)\s+(prep|preparation|review|practice|corrections?)\b/i,
+  /\b(practice|mock)\s+(test|exam|quiz)\b/i,
+  /\bproject\s+(presentation|showcase)\b/i,
+];
 
 function detectExam(text) {
-  if (hasAny(text, EXAM_WORDS)) return true;
-  return /\btest\b/.test(text);
+  const clean = str(text).replace(/\s+/g, " ").trim();
+  if (NON_EXAM_PHRASES.some((re) => re.test(clean))) return false;
+  if (hasAny(clean.toLowerCase(), EXAM_WORDS)) return true;
+  return /\btest\b/.test(clean.toLowerCase());
+}
+
+function normalizeExamOverrides(value) {
+  const out = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const [key, raw] of Object.entries(value)) {
+    const id = str(key).trim().slice(0, 240);
+    if (!id) continue;
+    if (raw === true || raw === "true") out[id] = true;
+    else if (raw === false || raw === "false") out[id] = false;
+  }
+  return out;
+}
+
+function eventKey(event) {
+  const date = str(event && event.dateKey).trim();
+  const uid = str(event && event.uid).trim();
+  return uid && date ? `${uid}|${date}` : `${str(event && event.summary).trim()}|${date}`;
 }
 
 /**
@@ -537,8 +567,13 @@ function classColor(settings, details, subject) {
   return (CATEGORY_BY_ID[base] || CATEGORY_BY_ID.inne).color;
 }
 
-function isExamEvent(event) {
-  if (event.isExam === true) return true;
+function isExamEvent(event, overrides) {
+  const override = overrides && Object.prototype.hasOwnProperty.call(overrides, eventKey(event)) ? overrides[eventKey(event)] : undefined;
+  if (override === false) return false;
+  if (override === true) return true;
+  if (event && event.examOverride === false) return false;
+  if (event && event.examOverride === true) return true;
+  if (event && event.isExam === true) return true;
   const details = event.details || parseClassDetails(event.summary, event.description, event.location);
   return details.isExam;
 }
@@ -717,13 +752,13 @@ function examCountdown(event, now) {
 }
 
 /** Future exams, soonest first, without duplicates from recurring feeds. */
-function upcomingExams(events, now, limit) {
+function upcomingExams(events, now, limit, overrides) {
   const at = now || new Date();
   const start = new Date(at.getFullYear(), at.getMonth(), at.getDate());
   const seen = new Set();
   const out = [];
   for (const ev of (events || []).slice().sort(byStart)) {
-    if (!ev.dtstart || ev.dtstart < start || !isExamEvent(ev)) continue;
+    if (!ev.dtstart || ev.dtstart < start || !isExamEvent(ev, overrides)) continue;
     const key = `${subjectKey(ev.summary)}|${ev.dateKey}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -773,10 +808,14 @@ function nextExamForCourse(events, course, now) {
  * an exam today can only be reviewed today.
  */
 function examReviewCap(event, now) {
-  if (!event || !event.dtstart) return null;
+  if (!event) return null;
   const at = now || new Date();
   const today = new Date(at.getFullYear(), at.getMonth(), at.getDate());
-  const examDay = new Date(event.dtstart.getFullYear(), event.dtstart.getMonth(), event.dtstart.getDate());
+  const parsedDay = event.dateKey ? parseDateKey(event.dateKey) : null;
+  const examDay = event.dtstart
+    ? new Date(event.dtstart.getFullYear(), event.dtstart.getMonth(), event.dtstart.getDate())
+    : parsedDay;
+  if (!examDay || isNaN(examDay.getTime())) return null;
   if (examDay < today) return null;
   const dayBefore = new Date(examDay.getFullYear(), examDay.getMonth(), examDay.getDate() - 1);
   const capDay = dayBefore < today ? today : dayBefore;
@@ -874,5 +913,8 @@ module.exports = {
   examMatchesCourse,
   nextExamForCourse,
   examReviewCap,
+  eventKey,
+  normalizeExamOverrides,
+  detectExam,
   resolveSubjectFolder,
 };

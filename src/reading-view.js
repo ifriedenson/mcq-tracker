@@ -45,6 +45,7 @@ function todayText(plan) {
 
 async function renderReadingPlanBlock(plugin, source, el, ctx) {
   const parsed = parseReadingPlan(source);
+  if (plugin.rememberReadingPlan) plugin.rememberReadingPlan(parsed, ctx);
   const box = el.createDiv({ cls: "qt-reading-plan" });
   const today = ctx && ctx.today ? ctx.today : localDate();
 
@@ -52,6 +53,9 @@ async function renderReadingPlanBlock(plugin, source, el, ctx) {
     box.empty();
     box.createDiv({ cls: "qt-reading-title", text: parsed.title || "Reading plan" });
     if (parsed.author) box.createDiv({ cls: "qt-reading-author", text: parsed.author });
+    if (parsed.course || parsed.due) {
+      box.createDiv({ cls: "qt-reading-author", text: [parsed.course ? `Course: ${parsed.course}` : "", parsed.due ? `Due: ${parsed.due}` : ""].filter(Boolean).join(" · ") });
+    }
 
     if (!parsed.valid) {
       for (const issue of parsed.issues) box.createDiv({ cls: "qt-reading-issue", text: issue });

@@ -14,6 +14,11 @@ const { AssignmentsView } = require("./assignments-view");
 const { StudyToolsView } = require("./study-tools-view");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const studyWorkspace = require("./study-workspace");
+const courseIdentity = require("./course-identity");
+const exams = require("./exams");
+const { courseOverview } = require("./course-overview");
+const { ExamModal } = require("./exam-modal");
+const { CourseOverviewModal } = require("./course-overview-modal");
 const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
 const audioBookmarks = require("./audio-bookmarks");
@@ -30,7 +35,8 @@ const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-cl
 const { ApiClient } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const { normalizeThinkFirstSeconds } = require("./think-first");
-const { normalizeReadingSettings } = require("./reading");
+const readingModel = require("./reading");
+const { normalizeReadingSettings } = readingModel;
 const { normalizeTagTimerSettings, stopRunningTagTimers } = require("./tag-timer");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
@@ -56,7 +62,7 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { applyTermWeeks, cleanSubjectTitle, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, nextExamForCourse, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
@@ -387,6 +393,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "feynman-ai-feedback", name: "Feynman: get AI feedback on an explanation", callback: () => this.activateStudyWorkspace("feynmanAi") });
     this.addCommand({ id: "pdf-annotation-index", name: "PDF annotations: index the vault sidecars", callback: () => this.activateStudyWorkspace("pdfAnnotations") });
     this.addCommand({ id: "new-assignment", name: "Assignments: add an assignment", callback: () => this.openNewAssignment() });
+    this.addCommand({ id: "new-exam", name: "Exams: add an exam", callback: () => new ExamModal(this.app, this, {}, (result) => { if (result && result.path) new Notice(`Created ${result.path}.`); this.refreshViews(); }).open() });
+    this.addCommand({ id: "calendar-class-attended", name: "Calendar: mark this class note attended", checkCallback: (checking) => { if (!this.classNoteEvent()) return false; if (!checking) this.logClassNoteAttendance(null, true); return true; } });
+    this.addCommand({ id: "calendar-class-absent", name: "Calendar: mark this class note absent", checkCallback: (checking) => { if (!this.classNoteEvent()) return false; if (!checking) this.logClassNoteAttendance(null, false); return true; } });
+    this.addCommand({ id: "course-overview", name: "Courses: open the course overview", checkCallback: (checking) => { const course = this.settings.calendar && this.settings.calendar.courses && this.settings.calendar.courses[0]; if (!course) return false; if (!checking) this.openCourseOverview(course.id || course.name); return true; } });
     this.addCommand({ id: "open-reference", name: "Open Reference", callback: () => this.activateReference() });
     this.addCommand({ id: "open-ap-score", name: "Open AP score calculator", callback: () => this.openApScore() });
     this.addCommand({ id: "open-ap-resources", name: "Open AP resources", callback: () => this.openApResources() });
@@ -692,6 +702,10 @@ class QuestionTrackerPlugin extends Plugin {
         }
         if (!(file instanceof TFile) || !/\.md$/i.test(file.path)) return;
         const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        if (fm && fm.calendar_uid && fm.calendar_date) {
+          menu.addItem((item) => item.setTitle("Calendar: mark attended").setIcon("check").onClick(() => this.logClassNoteAttendance(file, true)));
+          menu.addItem((item) => item.setTitle("Calendar: mark absent").setIcon("x").onClick(() => this.logClassNoteAttendance(file, false)));
+        }
         if (fm && fm.question_id !== undefined && fm.question_id !== null && fm.question_id !== "") {
           menu.addItem((item) =>
             item
@@ -1560,16 +1574,45 @@ class QuestionTrackerPlugin extends Plugin {
 
   assignmentSettings() {
     const base = this.settings.assignments;
+    const registry = (this.settings.calendar && this.settings.calendar.courses) || [];
     const registryCredits = {};
-    for (const course of (this.settings.calendar && this.settings.calendar.courses) || []) {
+    for (const course of registry) {
       const credits = Number(course.credits);
       if (!Number.isFinite(credits)) continue;
-      for (const name of [course.name, course.code]) {
+      for (const name of [course.name, course.code, ...(course.aliases || [])]) {
         const key = str(name).trim().toLowerCase();
         if (key) registryCredits[key] = credits;
       }
     }
-    return { ...base, registryCredits };
+    return { ...base, registry, registryCredits };
+  }
+
+  /** All exams from calendar events, manual exam notes and topic plans. */
+  getExams(options) {
+    const opts = options || {};
+    return exams.listExams({
+      settings: this.calendarSettings(),
+      events: this.calendarEvents(),
+      assignments: this.getAssignments(),
+      plans: this.studyWorkspaceSettings().lerntracker.plans,
+      overrides: this.settings.calendar.examOverrides,
+      today: opts.today || localDate(),
+      horizonDays: opts.horizonDays === undefined ? 365 : opts.horizonDays,
+      includePast: opts.includePast === true,
+    });
+  }
+
+  async setExamOverride(event, value) {
+    const key = eventKey(event);
+    if (!key) return null;
+    this.settings.calendar = mergeCalendarSettings({
+      ...this.calendarSettings(),
+      examOverrides: { ...(this.settings.calendar.examOverrides || {}), [key]: value },
+    });
+    this.invalidateCalendar();
+    await this.save();
+    this.refreshCalendarViews();
+    return this.settings.calendar.examOverrides[key];
   }
 
   /** A saved timed test is still in progress (the test view is the only writer of testSession). */
@@ -1777,10 +1820,10 @@ class QuestionTrackerPlugin extends Plugin {
 
   /** The next review date compression for a course's upcoming exam, if there is one. */
   examCapFor(course, now) {
-    if (!this.calendarEnabled() || !String(course || "").trim()) return null;
+    if (!String(course || "").trim()) return null;
     const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
-    const exam = nextExamForCourse(this.calendarEvents(at), course, at);
-    return exam ? examReviewCap(exam, at) : null;
+    const exam = exams.nextExam(this.getExams({ today: localDate(), horizonDays: 365 }), course, this.calendarSettings(), localDate());
+    return exam ? examReviewCap({ dateKey: exam.date, summary: exam.title || "Exam" }, at) : null;
   }
 
   /** Cached index of class notes by `calendar_uid|calendar_date`. */
@@ -1819,7 +1862,7 @@ class QuestionTrackerPlugin extends Plugin {
     const cal = this.calendarSettings();
     const foreignNotes = fullCalendarNotes(this.app, cal.eventNoteFolder, range);
     const termSignature = `${cal.semesterStart}|${cal.semesterEnd}|${(cal.readingWeeks || []).map((r) => `${r.start}:${r.end}:${r.label}`).join(",")}`;
-    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${termSignature}|${foreignNotes.signature}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
+    const signature = `${dateKey(range.start)}|${dateKey(range.end)}|${termSignature}|${JSON.stringify(cal.examOverrides || {})}|${foreignNotes.signature}|${sources.map((s) => `${s.id}:${hashString(s.content)}`).join("|")}`;
     if (this._calendarCache && this._calendarCache.signature === signature) return this._calendarCache.events;
     const all = [];
     const errors = [];
@@ -1832,6 +1875,11 @@ class QuestionTrackerPlugin extends Plugin {
       }
     }
     all.push(...foreignNotes.events);
+    const overrides = cal.examOverrides || {};
+    for (const event of all) {
+      if (!Object.prototype.hasOwnProperty.call(overrides, eventKey(event))) continue;
+      event.examOverride = overrides[eventKey(event)];
+    }
     const events = applyTermWeeks(this.calendarSettings(), visibleEvents(this.calendarSettings(), all));
     this._calendarCache = { signature, events };
     this._calendarErrors = errors;
@@ -6036,23 +6084,160 @@ ${body}
     return { ...result, added: added.added };
   }
 
-  /** The next exam's plan, scoped to matching question and card courses. */
+  /** Plans for every exam in the next 30 days, soonest first. */
+  studyPlans() {
+    return this.getExams({ horizonDays: 30 })
+      .map((exam) => this.buildExamPlan(exam))
+      .filter(Boolean);
+  }
+
+  /** The soonest exam plan, kept for the existing Today and command callers. */
   studyPlan() {
-    if (!this.calendarEnabled()) return null;
-    const exam = upcomingExams(this.calendarEvents(), new Date(), 1)[0];
-    if (!exam) return null;
-    const title = cleanSubjectTitle(exam.summary) || str(exam.summary);
-    const course =
-      str(exam.course).trim() ||
-      title.replace(/\s*[-–—:]\s*(final|midterm|exam|test|quiz|assessment)\b.*$/i, "").replace(/\s+(final|midterm|exam|test|quiz|assessment)(\s+exam)?\s*$/i, "").trim() ||
-      title;
-    const matches = (value) => !!str(value).trim() && examMatchesCourse({ summary: value }, course);
+    return this.studyPlans()[0] || null;
+  }
+
+  buildExamPlan(exam) {
+    if (!exam || !exam.date) return null;
+    const course = str(exam.course || exam.title).trim();
+    if (!course) return null;
+    const settings = this.calendarSettings();
+    const matches = (value) => !!str(value).trim() && (courseIdentity.sameCourse(settings, value, course) || examMatchesCourse({ summary: value, course: value }, course));
     const questions = this.getQuestions().filter((q) => matches(q.fm.course) || matches(q.fm.test));
-    if (!questions.length) return null;
     const cards = this.cardsEnabled() ? this.getCards().filter((c) => matches(c.course || (c.fm && c.fm.course))) : [];
     const frq = this.getFrqReviewQueue({ course });
-    const registered = findRegisteredCourse(this.settings.calendar, course);
-    return buildStudyPlan(exam, questions, cards, { today: localDate(), course, frq, totalTopics: registered ? registered.totalTopics : 0 });
+    const registered = findRegisteredCourse(settings, course);
+    const lectures = this.studyToolsSettings().lectureLog.lectures.filter((lecture) => matches(lecture.course));
+    const readings = this.getReadingPlans().filter((reading) => !reading.course || matches(reading.course));
+    const planner = this.studyWorkspaceSettings().lerntracker.plans.find((plan) => matches(plan.course));
+    const plannerRemaining = planner
+      ? (planner.topics || []).reduce((sum, topic) => sum + Math.max(0, (Number(topic.targetPasses) || Number(planner.targetPasses) || 1) - (Number(topic.passes) || 0)), 0)
+      : 0;
+    const assignments = this.getAssignments().filter((assignment) =>
+      matches(assignment.course) &&
+      assignment.open !== false &&
+      assignment.done !== true &&
+      assignment.type !== "exam" &&
+      assignment.type !== "test" &&
+      (!assignment.due || assignment.due <= exam.date)
+    );
+    return buildStudyPlan(
+      { ...exam, summary: exam.title, dateKey: exam.date, course },
+      questions,
+      cards,
+      { today: localDate(), examDate: exam.date, course, frq, totalTopics: registered ? registered.totalTopics : 0, lectures, readings, plannerRemaining, assignments }
+    );
+  }
+
+  /** Reading plans are registered by their rendered blocks; no vault scan is required. */
+  rememberReadingPlan(parsed, ctx) {
+    if (!parsed || !parsed.id) return null;
+    if (!this._readingPlans) this._readingPlans = new Map();
+    this._readingPlans.set(parsed.id, { ...parsed, sourcePath: ctx && ctx.sourcePath ? ctx.sourcePath : "" });
+    return this._readingPlans.get(parsed.id);
+  }
+
+  getReadingPlans() {
+    if (!this._readingPlans) return [];
+    const progress = this.settings.reading && this.settings.reading.progress ? this.settings.reading.progress : {};
+    const today = localDate();
+    const rows = [];
+    for (const parsed of this._readingPlans.values()) {
+      if (!parsed || !parsed.valid) continue;
+      const read = Number.isFinite(Number(progress[parsed.id])) ? Number(progress[parsed.id]) : parsed.read;
+      const plan = readingModel.planReading(parsed, { today, read });
+      if (!plan.ok) continue;
+      const status = readingModel.readingStatus(plan);
+      rows.push({ ...parsed, ...status, sourcePath: parsed.sourcePath || "" });
+    }
+    return rows;
+  }
+
+  courseOverviewData(courseId) {
+    const data = this.studyWorkspaceSettings();
+    const settings = this.calendarSettings();
+    const lectures = this.studyToolsSettings().lectureLog.lectures;
+    const courses = studyWorkspace.courseDashboard(data.subjectManager.subjects, lectures, data.subjectManager.absences, data.courseHub.grades, { settings });
+    return courseOverview(courseId, {
+      settings,
+      today: localDate(),
+      courses,
+      exams: this.getExams({ includePast: true, horizonDays: 3650 }),
+      lectures,
+      readings: this.getReadingPlans(),
+      assignments: this.getAssignments(),
+      tasks: data.studyTasks.tasks,
+      plans: data.lerntracker.plans,
+    });
+  }
+
+  openCourseOverview(courseId) {
+    new CourseOverviewModal(this.app, this, courseId).open();
+  }
+
+  /** The calendar event behind a class note, read from its durable frontmatter. */
+  classNoteEvent(file) {
+    const target = file || this.app.workspace.getActiveFile();
+    if (!target) return null;
+    const fm = (this.app.metadataCache.getFileCache(target) || {}).frontmatter || {};
+    const uid = str(fm.calendar_uid).trim();
+    const date = str(fm.calendar_date).slice(0, 10);
+    if (!uid || !date) return null;
+    return {
+      uid,
+      dateKey: date,
+      course: str(fm.course).trim(),
+      summary: str(fm.calendar_title || fm.title || target.basename).trim(),
+      description: str(fm.topics).trim(),
+    };
+  }
+
+  /** Mark a class note attended/absent without opening the calendar. */
+  async logClassNoteAttendance(file, attended) {
+    const event = this.classNoteEvent(file);
+    if (!event) {
+      new Notice("This note is not linked to a calendar class.");
+      return null;
+    }
+    const result = await this.logCalendarLecture(event, event.dateKey, attended);
+    new Notice(attended ? `Marked ${event.summary || "class"} attended.` : `Marked ${event.summary || "class"} absent.`);
+    return result;
+  }
+
+  /** Idempotent attendance action used by calendar events and class notes. */
+  async logCalendarLecture(event, key, attended) {
+    if (!event) return null;
+    const date = String(key || event.dateKey || "").slice(0, 10);
+    if (!date) return null;
+    const course = str(event.course).trim() || cleanSubjectTitle(event.summary) || str(event.summary).trim();
+    if (!course) return null;
+    const id = `calendar-${hashString(`${event.uid || event.summary}|${date}`)}`;
+    const absenceId = `${id}-absence`;
+    const current = this.studyToolsSettings();
+    const workspace = this.studyWorkspaceSettings();
+    const note = this.findCalendarNote(event, date);
+    let lectures = current.lectureLog.lectures.filter((lecture) => lecture.id !== id);
+    let absences = workspace.subjectManager.absences.filter((absence) => absence.id !== absenceId);
+    if (attended) {
+      const lecture = studyTools.normalizeLecture({
+        id,
+        course,
+        date,
+        title: str(event.summary).trim() || "Class",
+        topics: str(event.description || "").trim(),
+        notePath: note ? note.path : "",
+        createdAt: Date.now(),
+      });
+      if (lecture) lectures = lectures.concat(lecture).slice(-studyTools.MAX_LECTURES);
+    } else {
+      const absence = studyWorkspace.normalizeAbsence({ id: absenceId, subject: course, date, reason: "Calendar class" });
+      if (absence) absences = absences.concat(absence).slice(-studyWorkspace.MAX_ABSENCES);
+    }
+    this.settings.lectureLog = { ...current.lectureLog, lectures };
+    this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({ ...workspace.subjectManager, absences });
+    await this.save();
+    this.refreshViews();
+    this.refreshCalendarViews();
+    return attended ? { id, course, date, attended: true } : { id: absenceId, course, date, attended: false };
   }
 
   async startStudyPlan(plan, cram) {

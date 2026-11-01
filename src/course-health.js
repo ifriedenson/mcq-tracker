@@ -6,6 +6,7 @@
  */
 const { str } = require("./util");
 const { dayValue, addDays } = require("./study-tools");
+const courseIdentity = require("./course-identity");
 
 const COURSE_HEALTH_LEVELS = ["ok", "warn"];
 
@@ -47,14 +48,15 @@ function daysBetween(start, end) {
   return Math.round((new Date(by, bm - 1, bd) - new Date(ay, am - 1, ad)) / 86400000);
 }
 
-function sameCourse(a, b) {
+function sameCourse(a, b, settings) {
+  if (settings) return courseIdentity.sameCourse(settings, a, b);
   return str(a).trim().toLowerCase() === str(b).trim().toLowerCase() && !!str(a).trim();
 }
 
 /** Remaining topic passes and exam date for a course, from the topic planner. */
-function planForCourse(plans, course, today) {
+function planForCourse(plans, course, today, settings) {
   const day = str(today);
-  const rows = (Array.isArray(plans) ? plans : []).filter((plan) => sameCourse(plan && plan.course, course));
+  const rows = (Array.isArray(plans) ? plans : []).filter((plan) => sameCourse(plan && plan.course, course, settings));
   const future = rows
     .filter((plan) => dayValue(plan.examDate) && plan.examDate >= day)
     .sort((a, b) => a.examDate.localeCompare(b.examDate));
@@ -83,6 +85,7 @@ function courseHealthReport(input) {
   const tasks = Array.isArray(source.tasks) ? source.tasks : [];
   const plans = Array.isArray(source.plans) ? source.plans : [];
   const courses = Array.isArray(source.courses) ? source.courses : [];
+  const examList = Array.isArray(source.exams) ? source.exams : null;
 
   const rows = courses.map((course) => {
     const checks = [];
@@ -104,7 +107,7 @@ function courseHealthReport(input) {
       });
     }
     const overdue = tasks.filter(
-      (task) => task && !task.done && dayValue(task.due) && task.due < day && sameCourse(task.course, name)
+      (task) => task && !task.done && dayValue(task.due) && task.due < day && sameCourse(task.course, name, source.settings)
     );
     if (overdue.length) {
       checks.push({
@@ -113,8 +116,21 @@ function courseHealthReport(input) {
         text: `${overdue.length} open ${overdue.length === 1 ? "task is" : "tasks are"} overdue for this course.`,
       });
     }
-    const plan = planForCourse(plans, name, day);
-    if (plan && plan.remaining > 0 && plan.daysLeft <= settings.examWindowDays) {
+    const plan = planForCourse(plans, name, day, source.settings);
+    const exam = examList
+      ? examList
+          .filter((entry) => entry && dayValue(entry.date) && entry.date >= day && sameCourse(entry.course, name, source.settings))
+          .sort((a, b) => a.date.localeCompare(b.date))[0] || null
+      : null;
+    const examDays = exam ? daysBetween(day, exam.date) : null;
+    if (exam && examDays <= settings.examWindowDays) {
+      const remaining = plan ? plan.remaining : 0;
+      checks.push({
+        id: "exam",
+        level: "warn",
+        text: `Exam ${exam.title || ""} in ${examDays} ${examDays === 1 ? "day" : "days"}${remaining > 0 ? ` with ${remaining} topic ${remaining === 1 ? "pass" : "passes"} left` : ""}.`,
+      });
+    } else if (!examList && plan && plan.remaining > 0 && plan.daysLeft <= settings.examWindowDays) {
       checks.push({
         id: "exam",
         level: "warn",

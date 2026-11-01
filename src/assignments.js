@@ -9,6 +9,7 @@
  */
 const { addDays, fmtDate, localDate, str } = require("./util");
 const { stringifyYaml } = require("obsidian");
+const courseIdentity = require("./course-identity");
 
 const ASSIGNMENT_TYPES = [
   { id: "homework", label: "Homework", category: "homework" },
@@ -96,6 +97,22 @@ function clamp(value, min, max) {
 
 function pct(value) {
   return value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Math.round(Number(value) * 10) / 10;
+}
+
+function normalizeTopicList(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[,;]/);
+  const out = [];
+  for (const item of raw) {
+    const text = str(item).replace(/\s+/g, " ").trim().slice(0, 200);
+    if (text && !out.some((entry) => entry.toLowerCase() === text.toLowerCase())) out.push(text);
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
+function normalizeTime(value) {
+  const match = str(value).trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  return match ? `${match[1]}:${match[2]}` : "";
 }
 
 function normalizeDate(value) {
@@ -251,6 +268,8 @@ function normalizeCourses(value) {
     seen.add(key);
     out.push({
       name,
+      courseId: str(raw.courseId).trim(),
+      aliases: normalizeTopicList(raw.aliases),
       credits: clamp(num(raw.credits, 3), 0, 30),
       target: raw.target === null || raw.target === undefined || raw.target === "" ? null : clamp(num(raw.target, 90), 0, 100),
       finalWeight: raw.finalWeight === null || raw.finalWeight === undefined || raw.finalWeight === "" ? null : clamp(num(raw.finalWeight, 20), 0, 100),
@@ -274,7 +293,13 @@ function normalizeAssignmentSettings(value) {
 function courseConfig(settings, course) {
   const key = str(course).trim().toLowerCase();
   if (!key) return null;
-  const row = (settings && settings.courses ? settings.courses : []).find((c) => str(c.name).trim().toLowerCase() === key);
+  const registry = settings && settings.registry;
+  const resolved = courseIdentity.resolveCourse(registry || settings, course);
+  const row = (settings && settings.courses ? settings.courses : []).find((c) => {
+    if (resolved && str(c.courseId).trim() && str(c.courseId).trim() === str(resolved.id).trim()) return true;
+    if (resolved && courseIdentity.sameCourse(registry, c.name, course)) return true;
+    return str(c.name).trim().toLowerCase() === key;
+  });
   return row || null;
 }
 
@@ -289,6 +314,8 @@ function courseFinalWeight(settings, course) {
 }
 
 function courseCredits(settings, course) {
+  const resolved = courseIdentity.resolveCourse(settings && settings.registry ? settings.registry : settings, course);
+  if (resolved && Number.isFinite(Number(resolved.credits))) return Number(resolved.credits);
   const cfg = courseConfig(settings, course);
   if (cfg && Number.isFinite(cfg.credits)) return cfg.credits;
   const key = str(course).trim().toLowerCase();
@@ -363,15 +390,20 @@ function parseAssignment(file, fm, text, settings) {
   const score = scoreOf(source);
   const graded = status === "missing" || (status !== "excused" && score.percent !== null);
   const percent = status === "missing" ? 0 : graded ? score.percent : null;
+  const courseInfo = courseIdentity.courseDetails(settings && settings.registry, source.course);
   return {
     id: str(source.assignment_id).trim() || (file && file.path) || title,
     file,
     title,
     course: str(source.course).trim(),
+    courseId: courseInfo.id,
+    courseName: courseInfo.name || str(source.course).trim(),
     type,
     typeLabel: typeLabel(type),
     category: categoryFor(type, source.category),
     due,
+    examTime: normalizeTime(source.exam_time || source.examTime),
+    topics: normalizeTopicList(source.topics),
     estimate,
     weight: Math.max(0.01, num(source.weight, 1)),
     status,
@@ -385,6 +417,10 @@ function parseAssignment(file, fm, text, settings) {
     text: str(text),
     fm: source,
   };
+}
+
+function sameAssignmentCourse(settings, a, b) {
+  return courseIdentity.sameCourse(settings, a, b);
 }
 
 function weightedAverage(rows, valueKey, weightKey) {
@@ -401,7 +437,10 @@ function weightedAverage(rows, valueKey, weightKey) {
 }
 
 function courseRow(settings, course, assignments) {
-  const list = assignments.filter((a) => a.course && a.course.toLowerCase() === course.toLowerCase());
+  const registry = settings && settings.registry ? settings.registry : settings;
+  const info = courseIdentity.courseDetails(registry, course);
+  const target = info.name || str(course).trim();
+  const list = assignments.filter((a) => sameAssignmentCourse(registry, a.course, course));
   const categories = settings.categories.map((cat) => {
     const rows = list.filter((a) => a.category === cat.id && a.status !== "excused");
     const graded = rows.filter((a) => a.percent !== null);
@@ -431,17 +470,18 @@ function courseRow(settings, course, assignments) {
     const average = weightedAverage(graded.map((a) => ({ percent: a.percent, weight: a.weight })), "percent", "weight");
     if (average.value !== null) current = pct(average.value);
   }
-  const target = courseTarget(settings, course);
+  const targetGrade = courseTarget(settings, course);
   const finalWeight = courseFinalWeight(settings, course);
   return {
-    course,
+    course: info.name || str(course).trim(),
+    courseId: info.id,
     credits: courseCredits(settings, course),
     current,
     letter: letterForPercent(current),
     gpaPoints: current === null ? null : gpaPointsFor(current),
-    target,
+    target: targetGrade,
     finalWeight,
-    neededFinal: current === null ? null : neededOnFinal(current, target, finalWeight),
+    neededFinal: current === null ? null : neededOnFinal(current, targetGrade, finalWeight),
     total: list.length,
     open: list.filter((a) => a.open).length,
     graded: list.filter((a) => a.percent !== null).length,
@@ -501,6 +541,7 @@ function assignmentStats(assignments, settings, options) {
     names.push(clean);
   };
   for (const course of (settings && settings.courses) || []) add(course.name);
+  for (const course of courseIdentity.registryOf(settings)) add(course.name);
   for (const a of list) add(a.course);
   const courses = names.map((name) => courseRow(settings, name, list)).sort((a, b) => a.course.localeCompare(b.course, undefined, { numeric: true }));
   const gradedCourses = courses.filter((c) => c.current !== null && c.credits > 0);
@@ -603,10 +644,12 @@ function assignmentMarkdown(data, now) {
   const date = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
   const title = safeName(opts.title) || "Assignment";
   const type = typeId(opts.type);
-  const due = normalizeDate(opts.due);
-  const estimate = estimateMinutes(opts.estimate);
-  const status = normalizeStatus(opts.status, false);
-  const fm = {
+  const due = normalizeDate(opts.due);    const estimate = estimateMinutes(opts.estimate);
+    const status = normalizeStatus(opts.status, false);
+    const topics = normalizeTopicList(opts.topics);
+    const examTime = normalizeTime(opts.examTime || opts.exam_time);
+    const fm = {
+
     assignment: true,
     assignment_id: str(opts.id).trim() || assignmentId(date),
     title,
@@ -620,6 +663,8 @@ function assignmentMarkdown(data, now) {
     score: opts.score === undefined || opts.score === "" ? "" : num(opts.score, ""),
     created: fmtDate(date),
   };
+  if (topics.length) fm.topics = topics;
+  if (examTime) fm.exam_time = examTime;
   if (estimate) fm.estimate = estimate;
   if (status === "submitted" || status === "graded") fm.submitted = fmtDate(date);
   return `---\n${stringifyYaml(fm)}---\n\n# ${title}\n\n${taskMarkdown(title, due, estimate)}\n\n## Notes\n\n`;
@@ -689,6 +734,7 @@ module.exports = {
   buildDailyTasks,
   categoryFor,
   courseConfig,
+  courseRow,
   courseCredits,
   courseFinalWeight,
   courseTarget,
@@ -707,6 +753,8 @@ module.exports = {
   normalizeAssignmentSettings,
   normalizeDate,
   normalizeStatus,
+  normalizeTime,
+  normalizeTopicList,
   parseAssignment,
   safeName,
   scoreOf,

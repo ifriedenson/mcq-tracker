@@ -10,6 +10,7 @@ const { localDate, str } = require("./util");
 const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
+const courseIdentity = require("./course-identity");
 const { bookmarkLink, bookmarkPaths, chaptersFor, formatTimestamp, parseTimestamp } = require("./audio-bookmarks");
 const { STATUS_LABELS: READING_LABELS, bookProgress, librarySummary, shelfBooks } = require("./reading-library");
 const {
@@ -440,6 +441,23 @@ class StudyWorkspaceView extends ItemView {
     const buffer = this.renderField(form, "Buffer days", "number", "2", "2");
     const target = this.renderField(form, "Passes per topic", "number", "3", "3");
     const topics = this.renderTextarea(form, "Topics (one per line)", "Cell structure\nRespiration\nPhotosynthesis", "", 4);
+    const seed = add.createDiv({ cls: "qt-row qt-study-actions" });
+    seed.createEl("button", { text: "Use exam topics" }).addEventListener("click", () => {
+      const wantedCourse = str(course.value).trim();
+      const found = this.plugin.getExams({ today: localDate(), horizonDays: 3650 }).find((entry) => {
+        if (exam.value && entry.date !== exam.value) return false;
+        if (!wantedCourse) return true;
+        return courseIdentity.sameCourse(this.plugin.calendarSettings(), entry.course, wantedCourse);
+      });
+      if (!found || !Array.isArray(found.topics) || !found.topics.length) {
+        this.saveMessage("No matching exam topics found. Add topics to the exam note or type them here.");
+        return;
+      }
+      topics.value = found.topics.join("\n");
+      if (!course.value.trim() && found.course) course.value = found.course;
+      if (!exam.value && found.date) exam.value = found.date;
+      this.saveMessage(`Loaded ${found.topics.length} topic${found.topics.length === 1 ? "" : "s"} from ${found.title || "the exam"}.`);
+    });
     const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
     actions.createEl("button", { text: "Create plan", cls: "mod-cta" }).addEventListener("click", async () => {
       const names = topics.value.split("\n").map((line) => line.trim()).filter(Boolean);
@@ -715,7 +733,7 @@ class StudyWorkspaceView extends ItemView {
     const subjects = this.settings().subjectManager.subjects;
     const absences = this.settings().subjectManager.absences;
     const lectures = this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [];
-    const dashboard = courseDashboard(subjects, lectures, absences, data.grades);
+    const dashboard = courseDashboard(subjects, lectures, absences, data.grades, { settings: this.plugin.calendarSettings() });
     const add = root.createDiv({ cls: "qt-study-card" });
     add.createEl("h3", { text: "Add a course grade" });
     add.createDiv({ cls: "qt-hint", text: "Grade chips are local estimates from weighted entries. Subjects and lectures are read from their own modules; nothing is written back to those notes." });
@@ -763,6 +781,7 @@ class StudyWorkspaceView extends ItemView {
       heading.createSpan({ text: entry.name });
       const chip = head.createSpan({ cls: "qt-workspace-grade", text: entry.graded ? `${entry.letter} · ${entry.weighted}%` : "No grades" });
       if (entry.graded) chip.addClass(`is-${entry.letter.toLowerCase()}`);
+      head.createEl("button", { text: "Overview", cls: "qt-link" }).addEventListener("click", () => this.plugin.openCourseOverview(entry.courseId || entry.name));
       card.createDiv({ cls: "qt-study-row-meta", text: `${entry.lectures} lecture${entry.lectures === 1 ? "" : "s"} · ${entry.absences} absence${entry.absences === 1 ? "" : "s"}${entry.folder ? ` · ${entry.folder}` : ""}` });
       if (entry.lastLecture) card.createDiv({ cls: "qt-study-row-meta", text: `Last lecture: ${entry.lastLecture.date} · ${entry.lastLecture.title}` });
       if (entry.grades.length) {
@@ -1232,7 +1251,7 @@ class StudyWorkspaceView extends ItemView {
   renderSubjects(root) {
     const data = this.settings().subjectManager;
     const lectures = this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [];
-    const summary = subjectSummary(data.subjects, data.absences, lectures);
+    const summary = subjectSummary(data.subjects, data.absences, lectures, { settings: this.plugin.calendarSettings() });
     const filtered = summary.filter((subject) => !this.subjectFilter || `${subject.name} ${subject.folder} ${subject.notes} ${(subject.projects || []).map((project) => project.title).join(" ")}`.toLowerCase().includes(this.subjectFilter));
     const add = root.createDiv({ cls: "qt-study-card" });
     add.createEl("h3", { text: "Add a subject" });
@@ -1484,6 +1503,8 @@ class StudyWorkspaceView extends ItemView {
     const form = add.createDiv({ cls: "qt-study-form" });
     const title = this.renderField(form, "Title", "text", "Deep Work");
     const author = this.renderField(form, "Author (optional)", "text", "Cal Newport");
+    const bookCourse = this.renderField(form, "Course (optional)", "text", "Econ 101");
+    const bookDue = this.renderField(form, "Due (optional)", "date", "");
     const pages = this.renderField(form, "Pages (optional)", "number", "300");
     const status = this.renderSelect(form, "Shelf", [
       { value: "want", label: "Want to read" },
@@ -1492,7 +1513,7 @@ class StudyWorkspaceView extends ItemView {
     ], "want");
     const addActions = add.createDiv({ cls: "qt-row qt-study-actions" });
     addActions.createEl("button", { text: "Add book", cls: "mod-cta" }).addEventListener("click", async () => {
-      const book = await this.plugin.addReadingBook({ title: title.value, author: author.value, totalPages: pages.value, status: status.value });
+      const book = await this.plugin.addReadingBook({ title: title.value, author: author.value, course: bookCourse.value, due: bookDue.value, totalPages: pages.value, status: status.value });
       if (!book) {
         this.saveMessage("Add a title first, and avoid adding the same book twice.");
         this.render();
@@ -1529,7 +1550,8 @@ class StudyWorkspaceView extends ItemView {
     const main = item.createDiv({ cls: "qt-study-row-main" });
     main.createDiv({ cls: "qt-study-row-title", text: `${book.title}${book.author ? ` · ${book.author}` : ""}` });
     const progress = bookProgress(book);
-    main.createDiv({ cls: "qt-study-row-meta", text: `${READING_LABELS[book.status]} · ${progress.known ? `${book.currentPage}/${book.totalPages} pages (${progress.percent}%)` : `${book.currentPage} pages`}${book.rating ? ` · ${book.rating}/5` : ""}` });
+    const links = [book.course ? `Course: ${book.course}` : "", book.due ? `Due ${book.due}` : ""].filter(Boolean).join(" · ");
+    main.createDiv({ cls: "qt-study-row-meta", text: `${READING_LABELS[book.status]} · ${progress.known ? `${book.currentPage}/${book.totalPages} pages (${progress.percent}%)` : `${book.currentPage} pages`}${book.rating ? ` · ${book.rating}/5` : ""}${links ? ` · ${links}` : ""}` });
     if (progress.known) {
       const bar = main.createDiv({ cls: "qt-study-bar" });
       bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = `${progress.percent}%`;
@@ -1615,12 +1637,15 @@ class StudyWorkspaceView extends ItemView {
       data.subjectManager.subjects,
       this.plugin.studyToolsSettings ? this.plugin.studyToolsSettings().lectureLog.lectures : [],
       data.subjectManager.absences,
-      data.courseHub.grades
+      data.courseHub.grades,
+      { settings: this.plugin.calendarSettings() }
     );
     const report = courseHealthReport({
       courses: dashboard,
       plans: data.lerntracker.plans,
       tasks: data.studyTasks.tasks,
+      exams: this.plugin.getExams ? this.plugin.getExams({ includePast: true }) : [],
+      settings: this.plugin.calendarSettings ? this.plugin.calendarSettings() : undefined,
       today: localDate(),
       ...data.courseHealth,
     });

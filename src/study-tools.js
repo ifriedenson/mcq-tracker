@@ -60,18 +60,32 @@ function normalizeCornellSettings(value) {
   return { enabled: enabledValue(value, true) };
 }
 
+function parseTopicList(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[,;]/);
+  const out = [];
+  for (const item of raw) {
+    const topic = str(item).replace(/\s+/g, " ").trim().slice(0, 200);
+    if (topic && !out.some((entry) => entry.toLowerCase() === topic.toLowerCase())) out.push(topic);
+    if (out.length >= 100) break;
+  }
+  return out;
+}
+
 function normalizeLecture(value) {
   const source = value && typeof value === "object" ? value : {};
   const course = str(source.course).trim().slice(0, MAX_TITLE);
   const title = str(source.title).trim().slice(0, MAX_TITLE);
   const date = dayValue(source.date);
   if (!course || !title || !date) return null;
+  const topics = str(source.topics).replace(/\s+/g, " ").trim().slice(0, MAX_TOPICS);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("lecture", [course, date, title]),
     course,
     date,
     title,
-    topics: str(source.topics).replace(/\s+/g, " ").trim().slice(0, MAX_TOPICS),
+    topics,
+    topicList: parseTopicList(source.topicList !== undefined ? source.topicList : topics),
+    notePath: str(source.notePath || source.note_path).trim().slice(0, 500),
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }
@@ -174,9 +188,10 @@ function createStudyGoal(input, now) {
 }
 
 function createLecture(input, now) {
+  const source = input && typeof input === "object" ? input : {};
   return normalizeLecture({
-    ...(input || {}),
-    id: idFor("lecture", [input && input.course, input && input.date, input && input.title, now || 0]),
+    ...source,
+    id: str(source.id).trim() || idFor("lecture", [source.course, source.date, source.title, now || 0]),
     createdAt: Math.max(0, Math.round(numberValue(now, Date.now()))),
   });
 }
@@ -265,4 +280,5 @@ module.exports = {
   normalizeStudyToolsSettings,
   openGoals,
   parseLectureLines,
+  parseTopicList,
 };

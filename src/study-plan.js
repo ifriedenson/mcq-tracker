@@ -134,6 +134,57 @@ function buildStudyPlan(exam, questions, cards, options) {
   const frq = Array.isArray(opts.frq) ? opts.frq.filter(Boolean) : [];
   const frqDue = frq.filter((row) => row.due).length;
   const course = str(opts.course || (exam && exam.course) || "").trim() || (exam && str(exam.summary).replace(/\s*[-–—:]\s*(final|exam|midterm|test).*$/i, "").trim()) || "Your exam";
+  const lectures = (Array.isArray(opts.lectures) ? opts.lectures : []).filter(Boolean);
+  const readings = (Array.isArray(opts.readings) ? opts.readings : []).filter(Boolean);
+  const assignments = (Array.isArray(opts.assignments) ? opts.assignments : []).filter(Boolean);
+  const plannerRemaining = Math.max(0, Math.round(Number(opts.plannerRemaining) || 0));
+  const readingPages = readings.reduce((sum, row) => sum + Math.max(0, Number(row.pagesRemaining ?? row.remainingPages) || 0), 0);
+  const readingBehind = readings.reduce((sum, row) => sum + Math.max(0, Number(row.behindPages ?? row.behindBy) || 0), 0);
+  const workItems = [];
+  if (lectures.length) {
+    workItems.push({
+      type: "lectures",
+      label: `Review ${lectures.length} lecture${lectures.length === 1 ? "" : "s"}`,
+      count: lectures.length,
+      detail: lectures.slice(0, 5).map((lecture) => `${lecture.date || ""} ${lecture.title || "Lecture"}`.trim()).join(" · "),
+      lectures,
+    });
+  }
+  if (readingPages > 0) {
+    workItems.push({
+      type: "readings",
+      label: `Read ${readingPages} page${readingPages === 1 ? "" : "s"}`,
+      count: readingPages,
+      detail: readingBehind ? `${readingBehind} page${readingBehind === 1 ? "" : "s"} behind` : "",
+      readings,
+    });
+  }
+  if (plannerRemaining > 0) {
+    workItems.push({
+      type: "planner",
+      label: `Finish ${plannerRemaining} topic pass${plannerRemaining === 1 ? "" : "es"}`,
+      count: plannerRemaining,
+      detail: "From the topic planner",
+    });
+  }
+  if (assignments.length) {
+    workItems.push({
+      type: "assignments",
+      label: `Finish ${assignments.length} assignment${assignments.length === 1 ? "" : "s"}`,
+      count: assignments.length,
+      detail: "Due before the exam",
+      assignments,
+    });
+  }
+  const coverage = list.length ? attempted.length / list.length : null;
+  const readinessEvidence = [
+    { id: "accuracy", label: "Accuracy", value: accuracyOf(list), detail: list.length ? `${attempted.length} attempted` : "No matching questions" },
+    { id: "coverage", label: "Question coverage", value: coverage, detail: `${attempted.length}/${list.length} questions practised` },
+    { id: "backlog", label: "Due backlog", value: list.length ? due : null, detail: `${due} due question${due === 1 ? "" : "s"}` },
+  ];
+  if (opts.totalTopics) readinessEvidence.push({ id: "topics", label: "Topic coverage", value: topicCoverage(list, opts.totalTopics)?.pct ?? null, detail: `${topicCoverage(list, opts.totalTopics)?.mastered || 0}/${opts.totalTopics} topics mastered` });
+  if (readings.length) readinessEvidence.push({ id: "readings", label: "Reading workload", value: readingBehind, detail: readingBehind ? `${readingBehind} pages behind` : `${readingPages} pages remaining` });
+  const readiness = list.length ? readinessScore(list, due, daysLeft) : null;
   return {
     exam,
     course,
@@ -151,7 +202,13 @@ function buildStudyPlan(exam, questions, cards, options) {
     frqDue,
     frqTotal: frq.length,
     frqNext: frq.find((row) => row.due) || frq.find((row) => row.state === "scheduled") || frq[0] || null,
-    readiness: readinessScore(list, due, daysLeft),
+    readiness,
+    readinessEvidence,
+    workItems,
+    lectures,
+    readings,
+    assignments,
+    plannerRemaining,
     topics: topicCoverage(list, opts.totalTopics),
     pool: list.slice(),
     cramPool: buildCramPool(list, today, opts.cramLimit || 40),

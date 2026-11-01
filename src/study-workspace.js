@@ -6,6 +6,7 @@
  */
 const { hashString, localDate, str } = require("./util");
 const { addDays, dayValue } = require("./study-tools");
+const courseIdentity = require("./course-identity");
 const { fencedQuizBlocks, parseQuizBlock } = require("./quiz-block");
 const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
@@ -300,20 +301,25 @@ function createAbsence(input, now) {
   return { ...absence, createdAt: Math.max(0, Math.round(numberValue(now, Date.now()))) };
 }
 
-function subjectSummary(subjects, absences, lectures) {
+function subjectSummary(subjects, absences, lectures, options) {
+  const settings = options && options.settings ? options.settings : options;
   const lectureList = Array.isArray(lectures) ? lectures : [];
   const absenceList = Array.isArray(absences) ? absences : [];
   return (Array.isArray(subjects) ? subjects : []).map((subject) => {
-    const key = str(subject.name).trim().toLowerCase();
-    const subjectLectures = lectureList.filter((lecture) => str(lecture.course).trim().toLowerCase() === key);
+    const identity = courseIdentity.courseDetails(settings, subject);
+    const subjectLectures = lectureList.filter((lecture) => courseIdentity.sameCourse(settings, lecture.course, subject));
     const subjectAbsences = absenceList
-      .filter((absence) => str(absence.subject).trim().toLowerCase() === key)
+      .filter((absence) => courseIdentity.sameCourse(settings, absence.subject, subject))
       .sort((a, b) => b.date.localeCompare(a.date));
     const projects = Array.isArray(subject.projects) ? subject.projects : [];
     const open = projects.filter((project) => !project.done);
     const totalSessions = subjectLectures.length + subjectAbsences.length;
     return {
       ...subject,
+      name: identity.name || subject.name,
+      courseId: identity.id,
+      folder: identity.folder || subject.folder,
+      color: identity.color || subject.color,
       lectures: subjectLectures.length,
       lastLecture: subjectLectures.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null,
       absences: subjectAbsences.length,
@@ -829,40 +835,70 @@ function letterGrade(score) {
 }
 
 /** Combine the independent subject, lecture and grade data without writing any of it back. */
-function courseDashboard(subjects, lectures, absences, grades) {
+function courseDashboard(subjects, lectures, absences, grades, options) {
+  const settings = options && options.settings ? options.settings : options;
   const courses = new Map();
-  const ensure = (name) => {
-    const key = str(name).trim().toLowerCase();
+  const ensure = (input) => {
+    const info = courseIdentity.courseDetails(settings, input);
+    const key = info.id || info.name.toLowerCase();
     if (!key) return null;
-    if (!courses.has(key)) courses.set(key, { name: str(name).trim(), color: "#7c9cf5", folder: "", grades: [] });
+    if (!courses.has(key)) {
+      courses.set(key, {
+        name: info.name,
+        courseId: info.id,
+        id: info.id,
+        color: info.color || "#7c9cf5",
+        folder: info.folder || "",
+        credits: info.credits,
+        totalTopics: info.totalTopics,
+        gradeRows: [],
+        lectureRows: [],
+        absenceRows: [],
+      });
+    }
     return courses.get(key);
   };
+  for (const registered of courseIdentity.registryOf(settings)) ensure(registered);
   for (const subject of Array.isArray(subjects) ? subjects : []) {
     const course = ensure(subject && subject.name);
     if (!course) continue;
-    course.color = /^#[0-9a-f]{6}$/i.test(str(subject.color)) ? str(subject.color).toLowerCase() : course.color;
-    course.folder = str(subject.folder);
+    const registered = courseIdentity.resolveCourse(settings, subject);
+    if (!registered && /^#[0-9a-f]{6}$/i.test(str(subject.color))) course.color = str(subject.color).toLowerCase();
+    if (!registered && str(subject.folder)) course.folder = str(subject.folder);
   }
   const lectureList = Array.isArray(lectures) ? lectures : [];
   const absenceList = Array.isArray(absences) ? absences : [];
-  for (const lecture of lectureList) ensure(lecture && lecture.course);
+  for (const lecture of lectureList) {
+    const course = ensure(lecture && lecture.course);
+    if (course) course.lectureRows.push(lecture);
+  }
+  for (const absence of absenceList) {
+    const course = ensure(absence && absence.subject);
+    if (course) course.absenceRows.push(absence);
+  }
   for (const grade of Array.isArray(grades) ? grades : []) {
     const course = ensure(grade && grade.course);
-    if (course) course.grades.push(grade);
+    if (course) course.gradeRows.push(grade);
   }
   return [...courses.values()].map((course) => {
-    const key = course.name.toLowerCase();
-    const ownLectures = lectureList.filter((lecture) => str(lecture.course).trim().toLowerCase() === key);
-    const ownAbsences = absenceList.filter((absence) => str(absence.subject).trim().toLowerCase() === key);
-    const ownGrades = course.grades.slice().sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.createdAt - a.createdAt);
+    const ownLectures = course.lectureRows.slice().sort((a, b) => b.date.localeCompare(a.date));
+    const ownAbsences = course.absenceRows.slice().sort((a, b) => b.date.localeCompare(a.date));
+    const ownGrades = course.gradeRows.slice().sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.createdAt - a.createdAt);
     const weight = ownGrades.reduce((sum, grade) => sum + grade.weight, 0);
     const weighted = weight ? Math.round((ownGrades.reduce((sum, grade) => sum + grade.score * grade.weight, 0) / weight) * 10) / 10 : 0;
     return {
-      ...course,
+      name: course.name,
+      course: course.name,
+      courseId: course.courseId,
+      id: course.id,
+      color: course.color,
+      folder: course.folder,
+      credits: course.credits,
+      totalTopics: course.totalTopics,
       lectures: ownLectures.length,
       absences: ownAbsences.length,
-      lastLecture: ownLectures.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null,
-      lastAbsence: ownAbsences.slice().sort((a, b) => b.date.localeCompare(a.date))[0] || null,
+      lastLecture: ownLectures[0] || null,
+      lastAbsence: ownAbsences[0] || null,
       grades: ownGrades,
       graded: ownGrades.length,
       weighted,
@@ -1279,6 +1315,7 @@ module.exports = {
   normalizeQuizAttempts,
   courseDashboard,
   createAbsence,
+  normalizeAbsence,
   createAnnotation,
   createDeepNotesSession,
   createFeynmanSession,
