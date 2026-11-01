@@ -50675,10 +50675,24 @@ class PomodoroView extends ItemView {
       return;
     }
     const data = this.plugin.pomodoroSnapshot();
-    root.createEl("h2", { text: "Pomodoro" });
     const card = root.createDiv({ cls: "qt-pomodoro-card" });
     card.createDiv({ cls: "qt-pomodoro-phase", text: phaseLabel(data.phase) });
     card.createDiv({ cls: "qt-pomodoro-clock", text: data.display });
+    const elapsed = Math.min(data.phaseSeconds, Math.max(0, data.phaseSeconds - data.remaining));
+    const percent = data.phaseSeconds ? Math.round((elapsed / data.phaseSeconds) * 1000) / 10 : 0;
+    const progress = card.createDiv({ cls: "qt-meter-track qt-pomodoro-progress" });
+    progress.setAttr("role", "progressbar");
+    progress.setAttr("aria-label", `${data.label} progress`);
+    progress.setAttr("aria-valuemin", "0");
+    progress.setAttr("aria-valuemax", String(data.phaseSeconds));
+    progress.setAttr("aria-valuenow", String(elapsed));
+    progress.setAttr("aria-valuetext", `${data.display} remaining`);
+    const fill = progress.createDiv({ cls: "qt-meter-fill qt-pomodoro-progress-fill" });
+    fill.style.width = `${percent}%`;
+    if (data.running) {
+      fill.style.animation = `qt-pomodoro-fill ${data.phaseSeconds}s linear forwards`;
+      if (elapsed) fill.style.animationDelay = `-${elapsed}s`;
+    }
     card.createDiv({
       cls: "qt-hint",
       text: `${data.completed} completed · ${data.workSessions} work session${data.workSessions === 1 ? "" : "s"} · ${data.running ? "running" : "paused"}`,

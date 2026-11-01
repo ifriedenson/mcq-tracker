@@ -7623,6 +7623,15 @@
 .qt-study-stats-heatmap-cell:hover { outline: 1px solid var(--interactive-accent); }
 
 .qt-pomodoro-card { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 16px; border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-secondary); }
+.qt-pomodoro-progress { width: 100%; margin: 2px 0 4px; }
+.qt-pomodoro-progress-fill { background: var(--interactive-accent); }
+@keyframes qt-pomodoro-fill {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qt-pomodoro-progress-fill { animation: none !important; }
+}
 .qt-pomodoro-phase { color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--font-ui-smaller); }
 .qt-pomodoro-clock { font-size: 48px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .qt-pomodoro-status { cursor: pointer; }
