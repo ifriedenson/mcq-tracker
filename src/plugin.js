@@ -3953,18 +3953,22 @@ class QuestionTrackerPlugin extends Plugin {
   /** Apply only the actions the learner checked in the review window. */
   async applyByokToolProposals(proposals) {
     const list = Array.isArray(proposals) ? proposals : [];
-    const result = { created: 0, updated: 0, errors: [] };
+    const result = { created: 0, updated: 0, errors: [], verification: null };
     const questions = list.filter((item) => item && item.tool === "create_question");
     const cards = list.filter((item) => item && item.tool === "create_card");
     const edits = list.filter((item) => item && item.tool === "update_section");
 
     if (questions.length) {
       try {
+        const verification = await this.verifyDraftQuestions(questions);
+        const kept = questions.filter((item) => !(item.verification && item.verification.drop));
+        result.verification = verification;
         const generated = {
           kind: "questions",
           title: "AI assistant",
           course: questions.map((item) => item.course).find(Boolean) || "",
-          items: questions,
+          items: kept,
+          verification,
           model: this.aiModelLabel("chat"),
           ai: true,
           sourcePath: "",
@@ -6412,10 +6416,10 @@ ${body}
         notePath: note ? note.path : "",
         createdAt: Date.now(),
       });
-      if (lecture) lectures = lectures.concat(lecture).slice(-studyTools.MAX_LECTURES);
+      if (lecture) lectures = this.appendCapped(lectures, lecture, studyTools.MAX_LECTURES, "Lecture log");
     } else {
       const absence = studyWorkspace.normalizeAbsence({ id: absenceId, subject: course, date, reason: "Calendar class" });
-      if (absence) absences = absences.concat(absence).slice(-studyWorkspace.MAX_ABSENCES);
+      if (absence) absences = this.appendCapped(absences, absence, studyWorkspace.MAX_ABSENCES, "Absence log");
     }
     this.settings.lectureLog = { ...current.lectureLog, lectures };
     this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({ ...workspace.subjectManager, absences });
@@ -8495,11 +8499,22 @@ ${body}
     await this.app.vault.process(file, (data) => replaceMyNotes(data, text));
   }
 
+  /** Keep a local list bounded and tell the learner when an old record was dropped. */
+  appendCapped(list, incoming, max, label) {
+    const additions = Array.isArray(incoming) ? incoming : [incoming];
+    const next = (Array.isArray(list) ? list : []).concat(additions);
+    const dropped = Math.max(0, next.length - max);
+    if (dropped) {
+      new Notice(`${label} keeps the newest ${max} records; removed ${dropped} older record${dropped === 1 ? "" : "s"}.`, 7000);
+    }
+    return next.slice(-max);
+  }
+
   async addStudyGoal(input) {
     const goal = studyTools.createStudyGoal(input, Date.now());
     if (!goal) return null;
     const current = this.studyToolsSettings().studyGoals;
-    this.settings.studyGoals = { ...current, goals: current.goals.concat(goal).slice(-studyTools.MAX_GOALS) };
+    this.settings.studyGoals = { ...current, goals: this.appendCapped(current.goals, goal, studyTools.MAX_GOALS, "Study goals") };
     await this.save();
     this.refreshViews();
     return goal;
@@ -8533,7 +8548,7 @@ ${body}
     const lecture = studyTools.createLecture(input, Date.now());
     if (!lecture) return null;
     const current = this.studyToolsSettings().lectureLog;
-    this.settings.lectureLog = { ...current, lectures: current.lectures.concat(lecture).slice(-studyTools.MAX_LECTURES) };
+    this.settings.lectureLog = { ...current, lectures: this.appendCapped(current.lectures, lecture, studyTools.MAX_LECTURES, "Lecture log") };
     await this.save();
     this.refreshViews();
     return lecture;
@@ -8544,7 +8559,7 @@ ${body}
     const incoming = (Array.isArray(inputs) ? inputs : []).map((entry) => studyTools.createLecture(entry, Date.now())).filter(Boolean);
     if (!incoming.length) return 0;
     const before = current.lectures.length;
-    this.settings.lectureLog = studyTools.normalizeLectureLog({ ...current, lectures: current.lectures.concat(incoming) });
+    this.settings.lectureLog = studyTools.normalizeLectureLog({ ...current, lectures: this.appendCapped(current.lectures, incoming, studyTools.MAX_LECTURES, "Lecture log") });
     await this.save();
     this.refreshViews();
     return this.settings.lectureLog.lectures.length - before;
@@ -8619,7 +8634,7 @@ ${body}
     if (!book) return null;
     const current = this.readingLibrarySettings();
     if (current.books.some((entry) => entry.id === book.id)) return null;
-    this.settings.readingLibrary = readingLibrary.normalizeLibrary({ ...current, books: current.books.concat(book) });
+    this.settings.readingLibrary = readingLibrary.normalizeLibrary({ ...current, books: this.appendCapped(current.books, book, readingLibrary.MAX_BOOKS, "Reading library") });
     await this.save();
     this.refreshViews();
     return book;
@@ -9051,7 +9066,7 @@ ${body}
     if (current.subjects.some((entry) => entry.name.toLowerCase() === subject.name.toLowerCase())) return subject;
     this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({
       ...current,
-      subjects: current.subjects.concat(subject).slice(-studyWorkspace.MAX_SUBJECTS),
+      subjects: this.appendCapped(current.subjects, subject, studyWorkspace.MAX_SUBJECTS, "Subject manager"),
     });
     await this.save();
     this.refreshViews();
@@ -9076,7 +9091,7 @@ ${body}
     const current = this.studyWorkspaceSettings().subjectManager;
     this.settings.subjectManager = studyWorkspace.normalizeSubjectManager({
       ...current,
-      absences: current.absences.concat(absence).slice(-studyWorkspace.MAX_ABSENCES),
+      absences: this.appendCapped(current.absences, absence, studyWorkspace.MAX_ABSENCES, "Absence log"),
     });
     await this.save();
     this.refreshViews();
@@ -9147,7 +9162,7 @@ ${body}
     const current = this.studyWorkspaceSettings().courseHub;
     this.settings.courseHub = studyWorkspace.normalizeCourseHub({
       ...current,
-      grades: current.grades.concat(grade).slice(-studyWorkspace.MAX_GRADES),
+      grades: this.appendCapped(current.grades, grade, studyWorkspace.MAX_GRADES, "Course grades"),
     });
     await this.save();
     this.refreshViews();
@@ -9352,7 +9367,7 @@ ${body}
     const current = this.studyWorkspaceSettings().lerntracker;
     this.settings.lerntracker = studyWorkspace.normalizePlanner({
       ...current,
-      plans: current.plans.concat(plan).slice(-studyWorkspace.MAX_PLANS),
+      plans: this.appendCapped(current.plans, plan, studyWorkspace.MAX_PLANS, "Topic plans"),
     });
     await this.save();
     this.refreshViews();

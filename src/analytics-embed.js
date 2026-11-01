@@ -2,7 +2,7 @@
 const { fmtPct } = require("./stats");
 const { fmtClock } = require("./util");
 const { BREAKDOWN_FIELDS, FIELD_LABELS } = require("./analytics");
-const { MASTERY_WINDOWS, masteryTrendText } = require("./progress");
+const { masteryTrendText } = require("./progress");
 
 const DASHBOARD_METRICS = ["overview", "stats", "mastery", "heatmap", "calibration", "retention", "weak", "skips", "grades", "courses", "exam"];
 const ALIASES = {
@@ -61,7 +61,7 @@ function parseDashboardBlock(source) {
     } else if (key === "course") opts.course = value;
     else if (key === "masterydays") {
       const days = Math.round(Number(value));
-      if (value !== "" && (days === 0 || MASTERY_WINDOWS.includes(days))) opts.masteryDays = days;
+      if (value !== "" && days >= 0 && days <= 365) opts.masteryDays = days;
     } else if (key === "field") opts.field = BREAKDOWN_FIELDS.includes(value.toLowerCase()) ? value.toLowerCase() : "skill";
     else if (key === "title") opts.title = value;
   }

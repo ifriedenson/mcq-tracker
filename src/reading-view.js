@@ -5,7 +5,8 @@
  * without changing the note or the MCQ/card scheduler.
  */
 const { localDate } = require("./util");
-const { formatDay, parseReadingPlan, planReading, readingProgress } = require("./reading");
+const { Notice } = require("obsidian");
+const { MAX_PROGRESS_ENTRIES, formatDay, parseReadingPlan, planReading, readingProgress } = require("./reading");
 
 const STATUS_LABELS = {
   complete: "Complete",
@@ -112,6 +113,10 @@ async function renderReadingPlanBlock(plugin, source, el, ctx) {
         }
         plugin.settings.reading = plugin.settings.reading || { progress: {} };
         plugin.settings.reading.progress = plugin.settings.reading.progress || {};
+        if (!Object.prototype.hasOwnProperty.call(plugin.settings.reading.progress, parsed.id) && Object.keys(plugin.settings.reading.progress).length >= MAX_PROGRESS_ENTRIES) {
+          new Notice(`Reading progress keeps the newest ${MAX_PROGRESS_ENTRIES} plans. Remove an old plan before adding another.`, 7000);
+          return;
+        }
         plugin.settings.reading.progress[parsed.id] = next;
         try {
           await plugin.save();

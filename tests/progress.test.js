@@ -104,7 +104,8 @@ test("progress mastery can count only attempts from the last 7 days", () => {
   assert.deepEqual(T.bandQuestions(questions, "mastered", { days: 7, today }).map((q) => q.file.path), ["Q/recent.md"]);
   assert.equal(T.masteryWindowDays(7), 7);
   assert.equal(T.masteryWindowDays(30), 30);
-  assert.equal(T.masteryWindowDays(14), 0);
+  assert.equal(T.masteryWindowDays(14), 14);
+  assert.equal(T.masteryWindowDays(366), 0);
   const progress = T.buildProgress({ questions, today, masteryDays: 7 });
   assert.equal(progress.masteryDays, 7);
   assert.equal(progress.mastery.since, "2026-10-24");

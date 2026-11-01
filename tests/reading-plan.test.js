@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { load } = require("./helpers/load");
+const { load, obsidian } = require("./helpers/load");
 const { makeApp, makeDom } = require("./helpers/fake");
 
 const { T, Plugin: QT } = load();
@@ -149,6 +149,24 @@ test("reading settings: stored progress is bounded and malformed values are igno
   assert.deepEqual(R.normalizeReadingSettings({ progress: { a: 40, b: -1, c: "x", "": 3, d: 2_000_000 } }), {
     progress: { a: 40, d: R.MAX_PAGES },
   });
+});
+
+test("reading block: refuses a new plan at the progress cap", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const progress = {};
+  for (let i = 0; i < R.MAX_PROGRESS_ENTRIES; i++) progress[`old-${i}`] = 1;
+  plugin.settings.reading = { progress };
+  const dom = makeDom();
+  await plugin.renderReadingPlanBlock(PLAN, dom.root, { sourcePath: "Reading/Deep.md", today: "2026-01-05" });
+  const input = dom.all.find((option) => option.meta.tag === "input" && option.classes.has("qt-reading-pages"));
+  assert.ok(input);
+  input.value = "10";
+  obsidian.notices.length = 0;
+  await dom.click("Log pages");
+  assert.equal(Object.keys(plugin.settings.reading.progress).length, R.MAX_PROGRESS_ENTRIES);
+  assert.ok(obsidian.notices.some((message) => /Reading progress keeps the newest 1000 plans/.test(message)));
 });
 
 test("reading block: renders pace and persists logged progress across a restart", async () => {

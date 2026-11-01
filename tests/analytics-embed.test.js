@@ -25,7 +25,11 @@ test("dashboard embeds parse metric, weeks, course and title", () => {
   assert.equal(T.parseDashboardBlock("masteryDays: 7").masteryDays, 7);
   assert.equal(T.parseDashboardBlock("masteryDays: 30").masteryDays, 30);
   assert.equal(T.parseDashboardBlock("masteryDays: 0").masteryDays, 0);
-  assert.equal(T.parseDashboardBlock("masteryDays: 14").masteryDays, undefined);
+  assert.equal(T.parseDashboardBlock("masteryDays: 14").masteryDays, 14);
+  assert.equal(T.parseDashboardBlock("masteryDays: 366").masteryDays, undefined);
+  assert.equal(T.masteryWindowDays(14), 14);
+  assert.equal(T.masteryWindowDays(365), 365);
+  assert.equal(T.masteryWindowDays(366), 0);
   assert.equal(T.parseDashboardBlock("masteryDays: nope").masteryDays, undefined);
   assert.equal(T.parseDashboardBlock("weeks: nope").weeks, 12);
   assert.deepEqual(T.parseDashboardBlock(""), { metric: "overview", weeks: 12, course: "", field: "skill", title: "" });

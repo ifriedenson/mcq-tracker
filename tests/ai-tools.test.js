@@ -84,3 +84,22 @@ test("plugin: a Direct AI question proposal writes a normal practice note", asyn
   assert.match(app.created[0].text, /question_id:/);
   assert.match(app.created[0].text, /Correct Answer: A/);
 });
+
+test("plugin: chat-created questions get the blind check before they are written", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  let asked = 0;
+  plugin.aiComplete = async () => {
+    asked += 1;
+    return '{"answer":"B"}';
+  };
+  const result = await plugin.applyByokToolProposals([
+    { tool: "create_question", question: "What is 2 + 2?", choices: ["3", "4"], answer: "A", explanation: "Two and two make four." },
+  ]);
+  assert.equal(asked, 1, "the blind verifier is called before writing");
+  assert.equal(result.verification.checked, 1);
+  assert.equal(result.created, 1);
+  assert.match(app.created[0].text, /verification: mismatch/);
+});

@@ -54,10 +54,10 @@ function addDays(date, n) {
   return d;
 }
 
-/** 0 (all time) or one of the supported finite windows. Anything else falls back to all time. */
+/** 0 (all time) or a finite window up to one year. Anything else falls back to all time. */
 function masteryWindowDays(value) {
   const days = Math.round(Number(value) || 0);
-  return MASTERY_WINDOWS.includes(days) ? days : 0;
+  return days > 0 && days <= 365 ? days : 0;
 }
 
 /** The inclusive first day of a window that ends today. */
