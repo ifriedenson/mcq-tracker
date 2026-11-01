@@ -331,6 +331,7 @@ async function readDocumentPages(buf, name, spec, progress) {
 module.exports = {
   KINDS,
   DOCUMENT_EXTENSIONS,
+  extensionOf,
   documentKind,
   documentLabel,
   documentBaseName,

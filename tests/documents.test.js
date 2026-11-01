@@ -85,6 +85,15 @@ test("documents: file types are recognised from their extension, including upper
   assert.ok(D.DOCUMENT_EXTENSIONS.includes("ppsx"));
 });
 
+test("documents: the helpers used by the import screens are all exported", () => {
+  for (const name of ["documentBaseName", "documentKind", "documentLabel", "extensionOf", "readDocumentPages"]) {
+    assert.equal(typeof D[name], "function", `${name} must be exported`);
+  }
+  assert.ok(Array.isArray(D.DOCUMENT_EXTENSIONS));
+  assert.equal(D.extensionOf("Questions/Deck.PPTX"), "pptx");
+  assert.equal(D.extensionOf("no-extension"), "");
+});
+
 test("documents: PowerPoint slides are read in slide order, with entities decoded", async () => {
   const buf = zip({
     "ppt/slides/slide2.xml": slide(["Question 2: Which is a noble gas?", "- A. Oxygen", "- B. Helium"]),

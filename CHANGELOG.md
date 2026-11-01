@@ -2,6 +2,14 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.169.2 — 2026-11-01
+
+- Fixed the import dialog's `extensionOf is not a function` crash by
+  exporting the document extension helper used by every import screen.
+- Added a regression test that reads a real text source through the import
+  modal and the shared document reader.
+- 1,320 tests pass; `npm run check` clean; `main.js` rebuilt.
+
 ## 1.169.1 — 2026-11-01
 
 - Removed the OpenCode auto-installer, so the shipped bundle no longer uses
