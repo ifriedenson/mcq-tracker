@@ -9,6 +9,7 @@ const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
 const { renderLocalEventsSettings, renderNoteReviewSettings, renderReviewCalendarSettings, renderStudyStatsSettings } = require("./review-settings");
+const { renderPomodoroSettings } = require("./pomodoro-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { normalizeQuickAdaptive } = require("./adaptive-session");
@@ -37,6 +38,7 @@ const SETTINGS_MODULES = [
   { id: "review-calendar", label: "Review calendar", icon: "calendar-clock" },
   { id: "study-stats", label: "Study statistics", icon: "bar-chart-3" },
   { id: "local-events", label: "Local events", icon: "calendar-plus" },
+  { id: "pomodoro", label: "Pomodoro", icon: "timer" },
   { id: "assignments", label: "Assignments", icon: "clipboard-list" },
   { id: "reference", label: "Reference", icon: "book-open" },
 ];
@@ -131,6 +133,11 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 
     if (this.activeModule === "local-events") {
       renderLocalEventsSettings(containerEl, this.plugin, () => this.display());
+      return;
+    }
+
+    if (this.activeModule === "pomodoro") {
+      renderPomodoroSettings(containerEl, this.plugin, () => this.display());
       return;
     }
 

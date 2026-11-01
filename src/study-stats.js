@@ -10,6 +10,8 @@ const fsrs = require("./fsrs");
 const sm2 = require("./sm2");
 const fsrsLib = require("./fsrs-lib");
 const { isNoteCandidate } = require("./note-review");
+const { buttonMix, counterHeatmap, normalizeStudyCounters } = require("./study-counters");
+const { durabilitySummary, normalizeDurabilitySettings } = require("./durability");
 
 const MATURITY_LABELS = {
   learning: "Learning (<1d)",
@@ -31,6 +33,9 @@ function normalizeStudyStatsSettings(value) {
     enabled: src.enabled !== false,
     leechThreshold: clampNumber(src.leechThreshold, 1, 50, 5),
     maxRows: clampNumber(src.maxRows, 20, 500, 200),
+    durableRecall: src.durableRecall !== false,
+    durableDays: normalizeDurabilitySettings({ requiredDays: src.durableDays }).requiredDays,
+    heatmapWeeks: clampNumber(src.heatmapWeeks, 4, 52, 12),
   };
 }
 
@@ -182,6 +187,39 @@ function retentionByMaturity(rows) {
   return { byMaturity: out, all };
 }
 
+/** Per-deck card retention, replaying the same scheduler rows as the main table. */
+function deckBreakdown(cards, settings) {
+  const groups = new Map();
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const fm = card.fm || {};
+    const deck = str(card.deck || fm.deck || fm.deck_name).trim() || "Unassigned";
+    if (!groups.has(deck)) groups.set(deck, { deck, cards: 0, rows: [], intervals: [] });
+    const group = groups.get(deck);
+    group.cards++;
+    group.rows.push(...cardReviewRows(card, settings || {}));
+    const srs = fsrs.decodeSrs(fm.srs);
+    const sm2State = sm2.decodeSm2(fm.sm2);
+    const interval = srs ? Number(srs.scheduled_days) || 0 : sm2State ? Number(sm2State.interval) || 0 : 0;
+    if (interval > 0) group.intervals.push(interval);
+  }
+  return [...groups.values()]
+    .map((group) => {
+      const reviews = group.rows.length;
+      const correct = group.rows.filter((row) => row.correct).length;
+      const mature = group.rows.filter((row) => row.maturity === "mature").length;
+      return {
+        deck: group.deck,
+        cards: group.cards,
+        reviews,
+        correct,
+        retention: reviews ? correct / reviews : null,
+        matureShare: reviews ? mature / reviews : null,
+        averageInterval: group.intervals.length ? group.intervals.reduce((sum, value) => sum + value, 0) / group.intervals.length : null,
+      };
+    })
+    .sort((a, b) => b.reviews - a.reviews || a.deck.localeCompare(b.deck));
+}
+
 function distribution(values, edges, labels) {
   const list = (Array.isArray(values) ? values : []).filter((value) => Number.isFinite(Number(value))).map(Number).sort((a, b) => a - b);
   const buckets = [];
@@ -314,6 +352,7 @@ function buildStudyStats(input) {
   const retention = retentionByMaturity(cardRows);
   const metrics = cardMetrics(cards, now);
   const days = dayDetail(rows);
+  const counters = normalizeStudyCounters(opts.counters);
   return {
     rows: rows.slice(0, settings.maxRows),
     cardRows,
@@ -321,6 +360,11 @@ function buildStudyStats(input) {
     metrics,
     weekday: weekdayRhythm(rows),
     days,
+    decks: deckBreakdown(cards, { ...settings, fsrsRetention: opts.fsrsRetention }),
+    buttonMix: buttonMix(counters),
+    heatmap: counterHeatmap(counters, settings.heatmapWeeks, now),
+    counters,
+    durability: durabilitySummary([...cards, ...questions, ...notes], settings.durableDays),
     leeches: leechList(questions, cards, notes, settings.leechThreshold),
     totals: {
       cards: cards.length,
@@ -341,6 +385,7 @@ module.exports = {
   buildStudyStats,
   cardMetrics,
   cardReviewRows,
+  deckBreakdown,
   dayDetail,
   distribution,
   historyRows,

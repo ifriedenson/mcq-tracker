@@ -18910,6 +18910,7 @@ const VIEW_TYPE_STUDY_WORKSPACE = "question-tracker-study-workspace";
 const VIEW_TYPE_REVIEW_CALENDAR = "question-tracker-review-calendar";
 const VIEW_TYPE_STUDY_STATS = "question-tracker-study-stats";
 const VIEW_TYPE_LOCAL_EVENTS = "question-tracker-local-events";
+const VIEW_TYPE_POMODORO = "question-tracker-pomodoro";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -19072,9 +19073,11 @@ const DEFAULT_SETTINGS = {
     courses: [],
   }),
   noteReview: { enabled: false, limit: 20, sets: [] }, // optional whole-note review queue
-  noteReviewDock: { enabled: true, keyboard: true, lapseThreshold: 8 }, // docked whole-note review bar
+  noteReviewDock: { enabled: true, keyboard: true, lapseThreshold: 8, requeueEnabled: true, requeueLimit: 3 }, // docked whole-note review bar
   reviewCalendar: { enabled: true, noteMinutes: 2, cardMinutes: 1, showCards: true, detectMainNote: true, weekStartsOn: "monday" }, // due-date calendar and workload
-  studyStats: { enabled: true, leechThreshold: 5, maxRows: 200 }, // Anki-style statistics
+  studyStats: { enabled: true, leechThreshold: 5, maxRows: 200, durableRecall: true, durableDays: 2, heatmapWeeks: 12 }, // Anki-style statistics and two-day durability
+  studyCounters: { version: 1, days: {}, updated: "" }, // permanent per-day counters; survive history trimming
+  pomodoro: { enabled: true, workMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, longBreakEvery: 4, autoStartBreaks: false, autoStartWork: false, state: { phase: "work", remainingSec: 1500, running: false, startedAt: 0, workSessions: 0, completed: 0, skipped: 0, lastCompleted: "" } }, // independent focus timer
   localEvents: { enabled: true, defaultCategory: "study", weekStartsOn: "monday", events: [] }, // local-only event calendar
   spacedEverything: {
     enabled: false, // optional whole-note SM-2 queue, separate from standard note review
@@ -19159,6 +19162,7 @@ module.exports = {
   VIEW_TYPE_REVIEW_CALENDAR,
   VIEW_TYPE_STUDY_STATS,
   VIEW_TYPE_LOCAL_EVENTS,
+  VIEW_TYPE_POMODORO,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,
@@ -21941,6 +21945,105 @@ class DueQueueModal extends Modal {
 module.exports = {
   buildDueQueue,
   DueQueueModal,
+};
+};
+
+/* ---- src/durability.js ---- */
+__defs["durability"] = function (module, exports, require) {
+/*
+ * Two-different-days durability. This is deliberately a small property layer,
+ * not another scheduler: a correct recall is durable only after it happens on
+ * two distinct calendar days, and a miss clears the current run.
+ */
+const { str } = require("./util");
+
+const RECALL_DAYS_LIMIT = 30;
+const MIN_DURABLE_DAYS = 2;
+
+function dateKey(value) {
+  const text = str(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function normalizeRecallDays(value) {
+  const list = Array.isArray(value) ? value : str(value).split(/[,;|]+/);
+  const days = [...new Set(list.map(dateKey).filter(Boolean))].sort();
+  return days.slice(-RECALL_DAYS_LIMIT);
+}
+
+function normalizeDurabilitySettings(value, fallback) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const base = fallback && typeof fallback === "object" ? fallback : {};
+  const days = Math.max(MIN_DURABLE_DAYS, Math.min(10, Math.round(Number(src.requiredDays ?? base.requiredDays) || 2)));
+  return { enabled: (src.enabled ?? base.enabled) !== false, requiredDays: days };
+}
+
+function requiredDaysOf(value, fallback) {
+  return normalizeDurabilitySettings(value, fallback).requiredDays;
+}
+
+function recordRecallDay(fm, input) {
+  const opts = input || {};
+  const day = dateKey(opts.date);
+  if (!fm || !day) return { days: [], durable: false, newlyDurable: false };
+  const previous = normalizeRecallDays(fm.recall_days);
+  const wasDurable = fm.durable_recall === true;
+  const days = opts.correct ? [...new Set([...previous, day])].sort().slice(-RECALL_DAYS_LIMIT) : [];
+  const required = Math.max(MIN_DURABLE_DAYS, Math.round(Number(opts.requiredDays) || MIN_DURABLE_DAYS));
+  const durable = days.length >= required;
+  fm.recall_days = days;
+  fm.recall_day_count = days.length;
+  fm.durable_recall = durable;
+  if (durable) fm.durable_on = days[Math.max(0, required - 1)];
+  else delete fm.durable_on;
+  fm.recall_checked = day;
+  return { days, durable, newlyDurable: durable && !wasDurable };
+}
+
+function durabilityOf(fm, requiredDays) {
+  const days = normalizeRecallDays(fm && fm.recall_days);
+  const required = Math.max(MIN_DURABLE_DAYS, Math.round(Number(requiredDays) || MIN_DURABLE_DAYS));
+  return {
+    days,
+    count: days.length,
+    durable: (fm && fm.durable_recall === true) || days.length >= required,
+    requiredDays: required,
+    durableOn: str(fm && fm.durable_on).slice(0, 10),
+  };
+}
+
+function durabilitySummary(records, requiredDays) {
+  const rows = [];
+  for (const record of Array.isArray(records) ? records : []) {
+    const fm = record && record.fm ? record.fm : {};
+    if (!fm.recall_days && fm.durable_recall !== true) continue;
+    const info = durabilityOf(fm, requiredDays);
+    rows.push({
+      path: str(record.file && record.file.path),
+      title: str(fm.title).trim() || str(record.file && record.file.basename) || "",
+      ...info,
+    });
+  }
+  const durable = rows.filter((row) => row.durable).length;
+  return {
+    rows,
+    total: rows.length,
+    durable,
+    learning: rows.length - durable,
+    retention: rows.length ? durable / rows.length : null,
+  };
+}
+
+module.exports = {
+  MIN_DURABLE_DAYS,
+  RECALL_DAYS_LIMIT,
+  dateKey,
+  durabilityOf,
+  durabilitySummary,
+  normalizeDurabilitySettings,
+  normalizeRecallDays,
+  recordRecallDay,
+  requiredDaysOf,
 };
 };
 
@@ -32838,6 +32941,7 @@ const { str } = require("./util");
 const { applyAttempt } = require("./notes");
 const { noteReviewAttempt } = require("./note-review");
 const { formatInterval } = require("./interval-preview");
+const session = require("./review-session");
 
 const GRADES = ["again", "hard", "good", "easy"];
 const GRADE_LABELS = { again: "Again", hard: "Hard", good: "Good", easy: "Easy" };
@@ -32865,6 +32969,11 @@ const SNAPSHOT_KEYS = [
   "leech_since",
   "needs_fixing",
   "needs_fixing_miss_days",
+  "recall_days",
+  "recall_day_count",
+  "durable_recall",
+  "durable_on",
+  "recall_checked",
   "exam_cap",
   "exam_cap_name",
   "exam_cap_exam_date",
@@ -32882,6 +32991,8 @@ function normalizeNoteReviewDockSettings(value) {
     enabled: src.enabled !== false,
     keyboard: src.keyboard !== false,
     lapseThreshold: Math.round(clampNumber(src.lapseThreshold, 1, 50, 8)),
+    requeueEnabled: src.requeueEnabled !== false,
+    requeueLimit: Math.round(clampNumber(src.requeueLimit, 1, 25, 3)),
   };
 }
 
@@ -33019,6 +33130,7 @@ class NoteReviewDock {
     this.pendingLapse = null;
     this.lastUndo = null;
     this.done = false;
+    this.session = null;
   }
 
   settings() {
@@ -33043,8 +33155,13 @@ class NoteReviewDock {
     const view = activeMarkdownView(plugin.app);
     if (!view || !view.file) return this.remove();
     const queue = plugin.getNoteQueue({ limit: 0 });
-    const item = (queue.all || []).find((row) => row.path === view.file.path);
+    let item = (queue.all || []).find((row) => row.path === view.file.path);
+    if (!item && this.session && this.session.queue.includes(view.file.path)) item = this.sessionItem(view.file);
     if (!item) return this.remove();
+    if (!this.session) {
+      const config = this.settings();
+      this.session = session.createReviewSession((queue.all || []).map((row) => row.path), config);
+    }
     this.path = view.file.path;
     this.host = view.containerEl || view.contentEl;
     if (!this.host) return this.remove();
@@ -33119,19 +33236,34 @@ class NoteReviewDock {
     bar.setAttr("aria-label", `Whole-note review for ${item.title}`);
   }
 
+  sessionItem(file) {
+    const fm = (this.plugin.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
+    return {
+      note: { file, fm },
+      file,
+      path: file.path,
+      title: str(fm.title || file.basename || file.path),
+      set: "Review session",
+      priority: "normal",
+      isNew: !Number(fm.attempts),
+      dueDate: str(fm.next_review).slice(0, 10),
+    };
+  }
+
   async grade(grade) {
     const plugin = this.plugin;
     const view = activeMarkdownView(plugin.app);
     if (!view || !view.file || view.file.path !== this.path) return;
     const file = view.file;
     const confirmed = plugin.getNoteQueue({ limit: 0 }).all.find((row) => row.path === file.path);
-    if (!confirmed) {
+    if (!confirmed && !(this.session && this.session.queue.includes(file.path))) {
       this.remove();
       return;
     }
     try {
       const summary = await plugin.recordNoteReview(file, grade, 0);
       this.lastUndo = { path: file.path, snapshot: summary && summary.previous };
+      if (this.session) session.gradeReviewSession(this.session, file.path, grade !== "again");
       const config = this.settings();
       if (grade === "again" && summary && lapseThresholdReached({ note_lapse_streak: summary.lapseStreak }, config.lapseThreshold)) {
         this.pendingLapse = { streak: summary.lapseStreak };
@@ -33147,6 +33279,7 @@ class NoteReviewDock {
   async lapseAction(action) {
     const file = this.plugin.app.vault.getAbstractFileByPath(this.path);
     if (file && this.plugin.applyNoteLapseAction) await this.plugin.applyNoteLapseAction(file, action);
+    if (this.session && action !== "carry") session.dropReviewSession(this.session, this.path);
     this.pendingLapse = null;
     this.lastUndo = null;
     await this.openNext(this.path);
@@ -33155,6 +33288,7 @@ class NoteReviewDock {
   async postpone() {
     const file = this.plugin.app.vault.getAbstractFileByPath(this.path);
     if (file && this.plugin.postponeNoteReview) await this.plugin.postponeNoteReview(file, 1);
+    if (this.session) session.dropReviewSession(this.session, this.path);
     this.lastUndo = null;
     await this.openNext(this.path);
   }
@@ -33167,14 +33301,31 @@ class NoteReviewDock {
     this.lastUndo = null;
     this.pendingLapse = null;
     this.done = false;
+    this.session = null;
     this.refresh();
   }
 
   async skip() {
+    if (this.session) session.dropReviewSession(this.session, this.path);
     await this.openNext(this.path);
   }
 
   async openNext(fromPath) {
+    if (this.session) {
+      const next = session.nextPath(this.session);
+      if (!next) {
+        this.done = true;
+        this.refresh();
+        return;
+      }
+      const file = this.plugin.app.vault.getAbstractFileByPath(next);
+      if (!file) return this.remove();
+      await this.plugin.app.workspace.getLeaf(false).openFile(file);
+      this.done = false;
+      this.pendingLapse = null;
+      this.refresh();
+      return;
+    }
     const queue = this.plugin.getNoteQueue({ limit: 0 }).all;
     const current = queue.findIndex((row) => row.path === fromPath);
     const next = queue[current + 1] || queue[(current + 1) % Math.max(1, queue.length)];
@@ -39101,7 +39252,7 @@ __defs["plugin"] = function (module, exports, require) {
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -39239,6 +39390,11 @@ const { NoteReviewDock } = require("./note-review-dock");
 const { ReviewCalendarView } = require("./review-calendar-view");
 const { StudyStatsView } = require("./study-stats-view");
 const { LocalEventModal, LocalEventsView } = require("./local-events-view");
+const reviewSession = require("./review-session");
+const durability = require("./durability");
+const studyCounters = require("./study-counters");
+const pomodoro = require("./pomodoro");
+const { PomodoroView } = require("./pomodoro-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const { CardGeneratorModal } = require("./card-generator-modal");
@@ -39324,6 +39480,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.setupReminder();
     this.setupStudyNudge();
     this.setupNoteReviewStatus();
+    this.setupPomodoroStatus();
+    this.registerInterval(activeWindow.setInterval(() => this.tickPomodoro(), 1000));
     this.app.workspace.onLayoutReady(() => {
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
       const ai = this.settings.ai;
@@ -39357,6 +39515,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_REVIEW_CALENDAR, (leaf) => new ReviewCalendarView(leaf, this));
     this.registerView(VIEW_TYPE_STUDY_STATS, (leaf) => new StudyStatsView(leaf, this));
     this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
+    this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.noteReviewDock = new NoteReviewDock(this);
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshNoteReviewDock()));
     this.registerEvent(this.app.workspace.on("file-open", () => this.refreshNoteReviewDock()));
@@ -39444,6 +39603,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-local-event", name: "Local events: create an event", callback: () => this.openNewLocalEvent() });
     this.addCommand({ id: "open-next-due-note", name: "Note review: open the next due note", callback: () => this.openNextDueNote() });
     this.addCommand({ id: "note-review-dock-toggle", name: "Note review: show or hide the review bar", callback: () => this.toggleNoteReviewDock() });
+    this.addCommand({ id: "open-pomodoro", name: "Open Pomodoro timer", callback: () => this.activatePomodoro() });
+    this.addCommand({ id: "pomodoro-start-pause", name: "Pomodoro: start or pause", callback: () => this.togglePomodoro() });
+    this.addCommand({ id: "pomodoro-reset", name: "Pomodoro: reset the current cycle", callback: () => this.resetPomodoro() });
+    this.addCommand({ id: "pomodoro-skip", name: "Pomodoro: skip the current phase", callback: () => this.skipPomodoro() });
     this.addCommand({ id: "calendar-add-schedule", name: "Calendar: add an .ics schedule", callback: () => this.openCalendarImport() });
     this.addCommand({
       id: "calendar-note-next-class",
@@ -39966,6 +40129,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.reviewCalendar = reviewCalendar.normalizeReviewCalendarSettings(saved.reviewCalendar);
     this.settings.studyStats = studyStats.normalizeStudyStatsSettings(saved.studyStats);
     this.settings.localEvents = localEvents.normalizeLocalEventsSettings(saved.localEvents);
+    this.settings.studyCounters = studyCounters.normalizeStudyCounters(saved.studyCounters);
+    this.settings.pomodoro = pomodoro.normalizePomodoroSettings(saved.pomodoro);
     this.settings.spacedEverything = normalizeSpacedEverything(saved.spacedEverything);
     this.settings.quizGenerator = normalizeQuizGenerator(saved.quizGenerator);
     this.settings.cardGenerator = normalizeCardGenerator(saved.cardGenerator);
@@ -40356,13 +40521,14 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_STUDY_WORKSPACE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
-    for (const type of [VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS]) {
+    for (const type of [VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
         if (leaf.view && leaf.view.render) leaf.view.render();
       }
     }
     this.refreshNoteReviewDock();
     this.refreshNoteReviewStatus();
+    this.refreshPomodoro();
     this.decorateFileExplorer();
   }
 
@@ -40435,6 +40601,10 @@ class QuestionTrackerPlugin extends Plugin {
 
   localEventsEnabled() {
     return localEvents.normalizeLocalEventsSettings(this.settings.localEvents).enabled;
+  }
+
+  pomodoroEnabled() {
+    return pomodoro.normalizePomodoroSettings(this.settings.pomodoro).enabled;
   }
 
   /** The local formula sheet and unit converter are opt-in. */
@@ -40661,6 +40831,8 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("study-stats");
     if (this.localEventsEnabled()) this.addModuleRibbon("local-events", "calendar-plus", "Open local events", () => this.activateLocalEvents());
     else this.removeModuleRibbon("local-events");
+    if (this.pomodoroEnabled()) this.addModuleRibbon("pomodoro", "timer", "Open Pomodoro timer", () => this.activatePomodoro());
+    else this.removeModuleRibbon("pomodoro");
     this.refreshStudyNudgeLabel();
   }
 
@@ -44424,9 +44596,14 @@ ${body}
       });
       const priorStreak = Number(fm.note_lapse_streak) || 0;
       fm.note_lapse_streak = attempt.grade === "again" ? priorStreak + 1 : 0;
+      const statsCfg = studyStats.normalizeStudyStatsSettings(this.settings.studyStats);
+      if (statsCfg.durableRecall) {
+        summary.durability = durability.recordRecallDay(fm, { correct: attempt.correct, date: localDate(), requiredDays: statsCfg.durableDays });
+      }
       summary.previous = previous;
       summary.lapseStreak = fm.note_lapse_streak;
     });
+    await this.recordStudyCounter({ kind: "note", correct: attempt.correct, seconds: attempt.seconds, rating: attempt.grade });
     this.refreshViews();
     return summary;
   }
@@ -44568,10 +44745,117 @@ ${body}
       cards: this.getCards(),
       questions: this.getQuestions(),
       notes: this.getNoteCandidates(),
+      counters: this.settings.studyCounters,
       settings: this.settings.studyStats,
       fsrsRetention: this.settings.fsrsRetention,
       now: new Date(),
     });
+  }
+
+  async recordStudyCounter(entry) {
+    const result = studyCounters.recordStudyCounter(this.settings.studyCounters, entry);
+    this.settings.studyCounters = result.counters;
+    await this.save();
+    return result;
+  }
+
+  setupPomodoroStatus() {
+    if (typeof this.addStatusBarItem !== "function") return;
+    this.pomodoroEl = this.addStatusBarItem();
+    this.pomodoroEl.addClass("qt-pomodoro-status");
+    this.pomodoroEl.addEventListener("click", () => this.activatePomodoro());
+    this.refreshPomodoroStatus();
+  }
+
+  refreshPomodoroStatus() {
+    if (!this.pomodoroEl) return;
+    if (!this.pomodoroEnabled()) {
+      this.pomodoroEl.setText("");
+      this.pomodoroEl.toggleClass("qt-hidden", true);
+      return;
+    }
+    const data = this.pomodoroSnapshot();
+    this.pomodoroEl.toggleClass("qt-hidden", false);
+    this.pomodoroEl.setText(`${data.label} ${data.display}`);
+    this.pomodoroEl.setAttr("aria-label", `${data.label} ${data.display}. Open Pomodoro.`);
+  }
+
+  pomodoroSnapshot() {
+    return pomodoro.pomodoroSnapshot(this.settings.pomodoro, this.settings.pomodoro && this.settings.pomodoro.state, new Date());
+  }
+
+  async savePomodoroState(state) {
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    config.state = pomodoro.normalizePomodoroState(state);
+    this.settings.pomodoro = config;
+    await this.save();
+    this.refreshPomodoro();
+  }
+
+  refreshPomodoro() {
+    this.refreshPomodoroStatus();
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_POMODORO)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
+  }
+
+  async startPomodoro() {
+    if (!this.pomodoroEnabled()) return null;
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    await this.savePomodoroState(pomodoro.startPomodoro(config.state, new Date()));
+    return this.pomodoroSnapshot();
+  }
+
+  async pausePomodoro() {
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    await this.savePomodoroState(pomodoro.pausePomodoro(config.state, config, new Date()));
+    return this.pomodoroSnapshot();
+  }
+
+  async togglePomodoro() {
+    const data = this.pomodoroSnapshot();
+    return data.running ? this.pausePomodoro() : this.startPomodoro();
+  }
+
+  async resetPomodoro(save = true) {
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    const state = pomodoro.resetPomodoro(config, new Date());
+    if (save) return this.savePomodoroState(state);
+    config.state = state;
+    this.settings.pomodoro = config;
+    return state;
+  }
+
+  async skipPomodoro() {
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    const result = pomodoro.skipPomodoro(config, config.state, new Date());
+    await this.savePomodoroState(result.state);
+    return this.pomodoroSnapshot();
+  }
+
+  tickPomodoro() {
+    if (!this.pomodoroEnabled()) return null;
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    const result = pomodoro.tickPomodoro(config, config.state, new Date());
+    config.state = result.state;
+    this.settings.pomodoro = config;
+    this.refreshPomodoro();
+    if (result.completedPhase) this.save().catch(() => {});
+    return result;
+  }
+
+  async activatePomodoro() {
+    if (!this.pomodoroEnabled()) {
+      new Notice("Turn on Pomodoro in Settings → Pomodoro.");
+      return null;
+    }
+    return this.activateModuleView(VIEW_TYPE_POMODORO);
+  }
+
+  onPomodoroToggled() {
+    this.refreshRibbon();
+    if (!this.pomodoroEnabled()) this.detachModuleLeaves([VIEW_TYPE_POMODORO]);
+    this.refreshPomodoro();
   }
 
   async saveLocalEvent(value) {
@@ -46654,6 +46938,10 @@ ${body}
           sm2: sched.sm2,
           examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
         });
+        const statsCfg = studyStats.normalizeStudyStatsSettings(this.settings.studyStats);
+        if (statsCfg.durableRecall) {
+          summary.durability = durability.recordRecallDay(fm, { correct: attempt.correct, date: localDate(), requiredDays: statsCfg.durableDays });
+        }
       });
     } catch (e) {
       if (!preview) throw e;
@@ -46663,6 +46951,13 @@ ${body}
       return { ...preview, queued: true, pending: list.length, attemptId: attempt.attemptId };
     }
 
+    try {
+      const cachedFm = (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
+      const kind = isCardNote(cachedFm) ? "card" : str(cachedFm.question_id) ? "question" : "note";
+      await this.recordStudyCounter({ kind, correct: attempt.correct, seconds: attempt.seconds, rating: attempt.grade || "" });
+    } catch (e) {
+      /* counters are best-effort and must not lose a recorded attempt */
+    }
     if (summary && summary.fsrsError) {
       new Notice("FSRS couldn't schedule this question, so the simple ladder was used.");
     }
@@ -47830,6 +48125,359 @@ ${body}
 module.exports = {
   QuestionTrackerPlugin,
 };
+};
+
+/* ---- src/pomodoro.js ---- */
+__defs["pomodoro"] = function (module, exports, require) {
+/* A dependency-free Pomodoro state machine. The view and status bar are only consumers. */
+
+const PHASES = ["work", "short", "long"];
+const MAX_MINUTES = 180;
+
+function clampMinutes(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(MAX_MINUTES, Math.max(1, Math.round(n)));
+}
+
+function normalizePomodoroState(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const phase = PHASES.includes(src.phase) ? src.phase : "work";
+  return {
+    phase,
+    remainingSec: Math.max(0, Math.round(Number(src.remainingSec) || 0)),
+    running: src.running === true,
+    startedAt: Math.max(0, Number(src.startedAt) || 0),
+    workSessions: Math.max(0, Math.round(Number(src.workSessions) || 0)),
+    completed: Math.max(0, Math.round(Number(src.completed) || 0)),
+    skipped: Math.max(0, Math.round(Number(src.skipped) || 0)),
+    lastCompleted: typeof src.lastCompleted === "string" ? src.lastCompleted : "",
+  };
+}
+
+function normalizePomodoroSettings(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const settings = {
+    enabled: src.enabled !== false,
+    workMinutes: clampMinutes(src.workMinutes, 25),
+    shortBreakMinutes: clampMinutes(src.shortBreakMinutes, 5),
+    longBreakMinutes: clampMinutes(src.longBreakMinutes, 15),
+    longBreakEvery: Math.min(12, Math.max(2, Math.round(Number(src.longBreakEvery) || 4))),
+    autoStartBreaks: src.autoStartBreaks === true,
+    autoStartWork: src.autoStartWork === true,
+  };
+  settings.state = normalizePomodoroState(src.state);
+  if (!settings.state.remainingSec) settings.state.remainingSec = phaseSeconds(settings, settings.state.phase);
+  return settings;
+}
+
+function phaseSeconds(settings, phase) {
+  if (phase === "short") return clampMinutes(settings.shortBreakMinutes, 5) * 60;
+  if (phase === "long") return clampMinutes(settings.longBreakMinutes, 15) * 60;
+  return clampMinutes(settings.workMinutes, 25) * 60;
+}
+
+function phaseLabel(phase) {
+  return phase === "short" ? "Short break" : phase === "long" ? "Long break" : "Focus";
+}
+
+function nextPhase(settings, phase, workSessions) {
+  if (phase !== "work") return "work";
+  return workSessions > 0 && workSessions % Math.max(2, settings.longBreakEvery || 4) === 0 ? "long" : "short";
+}
+
+function autoStartFor(settings, phase) {
+  return phase === "work" ? settings.autoStartWork === true : settings.autoStartBreaks === true;
+}
+
+function startPomodoro(state, now) {
+  const current = normalizePomodoroState(state);
+  if (current.running) return current;
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now.getTime() : Date.now();
+  return { ...current, running: true, startedAt: at, remainingSec: current.remainingSec > 0 ? current.remainingSec : 0 };
+}
+
+function pausePomodoro(state, settings, now) {
+  const current = normalizePomodoroState(state);
+  if (!current.running) return current;
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now.getTime() : Date.now();
+  const elapsed = Math.max(0, Math.floor((at - current.startedAt) / 1000));
+  return {
+    ...current,
+    running: false,
+    startedAt: 0,
+    remainingSec: Math.max(0, current.remainingSec - elapsed),
+  };
+}
+
+function resetPomodoro(settings, now) {
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now.getTime() : Date.now();
+  return {
+    phase: "work",
+    remainingSec: phaseSeconds(settings, "work"),
+    running: false,
+    startedAt: 0,
+    workSessions: 0,
+    completed: 0,
+    skipped: 0,
+    lastCompleted: "",
+    resetAt: at,
+  };
+}
+
+/** Compute the running clock and advance exactly one phase when it reaches zero. */
+function tickPomodoro(settings, state, now) {
+  const current = normalizePomodoroState(state);
+  if (!current.running) return { state: current, completedPhase: null };
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now.getTime() : Date.now();
+  const elapsed = Math.max(0, Math.floor((at - current.startedAt) / 1000));
+  const left = current.remainingSec - elapsed;
+  if (left > 0) return { state: { ...current, remainingSec: left, startedAt: at }, completedPhase: null };
+
+  const finishedPhase = current.phase;
+  const workSessions = current.workSessions + (finishedPhase === "work" ? 1 : 0);
+  const next = nextPhase(settings, finishedPhase, workSessions);
+  const running = autoStartFor(settings, next);
+  return {
+    state: {
+      ...current,
+      phase: next,
+      remainingSec: phaseSeconds(settings, next),
+      running,
+      startedAt: running ? at : 0,
+      workSessions,
+      completed: current.completed + 1,
+      lastCompleted: finishedPhase,
+    },
+    completedPhase: finishedPhase,
+  };
+}
+
+/** Manually skip the current phase; skipping focus does not count a completed work session. */
+function skipPomodoro(settings, state, now) {
+  const current = normalizePomodoroState(state);
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now.getTime() : Date.now();
+  const next = nextPhase(settings, current.phase, current.workSessions);
+  const running = current.running || autoStartFor(settings, next);
+  return {
+    state: {
+      ...current,
+      phase: next,
+      remainingSec: phaseSeconds(settings, next),
+      running,
+      startedAt: running ? at : 0,
+      skipped: current.skipped + 1,
+    },
+    skippedPhase: current.phase,
+  };
+}
+
+function advancePomodoro(settings, state, now) {
+  return skipPomodoro(settings, state, now);
+}
+
+function formatPomodoroTime(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+}
+
+function pomodoroSnapshot(settings, state, now) {
+  const config = normalizePomodoroSettings(settings);
+  const current = normalizePomodoroState(state || config.state);
+  const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  const total = phaseSeconds(config, current.phase);
+  const elapsed = current.running && current.startedAt ? Math.max(0, Math.floor((at.getTime() - current.startedAt) / 1000)) : 0;
+  const remaining = Math.max(0, current.remainingSec - elapsed);
+  return {
+    settings: config,
+    state: current,
+    phase: current.phase,
+    label: phaseLabel(current.phase),
+    phaseSeconds: total,
+    remaining,
+    display: formatPomodoroTime(remaining),
+    running: current.running,
+    completed: current.completed,
+    workSessions: current.workSessions,
+  };
+}
+
+module.exports = {
+  MAX_MINUTES,
+  PHASES,
+  advancePomodoro,
+  autoStartFor,
+  formatPomodoroTime,
+  nextPhase,
+  normalizePomodoroSettings,
+  normalizePomodoroState,
+  pausePomodoro,
+  phaseLabel,
+  phaseSeconds,
+  pomodoroSnapshot,
+  resetPomodoro,
+  skipPomodoro,
+  startPomodoro,
+  tickPomodoro,
+};
+};
+
+/* ---- src/pomodoro-settings.js ---- */
+__defs["pomodoro-settings"] = function (module, exports, require) {
+const { Setting } = require("obsidian");
+const { normalizePomodoroSettings } = require("./pomodoro");
+
+function numberSetting(container, name, description, value, min, max, onChange) {
+  new Setting(container)
+    .setName(name)
+    .setDesc(description)
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = String(min);
+      t.inputEl.max = String(max);
+      t.setValue(String(value));
+      t.onChange(onChange);
+    });
+}
+
+function renderPomodoroSettings(containerEl, plugin, redisplay) {
+  const st = plugin.settings;
+  st.pomodoro = normalizePomodoroSettings(st.pomodoro);
+  containerEl.createEl("h2", { text: "Pomodoro" });
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "A local focus timer with work, short-break and long-break phases. It is separate from the practice timer and stores only timer state in plugin data.",
+  });
+  new Setting(containerEl)
+    .setName("Enable Pomodoro")
+    .setDesc("Adds a timer view, ribbon button, status-bar clock and commands.")
+    .addToggle((t) =>
+      t.setValue(plugin.pomodoroEnabled()).onChange(async (v) => {
+        st.pomodoro.enabled = v;
+        await plugin.save();
+        plugin.onPomodoroToggled();
+        redisplay();
+      })
+    );
+  numberSetting(containerEl, "Focus minutes", "Length of one work phase.", st.pomodoro.workMinutes, 1, 180, async (v) => {
+    st.pomodoro.workMinutes = v;
+    st.pomodoro = normalizePomodoroSettings(st.pomodoro);
+    plugin.resetPomodoro(false);
+    await plugin.save();
+    plugin.refreshPomodoro();
+  });
+  numberSetting(containerEl, "Short break minutes", "Break after a normal focus session.", st.pomodoro.shortBreakMinutes, 1, 60, async (v) => {
+    st.pomodoro.shortBreakMinutes = v;
+    st.pomodoro = normalizePomodoroSettings(st.pomodoro);
+    await plugin.save();
+    plugin.refreshPomodoro();
+  });
+  numberSetting(containerEl, "Long break minutes", "Break after the configured number of focus sessions.", st.pomodoro.longBreakMinutes, 1, 120, async (v) => {
+    st.pomodoro.longBreakMinutes = v;
+    st.pomodoro = normalizePomodoroSettings(st.pomodoro);
+    await plugin.save();
+    plugin.refreshPomodoro();
+  });
+  numberSetting(containerEl, "Long break every", "Focus sessions before a long break.", st.pomodoro.longBreakEvery, 2, 12, async (v) => {
+    st.pomodoro.longBreakEvery = v;
+    st.pomodoro = normalizePomodoroSettings(st.pomodoro);
+    await plugin.save();
+    plugin.refreshPomodoro();
+  });
+  new Setting(containerEl)
+    .setName("Start breaks automatically")
+    .setDesc("When a focus phase ends, start the break without pressing Start.")
+    .addToggle((t) =>
+      t.setValue(st.pomodoro.autoStartBreaks).onChange(async (v) => {
+        st.pomodoro.autoStartBreaks = v;
+        await plugin.save();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Start focus automatically")
+    .setDesc("When a break ends, start the next focus phase automatically.")
+    .addToggle((t) =>
+      t.setValue(st.pomodoro.autoStartWork).onChange(async (v) => {
+        st.pomodoro.autoStartWork = v;
+        await plugin.save();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Open the timer")
+    .setDesc("The status-bar clock and ribbon button open the same view.")
+    .addButton((b) => b.setButtonText("Open Pomodoro").onClick(() => plugin.activatePomodoro()));
+}
+
+module.exports = { renderPomodoroSettings };
+};
+
+/* ---- src/pomodoro-view.js ---- */
+__defs["pomodoro-view"] = function (module, exports, require) {
+const { ItemView } = require("obsidian");
+const { VIEW_TYPE_POMODORO } = require("./constants");
+const { phaseLabel } = require("./pomodoro");
+
+class PomodoroView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+  }
+
+  getViewType() {
+    return VIEW_TYPE_POMODORO;
+  }
+
+  getDisplayText() {
+    return "Pomodoro";
+  }
+
+  getIcon() {
+    return "timer";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-root");
+    this.render();
+  }
+
+  async onClose() {}
+
+  render() {
+    const el = this.contentEl;
+    el.empty();
+    const root = el.createDiv({ cls: "qt-wrap qt-pomodoro-view" });
+    if (!this.plugin.pomodoroEnabled()) {
+      const card = root.createDiv({ cls: "qt-onboard-card" });
+      card.createEl("h3", { text: "Pomodoro is off" });
+      card.createDiv({ cls: "qt-onboard-text", text: "Turn it on in Settings → Pomodoro." });
+      card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
+      return;
+    }
+    const data = this.plugin.pomodoroSnapshot();
+    root.createEl("h2", { text: "Pomodoro" });
+    const card = root.createDiv({ cls: "qt-pomodoro-card" });
+    card.createDiv({ cls: "qt-pomodoro-phase", text: phaseLabel(data.phase) });
+    card.createDiv({ cls: "qt-pomodoro-clock", text: data.display });
+    card.createDiv({
+      cls: "qt-hint",
+      text: `${data.completed} completed · ${data.workSessions} work session${data.workSessions === 1 ? "" : "s"} · ${data.running ? "running" : "paused"}`,
+    });
+    const actions = card.createDiv({ cls: "qt-row qt-pomodoro-actions" });
+    if (data.running) actions.createEl("button", { text: "Pause", cls: "mod-cta" }).addEventListener("click", () => this.plugin.pausePomodoro());
+    else actions.createEl("button", { text: data.remaining < data.phaseSeconds ? "Resume" : "Start", cls: "mod-cta" }).addEventListener("click", () => this.plugin.startPomodoro());
+    actions.createEl("button", { text: "Reset" }).addEventListener("click", () => this.plugin.resetPomodoro());
+    actions.createEl("button", { text: "Skip phase" }).addEventListener("click", () => this.plugin.skipPomodoro());
+    const settings = data.settings;
+    card.createDiv({
+      cls: "qt-hint",
+      text: `Focus ${settings.workMinutes} min · short ${settings.shortBreakMinutes} min · long ${settings.longBreakMinutes} min every ${settings.longBreakEvery} sessions`,
+    });
+  }
+}
+
+module.exports = { PomodoroView };
 };
 
 /* ---- src/practice-view.js ---- */
@@ -57049,6 +57697,137 @@ module.exports = {
 };
 };
 
+/* ---- src/review-session.js ---- */
+__defs["review-session"] = function (module, exports, require) {
+/*
+ * A same-session review queue. A missed item is moved behind the other items
+ * instead of disappearing into tomorrow; a finite requeue limit prevents an
+ * impossible item from trapping the session forever.
+ */
+const { str } = require("./util");
+
+const MAX_LIMIT = 25;
+
+function clamp(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+function normalizeReviewSessionSettings(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    requeueEnabled: src.requeueEnabled !== false,
+    requeueLimit: clamp(src.requeueLimit, 1, MAX_LIMIT, 3),
+  };
+}
+
+function createReviewSession(items, options) {
+  const opts = options || {};
+  const settings = normalizeReviewSessionSettings(opts);
+  const paths = (Array.isArray(items) ? items : [])
+    .map((item) => str(item && item.path !== undefined ? item.path : item))
+    .filter(Boolean);
+  const unique = [...new Set(paths)];
+  return {
+    queue: unique.slice(),
+    initial: unique.slice(),
+    completed: [],
+    missed: [],
+    requeues: {},
+    requeued: 0,
+    requeueEnabled: settings.requeueEnabled,
+    requeueLimit: settings.requeueLimit,
+  };
+}
+
+function nextPath(session) {
+  return session && session.queue.length ? session.queue[0] : "";
+}
+
+function requeueCount(session, path) {
+  return Number(session && session.requeues && session.requeues[path]) || 0;
+}
+
+/** Move a path to the end, within the configured limit. Returns true if it was requeued. */
+function requeuePath(session, path) {
+  const id = str(path);
+  if (!session || !id) return false;
+  const index = session.queue.indexOf(id);
+  if (index >= 0) session.queue.splice(index, 1);
+  if (!session.requeueEnabled) return false;
+  const count = requeueCount(session, id);
+  if (count >= session.requeueLimit) {
+    if (!session.completed.includes(id)) session.completed.push(id);
+    if (!session.missed.includes(id)) session.missed.push(id);
+    return false;
+  }
+  session.requeues[id] = count + 1;
+  session.requeued++;
+  session.queue.push(id);
+  return true;
+}
+
+/**
+ * Record one rating. `passed` follows the four-button semantics: only Again is
+ * a miss. A requeued item is appended after every item still waiting.
+ */
+function gradeReviewSession(session, path, passed) {
+  const id = str(path);
+  if (!session || !id) return session;
+  const index = session.queue.indexOf(id);
+  if (index >= 0) session.queue.splice(index, 1);
+  if (passed) {
+    if (!session.completed.includes(id)) session.completed.push(id);
+  } else {
+    if (!session.missed.includes(id)) session.missed.push(id);
+    requeuePath(session, id);
+  }
+  return session;
+}
+
+/** Skip or postpone: remove the item from this run without counting it as passed. */
+function dropReviewSession(session, path) {
+  const id = str(path);
+  if (!session || !id) return session;
+  const index = session.queue.indexOf(id);
+  if (index >= 0) session.queue.splice(index, 1);
+  return session;
+}
+
+function finishReviewSession(session) {
+  if (!session) return session;
+  session.queue = [];
+  return session;
+}
+
+function sessionStatus(session) {
+  const queue = Array.isArray(session && session.queue) ? session.queue : [];
+  const completed = Array.isArray(session && session.completed) ? session.completed : [];
+  return {
+    remaining: queue.length,
+    completed: completed.length,
+    total: new Set([...(session.initial || []), ...completed, ...queue]).size,
+    requeued: Number(session && session.requeued) || 0,
+    missed: Array.isArray(session && session.missed) ? session.missed.slice() : [],
+    done: queue.length === 0,
+  };
+}
+
+module.exports = {
+  MAX_LIMIT,
+  createReviewSession,
+  dropReviewSession,
+  finishReviewSession,
+  gradeReviewSession,
+  nextPath,
+  normalizeReviewSessionSettings,
+  requeueCount,
+  requeuePath,
+  sessionStatus,
+};
+};
+
 /* ---- src/review-settings.js ---- */
 __defs["review-settings"] = function (module, exports, require) {
 /* Settings pages for the four Spaceforge-derived study tools. */
@@ -57092,6 +57871,29 @@ function renderNoteReviewSettings(containerEl, plugin, redisplay) {
         plugin.refreshNoteReviewDock();
       })
     );
+  new Setting(containerEl)
+    .setName("Requeue missed notes in this session")
+    .setDesc("A missed note moves behind the notes still waiting and returns before the run ends. A limit prevents one impossible note from trapping the session.")
+    .addToggle((t) =>
+      t.setValue(st.noteReviewDock.requeueEnabled !== false).onChange(async (v) => {
+        st.noteReviewDock.requeueEnabled = v;
+        await plugin.save();
+        plugin.refreshNoteReviewDock();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Requeue limit")
+    .setDesc("How many times one note may return in a single session.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.max = "25";
+      t.setValue(String(st.noteReviewDock.requeueLimit));
+      t.onChange(async (v) => {
+        st.noteReviewDock = normalizeNoteReviewDockSettings({ ...st.noteReviewDock, requeueLimit: v });
+        await plugin.save();
+      });
+    });
   new Setting(containerEl)
     .setName("Lapse checkpoint")
     .setDesc("After this many Again ratings in a row, offer Reset, Rest for a week, Remove from review or Carry on.")
@@ -57220,6 +58022,44 @@ function renderStudyStatsSettings(containerEl, plugin, redisplay) {
       t.setValue(String(st.studyStats.leechThreshold));
       t.onChange(async (v) => {
         st.studyStats = normalizeStudyStatsSettings({ ...st.studyStats, leechThreshold: v });
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Track two-day durable recall")
+    .setDesc("A correct review counts as durable only after a correct recall on two distinct calendar days. A miss starts the run again; the review history itself is unchanged.")
+    .addToggle((t) =>
+      t.setValue(st.studyStats.durableRecall !== false).onChange(async (v) => {
+        st.studyStats.durableRecall = v;
+        await plugin.save();
+        plugin.refreshViews();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Durable recall days")
+    .setDesc("Distinct days required before an item is reported as durable (2–10).")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "2";
+      t.inputEl.max = "10";
+      t.setValue(String(st.studyStats.durableDays || 2));
+      t.onChange(async (v) => {
+        st.studyStats = normalizeStudyStatsSettings({ ...st.studyStats, durableDays: v });
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Heatmap weeks")
+    .setDesc("How many weeks of permanent per-day counters to show.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "4";
+      t.inputEl.max = "52";
+      t.setValue(String(st.studyStats.heatmapWeeks || 12));
+      t.onChange(async (v) => {
+        st.studyStats = normalizeStudyStatsSettings({ ...st.studyStats, heatmapWeeks: v });
         await plugin.save();
         plugin.refreshViews();
       });
@@ -58719,6 +59559,7 @@ const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
 const { renderCalendarSettings } = require("./calendar-settings");
 const { renderLocalEventsSettings, renderNoteReviewSettings, renderReviewCalendarSettings, renderStudyStatsSettings } = require("./review-settings");
+const { renderPomodoroSettings } = require("./pomodoro-settings");
 const { CARDS_TABS, renderCardsSettings } = require("./cards-settings");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const { normalizeQuickAdaptive } = require("./adaptive-session");
@@ -58747,6 +59588,7 @@ const SETTINGS_MODULES = [
   { id: "review-calendar", label: "Review calendar", icon: "calendar-clock" },
   { id: "study-stats", label: "Study statistics", icon: "bar-chart-3" },
   { id: "local-events", label: "Local events", icon: "calendar-plus" },
+  { id: "pomodoro", label: "Pomodoro", icon: "timer" },
   { id: "assignments", label: "Assignments", icon: "clipboard-list" },
   { id: "reference", label: "Reference", icon: "book-open" },
 ];
@@ -58841,6 +59683,11 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
 
     if (this.activeModule === "local-events") {
       renderLocalEventsSettings(containerEl, this.plugin, () => this.display());
+      return;
+    }
+
+    if (this.activeModule === "pomodoro") {
+      renderPomodoroSettings(containerEl, this.plugin, () => this.display());
       return;
     }
 
@@ -63595,6 +64442,153 @@ module.exports = {
 };
 };
 
+/* ---- src/study-counters.js ---- */
+__defs["study-counters"] = function (module, exports, require) {
+/*
+ * Permanent per-day study counters. Detailed history rows are capped; these
+ * aggregate counters are intentionally small and survive restarts and history
+ * trimming. They are the source for the heatmap and button mix.
+ */
+const { str } = require("./util");
+
+const MAX_DAYS = 2000;
+const RATINGS = ["again", "hard", "good", "easy"];
+const KINDS = ["note", "card", "question"];
+
+function pad(value) {
+  return String(value).padStart(2, "0");
+}
+
+function localDay(date) {
+  const d = date instanceof Date && !isNaN(date.getTime()) ? date : new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function validDay(value) {
+  const text = str(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function emptyDay() {
+  return { reviews: 0, correct: 0, seconds: 0, notes: 0, cards: 0, questions: 0, again: 0, hard: 0, good: 0, easy: 0 };
+}
+
+function normalizeCounterDay(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const out = emptyDay();
+  for (const key of Object.keys(out)) out[key] = Math.max(0, Math.round(Number(src[key]) || 0));
+  return out;
+}
+
+function normalizeStudyCounters(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const days = {};
+  const source = src.days && typeof src.days === "object" && !Array.isArray(src.days) ? src.days : {};
+  const keys = Object.keys(source).filter(validDay).sort().slice(-MAX_DAYS);
+  for (const key of keys) days[key] = normalizeCounterDay(source[key]);
+  return { version: 1, days, updated: str(src.updated).slice(0, 30) };
+}
+
+function recordStudyCounter(value, entry) {
+  const counters = normalizeStudyCounters(value);
+  const src = entry && typeof entry === "object" ? entry : {};
+  const day = validDay(src.date) || localDay(src.now);
+  const kind = KINDS.includes(str(src.kind)) ? str(src.kind) : "question";
+  const bucket = counters.days[day] || emptyDay();
+  bucket.reviews++;
+  if (src.correct === true) bucket.correct++;
+  bucket.seconds += Math.max(0, Math.round(Number(src.seconds) || 0));
+  bucket[kind === "note" ? "notes" : kind === "card" ? "cards" : "questions"]++;
+  const rating = str(src.rating).toLowerCase();
+  if (RATINGS.includes(rating)) bucket[rating]++;
+  counters.days[day] = bucket;
+  counters.updated = new Date().toISOString();
+  const keys = Object.keys(counters.days).sort();
+  while (keys.length > MAX_DAYS) delete counters.days[keys.shift()];
+  return { counters, day: bucket, date: day };
+}
+
+function counterTotals(value) {
+  const counters = normalizeStudyCounters(value);
+  const total = emptyDay();
+  for (const bucket of Object.values(counters.days)) {
+    for (const key of Object.keys(total)) total[key] += bucket[key];
+  }
+  total.days = Object.keys(counters.days).length;
+  total.minutes = Math.round((total.seconds / 60) * 10) / 10;
+  total.accuracy = total.reviews ? total.correct / total.reviews : null;
+  return total;
+}
+
+function buttonMix(value) {
+  const total = counterTotals(value);
+  const sum = RATINGS.reduce((n, key) => n + total[key], 0);
+  return {
+    again: total.again,
+    hard: total.hard,
+    good: total.good,
+    easy: total.easy,
+    total: sum,
+    againRate: sum ? total.again / sum : null,
+    buckets: RATINGS.map((rating) => ({ rating, count: total[rating], share: sum ? total[rating] / sum : 0 })),
+  };
+}
+
+function counterDay(value, date) {
+  const counters = normalizeStudyCounters(value);
+  const key = validDay(date);
+  const bucket = counters.days[key];
+  return bucket ? { ...bucket, date: key, minutes: Math.round((bucket.seconds / 60) * 10) / 10, accuracy: bucket.reviews ? bucket.correct / bucket.reviews : null } : null;
+}
+
+/** A Monday-aligned heatmap ending today, including the whole current week. */
+function counterHeatmap(value, weeks, now) {
+  const counters = normalizeStudyCounters(value);
+  const count = Math.max(1, Math.min(52, Math.round(Number(weeks) || 12)));
+  const today = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0);
+  const offset = (end.getDay() + 6) % 7;
+  const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - offset - (count - 1) * 7, 12, 0, 0);
+  const all = [];
+  let max = 0;
+  for (let index = 0; index < count * 7; index++) {
+    const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index, 12, 0, 0);
+    const key = localDay(date);
+    const bucket = counters.days[key];
+    const reviews = bucket ? bucket.reviews : 0;
+    max = Math.max(max, reviews);
+    all.push({
+      date: key,
+      reviews,
+      minutes: bucket ? Math.round((bucket.seconds / 60) * 10) / 10 : 0,
+      accuracy: bucket && bucket.reviews ? bucket.correct / bucket.reviews : null,
+      future: date > end,
+    });
+  }
+  const level = (reviews) => (reviews <= 0 ? 0 : Math.min(4, 1 + Math.floor((reviews / Math.max(1, max)) * 3)));
+  const cells = all.map((cell) => ({ ...cell, level: level(cell.reviews) }));
+  const weeksOut = [];
+  for (let index = 0; index < count; index++) weeksOut.push({ days: cells.slice(index * 7, index * 7 + 7) });
+  return { weeks: weeksOut, days: cells, max, activeDays: cells.filter((cell) => cell.reviews > 0).length };
+}
+
+module.exports = {
+  KINDS,
+  MAX_DAYS,
+  RATINGS,
+  buttonMix,
+  counterDay,
+  counterHeatmap,
+  counterTotals,
+  emptyDay,
+  localDay,
+  normalizeCounterDay,
+  normalizeStudyCounters,
+  recordStudyCounter,
+  validDay,
+};
+};
+
 /* ---- src/study-map.js ---- */
 __defs["study-map"] = function (module, exports, require) {
 /*
@@ -64420,6 +65414,8 @@ const fsrs = require("./fsrs");
 const sm2 = require("./sm2");
 const fsrsLib = require("./fsrs-lib");
 const { isNoteCandidate } = require("./note-review");
+const { buttonMix, counterHeatmap, normalizeStudyCounters } = require("./study-counters");
+const { durabilitySummary, normalizeDurabilitySettings } = require("./durability");
 
 const MATURITY_LABELS = {
   learning: "Learning (<1d)",
@@ -64441,6 +65437,9 @@ function normalizeStudyStatsSettings(value) {
     enabled: src.enabled !== false,
     leechThreshold: clampNumber(src.leechThreshold, 1, 50, 5),
     maxRows: clampNumber(src.maxRows, 20, 500, 200),
+    durableRecall: src.durableRecall !== false,
+    durableDays: normalizeDurabilitySettings({ requiredDays: src.durableDays }).requiredDays,
+    heatmapWeeks: clampNumber(src.heatmapWeeks, 4, 52, 12),
   };
 }
 
@@ -64592,6 +65591,39 @@ function retentionByMaturity(rows) {
   return { byMaturity: out, all };
 }
 
+/** Per-deck card retention, replaying the same scheduler rows as the main table. */
+function deckBreakdown(cards, settings) {
+  const groups = new Map();
+  for (const card of Array.isArray(cards) ? cards : []) {
+    const fm = card.fm || {};
+    const deck = str(card.deck || fm.deck || fm.deck_name).trim() || "Unassigned";
+    if (!groups.has(deck)) groups.set(deck, { deck, cards: 0, rows: [], intervals: [] });
+    const group = groups.get(deck);
+    group.cards++;
+    group.rows.push(...cardReviewRows(card, settings || {}));
+    const srs = fsrs.decodeSrs(fm.srs);
+    const sm2State = sm2.decodeSm2(fm.sm2);
+    const interval = srs ? Number(srs.scheduled_days) || 0 : sm2State ? Number(sm2State.interval) || 0 : 0;
+    if (interval > 0) group.intervals.push(interval);
+  }
+  return [...groups.values()]
+    .map((group) => {
+      const reviews = group.rows.length;
+      const correct = group.rows.filter((row) => row.correct).length;
+      const mature = group.rows.filter((row) => row.maturity === "mature").length;
+      return {
+        deck: group.deck,
+        cards: group.cards,
+        reviews,
+        correct,
+        retention: reviews ? correct / reviews : null,
+        matureShare: reviews ? mature / reviews : null,
+        averageInterval: group.intervals.length ? group.intervals.reduce((sum, value) => sum + value, 0) / group.intervals.length : null,
+      };
+    })
+    .sort((a, b) => b.reviews - a.reviews || a.deck.localeCompare(b.deck));
+}
+
 function distribution(values, edges, labels) {
   const list = (Array.isArray(values) ? values : []).filter((value) => Number.isFinite(Number(value))).map(Number).sort((a, b) => a - b);
   const buckets = [];
@@ -64724,6 +65756,7 @@ function buildStudyStats(input) {
   const retention = retentionByMaturity(cardRows);
   const metrics = cardMetrics(cards, now);
   const days = dayDetail(rows);
+  const counters = normalizeStudyCounters(opts.counters);
   return {
     rows: rows.slice(0, settings.maxRows),
     cardRows,
@@ -64731,6 +65764,11 @@ function buildStudyStats(input) {
     metrics,
     weekday: weekdayRhythm(rows),
     days,
+    decks: deckBreakdown(cards, { ...settings, fsrsRetention: opts.fsrsRetention }),
+    buttonMix: buttonMix(counters),
+    heatmap: counterHeatmap(counters, settings.heatmapWeeks, now),
+    counters,
+    durability: durabilitySummary([...cards, ...questions, ...notes], settings.durableDays),
     leeches: leechList(questions, cards, notes, settings.leechThreshold),
     totals: {
       cards: cards.length,
@@ -64751,6 +65789,7 @@ module.exports = {
   buildStudyStats,
   cardMetrics,
   cardReviewRows,
+  deckBreakdown,
   dayDetail,
   distribution,
   historyRows,
@@ -64768,6 +65807,7 @@ __defs["study-stats-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_STUDY_STATS } = require("./constants");
 const { MATURITY_ORDER, WEEK_DAYS } = require("./study-stats");
+const { counterDay } = require("./study-counters");
 const { workloadLabel } = require("./review-calendar");
 const { str } = require("./util");
 
@@ -64820,7 +65860,7 @@ class StudyStatsView extends ItemView {
     const data = this.plugin.studyStatsSnapshot();
     const head = root.createDiv({ cls: "qt-study-stats-head" });
     head.createEl("h2", { text: "Study statistics" });
-    head.createDiv({ cls: "qt-hint", text: "Read-only: true retention by maturity, memory-now, distributions, weekday rhythm, day detail and leeches." });
+    head.createDiv({ cls: "qt-hint", text: "Read-only: true retention by maturity, memory-now, distributions, weekday rhythm, button mix, per-deck summaries, durable recall, a permanent heatmap and leeches." });
 
     const stats = root.createDiv({ cls: "qt-study-stats" });
     const stat = (value, label) => {
@@ -64834,10 +65874,14 @@ class StudyStatsView extends ItemView {
     stat(data.metrics.memoryNow === null ? "—" : pct(data.metrics.memoryNow), "memory now");
     stat(data.leeches.length, "leeches");
 
+    this.renderButtonMix(root, data);
+    this.renderDurability(root, data);
+    this.renderHeatmap(root, data);
     this.renderRetention(root, data);
     this.renderMemory(root, data);
     this.renderDistributions(root, data);
     this.renderWeekday(root, data);
+    this.renderDecks(root, data);
     this.renderDays(root, data);
     this.renderLeeches(root, data);
   }
@@ -64847,6 +65891,105 @@ class StudyStatsView extends ItemView {
     card.createEl("h3", { text: "Study statistics is off" });
     card.createDiv({ cls: "qt-onboard-text", text: "Turn it on in Settings → Study statistics." });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
+  }
+
+  renderButtonMix(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Answer button mix" });
+    const mix = data.buttonMix;
+    if (!mix || !mix.total) {
+      card.createDiv({ cls: "qt-study-empty", text: "No rated reviews yet. Grade a note, card or question to start the mix." });
+      return;
+    }
+    const max = Math.max(...mix.buckets.map((bucket) => bucket.count), 1);
+    for (const bucket of mix.buckets) {
+      const row = card.createDiv({ cls: "qt-study-stats-dist-row" });
+      row.createSpan({ cls: "qt-study-stats-dist-label", text: bucket.rating.charAt(0).toUpperCase() + bucket.rating.slice(1) });
+      bar(row, bucket.count, max, `is-${bucket.rating}`);
+      row.createSpan({ cls: "qt-study-stats-dist-count", text: `${bucket.count} · ${pct(bucket.share)}` });
+    }
+    card.createDiv({ cls: "qt-hint", text: `Again rate ${pct(mix.againRate)} across ${mix.total} rated review${mix.total === 1 ? "" : "s"}.` });
+  }
+
+  renderDurability(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Two-day durable recall" });
+    const summary = data.durability;
+    if (!summary || !summary.total) {
+      card.createDiv({ cls: "qt-study-empty", text: "No item has recorded a recall day yet." });
+      return;
+    }
+    card.createDiv({
+      cls: "qt-hint",
+      text: `${summary.durable} durable · ${summary.learning} still learning · ${pct(summary.retention)} of tracked items recalled on ${data.settings.durableDays}+ distinct days.`,
+    });
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of summary.rows.slice(0, 20)) {
+      const line = list.createDiv({ cls: "qt-study-row" });
+      const main = line.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: row.title || row.path });
+      main.createDiv({
+        cls: "qt-study-row-meta",
+        text: `${row.count}/${row.requiredDays} day${row.count === 1 ? "" : "s"}${row.durableOn ? ` · durable ${row.durableOn}` : ""} · ${row.path}`,
+      });
+    }
+  }
+
+  renderHeatmap(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Study heatmap" });
+    const map = data.heatmap;
+    card.createDiv({
+      cls: "qt-hint",
+      text: `${map.activeDays} active day${map.activeDays === 1 ? "" : "s"} in the last ${map.weeks.length} week${map.weeks.length === 1 ? "" : "s"}. These counters are permanent and survive history trimming.`,
+    });
+    const grid = card.createDiv({ cls: "qt-study-stats-heatmap" });
+    for (const week of map.weeks) {
+      const column = grid.createDiv({ cls: "qt-study-stats-heatmap-week" });
+      for (const day of week.days) {
+        const cell = column.createDiv({ cls: `qt-study-stats-heatmap-cell is-level-${day.level}` });
+        cell.setAttr("data-date", day.date);
+        cell.setAttr("aria-label", `${day.date}: ${day.reviews} review${day.reviews === 1 ? "" : "s"}, ${day.minutes} minutes`);
+        if (day.future) cell.addClass("is-future");
+        cell.addEventListener("click", () => {
+          this.selectedHeatDay = this.selectedHeatDay === day.date ? "" : day.date;
+          this.render();
+        });
+      }
+    }
+    if (!this.selectedHeatDay) return;
+    const detail = counterDay(data.counters, this.selectedHeatDay);
+    const panel = card.createDiv({ cls: "qt-study-stats-day-detail" });
+    if (!detail) {
+      panel.createDiv({ cls: "qt-study-row-meta", text: `${this.selectedHeatDay}: no counter recorded.` });
+      return;
+    }
+    panel.createDiv({ cls: "qt-study-row-title", text: this.selectedHeatDay });
+    panel.createDiv({
+      cls: "qt-study-row-meta",
+      text: `${detail.reviews} review${detail.reviews === 1 ? "" : "s"} · ${pct(detail.accuracy)} · ${detail.minutes} min · ${detail.cards} cards · ${detail.questions} questions · ${detail.notes} notes`,
+    });
+    panel.createDiv({ cls: "qt-study-row-meta", text: `Again ${detail.again} · Hard ${detail.hard} · Good ${detail.good} · Easy ${detail.easy}` });
+  }
+
+  renderDecks(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Per-deck breakdown" });
+    if (!data.decks.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "No cards yet, so there is no deck to compare." });
+      return;
+    }
+    const table = card.createDiv({ cls: "qt-study-stats-table" });
+    const header = table.createDiv({ cls: "qt-study-stats-row is-head" });
+    for (const label of ["Deck", "Cards", "Reviews", "Retention", "Avg interval"]) header.createDiv({ text: label });
+    for (const deck of data.decks) {
+      const line = table.createDiv({ cls: "qt-study-stats-row" });
+      line.createDiv({ text: deck.deck });
+      line.createDiv({ text: String(deck.cards) });
+      line.createDiv({ text: String(deck.reviews) });
+      line.createDiv({ text: pct(deck.retention) });
+      line.createDiv({ text: deck.averageInterval === null ? "—" : `${Math.round(deck.averageInterval)}d` });
+    }
   }
 
   renderRetention(root, data) {
@@ -72635,7 +73778,12 @@ const noteReview = require("./note-review");
 const reviewCalendar = require("./review-calendar");
 const studyStats = require("./study-stats");
 const localEvents = require("./local-events");
+const reviewSession = require("./review-session");
+const durability = require("./durability");
+const studyCounters = require("./study-counters");
+const pomodoro = require("./pomodoro");
 const noteReviewDock = require("./note-review-dock");
+const { PomodoroView } = require("./pomodoro-view");
 const { NoteReviewDock } = require("./note-review-dock");
 const { ReviewCalendarView } = require("./review-calendar-view");
 const { StudyStatsView } = require("./study-stats-view");
@@ -72836,6 +73984,11 @@ QuestionTrackerPlugin.__test = {
   studyStats,
   localEvents,
   noteReviewDock,
+  reviewSession,
+  durability,
+  studyCounters,
+  pomodoro,
+  PomodoroView,
   NoteReviewDock,
   ReviewCalendarView,
   StudyStatsView,

@@ -2,7 +2,7 @@
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -140,6 +140,11 @@ const { NoteReviewDock } = require("./note-review-dock");
 const { ReviewCalendarView } = require("./review-calendar-view");
 const { StudyStatsView } = require("./study-stats-view");
 const { LocalEventModal, LocalEventsView } = require("./local-events-view");
+const reviewSession = require("./review-session");
+const durability = require("./durability");
+const studyCounters = require("./study-counters");
+const pomodoro = require("./pomodoro");
+const { PomodoroView } = require("./pomodoro-view");
 const { applySpacedReview, buildSpacedQueue, normalizeSpacedEverything, renderSpacedTemplate, spacedCaptureText } = require("./spaced-everything");
 const { SpacedEverythingCaptureModal } = require("./spaced-everything-modal");
 const { CardGeneratorModal } = require("./card-generator-modal");
@@ -225,6 +230,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.setupReminder();
     this.setupStudyNudge();
     this.setupNoteReviewStatus();
+    this.setupPomodoroStatus();
+    this.registerInterval(activeWindow.setInterval(() => this.tickPomodoro(), 1000));
     this.app.workspace.onLayoutReady(() => {
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
       const ai = this.settings.ai;
@@ -258,6 +265,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_REVIEW_CALENDAR, (leaf) => new ReviewCalendarView(leaf, this));
     this.registerView(VIEW_TYPE_STUDY_STATS, (leaf) => new StudyStatsView(leaf, this));
     this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
+    this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.noteReviewDock = new NoteReviewDock(this);
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshNoteReviewDock()));
     this.registerEvent(this.app.workspace.on("file-open", () => this.refreshNoteReviewDock()));
@@ -345,6 +353,10 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-local-event", name: "Local events: create an event", callback: () => this.openNewLocalEvent() });
     this.addCommand({ id: "open-next-due-note", name: "Note review: open the next due note", callback: () => this.openNextDueNote() });
     this.addCommand({ id: "note-review-dock-toggle", name: "Note review: show or hide the review bar", callback: () => this.toggleNoteReviewDock() });
+    this.addCommand({ id: "open-pomodoro", name: "Open Pomodoro timer", callback: () => this.activatePomodoro() });
+    this.addCommand({ id: "pomodoro-start-pause", name: "Pomodoro: start or pause", callback: () => this.togglePomodoro() });
+    this.addCommand({ id: "pomodoro-reset", name: "Pomodoro: reset the current cycle", callback: () => this.resetPomodoro() });
+    this.addCommand({ id: "pomodoro-skip", name: "Pomodoro: skip the current phase", callback: () => this.skipPomodoro() });
     this.addCommand({ id: "calendar-add-schedule", name: "Calendar: add an .ics schedule", callback: () => this.openCalendarImport() });
     this.addCommand({
       id: "calendar-note-next-class",
@@ -867,6 +879,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.reviewCalendar = reviewCalendar.normalizeReviewCalendarSettings(saved.reviewCalendar);
     this.settings.studyStats = studyStats.normalizeStudyStatsSettings(saved.studyStats);
     this.settings.localEvents = localEvents.normalizeLocalEventsSettings(saved.localEvents);
+    this.settings.studyCounters = studyCounters.normalizeStudyCounters(saved.studyCounters);
+    this.settings.pomodoro = pomodoro.normalizePomodoroSettings(saved.pomodoro);
     this.settings.spacedEverything = normalizeSpacedEverything(saved.spacedEverything);
     this.settings.quizGenerator = normalizeQuizGenerator(saved.quizGenerator);
     this.settings.cardGenerator = normalizeCardGenerator(saved.cardGenerator);
@@ -1257,13 +1271,14 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_STUDY_WORKSPACE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
-    for (const type of [VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS]) {
+    for (const type of [VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
         if (leaf.view && leaf.view.render) leaf.view.render();
       }
     }
     this.refreshNoteReviewDock();
     this.refreshNoteReviewStatus();
+    this.refreshPomodoro();
     this.decorateFileExplorer();
   }
 
@@ -1336,6 +1351,10 @@ class QuestionTrackerPlugin extends Plugin {
 
   localEventsEnabled() {
     return localEvents.normalizeLocalEventsSettings(this.settings.localEvents).enabled;
+  }
+
+  pomodoroEnabled() {
+    return pomodoro.normalizePomodoroSettings(this.settings.pomodoro).enabled;
   }
 
   /** The local formula sheet and unit converter are opt-in. */
@@ -1562,6 +1581,8 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("study-stats");
     if (this.localEventsEnabled()) this.addModuleRibbon("local-events", "calendar-plus", "Open local events", () => this.activateLocalEvents());
     else this.removeModuleRibbon("local-events");
+    if (this.pomodoroEnabled()) this.addModuleRibbon("pomodoro", "timer", "Open Pomodoro timer", () => this.activatePomodoro());
+    else this.removeModuleRibbon("pomodoro");
     this.refreshStudyNudgeLabel();
   }
 
@@ -5325,9 +5346,14 @@ ${body}
       });
       const priorStreak = Number(fm.note_lapse_streak) || 0;
       fm.note_lapse_streak = attempt.grade === "again" ? priorStreak + 1 : 0;
+      const statsCfg = studyStats.normalizeStudyStatsSettings(this.settings.studyStats);
+      if (statsCfg.durableRecall) {
+        summary.durability = durability.recordRecallDay(fm, { correct: attempt.correct, date: localDate(), requiredDays: statsCfg.durableDays });
+      }
       summary.previous = previous;
       summary.lapseStreak = fm.note_lapse_streak;
     });
+    await this.recordStudyCounter({ kind: "note", correct: attempt.correct, seconds: attempt.seconds, rating: attempt.grade });
     this.refreshViews();
     return summary;
   }
@@ -5469,10 +5495,117 @@ ${body}
       cards: this.getCards(),
       questions: this.getQuestions(),
       notes: this.getNoteCandidates(),
+      counters: this.settings.studyCounters,
       settings: this.settings.studyStats,
       fsrsRetention: this.settings.fsrsRetention,
       now: new Date(),
     });
+  }
+
+  async recordStudyCounter(entry) {
+    const result = studyCounters.recordStudyCounter(this.settings.studyCounters, entry);
+    this.settings.studyCounters = result.counters;
+    await this.save();
+    return result;
+  }
+
+  setupPomodoroStatus() {
+    if (typeof this.addStatusBarItem !== "function") return;
+    this.pomodoroEl = this.addStatusBarItem();
+    this.pomodoroEl.addClass("qt-pomodoro-status");
+    this.pomodoroEl.addEventListener("click", () => this.activatePomodoro());
+    this.refreshPomodoroStatus();
+  }
+
+  refreshPomodoroStatus() {
+    if (!this.pomodoroEl) return;
+    if (!this.pomodoroEnabled()) {
+      this.pomodoroEl.setText("");
+      this.pomodoroEl.toggleClass("qt-hidden", true);
+      return;
+    }
+    const data = this.pomodoroSnapshot();
+    this.pomodoroEl.toggleClass("qt-hidden", false);
+    this.pomodoroEl.setText(`${data.label} ${data.display}`);
+    this.pomodoroEl.setAttr("aria-label", `${data.label} ${data.display}. Open Pomodoro.`);
+  }
+
+  pomodoroSnapshot() {
+    return pomodoro.pomodoroSnapshot(this.settings.pomodoro, this.settings.pomodoro && this.settings.pomodoro.state, new Date());
+  }
+
+  async savePomodoroState(state) {
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    config.state = pomodoro.normalizePomodoroState(state);
+    this.settings.pomodoro = config;
+    await this.save();
+    this.refreshPomodoro();
+  }
+
+  refreshPomodoro() {
+    this.refreshPomodoroStatus();
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_POMODORO)) {
+      if (leaf.view && leaf.view.render) leaf.view.render();
+    }
+  }
+
+  async startPomodoro() {
+    if (!this.pomodoroEnabled()) return null;
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    await this.savePomodoroState(pomodoro.startPomodoro(config.state, new Date()));
+    return this.pomodoroSnapshot();
+  }
+
+  async pausePomodoro() {
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    await this.savePomodoroState(pomodoro.pausePomodoro(config.state, config, new Date()));
+    return this.pomodoroSnapshot();
+  }
+
+  async togglePomodoro() {
+    const data = this.pomodoroSnapshot();
+    return data.running ? this.pausePomodoro() : this.startPomodoro();
+  }
+
+  async resetPomodoro(save = true) {
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    const state = pomodoro.resetPomodoro(config, new Date());
+    if (save) return this.savePomodoroState(state);
+    config.state = state;
+    this.settings.pomodoro = config;
+    return state;
+  }
+
+  async skipPomodoro() {
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    const result = pomodoro.skipPomodoro(config, config.state, new Date());
+    await this.savePomodoroState(result.state);
+    return this.pomodoroSnapshot();
+  }
+
+  tickPomodoro() {
+    if (!this.pomodoroEnabled()) return null;
+    const config = pomodoro.normalizePomodoroSettings(this.settings.pomodoro);
+    const result = pomodoro.tickPomodoro(config, config.state, new Date());
+    config.state = result.state;
+    this.settings.pomodoro = config;
+    this.refreshPomodoro();
+    if (result.completedPhase) this.save().catch(() => {});
+    return result;
+  }
+
+  async activatePomodoro() {
+    if (!this.pomodoroEnabled()) {
+      new Notice("Turn on Pomodoro in Settings → Pomodoro.");
+      return null;
+    }
+    return this.activateModuleView(VIEW_TYPE_POMODORO);
+  }
+
+  onPomodoroToggled() {
+    this.refreshRibbon();
+    if (!this.pomodoroEnabled()) this.detachModuleLeaves([VIEW_TYPE_POMODORO]);
+    this.refreshPomodoro();
   }
 
   async saveLocalEvent(value) {
@@ -7555,6 +7688,10 @@ ${body}
           sm2: sched.sm2,
           examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
         });
+        const statsCfg = studyStats.normalizeStudyStatsSettings(this.settings.studyStats);
+        if (statsCfg.durableRecall) {
+          summary.durability = durability.recordRecallDay(fm, { correct: attempt.correct, date: localDate(), requiredDays: statsCfg.durableDays });
+        }
       });
     } catch (e) {
       if (!preview) throw e;
@@ -7564,6 +7701,13 @@ ${body}
       return { ...preview, queued: true, pending: list.length, attemptId: attempt.attemptId };
     }
 
+    try {
+      const cachedFm = (this.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
+      const kind = isCardNote(cachedFm) ? "card" : str(cachedFm.question_id) ? "question" : "note";
+      await this.recordStudyCounter({ kind, correct: attempt.correct, seconds: attempt.seconds, rating: attempt.grade || "" });
+    } catch (e) {
+      /* counters are best-effort and must not lose a recorded attempt */
+    }
     if (summary && summary.fsrsError) {
       new Notice("FSRS couldn't schedule this question, so the simple ladder was used.");
     }

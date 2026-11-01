@@ -7404,6 +7404,21 @@
 .qt-study-row-actions { display: flex; gap: 4px; flex: none; }
 .qt-study-empty { color: var(--text-muted); padding: 8px 0; }
 .qt-study-stats-day-detail { margin: 6px 0 10px 12px; padding-left: 10px; border-left: 2px solid var(--background-modifier-border); }
+.qt-study-stats-heatmap { display: flex; gap: 3px; overflow-x: auto; padding: 6px 0; }
+.qt-study-stats-heatmap-week { display: flex; flex-direction: column; gap: 3px; }
+.qt-study-stats-heatmap-cell { width: 12px; height: 12px; border-radius: 3px; background: var(--background-modifier-border); cursor: pointer; }
+.qt-study-stats-heatmap-cell.is-level-1 { background: var(--interactive-accent); opacity: 0.3; }
+.qt-study-stats-heatmap-cell.is-level-2 { background: var(--interactive-accent); opacity: 0.5; }
+.qt-study-stats-heatmap-cell.is-level-3 { background: var(--interactive-accent); opacity: 0.75; }
+.qt-study-stats-heatmap-cell.is-level-4 { background: var(--interactive-accent); }
+.qt-study-stats-heatmap-cell.is-future { opacity: 0.2; cursor: default; }
+.qt-study-stats-heatmap-cell:hover { outline: 1px solid var(--interactive-accent); }
+
+.qt-pomodoro-card { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 16px; border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-secondary); }
+.qt-pomodoro-phase { color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--font-ui-smaller); }
+.qt-pomodoro-clock { font-size: 48px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.qt-pomodoro-status { cursor: pointer; }
+.qt-pomodoro-status.qt-hidden { display: none; }
 
 .qt-local-events-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0; }
 .qt-local-events-tab { border: 1px solid var(--background-modifier-border); border-radius: 999px; padding: 3px 9px; background: var(--background-secondary); cursor: pointer; }

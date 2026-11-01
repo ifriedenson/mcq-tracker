@@ -11,6 +11,7 @@ const { str } = require("./util");
 const { applyAttempt } = require("./notes");
 const { noteReviewAttempt } = require("./note-review");
 const { formatInterval } = require("./interval-preview");
+const session = require("./review-session");
 
 const GRADES = ["again", "hard", "good", "easy"];
 const GRADE_LABELS = { again: "Again", hard: "Hard", good: "Good", easy: "Easy" };
@@ -38,6 +39,11 @@ const SNAPSHOT_KEYS = [
   "leech_since",
   "needs_fixing",
   "needs_fixing_miss_days",
+  "recall_days",
+  "recall_day_count",
+  "durable_recall",
+  "durable_on",
+  "recall_checked",
   "exam_cap",
   "exam_cap_name",
   "exam_cap_exam_date",
@@ -55,6 +61,8 @@ function normalizeNoteReviewDockSettings(value) {
     enabled: src.enabled !== false,
     keyboard: src.keyboard !== false,
     lapseThreshold: Math.round(clampNumber(src.lapseThreshold, 1, 50, 8)),
+    requeueEnabled: src.requeueEnabled !== false,
+    requeueLimit: Math.round(clampNumber(src.requeueLimit, 1, 25, 3)),
   };
 }
 
@@ -192,6 +200,7 @@ class NoteReviewDock {
     this.pendingLapse = null;
     this.lastUndo = null;
     this.done = false;
+    this.session = null;
   }
 
   settings() {
@@ -216,8 +225,13 @@ class NoteReviewDock {
     const view = activeMarkdownView(plugin.app);
     if (!view || !view.file) return this.remove();
     const queue = plugin.getNoteQueue({ limit: 0 });
-    const item = (queue.all || []).find((row) => row.path === view.file.path);
+    let item = (queue.all || []).find((row) => row.path === view.file.path);
+    if (!item && this.session && this.session.queue.includes(view.file.path)) item = this.sessionItem(view.file);
     if (!item) return this.remove();
+    if (!this.session) {
+      const config = this.settings();
+      this.session = session.createReviewSession((queue.all || []).map((row) => row.path), config);
+    }
     this.path = view.file.path;
     this.host = view.containerEl || view.contentEl;
     if (!this.host) return this.remove();
@@ -292,19 +306,34 @@ class NoteReviewDock {
     bar.setAttr("aria-label", `Whole-note review for ${item.title}`);
   }
 
+  sessionItem(file) {
+    const fm = (this.plugin.app.metadataCache.getFileCache(file) || {}).frontmatter || {};
+    return {
+      note: { file, fm },
+      file,
+      path: file.path,
+      title: str(fm.title || file.basename || file.path),
+      set: "Review session",
+      priority: "normal",
+      isNew: !Number(fm.attempts),
+      dueDate: str(fm.next_review).slice(0, 10),
+    };
+  }
+
   async grade(grade) {
     const plugin = this.plugin;
     const view = activeMarkdownView(plugin.app);
     if (!view || !view.file || view.file.path !== this.path) return;
     const file = view.file;
     const confirmed = plugin.getNoteQueue({ limit: 0 }).all.find((row) => row.path === file.path);
-    if (!confirmed) {
+    if (!confirmed && !(this.session && this.session.queue.includes(file.path))) {
       this.remove();
       return;
     }
     try {
       const summary = await plugin.recordNoteReview(file, grade, 0);
       this.lastUndo = { path: file.path, snapshot: summary && summary.previous };
+      if (this.session) session.gradeReviewSession(this.session, file.path, grade !== "again");
       const config = this.settings();
       if (grade === "again" && summary && lapseThresholdReached({ note_lapse_streak: summary.lapseStreak }, config.lapseThreshold)) {
         this.pendingLapse = { streak: summary.lapseStreak };
@@ -320,6 +349,7 @@ class NoteReviewDock {
   async lapseAction(action) {
     const file = this.plugin.app.vault.getAbstractFileByPath(this.path);
     if (file && this.plugin.applyNoteLapseAction) await this.plugin.applyNoteLapseAction(file, action);
+    if (this.session && action !== "carry") session.dropReviewSession(this.session, this.path);
     this.pendingLapse = null;
     this.lastUndo = null;
     await this.openNext(this.path);
@@ -328,6 +358,7 @@ class NoteReviewDock {
   async postpone() {
     const file = this.plugin.app.vault.getAbstractFileByPath(this.path);
     if (file && this.plugin.postponeNoteReview) await this.plugin.postponeNoteReview(file, 1);
+    if (this.session) session.dropReviewSession(this.session, this.path);
     this.lastUndo = null;
     await this.openNext(this.path);
   }
@@ -340,14 +371,31 @@ class NoteReviewDock {
     this.lastUndo = null;
     this.pendingLapse = null;
     this.done = false;
+    this.session = null;
     this.refresh();
   }
 
   async skip() {
+    if (this.session) session.dropReviewSession(this.session, this.path);
     await this.openNext(this.path);
   }
 
   async openNext(fromPath) {
+    if (this.session) {
+      const next = session.nextPath(this.session);
+      if (!next) {
+        this.done = true;
+        this.refresh();
+        return;
+      }
+      const file = this.plugin.app.vault.getAbstractFileByPath(next);
+      if (!file) return this.remove();
+      await this.plugin.app.workspace.getLeaf(false).openFile(file);
+      this.done = false;
+      this.pendingLapse = null;
+      this.refresh();
+      return;
+    }
     const queue = this.plugin.getNoteQueue({ limit: 0 }).all;
     const current = queue.findIndex((row) => row.path === fromPath);
     const next = queue[current + 1] || queue[(current + 1) % Math.max(1, queue.length)];

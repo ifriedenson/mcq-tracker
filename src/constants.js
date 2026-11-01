@@ -16,6 +16,7 @@ const VIEW_TYPE_STUDY_WORKSPACE = "question-tracker-study-workspace";
 const VIEW_TYPE_REVIEW_CALENDAR = "question-tracker-review-calendar";
 const VIEW_TYPE_STUDY_STATS = "question-tracker-study-stats";
 const VIEW_TYPE_LOCAL_EVENTS = "question-tracker-local-events";
+const VIEW_TYPE_POMODORO = "question-tracker-pomodoro";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -178,9 +179,11 @@ const DEFAULT_SETTINGS = {
     courses: [],
   }),
   noteReview: { enabled: false, limit: 20, sets: [] }, // optional whole-note review queue
-  noteReviewDock: { enabled: true, keyboard: true, lapseThreshold: 8 }, // docked whole-note review bar
+  noteReviewDock: { enabled: true, keyboard: true, lapseThreshold: 8, requeueEnabled: true, requeueLimit: 3 }, // docked whole-note review bar
   reviewCalendar: { enabled: true, noteMinutes: 2, cardMinutes: 1, showCards: true, detectMainNote: true, weekStartsOn: "monday" }, // due-date calendar and workload
-  studyStats: { enabled: true, leechThreshold: 5, maxRows: 200 }, // Anki-style statistics
+  studyStats: { enabled: true, leechThreshold: 5, maxRows: 200, durableRecall: true, durableDays: 2, heatmapWeeks: 12 }, // Anki-style statistics and two-day durability
+  studyCounters: { version: 1, days: {}, updated: "" }, // permanent per-day counters; survive history trimming
+  pomodoro: { enabled: true, workMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, longBreakEvery: 4, autoStartBreaks: false, autoStartWork: false, state: { phase: "work", remainingSec: 1500, running: false, startedAt: 0, workSessions: 0, completed: 0, skipped: 0, lastCompleted: "" } }, // independent focus timer
   localEvents: { enabled: true, defaultCategory: "study", weekStartsOn: "monday", events: [] }, // local-only event calendar
   spacedEverything: {
     enabled: false, // optional whole-note SM-2 queue, separate from standard note review
@@ -265,6 +268,7 @@ module.exports = {
   VIEW_TYPE_REVIEW_CALENDAR,
   VIEW_TYPE_STUDY_STATS,
   VIEW_TYPE_LOCAL_EVENTS,
+  VIEW_TYPE_POMODORO,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,

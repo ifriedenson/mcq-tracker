@@ -94,7 +94,12 @@ const noteReview = require("./note-review");
 const reviewCalendar = require("./review-calendar");
 const studyStats = require("./study-stats");
 const localEvents = require("./local-events");
+const reviewSession = require("./review-session");
+const durability = require("./durability");
+const studyCounters = require("./study-counters");
+const pomodoro = require("./pomodoro");
 const noteReviewDock = require("./note-review-dock");
+const { PomodoroView } = require("./pomodoro-view");
 const { NoteReviewDock } = require("./note-review-dock");
 const { ReviewCalendarView } = require("./review-calendar-view");
 const { StudyStatsView } = require("./study-stats-view");
@@ -295,6 +300,11 @@ QuestionTrackerPlugin.__test = {
   studyStats,
   localEvents,
   noteReviewDock,
+  reviewSession,
+  durability,
+  studyCounters,
+  pomodoro,
+  PomodoroView,
   NoteReviewDock,
   ReviewCalendarView,
   StudyStatsView,

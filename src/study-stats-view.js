@@ -3,6 +3,7 @@
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_STUDY_STATS } = require("./constants");
 const { MATURITY_ORDER, WEEK_DAYS } = require("./study-stats");
+const { counterDay } = require("./study-counters");
 const { workloadLabel } = require("./review-calendar");
 const { str } = require("./util");
 
@@ -55,7 +56,7 @@ class StudyStatsView extends ItemView {
     const data = this.plugin.studyStatsSnapshot();
     const head = root.createDiv({ cls: "qt-study-stats-head" });
     head.createEl("h2", { text: "Study statistics" });
-    head.createDiv({ cls: "qt-hint", text: "Read-only: true retention by maturity, memory-now, distributions, weekday rhythm, day detail and leeches." });
+    head.createDiv({ cls: "qt-hint", text: "Read-only: true retention by maturity, memory-now, distributions, weekday rhythm, button mix, per-deck summaries, durable recall, a permanent heatmap and leeches." });
 
     const stats = root.createDiv({ cls: "qt-study-stats" });
     const stat = (value, label) => {
@@ -69,10 +70,14 @@ class StudyStatsView extends ItemView {
     stat(data.metrics.memoryNow === null ? "—" : pct(data.metrics.memoryNow), "memory now");
     stat(data.leeches.length, "leeches");
 
+    this.renderButtonMix(root, data);
+    this.renderDurability(root, data);
+    this.renderHeatmap(root, data);
     this.renderRetention(root, data);
     this.renderMemory(root, data);
     this.renderDistributions(root, data);
     this.renderWeekday(root, data);
+    this.renderDecks(root, data);
     this.renderDays(root, data);
     this.renderLeeches(root, data);
   }
@@ -82,6 +87,105 @@ class StudyStatsView extends ItemView {
     card.createEl("h3", { text: "Study statistics is off" });
     card.createDiv({ cls: "qt-onboard-text", text: "Turn it on in Settings → Study statistics." });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
+  }
+
+  renderButtonMix(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Answer button mix" });
+    const mix = data.buttonMix;
+    if (!mix || !mix.total) {
+      card.createDiv({ cls: "qt-study-empty", text: "No rated reviews yet. Grade a note, card or question to start the mix." });
+      return;
+    }
+    const max = Math.max(...mix.buckets.map((bucket) => bucket.count), 1);
+    for (const bucket of mix.buckets) {
+      const row = card.createDiv({ cls: "qt-study-stats-dist-row" });
+      row.createSpan({ cls: "qt-study-stats-dist-label", text: bucket.rating.charAt(0).toUpperCase() + bucket.rating.slice(1) });
+      bar(row, bucket.count, max, `is-${bucket.rating}`);
+      row.createSpan({ cls: "qt-study-stats-dist-count", text: `${bucket.count} · ${pct(bucket.share)}` });
+    }
+    card.createDiv({ cls: "qt-hint", text: `Again rate ${pct(mix.againRate)} across ${mix.total} rated review${mix.total === 1 ? "" : "s"}.` });
+  }
+
+  renderDurability(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Two-day durable recall" });
+    const summary = data.durability;
+    if (!summary || !summary.total) {
+      card.createDiv({ cls: "qt-study-empty", text: "No item has recorded a recall day yet." });
+      return;
+    }
+    card.createDiv({
+      cls: "qt-hint",
+      text: `${summary.durable} durable · ${summary.learning} still learning · ${pct(summary.retention)} of tracked items recalled on ${data.settings.durableDays}+ distinct days.`,
+    });
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of summary.rows.slice(0, 20)) {
+      const line = list.createDiv({ cls: "qt-study-row" });
+      const main = line.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: row.title || row.path });
+      main.createDiv({
+        cls: "qt-study-row-meta",
+        text: `${row.count}/${row.requiredDays} day${row.count === 1 ? "" : "s"}${row.durableOn ? ` · durable ${row.durableOn}` : ""} · ${row.path}`,
+      });
+    }
+  }
+
+  renderHeatmap(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Study heatmap" });
+    const map = data.heatmap;
+    card.createDiv({
+      cls: "qt-hint",
+      text: `${map.activeDays} active day${map.activeDays === 1 ? "" : "s"} in the last ${map.weeks.length} week${map.weeks.length === 1 ? "" : "s"}. These counters are permanent and survive history trimming.`,
+    });
+    const grid = card.createDiv({ cls: "qt-study-stats-heatmap" });
+    for (const week of map.weeks) {
+      const column = grid.createDiv({ cls: "qt-study-stats-heatmap-week" });
+      for (const day of week.days) {
+        const cell = column.createDiv({ cls: `qt-study-stats-heatmap-cell is-level-${day.level}` });
+        cell.setAttr("data-date", day.date);
+        cell.setAttr("aria-label", `${day.date}: ${day.reviews} review${day.reviews === 1 ? "" : "s"}, ${day.minutes} minutes`);
+        if (day.future) cell.addClass("is-future");
+        cell.addEventListener("click", () => {
+          this.selectedHeatDay = this.selectedHeatDay === day.date ? "" : day.date;
+          this.render();
+        });
+      }
+    }
+    if (!this.selectedHeatDay) return;
+    const detail = counterDay(data.counters, this.selectedHeatDay);
+    const panel = card.createDiv({ cls: "qt-study-stats-day-detail" });
+    if (!detail) {
+      panel.createDiv({ cls: "qt-study-row-meta", text: `${this.selectedHeatDay}: no counter recorded.` });
+      return;
+    }
+    panel.createDiv({ cls: "qt-study-row-title", text: this.selectedHeatDay });
+    panel.createDiv({
+      cls: "qt-study-row-meta",
+      text: `${detail.reviews} review${detail.reviews === 1 ? "" : "s"} · ${pct(detail.accuracy)} · ${detail.minutes} min · ${detail.cards} cards · ${detail.questions} questions · ${detail.notes} notes`,
+    });
+    panel.createDiv({ cls: "qt-study-row-meta", text: `Again ${detail.again} · Hard ${detail.hard} · Good ${detail.good} · Easy ${detail.easy}` });
+  }
+
+  renderDecks(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Per-deck breakdown" });
+    if (!data.decks.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "No cards yet, so there is no deck to compare." });
+      return;
+    }
+    const table = card.createDiv({ cls: "qt-study-stats-table" });
+    const header = table.createDiv({ cls: "qt-study-stats-row is-head" });
+    for (const label of ["Deck", "Cards", "Reviews", "Retention", "Avg interval"]) header.createDiv({ text: label });
+    for (const deck of data.decks) {
+      const line = table.createDiv({ cls: "qt-study-stats-row" });
+      line.createDiv({ text: deck.deck });
+      line.createDiv({ text: String(deck.cards) });
+      line.createDiv({ text: String(deck.reviews) });
+      line.createDiv({ text: pct(deck.retention) });
+      line.createDiv({ text: deck.averageInterval === null ? "—" : `${Math.round(deck.averageInterval)}d` });
+    }
   }
 
   renderRetention(root, data) {

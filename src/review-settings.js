@@ -41,6 +41,29 @@ function renderNoteReviewSettings(containerEl, plugin, redisplay) {
       })
     );
   new Setting(containerEl)
+    .setName("Requeue missed notes in this session")
+    .setDesc("A missed note moves behind the notes still waiting and returns before the run ends. A limit prevents one impossible note from trapping the session.")
+    .addToggle((t) =>
+      t.setValue(st.noteReviewDock.requeueEnabled !== false).onChange(async (v) => {
+        st.noteReviewDock.requeueEnabled = v;
+        await plugin.save();
+        plugin.refreshNoteReviewDock();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Requeue limit")
+    .setDesc("How many times one note may return in a single session.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.max = "25";
+      t.setValue(String(st.noteReviewDock.requeueLimit));
+      t.onChange(async (v) => {
+        st.noteReviewDock = normalizeNoteReviewDockSettings({ ...st.noteReviewDock, requeueLimit: v });
+        await plugin.save();
+      });
+    });
+  new Setting(containerEl)
     .setName("Lapse checkpoint")
     .setDesc("After this many Again ratings in a row, offer Reset, Rest for a week, Remove from review or Carry on.")
     .addText((t) => {
@@ -168,6 +191,44 @@ function renderStudyStatsSettings(containerEl, plugin, redisplay) {
       t.setValue(String(st.studyStats.leechThreshold));
       t.onChange(async (v) => {
         st.studyStats = normalizeStudyStatsSettings({ ...st.studyStats, leechThreshold: v });
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Track two-day durable recall")
+    .setDesc("A correct review counts as durable only after a correct recall on two distinct calendar days. A miss starts the run again; the review history itself is unchanged.")
+    .addToggle((t) =>
+      t.setValue(st.studyStats.durableRecall !== false).onChange(async (v) => {
+        st.studyStats.durableRecall = v;
+        await plugin.save();
+        plugin.refreshViews();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Durable recall days")
+    .setDesc("Distinct days required before an item is reported as durable (2–10).")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "2";
+      t.inputEl.max = "10";
+      t.setValue(String(st.studyStats.durableDays || 2));
+      t.onChange(async (v) => {
+        st.studyStats = normalizeStudyStatsSettings({ ...st.studyStats, durableDays: v });
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Heatmap weeks")
+    .setDesc("How many weeks of permanent per-day counters to show.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "4";
+      t.inputEl.max = "52";
+      t.setValue(String(st.studyStats.heatmapWeeks || 12));
+      t.onChange(async (v) => {
+        st.studyStats = normalizeStudyStatsSettings({ ...st.studyStats, heatmapWeeks: v });
         await plugin.save();
         plugin.refreshViews();
       });

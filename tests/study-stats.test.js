@@ -67,6 +67,49 @@ test("leech list includes questions, cards and notes at the threshold", () => {
   assert.equal(rows[0].lapses, 6);
 });
 
+test("deck breakdown groups card reviews and intervals by deck", () => {
+  const cards = [
+    { file: { path: "Cards/A.md", basename: "A" }, fm: { title: "A", history: ["2026-11-01|correct|30|B|2||a|"] }, deck: "Alpha" },
+    { file: { path: "Cards/B.md", basename: "B" }, fm: { title: "B", history: ["2026-11-01|incorrect|30|C|2||b|"] }, deck: "Beta" },
+    { file: { path: "Cards/C.md", basename: "C" }, fm: { title: "C", history: ["2026-11-01|correct|30|B|2||c|"] }, deck: "Alpha" },
+  ];
+  const decks = S.deckBreakdown(cards, { fsrsRetention: 0.9 });
+  assert.deepEqual(decks.map((deck) => deck.deck), ["Alpha", "Beta"]);
+  assert.equal(decks[0].cards, 2);
+  assert.equal(decks[0].reviews, 2);
+  assert.equal(decks[0].retention, 1);
+  assert.equal(decks[1].retention, 0);
+});
+
+test("buildStudyStats adds button mix, heatmap and durable recall from stored counters", () => {
+  const C = T.studyCounters;
+  const one = C.recordStudyCounter(undefined, { date: "2026-11-01", kind: "card", correct: true, seconds: 60, rating: "good" });
+  const two = C.recordStudyCounter(one.counters, { date: "2026-11-01", kind: "note", correct: false, seconds: 30, rating: "again" });
+  const card = {
+    file: { path: "Cards/One.md", basename: "One" },
+    fm: { title: "One", history: ["2026-11-01|correct|30|B|2||card-one|"], recall_days: ["2026-11-01", "2026-11-02"] },
+    deck: "Deck",
+  };
+  const data = S.buildStudyStats({
+    cards: [card],
+    questions: [],
+    notes: [],
+    counters: two.counters,
+    now: new Date(2026, 10, 1, 12),
+    settings: { heatmapWeeks: 4, durableDays: 2 },
+    fsrsRetention: 0.9,
+  });
+  assert.equal(data.buttonMix.total, 2);
+  assert.equal(data.buttonMix.good, 1);
+  assert.equal(data.buttonMix.againRate, 0.5);
+  assert.equal(data.heatmap.weeks.length, 4);
+  assert.equal(data.heatmap.days.find((day) => day.date === "2026-11-01").reviews, 2);
+  assert.equal(data.decks[0].deck, "Deck");
+  assert.equal(data.durability.total, 1);
+  assert.equal(data.durability.durable, 1);
+  assert.equal(data.settings.durableDays, 2);
+});
+
 test("buildStudyStats derives card history and day detail without inventing data", () => {
   const card = {
     file: { path: "Cards/One.md", basename: "One" },
