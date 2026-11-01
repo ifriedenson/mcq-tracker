@@ -844,7 +844,7 @@ For a select-all question, add `Partial: true` to the block. A selection that fi
 Turn it on under **Settings, Global, Modules**, then open **Reference** from the ribbon or the command palette. The view has ten tabs:
 
 - **Formulas** — searchable formulas for math, physics, chemistry and biology, with a subject filter.
-- **Structures** — paste a SMILES string to draw a molecular structure locally, with example molecules. A `smiles` code block in any note renders the same SVG. No structure service, network request or third-party dataset is used.
+- **Structures** — paste a SMILES string to draw a molecular structure locally, with example molecules. A `smiles` code block in any note renders the same SVG. A `chem` block also accepts a simple reaction equation such as `2H2 + O2 -> 2H2O`. No structure service, network request or third-party dataset is used.
 - **Unit converter** — length, mass, volume, temperature, time, speed, energy, pressure, angle and digital data.
 - **Calculator** — a local Basic or Scientific keypad for arithmetic, powers, roots, logs and trigonometry. It uses the restricted evaluator, never `eval`, and is hidden during a timed test unless you allow it under Settings, Reference, Tools.
 - **Graph** — plot `y = f(x)` with a restricted local expression parser. It supports `x`, `pi`, `e`, the usual trig and log functions, and `+ - * / ^`. It does not use `eval`, a calculator service or a Desmos key.
@@ -1043,7 +1043,7 @@ The result screen can show an **Ask AI** panel that explains a question, tells y
 
 ### Option 1: Direct API (all devices, including phones)
 
-The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRouter, Google Gemini, a local Ollama server, or any OpenAI-compatible address you enter (for example LM Studio).
+The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRouter, Google Gemini, Qwen (DashScope), a local Ollama server, or any OpenAI-compatible address you enter (for example LM Studio). Qwen uses the OpenAI-compatible DashScope endpoint with `qwen-plus` as its starting model; the base URL stays editable for regional or dedicated endpoints.
 
 ### Option 2: OpenCode agent (desktop only)
 
@@ -1136,6 +1136,14 @@ Numeric answers can also be checked locally without a model. Add a `calculation`
 Fractions, exponents, matrices, integrals and other MathJax notation render in the question, stimulus, answer choices, explanation and review screen, in timed tests, cards and the AI chat. Answer choices go through the same Markdown renderer as the stem, not a plain-text label.
 
 Simple `\ce{...}` chemistry is made readable even without an mhchem setup: formulas such as `\ce{Ca(OH)2}`, charges such as `\ce{SO4^2-}`, and equations such as `\ce{2H2 + O2 -> 2H2O}` are converted at display time. More complex mhchem syntax, including labels, brackets and `\text{}`, is left exactly as written for an mhchem or Extended MathJax setup. Notes are never changed. The audit and the visual checklist are in [docs/math-rendering-audit.md](docs/math-rendering-audit.md).
+
+Local STEM blocks work in stimuli, questions, choices, explanations and review:
+
+- `chem` — a structure with `SMILES: CC(=O)O`, or a simple equation with coefficients, charges, states and arrows. Unsupported complexes and reaction conditions report an error instead of being guessed.
+- `biology` or `biosequence` — a raw DNA/RNA/protein sequence or `type`, `sequence`, `translate`, `complement` and `name` options. DNA and RNA show codon groups, an optional complement and the standard translation; proteins show grouped residues.
+- `circuit` — a small two-terminal netlist such as `battery V1 1 0 9V`, `resistor R1 1 2 100Ω`, `lamp L1 2 0`. It draws batteries, resistors, lamps, LEDs, switches, capacitors, inductors, motors, diodes, wires and ground. It is a schematic renderer, not a circuit simulator.
+
+All three blocks are local, offline and dependency-free. They do not call a provider, fetch a service or bundle a third-party renderer.
 
 ## Settings
 

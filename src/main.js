@@ -29,7 +29,7 @@ const sm2 = require("./sm2");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
 const practiceKeys = require("./practice-keys");
-const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
+const { API_PRESETS, ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
 const tagTimer = require("./tag-timer");
@@ -40,6 +40,7 @@ const aiService = require("./ai-service");
 const aiTools = require("./ai-tools");
 const mathRendering = require("./math-rendering");
 const smiles = require("./smiles");
+const stemDiagrams = require("./stem-diagrams");
 const noteContext = require("./note-context");
 const aiWriteGuard = require("./ai-write-guard");
 const cardWriteDiff = require("./card-write-diff");
@@ -244,6 +245,7 @@ QuestionTrackerPlugin.__test = {
   PracticeView,
   practiceKeys,
   OpenCodeClient,
+  API_PRESETS,
   ApiClient,
   friendlyApiError,
   apiTurns,
@@ -257,6 +259,7 @@ QuestionTrackerPlugin.__test = {
   aiTools,
   mathRendering,
   smiles,
+  stemDiagrams,
   renderMarkdownInto,
   loadQuestionData,
   noteContext,

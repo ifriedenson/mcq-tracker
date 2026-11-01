@@ -50,6 +50,7 @@ const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, rep
 const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
 const { computedVerification } = require("./computed-verification");
 const { renderSmilesSvg } = require("./smiles");
+const { renderBiologyDiagram, renderChemistryDiagram, renderCircuitDiagram } = require("./stem-diagrams");
 const { allowedWriteRoots, assertAllowedWritePath, assertProtectedUnchanged } = require("./ai-write-guard");
 const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
@@ -628,6 +629,38 @@ class QuestionTrackerPlugin extends Plugin {
       }
       const box = el.createDiv({ cls: "qt-smiles" });
       box.innerHTML = safeSvg(result.svg);
+    });
+    this.registerMarkdownCodeBlockProcessor("chem", (source, el) => {
+      const result = renderChemistryDiagram(source);
+      if (!result.ok) {
+        el.createDiv({ cls: "qt-stem-error", text: `Chemistry: ${result.error}` });
+        return;
+      }
+      el.createDiv({ cls: "qt-stem-block" }).innerHTML = result.html;
+    });
+    this.registerMarkdownCodeBlockProcessor("biology", (source, el) => {
+      const result = renderBiologyDiagram(source);
+      if (!result.ok) {
+        el.createDiv({ cls: "qt-stem-error", text: `Biology: ${result.error}` });
+        return;
+      }
+      el.createDiv({ cls: "qt-stem-block" }).innerHTML = result.html;
+    });
+    this.registerMarkdownCodeBlockProcessor("biosequence", (source, el) => {
+      const result = renderBiologyDiagram(source);
+      if (!result.ok) {
+        el.createDiv({ cls: "qt-stem-error", text: `Biology: ${result.error}` });
+        return;
+      }
+      el.createDiv({ cls: "qt-stem-block" }).innerHTML = result.html;
+    });
+    this.registerMarkdownCodeBlockProcessor("circuit", (source, el) => {
+      const result = renderCircuitDiagram(source);
+      if (!result.ok) {
+        el.createDiv({ cls: "qt-stem-error", text: `Circuit: ${result.error}` });
+        return;
+      }
+      el.createDiv({ cls: "qt-stem-block" }).innerHTML = result.html;
     });
     this.addCommand({ id: "weak-spots", name: "Show weak spots", callback: () => this.activateInsights("weak") });
     this.addCommand({ id: "error-log", name: "Show error log", callback: () => this.activateInsights("errors") });

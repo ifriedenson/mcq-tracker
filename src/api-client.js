@@ -12,6 +12,7 @@ const API_PRESETS = {
   openai: { label: "OpenAI", kind: "openai", base: "https://api.openai.com/v1", defaultModel: "" },
   openrouter: { label: "OpenRouter", kind: "openai", base: "https://openrouter.ai/api/v1", defaultModel: "" },
   google: { label: "Google Gemini", kind: "openai", base: "https://generativelanguage.googleapis.com/v1beta/openai", defaultModel: "" },
+  qwen: { label: "Qwen (DashScope)", kind: "openai", base: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-plus" },
   ollama: { label: "Ollama (same computer only)", kind: "openai", base: "http://localhost:11434/v1", defaultModel: "", noKey: true },
   custom: { label: "Other OpenAI-compatible", kind: "openai", base: "", defaultModel: "" },
 };
@@ -45,7 +46,7 @@ class ApiClient {
       preset,
       base: (str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "") ? safeApiBase((str(a.baseUrl).trim() || preset.base).replace(/\/+$/, "")) : "",
       key: resolveApiKey(this.app, a),
-      model: str(this.opts.model).trim() || str(a.model).trim(),
+      model: str(this.opts.model).trim() || str(a.model).trim() || preset.defaultModel,
     };
   }
   async vision(system, prompt, images, opts) {

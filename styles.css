@@ -5918,6 +5918,69 @@
   margin-top: 8px;
 }
 
+/* Local STEM diagrams for question content */
+.qt-stem-block { margin: 10px 0; }
+.qt-stem-error {
+  color: var(--text-error);
+  font-size: 0.82rem;
+  margin: 8px 0;
+}
+.qt-chem,
+.qt-bio,
+.qt-circuit {
+  background: var(--background-primary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  margin: 8px 0;
+  overflow: auto;
+  padding: 12px;
+}
+.qt-chem-equations { display: flex; flex-direction: column; gap: 10px; }
+.qt-chem-equation {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  justify-content: center;
+  line-height: 1.7;
+}
+.qt-chem-species { white-space: nowrap; }
+.qt-chem-formula { font-size: 1.15em; }
+.qt-chem-coefficient { margin-right: 0.08em; }
+.qt-chem-state { color: var(--text-muted); font-size: 0.85em; margin-left: 0.05em; }
+.qt-chem-plus { color: var(--text-muted); }
+.qt-chem-arrow { color: var(--text-muted); font-size: 1.35em; }
+.qt-chem-structure { display: flex; justify-content: center; }
+.qt-chem-structure svg { max-width: 100%; height: auto; }
+.qt-bio-name { font-weight: 600; margin-bottom: 4px; }
+.qt-bio-meta { color: var(--text-muted); font-size: 0.8rem; margin-bottom: 8px; }
+.qt-bio-strand,
+.qt-bio-translation {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0;
+}
+.qt-bio-complement { color: var(--text-muted); }
+.qt-bio-end { color: var(--text-muted); flex: 0 0 auto; font-size: 0.75rem; min-width: 2.3em; }
+.qt-bio-track { font-family: var(--font-monospace); white-space: nowrap; }
+.qt-bio-codon { display: inline-flex; margin-right: 0.55em; }
+.qt-bio-base { display: inline-block; font-weight: 700; text-align: center; width: 1.1em; }
+.qt-bio-A { color: var(--color-green); }
+.qt-bio-C { color: var(--color-blue); }
+.qt-bio-G { color: var(--color-orange); }
+.qt-bio-T,
+.qt-bio-U { color: var(--color-red); }
+.qt-bio-translation { border-top: 1px dashed var(--background-modifier-border); margin-top: 6px; padding-top: 6px; }
+.qt-bio-aa { display: inline-block; font-weight: 700; min-width: 1.1em; text-align: center; }
+.qt-bio-stop { color: var(--color-red); }
+.qt-bio-protein-track { font-family: var(--font-monospace); line-height: 1.8; overflow-wrap: anywhere; }
+.qt-bio-protein-group { display: inline-block; margin-right: 0.8em; white-space: nowrap; }
+.qt-bio-residue { display: inline-block; text-align: center; width: 1.1em; }
+.qt-circuit { display: flex; justify-content: center; }
+.qt-circuit-svg { color: var(--text-normal); height: auto; max-width: 100%; }
+
 /* Import result: per-row outcomes stay readable without turning the modal into a report page. */
 .qt-import-result {
   margin-top: 12px;
