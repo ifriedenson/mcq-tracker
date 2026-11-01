@@ -1,43 +1,121 @@
 name: Release
 
-# Push a tag like 1.0.0 (it must equal "version" in manifest.json) and this
-# publishes a GitHub release with the three files Obsidian installs from,
-# plus signed build-provenance attestations for them.
+# Publishes the version in manifest.json from a push to main. The version bump
+# commit is treated as the release commit, so later documentation or CI commits
+# do not move the tag. The job is idempotent: an existing release is repaired
+# (title, notes, missing assets, draft state) and is never created twice.
 on:
   push:
-    tags:
-      - "[0-9]+.[0-9]+.[0-9]+"
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
   id-token: write
   attestations: write
 
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
 
-      - name: Check the tag matches manifest.json
+      - name: Resolve the release version
+        id: version
         run: |
           V=$(jq -r .version manifest.json)
-          if [ "$V" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match manifest version $V"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if ! printf '%s' "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "manifest version '$V' is not a release version"
             exit 1
           fi
 
+      - name: Keep the curated release notes
+        env:
+          V: ${{ steps.version.outputs.version }}
+        run: |
+          NOTES="$RUNNER_TEMP/release-notes.md"
+          if [ -f "docs/release-notes/$V.md" ]; then
+            cp "docs/release-notes/$V.md" "$NOTES"
+          else
+            printf '# MCQ Tracker %s\n\nSee the README for installation and usage.\n' "$V" > "$NOTES"
+          fi
+          echo "NOTES=$NOTES" >> "$GITHUB_ENV"
+
+      - name: Repair or stop an existing release
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$V" >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            gh release edit "$V" --title "$V" --notes-file "$NOTES"
+            HAVE=$(gh release view "$V" --json assets --jq '.assets[].name')
+            MISSING=""
+            for f in main.js manifest.json styles.css; do
+              printf '%s\n' "$HAVE" | grep -qx "$f" || MISSING="$MISSING $f"
+            done
+            if [ -n "$MISSING" ]; then
+              gh release upload "$V" $MISSING --clobber
+            fi
+            if [ "$(gh release view "$V" --json isDraft --jq .isDraft)" = "true" ]; then
+              gh release edit "$V" --draft=false
+            fi
+            echo "Release $V is published with main.js, manifest.json and styles.css."
+            exit 0
+          fi
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$V")
+          if [ "$CODE" != "404" ]; then
+            echo "Could not confirm whether release $V exists (HTTP $CODE)."
+            exit 1
+          fi
+          echo "published=false" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve the release commit
+        if: steps.existing.outputs.published != 'true'
+        id: target
+        env:
+          V: ${{ steps.version.outputs.version }}
+        run: |
+          TARGET=$(git log -1 --format=%H -- manifest.json)
+          BUILT=$(git show "$TARGET:manifest.json" | jq -r .version)
+          if [ "$BUILT" != "$V" ]; then
+            echo "The last manifest change is $BUILT, not $V."
+            exit 1
+          fi
+          echo "sha=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the release commit
+        if: steps.existing.outputs.published != 'true'
+        env:
+          TARGET: ${{ steps.target.outputs.sha }}
+        run: git checkout --force "$TARGET"
+
       - uses: actions/setup-node@v4
+        if: steps.existing.outputs.published != 'true'
         with:
           node-version: 20
 
       - name: Install from the lockfile
+        if: steps.existing.outputs.published != 'true'
         run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Run the tests (this also checks main.js is the build of src/)
+      - name: Run the tests
+        if: steps.existing.outputs.published != 'true'
         run: npm test
 
       - name: Attest build provenance
+        if: steps.existing.outputs.published != 'true'
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
@@ -45,11 +123,33 @@ jobs:
             manifest.json
             styles.css
 
-      - name: Create the release
+      - name: Create the tag and release
+        if: steps.existing.outputs.published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.version.outputs.version }}
+          TARGET: ${{ steps.target.outputs.sha }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          REMOTE_PEELED=$(git ls-remote --tags origin "refs/tags/${V}^{}" | cut -f1)
+          REMOTE_RAW=$(git ls-remote --tags origin "refs/tags/$V" | cut -f1)
+          REMOTE_TAG="$REMOTE_PEELED"
+          if [ -z "$REMOTE_TAG" ]; then
+            REMOTE_TAG="$REMOTE_RAW"
+          fi
+          if [ -n "$REMOTE_TAG" ] && [ "$REMOTE_TAG" != "$TARGET" ]; then
+            echo "Tag $V already points to $REMOTE_TAG, not $TARGET."
+            exit 1
+          fi
+          if [ -z "$REMOTE_TAG" ]; then
+            if git rev-parse -q --verify "refs/tags/$V" >/dev/null; then
+              git tag -d "$V"
+            fi
+            git tag -a "$V" -m "MCQ Tracker $V" "$TARGET"
+            git push origin "refs/tags/$V"
+          fi
+          gh release create "$V" \
             main.js manifest.json styles.css \
-            --title "$GITHUB_REF_NAME" \
-            --notes "Release $GITHUB_REF_NAME. See the README for usage."
+            --title "$V" \
+            --notes-file "$NOTES"
