@@ -2873,6 +2873,39 @@ The analysis added four gaps that were not explicit in §5.22. All four have shi
 
 **Status update (Nov 1, 2026):** the local mind-map/summary slice shipped as the `study-map` block and `vault-search` covers cited local lookup, so mind maps are no longer a gap. The objective-based tutor and cited web lookup remain gated on a provider/network decision (§3.9.7), so they are deferred rather than rejected. The Spaceforge audit also adds four local rows (docked note review, review calendar/workload, Anki-style statistics and local calendar events) in §3.9.7. `.apkg` export shipped in 1.116.0 with a tested SQLite writer, so it is no longer a gap.
 
+### 13.10 dralkh plugin family review (Nov 1, 2026)
+
+Six plugins by the same author were read on Nov 1, 2026, because the Spaceforge row in §3.9.3 is still gated on a provider decision and its README has moved on since the Oct 30 comparison. **Every repository is MIT** (verified in each `LICENSE`), so ideas may be adapted; **no code was copied**, and nothing here changes a shipped behaviour.
+
+| Repository | What it is | Relevant to MCQ Tracker? |
+|---|---|---|
+| [spaceforge](https://github.com/dralkh/spaceforge) | FSRS/SM-2 whole-note review, AI MCQ generation, note tutor, Pomodoro, calendar events, statistics | Yes — the closest rival; nine specific gaps below |
+| [mdc](https://github.com/dralkh/mdc) | AI-assisted PPTX/PDF/DOC/DOCX → Markdown converter (CLI plus Obsidian plugin) | Partly — needs LibreOffice/Poppler binaries, so it stays gated with the document-import row |
+| [seerai](https://github.com/dralkh/seerai) | Zotero 10 research assistant: library chat, RAG, OCR, federated scholarly search, PRISMA review | Marginally — provider- and platform-gated; only the evidence-table idea transfers |
+| [hatch](https://github.com/dralkh/hatch) | Pixel-art pet generator (sprite atlases, web app, CLI) | No — unrelated to study tracking |
+| [naqsh](https://github.com/dralkh/naqsh) | Deterministic Arabic calligraphy avatars from semantic roots | No — decorative, outside the question-first surface |
+| [aurora](https://github.com/dralkh/aurora) | KDE/macOS/Windows sleep calculator with bedtime and wake alarms | No — desktop tray app, not an Obsidian plugin |
+
+**Spaceforge features this plan does not record yet.** Rows 1–7 are local (no provider, no network) and could ship behind a Global → Modules switch in the existing Practice, Retention or Calendar surfaces; rows 8–9 are local but are product-scope decisions; row 10 is already the gated `Retain` migration row.
+
+1. **Docked in-place review bar.** The note is reviewed in its own tab with grading controls docked underneath, so nothing covers the note and no panel reopens between items. Grades preview the interval each would schedule; `1`–`4` (FSRS) or `0`–`5` (SM-2) grade, `n` skips, `p` postpones a day, `u` undoes the last rating, `Esc` ends; a **Grade layout** setting picks one row, a stacked palette or auto by pane width; the dock is resizable and can also sit beside the note as a vertical split. Practice and timed tests are currently their own views, so this is the one structural difference worth a decision.
+2. **Same-session requeue.** A failed grade keeps the item in today's queue and brings it back after the others, and the run ends only once everything has been passed. MCQ Tracker has bury/suspend and leech handling but not this re-drill loop.
+3. **Lapse checkpoint prompt.** At a configurable lapse count (8 by default) the bar asks whether to reset the item's progress, rest it for a week, remove it from the schedule, or carry on. The existing leech flag and suspend action cover the end state, not the interactive checkpoint.
+4. **Two-different-days durability rule.** The tutor counts recall as durable only when it was produced on two separate days, and tracks understanding, recall and transfer separately per objective. This is a cheap, honest rule for the confidence-calibration and retention claims.
+5. **Retention and collection analytics.** True retention split by maturity (learning steps, young < 21 days, mature 21+), the Again/Hard/Good/Easy button mix with the Again rate split by maturity, interval/ease/FSRS-stability/FSRS-difficulty distributions with medians, a "memory now" retrievability estimate for FSRS material, per-deck summaries and a clickable heatmap day breakdown. The Retention tab has a 30-day forecast and a heatmap but no maturity split, button mix or distribution percentiles.
+6. **Permanent per-day counters.** Each review folds into a per-day counter so year-long heatmaps, streaks and all-time retention survive even though the detailed review log is capped (1,000 entries upstream; the inline-quiz attempt log here caps at 500). Worth copying before any long-range chart is promised.
+7. **Folder → hub-note linking.** Adding a folder to review links its notes through the folder's main note, falling back to the most-linked note, including outgoing links but not sibling folders. MCQ Tracker has folder topics in the Quiz index but no linking rule.
+8. **Pomodoro timer.** Configurable work/short/long durations with session tracking; `src/` has no Pomodoro implementation at all. Overlaps Study Flow, so it needs a "is a timer in scope" answer rather than a code answer.
+9. **Calendar event CRUD with recurrence.** Create/edit/delete local events with colour categories, daily/weekly/monthly/yearly recurrence plus an end date, and quick create from a day cell. MCQ Tracker imports and exports ICS and reads Full Calendar notes read-only; it has no local event editor and writes recurrence only through ICS properties.
+10. **Central schedule storage with a custom data path** plus automatic migration from legacy locations. This is prior art for the existing `Retain out-of-note storage` row rather than a new row; the migration and rollback decision is still the blocker (§3.9.5).
+
+**Also worth recording.** Spaceforge writes a session report back into the vault as study notes and cards, keeps a per-objective conversation and draft so switching objectives never loses an answer, and offers optional web lookup whose citations are restricted to sources actually retrieved. The last one only becomes buildable once a search endpoint is approved.
+
+**Not adopted from the other five.** Hatch, naqsh and aurora have no study-tracking surface. MDC's conversion pipeline depends on LibreOffice and Poppler binaries that a plugin cannot bundle, so it joins the gated document-import row. SeerAI's federated scholarly search, PDF OCR and PRISMA workflow are provider- and platform-gated; the only transferable idea is a paper/evidence table (structured extraction across notes), which is equally provider-gated.
+
+**Decisions needed before any of rows 1–9 is implemented:** whether in-place docked review replaces the separate practice surface or is added beside it, whether a Pomodoro belongs in a question tracker, and whether the calendar gains a local event editor with recurrence. Rows 5–7 need no product decision and could ship next.
+
+
 ---
 
 ## Appendix: Archived brainstorms and superseded drafts
