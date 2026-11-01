@@ -2905,6 +2905,8 @@ Six plugins by the same author were read on Nov 1, 2026, because the Spaceforge 
 
 **Decisions needed before any of rows 1–9 is implemented:** whether in-place docked review replaces the separate practice surface or is added beside it, whether a Pomodoro belongs in a question tracker, and whether the calendar gains a local event editor with recurrence. Rows 5–7 need no product decision and could ship next.
 
+**Implementation status (Nov 1, 2026):** §3.9.7 R1–R4 now cover row 1 (docked review bar), row 3 (lapse checkpoint), the listed dashboard slice of row 5 (maturity retention, memory-now, interval/ease/stability/difficulty distributions, weekday rhythm, day detail and leeches), row 7 (folder main-note linking) and row 9 (local event CRUD/recurrence). Rows 2 (same-session requeue), 4 (two-day durability), 6 (permanent per-day counters) and 8 (Pomodoro) remain open; row 10 stays gated on the existing migration decision. The button mix, per-deck summaries and clickable heatmap from row 5 also remain open.
+
 
 ---
 
