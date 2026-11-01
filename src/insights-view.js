@@ -83,12 +83,15 @@ class InsightsView extends ItemView {
     const el = this.contentEl;
     const top = el.scrollTop;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-ins" });
+    const root = el.createDiv({ cls: "qt-wrap qt-ins qt-screen" });
     if (this.plugin.mcqEnabled && !this.plugin.mcqEnabled()) {
       root.createDiv({ cls: "qt-hint", text: "The MCQ Tracker module is off. Turn it on in Settings, Global." });
       return;
     }
-    const tabs = root.createDiv({ cls: "qt-row qt-small-row" });
+    const head = root.createDiv({ cls: "qt-screen-head" });
+    head.createEl("h2", { text: "Insights" });
+    head.createDiv({ cls: "qt-screen-subtitle", text: "Practice, courses, memory and the next step, calculated locally." });
+    const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-tabbar" });
     for (const [id, label] of [["overview", "Overview"], ["progress", "Progress"], ["weak", "Weak spots"], ["concepts", "Concepts"], ["errors", "Error log"]]) {
       const b = tabs.createEl("button", { text: label });
       if (this.tab === id) b.addClass("mod-cta");

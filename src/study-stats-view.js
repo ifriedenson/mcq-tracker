@@ -56,13 +56,13 @@ class StudyStatsView extends ItemView {
   render() {
     const el = this.contentEl;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-study-stats-view" });
+    const root = el.createDiv({ cls: "qt-wrap qt-study-stats-view qt-screen" });
     if (!this.plugin.studyStatsEnabled()) {
       this.renderOff(root);
       return;
     }
     const data = this.plugin.studyStatsSnapshot();
-    const head = root.createDiv({ cls: "qt-study-stats-head" });
+    const head = root.createDiv({ cls: "qt-study-stats-head qt-screen-head" });
     head.createEl("h2", { text: "Study statistics" });
     head.createDiv({ cls: "qt-hint", text: "Read-only: true retention by maturity, memory-now, distributions, weekday rhythm, button mix, per-deck summaries, durable recall, a permanent heatmap and leeches." });
 

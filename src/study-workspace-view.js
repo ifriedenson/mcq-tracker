@@ -142,14 +142,14 @@ class StudyWorkspaceView extends ItemView {
   render() {
     const root = this.contentEl;
     root.empty();
-    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap" });
+    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap qt-screen" });
     if (!this.plugin.studyWorkspaceEnabled()) {
       this.renderOff(wrap);
       return;
     }
     const tabs = this.enabledTabs();
     if (!tabs.some((tab) => tab.id === this.tab)) this.tab = tabs[0] ? tabs[0].id : "feynman";
-    const header = wrap.createDiv({ cls: "qt-study-header" });
+    const header = wrap.createDiv({ cls: "qt-study-header qt-screen-head" });
     const title = header.createDiv({ cls: "qt-study-heading" });
     title.createEl("h2", { text: "Study Workspace" });
     title.createDiv({ cls: "qt-hint", text: "Guided, local study workflows. Each tab has its own settings switch." });

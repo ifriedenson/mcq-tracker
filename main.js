@@ -6831,7 +6831,7 @@ class AssignmentsView extends ItemView {
     const el = this.contentEl;
     const top = el.scrollTop;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-assignments" });
+    const root = el.createDiv({ cls: "qt-wrap qt-assignments qt-screen" });
 
     if (!p.assignmentsEnabled()) {
       const card = root.createDiv({ cls: "qt-assignment-empty" });
@@ -6844,13 +6844,14 @@ class AssignmentsView extends ItemView {
     const today = localDate();
     const stats = p.assignmentStats({ today });
     const summary = stats.summary;
-    root.createDiv({ cls: "qt-today-kicker", text: "Gradebook" });
-    root.createEl("h2", { text: "Assignments & grades" });
-    root.createDiv({
-      cls: "qt-today-count",
+    const head = root.createDiv({ cls: "qt-screen-head" });
+    head.createDiv({ cls: "qt-today-kicker", text: "Gradebook" });
+    head.createEl("h2", { text: "Assignments & grades" });
+    head.createDiv({
+      cls: "qt-today-count qt-screen-subtitle",
       text: `${summary.open} open · ${summary.overdue} overdue · ${summary.graded} graded · ${stats.courses.length} course${stats.courses.length === 1 ? "" : "s"}`,
     });
-    const actions = root.createDiv({ cls: "qt-row qt-small-row" });
+    const actions = root.createDiv({ cls: "qt-row qt-small-row qt-toolbar" });
     actions.createEl("button", { text: "Add assignment", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.openNew());
     actions.createEl("button", { text: "Assignment settings" }).addEventListener("click", () => p.openSettings());
 
@@ -6895,7 +6896,7 @@ class AssignmentsView extends ItemView {
   }
 
   renderFilters(root) {
-    const row = root.createDiv({ cls: "qt-row qt-small-row qt-assignment-filters" });
+    const row = root.createDiv({ cls: "qt-row qt-small-row qt-assignment-filters qt-segmented" });
     for (const [id, label] of [["open", "Open"], ["all", "All"], ["graded", "Graded"]]) {
       const button = row.createEl("button", { text: label, cls: this.filter === id ? "is-active" : "" });
       button.addEventListener("click", () => {
@@ -17503,10 +17504,8 @@ class CardView extends ItemView {
     const p = this.plugin;
     const el = this.contentEl;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-cards" });
+    const root = el.createDiv({ cls: "qt-wrap qt-cards qt-screen" });
     if (!p.cardsEnabled || !p.cardsEnabled()) return this.renderModuleOff(root);
-    root.createEl("h2", { text: "Cards" });
-
     if (this.state === "review") return this.renderReview(root);
     if (this.state === "summary") return this.renderSummary(root);
     this.renderBrowse(root);
@@ -17533,7 +17532,11 @@ class CardView extends ItemView {
     const pending = p.pendingCardGrades ? p.pendingCardGrades() : [];
     const pendingByPath = pendingGradeCounts(pending);
 
-    const tools = root.createDiv({ cls: "qt-row qt-cards-tools" });
+    const head = root.createDiv({ cls: "qt-screen-head" });
+    head.createEl("h2", { text: "Cards" });
+    head.createDiv({ cls: "qt-screen-subtitle", text: "Build decks, clear what is due, and keep every card tied to its source note." });
+
+    const tools = root.createDiv({ cls: "qt-row qt-cards-tools qt-toolbar" });
     const add = tools.createEl("button", { text: "New card", cls: "mod-cta" });
     add.addEventListener("click", () => this.openCardModal());
     const occlusion = tools.createEl("button", { text: "Image occlusion" });
@@ -17555,7 +17558,7 @@ class CardView extends ItemView {
       this.render();
     });
 
-    const summary = root.createDiv({ cls: "qt-cards-stats" });
+    const summary = root.createDiv({ cls: "qt-cards-stats qt-summary-strip" });
     summary.createSpan({ text: `${stats.total} card${stats.total === 1 ? "" : "s"}` });
     summary.createSpan({ text: `${stats.due} due` });
     summary.createSpan({ text: `${stats.fresh} new` });
@@ -31466,12 +31469,15 @@ class InsightsView extends ItemView {
     const el = this.contentEl;
     const top = el.scrollTop;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-ins" });
+    const root = el.createDiv({ cls: "qt-wrap qt-ins qt-screen" });
     if (this.plugin.mcqEnabled && !this.plugin.mcqEnabled()) {
       root.createDiv({ cls: "qt-hint", text: "The MCQ Tracker module is off. Turn it on in Settings, Global." });
       return;
     }
-    const tabs = root.createDiv({ cls: "qt-row qt-small-row" });
+    const head = root.createDiv({ cls: "qt-screen-head" });
+    head.createEl("h2", { text: "Insights" });
+    head.createDiv({ cls: "qt-screen-subtitle", text: "Practice, courses, memory and the next step, calculated locally." });
+    const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-tabbar" });
     for (const [id, label] of [["overview", "Overview"], ["progress", "Progress"], ["weak", "Weak spots"], ["concepts", "Concepts"], ["errors", "Error log"]]) {
       const b = tabs.createEl("button", { text: label });
       if (this.tab === id) b.addClass("mod-cta");
@@ -33195,7 +33201,7 @@ class LocalEventsView extends ItemView {
   render() {
     const el = this.contentEl;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-local-events" });
+    const root = el.createDiv({ cls: "qt-wrap qt-local-events qt-screen" });
     if (!this.plugin.localEventsEnabled()) {
       const card = root.createDiv({ cls: "qt-onboard-card" });
       card.createEl("h3", { text: "Local events is off" });
@@ -33204,10 +33210,10 @@ class LocalEventsView extends ItemView {
       return;
     }
     const settings = this.plugin.settings.localEvents;
-    const head = root.createDiv({ cls: "qt-local-events-head" });
+    const head = root.createDiv({ cls: "qt-local-events-head qt-screen-head" });
     head.createEl("h2", { text: "Local events" });
     head.createDiv({ cls: "qt-hint", text: "Stored in plugin data and separate from imported .ics feeds and Full Calendar notes. Recurrence is expanded locally." });
-    const actions = root.createDiv({ cls: "qt-row qt-local-events-actions" });
+    const actions = root.createDiv({ cls: "qt-row qt-local-events-actions qt-toolbar" });
     actions.createEl("button", { text: "New event", cls: "mod-cta" }).addEventListener("click", () => this.openNew());
     actions.createEl("button", { text: "Previous month" }).addEventListener("click", () => this.shiftMonth(-1));
     actions.createEl("button", { text: "Today" }).addEventListener("click", () => this.goToday());
@@ -51263,7 +51269,7 @@ class PomodoroView extends ItemView {
   render() {
     const el = this.contentEl;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-pomodoro-view" });
+    const root = el.createDiv({ cls: "qt-wrap qt-pomodoro-view qt-screen" });
     if (!this.plugin.pomodoroEnabled()) {
       const card = root.createDiv({ cls: "qt-onboard-card" });
       card.createEl("h3", { text: "Pomodoro is off" });
@@ -59384,7 +59390,7 @@ class ReferenceView extends ItemView {
     const el = this.contentEl;
     const top = el.scrollTop;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-ref" });
+    const root = el.createDiv({ cls: "qt-wrap qt-ref qt-screen" });
     if (!this.plugin.referenceEnabled()) {
       const card = root.createDiv({ cls: "qt-settings-card" });
       card.createEl("h3", { text: "Reference is off" });
@@ -59396,8 +59402,9 @@ class ReferenceView extends ItemView {
       return;
     }
 
-    root.createEl("h2", { text: "Reference" });
-    root.createDiv({
+    const head = root.createDiv({ cls: "qt-screen-head" });
+    head.createEl("h2", { text: "Reference" });
+    head.createDiv({
       cls: "qt-ref-intro",
       text: "Bundled formulas, constants, unit conversions, one-screen reference sheets, a local calculator and an unofficial AP score estimator. Everything is local and works offline.",
     });
@@ -61089,7 +61096,7 @@ class ReviewCalendarView extends ItemView {
   render() {
     const el = this.contentEl;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-review-calendar" });
+    const root = el.createDiv({ cls: "qt-wrap qt-review-calendar qt-screen" });
     if (!this.plugin.reviewCalendarEnabled()) {
       this.renderOff(root);
       return;
@@ -61097,11 +61104,11 @@ class ReviewCalendarView extends ItemView {
     const snapshot = this.plugin.reviewCalendarSnapshot({ days: 400 });
     const today = snapshot.today;
     if (!this.selected || !/^\d{4}-\d{2}-\d{2}$/.test(this.selected)) this.selected = today;
-    const head = root.createDiv({ cls: "qt-review-calendar-head" });
+    const head = root.createDiv({ cls: "qt-review-calendar-head qt-screen-head" });
     head.createEl("h2", { text: "Review calendar" });
     head.createDiv({ cls: "qt-hint", text: "Due whole notes and cards from their own next_review properties. Separate from classes and exams." });
 
-    const stats = root.createDiv({ cls: "qt-review-calendar-stats" });
+    const stats = root.createDiv({ cls: "qt-review-calendar-stats qt-summary-strip" });
     const stat = (value, label) => {
       const card = stats.createDiv({ cls: "qt-study-stat" });
       card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
@@ -61112,7 +61119,7 @@ class ReviewCalendarView extends ItemView {
     stat(snapshot.next7.total, "next 7 days");
     stat(workloadLabel(snapshot.next7.minutes), "estimated work");
 
-    const actions = root.createDiv({ cls: "qt-row qt-review-calendar-actions" });
+    const actions = root.createDiv({ cls: "qt-row qt-review-calendar-actions qt-toolbar" });
     actions.createEl("button", { text: "Add this note", cls: "mod-cta" }).addEventListener("click", () => this.addNote());
     actions.createEl("button", { text: "Add this folder" }).addEventListener("click", () => this.addFolder());
     actions.createEl("button", { text: "Previous month" }).addEventListener("click", () => this.shiftMonth(-1));
@@ -70204,13 +70211,13 @@ class StudyStatsView extends ItemView {
   render() {
     const el = this.contentEl;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-study-stats-view" });
+    const root = el.createDiv({ cls: "qt-wrap qt-study-stats-view qt-screen" });
     if (!this.plugin.studyStatsEnabled()) {
       this.renderOff(root);
       return;
     }
     const data = this.plugin.studyStatsSnapshot();
-    const head = root.createDiv({ cls: "qt-study-stats-head" });
+    const head = root.createDiv({ cls: "qt-study-stats-head qt-screen-head" });
     head.createEl("h2", { text: "Study statistics" });
     head.createDiv({ cls: "qt-hint", text: "Read-only: true retention by maturity, memory-now, distributions, weekday rhythm, button mix, per-deck summaries, durable recall, a permanent heatmap and leeches." });
 
@@ -72116,14 +72123,14 @@ class StudyToolsView extends ItemView {
   render() {
     const root = this.contentEl;
     root.empty();
-    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap" });
+    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap qt-screen" });
     if (!this.plugin.studyToolsEnabled()) {
       this.renderOff(wrap);
       return;
     }
     const tabs = this.enabledTabs();
     if (!tabs.some((tab) => tab.id === this.tab)) this.tab = tabs[0] ? tabs[0].id : "overview";
-    const header = wrap.createDiv({ cls: "qt-study-header" });
+    const header = wrap.createDiv({ cls: "qt-study-header qt-screen-head" });
     const title = header.createDiv({ cls: "qt-study-heading" });
     title.createEl("h2", { text: "Study Tools" });
     title.createDiv({ cls: "qt-hint", text: "Local study workflows that do not belong in Practice, Cards, Calendar or Assignments." });
@@ -73938,14 +73945,14 @@ class StudyWorkspaceView extends ItemView {
   render() {
     const root = this.contentEl;
     root.empty();
-    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap" });
+    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap qt-screen" });
     if (!this.plugin.studyWorkspaceEnabled()) {
       this.renderOff(wrap);
       return;
     }
     const tabs = this.enabledTabs();
     if (!tabs.some((tab) => tab.id === this.tab)) this.tab = tabs[0] ? tabs[0].id : "feynman";
-    const header = wrap.createDiv({ cls: "qt-study-header" });
+    const header = wrap.createDiv({ cls: "qt-study-header qt-screen-head" });
     const title = header.createDiv({ cls: "qt-study-heading" });
     title.createEl("h2", { text: "Study Workspace" });
     title.createDiv({ cls: "qt-hint", text: "Guided, local study workflows. Each tab has its own settings switch." });

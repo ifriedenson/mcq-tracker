@@ -104,7 +104,7 @@ class ReferenceView extends ItemView {
     const el = this.contentEl;
     const top = el.scrollTop;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-ref" });
+    const root = el.createDiv({ cls: "qt-wrap qt-ref qt-screen" });
     if (!this.plugin.referenceEnabled()) {
       const card = root.createDiv({ cls: "qt-settings-card" });
       card.createEl("h3", { text: "Reference is off" });
@@ -116,8 +116,9 @@ class ReferenceView extends ItemView {
       return;
     }
 
-    root.createEl("h2", { text: "Reference" });
-    root.createDiv({
+    const head = root.createDiv({ cls: "qt-screen-head" });
+    head.createEl("h2", { text: "Reference" });
+    head.createDiv({
       cls: "qt-ref-intro",
       text: "Bundled formulas, constants, unit conversions, one-screen reference sheets, a local calculator and an unofficial AP score estimator. Everything is local and works offline.",
     });

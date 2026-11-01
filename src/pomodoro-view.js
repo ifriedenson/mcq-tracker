@@ -31,7 +31,7 @@ class PomodoroView extends ItemView {
   render() {
     const el = this.contentEl;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-pomodoro-view" });
+    const root = el.createDiv({ cls: "qt-wrap qt-pomodoro-view qt-screen" });
     if (!this.plugin.pomodoroEnabled()) {
       const card = root.createDiv({ cls: "qt-onboard-card" });
       card.createEl("h3", { text: "Pomodoro is off" });

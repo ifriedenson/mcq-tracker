@@ -122,7 +122,7 @@ class LocalEventsView extends ItemView {
   render() {
     const el = this.contentEl;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-local-events" });
+    const root = el.createDiv({ cls: "qt-wrap qt-local-events qt-screen" });
     if (!this.plugin.localEventsEnabled()) {
       const card = root.createDiv({ cls: "qt-onboard-card" });
       card.createEl("h3", { text: "Local events is off" });
@@ -131,10 +131,10 @@ class LocalEventsView extends ItemView {
       return;
     }
     const settings = this.plugin.settings.localEvents;
-    const head = root.createDiv({ cls: "qt-local-events-head" });
+    const head = root.createDiv({ cls: "qt-local-events-head qt-screen-head" });
     head.createEl("h2", { text: "Local events" });
     head.createDiv({ cls: "qt-hint", text: "Stored in plugin data and separate from imported .ics feeds and Full Calendar notes. Recurrence is expanded locally." });
-    const actions = root.createDiv({ cls: "qt-row qt-local-events-actions" });
+    const actions = root.createDiv({ cls: "qt-row qt-local-events-actions qt-toolbar" });
     actions.createEl("button", { text: "New event", cls: "mod-cta" }).addEventListener("click", () => this.openNew());
     actions.createEl("button", { text: "Previous month" }).addEventListener("click", () => this.shiftMonth(-1));
     actions.createEl("button", { text: "Today" }).addEventListener("click", () => this.goToday());

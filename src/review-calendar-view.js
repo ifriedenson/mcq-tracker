@@ -43,7 +43,7 @@ class ReviewCalendarView extends ItemView {
   render() {
     const el = this.contentEl;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-review-calendar" });
+    const root = el.createDiv({ cls: "qt-wrap qt-review-calendar qt-screen" });
     if (!this.plugin.reviewCalendarEnabled()) {
       this.renderOff(root);
       return;
@@ -51,11 +51,11 @@ class ReviewCalendarView extends ItemView {
     const snapshot = this.plugin.reviewCalendarSnapshot({ days: 400 });
     const today = snapshot.today;
     if (!this.selected || !/^\d{4}-\d{2}-\d{2}$/.test(this.selected)) this.selected = today;
-    const head = root.createDiv({ cls: "qt-review-calendar-head" });
+    const head = root.createDiv({ cls: "qt-review-calendar-head qt-screen-head" });
     head.createEl("h2", { text: "Review calendar" });
     head.createDiv({ cls: "qt-hint", text: "Due whole notes and cards from their own next_review properties. Separate from classes and exams." });
 
-    const stats = root.createDiv({ cls: "qt-review-calendar-stats" });
+    const stats = root.createDiv({ cls: "qt-review-calendar-stats qt-summary-strip" });
     const stat = (value, label) => {
       const card = stats.createDiv({ cls: "qt-study-stat" });
       card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
@@ -66,7 +66,7 @@ class ReviewCalendarView extends ItemView {
     stat(snapshot.next7.total, "next 7 days");
     stat(workloadLabel(snapshot.next7.minutes), "estimated work");
 
-    const actions = root.createDiv({ cls: "qt-row qt-review-calendar-actions" });
+    const actions = root.createDiv({ cls: "qt-row qt-review-calendar-actions qt-toolbar" });
     actions.createEl("button", { text: "Add this note", cls: "mod-cta" }).addEventListener("click", () => this.addNote());
     actions.createEl("button", { text: "Add this folder" }).addEventListener("click", () => this.addFolder());
     actions.createEl("button", { text: "Previous month" }).addEventListener("click", () => this.shiftMonth(-1));

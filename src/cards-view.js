@@ -144,10 +144,8 @@ class CardView extends ItemView {
     const p = this.plugin;
     const el = this.contentEl;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-cards" });
+    const root = el.createDiv({ cls: "qt-wrap qt-cards qt-screen" });
     if (!p.cardsEnabled || !p.cardsEnabled()) return this.renderModuleOff(root);
-    root.createEl("h2", { text: "Cards" });
-
     if (this.state === "review") return this.renderReview(root);
     if (this.state === "summary") return this.renderSummary(root);
     this.renderBrowse(root);
@@ -174,7 +172,11 @@ class CardView extends ItemView {
     const pending = p.pendingCardGrades ? p.pendingCardGrades() : [];
     const pendingByPath = pendingGradeCounts(pending);
 
-    const tools = root.createDiv({ cls: "qt-row qt-cards-tools" });
+    const head = root.createDiv({ cls: "qt-screen-head" });
+    head.createEl("h2", { text: "Cards" });
+    head.createDiv({ cls: "qt-screen-subtitle", text: "Build decks, clear what is due, and keep every card tied to its source note." });
+
+    const tools = root.createDiv({ cls: "qt-row qt-cards-tools qt-toolbar" });
     const add = tools.createEl("button", { text: "New card", cls: "mod-cta" });
     add.addEventListener("click", () => this.openCardModal());
     const occlusion = tools.createEl("button", { text: "Image occlusion" });
@@ -196,7 +198,7 @@ class CardView extends ItemView {
       this.render();
     });
 
-    const summary = root.createDiv({ cls: "qt-cards-stats" });
+    const summary = root.createDiv({ cls: "qt-cards-stats qt-summary-strip" });
     summary.createSpan({ text: `${stats.total} card${stats.total === 1 ? "" : "s"}` });
     summary.createSpan({ text: `${stats.due} due` });
     summary.createSpan({ text: `${stats.fresh} new` });

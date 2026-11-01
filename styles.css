@@ -7658,3 +7658,805 @@
   .qt-review-calendar-cell, .qt-local-events-cell { min-height: 44px; }
   .qt-local-event-form { grid-template-columns: 1fr; }
 }
+
+/* ---- Shared workflow screen layout ------------------------------------ */
+/* Used by the workflow views, not Practice, Calendar or the timed test. The
+   page itself is a container, so split panes and phones get the same usable
+   layout without relying only on the window width. */
+.qt-wrap.qt-screen {
+  --qt-screen-gap: clamp(12px, 1.2vw, 18px);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1180px;
+  padding: clamp(16px, 2.1vw, 30px) clamp(16px, 2.8vw, 38px) clamp(38px, 5vh, 58px);
+  gap: var(--qt-screen-gap);
+  container-type: inline-size;
+  container-name: qt-screen;
+}
+
+.qt-screen-head {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0 0 2px;
+}
+
+.qt-screen .qt-screen-head h2,
+.qt-screen .qt-study-heading h2 {
+  font-size: clamp(1.55rem, 1.2rem + 1.4cqi, 2.1rem);
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  margin: 0;
+}
+
+.qt-screen-subtitle,
+.qt-screen-head .qt-hint,
+.qt-screen-head .qt-ref-intro {
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+  max-width: 78ch;
+}
+
+.qt-screen-head .qt-today-kicker {
+  margin-bottom: 1px;
+}
+
+.qt-screen .qt-today-section {
+  border-top: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin: 22px 0 0;
+  padding-top: 16px;
+  text-transform: uppercase;
+}
+
+.qt-screen .qt-toolbar {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-screen .qt-toolbar > button {
+  flex: 0 1 auto;
+  min-height: 40px;
+}
+
+.qt-screen .qt-toolbar > .qt-primary {
+  flex: 1 1 12rem;
+  margin-top: 0;
+  min-height: 44px;
+  width: auto;
+}
+
+.qt-screen .qt-small-row {
+  flex-wrap: wrap;
+}
+
+.qt-screen .qt-small-row:not(.qt-tabbar):not(.qt-segmented) > button {
+  flex: 0 1 auto;
+  min-width: 7.5rem;
+}
+
+.qt-screen .qt-tabbar {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 3px;
+  overflow-x: auto;
+  padding: 4px;
+  position: sticky;
+  scrollbar-width: none;
+  top: 0;
+  z-index: 6;
+}
+
+.qt-screen .qt-tabbar::-webkit-scrollbar {
+  display: none;
+}
+
+.qt-screen .qt-tabbar button {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  flex: 1 0 auto;
+  min-height: 40px;
+  padding: 4px 14px;
+  white-space: nowrap;
+}
+
+.qt-screen .qt-tabbar button.mod-cta {
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.qt-screen .qt-segmented {
+  align-self: flex-start;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  width: auto;
+}
+
+.qt-screen .qt-segmented button {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 4px 14px;
+}
+
+.qt-screen .qt-segmented button.is-active {
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.qt-screen .qt-summary-strip {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+}
+
+.qt-screen .qt-cards-stats > span {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  color: var(--text-normal);
+  font-weight: 600;
+  padding: 10px 12px;
+}
+
+.qt-screen .qt-cards-stats .qt-cards-pending-count {
+  border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
+  color: var(--text-accent);
+}
+
+.qt-screen .qt-cards-tools {
+  gap: 8px;
+}
+
+.qt-screen .qt-cards-tools button {
+  flex: 1 1 8.5rem;
+  min-height: 42px;
+}
+
+.qt-screen .qt-cards-list {
+  background: var(--background-secondary);
+  border-radius: 12px;
+}
+
+.qt-screen .qt-cards-row {
+  gap: 12px;
+  padding: 12px 14px;
+  transition: background 120ms ease;
+}
+
+.qt-screen .qt-cards-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.qt-screen .qt-cards-row-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.qt-screen .qt-cards-box {
+  border-radius: 14px;
+  padding: clamp(18px, 2.4vw, 26px);
+}
+
+.qt-screen.qt-cards-review {
+  max-width: 920px;
+}
+
+.qt-screen.qt-cards-review .qt-cards-top,
+.qt-screen.qt-cards-review .qt-cards-box,
+.qt-screen.qt-cards-review > .qt-cards-show {
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 820px;
+  width: 100%;
+}
+
+.qt-screen.qt-cards-review .qt-cards-top {
+  align-items: center;
+}
+
+.qt-screen .qt-assignment-workload {
+  background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-secondary));
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: 8px;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  line-height: 1.45;
+  padding: 10px 14px;
+}
+
+.qt-screen .qt-assignment-gpa {
+  align-items: center;
+  column-gap: 20px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 18px 20px;
+}
+
+.qt-screen .qt-assignment-gpa .qt-today-kicker {
+  grid-column: 1 / -1;
+}
+
+.qt-screen .qt-assignment-gpa-value {
+  align-self: center;
+  font-size: 2.6rem;
+  grid-column: 1;
+  grid-row: 2 / span 2;
+}
+
+.qt-screen .qt-assignment-gpa .qt-today-meta {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.qt-screen .qt-assignment-gpa .qt-toggle-hint {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.qt-screen .qt-assignment-courses {
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+.qt-screen .qt-assignment-course {
+  border-radius: 12px;
+  gap: 10px;
+  padding: 16px;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.qt-screen .qt-assignment-course:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--background-modifier-border-hover);
+}
+
+.qt-screen .qt-assignment-course-grade {
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
+  border-radius: 10px;
+  min-width: 62px;
+  padding: 6px 9px;
+}
+
+.qt-screen .qt-assignment-letter {
+  font-size: 1.25rem;
+}
+
+.qt-screen .qt-assignment-category {
+  border-top: 1px solid var(--background-modifier-border);
+  padding: 5px 0 0;
+}
+
+.qt-screen .qt-assignment-category:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.qt-screen .qt-assignment-task {
+  border-radius: 10px;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.qt-screen .qt-assignment-task-meta {
+  line-height: 1.45;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.qt-screen .qt-assignment-task-actions button {
+  min-height: 40px;
+}
+
+.qt-screen .qt-dash-stats {
+  gap: 10px;
+}
+
+.qt-screen .qt-dash-stat {
+  border-radius: 11px;
+  padding: 13px 14px;
+}
+
+.qt-screen .qt-dash-value {
+  font-size: 1.5rem;
+}
+
+.qt-screen .qt-ins-row {
+  background: var(--background-secondary);
+  border-radius: 10px;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.qt-screen .qt-progress-hero {
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.qt-screen .qt-study-header {
+  padding-bottom: 2px;
+}
+
+.qt-screen .qt-study-tabs {
+  background: var(--background-primary);
+  gap: 4px;
+  margin: 0;
+  padding: 8px 0;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.qt-screen .qt-study-tabs .qt-study-tab {
+  min-height: 40px;
+}
+
+.qt-screen .qt-study-tabs .qt-study-tab.is-active {
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+}
+
+.qt-screen .qt-study-stats,
+.qt-screen .qt-review-calendar-stats {
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  margin: 0;
+}
+
+.qt-screen .qt-study-stat {
+  border-radius: 10px;
+  padding: 13px 15px;
+}
+
+.qt-screen .qt-study-grid {
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+.qt-screen .qt-study-card {
+  border-radius: 12px;
+  gap: 10px;
+  margin: 0;
+  padding: 18px 20px;
+}
+
+.qt-screen .qt-study-card h3 {
+  font-size: 1.02rem;
+  letter-spacing: -0.01em;
+}
+
+.qt-screen .qt-study-row {
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.qt-screen .qt-study-row-actions {
+  align-items: center;
+}
+
+.qt-screen .qt-study-form {
+  gap: 10px 12px;
+}
+
+.qt-screen .qt-ref-tabs {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.qt-screen .qt-ref-tabs .qt-ref-tab {
+  flex: none;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 6px 8px;
+}
+
+.qt-screen .qt-ref-tabs .qt-ref-tab.mod-cta {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.qt-screen .qt-ref-formula-list,
+.qt-screen .qt-ref-constant-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+.qt-screen .qt-ref-formula,
+.qt-screen .qt-ref-constant,
+.qt-screen .qt-ref-converter {
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.qt-screen .qt-ref-formula {
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.qt-screen .qt-ref-formula:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--background-modifier-border-hover);
+}
+
+.qt-screen .qt-ref-converter {
+  gap: 10px;
+}
+
+.qt-screen .qt-review-calendar-week {
+  gap: 8px;
+}
+
+.qt-screen .qt-review-calendar-day {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+  min-height: 74px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.qt-screen .qt-review-calendar-day:hover,
+.qt-screen .qt-review-calendar-cell:hover,
+.qt-screen .qt-local-events-cell:hover {
+  background: var(--background-modifier-hover);
+}
+
+.qt-screen .qt-review-calendar-day.is-today {
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-secondary));
+}
+
+.qt-screen .qt-review-calendar-cell,
+.qt-screen .qt-local-events-cell {
+  border-radius: 8px;
+  min-height: 68px;
+  padding: 6px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.qt-screen .qt-review-calendar-cell-count {
+  color: var(--text-accent);
+  font-weight: 700;
+}
+
+.qt-screen .qt-review-calendar-month-title h3 {
+  margin: 0;
+}
+
+.qt-screen .qt-local-events-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  margin: 2px 0 4px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.qt-screen .qt-local-events-tab {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  min-height: 40px;
+  padding: 4px 11px;
+}
+
+.qt-screen .qt-local-events-tab.is-active {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.qt-screen .qt-local-events-grid {
+  gap: 3px;
+}
+
+.qt-screen .qt-local-events-cell {
+  min-height: 72px;
+  padding: 5px;
+}
+
+.qt-screen .qt-local-events-tab-item {
+  min-height: 16px;
+  padding: 2px 4px;
+}
+
+.qt-screen .qt-study-stats-table {
+  overflow-x: auto;
+}
+
+.qt-screen .qt-study-stats-row {
+  border-bottom: 1px solid var(--background-modifier-border);
+  min-width: 360px;
+  padding: 7px 0;
+}
+
+.qt-screen .qt-study-stats-row:last-child {
+  border-bottom: 0;
+}
+
+.qt-screen .qt-study-stats-row.is-head {
+  border-bottom-color: var(--background-modifier-border);
+  padding-bottom: 6px;
+}
+
+.qt-screen > * {
+  min-width: 0;
+}
+
+.qt-screen.qt-pomodoro-view {
+  max-width: 640px;
+}
+
+.qt-screen .qt-pomodoro-card {
+  align-items: stretch;
+  border-radius: 16px;
+  gap: 10px;
+  padding: clamp(20px, 4cqi, 30px);
+  width: 100%;
+}
+
+.qt-screen .qt-pomodoro-phase,
+.qt-screen .qt-pomodoro-card > .qt-hint {
+  text-align: center;
+}
+
+.qt-screen .qt-pomodoro-clock {
+  font-size: clamp(3rem, 10cqi, 4.5rem);
+  line-height: 1;
+  text-align: center;
+}
+
+.qt-screen .qt-pomodoro-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+/* The settings panel is not an ItemView, so it gets the same rhythm without
+   the page container. */
+.qt-settings-body {
+  max-width: 1040px;
+}
+
+.qt-settings-modules,
+.qt-settings-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.qt-settings-module,
+.qt-settings-tab {
+  flex: 0 0 auto;
+}
+
+body.is-mobile .qt-screen {
+  gap: 12px;
+  padding: 12px 12px 36px;
+}
+
+body.is-mobile .qt-screen .qt-screen-head h2,
+body.is-mobile .qt-screen .qt-study-heading h2 {
+  font-size: 1.6rem;
+}
+
+body.is-mobile .qt-settings-body {
+  max-width: none;
+}
+
+body.is-mobile .qt-screen .qt-tabbar button,
+body.is-mobile .qt-screen .qt-segmented button,
+body.is-mobile .qt-screen .qt-study-tab,
+body.is-mobile .qt-screen .qt-ref-tab,
+body.is-mobile .qt-screen .qt-local-events-tab {
+  min-height: 44px;
+}
+
+@container qt-screen (max-width: 760px) {
+  .qt-screen .qt-toolbar > button,
+  .qt-screen .qt-small-row:not(.qt-tabbar):not(.qt-segmented) > button {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 0;
+  }
+
+  .qt-screen .qt-toolbar > .qt-primary {
+    flex-basis: 100%;
+  }
+
+  .qt-screen .qt-segmented {
+    width: 100%;
+  }
+
+  .qt-screen .qt-segmented button {
+    flex: 1 1 0;
+  }
+
+  .qt-screen .qt-cards-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-screen .qt-cards-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .qt-screen .qt-cards-row-main {
+    flex-basis: 100%;
+  }
+
+  .qt-screen .qt-cards-due {
+    margin-left: 0;
+  }
+
+  .qt-screen .qt-assignment-gpa {
+    grid-template-columns: 1fr;
+  }
+
+  .qt-screen .qt-assignment-gpa-value,
+  .qt-screen .qt-assignment-gpa .qt-today-meta,
+  .qt-screen .qt-assignment-gpa .qt-toggle-hint {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .qt-screen .qt-assignment-gpa-value {
+    font-size: 2.2rem;
+  }
+
+  .qt-screen .qt-assignment-courses {
+    grid-template-columns: 1fr;
+  }
+
+  .qt-screen .qt-assignment-task-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .qt-screen .qt-dash-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-screen .qt-ins-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .qt-screen .qt-ins-meter {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+
+  .qt-screen .qt-ref-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-screen .qt-ref-formula-list,
+  .qt-screen .qt-ref-constant-list {
+    grid-template-columns: 1fr;
+  }
+
+  .qt-screen .qt-ref-converter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .qt-screen .qt-ref-amount,
+  .qt-screen .qt-ref-unit {
+    max-width: none;
+    width: 100%;
+  }
+
+  .qt-screen .qt-ref-arrow {
+    display: none;
+  }
+
+  .qt-screen .qt-study-grid,
+  .qt-screen .qt-study-form,
+  .qt-screen .qt-workspace-scores {
+    grid-template-columns: 1fr;
+  }
+
+  .qt-screen .qt-study-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .qt-screen .qt-study-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .qt-screen .qt-study-row-actions {
+    justify-content: flex-start;
+  }
+
+  .qt-screen .qt-review-calendar-stats,
+  .qt-screen .qt-study-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-screen .qt-review-calendar-week,
+  .qt-screen .qt-review-calendar-grid,
+  .qt-screen .qt-local-events-grid {
+    gap: 3px;
+  }
+
+  .qt-screen .qt-review-calendar-day {
+    gap: 1px;
+    min-height: 60px;
+    padding: 5px 2px;
+  }
+
+  .qt-screen .qt-review-calendar-day-label,
+  .qt-screen .qt-review-calendar-day-minutes {
+    font-size: 10px;
+  }
+
+  .qt-screen .qt-review-calendar-cell,
+  .qt-screen .qt-local-events-cell {
+    min-height: 52px;
+    padding: 4px;
+  }
+
+  .qt-screen .qt-local-events-tab-item {
+    font-size: 8px;
+    padding: 1px 2px;
+  }
+}
+
+@container qt-screen (max-width: 460px) {
+  .qt-screen .qt-toolbar > button,
+  .qt-screen .qt-small-row:not(.qt-tabbar):not(.qt-segmented) > button {
+    flex-basis: 100%;
+  }
+
+  .qt-screen .qt-cards-tools button {
+    flex-basis: calc(50% - 8px);
+  }
+
+  .qt-screen .qt-cards-tools .qt-primary {
+    flex-basis: 100%;
+  }
+
+  .qt-screen .qt-study-stats,
+  .qt-screen .qt-review-calendar-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-screen .qt-review-calendar-weekday {
+    font-size: 9px;
+    padding: 3px 0;
+  }
+
+  .qt-screen .qt-review-calendar-cell-count {
+    font-size: 10px;
+  }
+
+  .qt-screen .qt-pomodoro-actions {
+    grid-template-columns: 1fr;
+  }
+}

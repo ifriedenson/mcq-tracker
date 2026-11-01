@@ -37,7 +37,7 @@ class AssignmentsView extends ItemView {
     const el = this.contentEl;
     const top = el.scrollTop;
     el.empty();
-    const root = el.createDiv({ cls: "qt-wrap qt-assignments" });
+    const root = el.createDiv({ cls: "qt-wrap qt-assignments qt-screen" });
 
     if (!p.assignmentsEnabled()) {
       const card = root.createDiv({ cls: "qt-assignment-empty" });
@@ -50,13 +50,14 @@ class AssignmentsView extends ItemView {
     const today = localDate();
     const stats = p.assignmentStats({ today });
     const summary = stats.summary;
-    root.createDiv({ cls: "qt-today-kicker", text: "Gradebook" });
-    root.createEl("h2", { text: "Assignments & grades" });
-    root.createDiv({
-      cls: "qt-today-count",
+    const head = root.createDiv({ cls: "qt-screen-head" });
+    head.createDiv({ cls: "qt-today-kicker", text: "Gradebook" });
+    head.createEl("h2", { text: "Assignments & grades" });
+    head.createDiv({
+      cls: "qt-today-count qt-screen-subtitle",
       text: `${summary.open} open · ${summary.overdue} overdue · ${summary.graded} graded · ${stats.courses.length} course${stats.courses.length === 1 ? "" : "s"}`,
     });
-    const actions = root.createDiv({ cls: "qt-row qt-small-row" });
+    const actions = root.createDiv({ cls: "qt-row qt-small-row qt-toolbar" });
     actions.createEl("button", { text: "Add assignment", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.openNew());
     actions.createEl("button", { text: "Assignment settings" }).addEventListener("click", () => p.openSettings());
 
@@ -101,7 +102,7 @@ class AssignmentsView extends ItemView {
   }
 
   renderFilters(root) {
-    const row = root.createDiv({ cls: "qt-row qt-small-row qt-assignment-filters" });
+    const row = root.createDiv({ cls: "qt-row qt-small-row qt-assignment-filters qt-segmented" });
     for (const [id, label] of [["open", "Open"], ["all", "All"], ["graded", "Graded"]]) {
       const button = row.createEl("button", { text: label, cls: this.filter === id ? "is-active" : "" });
       button.addEventListener("click", () => {

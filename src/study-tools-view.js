@@ -79,14 +79,14 @@ class StudyToolsView extends ItemView {
   render() {
     const root = this.contentEl;
     root.empty();
-    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap" });
+    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap qt-screen" });
     if (!this.plugin.studyToolsEnabled()) {
       this.renderOff(wrap);
       return;
     }
     const tabs = this.enabledTabs();
     if (!tabs.some((tab) => tab.id === this.tab)) this.tab = tabs[0] ? tabs[0].id : "overview";
-    const header = wrap.createDiv({ cls: "qt-study-header" });
+    const header = wrap.createDiv({ cls: "qt-study-header qt-screen-head" });
     const title = header.createDiv({ cls: "qt-study-heading" });
     title.createEl("h2", { text: "Study Tools" });
     title.createDiv({ cls: "qt-hint", text: "Local study workflows that do not belong in Practice, Cards, Calendar or Assignments." });
