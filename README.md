@@ -217,7 +217,7 @@ Which choice best describes the relationship between the two texts?
 
 ### Numeric answers (SPR)
 
-Set `question_type: spr` and the plugin grades numbers instead of comparing text. These forms are equivalent: `3/4`, `0.75`, `7.5e-1`, `7.5 × 10⁻¹` and `75%`. Each result explains how the answer was read, such as `Read as 7.5 × 10⁻¹ m/s`.
+Set `question_type: spr` and the plugin grades numbers instead of comparing text. These forms are equivalent: `3/4`, `0.75`, `7.5e-1`, `7.5 × 10⁻¹` and `75%`. Each result explains how the answer was read, such as `Read as 7.5 × 10⁻¹ m/s`. Single-variable polynomial expressions are also accepted when they expand to the same answer: `(x−1)(x+1)` matches `x²−1`, and `(x+1)^2` matches `x²+2x+1`. The check rejects division by a variable, unsupported functions and powers above 12 instead of guessing.
 
 ```yaml
 question_type: spr

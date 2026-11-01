@@ -89,6 +89,16 @@ test("malformed numbers and expressions are rejected instead of being guessed", 
   assert.match(blank.reason, /Enter a number/);
 });
 
+test("equivalent polynomial expressions are accepted, while different or unsupported expressions are not", () => {
+  assert.equal(grade({ answer: "x^2 - 1" }, "(x-1)(x+1)").correct, true);
+  assert.equal(grade({ answer: "x² - 1" }, "(x + 1)(x - 1)").correct, true);
+  assert.equal(grade({ answer: "x^2 + 2x + 1" }, "(x+1)^2").correct, true);
+  assert.match(grade({ answer: "x^2 - 1" }, "(x-1)(x+1)").reason, /same polynomial/);
+  assert.equal(grade({ answer: "x^2 - 1" }, "(x-1)(x+2)").correct, false);
+  assert.equal(grade({ answer: "x^2 - 1" }, "1/x").correct, false);
+  assert.equal(grade({ answer: "x^2 - 1" }, "sin(x)").correct, false);
+});
+
 test("gradeAnswer keeps its boolean contract while gradeAnswerDetailed explains the reading", () => {
   assert.equal(T.gradeAnswer({ answer: "1/2|0.5", question_type: "spr" }, " 0.5 "), true);
   assert.equal(T.gradeAnswer({ answer: "B" }, "b"), true);

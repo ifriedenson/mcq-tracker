@@ -11,6 +11,7 @@
 
 const { gradeChoiceSelection, normalizeTrueFalse } = require("./answer-types");
 const { normalizeTextAnswer } = require("./matching");
+const { equivalent: equivalentExpression } = require("./polynomial");
 
 const SUPERSCRIPT = { "⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "-", "⁺": "+" };
 const SUPERSCRIPT_OUT = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻", "+": "⁺" };
@@ -558,6 +559,16 @@ function gradeNumeric(fm, chosen) {
       alternatives,
     };
   }
+  const expressionMatch = alternatives.find((alt) => alt.kind === "text" && equivalentExpression(alt.text, raw));
+  if (expressionMatch) {
+    return {
+      correct: true,
+      mode: "spr",
+      interpreted: `Equivalent to ${expressionMatch.text}: ${raw}`,
+      reason: "The expression expands to the same polynomial.",
+      alternatives,
+    };
+  }
   if (!raw) {
     return {
       correct: false,
@@ -747,4 +758,5 @@ module.exports = {
   describeAlternative,
   gradeNumeric,
   gradeAnswerDetailed,
+  equivalentExpression,
 };
