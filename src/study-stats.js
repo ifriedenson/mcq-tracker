@@ -20,6 +20,7 @@ const MATURITY_LABELS = {
 };
 const MATURITY_ORDER = ["learning", "young", "mature"];
 const WEEK_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const RATINGS = ["again", "hard", "good", "easy"];
 
 function clampNumber(value, min, max, fallback) {
   const n = Number(value);
@@ -80,7 +81,7 @@ function fsrsRows(card, entries, retention) {
     if (isNaN(at.getTime())) continue;
     const rating = fsrs.gradeForAttempt(entry.result === "correct", entry.conf, entry.seconds, card.fm && card.fm.target_seconds);
     const interval = Number(state.scheduled_days) || 0;
-    const row = reviewRow(card, entry, maturityOf(interval), interval);
+    const row = reviewRow(card, entry, maturityOf(interval), interval, rating);
     if (row) rows.push(row);
     try {
       state = scheduler.next(state, at, rating).card;
@@ -105,7 +106,7 @@ function sm2Rows(card, entries) {
     const at = new Date(entry.when);
     if (isNaN(at.getTime())) continue;
     const rating = sm2.gradeForAttempt(entry.result === "correct", entry.conf, entry.seconds, card.fm && card.fm.target_seconds);
-    const row = reviewRow(card, entry, maturityOf(state.interval), state.interval);
+    const row = reviewRow(card, entry, maturityOf(state.interval), state.interval, rating);
     if (row) rows.push(row);
     try {
       state = sm2.scheduleState(state, rating, at, card.fm && card.fm.sm2);
@@ -121,14 +122,14 @@ function ladderRows(card, entries) {
   return entries
     .map((entry) => {
       const interval = entry.result === "correct" ? Math.max(1, streak + 1) : 1;
-      const row = reviewRow(card, entry, maturityOf(interval), interval);
+      const row = reviewRow(card, entry, maturityOf(interval), interval, entry.result === "correct" ? "good" : "again");
       streak = entry.result === "correct" ? streak + 1 : 0;
       return row;
     })
     .filter(Boolean);
 }
 
-function reviewRow(source, entry, maturity, interval) {
+function reviewRow(source, entry, maturity, interval, rating) {
   const date = reviewDate(entry.when);
   if (!date) return null;
   return {
@@ -140,6 +141,7 @@ function reviewRow(source, entry, maturity, interval) {
     correct: entry.result === "correct",
     seconds: Number(entry.seconds) || 0,
     maturity,
+    rating: RATINGS.includes(str(rating)) ? str(rating) : entry.result === "correct" ? "good" : "again",
     interval: Math.max(0, Number(interval) || 0),
   };
 }
@@ -234,7 +236,37 @@ function distribution(values, edges, labels) {
   buckets.push({ label: labels[labels.length - 1] || `${last}+`, count: tail });
   const total = list.length;
   for (const bucket of buckets) bucket.share = total ? bucket.count / total : 0;
-  return { buckets, total, min: list.length ? list[0] : null, max: list.length ? list[list.length - 1] : null };
+  let median = null;
+  if (list.length) {
+    const middle = Math.floor(list.length / 2);
+    median = list.length % 2 ? list[middle] : (list[middle - 1] + list[middle]) / 2;
+    median = Math.round(median * 100) / 100;
+  }
+  return { buckets, total, min: list.length ? list[0] : null, max: list.length ? list[list.length - 1] : null, median };
+}
+
+function emptyRatingMix() {
+  return { again: 0, hard: 0, good: 0, easy: 0, total: 0, againRate: null };
+}
+
+/** The Again/Hard/Good/Easy mix split by card maturity, from the same replayed rows. */
+function buttonMixByMaturity(rows) {
+  const byMaturity = {};
+  for (const maturity of MATURITY_ORDER) byMaturity[maturity] = emptyRatingMix();
+  const all = emptyRatingMix();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const rating = str(row && row.rating);
+    if (!RATINGS.includes(rating)) continue;
+    const bucket = byMaturity[row.maturity] || byMaturity.learning;
+    bucket[rating]++;
+    bucket.total++;
+    all[rating]++;
+    all.total++;
+  }
+  for (const bucket of [...Object.values(byMaturity), all]) {
+    bucket.againRate = bucket.total ? bucket.again / bucket.total : null;
+  }
+  return { byMaturity, all };
 }
 
 function cardMetrics(cards, now) {
@@ -362,6 +394,7 @@ function buildStudyStats(input) {
     days,
     decks: deckBreakdown(cards, { ...settings, fsrsRetention: opts.fsrsRetention }),
     buttonMix: buttonMix(counters),
+    buttonMixByMaturity: buttonMixByMaturity(cardRows),
     heatmap: counterHeatmap(counters, settings.heatmapWeeks, now),
     counters,
     durability: durabilitySummary([...cards, ...questions, ...notes], settings.durableDays),
@@ -381,8 +414,10 @@ function buildStudyStats(input) {
 module.exports = {
   MATURITY_LABELS,
   MATURITY_ORDER,
+  RATINGS,
   WEEK_DAYS,
   buildStudyStats,
+  buttonMixByMaturity,
   cardMetrics,
   cardReviewRows,
   deckBreakdown,

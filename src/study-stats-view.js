@@ -11,6 +11,13 @@ function pct(value) {
   return value === null || value === undefined ? "—" : `${Math.round(Number(value) * 100)}%`;
 }
 
+function formatMedian(value, key) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  const text = String(Math.round(number * 100) / 100);
+  return key === "intervals" || key === "stability" ? `${text}d` : text;
+}
+
 function bar(container, value, max, cls) {
   const track = container.createDiv({ cls: `qt-stat-bar ${cls || ""}`.trim() });
   const width = max > 0 ? Math.max(0, Math.min(100, (Number(value) / max) * 100)) : 0;
@@ -105,6 +112,21 @@ class StudyStatsView extends ItemView {
       row.createSpan({ cls: "qt-study-stats-dist-count", text: `${bucket.count} · ${pct(bucket.share)}` });
     }
     card.createDiv({ cls: "qt-hint", text: `Again rate ${pct(mix.againRate)} across ${mix.total} rated review${mix.total === 1 ? "" : "s"}.` });
+    const split = data.buttonMixByMaturity;
+    if (split) {
+      card.createDiv({ cls: "qt-study-stats-dist-title", text: "Again rate by maturity" });
+      const table = card.createDiv({ cls: "qt-study-stats-table" });
+      const header = table.createDiv({ cls: "qt-study-stats-row is-mix is-head" });
+      for (const label of ["Maturity", "Rated", "Again", "Again rate"]) header.createDiv({ text: label });
+      for (const maturity of MATURITY_ORDER) {
+        const bucket = split.byMaturity[maturity];
+        const line = table.createDiv({ cls: "qt-study-stats-row is-mix" });
+        line.createDiv({ text: data.retention.byMaturity[maturity].label });
+        line.createDiv({ text: String(bucket.total) });
+        line.createDiv({ text: String(bucket.again) });
+        line.createDiv({ text: pct(bucket.againRate) });
+      }
+    }
   }
 
   renderDurability(root, data) {
@@ -238,6 +260,9 @@ class StudyStatsView extends ItemView {
       if (!dist || !dist.total) {
         block.createDiv({ cls: "qt-study-empty", text: "No data yet." });
         continue;
+      }
+      if (dist.median !== null && dist.median !== undefined) {
+        block.createDiv({ cls: "qt-study-row-meta", text: `Median ${formatMedian(dist.median, key)}` });
       }
       const max = Math.max(...dist.buckets.map((bucket) => bucket.count), 1);
       for (const bucket of dist.buckets) {

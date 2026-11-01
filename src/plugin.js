@@ -136,6 +136,7 @@ const reviewCalendar = require("./review-calendar");
 const studyStats = require("./study-stats");
 const localEvents = require("./local-events");
 const noteReviewDock = require("./note-review-dock");
+const sessionReport = require("./session-report");
 const { NoteReviewDock } = require("./note-review-dock");
 const { ReviewCalendarView } = require("./review-calendar-view");
 const { StudyStatsView } = require("./study-stats-view");
@@ -353,6 +354,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-local-event", name: "Local events: create an event", callback: () => this.openNewLocalEvent() });
     this.addCommand({ id: "open-next-due-note", name: "Note review: open the next due note", callback: () => this.openNextDueNote() });
     this.addCommand({ id: "note-review-dock-toggle", name: "Note review: show or hide the review bar", callback: () => this.toggleNoteReviewDock() });
+    this.addCommand({ id: "save-review-session-report", name: "Note review: save a session report", callback: () => this.saveReviewSessionReport(this.noteReviewDock ? this.noteReviewDock.log : []) });
     this.addCommand({ id: "open-pomodoro", name: "Open Pomodoro timer", callback: () => this.activatePomodoro() });
     this.addCommand({ id: "pomodoro-start-pause", name: "Pomodoro: start or pause", callback: () => this.togglePomodoro() });
     this.addCommand({ id: "pomodoro-reset", name: "Pomodoro: reset the current cycle", callback: () => this.resetPomodoro() });
@@ -5374,6 +5376,30 @@ ${body}
     await this.save();
     this.refreshNoteReviewDock();
     new Notice(config.enabled ? "The whole-note review bar is shown." : "The whole-note review bar is hidden.");
+  }
+
+  sessionReportEnabled() {
+    return noteReviewDock.normalizeNoteReviewDockSettings(this.settings.noteReviewDock).reportEnabled === true;
+  }
+
+  /** Write the docked run's grades as a local study note. No provider or second review store. */
+  async saveReviewSessionReport(items) {
+    const config = noteReviewDock.normalizeNoteReviewDockSettings(this.settings.noteReviewDock);
+    const list = Array.isArray(items) ? items : [];
+    const session = this.noteReviewDock && this.noteReviewDock.session;
+    if (!list.length && !session) {
+      new Notice("Finish a docked review session first, then save its report.", 6000);
+      return null;
+    }
+    const status = session ? reviewSession.sessionStatus(session) : { completed: list.length, missed: [], requeued: 0 };
+    const date = localDate();
+    const markdown = sessionReport.sessionReportMarkdown({ status, items: list, date });
+    const existing = this.app.vault.getMarkdownFiles().map((file) => file.path);
+    const path = sessionReport.reportPath(config.reportFolder, date, existing);
+    if (config.reportFolder) await ensureFolder(this.app, config.reportFolder);
+    const file = await this.app.vault.create(path, markdown);
+    new Notice(`Saved the review session report to ${path}.`, 6000);
+    return { path, file, markdown };
   }
 
   async undoNoteReview(file, snapshot) {

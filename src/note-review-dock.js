@@ -63,6 +63,9 @@ function normalizeNoteReviewDockSettings(value) {
     lapseThreshold: Math.round(clampNumber(src.lapseThreshold, 1, 50, 8)),
     requeueEnabled: src.requeueEnabled !== false,
     requeueLimit: Math.round(clampNumber(src.requeueLimit, 1, 25, 3)),
+    gradeLayout: ["row", "stacked", "auto"].includes(src.gradeLayout) ? src.gradeLayout : "auto",
+    reportEnabled: src.reportEnabled === true,
+    reportFolder: str(src.reportFolder).trim().replace(/^\/+|\/+$/g, ""),
   };
 }
 
@@ -201,6 +204,8 @@ class NoteReviewDock {
     this.lastUndo = null;
     this.done = false;
     this.session = null;
+    this.log = [];
+    this.currentTitle = "";
   }
 
   settings() {
@@ -231,6 +236,7 @@ class NoteReviewDock {
     if (!this.session) {
       const config = this.settings();
       this.session = session.createReviewSession((queue.all || []).map((row) => row.path), config);
+      this.log = [];
     }
     this.path = view.file.path;
     this.host = view.containerEl || view.contentEl;
@@ -248,6 +254,9 @@ class NoteReviewDock {
     }
     const bar = this.bar;
     bar.empty();
+    const config = this.settings();
+    bar.setAttr("data-grade-layout", config.gradeLayout);
+    this.currentTitle = item.title;
     const head = bar.createDiv({ cls: "qt-note-review-dock-head" });
     head.createSpan({ cls: "qt-note-review-dock-title", text: "Whole-note review" });
     head.createSpan({ cls: "qt-note-review-dock-meta", text: `${item.title} · ${item.set} · ${item.isNew ? "new" : `due ${item.dueDate}`}` });
@@ -259,7 +268,15 @@ class NoteReviewDock {
     });
 
     if (this.done) {
-      bar.createDiv({ cls: "qt-note-review-dock-message", text: "Review finished for this note." });
+      bar.createDiv({ cls: "qt-note-review-dock-message", text: "Review session finished." });
+      const actions = bar.createDiv({ cls: "qt-row qt-note-review-dock-actions" });
+      if (this.plugin.sessionReportEnabled && this.plugin.sessionReportEnabled()) {
+        actions.createEl("button", { text: "Save session report", cls: "mod-cta" }).addEventListener("click", () => this.plugin.saveReviewSessionReport(this.log));
+      }
+      actions.createEl("button", { text: "Close" }).addEventListener("click", () => {
+        this.done = true;
+        this.remove();
+      });
       return;
     }
 
@@ -333,6 +350,8 @@ class NoteReviewDock {
     try {
       const summary = await plugin.recordNoteReview(file, grade, 0);
       this.lastUndo = { path: file.path, snapshot: summary && summary.previous };
+      if (!Array.isArray(this.log)) this.log = [];
+      this.log.push({ path: file.path, title: this.currentTitle || file.basename || file.path, grade });
       if (this.session) session.gradeReviewSession(this.session, file.path, grade !== "again");
       const config = this.settings();
       if (grade === "again" && summary && lapseThresholdReached({ note_lapse_streak: summary.lapseStreak }, config.lapseThreshold)) {
@@ -372,6 +391,7 @@ class NoteReviewDock {
     this.pendingLapse = null;
     this.done = false;
     this.session = null;
+    this.log = [];
     this.refresh();
   }
 

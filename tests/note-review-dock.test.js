@@ -111,3 +111,29 @@ test("an explicitly marked note joins a queue even when sets exist", () => {
   });
   assert.deepEqual(queue.all.map((row) => row.path).sort(), ["Notes/InSet.md", "Other/Marked.md"]);
 });
+
+test("grade layout and session-report settings normalize safely", () => {
+  assert.equal(D.normalizeNoteReviewDockSettings({}).gradeLayout, "auto");
+  assert.equal(D.normalizeNoteReviewDockSettings({ gradeLayout: "stacked" }).gradeLayout, "stacked");
+  assert.equal(D.normalizeNoteReviewDockSettings({ gradeLayout: "nope" }).gradeLayout, "auto");
+  assert.equal(D.normalizeNoteReviewDockSettings({}).reportEnabled, false);
+  assert.equal(D.normalizeNoteReviewDockSettings({ reportEnabled: true, reportFolder: " Reports/ " }).reportFolder, "Reports");
+});
+
+test("the dock exposes the configured grade layout to CSS", () => {
+  const { makeDom } = require("./helpers/fake");
+  const dom = makeDom();
+  const plugin = {
+    settings: { scheduler: "ladder", intervals: [1, 3, 7, 21], fsrsRetention: 0.9, noteReviewDock: { enabled: true, gradeLayout: "stacked" } },
+    noteReviewDockEnabled: () => true,
+  };
+  const dock = new D.NoteReviewDock(plugin);
+  dock.render(
+    { containerEl: dom.root },
+    { path: "Notes/A.md", title: "A", set: "Set", isNew: false, dueDate: "2026-11-01", note: { fm: { attempts: 0, history: [] } } },
+    {}
+  );
+  const bar = dom.all.find((element) => element.meta && element.meta.cls === "qt-note-review-dock");
+  assert.ok(bar);
+  assert.equal(bar.meta.attrs["data-grade-layout"], "stacked");
+});

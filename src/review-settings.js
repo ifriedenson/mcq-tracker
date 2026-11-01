@@ -64,6 +64,40 @@ function renderNoteReviewSettings(containerEl, plugin, redisplay) {
       });
     });
   new Setting(containerEl)
+    .setName("Grade layout")
+    .setDesc("How the four grading buttons are arranged under the note: one row, a stacked list, or auto by pane width.")
+    .addDropdown((d) => {
+      d.addOption("auto", "Auto by pane width");
+      d.addOption("row", "One row");
+      d.addOption("stacked", "Stacked list");
+      d.setValue(st.noteReviewDock.gradeLayout).onChange(async (v) => {
+        st.noteReviewDock = normalizeNoteReviewDockSettings({ ...st.noteReviewDock, gradeLayout: v });
+        await plugin.save();
+        plugin.refreshNoteReviewDock();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Save a session report")
+    .setDesc("When a docked review run ends, offer a Save session report button and add the same action as a command.")
+    .addToggle((t) =>
+      t.setValue(st.noteReviewDock.reportEnabled === true).onChange(async (v) => {
+        st.noteReviewDock = normalizeNoteReviewDockSettings({ ...st.noteReviewDock, reportEnabled: v });
+        await plugin.save();
+        plugin.refreshNoteReviewDock();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Session report folder")
+    .setDesc("Vault folder for the report note. Leave empty to write it at the vault root.")
+    .addText((t) => {
+      t.setPlaceholder("Review reports");
+      t.setValue(st.noteReviewDock.reportFolder || "");
+      t.onChange(async (v) => {
+        st.noteReviewDock = normalizeNoteReviewDockSettings({ ...st.noteReviewDock, reportFolder: v });
+        await plugin.save();
+      });
+    });
+  new Setting(containerEl)
     .setName("Lapse checkpoint")
     .setDesc("After this many Again ratings in a row, offer Reset, Rest for a week, Remove from review or Carry on.")
     .addText((t) => {

@@ -99,6 +99,7 @@ const durability = require("./durability");
 const studyCounters = require("./study-counters");
 const pomodoro = require("./pomodoro");
 const noteReviewDock = require("./note-review-dock");
+const sessionReport = require("./session-report");
 const { PomodoroView } = require("./pomodoro-view");
 const { NoteReviewDock } = require("./note-review-dock");
 const { ReviewCalendarView } = require("./review-calendar-view");
@@ -300,6 +301,7 @@ QuestionTrackerPlugin.__test = {
   studyStats,
   localEvents,
   noteReviewDock,
+  sessionReport,
   reviewSession,
   durability,
   studyCounters,

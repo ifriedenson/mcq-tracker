@@ -19073,7 +19073,7 @@ const DEFAULT_SETTINGS = {
     courses: [],
   }),
   noteReview: { enabled: false, limit: 20, sets: [] }, // optional whole-note review queue
-  noteReviewDock: { enabled: true, keyboard: true, lapseThreshold: 8, requeueEnabled: true, requeueLimit: 3 }, // docked whole-note review bar
+  noteReviewDock: { enabled: true, keyboard: true, lapseThreshold: 8, requeueEnabled: true, requeueLimit: 3, gradeLayout: "auto", reportEnabled: false, reportFolder: "" }, // docked whole-note review bar
   reviewCalendar: { enabled: true, noteMinutes: 2, cardMinutes: 1, showCards: true, detectMainNote: true, weekStartsOn: "monday" }, // due-date calendar and workload
   studyStats: { enabled: true, leechThreshold: 5, maxRows: 200, durableRecall: true, durableDays: 2, heatmapWeeks: 12 }, // Anki-style statistics and two-day durability
   studyCounters: { version: 1, days: {}, updated: "" }, // permanent per-day counters; survive history trimming
@@ -32993,6 +32993,9 @@ function normalizeNoteReviewDockSettings(value) {
     lapseThreshold: Math.round(clampNumber(src.lapseThreshold, 1, 50, 8)),
     requeueEnabled: src.requeueEnabled !== false,
     requeueLimit: Math.round(clampNumber(src.requeueLimit, 1, 25, 3)),
+    gradeLayout: ["row", "stacked", "auto"].includes(src.gradeLayout) ? src.gradeLayout : "auto",
+    reportEnabled: src.reportEnabled === true,
+    reportFolder: str(src.reportFolder).trim().replace(/^\/+|\/+$/g, ""),
   };
 }
 
@@ -33131,6 +33134,8 @@ class NoteReviewDock {
     this.lastUndo = null;
     this.done = false;
     this.session = null;
+    this.log = [];
+    this.currentTitle = "";
   }
 
   settings() {
@@ -33161,6 +33166,7 @@ class NoteReviewDock {
     if (!this.session) {
       const config = this.settings();
       this.session = session.createReviewSession((queue.all || []).map((row) => row.path), config);
+      this.log = [];
     }
     this.path = view.file.path;
     this.host = view.containerEl || view.contentEl;
@@ -33178,6 +33184,9 @@ class NoteReviewDock {
     }
     const bar = this.bar;
     bar.empty();
+    const config = this.settings();
+    bar.setAttr("data-grade-layout", config.gradeLayout);
+    this.currentTitle = item.title;
     const head = bar.createDiv({ cls: "qt-note-review-dock-head" });
     head.createSpan({ cls: "qt-note-review-dock-title", text: "Whole-note review" });
     head.createSpan({ cls: "qt-note-review-dock-meta", text: `${item.title} · ${item.set} · ${item.isNew ? "new" : `due ${item.dueDate}`}` });
@@ -33189,7 +33198,15 @@ class NoteReviewDock {
     });
 
     if (this.done) {
-      bar.createDiv({ cls: "qt-note-review-dock-message", text: "Review finished for this note." });
+      bar.createDiv({ cls: "qt-note-review-dock-message", text: "Review session finished." });
+      const actions = bar.createDiv({ cls: "qt-row qt-note-review-dock-actions" });
+      if (this.plugin.sessionReportEnabled && this.plugin.sessionReportEnabled()) {
+        actions.createEl("button", { text: "Save session report", cls: "mod-cta" }).addEventListener("click", () => this.plugin.saveReviewSessionReport(this.log));
+      }
+      actions.createEl("button", { text: "Close" }).addEventListener("click", () => {
+        this.done = true;
+        this.remove();
+      });
       return;
     }
 
@@ -33263,6 +33280,8 @@ class NoteReviewDock {
     try {
       const summary = await plugin.recordNoteReview(file, grade, 0);
       this.lastUndo = { path: file.path, snapshot: summary && summary.previous };
+      if (!Array.isArray(this.log)) this.log = [];
+      this.log.push({ path: file.path, title: this.currentTitle || file.basename || file.path, grade });
       if (this.session) session.gradeReviewSession(this.session, file.path, grade !== "again");
       const config = this.settings();
       if (grade === "again" && summary && lapseThresholdReached({ note_lapse_streak: summary.lapseStreak }, config.lapseThreshold)) {
@@ -33302,6 +33321,7 @@ class NoteReviewDock {
     this.pendingLapse = null;
     this.done = false;
     this.session = null;
+    this.log = [];
     this.refresh();
   }
 
@@ -39386,6 +39406,7 @@ const reviewCalendar = require("./review-calendar");
 const studyStats = require("./study-stats");
 const localEvents = require("./local-events");
 const noteReviewDock = require("./note-review-dock");
+const sessionReport = require("./session-report");
 const { NoteReviewDock } = require("./note-review-dock");
 const { ReviewCalendarView } = require("./review-calendar-view");
 const { StudyStatsView } = require("./study-stats-view");
@@ -39603,6 +39624,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "new-local-event", name: "Local events: create an event", callback: () => this.openNewLocalEvent() });
     this.addCommand({ id: "open-next-due-note", name: "Note review: open the next due note", callback: () => this.openNextDueNote() });
     this.addCommand({ id: "note-review-dock-toggle", name: "Note review: show or hide the review bar", callback: () => this.toggleNoteReviewDock() });
+    this.addCommand({ id: "save-review-session-report", name: "Note review: save a session report", callback: () => this.saveReviewSessionReport(this.noteReviewDock ? this.noteReviewDock.log : []) });
     this.addCommand({ id: "open-pomodoro", name: "Open Pomodoro timer", callback: () => this.activatePomodoro() });
     this.addCommand({ id: "pomodoro-start-pause", name: "Pomodoro: start or pause", callback: () => this.togglePomodoro() });
     this.addCommand({ id: "pomodoro-reset", name: "Pomodoro: reset the current cycle", callback: () => this.resetPomodoro() });
@@ -44624,6 +44646,30 @@ ${body}
     await this.save();
     this.refreshNoteReviewDock();
     new Notice(config.enabled ? "The whole-note review bar is shown." : "The whole-note review bar is hidden.");
+  }
+
+  sessionReportEnabled() {
+    return noteReviewDock.normalizeNoteReviewDockSettings(this.settings.noteReviewDock).reportEnabled === true;
+  }
+
+  /** Write the docked run's grades as a local study note. No provider or second review store. */
+  async saveReviewSessionReport(items) {
+    const config = noteReviewDock.normalizeNoteReviewDockSettings(this.settings.noteReviewDock);
+    const list = Array.isArray(items) ? items : [];
+    const session = this.noteReviewDock && this.noteReviewDock.session;
+    if (!list.length && !session) {
+      new Notice("Finish a docked review session first, then save its report.", 6000);
+      return null;
+    }
+    const status = session ? reviewSession.sessionStatus(session) : { completed: list.length, missed: [], requeued: 0 };
+    const date = localDate();
+    const markdown = sessionReport.sessionReportMarkdown({ status, items: list, date });
+    const existing = this.app.vault.getMarkdownFiles().map((file) => file.path);
+    const path = sessionReport.reportPath(config.reportFolder, date, existing);
+    if (config.reportFolder) await ensureFolder(this.app, config.reportFolder);
+    const file = await this.app.vault.create(path, markdown);
+    new Notice(`Saved the review session report to ${path}.`, 6000);
+    return { path, file, markdown };
   }
 
   async undoNoteReview(file, snapshot) {
@@ -57895,6 +57941,40 @@ function renderNoteReviewSettings(containerEl, plugin, redisplay) {
       });
     });
   new Setting(containerEl)
+    .setName("Grade layout")
+    .setDesc("How the four grading buttons are arranged under the note: one row, a stacked list, or auto by pane width.")
+    .addDropdown((d) => {
+      d.addOption("auto", "Auto by pane width");
+      d.addOption("row", "One row");
+      d.addOption("stacked", "Stacked list");
+      d.setValue(st.noteReviewDock.gradeLayout).onChange(async (v) => {
+        st.noteReviewDock = normalizeNoteReviewDockSettings({ ...st.noteReviewDock, gradeLayout: v });
+        await plugin.save();
+        plugin.refreshNoteReviewDock();
+      });
+    });
+  new Setting(containerEl)
+    .setName("Save a session report")
+    .setDesc("When a docked review run ends, offer a Save session report button and add the same action as a command.")
+    .addToggle((t) =>
+      t.setValue(st.noteReviewDock.reportEnabled === true).onChange(async (v) => {
+        st.noteReviewDock = normalizeNoteReviewDockSettings({ ...st.noteReviewDock, reportEnabled: v });
+        await plugin.save();
+        plugin.refreshNoteReviewDock();
+      })
+    );
+  new Setting(containerEl)
+    .setName("Session report folder")
+    .setDesc("Vault folder for the report note. Leave empty to write it at the vault root.")
+    .addText((t) => {
+      t.setPlaceholder("Review reports");
+      t.setValue(st.noteReviewDock.reportFolder || "");
+      t.onChange(async (v) => {
+        st.noteReviewDock = normalizeNoteReviewDockSettings({ ...st.noteReviewDock, reportFolder: v });
+        await plugin.save();
+      });
+    });
+  new Setting(containerEl)
     .setName("Lapse checkpoint")
     .setDesc("After this many Again ratings in a row, offer Reset, Rest for a week, Remove from review or Carry on.")
     .addText((t) => {
@@ -58814,6 +58894,108 @@ module.exports = {
   resolveApiKey,
   secretName,
   storeApiKey,
+};
+};
+
+/* ---- src/session-report.js ---- */
+__defs["session-report"] = function (module, exports, require) {
+/*
+ * A local review-session report, the non-AI half of Spaceforge's session
+ * summary. The docked review bar supplies the items it graded; this module
+ * only formats Markdown and picks a filename. No second review store, provider
+ * or network request is involved.
+ */
+const { str } = require("./util");
+
+const MAX_ITEMS = 200;
+
+function normalizeSessionReportSettings(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    enabled: src.enabled === true,
+    folder: str(src.folder).trim().replace(/^\/+|\/+$/g, ""),
+  };
+}
+
+function dayKey(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    const text = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+    return text;
+  }
+  const text = str(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function cleanTitle(value) {
+  return str(value)
+    .replace(/[[\]|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sessionReportMarkdown(input) {
+  const opts = input || {};
+  const status = opts.status || {};
+  const items = (Array.isArray(opts.items) ? opts.items : []).slice(0, MAX_ITEMS);
+  const date = dayKey(opts.date) || dayKey(new Date());
+  const counts = { again: 0, hard: 0, good: 0, easy: 0 };
+  for (const item of items) {
+    const grade = str(item && item.grade).toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(counts, grade)) counts[grade]++;
+  }
+  const completed = Math.max(0, Number(status.completed) || (Array.isArray(opts.items) ? opts.items.length : 0));
+  const missed = Array.isArray(status.missed) ? status.missed.length : 0;
+  const requeued = Math.max(0, Number(status.requeued) || 0);
+  const lines = [
+    "---",
+    "type: review_session_report",
+    `date: ${date}`,
+    `completed: ${completed}`,
+    `missed: ${missed}`,
+    `requeued: ${requeued}`,
+    `again: ${counts.again}`,
+    `hard: ${counts.hard}`,
+    `good: ${counts.good}`,
+    `easy: ${counts.easy}`,
+    "---",
+    "",
+    `# Review session — ${date}`,
+    "",
+    `- Graded: ${completed}`,
+    `- Missed: ${missed}`,
+    `- Requeued: ${requeued}`,
+    `- Again / Hard / Good / Easy: ${counts.again} / ${counts.hard} / ${counts.good} / ${counts.easy}`,
+  ];
+  if (items.length) {
+    lines.push("", "## Items");
+    for (const item of items) {
+      const title = cleanTitle(item && (item.title || item.path)) || "Untitled";
+      const path = str(item && item.path);
+      const grade = str(item && item.grade).toLowerCase() || "graded";
+      lines.push(path ? `- [[${path}|${title}]] — ${grade}` : `- ${title} — ${grade}`);
+    }
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/** Pick the first free `Review session <date>.md` inside the folder. */
+function reportPath(folder, date, existing) {
+  const base = `Review session ${dayKey(date) || dayKey(new Date())}`;
+  const root = str(folder).trim().replace(/^\/+|\/+$/g, "");
+  const prefix = root ? `${root}/` : "";
+  const taken = new Set((Array.isArray(existing) ? existing : []).map((path) => str(path)));
+  let candidate = `${prefix}${base}.md`;
+  let index = 2;
+  while (taken.has(candidate)) candidate = `${prefix}${base} ${index++}.md`;
+  return candidate;
+}
+
+module.exports = {
+  MAX_ITEMS,
+  dayKey,
+  normalizeSessionReportSettings,
+  reportPath,
+  sessionReportMarkdown,
 };
 };
 
@@ -65424,6 +65606,7 @@ const MATURITY_LABELS = {
 };
 const MATURITY_ORDER = ["learning", "young", "mature"];
 const WEEK_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const RATINGS = ["again", "hard", "good", "easy"];
 
 function clampNumber(value, min, max, fallback) {
   const n = Number(value);
@@ -65484,7 +65667,7 @@ function fsrsRows(card, entries, retention) {
     if (isNaN(at.getTime())) continue;
     const rating = fsrs.gradeForAttempt(entry.result === "correct", entry.conf, entry.seconds, card.fm && card.fm.target_seconds);
     const interval = Number(state.scheduled_days) || 0;
-    const row = reviewRow(card, entry, maturityOf(interval), interval);
+    const row = reviewRow(card, entry, maturityOf(interval), interval, rating);
     if (row) rows.push(row);
     try {
       state = scheduler.next(state, at, rating).card;
@@ -65509,7 +65692,7 @@ function sm2Rows(card, entries) {
     const at = new Date(entry.when);
     if (isNaN(at.getTime())) continue;
     const rating = sm2.gradeForAttempt(entry.result === "correct", entry.conf, entry.seconds, card.fm && card.fm.target_seconds);
-    const row = reviewRow(card, entry, maturityOf(state.interval), state.interval);
+    const row = reviewRow(card, entry, maturityOf(state.interval), state.interval, rating);
     if (row) rows.push(row);
     try {
       state = sm2.scheduleState(state, rating, at, card.fm && card.fm.sm2);
@@ -65525,14 +65708,14 @@ function ladderRows(card, entries) {
   return entries
     .map((entry) => {
       const interval = entry.result === "correct" ? Math.max(1, streak + 1) : 1;
-      const row = reviewRow(card, entry, maturityOf(interval), interval);
+      const row = reviewRow(card, entry, maturityOf(interval), interval, entry.result === "correct" ? "good" : "again");
       streak = entry.result === "correct" ? streak + 1 : 0;
       return row;
     })
     .filter(Boolean);
 }
 
-function reviewRow(source, entry, maturity, interval) {
+function reviewRow(source, entry, maturity, interval, rating) {
   const date = reviewDate(entry.when);
   if (!date) return null;
   return {
@@ -65544,6 +65727,7 @@ function reviewRow(source, entry, maturity, interval) {
     correct: entry.result === "correct",
     seconds: Number(entry.seconds) || 0,
     maturity,
+    rating: RATINGS.includes(str(rating)) ? str(rating) : entry.result === "correct" ? "good" : "again",
     interval: Math.max(0, Number(interval) || 0),
   };
 }
@@ -65638,7 +65822,37 @@ function distribution(values, edges, labels) {
   buckets.push({ label: labels[labels.length - 1] || `${last}+`, count: tail });
   const total = list.length;
   for (const bucket of buckets) bucket.share = total ? bucket.count / total : 0;
-  return { buckets, total, min: list.length ? list[0] : null, max: list.length ? list[list.length - 1] : null };
+  let median = null;
+  if (list.length) {
+    const middle = Math.floor(list.length / 2);
+    median = list.length % 2 ? list[middle] : (list[middle - 1] + list[middle]) / 2;
+    median = Math.round(median * 100) / 100;
+  }
+  return { buckets, total, min: list.length ? list[0] : null, max: list.length ? list[list.length - 1] : null, median };
+}
+
+function emptyRatingMix() {
+  return { again: 0, hard: 0, good: 0, easy: 0, total: 0, againRate: null };
+}
+
+/** The Again/Hard/Good/Easy mix split by card maturity, from the same replayed rows. */
+function buttonMixByMaturity(rows) {
+  const byMaturity = {};
+  for (const maturity of MATURITY_ORDER) byMaturity[maturity] = emptyRatingMix();
+  const all = emptyRatingMix();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const rating = str(row && row.rating);
+    if (!RATINGS.includes(rating)) continue;
+    const bucket = byMaturity[row.maturity] || byMaturity.learning;
+    bucket[rating]++;
+    bucket.total++;
+    all[rating]++;
+    all.total++;
+  }
+  for (const bucket of [...Object.values(byMaturity), all]) {
+    bucket.againRate = bucket.total ? bucket.again / bucket.total : null;
+  }
+  return { byMaturity, all };
 }
 
 function cardMetrics(cards, now) {
@@ -65766,6 +65980,7 @@ function buildStudyStats(input) {
     days,
     decks: deckBreakdown(cards, { ...settings, fsrsRetention: opts.fsrsRetention }),
     buttonMix: buttonMix(counters),
+    buttonMixByMaturity: buttonMixByMaturity(cardRows),
     heatmap: counterHeatmap(counters, settings.heatmapWeeks, now),
     counters,
     durability: durabilitySummary([...cards, ...questions, ...notes], settings.durableDays),
@@ -65785,8 +66000,10 @@ function buildStudyStats(input) {
 module.exports = {
   MATURITY_LABELS,
   MATURITY_ORDER,
+  RATINGS,
   WEEK_DAYS,
   buildStudyStats,
+  buttonMixByMaturity,
   cardMetrics,
   cardReviewRows,
   deckBreakdown,
@@ -65813,6 +66030,13 @@ const { str } = require("./util");
 
 function pct(value) {
   return value === null || value === undefined ? "—" : `${Math.round(Number(value) * 100)}%`;
+}
+
+function formatMedian(value, key) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  const text = String(Math.round(number * 100) / 100);
+  return key === "intervals" || key === "stability" ? `${text}d` : text;
 }
 
 function bar(container, value, max, cls) {
@@ -65909,6 +66133,21 @@ class StudyStatsView extends ItemView {
       row.createSpan({ cls: "qt-study-stats-dist-count", text: `${bucket.count} · ${pct(bucket.share)}` });
     }
     card.createDiv({ cls: "qt-hint", text: `Again rate ${pct(mix.againRate)} across ${mix.total} rated review${mix.total === 1 ? "" : "s"}.` });
+    const split = data.buttonMixByMaturity;
+    if (split) {
+      card.createDiv({ cls: "qt-study-stats-dist-title", text: "Again rate by maturity" });
+      const table = card.createDiv({ cls: "qt-study-stats-table" });
+      const header = table.createDiv({ cls: "qt-study-stats-row is-mix is-head" });
+      for (const label of ["Maturity", "Rated", "Again", "Again rate"]) header.createDiv({ text: label });
+      for (const maturity of MATURITY_ORDER) {
+        const bucket = split.byMaturity[maturity];
+        const line = table.createDiv({ cls: "qt-study-stats-row is-mix" });
+        line.createDiv({ text: data.retention.byMaturity[maturity].label });
+        line.createDiv({ text: String(bucket.total) });
+        line.createDiv({ text: String(bucket.again) });
+        line.createDiv({ text: pct(bucket.againRate) });
+      }
+    }
   }
 
   renderDurability(root, data) {
@@ -66042,6 +66281,9 @@ class StudyStatsView extends ItemView {
       if (!dist || !dist.total) {
         block.createDiv({ cls: "qt-study-empty", text: "No data yet." });
         continue;
+      }
+      if (dist.median !== null && dist.median !== undefined) {
+        block.createDiv({ cls: "qt-study-row-meta", text: `Median ${formatMedian(dist.median, key)}` });
       }
       const max = Math.max(...dist.buckets.map((bucket) => bucket.count), 1);
       for (const bucket of dist.buckets) {
@@ -73783,6 +74025,7 @@ const durability = require("./durability");
 const studyCounters = require("./study-counters");
 const pomodoro = require("./pomodoro");
 const noteReviewDock = require("./note-review-dock");
+const sessionReport = require("./session-report");
 const { PomodoroView } = require("./pomodoro-view");
 const { NoteReviewDock } = require("./note-review-dock");
 const { ReviewCalendarView } = require("./review-calendar-view");
@@ -73984,6 +74227,7 @@ QuestionTrackerPlugin.__test = {
   studyStats,
   localEvents,
   noteReviewDock,
+  sessionReport,
   reviewSession,
   durability,
   studyCounters,

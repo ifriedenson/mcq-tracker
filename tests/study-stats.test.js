@@ -134,3 +134,24 @@ test("buildStudyStats derives card history and day detail without inventing data
   assert.ok(data.retention.all.attempts >= 1);
   assert.equal(data.metrics.memoryNow, null);
 });
+
+test("distribution reports a median for odd and even samples", () => {
+  assert.equal(S.distribution([1, 5, 30], [7, 21], ["a", "b", "c"]).median, 5);
+  assert.equal(S.distribution([1, 5, 30, 100], [7, 21, 60], ["a", "b", "c", "d"]).median, 17.5);
+  assert.equal(S.distribution([], [1], ["a", "b"]).median, null);
+});
+
+test("again rate is split by card maturity from replayed card rows", () => {
+  const cards = [
+    { file: { path: "Cards/A.md", basename: "A" }, fm: { title: "A", history: ["2026-11-01|incorrect|30|C|0||a|", "2026-11-01|correct|30|B|2||a|"] } },
+    { file: { path: "Cards/B.md", basename: "B" }, fm: { title: "B", history: ["2026-11-01|correct|30|B|2||b|"] } },
+  ];
+  const rows = [...S.cardReviewRows(cards[0], { fsrsRetention: 0.9 }), ...S.cardReviewRows(cards[1], { fsrsRetention: 0.9 })];
+  const mix = S.buttonMixByMaturity(rows);
+  assert.equal(mix.all.total, 3);
+  assert.equal(mix.all.again, 1);
+  assert.equal(mix.byMaturity.young.total, 3, "ladder reviews at a one-day interval are young");
+  assert.equal(mix.byMaturity.young.again, 1);
+  assert.equal(mix.byMaturity.young.againRate, 1 / 3);
+  assert.equal(mix.byMaturity.learning.total, 0);
+});

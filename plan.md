@@ -2915,7 +2915,16 @@ Six plugins by the same author were read on Nov 1, 2026, because the Spaceforge 
 
 Row 10 (central schedule storage) is deliberately **not implemented**. **NEEDS USER DECISION:** choose the storage location(s), the one-way migration trigger and the rollback path. The existing in-note `next_review` / `srs` / `sm2` properties remain authoritative until that decision, so no migration path was guessed and no second schedule was created.
 
-Verification for this batch: **1,205 tests pass**, `node scripts/build.js` compiles the bundle, and `npm run check` reports `main.js` current across 214 modules.
+Verification for the earlier batch: **1,205 tests pass**.
+
+**Spaceforge parity follow-up (Nov 1, 2026):** the remaining locally-implementable details from rows 1 and 5 and the session-report note from “Also worth recording” now ship:
+
+- Row 1 now has a **Grade layout** setting (one row, a stacked palette or auto by pane width) and a vertically resizable dock (`src/note-review-dock.js`, `src/review-settings.js`, `styles.css`). The optional beside-the-note vertical split is **not implemented**; **NEEDS USER DECISION:** should the bar move beside the note (a structural change to Obsidian’s Markdown leaf) or stay docked underneath?
+- Row 5 now splits the Again rate by maturity and reports interval/ease/stability/difficulty medians (`src/study-stats.js`, `src/study-stats-view.js`).
+- **Session report:** `src/session-report.js` writes an opt-in local `review_session_report` note with counts, button mix and item links; Settings → Note review, a **Save session report** button when a docked run ends, and the `save-review-session-report` command. No provider or second review store.
+- Per-objective understanding/recall/transfer and the per-objective conversation/draft are **NEEDS USER DECISION:** they require an objective data model and an approved tutor provider. Optional web lookup remains behind the existing search-endpoint decision.
+
+Final verification: **1,213 tests pass**, `node scripts/build.js` compiles the bundle from **215 modules**, and `npm run check` reports `main.js` current.
 
 
 ---
