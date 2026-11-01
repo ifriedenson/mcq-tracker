@@ -130,8 +130,15 @@ jobs:
           V: ${{ steps.version.outputs.version }}
           TARGET: ${{ steps.target.outputs.sha }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          set -u
+          LOG="$RUNNER_TEMP/release-step.log"
+          : > "$LOG"
+          status=0
+          note() { echo "+ $*" >> "$LOG"; }
+
+          note "token repository permissions"
+          gh api "repos/$GITHUB_REPOSITORY" --jq '.permissions' >> "$LOG" 2>&1 || true
+
           REMOTE_PEELED=$(git ls-remote --tags origin "refs/tags/${V}^{}" | cut -f1)
           REMOTE_RAW=$(git ls-remote --tags origin "refs/tags/$V" | cut -f1)
           REMOTE_TAG="$REMOTE_PEELED"
@@ -139,17 +146,45 @@ jobs:
             REMOTE_TAG="$REMOTE_RAW"
           fi
           if [ -n "$REMOTE_TAG" ] && [ "$REMOTE_TAG" != "$TARGET" ]; then
-            echo "Tag $V already points to $REMOTE_TAG, not $TARGET."
-            exit 1
+            note "tag $V points to $REMOTE_TAG, expected $TARGET"
+            status=1
           fi
-          if [ -z "$REMOTE_TAG" ]; then
-            if git rev-parse -q --verify "refs/tags/$V" >/dev/null; then
-              git tag -d "$V"
+
+          if [ $status -eq 0 ] && [ -z "$REMOTE_TAG" ]; then
+            note "create annotated tag $V at $TARGET"
+            if TAG_OBJ=$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/tags" \
+                -f tag="$V" -f message="MCQ Tracker $V" -f object="$TARGET" -f type=commit --jq .sha 2>>"$LOG"); then
+              if ! gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                  -f ref="refs/tags/$V" -f sha="$TAG_OBJ" --jq .ref >>"$LOG" 2>&1; then
+                status=1
+              fi
+            else
+              status=1
             fi
-            git tag -a "$V" -m "MCQ Tracker $V" "$TARGET"
-            git push origin "refs/tags/$V"
           fi
-          gh release create "$V" \
-            main.js manifest.json styles.css \
-            --title "$V" \
-            --notes-file "$NOTES"
+
+          if [ $status -eq 0 ]; then
+            note "create release $V from the existing tag"
+            if ! gh release create "$V" main.js manifest.json styles.css \
+                --title "$V" --notes-file "$NOTES" >>"$LOG" 2>&1; then
+              status=1
+            fi
+          fi
+
+          if [ $status -ne 0 ] && [ -z "$REMOTE_TAG" ]; then
+            note "fallback: create the release and let the API create the tag"
+            if gh release create "$V" main.js manifest.json styles.css \
+                --title "$V" --notes-file "$NOTES" --target "$TARGET" >>"$LOG" 2>&1; then
+              status=0
+            fi
+          fi
+
+          if [ $status -ne 0 ]; then
+            {
+              echo "### Release step failed"
+              echo '```'
+              sed -E 's/(gh[pousr]_[A-Za-z0-9]+)/[redacted]/g' "$LOG"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $status
