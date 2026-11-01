@@ -28,6 +28,7 @@ const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SE
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
 const { normalizeVerificationMode } = require("./answer-verification");
+const { SAME_DAY_NOTE } = require("./fsrs");
 const { hasSecretStorage, readSecretValue, storeSecretValue, OPENCODE_PASSWORD_SECRET } = require("./secret-keys");
 
 const SETTINGS_MODULES = [
@@ -327,7 +328,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       .setName("Scheduler")
       .setDesc(
         "Simple ladder uses fixed intervals. FSRS schedules each question from an estimated memory state and your target recall. " +
-          "FSRS is optional and off by default; switching it on never rewrites an existing next review date until that question is next reviewed."
+          "FSRS is optional and off by default; switching it on never rewrites an existing next review date until that question is next reviewed. " + SAME_DAY_NOTE
       )
       .addDropdown((d) =>
         d

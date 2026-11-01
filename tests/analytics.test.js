@@ -122,6 +122,18 @@ test("analytics dashboard reports accuracy, due cards, course time and the weake
   assert.equal(d.retention.attempts, 0);
 });
 
+test("dashboard: memory now and the weighted gradebook join the overview", () => {
+  const now = new Date("2026-10-28T10:00:00");
+  const first = T.fsrs.reviewNote({}, { correct: true, conf: 2, seconds: 20, now }, 0.9);
+  const cards = [{ file: { path: "Cards/a.md" }, fm: { srs: first.srs } }];
+  const gradebook = { courses: [{ course: "Biology", current: 88, letter: "B+", graded: 3 }], gpa: 3.3 };
+  const dash = T.buildDashboard({ cards, gradebook, today: "2026-10-28" });
+  assert.equal(dash.memory.cards, 1);
+  assert.ok(dash.memory.now > 0 && dash.memory.now <= 1, "memory now is a recall probability");
+  assert.equal(dash.gradebook, gradebook, "the gradebook snapshot is passed through unchanged");
+  assert.equal(T.buildDashboard({ today: "2026-10-28" }).memory.now, null);
+});
+
 test("dashboard: card reviews join the heatmap and the next seven days show due load", () => {
   const cards = [
     { file: { path: "Cards/a.md" }, fm: { history: ["2026-10-26T10:00:00|good|5|", "2026-10-27T10:00:00|again|5|"], next_review: "2026-10-31" } },

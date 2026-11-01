@@ -5,7 +5,7 @@
  * without changing the note or the MCQ/card scheduler.
  */
 const { localDate } = require("./util");
-const { formatDay, parseReadingPlan, planReading } = require("./reading");
+const { formatDay, parseReadingPlan, planReading, readingProgress } = require("./reading");
 
 const STATUS_LABELS = {
   complete: "Complete",
@@ -62,8 +62,7 @@ async function renderReadingPlanBlock(plugin, source, el, ctx) {
       return;
     }
 
-    const saved = plugin.settings.reading && plugin.settings.reading.progress ? plugin.settings.reading.progress[parsed.id] : undefined;
-    const read = Number.isFinite(Number(saved)) ? Number(saved) : parsed.read;
+    const read = readingProgress(parsed, plugin.settings.reading && plugin.settings.reading.progress);
     const plan = planReading(parsed, { today, read });
     if (!plan.ok) {
       box.createDiv({ cls: "qt-reading-issue", text: plan.issue });

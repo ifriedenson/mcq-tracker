@@ -161,7 +161,7 @@ const { CardGeneratorModal } = require("./card-generator-modal");
 const { AutoAnkiModal } = require("./auto-anki-modal");
 const { autoAnkiBatchPaths, autoAnkiCardInputs, autoAnkiSourceKey, chooseAutoAnkiSource, normalizeAutoAnki } = require("./auto-anki");
 const { chooseText2AnkiSource, normalizeText2Anki, text2AnkiNotice } = require("./text2anki");
-const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator } = require("./card-generator");
+const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator, verifyCardDrafts } = require("./card-generator");
 const { buildSpacedQuizNote, spacedQuizFileName, spacedQuizSourceKey } = require("./spaced-quiz");
 const { readActiveNoteContext } = require("./note-context");
 const { QuizGeneratorModal } = require("./quiz-generator-modal");
@@ -1207,6 +1207,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.enabled = m.ai === true;
     this.settings.assignments.enabled = m.assignments === true;
     this.settings.reference.enabled = m.reference === true;
+    if (preset.adaptive === true) this.settings.quickAdaptive = { ...(this.settings.quickAdaptive || {}), enabled: true };
     await this.save();
     await this.onMcqToggled();
     await this.onCardsToggled();
@@ -3336,7 +3337,7 @@ class QuestionTrackerPlugin extends Plugin {
     const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: kind === "questions" ? 3500 : 2500 });
     const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
     const items = kind === "questions" ? parsed.questions : parsed.cards;
-    const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : null;
+    const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : await this.verifyDraftCards(items);
     return {
       kind,
       sourcePath: "",
@@ -3532,6 +3533,38 @@ class QuestionTrackerPlugin extends Plugin {
       confidence: "",
       method: "numeric",
     };
+  }
+
+  /**
+   * Rule-based check for generated cards: both sides present, a basic answer
+   * not sitting inside its prompt, and exactly one deletion on a cloze card.
+   */
+  async verifyDraftCards(items) {
+    const list = Array.isArray(items) ? items : [];
+    const mode = normalizeVerificationMode(this.settings.ai.verification);
+    const date = localDate();
+    let checked = 0;
+    let dropped = 0;
+    let failed = 0;
+    const results = verifyCardDrafts(list);
+    for (const result of results) {
+      const item = result.card;
+      if (!item || typeof item !== "object") continue;
+      const status = result.match ? "match" : "mismatch";
+      item.verification = {
+        status,
+        match: result.match,
+        reasons: result.reasons,
+        key: "",
+        model: "local rule",
+        date,
+        drop: !result.match && mode === "drop",
+      };
+      checked++;
+      if (item.verification.drop) dropped++;
+      if (!result.match) failed++;
+    }
+    return { checked, dropped, failed, mode };
   }
 
   /**
@@ -3881,7 +3914,7 @@ class QuestionTrackerPlugin extends Plugin {
     const items = kind === "questions"
       ? parsed.questions.map((item) => ({ ...item, difficulty: item.difficulty || (difficulty === "mixed" ? "" : difficulty) }))
       : parsed.cards;
-    const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : null;
+    const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : await this.verifyDraftCards(items);
     return {
       ...base,
       ai: true,
@@ -5002,9 +5035,11 @@ class QuestionTrackerPlugin extends Plugin {
     const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: 3000 });
     const parsed = parseAiCards(reply, config.count);
     if (!parsed.cards.length) throw new Error("The AI returned no usable cards. Try a different prompt or source.");
+    const verification = await this.verifyDraftCards(parsed.cards);
     return {
       kind: "cards",
-      items: parsed.cards,
+      items: parsed.cards.filter((item) => !(item.verification && item.verification.drop)),
+      verification,
       sourcePath: context.path,
       sourceKind,
       title: context.title,
@@ -6200,7 +6235,7 @@ ${body}
     const rows = [];
     for (const parsed of this._readingPlans.values()) {
       if (!parsed || !parsed.valid) continue;
-      const read = Number.isFinite(Number(progress[parsed.id])) ? Number(progress[parsed.id]) : parsed.read;
+      const read = readingModel.readingProgress(parsed, progress);
       const plan = readingModel.planReading(parsed, { today, read });
       if (!plan.ok) continue;
       const status = readingModel.readingStatus(plan);
@@ -8423,8 +8458,29 @@ ${body}
     for (let n = 2; this.app.vault.getAbstractFileByPath(path) && n < 100; n++) path = `${prefix}${base} ${n}.md`;
     if (this.app.vault.getAbstractFileByPath(path)) return null;
     await this.app.vault.create(path, source.markdown);
+    await this.markLecturesProcessed(source.lectureIds, path);
     new Notice(`Saved ${path}.`);
     return path;
+  }
+
+  /** Remember which lectures produced a compiled note, without rewriting old rows. */
+  async markLecturesProcessed(ids, path) {
+    const target = str(path).trim();
+    const wanted = new Set((Array.isArray(ids) ? ids : []).map((id) => str(id).trim()).filter(Boolean));
+    if (!wanted.size || !target) return 0;
+    const current = this.studyToolsSettings().lectureLog;
+    const on = localDate();
+    let changed = 0;
+    const lectures = current.lectures.map((lecture) => {
+      if (!wanted.has(lecture.id)) return lecture;
+      if (lecture.processed && lecture.processedPath === target) return lecture;
+      changed += 1;
+      return studyTools.normalizeLecture({ ...lecture, processed: true, processedOn: on, processedPath: target });
+    });
+    if (!changed) return 0;
+    this.settings.lectureLog = studyTools.normalizeLectureLog({ ...current, lectures });
+    await this.save();
+    return changed;
   }
 
   /* ---- local reading library (Verso library, shelves and quotes) */

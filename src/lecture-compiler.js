@@ -61,7 +61,7 @@ function normalizeLectureRow(value) {
   const title = str(source.title).trim().slice(0, MAX_TITLE);
   const date = dayValue(source.date);
   if (!course || !title || !date) return null;
-  return { course, title, date, topics: str(source.topics) };
+  return { id: str(source.id).trim(), course, title, date, topics: str(source.topics) };
 }
 
 function uniqueInOrder(values) {
@@ -167,6 +167,7 @@ function compileLectureNote(lectures, options) {
     title,
     fileTitle: safeFileTitle(`${title} ${range.to}`),
     folder: settings.folder,
+    lectureIds: list.map((lecture) => lecture.id).filter(Boolean),
     stats: {
       lectures: list.length,
       courses: courses.length,

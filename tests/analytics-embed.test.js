@@ -101,6 +101,7 @@ test("dashboard embed draws only the requested metric and keeps the empty state 
   assert.ok(mastery.texts().includes("Question mastery · All time"));
   assert.ok(mastery.texts().some((text) => /1 of 1 question in Biology tried/.test(text)));
   assert.ok(mastery.texts().includes("Needs work"));
+  assert.ok(mastery.texts().some((text) => /Band counts include hidden/.test(text)), "the band/practice difference is stated in-app");
   const practice = mastery.all.find((el) => el.meta && el.meta.attrs && /^Practice 1 needs work question in Biology$/.test(String(el.meta.attrs["aria-label"] || "")));
   assert.ok(practice, "the band has a practice button");
   practice.handlers.find((h) => h.ev === "click").fn({});
@@ -109,6 +110,30 @@ test("dashboard embed draws only the requested metric and keeps the empty state 
   const empty = makeDom();
   T.renderDashboardEmbed(empty.root, T.buildDashboard({ today: "2026-10-28" }), { metric: "stats", course: "History" });
   assert.ok(empty.texts().some((text) => /No study activity for History yet/.test(text)));
+});
+
+test("dashboard embed shows practice accuracy and the weighted gradebook side by side", () => {
+  const data = T.buildDashboard({
+    questions: [q("Q/bio.md", { attempts: 2, correct_count: 1, history: ["2026-10-26|correct|10|A|1|", "2026-10-27|incorrect|10|B|2|"] })],
+    today: "2026-10-28",
+  });
+  data.gradebook = { courses: [{ course: "Biology", current: 88, letter: "B+", graded: 4 }], gpa: 3.3 };
+  const dom = makeDom();
+  T.renderDashboardEmbed(dom.root, data, { metric: "grades" });
+  const texts = dom.texts();
+  assert.ok(texts.includes("Grade snapshot"));
+  assert.ok(texts.includes("Practice accuracy on questions, not the weighted assignment gradebook."));
+  assert.ok(texts.includes("Assignment categories and weights, separate from practice accuracy."));
+  assert.ok(texts.some((text) => /Two different measures/.test(text)));
+  assert.ok(texts.includes("B+"));
+  assert.ok(texts.some((text) => /88% · 4 graded/.test(text)));
+
+  const only = makeDom();
+  const gradebookOnly = T.buildDashboard({ today: "2026-10-28" });
+  gradebookOnly.gradebook = data.gradebook;
+  T.renderDashboardEmbed(only.root, gradebookOnly, { metric: "grades" });
+  assert.ok(only.texts().includes("B+"), "a gradebook-only course still renders");
+  assert.ok(!only.texts().includes("No study activity yet."));
 });
 
 test("plugin registers mcq-dashboard and renders the selected widget", async () => {

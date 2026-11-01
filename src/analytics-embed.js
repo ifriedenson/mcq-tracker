@@ -204,20 +204,38 @@ function renderSkips(container, data) {
 function renderGrade(container, data) {
   heading(container, "Grade snapshot");
   const grades = data.grades;
-  if (!grades || !grades.overall.attempts) {
-    container.createDiv({ cls: "qt-hint", text: "No practice grade yet. Answer a question to start the snapshot." });
+  const gradebook = data.gradebook && Array.isArray(data.gradebook.courses) ? data.gradebook.courses.filter((row) => row.current !== null) : [];
+  if ((!grades || !grades.overall.attempts) && !gradebook.length) {
+    container.createDiv({ cls: "qt-hint", text: "No practice or assignment grade yet. Answer a question or add a graded assignment to start the snapshot." });
     return;
   }
-  const box = container.createDiv({ cls: "qt-dash-exam qt-grade-snapshot" });
-  box.createDiv({ cls: "qt-dash-value", text: grades.overall.grade });
-  box.createDiv({ cls: "qt-today-meta", text: `${fmtPct(grades.overall.accuracy)} practice accuracy · ${grades.overall.attempts} attempts` });
-  box.createDiv({ cls: "qt-hint", text: "Based on practice accuracy, not assignment or transcript grades." });
-  for (const row of grades.courses) {
-    const line = box.createDiv({ cls: "qt-grade-row" });
-    line.createSpan({ cls: "qt-ins-name", text: row.course });
-    line.createSpan({ cls: "qt-hint", text: `${fmtPct(row.accuracy)} · ${row.attempts} attempts` });
-    line.createSpan({ cls: "qt-dash-value", text: row.grade });
+  const pair = container.createDiv({ cls: "qt-dash-stats" });
+  if (grades && grades.overall.attempts) {
+    const box = pair.createDiv({ cls: "qt-dash-exam qt-grade-snapshot" });
+    box.createDiv({ cls: "qt-dash-value", text: grades.overall.grade });
+    box.createDiv({ cls: "qt-today-meta", text: `${fmtPct(grades.overall.accuracy)} practice accuracy · ${grades.overall.attempts} attempts` });
+    box.createDiv({ cls: "qt-hint", text: "Practice accuracy on questions, not the weighted assignment gradebook." });
+    for (const row of grades.courses) {
+      const line = box.createDiv({ cls: "qt-grade-row" });
+      line.createSpan({ cls: "qt-ins-name", text: row.course });
+      line.createSpan({ cls: "qt-hint", text: `${fmtPct(row.accuracy)} · ${row.attempts} attempts` });
+      line.createSpan({ cls: "qt-dash-value", text: row.grade });
+    }
   }
+  if (gradebook.length) {
+    const box = pair.createDiv({ cls: "qt-dash-exam qt-grade-snapshot" });
+    const gpa = data.gradebook.gpa === null || data.gradebook.gpa === undefined ? "" : ` · GPA ${data.gradebook.gpa}`;
+    box.createDiv({ cls: "qt-dash-value", text: gradebook.slice(0, 3).map((row) => row.letter).join(" · ") });
+    box.createDiv({ cls: "qt-today-meta", text: `${gradebook.length} weighted course${gradebook.length === 1 ? "" : "s"}${gpa}` });
+    box.createDiv({ cls: "qt-hint", text: "Assignment categories and weights, separate from practice accuracy." });
+    for (const row of gradebook.slice(0, 6)) {
+      const line = box.createDiv({ cls: "qt-grade-row" });
+      line.createSpan({ cls: "qt-ins-name", text: row.course });
+      line.createSpan({ cls: "qt-hint", text: `${row.current}% · ${row.graded} graded` });
+      line.createSpan({ cls: "qt-dash-value", text: row.letter });
+    }
+  }
+  container.createDiv({ cls: "qt-hint", text: "Two different measures: practice accuracy checks recall; the gradebook tracks graded coursework. Neither replaces the other." });
 }
 
 function renderCourses(container, data) {
@@ -296,6 +314,10 @@ function renderMastery(container, data, hooks, controls) {
     const label = `${band.label}${scope ? ` · ${scope}` : ""}${data.masteryDays ? ` · last ${data.masteryDays} days` : " · all time"}`;
     go.addEventListener("click", () => hooks.onMasteryPractice(band.id, label));
   }
+  container.createDiv({
+    cls: "qt-hint",
+    text: "Band counts include hidden, suspended and excluded questions; band practice starts only the studyable ones.",
+  });
 }
 
 /** Draw one embed. `data` is the output of buildDashboard plus an optional `plan`. */
@@ -308,7 +330,8 @@ function renderDashboardEmbed(container, data, options, hooks) {
 
   const days = data.heatmap.flatMap((week) => week.days);
   const minutes = days.reduce((n, day) => n + day.minutes, 0);
-  const hasActivity = data.overall.notes || data.cardStats.total || minutes;
+  const gradebookRows = data.gradebook && Array.isArray(data.gradebook.courses) ? data.gradebook.courses.filter((row) => row.current !== null) : [];
+  const hasActivity = data.overall.notes || data.cardStats.total || minutes || gradebookRows.length;
   if (!hasActivity && !(metric === "exam" && data.plan)) {
     container.createDiv({
       cls: "qt-empty",

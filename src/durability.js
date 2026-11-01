@@ -24,7 +24,7 @@ function normalizeDurabilitySettings(value, fallback) {
   const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const base = fallback && typeof fallback === "object" ? fallback : {};
   const days = Math.max(MIN_DURABLE_DAYS, Math.min(10, Math.round(Number(src.requiredDays ?? base.requiredDays) || 2)));
-  return { enabled: (src.enabled ?? base.enabled) !== false, requiredDays: days };
+  return { requiredDays: days };
 }
 
 function requiredDaysOf(value, fallback) {

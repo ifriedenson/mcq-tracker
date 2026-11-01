@@ -7,7 +7,6 @@
  * separate opt-in features.
  */
 const { Modal, Notice, Setting, TFile, normalizePath } = require("obsidian");
-const { FolderSuggest } = require("./modals");
 const { ensureFolder, localDate, str } = require("./util");
 const { readPdfPages } = require("./pdf");
 const { documentBaseName, documentKind, documentLabel, extensionOf, readDocumentPages } = require("./documents");
@@ -235,11 +234,7 @@ class CourseNotesModal extends Modal {
     new Setting(el)
       .setName("Save notes in")
       .setDesc("The folder is created if it does not exist.")
-      .addText((t) => {
-        const suggest = new FolderSuggest(this.app, t.inputEl);
-        suggest;
-        t.setPlaceholder(DEFAULT_COURSE_NOTES_FOLDER).setValue(this.folder).onChange((v) => (this.folder = v));
-      });
+      .addText((t) => t.setPlaceholder(DEFAULT_COURSE_NOTES_FOLDER).setValue(this.folder).onChange((v) => (this.folder = v)));
     new Setting(el)
       .setName("Title")
       .setDesc("Blank uses the file name or the first slide/page heading.")

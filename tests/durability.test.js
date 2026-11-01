@@ -50,3 +50,8 @@ test("required durability days clamp to at least two", () => {
   assert.equal(D.normalizeDurabilitySettings({ requiredDays: 1 }).requiredDays, 2);
   assert.equal(D.normalizeDurabilitySettings({ requiredDays: 99 }).requiredDays, 10);
 });
+
+test("durability settings no longer expose the unused enabled flag", () => {
+  assert.deepEqual(D.normalizeDurabilitySettings({}), { requiredDays: 2 });
+  assert.deepEqual(D.normalizeDurabilitySettings({ enabled: false }), { requiredDays: 2 });
+});

@@ -49,10 +49,11 @@ test("read aloud: a briefing keeps only the leading sentences and reports the cu
 
 test("lecture compiler: compiles one note with overview, concepts, vocabulary and sections", () => {
   const lectures = [
-    { course: "Biology", date: "2026-10-02", title: "Respiration", topics: "Glycolysis; ATP: energy currency" },
-    { course: "Biology", date: "2026-10-01", title: "Cells", topics: "Organelles, ATP: energy currency" },
+    { id: "lec-resp", course: "Biology", date: "2026-10-02", title: "Respiration", topics: "Glycolysis; ATP: energy currency" },
+    { id: "lec-cells", course: "Biology", date: "2026-10-01", title: "Cells", topics: "Organelles, ATP: energy currency" },
   ];
   const compiled = L.compileLectureNote(lectures, { folder: "Lecture notes" });
+  assert.deepEqual(compiled.lectureIds, ["lec-cells", "lec-resp"], "the compiled note remembers its source lectures");
   assert.ok(compiled);
   assert.equal(compiled.stats.lectures, 2);
   assert.equal(compiled.stats.courses, 1);
@@ -202,11 +203,20 @@ test("compiled lecture notes are written once and never overwrite", async () => 
   };
   const plugin = new QT(app);
   await plugin.onload();
-  const compiled = L.compileLectureNote([{ course: "Biology", date: "2026-10-01", title: "Cells", topics: "ATP: energy" }], { folder: "Lecture notes" });
+  plugin.settings.lectureLog = T.studyTools.normalizeLectureLog({
+    lectures: [{ id: "lec-cells", course: "Biology", date: "2026-10-01", title: "Cells", topics: "ATP: energy" }],
+  });
+  const compiled = L.compileLectureNote(plugin.settings.lectureLog.lectures, { folder: "Lecture notes" });
   const first = await plugin.saveCompiledLectureNote(compiled);
+  assert.equal(plugin.settings.lectureLog.lectures[0].processed, true, "saving the compiled note marks its lecture");
+  assert.equal(plugin.settings.lectureLog.lectures[0].processedPath, first);
+  assert.ok(plugin.settings.lectureLog.lectures[0].processedOn);
   const second = await plugin.saveCompiledLectureNote(compiled);
   assert.equal(first, "Lecture notes/Biology lecture notes 2026-10-01.md");
   assert.equal(second, "Lecture notes/Biology lecture notes 2026-10-01 2.md");
   assert.equal(files.length, 2);
   assert.equal(await plugin.saveCompiledLectureNote(null), null);
+  assert.equal(await plugin.markLecturesProcessed([], first), 0);
+  const old = T.studyTools.normalizeLecture({ id: "lec-old", course: "Biology", date: "2026-10-01", title: "Old" });
+  assert.equal(old.processed, false, "old lecture rows load unchanged");
 });

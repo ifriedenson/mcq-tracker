@@ -148,6 +148,8 @@ function scheduleState(previous, rating, now, options) {
     reps += 1;
     if (grade === 4) easeFactor += opts.easeIncrement;
   }
+  // Classic SM-2 lowers ease after Hard as well as Again; only Easy raises it.
+  if (grade === 2) easeFactor = Math.max(opts.minEase, easeFactor - opts.easeDecrement);
   interval = Math.min(opts.maxInterval, interval);
   easeFactor = Math.min(5, Math.max(opts.minEase, easeFactor));
   const due = addDays(at, interval);

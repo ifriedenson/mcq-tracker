@@ -28,6 +28,17 @@ test("reading plan: parses a book, its dates, reading days and declared progress
   assert.ok(parsed.id.startsWith("reading-"));
 });
 
+test("reading plan: the progress key follows a title, not its dates, and reads the old key", () => {
+  const parsed = R.parseReadingPlan(PLAN);
+  const moved = R.parseReadingPlan(PLAN.replace("2026-01-10", "2026-01-20"));
+  assert.equal(parsed.id, moved.id, "editing the target date keeps saved progress");
+  assert.notEqual(parsed.legacyId, moved.legacyId);
+  assert.equal(R.readingProgress(parsed, { [parsed.legacyId]: 55 }), 55, "old hash keys still load");
+  assert.equal(R.readingProgress(parsed, { [parsed.id]: 70, [parsed.legacyId]: 55 }), 70, "the stable key wins");
+  assert.equal(R.readingProgress(parsed, {}), 0);
+  assert.notEqual(R.parseReadingPlan(PLAN.replace("Deep Work", "Deep Work 2")).id, parsed.id);
+});
+
 test("reading plan: an on-pace plan spreads pages across reading days", () => {
   const plan = R.planReading(R.parseReadingPlan(PLAN), { today: "2026-01-01", read: 0 });
   assert.equal(plan.ok, true);

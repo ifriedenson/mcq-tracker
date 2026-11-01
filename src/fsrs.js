@@ -7,6 +7,7 @@
  * only adapts note properties to FSRS cards: compact serialization, ratings from
  * correctness/confidence/time, and a one-time replay of existing history.
  */
+const SAME_DAY_NOTE = "A same-day FSRS result is stored as the next day because notes hold dates, not times.";
 const { addDays, fmtDate, str } = require("./util");
 const { createEmptyCard, fsrs } = require("./fsrs-lib");
 const { parseHistory } = require("./stats");
@@ -182,5 +183,6 @@ module.exports = {
   emptySrs,
   replayHistory,
   cardForNote,
+  SAME_DAY_NOTE,
   reviewNote,
 };

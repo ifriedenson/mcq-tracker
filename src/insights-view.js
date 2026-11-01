@@ -106,10 +106,12 @@ class InsightsView extends ItemView {
     const p = this.plugin;
     const cards = p.getCards ? p.getCards() : [];
     const frq = p.getFrqKnowledge ? p.getFrqKnowledge() : null;
+    const gradebook = p.assignmentStats ? p.assignmentStats() : null;
     const data = buildDashboard({
       questions,
       cards,
       frq,
+      gradebook,
       studyLog: p.settings.studyLog,
       confidenceLabels: p.settings.confidenceLabels,
       field: this.overviewField,
@@ -138,6 +140,7 @@ class InsightsView extends ItemView {
     tile("Accuracy", fmtPct(data.knowledge.accuracy), data.knowledge.attempts ? `${fmtPct(o.accuracy)} on questions${data.frq && data.frq.attempts ? ` · ${fmtPct(data.frq.average)} on FRQ` : ""}` : "No attempts yet");
     tile("Study today", `${data.study.todayMinutes} min`, `${data.study.streak} day streak`);
     tile("Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
+    if (data.memory && data.memory.cards) tile("Memory now", fmtPct(data.memory.now), `${data.memory.cards} FSRS card${data.memory.cards === 1 ? "" : "s"} with a stability estimate`);
     tile("Due next 7 days", String(data.forward.total), `${data.forward.days.filter((day) => day.count).length} scheduled day${data.forward.days.filter((day) => day.count).length === 1 ? "" : "s"}`);
     tile("Logged skips", String(o.skipped), o.skipped ? "Not counted as wrong" : "None logged");
     renderGrade(root, data);

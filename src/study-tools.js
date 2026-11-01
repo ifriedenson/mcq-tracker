@@ -78,6 +78,8 @@ function normalizeLecture(value) {
   const date = dayValue(source.date);
   if (!course || !title || !date) return null;
   const topics = str(source.topics).replace(/\s+/g, " ").trim().slice(0, MAX_TOPICS);
+  const processedOn = dayValue(source.processedOn || source.processed_on);
+  const processedPath = str(source.processedPath || source.processed_path).trim().slice(0, 500);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("lecture", [course, date, title]),
     course,
@@ -86,6 +88,9 @@ function normalizeLecture(value) {
     topics,
     topicList: parseTopicList(source.topicList !== undefined ? source.topicList : topics),
     notePath: str(source.notePath || source.note_path).trim().slice(0, 500),
+    processed: source.processed === true || Boolean(processedOn || processedPath),
+    processedOn,
+    processedPath,
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }

@@ -57,6 +57,38 @@ test("card generator: normalizes defaults, styles and separators", () => {
   assert.equal(config.hideInPreview, true);
 });
 
+test("card generator: rule checks catch empty, answer-in-prompt and multi-cloze drafts", () => {
+  assert.deepEqual(G.inspectCardDraft({ front: "What is ATP?", back: "Energy currency." }), { match: true, reasons: [] });
+  const empty = G.inspectCardDraft({ front: "What is ATP?", back: "  " });
+  assert.equal(empty.match, false);
+  assert.match(empty.reasons.join(" "), /front and back are both required/);
+  const leak = G.inspectCardDraft({ front: "ATP is energy currency", back: "energy currency" });
+  assert.equal(leak.match, false);
+  assert.match(leak.reasons.join(" "), /answer appears inside the prompt/);
+  const one = G.inspectCardDraft({ front: "ATP stores {{c1::energy}}.", back: "energy", cardType: "cloze" });
+  assert.equal(one.match, true);
+  const two = G.inspectCardDraft({ front: "{{c1::ATP}} stores {{c2::energy}}.", back: "ATP energy", cardType: "cloze" });
+  assert.equal(two.match, false);
+  assert.match(two.reasons.join(" "), /exactly one deletion/);
+  const checked = G.verifyCardDrafts([{ front: "A?", back: "B" }, { front: "A?", back: "" }]);
+  assert.deepEqual(checked.map((entry) => entry.match), [true, false]);
+});
+
+test("card generator: verification stamps drafts and drop mode removes mismatches", async () => {
+  const { plugin } = await setup("The membrane is selectively permeable.");
+  plugin.settings.ai.verification = "drop";
+  const items = [
+    { front: "What is ATP?", back: "Energy currency." },
+    { front: "The membrane is selectively permeable", back: "selectively permeable" },
+  ];
+  const result = await plugin.verifyDraftCards(items);
+  assert.deepEqual(result, { checked: 2, dropped: 1, failed: 1, mode: "drop" });
+  assert.equal(items[0].verification.status, "match");
+  assert.equal(items[1].verification.status, "mismatch");
+  assert.equal(items[1].verification.drop, true);
+  assert.equal(items[1].verification.model, "local rule");
+});
+
 test("card generator: prompt carries the source, quantity and custom instruction", () => {
   const prompt = G.buildCardGeneratorPrompt({
     title: "Cell",

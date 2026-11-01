@@ -87,6 +87,17 @@ test("sm2: later Good reviews grow by the ease factor and Again resets with a la
   assert.equal(S.decodeSm2(again.sm2).lapses, 1);
 });
 
+test("sm2: Hard lowers ease like classic SM-2 while Easy still raises it", () => {
+  const first = S.reviewNote({}, { correct: true, conf: 2, seconds: 20, now: NOW }, {});
+  assert.equal(first.ease, 2.5);
+  const later = new Date(2026, 9, 30, 10, 0);
+  const hard = S.reviewNote({ sm2: first.sm2 }, { rating: 2, now: later }, {});
+  assert.equal(hard.ease, 2.3);
+  assert.ok(hard.days >= 1);
+  const easy = S.reviewNote({ sm2: first.sm2 }, { rating: 4, now: later }, {});
+  assert.equal(easy.ease, 2.65);
+});
+
 test("sm2: per-deck timing changes intervals without changing the algorithm", () => {
   const timing = S.normalizeSm2({ startingEase: 3, graduatingInterval: 2, easyInterval: 8, hardMultiplier: 2, easyBonus: 1.5 });
   const good = S.reviewNote({}, { rating: 3, now: NOW }, timing);

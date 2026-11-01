@@ -16,13 +16,15 @@ const WELCOME_PRESETS = [
   {
     id: "sat",
     label: "SAT / AP-style prep",
-    description: "Practice questions and review. Cards, calendar and AI stay off until you want them.",
+    description: "Practice questions and adaptive review. Cards, calendar and AI stay off until you want them.",
+    adaptive: true,
     modules: { mcq: true, cards: false, calendar: false, assignments: true, ai: false, reference: false },
   },
   {
     id: "university",
     label: "University courses",
-    description: "Questions, cards and the calendar. AI and Reference stay off.",
+    description: "Questions, cards and the calendar, with adaptive session sizing on. AI and Reference stay off.",
+    adaptive: true,
     modules: { mcq: true, cards: true, calendar: true, assignments: true, ai: false, reference: false },
   },
   {
@@ -34,7 +36,8 @@ const WELCOME_PRESETS = [
   {
     id: "stem",
     label: "STEM problem sets",
-    description: "Questions and the local Reference panel. Cards, calendar and AI stay off.",
+    description: "Questions and the local Reference panel, with adaptive session sizing on. Cards, calendar and AI stay off.",
+    adaptive: true,
     modules: { mcq: true, cards: false, calendar: false, assignments: true, ai: false, reference: true },
   },
   {

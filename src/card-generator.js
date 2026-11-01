@@ -111,6 +111,26 @@ function appendPrefix(text) {
   return body.endsWith("\n") ? "\n" : "\n\n";
 }
 
+/** Rule-based sanity check for one generated card. No model call and no write. */
+function inspectCardDraft(card) {
+  const item = card || {};
+  const front = str(item.front).trim();
+  const back = str(item.back).trim();
+  const reasons = [];
+  if (!front || !back) reasons.push("front and back are both required");
+  if (front.length > 500) reasons.push("front is longer than 500 characters");
+  if (back.length > 2000) reasons.push("back is longer than 2000 characters");
+  const cloze = front.match(/\{\{(?:c\d+::)?[^{}]+\}\}/g) || [];
+  const isCloze = item.cardType === "cloze" || cloze.length > 0;
+  if (isCloze && cloze.length !== 1) reasons.push("a cloze card needs exactly one deletion");
+  if (!isCloze && front && back && front.toLowerCase().includes(back.toLowerCase())) reasons.push("the answer appears inside the prompt");
+  return { match: reasons.length === 0, reasons };
+}
+
+function verifyCardDrafts(cards) {
+  return (Array.isArray(cards) ? cards : []).map((card) => ({ card, ...inspectCardDraft(card) }));
+}
+
 module.exports = {
   CARD_GENERATOR_OUTPUTS,
   CARD_GENERATOR_SOURCES,
@@ -120,5 +140,7 @@ module.exports = {
   buildCardBlock,
   buildCardGeneratorPrompt,
   formatCardPair,
+  inspectCardDraft,
   normalizeCardGenerator,
+  verifyCardDrafts,
 };

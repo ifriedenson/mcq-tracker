@@ -5,6 +5,7 @@ const { isStudyable } = require("./study-status");
 const { computeStats, overallStats, parseHistory, weakestRow } = require("./stats");
 const { creditOf } = require("./history");
 const { studySummary } = require("./focus");
+const { cardMetrics } = require("./study-stats");
 
 function dayKey(value) {
   const d = value instanceof Date ? value : new Date(value);
@@ -252,6 +253,7 @@ function buildDashboard(options) {
   const overall = overallStats(scopedQuestions);
   const frq = opts.frq || null;
   const knowledge = knowledgeSummary(overall, frq);
+  const memory = cardMetrics(scopedCards, new Date(`${today}T12:00:00`));
   const study = studySummary(scopedLog, today);
   const cardStats = {
     total: scopedCards.length,
@@ -264,6 +266,8 @@ function buildDashboard(options) {
     overall,
     knowledge,
     frq,
+    memory: { now: memory.memoryNow, cards: memory.memoryCards },
+    gradebook: opts.gradebook || null,
     forward: buildForwardLoad(scopedQuestions, scopedCards, today, opts.forwardDays || 7),
     study,
     cardStats,

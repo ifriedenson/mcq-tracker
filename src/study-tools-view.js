@@ -331,7 +331,7 @@ class StudyToolsView extends ItemView {
       main.createDiv({ cls: "qt-study-row-title", text: lecture.title });
       main.createDiv({
         cls: "qt-study-row-meta",
-        text: `${lecture.course} · ${lecture.date}${lecture.topics ? ` · ${lecture.topics}` : ""}`,
+        text: `${lecture.course} · ${lecture.date}${lecture.topics ? ` · ${lecture.topics}` : ""} · ${lecture.processed ? `Compiled${lecture.processedOn ? ` ${lecture.processedOn}` : ""}` : "Not compiled"}`,
       });
       row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
         await this.plugin.removeStudyLecture(lecture.id);

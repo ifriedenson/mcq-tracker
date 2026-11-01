@@ -147,9 +147,10 @@ function parseReadingPlan(source) {
     issues.push("Add read: as a whole number from 0 to the page count.");
   }
 
+  const legacyId = `reading-${hashString(`${title}|${start}|${target}`)}`;
   const id =
     str(fields.id).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 80) ||
-    `reading-${hashString(`${title}|${start}|${target}`)}`;
+    `reading-${hashString(str(title).trim().toLowerCase())}`;
 
   return {
     title,
@@ -164,6 +165,7 @@ function parseReadingPlan(source) {
     off,
     read: Number.isInteger(read) ? Math.max(0, Math.min(validPages ? pages : read, read)) : 0,
     id,
+    legacyId,
     valid: issues.length === 0,
     issues,
   };
@@ -287,6 +289,16 @@ function planReading(parsed, options) {
   };
 }
 
+/** Resolve saved progress under the current key, then the pre-stable legacy key. */
+function readingProgress(parsed, progress) {
+  const map = progress && typeof progress === "object" ? progress : {};
+  const keys = [parsed && parsed.id, parsed && parsed.legacyId].filter(Boolean);
+  for (const key of keys) {
+    if (Number.isFinite(Number(map[key]))) return Number(map[key]);
+  }
+  return Math.max(0, Math.round(Number(parsed && parsed.read) || 0));
+}
+
 function readingStatus(plan, today) {
   const source = plan && typeof plan === "object" ? plan : {};
   if (source.ok === false) {
@@ -319,5 +331,6 @@ module.exports = {
   distributePages,
   normalizeReadingSettings,
   planReading,
+  readingProgress,
   readingStatus,
 };

@@ -1628,6 +1628,7 @@ const { isStudyable } = require("./study-status");
 const { computeStats, overallStats, parseHistory, weakestRow } = require("./stats");
 const { creditOf } = require("./history");
 const { studySummary } = require("./focus");
+const { cardMetrics } = require("./study-stats");
 
 function dayKey(value) {
   const d = value instanceof Date ? value : new Date(value);
@@ -1875,6 +1876,7 @@ function buildDashboard(options) {
   const overall = overallStats(scopedQuestions);
   const frq = opts.frq || null;
   const knowledge = knowledgeSummary(overall, frq);
+  const memory = cardMetrics(scopedCards, new Date(`${today}T12:00:00`));
   const study = studySummary(scopedLog, today);
   const cardStats = {
     total: scopedCards.length,
@@ -1887,6 +1889,8 @@ function buildDashboard(options) {
     overall,
     knowledge,
     frq,
+    memory: { now: memory.memoryNow, cards: memory.memoryCards },
+    gradebook: opts.gradebook || null,
     forward: buildForwardLoad(scopedQuestions, scopedCards, today, opts.forwardDays || 7),
     study,
     cardStats,
@@ -2134,20 +2138,38 @@ function renderSkips(container, data) {
 function renderGrade(container, data) {
   heading(container, "Grade snapshot");
   const grades = data.grades;
-  if (!grades || !grades.overall.attempts) {
-    container.createDiv({ cls: "qt-hint", text: "No practice grade yet. Answer a question to start the snapshot." });
+  const gradebook = data.gradebook && Array.isArray(data.gradebook.courses) ? data.gradebook.courses.filter((row) => row.current !== null) : [];
+  if ((!grades || !grades.overall.attempts) && !gradebook.length) {
+    container.createDiv({ cls: "qt-hint", text: "No practice or assignment grade yet. Answer a question or add a graded assignment to start the snapshot." });
     return;
   }
-  const box = container.createDiv({ cls: "qt-dash-exam qt-grade-snapshot" });
-  box.createDiv({ cls: "qt-dash-value", text: grades.overall.grade });
-  box.createDiv({ cls: "qt-today-meta", text: `${fmtPct(grades.overall.accuracy)} practice accuracy · ${grades.overall.attempts} attempts` });
-  box.createDiv({ cls: "qt-hint", text: "Based on practice accuracy, not assignment or transcript grades." });
-  for (const row of grades.courses) {
-    const line = box.createDiv({ cls: "qt-grade-row" });
-    line.createSpan({ cls: "qt-ins-name", text: row.course });
-    line.createSpan({ cls: "qt-hint", text: `${fmtPct(row.accuracy)} · ${row.attempts} attempts` });
-    line.createSpan({ cls: "qt-dash-value", text: row.grade });
+  const pair = container.createDiv({ cls: "qt-dash-stats" });
+  if (grades && grades.overall.attempts) {
+    const box = pair.createDiv({ cls: "qt-dash-exam qt-grade-snapshot" });
+    box.createDiv({ cls: "qt-dash-value", text: grades.overall.grade });
+    box.createDiv({ cls: "qt-today-meta", text: `${fmtPct(grades.overall.accuracy)} practice accuracy · ${grades.overall.attempts} attempts` });
+    box.createDiv({ cls: "qt-hint", text: "Practice accuracy on questions, not the weighted assignment gradebook." });
+    for (const row of grades.courses) {
+      const line = box.createDiv({ cls: "qt-grade-row" });
+      line.createSpan({ cls: "qt-ins-name", text: row.course });
+      line.createSpan({ cls: "qt-hint", text: `${fmtPct(row.accuracy)} · ${row.attempts} attempts` });
+      line.createSpan({ cls: "qt-dash-value", text: row.grade });
+    }
   }
+  if (gradebook.length) {
+    const box = pair.createDiv({ cls: "qt-dash-exam qt-grade-snapshot" });
+    const gpa = data.gradebook.gpa === null || data.gradebook.gpa === undefined ? "" : ` · GPA ${data.gradebook.gpa}`;
+    box.createDiv({ cls: "qt-dash-value", text: gradebook.slice(0, 3).map((row) => row.letter).join(" · ") });
+    box.createDiv({ cls: "qt-today-meta", text: `${gradebook.length} weighted course${gradebook.length === 1 ? "" : "s"}${gpa}` });
+    box.createDiv({ cls: "qt-hint", text: "Assignment categories and weights, separate from practice accuracy." });
+    for (const row of gradebook.slice(0, 6)) {
+      const line = box.createDiv({ cls: "qt-grade-row" });
+      line.createSpan({ cls: "qt-ins-name", text: row.course });
+      line.createSpan({ cls: "qt-hint", text: `${row.current}% · ${row.graded} graded` });
+      line.createSpan({ cls: "qt-dash-value", text: row.letter });
+    }
+  }
+  container.createDiv({ cls: "qt-hint", text: "Two different measures: practice accuracy checks recall; the gradebook tracks graded coursework. Neither replaces the other." });
 }
 
 function renderCourses(container, data) {
@@ -2226,6 +2248,10 @@ function renderMastery(container, data, hooks, controls) {
     const label = `${band.label}${scope ? ` · ${scope}` : ""}${data.masteryDays ? ` · last ${data.masteryDays} days` : " · all time"}`;
     go.addEventListener("click", () => hooks.onMasteryPractice(band.id, label));
   }
+  container.createDiv({
+    cls: "qt-hint",
+    text: "Band counts include hidden, suspended and excluded questions; band practice starts only the studyable ones.",
+  });
 }
 
 /** Draw one embed. `data` is the output of buildDashboard plus an optional `plan`. */
@@ -2238,7 +2264,8 @@ function renderDashboardEmbed(container, data, options, hooks) {
 
   const days = data.heatmap.flatMap((week) => week.days);
   const minutes = days.reduce((n, day) => n + day.minutes, 0);
-  const hasActivity = data.overall.notes || data.cardStats.total || minutes;
+  const gradebookRows = data.gradebook && Array.isArray(data.gradebook.courses) ? data.gradebook.courses.filter((row) => row.current !== null) : [];
+  const hasActivity = data.overall.notes || data.cardStats.total || minutes || gradebookRows.length;
   if (!hasActivity && !(metric === "exam" && data.plan)) {
     container.createDiv({
       cls: "qt-empty",
@@ -11254,6 +11281,26 @@ function appendPrefix(text) {
   return body.endsWith("\n") ? "\n" : "\n\n";
 }
 
+/** Rule-based sanity check for one generated card. No model call and no write. */
+function inspectCardDraft(card) {
+  const item = card || {};
+  const front = str(item.front).trim();
+  const back = str(item.back).trim();
+  const reasons = [];
+  if (!front || !back) reasons.push("front and back are both required");
+  if (front.length > 500) reasons.push("front is longer than 500 characters");
+  if (back.length > 2000) reasons.push("back is longer than 2000 characters");
+  const cloze = front.match(/\{\{(?:c\d+::)?[^{}]+\}\}/g) || [];
+  const isCloze = item.cardType === "cloze" || cloze.length > 0;
+  if (isCloze && cloze.length !== 1) reasons.push("a cloze card needs exactly one deletion");
+  if (!isCloze && front && back && front.toLowerCase().includes(back.toLowerCase())) reasons.push("the answer appears inside the prompt");
+  return { match: reasons.length === 0, reasons };
+}
+
+function verifyCardDrafts(cards) {
+  return (Array.isArray(cards) ? cards : []).map((card) => ({ card, ...inspectCardDraft(card) }));
+}
+
 module.exports = {
   CARD_GENERATOR_OUTPUTS,
   CARD_GENERATOR_SOURCES,
@@ -11263,7 +11310,9 @@ module.exports = {
   buildCardBlock,
   buildCardGeneratorPrompt,
   formatCardPair,
+  inspectCardDraft,
   normalizeCardGenerator,
+  verifyCardDrafts,
 };
 };
 
@@ -20367,7 +20416,6 @@ __defs["course-notes"] = function (module, exports, require) {
  * separate opt-in features.
  */
 const { Modal, Notice, Setting, TFile, normalizePath } = require("obsidian");
-const { FolderSuggest } = require("./modals");
 const { ensureFolder, localDate, str } = require("./util");
 const { readPdfPages } = require("./pdf");
 const { documentBaseName, documentKind, documentLabel, extensionOf, readDocumentPages } = require("./documents");
@@ -20595,11 +20643,7 @@ class CourseNotesModal extends Modal {
     new Setting(el)
       .setName("Save notes in")
       .setDesc("The folder is created if it does not exist.")
-      .addText((t) => {
-        const suggest = new FolderSuggest(this.app, t.inputEl);
-        suggest;
-        t.setPlaceholder(DEFAULT_COURSE_NOTES_FOLDER).setValue(this.folder).onChange((v) => (this.folder = v));
-      });
+      .addText((t) => t.setPlaceholder(DEFAULT_COURSE_NOTES_FOLDER).setValue(this.folder).onChange((v) => (this.folder = v)));
     new Setting(el)
       .setName("Title")
       .setDesc("Blank uses the file name or the first slide/page heading.")
@@ -22695,7 +22739,7 @@ function normalizeDurabilitySettings(value, fallback) {
   const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const base = fallback && typeof fallback === "object" ? fallback : {};
   const days = Math.max(MIN_DURABLE_DAYS, Math.min(10, Math.round(Number(src.requiredDays ?? base.requiredDays) || 2)));
-  return { enabled: (src.enabled ?? base.enabled) !== false, requiredDays: days };
+  return { requiredDays: days };
 }
 
 function requiredDaysOf(value, fallback) {
@@ -26999,6 +27043,7 @@ __defs["fsrs"] = function (module, exports, require) {
  * only adapts note properties to FSRS cards: compact serialization, ratings from
  * correctness/confidence/time, and a one-time replay of existing history.
  */
+const SAME_DAY_NOTE = "A same-day FSRS result is stored as the next day because notes hold dates, not times.";
 const { addDays, fmtDate, str } = require("./util");
 const { createEmptyCard, fsrs } = require("./fsrs-lib");
 const { parseHistory } = require("./stats");
@@ -27174,6 +27219,7 @@ module.exports = {
   emptySrs,
   replayHistory,
   cardForNote,
+  SAME_DAY_NOTE,
   reviewNote,
 };
 };
@@ -30970,10 +31016,12 @@ class InsightsView extends ItemView {
     const p = this.plugin;
     const cards = p.getCards ? p.getCards() : [];
     const frq = p.getFrqKnowledge ? p.getFrqKnowledge() : null;
+    const gradebook = p.assignmentStats ? p.assignmentStats() : null;
     const data = buildDashboard({
       questions,
       cards,
       frq,
+      gradebook,
       studyLog: p.settings.studyLog,
       confidenceLabels: p.settings.confidenceLabels,
       field: this.overviewField,
@@ -31002,6 +31050,7 @@ class InsightsView extends ItemView {
     tile("Accuracy", fmtPct(data.knowledge.accuracy), data.knowledge.attempts ? `${fmtPct(o.accuracy)} on questions${data.frq && data.frq.attempts ? ` · ${fmtPct(data.frq.average)} on FRQ` : ""}` : "No attempts yet");
     tile("Study today", `${data.study.todayMinutes} min`, `${data.study.streak} day streak`);
     tile("Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
+    if (data.memory && data.memory.cards) tile("Memory now", fmtPct(data.memory.now), `${data.memory.cards} FSRS card${data.memory.cards === 1 ? "" : "s"} with a stability estimate`);
     tile("Due next 7 days", String(data.forward.total), `${data.forward.days.filter((day) => day.count).length} scheduled day${data.forward.days.filter((day) => day.count).length === 1 ? "" : "s"}`);
     tile("Logged skips", String(o.skipped), o.skipped ? "Not counted as wrong" : "None logged");
     renderGrade(root, data);
@@ -32053,7 +32102,7 @@ function normalizeLectureRow(value) {
   const title = str(source.title).trim().slice(0, MAX_TITLE);
   const date = dayValue(source.date);
   if (!course || !title || !date) return null;
-  return { course, title, date, topics: str(source.topics) };
+  return { id: str(source.id).trim(), course, title, date, topics: str(source.topics) };
 }
 
 function uniqueInOrder(values) {
@@ -32159,6 +32208,7 @@ function compileLectureNote(lectures, options) {
     title,
     fileTitle: safeFileTitle(`${title} ${range.to}`),
     folder: settings.folder,
+    lectureIds: list.map((lecture) => lecture.id).filter(Boolean),
     stats: {
       lectures: list.length,
       courses: courses.length,
@@ -40578,7 +40628,7 @@ const { CardGeneratorModal } = require("./card-generator-modal");
 const { AutoAnkiModal } = require("./auto-anki-modal");
 const { autoAnkiBatchPaths, autoAnkiCardInputs, autoAnkiSourceKey, chooseAutoAnkiSource, normalizeAutoAnki } = require("./auto-anki");
 const { chooseText2AnkiSource, normalizeText2Anki, text2AnkiNotice } = require("./text2anki");
-const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator } = require("./card-generator");
+const { appendPrefix, buildCardBlock, buildCardGeneratorPrompt, normalizeCardGenerator, verifyCardDrafts } = require("./card-generator");
 const { buildSpacedQuizNote, spacedQuizFileName, spacedQuizSourceKey } = require("./spaced-quiz");
 const { readActiveNoteContext } = require("./note-context");
 const { QuizGeneratorModal } = require("./quiz-generator-modal");
@@ -41624,6 +41674,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.ai.enabled = m.ai === true;
     this.settings.assignments.enabled = m.assignments === true;
     this.settings.reference.enabled = m.reference === true;
+    if (preset.adaptive === true) this.settings.quickAdaptive = { ...(this.settings.quickAdaptive || {}), enabled: true };
     await this.save();
     await this.onMcqToggled();
     await this.onCardsToggled();
@@ -43753,7 +43804,7 @@ class QuestionTrackerPlugin extends Plugin {
     const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: kind === "questions" ? 3500 : 2500 });
     const parsed = kind === "questions" ? parseAiQuestions(reply, count) : parseAiCards(reply, count);
     const items = kind === "questions" ? parsed.questions : parsed.cards;
-    const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : null;
+    const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : await this.verifyDraftCards(items);
     return {
       kind,
       sourcePath: "",
@@ -43949,6 +44000,38 @@ class QuestionTrackerPlugin extends Plugin {
       confidence: "",
       method: "numeric",
     };
+  }
+
+  /**
+   * Rule-based check for generated cards: both sides present, a basic answer
+   * not sitting inside its prompt, and exactly one deletion on a cloze card.
+   */
+  async verifyDraftCards(items) {
+    const list = Array.isArray(items) ? items : [];
+    const mode = normalizeVerificationMode(this.settings.ai.verification);
+    const date = localDate();
+    let checked = 0;
+    let dropped = 0;
+    let failed = 0;
+    const results = verifyCardDrafts(list);
+    for (const result of results) {
+      const item = result.card;
+      if (!item || typeof item !== "object") continue;
+      const status = result.match ? "match" : "mismatch";
+      item.verification = {
+        status,
+        match: result.match,
+        reasons: result.reasons,
+        key: "",
+        model: "local rule",
+        date,
+        drop: !result.match && mode === "drop",
+      };
+      checked++;
+      if (item.verification.drop) dropped++;
+      if (!result.match) failed++;
+    }
+    return { checked, dropped, failed, mode };
   }
 
   /**
@@ -44298,7 +44381,7 @@ class QuestionTrackerPlugin extends Plugin {
     const items = kind === "questions"
       ? parsed.questions.map((item) => ({ ...item, difficulty: item.difficulty || (difficulty === "mixed" ? "" : difficulty) }))
       : parsed.cards;
-    const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : null;
+    const verification = kind === "questions" ? await this.verifyDraftQuestions(items) : await this.verifyDraftCards(items);
     return {
       ...base,
       ai: true,
@@ -45419,9 +45502,11 @@ class QuestionTrackerPlugin extends Plugin {
     const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: 3000 });
     const parsed = parseAiCards(reply, config.count);
     if (!parsed.cards.length) throw new Error("The AI returned no usable cards. Try a different prompt or source.");
+    const verification = await this.verifyDraftCards(parsed.cards);
     return {
       kind: "cards",
-      items: parsed.cards,
+      items: parsed.cards.filter((item) => !(item.verification && item.verification.drop)),
+      verification,
       sourcePath: context.path,
       sourceKind,
       title: context.title,
@@ -46617,7 +46702,7 @@ ${body}
     const rows = [];
     for (const parsed of this._readingPlans.values()) {
       if (!parsed || !parsed.valid) continue;
-      const read = Number.isFinite(Number(progress[parsed.id])) ? Number(progress[parsed.id]) : parsed.read;
+      const read = readingModel.readingProgress(parsed, progress);
       const plan = readingModel.planReading(parsed, { today, read });
       if (!plan.ok) continue;
       const status = readingModel.readingStatus(plan);
@@ -48840,8 +48925,29 @@ ${body}
     for (let n = 2; this.app.vault.getAbstractFileByPath(path) && n < 100; n++) path = `${prefix}${base} ${n}.md`;
     if (this.app.vault.getAbstractFileByPath(path)) return null;
     await this.app.vault.create(path, source.markdown);
+    await this.markLecturesProcessed(source.lectureIds, path);
     new Notice(`Saved ${path}.`);
     return path;
+  }
+
+  /** Remember which lectures produced a compiled note, without rewriting old rows. */
+  async markLecturesProcessed(ids, path) {
+    const target = str(path).trim();
+    const wanted = new Set((Array.isArray(ids) ? ids : []).map((id) => str(id).trim()).filter(Boolean));
+    if (!wanted.size || !target) return 0;
+    const current = this.studyToolsSettings().lectureLog;
+    const on = localDate();
+    let changed = 0;
+    const lectures = current.lectures.map((lecture) => {
+      if (!wanted.has(lecture.id)) return lecture;
+      if (lecture.processed && lecture.processedPath === target) return lecture;
+      changed += 1;
+      return studyTools.normalizeLecture({ ...lecture, processed: true, processedOn: on, processedPath: target });
+    });
+    if (!changed) return 0;
+    this.settings.lectureLog = studyTools.normalizeLectureLog({ ...current, lectures });
+    await this.save();
+    return changed;
   }
 
   /* ---- local reading library (Verso library, shelves and quotes) */
@@ -55893,9 +55999,10 @@ function parseReadingPlan(source) {
     issues.push("Add read: as a whole number from 0 to the page count.");
   }
 
+  const legacyId = `reading-${hashString(`${title}|${start}|${target}`)}`;
   const id =
     str(fields.id).trim().replace(/[^a-z0-9_-]/gi, "-").slice(0, 80) ||
-    `reading-${hashString(`${title}|${start}|${target}`)}`;
+    `reading-${hashString(str(title).trim().toLowerCase())}`;
 
   return {
     title,
@@ -55910,6 +56017,7 @@ function parseReadingPlan(source) {
     off,
     read: Number.isInteger(read) ? Math.max(0, Math.min(validPages ? pages : read, read)) : 0,
     id,
+    legacyId,
     valid: issues.length === 0,
     issues,
   };
@@ -56033,6 +56141,16 @@ function planReading(parsed, options) {
   };
 }
 
+/** Resolve saved progress under the current key, then the pre-stable legacy key. */
+function readingProgress(parsed, progress) {
+  const map = progress && typeof progress === "object" ? progress : {};
+  const keys = [parsed && parsed.id, parsed && parsed.legacyId].filter(Boolean);
+  for (const key of keys) {
+    if (Number.isFinite(Number(map[key]))) return Number(map[key]);
+  }
+  return Math.max(0, Math.round(Number(parsed && parsed.read) || 0));
+}
+
 function readingStatus(plan, today) {
   const source = plan && typeof plan === "object" ? plan : {};
   if (source.ok === false) {
@@ -56065,6 +56183,7 @@ module.exports = {
   distributePages,
   normalizeReadingSettings,
   planReading,
+  readingProgress,
   readingStatus,
 };
 };
@@ -56343,7 +56462,7 @@ __defs["reading-view"] = function (module, exports, require) {
  * without changing the note or the MCQ/card scheduler.
  */
 const { localDate } = require("./util");
-const { formatDay, parseReadingPlan, planReading } = require("./reading");
+const { formatDay, parseReadingPlan, planReading, readingProgress } = require("./reading");
 
 const STATUS_LABELS = {
   complete: "Complete",
@@ -56400,8 +56519,7 @@ async function renderReadingPlanBlock(plugin, source, el, ctx) {
       return;
     }
 
-    const saved = plugin.settings.reading && plugin.settings.reading.progress ? plugin.settings.reading.progress[parsed.id] : undefined;
-    const read = Number.isFinite(Number(saved)) ? Number(saved) : parsed.read;
+    const read = readingProgress(parsed, plugin.settings.reading && plugin.settings.reading.progress);
     const plan = planReading(parsed, { today, read });
     if (!plan.ok) {
       box.createDiv({ cls: "qt-reading-issue", text: plan.issue });
@@ -61732,6 +61850,7 @@ const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SE
 const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
 const { normalizeVerificationMode } = require("./answer-verification");
+const { SAME_DAY_NOTE } = require("./fsrs");
 const { hasSecretStorage, readSecretValue, storeSecretValue, OPENCODE_PASSWORD_SECRET } = require("./secret-keys");
 
 const SETTINGS_MODULES = [
@@ -62031,7 +62150,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       .setName("Scheduler")
       .setDesc(
         "Simple ladder uses fixed intervals. FSRS schedules each question from an estimated memory state and your target recall. " +
-          "FSRS is optional and off by default; switching it on never rewrites an existing next review date until that question is next reviewed."
+          "FSRS is optional and off by default; switching it on never rewrites an existing next review date until that question is next reviewed. " + SAME_DAY_NOTE
       )
       .addDropdown((d) =>
         d
@@ -64857,6 +64976,8 @@ function scheduleState(previous, rating, now, options) {
     reps += 1;
     if (grade === 4) easeFactor += opts.easeIncrement;
   }
+  // Classic SM-2 lowers ease after Hard as well as Again; only Easy raises it.
+  if (grade === 2) easeFactor = Math.max(opts.minEase, easeFactor - opts.easeDecrement);
   interval = Math.min(opts.maxInterval, interval);
   easeFactor = Math.min(5, Math.max(opts.minEase, easeFactor));
   const due = addDays(at, interval);
@@ -70461,6 +70582,8 @@ function normalizeLecture(value) {
   const date = dayValue(source.date);
   if (!course || !title || !date) return null;
   const topics = str(source.topics).replace(/\s+/g, " ").trim().slice(0, MAX_TOPICS);
+  const processedOn = dayValue(source.processedOn || source.processed_on);
+  const processedPath = str(source.processedPath || source.processed_path).trim().slice(0, 500);
   return {
     id: str(source.id).trim().slice(0, 160) || idFor("lecture", [course, date, title]),
     course,
@@ -70469,6 +70592,9 @@ function normalizeLecture(value) {
     topics,
     topicList: parseTopicList(source.topicList !== undefined ? source.topicList : topics),
     notePath: str(source.notePath || source.note_path).trim().slice(0, 500),
+    processed: source.processed === true || Boolean(processedOn || processedPath),
+    processedOn,
+    processedPath,
     createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
   };
 }
@@ -71001,7 +71127,7 @@ class StudyToolsView extends ItemView {
       main.createDiv({ cls: "qt-study-row-title", text: lecture.title });
       main.createDiv({
         cls: "qt-study-row-meta",
-        text: `${lecture.course} · ${lecture.date}${lecture.topics ? ` · ${lecture.topics}` : ""}`,
+        text: `${lecture.course} · ${lecture.date}${lecture.topics ? ` · ${lecture.topics}` : ""} · ${lecture.processed ? `Compiled${lecture.processedOn ? ` ${lecture.processedOn}` : ""}` : "Not compiled"}`,
       });
       row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
         await this.plugin.removeStudyLecture(lecture.id);
@@ -77415,13 +77541,15 @@ const WELCOME_PRESETS = [
   {
     id: "sat",
     label: "SAT / AP-style prep",
-    description: "Practice questions and review. Cards, calendar and AI stay off until you want them.",
+    description: "Practice questions and adaptive review. Cards, calendar and AI stay off until you want them.",
+    adaptive: true,
     modules: { mcq: true, cards: false, calendar: false, assignments: true, ai: false, reference: false },
   },
   {
     id: "university",
     label: "University courses",
-    description: "Questions, cards and the calendar. AI and Reference stay off.",
+    description: "Questions, cards and the calendar, with adaptive session sizing on. AI and Reference stay off.",
+    adaptive: true,
     modules: { mcq: true, cards: true, calendar: true, assignments: true, ai: false, reference: false },
   },
   {
@@ -77433,7 +77561,8 @@ const WELCOME_PRESETS = [
   {
     id: "stem",
     label: "STEM problem sets",
-    description: "Questions and the local Reference panel. Cards, calendar and AI stay off.",
+    description: "Questions and the local Reference panel, with adaptive session sizing on. Cards, calendar and AI stay off.",
+    adaptive: true,
     modules: { mcq: true, cards: false, calendar: false, assignments: true, ai: false, reference: true },
   },
   {

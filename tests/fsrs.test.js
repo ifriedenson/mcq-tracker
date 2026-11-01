@@ -46,6 +46,12 @@ test("fsrs: first reviews follow the reference intervals and never land today", 
   for (const r of [again, hard, good, easy]) assert.ok(r.nextReview > "2026-10-29");
 });
 
+test("fsrs: the same-day clamp has user-facing copy", () => {
+  assert.match(F.SAME_DAY_NOTE, /same-day/i);
+  assert.match(F.SAME_DAY_NOTE, /next day/i);
+  assert.equal(typeof F.SAME_DAY_NOTE, "string");
+});
+
 test("fsrs: higher desired retention schedules sooner", () => {
   const first = F.reviewNote({ target_seconds: 100 }, { correct: true, conf: 2, seconds: 50, now: NOW }, 0.9);
   const fm = { target_seconds: 100, srs: first.srs };
