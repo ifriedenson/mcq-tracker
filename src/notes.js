@@ -299,7 +299,7 @@ function applyAttempt(fm, a, intervals, options) {
   let fsrsError = "";
   if (opts.scheduler === "fsrs") {
     try {
-      fsrsReview = reviewNote(fm, a, opts.fsrsRetention);
+      fsrsReview = reviewNote(fm, a, opts.fsrsRetention, opts.fsrsWeights);
     } catch (e) {
       fsrsError = str(e && e.message);
     }

@@ -27,12 +27,14 @@ function clampRetention(value) {
 }
 
 /** Daily scheduling: short-term steps would produce a due time, while notes store only a date. */
-function makeScheduler(retention) {
-  return fsrs({
+function makeScheduler(retention, weights) {
+  const options = {
     request_retention: clampRetention(retention),
     enable_fuzz: false,
     enable_short_term: false,
-  });
+  };
+  if (Array.isArray(weights) && weights.length === 21) options.w = weights.slice();
+  return fsrs(options);
 }
 
 /**
@@ -110,7 +112,7 @@ function emptySrs(now) {
 }
 
 /** Replay append-only history once. Future or malformed rows are ignored, not guessed. */
-function replayHistory(fm, now, retention) {
+function replayHistory(fm, now, retention, weights) {
   const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
   const entries = parseHistory(fm && fm.history)
     .map((e) => ({ ...e, at: new Date(e.when) }))
@@ -119,7 +121,7 @@ function replayHistory(fm, now, retention) {
     .slice(-MAX_REPLAY);
   if (!entries.length) return { card: createEmptyCard(at), replayed: 0 };
 
-  const scheduler = makeScheduler(retention);
+  const scheduler = makeScheduler(retention, weights);
   let card = createEmptyCard(entries[0].at);
   let replayed = 0;
   for (const e of entries) {
@@ -135,24 +137,24 @@ function replayHistory(fm, now, retention) {
   return { card, replayed };
 }
 
-function cardForNote(fm, now, retention) {
+function cardForNote(fm, now, retention, weights) {
   const stored = decodeSrs(fm && fm.srs);
   if (stored) return { card: stored, replayed: 0 };
-  return replayHistory(fm, now, retention);
+  return replayHistory(fm, now, retention, weights);
 }
 
 /** Compute the next review for one attempt without mutating the note. */
-function reviewNote(fm, a, retention) {
+function reviewNote(fm, a, retention, weights) {
   const now = a && a.now instanceof Date && !isNaN(a.now.getTime()) ? a.now : new Date();
   const ret = clampRetention(retention);
-  const seeded = cardForNote(fm, now, ret);
+  const seeded = cardForNote(fm, now, ret, weights);
   // Cards have an explicit four-way rating. Questions derive one from correctness,
   // confidence and speed instead.
   const explicit = Number(a && a.rating);
   const rating = Number.isInteger(explicit) && explicit >= 1 && explicit <= 4
     ? explicit
     : gradeForAttempt(!!a.correct, a.conf, a.seconds, fm && fm.target_seconds);
-  const next = makeScheduler(ret).next(seeded.card, now, rating).card;
+  const next = makeScheduler(ret, weights).next(seeded.card, now, rating).card;
 
   // Notes store a date, not a time, so never schedule inside the same day.
   let due = next.due instanceof Date ? next.due : null;

@@ -508,7 +508,7 @@ function ensureDeck(st, name) {
   st.decks = Array.isArray(st.decks) ? st.decks : [];
   let cfg = st.decks.find((d) => d.name.toLowerCase() === str(name).trim().toLowerCase());
   if (!cfg) {
-    cfg = { name: str(name).trim(), folder: "", course: "", answerMode: "", gradingStrictness: "", scheduler: "", intervals: [], fsrsRetention: 0, sm2: normalizeSm2() };
+    cfg = { name: str(name).trim(), folder: "", course: "", answerMode: "", gradingStrictness: "", scheduler: "", intervals: [], fsrsRetention: 0, fsrsWeights: null, sm2: normalizeSm2() };
     st.decks.push(cfg);
   }
   return cfg;

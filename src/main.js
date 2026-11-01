@@ -26,6 +26,7 @@ const learnkit = require("./learnkit");
 const survey = require("./survey");
 const parameterized = require("./parameterized");
 const fsrs = require("./fsrs");
+const fsrsFit = require("./fsrs-fit");
 const sm2 = require("./sm2");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
@@ -359,6 +360,7 @@ QuestionTrackerPlugin.__test = {
   applyAttempt,
   applySkip,
   fsrs,
+  fsrsFit,
   sm2,
   setLastErrorType,
   fillDefaults,

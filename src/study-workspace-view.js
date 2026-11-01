@@ -82,6 +82,7 @@ class StudyWorkspaceView extends ItemView {
     this.vocabFilter = "";
     this.readingFilter = "all";
     this.fitReport = null;
+    this.fsrsFitReports = null;
     this.lecturePreview = null;
     this.readAloudText = "";
     this.readAloudPlan = null;
@@ -1107,6 +1108,7 @@ class StudyWorkspaceView extends ItemView {
   }
 
   renderSchedulerFit(root) {
+    this.renderFsrsWeightFit(root);
     const card = root.createDiv({ cls: "qt-study-card qt-scheduler-fit" });
     card.createEl("h3", { text: "Desired-retention fit" });
     card.createDiv({ cls: "qt-hint", text: "Uses the review counters already stored on your cards. Fitting is local; Apply only changes the FSRS desired-retention setting." });
@@ -1153,6 +1155,65 @@ class StudyWorkspaceView extends ItemView {
       });
     } else if (fit.ready) {
       card.createDiv({ cls: "qt-study-row-meta", text: "The current target already matches the fit." });
+    }
+  }
+
+  /** Opt-in, per-deck decay-weight fitting with a visible reset path. */
+  renderFsrsWeightFit(root) {
+    if (typeof this.plugin.fsrsFitReports !== "function") return;
+    const card = root.createDiv({ cls: "qt-study-card qt-fsrs-fit" });
+    card.createEl("h3", { text: "FSRS weight fit" });
+    card.createDiv({
+      cls: "qt-hint",
+      text: "Opt-in per deck. Fits only the FSRS decay weight from replayed review history and applies it only when a held-out tail improves on the fixed defaults. Reset restores the defaults; nothing changes until Apply.",
+    });
+    if (!this.fsrsFitReports) {
+      const custom = Array.isArray(this.plugin.settings.cards && this.plugin.settings.cards.decks)
+        ? this.plugin.settings.cards.decks.filter((deck) => deck && deck.fsrsWeights)
+        : [];
+      if (custom.length) this.fsrsFitReports = this.plugin.fsrsFitReports();
+    }
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Fit weights", cls: "mod-cta" }).addEventListener("click", () => {
+      this.fsrsFitReports = this.plugin.fsrsFitReports();
+      const accepted = this.fsrsFitReports.filter((row) => row.accepted).length;
+      this.saveMessage(accepted ? `${accepted} deck fit${accepted === 1 ? "" : "s"} passed validation.` : "No deck fit passed validation.");
+      this.render();
+    });
+    const reports = this.fsrsFitReports || [];
+    if (!reports.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "Rate cards with FSRS first, then fit a bounded decay weight." });
+      return;
+    }
+    for (const report of reports) {
+      const row = card.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: report.deck });
+      const bits = [`${report.samples || 0} reviews`, `${report.cards || 0} cards`];
+      if (report.custom) bits.push(`custom decay ${Number(report.currentDecay).toFixed(3)}`);
+      main.createDiv({ cls: "qt-study-row-meta", text: bits.join(" · ") });
+      if (report.accepted) {
+        main.createDiv({
+          cls: "qt-study-row-meta",
+          text: `Decay ${Number(report.defaultDecay).toFixed(3)} → ${Number(report.fittedDecay).toFixed(3)} · held-out improvement ${Number(report.improvement).toFixed(3)}`,
+        });
+        row.createEl("button", { text: "Apply", cls: "mod-cta" }).addEventListener("click", async () => {
+          await this.plugin.applyFsrsFitWeights(report.deck, report.weights);
+          this.fsrsFitReports = null;
+          this.saveMessage(`Applied ${report.deck} FSRS weights.`);
+          this.render();
+        });
+      } else {
+        main.createDiv({ cls: "qt-study-row-meta", text: report.reason });
+      }
+      if (report.custom) {
+        row.createEl("button", { text: "Reset to defaults" }).addEventListener("click", async () => {
+          await this.plugin.resetFsrsFitWeights(report.deck);
+          this.fsrsFitReports = null;
+          this.saveMessage(`Reset ${report.deck} to the default FSRS weights.`);
+          this.render();
+        });
+      }
     }
   }
 
