@@ -40,8 +40,8 @@ class TodayView extends ItemView {
     this.contentEl.addClass("qt-root");
     this.contentEl.addClass("qt-root-today");
     this.render();
-    // Counts and the next event move while the tab stays open.
-    this.registerInterval(activeWindow.setInterval(() => this.render(), 60000));
+    // Counts and the next event move while the tab stays open; only their text is updated.
+    this.registerInterval(activeWindow.setInterval(() => this.refreshLive(), 60000));
     this.registerInterval(activeWindow.setInterval(() => this.tickFocus(), 1000));
   }
 
@@ -50,6 +50,9 @@ class TodayView extends ItemView {
     const el = this.contentEl;
     el.empty();
     const root = el.createDiv({ cls: "qt-wrap qt-today" });
+    this.nextClassKickerEl = null;
+    this.nextClassWhenEl = null;
+    this.nextExamMetaEl = null;
 
     if (p.mcqEnabled && !p.mcqEnabled()) {
       const card = root.createDiv({ cls: "qt-today-card" });
@@ -69,9 +72,10 @@ class TodayView extends ItemView {
     const hiddenText = hidden ? ` · ${hidden} hidden` : "";
 
     const header = root.createDiv({ cls: "qt-today-header" });
-    header.createDiv({ cls: "qt-today-date", text: now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) });
+    this.liveDay = today;
+    this.dateEl = header.createDiv({ cls: "qt-today-date", text: now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) });
     header.createEl("h2", { text: "Today" });
-    header.createDiv({
+    this.countEl = header.createDiv({
       cls: "qt-today-count",
       text: `${due.length} due · ${fresh.length} new · ${visible.length} question${visible.length === 1 ? "" : "s"}${hiddenText}`,
     });
@@ -117,6 +121,48 @@ class TodayView extends ItemView {
     this.renderDueQueue(grid);
     this.renderCards(grid);
     this.renderNext(grid, now);
+  }
+
+  /** The 60-second tick updates live text instead of rebuilding every panel. */
+  refreshLive(now) {
+    const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+    const p = this.plugin;
+    const today = fmtDate(at);
+    if (this.liveDay && this.liveDay !== today) return this.render();
+    if (p.mcqEnabled && !p.mcqEnabled()) return this.render();
+    const questions = p.getQuestions();
+    const visible = questions.filter((q) => isStudyable(q.fm, today));
+    const hidden = questions.length - visible.length;
+    const due = visible.filter((q) => isDue(q.fm, today));
+    const fresh = visible.filter((q) => !Number(q.fm.attempts));
+    const hiddenText = hidden ? ` · ${hidden} hidden` : "";
+    if (this.countEl) {
+      this.countEl.setText(`${due.length} due · ${fresh.length} new · ${visible.length} question${visible.length === 1 ? "" : "s"}${hiddenText}`);
+    }
+    this.refreshNext(at);
+  }
+
+  /** Update the existing next-class/exam cards, or rebuild if their shape changed. */
+  refreshNext(now) {
+    const p = this.plugin;
+    if (!p.calendarEnabled || !p.calendarEnabled()) return;
+    const events = p.calendarEvents() || [];
+    const settings = p.calendarSettings();
+    const classStatus = nextClassStatus(events.filter((ev) => !isExamEvent(ev)), now);
+    const exam = upcomingExams(events, now, 1)[0];
+    if (!!classStatus.event !== !!this.nextClassWhenEl || !!exam !== !!this.nextExamMetaEl) return this.render();
+    if (classStatus.event && this.nextClassKickerEl && this.nextClassWhenEl) {
+      const event = classStatus.event;
+      const details = event.details || parseClassDetails(event.summary, event.description, event.location);
+      const when = classStatus.state === "ongoing"
+        ? `Until ${formatTime(settings, event.dtend)}`
+        : `${formatTime(settings, event.dtstart)}–${formatTime(settings, event.dtend)} · ${humanizeDuration(classStatus.startsInMs)}`;
+      this.nextClassKickerEl.setText(classStatus.state === "ongoing" ? "In class now" : "Next class");
+      this.nextClassWhenEl.setText([when, details.room].filter(Boolean).join(" · "));
+    }
+    if (exam && this.nextExamMetaEl) {
+      this.nextExamMetaEl.setText(`${formatDateValue(settings.dateFormat, exam.dateKey)} · ${examCountdown(exam, now)}`);
+    }
   }
 
   /** A quiet local nudge. OS delivery is opt-in and never uses the network. */
@@ -583,18 +629,18 @@ class TodayView extends ItemView {
       const event = classStatus.event;
       const details = event.details || parseClassDetails(event.summary, event.description, event.location);
       const card = panel.createDiv({ cls: "qt-today-card" });
-      card.createDiv({ cls: "qt-today-kicker", text: classStatus.state === "ongoing" ? "In class now" : "Next class" });
+      this.nextClassKickerEl = card.createDiv({ cls: "qt-today-kicker", text: classStatus.state === "ongoing" ? "In class now" : "Next class" });
       card.createDiv({ cls: "qt-today-title", text: cleanSubjectTitle(event.summary) || event.summary || "Class" });
       const when = classStatus.state === "ongoing"
         ? `Until ${formatTime(settings, event.dtend)}`
         : `${formatTime(settings, event.dtstart)}–${formatTime(settings, event.dtend)} · ${humanizeDuration(classStatus.startsInMs)}`;
-      card.createDiv({ cls: "qt-today-meta", text: [when, details.room].filter(Boolean).join(" · ") });
+      this.nextClassWhenEl = card.createDiv({ cls: "qt-today-meta", text: [when, details.room].filter(Boolean).join(" · ") });
     }
     if (exam) {
       const card = panel.createDiv({ cls: "qt-today-card" });
       card.createDiv({ cls: "qt-today-kicker", text: "Next exam" });
       card.createDiv({ cls: "qt-today-title", text: cleanSubjectTitle(exam.summary) || exam.summary || "Exam" });
-      card.createDiv({ cls: "qt-today-meta", text: `${formatDateValue(settings.dateFormat, exam.dateKey)} · ${examCountdown(exam, now)}` });
+      this.nextExamMetaEl = card.createDiv({ cls: "qt-today-meta", text: `${formatDateValue(settings.dateFormat, exam.dateKey)} · ${examCountdown(exam, now)}` });
       const resource =
         p.referenceEnabled && p.referenceEnabled() && p.getApResourceNotes
           ? recommendApResource(exam, p.getApResourceNotes())

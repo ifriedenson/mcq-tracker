@@ -5013,9 +5013,9 @@ class QuestionTrackerPlugin extends Plugin {
         /* an unreadable note is left out rather than failing the whole draft */
       }
     }
-    const source = collectGeneratorSources(sources, { folders: config.folders, maxNotes: 12 });
+    const source = collectGeneratorSources(sources, { folders: config.folders, maxNotes: 12, focus: config.focus });
     if (!source.text.trim()) throw new Error("No readable notes matched those folders.");
-    const prompt = buildQuizGeneratorPrompt({ text: source.text, titles: source.titles, count: config.count, language: config.language, types: config.types });
+    const prompt = buildQuizGeneratorPrompt({ text: source.text, titles: source.titles, focus: config.focus, count: config.count, language: config.language, types: config.types });
     const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: 4000 });
     const parsed = parseGeneratorQuestions(reply, { count: config.count, types: config.types });
     if (!parsed.items.length) throw new Error("The AI returned no usable questions. Try different notes or fewer types.");
@@ -5027,6 +5027,8 @@ class QuestionTrackerPlugin extends Plugin {
       verification,
       issues: parsed.issues,
       sourceCount: source.count,
+      sourceChars: source.chars,
+      retrieval: source.retrieval,
       truncated: source.truncated,
       language: config.language,
       types: config.types,

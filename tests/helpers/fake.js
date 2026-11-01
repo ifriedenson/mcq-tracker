@@ -164,6 +164,7 @@ function makeDom() {
         if (k === "isConnected") return true;
         if (k === "scrollTop") return 0;
         if (k === "addEventListener") return (ev, fn) => own.handlers.push({ ev, fn });
+        if (k === "setText") return (text) => { own.meta.text = String(text); };
         if (k === "setAttr") {
           return (name, value) => {
             own.meta.attrs = own.meta.attrs || {};

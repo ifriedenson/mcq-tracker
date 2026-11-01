@@ -9,6 +9,7 @@
  */
 const { str } = require("./util");
 const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet } = require("./answer-types");
+const { retrievePassages } = require("./context-retrieval");
 
 const QUIZ_LANGUAGES = [
   "English",
@@ -63,6 +64,7 @@ function normalizeQuizGenerator(value) {
     count: Math.max(1, Math.min(20, Math.round(Number(src.count) || 5))),
     language: normalizeLanguage(src.language),
     types: normalizeTypes(src.types),
+    focus: str(src.focus).trim().slice(0, 200),
   };
 }
 
@@ -81,10 +83,7 @@ function collectGeneratorSources(notes, options) {
   const paths = new Set((Array.isArray(opts.paths) ? opts.paths : []).map((path) => str(path).trim()).filter(Boolean));
   const maxChars = Math.max(1000, Math.min(60000, Number(opts.maxChars) || MAX_SOURCE_CHARS));
   const maxNotes = Math.max(1, Math.min(50, Number(opts.maxNotes) || MAX_SOURCE_NOTES));
-  const blocks = [];
-  const titles = [];
-  let used = 0;
-  let truncated = false;
+  const candidates = [];
   for (const note of Array.isArray(notes) ? notes : []) {
     const file = note && note.file;
     const path = str(file && file.path);
@@ -93,23 +92,28 @@ function collectGeneratorSources(notes, options) {
     const fm = (note && note.fm) || {};
     if (str(fm.question_id).trim() || str(fm.card_id).trim() || str(fm.card_type).trim()) continue;
     if (!folderMatches(path, folders)) continue;
-    if (blocks.length >= maxNotes) {
-      truncated = true;
-      break;
-    }
     const title = str(fm.title || (file && file.basename) || path.replace(/^.*\//, "").replace(/\.md$/i, ""));
     const body = str(note.text).trim();
     if (!body) continue;
-    const block = `## ${title}\n${body}\n`;
-    if (used + block.length > maxChars) {
-      truncated = true;
-      break;
-    }
-    blocks.push(block);
-    titles.push(title);
-    used += block.length;
+    candidates.push({ path, title, text: body });
   }
-  return { text: blocks.join("\n"), titles, count: blocks.length, chars: used, truncated };
+  const query = [opts.focus, ...candidates.map((note) => note.title)].filter(Boolean).join(" ");
+  const retrieval = retrievePassages(candidates, query, { maxChars, maxNotes });
+  return {
+    text: retrieval.text,
+    titles: retrieval.titles,
+    count: retrieval.count,
+    chars: retrieval.chars,
+    truncated: retrieval.truncated,
+    retrieval: {
+      mode: "local-passages",
+      query: retrieval.query,
+      passages: retrieval.passages,
+      notes: retrieval.count,
+      scannedNotes: retrieval.scannedNotes,
+      chars: retrieval.chars,
+    },
+  };
 }
 
 function buildQuizGeneratorPrompt(options) {
@@ -127,6 +131,7 @@ function buildQuizGeneratorPrompt(options) {
     `Output language: ${language}. All text must be in ${language}.`,
     `Allowed question types: ${allowed.map((type) => `${type.id} (${type.instruction})`).join("; ")}.`,
     opts.titles && opts.titles.length ? `Source notes: ${opts.titles.join("; ")}.` : "",
+    opts.focus ? `Focus topic: ${str(opts.focus).trim().slice(0, 200)}. Prefer passages that answer it, without inventing material.` : "",
     "Return only a JSON object in this exact shape:",
     '{"questions":[{"question":"...","choices":["...","..."],"answer":"B","type":"mcq|multi|true_false","explanation":"why the key is right","difficulty":"easy|medium|hard","subtopic":"short label"}]}',
     "For mcq use four choices and one letter. For multi use four choices and a set such as \"A, C\". For true_false use exactly [\"True\",\"False\"] and answer True or False.",

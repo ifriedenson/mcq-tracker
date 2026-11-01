@@ -44,6 +44,27 @@ test("quiz generator: prompt names the language, count, allowed types and source
   assert.match(prompt.system, /Spanish/);
 });
 
+test("quiz generator: local retrieval ranks focused passages and reports its budget", () => {
+  const sources = G.collectGeneratorSources(
+    [
+      note("Notes/Photo.md", "Photosynthesis converts light into sugar in the chloroplast."),
+      note("Notes/ATP.md", "ATP is the energy currency of the cell and is regenerated during respiration."),
+    ],
+    { folders: ["Notes"], focus: "ATP energy currency", maxChars: 500, maxNotes: 1 }
+  );
+  assert.equal(sources.retrieval.mode, "local-passages");
+  assert.equal(sources.retrieval.query, "ATP energy currency Photo ATP");
+  assert.match(sources.text, /ATP is the energy currency/);
+  assert.doesNotMatch(sources.text, /chloroplast/);
+  assert.equal(sources.retrieval.passages, 1);
+  assert.ok(sources.chars <= 500);
+});
+
+test("quiz generator: the prompt carries an optional focus topic", () => {
+  const prompt = G.buildQuizGeneratorPrompt({ text: "ATP is energy.", titles: ["ATP"], focus: "oxidative phosphorylation", count: 1, types: ["mcq"] });
+  assert.match(prompt.user, /Focus topic: oxidative phosphorylation/);
+});
+
 test("quiz generator: parses multiple-choice, select-all and true/false replies", () => {
   const reply = JSON.stringify({
     questions: [
@@ -59,6 +80,32 @@ test("quiz generator: parses multiple-choice, select-all and true/false replies"
   assert.equal(parsed.items[1].answer, "A, B");
   assert.equal(parsed.items[2].answer, "True");
   assert.equal(parsed.issues.length, 1);
+});
+
+test("quiz generator: generation sends the selected focus and exposes retrieval metadata", async () => {
+  const app = makeApp([
+    { path: "Notes/ATP.md", noFm: true, text: "ATP is the energy currency of the cell." },
+    { path: "Notes/Photo.md", noFm: true, text: "Photosynthesis converts light into sugar." },
+  ]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  let sent = null;
+  let calls = 0;
+  plugin.aiComplete = async (system, user) => {
+    calls += 1;
+    if (calls === 1) {
+      sent = { system, user };
+      return JSON.stringify({ questions: [{ question: "What is ATP?", choices: ["Energy currency", "DNA", "Lipid"], answer: "A" }] });
+    }
+    return '{"answer":"A"}';
+  };
+  const generated = await plugin.generateQuizFromNotes({ folders: ["Notes"], focus: "ATP energy", count: 1, types: ["mcq"] });
+  assert.match(sent.user, /Focus topic: ATP energy/);
+  assert.match(sent.user, /ATP is the energy currency/);
+  assert.equal(generated.retrieval.mode, "local-passages");
+  assert.equal(generated.retrieval.query, "ATP energy ATP Photo");
+  assert.ok(generated.retrieval.passages >= 1);
 });
 
 test("quiz generator: the command is registered and generation reuses the AI request path", async () => {

@@ -13,6 +13,7 @@ class QuizGeneratorModal extends Modal {
     this.folderText = this.config.folders.join(", ");
     this.count = this.config.count;
     this.language = this.config.language;
+    this.focus = this.config.focus || "";
     this.types = this.config.types.slice();
     this.generated = null;
     this.busy = false;
@@ -44,6 +45,12 @@ class QuizGeneratorModal extends Modal {
     folderInput.value = this.folderText;
     folderInput.addEventListener("input", () => (this.folderText = folderInput.value));
 
+    const focus = el.createDiv({ cls: "qt-field" });
+    focus.createEl("label", { text: "Focus topic (optional)" });
+    const focusInput = focus.createEl("input", { type: "text", attr: { placeholder: "e.g. oxidative phosphorylation" } });
+    focusInput.value = this.focus;
+    focusInput.addEventListener("input", () => (this.focus = focusInput.value));
+
     const row = el.createDiv({ cls: "qt-row" });
     const countWrap = row.createDiv({ cls: "qt-field qt-grow" });
     countWrap.createEl("label", { text: "How many?" });
@@ -73,7 +80,7 @@ class QuizGeneratorModal extends Modal {
 
     el.createDiv({
       cls: "qt-hint",
-      text: "Only notes in the chosen folders are sent. The draft is shown here first; files are created only after you confirm.",
+      text: "Only notes in the chosen folders are searched. Relevant passages are selected locally; the draft is shown here first, and files are created only after you confirm.",
     });
     const actions = el.createDiv({ cls: "qt-row" });
     actions.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
@@ -91,7 +98,8 @@ class QuizGeneratorModal extends Modal {
       list.createEl("li", { text: `${item.question} (${type}, answer ${item.answer})` });
     }
     if (g.items.length > 20) el.createEl("p", { cls: "qt-hint", text: `…and ${g.items.length - 20} more.` });
-    el.createDiv({ cls: "qt-hint", text: `Drafted from ${g.sourceCount} note${g.sourceCount === 1 ? "" : "s"} in ${g.language}. Nothing was written yet.` });
+    const passages = g.retrieval && g.retrieval.passages ? ` from ${g.retrieval.passages} relevant passage${g.retrieval.passages === 1 ? "" : "s"}` : "";
+    el.createDiv({ cls: "qt-hint", text: `Drafted from ${g.sourceCount} note${g.sourceCount === 1 ? "" : "s"}${passages} in ${g.language}. Nothing was written yet.` });
     const actions = el.createDiv({ cls: "qt-row" });
     actions.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => {
       this.generated = null;
@@ -110,6 +118,7 @@ class QuizGeneratorModal extends Modal {
         folders: this.folderText.split(","),
         count: this.count,
         language: this.language,
+        focus: this.focus,
         types: this.types,
       });
       this.plugin.settings.quizGenerator = config;

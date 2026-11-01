@@ -85,6 +85,7 @@ const settingsGlobal = require("./settings-global");
 const readingLibrary = require("./reading-library");
 const cornell = require("./cornell");
 const intervalPreview = require("./interval-preview");
+const contextRetrieval = require("./context-retrieval");
 const { StudyToolsView } = require("./study-tools-view");
 const studyWorkspace = require("./study-workspace");
 const readAloud = require("./read-aloud");
@@ -300,6 +301,7 @@ QuestionTrackerPlugin.__test = {
   studyMap,
   vaultSearch,
   intervalPreview,
+  contextRetrieval,
   simpleFlashcards,
   quizBlock,
   quizNoteGate,

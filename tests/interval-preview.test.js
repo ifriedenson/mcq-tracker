@@ -31,3 +31,18 @@ test("interval previews: labels stay compact", () => {
   assert.equal(P.formatInterval(90), "3mo");
   assert.equal(P.formatInterval(730), "2.0y");
 });
+
+test("card view caches one scheduler replay across re-renders", () => {
+  const view = new T.CardView({ app: {} }, { settings: { scheduler: "ladder", intervals: [1, 3, 7, 21, 60] } });
+  view.current = { fm: { streak: 2 }, deck: "" };
+  const first = view.previewsForCurrent();
+  const second = view.previewsForCurrent();
+  assert.strictEqual(second, first, "the same card reuses its preview object");
+  assert.equal(view.previewBuilds, 1, "two calls build one scheduler preview");
+  assert.deepEqual(first, P.intervalPreviews({ streak: 2 }, "", { scheduler: "ladder", intervals: [1, 3, 7, 21, 60] }));
+  view.current = { fm: { streak: 3 }, deck: "" };
+  const next = view.previewsForCurrent();
+  assert.notStrictEqual(next, first, "a new card computes a new preview");
+  assert.notDeepEqual(next, first);
+  assert.equal(view.previewBuilds, 2, "a new card builds once");
+});

@@ -17394,6 +17394,9 @@ class CardView extends ItemView {
     this.pendingGrade = false;
     this.pendingGradeId = "";
     this.revealEffect = ""; // consumed by the next render, so a refresh never replays the animation
+    this.previewSource = null;
+    this.previewValues = null;
+    this.previewBuilds = 0;
     this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
   }
 
@@ -17787,6 +17790,16 @@ class CardView extends ItemView {
     this.render();
   }
 
+  /** Reuse one scheduler replay for every re-render of the same card. */
+  previewsForCurrent() {
+    if (!this.current) return null;
+    if (this.previewSource === this.current && this.previewValues) return this.previewValues;
+    this.previewSource = this.current;
+    this.previewBuilds += 1;
+    this.previewValues = intervalPreviews(this.current.fm, this.current.deck, this.plugin.settings, new Date());
+    return this.previewValues;
+  }
+
   /** The class for this reveal only; empty when the effect is off or unavailable. */
   nextRevealEffect() {
     const cards = (this.plugin.settings && this.plugin.settings.cards) || {};
@@ -18052,7 +18065,7 @@ class CardView extends ItemView {
     }
 
     const ratings = root.createDiv({ cls: "qt-cards-ratings" });
-    const previews = intervalPreviews(this.current.fm, this.current.deck, this.plugin.settings, new Date());
+    const previews = this.previewsForCurrent();
     const buttons = [
       ["again", "Again", "1"],
       ["hard", "Hard", "2"],
@@ -19509,6 +19522,172 @@ module.exports = {
   TRACKING_DEFAULTS,
   FOLDER_AUTO_MAX,
   STAT_FIELDS,
+};
+};
+
+/* ---- src/context-retrieval.js ---- */
+__defs["context-retrieval"] = function (module, exports, require) {
+/*
+ * Local passage retrieval for AI prompting. The review's Capability 4 finding
+ * says the quiz generator prompt-stuffs note text and has "no retrieval".
+ * This module keeps the same local-only privacy model, but ranks passages from
+ * the notes the learner already selected and sends the best bounded set.
+ */
+const { str } = require("./util");
+
+const DEFAULT_PASSAGE_CHARS = 1200;
+const DEFAULT_CONTEXT_CHARS = 18000;
+const DEFAULT_MAX_NOTES = 12;
+
+const STOPWORDS = new Set(
+  "about above after again against all also and any are because been before being below between both but can could did does doing down during each every few for from further had has have having here how into its itself just like made make many may more most much must near need neither never next none nor not now off often once only other our out over own perhaps quite rather same should since some still such than that the their them then there these they this those though through thus too under until upon very want was way were what when where whether which while who will with within without would your".split(
+    /\s+/
+  )
+);
+
+function terms(value) {
+  const out = [];
+  for (const match of str(value).toLowerCase().matchAll(/[a-z0-9][a-z0-9'-]{1,}/g)) {
+    const word = match[0].replace(/^[-']+|[-']+$/g, "");
+    if (word && !STOPWORDS.has(word)) out.push(word);
+  }
+  return [...new Set(out)];
+}
+
+/** Drop YAML frontmatter so properties never become prompt content. */
+function stripFrontmatter(text) {
+  const value = str(text).replace(/\r\n?/g, "\n");
+  return /^---\n[\s\S]*?\n---(?:\n|$)/.test(value) ? value.replace(/^---\n[\s\S]*?\n---(?:\n|$)/, "") : value;
+}
+
+/** Split one note into bounded passages, carrying the nearest heading. */
+function splitPassages(text, maxChars) {
+  const limit = Math.max(200, Math.min(4000, Number(maxChars) || DEFAULT_PASSAGE_CHARS));
+  const clean = stripFrontmatter(text).trim();
+  if (!clean) return [];
+  const blocks = clean.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
+  const out = [];
+  let heading = "";
+  let buffer = "";
+  const flush = () => {
+    if (!buffer.trim()) return;
+    out.push({ heading, text: buffer.trim() });
+    buffer = "";
+  };
+  for (const block of blocks) {
+    const headingOnly = block.match(/^(#{1,6})\s+(.*)$/);
+    if (headingOnly) {
+      flush();
+      heading = headingOnly[2].trim();
+      continue;
+    }
+    const chunks = block.length > limit ? block.match(new RegExp(`[\\s\\S]{1,${Math.max(1, limit - 80)}}`, "g")) || [block] : [block];
+    for (const chunk of chunks) {
+      if (buffer && buffer.length + chunk.length + 2 > limit) flush();
+      buffer += `${buffer ? "\n\n" : ""}${chunk}`;
+    }
+  }
+  flush();
+  return out;
+}
+
+function passageBlock(passage) {
+  const heading = passage.heading && passage.heading.toLowerCase() !== passage.title.toLowerCase() ? `### ${passage.heading}\n` : "";
+  return `${`## ${passage.title}\n`}${heading}${passage.text}\n`;
+}
+
+/**
+ * Rank passages from the selected notes with a small local BM25-style score.
+ * `notes` is [{ path, title, text }]. The result is pure and network-free.
+ */
+function retrievePassages(notes, query, options) {
+  const opts = options || {};
+  const maxChars = Math.max(1000, Math.min(60000, Number(opts.maxChars) || DEFAULT_CONTEXT_CHARS));
+  const maxNotes = Math.max(1, Math.min(50, Number(opts.maxNotes) || DEFAULT_MAX_NOTES));
+  const passageChars = Math.max(200, Math.min(4000, Number(opts.passageChars) || DEFAULT_PASSAGE_CHARS));
+  const rows = [];
+  const allTerms = [];
+  const titles = [];
+  for (const note of Array.isArray(notes) ? notes : []) {
+    const title = str(note && note.title).trim();
+    const path = str(note && note.path).trim();
+    if (!title && !path) continue;
+    if (!titles.includes(title)) titles.push(title);
+    for (const passage of splitPassages(note && note.text, passageChars)) {
+      const text = `${title}\n${passage.heading}\n${passage.text}`;
+      allTerms.push(terms(text));
+      rows.push({ path, title, heading: passage.heading, text: passage.text, textTerms: allTerms[allTerms.length - 1] });
+    }
+  }
+  const documentCount = Math.max(1, rows.length);
+  const frequency = new Map();
+  for (const rowTerms of allTerms) {
+    for (const term of new Set(rowTerms)) frequency.set(term, (frequency.get(term) || 0) + 1);
+  }
+  const averageLength = Math.max(1, allTerms.reduce((sum, rowTerms) => sum + rowTerms.length, 0) / documentCount);
+  const wanted = terms(query);
+  for (let order = 0; order < rows.length; order++) {
+    const row = rows[order];
+    let score = 0;
+    let matched = 0;
+    const counts = new Map();
+    for (const term of row.textTerms) counts.set(term, (counts.get(term) || 0) + 1);
+    for (const term of wanted) {
+      const count = counts.get(term) || 0;
+      if (!count) continue;
+      matched += 1;
+      const df = frequency.get(term) || 0;
+      const idf = Math.log(1 + (documentCount - df + 0.5) / (df + 0.5));
+      const tf = (count * 2.2) / (count + 1.2 * (0.25 + 0.75 * (row.textTerms.length / averageLength)));
+      score += idf * tf;
+      if (row.title.toLowerCase().includes(term)) score += 1.4;
+      if (row.heading.toLowerCase().includes(term)) score += 0.8;
+    }
+    score += Math.min(1.2, matched * 0.12);
+    row.score = score;
+    row.order = order;
+  }
+  rows.sort((a, b) => b.score - a.score || a.order - b.order);
+  const selected = [];
+  const seenNotes = new Set();
+  const selectedTitles = [];
+  let used = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    if (!seenNotes.has(row.path) && seenNotes.size >= maxNotes) {
+      skipped += 1;
+      continue;
+    }
+    const block = passageBlock(row);
+    if (used + block.length > maxChars) {
+      skipped += 1;
+      continue;
+    }
+    selected.push(block);
+    seenNotes.add(row.path);
+    if (!selectedTitles.includes(row.title)) selectedTitles.push(row.title);
+    used += block.length;
+  }
+  return {
+    text: selected.join("\n"),
+    titles: selectedTitles,
+    count: seenNotes.size,
+    chars: used,
+    passages: selected.length,
+    scannedNotes: titles.length,
+    query: str(query).trim(),
+    truncated: skipped > 0 || seenNotes.size < titles.length,
+  };
+}
+
+module.exports = {
+  DEFAULT_CONTEXT_CHARS,
+  DEFAULT_MAX_NOTES,
+  DEFAULT_PASSAGE_CHARS,
+  retrievePassages,
+  splitPassages,
+  stripFrontmatter,
+  terms,
 };
 };
 
@@ -45610,9 +45789,9 @@ class QuestionTrackerPlugin extends Plugin {
         /* an unreadable note is left out rather than failing the whole draft */
       }
     }
-    const source = collectGeneratorSources(sources, { folders: config.folders, maxNotes: 12 });
+    const source = collectGeneratorSources(sources, { folders: config.folders, maxNotes: 12, focus: config.focus });
     if (!source.text.trim()) throw new Error("No readable notes matched those folders.");
-    const prompt = buildQuizGeneratorPrompt({ text: source.text, titles: source.titles, count: config.count, language: config.language, types: config.types });
+    const prompt = buildQuizGeneratorPrompt({ text: source.text, titles: source.titles, focus: config.focus, count: config.count, language: config.language, types: config.types });
     const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: 4000 });
     const parsed = parseGeneratorQuestions(reply, { count: config.count, types: config.types });
     if (!parsed.items.length) throw new Error("The AI returned no usable questions. Try different notes or fewer types.");
@@ -45624,6 +45803,8 @@ class QuestionTrackerPlugin extends Plugin {
       verification,
       issues: parsed.issues,
       sourceCount: source.count,
+      sourceChars: source.chars,
+      retrieval: source.retrieval,
       truncated: source.truncated,
       language: config.language,
       types: config.types,
@@ -54854,6 +55035,7 @@ __defs["quiz-generator"] = function (module, exports, require) {
  */
 const { str } = require("./util");
 const { formatChoiceSet, normalizeTrueFalse, parseChoiceSet } = require("./answer-types");
+const { retrievePassages } = require("./context-retrieval");
 
 const QUIZ_LANGUAGES = [
   "English",
@@ -54908,6 +55090,7 @@ function normalizeQuizGenerator(value) {
     count: Math.max(1, Math.min(20, Math.round(Number(src.count) || 5))),
     language: normalizeLanguage(src.language),
     types: normalizeTypes(src.types),
+    focus: str(src.focus).trim().slice(0, 200),
   };
 }
 
@@ -54926,10 +55109,7 @@ function collectGeneratorSources(notes, options) {
   const paths = new Set((Array.isArray(opts.paths) ? opts.paths : []).map((path) => str(path).trim()).filter(Boolean));
   const maxChars = Math.max(1000, Math.min(60000, Number(opts.maxChars) || MAX_SOURCE_CHARS));
   const maxNotes = Math.max(1, Math.min(50, Number(opts.maxNotes) || MAX_SOURCE_NOTES));
-  const blocks = [];
-  const titles = [];
-  let used = 0;
-  let truncated = false;
+  const candidates = [];
   for (const note of Array.isArray(notes) ? notes : []) {
     const file = note && note.file;
     const path = str(file && file.path);
@@ -54938,23 +55118,28 @@ function collectGeneratorSources(notes, options) {
     const fm = (note && note.fm) || {};
     if (str(fm.question_id).trim() || str(fm.card_id).trim() || str(fm.card_type).trim()) continue;
     if (!folderMatches(path, folders)) continue;
-    if (blocks.length >= maxNotes) {
-      truncated = true;
-      break;
-    }
     const title = str(fm.title || (file && file.basename) || path.replace(/^.*\//, "").replace(/\.md$/i, ""));
     const body = str(note.text).trim();
     if (!body) continue;
-    const block = `## ${title}\n${body}\n`;
-    if (used + block.length > maxChars) {
-      truncated = true;
-      break;
-    }
-    blocks.push(block);
-    titles.push(title);
-    used += block.length;
+    candidates.push({ path, title, text: body });
   }
-  return { text: blocks.join("\n"), titles, count: blocks.length, chars: used, truncated };
+  const query = [opts.focus, ...candidates.map((note) => note.title)].filter(Boolean).join(" ");
+  const retrieval = retrievePassages(candidates, query, { maxChars, maxNotes });
+  return {
+    text: retrieval.text,
+    titles: retrieval.titles,
+    count: retrieval.count,
+    chars: retrieval.chars,
+    truncated: retrieval.truncated,
+    retrieval: {
+      mode: "local-passages",
+      query: retrieval.query,
+      passages: retrieval.passages,
+      notes: retrieval.count,
+      scannedNotes: retrieval.scannedNotes,
+      chars: retrieval.chars,
+    },
+  };
 }
 
 function buildQuizGeneratorPrompt(options) {
@@ -54972,6 +55157,7 @@ function buildQuizGeneratorPrompt(options) {
     `Output language: ${language}. All text must be in ${language}.`,
     `Allowed question types: ${allowed.map((type) => `${type.id} (${type.instruction})`).join("; ")}.`,
     opts.titles && opts.titles.length ? `Source notes: ${opts.titles.join("; ")}.` : "",
+    opts.focus ? `Focus topic: ${str(opts.focus).trim().slice(0, 200)}. Prefer passages that answer it, without inventing material.` : "",
     "Return only a JSON object in this exact shape:",
     '{"questions":[{"question":"...","choices":["...","..."],"answer":"B","type":"mcq|multi|true_false","explanation":"why the key is right","difficulty":"easy|medium|hard","subtopic":"short label"}]}',
     "For mcq use four choices and one letter. For multi use four choices and a set such as \"A, C\". For true_false use exactly [\"True\",\"False\"] and answer True or False.",
@@ -55119,6 +55305,7 @@ class QuizGeneratorModal extends Modal {
     this.folderText = this.config.folders.join(", ");
     this.count = this.config.count;
     this.language = this.config.language;
+    this.focus = this.config.focus || "";
     this.types = this.config.types.slice();
     this.generated = null;
     this.busy = false;
@@ -55150,6 +55337,12 @@ class QuizGeneratorModal extends Modal {
     folderInput.value = this.folderText;
     folderInput.addEventListener("input", () => (this.folderText = folderInput.value));
 
+    const focus = el.createDiv({ cls: "qt-field" });
+    focus.createEl("label", { text: "Focus topic (optional)" });
+    const focusInput = focus.createEl("input", { type: "text", attr: { placeholder: "e.g. oxidative phosphorylation" } });
+    focusInput.value = this.focus;
+    focusInput.addEventListener("input", () => (this.focus = focusInput.value));
+
     const row = el.createDiv({ cls: "qt-row" });
     const countWrap = row.createDiv({ cls: "qt-field qt-grow" });
     countWrap.createEl("label", { text: "How many?" });
@@ -55179,7 +55372,7 @@ class QuizGeneratorModal extends Modal {
 
     el.createDiv({
       cls: "qt-hint",
-      text: "Only notes in the chosen folders are sent. The draft is shown here first; files are created only after you confirm.",
+      text: "Only notes in the chosen folders are searched. Relevant passages are selected locally; the draft is shown here first, and files are created only after you confirm.",
     });
     const actions = el.createDiv({ cls: "qt-row" });
     actions.createEl("button", { text: "Cancel", cls: "qt-grow" }).addEventListener("click", () => this.close());
@@ -55197,7 +55390,8 @@ class QuizGeneratorModal extends Modal {
       list.createEl("li", { text: `${item.question} (${type}, answer ${item.answer})` });
     }
     if (g.items.length > 20) el.createEl("p", { cls: "qt-hint", text: `…and ${g.items.length - 20} more.` });
-    el.createDiv({ cls: "qt-hint", text: `Drafted from ${g.sourceCount} note${g.sourceCount === 1 ? "" : "s"} in ${g.language}. Nothing was written yet.` });
+    const passages = g.retrieval && g.retrieval.passages ? ` from ${g.retrieval.passages} relevant passage${g.retrieval.passages === 1 ? "" : "s"}` : "";
+    el.createDiv({ cls: "qt-hint", text: `Drafted from ${g.sourceCount} note${g.sourceCount === 1 ? "" : "s"}${passages} in ${g.language}. Nothing was written yet.` });
     const actions = el.createDiv({ cls: "qt-row" });
     actions.createEl("button", { text: "Back", cls: "qt-grow" }).addEventListener("click", () => {
       this.generated = null;
@@ -55216,6 +55410,7 @@ class QuizGeneratorModal extends Modal {
         folders: this.folderText.split(","),
         count: this.count,
         language: this.language,
+        focus: this.focus,
         types: this.types,
       });
       this.plugin.settings.quizGenerator = config;
@@ -76070,8 +76265,8 @@ class TodayView extends ItemView {
     this.contentEl.addClass("qt-root");
     this.contentEl.addClass("qt-root-today");
     this.render();
-    // Counts and the next event move while the tab stays open.
-    this.registerInterval(activeWindow.setInterval(() => this.render(), 60000));
+    // Counts and the next event move while the tab stays open; only their text is updated.
+    this.registerInterval(activeWindow.setInterval(() => this.refreshLive(), 60000));
     this.registerInterval(activeWindow.setInterval(() => this.tickFocus(), 1000));
   }
 
@@ -76080,6 +76275,9 @@ class TodayView extends ItemView {
     const el = this.contentEl;
     el.empty();
     const root = el.createDiv({ cls: "qt-wrap qt-today" });
+    this.nextClassKickerEl = null;
+    this.nextClassWhenEl = null;
+    this.nextExamMetaEl = null;
 
     if (p.mcqEnabled && !p.mcqEnabled()) {
       const card = root.createDiv({ cls: "qt-today-card" });
@@ -76099,9 +76297,10 @@ class TodayView extends ItemView {
     const hiddenText = hidden ? ` · ${hidden} hidden` : "";
 
     const header = root.createDiv({ cls: "qt-today-header" });
-    header.createDiv({ cls: "qt-today-date", text: now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) });
+    this.liveDay = today;
+    this.dateEl = header.createDiv({ cls: "qt-today-date", text: now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) });
     header.createEl("h2", { text: "Today" });
-    header.createDiv({
+    this.countEl = header.createDiv({
       cls: "qt-today-count",
       text: `${due.length} due · ${fresh.length} new · ${visible.length} question${visible.length === 1 ? "" : "s"}${hiddenText}`,
     });
@@ -76147,6 +76346,48 @@ class TodayView extends ItemView {
     this.renderDueQueue(grid);
     this.renderCards(grid);
     this.renderNext(grid, now);
+  }
+
+  /** The 60-second tick updates live text instead of rebuilding every panel. */
+  refreshLive(now) {
+    const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+    const p = this.plugin;
+    const today = fmtDate(at);
+    if (this.liveDay && this.liveDay !== today) return this.render();
+    if (p.mcqEnabled && !p.mcqEnabled()) return this.render();
+    const questions = p.getQuestions();
+    const visible = questions.filter((q) => isStudyable(q.fm, today));
+    const hidden = questions.length - visible.length;
+    const due = visible.filter((q) => isDue(q.fm, today));
+    const fresh = visible.filter((q) => !Number(q.fm.attempts));
+    const hiddenText = hidden ? ` · ${hidden} hidden` : "";
+    if (this.countEl) {
+      this.countEl.setText(`${due.length} due · ${fresh.length} new · ${visible.length} question${visible.length === 1 ? "" : "s"}${hiddenText}`);
+    }
+    this.refreshNext(at);
+  }
+
+  /** Update the existing next-class/exam cards, or rebuild if their shape changed. */
+  refreshNext(now) {
+    const p = this.plugin;
+    if (!p.calendarEnabled || !p.calendarEnabled()) return;
+    const events = p.calendarEvents() || [];
+    const settings = p.calendarSettings();
+    const classStatus = nextClassStatus(events.filter((ev) => !isExamEvent(ev)), now);
+    const exam = upcomingExams(events, now, 1)[0];
+    if (!!classStatus.event !== !!this.nextClassWhenEl || !!exam !== !!this.nextExamMetaEl) return this.render();
+    if (classStatus.event && this.nextClassKickerEl && this.nextClassWhenEl) {
+      const event = classStatus.event;
+      const details = event.details || parseClassDetails(event.summary, event.description, event.location);
+      const when = classStatus.state === "ongoing"
+        ? `Until ${formatTime(settings, event.dtend)}`
+        : `${formatTime(settings, event.dtstart)}–${formatTime(settings, event.dtend)} · ${humanizeDuration(classStatus.startsInMs)}`;
+      this.nextClassKickerEl.setText(classStatus.state === "ongoing" ? "In class now" : "Next class");
+      this.nextClassWhenEl.setText([when, details.room].filter(Boolean).join(" · "));
+    }
+    if (exam && this.nextExamMetaEl) {
+      this.nextExamMetaEl.setText(`${formatDateValue(settings.dateFormat, exam.dateKey)} · ${examCountdown(exam, now)}`);
+    }
   }
 
   /** A quiet local nudge. OS delivery is opt-in and never uses the network. */
@@ -76613,18 +76854,18 @@ class TodayView extends ItemView {
       const event = classStatus.event;
       const details = event.details || parseClassDetails(event.summary, event.description, event.location);
       const card = panel.createDiv({ cls: "qt-today-card" });
-      card.createDiv({ cls: "qt-today-kicker", text: classStatus.state === "ongoing" ? "In class now" : "Next class" });
+      this.nextClassKickerEl = card.createDiv({ cls: "qt-today-kicker", text: classStatus.state === "ongoing" ? "In class now" : "Next class" });
       card.createDiv({ cls: "qt-today-title", text: cleanSubjectTitle(event.summary) || event.summary || "Class" });
       const when = classStatus.state === "ongoing"
         ? `Until ${formatTime(settings, event.dtend)}`
         : `${formatTime(settings, event.dtstart)}–${formatTime(settings, event.dtend)} · ${humanizeDuration(classStatus.startsInMs)}`;
-      card.createDiv({ cls: "qt-today-meta", text: [when, details.room].filter(Boolean).join(" · ") });
+      this.nextClassWhenEl = card.createDiv({ cls: "qt-today-meta", text: [when, details.room].filter(Boolean).join(" · ") });
     }
     if (exam) {
       const card = panel.createDiv({ cls: "qt-today-card" });
       card.createDiv({ cls: "qt-today-kicker", text: "Next exam" });
       card.createDiv({ cls: "qt-today-title", text: cleanSubjectTitle(exam.summary) || exam.summary || "Exam" });
-      card.createDiv({ cls: "qt-today-meta", text: `${formatDateValue(settings.dateFormat, exam.dateKey)} · ${examCountdown(exam, now)}` });
+      this.nextExamMetaEl = card.createDiv({ cls: "qt-today-meta", text: `${formatDateValue(settings.dateFormat, exam.dateKey)} · ${examCountdown(exam, now)}` });
       const resource =
         p.referenceEnabled && p.referenceEnabled() && p.getApResourceNotes
           ? recommendApResource(exam, p.getApResourceNotes())
@@ -78615,6 +78856,7 @@ const settingsGlobal = require("./settings-global");
 const readingLibrary = require("./reading-library");
 const cornell = require("./cornell");
 const intervalPreview = require("./interval-preview");
+const contextRetrieval = require("./context-retrieval");
 const { StudyToolsView } = require("./study-tools-view");
 const studyWorkspace = require("./study-workspace");
 const readAloud = require("./read-aloud");
@@ -78830,6 +79072,7 @@ QuestionTrackerPlugin.__test = {
   studyMap,
   vaultSearch,
   intervalPreview,
+  contextRetrieval,
   simpleFlashcards,
   quizBlock,
   quizNoteGate,

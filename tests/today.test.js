@@ -36,6 +36,28 @@ async function setup() {
   return { app, plugin, dom, view };
 }
 
+test("today: the 60-second refresh updates counts without rebuilding the DOM", async () => {
+  const { plugin, dom, view } = await setup();
+  view.render();
+  const root = dom.root.__own.children[0];
+  const count = view.countEl;
+  assert.equal(count.__own.meta.text, "1 due · 1 new · 3 questions");
+  let renders = 0;
+  const original = view.render;
+  view.render = () => {
+    renders += 1;
+    return original.call(view);
+  };
+  plugin.getQuestions = () => [
+    { file: { path: "Questions/one.md" }, fm: { attempts: 1, next_review: "2020-01-01" } },
+    { file: { path: "Questions/two.md" }, fm: { attempts: 1, next_review: "2020-01-02" } },
+  ];
+  view.refreshLive(new Date());
+  assert.equal(renders, 0, "the tick does not call render");
+  assert.equal(dom.root.__own.children[0], root, "the mounted root is the same element");
+  assert.equal(count.__own.meta.text, "2 due · 0 new · 2 questions");
+});
+
 test("today: shows due/new counts and starts a five-minute session with due questions", async () => {
   const { plugin, dom, view } = await setup();
   view.render();

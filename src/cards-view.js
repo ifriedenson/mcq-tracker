@@ -55,6 +55,9 @@ class CardView extends ItemView {
     this.pendingGrade = false;
     this.pendingGradeId = "";
     this.revealEffect = ""; // consumed by the next render, so a refresh never replays the animation
+    this.previewSource = null;
+    this.previewValues = null;
+    this.previewBuilds = 0;
     this.session = { reviewed: 0, correct: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
   }
 
@@ -448,6 +451,16 @@ class CardView extends ItemView {
     this.render();
   }
 
+  /** Reuse one scheduler replay for every re-render of the same card. */
+  previewsForCurrent() {
+    if (!this.current) return null;
+    if (this.previewSource === this.current && this.previewValues) return this.previewValues;
+    this.previewSource = this.current;
+    this.previewBuilds += 1;
+    this.previewValues = intervalPreviews(this.current.fm, this.current.deck, this.plugin.settings, new Date());
+    return this.previewValues;
+  }
+
   /** The class for this reveal only; empty when the effect is off or unavailable. */
   nextRevealEffect() {
     const cards = (this.plugin.settings && this.plugin.settings.cards) || {};
@@ -713,7 +726,7 @@ class CardView extends ItemView {
     }
 
     const ratings = root.createDiv({ cls: "qt-cards-ratings" });
-    const previews = intervalPreviews(this.current.fm, this.current.deck, this.plugin.settings, new Date());
+    const previews = this.previewsForCurrent();
     const buttons = [
       ["again", "Again", "1"],
       ["hard", "Hard", "2"],
