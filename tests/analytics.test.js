@@ -121,3 +121,22 @@ test("analytics dashboard reports accuracy, due cards, course time and the weake
   assert.equal(d.calibration.total, 1);
   assert.equal(d.retention.attempts, 0);
 });
+
+test("dashboard: card reviews join the heatmap and the next seven days show due load", () => {
+  const cards = [
+    { file: { path: "Cards/a.md" }, fm: { history: ["2026-10-26T10:00:00|good|5|", "2026-10-27T10:00:00|again|5|"], next_review: "2026-10-31" } },
+  ];
+  const heat = T.buildHeatmap([], [], "2026-10-28", 4, cards);
+  const days = heat.flatMap((week) => week.days);
+  assert.equal(days.find((day) => day.date === "2026-10-26").attempts, 1);
+  assert.equal(days.find((day) => day.date === "2026-10-27").attempts, 1);
+
+  const dash = T.buildDashboard({
+    questions: [{ file: { path: "Q/a.md" }, fm: { next_review: "2026-10-30" } }],
+    cards,
+    today: "2026-10-28",
+  });
+  assert.equal(dash.forward.days[2].count, 1);
+  assert.equal(dash.forward.days[3].count, 1);
+  assert.equal(dash.forward.total, 2);
+});

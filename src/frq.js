@@ -802,6 +802,66 @@ function frqAttemptTrend(entries) {
   };
 }
 
+/** Mastery band for a free-response course, using the same 60/80 thresholds as question mastery. */
+function frqMasteryBand(average) {
+  if (average === null || average === undefined) return "untried";
+  if (average < 60) return "weak";
+  if (average < 80) return "developing";
+  if (average < 100) return "strong";
+  return "mastered";
+}
+
+/**
+ * One knowledge snapshot for saved FRQ attempts. Percent is already 0-100, so
+ * this is the free-response analogue of a question's history credit.
+ */
+function frqKnowledge(entries) {
+  const list = sortFrqAttempts(entries);
+  const trend = frqAttemptTrend(list);
+  const rows = new Map();
+  for (const entry of list) {
+    const key = entry.courseId || entry.course || "frq";
+    const row = rows.get(key) || {
+      courseId: entry.courseId,
+      course: entry.course || entry.courseId || "Free response",
+      attempts: 0,
+      credit: 0,
+      latest: null,
+      latestOn: "",
+    };
+    row.attempts += 1;
+    row.credit += Math.max(0, Math.min(100, Number(entry.percent) || 0)) / 100;
+    if (!row.latest || String(entry.takenOn || "") > row.latestOn) {
+      row.latest = entry;
+      row.latestOn = String(entry.takenOn || "");
+    }
+    rows.set(key, row);
+  }
+  const courses = [...rows.values()]
+    .map((row) => {
+      const average = row.attempts ? round1((row.credit / row.attempts) * 100) : null;
+      return {
+        courseId: row.courseId,
+        course: row.course,
+        attempts: row.attempts,
+        credit: row.credit,
+        average,
+        band: frqMasteryBand(average),
+        latestOn: row.latestOn,
+      };
+    })
+    .sort((a, b) => b.attempts - a.attempts || a.course.localeCompare(b.course));
+  return {
+    attempts: list.length,
+    credit: list.reduce((sum, entry) => sum + Math.max(0, Math.min(100, Number(entry.percent) || 0)) / 100, 0),
+    average: trend.average,
+    delta: trend.delta,
+    direction: trend.direction,
+    latest: trend.latest,
+    courses,
+  };
+}
+
 /** Missed rubric criteria across saved attempts, for the Insights review list. */
 function frqCriterionWeakSpots(attempts) {
   const list = Array.isArray(attempts) ? attempts : [];
@@ -946,6 +1006,8 @@ module.exports = {
   addIsoDays,
   frqAttemptTrend,
   frqCriterionWeakSpots,
+  frqKnowledge,
+  frqMasteryBand,
   frqReviewEntry,
   frqReviewIntervalDays,
   frqReviewQueue,

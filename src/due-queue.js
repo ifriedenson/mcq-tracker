@@ -50,6 +50,22 @@ function rowFor(type, source, today) {
 }
 
 /**
+/** A daily cap is a hard ceiling on the queue; 0 means no cap. */
+function normalizeDailyCap(value) {
+  const n = Math.round(Number(value) || 0);
+  return n > 0 ? Math.min(500, n) : 0;
+}
+
+function countsOf(rows) {
+  return {
+    questions: rows.filter((row) => row.type === "question").length,
+    cards: rows.filter((row) => row.type === "card").length,
+    vocab: rows.filter((row) => row.type === "vocab").length,
+    total: rows.length,
+  };
+}
+
+/**
  * Merge due questions and cards into one ordered list. Due items come before
  * new items; within each group the oldest next-review date wins.
  */
@@ -70,14 +86,21 @@ function buildDueQueue(questions, cards, options) {
     if (a.dueDate !== b.dueDate) return a.dueDate.localeCompare(b.dueDate);
     return a.type.localeCompare(b.type) || a.title.localeCompare(b.title) || a.path.localeCompare(b.path);
   });
-  const counts = {
-    questions: rows.filter((row) => row.type === "question").length,
-    cards: rows.filter((row) => row.type === "card").length,
-    vocab: rows.filter((row) => row.type === "vocab").length,
-    total: rows.length,
-  };
+  const counts = countsOf(rows);
+  const dailyCap = normalizeDailyCap(opts.dailyCap);
+  const capped = dailyCap ? rows.slice(0, dailyCap) : rows;
+  const overflow = dailyCap ? rows.slice(dailyCap) : [];
+  const shown = countsOf(capped);
   const limit = opts.limit === undefined ? 20 : Math.max(0, Math.round(Number(opts.limit) || 0));
-  return { items: limit ? rows.slice(0, limit) : [], all: rows, counts };
+  return {
+    items: limit ? capped.slice(0, limit) : [],
+    all: capped,
+    overflow,
+    counts,
+    shown,
+    dailyCap,
+    deferred: overflow.length,
+  };
 }
 
 class DueQueueModal extends Modal {
@@ -93,10 +116,10 @@ class DueQueueModal extends Modal {
     contentEl.empty();
     contentEl.createEl("h3", { text: "Due across modules" });
     const queue = p.getDueQueue({ limit: 100 });
-    const c = queue.counts;
+    const c = queue.shown;
     contentEl.createEl("p", {
       cls: "setting-item-description",
-      text: `${c.total} item${c.total === 1 ? "" : "s"} due or new · ${c.questions} question${c.questions === 1 ? "" : "s"} · ${c.cards + c.vocab} card${c.cards + c.vocab === 1 ? "" : "s"}`,
+      text: `${c.total} item${c.total === 1 ? "" : "s"} due or new · ${c.questions} question${c.questions === 1 ? "" : "s"} · ${c.cards + c.vocab} card${c.cards + c.vocab === 1 ? "" : "s"}${queue.deferred ? ` · ${queue.deferred} held for another day by the daily cap` : ""}`,
     });
 
     if (!queue.items.length) {
@@ -180,5 +203,6 @@ class DueQueueModal extends Modal {
 
 module.exports = {
   buildDueQueue,
+  normalizeDailyCap,
   DueQueueModal,
 };

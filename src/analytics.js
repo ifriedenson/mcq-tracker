@@ -1,7 +1,9 @@
 "use strict";
 const { isDue } = require("./filters");
+const { str } = require("./util");
 const { isStudyable } = require("./study-status");
 const { computeStats, overallStats, parseHistory, weakestRow } = require("./stats");
+const { creditOf } = require("./history");
 const { studySummary } = require("./focus");
 
 function dayKey(value) {
@@ -58,7 +60,7 @@ function confidenceLabelsOf(labels) {
 
 /** Accuracy at each stated confidence level. Empty confidence (timed tests) is ignored. */
 function buildCalibration(questions, labels) {
-  const buckets = confidenceLabelsOf(labels).map((label, index) => ({ confidence: index + 1, label, attempts: 0, correct: 0, accuracy: null }));
+  const buckets = confidenceLabelsOf(labels).map((label, index) => ({ confidence: index + 1, label, attempts: 0, correct: 0, credit: 0, accuracy: null }));
   let total = 0;
   for (const q of questions || []) {
     for (const entry of parseHistory(q.fm && q.fm.history)) {
@@ -68,9 +70,10 @@ function buildCalibration(questions, labels) {
       bucket.attempts++;
       total++;
       if (entry.result === "correct") bucket.correct++;
+      bucket.credit += creditOf(entry);
     }
   }
-  for (const bucket of buckets) bucket.accuracy = bucket.attempts ? bucket.correct / bucket.attempts : null;
+  for (const bucket of buckets) bucket.accuracy = bucket.attempts ? bucket.credit / bucket.attempts : null;
   return { buckets, total };
 }
 
@@ -83,7 +86,7 @@ function buildRetention(questions, today, weeks) {
   first.setDate(first.getDate() - 7 * (count - 1));
   const rows = Array.from({ length: count }, (_value, index) => {
     const start = addDays(first, index * 7);
-    return { start: dayKey(start), attempts: 0, correct: 0, accuracy: null };
+    return { start: dayKey(start), attempts: 0, correct: 0, credit: 0, accuracy: null };
   });
   for (const q of questions || []) {
     const entries = parseHistory(q.fm && q.fm.history)
@@ -99,16 +102,19 @@ function buildRetention(questions, today, weeks) {
       const row = rows[weekIndex];
       row.attempts++;
       if (entries[index].result === "correct") row.correct++;
+      row.credit += creditOf(entries[index]);
     }
   }
   let attempts = 0;
   let correct = 0;
+  let credit = 0;
   for (const row of rows) {
-    row.accuracy = row.attempts ? row.correct / row.attempts : null;
+    row.accuracy = row.attempts ? row.credit / row.attempts : null;
     attempts += row.attempts;
     correct += row.correct;
+    credit += row.credit;
   }
-  return { weeks: rows, attempts, correct, accuracy: attempts ? correct / attempts : null };
+  return { weeks: rows, attempts, correct, credit, accuracy: attempts ? credit / attempts : null };
 }
 
 function normalizeDay(value) {
@@ -130,7 +136,7 @@ function addDays(date, n) {
   return d;
 }
 
-function activityByDay(sessions, questions) {
+function activityByDay(sessions, questions, cards) {
   const map = new Map();
   const ensure = (key) => {
     if (!map.has(key)) map.set(key, { minutes: 0, attempts: 0 });
@@ -140,7 +146,7 @@ function activityByDay(sessions, questions) {
     const key = String(session.date || "").slice(0, 10);
     if (/^\d{4}-\d{2}-\d{2}$/.test(key)) ensure(key).minutes += Math.max(0, Number(session.minutes) || 0);
   }
-  for (const q of questions || []) {
+  for (const q of [...(questions || []), ...(cards || [])]) {
     for (const entry of parseHistory(q.fm && q.fm.history)) {
       const key = String(entry.when || "").slice(0, 10);
       if (/^\d{4}-\d{2}-\d{2}$/.test(key)) ensure(key).attempts++;
@@ -160,13 +166,13 @@ function activityLevel(day) {
 }
 
 /** Twelve Monday-first weeks ending with the current week. */
-function buildHeatmap(sessions, questions, today, weeks) {
+function buildHeatmap(sessions, questions, today, weeks, cards) {
   const count = Math.max(1, Math.min(26, Math.round(Number(weeks) || 12)));
   const todayKey = normalizeDay(today);
   const now = new Date(`${todayKey}T00:00:00`);
   const first = mondayOf(now);
   first.setDate(first.getDate() - 7 * (count - 1));
-  const activity = activityByDay(sessions, questions);
+  const activity = activityByDay(sessions, questions, cards);
   const out = [];
   for (let w = 0; w < count; w++) {
     const start = addDays(first, w * 7);
@@ -180,6 +186,49 @@ function buildHeatmap(sessions, questions, today, weeks) {
     out.push({ start: dayKey(start), days });
   }
   return out;
+}
+
+/** One accuracy figure for all evidence: question credit plus FRQ percentage credit. */
+function knowledgeSummary(overall, frq) {
+  const questionAttempts = Math.max(0, Number(overall && overall.attempts) || 0);
+  const questionCredit = Math.max(0, Number(overall && (overall.credit !== undefined ? overall.credit : overall.correct)) || 0);
+  const frqAttempts = Math.max(0, Number(frq && frq.attempts) || 0);
+  const frqCredit = Math.max(0, Number(frq && frq.credit) || 0);
+  const attempts = questionAttempts + frqAttempts;
+  const credit = questionCredit + frqCredit;
+  return {
+    attempts,
+    credit,
+    accuracy: attempts ? credit / attempts : null,
+    questions: { attempts: questionAttempts, credit: questionCredit, accuracy: questionAttempts ? questionCredit / questionAttempts : null },
+    frq: { attempts: frqAttempts, credit: frqCredit, accuracy: frqAttempts ? frqCredit / frqAttempts : null },
+  };
+}
+
+function dayAfter(day, n) {
+  const d = new Date(`${day}T12:00:00`);
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Due load for the next week, so a wall of reviews is visible before it lands. */
+function buildForwardLoad(questions, cards, today, days) {
+  const start = normalizeDay(today);
+  const count = Math.max(1, Math.min(30, Math.round(Number(days) || 7)));
+  const items = [...(Array.isArray(questions) ? questions : []), ...(Array.isArray(cards) ? cards : [])];
+  const byDate = new Map();
+  for (const item of items) {
+    if (!isStudyable(item && item.fm, start)) continue;
+    const day = str(item && item.fm && item.fm.next_review).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < start) continue;
+    byDate.set(day, (byDate.get(day) || 0) + 1);
+  }
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const date = dayAfter(start, i);
+    out.push({ date, count: byDate.get(date) || 0 });
+  }
+  return { days: out, total: out.reduce((n, day) => n + day.count, 0) };
 }
 
 function buildDashboard(options) {
@@ -201,6 +250,8 @@ function buildDashboard(options) {
   const calibration = buildCalibration(scopedQuestions, opts.confidenceLabels);
   const retention = buildRetention(scopedQuestions, today, opts.retentionWeeks || 8);
   const overall = overallStats(scopedQuestions);
+  const frq = opts.frq || null;
+  const knowledge = knowledgeSummary(overall, frq);
   const study = studySummary(scopedLog, today);
   const cardStats = {
     total: scopedCards.length,
@@ -211,6 +262,9 @@ function buildDashboard(options) {
     today,
     course,
     overall,
+    knowledge,
+    frq,
+    forward: buildForwardLoad(scopedQuestions, scopedCards, today, opts.forwardDays || 7),
     study,
     cardStats,
     field,
@@ -222,7 +276,7 @@ function buildDashboard(options) {
     grades: buildGradeSnapshot(scopedQuestions),
     calibration,
     retention,
-    heatmap: buildHeatmap(scopedLog.sessions, scopedQuestions, today, opts.weeks || 12),
+    heatmap: buildHeatmap(scopedLog.sessions, scopedQuestions, today, opts.weeks || 12, scopedCards),
     byCourse: Object.entries(study.byCourse).sort((a, b) => b[1] - a[1]).slice(0, 6),
     exams: Array.isArray(opts.exams) ? opts.exams : [],
   };
@@ -238,6 +292,8 @@ module.exports = {
   buildGradeSnapshot,
   buildHeatmap,
   buildRetention,
+  buildForwardLoad,
+  knowledgeSummary,
   confidenceLabelsOf,
   gradeLetter,
   courseKey,

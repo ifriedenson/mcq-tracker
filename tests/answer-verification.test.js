@@ -131,3 +131,28 @@ test("plugin: a matching blind answer verifies the note and a mismatch flags it"
   assert.match(app.files[0].text, /Answer check failed/);
   assert.match(app.files[0].text, /chose A.*answer is B/);
 });
+
+test("answer verification: multi-select, true/false and numeric drafts use the same blind check", async () => {
+  const plugin = new QT(makeApp([]));
+  await plugin.onload();
+
+  plugin.aiComplete = async () => '{"answer":"C, A","confidence":"high"}';
+  const multi = await plugin.verifyQuestionDraft({ question: "Pick both.", choices: ["one", "two", "three"], answer: "A, C" });
+  assert.equal(multi.match, true);
+  assert.equal(multi.key, "A, C");
+
+  plugin.aiComplete = async () => '{"answer":"A"}';
+  const tf = await plugin.verifyQuestionDraft({ question: "The sky is blue.", choices: ["True", "False"], answer: "True" });
+  assert.equal(tf.match, true);
+  assert.equal(tf.key, "A");
+
+  plugin.aiComplete = async () => '{"answer":"42.0","confidence":"high"}';
+  const numeric = await plugin.verifyQuestionDraft({ question: "What is 6 * 7?", choices: [], answer: "42" });
+  assert.equal(numeric.match, true);
+  assert.equal(numeric.answer, "42");
+
+  const items = [{ question: "What is 6 * 7?", choices: [], answer: "42" }];
+  const summary = await plugin.verifyDraftQuestions(items);
+  assert.equal(summary.checked, 1);
+  assert.equal(items[0].verification.status, "match");
+});

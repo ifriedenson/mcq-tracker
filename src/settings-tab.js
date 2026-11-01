@@ -253,6 +253,18 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Due queue daily cap")
+      .setDesc("Hold review overflow for another day when the merged due list is too long. 0 means no cap. Hidden overflow stays due; nothing is rescheduled or lost.")
+      .addText((t) =>
+        t.setValue(String((st.dueQueue && st.dueQueue.dailyCap) || 0)).onChange(async (v) => {
+          const n = Math.max(0, Math.min(500, parseInt(v, 10) || 0));
+          st.dueQueue = { ...(st.dueQueue || {}), dailyCap: n };
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Per-course Known snooze")
       .setDesc("Course=days pairs such as BIO 101=7, CHEM 201=21. A matching course overrides the global snooze; unmatched items use the value above.")
       .addText((t) =>

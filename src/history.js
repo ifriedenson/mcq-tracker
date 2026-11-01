@@ -1,10 +1,11 @@
 "use strict";
 /*
  * Review history rows are append-only:
- *   when|result|seconds|answer|confidence|error_type|attempt_id|variant
+ *   when|result|seconds|answer|confidence|error_type|attempt_id|variant|score
  *
- * Older rows stop at error_type; the variant field is optional. The attempt id
- * is what makes a retry or a sync merge safe: the same row cannot be counted
+ * Older rows stop at error_type; the variant and score fields are optional.
+ * Score is 0-100 and keeps partial credit beside the binary result. The attempt
+ * id is what makes a retry or a sync merge safe: the same row cannot be counted
  * twice, while two devices can contribute different rows for the same note.
  */
 const { fmtDate, str } = require("./util");
@@ -184,6 +185,8 @@ function markNeedsFixingFixed(fm, now) {
 
 function rowData(line) {
   const p = splitRow(line);
+  const rawScore = p[8];
+  const numericScore = rawScore === undefined || str(rawScore).trim() === "" ? null : Number(rawScore);
   return {
     when: str(p[0]),
     result: str(p[1]),
@@ -192,7 +195,19 @@ function rowData(line) {
     conf: str(p[4]),
     error: str(p[5]).trim(),
     id: str(p[6]).trim(),
+    variant: str(p[7]),
+    score: Number.isFinite(numericScore) ? Math.max(0, Math.min(100, numericScore)) : null,
   };
+}
+
+/** One history row's credit: its 0-100 score, or the old binary result. */
+function creditOf(row) {
+  const raw = row && row.score;
+  if (raw !== null && raw !== undefined && str(raw).trim() !== "") {
+    const score = Number(raw);
+    if (Number.isFinite(score)) return Math.max(0, Math.min(1, score / 100));
+  }
+  return row && row.result === "correct" ? 1 : 0;
 }
 
 /**
@@ -267,6 +282,7 @@ module.exports = {
   normalizeNeedsFixing,
   appendHistory,
   attemptIdOf,
+  creditOf,
   hasAttemptId,
   mergeHistory,
   repairHistoryCounters,

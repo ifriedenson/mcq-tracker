@@ -147,7 +147,7 @@ const { CardExtractModal } = require("./cards-extract-modal");
 const cardGrading = require("./card-grading");
 const cardGradingAi = require("./card-grading-ai");
 const cardGradeQueue = require("./card-grade-queue");
-const { buildDueQueue, DueQueueModal } = require("./due-queue");
+const { buildDueQueue, normalizeDailyCap, DueQueueModal } = require("./due-queue");
 const { MixedReviewModal, buildMixedQueue, mixedQuestionAttempt } = require("./mixed-review");
 const studyStatus = require("./study-status");
 const studySkin = require("./study-skin");
@@ -467,6 +467,7 @@ QuestionTrackerPlugin.__test = {
   cardGradingAi,
   cardGradeQueue,
   buildDueQueue,
+  normalizeDailyCap,
   buildMixedQueue,
   mixedQuestionAttempt,
   MixedReviewModal,

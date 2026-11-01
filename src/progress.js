@@ -5,9 +5,10 @@
  */
 const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
-const { computeStats, overallStats, parseHistory, weakestRow } = require("./stats");
+const { computeStats, creditSummary, overallStats, parseHistory, weakestRow } = require("./stats");
 const { studySummary } = require("./focus");
-const { courseKey } = require("./analytics");
+const { courseKey, knowledgeSummary } = require("./analytics");
+const { creditOf } = require("./history");
 
 /** Mastery bands for one question, weakest first. Untried notes stay visible at the start. */
 const MASTERY_BANDS = [
@@ -70,20 +71,18 @@ function accuracyOf(question, options) {
     const today = normalizeDay(opts.today);
     const since = masterySince(today, days);
     let attempts = 0;
-    let correct = 0;
+    let credit = 0;
     for (const entry of parseHistory(question && question.fm && question.fm.history)) {
       const day = str(entry.when).slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < since || day > today) continue;
-      if (entry.result !== "correct" && entry.result !== "incorrect") continue;
+      if (entry.result !== "correct" && entry.result !== "incorrect" && entry.score === null) continue;
       attempts++;
-      if (entry.result === "correct") correct++;
+      credit += creditOf(entry);
     }
-    return attempts ? correct / attempts : null;
+    return attempts ? credit / attempts : null;
   }
-  const fm = (question && question.fm) || {};
-  const attempts = Number(fm.attempts) || 0;
-  if (!attempts) return null;
-  return Math.min(Number(fm.correct_count) || 0, attempts) / attempts;
+  const summary = creditSummary(question && question.fm);
+  return summary.attempts ? summary.credit / summary.attempts : null;
 }
 
 /** untried | weak (<60%) | developing (60–79%) | strong (80–99%) | mastered (100%). */
@@ -188,7 +187,7 @@ function buildWeeks(questions, sessions, today, count) {
   first.setDate(first.getDate() - 7 * (weeks - 1));
   const rows = Array.from({ length: weeks }, (_value, index) => {
     const start = addDays(first, index * 7);
-    return { start: dayKey(start), attempts: 0, correct: 0, accuracy: null, minutes: 0, activeDays: 0, days: new Set() };
+    return { start: dayKey(start), attempts: 0, correct: 0, credit: 0, accuracy: null, minutes: 0, activeDays: 0, days: new Set() };
   });
   const indexOf = (day) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day > todayKey) return -1;
@@ -202,6 +201,7 @@ function buildWeeks(questions, sessions, today, count) {
       if (index < 0) continue;
       rows[index].attempts++;
       if (entry.result === "correct") rows[index].correct++;
+      rows[index].credit += creditOf(entry);
       rows[index].days.add(day);
     }
   }
@@ -216,7 +216,7 @@ function buildWeeks(questions, sessions, today, count) {
     const { days, ...rest } = row;
     return {
       ...rest,
-      accuracy: row.attempts ? row.correct / row.attempts : null,
+      accuracy: row.attempts ? row.credit / row.attempts : null,
       activeDays: days.size,
     };
   });
@@ -244,23 +244,24 @@ function buildCourses(questions, sessions, limit) {
   const ensure = (label) => {
     const name = str(label).trim() || "No course";
     const key = courseKey(name) || "nocourse";
-    if (!rows.has(key)) rows.set(key, { course: name, notes: 0, seen: 0, attempts: 0, correct: 0, minutes: 0 });
+    if (!rows.has(key)) rows.set(key, { course: name, notes: 0, seen: 0, attempts: 0, correct: 0, credit: 0, minutes: 0 });
     return rows.get(key);
   };
   for (const question of Array.isArray(questions) ? questions : []) {
     const row = ensure(question.fm && question.fm.course);
     row.notes++;
-    const attempts = Number(question.fm && question.fm.attempts) || 0;
-    if (attempts) row.seen++;
-    row.attempts += attempts;
-    row.correct += Math.min(Number(question.fm && question.fm.correct_count) || 0, attempts);
+    const summary = creditSummary(question.fm);
+    if (summary.attempts) row.seen++;
+    row.attempts += summary.attempts;
+    row.correct += summary.correct;
+    row.credit += summary.credit;
   }
   for (const session of Array.isArray(sessions) ? sessions : []) {
     ensure(session.course).minutes += Math.max(0, Number(session.minutes) || 0);
   }
   const out = [...rows.values()].map((row) => ({
     ...row,
-    accuracy: row.attempts ? row.correct / row.attempts : null,
+    accuracy: row.attempts ? row.credit / row.attempts : null,
   }));
   out.sort((a, b) => b.notes - a.notes || b.minutes - a.minutes || a.course.localeCompare(b.course));
   return out.slice(0, Math.max(1, Math.round(Number(limit) || 6)));
@@ -293,9 +294,13 @@ function buildProgress(options) {
   const masteryDays = masteryWindowDays(opts.masteryDays);
   const scopedMastery = scopeQuestions(questions, masteryScope);
   const goalMinutes = study.goalMinutes || 0;
+  const overall = overallStats(questions);
+  const frq = opts.frq || null;
   return {
     today,
-    overall: overallStats(questions),
+    overall,
+    knowledge: knowledgeSummary(overall, frq),
+    frq,
     study,
     goal: {
       minutes: study.todayMinutes,

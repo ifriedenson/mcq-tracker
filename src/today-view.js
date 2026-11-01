@@ -357,13 +357,14 @@ class TodayView extends ItemView {
     if (!p.cardsEnabled || !p.cardsEnabled() || !p.getDueQueue) return;
     const queue = p.getDueQueue({ limit: 5 });
     const pending = pendingGradeCounts(p.pendingCardGrades ? p.pendingCardGrades() : []);
-    const cardCount = queue.counts.cards + queue.counts.vocab;
-    if (!queue.counts.questions || !cardCount) return;
+    const counts = queue.shown || queue.counts;
+    const cardCount = counts.cards + counts.vocab;
+    if (!counts.questions || !cardCount) return;
     const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-wide" });
     panel.createEl("h3", { cls: "qt-today-section", text: "Due across modules" });
     panel.createDiv({
       cls: "qt-today-count",
-      text: `${queue.counts.questions} question${queue.counts.questions === 1 ? "" : "s"} · ${cardCount} card${cardCount === 1 ? "" : "s"} due or new`,
+      text: `${counts.questions} question${counts.questions === 1 ? "" : "s"} · ${cardCount} card${cardCount === 1 ? "" : "s"} due or new${queue.deferred ? ` · ${queue.deferred} held by the daily cap` : ""}`,
     });
     const list = panel.createDiv({ cls: "qt-due-list" });
     for (const item of queue.items) {

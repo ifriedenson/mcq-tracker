@@ -53,7 +53,8 @@ const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
-const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
+const { parseChoiceSet } = require("./answer-types");
+const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
 const { computedVerification } = require("./computed-verification");
 const { renderSmilesSvg } = require("./smiles");
 const { renderBiologyDiagram, renderChemistryDiagram, renderCircuitDiagram } = require("./stem-diagrams");
@@ -77,7 +78,7 @@ const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
 const { attachFrontmatter, attachStudySlotFrontmatter, buildApResourceNote, detachFrontmatter, detachStudySlotFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
 const { HANDWRITING_SYSTEM, cleanHandwritingText, handwritingPrompt } = require("./handwriting");
-const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, frqCriterionWeakSpots, frqReviewEntry, frqReviewQueue, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
+const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, frqCriterionWeakSpots, frqKnowledge, frqReviewEntry, frqReviewQueue, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
@@ -94,7 +95,7 @@ const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckOf, deckSummary, isCardNote, schedulerForDeck, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { inferPlainCard, isPlainPath, normalizePlainCards } = require("./plain-cards");
 const { cardUpdateDiff } = require("./card-write-diff");
-const { DueQueueModal, buildDueQueue } = require("./due-queue");
+const { DueQueueModal, buildDueQueue, normalizeDailyCap } = require("./due-queue");
 const { MixedReviewModal, buildMixedQueue } = require("./mixed-review");
 const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf, normalizeCourseDays, knownDaysForCourse } = require("./study-status");
 const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./study-skin");
@@ -2448,6 +2449,17 @@ class QuestionTrackerPlugin extends Plugin {
     return sortFrqAttempts(entries);
   }
 
+  /** Saved FRQ attempt credit for the Insights dashboard; reads frontmatter only. */
+  getFrqKnowledge() {
+    const entries = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const entry = entryFromAttemptFrontmatter(fm, file.path);
+      if (entry) entries.push(entry);
+    }
+    return frqKnowledge(entries);
+  }
+
   /** Missed FRQ criteria across saved attempts, for the Insights weak-spot list. */
   async getFrqWeakSpotRows() {
     return frqCriterionWeakSpots(await this.getFrqAttempts());
@@ -3482,14 +3494,44 @@ class QuestionTrackerPlugin extends Plugin {
   /** Ask one independent question, without showing the stored key. */
   async verifyQuestionDraft(item) {
     const data = item || {};
-    const key = str(data.answer).trim().toUpperCase();
-    if (!/^[A-H]$/.test(key)) throw new Error("Only multiple-choice items with a letter answer can be checked.");
-    if (!Array.isArray(data.choices) || !data.choices.length) throw new Error("This item has no answer choices to check.");
-    const prompt = buildBlindVerificationPrompt({ question: data.question, choices: data.choices });
+    const rawKey = str(data.answer).trim();
+    if (!rawKey) throw new Error("This item has no answer to check.");
+    const choices = Array.isArray(data.choices) ? data.choices : [];
+    if (choices.length) {
+      let keyLetters = parseChoiceSet(rawKey);
+      if (!keyLetters.length) {
+        const index = choices.findIndex((choice) => str(choice && choice.text !== undefined ? choice.text : choice).trim().toLowerCase() === rawKey.toLowerCase());
+        if (index >= 0) keyLetters = [str(choices[index] && choices[index].letter ? choices[index].letter : "ABCDEFGH"[index]).trim().toUpperCase()];
+      }
+      if (!keyLetters.length) throw new Error("The stored answer does not match the choices.");
+      const multiple = keyLetters.length > 1 || data.multiple === true;
+      const prompt = buildBlindVerificationPrompt({ question: data.question, choices, multiple });
+      const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 });
+      if (multiple) {
+        const answer = parseBlindVerificationSet(reply);
+        if (!answer.length) throw new Error("The AI did not return a usable answer set.");
+        const key = keyLetters.join(", ");
+        return { match: answer.join(", ") === key, answer: answer.join(", "), key, confidence: "" };
+      }
+      const verdict = parseBlindVerification(reply);
+      if (!verdict.answer) throw new Error("The AI did not return a usable answer letter.");
+      const key = keyLetters[0];
+      return { match: verdict.answer === key, answer: verdict.answer, key, confidence: verdict.confidence };
+    }
+    const keyNumber = Number(rawKey.replace(/[^0-9+-.eE]/g, ""));
+    if (!Number.isFinite(keyNumber)) throw new Error("Only multiple-choice, true/false, multi-select or numeric answers can be checked.");
+    const prompt = buildBlindVerificationPrompt({ question: data.question });
     const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 });
-    const verdict = parseBlindVerification(reply);
-    if (!verdict.answer) throw new Error("The AI did not return a usable answer letter.");
-    return { match: verdict.answer === key, answer: verdict.answer, key, confidence: verdict.confidence };
+    const answer = parseBlindVerificationNumber(reply);
+    if (answer === null) throw new Error("The AI did not return a usable numeric answer.");
+    const tolerance = Math.max(1e-9, Math.abs(keyNumber) * 1e-9);
+    return {
+      match: Math.abs(answer - keyNumber) <= tolerance,
+      answer: String(answer),
+      key: String(keyNumber),
+      confidence: "",
+      method: "numeric",
+    };
   }
 
   /**
@@ -3506,8 +3548,10 @@ class QuestionTrackerPlugin extends Plugin {
     let failed = 0;
     for (const item of list) {
       if (!item || typeof item !== "object") continue;
-      if (!Array.isArray(item.choices) || !item.choices.length || !str(item.answer).trim()) {
-        item.verification = { status: "unchecked", match: null, answer: "", key: str(item.answer).trim(), model, date, drop: false };
+      const answerText = str(item.answer).trim();
+      const numeric = Number(answerText.replace(/[^0-9+-.eE]/g, ""));
+      if (!answerText || (!(Array.isArray(item.choices) && item.choices.length) && !Number.isFinite(numeric))) {
+        item.verification = { status: "unchecked", match: null, answer: "", key: answerText, model, date, drop: false };
         continue;
       }
       try {
@@ -4119,6 +4163,7 @@ class QuestionTrackerPlugin extends Plugin {
       correct: !!(result && result.correct),
       conf: 0, // inline quizzes never ask for a confidence rating
       seconds: Math.max(1, Math.round(Number(seconds) || 0)),
+      score: result && Number.isFinite(Number(result.score)) ? Math.max(0, Math.min(100, Number(result.score))) : undefined,
       now: new Date(),
       course: target.fm.course,
     });
@@ -6906,7 +6951,8 @@ ${body}
     const today = opts.today || localDate();
     const questions = this.mcqEnabled() ? this.getQuestions() : [];
     const cards = this.cardsEnabled() ? this.getCards() : [];
-    return buildDueQueue(questions, cards, { today, limit: opts.limit });
+    const dailyCap = normalizeDailyCap(this.settings && this.settings.dueQueue && this.settings.dueQueue.dailyCap);
+    return buildDueQueue(questions, cards, { today, limit: opts.limit, dailyCap });
   }
 
   /** Open a one-card review from the unified queue. */
@@ -6937,15 +6983,17 @@ ${body}
       new Notice("Mixed review needs both MCQ Tracker and Cards turned on. Use Quick Practice or Cards for a single-module session.");
       return null;
     }
+    const dailyCap = normalizeDailyCap(this.settings && this.settings.dueQueue && this.settings.dueQueue.dailyCap);
     const queue = buildMixedQueue(this.getQuestions(), this.getCards(), {
       today: localDate(),
       limit: this.settings.cards.reviewLimit || 20,
+      dailyCap,
     });
     if (!queue.items.length) {
       new Notice("Nothing is due across both modules yet.");
       return null;
     }
-    const modal = new MixedReviewModal(this.app, this, { limit: this.settings.cards.reviewLimit || 20 }, () => {
+    const modal = new MixedReviewModal(this.app, this, { limit: this.settings.cards.reviewLimit || 20, dailyCap }, () => {
       this.refreshViews();
       if (onDone) onDone();
     });

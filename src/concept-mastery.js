@@ -1,5 +1,6 @@
 "use strict";
 const { str } = require("./util");
+const { creditSummary } = require("./stats");
 
 /* Mastery per source note. Questions and cards written from a note carry
  * `source_note`, so practice accuracy can be grouped back to the note that
@@ -43,15 +44,15 @@ function conceptMasteryRows(questions) {
         (row = { path, label: sourceLabel(path), questions: 0, attempts: 0, correct: 0, accuracy: null, band: "untried" })
       );
     }
-    const attempts = Math.max(0, Number(q.fm.attempts) || 0);
-    const correct = Math.min(Math.max(0, Number(q.fm.correct_count) || 0), attempts);
+    const summary = creditSummary(q.fm);
     row.questions++;
-    row.attempts += attempts;
-    row.correct += correct;
+    row.attempts += summary.attempts;
+    row.correct += summary.correct;
+    row.credit = (row.credit || 0) + summary.credit;
   }
 
   const out = [...rows.values()].map((row) => {
-    const accuracy = row.attempts ? row.correct / row.attempts : null;
+    const accuracy = row.attempts ? (row.credit || 0) / row.attempts : null;
     return { ...row, accuracy, band: masteryBand(accuracy) };
   });
   out.sort((a, b) => {

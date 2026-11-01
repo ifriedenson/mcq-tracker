@@ -1623,8 +1623,10 @@ module.exports = {
 /* ---- src/analytics.js ---- */
 __defs["analytics"] = function (module, exports, require) {
 const { isDue } = require("./filters");
+const { str } = require("./util");
 const { isStudyable } = require("./study-status");
 const { computeStats, overallStats, parseHistory, weakestRow } = require("./stats");
+const { creditOf } = require("./history");
 const { studySummary } = require("./focus");
 
 function dayKey(value) {
@@ -1681,7 +1683,7 @@ function confidenceLabelsOf(labels) {
 
 /** Accuracy at each stated confidence level. Empty confidence (timed tests) is ignored. */
 function buildCalibration(questions, labels) {
-  const buckets = confidenceLabelsOf(labels).map((label, index) => ({ confidence: index + 1, label, attempts: 0, correct: 0, accuracy: null }));
+  const buckets = confidenceLabelsOf(labels).map((label, index) => ({ confidence: index + 1, label, attempts: 0, correct: 0, credit: 0, accuracy: null }));
   let total = 0;
   for (const q of questions || []) {
     for (const entry of parseHistory(q.fm && q.fm.history)) {
@@ -1691,9 +1693,10 @@ function buildCalibration(questions, labels) {
       bucket.attempts++;
       total++;
       if (entry.result === "correct") bucket.correct++;
+      bucket.credit += creditOf(entry);
     }
   }
-  for (const bucket of buckets) bucket.accuracy = bucket.attempts ? bucket.correct / bucket.attempts : null;
+  for (const bucket of buckets) bucket.accuracy = bucket.attempts ? bucket.credit / bucket.attempts : null;
   return { buckets, total };
 }
 
@@ -1706,7 +1709,7 @@ function buildRetention(questions, today, weeks) {
   first.setDate(first.getDate() - 7 * (count - 1));
   const rows = Array.from({ length: count }, (_value, index) => {
     const start = addDays(first, index * 7);
-    return { start: dayKey(start), attempts: 0, correct: 0, accuracy: null };
+    return { start: dayKey(start), attempts: 0, correct: 0, credit: 0, accuracy: null };
   });
   for (const q of questions || []) {
     const entries = parseHistory(q.fm && q.fm.history)
@@ -1722,16 +1725,19 @@ function buildRetention(questions, today, weeks) {
       const row = rows[weekIndex];
       row.attempts++;
       if (entries[index].result === "correct") row.correct++;
+      row.credit += creditOf(entries[index]);
     }
   }
   let attempts = 0;
   let correct = 0;
+  let credit = 0;
   for (const row of rows) {
-    row.accuracy = row.attempts ? row.correct / row.attempts : null;
+    row.accuracy = row.attempts ? row.credit / row.attempts : null;
     attempts += row.attempts;
     correct += row.correct;
+    credit += row.credit;
   }
-  return { weeks: rows, attempts, correct, accuracy: attempts ? correct / attempts : null };
+  return { weeks: rows, attempts, correct, credit, accuracy: attempts ? credit / attempts : null };
 }
 
 function normalizeDay(value) {
@@ -1753,7 +1759,7 @@ function addDays(date, n) {
   return d;
 }
 
-function activityByDay(sessions, questions) {
+function activityByDay(sessions, questions, cards) {
   const map = new Map();
   const ensure = (key) => {
     if (!map.has(key)) map.set(key, { minutes: 0, attempts: 0 });
@@ -1763,7 +1769,7 @@ function activityByDay(sessions, questions) {
     const key = String(session.date || "").slice(0, 10);
     if (/^\d{4}-\d{2}-\d{2}$/.test(key)) ensure(key).minutes += Math.max(0, Number(session.minutes) || 0);
   }
-  for (const q of questions || []) {
+  for (const q of [...(questions || []), ...(cards || [])]) {
     for (const entry of parseHistory(q.fm && q.fm.history)) {
       const key = String(entry.when || "").slice(0, 10);
       if (/^\d{4}-\d{2}-\d{2}$/.test(key)) ensure(key).attempts++;
@@ -1783,13 +1789,13 @@ function activityLevel(day) {
 }
 
 /** Twelve Monday-first weeks ending with the current week. */
-function buildHeatmap(sessions, questions, today, weeks) {
+function buildHeatmap(sessions, questions, today, weeks, cards) {
   const count = Math.max(1, Math.min(26, Math.round(Number(weeks) || 12)));
   const todayKey = normalizeDay(today);
   const now = new Date(`${todayKey}T00:00:00`);
   const first = mondayOf(now);
   first.setDate(first.getDate() - 7 * (count - 1));
-  const activity = activityByDay(sessions, questions);
+  const activity = activityByDay(sessions, questions, cards);
   const out = [];
   for (let w = 0; w < count; w++) {
     const start = addDays(first, w * 7);
@@ -1803,6 +1809,49 @@ function buildHeatmap(sessions, questions, today, weeks) {
     out.push({ start: dayKey(start), days });
   }
   return out;
+}
+
+/** One accuracy figure for all evidence: question credit plus FRQ percentage credit. */
+function knowledgeSummary(overall, frq) {
+  const questionAttempts = Math.max(0, Number(overall && overall.attempts) || 0);
+  const questionCredit = Math.max(0, Number(overall && (overall.credit !== undefined ? overall.credit : overall.correct)) || 0);
+  const frqAttempts = Math.max(0, Number(frq && frq.attempts) || 0);
+  const frqCredit = Math.max(0, Number(frq && frq.credit) || 0);
+  const attempts = questionAttempts + frqAttempts;
+  const credit = questionCredit + frqCredit;
+  return {
+    attempts,
+    credit,
+    accuracy: attempts ? credit / attempts : null,
+    questions: { attempts: questionAttempts, credit: questionCredit, accuracy: questionAttempts ? questionCredit / questionAttempts : null },
+    frq: { attempts: frqAttempts, credit: frqCredit, accuracy: frqAttempts ? frqCredit / frqAttempts : null },
+  };
+}
+
+function dayAfter(day, n) {
+  const d = new Date(`${day}T12:00:00`);
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Due load for the next week, so a wall of reviews is visible before it lands. */
+function buildForwardLoad(questions, cards, today, days) {
+  const start = normalizeDay(today);
+  const count = Math.max(1, Math.min(30, Math.round(Number(days) || 7)));
+  const items = [...(Array.isArray(questions) ? questions : []), ...(Array.isArray(cards) ? cards : [])];
+  const byDate = new Map();
+  for (const item of items) {
+    if (!isStudyable(item && item.fm, start)) continue;
+    const day = str(item && item.fm && item.fm.next_review).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < start) continue;
+    byDate.set(day, (byDate.get(day) || 0) + 1);
+  }
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const date = dayAfter(start, i);
+    out.push({ date, count: byDate.get(date) || 0 });
+  }
+  return { days: out, total: out.reduce((n, day) => n + day.count, 0) };
 }
 
 function buildDashboard(options) {
@@ -1824,6 +1873,8 @@ function buildDashboard(options) {
   const calibration = buildCalibration(scopedQuestions, opts.confidenceLabels);
   const retention = buildRetention(scopedQuestions, today, opts.retentionWeeks || 8);
   const overall = overallStats(scopedQuestions);
+  const frq = opts.frq || null;
+  const knowledge = knowledgeSummary(overall, frq);
   const study = studySummary(scopedLog, today);
   const cardStats = {
     total: scopedCards.length,
@@ -1834,6 +1885,9 @@ function buildDashboard(options) {
     today,
     course,
     overall,
+    knowledge,
+    frq,
+    forward: buildForwardLoad(scopedQuestions, scopedCards, today, opts.forwardDays || 7),
     study,
     cardStats,
     field,
@@ -1845,7 +1899,7 @@ function buildDashboard(options) {
     grades: buildGradeSnapshot(scopedQuestions),
     calibration,
     retention,
-    heatmap: buildHeatmap(scopedLog.sessions, scopedQuestions, today, opts.weeks || 12),
+    heatmap: buildHeatmap(scopedLog.sessions, scopedQuestions, today, opts.weeks || 12, scopedCards),
     byCourse: Object.entries(study.byCourse).sort((a, b) => b[1] - a[1]).slice(0, 6),
     exams: Array.isArray(opts.exams) ? opts.exams : [],
   };
@@ -1861,6 +1915,8 @@ module.exports = {
   buildGradeSnapshot,
   buildHeatmap,
   buildRetention,
+  buildForwardLoad,
+  knowledgeSummary,
   confidenceLabelsOf,
   gradeLetter,
   courseKey,
@@ -3188,6 +3244,7 @@ __defs["answer-verification"] = function (module, exports, require) {
  * compared with the key already in the note. Nothing is written here.
  */
 const { str } = require("./util");
+const { parseChoiceSet } = require("./answer-types");
 
 const VERIFICATION_MODES = ["mark", "drop"];
 
@@ -3198,6 +3255,21 @@ function normalizeVerificationMode(value) {
 function buildBlindVerificationPrompt(data) {
   const d = data || {};
   const choices = Array.isArray(d.choices) ? d.choices : [];
+  if (!choices.length) {
+    return {
+      system:
+        "You are an independent exam answer checker. Solve the question yourself. " +
+        "Do not assume any answer is correct and do not ask for the answer key. Return only JSON.",
+      user: [
+        "QUESTION:",
+        str(d.question).trim(),
+        "",
+        'Return {"answer":"42","confidence":"high|medium|low","reason":"one short sentence"}.',
+        "Answer with the value only, without units or explanation.",
+      ].join("\n"),
+    };
+  }
+  const multiple = d.multiple === true;
   return {
     system:
       "You are an independent exam answer checker. Solve the question yourself from the question and choices. " +
@@ -3213,8 +3285,10 @@ function buildBlindVerificationPrompt(data) {
         return `${letter}. ${str(text).trim()}`;
       }),
       "",
-      'Return {"answer":"B","confidence":"high|medium|low","reason":"one short sentence"}.',
-      "Use exactly one letter from A to the last choice.",
+      multiple
+        ? 'Return {"answer":"A, C","confidence":"high|medium|low","reason":"one short sentence"}.'
+        : 'Return {"answer":"B","confidence":"high|medium|low","reason":"one short sentence"}.',
+      multiple ? "Use every letter that applies, separated by commas." : "Use exactly one letter from A to the last choice.",
     ].join("\n"),
   };
 }
@@ -3241,6 +3315,55 @@ function parseBlindVerification(reply) {
   }
   const confidence = (/\b(high|medium|low)\b/i.exec(text) || [])[1];
   return { answer, confidence: confidence ? confidence.toLowerCase() : "", raw: text };
+}
+
+/** Read a select-all answer as a set of letters. */
+function parseBlindVerificationSet(reply) {
+  const text = str(reply)
+    .replace(/```(?:json|javascript|js)?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  let answer = [];
+  const json = /\{[\s\S]*\}/.exec(text);
+  if (json) {
+    try {
+      const parsed = JSON.parse(json[0]);
+      const raw = parsed && parsed.answer;
+      if (Array.isArray(raw)) answer = parseChoiceSet(raw);
+      else answer = parseChoiceSet(raw);
+    } catch (e) {
+      /* fall through */
+    }
+  }
+  if (!answer.length) {
+    const match = /\b(?:answer|correct answer)\s*(?:is|:)?\s*([A-H](?:\s*[,;/&]\s*[A-H])*)/i.exec(text);
+    if (match) answer = parseChoiceSet(match[1]);
+  }
+  return [...new Set(answer)].sort();
+}
+
+/** Read a numeric answer from JSON or a short plain reply. */
+function parseBlindVerificationNumber(reply) {
+  const text = str(reply)
+    .replace(/```(?:json|javascript|js)?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  let raw = "";
+  const json = /\{[\s\S]*\}/.exec(text);
+  if (json) {
+    try {
+      const parsed = JSON.parse(json[0]);
+      raw = str(parsed && parsed.answer).trim();
+    } catch (e) {
+      /* fall through */
+    }
+  }
+  if (!raw) {
+    const match = /-?\d+(?:\.\d+)?/.exec(text);
+    raw = match ? match[0] : "";
+  }
+  const value = Number(raw.replace(/[^0-9+-.eE]/g, ""));
+  return Number.isFinite(value) ? value : null;
 }
 
 /** The properties recorded after a check. `verified` is false for a mismatch or an unfinished check. */
@@ -3315,6 +3438,8 @@ module.exports = {
   buildBlindVerificationPrompt,
   normalizeVerificationMode,
   parseBlindVerification,
+  parseBlindVerificationNumber,
+  parseBlindVerificationSet,
   stripVerificationBanner,
   verificationBanner,
   verificationFields,
@@ -18965,6 +19090,7 @@ module.exports = {
 /* ---- src/concept-mastery.js ---- */
 __defs["concept-mastery"] = function (module, exports, require) {
 const { str } = require("./util");
+const { creditSummary } = require("./stats");
 
 /* Mastery per source note. Questions and cards written from a note carry
  * `source_note`, so practice accuracy can be grouped back to the note that
@@ -19008,15 +19134,15 @@ function conceptMasteryRows(questions) {
         (row = { path, label: sourceLabel(path), questions: 0, attempts: 0, correct: 0, accuracy: null, band: "untried" })
       );
     }
-    const attempts = Math.max(0, Number(q.fm.attempts) || 0);
-    const correct = Math.min(Math.max(0, Number(q.fm.correct_count) || 0), attempts);
+    const summary = creditSummary(q.fm);
     row.questions++;
-    row.attempts += attempts;
-    row.correct += correct;
+    row.attempts += summary.attempts;
+    row.correct += summary.correct;
+    row.credit = (row.credit || 0) + summary.credit;
   }
 
   const out = [...rows.values()].map((row) => {
-    const accuracy = row.attempts ? row.correct / row.attempts : null;
+    const accuracy = row.attempts ? (row.credit || 0) / row.attempts : null;
     return { ...row, accuracy, band: masteryBand(accuracy) };
   });
   out.sort((a, b) => {
@@ -19092,6 +19218,7 @@ const DEFAULT_SETTINGS = {
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
   knownDays: 14, // default snooze length for the Known button
   knownDaysByCourse: {}, // optional course-specific snooze overrides
+  dueQueue: { dailyCap: 0 }, // 0 = no cap; otherwise hold overflow for another day
   leechThreshold: 0, // consecutive misses that flag a leech; 0 turns leech handling off
   leechAction: "flag", // "flag" keeps it in rotation | "suspend" also hides it until restored
   needsFixing: false, // opt-in: flag questions missed on five distinct days for repair
@@ -22383,6 +22510,22 @@ function rowFor(type, source, today) {
 }
 
 /**
+/** A daily cap is a hard ceiling on the queue; 0 means no cap. */
+function normalizeDailyCap(value) {
+  const n = Math.round(Number(value) || 0);
+  return n > 0 ? Math.min(500, n) : 0;
+}
+
+function countsOf(rows) {
+  return {
+    questions: rows.filter((row) => row.type === "question").length,
+    cards: rows.filter((row) => row.type === "card").length,
+    vocab: rows.filter((row) => row.type === "vocab").length,
+    total: rows.length,
+  };
+}
+
+/**
  * Merge due questions and cards into one ordered list. Due items come before
  * new items; within each group the oldest next-review date wins.
  */
@@ -22403,14 +22546,21 @@ function buildDueQueue(questions, cards, options) {
     if (a.dueDate !== b.dueDate) return a.dueDate.localeCompare(b.dueDate);
     return a.type.localeCompare(b.type) || a.title.localeCompare(b.title) || a.path.localeCompare(b.path);
   });
-  const counts = {
-    questions: rows.filter((row) => row.type === "question").length,
-    cards: rows.filter((row) => row.type === "card").length,
-    vocab: rows.filter((row) => row.type === "vocab").length,
-    total: rows.length,
-  };
+  const counts = countsOf(rows);
+  const dailyCap = normalizeDailyCap(opts.dailyCap);
+  const capped = dailyCap ? rows.slice(0, dailyCap) : rows;
+  const overflow = dailyCap ? rows.slice(dailyCap) : [];
+  const shown = countsOf(capped);
   const limit = opts.limit === undefined ? 20 : Math.max(0, Math.round(Number(opts.limit) || 0));
-  return { items: limit ? rows.slice(0, limit) : [], all: rows, counts };
+  return {
+    items: limit ? capped.slice(0, limit) : [],
+    all: capped,
+    overflow,
+    counts,
+    shown,
+    dailyCap,
+    deferred: overflow.length,
+  };
 }
 
 class DueQueueModal extends Modal {
@@ -22426,10 +22576,10 @@ class DueQueueModal extends Modal {
     contentEl.empty();
     contentEl.createEl("h3", { text: "Due across modules" });
     const queue = p.getDueQueue({ limit: 100 });
-    const c = queue.counts;
+    const c = queue.shown;
     contentEl.createEl("p", {
       cls: "setting-item-description",
-      text: `${c.total} item${c.total === 1 ? "" : "s"} due or new · ${c.questions} question${c.questions === 1 ? "" : "s"} · ${c.cards + c.vocab} card${c.cards + c.vocab === 1 ? "" : "s"}`,
+      text: `${c.total} item${c.total === 1 ? "" : "s"} due or new · ${c.questions} question${c.questions === 1 ? "" : "s"} · ${c.cards + c.vocab} card${c.cards + c.vocab === 1 ? "" : "s"}${queue.deferred ? ` · ${queue.deferred} held for another day by the daily cap` : ""}`,
     });
 
     if (!queue.items.length) {
@@ -22513,6 +22663,7 @@ class DueQueueModal extends Modal {
 
 module.exports = {
   buildDueQueue,
+  normalizeDailyCap,
   DueQueueModal,
 };
 };
@@ -25937,6 +26088,66 @@ function frqAttemptTrend(entries) {
   };
 }
 
+/** Mastery band for a free-response course, using the same 60/80 thresholds as question mastery. */
+function frqMasteryBand(average) {
+  if (average === null || average === undefined) return "untried";
+  if (average < 60) return "weak";
+  if (average < 80) return "developing";
+  if (average < 100) return "strong";
+  return "mastered";
+}
+
+/**
+ * One knowledge snapshot for saved FRQ attempts. Percent is already 0-100, so
+ * this is the free-response analogue of a question's history credit.
+ */
+function frqKnowledge(entries) {
+  const list = sortFrqAttempts(entries);
+  const trend = frqAttemptTrend(list);
+  const rows = new Map();
+  for (const entry of list) {
+    const key = entry.courseId || entry.course || "frq";
+    const row = rows.get(key) || {
+      courseId: entry.courseId,
+      course: entry.course || entry.courseId || "Free response",
+      attempts: 0,
+      credit: 0,
+      latest: null,
+      latestOn: "",
+    };
+    row.attempts += 1;
+    row.credit += Math.max(0, Math.min(100, Number(entry.percent) || 0)) / 100;
+    if (!row.latest || String(entry.takenOn || "") > row.latestOn) {
+      row.latest = entry;
+      row.latestOn = String(entry.takenOn || "");
+    }
+    rows.set(key, row);
+  }
+  const courses = [...rows.values()]
+    .map((row) => {
+      const average = row.attempts ? round1((row.credit / row.attempts) * 100) : null;
+      return {
+        courseId: row.courseId,
+        course: row.course,
+        attempts: row.attempts,
+        credit: row.credit,
+        average,
+        band: frqMasteryBand(average),
+        latestOn: row.latestOn,
+      };
+    })
+    .sort((a, b) => b.attempts - a.attempts || a.course.localeCompare(b.course));
+  return {
+    attempts: list.length,
+    credit: list.reduce((sum, entry) => sum + Math.max(0, Math.min(100, Number(entry.percent) || 0)) / 100, 0),
+    average: trend.average,
+    delta: trend.delta,
+    direction: trend.direction,
+    latest: trend.latest,
+    courses,
+  };
+}
+
 /** Missed rubric criteria across saved attempts, for the Insights review list. */
 function frqCriterionWeakSpots(attempts) {
   const list = Array.isArray(attempts) ? attempts : [];
@@ -26081,6 +26292,8 @@ module.exports = {
   addIsoDays,
   frqAttemptTrend,
   frqCriterionWeakSpots,
+  frqKnowledge,
+  frqMasteryBand,
   frqReviewEntry,
   frqReviewIntervalDays,
   frqReviewQueue,
@@ -29012,10 +29225,11 @@ module.exports = {
 __defs["history"] = function (module, exports, require) {
 /*
  * Review history rows are append-only:
- *   when|result|seconds|answer|confidence|error_type|attempt_id|variant
+ *   when|result|seconds|answer|confidence|error_type|attempt_id|variant|score
  *
- * Older rows stop at error_type; the variant field is optional. The attempt id
- * is what makes a retry or a sync merge safe: the same row cannot be counted
+ * Older rows stop at error_type; the variant and score fields are optional.
+ * Score is 0-100 and keeps partial credit beside the binary result. The attempt
+ * id is what makes a retry or a sync merge safe: the same row cannot be counted
  * twice, while two devices can contribute different rows for the same note.
  */
 const { fmtDate, str } = require("./util");
@@ -29195,6 +29409,8 @@ function markNeedsFixingFixed(fm, now) {
 
 function rowData(line) {
   const p = splitRow(line);
+  const rawScore = p[8];
+  const numericScore = rawScore === undefined || str(rawScore).trim() === "" ? null : Number(rawScore);
   return {
     when: str(p[0]),
     result: str(p[1]),
@@ -29203,7 +29419,19 @@ function rowData(line) {
     conf: str(p[4]),
     error: str(p[5]).trim(),
     id: str(p[6]).trim(),
+    variant: str(p[7]),
+    score: Number.isFinite(numericScore) ? Math.max(0, Math.min(100, numericScore)) : null,
   };
+}
+
+/** One history row's credit: its 0-100 score, or the old binary result. */
+function creditOf(row) {
+  const raw = row && row.score;
+  if (raw !== null && raw !== undefined && str(raw).trim() !== "") {
+    const score = Number(raw);
+    if (Number.isFinite(score)) return Math.max(0, Math.min(1, score / 100));
+  }
+  return row && row.result === "correct" ? 1 : 0;
 }
 
 /**
@@ -29278,6 +29506,7 @@ module.exports = {
   normalizeNeedsFixing,
   appendHistory,
   attemptIdOf,
+  creditOf,
   hasAttemptId,
   mergeHistory,
   repairHistoryCounters,
@@ -30740,9 +30969,11 @@ class InsightsView extends ItemView {
   renderOverview(root, questions) {
     const p = this.plugin;
     const cards = p.getCards ? p.getCards() : [];
+    const frq = p.getFrqKnowledge ? p.getFrqKnowledge() : null;
     const data = buildDashboard({
       questions,
       cards,
+      frq,
       studyLog: p.settings.studyLog,
       confidenceLabels: p.settings.confidenceLabels,
       field: this.overviewField,
@@ -30752,10 +30983,10 @@ class InsightsView extends ItemView {
     const activeDays = data.heatmap.reduce((n, week) => n + week.days.filter((d) => !d.future && (d.minutes || d.attempts)).length, 0);
     const studyMinutes = data.heatmap.reduce((n, week) => n + week.days.reduce((m, d) => m + d.minutes, 0), 0);
 
-    if (!o.notes && !data.cardStats.total && !studyMinutes) {
+    if (!o.notes && !data.cardStats.total && !studyMinutes && !data.knowledge.attempts) {
       root.createDiv({
         cls: "qt-empty",
-        text: "No study activity yet. Answer a question or start a focus session and this dashboard fills in.",
+        text: "No study activity yet. Answer a question, save an FRQ attempt or start a focus session and this dashboard fills in.",
       });
       return;
     }
@@ -30767,10 +30998,11 @@ class InsightsView extends ItemView {
       box.createDiv({ cls: "qt-dash-label", text: label });
       if (hint) box.createDiv({ cls: "qt-hint", text: hint });
     };
-    tile("Attempts", String(o.attempts), `${o.seen} of ${o.notes} questions tried`);
-    tile("Accuracy", fmtPct(o.accuracy), o.attempts ? `${fmtClock(Math.round(o.avgSeconds))} per question` : "No attempts yet");
+    tile("Attempts", String(data.knowledge.attempts), `${o.seen} of ${o.notes} questions tried${data.frq && data.frq.attempts ? ` · ${data.frq.attempts} FRQ` : ""}`);
+    tile("Accuracy", fmtPct(data.knowledge.accuracy), data.knowledge.attempts ? `${fmtPct(o.accuracy)} on questions${data.frq && data.frq.attempts ? ` · ${fmtPct(data.frq.average)} on FRQ` : ""}` : "No attempts yet");
     tile("Study today", `${data.study.todayMinutes} min`, `${data.study.streak} day streak`);
     tile("Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
+    tile("Due next 7 days", String(data.forward.total), `${data.forward.days.filter((day) => day.count).length} scheduled day${data.forward.days.filter((day) => day.count).length === 1 ? "" : "s"}`);
     tile("Logged skips", String(o.skipped), o.skipped ? "Not counted as wrong" : "None logged");
     renderGrade(root, data);
 
@@ -30845,12 +31077,13 @@ class InsightsView extends ItemView {
     const studyLog = p.settings.studyLog;
     const scopes = masteryScopes(questions);
     if (this.masteryScope && !scopes.some((scope) => scope.toLowerCase() === this.masteryScope.toLowerCase())) this.masteryScope = "";
-    const progress = buildProgress({ questions, cards, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays });
+    const frq = p.getFrqKnowledge ? p.getFrqKnowledge() : null;
+    const progress = buildProgress({ questions, cards, frq, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays });
     const dash = buildDashboard({ questions, cards, studyLog, field: this.overviewField, today: now, weeks: this.progressWeeks });
-    if (!questions.length && !cards.length && !progress.study.weekMinutes) {
+    if (!questions.length && !cards.length && !progress.study.weekMinutes && !progress.frq.attempts) {
       root.createDiv({
         cls: "qt-empty",
-        text: "Nothing to chart yet. Answer a question, review a card or log a focus session and this page fills in.",
+        text: "Nothing to chart yet. Answer a question, review a card, save an FRQ attempt or log a focus session and this page fills in.",
       });
       return;
     }
@@ -31011,6 +31244,25 @@ class InsightsView extends ItemView {
         if (row.notes && row.course !== "No course") {
           line.createEl("button", { text: "Practice" }).addEventListener("click", () => p.practiceWith({ course: [row.course] }, "smart"));
         }
+      }
+    }
+
+    if (progress.frq && progress.frq.attempts) {
+      root.createEl("h3", { cls: "qt-today-section", text: "Free-response practice" });
+      root.createDiv({
+        cls: "qt-hint",
+        text: `${progress.frq.attempts} saved FRQ attempt${progress.frq.attempts === 1 ? "" : "s"} averaging ${fmtPct(progress.frq.average / 100)}. This uses the same practice-accuracy scale as questions, not a predicted AP score.`,
+      });
+      const frqList = root.createDiv({ cls: "qt-ins-list" });
+      for (const row of progress.frq.courses.slice(0, 6)) {
+        const line = frqList.createDiv({ cls: "qt-ins-row" });
+        const main = line.createDiv({ cls: "qt-ins-main" });
+        main.createDiv({ cls: "qt-ins-name", text: row.course });
+        main.createDiv({ cls: "qt-hint", text: `${row.attempts} attempt${row.attempts === 1 ? "" : "s"} · ${row.band}` });
+        const meter = line.createDiv({ cls: "qt-ins-meter" });
+        const band = row.average < 60 ? "is-low" : row.average < 80 ? "is-mid" : "is-high";
+        meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round(row.average)}%` });
+        line.createSpan({ cls: "qt-ins-pct", text: fmtPct(row.average / 100) });
       }
     }
 
@@ -32866,7 +33118,7 @@ function weave(rows) {
  */
 function buildMixedQueue(questions, cards, options) {
   const opts = options || {};
-  const due = buildDueQueue(questions, cards, { today: str(opts.today) || localDate(), limit: 0 });
+  const due = buildDueQueue(questions, cards, { today: str(opts.today) || localDate(), limit: 0, dailyCap: opts.dailyCap });
   const dueRows = due.all.filter((row) => !row.isNew);
   const newRows = due.all.filter((row) => row.isNew);
   const rows = [...weave(dueRows), ...weave(newRows)];
@@ -32874,7 +33126,8 @@ function buildMixedQueue(questions, cards, options) {
   const limit = rawLimit === 0 ? rows.length : Math.max(1, Math.min(100, rawLimit || MIXED_LIMIT));
   return {
     items: rows.slice(0, limit),
-    counts: due.counts,
+    counts: due.shown,
+    deferred: due.deferred,
   };
 }
 
@@ -32909,6 +33162,7 @@ class MixedReviewModal extends Modal {
     const queue = buildMixedQueue(this.plugin.getQuestions(), this.plugin.getCards(), {
       today: this.options.today,
       limit: this.options.limit,
+      dailyCap: this.options.dailyCap,
     });
     this.queue = queue.items;
     this.index = 0;
@@ -34740,10 +34994,13 @@ function applyAttempt(fm, a, intervals, options) {
   const when = fmtDateTimeSec(a.now);
   const chosen = str(a.chosen).replace(/[|\n\r]/g, "/");
   const variant = str(a.variant).replace(/[|\n\r]/g, "/").slice(0, 500);
-  // date|result|seconds|answer|confidence|error_type|attempt_id|variant
-  // The variant field is optional; older rows and readers stop at the id.
-  const row = `${when}|${a.correct ? "correct" : "incorrect"}|${a.seconds}|${chosen}|${a.conf}||${attemptId}${variant ? `|${variant}` : ""}`;
+  const rawScore = a.score === undefined || a.score === null || str(a.score).trim() === "" ? null : Number(a.score);
+  const score = Number.isFinite(rawScore) ? Math.max(0, Math.min(100, rawScore)) : null;
+  // date|result|seconds|answer|confidence|error_type|attempt_id|variant|score
+  // The variant and score fields are optional; older rows and readers stop at the id.
+  const row = `${when}|${a.correct ? "correct" : "incorrect"}|${a.seconds}|${chosen}|${a.conf}||${attemptId}${variant || score !== null ? `|${variant}` : ""}${score !== null ? `|${score}` : ""}`;
   fm.history = appendHistory(fm.history, row, attemptId);
+  if (score !== null) fm.last_score = score;
   if (variant) fm.last_variant = variant;
   if (a.variantSeed !== undefined && Number.isFinite(Number(a.variantSeed))) fm.variant_seed = Number(a.variantSeed);
 
@@ -34825,6 +35082,7 @@ function applyAttempt(fm, a, intervals, options) {
     verdict: a.verdict || "",
     typedAnswer: a.typedAnswer === undefined ? "" : str(a.typedAnswer),
     verdictOverride: a.verdictOverride === true,
+    score,
     attemptId: opts.attemptId || "",
   };
 }
@@ -40212,7 +40470,8 @@ const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
 const { WELCOME_PRESETS, welcomeShouldShow } = require("./welcome");
 const { applyAttempt, applySkip, fillDefaults, findAnswerKey, parseSections, replaceMyNotes, setAttemptError, setLastErrorType } = require("./notes");
-const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, verificationFields } = require("./answer-verification");
+const { parseChoiceSet } = require("./answer-types");
+const { addVerificationBanner, buildBlindVerificationPrompt, normalizeVerificationMode, parseBlindVerification, parseBlindVerificationNumber, parseBlindVerificationSet, verificationFields } = require("./answer-verification");
 const { computedVerification } = require("./computed-verification");
 const { renderSmilesSvg } = require("./smiles");
 const { renderBiologyDiagram, renderChemistryDiagram, renderCircuitDiagram } = require("./stem-diagrams");
@@ -40236,7 +40495,7 @@ const { mergeReferenceSettings } = require("./reference-data");
 const { AP_EXAM_FOLDER, buildApExamNote, entryFromFrontmatter, sortApExamEntries, uniqueApExamPath } = require("./ap-exam-history");
 const { attachFrontmatter, attachStudySlotFrontmatter, buildApResourceNote, detachFrontmatter, detachStudySlotFrontmatter, entryFromFrontmatter: resourceNoteEntry, findApResourceNote, markCheckedFrontmatter, sortApResourceNotes, uniqueApResourcePath } = require("./ap-resource-notes");
 const { HANDWRITING_SYSTEM, cleanHandwritingText, handwritingPrompt } = require("./handwriting");
-const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, frqCriterionWeakSpots, frqReviewEntry, frqReviewQueue, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
+const { FRQ_ATTEMPT_FOLDER, FRQ_FOLDER, buildFrqAttemptNote, buildFrqNote, entryFromAttemptFrontmatter, frqCriterionWeakSpots, frqKnowledge, frqReviewEntry, frqReviewQueue, gradeFrqWithAi, isFrqNote, parseFrqNote, sortFrqAttempts, sourceFrontmatterUpdate, uniqueNotePath } = require("./frq");
 const { FrqGraderModal, NewFrqNoteModal } = require("./frq-modal");
 const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
@@ -40253,7 +40512,7 @@ const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
 const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckOf, deckSummary, isCardNote, schedulerForDeck, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { inferPlainCard, isPlainPath, normalizePlainCards } = require("./plain-cards");
 const { cardUpdateDiff } = require("./card-write-diff");
-const { DueQueueModal, buildDueQueue } = require("./due-queue");
+const { DueQueueModal, buildDueQueue, normalizeDailyCap } = require("./due-queue");
 const { MixedReviewModal, buildMixedQueue } = require("./mixed-review");
 const { isStudyable, setStudyStatus: updateStudyStatus, restoreStudyStatus: applyStudyStatusSnapshot, studyStatusSummary, statusOf, normalizeCourseDays, knownDaysForCourse } = require("./study-status");
 const { STUDY_SKIN_LABELS, normalizeStudySkin, studySkinEnabled } = require("./study-skin");
@@ -42607,6 +42866,17 @@ class QuestionTrackerPlugin extends Plugin {
     return sortFrqAttempts(entries);
   }
 
+  /** Saved FRQ attempt credit for the Insights dashboard; reads frontmatter only. */
+  getFrqKnowledge() {
+    const entries = [];
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+      const entry = entryFromAttemptFrontmatter(fm, file.path);
+      if (entry) entries.push(entry);
+    }
+    return frqKnowledge(entries);
+  }
+
   /** Missed FRQ criteria across saved attempts, for the Insights weak-spot list. */
   async getFrqWeakSpotRows() {
     return frqCriterionWeakSpots(await this.getFrqAttempts());
@@ -43641,14 +43911,44 @@ class QuestionTrackerPlugin extends Plugin {
   /** Ask one independent question, without showing the stored key. */
   async verifyQuestionDraft(item) {
     const data = item || {};
-    const key = str(data.answer).trim().toUpperCase();
-    if (!/^[A-H]$/.test(key)) throw new Error("Only multiple-choice items with a letter answer can be checked.");
-    if (!Array.isArray(data.choices) || !data.choices.length) throw new Error("This item has no answer choices to check.");
-    const prompt = buildBlindVerificationPrompt({ question: data.question, choices: data.choices });
+    const rawKey = str(data.answer).trim();
+    if (!rawKey) throw new Error("This item has no answer to check.");
+    const choices = Array.isArray(data.choices) ? data.choices : [];
+    if (choices.length) {
+      let keyLetters = parseChoiceSet(rawKey);
+      if (!keyLetters.length) {
+        const index = choices.findIndex((choice) => str(choice && choice.text !== undefined ? choice.text : choice).trim().toLowerCase() === rawKey.toLowerCase());
+        if (index >= 0) keyLetters = [str(choices[index] && choices[index].letter ? choices[index].letter : "ABCDEFGH"[index]).trim().toUpperCase()];
+      }
+      if (!keyLetters.length) throw new Error("The stored answer does not match the choices.");
+      const multiple = keyLetters.length > 1 || data.multiple === true;
+      const prompt = buildBlindVerificationPrompt({ question: data.question, choices, multiple });
+      const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 });
+      if (multiple) {
+        const answer = parseBlindVerificationSet(reply);
+        if (!answer.length) throw new Error("The AI did not return a usable answer set.");
+        const key = keyLetters.join(", ");
+        return { match: answer.join(", ") === key, answer: answer.join(", "), key, confidence: "" };
+      }
+      const verdict = parseBlindVerification(reply);
+      if (!verdict.answer) throw new Error("The AI did not return a usable answer letter.");
+      const key = keyLetters[0];
+      return { match: verdict.answer === key, answer: verdict.answer, key, confidence: verdict.confidence };
+    }
+    const keyNumber = Number(rawKey.replace(/[^0-9+-.eE]/g, ""));
+    if (!Number.isFinite(keyNumber)) throw new Error("Only multiple-choice, true/false, multi-select or numeric answers can be checked.");
+    const prompt = buildBlindVerificationPrompt({ question: data.question });
     const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "verification", maxTokens: 800 });
-    const verdict = parseBlindVerification(reply);
-    if (!verdict.answer) throw new Error("The AI did not return a usable answer letter.");
-    return { match: verdict.answer === key, answer: verdict.answer, key, confidence: verdict.confidence };
+    const answer = parseBlindVerificationNumber(reply);
+    if (answer === null) throw new Error("The AI did not return a usable numeric answer.");
+    const tolerance = Math.max(1e-9, Math.abs(keyNumber) * 1e-9);
+    return {
+      match: Math.abs(answer - keyNumber) <= tolerance,
+      answer: String(answer),
+      key: String(keyNumber),
+      confidence: "",
+      method: "numeric",
+    };
   }
 
   /**
@@ -43665,8 +43965,10 @@ class QuestionTrackerPlugin extends Plugin {
     let failed = 0;
     for (const item of list) {
       if (!item || typeof item !== "object") continue;
-      if (!Array.isArray(item.choices) || !item.choices.length || !str(item.answer).trim()) {
-        item.verification = { status: "unchecked", match: null, answer: "", key: str(item.answer).trim(), model, date, drop: false };
+      const answerText = str(item.answer).trim();
+      const numeric = Number(answerText.replace(/[^0-9+-.eE]/g, ""));
+      if (!answerText || (!(Array.isArray(item.choices) && item.choices.length) && !Number.isFinite(numeric))) {
+        item.verification = { status: "unchecked", match: null, answer: "", key: answerText, model, date, drop: false };
         continue;
       }
       try {
@@ -44278,6 +44580,7 @@ class QuestionTrackerPlugin extends Plugin {
       correct: !!(result && result.correct),
       conf: 0, // inline quizzes never ask for a confidence rating
       seconds: Math.max(1, Math.round(Number(seconds) || 0)),
+      score: result && Number.isFinite(Number(result.score)) ? Math.max(0, Math.min(100, Number(result.score))) : undefined,
       now: new Date(),
       course: target.fm.course,
     });
@@ -47065,7 +47368,8 @@ ${body}
     const today = opts.today || localDate();
     const questions = this.mcqEnabled() ? this.getQuestions() : [];
     const cards = this.cardsEnabled() ? this.getCards() : [];
-    return buildDueQueue(questions, cards, { today, limit: opts.limit });
+    const dailyCap = normalizeDailyCap(this.settings && this.settings.dueQueue && this.settings.dueQueue.dailyCap);
+    return buildDueQueue(questions, cards, { today, limit: opts.limit, dailyCap });
   }
 
   /** Open a one-card review from the unified queue. */
@@ -47096,15 +47400,17 @@ ${body}
       new Notice("Mixed review needs both MCQ Tracker and Cards turned on. Use Quick Practice or Cards for a single-module session.");
       return null;
     }
+    const dailyCap = normalizeDailyCap(this.settings && this.settings.dueQueue && this.settings.dueQueue.dailyCap);
     const queue = buildMixedQueue(this.getQuestions(), this.getCards(), {
       today: localDate(),
       limit: this.settings.cards.reviewLimit || 20,
+      dailyCap,
     });
     if (!queue.items.length) {
       new Notice("Nothing is due across both modules yet.");
       return null;
     }
-    const modal = new MixedReviewModal(this.app, this, { limit: this.settings.cards.reviewLimit || 20 }, () => {
+    const modal = new MixedReviewModal(this.app, this, { limit: this.settings.cards.reviewLimit || 20, dailyCap }, () => {
       this.refreshViews();
       if (onDone) onDone();
     });
@@ -52110,9 +52416,10 @@ __defs["progress"] = function (module, exports, require) {
  */
 const { isDue } = require("./filters");
 const { isStudyable } = require("./study-status");
-const { computeStats, overallStats, parseHistory, weakestRow } = require("./stats");
+const { computeStats, creditSummary, overallStats, parseHistory, weakestRow } = require("./stats");
 const { studySummary } = require("./focus");
-const { courseKey } = require("./analytics");
+const { courseKey, knowledgeSummary } = require("./analytics");
+const { creditOf } = require("./history");
 
 /** Mastery bands for one question, weakest first. Untried notes stay visible at the start. */
 const MASTERY_BANDS = [
@@ -52175,20 +52482,18 @@ function accuracyOf(question, options) {
     const today = normalizeDay(opts.today);
     const since = masterySince(today, days);
     let attempts = 0;
-    let correct = 0;
+    let credit = 0;
     for (const entry of parseHistory(question && question.fm && question.fm.history)) {
       const day = str(entry.when).slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < since || day > today) continue;
-      if (entry.result !== "correct" && entry.result !== "incorrect") continue;
+      if (entry.result !== "correct" && entry.result !== "incorrect" && entry.score === null) continue;
       attempts++;
-      if (entry.result === "correct") correct++;
+      credit += creditOf(entry);
     }
-    return attempts ? correct / attempts : null;
+    return attempts ? credit / attempts : null;
   }
-  const fm = (question && question.fm) || {};
-  const attempts = Number(fm.attempts) || 0;
-  if (!attempts) return null;
-  return Math.min(Number(fm.correct_count) || 0, attempts) / attempts;
+  const summary = creditSummary(question && question.fm);
+  return summary.attempts ? summary.credit / summary.attempts : null;
 }
 
 /** untried | weak (<60%) | developing (60–79%) | strong (80–99%) | mastered (100%). */
@@ -52293,7 +52598,7 @@ function buildWeeks(questions, sessions, today, count) {
   first.setDate(first.getDate() - 7 * (weeks - 1));
   const rows = Array.from({ length: weeks }, (_value, index) => {
     const start = addDays(first, index * 7);
-    return { start: dayKey(start), attempts: 0, correct: 0, accuracy: null, minutes: 0, activeDays: 0, days: new Set() };
+    return { start: dayKey(start), attempts: 0, correct: 0, credit: 0, accuracy: null, minutes: 0, activeDays: 0, days: new Set() };
   });
   const indexOf = (day) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day > todayKey) return -1;
@@ -52307,6 +52612,7 @@ function buildWeeks(questions, sessions, today, count) {
       if (index < 0) continue;
       rows[index].attempts++;
       if (entry.result === "correct") rows[index].correct++;
+      rows[index].credit += creditOf(entry);
       rows[index].days.add(day);
     }
   }
@@ -52321,7 +52627,7 @@ function buildWeeks(questions, sessions, today, count) {
     const { days, ...rest } = row;
     return {
       ...rest,
-      accuracy: row.attempts ? row.correct / row.attempts : null,
+      accuracy: row.attempts ? row.credit / row.attempts : null,
       activeDays: days.size,
     };
   });
@@ -52349,23 +52655,24 @@ function buildCourses(questions, sessions, limit) {
   const ensure = (label) => {
     const name = str(label).trim() || "No course";
     const key = courseKey(name) || "nocourse";
-    if (!rows.has(key)) rows.set(key, { course: name, notes: 0, seen: 0, attempts: 0, correct: 0, minutes: 0 });
+    if (!rows.has(key)) rows.set(key, { course: name, notes: 0, seen: 0, attempts: 0, correct: 0, credit: 0, minutes: 0 });
     return rows.get(key);
   };
   for (const question of Array.isArray(questions) ? questions : []) {
     const row = ensure(question.fm && question.fm.course);
     row.notes++;
-    const attempts = Number(question.fm && question.fm.attempts) || 0;
-    if (attempts) row.seen++;
-    row.attempts += attempts;
-    row.correct += Math.min(Number(question.fm && question.fm.correct_count) || 0, attempts);
+    const summary = creditSummary(question.fm);
+    if (summary.attempts) row.seen++;
+    row.attempts += summary.attempts;
+    row.correct += summary.correct;
+    row.credit += summary.credit;
   }
   for (const session of Array.isArray(sessions) ? sessions : []) {
     ensure(session.course).minutes += Math.max(0, Number(session.minutes) || 0);
   }
   const out = [...rows.values()].map((row) => ({
     ...row,
-    accuracy: row.attempts ? row.correct / row.attempts : null,
+    accuracy: row.attempts ? row.credit / row.attempts : null,
   }));
   out.sort((a, b) => b.notes - a.notes || b.minutes - a.minutes || a.course.localeCompare(b.course));
   return out.slice(0, Math.max(1, Math.round(Number(limit) || 6)));
@@ -52398,9 +52705,13 @@ function buildProgress(options) {
   const masteryDays = masteryWindowDays(opts.masteryDays);
   const scopedMastery = scopeQuestions(questions, masteryScope);
   const goalMinutes = study.goalMinutes || 0;
+  const overall = overallStats(questions);
+  const frq = opts.frq || null;
   return {
     today,
-    overall: overallStats(questions),
+    overall,
+    knowledge: knowledgeSummary(overall, frq),
+    frq,
     study,
     goal: {
       minutes: study.todayMinutes,
@@ -61646,6 +61957,18 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Due queue daily cap")
+      .setDesc("Hold review overflow for another day when the merged due list is too long. 0 means no cap. Hidden overflow stays due; nothing is rescheduled or lost.")
+      .addText((t) =>
+        t.setValue(String((st.dueQueue && st.dueQueue.dailyCap) || 0)).onChange(async (v) => {
+          const n = Math.max(0, Math.min(500, parseInt(v, 10) || 0));
+          st.dueQueue = { ...(st.dueQueue || {}), dailyCap: n };
+          await this.plugin.save();
+          this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Per-course Known snooze")
       .setDesc("Course=days pairs such as BIO 101=7, CHEM 201=21. A matching course overrides the global snooze; unmatched items use the value above.")
       .addText((t) =>
@@ -65697,6 +66020,7 @@ module.exports = { buildSqlite, PAGE, varint, encodeRecord };
 /* ---- src/stats.js ---- */
 __defs["stats"] = function (module, exports, require) {
 const { folderChain, noteVals, pickQuestion } = require("./filters");
+const { creditOf } = require("./history");
 const { str } = require("./util");
 
 /* ---- stats: how you are doing by skill, domain, difficulty and folder */
@@ -65714,24 +66038,27 @@ function statVals(q, field) {
 function computeStats(questions, field) {
   const rows = new Map();
   for (const q of questions) {
-    const att = Number(q.fm.attempts) || 0;
-    const cor = Math.min(Number(q.fm.correct_count) || 0, att);
+    const summary = creditSummary(q.fm);
+    const att = summary.attempts;
+    const cor = summary.correct;
+    const credit = summary.credit;
     const sec = att ? Number(q.fm.time_spent_total) || 0 : 0;
     const skip = Math.max(0, Math.round(Number(q.fm.skip_count) || 0));
     for (const v of statVals(q, field)) {
       let r = rows.get(v);
-      if (!r) rows.set(v, (r = { value: v, notes: 0, seen: 0, attempts: 0, correct: 0, seconds: 0, skipped: 0 }));
+      if (!r) rows.set(v, (r = { value: v, notes: 0, seen: 0, attempts: 0, correct: 0, credit: 0, seconds: 0, skipped: 0 }));
       r.notes++;
       if (att > 0) r.seen++;
       r.attempts += att;
       r.correct += cor;
+      r.credit += credit;
       r.seconds += sec;
       r.skipped += skip;
     }
   }
   const out = [...rows.values()].map((r) => ({
     ...r,
-    accuracy: r.attempts ? r.correct / r.attempts : null,
+    accuracy: r.attempts ? r.credit / r.attempts : null,
     avgSeconds: r.attempts ? r.seconds / r.attempts : null,
     skipRate: r.attempts + r.skipped ? r.skipped / (r.attempts + r.skipped) : 0,
   }));
@@ -65753,17 +66080,18 @@ function weakestRow(rows, minAttempts) {
 }
 
 function overallStats(questions) {
-  const o = { notes: questions.length, seen: 0, attempts: 0, correct: 0, seconds: 0, skipped: 0 };
+  const o = { notes: questions.length, seen: 0, attempts: 0, correct: 0, credit: 0, seconds: 0, skipped: 0 };
   for (const q of questions) {
     o.skipped += Math.max(0, Math.round(Number(q.fm.skip_count) || 0));
-    const att = Number(q.fm.attempts) || 0;
-    if (!att) continue;
+    const summary = creditSummary(q.fm);
+    if (!summary.attempts) continue;
     o.seen++;
-    o.attempts += att;
-    o.correct += Math.min(Number(q.fm.correct_count) || 0, att);
+    o.attempts += summary.attempts;
+    o.correct += summary.correct;
+    o.credit += summary.credit;
     o.seconds += Number(q.fm.time_spent_total) || 0;
   }
-  o.accuracy = o.attempts ? o.correct / o.attempts : null;
+  o.accuracy = o.attempts ? o.credit / o.attempts : null;
   o.avgSeconds = o.attempts ? o.seconds / o.attempts : null;
   o.skipRate = o.attempts + o.skipped ? o.skipped / (o.attempts + o.skipped) : 0;
   return o;
@@ -65773,12 +66101,48 @@ const fmtPct = (x) => (x === null || x === undefined ? "-" : `${Math.round(x * 1
 
 /* ---- error log */
 
-/** history entries look like: date|result|seconds|answer|confidence|error_type */
+/** history entries look like: date|result|seconds|answer|confidence|error_type|attempt_id|variant|score */
 function parseHistory(h) {
   return (Array.isArray(h) ? h : []).map((line) => {
     const p = str(line).split("|");
-    return { when: p[0] || "", result: p[1] || "", seconds: Number(p[2]) || 0, answer: p[3] || "", conf: p[4] || "", error: (p[5] || "").trim(), id: (p[6] || "").trim() };
+    const rawScore = p[8];
+    const score = rawScore === undefined || str(rawScore).trim() === "" ? null : Number(rawScore);
+    return {
+      when: p[0] || "",
+      result: p[1] || "",
+      seconds: Number(p[2]) || 0,
+      answer: p[3] || "",
+      conf: p[4] || "",
+      error: (p[5] || "").trim(),
+      id: (p[6] || "").trim(),
+      variant: p[7] || "",
+      score: Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null,
+    };
   });
+}
+
+/**
+ * Counters for one note. History rows carry partial credit and exact dates; the
+ * note counters still cover trimmed history, so the larger attempt count wins.
+ */
+function creditSummary(fm) {
+  const source = fm && typeof fm === "object" ? fm : {};
+  const rows = parseHistory(source.history).filter((entry) => entry.result === "correct" || entry.result === "incorrect" || entry.score !== null);
+  const counterAttempts = Math.max(0, Number(source.attempts) || 0);
+  const counterCorrect = Math.min(counterAttempts, Math.max(0, Number(source.correct_count) || 0));
+  if (!rows.length) {
+    return { attempts: counterAttempts, correct: counterCorrect, credit: counterCorrect };
+  }
+  const historyCorrect = rows.filter((entry) => entry.result === "correct").length;
+  const attempts = Math.max(counterAttempts, rows.length);
+  const extraAttempts = Math.max(0, attempts - rows.length);
+  // Attempts trimmed out of history have only their binary counters left.
+  const extraCorrect = Math.max(0, Math.min(extraAttempts, counterCorrect - historyCorrect));
+  return {
+    attempts,
+    correct: historyCorrect + extraCorrect,
+    credit: rows.reduce((sum, entry) => sum + creditOf(entry), 0) + extraCorrect,
+  };
 }
 
 /** Missed questions grouped by the reason you gave. `notes` are those whose latest attempt was a miss; `total` counts every tagged miss ever. */
@@ -65857,7 +66221,7 @@ function weeklyAccuracy(questions, today, weeks) {
   const rows = Array.from({ length: n }, (_v, i) => {
     const d = new Date(first.getTime());
     d.setDate(d.getDate() + 7 * i);
-    return { start: isoDay(d), attempts: 0, correct: 0, accuracy: null };
+    return { start: isoDay(d), attempts: 0, correct: 0, credit: 0, accuracy: null };
   });
   for (const q of questions) {
     for (const e of parseHistory(q.fm.history)) {
@@ -65867,9 +66231,10 @@ function weeklyAccuracy(questions, today, weeks) {
       if (!row) continue;
       row.attempts++;
       if (e.result === "correct") row.correct++;
+      row.credit += creditOf(e);
     }
   }
-  for (const r of rows) r.accuracy = r.attempts ? r.correct / r.attempts : null;
+  for (const r of rows) r.accuracy = r.attempts ? r.credit / r.attempts : null;
   return rows;
 }
 
@@ -65890,7 +66255,7 @@ function trendBy(questions, field, today, days) {
         if (!day) continue;
         const b = day >= cut ? t.recent : t.earlier;
         b.n++;
-        if (e.result === "correct") b.c++;
+        b.c += creditOf(e);
       }
     }
   }
@@ -65996,6 +66361,7 @@ module.exports = {
   WEAK_MIN_ATTEMPTS,
   statVals,
   computeStats,
+  creditSummary,
   weakestRow,
   overallStats,
   fmtPct,
@@ -75329,13 +75695,14 @@ class TodayView extends ItemView {
     if (!p.cardsEnabled || !p.cardsEnabled() || !p.getDueQueue) return;
     const queue = p.getDueQueue({ limit: 5 });
     const pending = pendingGradeCounts(p.pendingCardGrades ? p.pendingCardGrades() : []);
-    const cardCount = queue.counts.cards + queue.counts.vocab;
-    if (!queue.counts.questions || !cardCount) return;
+    const counts = queue.shown || queue.counts;
+    const cardCount = counts.cards + counts.vocab;
+    if (!counts.questions || !cardCount) return;
     const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-wide" });
     panel.createEl("h3", { cls: "qt-today-section", text: "Due across modules" });
     panel.createDiv({
       cls: "qt-today-count",
-      text: `${queue.counts.questions} question${queue.counts.questions === 1 ? "" : "s"} · ${cardCount} card${cardCount === 1 ? "" : "s"} due or new`,
+      text: `${counts.questions} question${counts.questions === 1 ? "" : "s"} · ${cardCount} card${cardCount === 1 ? "" : "s"} due or new${queue.deferred ? ` · ${queue.deferred} held by the daily cap` : ""}`,
     });
     const list = panel.createDiv({ cls: "qt-due-list" });
     for (const item of queue.items) {
@@ -77590,7 +77957,7 @@ const { CardExtractModal } = require("./cards-extract-modal");
 const cardGrading = require("./card-grading");
 const cardGradingAi = require("./card-grading-ai");
 const cardGradeQueue = require("./card-grade-queue");
-const { buildDueQueue, DueQueueModal } = require("./due-queue");
+const { buildDueQueue, normalizeDailyCap, DueQueueModal } = require("./due-queue");
 const { MixedReviewModal, buildMixedQueue, mixedQuestionAttempt } = require("./mixed-review");
 const studyStatus = require("./study-status");
 const studySkin = require("./study-skin");
@@ -77910,6 +78277,7 @@ QuestionTrackerPlugin.__test = {
   cardGradingAi,
   cardGradeQueue,
   buildDueQueue,
+  normalizeDailyCap,
   buildMixedQueue,
   mixedQuestionAttempt,
   MixedReviewModal,

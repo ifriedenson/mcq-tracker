@@ -52,3 +52,32 @@ test("plugin: the due queue respects the enabled modules and connects to real ca
   plugin.settings.mcqEnabled = false;
   assert.equal(plugin.getDueQueue({ today: "2026-10-29" }).counts.total, 0);
 });
+
+test("due queue: a daily cap holds overflow without dropping or rescheduling it", () => {
+  const questions = [1, 2, 3, 4].map((n) => ({
+    file: { path: `Questions/q${n}.md`, basename: `q${n}` },
+    fm: { question_id: `q${n}`, attempts: 1, next_review: `2020-01-0${n}` },
+  }));
+  const queue = buildDueQueue(questions, [], { today: "2026-10-29", limit: 10, dailyCap: 2 });
+  assert.equal(queue.counts.total, 4);
+  assert.equal(queue.shown.total, 2);
+  assert.equal(queue.items.length, 2);
+  assert.equal(queue.all.length, 2);
+  assert.equal(queue.overflow.length, 2);
+  assert.equal(queue.deferred, 2);
+  assert.equal(queue.dailyCap, 2);
+  assert.equal(T.normalizeDailyCap(-1), 0);
+  assert.equal(T.normalizeDailyCap(999), 500);
+});
+
+test("mixed review honors the same daily cap", () => {
+  const questions = [1, 2].map((n) => ({ file: { path: `Questions/m${n}.md`, basename: `m${n}` }, fm: { question_id: `m${n}`, attempts: 1, next_review: `2020-01-0${n}` } }));
+  const cards = [
+    { file: { path: "Cards/m1.md" }, fm: { card_id: "m1", attempts: 1, next_review: "2020-01-03" } },
+    { file: { path: "Cards/m2.md" }, fm: { card_id: "m2", attempts: 1, next_review: "2020-01-04" } },
+  ];
+  const mixed = T.buildMixedQueue(questions, cards, { today: "2026-10-29", limit: 10, dailyCap: 2 });
+  assert.equal(mixed.items.length, 2);
+  assert.equal(mixed.counts.total, 2);
+  assert.equal(mixed.deferred, 2);
+});

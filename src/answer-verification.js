@@ -7,6 +7,7 @@
  * compared with the key already in the note. Nothing is written here.
  */
 const { str } = require("./util");
+const { parseChoiceSet } = require("./answer-types");
 
 const VERIFICATION_MODES = ["mark", "drop"];
 
@@ -17,6 +18,21 @@ function normalizeVerificationMode(value) {
 function buildBlindVerificationPrompt(data) {
   const d = data || {};
   const choices = Array.isArray(d.choices) ? d.choices : [];
+  if (!choices.length) {
+    return {
+      system:
+        "You are an independent exam answer checker. Solve the question yourself. " +
+        "Do not assume any answer is correct and do not ask for the answer key. Return only JSON.",
+      user: [
+        "QUESTION:",
+        str(d.question).trim(),
+        "",
+        'Return {"answer":"42","confidence":"high|medium|low","reason":"one short sentence"}.',
+        "Answer with the value only, without units or explanation.",
+      ].join("\n"),
+    };
+  }
+  const multiple = d.multiple === true;
   return {
     system:
       "You are an independent exam answer checker. Solve the question yourself from the question and choices. " +
@@ -32,8 +48,10 @@ function buildBlindVerificationPrompt(data) {
         return `${letter}. ${str(text).trim()}`;
       }),
       "",
-      'Return {"answer":"B","confidence":"high|medium|low","reason":"one short sentence"}.',
-      "Use exactly one letter from A to the last choice.",
+      multiple
+        ? 'Return {"answer":"A, C","confidence":"high|medium|low","reason":"one short sentence"}.'
+        : 'Return {"answer":"B","confidence":"high|medium|low","reason":"one short sentence"}.',
+      multiple ? "Use every letter that applies, separated by commas." : "Use exactly one letter from A to the last choice.",
     ].join("\n"),
   };
 }
@@ -60,6 +78,55 @@ function parseBlindVerification(reply) {
   }
   const confidence = (/\b(high|medium|low)\b/i.exec(text) || [])[1];
   return { answer, confidence: confidence ? confidence.toLowerCase() : "", raw: text };
+}
+
+/** Read a select-all answer as a set of letters. */
+function parseBlindVerificationSet(reply) {
+  const text = str(reply)
+    .replace(/```(?:json|javascript|js)?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  let answer = [];
+  const json = /\{[\s\S]*\}/.exec(text);
+  if (json) {
+    try {
+      const parsed = JSON.parse(json[0]);
+      const raw = parsed && parsed.answer;
+      if (Array.isArray(raw)) answer = parseChoiceSet(raw);
+      else answer = parseChoiceSet(raw);
+    } catch (e) {
+      /* fall through */
+    }
+  }
+  if (!answer.length) {
+    const match = /\b(?:answer|correct answer)\s*(?:is|:)?\s*([A-H](?:\s*[,;/&]\s*[A-H])*)/i.exec(text);
+    if (match) answer = parseChoiceSet(match[1]);
+  }
+  return [...new Set(answer)].sort();
+}
+
+/** Read a numeric answer from JSON or a short plain reply. */
+function parseBlindVerificationNumber(reply) {
+  const text = str(reply)
+    .replace(/```(?:json|javascript|js)?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+  let raw = "";
+  const json = /\{[\s\S]*\}/.exec(text);
+  if (json) {
+    try {
+      const parsed = JSON.parse(json[0]);
+      raw = str(parsed && parsed.answer).trim();
+    } catch (e) {
+      /* fall through */
+    }
+  }
+  if (!raw) {
+    const match = /-?\d+(?:\.\d+)?/.exec(text);
+    raw = match ? match[0] : "";
+  }
+  const value = Number(raw.replace(/[^0-9+-.eE]/g, ""));
+  return Number.isFinite(value) ? value : null;
 }
 
 /** The properties recorded after a check. `verified` is false for a mismatch or an unfinished check. */
@@ -134,6 +201,8 @@ module.exports = {
   buildBlindVerificationPrompt,
   normalizeVerificationMode,
   parseBlindVerification,
+  parseBlindVerificationNumber,
+  parseBlindVerificationSet,
   stripVerificationBanner,
   verificationBanner,
   verificationFields,

@@ -67,7 +67,7 @@ function weave(rows) {
  */
 function buildMixedQueue(questions, cards, options) {
   const opts = options || {};
-  const due = buildDueQueue(questions, cards, { today: str(opts.today) || localDate(), limit: 0 });
+  const due = buildDueQueue(questions, cards, { today: str(opts.today) || localDate(), limit: 0, dailyCap: opts.dailyCap });
   const dueRows = due.all.filter((row) => !row.isNew);
   const newRows = due.all.filter((row) => row.isNew);
   const rows = [...weave(dueRows), ...weave(newRows)];
@@ -75,7 +75,8 @@ function buildMixedQueue(questions, cards, options) {
   const limit = rawLimit === 0 ? rows.length : Math.max(1, Math.min(100, rawLimit || MIXED_LIMIT));
   return {
     items: rows.slice(0, limit),
-    counts: due.counts,
+    counts: due.shown,
+    deferred: due.deferred,
   };
 }
 
@@ -110,6 +111,7 @@ class MixedReviewModal extends Modal {
     const queue = buildMixedQueue(this.plugin.getQuestions(), this.plugin.getCards(), {
       today: this.options.today,
       limit: this.options.limit,
+      dailyCap: this.options.dailyCap,
     });
     this.queue = queue.items;
     this.index = 0;

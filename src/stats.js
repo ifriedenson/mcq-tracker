@@ -1,5 +1,6 @@
 "use strict";
 const { folderChain, noteVals, pickQuestion } = require("./filters");
+const { creditOf } = require("./history");
 const { str } = require("./util");
 
 /* ---- stats: how you are doing by skill, domain, difficulty and folder */
@@ -17,24 +18,27 @@ function statVals(q, field) {
 function computeStats(questions, field) {
   const rows = new Map();
   for (const q of questions) {
-    const att = Number(q.fm.attempts) || 0;
-    const cor = Math.min(Number(q.fm.correct_count) || 0, att);
+    const summary = creditSummary(q.fm);
+    const att = summary.attempts;
+    const cor = summary.correct;
+    const credit = summary.credit;
     const sec = att ? Number(q.fm.time_spent_total) || 0 : 0;
     const skip = Math.max(0, Math.round(Number(q.fm.skip_count) || 0));
     for (const v of statVals(q, field)) {
       let r = rows.get(v);
-      if (!r) rows.set(v, (r = { value: v, notes: 0, seen: 0, attempts: 0, correct: 0, seconds: 0, skipped: 0 }));
+      if (!r) rows.set(v, (r = { value: v, notes: 0, seen: 0, attempts: 0, correct: 0, credit: 0, seconds: 0, skipped: 0 }));
       r.notes++;
       if (att > 0) r.seen++;
       r.attempts += att;
       r.correct += cor;
+      r.credit += credit;
       r.seconds += sec;
       r.skipped += skip;
     }
   }
   const out = [...rows.values()].map((r) => ({
     ...r,
-    accuracy: r.attempts ? r.correct / r.attempts : null,
+    accuracy: r.attempts ? r.credit / r.attempts : null,
     avgSeconds: r.attempts ? r.seconds / r.attempts : null,
     skipRate: r.attempts + r.skipped ? r.skipped / (r.attempts + r.skipped) : 0,
   }));
@@ -56,17 +60,18 @@ function weakestRow(rows, minAttempts) {
 }
 
 function overallStats(questions) {
-  const o = { notes: questions.length, seen: 0, attempts: 0, correct: 0, seconds: 0, skipped: 0 };
+  const o = { notes: questions.length, seen: 0, attempts: 0, correct: 0, credit: 0, seconds: 0, skipped: 0 };
   for (const q of questions) {
     o.skipped += Math.max(0, Math.round(Number(q.fm.skip_count) || 0));
-    const att = Number(q.fm.attempts) || 0;
-    if (!att) continue;
+    const summary = creditSummary(q.fm);
+    if (!summary.attempts) continue;
     o.seen++;
-    o.attempts += att;
-    o.correct += Math.min(Number(q.fm.correct_count) || 0, att);
+    o.attempts += summary.attempts;
+    o.correct += summary.correct;
+    o.credit += summary.credit;
     o.seconds += Number(q.fm.time_spent_total) || 0;
   }
-  o.accuracy = o.attempts ? o.correct / o.attempts : null;
+  o.accuracy = o.attempts ? o.credit / o.attempts : null;
   o.avgSeconds = o.attempts ? o.seconds / o.attempts : null;
   o.skipRate = o.attempts + o.skipped ? o.skipped / (o.attempts + o.skipped) : 0;
   return o;
@@ -76,12 +81,48 @@ const fmtPct = (x) => (x === null || x === undefined ? "-" : `${Math.round(x * 1
 
 /* ---- error log */
 
-/** history entries look like: date|result|seconds|answer|confidence|error_type */
+/** history entries look like: date|result|seconds|answer|confidence|error_type|attempt_id|variant|score */
 function parseHistory(h) {
   return (Array.isArray(h) ? h : []).map((line) => {
     const p = str(line).split("|");
-    return { when: p[0] || "", result: p[1] || "", seconds: Number(p[2]) || 0, answer: p[3] || "", conf: p[4] || "", error: (p[5] || "").trim(), id: (p[6] || "").trim() };
+    const rawScore = p[8];
+    const score = rawScore === undefined || str(rawScore).trim() === "" ? null : Number(rawScore);
+    return {
+      when: p[0] || "",
+      result: p[1] || "",
+      seconds: Number(p[2]) || 0,
+      answer: p[3] || "",
+      conf: p[4] || "",
+      error: (p[5] || "").trim(),
+      id: (p[6] || "").trim(),
+      variant: p[7] || "",
+      score: Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null,
+    };
   });
+}
+
+/**
+ * Counters for one note. History rows carry partial credit and exact dates; the
+ * note counters still cover trimmed history, so the larger attempt count wins.
+ */
+function creditSummary(fm) {
+  const source = fm && typeof fm === "object" ? fm : {};
+  const rows = parseHistory(source.history).filter((entry) => entry.result === "correct" || entry.result === "incorrect" || entry.score !== null);
+  const counterAttempts = Math.max(0, Number(source.attempts) || 0);
+  const counterCorrect = Math.min(counterAttempts, Math.max(0, Number(source.correct_count) || 0));
+  if (!rows.length) {
+    return { attempts: counterAttempts, correct: counterCorrect, credit: counterCorrect };
+  }
+  const historyCorrect = rows.filter((entry) => entry.result === "correct").length;
+  const attempts = Math.max(counterAttempts, rows.length);
+  const extraAttempts = Math.max(0, attempts - rows.length);
+  // Attempts trimmed out of history have only their binary counters left.
+  const extraCorrect = Math.max(0, Math.min(extraAttempts, counterCorrect - historyCorrect));
+  return {
+    attempts,
+    correct: historyCorrect + extraCorrect,
+    credit: rows.reduce((sum, entry) => sum + creditOf(entry), 0) + extraCorrect,
+  };
 }
 
 /** Missed questions grouped by the reason you gave. `notes` are those whose latest attempt was a miss; `total` counts every tagged miss ever. */
@@ -160,7 +201,7 @@ function weeklyAccuracy(questions, today, weeks) {
   const rows = Array.from({ length: n }, (_v, i) => {
     const d = new Date(first.getTime());
     d.setDate(d.getDate() + 7 * i);
-    return { start: isoDay(d), attempts: 0, correct: 0, accuracy: null };
+    return { start: isoDay(d), attempts: 0, correct: 0, credit: 0, accuracy: null };
   });
   for (const q of questions) {
     for (const e of parseHistory(q.fm.history)) {
@@ -170,9 +211,10 @@ function weeklyAccuracy(questions, today, weeks) {
       if (!row) continue;
       row.attempts++;
       if (e.result === "correct") row.correct++;
+      row.credit += creditOf(e);
     }
   }
-  for (const r of rows) r.accuracy = r.attempts ? r.correct / r.attempts : null;
+  for (const r of rows) r.accuracy = r.attempts ? r.credit / r.attempts : null;
   return rows;
 }
 
@@ -193,7 +235,7 @@ function trendBy(questions, field, today, days) {
         if (!day) continue;
         const b = day >= cut ? t.recent : t.earlier;
         b.n++;
-        if (e.result === "correct") b.c++;
+        b.c += creditOf(e);
       }
     }
   }
@@ -299,6 +341,7 @@ module.exports = {
   WEAK_MIN_ATTEMPTS,
   statVals,
   computeStats,
+  creditSummary,
   weakestRow,
   overallStats,
   fmtPct,

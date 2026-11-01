@@ -105,9 +105,11 @@ class InsightsView extends ItemView {
   renderOverview(root, questions) {
     const p = this.plugin;
     const cards = p.getCards ? p.getCards() : [];
+    const frq = p.getFrqKnowledge ? p.getFrqKnowledge() : null;
     const data = buildDashboard({
       questions,
       cards,
+      frq,
       studyLog: p.settings.studyLog,
       confidenceLabels: p.settings.confidenceLabels,
       field: this.overviewField,
@@ -117,10 +119,10 @@ class InsightsView extends ItemView {
     const activeDays = data.heatmap.reduce((n, week) => n + week.days.filter((d) => !d.future && (d.minutes || d.attempts)).length, 0);
     const studyMinutes = data.heatmap.reduce((n, week) => n + week.days.reduce((m, d) => m + d.minutes, 0), 0);
 
-    if (!o.notes && !data.cardStats.total && !studyMinutes) {
+    if (!o.notes && !data.cardStats.total && !studyMinutes && !data.knowledge.attempts) {
       root.createDiv({
         cls: "qt-empty",
-        text: "No study activity yet. Answer a question or start a focus session and this dashboard fills in.",
+        text: "No study activity yet. Answer a question, save an FRQ attempt or start a focus session and this dashboard fills in.",
       });
       return;
     }
@@ -132,10 +134,11 @@ class InsightsView extends ItemView {
       box.createDiv({ cls: "qt-dash-label", text: label });
       if (hint) box.createDiv({ cls: "qt-hint", text: hint });
     };
-    tile("Attempts", String(o.attempts), `${o.seen} of ${o.notes} questions tried`);
-    tile("Accuracy", fmtPct(o.accuracy), o.attempts ? `${fmtClock(Math.round(o.avgSeconds))} per question` : "No attempts yet");
+    tile("Attempts", String(data.knowledge.attempts), `${o.seen} of ${o.notes} questions tried${data.frq && data.frq.attempts ? ` · ${data.frq.attempts} FRQ` : ""}`);
+    tile("Accuracy", fmtPct(data.knowledge.accuracy), data.knowledge.attempts ? `${fmtPct(o.accuracy)} on questions${data.frq && data.frq.attempts ? ` · ${fmtPct(data.frq.average)} on FRQ` : ""}` : "No attempts yet");
     tile("Study today", `${data.study.todayMinutes} min`, `${data.study.streak} day streak`);
     tile("Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
+    tile("Due next 7 days", String(data.forward.total), `${data.forward.days.filter((day) => day.count).length} scheduled day${data.forward.days.filter((day) => day.count).length === 1 ? "" : "s"}`);
     tile("Logged skips", String(o.skipped), o.skipped ? "Not counted as wrong" : "None logged");
     renderGrade(root, data);
 
@@ -210,12 +213,13 @@ class InsightsView extends ItemView {
     const studyLog = p.settings.studyLog;
     const scopes = masteryScopes(questions);
     if (this.masteryScope && !scopes.some((scope) => scope.toLowerCase() === this.masteryScope.toLowerCase())) this.masteryScope = "";
-    const progress = buildProgress({ questions, cards, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays });
+    const frq = p.getFrqKnowledge ? p.getFrqKnowledge() : null;
+    const progress = buildProgress({ questions, cards, frq, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays });
     const dash = buildDashboard({ questions, cards, studyLog, field: this.overviewField, today: now, weeks: this.progressWeeks });
-    if (!questions.length && !cards.length && !progress.study.weekMinutes) {
+    if (!questions.length && !cards.length && !progress.study.weekMinutes && !progress.frq.attempts) {
       root.createDiv({
         cls: "qt-empty",
-        text: "Nothing to chart yet. Answer a question, review a card or log a focus session and this page fills in.",
+        text: "Nothing to chart yet. Answer a question, review a card, save an FRQ attempt or log a focus session and this page fills in.",
       });
       return;
     }
@@ -376,6 +380,25 @@ class InsightsView extends ItemView {
         if (row.notes && row.course !== "No course") {
           line.createEl("button", { text: "Practice" }).addEventListener("click", () => p.practiceWith({ course: [row.course] }, "smart"));
         }
+      }
+    }
+
+    if (progress.frq && progress.frq.attempts) {
+      root.createEl("h3", { cls: "qt-today-section", text: "Free-response practice" });
+      root.createDiv({
+        cls: "qt-hint",
+        text: `${progress.frq.attempts} saved FRQ attempt${progress.frq.attempts === 1 ? "" : "s"} averaging ${fmtPct(progress.frq.average / 100)}. This uses the same practice-accuracy scale as questions, not a predicted AP score.`,
+      });
+      const frqList = root.createDiv({ cls: "qt-ins-list" });
+      for (const row of progress.frq.courses.slice(0, 6)) {
+        const line = frqList.createDiv({ cls: "qt-ins-row" });
+        const main = line.createDiv({ cls: "qt-ins-main" });
+        main.createDiv({ cls: "qt-ins-name", text: row.course });
+        main.createDiv({ cls: "qt-hint", text: `${row.attempts} attempt${row.attempts === 1 ? "" : "s"} · ${row.band}` });
+        const meter = line.createDiv({ cls: "qt-ins-meter" });
+        const band = row.average < 60 ? "is-low" : row.average < 80 ? "is-mid" : "is-high";
+        meter.createDiv({ cls: "qt-meter-track" }).createDiv({ cls: `qt-meter-fill ${band}` }).setCssProps({ "--qt-pct": `${Math.round(row.average)}%` });
+        line.createSpan({ cls: "qt-ins-pct", text: fmtPct(row.average / 100) });
       }
     }
 
