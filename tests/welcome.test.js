@@ -24,6 +24,7 @@ test("welcome: presets cover the six starting points and describe their modules"
   assert.match(welcome.moduleSummary(welcome.WELCOME_PRESETS[1].modules), /MCQ Tracker, Cards, Calendar, Assignments/);
   assert.equal(welcome.moduleSummary(welcome.WELCOME_PRESETS[5].modules), "All modules off");
   assert.deepEqual(welcome.WELCOME_PRESETS.filter((preset) => preset.adaptive === true).map((preset) => preset.id), ["sat", "university", "stem"]);
+  assert.deepEqual(welcome.WELCOME_PRESETS.filter((preset) => preset.adaptiveFrequency === true).map((preset) => preset.id), ["university", "language", "flashcards"]);
 });
 
 test("welcome: state is local, shows once, remembers completion and dismissal", async () => {
@@ -68,6 +69,10 @@ test("welcome: applying a preset changes the real module settings", async () => 
   await plugin.applyWelcomePreset("sat");
   assert.equal(plugin.settings.quickAdaptive.enabled, true, "a study preset turns adaptive session sizing on");
   assert.match(welcome.WELCOME_PRESETS[0].description, /adaptive/i);
+
+  plugin.settings.cards.adaptiveFrequency = false;
+  await plugin.applyWelcomePreset("university");
+  assert.equal(plugin.settings.cards.adaptiveFrequency, true, "a card preset turns adaptive card intervals on");
 });
 
 test("welcome: the reopen command is registered", async () => {

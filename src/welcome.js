@@ -25,12 +25,14 @@ const WELCOME_PRESETS = [
     label: "University courses",
     description: "Questions, cards and the calendar, with adaptive session sizing on. AI and Reference stay off.",
     adaptive: true,
+    adaptiveFrequency: true,
     modules: { mcq: true, cards: true, calendar: true, assignments: true, ai: false, reference: false },
   },
   {
     id: "language",
     label: "Language learning",
     description: "Questions and vocabulary cards. Calendar, AI and Reference stay off.",
+    adaptiveFrequency: true,
     modules: { mcq: true, cards: true, calendar: false, assignments: false, ai: false, reference: false },
   },
   {
@@ -44,6 +46,7 @@ const WELCOME_PRESETS = [
     id: "flashcards",
     label: "Just flashcards",
     description: "Cards only. Questions, calendar, AI and Reference stay off.",
+    adaptiveFrequency: true,
     modules: { mcq: false, cards: true, calendar: false, assignments: false, ai: false, reference: false },
   },
   {

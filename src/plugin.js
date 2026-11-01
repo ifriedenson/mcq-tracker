@@ -1226,6 +1226,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.assignments.enabled = m.assignments === true;
     this.settings.reference.enabled = m.reference === true;
     if (preset.adaptive === true) this.settings.quickAdaptive = { ...(this.settings.quickAdaptive || {}), enabled: true };
+    if (preset.adaptiveFrequency === true) this.settings.cards.adaptiveFrequency = true;
     await this.save();
     await this.onMcqToggled();
     await this.onCardsToggled();
