@@ -86,6 +86,8 @@
 
 ## Current focus (Oct 30, 2026)
 
+- [x] **Pomodoro view polish (Nov 1, 2026, unreleased):** removed the duplicate in-pane "Pomodoro" heading and added an accessible phase progress bar. The bar fills continuously while the timer runs, holds its position when paused, uses one theme accent color with no phase colors, and falls back to stepped updates under reduced motion. Covered by 4 focused view tests in `tests/pomodoro-view.test.js` (10 Pomodoro tests total); full suite **1,286 pass / 0 fail**; `npm run check` clean across 226 modules with `main.js` regenerated. No version bump or release.
+
 - [x] **Mobile review layout (1.168.1, Nov 1, 2026):** the post-answer review has a dedicated phone branch with a review header, Review | Passage tabs, one review scroller, a safe-area action bar and the existing More sheet. The shared `.qt-review` content is reused; desktop and tablet review keep the shared split and receive zero `.qt-m-*` classes. Covered by 4 new review tests in `tests/mobile-practice.test.js` (17 focused total), full suite **1,228 pass**, `npm run check` clean. Real-device visual audit remains manual.
 
 - [x] **Owner decisions and minimal Practice keyboard (Nov 1, 2026, unreleased):** all 17 recommended defaults are recorded in §11 and the plugin stays free. The keyboard addition is the minimal map: Space/Enter submits an armed question, reveals a study card or advances a finished result; Esc ends the session. Text fields and focused controls keep native keys; there are no 1/2/3 self-grade or U undo keys. `src/practice-keys.js`, `src/practice-view.js`, 5 focused tests.
