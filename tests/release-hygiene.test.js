@@ -5,13 +5,15 @@ const fs = require("fs");
 const path = require("path");
 const root = path.join(__dirname, "..");
 
-test("the shipped bundle has no Node filesystem, shell or OpenCode installer access", () => {
+test("the shipped bundle carries the optional desktop OpenCode installer", () => {
   const bundle = fs.readFileSync(path.join(root, "main.js"), "utf8");
+  // This is an accepted tradeoff: the installer needs direct desktop access,
+  // which Obsidian reports as a warning.
   for (const name of ["fs", "child_process"]) {
-    assert.equal(bundle.includes(`require("${name}")`), false, `bundle must not require ${name}`);
-    assert.equal(bundle.includes(`require("node:${name}")`), false, `bundle must not require node:${name}`);
+    assert.ok(bundle.includes(`require("${name}")`), `bundle must carry the optional ${name} access`);
   }
-  assert.equal(bundle.includes("opencode-manager"), false, "the auto-installer must not be bundled");
+  assert.ok(bundle.includes("OpenCodeManager"), "the OpenCode installer must be bundled");
+  assert.ok(bundle.includes("Download and install"), "the setup action must be reachable");
 });
 
 test("styles avoid duplicate height declarations and !important", () => {

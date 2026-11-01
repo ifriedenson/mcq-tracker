@@ -74,7 +74,12 @@ const DEFAULT_SETTINGS = {
   examBlockMode: "study", // exam fenced blocks: "study" shows the key, "answer" grades a click
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
-    url: "http://127.0.0.1:4096", // the OpenCode server you run yourself
+    managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)
+    preStart: false, // start OpenCode in the background when Obsidian opens, so the first chat doesn't wait
+    binaryPath: "", // optional: use this opencode program instead
+    managedBinary: "",
+    installedVersion: "",
+    url: "http://127.0.0.1:4096", // only used when managed is off
     username: "opencode",
     password: "",
     passwordSecret: "",
@@ -90,6 +95,7 @@ const DEFAULT_SETTINGS = {
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
     verification: "mark", // after AI writes an answer: "mark" mismatches for review, or "drop" them
     sessionId: "",
+    autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", models: [], keys: {} },
     features: {}, // per-feature model overrides, filled by normalizeAiService

@@ -36,6 +36,7 @@ test("settings load with safe defaults, and a bad folder style falls back to aut
   await plugin.loadSettings();
   assert.equal(plugin.settings.folderFilterStyle, "auto");
   assert.deepEqual(plugin.settings.testDefaults, { count: 5, minutes: 12, from: 1, to: 0, frq: 0, shuffleChoices: false, passScore: 0 });
+  assert.equal(plugin.settings.ai.autoDeclined, false);
   assert.equal(plugin.settings.ai.tutorRole, "private");
 });
 
@@ -162,4 +163,45 @@ test("the one-time command renames source_question_id and leaves other notes alo
   assert.match(obsidian.notices.at(-1), /Renamed the property on 1 note/);
   await plugin.migrateOfficialIds();
   assert.match(obsidian.notices.at(-1), /No notes use source_question_id/);
+});
+
+test("saying no to the automatic OpenCode download is remembered", async () => {
+  const { plugin } = await start();
+  const mgr = plugin.manager;
+  mgr.install = async () => {
+    const e = new Error("OpenCode install cancelled.");
+    e.cancelled = true;
+    throw e;
+  };
+  mgr.hasExisting = async () => "";
+  await mgr.autoSetup(() => {});
+  assert.equal(plugin.settings.ai.autoDeclined, true);
+  assert.equal(plugin.saved.ai.autoDeclined, true);
+  assert.equal(mgr.setupError, "");
+});
+
+test("a failed automatic download shows the error and doesn't set the declined flag", async () => {
+  const { plugin } = await start();
+  const mgr = plugin.manager;
+  mgr.install = async () => {
+    throw new Error("network down");
+  };
+  mgr.hasExisting = async () => "";
+  await mgr.autoSetup(() => {});
+  assert.equal(plugin.settings.ai.autoDeclined, false);
+  assert.match(mgr.setupError, /network down/);
+});
+
+test("an OpenCode that is already on the computer is used instead of downloading", async () => {
+  const { plugin } = await start();
+  const mgr = plugin.manager;
+  let downloaded = false;
+  mgr.install = async () => {
+    downloaded = true;
+    return { path: "x" };
+  };
+  mgr.hasExisting = async () => "/usr/local/bin/opencode";
+  await mgr.autoSetup(() => {});
+  assert.equal(downloaded, false);
+  assert.equal(mgr.foundPath, "/usr/local/bin/opencode");
 });

@@ -149,7 +149,7 @@ class OpenCodeClient {
     });
     if (r.status === 401) throw new Error("401 unauthorized");
     if (r.status >= 400) {
-      const hint = r.status === 404 || r.status === 405 ? " This usually means the OpenCode server version doesn't match the plugin (it works with OpenCode 1.x). Update the server you run, or switch AI backend to Direct API." : "";
+      const hint = r.status === 404 || r.status === 405 ? " This usually means the OpenCode version doesn't match the plugin (it works with OpenCode 1.x). In the plugin settings press Download and install, or switch AI backend to Direct API." : "";
       throw new Error(`OpenCode returned ${r.status} for ${method} ${path}${str(r.text).trim() ? `: ${str(r.text).slice(0, 300)}` : "."}${hint}`);
     }
     try {

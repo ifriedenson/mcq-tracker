@@ -2,6 +2,16 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.169.3 — 2026-11-01
+
+- Restored the optional one-click OpenCode installer removed in 1.169.1:
+  **Download and install**, automatic first-time setup, SHA-256 verification,
+  unpacking under `~/.question-tracker/opencode`, and managed `opencode serve`.
+- The plugin again uses desktop `fs` and `child_process`. Obsidian's automated
+  review may warn about direct filesystem and shell access; this is the accepted
+  cost of one-click setup. Manual OpenCode and Direct API remain available.
+- 1,329 tests pass; `npm run check` clean; `main.js` rebuilt.
+
 ## 1.169.2 — 2026-11-01
 
 - Fixed the import dialog's `extensionOf is not a function` crash by
