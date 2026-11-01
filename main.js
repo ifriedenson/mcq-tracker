@@ -48594,6 +48594,66 @@ class PomodoroView extends ItemView {
 module.exports = { PomodoroView };
 };
 
+/* ---- src/practice-keys.js ---- */
+__defs["practice-keys"] = function (module, exports, require) {
+/*
+ * The approved minimal Practice keyboard map (plan.md D2):
+ * Space/Enter activates the primary action, Esc ends the session.
+ * There are deliberately no 1/2/3 self-grade or U undo keys: MCQ already
+ * auto-grades, so those would invent answer semantics that do not exist.
+ *
+ * The caller is responsible for checking that the Practice view is active and
+ * that the event came from inside it. Text fields and focused controls keep
+ * their native keyboard behaviour.
+ */
+
+function tagName(target) {
+  return String((target && target.tagName) || "").toLowerCase();
+}
+
+function isTextEntry(target) {
+  const tag = tagName(target);
+  if (tag === "input" || tag === "textarea" || tag === "select") return true;
+  if (target && target.isContentEditable === true) return true;
+  if (!target || typeof target.getAttribute !== "function") return false;
+  const editable = target.getAttribute("contenteditable");
+  return editable === "" || editable === "true";
+}
+
+function isControl(target) {
+  const tag = tagName(target);
+  if (tag === "button" || tag === "a" || tag === "summary") return true;
+  const role = target && typeof target.getAttribute === "function" ? target.getAttribute("role") : "";
+  return role === "button" || role === "link" || role === "tab";
+}
+
+/** Returns submit, reveal, next-study, next, end, or an empty string. */
+function practiceKeyboardAction(event, context) {
+  const ctx = context || {};
+  if (!event || ctx.active === false) return "";
+  if (event.isComposing || event.repeat) return "";
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return "";
+
+  const target = event.target;
+  if (isTextEntry(target)) return "";
+
+  const key = String(event.key || "");
+  if (key === "Escape") return "end";
+  if (isControl(target)) return "";
+  if (key !== " " && key !== "Spacebar" && key !== "Enter") return "";
+
+  if (ctx.state === "question") return ctx.submitReady ? "submit" : "";
+  if (ctx.state === "study") {
+    if (!ctx.revealed) return "reveal";
+    return ctx.recorded ? "next-study" : "";
+  }
+  if (ctx.state === "result") return "next";
+  return "";
+}
+
+module.exports = { practiceKeyboardAction };
+};
+
 /* ---- src/practice-view.js ---- */
 __defs["practice-view"] = function (module, exports, require) {
 const { ItemView, Notice, Platform, TFile, setIcon } = require("obsidian");
@@ -48620,6 +48680,7 @@ const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSes
 const { adaptiveSessionValue, normalizeQuickAdaptive } = require("./adaptive-session");
 const { STUDY_SKIN_LABELS, buildMatchPairs, normalizeStudyMode, normalizeStudySkin, resolveStudySkin, shouldRepeatStudyCard, studyAttemptForChoice, studyAttemptForFlip, studyModeLabel, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
 const { StudyMatchModal } = require("./study-match-modal");
+const { practiceKeyboardAction } = require("./practice-keys");
 
 class PracticeView extends ItemView {
   constructor(leaf, plugin) {
@@ -48643,6 +48704,8 @@ class PracticeView extends ItemView {
     this.hintShown = false;
     this.mobileTab = "question";
     this.mobileResultTab = "review";
+    this.keyboardSubmit = null;
+    this.keyboardHandler = (event) => this.handlePracticeKey(event);
   }
 
   getViewType() {
@@ -48657,6 +48720,9 @@ class PracticeView extends ItemView {
 
   async onOpen() {
     this.contentEl.addClass("qt-root");
+    if (activeDocument && typeof activeDocument.addEventListener === "function") {
+      activeDocument.addEventListener("keydown", this.keyboardHandler);
+    }
     this.registerInterval(activeWindow.setInterval(() => this.tick(), 500));
     await this.restoreSession();
     // While the first-run screen is up, follow the vault: an import, a fixed note or a deleted one changes what it says.
@@ -48673,6 +48739,9 @@ class PracticeView extends ItemView {
   }
 
   async onClose() {
+    if (activeDocument && typeof activeDocument.removeEventListener === "function") {
+      activeDocument.removeEventListener("keydown", this.keyboardHandler);
+    }
     await this.flushNotes();
     if (this.quickSession) {
       pauseQuickSession(this.quickSession);
@@ -49049,6 +49118,60 @@ class PracticeView extends ItemView {
     this.plugin.save();
   }
 
+  /** True while this Practice leaf is the active workspace leaf. */
+  isPracticeKeyboardActive() {
+    const ws = this.app && this.app.workspace;
+    const active = ws && ws.activeLeaf;
+    return !active || active === this.leaf;
+  }
+
+  /** Minimal D2 keyboard path: Space/Enter does the primary action, Esc ends. */
+  handlePracticeKey(event) {
+    if (!this.isPracticeKeyboardActive()) return "";
+    const target = event && event.target;
+    if (target && activeDocument && activeDocument.body && target !== activeDocument.body) {
+      const contains = this.contentEl && this.contentEl.contains;
+      if (typeof contains === "function" && !contains.call(this.contentEl, target)) return "";
+    }
+    const study = this.study || {};
+    const action = practiceKeyboardAction(event, {
+      active: true,
+      state: this.state,
+      submitReady: !!(this.keyboardSubmit && this.keyboardSubmit.ready && this.keyboardSubmit.ready()),
+      revealed: study.revealed === true,
+      recorded: study.recorded === true,
+    });
+    if (!action) return "";
+    if (event && typeof event.preventDefault === "function") event.preventDefault();
+    if (action === "submit" && this.keyboardSubmit) this.keyboardSubmit();
+    else if (action === "reveal") this.revealStudyAnswer();
+    else if (action === "next-study") this.nextStudyCard();
+    else if (action === "next") this.next();
+    else if (action === "end") this.endKeyboardSession();
+    return action;
+  }
+
+  async endKeyboardSession() {
+    if (this.state === "study" || this.state === "study-summary") {
+      this.endStudy();
+      return;
+    }
+    await this.flushNotes();
+    if (this.state === "result") {
+      this.state = "idle";
+      this.render();
+      return;
+    }
+    if (this.state !== "question") return;
+    if (this.quickSession) {
+      await this.finishQuick("Quick Practice ended.");
+      return;
+    }
+    this.plugin.clearSession();
+    this.state = "idle";
+    this.render();
+  }
+
   async submit() {
     const q = this.current;
     const fm = q.fm;
@@ -49112,6 +49235,7 @@ class PracticeView extends ItemView {
     const el = this.contentEl;
     el.empty();
     this.timerEl = null;
+    this.keyboardSubmit = null;
     const root = el.createDiv({ cls: "qt-wrap" });
     this.emptyShown = false;
     if (this.plugin.mcqEnabled && !this.plugin.mcqEnabled()) return this.renderModuleOff(root);
@@ -50117,6 +50241,14 @@ class PracticeView extends ItemView {
 
     submit = submitHost.createEl("button", { text: "Submit", cls: "mod-cta qt-submit" });
     refresh();
+    const submitFromKeyboard = () => {
+      if (!submit || submit.disabled) return false;
+      submit.disabled = true;
+      this.submit();
+      return true;
+    };
+    submitFromKeyboard.ready = () => !!submit && !submit.disabled;
+    this.keyboardSubmit = submitFromKeyboard;
     submit.addEventListener("click", () => {
       submit.disabled = true;
       this.submit();
@@ -75063,6 +75195,7 @@ const fsrs = require("./fsrs");
 const sm2 = require("./sm2");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
+const practiceKeys = require("./practice-keys");
 const { ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
@@ -75276,6 +75409,7 @@ QuestionTrackerPlugin.__test = {
   buildTutorContext,
   buildGeneralContext,
   PracticeView,
+  practiceKeys,
   OpenCodeClient,
   ApiClient,
   friendlyApiError,

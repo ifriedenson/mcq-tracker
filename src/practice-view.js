@@ -23,6 +23,7 @@ const { QUICK_TIME_OPTIONS, QUICK_COUNT_OPTIONS, buildQuickQueue, createQuickSes
 const { adaptiveSessionValue, normalizeQuickAdaptive } = require("./adaptive-session");
 const { STUDY_SKIN_LABELS, buildMatchPairs, normalizeStudyMode, normalizeStudySkin, resolveStudySkin, shouldRepeatStudyCard, studyAttemptForChoice, studyAttemptForFlip, studyModeLabel, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
 const { StudyMatchModal } = require("./study-match-modal");
+const { practiceKeyboardAction } = require("./practice-keys");
 
 class PracticeView extends ItemView {
   constructor(leaf, plugin) {
@@ -46,6 +47,8 @@ class PracticeView extends ItemView {
     this.hintShown = false;
     this.mobileTab = "question";
     this.mobileResultTab = "review";
+    this.keyboardSubmit = null;
+    this.keyboardHandler = (event) => this.handlePracticeKey(event);
   }
 
   getViewType() {
@@ -60,6 +63,9 @@ class PracticeView extends ItemView {
 
   async onOpen() {
     this.contentEl.addClass("qt-root");
+    if (activeDocument && typeof activeDocument.addEventListener === "function") {
+      activeDocument.addEventListener("keydown", this.keyboardHandler);
+    }
     this.registerInterval(activeWindow.setInterval(() => this.tick(), 500));
     await this.restoreSession();
     // While the first-run screen is up, follow the vault: an import, a fixed note or a deleted one changes what it says.
@@ -76,6 +82,9 @@ class PracticeView extends ItemView {
   }
 
   async onClose() {
+    if (activeDocument && typeof activeDocument.removeEventListener === "function") {
+      activeDocument.removeEventListener("keydown", this.keyboardHandler);
+    }
     await this.flushNotes();
     if (this.quickSession) {
       pauseQuickSession(this.quickSession);
@@ -452,6 +461,60 @@ class PracticeView extends ItemView {
     this.plugin.save();
   }
 
+  /** True while this Practice leaf is the active workspace leaf. */
+  isPracticeKeyboardActive() {
+    const ws = this.app && this.app.workspace;
+    const active = ws && ws.activeLeaf;
+    return !active || active === this.leaf;
+  }
+
+  /** Minimal D2 keyboard path: Space/Enter does the primary action, Esc ends. */
+  handlePracticeKey(event) {
+    if (!this.isPracticeKeyboardActive()) return "";
+    const target = event && event.target;
+    if (target && activeDocument && activeDocument.body && target !== activeDocument.body) {
+      const contains = this.contentEl && this.contentEl.contains;
+      if (typeof contains === "function" && !contains.call(this.contentEl, target)) return "";
+    }
+    const study = this.study || {};
+    const action = practiceKeyboardAction(event, {
+      active: true,
+      state: this.state,
+      submitReady: !!(this.keyboardSubmit && this.keyboardSubmit.ready && this.keyboardSubmit.ready()),
+      revealed: study.revealed === true,
+      recorded: study.recorded === true,
+    });
+    if (!action) return "";
+    if (event && typeof event.preventDefault === "function") event.preventDefault();
+    if (action === "submit" && this.keyboardSubmit) this.keyboardSubmit();
+    else if (action === "reveal") this.revealStudyAnswer();
+    else if (action === "next-study") this.nextStudyCard();
+    else if (action === "next") this.next();
+    else if (action === "end") this.endKeyboardSession();
+    return action;
+  }
+
+  async endKeyboardSession() {
+    if (this.state === "study" || this.state === "study-summary") {
+      this.endStudy();
+      return;
+    }
+    await this.flushNotes();
+    if (this.state === "result") {
+      this.state = "idle";
+      this.render();
+      return;
+    }
+    if (this.state !== "question") return;
+    if (this.quickSession) {
+      await this.finishQuick("Quick Practice ended.");
+      return;
+    }
+    this.plugin.clearSession();
+    this.state = "idle";
+    this.render();
+  }
+
   async submit() {
     const q = this.current;
     const fm = q.fm;
@@ -515,6 +578,7 @@ class PracticeView extends ItemView {
     const el = this.contentEl;
     el.empty();
     this.timerEl = null;
+    this.keyboardSubmit = null;
     const root = el.createDiv({ cls: "qt-wrap" });
     this.emptyShown = false;
     if (this.plugin.mcqEnabled && !this.plugin.mcqEnabled()) return this.renderModuleOff(root);
@@ -1520,6 +1584,14 @@ class PracticeView extends ItemView {
 
     submit = submitHost.createEl("button", { text: "Submit", cls: "mod-cta qt-submit" });
     refresh();
+    const submitFromKeyboard = () => {
+      if (!submit || submit.disabled) return false;
+      submit.disabled = true;
+      this.submit();
+      return true;
+    };
+    submitFromKeyboard.ready = () => !!submit && !submit.disabled;
+    this.keyboardSubmit = submitFromKeyboard;
     submit.addEventListener("click", () => {
       submit.disabled = true;
       this.submit();
