@@ -9,6 +9,7 @@ const { fmtDate, str } = require("./util");
 
 const DEFAULT_REMINDER = {
   enabled: false,
+  osNotifications: false,
   hour: 9,
   lastShown: "",
   dismissed: "",
@@ -19,6 +20,7 @@ function normalizeReminder(value) {
   const hour = Math.round(Number(src.hour));
   return {
     enabled: src.enabled === true,
+    osNotifications: src.osNotifications === true,
     hour: Number.isFinite(hour) ? Math.max(0, Math.min(23, hour)) : DEFAULT_REMINDER.hour,
     lastShown: /^\d{4}-\d{2}-\d{2}$/.test(str(src.lastShown).slice(0, 10)) ? str(src.lastShown).slice(0, 10) : "",
     dismissed: /^\d{4}-\d{2}-\d{2}$/.test(str(src.dismissed).slice(0, 10)) ? str(src.dismissed).slice(0, 10) : "",
@@ -50,7 +52,17 @@ function reminderState(state, opts) {
   const afterHour = now.getHours() >= cfg.hour;
   const visible = cfg.enabled && !!text && afterHour && cfg.dismissed !== today;
   const freshNudge = visible && cfg.lastShown !== today;
-  return { enabled: cfg.enabled, visible, freshNudge, text, today, counts, hour: cfg.hour, dismissed: cfg.dismissed === today };
+  return {
+    enabled: cfg.enabled,
+    osNotifications: cfg.osNotifications,
+    visible,
+    freshNudge,
+    text,
+    today,
+    counts,
+    hour: cfg.hour,
+    dismissed: cfg.dismissed === today,
+  };
 }
 
 function markReminderShown(state, now) {

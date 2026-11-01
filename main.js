@@ -19007,7 +19007,7 @@ const DEFAULT_SETTINGS = {
   studyLog: { sessions: [], dailyGoalMinutes: 60, lastCourse: "" }, // focus sessions and manual study time
   masteryScope: "", // Insights > Progress: the course whose mastery is shown; "" means all questions
   masteryDays: 0, // Insights > Progress: 0 = all time, 7 or 30 = only attempts from that window
-  reminder: { enabled: false, hour: 9, lastShown: "", dismissed: "" }, // local, once-a-day in-app nudge
+  reminder: { enabled: false, osNotifications: false, hour: 9, lastShown: "", dismissed: "" }, // local, once-a-day nudge; OS delivery is opt-in
   dailyQuiz: {
     enabled: false, // opt-in; no command, card or notifications until it is on
     count: 5,
@@ -35011,6 +35011,111 @@ module.exports = {
 };
 };
 
+/* ---- src/os-notifications.js ---- */
+__defs["os-notifications"] = function (module, exports, require) {
+/*
+ * Opt-in operating-system notifications for the daily study reminder.
+ *
+ * Obsidian desktop is an Electron renderer, so the standard Notification API
+ * is usually present there. Mobile and some builds do not expose it, so every
+ * entry point is feature-detected and returns a result object instead of
+ * throwing: the caller keeps the in-app status-bar nudge either way. This module
+ * makes no network request and asks for permission only when the user opts in.
+ */
+const { str } = require("./util");
+
+const TITLE = "MCQ Tracker";
+const MAX_BODY = 180;
+const PERMISSIONS = ["granted", "denied", "default"];
+
+function windowFor(env) {
+  if (env && typeof env === "object" && env.window && typeof env.window === "object") return env.window;
+  return typeof window !== "undefined" ? window : null;
+}
+
+function notificationCtor(env) {
+  const win = windowFor(env);
+  return win && typeof win.Notification === "function" ? win.Notification : null;
+}
+
+function supportReason(available, permission) {
+  if (!available) return "This build exposes no operating-system notification API.";
+  if (permission === "granted") return "Operating-system notifications are allowed.";
+  if (permission === "denied") return "Operating-system notifications are blocked; the in-app reminder still works.";
+  return "Operating-system notifications need permission before the first one is shown.";
+}
+
+/** Read-only support snapshot. Never prompts. */
+function notificationSupport(env) {
+  const Ctor = notificationCtor(env);
+  if (!Ctor) return { available: false, permission: "unavailable", granted: false, reason: supportReason(false, "unavailable") };
+  const raw = String(Ctor.permission || "");
+  const permission = PERMISSIONS.includes(raw) ? raw : "default";
+  return { available: true, permission, granted: permission === "granted", reason: supportReason(true, permission) };
+}
+
+/** Ask the operating system for permission. Only called from an explicit opt-in. */
+async function requestOsPermission(env) {
+  const support = notificationSupport(env);
+  if (!support.available) return { ...support, requested: false };
+  const Ctor = notificationCtor(env);
+  if (typeof Ctor.requestPermission !== "function") return { ...support, requested: false, reason: "This build cannot request notification permission." };
+  let permission = support.permission;
+  try {
+    const answer = await Ctor.requestPermission();
+    permission = PERMISSIONS.includes(String(answer)) ? String(answer) : support.permission;
+  } catch (err) {
+    permission = "denied";
+  }
+  return { available: true, requested: true, permission, granted: permission === "granted", reason: supportReason(true, permission) };
+}
+
+function clampBody(text) {
+  const body = str(text).trim();
+  if (body.length <= MAX_BODY) return body;
+  return `${body.slice(0, MAX_BODY - 1).trimEnd()}…`;
+}
+
+/** The notification payload for a reminder state, or null when nothing is due. */
+function reminderNotification(info) {
+  if (!info || typeof info !== "object") return null;
+  const body = clampBody(info.text);
+  if (!body) return null;
+  return { title: TITLE, body };
+}
+
+/**
+ * Show the reminder through the operating system when it is allowed.
+ * Returns { sent, reason } and never throws; a false `sent` means the caller's
+ * in-app reminder is the only channel.
+ */
+function showReminderNotification(env, info) {
+  const payload = reminderNotification(info);
+  if (!payload) return { sent: false, reason: "There is nothing to remind about." };
+  const support = notificationSupport(env);
+  if (!support.available) return { sent: false, reason: support.reason };
+  if (support.permission !== "granted") return { sent: false, reason: support.reason };
+  const Ctor = notificationCtor(env);
+  try {
+    const notification = new Ctor(payload.title, { body: payload.body, tag: "mcq-reminder" });
+    if (notification && typeof notification.close === "function") notification.close();
+    return { sent: true, reason: "Shown through the operating system." };
+  } catch (err) {
+    return { sent: false, reason: "The operating system rejected the notification." };
+  }
+}
+
+module.exports = {
+  MAX_BODY,
+  TITLE,
+  clampBody,
+  notificationSupport,
+  reminderNotification,
+  requestOsPermission,
+  showReminderNotification,
+};
+};
+
 /* ---- src/paper-scanner.js ---- */
 __defs["paper-scanner"] = function (module, exports, require) {
 /*
@@ -38148,6 +38253,7 @@ const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, 
 const { completeDailyQuiz: recordDailyCompletion, dailyDone, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
+const { requestOsPermission, showReminderNotification } = require("./os-notifications");
 const { extractSimpleQuizBlocks, legacyQuizJsNotice, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
 const { renderQuizPortBlock } = require("./quizport-view");
 const { renderSimpleFlashcardsBlock } = require("./simple-flashcards-view");
@@ -43649,7 +43755,7 @@ ${body}
     return view;
   }
 
-  /* ---- local reminder (no OS notification, no network) */
+  /* ---- local reminder (operating-system delivery is opt-in; no network) */
 
   setupReminder() {
     if (typeof this.addStatusBarItem !== "function") return;
@@ -43678,6 +43784,13 @@ ${body}
     return computeReminderState(this.settings.reminder, { now, due: counts.due, fresh: counts.fresh, daily: counts.daily });
   }
 
+  /** Ask the operating system for notification permission (user-triggered only). */
+  async requestOsNotifications() {
+    const result = await requestOsPermission({ window: activeWindow });
+    new Notice(result.reason);
+    return result;
+  }
+
   refreshReminder() {
     if (!this.reminderEl) return;
     const info = this.reminderInfo();
@@ -43690,6 +43803,9 @@ ${body}
     this.reminderEl.setText(`MCQ: ${info.text}`);
     this.reminderEl.setAttr("aria-label", `${info.text}. Open Today.`);
     if (info.freshNudge) {
+      if (this.settings.reminder && this.settings.reminder.osNotifications === true) {
+        showReminderNotification({ window: activeWindow }, info);
+      }
       this.settings.reminder = markReminderShown(this.settings.reminder);
       this.save().catch(() => {});
     }
@@ -54857,6 +54973,7 @@ const { fmtDate, str } = require("./util");
 
 const DEFAULT_REMINDER = {
   enabled: false,
+  osNotifications: false,
   hour: 9,
   lastShown: "",
   dismissed: "",
@@ -54867,6 +54984,7 @@ function normalizeReminder(value) {
   const hour = Math.round(Number(src.hour));
   return {
     enabled: src.enabled === true,
+    osNotifications: src.osNotifications === true,
     hour: Number.isFinite(hour) ? Math.max(0, Math.min(23, hour)) : DEFAULT_REMINDER.hour,
     lastShown: /^\d{4}-\d{2}-\d{2}$/.test(str(src.lastShown).slice(0, 10)) ? str(src.lastShown).slice(0, 10) : "",
     dismissed: /^\d{4}-\d{2}-\d{2}$/.test(str(src.dismissed).slice(0, 10)) ? str(src.dismissed).slice(0, 10) : "",
@@ -54898,7 +55016,17 @@ function reminderState(state, opts) {
   const afterHour = now.getHours() >= cfg.hour;
   const visible = cfg.enabled && !!text && afterHour && cfg.dismissed !== today;
   const freshNudge = visible && cfg.lastShown !== today;
-  return { enabled: cfg.enabled, visible, freshNudge, text, today, counts, hour: cfg.hour, dismissed: cfg.dismissed === today };
+  return {
+    enabled: cfg.enabled,
+    osNotifications: cfg.osNotifications,
+    visible,
+    freshNudge,
+    text,
+    today,
+    counts,
+    hour: cfg.hour,
+    dismissed: cfg.dismissed === today,
+  };
 }
 
 function markReminderShown(state, now) {
@@ -56568,7 +56696,7 @@ function renderGeneral(containerEl, plugin, redisplay) {
   const reminder = st.reminder || { enabled: false, hour: 9 };
   new Setting(containerEl)
     .setName("Daily study reminder")
-    .setDesc("A quiet in-app nudge on Today and in the status bar, at most once a day. It never uses an operating-system notification, sends nothing, and is off by default.")
+    .setDesc("A quiet in-app nudge on Today and in the status bar, at most once a day. It sends nothing, and is off by default. Operating-system delivery is a separate opt-in below.")
     .addToggle((t) =>
       t.setValue(reminder.enabled === true).onChange(async (v) => {
         st.reminder = { ...reminder, enabled: v };
@@ -56592,6 +56720,20 @@ function renderGeneral(containerEl, plugin, redisplay) {
       });
     })
     .addButton((b) => b.setButtonText("Dismiss today").onClick(() => plugin.dismissTodayReminder()));
+
+  new Setting(containerEl)
+    .setName("Operating-system notifications")
+    .setDesc("Ask the operating system to show the daily reminder as a desktop notification, at most once a day. Off by default; the in-app nudge stays on either way, nothing is sent over the network, and the permission prompt appears only when you turn this on or press the button.")
+    .addToggle((t) =>
+      t.setValue(reminder.osNotifications === true).onChange(async (v) => {
+        st.reminder = { ...reminder, osNotifications: v };
+        if (v && plugin.requestOsNotifications) await plugin.requestOsNotifications();
+        await plugin.save();
+        plugin.refreshReminder();
+        redisplay();
+      })
+    )
+    .addButton((b) => b.setButtonText("Request permission").onClick(() => plugin.requestOsNotifications()));
 
   new Setting(containerEl)
     .setName("Open the practice view when Obsidian starts")
@@ -67518,7 +67660,7 @@ class TodayView extends ItemView {
     this.renderNext(grid, now);
   }
 
-  /** A quiet, local nudge. It never uses an OS notification or the network. */
+  /** A quiet local nudge. OS delivery is opt-in and never uses the network. */
   renderReminder(root, today, due, fresh) {
     const p = this.plugin;
     if (!p.reminderInfo) return;
@@ -67530,7 +67672,7 @@ class TodayView extends ItemView {
     card.createDiv({ cls: "qt-today-title", text: info.text });
     card.createDiv({
       cls: "qt-today-meta",
-      text: `Local only · shown once a day from ${String(info.hour).padStart(2, "0")}:00 · no notification is sent`,
+      text: `Local only · shown once a day from ${String(info.hour).padStart(2, "0")}:00 · ${info.osNotifications ? "sent to the operating system when allowed" : "no notification is sent"}`,
     });
     const row = card.createDiv({ cls: "qt-row qt-small-row" });
     if (info.counts.daily) {
@@ -70033,6 +70175,7 @@ const simpleNoteQuiz = require("./simple-note-quiz");
 const { SimpleNoteQuizModal } = require("./simple-note-quiz-modal");
 const adaptiveSession = require("./adaptive-session");
 const reminder = require("./reminder");
+const osNotifications = require("./os-notifications");
 const { renderDailySettings } = require("./daily-quiz-settings");
 const provenance = require("./provenance");
 const transcript = require("./transcript");
@@ -70329,6 +70472,7 @@ QuestionTrackerPlugin.__test = {
   SimpleNoteQuizModal,
   adaptiveSession,
   reminder,
+  osNotifications,
   renderDailySettings,
   QUICK_TIME_OPTIONS,
   QUICK_COUNT_OPTIONS,

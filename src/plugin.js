@@ -96,6 +96,7 @@ const { enqueuePendingGrade, newGradeId, packPendingGrades, removePendingGrade, 
 const { completeDailyQuiz: recordDailyCompletion, dailyDone, normalizeDailyQuiz, pickDailyQuiz } = require("./daily-quiz");
 const { adaptiveDailyCount, normalizeQuickAdaptive } = require("./adaptive-session");
 const { dismissReminder, markReminderShown, normalizeReminder, reminderState: computeReminderState } = require("./reminder");
+const { requestOsPermission, showReminderNotification } = require("./os-notifications");
 const { extractSimpleQuizBlocks, legacyQuizJsNotice, normalizeSimpleQuiz, parseSimpleQuizCards, parseSimpleQuizOptions, recordSimpleQuizSession, simpleQuizChartSeries, simpleQuizDaySummary } = require("./simple-quiz");
 const { renderQuizPortBlock } = require("./quizport-view");
 const { renderSimpleFlashcardsBlock } = require("./simple-flashcards-view");
@@ -5597,7 +5598,7 @@ ${body}
     return view;
   }
 
-  /* ---- local reminder (no OS notification, no network) */
+  /* ---- local reminder (operating-system delivery is opt-in; no network) */
 
   setupReminder() {
     if (typeof this.addStatusBarItem !== "function") return;
@@ -5626,6 +5627,13 @@ ${body}
     return computeReminderState(this.settings.reminder, { now, due: counts.due, fresh: counts.fresh, daily: counts.daily });
   }
 
+  /** Ask the operating system for notification permission (user-triggered only). */
+  async requestOsNotifications() {
+    const result = await requestOsPermission({ window: activeWindow });
+    new Notice(result.reason);
+    return result;
+  }
+
   refreshReminder() {
     if (!this.reminderEl) return;
     const info = this.reminderInfo();
@@ -5638,6 +5646,9 @@ ${body}
     this.reminderEl.setText(`MCQ: ${info.text}`);
     this.reminderEl.setAttr("aria-label", `${info.text}. Open Today.`);
     if (info.freshNudge) {
+      if (this.settings.reminder && this.settings.reminder.osNotifications === true) {
+        showReminderNotification({ window: activeWindow }, info);
+      }
       this.settings.reminder = markReminderShown(this.settings.reminder);
       this.save().catch(() => {});
     }
