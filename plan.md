@@ -954,6 +954,18 @@ Three more rows ship as their own Global → Modules switches. All are local; no
 
 **Licence note.** All six repositories are MIT and are added to the §3.10 allow-list. No source file was copied in this audit; the rows above are feature descriptions only.
 
+### 3.9.8 Per-study-tool settings modules (Nov 1, 2026)
+
+**Status: implemented and UI-reachable.** The study tools that came from the MIT parity plan no longer share one flat "Global → Modules" list. Each distinct tool now has its own Settings module, ordered the way this plan groups them: **Cornell notes**, **Lecture log**, **Study goals**, **Feynman Learning**, **Recall Scheduler**, **Topic planner**, **Study Flow**, **Subject Manager**, **Courses**, **Tasks**, **Annotations**, **Deep Notes**, **Retention**, **Vocabulary**, **Quiz index**, **Course health**, **Read aloud**, **Lecture notes**, **Audio bookmarks**, **Feynman AI feedback**, **PDF annotations**, **Scheduler fitting**, **Study map**, **Vault search**, **Card archive**, **Study nudge** and **Course templates**. They sit beside Global, MCQ Tracker, Cards, Calendar, Note review, Review calendar, Study statistics, Local events, Pomodoro, Assignments and Reference.
+
+**What each page contains.** One enable switch that drives the same module getter the rest of the plugin uses, the tool's current data count (lectures, goals, plans, excerpts, subjects, tasks, words, bookmarks, templates and so on), the options that module already reads, and a working button that opens the view or command for the tool. Examples: Recall Scheduler exposes queue mode, folder and limit; Read aloud exposes style, rate, pitch and preferred voice; Course health exposes attendance threshold, exam window and minimum sessions; Lecture notes exposes its output folder and four section toggles; Quiz index owns the opt-in attempt log; Study nudge exposes start hour, quiet hours and ribbon labelling; Scheduler fitting exposes the minimum sample gate. Tools with no stored options still get an explicit page with its enable switch, a status line and an open action, so no tool is hidden inside another page.
+
+**Scope and safety.** The pages only call the existing normalizers and change the existing `DEFAULT_SETTINGS` objects. No new store, provider, credential, network request, note format or scheduler write was added, and no third-party code was copied. The old Global → Modules switches remain as the short overall toggles; the new pages are the detailed home for each tool.
+
+**Wiring and tests.** `src/study-tool-settings.js` holds the registry and renderers; `src/settings-tab.js` imports the registry, adds the pages to `SETTINGS_MODULES` and dispatches to them. `tests/study-tool-settings.test.js` proves that every tool has a page in the sidebar, that every enable switch drives the real module getter, that every page reads its data and round-trips its fields, and that the off-by-default study nudge stays off. The two existing settings-list assertions now derive the study entries from the registry instead of duplicating a stale hard-coded list.
+
+**Verification:** **1,217 tests pass**, `npm run check` reports no dynamic code across **216 files** and `main.js` current, and the built bundle is 3,024,853 bytes from 216 modules. No version bump or release was made.
+
 ### 3.10 Licence allow-list: what may and may not be integrated
 
 **Read this before copying anything.** This section is the source of truth for reuse; the per-row notes in §3.1–§3.9 are commentary on top of it. If an entry here disagrees with a row above, this table wins.

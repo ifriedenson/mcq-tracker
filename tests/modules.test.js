@@ -19,7 +19,21 @@ async function setup(saved) {
 }
 
 test("settings: Global sits beside MCQ Tracker, Cards, Calendar and Reference and has its own tabs", () => {
-  assert.deepEqual(T.SETTINGS_MODULES.map((m) => m.id), ["global", "mcq", "cards", "calendar", "note-review", "review-calendar", "study-stats", "local-events", "pomodoro", "assignments", "reference"]);
+  const expectedModules = [
+    "global",
+    "mcq",
+    "cards",
+    "calendar",
+    ...T.studyToolSettings.STUDY_TOOL_SETTINGS_MODULES.map((module) => module.id),
+    "note-review",
+    "review-calendar",
+    "study-stats",
+    "local-events",
+    "pomodoro",
+    "assignments",
+    "reference",
+  ];
+  assert.deepEqual(T.SETTINGS_MODULES.map((m) => m.id), expectedModules);
   assert.deepEqual(T.GLOBAL_TABS.map((t) => t.id), ["modules", "general", "about"]);
   assert.deepEqual(T.ASSIGNMENTS_TABS.map((t) => t.id), ["grading", "courses", "about"]);
   assert.deepEqual(T.GLOBAL_TABS.map((t) => t.label), ["Modules", "General", "About"]);

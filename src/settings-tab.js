@@ -21,6 +21,7 @@ const { GLOBAL_TABS, renderGlobalSettings } = require("./settings-global");
 const { REFERENCE_TABS, renderReferenceSettings } = require("./reference-settings");
 const { ASSIGNMENTS_TABS, renderAssignmentsSettings } = require("./assignments-settings");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
+const { STUDY_TOOL_SETTINGS_BY_ID, STUDY_TOOL_SETTINGS_MODULES, renderStudyToolSettings } = require("./study-tool-settings");
 const { STUDY_MODE_LABELS, STUDY_SKIN_LABELS, normalizeStudyMode, normalizeStudySkin } = require("./study-skin");
 const { TUTOR_COMMANDS, TUTOR_ROLES, normalizeTutorRole } = require("./tutor-presets");
 const { DEFAULT_THINK_FIRST_SECONDS, MAX_THINK_FIRST_SECONDS, MIN_THINK_FIRST_SECONDS, normalizeThinkFirstSeconds } = require("./think-first");
@@ -34,6 +35,7 @@ const SETTINGS_MODULES = [
   { id: "mcq", label: "MCQ Tracker", icon: "list-checks" },
   { id: "cards", label: "Cards", icon: "layers" },
   { id: "calendar", label: "Calendar", icon: "graduation-cap" },
+  ...STUDY_TOOL_SETTINGS_MODULES,
   { id: "note-review", label: "Note review", icon: "repeat" },
   { id: "review-calendar", label: "Review calendar", icon: "calendar-clock" },
   { id: "study-stats", label: "Study statistics", icon: "bar-chart-3" },
@@ -113,6 +115,11 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           this.display();
         }
       );
+      return;
+    }
+
+    if (STUDY_TOOL_SETTINGS_BY_ID[this.activeModule]) {
+      renderStudyToolSettings(containerEl, this.plugin, () => this.display(), this.activeModule);
       return;
     }
 
