@@ -64,7 +64,7 @@ class StudyWorkspaceView extends ItemView {
     this.planId = "";
     this.feynmanScoreSelects = {};
     this.flowFilter = "all";
-    this.recallMode = "headings";
+    this.recallMode = ""; // empty means: use the saved mode from the Recall Scheduler settings page
     this.recallQueue = [];
     this.recallIndex = 0;
     this.recallRevealed = false;
@@ -368,7 +368,7 @@ class StudyWorkspaceView extends ItemView {
     const mode = this.renderSelect(form, "Mode", [
       { value: "headings", label: "Headings" },
       { value: "fragments", label: "Knowledge fragments" },
-    ], this.recallMode);
+    ], this.recallMode || data.mode);
     const folder = this.renderField(form, "Folder (optional)", "text", "Biology", data.folder);
     const limit = this.renderField(form, "Limit", "number", "20", String(data.limit));
     const statsRow = controls.createDiv({ cls: "qt-study-next-meta", text: `${stats.tracked} tracked · ${stats.due} due · ${stats.learned} reviewed` });

@@ -40,6 +40,10 @@ const STUDY_TOOL_SETTINGS_MODULES = [
   { id: "retention", label: "Retention", icon: "line-chart" },
   { id: "vocabulary", label: "Vocabulary", icon: "book-a" },
   { id: "quiz-index", label: "Quiz index", icon: "list-checks" },
+  { id: "quiz-maker", label: "Quiz Maker blocks", icon: "puzzle" },
+  { id: "sat-math", label: "SAT math solver", icon: "calculator" },
+  { id: "cbt-exam", label: "CBT exam blocks", icon: "monitor" },
+  { id: "sfc-cards", label: "SFC card blocks", icon: "gallery-horizontal" },
   { id: "course-health", label: "Course health", icon: "stethoscope" },
   { id: "read-aloud", label: "Read aloud", icon: "volume-2" },
   { id: "lecture-notes", label: "Lecture notes", icon: "file-text" },
@@ -135,7 +139,10 @@ function update(plugin, key, normalize, patch) {
 }
 
 async function refreshModule(plugin, method) {
-  if (typeof method === "string" && typeof plugin[method] === "function") await plugin[method]();
+  const methods = Array.isArray(method) ? method : [method];
+  for (const name of methods) {
+    if (typeof name === "string" && typeof plugin[name] === "function") await plugin[name]();
+  }
   if (typeof plugin.refreshViews === "function") plugin.refreshViews();
 }
 
@@ -367,6 +374,48 @@ const PAGES = {
       return `${attempts} recorded attempt note group(s).`;
     },
     open: { label: "Open Quiz index", run: (plugin) => plugin.activateStudyWorkspace("quizIndex") },
+  },
+  "quiz-maker": {
+    title: "Quiz Maker blocks",
+    description:
+      "Play named study packs in local quiz-maker blocks: assertion-and-reason, error-correction, evidence-selection and branching-scenario questions. Answers are not recorded.",
+    enabledGetter: "quizMakerEnabled",
+    enable: (plugin, v) => {
+      plugin.settings.quizMaker = { ...plugin.settings.quizMaker, enabled: v };
+    },
+    afterToggle: "refreshViews",
+    note: "The block is read-only: it does not write attempts, history or a schedule.",
+  },
+  "sat-math": {
+    title: "SAT math solver",
+    description:
+      "Solve linear equations, inequalities, quadratics, 2x2 systems, percentages, ratios and two-point line equations with step-by-step local working in sat-math blocks. No scaled score is estimated without an official curve.",
+    enabledGetter: "satMathEnabled",
+    enable: (plugin, v) => {
+      plugin.settings.satMath = { ...plugin.settings.satMath, enabled: v };
+    },
+    afterToggle: "refreshViews",
+  },
+  "cbt-exam": {
+    title: "CBT exam blocks",
+    description:
+      "Run a local exam navigator with answer flags, a submit score, per-topic breakdown, per-exam attempt history and a missed-first adaptive review pass in cbt-exam blocks. The note itself is never changed.",
+    enabledGetter: "cbtExamEnabled",
+    enable: (plugin, v) => {
+      plugin.settings.cbtExam = { ...plugin.settings.cbtExam, enabled: v };
+    },
+    afterToggle: "refreshViews",
+    note: "Attempt history stays in plugin data. The binary .vce converter is not included.",
+  },
+  "sfc-cards": {
+    title: "SFC card blocks",
+    description:
+      "Study basic, reversed, cloze, essay, worked-solution, wrong-answer-sprint and source-marked cards in local sfc-cards blocks. Reveals and self-checks are local and are not recorded.",
+    enabledGetter: "sfcCardsEnabled",
+    enable: (plugin, v) => {
+      plugin.settings.sfcCards = { ...plugin.settings.sfcCards, enabled: v };
+    },
+    afterToggle: "refreshViews",
   },
   "course-health": {
     title: "Course health",
@@ -640,7 +689,7 @@ const PAGES = {
       "One in-app Notice a day naming due questions, cards and tasks, plus an optional ribbon label. Off by default; no operating-system permission is requested here.",
     enabledGetter: "studyNudgeEnabled",
     enable: (plugin, v) => update(plugin, "studyNudge", studyNudge.normalizeStudyNudgeSettings, { enabled: v }),
-    afterToggle: "onStudyWorkspaceToggled",
+    afterToggle: ["onStudyWorkspaceToggled", "refreshStudyNudgeLabel"],
     fields: [
       {
         type: "number",

@@ -118,7 +118,49 @@ const obsidian = {
     }
   },
   PluginSettingTab: class extends Base {},
-  Setting: class extends Base {},
+  Setting: class extends Base {
+    constructor(containerEl) {
+      super(containerEl);
+      this.containerEl = containerEl;
+      this.name = "";
+      obsidian.settingNames.push("");
+    }
+    setName(name) {
+      this.name = String(name);
+      obsidian.settingNames.push(this.name);
+      return this;
+    }
+    setDesc() {
+      return this;
+    }
+    setHeading() {
+      this.heading = true;
+      return this;
+    }
+    setClass() {
+      return this;
+    }
+    addToggle(cb) {
+      cb({ setValue() { return this; }, onChange() { return this; } });
+      return this;
+    }
+    addDropdown(cb) {
+      cb({ addOption() { return this; }, setValue() { return this; }, onChange() { return this; } });
+      return this;
+    }
+    addText(cb) {
+      cb({ inputEl: {}, setPlaceholder() { return this; }, setValue() { return this; }, onChange() { return this; } });
+      return this;
+    }
+    addTextArea(cb) {
+      cb({ setPlaceholder() { return this; }, setValue() { return this; }, onChange() { return this; } });
+      return this;
+    }
+    addButton(cb) {
+      cb({ setButtonText() { return this; }, onClick() { return this; } });
+      return this;
+    }
+  },
   Modal: class extends Base {},
   FuzzySuggestModal: class extends Base {
     setPlaceholder() {}
@@ -142,6 +184,7 @@ const obsidian = {
   parseYaml,
   normalizePath: (p) => String(p).replace(/\/+/g, "/").replace(/^\/|\/$/g, ""),
   notices: [],
+  settingNames: [],
 };
 
 let cached = null;

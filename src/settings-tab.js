@@ -85,6 +85,10 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         (id) => {
           this.activeGlobalTab = id;
           this.display();
+        },
+        (moduleId) => {
+          this.activeModule = moduleId;
+          this.display();
         }
       );
       return;

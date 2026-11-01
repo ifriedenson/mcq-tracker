@@ -59002,14 +59002,15 @@ module.exports = {
 /* ---- src/settings-global.js ---- */
 __defs["settings-global"] = function (module, exports, require) {
 /*
- * Global settings: one switch per module, plus the few options that apply to the
- * whole plugin. Each module keeps its own detailed settings on its own page.
+ * Global settings: the core module switches, a compact index of every study-tool
+ * page, and the few options that apply to the whole plugin. Each study tool is
+ * enabled and configured only on its own page.
  */
 const { Notice, Setting } = require("obsidian");
 const { openExternal, renderSettingsTabs } = require("./settings-ui");
 const { normalizeSupport, supportLinks } = require("./support");
 const { SURVEY_ROLES, copySurveySummary } = require("./survey");
-const { READ_ALOUD_STYLES, normalizeReadAloudSettings } = require("./read-aloud");
+const { STUDY_TOOL_SETTINGS_BY_ID, STUDY_TOOL_SETTINGS_MODULES } = require("./study-tool-settings");
 
 const GLOBAL_TABS = [
   { id: "modules", label: "Modules", icon: "toggle-left" },
@@ -59017,7 +59018,7 @@ const GLOBAL_TABS = [
   { id: "about", label: "About", icon: "info" },
 ];
 
-function renderGlobalSettings(containerEl, plugin, redisplay, activeTab, setTab) {
+function renderGlobalSettings(containerEl, plugin, redisplay, activeTab, setTab, openModule) {
   const current = GLOBAL_TABS.some((tab) => tab.id === activeTab) ? activeTab : "modules";
   renderSettingsTabs(
     containerEl,
@@ -59030,17 +59031,47 @@ function renderGlobalSettings(containerEl, plugin, redisplay, activeTab, setTab)
   const section = containerEl.createDiv({ cls: "qt-settings-section" });
   if (current === "general") return renderGeneral(section, plugin, redisplay);
   if (current === "about") return renderGlobalAbout(section, plugin, redisplay);
-  return renderModules(section, plugin, redisplay);
+  return renderModules(section, plugin, redisplay, openModule);
 }
 
-function renderModules(containerEl, plugin, redisplay) {
+const CORE_MODULE_IDS = ["mcq", "cards", "calendar", "assignments"];
+
+/** The Global page's compact index: one row per study tool and its saved state. */
+function studyToolOverview(plugin) {
+  return STUDY_TOOL_SETTINGS_MODULES.map((module) => {
+    const page = STUDY_TOOL_SETTINGS_BY_ID[module.id].page;
+    let enabled = false;
+    try {
+      enabled = typeof plugin[page.enabledGetter] === "function" ? !!plugin[page.enabledGetter]() : false;
+    } catch (e) {
+      enabled = false;
+    }
+    return { id: module.id, label: module.label, enabled };
+  });
+}
+
+/** Renders the index as buttons that open each tool's own settings page. */
+function renderStudyToolIndex(containerEl, plugin, openModule) {
+  const index = containerEl.createDiv({ cls: "qt-module-index" });
+  for (const row of studyToolOverview(plugin)) {
+    const button = index.createEl("button", { cls: `qt-module-link${row.enabled ? "" : " is-off"}` });
+    button.setAttr("type", "button");
+    button.setAttr("aria-label", `${row.label}: ${row.enabled ? "on" : "off"}. Open settings.`);
+    button.createSpan({ cls: "qt-module-link-label", text: row.label });
+    button.createSpan({ cls: "qt-module-link-state", text: row.enabled ? "On" : "Off" });
+    if (typeof openModule === "function") button.addEventListener("click", () => openModule(row.id));
+  }
+  return index;
+}
+
+function renderModules(containerEl, plugin, redisplay, openModule) {
   const st = plugin.settings;
   containerEl.createEl("p", {
     cls: "setting-item-description",
     text: "Turn off the parts of the plugin you don't use. A module that is off keeps its settings and your notes; it just stops showing its views, ribbon button and commands.",
   });
 
-  new Setting(containerEl).setName("Modules").setHeading();
+  new Setting(containerEl).setName("Core modules").setHeading();
 
   new Setting(containerEl)
     .setName("MCQ Tracker")
@@ -59091,407 +59122,6 @@ function renderModules(containerEl, plugin, redisplay) {
     );
 
   new Setting(containerEl)
-    .setName("Cornell notes")
-    .setDesc("A read-only Cornell-note block with cues, notes, a summary and a recall mode, plus a creator in Study Tools. This module does not change questions, cards or scheduling.")
-    .addToggle((t) =>
-      t.setValue(plugin.cornellNotesEnabled()).onChange(async (v) => {
-        st.cornellNotes.enabled = v;
-        await plugin.save();
-        await plugin.onStudyToolToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Lecture log")
-    .setDesc("A local log of lectures by course, date and topic, with bulk paste and an upcoming-lecture card on Today. No audio, transcript or network request is added.")
-    .addToggle((t) =>
-      t.setValue(plugin.lectureLogEnabled()).onChange(async (v) => {
-        st.lectureLog.enabled = v;
-        await plugin.save();
-        await plugin.onStudyToolToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Study goals")
-    .setDesc("Small, local study goals with minute progress, optional due dates and a next-exam shortcut. Goals are stored in plugin data and appear on Today when one is open.")
-    .addToggle((t) =>
-      t.setValue(plugin.studyGoalsEnabled()).onChange(async (v) => {
-        st.studyGoals.enabled = v;
-        await plugin.save();
-        await plugin.onStudyToolToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Feynman Learning")
-    .setDesc("A guided four-step explanation cycle with local self-scoring and weak-dimension review. Independent from Cornell notes and the other study tools.")
-    .addToggle((t) =>
-      t.setValue(plugin.feynmanLearningEnabled()).onChange(async (v) => {
-        st.feynmanLearning.enabled = v;
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Recall Scheduler")
-    .setDesc("Build review queues from note headings or knowledge fragments, with local due dates and Again/Hard/Good/Easy ratings. Does not rewrite notes.")
-    .addToggle((t) =>
-      t.setValue(plugin.recallSchedulerEnabled()).onChange(async (v) => {
-        st.recallScheduler.enabled = v;
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Topic planner")
-    .setDesc("Plan repeated passes over course topics, reserve buffer days before an exam and see a day-level allocation. Independent from Study goals.")
-    .addToggle((t) =>
-      t.setValue(plugin.lerntrackerEnabled()).onChange(async (v) => {
-        st.lerntracker.enabled = v;
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Study Flow")
-    .setDesc("Keep a source excerpt, your explanation and a card draft together, with a local inbox and back-to-source review. The source note is never modified.")
-    .addToggle((t) =>
-      t.setValue(plugin.studyFlowEnabled()).onChange(async (v) => {
-        st.studyFlow.enabled = v;
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Subject Manager")
-    .setDesc("Track subjects, folders and absences, with lecture and absence counts. Uses the local lecture log when it is enabled.")
-    .addToggle((t) =>
-      t.setValue(plugin.subjectManagerEnabled()).onChange(async (v) => {
-        st.subjectManager.enabled = v;
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Quiz index")
-    .setDesc("Scan the vault for inline quizzes and show question, level, type and recorded result counts. Reads the existing quizResults properties and never creates attempts.")
-    .addToggle((t) =>
-      t.setValue(plugin.quizIndexEnabled()).onChange(async (v) => {
-        st.quizIndex.enabled = v;
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Record inline quiz attempts")
-    .setDesc("Keep a local per-question log when an identified mcq-quiz block is completed, so the Quiz index can show first-attempt accuracy, a folder topic index and a wrong-answer index. Off by default; no note is changed.")
-    .addToggle((t) =>
-      t.setValue(plugin.settings.quizIndex.recordAttempts === true).onChange(async (v) => {
-        st.quizIndex.recordAttempts = v;
-        await plugin.save();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Quiz Maker blocks")
-    .setDesc("Play assertion-and-reason, error-correction, evidence-selection and branching-scenario packs in local quiz-maker blocks. Answers are not recorded.")
-    .addToggle((t) =>
-      t.setValue(plugin.quizMakerEnabled()).onChange(async (v) => {
-        st.quizMaker.enabled = v;
-        await plugin.save();
-        plugin.refreshViews();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("SAT math solver")
-    .setDesc("Solve linear equations, quadratics, 2×2 systems, percentages and ratios with step-by-step local working in sat-math blocks. No score is estimated without an official curve.")
-    .addToggle((t) =>
-      t.setValue(plugin.satMathEnabled()).onChange(async (v) => {
-        st.satMath.enabled = v;
-        await plugin.save();
-        plugin.refreshViews();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("CBT exam blocks")
-    .setDesc("Run a local exam navigator with answer flags, per-exam attempt history and missed-first adaptive review in cbt-exam blocks. Attempts stay in plugin data and never edit the note.")
-    .addToggle((t) =>
-      t.setValue(plugin.cbtExamEnabled()).onChange(async (v) => {
-        st.cbtExam.enabled = v;
-        await plugin.save();
-        plugin.refreshViews();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Scheduler fitting")
-    .setDesc("Fit the FSRS desired-retention target from the reviews already recorded on your cards. The Retention tab shows the recommendation and applies it only when you press the button.")
-    .addToggle((t) =>
-      t.setValue(plugin.schedulerFitEnabled()).onChange(async (v) => {
-        st.schedulerFit.enabled = v;
-        await plugin.save();
-        plugin.refreshViews();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Study map")
-    .setDesc("Outline a note or an inline outline as a read-only mind map with key terms. Like Spaceforge's visualize workspace, but local: no model and no note changes.")
-    .addToggle((t) =>
-      t.setValue(plugin.studyMapEnabled()).onChange(async (v) => {
-        st.studyMap.enabled = v;
-        await plugin.save();
-        plugin.refreshViews();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Vault search")
-    .setDesc("Rank notes with a local BM25-style index and show cited snippets in vault-search blocks. No model, embedding request or network call is made.")
-    .addToggle((t) =>
-      t.setValue(plugin.vaultSearchEnabled()).onChange(async (v) => {
-        st.vaultSearch.enabled = v;
-        await plugin.save();
-        plugin.refreshViews();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Portable card archive")
-    .setDesc("Export every card note into one versioned JSON file and restore it later, skipping or overwriting existing notes. The archive lives in your vault, not in plugin data.")
-    .addToggle((t) =>
-      t.setValue(plugin.cardArchiveEnabled()).onChange(async (v) => {
-        st.cardArchive.enabled = v;
-        await plugin.save();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Study nudge")
-    .setDesc("An opt-in in-app Notice and ribbon label for due questions, cards and tasks. Off by default; no OS notification permission is requested.")
-    .addToggle((t) =>
-      t.setValue(plugin.studyNudgeEnabled()).onChange(async (v) => {
-        st.studyNudge.enabled = v;
-        await plugin.save();
-        plugin.refreshStudyNudgeLabel();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Course note templates")
-    .setDesc("Create lecture, unit, review, assignment and syllabus notes from local templates with course, title and date placeholders. The templates are editable text; no Canvas login or network request is involved.")
-    .addToggle((t) =>
-      t.setValue(plugin.courseTemplatesEnabled()).onChange(async (v) => {
-        st.courseTemplates.enabled = v;
-        await plugin.save();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("SFC-style card blocks")
-    .setDesc("Study basic, reversed, cloze, essay, worked-solution, wrong-answer-sprint and source-marked cards in local sfc-cards blocks. Reveals and self-checks are not recorded.")
-    .addToggle((t) =>
-      t.setValue(plugin.sfcCardsEnabled()).onChange(async (v) => {
-        st.sfcCards.enabled = v;
-        await plugin.save();
-        plugin.refreshViews();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Course hub")
-    .setDesc("A course dashboard with weighted grade chips, lecture counts and absences. Reads the lecture log and Subject Manager without changing their data.")
-    .addToggle((t) =>
-      t.setValue(plugin.courseHubEnabled()).onChange(async (v) => {
-        st.courseHub.enabled = v;
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Study tasks")
-    .setDesc("Manual tasks plus generated exam study tasks. Remind shows due items in Obsidian; it does not request OS notification permission.")
-    .addToggle((t) =>
-      t.setValue(plugin.studyTasksEnabled()).onChange(async (v) => {
-        st.studyTasks.enabled = v;
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Annotations")
-    .setDesc("Capture a selection, a question and an answer in a local annotation index. Source notes are read-only.")
-    .addToggle((t) =>
-      t.setValue(plugin.annotationsEnabled()).onChange(async (v) => {
-        st.annotations.enabled = v;
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Deep Notes")
-    .setDesc("Guided Socratic sessions with five local prompts: claim, assumptions, evidence, counterexample and synthesis. No model is called.")
-    .addToggle((t) =>
-      t.setValue(plugin.deepNotesEnabled()).onChange(async (v) => {
-        st.deepNotes.enabled = v;
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Retention")
-    .setDesc("Read-only forecast of card due dates and overdue work. It never changes a card schedule or moves review data out of a note.")
-    .addToggle((t) =>
-      t.setValue(plugin.retentionEnabled()).onChange(async (v) => {
-        st.retention.enabled = v;
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Vocabulary")
-    .setDesc("A local dictionary with bulk term/definition import, search, per-word review counts and a simple due-date ladder.")
-    .addToggle((t) =>
-      t.setValue(plugin.vocabularyEnabled()).onChange(async (v) => {
-        st.vocabulary.enabled = v;
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Read aloud")
-    .setDesc("Speak a note with the device voice and highlight the current sentence. Styles include a 90-second briefing. No provider, key, upload or report is used.")
-    .addToggle((t) =>
-      t.setValue(plugin.readAloudEnabled()).onChange(async (v) => {
-        st.readAloud = { ...normalizeReadAloudSettings(st.readAloud), enabled: v };
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    )
-    .addDropdown((d) => {
-      for (const style of READ_ALOUD_STYLES) d.addOption(style.id, style.label);
-      d.setValue(normalizeReadAloudSettings(st.readAloud).style).onChange(async (v) => {
-        st.readAloud = { ...normalizeReadAloudSettings(st.readAloud), style: v };
-        await plugin.save();
-        plugin.refreshViews();
-      });
-    })
-    .addText((t) => {
-      t.inputEl.type = "number";
-      t.inputEl.min = "0.5";
-      t.inputEl.max = "2";
-      t.inputEl.step = "0.1";
-      t.setValue(String(normalizeReadAloudSettings(st.readAloud).rate));
-      t.onChange(async (v) => {
-        st.readAloud = { ...normalizeReadAloudSettings(st.readAloud), rate: v };
-        await plugin.save();
-        plugin.refreshViews();
-      });
-    });
-
-  new Setting(containerEl)
-    .setName("Lecture note compiler")
-    .setDesc("Turn the lecture log into one study note with an overview, key concepts, a vocabulary table and one section per lecture. Audio transcription is not included.")
-    .addToggle((t) =>
-      t.setValue(plugin.lectureCompilerEnabled()).onChange(async (v) => {
-        st.lectureCompiler = { ...plugin.settings.lectureCompiler, enabled: v };
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Course health")
-    .setDesc("Local checks for missing grades, low attendance, overdue course tasks and an exam that is close with topic passes left. No Canvas request or note write is made.")
-    .addToggle((t) =>
-      t.setValue(plugin.courseHealthEnabled()).onChange(async (v) => {
-        st.courseHealth = { ...plugin.settings.courseHealth, enabled: v };
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Audio bookmarks")
-    .setDesc("Timestamp bookmarks and chapters for an audio attachment, with a copyable Obsidian link. The plugin does not record, play or upload audio.")
-    .addToggle((t) =>
-      t.setValue(plugin.audioBookmarksEnabled()).onChange(async (v) => {
-        st.audioBookmarks = { ...plugin.settings.audioBookmarks, enabled: v };
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("Feynman AI scoring")
-    .setDesc("An optional second opinion on a completed Feynman explanation, scored 1–5 on clarity, accuracy and simplicity and stored beside your own score. It uses the existing AI provider and only sends the four answers when you press the button.")
-    .addToggle((t) =>
-      t.setValue(plugin.feynmanAiEnabled()).onChange(async (v) => {
-        st.feynmanAi = { enabled: v };
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
-    .setName("PDF annotation index")
-    .setDesc("A read-only list of the PDF annotation sidecars already in the vault, with page, type, color and a backlink to the PDF. It never creates, edits or deletes an annotation.")
-    .addToggle((t) =>
-      t.setValue(plugin.pdfAnnotationIndexEnabled()).onChange(async (v) => {
-        st.pdfAnnotationIndex = { ...plugin.settings.pdfAnnotationIndex, enabled: v };
-        await plugin.save();
-        await plugin.onStudyWorkspaceToggled();
-        redisplay();
-      })
-    );
-
-  new Setting(containerEl)
     .setName("Reference")
     .setDesc("A local formula sheet, constants list and unit converter in its own view. Off by default; its settings are under Reference.")
     .addToggle((t) =>
@@ -59502,6 +59132,15 @@ function renderModules(containerEl, plugin, redisplay) {
         redisplay();
       })
     );
+
+  new Setting(containerEl).setName("Study tools").setHeading();
+  containerEl.createEl("p", {
+    cls: "setting-item-description",
+    text: "Every study tool has its own settings page. This index shows whether it is on and opens that page; the tool's own page is the single place it is enabled and configured.",
+  });
+  renderStudyToolIndex(containerEl, plugin, openModule);
+
+  new Setting(containerEl).setName("Global options").setHeading();
 
   new Setting(containerEl)
     .setName("AI features")
@@ -59517,7 +59156,7 @@ function renderModules(containerEl, plugin, redisplay) {
 
   containerEl.createEl("p", {
     cls: "setting-item-description",
-    text: "The settings for a module stay on its own page: MCQ Tracker, Cards, Calendar, Assignments and Reference. The study workflows each have their own switch above."
+    text: "Core settings stay on their own pages: MCQ Tracker, Cards, Calendar, Assignments and Reference. Each study tool is configured only on its own page above.",
   });
 }
 
@@ -59722,7 +59361,10 @@ function renderGeneral(containerEl, plugin, redisplay) {
 }
 
 module.exports = {
+  CORE_MODULE_IDS,
   GLOBAL_TABS,
+  renderStudyToolIndex,
+  studyToolOverview,
   renderGeneral,
   renderGlobalSettings,
   renderModules,
@@ -59816,6 +59458,10 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
         this.activeGlobalTab,
         (id) => {
           this.activeGlobalTab = id;
+          this.display();
+        },
+        (moduleId) => {
+          this.activeModule = moduleId;
           this.display();
         }
       );
@@ -66806,6 +66452,10 @@ const STUDY_TOOL_SETTINGS_MODULES = [
   { id: "retention", label: "Retention", icon: "line-chart" },
   { id: "vocabulary", label: "Vocabulary", icon: "book-a" },
   { id: "quiz-index", label: "Quiz index", icon: "list-checks" },
+  { id: "quiz-maker", label: "Quiz Maker blocks", icon: "puzzle" },
+  { id: "sat-math", label: "SAT math solver", icon: "calculator" },
+  { id: "cbt-exam", label: "CBT exam blocks", icon: "monitor" },
+  { id: "sfc-cards", label: "SFC card blocks", icon: "gallery-horizontal" },
   { id: "course-health", label: "Course health", icon: "stethoscope" },
   { id: "read-aloud", label: "Read aloud", icon: "volume-2" },
   { id: "lecture-notes", label: "Lecture notes", icon: "file-text" },
@@ -66901,7 +66551,10 @@ function update(plugin, key, normalize, patch) {
 }
 
 async function refreshModule(plugin, method) {
-  if (typeof method === "string" && typeof plugin[method] === "function") await plugin[method]();
+  const methods = Array.isArray(method) ? method : [method];
+  for (const name of methods) {
+    if (typeof name === "string" && typeof plugin[name] === "function") await plugin[name]();
+  }
   if (typeof plugin.refreshViews === "function") plugin.refreshViews();
 }
 
@@ -67133,6 +66786,48 @@ const PAGES = {
       return `${attempts} recorded attempt note group(s).`;
     },
     open: { label: "Open Quiz index", run: (plugin) => plugin.activateStudyWorkspace("quizIndex") },
+  },
+  "quiz-maker": {
+    title: "Quiz Maker blocks",
+    description:
+      "Play named study packs in local quiz-maker blocks: assertion-and-reason, error-correction, evidence-selection and branching-scenario questions. Answers are not recorded.",
+    enabledGetter: "quizMakerEnabled",
+    enable: (plugin, v) => {
+      plugin.settings.quizMaker = { ...plugin.settings.quizMaker, enabled: v };
+    },
+    afterToggle: "refreshViews",
+    note: "The block is read-only: it does not write attempts, history or a schedule.",
+  },
+  "sat-math": {
+    title: "SAT math solver",
+    description:
+      "Solve linear equations, inequalities, quadratics, 2x2 systems, percentages, ratios and two-point line equations with step-by-step local working in sat-math blocks. No scaled score is estimated without an official curve.",
+    enabledGetter: "satMathEnabled",
+    enable: (plugin, v) => {
+      plugin.settings.satMath = { ...plugin.settings.satMath, enabled: v };
+    },
+    afterToggle: "refreshViews",
+  },
+  "cbt-exam": {
+    title: "CBT exam blocks",
+    description:
+      "Run a local exam navigator with answer flags, a submit score, per-topic breakdown, per-exam attempt history and a missed-first adaptive review pass in cbt-exam blocks. The note itself is never changed.",
+    enabledGetter: "cbtExamEnabled",
+    enable: (plugin, v) => {
+      plugin.settings.cbtExam = { ...plugin.settings.cbtExam, enabled: v };
+    },
+    afterToggle: "refreshViews",
+    note: "Attempt history stays in plugin data. The binary .vce converter is not included.",
+  },
+  "sfc-cards": {
+    title: "SFC card blocks",
+    description:
+      "Study basic, reversed, cloze, essay, worked-solution, wrong-answer-sprint and source-marked cards in local sfc-cards blocks. Reveals and self-checks are local and are not recorded.",
+    enabledGetter: "sfcCardsEnabled",
+    enable: (plugin, v) => {
+      plugin.settings.sfcCards = { ...plugin.settings.sfcCards, enabled: v };
+    },
+    afterToggle: "refreshViews",
   },
   "course-health": {
     title: "Course health",
@@ -67406,7 +67101,7 @@ const PAGES = {
       "One in-app Notice a day naming due questions, cards and tasks, plus an optional ribbon label. Off by default; no operating-system permission is requested here.",
     enabledGetter: "studyNudgeEnabled",
     enable: (plugin, v) => update(plugin, "studyNudge", studyNudge.normalizeStudyNudgeSettings, { enabled: v }),
-    afterToggle: "onStudyWorkspaceToggled",
+    afterToggle: ["onStudyWorkspaceToggled", "refreshStudyNudgeLabel"],
     fields: [
       {
         type: "number",
@@ -69567,7 +69262,7 @@ class StudyWorkspaceView extends ItemView {
     this.planId = "";
     this.feynmanScoreSelects = {};
     this.flowFilter = "all";
-    this.recallMode = "headings";
+    this.recallMode = ""; // empty means: use the saved mode from the Recall Scheduler settings page
     this.recallQueue = [];
     this.recallIndex = 0;
     this.recallRevealed = false;
@@ -69871,7 +69566,7 @@ class StudyWorkspaceView extends ItemView {
     const mode = this.renderSelect(form, "Mode", [
       { value: "headings", label: "Headings" },
       { value: "fragments", label: "Knowledge fragments" },
-    ], this.recallMode);
+    ], this.recallMode || data.mode);
     const folder = this.renderField(form, "Folder (optional)", "text", "Biology", data.folder);
     const limit = this.renderField(form, "Limit", "number", "20", String(data.limit));
     const statsRow = controls.createDiv({ cls: "qt-study-next-meta", text: `${stats.tracked} tracked · ${stats.due} due · ${stats.learned} reviewed` });
@@ -74767,6 +74462,7 @@ const simpleFlashcards = require("./simple-flashcards");
 const quizBlock = require("./quiz-block");
 const studyTools = require("./study-tools");
 const studyToolSettings = require("./study-tool-settings");
+const settingsGlobal = require("./settings-global");
 const cornell = require("./cornell");
 const intervalPreview = require("./interval-preview");
 const { StudyToolsView } = require("./study-tools-view");
@@ -75159,6 +74855,7 @@ QuestionTrackerPlugin.__test = {
   StudyWorkspaceView,
   studyTools,
   studyToolSettings,
+  settingsGlobal,
   studyWorkspace,
   readAloud,
   lectureCompiler,
