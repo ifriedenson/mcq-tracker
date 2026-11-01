@@ -32,9 +32,10 @@ What is the answer?
 
 after(() => {
   obsidian.Platform.isMobile = false;
+  obsidian.Platform.isPhone = false;
 });
 
-async function setup(mobile) {
+async function setup(mobile, phone = mobile) {
   const app = makeApp([{ path: "Questions/mobile-1.md", fm: { answer: "B", choices: 4 }, text: NOTE }]);
   const plugin = new QT(app);
   await plugin.onload();
@@ -45,8 +46,24 @@ async function setup(mobile) {
   const file = app.files[0];
   await view.loadQuestion({ file, fm: file.fm }, true);
   obsidian.Platform.isMobile = mobile;
+  obsidian.Platform.isPhone = phone;
   view.render();
   return { app, plugin, dom, view };
+}
+
+/* Load a question, answer it through the real submit path, and render the result. */
+async function setupResult(options = {}) {
+  const mobile = options.mobile !== false;
+  const phone = options.phone === undefined ? mobile : options.phone;
+  const answer = options.answer || "A";
+  const result = await setup(mobile, phone);
+  // Count only the result tree, not the question tree the fake DOM keeps from setup().
+  result.dom = makeDom();
+  result.view.contentEl = result.dom.root;
+  result.view.sel = answer;
+  result.view.conf = 2;
+  await result.view.submit();
+  return result;
 }
 
 const byClass = (dom, cls) => dom.all.filter((el) => el.meta && el.classes.has(cls));
@@ -325,4 +342,98 @@ test("desktop practice keeps its split, footer controls and long labels", async 
   assert.ok(dom.texts().includes("Skip (don't log)"));
   assert.equal(byClass(dom, "qt-m-answerbar").length, 0);
   assert.equal(dom.texts().includes("How sure are you?"), true);
+});
+
+/* ---- review screen: the dedicated phone shell is a real branch, not CSS ---- */
+test("mobile result: review has its own bar, Review | Passage tabs and one scroller", async () => {
+  const { dom } = await setupResult();
+  assert.equal(byClass(dom, "qt-mobile").length, 1, "the result root is the phone shell");
+  assert.equal(byClass(dom, "qt-m-bar").length, 1, "one review header");
+  assert.equal(byClass(dom, "qt-m-review-status")[0].meta.text, "Incorrect");
+  assert.ok(dom.texts().includes("Review") && dom.texts().includes("Passage"), "both review tabs exist");
+
+  const body = byClass(dom, "qt-m-review-scroll")[0];
+  assert.ok(body, "the review body is a scroller");
+  assert.equal(byClass(dom, "qt-m-review-scroll").length, 1, "exactly one review scroller");
+  assert.equal(byClass(dom, "qt-review").length, 1, "the shared review content is reused");
+  assert.ok(inside(byClass(dom, "qt-review")[0], "qt-m-review-scroll"), "review content is inside that scroller");
+  assert.equal(byClass(dom, "qt-banner").length, 0, "the desktop result banner is not rendered");
+  assert.equal(byClass(dom, "qt-res-actions").length, 0, "desktop result actions are not rendered");
+  assert.equal(byClass(dom, "qt-done").length, 0, "the desktop Done button is not rendered");
+
+  const left = byClass(dom, "qt-pane-left")[0];
+  const right = byClass(dom, "qt-pane-right")[0];
+  assert.equal(left.classes.has("is-hidden"), true, "the passage starts behind its tab");
+  assert.equal(right.classes.has("is-hidden"), false, "the review starts visible");
+  await dom.click("Passage");
+  assert.equal(left.classes.has("is-hidden"), false);
+  assert.equal(right.classes.has("is-hidden"), true, "the review pane hides while reading the passage");
+  await dom.click("Review");
+  assert.equal(right.classes.has("is-hidden"), false);
+  assert.equal(left.classes.has("is-hidden"), true);
+});
+
+test("mobile result: bottom action bar and More sheet reach the same actions", async () => {
+  const { app, dom, view } = await setupResult();
+  const bar = byClass(dom, "qt-m-reviewbar")[0];
+  assert.ok(bar, "a review action bar exists");
+  const done = dom.all.find((el) => el.meta && el.meta.text === "Done" && inside(el, "qt-m-reviewbar"));
+  const next = dom.all.find((el) => el.meta && el.meta.text === "Next question" && inside(el, "qt-m-reviewbar"));
+  assert.ok(done, "Done is in the bottom bar");
+  assert.ok(next, "Next question is in the bottom bar");
+
+  await clickElement(byClass(dom, "qt-m-more")[0]);
+  const sheet = byClass(dom, "qt-m-sheet")[0];
+  assert.ok(sheet.classes.has("is-open"), "More opens the review sheet");
+  for (const label of ["Open question note", "Exclude"]) {
+    const el = dom.all.find((e) => e.meta && e.meta.text === label);
+    assert.ok(el, `${label} exists`);
+    assert.ok(inside(el, "qt-m-sheet"), `${label} is in the More sheet`);
+  }
+  assert.ok(dom.all.some((el) => el.meta && /^Known \d+d$/.test(el.meta.text || "") && inside(el, "qt-m-sheet")));
+
+  await dom.click("Open question note");
+  assert.equal(sheet.classes.has("is-open"), false, "the sheet closes after an action");
+  assert.ok(app.opened.includes("Questions/mobile-1.md"), "Open note still opens the note");
+
+  let advanced = 0;
+  view.next = async () => {
+    advanced += 1;
+  };
+  await clickElement(next);
+  assert.equal(advanced, 1, "Next still advances");
+  await clickElement(done);
+  assert.equal(view.state, "idle", "Done returns to filters");
+});
+
+test("mobile result: safe-area action bar and narrow-width overflow contract", async () => {
+  assert.equal(cssDecl(".qt-mobile .qt-m-review-scroll", "overflow-x"), "hidden");
+  assert.equal(cssDecl(".qt-mobile .qt-m-review-scroll", "max-width"), "100%");
+  assert.equal(cssDecl(".qt-mobile .qt-m-review-scroll", "min-width"), "0");
+  assert.equal(cssDecl(".qt-mobile .qt-m-review-scroll .qt-notes", "width"), "100%");
+  assert.equal(cssDecl(".qt-mobile .qt-m-review-scroll .qt-notes", "box-sizing"), "border-box");
+  assert.equal(cssDecl(".qt-mobile .qt-m-review-scroll .qt-tag", "max-width"), "45%");
+  assert.equal(cssDecl(".qt-mobile .qt-m-reviewbar .qt-m-review-next", "flex"), "1");
+  assert.match(cssDecl(".qt-mobile .qt-m-reviewbar", "padding") || "", /env\(safe-area-inset-bottom\)/, "the action bar clears the home indicator");
+  assert.ok(cssPx(".qt-mobile .qt-m-reviewbar button", "min-height") >= 44);
+
+  for (const rule of phoneRules) {
+    if (!rule.selectors.some((selector) => selector.includes("qt-m-review"))) continue;
+    const width = rule.decls.width;
+    if (width) assert.ok(/^(100%|auto)$/.test(width), `review rule has a fixed width: ${rule.selectors.join(", ")} ${width}`);
+  }
+});
+
+test("desktop and tablet review keep the shared split with no mobile classes", async () => {
+  for (const options of [{ mobile: false, phone: false }, { mobile: true, phone: false }]) {
+    const { dom } = await setupResult(options);
+    assert.equal(byClass(dom, "qt-mobile").length, 0);
+    for (const cls of ["qt-m-bar", "qt-m-tabs", "qt-m-scroll", "qt-m-reviewbar", "qt-m-review-scroll", "qt-m-sheet"]) {
+      assert.equal(byClass(dom, cls).length, 0, `shared review never gets ${cls}`);
+    }
+    assert.equal(byClass(dom, "qt-banner").length, 1, "the shared result banner remains");
+    assert.equal(byClass(dom, "qt-res-actions").length, 1, "the shared result actions remain");
+    assert.equal(byClass(dom, "qt-done").length, 1, "the shared Done button remains");
+    assert.equal(byClass(dom, "qt-review").length, 1, "the review content remains");
+  }
 });

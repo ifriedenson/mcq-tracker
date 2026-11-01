@@ -45,6 +45,7 @@ class PracticeView extends ItemView {
     this.matchOrder = [];
     this.hintShown = false;
     this.mobileTab = "question";
+    this.mobileResultTab = "review";
   }
 
   getViewType() {
@@ -485,6 +486,7 @@ class PracticeView extends ItemView {
     if (correct) this.tally.correct++;
     this.notesText = q.sections.notes;
     this.notesDirty = false;
+    this.mobileResultTab = "review";
     this.result = {
       file: q.file,
       correct,
@@ -1583,6 +1585,14 @@ class PracticeView extends ItemView {
     const s = r.summary;
     const path = r.file.path;
 
+    // A phone gets its own review screen. Tablets keep the shared split they
+    // already used; Platform.isPhone is false there, and older API builds that
+    // do not expose it fall back to the phone branch.
+    if (Platform.isMobile === true && Platform.isPhone !== false) {
+      this.renderMobileResult(root);
+      return;
+    }
+
     if (r.sections.stimulus) {
       root.addClass("qt-wide");
       root.addClass("qt-exam");
@@ -1624,6 +1634,16 @@ class PracticeView extends ItemView {
     const topNext = acts.createEl("button", { text: "Next question", cls: "mod-cta" });
     if (this.quickSession) topNext.setText("Next quick question");
     topNext.addEventListener("click", () => this.next());
+
+    this.renderResultBody(root, { done: true });
+  }
+
+  renderResultBody(root, options) {
+    const p = this.plugin;
+    const r = this.result;
+    const s = r.summary;
+    const path = r.file.path;
+    const opts = options || {};
 
     if (p.settings.examReady === true && isExamReady(s.streak, p.settings.examReadyPasses)) {
       const ready = root.createDiv({
@@ -1842,13 +1862,133 @@ class PracticeView extends ItemView {
     });
     paint();
 
-    // ---- done (Next lives in the top bar)
-    const done = root.createEl("button", { text: "Done (back to filters)", cls: "qt-done" });
-    done.addEventListener("click", async () => {
+    // ---- done (desktop; phones put it in the review action bar)
+    if (opts.done !== false) {
+      const done = root.createEl("button", { text: "Done (back to filters)", cls: "qt-done" });
+      done.addEventListener("click", async () => {
+        await this.flushNotes();
+        this.state = "idle";
+        this.render();
+      });
+    }
+  }
+
+  /** The post-answer review on a phone: its own bar, Review | Passage tabs,
+   * one scroller and a safe-area action bar instead of the desktop split. */
+  renderMobileResult(root) {
+    const p = this.plugin;
+    const r = this.result;
+    const path = r.file.path;
+    const hasStim = !!r.sections.stimulus;
+    const status = r.correct === true ? "Correct" : r.correct === false ? "Incorrect" : "Review";
+    const statusClass = r.correct === true ? "is-correct" : r.correct === false ? "is-wrong" : "is-review";
+
+    root.addClass("qt-wide");
+    root.addClass("qt-exam");
+    root.addClass("qt-mobile");
+
+    // ---- review header: result, context, flag and More
+    const bar = root.createDiv({ cls: "qt-bar qt-exam-bar qt-m-bar qt-m-review-bar" });
+    bar.createDiv({ cls: `qt-m-review-status ${statusClass}`, text: status });
+    const meta = [r.fm.course, r.fm.unit ? `Unit ${r.fm.unit}` : "", r.fm.skill || r.fm.section, r.fm.difficulty, fmtClock(r.seconds)]
+      .filter(Boolean)
+      .join(" · ");
+    bar.createDiv({ cls: "qt-meta", text: meta || r.file.basename });
+    const tools = bar.createDiv({ cls: "qt-exam-tools" });
+    const flagBtn = tools.createEl("button", { cls: "qt-icon-btn qt-m-flag", attr: { "aria-label": r.flagged ? "Unflag this question" : "Flag this question" } });
+    const paintFlag = () => {
+      flagBtn.empty();
+      setIcon(flagBtn, r.flagged ? "bookmark-check" : "bookmark");
+      flagBtn.toggleClass("is-on", !!r.flagged);
+      flagBtn.setAttr("aria-label", r.flagged ? "Unflag this question" : "Flag this question");
+    };
+    paintFlag();
+    flagBtn.addEventListener("click", async () => {
+      r.flagged = await p.toggleFlag(r.file);
+      paintFlag();
+    });
+    const moreBtn = tools.createEl("button", {
+      cls: "qt-icon-btn qt-m-more",
+      attr: { "aria-label": "More actions", "aria-haspopup": "dialog" },
+    });
+    setIcon(moreBtn, "more-horizontal");
+
+    // ---- Review | Passage tabs, with the review as the only scroller
+    const tabs = hasStim ? root.createDiv({ cls: "qt-m-tabs", attr: { role: "tablist" } }) : null;
+    const split = root.createDiv({ cls: `qt-split${hasStim ? "" : " is-single"} qt-m-split` });
+    const left = hasStim ? split.createDiv({ cls: "qt-pane qt-pane-left qt-m-passage" }) : null;
+    const right = split.createDiv({ cls: "qt-pane qt-pane-right qt-m-question" });
+    const body = right.createDiv({ cls: "qt-m-scroll qt-m-review-scroll" });
+    if (tabs && left) {
+      const tabButtons = [];
+      const show = (which) => {
+        this.mobileResultTab = which;
+        left.toggleClass("is-hidden", which !== "passage");
+        right.toggleClass("is-hidden", which !== "review");
+        for (const [btn, id] of tabButtons) {
+          btn.toggleClass("is-active", id === which);
+          btn.setAttr("aria-selected", String(id === which));
+        }
+      };
+      for (const [id, label] of [["review", "Review"], ["passage", "Passage"]]) {
+        const btn = tabs.createEl("button", { cls: "qt-m-tab", text: label, attr: { role: "tab" } });
+        btn.addEventListener("click", () => show(id));
+        tabButtons.push([btn, id]);
+      }
+      show(this.mobileResultTab === "passage" ? "passage" : "review");
+    }
+    if (left) this.md(r.sections.stimulus, left.createDiv({ cls: "qt-stimulus" }), path);
+
+    let lastTop = 0;
+    body.addEventListener("scroll", (ev) => {
+      const scroller = ev && ev.target;
+      const top = scroller && typeof scroller.scrollTop === "number" ? scroller.scrollTop : 0;
+      bar.toggleClass("is-hidden", top > 24 && top > lastTop);
+      lastTop = top;
+    });
+
+    // ---- review actions live in the bottom bar and the More sheet
+    const doDone = async () => {
       await this.flushNotes();
       this.state = "idle";
       this.render();
+    };
+    const backdrop = root.createDiv({ cls: "qt-m-sheet-backdrop" });
+    const sheet = root.createDiv({ cls: "qt-m-sheet", attr: { role: "dialog", "aria-label": "Review actions", "aria-modal": "true" } });
+    const closeSheet = () => {
+      sheet.removeClass("is-open");
+      backdrop.removeClass("is-open");
+    };
+    const add = (label, fn, cls) => {
+      const b = sheet.createEl("button", { text: label, cls: cls || "" });
+      b.addEventListener("click", async () => {
+        closeSheet();
+        await fn();
+      });
+    };
+    sheet.createDiv({ cls: "qt-m-sheet-title", text: "Review actions" });
+    add("Open question note", () => this.app.workspace.getLeaf("tab").openFile(r.file));
+    add(`Known ${p.knownDaysForFile(r.file)}d`, () => this.setCurrentStudyStatus("known"));
+    add("Exclude", () => this.setCurrentStudyStatus("excluded"), "qt-status-exclude");
+    const close = sheet.createEl("button", { text: "Close", cls: "qt-m-sheet-close" });
+    close.addEventListener("click", closeSheet);
+    backdrop.addEventListener("click", closeSheet);
+    moreBtn.addEventListener("click", () => {
+      const open = sheet.hasClass("is-open");
+      sheet.toggleClass("is-open", !open);
+      backdrop.toggleClass("is-open", !open);
     });
+
+    const actionBar = right.createDiv({ cls: "qt-m-reviewbar" });
+    const doneBtn = actionBar.createEl("button", { text: "Done", cls: "qt-m-review-done" });
+    doneBtn.addEventListener("click", doDone);
+    const nextBtn = actionBar.createEl("button", {
+      text: this.quickSession ? "Next quick question" : "Next question",
+      cls: "mod-cta qt-m-review-next",
+    });
+    nextBtn.addEventListener("click", () => this.next());
+
+    this.renderResultBody(body, { done: false });
   }
 }
 

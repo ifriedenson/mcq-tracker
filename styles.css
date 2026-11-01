@@ -2531,6 +2531,110 @@
   border-radius: var(--radius-m);
 }
 
+/* post-answer review on a phone: result header, Review | Passage tabs,
+   one review scroller and a safe-area action bar. All rules stay scoped. */
+
+.qt-mobile .qt-m-review-status {
+  flex: none;
+  padding: 4px 9px;
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+}
+
+.qt-mobile .qt-m-review-status.is-correct {
+  color: var(--color-green);
+  background: rgba(var(--color-green-rgb), 0.16);
+}
+
+.qt-mobile .qt-m-review-status.is-wrong {
+  color: var(--color-red);
+  background: rgba(var(--color-red-rgb), 0.16);
+}
+
+.qt-mobile .qt-m-review-status.is-review {
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+}
+
+.qt-mobile .qt-m-review-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  padding: 12px 14px calc(18px + env(safe-area-inset-bottom));
+}
+
+.qt-mobile .qt-m-review-scroll > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.qt-mobile .qt-m-review-scroll .qt-review,
+.qt-mobile .qt-m-review-scroll .qt-choice,
+.qt-mobile .qt-m-review-scroll .qt-source,
+.qt-mobile .qt-m-review-scroll .qt-pair,
+.qt-mobile .qt-m-review-scroll .qt-ai {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.qt-mobile .qt-m-review-scroll .qt-stem,
+.qt-mobile .qt-m-review-scroll .qt-choice-text,
+.qt-mobile .qt-m-review-scroll .qt-hint,
+.qt-mobile .qt-m-review-scroll .qt-source-name {
+  overflow-wrap: anywhere;
+}
+
+.qt-mobile .qt-m-review-scroll .qt-tag {
+  max-width: 45%;
+  white-space: normal;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.qt-mobile .qt-m-review-scroll .qt-notes {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.qt-mobile .qt-m-review-scroll .qt-pair {
+  flex-wrap: wrap;
+}
+
+.qt-mobile .qt-m-review-scroll .qt-pair .qt-exp-btn {
+  flex: 1 1 140px;
+}
+
+.qt-mobile .qt-m-reviewbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+  background: var(--background-secondary);
+  border-top: 1px solid var(--background-modifier-border);
+  box-shadow: 0 -6px 18px rgb(0 0 0 / 18%);
+  z-index: 5;
+}
+
+.qt-mobile .qt-m-reviewbar button {
+  min-height: 44px;
+}
+
+.qt-mobile .qt-m-reviewbar .qt-m-review-done {
+  flex: 0 0 auto;
+  min-width: 84px;
+}
+
+.qt-mobile .qt-m-reviewbar .qt-m-review-next {
+  flex: 1;
+  min-width: 0;
+  border-radius: 999px;
+  font-weight: var(--font-semibold);
+}
+
 /* ---- result review ---- */
 
 .qt-wrap .qt-hidden {
