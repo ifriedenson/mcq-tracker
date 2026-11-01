@@ -803,10 +803,15 @@ function nextExamForCourse(events, course, now) {
 }
 
 /**
- * The date an item should be brought forward to so it is reviewed before the
- * exam. This is the day before the exam, never earlier than the attempt day:
- * an exam today can only be reviewed today.
+ * A graduated pre-exam ramp: T-14, T-7, T-3 and T-1. An item whose next review
+ * would land after the exam is pulled to the next checkpoint, so a long interval
+ * becomes several retrieval opportunities instead of one day-before cram. A
+ * checkpoint that is already today is skipped; the attempt being recorded is
+ * itself the review for that day, and forcing a second same-day review would
+ * only create an immediate due item.
  */
+const EXAM_CAP_DAYS = [14, 7, 3, 1];
+
 function examReviewCap(event, now) {
   if (!event) return null;
   const at = now || new Date();
@@ -817,13 +822,18 @@ function examReviewCap(event, now) {
     : parsedDay;
   if (!examDay || isNaN(examDay.getTime())) return null;
   if (examDay < today) return null;
-  const dayBefore = new Date(examDay.getFullYear(), examDay.getMonth(), examDay.getDate() - 1);
-  const capDay = dayBefore < today ? today : dayBefore;
-  return {
-    date: dateKey(capDay),
-    examDate: dateKey(examDay),
-    name: str(event.summary).trim() || "Exam",
-  };
+  for (const offsetDays of EXAM_CAP_DAYS) {
+    const checkpoint = new Date(examDay.getFullYear(), examDay.getMonth(), examDay.getDate() - offsetDays);
+    if (checkpoint <= today) continue;
+    return {
+      date: dateKey(checkpoint),
+      examDate: dateKey(examDay),
+      name: str(event.summary).trim() || "Exam",
+      stage: `T-${offsetDays}`,
+      offsetDays,
+    };
+  }
+  return null;
 }
 
 /* ---------------------------------------------------- folder + note paths */
@@ -912,6 +922,7 @@ module.exports = {
   upcomingExams,
   examMatchesCourse,
   nextExamForCourse,
+  EXAM_CAP_DAYS,
   examReviewCap,
   eventKey,
   normalizeExamOverrides,

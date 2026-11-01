@@ -246,3 +246,31 @@ test("progress dashboard reports today's goal, due work and the weakest skill", 
   assert.equal(progress.weeks.length, 4);
   assert.equal(progress.mastery.total, 4);
 });
+
+test("progress mastery holds a perfect historical score below mastered when FSRS recall has decayed", () => {
+  const first = T.fsrs.reviewNote(
+    { target_seconds: 20 },
+    { correct: true, conf: 3, seconds: 5, now: new Date(2026, 9, 1, 9, 0) },
+    0.9
+  );
+  const q = question("Q/fsrs.md", {
+    attempts: 1,
+    correct_count: 1,
+    scheduler: "fsrs",
+    srs: first.srs,
+  });
+
+  const fresh = T.memoryOf(q, { today: "2026-10-01" });
+  assert.ok(fresh && fresh.retrievability > 0.9);
+  assert.equal(T.masteryBandOf(q, { today: "2026-10-01" }), "mastered");
+
+  const decayed = T.memoryOf(q, { today: "2027-10-01" });
+  assert.ok(decayed && decayed.retrievability < 0.9);
+  assert.equal(T.masteryBandOf(q, { today: "2027-10-01" }), "strong");
+
+  const mastery = T.buildMastery([q], { today: "2027-10-01" });
+  assert.equal(mastery.memoryAware, 1);
+  assert.equal(mastery.memoryHeld, 1);
+  assert.equal(mastery.mastered, 0);
+  assert.equal(mastery.bands.find((band) => band.id === "strong").count, 1);
+});

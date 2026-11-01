@@ -140,6 +140,7 @@ function reviewRow(source, entry, maturity, interval, rating) {
     when: str(entry.when),
     correct: entry.result === "correct",
     seconds: Number(entry.seconds) || 0,
+    target: Math.max(0, Number(source.fm && source.fm.target_seconds) || 0),
     maturity,
     rating: RATINGS.includes(str(rating)) ? str(rating) : entry.result === "correct" ? "good" : "again",
     interval: Math.max(0, Number(interval) || 0),
@@ -243,6 +244,50 @@ function distribution(values, edges, labels) {
     median = Math.round(median * 100) / 100;
   }
   return { buckets, total, min: list.length ? list[0] : null, max: list.length ? list[list.length - 1] : null, median };
+}
+
+/**
+ * Time-on-answer for every review row that recorded seconds. Slow means over
+ * 1.5× the note's target_seconds; rows without a target are timed but cannot be
+ * judged slow, so they are reported separately instead of being guessed.
+ */
+function timingMetrics(rows) {
+  const list = (Array.isArray(rows) ? rows : []).filter((row) => row && Number(row.seconds) > 0);
+  const seconds = distribution(
+    list.map((row) => Number(row.seconds)),
+    [10, 30, 60, 120, 300],
+    ["<10s", "10–30s", "30–60s", "60–120s", "2–5m", "5m+"]
+  );
+  const targeted = list.filter((row) => Number(row.target) > 0);
+  const slowRows = targeted
+    .filter((row) => Number(row.seconds) > Number(row.target) * 1.5)
+    .sort((a, b) => b.seconds / b.target - a.seconds / a.target)
+    .slice(0, 10)
+    .map((row) => ({
+      path: row.path,
+      title: row.title,
+      date: row.date,
+      seconds: row.seconds,
+      target: row.target,
+      ratio: Math.round((row.seconds / row.target) * 100) / 100,
+    }));
+  const fast = targeted.filter((row) => Number(row.seconds) <= Number(row.target) * 0.75).length;
+  const totalSeconds = list.reduce((sum, row) => sum + Number(row.seconds), 0);
+  return {
+    seconds,
+    averageSeconds: list.length ? Math.round((totalSeconds / list.length) * 10) / 10 : null,
+    medianSeconds: seconds.median,
+    targeted: targeted.length,
+    slow: {
+      count: targeted.filter((row) => Number(row.seconds) > Number(row.target) * 1.5).length,
+      total: targeted.length,
+      share: targeted.length ? targeted.filter((row) => Number(row.seconds) > Number(row.target) * 1.5).length / targeted.length : null,
+      threshold: 1.5,
+      rows: slowRows,
+    },
+    fast,
+    fastShare: targeted.length ? fast / targeted.length : null,
+  };
 }
 
 function emptyRatingMix() {
@@ -383,6 +428,7 @@ function buildStudyStats(input) {
   const rows = [...cardRows, ...historyRows(questions, "question"), ...historyRows(notes, "note")].sort((a, b) => b.when.localeCompare(a.when));
   const retention = retentionByMaturity(cardRows);
   const metrics = cardMetrics(cards, now);
+  const timing = timingMetrics(rows);
   const days = dayDetail(rows);
   const counters = normalizeStudyCounters(opts.counters);
   return {
@@ -390,6 +436,7 @@ function buildStudyStats(input) {
     cardRows,
     retention,
     metrics,
+    timing,
     weekday: weekdayRhythm(rows),
     days,
     decks: deckBreakdown(cards, { ...settings, fsrsRetention: opts.fsrsRetention }),
@@ -428,5 +475,6 @@ module.exports = {
   maturityOf,
   normalizeStudyStatsSettings,
   retentionByMaturity,
+  timingMetrics,
   weekdayRhythm,
 };

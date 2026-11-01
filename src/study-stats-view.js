@@ -15,6 +15,7 @@ function formatMedian(value, key) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "—";
   const text = String(Math.round(number * 100) / 100);
+  if (key === "seconds") return `${text}s`;
   return key === "intervals" || key === "stability" ? `${text}d` : text;
 }
 
@@ -249,6 +250,7 @@ class StudyStatsView extends ItemView {
     card.createEl("h3", { text: "Distributions" });
     const grid = card.createDiv({ cls: "qt-study-stats-grid" });
     for (const [key, label] of [
+      ["seconds", "Answer time"],
       ["intervals", "Interval"],
       ["ease", "Ease"],
       ["stability", "FSRS stability"],
@@ -256,7 +258,7 @@ class StudyStatsView extends ItemView {
     ]) {
       const block = grid.createDiv({ cls: "qt-study-stats-dist" });
       block.createDiv({ cls: "qt-study-stats-dist-title", text: label });
-      const dist = data.metrics[key];
+      const dist = key === "seconds" ? data.timing && data.timing.seconds : data.metrics[key];
       if (!dist || !dist.total) {
         block.createDiv({ cls: "qt-study-empty", text: "No data yet." });
         continue;
@@ -271,6 +273,24 @@ class StudyStatsView extends ItemView {
         bar(row, bucket.count, max, "is-dist");
         row.createSpan({ cls: "qt-study-stats-dist-count", text: String(bucket.count) });
       }
+    }
+    const timing = data.timing;
+    if (timing && timing.targeted) {
+      card.createDiv({
+        cls: "qt-hint",
+        text: `${timing.slow.count} of ${timing.targeted} timed answer${timing.targeted === 1 ? "" : "s"} went over ${timing.slow.threshold}× target (${pct(timing.slow.share)}). Average ${timing.averageSeconds}s; ${timing.fast} were at or under 75% of target.`,
+      });
+      if (timing.slow.rows.length) {
+        const list = card.createDiv({ cls: "qt-study-list" });
+        for (const row of timing.slow.rows.slice(0, 5)) {
+          list.createDiv({
+            cls: "qt-study-row-meta",
+            text: `${row.title || row.path} · ${row.seconds}s against ${row.target}s target (${row.ratio}×) · ${row.date}`,
+          });
+        }
+      }
+    } else {
+      card.createDiv({ cls: "qt-hint", text: "Set target_seconds on a note to flag slow answers; timed reviews are counted even without a target." });
     }
   }
 

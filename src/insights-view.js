@@ -107,17 +107,19 @@ class InsightsView extends ItemView {
     const cards = p.getCards ? p.getCards() : [];
     const frq = p.getFrqKnowledge ? p.getFrqKnowledge() : null;
     const gradebook = p.assignmentStats ? p.assignmentStats() : null;
-    const data = buildDashboard({
-      questions,
-      cards,
-      frq,
-      gradebook,
-      assignments: gradebook ? gradebook.summary : null,
-      studyLog: p.settings.studyLog,
-      confidenceLabels: p.settings.confidenceLabels,
-      field: this.overviewField,
-      today: new Date(),
-    });
+    const data = p.dashboardSnapshot
+      ? p.dashboardSnapshot({ field: this.overviewField, weeks: 12, today: new Date() })
+      : buildDashboard({
+          questions,
+          cards,
+          frq,
+          gradebook,
+          assignments: gradebook ? gradebook.summary : null,
+          studyLog: p.settings.studyLog,
+          confidenceLabels: p.settings.confidenceLabels,
+          field: this.overviewField,
+          today: new Date(),
+        });
     const o = data.overall;
     const activeDays = data.heatmap.reduce((n, week) => n + week.days.filter((d) => !d.future && (d.minutes || d.attempts)).length, 0);
     const studyMinutes = data.heatmap.reduce((n, week) => n + week.days.reduce((m, d) => m + d.minutes, 0), 0);
@@ -219,8 +221,12 @@ class InsightsView extends ItemView {
     const scopes = masteryScopes(questions);
     if (this.masteryScope && !scopes.some((scope) => scope.toLowerCase() === this.masteryScope.toLowerCase())) this.masteryScope = "";
     const frq = p.getFrqKnowledge ? p.getFrqKnowledge() : null;
-    const progress = buildProgress({ questions, cards, frq, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays });
-    const dash = buildDashboard({ questions, cards, studyLog, field: this.overviewField, today: now, weeks: this.progressWeeks });
+    const progress = p.progressSnapshot
+      ? p.progressSnapshot({ weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays, today: now })
+      : buildProgress({ questions, cards, frq, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays });
+    const dash = p.dashboardSnapshot
+      ? p.dashboardSnapshot({ field: this.overviewField, today: now, weeks: this.progressWeeks })
+      : buildDashboard({ questions, cards, studyLog, field: this.overviewField, today: now, weeks: this.progressWeeks });
     if (!questions.length && !cards.length && !progress.study.weekMinutes && !progress.frq.attempts) {
       root.createDiv({
         cls: "qt-empty",

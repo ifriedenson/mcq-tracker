@@ -9,6 +9,8 @@ const { computeStats, creditSummary, overallStats, parseHistory, weakestRow } = 
 const { studySummary } = require("./focus");
 const { courseKey, knowledgeSummary } = require("./analytics");
 const { creditOf } = require("./history");
+const fsrs = require("./fsrs");
+const fsrsLib = require("./fsrs-lib");
 
 /** Mastery bands for one question, weakest first. Untried notes stay visible at the start. */
 const MASTERY_BANDS = [
@@ -85,11 +87,40 @@ function accuracyOf(question, options) {
   return summary.attempts ? summary.credit / summary.attempts : null;
 }
 
-/** untried | weak (<60%) | developing (60–79%) | strong (80–99%) | mastered (100%). */
+/**
+ * Current FSRS recall for a question, when its scheduler is FSRS and the stored
+ * state has a stability estimate. Non-FSRS notes return null rather than a
+ * guessed value, so the ladder/SM-2 behavior stays exactly as it was.
+ */
+function memoryOf(question, options) {
+  const opts = options || {};
+  const fm = question && question.fm;
+  if (!fm || fm.scheduler !== "fsrs") return null;
+  const state = fsrs.decodeSrs(fm.srs);
+  if (!state || !(state.stability > 0) || !(state.last_review instanceof Date)) return null;
+  const today = normalizeDay(opts.today);
+  const at = new Date(`${today}T12:00:00`);
+  if (isNaN(at.getTime())) return null;
+  const elapsed = Math.max(0, (at.getTime() - state.last_review.getTime()) / 86400000);
+  const retrievability = fsrsLib.forgetting_curve(fsrsLib.default_w, elapsed, state.stability);
+  return {
+    retrievability: Math.max(0, Math.min(1, Number(retrievability) || 0)),
+    stability: state.stability,
+    elapsedDays: Math.round(elapsed * 100) / 100,
+    lastReview: dayKey(state.last_review),
+  };
+}
+
+/**
+ * untried | weak (<60%) | developing (60–79%) | strong (80–99%) | mastered
+ * (100% and current FSRS recall at least 90%). FSRS memory can hold a perfect
+ * historical score at Strong; it never promotes a weaker accuracy band.
+ */
 function masteryBandOf(question, options) {
   const accuracy = accuracyOf(question, options);
   if (accuracy === null) return "untried";
-  if (accuracy >= 1) return "mastered";
+  const memory = memoryOf(question, options);
+  if (accuracy >= 1) return memory && memory.retrievability < 0.9 ? "strong" : "mastered";
   if (accuracy >= 0.8) return "strong";
   if (accuracy >= 0.6) return "developing";
   return "weak";
@@ -102,9 +133,15 @@ function buildMastery(questions, options) {
   const days = masteryWindowDays(opts.days);
   const today = normalizeDay(opts.today);
   const counts = new Map(MASTERY_BANDS.map((band) => [band.id, 0]));
+  let memoryAware = 0;
+  let memoryHeld = 0;
   for (const question of list) {
     const id = masteryBandOf(question, { days, today });
     counts.set(id, (counts.get(id) || 0) + 1);
+    const memory = memoryOf(question, { today });
+    if (!memory) continue;
+    memoryAware++;
+    if (accuracyOf(question, { days, today }) >= 1 && memory.retrievability < 0.9) memoryHeld++;
   }
   const total = list.length;
   const bands = MASTERY_BANDS.map((band) => {
@@ -113,7 +150,16 @@ function buildMastery(questions, options) {
     return { id: band.id, label, count, pct: total ? count / total : 0 };
   });
   const tried = total - (counts.get("untried") || 0);
-  return { total, tried, mastered: counts.get("mastered") || 0, bands, days, since: days ? masterySince(today, days) : "" };
+  return {
+    total,
+    tried,
+    mastered: counts.get("mastered") || 0,
+    bands,
+    days,
+    since: days ? masterySince(today, days) : "",
+    memoryAware,
+    memoryHeld,
+  };
 }
 
 /**
@@ -337,6 +383,7 @@ module.exports = {
   buildWeeks,
   masteryBandOf,
   masteryScopes,
+  memoryOf,
   masteryWindowDays,
   scopeQuestions,
 };

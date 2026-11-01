@@ -2228,6 +2228,12 @@ function renderMastery(container, data, hooks, controls) {
         ? `No questions in ${scope} yet.`
         : "No question notes yet.",
   });
+  if (mastery.memoryAware) {
+    container.createDiv({
+      cls: "qt-hint",
+      text: `${mastery.memoryAware} question${mastery.memoryAware === 1 ? "" : "s"} use FSRS memory. Mastered needs 100% practice accuracy and at least 90% current recall; ${mastery.memoryHeld} perfect score${mastery.memoryHeld === 1 ? " is" : "s are"} held at Strong by lower recall.`,
+    });
+  }
   if (controls) controls(container);
   if (!mastery.total) return;
   const stack = container.createDiv({ cls: "qt-progress-stack" });
@@ -9065,10 +9071,15 @@ function nextExamForCourse(events, course, now) {
 }
 
 /**
- * The date an item should be brought forward to so it is reviewed before the
- * exam. This is the day before the exam, never earlier than the attempt day:
- * an exam today can only be reviewed today.
+ * A graduated pre-exam ramp: T-14, T-7, T-3 and T-1. An item whose next review
+ * would land after the exam is pulled to the next checkpoint, so a long interval
+ * becomes several retrieval opportunities instead of one day-before cram. A
+ * checkpoint that is already today is skipped; the attempt being recorded is
+ * itself the review for that day, and forcing a second same-day review would
+ * only create an immediate due item.
  */
+const EXAM_CAP_DAYS = [14, 7, 3, 1];
+
 function examReviewCap(event, now) {
   if (!event) return null;
   const at = now || new Date();
@@ -9079,13 +9090,18 @@ function examReviewCap(event, now) {
     : parsedDay;
   if (!examDay || isNaN(examDay.getTime())) return null;
   if (examDay < today) return null;
-  const dayBefore = new Date(examDay.getFullYear(), examDay.getMonth(), examDay.getDate() - 1);
-  const capDay = dayBefore < today ? today : dayBefore;
-  return {
-    date: dateKey(capDay),
-    examDate: dateKey(examDay),
-    name: str(event.summary).trim() || "Exam",
-  };
+  for (const offsetDays of EXAM_CAP_DAYS) {
+    const checkpoint = new Date(examDay.getFullYear(), examDay.getMonth(), examDay.getDate() - offsetDays);
+    if (checkpoint <= today) continue;
+    return {
+      date: dateKey(checkpoint),
+      examDate: dateKey(examDay),
+      name: str(event.summary).trim() || "Exam",
+      stage: `T-${offsetDays}`,
+      offsetDays,
+    };
+  }
+  return null;
 }
 
 /* ---------------------------------------------------- folder + note paths */
@@ -9174,6 +9190,7 @@ module.exports = {
   upcomingExams,
   examMatchesCourse,
   nextExamForCourse,
+  EXAM_CAP_DAYS,
   examReviewCap,
   eventKey,
   normalizeExamOverrides,
@@ -31120,17 +31137,19 @@ class InsightsView extends ItemView {
     const cards = p.getCards ? p.getCards() : [];
     const frq = p.getFrqKnowledge ? p.getFrqKnowledge() : null;
     const gradebook = p.assignmentStats ? p.assignmentStats() : null;
-    const data = buildDashboard({
-      questions,
-      cards,
-      frq,
-      gradebook,
-      assignments: gradebook ? gradebook.summary : null,
-      studyLog: p.settings.studyLog,
-      confidenceLabels: p.settings.confidenceLabels,
-      field: this.overviewField,
-      today: new Date(),
-    });
+    const data = p.dashboardSnapshot
+      ? p.dashboardSnapshot({ field: this.overviewField, weeks: 12, today: new Date() })
+      : buildDashboard({
+          questions,
+          cards,
+          frq,
+          gradebook,
+          assignments: gradebook ? gradebook.summary : null,
+          studyLog: p.settings.studyLog,
+          confidenceLabels: p.settings.confidenceLabels,
+          field: this.overviewField,
+          today: new Date(),
+        });
     const o = data.overall;
     const activeDays = data.heatmap.reduce((n, week) => n + week.days.filter((d) => !d.future && (d.minutes || d.attempts)).length, 0);
     const studyMinutes = data.heatmap.reduce((n, week) => n + week.days.reduce((m, d) => m + d.minutes, 0), 0);
@@ -31232,8 +31251,12 @@ class InsightsView extends ItemView {
     const scopes = masteryScopes(questions);
     if (this.masteryScope && !scopes.some((scope) => scope.toLowerCase() === this.masteryScope.toLowerCase())) this.masteryScope = "";
     const frq = p.getFrqKnowledge ? p.getFrqKnowledge() : null;
-    const progress = buildProgress({ questions, cards, frq, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays });
-    const dash = buildDashboard({ questions, cards, studyLog, field: this.overviewField, today: now, weeks: this.progressWeeks });
+    const progress = p.progressSnapshot
+      ? p.progressSnapshot({ weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays, today: now })
+      : buildProgress({ questions, cards, frq, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays });
+    const dash = p.dashboardSnapshot
+      ? p.dashboardSnapshot({ field: this.overviewField, today: now, weeks: this.progressWeeks })
+      : buildDashboard({ questions, cards, studyLog, field: this.overviewField, today: now, weeks: this.progressWeeks });
     if (!questions.length && !cards.length && !progress.study.weekMinutes && !progress.frq.attempts) {
       root.createDiv({
         cls: "qt-empty",
@@ -35013,12 +35036,14 @@ function clearExamCap(fm) {
 /**
  * Never extends an interval. If the scheduler put the next review after the
  * exam, move it to the cap date and record why so later reviews can show it.
+ * A cap equal to today is ignored: this attempt already happened on the last
+ * ramp checkpoint, so a second same-day review is not useful.
  */
 function applyExamCap(fm, nextReview, examCap, now) {
   const scheduled = str(nextReview).trim();
   const capDate = str(examCap && examCap.date).trim().slice(0, 10);
   const today = fmtDate(now);
-  const valid = /^\d{4}-\d{2}-\d{2}$/.test(capDate) && (!today || capDate >= today);
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(capDate) && (!today || capDate > today);
   if (!valid || !scheduled || scheduled <= capDate) {
     clearExamCap(fm);
     return null;
@@ -35026,7 +35051,7 @@ function applyExamCap(fm, nextReview, examCap, now) {
   fm.exam_cap = capDate;
   fm.exam_cap_name = str(examCap.name || "Exam").slice(0, 200);
   if (examCap.examDate) fm.exam_cap_exam_date = str(examCap.examDate).slice(0, 10);
-  return { date: capDate, examDate: str(examCap.examDate).slice(0, 10), name: fm.exam_cap_name };
+  return { date: capDate, examDate: str(examCap.examDate).slice(0, 10), name: fm.exam_cap_name, stage: str(examCap.stage), offsetDays: Number(examCap.offsetDays) || 0 };
 }
 
 /** Mutates `fm` (inside processFrontMatter). Returns a summary. */
@@ -40638,7 +40663,7 @@ const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, p
 const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, isExamEvent, mergeCalendarSettings, nextClassStatus, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan, normalizeStudyPlanDays } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
-const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
+const { bandQuestions, buildMastery, buildMasteryTrend, buildProgress, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
 const { parseDashboardBlock, renderDashboardEmbed } = require("./analytics-embed");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { addResourceLink, classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
@@ -40716,6 +40741,8 @@ const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttemp
 const { NoteReviewModal } = require("./note-review-modal");
 const reviewCalendar = require("./review-calendar");
 const studyStats = require("./study-stats");
+const snapshotCache = require("./snapshot-cache");
+const quizDedup = require("./quiz-dedup");
 const localEvents = require("./local-events");
 const noteReviewDock = require("./note-review-dock");
 const sessionReport = require("./session-report");
@@ -40776,6 +40803,8 @@ class QuestionTrackerPlugin extends Plugin {
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
     this._calendarCache = null;
+    this._dataVersion = 0;
+    this._snapshots = snapshotCache.createSnapshotCache({ limit: 12 });
     this._pendingCardGradeFlush = null;
     this._aiRun = { startedAt: 0, requests: 0 };
     this.agentEditUndo = null;
@@ -41542,7 +41571,19 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   save() {
+    this.invalidateSnapshots();
     return this.saveData(this.settings);
+  }
+
+  /** Any settings or vault change makes every cached dashboard snapshot stale. */
+  invalidateSnapshots() {
+    this._dataVersion = (Number(this._dataVersion) || 0) + 1;
+    if (this._snapshots) this._snapshots.clear();
+  }
+
+  snapshot(key, build) {
+    if (!this._snapshots) return build();
+    return this._snapshots.get(key, Number(this._dataVersion) || 0, build);
   }
 
   /** Phones always use the direct API (OpenCode can't run there); desktop follows the setting. */
@@ -41878,6 +41919,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   refreshViews() {
+    this.invalidateSnapshots();
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
@@ -42417,6 +42459,7 @@ class QuestionTrackerPlugin extends Plugin {
   invalidateCalendarNotes() {
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
+    this.invalidateSnapshots();
   }
 
   /** Finds the existing note for a class occurrence, if there is one. */
@@ -44615,9 +44658,27 @@ class QuestionTrackerPlugin extends Plugin {
     const paths = [];
     const errors = [];
     const aiGenerated = opts.ai === true || opts.aiGenerated === true || list.some((item) => item && (item.aiGenerated || item.verification));
-    if (!list.length) return { created: 0, paths, errors: ["There are no questions to write."] };
+    if (!list.length) return { created: 0, paths, errors: ["There are no questions to write."], duplicates: 0 };
     await ensureFolder(this.app, folder);
-    for (const item of list) {
+    let duplicates = 0;
+    let pending = list;
+    if (aiGenerated) {
+      // Only generated drafts are deduplicated against the vault. Manual Quick
+      // add intentionally allows the same prompt twice when the learner asks.
+      const existing = [];
+      for (const question of this.getQuestions()) {
+        try {
+          const sections = parseSections(await this.app.vault.cachedRead(question.file));
+          if (sections.question) existing.push(sections.question);
+        } catch (e) {
+          /* an unreadable question must not block generation */
+        }
+      }
+      const unique = quizDedup.uniqueQuestionDrafts(list, existing);
+      pending = unique.items;
+      duplicates = unique.skipped.length;
+    }
+    for (const item of pending) {
       // One note per question, titled from the question text like AI drafts; a
       // repeated title gets a numbered suffix so nothing is overwritten.
       const title = quickAddTitle(item.question);
@@ -44646,7 +44707,7 @@ class QuestionTrackerPlugin extends Plugin {
       }));
     }
     if (paths.length) this.refreshViews();
-    return { created: paths.length, paths, errors };
+    return { created: paths.length, paths, errors, duplicates };
   }
 
   /** Write every question and card, unchanged, into one portable ZIP backup. */
@@ -46270,16 +46331,69 @@ ${body}
     return this.addFolderToReview(file.parent.path);
   }
 
-  studyStatsSnapshot() {
-    return studyStats.buildStudyStats({
-      cards: this.getCards(),
-      questions: this.getQuestions(),
-      notes: this.getNoteCandidates(),
-      counters: this.settings.studyCounters,
-      settings: this.settings.studyStats,
-      fsrsRetention: this.settings.fsrsRetention,
-      now: new Date(),
+  studyStatsSnapshot(now) {
+    const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+    return this.snapshot(`study-stats|${localDate(at)}`, () =>
+      studyStats.buildStudyStats({
+        cards: this.getCards(),
+        questions: this.getQuestions(),
+        notes: this.getNoteCandidates(),
+        counters: this.settings.studyCounters,
+        settings: this.settings.studyStats,
+        fsrsRetention: this.settings.fsrsRetention,
+        now: at,
+      })
+    );
+  }
+
+  /** Cached dashboard aggregation. The caller only chooses presentation options. */
+  dashboardSnapshot(options) {
+    const opts = options || {};
+    const at = opts.today instanceof Date && !isNaN(opts.today.getTime()) ? opts.today : new Date();
+    const field = ["skill", "domain", "difficulty"].includes(opts.field) ? opts.field : "skill";
+    const weeks = Math.max(1, Math.min(26, Math.round(Number(opts.weeks) || 12)));
+    const course = str(opts.course).trim();
+    const key = `dashboard|${localDate(at)}|${field}|${weeks}|${course}|${opts.retentionWeeks || 8}|${opts.forwardDays || 7}`;
+    return this.snapshot(key, () => {
+      const gradebook = this.assignmentStats ? this.assignmentStats() : null;
+      return buildDashboard({
+        questions: this.getQuestions(),
+        cards: this.getCards ? this.getCards() : [],
+        frq: this.getFrqKnowledge ? this.getFrqKnowledge() : null,
+        gradebook,
+        assignments: gradebook ? gradebook.summary : null,
+        studyLog: this.settings.studyLog,
+        confidenceLabels: this.settings.confidenceLabels,
+        field,
+        course,
+        weeks,
+        retentionWeeks: opts.retentionWeeks,
+        forwardDays: opts.forwardDays,
+        today: at,
+      });
     });
+  }
+
+  /** Cached goal/mastery snapshot used by the Progress tab and its embedded cards. */
+  progressSnapshot(options) {
+    const opts = options || {};
+    const at = opts.today instanceof Date && !isNaN(opts.today.getTime()) ? opts.today : new Date();
+    const weeks = Math.max(1, Math.min(26, Math.round(Number(opts.weeks) || 12)));
+    const scope = str(opts.masteryScope).trim();
+    const days = masteryWindowDays(opts.masteryDays);
+    const key = `progress|${localDate(at)}|${weeks}|${scope}|${days}`;
+    return this.snapshot(key, () =>
+      buildProgress({
+        questions: this.getQuestions(),
+        cards: this.getCards ? this.getCards() : [],
+        frq: this.getFrqKnowledge ? this.getFrqKnowledge() : null,
+        studyLog: this.settings.studyLog,
+        today: at,
+        weeks,
+        masteryScope: scope,
+        masteryDays: days,
+      })
+    );
   }
 
   async recordStudyCounter(entry) {
@@ -52729,6 +52843,8 @@ const { computeStats, creditSummary, overallStats, parseHistory, weakestRow } = 
 const { studySummary } = require("./focus");
 const { courseKey, knowledgeSummary } = require("./analytics");
 const { creditOf } = require("./history");
+const fsrs = require("./fsrs");
+const fsrsLib = require("./fsrs-lib");
 
 /** Mastery bands for one question, weakest first. Untried notes stay visible at the start. */
 const MASTERY_BANDS = [
@@ -52805,11 +52921,40 @@ function accuracyOf(question, options) {
   return summary.attempts ? summary.credit / summary.attempts : null;
 }
 
-/** untried | weak (<60%) | developing (60–79%) | strong (80–99%) | mastered (100%). */
+/**
+ * Current FSRS recall for a question, when its scheduler is FSRS and the stored
+ * state has a stability estimate. Non-FSRS notes return null rather than a
+ * guessed value, so the ladder/SM-2 behavior stays exactly as it was.
+ */
+function memoryOf(question, options) {
+  const opts = options || {};
+  const fm = question && question.fm;
+  if (!fm || fm.scheduler !== "fsrs") return null;
+  const state = fsrs.decodeSrs(fm.srs);
+  if (!state || !(state.stability > 0) || !(state.last_review instanceof Date)) return null;
+  const today = normalizeDay(opts.today);
+  const at = new Date(`${today}T12:00:00`);
+  if (isNaN(at.getTime())) return null;
+  const elapsed = Math.max(0, (at.getTime() - state.last_review.getTime()) / 86400000);
+  const retrievability = fsrsLib.forgetting_curve(fsrsLib.default_w, elapsed, state.stability);
+  return {
+    retrievability: Math.max(0, Math.min(1, Number(retrievability) || 0)),
+    stability: state.stability,
+    elapsedDays: Math.round(elapsed * 100) / 100,
+    lastReview: dayKey(state.last_review),
+  };
+}
+
+/**
+ * untried | weak (<60%) | developing (60–79%) | strong (80–99%) | mastered
+ * (100% and current FSRS recall at least 90%). FSRS memory can hold a perfect
+ * historical score at Strong; it never promotes a weaker accuracy band.
+ */
 function masteryBandOf(question, options) {
   const accuracy = accuracyOf(question, options);
   if (accuracy === null) return "untried";
-  if (accuracy >= 1) return "mastered";
+  const memory = memoryOf(question, options);
+  if (accuracy >= 1) return memory && memory.retrievability < 0.9 ? "strong" : "mastered";
   if (accuracy >= 0.8) return "strong";
   if (accuracy >= 0.6) return "developing";
   return "weak";
@@ -52822,9 +52967,15 @@ function buildMastery(questions, options) {
   const days = masteryWindowDays(opts.days);
   const today = normalizeDay(opts.today);
   const counts = new Map(MASTERY_BANDS.map((band) => [band.id, 0]));
+  let memoryAware = 0;
+  let memoryHeld = 0;
   for (const question of list) {
     const id = masteryBandOf(question, { days, today });
     counts.set(id, (counts.get(id) || 0) + 1);
+    const memory = memoryOf(question, { today });
+    if (!memory) continue;
+    memoryAware++;
+    if (accuracyOf(question, { days, today }) >= 1 && memory.retrievability < 0.9) memoryHeld++;
   }
   const total = list.length;
   const bands = MASTERY_BANDS.map((band) => {
@@ -52833,7 +52984,16 @@ function buildMastery(questions, options) {
     return { id: band.id, label, count, pct: total ? count / total : 0 };
   });
   const tried = total - (counts.get("untried") || 0);
-  return { total, tried, mastered: counts.get("mastered") || 0, bands, days, since: days ? masterySince(today, days) : "" };
+  return {
+    total,
+    tried,
+    mastered: counts.get("mastered") || 0,
+    bands,
+    days,
+    since: days ? masterySince(today, days) : "",
+    memoryAware,
+    memoryHeld,
+  };
 }
 
 /**
@@ -53057,6 +53217,7 @@ module.exports = {
   buildWeeks,
   masteryBandOf,
   masteryScopes,
+  memoryOf,
   masteryWindowDays,
   scopeQuestions,
 };
@@ -54626,6 +54787,45 @@ function noteQuizToQuickAdd(text) {
 }
 
 module.exports = { noteQuizToQuickAdd, parseNoteQuizFields };
+};
+
+/* ---- src/quiz-dedup.js ---- */
+__defs["quiz-dedup"] = function (module, exports, require) {
+/*
+ * Generated quizzes should not add a second note for a question the vault
+ * already contains. Stems are compared after stripping markup, punctuation and
+ * case, so "Pick the gases." and "pick the gases" are the same prompt. The
+ * helper is pure; plugin.js supplies the existing questions.
+ */
+const { str } = require("./util");
+
+function normalizeQuestionStem(value) {
+  return str(value)
+    .toLowerCase()
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Keep the first draft for each normalized stem and report the skipped copies. */
+function uniqueQuestionDrafts(items, existingStems) {
+  const seen = new Set((Array.isArray(existingStems) ? existingStems : []).map(normalizeQuestionStem).filter(Boolean));
+  const kept = [];
+  const skipped = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const stem = normalizeQuestionStem(item && item.question);
+    if (stem && seen.has(stem)) {
+      skipped.push(item);
+      continue;
+    }
+    if (stem) seen.add(stem);
+    kept.push(item);
+  }
+  return { items: kept, skipped };
+}
+
+module.exports = { normalizeQuestionStem, uniqueQuestionDrafts };
 };
 
 /* ---- src/quiz-generator.js ---- */
@@ -65656,6 +65856,55 @@ module.exports = {
 };
 };
 
+/* ---- src/snapshot-cache.js ---- */
+__defs["snapshot-cache"] = function (module, exports, require) {
+/*
+ * A bounded in-memory cache for derived, read-only view snapshots. Callers pass
+ * a data version; any save or vault change bumps it and makes every entry stale.
+ * The oldest entry is evicted first, so a long session cannot grow without end.
+ */
+function createSnapshotCache(options) {
+  const opts = options || {};
+  const limit = Math.max(1, Math.min(64, Math.round(Number(opts.limit) || 8)));
+  const entries = new Map();
+  let hits = 0;
+  let misses = 0;
+
+  function get(key, version, build) {
+    const id = String(key);
+    const hit = entries.get(id);
+    if (hit && hit.version === version) {
+      hits++;
+      // Refresh insertion order for a true least-recently-used eviction.
+      entries.delete(id);
+      entries.set(id, hit);
+      return hit.value;
+    }
+    misses++;
+    const value = build();
+    entries.delete(id);
+    entries.set(id, { version, value });
+    while (entries.size > limit) entries.delete(entries.keys().next().value);
+    return value;
+  }
+
+  return {
+    get,
+    clear() {
+      entries.clear();
+    },
+    get size() {
+      return entries.size;
+    },
+    stats() {
+      return { size: entries.size, limit, hits, misses };
+    },
+  };
+}
+
+module.exports = { createSnapshotCache };
+};
+
 /* ---- src/source-recall.js ---- */
 __defs["source-recall"] = function (module, exports, require) {
 /*
@@ -68908,6 +69157,7 @@ function reviewRow(source, entry, maturity, interval, rating) {
     when: str(entry.when),
     correct: entry.result === "correct",
     seconds: Number(entry.seconds) || 0,
+    target: Math.max(0, Number(source.fm && source.fm.target_seconds) || 0),
     maturity,
     rating: RATINGS.includes(str(rating)) ? str(rating) : entry.result === "correct" ? "good" : "again",
     interval: Math.max(0, Number(interval) || 0),
@@ -69011,6 +69261,50 @@ function distribution(values, edges, labels) {
     median = Math.round(median * 100) / 100;
   }
   return { buckets, total, min: list.length ? list[0] : null, max: list.length ? list[list.length - 1] : null, median };
+}
+
+/**
+ * Time-on-answer for every review row that recorded seconds. Slow means over
+ * 1.5× the note's target_seconds; rows without a target are timed but cannot be
+ * judged slow, so they are reported separately instead of being guessed.
+ */
+function timingMetrics(rows) {
+  const list = (Array.isArray(rows) ? rows : []).filter((row) => row && Number(row.seconds) > 0);
+  const seconds = distribution(
+    list.map((row) => Number(row.seconds)),
+    [10, 30, 60, 120, 300],
+    ["<10s", "10–30s", "30–60s", "60–120s", "2–5m", "5m+"]
+  );
+  const targeted = list.filter((row) => Number(row.target) > 0);
+  const slowRows = targeted
+    .filter((row) => Number(row.seconds) > Number(row.target) * 1.5)
+    .sort((a, b) => b.seconds / b.target - a.seconds / a.target)
+    .slice(0, 10)
+    .map((row) => ({
+      path: row.path,
+      title: row.title,
+      date: row.date,
+      seconds: row.seconds,
+      target: row.target,
+      ratio: Math.round((row.seconds / row.target) * 100) / 100,
+    }));
+  const fast = targeted.filter((row) => Number(row.seconds) <= Number(row.target) * 0.75).length;
+  const totalSeconds = list.reduce((sum, row) => sum + Number(row.seconds), 0);
+  return {
+    seconds,
+    averageSeconds: list.length ? Math.round((totalSeconds / list.length) * 10) / 10 : null,
+    medianSeconds: seconds.median,
+    targeted: targeted.length,
+    slow: {
+      count: targeted.filter((row) => Number(row.seconds) > Number(row.target) * 1.5).length,
+      total: targeted.length,
+      share: targeted.length ? targeted.filter((row) => Number(row.seconds) > Number(row.target) * 1.5).length / targeted.length : null,
+      threshold: 1.5,
+      rows: slowRows,
+    },
+    fast,
+    fastShare: targeted.length ? fast / targeted.length : null,
+  };
 }
 
 function emptyRatingMix() {
@@ -69151,6 +69445,7 @@ function buildStudyStats(input) {
   const rows = [...cardRows, ...historyRows(questions, "question"), ...historyRows(notes, "note")].sort((a, b) => b.when.localeCompare(a.when));
   const retention = retentionByMaturity(cardRows);
   const metrics = cardMetrics(cards, now);
+  const timing = timingMetrics(rows);
   const days = dayDetail(rows);
   const counters = normalizeStudyCounters(opts.counters);
   return {
@@ -69158,6 +69453,7 @@ function buildStudyStats(input) {
     cardRows,
     retention,
     metrics,
+    timing,
     weekday: weekdayRhythm(rows),
     days,
     decks: deckBreakdown(cards, { ...settings, fsrsRetention: opts.fsrsRetention }),
@@ -69196,6 +69492,7 @@ module.exports = {
   maturityOf,
   normalizeStudyStatsSettings,
   retentionByMaturity,
+  timingMetrics,
   weekdayRhythm,
 };
 };
@@ -69218,6 +69515,7 @@ function formatMedian(value, key) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "—";
   const text = String(Math.round(number * 100) / 100);
+  if (key === "seconds") return `${text}s`;
   return key === "intervals" || key === "stability" ? `${text}d` : text;
 }
 
@@ -69452,6 +69750,7 @@ class StudyStatsView extends ItemView {
     card.createEl("h3", { text: "Distributions" });
     const grid = card.createDiv({ cls: "qt-study-stats-grid" });
     for (const [key, label] of [
+      ["seconds", "Answer time"],
       ["intervals", "Interval"],
       ["ease", "Ease"],
       ["stability", "FSRS stability"],
@@ -69459,7 +69758,7 @@ class StudyStatsView extends ItemView {
     ]) {
       const block = grid.createDiv({ cls: "qt-study-stats-dist" });
       block.createDiv({ cls: "qt-study-stats-dist-title", text: label });
-      const dist = data.metrics[key];
+      const dist = key === "seconds" ? data.timing && data.timing.seconds : data.metrics[key];
       if (!dist || !dist.total) {
         block.createDiv({ cls: "qt-study-empty", text: "No data yet." });
         continue;
@@ -69474,6 +69773,24 @@ class StudyStatsView extends ItemView {
         bar(row, bucket.count, max, "is-dist");
         row.createSpan({ cls: "qt-study-stats-dist-count", text: String(bucket.count) });
       }
+    }
+    const timing = data.timing;
+    if (timing && timing.targeted) {
+      card.createDiv({
+        cls: "qt-hint",
+        text: `${timing.slow.count} of ${timing.targeted} timed answer${timing.targeted === 1 ? "" : "s"} went over ${timing.slow.threshold}× target (${pct(timing.slow.share)}). Average ${timing.averageSeconds}s; ${timing.fast} were at or under 75% of target.`,
+      });
+      if (timing.slow.rows.length) {
+        const list = card.createDiv({ cls: "qt-study-list" });
+        for (const row of timing.slow.rows.slice(0, 5)) {
+          list.createDiv({
+            cls: "qt-study-row-meta",
+            text: `${row.title || row.path} · ${row.seconds}s against ${row.target}s target (${row.ratio}×) · ${row.date}`,
+          });
+        }
+      }
+    } else {
+      card.createDiv({ cls: "qt-hint", text: "Set target_seconds on a note to flag slow answers; timed reviews are counted even without a target." });
     }
   }
 
@@ -78509,6 +78826,8 @@ QuestionTrackerPlugin.__test = {
   noteReview,
   reviewCalendar,
   studyStats,
+  snapshotCache: require("./snapshot-cache"),
+  quizDedup: require("./quiz-dedup"),
   localEvents,
   noteReviewDock,
   sessionReport,
@@ -78624,6 +78943,7 @@ QuestionTrackerPlugin.__test = {
   buildMasteryTrend: progress.buildMasteryTrend,
   masteryTrendText: progress.masteryTrendText,
   masteryBandOf: progress.masteryBandOf,
+  memoryOf: progress.memoryOf,
   masteryWindowDays: progress.masteryWindowDays,
   masteryScopes: progress.masteryScopes,
   scopeQuestions: progress.scopeQuestions,

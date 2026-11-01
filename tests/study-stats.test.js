@@ -155,3 +155,47 @@ test("again rate is split by card maturity from replayed card rows", () => {
   assert.equal(mix.byMaturity.young.againRate, 1 / 3);
   assert.equal(mix.byMaturity.learning.total, 0);
 });
+
+test("timing metrics bucket seconds and flag answers over 1.5x target", () => {
+  const timing = S.timingMetrics([
+    { path: "Q/a.md", title: "A", date: "2026-11-01", seconds: 5, target: 20 },
+    { path: "Q/b.md", title: "B", date: "2026-11-01", seconds: 40, target: 10 },
+    { path: "Q/c.md", title: "C", date: "2026-11-01", seconds: 90, target: 0 },
+  ]);
+  assert.equal(timing.seconds.total, 3);
+  assert.deepEqual(timing.seconds.buckets.map((bucket) => bucket.count), [1, 0, 1, 1, 0, 0]);
+  assert.equal(timing.averageSeconds, 45);
+  assert.equal(timing.medianSeconds, 40);
+  assert.equal(timing.targeted, 2);
+  assert.equal(timing.slow.count, 1);
+  assert.equal(timing.slow.share, 0.5);
+  assert.equal(timing.slow.rows[0].title, "B");
+  assert.equal(timing.slow.rows[0].ratio, 4);
+  assert.equal(timing.fast, 1);
+});
+
+test("buildStudyStats exposes answer-time and slow-answer analytics on real rows", () => {
+  const card = {
+    file: { path: "Cards/One.md", basename: "One" },
+    fm: { title: "One", target_seconds: 20, history: ["2026-11-01|correct|5|B|2||card-one|"] },
+    deck: "Deck",
+  };
+  const question = {
+    file: { path: "Questions/q.md", basename: "q" },
+    fm: { title: "Question", target_seconds: 10, history: ["2026-11-01|correct|40|B|2||q|"] },
+  };
+  const data = S.buildStudyStats({
+    cards: [card],
+    questions: [question],
+    notes: [],
+    now: new Date(2026, 10, 1, 12),
+    settings: { heatmapWeeks: 4 },
+    fsrsRetention: 0.9,
+  });
+  assert.equal(data.timing.seconds.total, 2);
+  assert.equal(data.timing.slow.count, 1);
+  assert.equal(data.timing.slow.total, 2);
+  assert.equal(data.timing.slow.share, 0.5);
+  assert.equal(data.timing.slow.rows[0].path, "Questions/q.md");
+  assert.equal(data.timing.averageSeconds, 22.5);
+});

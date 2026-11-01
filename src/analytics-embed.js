@@ -293,6 +293,12 @@ function renderMastery(container, data, hooks, controls) {
         ? `No questions in ${scope} yet.`
         : "No question notes yet.",
   });
+  if (mastery.memoryAware) {
+    container.createDiv({
+      cls: "qt-hint",
+      text: `${mastery.memoryAware} question${mastery.memoryAware === 1 ? "" : "s"} use FSRS memory. Mastered needs 100% practice accuracy and at least 90% current recall; ${mastery.memoryHeld} perfect score${mastery.memoryHeld === 1 ? " is" : "s are"} held at Strong by lower recall.`,
+    });
+  }
   if (controls) controls(container);
   if (!mastery.total) return;
   const stack = container.createDiv({ cls: "qt-progress-stack" });

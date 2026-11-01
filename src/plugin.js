@@ -66,7 +66,7 @@ const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, p
 const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, isExamEvent, mergeCalendarSettings, nextClassStatus, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
 const { buildStudyPlan, normalizeStudyPlanDays } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
-const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
+const { bandQuestions, buildMastery, buildMasteryTrend, buildProgress, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
 const { parseDashboardBlock, renderDashboardEmbed } = require("./analytics-embed");
 const { dateKey, deriveSourceLabel, expandIcs, exportIcs, icsLooksValid, normalizeCalendarUrl, parseIcs } = require("./calendar-ics");
 const { addResourceLink, classNoteIndex, findClassNote, openOrCreateClassNote, vaultFolders } = require("./calendar-notes");
@@ -144,6 +144,8 @@ const { buildNoteQueue, normalizeNoteReview, normalizePriority, noteReviewAttemp
 const { NoteReviewModal } = require("./note-review-modal");
 const reviewCalendar = require("./review-calendar");
 const studyStats = require("./study-stats");
+const snapshotCache = require("./snapshot-cache");
+const quizDedup = require("./quiz-dedup");
 const localEvents = require("./local-events");
 const noteReviewDock = require("./note-review-dock");
 const sessionReport = require("./session-report");
@@ -204,6 +206,8 @@ class QuestionTrackerPlugin extends Plugin {
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
     this._calendarCache = null;
+    this._dataVersion = 0;
+    this._snapshots = snapshotCache.createSnapshotCache({ limit: 12 });
     this._pendingCardGradeFlush = null;
     this._aiRun = { startedAt: 0, requests: 0 };
     this.agentEditUndo = null;
@@ -970,7 +974,19 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   save() {
+    this.invalidateSnapshots();
     return this.saveData(this.settings);
+  }
+
+  /** Any settings or vault change makes every cached dashboard snapshot stale. */
+  invalidateSnapshots() {
+    this._dataVersion = (Number(this._dataVersion) || 0) + 1;
+    if (this._snapshots) this._snapshots.clear();
+  }
+
+  snapshot(key, build) {
+    if (!this._snapshots) return build();
+    return this._snapshots.get(key, Number(this._dataVersion) || 0, build);
   }
 
   /** Phones always use the direct API (OpenCode can't run there); desktop follows the setting. */
@@ -1306,6 +1322,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   refreshViews() {
+    this.invalidateSnapshots();
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
@@ -1845,6 +1862,7 @@ class QuestionTrackerPlugin extends Plugin {
   invalidateCalendarNotes() {
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
+    this.invalidateSnapshots();
   }
 
   /** Finds the existing note for a class occurrence, if there is one. */
@@ -4043,9 +4061,27 @@ class QuestionTrackerPlugin extends Plugin {
     const paths = [];
     const errors = [];
     const aiGenerated = opts.ai === true || opts.aiGenerated === true || list.some((item) => item && (item.aiGenerated || item.verification));
-    if (!list.length) return { created: 0, paths, errors: ["There are no questions to write."] };
+    if (!list.length) return { created: 0, paths, errors: ["There are no questions to write."], duplicates: 0 };
     await ensureFolder(this.app, folder);
-    for (const item of list) {
+    let duplicates = 0;
+    let pending = list;
+    if (aiGenerated) {
+      // Only generated drafts are deduplicated against the vault. Manual Quick
+      // add intentionally allows the same prompt twice when the learner asks.
+      const existing = [];
+      for (const question of this.getQuestions()) {
+        try {
+          const sections = parseSections(await this.app.vault.cachedRead(question.file));
+          if (sections.question) existing.push(sections.question);
+        } catch (e) {
+          /* an unreadable question must not block generation */
+        }
+      }
+      const unique = quizDedup.uniqueQuestionDrafts(list, existing);
+      pending = unique.items;
+      duplicates = unique.skipped.length;
+    }
+    for (const item of pending) {
       // One note per question, titled from the question text like AI drafts; a
       // repeated title gets a numbered suffix so nothing is overwritten.
       const title = quickAddTitle(item.question);
@@ -4074,7 +4110,7 @@ class QuestionTrackerPlugin extends Plugin {
       }));
     }
     if (paths.length) this.refreshViews();
-    return { created: paths.length, paths, errors };
+    return { created: paths.length, paths, errors, duplicates };
   }
 
   /** Write every question and card, unchanged, into one portable ZIP backup. */
@@ -5698,16 +5734,69 @@ ${body}
     return this.addFolderToReview(file.parent.path);
   }
 
-  studyStatsSnapshot() {
-    return studyStats.buildStudyStats({
-      cards: this.getCards(),
-      questions: this.getQuestions(),
-      notes: this.getNoteCandidates(),
-      counters: this.settings.studyCounters,
-      settings: this.settings.studyStats,
-      fsrsRetention: this.settings.fsrsRetention,
-      now: new Date(),
+  studyStatsSnapshot(now) {
+    const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+    return this.snapshot(`study-stats|${localDate(at)}`, () =>
+      studyStats.buildStudyStats({
+        cards: this.getCards(),
+        questions: this.getQuestions(),
+        notes: this.getNoteCandidates(),
+        counters: this.settings.studyCounters,
+        settings: this.settings.studyStats,
+        fsrsRetention: this.settings.fsrsRetention,
+        now: at,
+      })
+    );
+  }
+
+  /** Cached dashboard aggregation. The caller only chooses presentation options. */
+  dashboardSnapshot(options) {
+    const opts = options || {};
+    const at = opts.today instanceof Date && !isNaN(opts.today.getTime()) ? opts.today : new Date();
+    const field = ["skill", "domain", "difficulty"].includes(opts.field) ? opts.field : "skill";
+    const weeks = Math.max(1, Math.min(26, Math.round(Number(opts.weeks) || 12)));
+    const course = str(opts.course).trim();
+    const key = `dashboard|${localDate(at)}|${field}|${weeks}|${course}|${opts.retentionWeeks || 8}|${opts.forwardDays || 7}`;
+    return this.snapshot(key, () => {
+      const gradebook = this.assignmentStats ? this.assignmentStats() : null;
+      return buildDashboard({
+        questions: this.getQuestions(),
+        cards: this.getCards ? this.getCards() : [],
+        frq: this.getFrqKnowledge ? this.getFrqKnowledge() : null,
+        gradebook,
+        assignments: gradebook ? gradebook.summary : null,
+        studyLog: this.settings.studyLog,
+        confidenceLabels: this.settings.confidenceLabels,
+        field,
+        course,
+        weeks,
+        retentionWeeks: opts.retentionWeeks,
+        forwardDays: opts.forwardDays,
+        today: at,
+      });
     });
+  }
+
+  /** Cached goal/mastery snapshot used by the Progress tab and its embedded cards. */
+  progressSnapshot(options) {
+    const opts = options || {};
+    const at = opts.today instanceof Date && !isNaN(opts.today.getTime()) ? opts.today : new Date();
+    const weeks = Math.max(1, Math.min(26, Math.round(Number(opts.weeks) || 12)));
+    const scope = str(opts.masteryScope).trim();
+    const days = masteryWindowDays(opts.masteryDays);
+    const key = `progress|${localDate(at)}|${weeks}|${scope}|${days}`;
+    return this.snapshot(key, () =>
+      buildProgress({
+        questions: this.getQuestions(),
+        cards: this.getCards ? this.getCards() : [],
+        frq: this.getFrqKnowledge ? this.getFrqKnowledge() : null,
+        studyLog: this.settings.studyLog,
+        today: at,
+        weeks,
+        masteryScope: scope,
+        masteryDays: days,
+      })
+    );
   }
 
   async recordStudyCounter(entry) {

@@ -185,12 +185,14 @@ function clearExamCap(fm) {
 /**
  * Never extends an interval. If the scheduler put the next review after the
  * exam, move it to the cap date and record why so later reviews can show it.
+ * A cap equal to today is ignored: this attempt already happened on the last
+ * ramp checkpoint, so a second same-day review is not useful.
  */
 function applyExamCap(fm, nextReview, examCap, now) {
   const scheduled = str(nextReview).trim();
   const capDate = str(examCap && examCap.date).trim().slice(0, 10);
   const today = fmtDate(now);
-  const valid = /^\d{4}-\d{2}-\d{2}$/.test(capDate) && (!today || capDate >= today);
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(capDate) && (!today || capDate > today);
   if (!valid || !scheduled || scheduled <= capDate) {
     clearExamCap(fm);
     return null;
@@ -198,7 +200,7 @@ function applyExamCap(fm, nextReview, examCap, now) {
   fm.exam_cap = capDate;
   fm.exam_cap_name = str(examCap.name || "Exam").slice(0, 200);
   if (examCap.examDate) fm.exam_cap_exam_date = str(examCap.examDate).slice(0, 10);
-  return { date: capDate, examDate: str(examCap.examDate).slice(0, 10), name: fm.exam_cap_name };
+  return { date: capDate, examDate: str(examCap.examDate).slice(0, 10), name: fm.exam_cap_name, stage: str(examCap.stage), offsetDays: Number(examCap.offsetDays) || 0 };
 }
 
 /** Mutates `fm` (inside processFrontMatter). Returns a summary. */
