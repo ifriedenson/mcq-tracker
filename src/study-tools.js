@@ -106,7 +106,7 @@ function normalizeLectureLog(value) {
     lectures.push(lecture);
     if (lectures.length >= MAX_LECTURES) break;
   }
-  return { enabled: enabledValue(value, true), lectures };
+  return { enabled: enabledValue(value, true), afterClassPrompt: source.afterClassPrompt === true, lectures };
 }
 
 function normalizeGoal(value) {

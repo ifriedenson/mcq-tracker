@@ -5,6 +5,11 @@ function str(value) {
   return value === undefined || value === null ? "" : String(value);
 }
 
+function normalizeStudyPlanDays(value) {
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) ? Math.max(1, Math.min(365, n)) : 30;
+}
+
 function dateKey(value) {
   const d = value instanceof Date ? value : new Date(value);
   if (isNaN(d.getTime())) return "";
@@ -217,6 +222,7 @@ function buildStudyPlan(exam, questions, cards, options) {
 
 module.exports = {
   accuracyOf,
+  normalizeStudyPlanDays,
   addDays,
   buildCramPool,
   buildStudyPlan,

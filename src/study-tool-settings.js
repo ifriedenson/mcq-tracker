@@ -167,10 +167,19 @@ const PAGES = {
   "lecture-log": {
     title: "Lecture log",
     description:
-      "A local log of lectures by course, date and topic, with bulk paste and an upcoming-lecture card on Today. No audio, transcript, account or network request is added.",
+      "A local log of lectures by course, date and topic, with bulk paste and an upcoming-lecture card on Today. The optional after-class prompt asks you to mark attendance. No audio, transcript, account or network request is added.",
     enabledGetter: "lectureLogEnabled",
     enable: (plugin, v) => update(plugin, "lectureLog", studyTools.normalizeLectureLog, { enabled: v }),
     afterToggle: "onStudyToolToggled",
+    fields: [
+      {
+        type: "toggle",
+        name: "Prompt after class",
+        desc: "After a calendar class has ended, Today shows Mark attended / Mark absent until that class has a lecture or absence row. Off by default; no notification is sent.",
+        get: (plugin) => studyTools.normalizeLectureLog(plugin.settings.lectureLog).afterClassPrompt,
+        set: async (plugin, v) => update(plugin, "lectureLog", studyTools.normalizeLectureLog, { afterClassPrompt: v }),
+      },
+    ],
     status: (plugin) => {
       const data = studyTools.normalizeLectureLog(plugin.settings.lectureLog);
       const next = studyTools.nextLecture(data.lectures, new Date().toISOString().slice(0, 10));

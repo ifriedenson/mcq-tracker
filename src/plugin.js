@@ -63,8 +63,8 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
-const { buildStudyPlan } = require("./study-plan");
+const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, isExamEvent, mergeCalendarSettings, nextClassStatus, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { buildStudyPlan, normalizeStudyPlanDays } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
 const { parseDashboardBlock, renderDashboardEmbed } = require("./analytics-embed");
@@ -875,6 +875,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.inlineQuizSharedChoice = this.settings.inlineQuizSharedChoice === true;
     this.settings.examBlockMode = this.settings.examBlockMode === "answer" ? "answer" : "study";
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
+    this.settings.studyPlanDays = normalizeStudyPlanDays(this.settings.studyPlanDays);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
     this.settings.needsFixing = this.settings.needsFixing === true;
@@ -6178,9 +6179,9 @@ ${body}
     return { ...result, added: added.added };
   }
 
-  /** Plans for every exam in the next 30 days, soonest first. */
+  /** Plans for every exam in the configured window, soonest first. */
   studyPlans() {
-    return this.getExams({ horizonDays: 30 })
+    return this.getExams({ horizonDays: normalizeStudyPlanDays(this.settings.studyPlanDays) })
       .map((exam) => this.buildExamPlan(exam))
       .filter(Boolean);
   }
@@ -6332,6 +6333,38 @@ ${body}
     this.refreshViews();
     this.refreshCalendarViews();
     return attended ? { id, course, date, attended: true } : { id: absenceId, course, date, attended: false };
+  }
+
+  /**
+   * Optional after-class prompt: today's classes that have ended and have no
+   * lecture or absence row yet. The setting is off by default.
+   */
+  attendancePrompt(now) {
+    const current = this.studyToolsSettings();
+    if (!this.calendarEnabled() || !current.lectureLog.afterClassPrompt) return [];
+    const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+    const today = localDate(at);
+    const overrides = (this.settings.calendar && this.settings.calendar.examOverrides) || {};
+    const lectures = current.lectureLog.lectures;
+    const absences = this.studyWorkspaceSettings().subjectManager.absences;
+    const seen = new Set([...lectures.map((row) => row.id), ...absences.map((row) => row.id)]);
+    const rows = [];
+    for (const event of this.calendarEvents(at)) {
+      if (!event || event.dateKey !== today || event.termReadingWeek) continue;
+      if (isExamEvent(event, overrides)) continue;
+      if (!(event.dtend instanceof Date) || isNaN(event.dtend.getTime()) || event.dtend >= at) continue;
+      const id = `calendar-${hashString(`${event.uid || event.summary}|${today}`)}`;
+      if (seen.has(id) || seen.has(`${id}-absence`)) continue;
+      rows.push({
+        id,
+        event,
+        date: today,
+        course: str(event.course).trim() || cleanSubjectTitle(event.summary) || str(event.summary).trim(),
+        title: str(event.summary).trim() || "Class",
+        end: event.dtend,
+      });
+    }
+    return rows.slice(0, 5);
   }
 
   async startStudyPlan(plan, cram) {
@@ -9074,7 +9107,17 @@ ${body}
   }
 
   async generateStudyTasks(input) {
-    const tasks = studyWorkspace.planExamTasks(input, localDate(), Date.now());
+    const opts = { ...(input && typeof input === "object" ? input : {}) };
+    if (opts.course && (!str(opts.examDate).trim() || !str(opts.topics).trim())) {
+      const exam = this.getExams({ horizonDays: 3650 }).find((row) =>
+        courseIdentity.sameCourse(this.calendarSettings(), row.course, opts.course)
+      );
+      if (exam) {
+        if (!str(opts.examDate).trim()) opts.examDate = exam.date;
+        if (!str(opts.topics).trim() && Array.isArray(exam.topics) && exam.topics.length) opts.topics = exam.topics.join("\n");
+      }
+    }
+    const tasks = studyWorkspace.planExamTasks(opts, localDate(), Date.now());
     if (!tasks.length) return [];
     const current = this.studyWorkspaceSettings().studyTasks;
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({

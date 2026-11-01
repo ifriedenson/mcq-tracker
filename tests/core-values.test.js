@@ -130,7 +130,11 @@ test("G3: a no-question plan still exposes lecture, reading and planner work, re
 
   const plugin = new QT(makeApp([]));
   return plugin.onload().then(() => {
-    plugin.getExams = () => [EXAM, { ...EXAM, date: "2026-11-13", title: "MATH 101 Quiz" }];
+    let horizon = null;
+    plugin.getExams = (opts) => {
+      horizon = opts.horizonDays;
+      return [EXAM, { ...EXAM, date: "2026-11-13", title: "MATH 101 Quiz" }];
+    };
     plugin.getQuestions = () => [];
     plugin.getAssignments = () => [];
     plugin.getReadingPlans = () => [{ title: "Calculus", pagesRemaining: 10, behindPages: 2 }];
@@ -138,7 +142,9 @@ test("G3: a no-question plan still exposes lecture, reading and planner work, re
     plugin.studyWorkspaceSettings = () => ({ lerntracker: { plans: [] }, subjectManager: { subjects: [], absences: [] }, studyTasks: { tasks: [] } });
     plugin.getFrqReviewQueue = () => [];
     plugin.cardsEnabled = () => false;
+    plugin.settings.studyPlanDays = 90;
     const plans = plugin.studyPlans();
+    assert.equal(horizon, 90);
     assert.equal(plans.length, 2);
     assert.equal(plans[0].readiness, null);
     assert.equal(plans[0].workItems[0].type, "lectures");
@@ -214,6 +220,13 @@ test("G6: course overview combines exam, topics, lectures, readings, assignments
   assert.equal(empty.sections.length, 0);
 });
 
+test("G3b: the study-plan window is a bounded setting with a 30-day default", () => {
+  assert.equal(T.studyPlan.normalizeStudyPlanDays(undefined), 30);
+  assert.equal(T.studyPlan.normalizeStudyPlanDays(0), 1);
+  assert.equal(T.studyPlan.normalizeStudyPlanDays(500), 365);
+  assert.equal(T.studyPlan.normalizeStudyPlanDays(45), 45);
+});
+
 test("G7: course health reads the merged exam list instead of a planner-only date", () => {
   const report = H.courseHealthReport({
     courses: [{ name: "MATH 101 - Calculus", lectures: 2, absences: 0, attendance: 100, graded: 1, folder: "Courses/Math" }],
@@ -227,6 +240,31 @@ test("G7: course health reads the merged exam list instead of a planner-only dat
   assert.ok(check);
   assert.match(check.text, /Final in 4 days/);
   assert.equal(report.rows[0].status, "watch");
+});
+
+test("G4 prompt: an ended class appears once in the opt-in attendance prompt and disappears after logging", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.calendar.enabled = true;
+  plugin.settings.lectureLog = ST.normalizeLectureLog({ afterClassPrompt: true, lectures: [] });
+  const at = new Date(2026, 10, 1, 12, 0, 0);
+  const event = {
+    summary: "Biology",
+    dateKey: "2026-11-01",
+    uid: "bio-prompt",
+    dtstart: new Date(2026, 10, 1, 10, 0, 0),
+    dtend: new Date(2026, 10, 1, 11, 0, 0),
+  };
+  plugin.calendarEvents = () => [event];
+  plugin.findCalendarNote = () => null;
+  plugin.refreshViews = () => {};
+  plugin.refreshCalendarViews = () => {};
+  assert.equal(plugin.attendancePrompt(at).length, 1);
+  await plugin.logCalendarLecture(event, "2026-11-01", true);
+  assert.equal(plugin.attendancePrompt(at).length, 0);
+  plugin.settings.lectureLog = ST.normalizeLectureLog({ afterClassPrompt: false, lectures: plugin.settings.lectureLog.lectures });
+  assert.equal(plugin.attendancePrompt(at).length, 0);
 });
 
 test("G5 Today: a registered reading plan appears in the Today readings card", async () => {

@@ -268,6 +268,7 @@ function buildDashboard(options) {
     frq,
     memory: { now: memory.memoryNow, cards: memory.memoryCards },
     gradebook: opts.gradebook || null,
+    assignments: opts.assignments || null,
     forward: buildForwardLoad(scopedQuestions, scopedCards, today, opts.forwardDays || 7),
     study,
     cardStats,

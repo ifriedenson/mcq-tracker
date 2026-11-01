@@ -299,6 +299,22 @@ function renderGeneral(containerEl, plugin, redisplay) {
       });
     });
 
+  new Setting(containerEl)
+    .setName("Study-plan window")
+    .setDesc("How many days ahead the study plan looks for exams. Each exam in the window gets its own plan, soonest first. Default 30.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.max = "365";
+      t.setValue(String(st.studyPlanDays));
+      t.onChange(async (v) => {
+        const n = Math.round(Number(v));
+        st.studyPlanDays = Number.isFinite(n) ? Math.max(1, Math.min(365, n)) : 30;
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    });
+
   const reminder = st.reminder || { enabled: false, hour: 9 };
   new Setting(containerEl)
     .setName("Daily study reminder")

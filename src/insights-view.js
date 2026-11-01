@@ -112,6 +112,7 @@ class InsightsView extends ItemView {
       cards,
       frq,
       gradebook,
+      assignments: gradebook ? gradebook.summary : null,
       studyLog: p.settings.studyLog,
       confidenceLabels: p.settings.confidenceLabels,
       field: this.overviewField,
@@ -142,6 +143,7 @@ class InsightsView extends ItemView {
     tile("Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
     if (data.memory && data.memory.cards) tile("Memory now", fmtPct(data.memory.now), `${data.memory.cards} FSRS card${data.memory.cards === 1 ? "" : "s"} with a stability estimate`);
     tile("Due next 7 days", String(data.forward.total), `${data.forward.days.filter((day) => day.count).length} scheduled day${data.forward.days.filter((day) => day.count).length === 1 ? "" : "s"}`);
+    if (data.assignments) tile("Assignments", String(data.assignments.open), data.assignments.overdue ? `${data.assignments.overdue} overdue · ${data.assignments.total} total` : `${data.assignments.dueToday} due today · ${data.assignments.total} total`);
     tile("Logged skips", String(o.skipped), o.skipped ? "Not counted as wrong" : "None logged");
     renderGrade(root, data);
 

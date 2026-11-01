@@ -1891,6 +1891,7 @@ function buildDashboard(options) {
     frq,
     memory: { now: memory.memoryNow, cards: memory.memoryCards },
     gradebook: opts.gradebook || null,
+    assignments: opts.assignments || null,
     forward: buildForwardLoad(scopedQuestions, scopedCards, today, opts.forwardDays || 7),
     study,
     cardStats,
@@ -19277,6 +19278,7 @@ const DEFAULT_SETTINGS = {
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
   knownDays: 14, // default snooze length for the Known button
   knownDaysByCourse: {}, // optional course-specific snooze overrides
+  studyPlanDays: 30, // how far ahead studyPlans() looks for exams (1-365)
   dueQueue: { dailyCap: 0 }, // 0 = no cap; otherwise hold overflow for another day
   leechThreshold: 0, // consecutive misses that flag a leech; 0 turns leech handling off
   leechAction: "flag", // "flag" keeps it in rotation | "suspend" also hides it until restored
@@ -31302,6 +31304,7 @@ class InsightsView extends ItemView {
       cards,
       frq,
       gradebook,
+      assignments: gradebook ? gradebook.summary : null,
       studyLog: p.settings.studyLog,
       confidenceLabels: p.settings.confidenceLabels,
       field: this.overviewField,
@@ -31332,6 +31335,7 @@ class InsightsView extends ItemView {
     tile("Cards due", String(data.cardStats.due), `${data.cardStats.total} cards in decks`);
     if (data.memory && data.memory.cards) tile("Memory now", fmtPct(data.memory.now), `${data.memory.cards} FSRS card${data.memory.cards === 1 ? "" : "s"} with a stability estimate`);
     tile("Due next 7 days", String(data.forward.total), `${data.forward.days.filter((day) => day.count).length} scheduled day${data.forward.days.filter((day) => day.count).length === 1 ? "" : "s"}`);
+    if (data.assignments) tile("Assignments", String(data.assignments.open), data.assignments.overdue ? `${data.assignments.overdue} overdue · ${data.assignments.total} total` : `${data.assignments.dueToday} due today · ${data.assignments.total} total`);
     tile("Logged skips", String(o.skipped), o.skipped ? "Not counted as wrong" : "None logged");
     renderGrade(root, data);
 
@@ -40810,8 +40814,8 @@ const agentWriteGuard = require("./agent-write-guard");
 const agentEditReview = require("./agent-edit-review");
 const { CalculationPreviewModal } = require("./calculation-preview-modal");
 const { CalendarImportModal, CalendarView, StudySlotModal, applyCalendarWidth, parseScheduleBlock, renderDaySection } = require("./calendar-view");
-const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, mergeCalendarSettings, nextClassStatus, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
-const { buildStudyPlan } = require("./study-plan");
+const { applyTermWeeks, cleanSubjectTitle, eventKey, examMatchesCourse, examReviewCap, findRegisteredCourse, isExamEvent, mergeCalendarSettings, nextClassStatus, normalizeFolder, subjectKey, upcomingExams, visibleEvents } = require("./calendar-model");
+const { buildStudyPlan, normalizeStudyPlanDays } = require("./study-plan");
 const { buildDashboard, courseMatches } = require("./analytics");
 const { bandQuestions, buildMastery, buildMasteryTrend, masteryScopes, masteryWindowDays, scopeQuestions } = require("./progress");
 const { parseDashboardBlock, renderDashboardEmbed } = require("./analytics-embed");
@@ -41622,6 +41626,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.inlineQuizSharedChoice = this.settings.inlineQuizSharedChoice === true;
     this.settings.examBlockMode = this.settings.examBlockMode === "answer" ? "answer" : "study";
     this.settings.knownDaysByCourse = normalizeCourseDays(saved.knownDaysByCourse);
+    this.settings.studyPlanDays = normalizeStudyPlanDays(this.settings.studyPlanDays);
     this.settings.leechThreshold = Math.max(0, Math.min(50, Math.round(Number(this.settings.leechThreshold) || 0)));
     this.settings.leechAction = this.settings.leechAction === "suspend" ? "suspend" : "flag";
     this.settings.needsFixing = this.settings.needsFixing === true;
@@ -46925,9 +46930,9 @@ ${body}
     return { ...result, added: added.added };
   }
 
-  /** Plans for every exam in the next 30 days, soonest first. */
+  /** Plans for every exam in the configured window, soonest first. */
   studyPlans() {
-    return this.getExams({ horizonDays: 30 })
+    return this.getExams({ horizonDays: normalizeStudyPlanDays(this.settings.studyPlanDays) })
       .map((exam) => this.buildExamPlan(exam))
       .filter(Boolean);
   }
@@ -47079,6 +47084,38 @@ ${body}
     this.refreshViews();
     this.refreshCalendarViews();
     return attended ? { id, course, date, attended: true } : { id: absenceId, course, date, attended: false };
+  }
+
+  /**
+   * Optional after-class prompt: today's classes that have ended and have no
+   * lecture or absence row yet. The setting is off by default.
+   */
+  attendancePrompt(now) {
+    const current = this.studyToolsSettings();
+    if (!this.calendarEnabled() || !current.lectureLog.afterClassPrompt) return [];
+    const at = now instanceof Date && !isNaN(now.getTime()) ? now : new Date();
+    const today = localDate(at);
+    const overrides = (this.settings.calendar && this.settings.calendar.examOverrides) || {};
+    const lectures = current.lectureLog.lectures;
+    const absences = this.studyWorkspaceSettings().subjectManager.absences;
+    const seen = new Set([...lectures.map((row) => row.id), ...absences.map((row) => row.id)]);
+    const rows = [];
+    for (const event of this.calendarEvents(at)) {
+      if (!event || event.dateKey !== today || event.termReadingWeek) continue;
+      if (isExamEvent(event, overrides)) continue;
+      if (!(event.dtend instanceof Date) || isNaN(event.dtend.getTime()) || event.dtend >= at) continue;
+      const id = `calendar-${hashString(`${event.uid || event.summary}|${today}`)}`;
+      if (seen.has(id) || seen.has(`${id}-absence`)) continue;
+      rows.push({
+        id,
+        event,
+        date: today,
+        course: str(event.course).trim() || cleanSubjectTitle(event.summary) || str(event.summary).trim(),
+        title: str(event.summary).trim() || "Class",
+        end: event.dtend,
+      });
+    }
+    return rows.slice(0, 5);
   }
 
   async startStudyPlan(plan, cram) {
@@ -49821,7 +49858,17 @@ ${body}
   }
 
   async generateStudyTasks(input) {
-    const tasks = studyWorkspace.planExamTasks(input, localDate(), Date.now());
+    const opts = { ...(input && typeof input === "object" ? input : {}) };
+    if (opts.course && (!str(opts.examDate).trim() || !str(opts.topics).trim())) {
+      const exam = this.getExams({ horizonDays: 3650 }).find((row) =>
+        courseIdentity.sameCourse(this.calendarSettings(), row.course, opts.course)
+      );
+      if (exam) {
+        if (!str(opts.examDate).trim()) opts.examDate = exam.date;
+        if (!str(opts.topics).trim() && Array.isArray(exam.topics) && exam.topics.length) opts.topics = exam.topics.join("\n");
+      }
+    }
+    const tasks = studyWorkspace.planExamTasks(opts, localDate(), Date.now());
     if (!tasks.length) return [];
     const current = this.studyWorkspaceSettings().studyTasks;
     this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
@@ -62083,6 +62130,22 @@ function renderGeneral(containerEl, plugin, redisplay) {
       });
     });
 
+  new Setting(containerEl)
+    .setName("Study-plan window")
+    .setDesc("How many days ahead the study plan looks for exams. Each exam in the window gets its own plan, soonest first. Default 30.")
+    .addText((t) => {
+      t.inputEl.type = "number";
+      t.inputEl.min = "1";
+      t.inputEl.max = "365";
+      t.setValue(String(st.studyPlanDays));
+      t.onChange(async (v) => {
+        const n = Math.round(Number(v));
+        st.studyPlanDays = Number.isFinite(n) ? Math.max(1, Math.min(365, n)) : 30;
+        await plugin.save();
+        plugin.refreshViews();
+      });
+    });
+
   const reminder = st.reminder || { enabled: false, hour: 9 };
   new Setting(containerEl)
     .setName("Daily study reminder")
@@ -68448,6 +68511,11 @@ function str(value) {
   return value === undefined || value === null ? "" : String(value);
 }
 
+function normalizeStudyPlanDays(value) {
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) ? Math.max(1, Math.min(365, n)) : 30;
+}
+
 function dateKey(value) {
   const d = value instanceof Date ? value : new Date(value);
   if (isNaN(d.getTime())) return "";
@@ -68660,6 +68728,7 @@ function buildStudyPlan(exam, questions, cards, options) {
 
 module.exports = {
   accuracyOf,
+  normalizeStudyPlanDays,
   addDays,
   buildCramPool,
   buildStudyPlan,
@@ -70176,10 +70245,19 @@ const PAGES = {
   "lecture-log": {
     title: "Lecture log",
     description:
-      "A local log of lectures by course, date and topic, with bulk paste and an upcoming-lecture card on Today. No audio, transcript, account or network request is added.",
+      "A local log of lectures by course, date and topic, with bulk paste and an upcoming-lecture card on Today. The optional after-class prompt asks you to mark attendance. No audio, transcript, account or network request is added.",
     enabledGetter: "lectureLogEnabled",
     enable: (plugin, v) => update(plugin, "lectureLog", studyTools.normalizeLectureLog, { enabled: v }),
     afterToggle: "onStudyToolToggled",
+    fields: [
+      {
+        type: "toggle",
+        name: "Prompt after class",
+        desc: "After a calendar class has ended, Today shows Mark attended / Mark absent until that class has a lecture or absence row. Off by default; no notification is sent.",
+        get: (plugin) => studyTools.normalizeLectureLog(plugin.settings.lectureLog).afterClassPrompt,
+        set: async (plugin, v) => update(plugin, "lectureLog", studyTools.normalizeLectureLog, { afterClassPrompt: v }),
+      },
+    ],
     status: (plugin) => {
       const data = studyTools.normalizeLectureLog(plugin.settings.lectureLog);
       const next = studyTools.nextLecture(data.lectures, new Date().toISOString().slice(0, 10));
@@ -70945,7 +71023,7 @@ function normalizeLectureLog(value) {
     lectures.push(lecture);
     if (lectures.length >= MAX_LECTURES) break;
   }
-  return { enabled: enabledValue(value, true), lectures };
+  return { enabled: enabledValue(value, true), afterClassPrompt: source.afterClassPrompt === true, lectures };
 }
 
 function normalizeGoal(value) {
@@ -75965,6 +76043,7 @@ class TodayView extends ItemView {
     }
 
     this.renderReminder(grid, today, due, fresh);
+    this.renderAttendancePrompt(grid, now);
     this.renderMasteryCard(grid, questions, today);
     const plan = this.renderStudyPlan(grid);
     this.renderReadings(grid);
@@ -76001,6 +76080,30 @@ class TodayView extends ItemView {
       );
     }
     row.createEl("button", { text: "Dismiss today" }).addEventListener("click", () => p.dismissTodayReminder());
+  }
+
+  /** Optional after-class attendance prompt. It only reads calendar + lecture data. */
+  renderAttendancePrompt(root, now) {
+    const p = this.plugin;
+    if (typeof p.attendancePrompt !== "function") return;
+    const rows = p.attendancePrompt(now);
+    if (!rows.length) return;
+    const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-wide" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Mark attendance" });
+    const card = panel.createDiv({ cls: "qt-today-card" });
+    card.createDiv({ cls: "qt-today-meta", text: "These classes have ended today and have no lecture or absence entry." });
+    for (const row of rows) {
+      const line = card.createDiv({ cls: "qt-row qt-small-row" });
+      line.createDiv({ cls: "qt-today-title", text: `${row.course} · ${row.title}` });
+      line.createEl("button", { text: "Attended", cls: "qt-link" }).addEventListener("click", async () => {
+        await p.logCalendarLecture(row.event, row.date, true);
+        this.render();
+      });
+      line.createEl("button", { text: "Absent", cls: "qt-link" }).addEventListener("click", async () => {
+        await p.logCalendarLecture(row.event, row.date, false);
+        this.render();
+      });
+    }
   }
 
   /** The Progress tab's selected scope and window, with exact band practice. */

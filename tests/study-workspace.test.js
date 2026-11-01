@@ -192,6 +192,15 @@ test("Study tasks: generates and sorts exam tasks, and finds due work", () => {
   assert.deepEqual(W.planExamTasks({ course: "Biology", examDate: "2026-11-01", topics: ["Cells"] }, "2026-11-01", 1), []);
 });
 
+test("Study tasks: the plugin fills a blank task form from the merged exam list", async () => {
+  const plugin = await setup();
+  plugin.getExams = () => [{ course: "Biology", date: "2099-01-10", title: "Biology Final", topics: ["Cells", "Respiration"] }];
+  const tasks = await plugin.generateStudyTasks({ course: "Biology", passes: 1 });
+  assert.equal(tasks.length, 2);
+  assert.equal(tasks.every((task) => task.course === "Biology" && task.source === "exam"), true);
+  assert.deepEqual(tasks.map((task) => task.title).sort(), ["Study Cells", "Study Respiration"]);
+});
+
 test("Annotations and Deep Notes: keep local Q&A and complete the Socratic prompts", () => {
   const annotation = W.createAnnotation({ sourcePath: "Biology/Cells.md", quote: "Water crosses the membrane.", question: "How?", answer: "Osmosis." }, 1);
   assert.equal(annotation.question, "How?");

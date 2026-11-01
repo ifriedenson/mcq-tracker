@@ -134,6 +134,13 @@ test("dashboard: memory now and the weighted gradebook join the overview", () =>
   assert.equal(T.buildDashboard({ today: "2026-10-28" }).memory.now, null);
 });
 
+test("dashboard: the assignment summary joins the one overview snapshot", () => {
+  const assignments = { total: 6, open: 4, overdue: 1, dueToday: 2, graded: 2 };
+  const dash = T.buildDashboard({ today: "2026-10-28", assignments });
+  assert.equal(dash.assignments, assignments);
+  assert.equal(T.buildDashboard({ today: "2026-10-28" }).assignments, null);
+});
+
 test("dashboard: card reviews join the heatmap and the next seven days show due load", () => {
   const cards = [
     { file: { path: "Cards/a.md" }, fm: { history: ["2026-10-26T10:00:00|good|5|", "2026-10-27T10:00:00|again|5|"], next_review: "2026-10-31" } },

@@ -105,6 +105,7 @@ class TodayView extends ItemView {
     }
 
     this.renderReminder(grid, today, due, fresh);
+    this.renderAttendancePrompt(grid, now);
     this.renderMasteryCard(grid, questions, today);
     const plan = this.renderStudyPlan(grid);
     this.renderReadings(grid);
@@ -141,6 +142,30 @@ class TodayView extends ItemView {
       );
     }
     row.createEl("button", { text: "Dismiss today" }).addEventListener("click", () => p.dismissTodayReminder());
+  }
+
+  /** Optional after-class attendance prompt. It only reads calendar + lecture data. */
+  renderAttendancePrompt(root, now) {
+    const p = this.plugin;
+    if (typeof p.attendancePrompt !== "function") return;
+    const rows = p.attendancePrompt(now);
+    if (!rows.length) return;
+    const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-wide" });
+    panel.createEl("h3", { cls: "qt-today-section", text: "Mark attendance" });
+    const card = panel.createDiv({ cls: "qt-today-card" });
+    card.createDiv({ cls: "qt-today-meta", text: "These classes have ended today and have no lecture or absence entry." });
+    for (const row of rows) {
+      const line = card.createDiv({ cls: "qt-row qt-small-row" });
+      line.createDiv({ cls: "qt-today-title", text: `${row.course} · ${row.title}` });
+      line.createEl("button", { text: "Attended", cls: "qt-link" }).addEventListener("click", async () => {
+        await p.logCalendarLecture(row.event, row.date, true);
+        this.render();
+      });
+      line.createEl("button", { text: "Absent", cls: "qt-link" }).addEventListener("click", async () => {
+        await p.logCalendarLecture(row.event, row.date, false);
+        this.render();
+      });
+    }
   }
 
   /** The Progress tab's selected scope and window, with exact band practice. */

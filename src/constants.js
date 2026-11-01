@@ -54,6 +54,7 @@ const DEFAULT_SETTINGS = {
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
   knownDays: 14, // default snooze length for the Known button
   knownDaysByCourse: {}, // optional course-specific snooze overrides
+  studyPlanDays: 30, // how far ahead studyPlans() looks for exams (1-365)
   dueQueue: { dailyCap: 0 }, // 0 = no cap; otherwise hold overflow for another day
   leechThreshold: 0, // consecutive misses that flag a leech; 0 turns leech handling off
   leechAction: "flag", // "flag" keeps it in rotation | "suspend" also hides it until restored
