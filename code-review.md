@@ -1,4 +1,4 @@
-# Agent handoff: finish "What you need to learn" (courses, lectures, readings, exams)
+# Made by claude sonnett 5.5 Agent handoff: finish "What you need to learn" (courses, lectures, readings, exams)
 
 Target repo: `mcq-tracker` v1.168.1 (reviewed from `mcq-tracker-main.zip`, Nov 1, 2026).
 Source of the requirement: `plan.md` §1 Vision, first bullet: **"What you need to learn (courses, lectures, readings, exams)"**, detailed in §5.8 (Courses, calendar, exams), §5.9, §5.11 (Study plan) and §4.3 (exam-date compression).
@@ -165,3 +165,209 @@ Manual checks to list in `plan.md` for the owner (not claimable by tests): add a
 ## 6. Review method and limits
 
 Static read of `src/` (220 modules), `plan.md`, `AGENTS.md`, plus running the existing test suite and check script. I did not run the plugin inside Obsidian, so UI reachability is inferred from code paths and settings modules, not observed. Line numbers are approximate; search by the function names given.
+# Made by GLM 5.3 Flash
+ MCQ Tracker — Capability Review & Next-Step Handoff
+
+**For:** coding agent continuing work on `mcq-tracker` (uploaded snapshot: `mcq-tracker-main.zip`, version 1.168.1)
+**Scope:** review whether the code fully implements five required capabilities, then list what to implement next and what to review.
+**Review method:** full source audit of `src/` (220 modules) via five parallel deep audits (one per capability), manual spot-verification of every critical claim in `src/plugin.js` and related modules, plus a live run of the repo's own gates.
+
+**Baseline health (verified in this review):**
+
+- `npm test` → **1,245 pass / 0 fail** (57s)
+- `npm run check` → `no dynamic code in 220 files`, `main.js is up to date.`
+- Zero `TODO`/`FIXME`/stub markers anywhere in `src/` (grep-verified by all five audits)
+
+**Read first:** `AGENTS.md` and the **Handoff snapshot** + **Current focus** sections of `plan.md` (the product source of truth). `docs/progress-dashboard-handoff.md` documents the dashboard work and its open gaps (§8). All file:line references below are for this snapshot.
+
+---
+
+## 1. Verdict summary
+
+| # | Requirement | Verdict | Headline gap |
+|---|---|---|---|
+| 1 | What you need to learn (courses, lectures, readings, exams) | ✅ Substantially implemented | Readings are excluded from the unified "what to study today" picture |
+| 2 | What you know (accuracy, confidence, timing, mistakes, partial credit) | ✅ Substantially implemented | Partial credit is flattened to binary in `history`; FRQ results are siloed out of all knowledge aggregates |
+| 3 | When to review it (adaptive spaced repetition) | ✅ Implemented, one real gap | FSRS weights are never optimized from history; the one "fit" tool (`scheduler-fit`) reads a property nothing writes |
+| 4 | How to create more practice (AI generation with verification) | ⚠️ Mostly implemented — **verification holes** | The Quiz Generator modal path saves AI questions **without blind verification**; two write paths bypass guards/journal |
+| 5 | How you are doing overall (one dashboard) | ⚠️ ~70% implemented | No single view combines everything; FRQ, FSRS depth, forward due-load, and weighted grades each live in a different silo |
+
+Bottom line: all five capabilities exist and are well-tested (1,245 behavior-level tests). The work remaining is not "build the features" — it is (a) closing three concrete verification/guard holes in AI generation, (b) unifying FRQ + partial-credit data into the knowledge model, and (c) consolidating the dashboard. Fix the P0 list before adding any new feature.
+
+---
+
+## 2. Capability 1 — What you need to learn
+
+### What exists and works
+
+- **Courses.** A course is the `course` frontmatter property (`docs/property-schema.md`) plus registry entries in the calendar (`src/calendar-model.js:88,120-147`: name, code, folder, color, semester, instructor, credits) and a second config in Assignments (`src/assignments.js:243-260`: credits, target, finalWeight) driving weighted category grades, per-course targets, `neededOnFinal` and credit-weighted GPA (`assignments.js:325-334,489-530`). A third aggregation, `courseDashboard()`, merges Subject Manager + lecture log + grades into weighted letter grades (`src/study-workspace.js:832-872`). Questions/cards link via `course`; practice surfaces course meta (`src/practice-view.js:1230,1965`).
+- **Syllabus/topic planning.** Topic planner stores per-course plans (topics, passes, exam date, buffer days) with `allocatePlan` spreading passes over days (`src/study-workspace.js:329-420`); `topicCoverage` (`src/study-plan.js:60-80`) compares registered `totalTopics` against mastered skills.
+- **Lectures.** Lecture log (rows `{course, date, title, topics}`, capped 300, `src/study-tools.js:63-91`), `lecture-compiler.js` compiles the log into one study note (overview, vocabulary table, per-lecture sections), `course-notes.js` imports PDF/PPTX/DOCX into per-page Markdown notes, and `transcript.js` builds AI prompts from existing transcripts (no audio transcription — documented limitation). Attendance is derived in `subjectSummary` (`study-workspace.js:303-319`).
+- **Readings.** Two modules: `reading-plan` code blocks with `planReading()` pace redistribution (`src/reading.js:219-280` — on-track/behind/ahead/off-pace, today's chunk, `behindBy`) and a reading library with want/reading/finished shelves (`src/reading-library.js:59-86`).
+- **Exams.** Calendar exams classified by keyword (`EXAM_WORDS`, `calendar-model.js:473-476,540`), with `upcomingExams`/`examCountdown`/`nextExamForCourse` (:720-790). Timed-test blueprints in `src/exam-sections.js` power `exam-view.js`; AP practice-exam results are saved as notes with per-section frontmatter (`src/ap-exam-history.js:82-118`). `buildStudyPlan` produces daysLeft, readiness score, weak skill and a cram pool (`src/study-plan.js:122-159`).
+- **Assignments.** Markdown notes with `assignment: true`; statuses todo/in-progress/submitted/graded/missing/excused (`assignments.js:31-38`), grade parsing, 7-day workload totals (:452-487), Tasks-line mirroring and a UI gradebook (`assignments-view.js:50-78`).
+- **Integration.** Today view merges exam study plan + countdown + readiness (`today-view.js:200-234`), review + assignment deadlines in one task list (`buildDailyTasks`, `assignments.js:555-580`), next class/exam card, FRQ review queue. `.ics` import/export, term/reading weeks, Full Calendar interop.
+
+### Gaps (implementation candidates)
+
+1. **Readings are invisible in the unified picture.** `src/today-view.js` has zero references to the reading plan or library (verified by grep). A "read X pages today (you're behind by N)" card is the single highest-value addition here.
+2. **No per-lecture state.** Attendance is derived only from the absence log; there is no "lecture processed → questions/cards generated" flag, so lecture-compiler/transcript output never links back to the lecture row.
+3. **"What's on the exam" is only inferred** (title match + skill coverage + manually declared topic count). No per-exam syllabus checklist.
+4. **Two course registries don't share data** (calendar registry vs. assignments settings; only credits fall back, `assignments.js:291-297`).
+5. Syllabus course-note template is a static heading skeleton (`course-templates.js:42-46`) — no parsing into data.
+
+### Bugs to note
+
+- Reading-plan progress key is a hash of `title|start|target` (`reading.js:148-150`): renaming a book or editing dates orphans stored progress.
+- `course-notes.js:239-241`: dead `const suggest = new FolderSuggest(...); suggest;` no-op.
+- Lecture/subject/reading data lives in `data.json` with hard caps (300 lectures, 300 books, 1,000 progress entries) — overflow silently drops oldest.
+
+---
+
+## 3. Capability 2 — What you know
+
+### What exists and works
+
+- **Storage model.** Per-note frontmatter `history` array of pipe rows `when|result|seconds|answer|confidence|error_type|attempt_id|variant` (`src/notes.js:324-341`) + derived counters; attempt IDs make merges idempotent (`src/history.js:30-61`). `buildStudyStats` merges cards + questions + notes (`src/study-stats.js:374-412`); CSV export tags rows by kind (`src/results-export.js:15-59`).
+- **Accuracy.** Per-question counters; per-skill/domain/difficulty/course/folder via `computeStats` (`src/stats.js:17-56`); 8-week accuracy bars (`stats.js:156-177`); recent-vs-earlier `trendDelta` (:180-208); per-course practice letter grades (`src/analytics.js:30-52`); Anki-style true retention by maturity replaying the scheduler (`study-stats.js:74-190`).
+- **Confidence.** Required 3-chip capture gates submit in practice (`practice-view.js:1469,1569-1579`); 0-3 chips per exam item (`exam-view.js:734-748`). **Real calibration**: `buildCalibration` (`analytics.js:60-75`) rendered in Insights Overview and `{{dashboard}}` embeds (`analytics-embed.js:116-135`), tested (`tests/analytics.test.js:32-52`). Confidence also affects scheduling (conf 1 → no streak advance, FSRS Hard).
+- **Timing.** Seconds on every attempt; avg-seconds tiles (`insights-view.js:136`); per-question `target_seconds` timer (`practice-view.js:109`) feeding grading (>1.5× target correct → Hard, `fsrs.js:42-51`); day-level minutes + heatmap (`study-stats.js:328-349`, `analytics.js:133-183`).
+- **Mistake types.** Ten-label taxonomy (`constants.js:53`), captured via post-miss "Why did you miss it?" chips (`practice-view.js:1842-1859`), written into history rows, grouped in the Error log tab with a "Practice these" filter (`insights-view.js:567-607`), exported to CSV.
+- **Partial credit.** Inline quiz `partial:` mode with per-question penalty → 0-100 score + pass/imprecise/fail bands (`quiz-block.js:402-435`); matching per-pair rows (`matching.js:97-120`); card typed answers correct/partial/incorrect via token coverage (`card-grading.js:187-190`) + AI grader (`card-grading-ai.js`); AP FRQ per-criterion rubric scoring (`frq.js:404-545`) with criterion weak spots surfaced in Insights (:534-565).
+- **Mastery.** Source-note accuracy bands untried/weak<60%/developing<80%/strong (`concept-mastery.js:8-63`) plus windowed 7/30-day model with trend (`progress.js:89-133`); FSRS stability/difficulty/memory-now as knowledge signals; leeches and `needs_fixing` flags.
+
+### Gaps (implementation candidates)
+
+1. **Partial credit is flattened at the stats boundary.** History rows store only binary `correct|incorrect` (`notes.js:326`); quiz-block 0-100 scores and matching per-pair detail never reach stats, so near-misses are invisible to accuracy, calibration and mastery. Add a numeric `score` field to history rows and aggregate it.
+2. **FRQ is siloed out of the knowledge model.** FRQ attempt notes (percent, `frq_criteria_missed`) never enter `buildStudyStats`, `conceptMasteryRows`, or calibration (verified: zero `frq` references in `study-stats.js`, `progress.js`, `analytics.js`). No unified mastery across MCQ + FRQ + cards.
+3. **Timing depth is averages only.** `distribution()` is applied to intervals/ease/stability but never to seconds — no per-question time distributions or slow-answer analytics.
+4. Mastery is raw accuracy — no decay adjustment outside FSRS (acceptable, but document it).
+
+### Bugs to note
+
+- **Calibration pollution:** `recordQuizBlockAnswer` hardcodes `conf: 2` ("Confident") for inline-quiz answers the user never rated (`plugin.js:4063`, verified) — inflates the Confident calibration bucket. Fix: store an "unrated" sentinel and exclude it from `buildCalibration`.
+- `durability.enabled` is computed but never read (`durability.js:27`); actual gating uses `studyStats.durableRecall` (`plugin.js:7758`).
+- Exam confidence 0 is silently dropped from calibration (`analytics.js:65-66`) — documented, but exam attempts vanish from that chart.
+- `fm.history` is unbounded per note (day counters are capped, history is not).
+
+---
+
+## 4. Capability 3 — When to review it (adaptive spaced repetition)
+
+### What exists and works
+
+- **Four schedulers, all real.** Ladder (default `[1,3,7,21,60]`, per-deck overridable, `notes.js:283-291`, `cards.js:255-259`); clean-room SM-2 with ease/lapses/multipliers and one-time 500-row history replay (`sm2.js:123-174`); **full vendored FSRS-6** (ts-fsrs 5.4.1, `fsrs-lib.js`, 21 default weights, migration/clamping, fuzz; plugin adapter `fsrs.js` with `request_retention` clamp 0.85-0.95); Recall Scheduler ladder for note headings (`study-workspace.js:572-591`). Scheduler switching is lossless and tested (`fsrs.test.js:99-120`).
+- **What gets scheduled.** Questions, flashcards, vocabulary in one queue (`due-queue.js:56-81`); whole notes (`plugin.js:5384`); **Spaced Everything** schedules arbitrary notes via SM-2 state in `se-*` frontmatter (`spaced-everything.js:58-181`). `spaced-quiz.js` is only an exporter, not a scheduler.
+- **Adaptivity beyond pass/fail.** Confidence and response time map onto grades (`fsrs.js:42-51`, `sm2.js:111-120`); `adaptive-session.js` stretches/warm-ups session size from accuracy, skip rate and pace (:116-140); `adaptiveFrequency` lengthens ladder intervals for known cards (`card-learning.js:25-30`); same-day requeue for Again/Hard; skips logged separately (`notes.js:409`).
+- **Exam awareness.** `examReviewCap` (`calendar-model.js:775-788`) caps due dates to the day before the exam via `applyExamCap` (`notes.js:189-202`), wired into card/note attempts (`plugin.js:1779,7739,7755,7826`), cleared when inapplicable, tested in `exam-schedule.test.js`.
+- **Reminders.** Three layers: daily in-app banner (`reminder.js:41-66`), startup Notice + ribbon badge (`study-nudge.js:59-77`), opt-in OS notifications (`os-notifications.js:44-92`).
+
+### Gaps (implementation candidates)
+
+1. **FSRS weights are never optimized.** The plugin never passes `w` — the vendored defaults are used forever; only `request_retention` is adjustable, and `scheduler-fit.js` (`fitRetention`, :71-122) fits desired retention from observed recall but is global, cards-only, suggestion-only.
+2. **`scheduler-fit` reads a property nothing writes.** It buckets by `fm.interval` (`scheduler-fit.js:46,86`), but nothing ever writes `interval` (only `anki_interval` on Anki import, `cards.js:562`; the only other `interval:` writes are Anki sync stamps, `plugin.js:3156,3178`). Verified: interval bucketing and trend advice are degenerate on real notes, and `tests/scheduler-fit.test.js` masks this with synthetic `interval` fixtures. **Either write an `interval` property in `applyAttempt` or read it from the scheduler state.**
+3. **No load balancing / overflow control.** Due = `next_review <= today` (`filters.js:6-9`); overdue accumulates indefinitely; no daily caps that push work forward, no review-ahead guard (cram mode is intentional).
+4. No graduated pre-exam compression (single day-before cap, no ramping); no sub-day scheduling (short-term FSRS steps disabled by design, `fsrs.js:28-34`).
+5. Adaptive session sizing and `adaptiveFrequency` both default **off** (`adaptive-session.js:14`, `constants.js:211-212`) — the "adaptive" story ships dark.
+
+### Bugs to note
+
+- SM-2 Hard doesn't lower ease (only Again decrements, `sm2.js:132-150`) — deviates from classic SM-2.
+- FSRS due clamp silently converts same-day due to +1 day (`fsrs.js:158-161`) — fine, but undocumented.
+- Interval previews re-run the 500-row history replay ×4 ratings per render when state is missing (`interval-preview.js:33-51`) — minor perf.
+
+---
+
+## 5. Capability 4 — How to create more practice (AI generation with verification) ⚠️ priority area
+
+### What exists and works
+
+- **Generation paths.** MCQ/multi/true-false quiz from vault notes (22 languages, 1-20 items, `quiz-generator.js`); questions/cards from transcripts with subtopic memory; PDF/DOCX/PPTX/.ppsx text extraction; vision OCR of scans; flashcards (`card-generator`, `auto-anki`, `text2anki`); weak-spot generation from worst skills; learnkits. Providers: Anthropic/OpenAI/OpenRouter/Gemini/Qwen/Ollama/custom + local OpenCode agent behind one gate (`plugin.js:6597-6629`, `api-client.js`, `opencode-client.js`).
+- **Verification (real, layered).** *Blind self-check*: a second AI call solves the question without seeing the answer key (`answer-verification.js:17-38`); `verifyDraftQuestions` (`plugin.js:3451-3495`) marks mismatches for review or drops them, stamping `verified/verified_by/verification` frontmatter + warning banner. *Computed verification*: parameterized items (seeded variables, restricted recursive-descent evaluator, no `eval`) are checked by local arithmetic, with AI disagreement downgrading to "review" (`computed-verification.js:68-140`). *Human review*: every path is draft-then-confirm; direct-AI agent actions are allow-listed proposals (`ai-tools.js:12-128`) shown in `ai-tool-review-modal.js`; OpenCode edits are reverted wholesale and staged per-file (`chat-panel.js:304-392`).
+- **Guardrails.** `ai-write-guard.js` confines AI writes to question/card/deck folders and locks 38 protected properties (result, attempts, history, srs…); `agent-write-guard.js` snapshots/restores protected frontmatter; writes are journaled for one-click undo (`ai-writes.js`); keys prefer Obsidian Secret Storage with legacy migration (`secret-keys.js:81-127`); HTTPS enforced (`url-safety.js:32-39`); budget caps block before send (`ai-service.test.js:60`).
+
+### P0 bugs — verification holes (fix first)
+
+1. **Quiz Generator modal path skips verification.** `generateQuizFromNotes` (`plugin.js:4830-4860`, verified) returns parsed items without calling `verifyDraftQuestions` — unlike the transcript path (`:3792`) and weak-spot path (`:3279`). AI questions from folders are saved **unverified**. Wire verification in (or document loudly).
+2. **`createQuickAddQuestions` bypasses guards.** (`plugin.js:3911-3944`, verified) It calls neither `assertAllowedWritePath` nor the AI-write journal — inconsistent with `writeTranscriptPractice` (`:5825`) — so quiz-generator/quick-add writes are invisible to "Undo last AI write" and unguarded if a caller passes another folder.
+3. **Chat-created questions are never blind-verified.** `applyByokToolProposals` (`plugin.js:3816-3834`) relies solely on human proposal review.
+4. **`update_section` path-guard bypass:** when the target is the active file, `assertAllowedWritePath` is skipped (`plugin.js:3854`) — an approved chat proposal can edit any open note (mitigated only by the safe-heading allowlist, `ai-tools.js:13`).
+
+### Other gaps
+
+5. **Verification covers only letter-answer MCQs** — `verifyQuestionDraft` hard-rejects non-letter answers (`plugin.js:3438`); no verification for flashcards, cloze or FRQ.
+6. **Same-model verification:** generation and verification share one backend, so correlated errors are likely. Consider an optional "verify with a second model" setting.
+7. **`isRetryableError` is dead code.** Defined and tested (`ai-service.js:236-241`) but never called anywhere in `src/` (verified) — no retry/backoff actually happens. Implement it (429/5xx/network, capped attempts with backoff) or remove it.
+8. No distractor-quality checks beyond structure; no dedup of generated questions against existing vault questions on the quiz path; no cost estimate before send; AI limits default to unlimited (`ai-service.js:54-58`).
+9. Context grounding is prompt-stuffing (note text embedded directly, `quiz-generator.js:136`) — fine at ≤12 notes/18k chars, but no retrieval; `ai-context.js` deliberately sends only aggregate stats to chat.
+
+---
+
+## 6. Capability 5 — One dashboard across everything
+
+### What exists and works
+
+- **Six surfaces:** **Today view** (phone-sized entry: due/new counts, start-5-minutes hero, scoped mastery card with trend + band practice, exam plan/countdown/readiness, FRQ review, quiz streak, assignments + workload, focus/streak, mixed due queue, next class/exam; re-renders every 60s); **Insights view** with 5 tabs — Progress (goal ring, momentum tiles with deltas, scoped 7/30-day mastery bands + practice, 4/8/12-week heatmap, course meters, next-up), Overview (stat tiles, grade snapshot, calibration, retention trend, skill/domain/difficulty breakdowns), Weak spots, Concepts, Error log; **`mcq-dashboard` embed** (11 metrics, course/window overrides, trend badge); **Study Stats view** (Anki-style: true retention by maturity, memory-now, interval/ease/stability distributions, weekday rhythm, per-deck, permanent heatmap, leeches); **Study Workspace** (19 tabs incl. Courses gradebook with weighted grades/letters and Retention tab with 30-day due forecast); **Review Calendar view**.
+- **Plumbing.** Two pure aggregators — `buildProgress` (`src/progress.js:284-318`) and `buildDashboard` (`src/analytics.js:185-229`) — plus `studyPlan()`. The project's own handoff (`docs/progress-dashboard-handoff.md`) documents the design decisions (§5), known gaps (§8) and next steps (§9: course-registry names as scopes is item 4, still open).
+
+### Gaps (implementation candidates)
+
+1. **No single view combines everything.** Closest is Insights Overview, which lacks assignments, FSRS depth, forward due-load and streaks; Progress lacks exam countdown and grades; card/FSRS depth (retention by maturity, memory-now, stability distributions) lives only in Study Stats; forward due-load only in Workspace Retention; weighted gradebook letters only in Workspace Courses.
+2. **FRQ results are excluded from all aggregates** (verified — see §3). They appear only in Today's FRQ queue and Weak-tab criteria.
+3. **Two grade systems never meet:** practice-derived A-F snapshot (`analytics.js:30-52`) vs. weighted gradebook (`study-workspace.js:821-871`). No reconciliation or shared display.
+4. **Heatmap excludes card reviews** — `activityByDay` counts only study-log sessions + question history (`analytics.js:133-150`).
+5. **Two duplicate aggregation layers** (`progress.js` vs `analytics.js`) re-parse history per render; Today rebuilds its DOM every 60s + 1s focus tick; no caching layer. Fine at small vaults, worth a snapshot cache at large ones.
+6. Band-count vs practice-pool divergence (hidden notes counted in bands, filtered from pools) — deliberate per handoff §5, but visible to users; decide and document in-app.
+7. The project's own §8 manual gates remain open: **real-Obsidian visual pass (desktop/mobile/light-dark) never done**; trend cold-start messaging; embed windows limited to 0/7/30.
+
+---
+
+## 7. Recommended work order for the coding agent
+
+Conventions (from `AGENTS.md` — follow them): read `plan.md` first and update it **before** pushing implementation; no dependencies; tests are part of the change (`npm run build` → `npm test` → `npm run check` → commit generated `main.js`); MIT/BSD/ISC/0BSD/Apache-2.0 code only; smallest change that meets the request.
+
+### P0 — correctness fixes (do these first, each is small and testable)
+
+| # | Fix | Where |
+|---|---|---|
+| 1 | Wire `verifyDraftQuestions` into the Quiz Generator modal path | `plugin.js` `generateQuizFromNotes` (~:4846) |
+| 2 | Add `assertAllowedWritePath` + AI-write journal to `createQuickAddQuestions` | `plugin.js:3911-3944` |
+| 3 | Stop hardcoding `conf: 2` for inline-quiz answers; store "unrated" and exclude from calibration | `plugin.js:4063`, `analytics.js:60-75` |
+| 4 | Fix `scheduler-fit` input: write an `interval` property in `applyAttempt` (or read scheduler state) so `fitRetention` bucketing works on real notes; add a real-data test | `notes.js`, `scheduler-fit.js:46,86`, `tests/scheduler-fit.test.js` |
+| 5 | Close the `update_section` active-file guard bypass | `plugin.js:3854`, `ai-tools.js` |
+| 6 | Implement (or delete) `isRetryableError` — retry 429/5xx/network with capped backoff | `ai-service.js:236-241` |
+
+### P1 — completes the five requirements
+
+1. **Unify FRQ into the knowledge model** (biggest single win): feed FRQ attempt notes into `buildStudyStats`/mastery/calibration/dashboard, or add a documented FRQ section to Insights Progress. Affects §2, §5 of this review at once.
+2. **Preserve partial credit in history:** add a numeric `score` to history rows; aggregate quiz-block 0-100 scores and matching pair detail into accuracy/mastery; keep binary `result` for backward compatibility with existing notes and sync.
+3. **Readings in Today:** a reading-plan card (today's pages, behind-by, one-tap progress) in `today-view.js`; optionally due-date support in the reading library.
+4. **Dashboard consolidation:** add forward due-load and a retention/memory-now summary to Insights Progress or Overview; include card reviews in the heatmap; show practice grade and gradebook letter side-by-side with a note explaining the difference.
+5. **FSRS parameter optimization from review history** (per-deck if not global) — the last big "adaptive" gap; otherwise optimize `request_retention` per deck as a smaller step and document that weights are fixed.
+6. **Verification for non-MCQ generated items:** rule-based checks for cloze/flashcards (answer present, not a substring of the prompt, single cloze deletion) and a second-pass rubric sanity check for FRQ; optional "verify with a second model" setting.
+
+### P2 — polish
+
+- Load balancing / daily caps / review-ahead handling in the due queue (`filters.js`, `due-queue.js`).
+- SM-2 Hard lowers ease (`sm2.js:132-150`); make the FSRS +1-day clamp visible in UI copy.
+- Per-lecture "processed" state linking lecture log rows to generated notes/cards.
+- Unify the two course registries (or share credits/targets both ways).
+- Snapshot cache for dashboard aggregators; stop Today's full-DOM rebuild per 60s tick.
+- Reading-plan progress key: decouple from `title|start|target` hash (`reading.js:148-150`); remove dead `FolderSuggest` no-op (`course-notes.js:239-241`); remove dead `durability.enabled` read or wire it.
+- Surface the default-off adaptive features (adaptive session sizing, `adaptiveFrequency`) in onboarding/presets so the adaptivity actually runs.
+- Do the manual real-Obsidian visual pass for the Progress dashboard (`docs/progress-dashboard-handoff.md` §8) — it is an owner gate, not code.
+
+### What to review (not implement) before P1
+
+- `plan.md` §11 decisions (esp. items 4, 13, O13) — several remaining features are gated on owner/product decisions, not code. Don't build past a `NEEDS USER DECISION` row.
+- `docs/progress-dashboard-handoff.md` §5 decisions — keep them when extending the dashboard (only mastery is scoped; `course` is the scope knob; band counts include hidden notes; band practice uses explicit pools).
+- Test asymmetries: inline-quiz `conf` handling and quiz-generator-path verification have **no** tests precisely because the behavior is broken/absent (see P0 1 and 3). Add tests with the fixes.
+
+---
+
+## 8. Data model cheat sheet (for any of the above work)
+
+- Vault Markdown frontmatter is the source of truth for questions, cards, assignments, exam results (`docs/property-schema.md`, schema v1). History rows, counters, SRS state (`sm2|…`, FSRS state, `se-*`, `exam_cap*`) all live per-note.
+- Plugin `data.json` holds settings plus: lecture log, subject/project data, topic plans, reading library + progress, calendar course registry, CBT attempts, daily counters, AI write journal.
+- SQLite is used only to write Anki `.apkg` files; CouchDB sync covers review state only.
+- No dependencies, no dynamic code (`scripts/check-no-dynamic-code.js` enforces), `main.js` is generated — never hand-edit.
