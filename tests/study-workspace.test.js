@@ -16,7 +16,7 @@ async function setup(saved) {
 
 test("study workspace: twelve independent modules default on and can be switched off", () => {
   const defaults = W.normalizeStudyWorkspaceSettings({});
-  assert.deepEqual(Object.keys(defaults), ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex"]);
+  assert.deepEqual(Object.keys(defaults), ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex", "readingLibrary"]);
   for (const value of Object.values(defaults)) assert.equal(value.enabled, true);
   const off = W.normalizeStudyWorkspaceSettings({
     feynmanLearning: { enabled: false },
@@ -37,6 +37,7 @@ test("study workspace: twelve independent modules default on and can be switched
     audioBookmarks: { enabled: false },
     feynmanAi: { enabled: false },
     pdfAnnotationIndex: { enabled: false },
+    readingLibrary: { enabled: false },
   });
   assert.equal(Object.values(off).every((value) => value.enabled === false), true);
 });
@@ -252,6 +253,7 @@ test("plugin: workflow switches gate the view and workflow data survives a reloa
   assert.ok(dom.texts().includes("Deep Notes"));
   assert.ok(dom.texts().includes("Retention"));
   assert.ok(dom.texts().includes("Vocabulary"));
+  assert.ok(dom.texts().includes("Reading library"));
   assert.ok(dom.texts().includes("Quiz index"));
 
   const feynman = await plugin.addFeynmanSession({ topic: "Osmosis", course: "Biology" });
@@ -263,7 +265,8 @@ test("plugin: workflow switches gate the view and workflow data survives a reloa
   const annotation = await plugin.addAnnotation({ sourcePath: "Biology/Cells.md", quote: "Water crosses the membrane.", question: "How?", answer: "Osmosis." });
   const socratic = await plugin.addDeepNotesSession({ topic: "Osmosis", course: "Biology" });
   const vocab = await plugin.addVocabWord({ term: "osmosis", definition: "Water movement across a membrane" });
-  assert.ok(feynman && excerpt && subject && plan && grade && task && annotation && socratic && vocab);
+  const book = await plugin.addReadingBook({ title: "Deep Work", author: "Cal Newport", totalPages: 300 });
+  assert.ok(feynman && excerpt && subject && plan && grade && task && annotation && socratic && vocab && book);
   await plugin.addPlannerPass(plan.id, plugin.studyWorkspaceSettings().lerntracker.plans[0].topics[0].id);
   assert.equal(plugin.studyWorkspaceSettings().lerntracker.plans[0].topics[0].passes, 1);
 
@@ -279,13 +282,14 @@ test("plugin: workflow switches gate the view and workflow data survives a reloa
   assert.equal(restarted.studyWorkspaceSettings().annotations.annotations.length, 1);
   assert.equal(restarted.studyWorkspaceSettings().deepNotes.sessions.length, 1);
   assert.equal(restarted.studyWorkspaceSettings().vocabulary.words.length, 1);
+  assert.equal(restarted.studyWorkspaceSettings().readingLibrary.books.length, 1);
 
-  for (const tab of ["courses", "tasks", "annotations", "deepNotes", "retention", "vocabulary"]) {
+  for (const tab of ["courses", "tasks", "annotations", "deepNotes", "retention", "vocabulary", "readingLibrary"]) {
     view.setTab(tab);
     assert.equal(view.tab, tab);
   }
 
-  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex"]) {
+  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex", "readingLibrary"]) {
     restarted.settings[key].enabled = false;
   }
   assert.equal(restarted.studyWorkspaceEnabled(), false);

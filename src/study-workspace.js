@@ -12,6 +12,7 @@ const lectureCompiler = require("./lecture-compiler");
 const courseHealth = require("./course-health");
 const audioBookmarks = require("./audio-bookmarks");
 const feynmanAi = require("./feynman-ai");
+const readingLibrary = require("./reading-library");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 
 const MAX_TEXT = 12000;
@@ -1248,6 +1249,7 @@ function normalizeStudyWorkspaceSettings(value) {
     audioBookmarks: audioBookmarks.normalizeAudioBookmarkSettings(source.audioBookmarks),
     feynmanAi: feynmanAi.normalizeFeynmanAiSettings(source.feynmanAi),
     pdfAnnotationIndex: pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(source.pdfAnnotationIndex),
+    readingLibrary: readingLibrary.normalizeLibrary(source.readingLibrary),
   };
 }
 

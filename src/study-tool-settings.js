@@ -22,6 +22,7 @@ const cardArchive = require("./card-archive");
 const studyNudge = require("./study-nudge");
 const courseTemplates = require("./course-templates");
 const audioBookmarks = require("./audio-bookmarks");
+const readingLibrary = require("./reading-library");
 
 /** Sidebar order follows the plan: local tools, then the workspace, then analysis. */
 const STUDY_TOOL_SETTINGS_MODULES = [
@@ -39,6 +40,7 @@ const STUDY_TOOL_SETTINGS_MODULES = [
   { id: "deep-notes", label: "Deep Notes", icon: "messages-square" },
   { id: "retention", label: "Retention", icon: "line-chart" },
   { id: "vocabulary", label: "Vocabulary", icon: "book-a" },
+  { id: "reading-library", label: "Reading library", icon: "library" },
   { id: "quiz-index", label: "Quiz index", icon: "list-checks" },
   { id: "quiz-maker", label: "Quiz Maker blocks", icon: "puzzle" },
   { id: "sat-math", label: "SAT math solver", icon: "calculator" },
@@ -335,6 +337,28 @@ const PAGES = {
     afterToggle: "onStudyWorkspaceToggled",
     status: (plugin) => `${studyWorkspace.normalizeVocabulary(plugin.settings.vocabulary).words.length} word(s).`,
     open: { label: "Open Vocabulary", run: (plugin) => plugin.activateStudyWorkspace("vocabulary") },
+  },
+  "reading-library": {
+    title: "Reading library",
+    description:
+      "A local bookshelf with want, reading and finished shelves, page progress, ratings and captured quotes. Adapted from Verso's library and quote idea; it reads no book text, calls no provider and writes no note.",
+    enabledGetter: "readingLibraryEnabled",
+    enable: (plugin, v) => update(plugin, "readingLibrary", readingLibrary.normalizeLibrary, { enabled: v }),
+    afterToggle: "onStudyWorkspaceToggled",
+    fields: [
+      {
+        type: "toggle",
+        name: "Hide finished books on the All shelf",
+        desc: "Keep the main shelf focused on books you are reading or still plan to read. The Finished shelf still shows them.",
+        get: (plugin) => readingLibrary.normalizeLibrary(plugin.settings.readingLibrary).hideFinished,
+        set: async (plugin, v) => update(plugin, "readingLibrary", readingLibrary.normalizeLibrary, { hideFinished: v }),
+      },
+    ],
+    status: (plugin) => {
+      const summary = readingLibrary.librarySummary(readingLibrary.normalizeLibrary(plugin.settings.readingLibrary).books);
+      return `${summary.total} book(s) · ${summary.reading} reading · ${summary.finished} finished · ${summary.quotes} quote(s).`;
+    },
+    open: { label: "Open the bookshelf", run: (plugin) => plugin.activateStudyWorkspace("readingLibrary") },
   },
   "quiz-index": {
     title: "Quiz index",

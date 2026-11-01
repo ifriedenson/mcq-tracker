@@ -19061,6 +19061,7 @@ const DEFAULT_SETTINGS = {
   deepNotes: { enabled: true, sessions: [] }, // guided Socratic sessions
   retention: { enabled: true }, // read-only card forecast
   vocabulary: { enabled: true, words: [] }, // local dictionary and per-word review ladder
+  readingLibrary: { enabled: true, hideFinished: false, books: [] }, // local bookshelf, page progress and captured quotes
   readAloud: { enabled: true, style: "full", rate: 1, pitch: 1, voice: "" }, // device speech synthesis, local only
   lectureCompiler: { enabled: true, folder: "Lecture notes", includeOverview: true, includeConcepts: true, includeVocabulary: true, includeSections: true }, // compile the lecture log into one study note
   courseHealth: { enabled: true, attendanceThreshold: 75, examWindowDays: 14, minSessions: 3 }, // local course health checks
@@ -39287,6 +39288,7 @@ const studyWorkspace = require("./study-workspace");
 const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
 const audioBookmarks = require("./audio-bookmarks");
+const readingLibrary = require("./reading-library");
 const courseHealth = require("./course-health");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
@@ -39641,6 +39643,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });
     this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
     this.addCommand({ id: "open-study-workspace", name: "Open Study Workspace", callback: () => this.activateStudyWorkspace() });
+    this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
     this.addCommand({ id: "build-recall-queue", name: "Recall Scheduler: build a queue", callback: () => this.activateStudyWorkspace("recall") });
     this.addCommand({ id: "new-topic-plan", name: "Topic planner: create an exam plan", callback: () => this.activateStudyWorkspace("planner") });
@@ -40135,6 +40138,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.deepNotes = studyWorkspace.normalizeDeepNotes(saved.deepNotes);
     this.settings.retention = studyWorkspace.normalizeRetention(saved.retention);
     this.settings.vocabulary = studyWorkspace.normalizeVocabulary(saved.vocabulary);
+    this.settings.readingLibrary = readingLibrary.normalizeLibrary(saved.readingLibrary);
     this.settings.readAloud = readAloud.normalizeReadAloudSettings(saved.readAloud);
     this.settings.lectureCompiler = lectureCompiler.normalizeLectureCompilerSettings(saved.lectureCompiler);
     this.settings.courseHealth = courseHealth.normalizeCourseHealthSettings(saved.courseHealth);
@@ -40751,6 +40755,10 @@ class QuestionTrackerPlugin extends Plugin {
     return studyWorkspace.normalizeVocabulary(this.settings.vocabulary).enabled;
   }
 
+  readingLibraryEnabled() {
+    return this.readingLibrarySettings().enabled;
+  }
+
   readAloudEnabled() {
     return readAloud.normalizeReadAloudSettings(this.settings.readAloud).enabled;
   }
@@ -40776,7 +40784,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled() || this.readingLibraryEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -47401,6 +47409,66 @@ ${body}
     return path;
   }
 
+  /* ---- local reading library (Verso library, shelves and quotes) */
+
+  readingLibrarySettings() {
+    return readingLibrary.normalizeLibrary(this.settings.readingLibrary);
+  }
+
+  async addReadingBook(input) {
+    const book = readingLibrary.createBook(input, localDate());
+    if (!book) return null;
+    const current = this.readingLibrarySettings();
+    if (current.books.some((entry) => entry.id === book.id)) return null;
+    this.settings.readingLibrary = readingLibrary.normalizeLibrary({ ...current, books: current.books.concat(book) });
+    await this.save();
+    this.refreshViews();
+    return book;
+  }
+
+  async updateReadingBook(id, patch) {
+    const current = this.readingLibrarySettings();
+    const before = current.books.find((book) => book.id === id);
+    if (!before) return null;
+    const books = readingLibrary.updateBook(current.books, id, patch, localDate());
+    const after = books.find((book) => book.id === id) || null;
+    this.settings.readingLibrary = { ...current, books };
+    await this.save();
+    this.refreshViews();
+    if (after && before.status !== "finished" && after.status === "finished") {
+      new Notice(`Finished "${after.title}". Add a quote while it is fresh.`);
+    }
+    return after;
+  }
+
+  async removeReadingBook(id) {
+    const current = this.readingLibrarySettings();
+    this.settings.readingLibrary = { ...current, books: readingLibrary.removeBook(current.books, id) };
+    await this.save();
+    this.refreshViews();
+  }
+
+  async setReadingProgress(id, page) {
+    return this.updateReadingBook(id, { currentPage: page });
+  }
+
+  async addReadingQuote(bookId, input) {
+    const current = this.readingLibrarySettings();
+    const result = readingLibrary.addQuote(current.books, bookId, input, localDate());
+    if (!result.quote) return null;
+    this.settings.readingLibrary = { ...current, books: result.books };
+    await this.save();
+    this.refreshViews();
+    return result.quote;
+  }
+
+  async removeReadingQuote(bookId, quoteId) {
+    const current = this.readingLibrarySettings();
+    this.settings.readingLibrary = { ...current, books: readingLibrary.removeQuote(current.books, bookId, quoteId) };
+    await this.save();
+    this.refreshViews();
+  }
+
   async addAudioBookmark(input) {
     const entry = audioBookmarks.addAudioBookmark(input, Date.now());
     if (!entry) return null;
@@ -54006,6 +54074,268 @@ module.exports = {
   distributePages,
   normalizeReadingSettings,
   planReading,
+};
+};
+
+/* ---- src/reading-library.js ---- */
+__defs["reading-library"] = function (module, exports, require) {
+/*
+ * Local reading library: books, shelves, page progress and captured quotes.
+ * Adapted from Verso's library/bookshelf/quote idea (MIT) as original,
+ * dependency-free code. Nothing here calls a provider or writes a note.
+ */
+const { hashString, localDate, str } = require("./util");
+
+const MAX_BOOKS = 300;
+const MAX_QUOTES = 100;
+const MAX_TITLE = 200;
+const MAX_AUTHOR = 160;
+const MAX_QUOTE = 2000;
+const BOOK_STATUSES = ["want", "reading", "finished"];
+const STATUS_LABELS = { want: "Want to read", reading: "Reading", finished: "Finished" };
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function enabledValue(value) {
+  if (value === false) return false;
+  if (value && typeof value === "object" && value.enabled === false) return false;
+  return true;
+}
+
+function textValue(value, max) {
+  return str(value).replace(/\r\n?/g, "\n").trim().slice(0, max);
+}
+
+function clamp(value, low, high) {
+  return Math.max(low, Math.min(high, Math.round(value)));
+}
+
+function numberValue(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeDate(value) {
+  const text = str(value).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return "";
+  const date = new Date(`${text}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? "" : text;
+}
+
+function normalizeQuote(value, index) {
+  const source = asObject(value);
+  const text = textValue(source.text, MAX_QUOTE);
+  if (!text) return null;
+  return {
+    id: str(source.id).trim() || `quote-${hashString(`${text}|${index}`)}`,
+    text,
+    page: clamp(numberValue(source.page, 0), 0, 20000),
+    addedOn: normalizeDate(source.addedOn),
+  };
+}
+
+function normalizeBook(value, index) {
+  const source = asObject(value);
+  const title = textValue(source.title, MAX_TITLE);
+  if (!title) return null;
+  const totalPages = clamp(numberValue(source.totalPages, 0), 0, 20000);
+  const rawPage = clamp(numberValue(source.currentPage, 0), 0, 20000);
+  const currentPage = totalPages > 0 ? Math.min(totalPages, rawPage) : rawPage;
+  const status = BOOK_STATUSES.includes(source.status) ? source.status : "want";
+  const quotes = [];
+  for (const raw of Array.isArray(source.quotes) ? source.quotes : []) {
+    const quote = normalizeQuote(raw, quotes.length);
+    if (!quote || quotes.some((entry) => entry.id === quote.id)) continue;
+    quotes.push(quote);
+    if (quotes.length >= MAX_QUOTES) break;
+  }
+  return {
+    id: str(source.id).trim() || `book-${hashString(`${title}|${index}`)}`,
+    title,
+    author: textValue(source.author, MAX_AUTHOR),
+    totalPages,
+    currentPage,
+    status,
+    rating: clamp(numberValue(source.rating, 0), 0, 5),
+    startedOn: normalizeDate(source.startedOn),
+    finishedOn: normalizeDate(source.finishedOn),
+    quotes,
+  };
+}
+
+function normalizeLibrary(value) {
+  const source = asObject(value);
+  const books = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.books) ? source.books : []) {
+    const book = normalizeBook(raw, books.length);
+    if (!book || seen.has(book.id)) continue;
+    seen.add(book.id);
+    books.push(book);
+    if (books.length >= MAX_BOOKS) break;
+  }
+  return {
+    enabled: enabledValue(value),
+    hideFinished: source.hideFinished === true,
+    books,
+  };
+}
+
+/** Creates one book. `input.today` (YYYY-MM-DD) keeps the function testable. */
+function createBook(input, today) {
+  const source = asObject(input);
+  const title = textValue(source.title, MAX_TITLE);
+  if (!title) return null;
+  const day = normalizeDate(source.today) || normalizeDate(today) || localDate();
+  const status = BOOK_STATUSES.includes(source.status) ? source.status : "want";
+  const totalPages = clamp(numberValue(source.totalPages, 0), 0, 20000);
+  const currentPage = clamp(numberValue(source.currentPage, 0), 0, totalPages || 20000);
+  const id = str(source.id).trim() || `book-${hashString(`${title}|${textValue(source.author, MAX_AUTHOR)}|${day}|${str(source.seed)}`)}`;
+  const book = normalizeBook(
+    {
+      ...source,
+      id,
+      title,
+      status,
+      totalPages,
+      currentPage,
+      startedOn: status === "reading" ? normalizeDate(source.startedOn) || day : normalizeDate(source.startedOn),
+      finishedOn: status === "finished" ? normalizeDate(source.finishedOn) || day : "",
+    },
+    0
+  );
+  if (book && status === "finished" && book.totalPages > 0) book.currentPage = book.totalPages;
+  return book;
+}
+
+/** Applies a patch and handles the status transitions (start, finish, reopen). */
+function updateBook(books, id, patch, today) {
+  const list = normalizeLibrary({ books }).books;
+  const index = list.findIndex((book) => book.id === id);
+  if (index < 0) return list;
+  const before = list[index];
+  const change = asObject(patch);
+  const day = normalizeDate(change.today) || normalizeDate(today) || localDate();
+  const merged = { ...before, ...change, id: before.id, quotes: before.quotes };
+  if (change.status && BOOK_STATUSES.includes(change.status)) {
+    merged.status = change.status;
+    if (change.status === "finished") {
+      merged.finishedOn = normalizeDate(change.finishedOn) || before.finishedOn || day;
+      if (before.status !== "finished" && merged.totalPages > 0) merged.currentPage = merged.totalPages;
+    } else if (change.status === "reading") {
+      merged.finishedOn = "";
+      merged.startedOn = before.startedOn || day;
+    } else {
+      merged.finishedOn = "";
+    }
+  }
+  const next = normalizeBook(merged, index);
+  if (!next) return list;
+  list[index] = next;
+  return list;
+}
+
+function removeBook(books, id) {
+  return normalizeLibrary({ books }).books.filter((book) => book.id !== id);
+}
+
+function addQuote(books, bookId, input, today) {
+  const list = normalizeLibrary({ books }).books;
+  const index = list.findIndex((book) => book.id === bookId);
+  if (index < 0) return { books: list, quote: null };
+  const source = asObject(input);
+  const day = normalizeDate(source.addedOn) || normalizeDate(today) || localDate();
+  const text = textValue(source.text, MAX_QUOTE);
+  if (!text) return { books: list, quote: null };
+  const quote = normalizeQuote(
+    {
+      id: str(source.id).trim() || `quote-${hashString(`${bookId}|${text}|${source.page || 0}|${day}|${str(source.seed)}`)}`,
+      text,
+      page: source.page,
+      addedOn: day,
+    },
+    list[index].quotes.length
+  );
+  if (!quote || list[index].quotes.some((entry) => entry.id === quote.id)) return { books: list, quote: null };
+  list[index] = { ...list[index], quotes: list[index].quotes.concat(quote).slice(-MAX_QUOTES) };
+  return { books: list, quote };
+}
+
+function removeQuote(books, bookId, quoteId) {
+  const list = normalizeLibrary({ books }).books;
+  const index = list.findIndex((book) => book.id === bookId);
+  if (index < 0) return list;
+  list[index] = { ...list[index], quotes: list[index].quotes.filter((quote) => quote.id !== quoteId) };
+  return list;
+}
+
+function bookProgress(book) {
+  const value = asObject(book);
+  const total = Math.max(0, numberValue(value.totalPages, 0));
+  const page = Math.max(0, Math.min(total || 20000, numberValue(value.currentPage, 0)));
+  return {
+    known: total > 0,
+    percent: total > 0 ? Math.min(100, Math.round((page / total) * 100)) : 0,
+    pagesLeft: total > 0 ? Math.max(0, total - page) : 0,
+  };
+}
+
+function librarySummary(books, today) {
+  const list = normalizeLibrary({ books }).books;
+  const day = normalizeDate(today) || localDate();
+  const rated = list.filter((book) => book.status === "finished" && book.rating > 0);
+  const ratingTotal = rated.reduce((sum, book) => sum + book.rating, 0);
+  return {
+    total: list.length,
+    want: list.filter((book) => book.status === "want").length,
+    reading: list.filter((book) => book.status === "reading").length,
+    finished: list.filter((book) => book.status === "finished").length,
+    pagesRead: list.reduce((sum, book) => sum + Math.max(0, Number(book.currentPage) || 0), 0),
+    quotes: list.reduce((sum, book) => sum + book.quotes.length, 0),
+    finishedToday: list.filter((book) => book.finishedOn === day).length,
+    averageRating: rated.length ? Math.round((ratingTotal / rated.length) * 10) / 10 : 0,
+  };
+}
+
+/** Shelf filter used by the view: all, want, reading or finished. */
+function shelfBooks(books, filter, hideFinished) {
+  const list = normalizeLibrary({ books }).books;
+  const key = ["want", "reading", "finished"].includes(filter) ? filter : "all";
+  return list.filter((book) => {
+    if (key === "all" && hideFinished && book.status === "finished") return false;
+    return key === "all" || book.status === key;
+  });
+}
+
+function quoteRows(books) {
+  const rows = [];
+  for (const book of normalizeLibrary({ books }).books) {
+    for (const quote of book.quotes) {
+      rows.push({ ...quote, bookId: book.id, bookTitle: book.title, author: book.author });
+    }
+  }
+  return rows.sort((a, b) => String(b.addedOn).localeCompare(String(a.addedOn)) || a.bookTitle.localeCompare(b.bookTitle));
+}
+
+module.exports = {
+  BOOK_STATUSES,
+  MAX_BOOKS,
+  MAX_QUOTES,
+  STATUS_LABELS,
+  addQuote,
+  bookProgress,
+  createBook,
+  librarySummary,
+  normalizeBook,
+  normalizeLibrary,
+  normalizeQuote,
+  quoteRows,
+  removeBook,
+  removeQuote,
+  shelfBooks,
+  updateBook,
 };
 };
 
@@ -66434,6 +66764,7 @@ const cardArchive = require("./card-archive");
 const studyNudge = require("./study-nudge");
 const courseTemplates = require("./course-templates");
 const audioBookmarks = require("./audio-bookmarks");
+const readingLibrary = require("./reading-library");
 
 /** Sidebar order follows the plan: local tools, then the workspace, then analysis. */
 const STUDY_TOOL_SETTINGS_MODULES = [
@@ -66451,6 +66782,7 @@ const STUDY_TOOL_SETTINGS_MODULES = [
   { id: "deep-notes", label: "Deep Notes", icon: "messages-square" },
   { id: "retention", label: "Retention", icon: "line-chart" },
   { id: "vocabulary", label: "Vocabulary", icon: "book-a" },
+  { id: "reading-library", label: "Reading library", icon: "library" },
   { id: "quiz-index", label: "Quiz index", icon: "list-checks" },
   { id: "quiz-maker", label: "Quiz Maker blocks", icon: "puzzle" },
   { id: "sat-math", label: "SAT math solver", icon: "calculator" },
@@ -66747,6 +67079,28 @@ const PAGES = {
     afterToggle: "onStudyWorkspaceToggled",
     status: (plugin) => `${studyWorkspace.normalizeVocabulary(plugin.settings.vocabulary).words.length} word(s).`,
     open: { label: "Open Vocabulary", run: (plugin) => plugin.activateStudyWorkspace("vocabulary") },
+  },
+  "reading-library": {
+    title: "Reading library",
+    description:
+      "A local bookshelf with want, reading and finished shelves, page progress, ratings and captured quotes. Adapted from Verso's library and quote idea; it reads no book text, calls no provider and writes no note.",
+    enabledGetter: "readingLibraryEnabled",
+    enable: (plugin, v) => update(plugin, "readingLibrary", readingLibrary.normalizeLibrary, { enabled: v }),
+    afterToggle: "onStudyWorkspaceToggled",
+    fields: [
+      {
+        type: "toggle",
+        name: "Hide finished books on the All shelf",
+        desc: "Keep the main shelf focused on books you are reading or still plan to read. The Finished shelf still shows them.",
+        get: (plugin) => readingLibrary.normalizeLibrary(plugin.settings.readingLibrary).hideFinished,
+        set: async (plugin, v) => update(plugin, "readingLibrary", readingLibrary.normalizeLibrary, { hideFinished: v }),
+      },
+    ],
+    status: (plugin) => {
+      const summary = readingLibrary.librarySummary(readingLibrary.normalizeLibrary(plugin.settings.readingLibrary).books);
+      return `${summary.total} book(s) · ${summary.reading} reading · ${summary.finished} finished · ${summary.quotes} quote(s).`;
+    },
+    open: { label: "Open the bookshelf", run: (plugin) => plugin.activateStudyWorkspace("readingLibrary") },
   },
   "quiz-index": {
     title: "Quiz index",
@@ -67877,6 +68231,7 @@ const lectureCompiler = require("./lecture-compiler");
 const courseHealth = require("./course-health");
 const audioBookmarks = require("./audio-bookmarks");
 const feynmanAi = require("./feynman-ai");
+const readingLibrary = require("./reading-library");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 
 const MAX_TEXT = 12000;
@@ -69113,6 +69468,7 @@ function normalizeStudyWorkspaceSettings(value) {
     audioBookmarks: audioBookmarks.normalizeAudioBookmarkSettings(source.audioBookmarks),
     feynmanAi: feynmanAi.normalizeFeynmanAiSettings(source.feynmanAi),
     pdfAnnotationIndex: pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(source.pdfAnnotationIndex),
+    readingLibrary: readingLibrary.normalizeLibrary(source.readingLibrary),
   };
 }
 
@@ -69209,6 +69565,7 @@ const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
 const { bookmarkLink, bookmarkPaths, chaptersFor, formatTimestamp, parseTimestamp } = require("./audio-bookmarks");
+const { STATUS_LABELS: READING_LABELS, bookProgress, librarySummary, shelfBooks } = require("./reading-library");
 const {
   FEYNMAN_STEPS,
   SOCRATIC_STEPS,
@@ -69241,6 +69598,7 @@ const TABS = [
   { id: "deepNotes", label: "Deep Notes", module: "deepNotes" },
   { id: "retention", label: "Retention", module: "retention" },
   { id: "vocabulary", label: "Vocabulary", module: "vocabulary" },
+  { id: "readingLibrary", label: "Reading library", module: "readingLibrary" },
   { id: "quizIndex", label: "Quiz index", module: "quizIndex" },
   { id: "health", label: "Course health", module: "courseHealth" },
   { id: "lectures", label: "Lecture notes", module: "lectureCompiler" },
@@ -69275,6 +69633,7 @@ class StudyWorkspaceView extends ItemView {
     this.deepNotesId = "";
     this.retentionData = null;
     this.vocabFilter = "";
+    this.readingFilter = "all";
     this.fitReport = null;
     this.lecturePreview = null;
     this.readAloudText = "";
@@ -69367,6 +69726,7 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "deepNotes") this.renderDeepNotes(wrap);
     else if (this.tab === "retention") this.renderRetention(wrap);
     else if (this.tab === "vocabulary") this.renderVocabulary(wrap);
+    else if (this.tab === "readingLibrary") this.renderReadingLibrary(wrap);
     else if (this.tab === "quizIndex") this.renderQuizIndex(wrap);
     else if (this.tab === "health") this.renderCourseHealth(wrap);
     else if (this.tab === "lectures") this.renderLectureCompiler(wrap);
@@ -69381,7 +69741,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback and the PDF annotation index each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback, the PDF annotation index and the Reading library each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -70648,6 +71008,156 @@ class StudyWorkspaceView extends ItemView {
       const buttons = item.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Open PDF" }).addEventListener("click", () => this.app.workspace.openLinkText(row.pdfPath, "", false));
       buttons.createEl("button", { text: "Open sidecar" }).addEventListener("click", () => this.app.workspace.openLinkText(row.sidecarPath, "", false));
+    }
+  }
+
+  /* ---- Reading library (Verso library, shelves and quotes) ------------ */
+
+  renderReadingLibrary(root) {
+    const data = this.settings().readingLibrary;
+    const summary = librarySummary(data.books, localDate());
+    const stats = root.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const card = stats.createDiv({ cls: "qt-study-stat" });
+      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      card.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(summary.reading, "reading");
+    stat(summary.finished, "finished");
+    stat(summary.pagesRead, "pages read");
+    stat(summary.quotes, "quotes");
+    if (summary.finishedToday) {
+      const done = root.createDiv({ cls: "qt-study-card qt-reading-celebration" });
+      done.createEl("h3", { text: "Finished today" });
+      done.createDiv({ cls: "qt-hint", text: `${summary.finishedToday} book${summary.finishedToday === 1 ? "" : "s"} finished today. Add a quote while it is fresh.` });
+    }
+
+    const add = root.createDiv({ cls: "qt-study-card" });
+    add.createEl("h3", { text: "Add a book" });
+    add.createDiv({ cls: "qt-hint", text: "A local bookshelf with want, reading and finished shelves, page progress and quotes. Nothing leaves the vault." });
+    const form = add.createDiv({ cls: "qt-study-form" });
+    const title = this.renderField(form, "Title", "text", "Deep Work");
+    const author = this.renderField(form, "Author (optional)", "text", "Cal Newport");
+    const pages = this.renderField(form, "Pages (optional)", "number", "300");
+    const status = this.renderSelect(form, "Shelf", [
+      { value: "want", label: "Want to read" },
+      { value: "reading", label: "Reading" },
+      { value: "finished", label: "Finished" },
+    ], "want");
+    const addActions = add.createDiv({ cls: "qt-row qt-study-actions" });
+    addActions.createEl("button", { text: "Add book", cls: "mod-cta" }).addEventListener("click", async () => {
+      const book = await this.plugin.addReadingBook({ title: title.value, author: author.value, totalPages: pages.value, status: status.value });
+      if (!book) {
+        this.saveMessage("Add a title first, and avoid adding the same book twice.");
+        this.render();
+        return;
+      }
+      this.saveMessage(`Added ${book.title}.`);
+      this.render();
+    });
+
+    const controls = root.createDiv({ cls: "qt-study-card" });
+    controls.createEl("h3", { text: "Bookshelf" });
+    controls.createDiv({ cls: "qt-hint", text: data.hideFinished ? "Finished books are hidden from the All shelf. Choose Finished to see them." : "Use a shelf to narrow the list; page progress and ratings stay local." });
+    const filter = this.renderSelect(controls, "Show", [
+      { value: "all", label: "All books" },
+      { value: "reading", label: "Reading" },
+      { value: "want", label: "Want to read" },
+      { value: "finished", label: "Finished" },
+    ], this.readingFilter || "all");
+    filter.addEventListener("change", () => {
+      this.readingFilter = filter.value;
+      this.render();
+    });
+    const books = shelfBooks(data.books, this.readingFilter || "all", data.hideFinished);
+    if (!books.length) {
+      this.renderTabsEmpty(root, "No books on this shelf yet. Add one above, or switch shelves.");
+      return;
+    }
+    const list = root.createDiv({ cls: "qt-study-list" });
+    for (const book of books) this.renderReadingBook(list, book);
+  }
+
+  renderReadingBook(list, book) {
+    const item = list.createDiv({ cls: "qt-study-row qt-reading-book" });
+    const main = item.createDiv({ cls: "qt-study-row-main" });
+    main.createDiv({ cls: "qt-study-row-title", text: `${book.title}${book.author ? ` · ${book.author}` : ""}` });
+    const progress = bookProgress(book);
+    main.createDiv({ cls: "qt-study-row-meta", text: `${READING_LABELS[book.status]} · ${progress.known ? `${book.currentPage}/${book.totalPages} pages (${progress.percent}%)` : `${book.currentPage} pages`}${book.rating ? ` · ${book.rating}/5` : ""}` });
+    if (progress.known) {
+      const bar = main.createDiv({ cls: "qt-study-bar" });
+      bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = `${progress.percent}%`;
+    }
+    const actions = item.createDiv({ cls: "qt-row qt-study-row-actions" });
+    if (book.status !== "reading") {
+      actions.createEl("button", { text: "Start" }).addEventListener("click", async () => {
+        await this.plugin.updateReadingBook(book.id, { status: "reading" });
+        this.render();
+      });
+    }
+    if (book.status !== "finished") {
+      actions.createEl("button", { text: "Finish", cls: "mod-cta" }).addEventListener("click", async () => {
+        await this.plugin.updateReadingBook(book.id, { status: "finished" });
+        this.render();
+      });
+    } else {
+      actions.createEl("button", { text: "Reopen" }).addEventListener("click", async () => {
+        await this.plugin.updateReadingBook(book.id, { status: "reading" });
+        this.render();
+      });
+    }
+    if (book.status !== "want") {
+      actions.createEl("button", { text: "Want" }).addEventListener("click", async () => {
+        await this.plugin.updateReadingBook(book.id, { status: "want" });
+        this.render();
+      });
+    }
+    actions.createEl("button", { text: "Delete" }).addEventListener("click", async () => {
+      await this.plugin.removeReadingBook(book.id);
+      this.saveMessage(`Removed ${book.title}.`);
+      this.render();
+    });
+
+    const progressForm = item.createDiv({ cls: "qt-study-form" });
+    const page = this.renderField(progressForm, "Current page", "number", "0", String(book.currentPage));
+    progressForm.createEl("button", { text: "Save page" }).addEventListener("click", async () => {
+      const updated = await this.plugin.setReadingProgress(book.id, page.value);
+      this.saveMessage(updated ? `Saved page ${updated.currentPage}.` : "That book is gone.");
+      this.render();
+    });
+    const rating = this.renderSelect(progressForm, "Rating", [
+      { value: "0", label: "No rating" },
+      { value: "1", label: "1 / 5" },
+      { value: "2", label: "2 / 5" },
+      { value: "3", label: "3 / 5" },
+      { value: "4", label: "4 / 5" },
+      { value: "5", label: "5 / 5" },
+    ], String(book.rating));
+    rating.addEventListener("change", async () => {
+      await this.plugin.updateReadingBook(book.id, { rating: rating.value });
+      this.render();
+    });
+
+    const quoteForm = item.createDiv({ cls: "qt-study-form" });
+    const quoteText = this.renderTextarea(quoteForm, "Quote", "A sentence worth keeping", "", 2);
+    const quotePage = this.renderField(quoteForm, "Quote page (optional)", "number", "0", "");
+    quoteForm.createEl("button", { text: "Add quote" }).addEventListener("click", async () => {
+      const quote = await this.plugin.addReadingQuote(book.id, { text: quoteText.value, page: quotePage.value });
+      this.saveMessage(quote ? "Quote saved." : "Write a quote first.");
+      this.render();
+    });
+    if (book.quotes.length) {
+      const quotes = item.createDiv({ cls: "qt-study-list" });
+      for (const quote of book.quotes) {
+        const row = quotes.createDiv({ cls: "qt-study-row" });
+        const quoteMain = row.createDiv({ cls: "qt-study-row-main" });
+        quoteMain.createDiv({ cls: "qt-study-row-title", text: `“${quote.text}”` });
+        quoteMain.createDiv({ cls: "qt-study-row-meta", text: `${quote.page ? `page ${quote.page} · ` : ""}${quote.addedOn || ""}` });
+        row.createEl("button", { text: "Remove" }).addEventListener("click", async () => {
+          await this.plugin.removeReadingQuote(book.id, quote.id);
+          this.render();
+        });
+      }
     }
   }
 
@@ -74463,6 +74973,7 @@ const quizBlock = require("./quiz-block");
 const studyTools = require("./study-tools");
 const studyToolSettings = require("./study-tool-settings");
 const settingsGlobal = require("./settings-global");
+const readingLibrary = require("./reading-library");
 const cornell = require("./cornell");
 const intervalPreview = require("./interval-preview");
 const { StudyToolsView } = require("./study-tools-view");
@@ -74856,6 +75367,7 @@ QuestionTrackerPlugin.__test = {
   studyTools,
   studyToolSettings,
   settingsGlobal,
+  readingLibrary,
   studyWorkspace,
   readAloud,
   lectureCompiler,

@@ -11,6 +11,7 @@ const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
 const { bookmarkLink, bookmarkPaths, chaptersFor, formatTimestamp, parseTimestamp } = require("./audio-bookmarks");
+const { STATUS_LABELS: READING_LABELS, bookProgress, librarySummary, shelfBooks } = require("./reading-library");
 const {
   FEYNMAN_STEPS,
   SOCRATIC_STEPS,
@@ -43,6 +44,7 @@ const TABS = [
   { id: "deepNotes", label: "Deep Notes", module: "deepNotes" },
   { id: "retention", label: "Retention", module: "retention" },
   { id: "vocabulary", label: "Vocabulary", module: "vocabulary" },
+  { id: "readingLibrary", label: "Reading library", module: "readingLibrary" },
   { id: "quizIndex", label: "Quiz index", module: "quizIndex" },
   { id: "health", label: "Course health", module: "courseHealth" },
   { id: "lectures", label: "Lecture notes", module: "lectureCompiler" },
@@ -77,6 +79,7 @@ class StudyWorkspaceView extends ItemView {
     this.deepNotesId = "";
     this.retentionData = null;
     this.vocabFilter = "";
+    this.readingFilter = "all";
     this.fitReport = null;
     this.lecturePreview = null;
     this.readAloudText = "";
@@ -169,6 +172,7 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "deepNotes") this.renderDeepNotes(wrap);
     else if (this.tab === "retention") this.renderRetention(wrap);
     else if (this.tab === "vocabulary") this.renderVocabulary(wrap);
+    else if (this.tab === "readingLibrary") this.renderReadingLibrary(wrap);
     else if (this.tab === "quizIndex") this.renderQuizIndex(wrap);
     else if (this.tab === "health") this.renderCourseHealth(wrap);
     else if (this.tab === "lectures") this.renderLectureCompiler(wrap);
@@ -183,7 +187,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback and the PDF annotation index each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback, the PDF annotation index and the Reading library each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -1450,6 +1454,156 @@ class StudyWorkspaceView extends ItemView {
       const buttons = item.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Open PDF" }).addEventListener("click", () => this.app.workspace.openLinkText(row.pdfPath, "", false));
       buttons.createEl("button", { text: "Open sidecar" }).addEventListener("click", () => this.app.workspace.openLinkText(row.sidecarPath, "", false));
+    }
+  }
+
+  /* ---- Reading library (Verso library, shelves and quotes) ------------ */
+
+  renderReadingLibrary(root) {
+    const data = this.settings().readingLibrary;
+    const summary = librarySummary(data.books, localDate());
+    const stats = root.createDiv({ cls: "qt-study-stats" });
+    const stat = (value, label) => {
+      const card = stats.createDiv({ cls: "qt-study-stat" });
+      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+      card.createDiv({ cls: "qt-study-stat-label", text: label });
+    };
+    stat(summary.reading, "reading");
+    stat(summary.finished, "finished");
+    stat(summary.pagesRead, "pages read");
+    stat(summary.quotes, "quotes");
+    if (summary.finishedToday) {
+      const done = root.createDiv({ cls: "qt-study-card qt-reading-celebration" });
+      done.createEl("h3", { text: "Finished today" });
+      done.createDiv({ cls: "qt-hint", text: `${summary.finishedToday} book${summary.finishedToday === 1 ? "" : "s"} finished today. Add a quote while it is fresh.` });
+    }
+
+    const add = root.createDiv({ cls: "qt-study-card" });
+    add.createEl("h3", { text: "Add a book" });
+    add.createDiv({ cls: "qt-hint", text: "A local bookshelf with want, reading and finished shelves, page progress and quotes. Nothing leaves the vault." });
+    const form = add.createDiv({ cls: "qt-study-form" });
+    const title = this.renderField(form, "Title", "text", "Deep Work");
+    const author = this.renderField(form, "Author (optional)", "text", "Cal Newport");
+    const pages = this.renderField(form, "Pages (optional)", "number", "300");
+    const status = this.renderSelect(form, "Shelf", [
+      { value: "want", label: "Want to read" },
+      { value: "reading", label: "Reading" },
+      { value: "finished", label: "Finished" },
+    ], "want");
+    const addActions = add.createDiv({ cls: "qt-row qt-study-actions" });
+    addActions.createEl("button", { text: "Add book", cls: "mod-cta" }).addEventListener("click", async () => {
+      const book = await this.plugin.addReadingBook({ title: title.value, author: author.value, totalPages: pages.value, status: status.value });
+      if (!book) {
+        this.saveMessage("Add a title first, and avoid adding the same book twice.");
+        this.render();
+        return;
+      }
+      this.saveMessage(`Added ${book.title}.`);
+      this.render();
+    });
+
+    const controls = root.createDiv({ cls: "qt-study-card" });
+    controls.createEl("h3", { text: "Bookshelf" });
+    controls.createDiv({ cls: "qt-hint", text: data.hideFinished ? "Finished books are hidden from the All shelf. Choose Finished to see them." : "Use a shelf to narrow the list; page progress and ratings stay local." });
+    const filter = this.renderSelect(controls, "Show", [
+      { value: "all", label: "All books" },
+      { value: "reading", label: "Reading" },
+      { value: "want", label: "Want to read" },
+      { value: "finished", label: "Finished" },
+    ], this.readingFilter || "all");
+    filter.addEventListener("change", () => {
+      this.readingFilter = filter.value;
+      this.render();
+    });
+    const books = shelfBooks(data.books, this.readingFilter || "all", data.hideFinished);
+    if (!books.length) {
+      this.renderTabsEmpty(root, "No books on this shelf yet. Add one above, or switch shelves.");
+      return;
+    }
+    const list = root.createDiv({ cls: "qt-study-list" });
+    for (const book of books) this.renderReadingBook(list, book);
+  }
+
+  renderReadingBook(list, book) {
+    const item = list.createDiv({ cls: "qt-study-row qt-reading-book" });
+    const main = item.createDiv({ cls: "qt-study-row-main" });
+    main.createDiv({ cls: "qt-study-row-title", text: `${book.title}${book.author ? ` · ${book.author}` : ""}` });
+    const progress = bookProgress(book);
+    main.createDiv({ cls: "qt-study-row-meta", text: `${READING_LABELS[book.status]} · ${progress.known ? `${book.currentPage}/${book.totalPages} pages (${progress.percent}%)` : `${book.currentPage} pages`}${book.rating ? ` · ${book.rating}/5` : ""}` });
+    if (progress.known) {
+      const bar = main.createDiv({ cls: "qt-study-bar" });
+      bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = `${progress.percent}%`;
+    }
+    const actions = item.createDiv({ cls: "qt-row qt-study-row-actions" });
+    if (book.status !== "reading") {
+      actions.createEl("button", { text: "Start" }).addEventListener("click", async () => {
+        await this.plugin.updateReadingBook(book.id, { status: "reading" });
+        this.render();
+      });
+    }
+    if (book.status !== "finished") {
+      actions.createEl("button", { text: "Finish", cls: "mod-cta" }).addEventListener("click", async () => {
+        await this.plugin.updateReadingBook(book.id, { status: "finished" });
+        this.render();
+      });
+    } else {
+      actions.createEl("button", { text: "Reopen" }).addEventListener("click", async () => {
+        await this.plugin.updateReadingBook(book.id, { status: "reading" });
+        this.render();
+      });
+    }
+    if (book.status !== "want") {
+      actions.createEl("button", { text: "Want" }).addEventListener("click", async () => {
+        await this.plugin.updateReadingBook(book.id, { status: "want" });
+        this.render();
+      });
+    }
+    actions.createEl("button", { text: "Delete" }).addEventListener("click", async () => {
+      await this.plugin.removeReadingBook(book.id);
+      this.saveMessage(`Removed ${book.title}.`);
+      this.render();
+    });
+
+    const progressForm = item.createDiv({ cls: "qt-study-form" });
+    const page = this.renderField(progressForm, "Current page", "number", "0", String(book.currentPage));
+    progressForm.createEl("button", { text: "Save page" }).addEventListener("click", async () => {
+      const updated = await this.plugin.setReadingProgress(book.id, page.value);
+      this.saveMessage(updated ? `Saved page ${updated.currentPage}.` : "That book is gone.");
+      this.render();
+    });
+    const rating = this.renderSelect(progressForm, "Rating", [
+      { value: "0", label: "No rating" },
+      { value: "1", label: "1 / 5" },
+      { value: "2", label: "2 / 5" },
+      { value: "3", label: "3 / 5" },
+      { value: "4", label: "4 / 5" },
+      { value: "5", label: "5 / 5" },
+    ], String(book.rating));
+    rating.addEventListener("change", async () => {
+      await this.plugin.updateReadingBook(book.id, { rating: rating.value });
+      this.render();
+    });
+
+    const quoteForm = item.createDiv({ cls: "qt-study-form" });
+    const quoteText = this.renderTextarea(quoteForm, "Quote", "A sentence worth keeping", "", 2);
+    const quotePage = this.renderField(quoteForm, "Quote page (optional)", "number", "0", "");
+    quoteForm.createEl("button", { text: "Add quote" }).addEventListener("click", async () => {
+      const quote = await this.plugin.addReadingQuote(book.id, { text: quoteText.value, page: quotePage.value });
+      this.saveMessage(quote ? "Quote saved." : "Write a quote first.");
+      this.render();
+    });
+    if (book.quotes.length) {
+      const quotes = item.createDiv({ cls: "qt-study-list" });
+      for (const quote of book.quotes) {
+        const row = quotes.createDiv({ cls: "qt-study-row" });
+        const quoteMain = row.createDiv({ cls: "qt-study-row-main" });
+        quoteMain.createDiv({ cls: "qt-study-row-title", text: `“${quote.text}”` });
+        quoteMain.createDiv({ cls: "qt-study-row-meta", text: `${quote.page ? `page ${quote.page} · ` : ""}${quote.addedOn || ""}` });
+        row.createEl("button", { text: "Remove" }).addEventListener("click", async () => {
+          await this.plugin.removeReadingQuote(book.id, quote.id);
+          this.render();
+        });
+      }
     }
   }
 

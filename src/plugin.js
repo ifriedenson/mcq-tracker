@@ -17,6 +17,7 @@ const studyWorkspace = require("./study-workspace");
 const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
 const audioBookmarks = require("./audio-bookmarks");
+const readingLibrary = require("./reading-library");
 const courseHealth = require("./course-health");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
@@ -371,6 +372,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });
     this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
     this.addCommand({ id: "open-study-workspace", name: "Open Study Workspace", callback: () => this.activateStudyWorkspace() });
+    this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
     this.addCommand({ id: "build-recall-queue", name: "Recall Scheduler: build a queue", callback: () => this.activateStudyWorkspace("recall") });
     this.addCommand({ id: "new-topic-plan", name: "Topic planner: create an exam plan", callback: () => this.activateStudyWorkspace("planner") });
@@ -865,6 +867,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.deepNotes = studyWorkspace.normalizeDeepNotes(saved.deepNotes);
     this.settings.retention = studyWorkspace.normalizeRetention(saved.retention);
     this.settings.vocabulary = studyWorkspace.normalizeVocabulary(saved.vocabulary);
+    this.settings.readingLibrary = readingLibrary.normalizeLibrary(saved.readingLibrary);
     this.settings.readAloud = readAloud.normalizeReadAloudSettings(saved.readAloud);
     this.settings.lectureCompiler = lectureCompiler.normalizeLectureCompilerSettings(saved.lectureCompiler);
     this.settings.courseHealth = courseHealth.normalizeCourseHealthSettings(saved.courseHealth);
@@ -1481,6 +1484,10 @@ class QuestionTrackerPlugin extends Plugin {
     return studyWorkspace.normalizeVocabulary(this.settings.vocabulary).enabled;
   }
 
+  readingLibraryEnabled() {
+    return this.readingLibrarySettings().enabled;
+  }
+
   readAloudEnabled() {
     return readAloud.normalizeReadAloudSettings(this.settings.readAloud).enabled;
   }
@@ -1506,7 +1513,7 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled() || this.readingLibraryEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -8129,6 +8136,66 @@ ${body}
     await this.app.vault.create(path, source.markdown);
     new Notice(`Saved ${path}.`);
     return path;
+  }
+
+  /* ---- local reading library (Verso library, shelves and quotes) */
+
+  readingLibrarySettings() {
+    return readingLibrary.normalizeLibrary(this.settings.readingLibrary);
+  }
+
+  async addReadingBook(input) {
+    const book = readingLibrary.createBook(input, localDate());
+    if (!book) return null;
+    const current = this.readingLibrarySettings();
+    if (current.books.some((entry) => entry.id === book.id)) return null;
+    this.settings.readingLibrary = readingLibrary.normalizeLibrary({ ...current, books: current.books.concat(book) });
+    await this.save();
+    this.refreshViews();
+    return book;
+  }
+
+  async updateReadingBook(id, patch) {
+    const current = this.readingLibrarySettings();
+    const before = current.books.find((book) => book.id === id);
+    if (!before) return null;
+    const books = readingLibrary.updateBook(current.books, id, patch, localDate());
+    const after = books.find((book) => book.id === id) || null;
+    this.settings.readingLibrary = { ...current, books };
+    await this.save();
+    this.refreshViews();
+    if (after && before.status !== "finished" && after.status === "finished") {
+      new Notice(`Finished "${after.title}". Add a quote while it is fresh.`);
+    }
+    return after;
+  }
+
+  async removeReadingBook(id) {
+    const current = this.readingLibrarySettings();
+    this.settings.readingLibrary = { ...current, books: readingLibrary.removeBook(current.books, id) };
+    await this.save();
+    this.refreshViews();
+  }
+
+  async setReadingProgress(id, page) {
+    return this.updateReadingBook(id, { currentPage: page });
+  }
+
+  async addReadingQuote(bookId, input) {
+    const current = this.readingLibrarySettings();
+    const result = readingLibrary.addQuote(current.books, bookId, input, localDate());
+    if (!result.quote) return null;
+    this.settings.readingLibrary = { ...current, books: result.books };
+    await this.save();
+    this.refreshViews();
+    return result.quote;
+  }
+
+  async removeReadingQuote(bookId, quoteId) {
+    const current = this.readingLibrarySettings();
+    this.settings.readingLibrary = { ...current, books: readingLibrary.removeQuote(current.books, bookId, quoteId) };
+    await this.save();
+    this.refreshViews();
   }
 
   async addAudioBookmark(input) {

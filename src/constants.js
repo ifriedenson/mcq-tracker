@@ -167,6 +167,7 @@ const DEFAULT_SETTINGS = {
   deepNotes: { enabled: true, sessions: [] }, // guided Socratic sessions
   retention: { enabled: true }, // read-only card forecast
   vocabulary: { enabled: true, words: [] }, // local dictionary and per-word review ladder
+  readingLibrary: { enabled: true, hideFinished: false, books: [] }, // local bookshelf, page progress and captured quotes
   readAloud: { enabled: true, style: "full", rate: 1, pitch: 1, voice: "" }, // device speech synthesis, local only
   lectureCompiler: { enabled: true, folder: "Lecture notes", includeOverview: true, includeConcepts: true, includeVocabulary: true, includeSections: true }, // compile the lecture log into one study note
   courseHealth: { enabled: true, attendanceThreshold: 75, examWindowDays: 14, minSessions: 3 }, // local course health checks

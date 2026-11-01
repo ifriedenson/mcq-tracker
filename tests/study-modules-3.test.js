@@ -173,7 +173,7 @@ test("study modules: the two new switches persist and gate the workspace", async
   const plugin = await setup({ feynmanAi: { enabled: false }, pdfAnnotationIndex: { enabled: false } });
   assert.equal(plugin.feynmanAiEnabled(), false);
   assert.equal(plugin.pdfAnnotationIndexEnabled(), false);
-  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex"]) {
+  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex", "readingLibrary"]) {
     plugin.settings[key].enabled = false;
   }
   assert.equal(plugin.studyWorkspaceEnabled(), false);

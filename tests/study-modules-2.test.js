@@ -158,7 +158,7 @@ test("study modules: the four new switches persist and gate the workspace", asyn
   assert.equal(plugin.lectureCompilerEnabled(), false);
   assert.equal(plugin.courseHealthEnabled(), false);
   assert.equal(plugin.audioBookmarksEnabled(), false);
-  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex"]) {
+  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex", "readingLibrary"]) {
     plugin.settings[key].enabled = false;
   }
   assert.equal(plugin.studyWorkspaceEnabled(), false);

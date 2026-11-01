@@ -78,6 +78,7 @@ const quizBlock = require("./quiz-block");
 const studyTools = require("./study-tools");
 const studyToolSettings = require("./study-tool-settings");
 const settingsGlobal = require("./settings-global");
+const readingLibrary = require("./reading-library");
 const cornell = require("./cornell");
 const intervalPreview = require("./interval-preview");
 const { StudyToolsView } = require("./study-tools-view");
@@ -471,6 +472,7 @@ QuestionTrackerPlugin.__test = {
   studyTools,
   studyToolSettings,
   settingsGlobal,
+  readingLibrary,
   studyWorkspace,
   readAloud,
   lectureCompiler,
