@@ -1006,7 +1006,7 @@ Point the plugin at a file of practice questions and it creates one note per que
 
 **Two ways to do it**
 
-- **OpenCode agent (desktop).** The agent reads the file and writes the note files itself, straight into the folder, the way you'd ask an AI agent to do it in a chat. Choose OpenCode as the AI backend in settings first. If the agent has to wait for permission to create files, allow file edits for your vault in OpenCode's permissions.
+- **OpenCode agent (desktop).** The agent reads the file and writes the note files itself, straight into the folder, the way you'd ask an AI agent to do it in a chat. Run OpenCode yourself with `opencode serve`, choose it as the AI backend, and enter its URL in settings. If the agent has to wait for permission to create files, allow file edits for your vault in OpenCode's permissions.
 - **Direct AI (any device).** The plugin sends the file's text to your provider a few pages or slides at a time. The AI replies with finished notes, you review the list, untick anything you don't want, and the plugin creates the files.
 
 **Properties from the document.** The import reads the labels the file prints for each question and saves them as note properties: the question's own ID (as `official_question_id`, kept separate from the plugin's own `question_id`, for example the `Question ID: 37e5c794` printed on an exam page), plus test, section, domain, skill and difficulty. In a printed question table, "Assessment" becomes `test` and the table's "Test" column becomes `section`. Difficulty is saved in lower case (easy, medium, hard). Any other labelled value (for example a score band) is kept as an extra property. Anything you type in the import window's property boxes is used for every note instead of what the file says, so leave a box blank to take it from the file. Properties the file doesn't show are left out, never guessed.
@@ -1039,7 +1039,7 @@ AI answers can be wrong. Check them, especially before relying on them to study.
 
 ## AI assistant (optional, and off by default)
 
-The result screen can show an **Ask AI** panel that explains a question, tells you why you missed it, writes a similar question, or quizzes you. Nothing is sent anywhere, and nothing is downloaded or started, until you turn on **Enable AI features** in settings. There are two ways to power it. Both use your own account. The tutor is bring-your-own-key: text you submit goes only to the provider or local OpenCode agent you configure.
+The result screen can show an **Ask AI** panel that explains a question, tells you why you missed it, writes a similar question, or quizzes you. Nothing is sent anywhere until you turn on **Enable AI features** in settings. OpenCode is a separate program you start yourself. There are two ways to power it. Both use your own account. The tutor is bring-your-own-key: text you submit goes only to the provider or local OpenCode agent you configure.
 
 ### Option 1: Direct API (all devices, including phones)
 
@@ -1049,10 +1049,10 @@ The plugin sends a request to the provider you choose: Anthropic, OpenAI, OpenRo
 
 [OpenCode](https://opencode.ai) is a separate, free, open-source coding agent. The plugin can talk to a copy of it running on your own computer, which also lets the AI help with your notes (for example, drafting question notes). This works like the agent setup in other AI plugins, and you stay in control at each step:
 
-- **Your own copy:** install OpenCode yourself and enter its path under **OpenCode program** (or leave it blank to use the one on your PATH).
-- **Download from inside the plugin:** pressing **Download and install** (or the automatic first-time setup) shows a confirmation that names the source, version, size and folder. Only after you confirm does the plugin download the release from `github.com/anomalyco/opencode`, check its SHA-256 checksum (it refuses to install if no checksum is published or it doesn't match), and unpack it into `~/.question-tracker/opencode`, which is outside your vault. The first time you turn on the OpenCode backend, the plugin starts this setup for you automatically (unless it finds an OpenCode you already have), and you still see the confirmation before anything is downloaded. It never updates OpenCode by itself.
-- **If the download is slow or stuck:** every step has a time limit now, and **Check again** in settings re-runs the status check. You can skip the plugin's download completely: get the zip from the OpenCode releases page in your browser, unzip it, and enter the path to `opencode.exe` under **OpenCode program**. Antivirus software often scans a large new program the first time it runs, which can add a minute or more.
-- **Running it:** when you use the AI chat, the plugin starts `opencode serve` on `127.0.0.1` with a random port and a random password, so only your computer can reach it. It is stopped when Obsidian closes. Its own data (including any provider key you save here) lives in `~/.question-tracker/opencode-data`.
+- **Install and run it yourself:** install OpenCode from [opencode.ai](https://opencode.ai) and run `opencode serve` on your computer. The default address is `http://127.0.0.1:4096`. The plugin does not download, start, stop or update it.
+- **Connect it in settings:** under **Settings → MCQ Tracker → AI → OpenCode**, enter the server URL. If you set `OPENCODE_SERVER_PASSWORD`, enter the same username and password there. Connect an AI provider and key in OpenCode itself, not in this plugin.
+- **Local only:** keep the server bound to `127.0.0.1` and use a password if other users share the computer. Stop it with Ctrl+C in the terminal when you are finished.
+- **Data:** OpenCode stores its own data and provider credentials in its own folders. The plugin never reads or writes those folders, and never uses Node's `fs` or `child_process`.
 - **Tutor mode (default)** switches off OpenCode's file-editing and shell tools. **Agent mode** leaves editing on but keeps shell commands off unless you explicitly enable **Allow shell commands in Agent mode**; the Markdown edit review does not cover shell commands or files outside the reviewed notes. Keep your vault backed up before using Agent mode. The plugin also snapshots every question and card note before an Agent-mode message and puts back any review state the agent changes, so an over-eager edit cannot rewrite attempts or scheduling.
 
 ### Models, limits and capabilities
@@ -1123,13 +1123,13 @@ Numeric answers can also be checked locally without a model. Add a `calculation`
 
 ### What is disclosed and sent
 
-- **Network use:** requests to your chosen AI provider; requests to `api.github.com` and `github.com` only to set up OpenCode, which happens the first time you choose the OpenCode backend (the plugin shows what it will download, from where, and where it will go, and asks you to confirm first; if you say no it won't ask again) or when you press **Download and install**; and local requests to the OpenCode server on your own computer.
+- **Network use:** requests to your chosen AI provider and local requests to the OpenCode server you run yourself. The plugin does not download or start OpenCode.
 - **Document import:** the text of the pages or slides you choose is sent to your AI provider (Direct AI), or to your local OpenCode agent, which sends it to the provider you set up in OpenCode. Nothing is sent until you press **Start import**. The agent can create files in the new folder only if you allow it in OpenCode, and the plugin writes a temporary text copy of the file into that folder that it deletes when done. The file you choose is copied into that folder, and cut-out PDF pictures are saved in an `images` folder inside it.
 - **What a chat request contains:** the question text, any passage, the answer choices, your answer, the correct answer, the explanation, your notes for that question, and your past mistake types for it. If you enabled any **Study context** toggles, it also contains those aggregate lines; no note text is added by them. In the general assistant, note text and selected text are added only while **Include current note** or **Include selection** is on for that chat. In the general assistant or Agent mode, OpenCode may also read other files in your vault if you ask it to.
 - **Typed card answers:** when the local card grader is unsure and **AI fallback for typed answers** is on, only the card front, the stored reference answer, your typed answer and the strictness are sent. If that request fails, the answer stays in a device-local queue until AI grading succeeds or you self-grade it. Turning AI features off stops all grading requests.
-- **Files outside your vault:** only the OpenCode install folder and data folder named above, and only if you use Option 2.
-- **Programs started:** only `opencode` (and, during a download, your system's `tar`, `unzip` or PowerShell; `codesign` on macOS and `taskkill` on Windows only for signing or cleanup), and only on desktop.
-- **API key storage:** when Obsidian provides Secret Storage (1.11.4 and later), a Direct API key is saved there instead of `data.json`. Existing plain-text keys are moved into Secret Storage the next time the plugin loads, and the plain-text copy is removed. Secret Storage may be per device, so choose or create the secret on each device you use. On older Obsidian versions the key falls back to plain text in the plugin's `data.json` inside your vault; anyone who can read the vault can read it, so keep that file out of public repositories and shared vaults. A key you enter for OpenCode is saved in OpenCode's own `auth.json` outside your vault, with owner-only permissions.
+- **Files outside your vault:** none. The plugin uses Obsidian's vault API for notes and does not use Node's `fs`.
+- **Programs started:** none. You start OpenCode separately if you use it.
+- **API key storage:** when Obsidian provides Secret Storage (1.11.4 and later), a Direct API key is saved there instead of `data.json`. Existing plain-text keys are moved into Secret Storage the next time the plugin loads, and the plain-text copy is removed. Secret Storage may be per device, so choose or create the secret on each device you use. On older Obsidian versions the key falls back to plain text in the plugin's `data.json` inside your vault; anyone who can read the vault can read it, so keep that file out of public repositories and shared vaults. OpenCode provider keys are configured in OpenCode itself.
 
 ## Math and chemistry
 
@@ -1161,8 +1161,8 @@ Obsidian's automated review reports capabilities, not proof of misuse. This tabl
 
 | Review item | Why it appears | Scope in this plugin |
 | --- | --- | --- |
-| **Direct filesystem access (`fs`)** | The optional desktop OpenCode setup manages a separate program outside the vault. | It looks for an existing OpenCode binary, downloads a release from GitHub, checks its SHA-256, unpacks it into `~/.question-tracker/opencode`, keeps OpenCode's data and provider key in `~/.question-tracker/opencode-data`, and removes its own temporary files. Vault notes still go through Obsidian's vault API, not `fs`. Off until you choose the OpenCode backend and confirm the download. |
-| **Shell execution (`child_process`)** | OpenCode has to be started, and archives need unpacking. | The plugin starts `opencode serve` on `127.0.0.1` with a random port and password. It also runs fixed helpers: `tar`, PowerShell `Expand-Archive`, `unzip`, `codesign` and `taskkill`. The plugin's own process calls use fixed arguments, not note text. Agent mode's shell tool is off unless you explicitly enable **Allow shell commands in Agent mode**. |
+| **Direct filesystem access (`fs`)** | Not used. | The plugin reads and writes only vault notes through Obsidian's API. It does not ask for or manage an OpenCode install folder. |
+| **Shell execution (`child_process`)** | Not used. | OpenCode is a separate program you start yourself; the plugin only connects to its local HTTP server. The optional shell tool belongs to OpenCode, not this plugin. |
 | **Vault enumeration** | Finding questions, cards, sources and calendar files is the plugin's job. | It lists files through Obsidian's API (`getFiles`, `getMarkdownFiles`, `getAllLoadedFiles`) and reads the types each feature names. It does not walk the vault with Node's `fs`. |
 | **Clipboard access** | Two commands use the clipboard on request. | **Import a generated quiz from the clipboard** reads text only when you run it. **Copy feedback** writes the optional survey summary only when you press it. There is no background clipboard access. |
 
@@ -1170,11 +1170,11 @@ Obsidian's automated review reports capabilities, not proof of misuse. This tabl
 
 - No telemetry, analytics or ads.
 - To find your questions, the plugin lists the notes in your vault and checks each one's properties through Obsidian's metadata cache. It reads and writes only notes that have a `question_id`, and only inside your vault.
-- The plugin reads and writes notes inside your vault. The only things it touches outside your vault are the optional OpenCode folders described above.
+- The plugin reads and writes notes inside your vault. It does not touch files outside your vault.
 - The running timer is stored on your device (vault-scoped local storage), not in your notes.
 - Vault enumeration is required to find question and card notes, imports, sources and PDF or `.ics` files. The plugin reads and writes only the note types each feature names, and never reads arbitrary files for AI unless you choose that feature.
 - Clipboard access is deliberate: **Import a generated quiz from the clipboard** reads text only when you run it, and **Copy feedback** writes the survey summary only when you press it. The plugin does not monitor the clipboard.
-- The only network requests are optional and user-configured: your Direct AI provider, the OpenCode download/runtime, AnkiConnect (loopback by default), CouchDB sync, and a calendar feed URL you add. No telemetry is sent.
+- The only network requests are optional and user-configured: your Direct AI provider, the OpenCode server you run yourself, AnkiConnect (loopback by default), CouchDB sync, and a calendar feed URL you add. No telemetry is sent.
 - If you add a calendar feed URL, the plugin requests that URL (and only that URL) to download the `.ics`. Local `.ics` files are read from your vault. Calendar content is never sent anywhere.
 - Base64 encoding is used only for image payloads, CouchDB Basic authentication and Anki media. It is not used for obfuscation.
 - The plugin does not use `eval`, `new Function` or dynamic note code. Existing `quizjs` blocks are rejected with a migration notice; use `quizjson` instead.

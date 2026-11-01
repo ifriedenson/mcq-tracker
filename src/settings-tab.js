@@ -3,7 +3,6 @@ const { Notice, Platform, PluginSettingTab, SecretComponent, Setting } = require
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
-const { OPENCODE_REPO, PROVIDERS } = require("./opencode-manager");
 const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
@@ -984,153 +983,15 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     };
 
     const renderOpenCode = () => {
-    new Setting(containerEl)
-      .setName("Set up and run OpenCode for me")
-      .setDesc(
-        "Desktop only. The plugin runs OpenCode in the background (reachable only from this computer) when you use the AI chat, and stops it when Obsidian closes. " +
-          "The first time you use it, the plugin sets OpenCode up for you (you'll be asked to confirm the download). Turn off to connect to a server you run yourself."
-      )
-      .addToggle((t) =>
-        t.setValue(ai.managed).onChange(async (v) => {
-          ai.managed = v;
-          await this.plugin.save();
-          this.display();
-        })
-      );
-
-    if (ai.managed) {
-      new Setting(containerEl)
-        .setName("Start OpenCode when Obsidian opens")
-        .setDesc("Starts it quietly in the background so your first AI message doesn't wait. It stops when Obsidian closes. Off by default.")
-        .addToggle((t) =>
-          t.setValue(!!ai.preStart).onChange(async (v) => {
-            ai.preStart = v;
-            await this.plugin.save();
-          })
-        );
-      const mgr = this.plugin.manager;
-      const status = new Setting(containerEl).setName("Status").setDesc("");
-      // Built only from saved settings, so drawing this page never touches the disk or starts a program.
-      const statusText = () => {
-        if (mgr.isRunning()) return `Running on ${mgr.conn.url}${ai.installedVersion ? ` (v${ai.installedVersion})` : ""}.`;
-        if (mgr.setupBusy) return mgr.setupMsg || "Setting up OpenCode...";
-        if (mgr.setupError) return `Setup didn't finish: ${mgr.setupError} Press Download and install to try again.`;
-        if (ai.autoDeclined && !ai.managedBinary && !ai.binaryPath && !mgr.foundPath) {
-          return "Not set up. You said no to the automatic download, so it won't ask again. Press Download and install whenever you want it.";
-        }
-        if (ai.managedBinary || ai.binaryPath || mgr.foundPath) {
-          return `Ready${ai.installedVersion ? ` (v${ai.installedVersion})` : ""}. It starts when you use the AI chat.`;
-        }
-        return "Not set up yet.";
-      };
-      const showStatus = () => status.setDesc(statusText());
-      showStatus();
-      status.addButton((b) =>
-        b.setButtonText("Check again").onClick(() => {
-          status.setDesc("Checking...");
-          mgr
-            .describe()
-            .then((d) => status.setDesc(d))
-            .catch((e) => status.setDesc(str(e.message)));
-        })
-      );
-      const guarded = (fn) => async () => {
-        if (mgr.setupBusy) return new Notice("OpenCode is already being set up. Please wait.");
-        if (ai.autoDeclined) {
-          ai.autoDeclined = false;
-          await this.plugin.save();
-        }
-        const note = new Notice("Working...", 0);
-        try {
-          await fn((m) => note.setMessage(m));
-        } catch (e) {
-          new Notice(str(e.message), 10000);
-        } finally {
-          note.hide();
-          this.display();
-        }
-      };
-      // First time OpenCode is turned on: set it up automatically, after the page has drawn.
-      if (!mgr.setupRun && !ai.managedBinary && !ai.binaryPath && !ai.autoDeclined && Platform.isDesktopApp) {
-        activeWindow.setTimeout(() => {
-          if (!containerEl.isConnected || mgr.setupRun) return;
-          mgr.setupMsg = "";
-          const run = mgr.autoSetup((m) => {
-            mgr.setupMsg = m;
-            if (containerEl.isConnected) showStatus();
-          });
-          showStatus();
-          run.then(() => {
-            if (containerEl.isConnected) this.display();
-          });
-        }, 300);
-      }
-      status
-        .addButton((b) =>
-          b.setButtonText("Download and install").onClick(
-            guarded(async (say) => {
-              mgr.stop();
-              const r = await mgr.install(say);
-              new Notice(`Installed OpenCode v${r.version} (checksum verified).`, 8000);
-            })
-          )
-        )
-        .addButton((b) =>
-          b.setButtonText(mgr.isRunning() ? "Stop" : "Start").onClick(
-            guarded(async (say) => {
-              if (mgr.isRunning()) mgr.stop();
-              else await this.plugin.manager.ensure(say);
-            })
-          )
-        );
       containerEl.createEl("p", {
         cls: "setting-item-description",
-        text: `Download slow or stuck? You can skip it: download the Windows zip yourself from github.com/${OPENCODE_REPO}/releases (your browser is usually faster), unzip it, and enter the path to opencode.exe under "OpenCode program" below. Or use the Direct API backend, which needs no download at all.`,
+        text:
+          "OpenCode is a separate program you install and run yourself. Start it with opencode serve (default http://127.0.0.1:4096), " +
+          "connect an AI provider in OpenCode, then enter the server details here. The plugin only connects to that server; it does not download, start, stop or update it.",
       });
-
-      let providerId = PROVIDERS[0][0];
-      let apiKey = "";
-      new Setting(containerEl)
-        .setName("Connect an AI provider")
-        .setDesc(
-          "Paste an API key and it is saved into OpenCode's own auth.json (merged with anything already there), not into your vault. " +
-            "Already connected through OpenCode itself? You can skip this."
-        )
-        .addDropdown((d) => {
-          for (const [id, label] of PROVIDERS) d.addOption(id, label);
-          d.setValue(providerId).onChange((v) => (providerId = v));
-        })
-        .addText((t) => {
-          t.inputEl.type = "password";
-          t.setPlaceholder("API key").onChange((v) => (apiKey = v));
-        })
-        .addButton((b) =>
-          b.setButtonText("Save key").onClick(() => {
-            if (!apiKey.trim()) return new Notice("Paste a key first.");
-            try {
-              const file = mgr.saveProviderKey(providerId, apiKey);
-              new Notice(`Saved to ${file}. OpenCode restarts the next time you use the AI chat.`, 8000);
-              apiKey = "";
-              this.display();
-            } catch (e) {
-              new Notice(str(e.message), 10000);
-            }
-          })
-        );
-
-      new Setting(containerEl)
-        .setName("OpenCode program (optional)")
-        .setDesc("Full path to an opencode program you installed yourself. Leave empty to use the downloaded one or the one on your PATH.")
-        .addText((t) =>
-          t.setValue(ai.binaryPath).onChange(async (v) => {
-            ai.binaryPath = v.trim();
-            await this.plugin.save();
-          })
-        );
-    } else {
       new Setting(containerEl)
         .setName("Server URL")
-        .setDesc("For a server you start yourself with `opencode serve`. Default is http://127.0.0.1:4096")
+        .setDesc("The address printed by opencode serve. Default is http://127.0.0.1:4096")
         .addText((t) =>
           t.setValue(ai.url).onChange(async (v) => {
             ai.url = v.trim();
@@ -1189,68 +1050,62 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             })
           );
       }
-    }
-
-    new Setting(containerEl)
-      .setName("Model (optional)")
-      .setDesc("Format provider/model, for example anthropic/claude-sonnet-4-5. Leave empty to use OpenCode's default.")
-      .addText((t) =>
-        t.setValue(ai.model).onChange(async (v) => {
-          ai.model = v.trim();
-          await this.plugin.save();
-        })
-      );
-    new Setting(containerEl)
-      .setName("Agent (optional)")
-      .setDesc("An OpenCode agent name. Leave empty for the default. Use Test connection to see the names available.")
-      .addText((t) =>
-        t.setValue(ai.agent).onChange(async (v) => {
-          ai.agent = v.trim();
-          await this.plugin.save();
-        })
-      );
-    new Setting(containerEl)
-      .setName("Review agent edits before applying")
-      .setDesc(
-        "Agent mode only. The plugin pauses edits to your question, card and deck notes plus the current note, shows a diff, and writes only the files you approve. Closing the review discards the agent's changes. This review does not cover other files or shell commands. On by default."
-      )
-      .addToggle((t) =>
-        t.setValue(ai.reviewAgentEdits !== false).onChange(async (v) => {
-          ai.reviewAgentEdits = v;
-          await this.plugin.save();
-        })
-      );
-    new Setting(containerEl)
-      .setName("Allow shell commands in Agent mode")
-      .setDesc("Off by default. When on, OpenCode may run shell commands on this computer in Agent mode. The Markdown edit review does not approve or undo those commands. Leave it off unless you deliberately need them.")
-      .addToggle((t) =>
-        t.setValue(ai.agentShell === true).onChange(async (v) => {
-          ai.agentShell = v;
-          await this.plugin.save();
-        })
-      );
-    new Setting(containerEl).setName("Test connection").addButton((b) =>
-      b.setButtonText("Test").onClick(async () => {
-        if (ai.managed && !this.plugin.manager.isRunning()) {
-          return new Notice("OpenCode isn't running yet. It starts when you use the AI chat, or press Start above.", 8000);
-        }
-        const oc = this.plugin.openCode();
-        try {
-          const h = await oc.health();
-          let names = "";
+      new Setting(containerEl)
+        .setName("Model (optional)")
+        .setDesc("Format provider/model, for example anthropic/claude-sonnet-4-5. Leave empty to use OpenCode's default.")
+        .addText((t) =>
+          t.setValue(ai.model).onChange(async (v) => {
+            ai.model = v.trim();
+            await this.plugin.save();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Agent (optional)")
+        .setDesc("An OpenCode agent name. Leave empty for the default. Use Test connection to see the names available.")
+        .addText((t) =>
+          t.setValue(ai.agent).onChange(async (v) => {
+            ai.agent = v.trim();
+            await this.plugin.save();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Review agent edits before applying")
+        .setDesc(
+          "Agent mode only. The plugin pauses edits to your question, card and deck notes plus the current note, shows a diff, and writes only the files you approve. Closing the review discards the agent's changes. This review does not cover other files or shell commands. On by default."
+        )
+        .addToggle((t) =>
+          t.setValue(ai.reviewAgentEdits !== false).onChange(async (v) => {
+            ai.reviewAgentEdits = v;
+            await this.plugin.save();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Allow shell commands in Agent mode")
+        .setDesc("Off by default. When on, OpenCode may run shell commands on this computer in Agent mode. The Markdown edit review does not approve or undo those commands. Leave it off unless you deliberately need them.")
+        .addToggle((t) =>
+          t.setValue(ai.agentShell === true).onChange(async (v) => {
+            ai.agentShell = v;
+            await this.plugin.save();
+          })
+        );
+      new Setting(containerEl).setName("Test connection").addButton((b) =>
+        b.setButtonText("Test").onClick(async () => {
+          const oc = this.plugin.openCode();
           try {
-            const agents = await oc.agents();
-            names = Array.isArray(agents) ? agents.map((a) => a.name || a.id).filter(Boolean).join(", ") : "";
+            const h = await oc.health();
+            let names = "";
+            try {
+              const agents = await oc.agents();
+              names = Array.isArray(agents) ? agents.map((a) => a.name || a.id).filter(Boolean).join(", ") : "";
+            } catch (e) {
+              /* agents list is optional */
+            }
+            new Notice(`Connected to OpenCode${h && h.version ? " " + h.version : ""}.${names ? " Agents: " + names : ""}`, 8000);
           } catch (e) {
-            /* agents list is optional */
+            new Notice(friendlyError(e, oc.base()), 8000);
           }
-          new Notice(`Connected to OpenCode${h && h.version ? " " + h.version : ""}.${names ? " Agents: " + names : ""}`, 8000);
-        } catch (e) {
-          new Notice(friendlyError(e, oc.base()), 8000);
-        }
-      })
-    );
-
+        })
+      );
     };
 
     if (this.plugin.backend() === "api") renderApi();

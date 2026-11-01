@@ -52,10 +52,10 @@ class PomodoroView extends ItemView {
     progress.setAttr("aria-valuemax", String(data.phaseSeconds));
     progress.setAttr("aria-valuenow", String(elapsed));
     progress.setAttr("aria-valuetext", `${data.display} remaining`);
-    const fill = progress.createDiv({ cls: "qt-meter-fill qt-pomodoro-progress-fill" });
+    const fill = progress.createDiv({ cls: `qt-meter-fill qt-pomodoro-progress-fill${data.running ? " is-running" : ""}` });
     fill.style.width = `${percent}%`;
     if (data.running) {
-      fill.style.animation = `qt-pomodoro-fill ${data.phaseSeconds}s linear forwards`;
+      fill.style.setProperty("--qt-pomodoro-duration", `${data.phaseSeconds}s`);
       if (elapsed) fill.style.animationDelay = `-${elapsed}s`;
     }
     card.createDiv({

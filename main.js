@@ -18583,15 +18583,11 @@ class ChatPanel {
     if (this.view.plugin.backend() === "api") {
       this.turns = apiTurns(this.apiHistory());
       this.draw();
-    } else if (this.ai.enabled && opts.getSessionId() && this.serverReady()) this.refresh();
+    } else if (this.ai.enabled && opts.getSessionId()) this.refresh();
   }
 
   get ai() {
     return this.view.plugin.settings.ai;
-  }
-
-  serverReady() {
-    return this.view.plugin.backend() === "api" || !this.ai.managed || this.view.plugin.manager.isRunning();
   }
 
   /** One countdown per chat session; New chat starts a fresh one. */
@@ -18869,8 +18865,7 @@ class ChatPanel {
     let sid = this.opts.getSessionId();
     let timer = null;
     try {
-      // First use: offers to download OpenCode, then starts it in the background.
-      if (ai.managed) await plugin.ensureOpenCode((m) => this.status.setText(m));
+      await plugin.ensureOpenCode((m) => this.status.setText(m));
       const oc = plugin.openCode();
       if (sid) {
         try {
@@ -18881,7 +18876,7 @@ class ChatPanel {
           this.turns = [];
         }
       }
-      if (ai.managed) await this.checkProvider(oc);
+      await this.checkProvider(oc);
       if (!sid) {
         const s = await oc.createSession(this.opts.title || "MCQ Tracker");
         sid = s && s.id;
@@ -18982,14 +18977,14 @@ class ChatPanel {
     }
     if (n === 0) {
       throw new Error(
-        "OpenCode has no AI provider connected yet. Open Settings > MCQ Tracker > OpenCode (AI), choose a provider and paste an API key."
+        "OpenCode has no AI provider connected yet. Connect a provider in OpenCode itself, then try again."
       );
     }
   }
 
   async refresh(sid) {
     sid = sid || this.opts.getSessionId();
-    if (!sid || !this.serverReady()) return;
+    if (!sid) return;
     try {
       const msgs = await this.view.plugin.openCode().messages(sid);
       this.turns = partsToTurns(msgs);
@@ -19338,12 +19333,7 @@ const DEFAULT_SETTINGS = {
   examBlockMode: "study", // exam fenced blocks: "study" shows the key, "answer" grades a click
   ai: {
     enabled: false, // nothing is ever sent anywhere until you turn this on
-    managed: true, // plugin sets up, starts and stops OpenCode itself (downloads it the first time, after you confirm)
-    preStart: false, // start OpenCode in the background when Obsidian opens, so the first chat doesn't wait
-    binaryPath: "", // optional: use this opencode program instead
-    managedBinary: "",
-    installedVersion: "",
-    url: "http://127.0.0.1:4096", // only used when managed is off
+    url: "http://127.0.0.1:4096", // the OpenCode server you run yourself
     username: "opencode",
     password: "",
     passwordSecret: "",
@@ -19359,7 +19349,6 @@ const DEFAULT_SETTINGS = {
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
     verification: "mark", // after AI writes an answer: "mark" mismatches for review, or "drop" them
     sessionId: "",
-    autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", models: [], keys: {} },
     features: {}, // per-feature model overrides, filled by normalizeAiService
@@ -37148,7 +37137,7 @@ class OpenCodeClient {
     });
     if (r.status === 401) throw new Error("401 unauthorized");
     if (r.status >= 400) {
-      const hint = r.status === 404 || r.status === 405 ? " This usually means the OpenCode version doesn't match the plugin (it works with OpenCode 1.x). In the plugin settings press Download and install, or switch AI backend to Direct API." : "";
+      const hint = r.status === 404 || r.status === 405 ? " This usually means the OpenCode server version doesn't match the plugin (it works with OpenCode 1.x). Update the server you run, or switch AI backend to Direct API." : "";
       throw new Error(`OpenCode returned ${r.status} for ${method} ${path}${str(r.text).trim() ? `: ${str(r.text).slice(0, 300)}` : "."}${hint}`);
     }
     try {
@@ -37188,723 +37177,6 @@ module.exports = {
   buildTutorContext,
   buildGeneralContext,
   OpenCodeClient,
-};
-};
-
-/* ---- src/opencode-manager.js ---- */
-__defs["opencode-manager"] = function (module, exports, require) {
-const { Platform, requestUrl } = require("obsidian");
-const { fmtMB, sleep, str } = require("./util");
-const { OpenCodeClient } = require("./opencode-client");
-
-/*
- * Node built-ins are loaded lazily by literal name, so a static review can
- * see every module the plugin can reach. Nothing is bundled or required on
- * mobile; the first call throws the same desktop-only message there.
- */
-const NODE_MODULES = {
-  child_process: () => require("child_process"),
-  crypto: () => require("crypto"),
-  fs: () => require("fs"),
-  http: () => require("http"),
-  https: () => require("https"),
-  net: () => require("net"),
-  os: () => require("os"),
-  path: () => require("path"),
-};
-
-function nodeReq(name) {
-  const load = NODE_MODULES[name];
-  if (!load) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
-  try {
-    return load();
-  } catch (e) {
-    throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
-  }
-}
-
-/* ------------------------------------------- OpenCode: install + local server */
-
-const OPENCODE_REPO = "anomalyco/opencode";
-
-/** The newest OpenCode major version this plugin can talk to. OpenCode 2.x removed the 1.x server routes (POST /session now answers 405), so 2.x isn't supported yet. */
-const MAX_OPENCODE_MAJOR = 1;
-
-/** 2 from "2.2.0" or "v2.2.0"; 0 when the text has no version number. */
-function opencodeMajor(v) {
-  const m = /(\d+)\.\d+/.exec(str(v));
-  return m ? Number(m[1]) : 0;
-}
-
-const PROVIDERS = [
-  ["anthropic", "Anthropic (Claude)"],
-  ["openai", "OpenAI"],
-  ["openrouter", "OpenRouter"],
-  ["google", "Google (Gemini)"],
-  ["deepseek", "DeepSeek"],
-  ["groq", "Groq"],
-];
-
-function platformTriple(procPlatform, procArch, isMusl) {
-  const os = { win32: "windows", darwin: "darwin", linux: "linux" }[procPlatform];
-  const arch = { x64: "x64", arm64: "arm64" }[procArch];
-  if (!os || !arch) return null;
-  return { os, arch, musl: os === "linux" && !!isMusl };
-}
-
-function candidateAssetNames(tr) {
-  const base = `opencode-${tr.os}-${tr.arch}`;
-  const ext = tr.os === "linux" ? ".tar.gz" : ".zip";
-  const musl = tr.musl ? "-musl" : "";
-  const names = [`${base}${musl}${ext}`];
-  if (tr.arch === "x64") names.push(`${base}-baseline${musl}${ext}`); // CPUs without AVX2
-  return names;
-}
-
-/** First stable release that has a matching asset and isn't newer than `maxMajor`. Returns assets in preference order. */
-function chooseRelease(releases, names, maxMajor) {
-  for (const rel of Array.isArray(releases) ? releases : []) {
-    if (!rel || rel.draft || rel.prerelease) continue;
-    if (maxMajor && opencodeMajor(rel.tag_name) > maxMajor) continue;
-    const found = names.map((n) => (rel.assets || []).find((a) => a.name === n)).filter(Boolean);
-    if (found.length) return { tag: rel.tag_name, assets: found };
-  }
-  return null;
-}
-
-function mergeAuth(existingText, providerId, key) {
-  let obj = {};
-  if (str(existingText).trim()) {
-    try {
-      obj = JSON.parse(existingText);
-    } catch (e) {
-      throw new Error("OpenCode's auth.json isn't valid JSON, so I left it alone. Fix or delete it, then try again.");
-    }
-    if (!obj || typeof obj !== "object" || Array.isArray(obj)) throw new Error("OpenCode's auth.json has an unexpected shape, so I left it alone.");
-  }
-  obj[providerId] = { type: "api", key };
-  return JSON.stringify(obj, null, 2) + "\n";
-}
-
-function killTree(child) {
-  try {
-    if (process.platform === "win32" && child.pid) {
-      nodeReq("child_process").execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
-    } else {
-      child.kill("SIGKILL");
-    }
-  } catch (e) {
-    /* already gone */
-  }
-  try {
-    if (child.stdout) child.stdout.destroy();
-    if (child.stderr) child.stderr.destroy();
-  } catch (e) {
-    /* ignore */
-  }
-}
-
-/** Runs a program and always finishes: if it hasn't answered within opts.timeout ms it is killed and this rejects. */
-function runCmd(cmd, args, opts) {
-  const { execFile } = nodeReq("child_process");
-  const o = Object.assign({ windowsHide: true, maxBuffer: 1 << 24 }, opts || {});
-  const limit = o.timeout || 0;
-  delete o.timeout;
-  return new Promise((resolve, reject) => {
-    let done = false;
-    let timer = null;
-    const finish = (fn, v) => {
-      if (done) return;
-      done = true;
-      if (timer) activeWindow.clearTimeout(timer);
-      fn(v);
-    };
-    const child = execFile(cmd, args, o, (err, stdout, stderr) => {
-      if (err) finish(reject, new Error(str(stderr || err.message).slice(0, 400)));
-      else finish(resolve, str(stdout));
-    });
-    if (limit) {
-      timer = activeWindow.setTimeout(() => {
-        killTree(child);
-        finish(reject, new Error(`Timed out after ${Math.round(limit / 1000)} seconds.`));
-      }, limit);
-    }
-  });
-}
-
-function downloadFile(url, dest, onProgress, hops) {
-  hops = hops || 0;
-  return new Promise((resolve, reject) => {
-    if (hops > 6) return reject(new Error("Too many redirects while downloading."));
-    const u = new URL(url);
-    const lib = nodeReq(u.protocol === "http:" ? "http" : "https");
-    const fs = nodeReq("fs");
-    const crypto = nodeReq("crypto");
-    const req = lib.get(url, { headers: { "User-Agent": "obsidian-question-tracker", Accept: "application/octet-stream" } }, (res) => {
-      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
-        res.resume();
-        resolve(downloadFile(new URL(res.headers.location, url).toString(), dest, onProgress, hops + 1));
-        return;
-      }
-      if (res.statusCode !== 200) {
-        res.resume();
-        reject(new Error(`Download failed: HTTP ${res.statusCode}`));
-        return;
-      }
-      const total = Number(res.headers["content-length"]) || 0;
-      let got = 0;
-      const hash = crypto.createHash("sha256");
-      const out = fs.createWriteStream(dest);
-      res.on("data", (c) => {
-        got += c.length;
-        hash.update(c);
-        if (onProgress) onProgress(got, total);
-      });
-      res.on("error", reject);
-      out.on("error", reject);
-      out.on("finish", () => resolve({ sha256: hash.digest("hex"), bytes: got }));
-      res.pipe(out);
-    });
-    req.on("error", reject);
-    req.setTimeout(60000, () => req.destroy(new Error("Download timed out.")));
-  });
-}
-
-function assertExtractedTree(destDir) {
-  const fs = nodeReq("fs");
-  const path = nodeReq("path");
-  let root;
-  try {
-    root = fs.realpathSync(destDir);
-  } catch (e) {
-    throw new Error("The downloaded archive could not be unpacked.");
-  }
-  const stack = [root];
-  while (stack.length) {
-    const dir = stack.pop();
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch (e) {
-      throw new Error("The downloaded archive could not be verified after unpacking.");
-    }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isSymbolicLink()) throw new Error("The downloaded archive contains a symbolic link and was rejected.");
-      let real;
-      try {
-        real = fs.realpathSync(full);
-      } catch (e) {
-        throw new Error("The downloaded archive contains an unreadable path and was rejected.");
-      }
-      if (real !== root && !real.startsWith(root + path.sep)) {
-        throw new Error("The downloaded archive tried to write outside its install folder and was rejected.");
-      }
-      if (entry.isDirectory()) stack.push(full);
-    }
-  }
-}
-
-async function extractArchive(archive, destDir) {
-  const fs = nodeReq("fs");
-  fs.mkdirSync(destDir, { recursive: true });
-  try {
-    // bsdtar (Windows 10+, macOS) reads .zip too; GNU tar reads the Linux .tar.gz
-    await runCmd("tar", ["-xf", archive, "-C", destDir], { timeout: 8 * 60 * 1000 });
-    assertExtractedTree(destDir);
-    return;
-  } catch (first) {
-    if (/Timed out/.test(first.message)) {
-      throw new Error("Unpacking took too long. Antivirus software is probably scanning the large file. Download it yourself from the GitHub releases page, unzip it, and choose opencode.exe under \"OpenCode program\" in settings.");
-    }
-    if (process.platform === "win32") {
-      const q = (s) => s.replace(/'/g, "''");
-      await runCmd("powershell", ["-NoProfile", "-Command", `Expand-Archive -LiteralPath '${q(archive)}' -DestinationPath '${q(destDir)}' -Force`], { timeout: 10 * 60 * 1000 });
-    } else if (/\.zip$/i.test(archive)) {
-      await runCmd("unzip", ["-o", archive, "-d", destDir], { timeout: 8 * 60 * 1000 });
-    } else {
-      throw first;
-    }
-    assertExtractedTree(destDir);
-  }
-}
-
-function findBinaryIn(dir) {
-  const fs = nodeReq("fs");
-  const path = nodeReq("path");
-  const want = process.platform === "win32" ? "opencode.exe" : "opencode";
-  const stack = [dir];
-  while (stack.length) {
-    const d = stack.pop();
-    let ents;
-    try {
-      ents = fs.readdirSync(d, { withFileTypes: true });
-    } catch (e) {
-      continue;
-    }
-    for (const e of ents) {
-      const p = path.join(d, e.name);
-      if (e.isDirectory()) stack.push(p);
-      else if (e.name === want) return p;
-    }
-  }
-  return null;
-}
-
-function freePort() {
-  const net = nodeReq("net");
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.on("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
-      const port = srv.address().port;
-      srv.close(() => resolve(port));
-    });
-  });
-}
-
-/** Downloads OpenCode once, then runs `opencode serve` on localhost while Obsidian is open. */
-class OpenCodeManager {
-  constructor(plugin) {
-    this.plugin = plugin;
-    this.proc = null;
-    this.conn = null;
-    this.tail = "";
-    this.starting = null;
-    this.root = null;
-  }
-
-  get ai() {
-    return this.plugin.settings.ai;
-  }
-
-  installRoot() {
-    if (!this.root) {
-      const os = nodeReq("os");
-      const path = nodeReq("path");
-      this.root = path.join(os.homedir(), ".question-tracker", "opencode");
-    }
-    return this.root;
-  }
-
-  isRunning() {
-    return !!(this.proc && this.proc.exitCode === null && !this.proc.killed && this.conn);
-  }
-
-  async version(bin, viaPath, ms) {
-    try {
-      const out = await runCmd(bin, ["--version"], { timeout: ms || 10000, shell: !!viaPath && process.platform === "win32" });
-      return out.trim().split(/\s+/).pop() || "unknown";
-    } catch (e) {
-      return "";
-    }
-  }
-
-  /** Where an existing OpenCode lives, if anywhere. Uses a copy you already have before downloading one. */
-  async findBinary() {
-    const fs = nodeReq("fs");
-    const path = nodeReq("path");
-    const os = nodeReq("os");
-    const exe = process.platform === "win32" ? "opencode.exe" : "opencode";
-    const tries = [this.ai.binaryPath, this.ai.managedBinary, path.join(os.homedir(), ".opencode", "bin", exe)].filter(Boolean);
-    this.stalled = "";
-    this.tooNew = null; // an OpenCode that runs but is a version this plugin can't use yet
-    for (const p of tries) {
-      if (!fs.existsSync(p)) continue;
-      const v = await this.version(p);
-      if (v) {
-        if (opencodeMajor(v) > MAX_OPENCODE_MAJOR) {
-          if (!this.tooNew) this.tooNew = { path: p, version: v };
-          continue;
-        }
-        this.lastVersion = v;
-        return p;
-      }
-      if (!this.stalled) this.stalled = p;
-    }
-    const v = await this.version("opencode", true);
-    if (v) {
-      if (opencodeMajor(v) > MAX_OPENCODE_MAJOR) {
-        if (!this.tooNew) this.tooNew = { path: "opencode", version: v };
-        return null;
-      }
-      this.lastVersion = v;
-      return "opencode";
-    }
-    return null;
-  }
-
-  /** What to tell the user when the only OpenCode on the computer is a version this plugin can't use. */
-  tooNewMessage() {
-    const t = this.tooNew;
-    const v = str(t && t.version).replace(/^v/i, "");
-    return `Found OpenCode ${v}, but this plugin works with OpenCode ${MAX_OPENCODE_MAJOR}.x (version ${opencodeMajor(v)} changed how apps talk to it). Press Download and install to get a compatible version, or switch AI backend to Direct API.`;
-  }
-
-  async describe() {
-    if (!Platform.isDesktopApp) return "Auto-setup needs the desktop app.";
-    if (this.isRunning()) return `Running on ${this.conn.url}${this.ai.installedVersion ? ` (v${this.ai.installedVersion})` : ""}.`;
-    const work = (async () => {
-      const bin = await this.findBinary();
-      if (!bin && this.stalled) {
-        return `Found a program at ${this.stalled}, but it didn't answer in time. Antivirus may be scanning it, so wait a minute and press Check again. If it keeps failing, choose a different copy under "OpenCode program".`;
-      }
-      if (!bin && this.tooNew) return this.tooNewMessage();
-      if (!bin) return "Not installed. Press Download and install, or choose a copy you already have.";
-      return `Installed (v${this.lastVersion || "?"}) at ${bin}. Not running; it starts when you use the AI chat.`;
-    })();
-    const slow = sleep(30000).then(
-      () => "Couldn't check in time. The program may be slow to start (antivirus often scans it the first time). Press Check again in a minute, or choose a different program below."
-    );
-    return Promise.race([work, slow]);
-  }
-
-  /** Cheap, non-blocking look for an OpenCode that's already usable. Only reads the disk; never starts a program. */
-  async hasExisting() {
-    const fsp = nodeReq("fs").promises;
-    const path = nodeReq("path");
-    const os = nodeReq("os");
-    const win = process.platform === "win32";
-    const exe = win ? "opencode.exe" : "opencode";
-    const cands = [this.ai.binaryPath, this.ai.managedBinary, path.join(os.homedir(), ".opencode", "bin", exe)].filter(Boolean);
-    for (const dir of str(process.env.PATH).split(path.delimiter).filter(Boolean)) {
-      for (const ext of win ? [".exe", ".cmd", ".bat"] : [""]) cands.push(path.join(dir, "opencode" + ext));
-    }
-    for (const p of cands) {
-      try {
-        await fsp.access(p);
-        return p;
-      } catch (e) {
-        /* not here */
-      }
-    }
-    return "";
-  }
-
-  /** Sets OpenCode up by itself (once per Obsidian session): uses one that's already there, otherwise downloads it. Never rejects. */
-  autoSetup(progress) {
-    if (this.setupRun) return this.setupRun;
-    this.setupBusy = true;
-    this.setupError = "";
-    this.setupRun = (async () => {
-      try {
-        if (!Platform.isDesktopApp) return;
-        const found = await this.hasExisting();
-        if (found) {
-          this.foundPath = found;
-          return;
-        }
-        const r = await this.install(progress);
-        this.foundPath = r.path;
-      } catch (e) {
-        if (e && e.cancelled) {
-          // they said no: remember it, so we don't ask again every session
-          this.ai.autoDeclined = true;
-          try {
-            await this.plugin.save();
-          } catch (err) {
-            /* ignore */
-          }
-        } else {
-          this.setupError = str(e && e.message ? e.message : e);
-        }
-      } finally {
-        this.setupBusy = false;
-      }
-    })();
-    return this.setupRun;
-  }
-
-  async plan() {
-    if (!Platform.isDesktopApp) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
-    const fs = nodeReq("fs");
-    const tr = platformTriple(process.platform, process.arch, process.platform === "linux" && fs.existsSync("/etc/alpine-release"));
-    if (!tr) throw new Error(`Auto-install isn't available for ${process.platform}/${process.arch}. Install OpenCode yourself (npm i -g opencode-ai) and it will be found automatically.`);
-    // newest first; page on until a release this plugin supports turns up (the latest ones may all be a newer major version)
-    let pick = null;
-    for (let page = 1; page <= 5 && !pick; page++) {
-      const r = await requestUrl({
-        url: `https://api.github.com/repos/${OPENCODE_REPO}/releases?per_page=100&page=${page}`,
-        headers: { Accept: "application/vnd.github+json" },
-        throw: false,
-      });
-      if (r.status !== 200) throw new Error(`Couldn't look up OpenCode releases (GitHub returned ${r.status}). Try again later, or install OpenCode yourself (npm i -g opencode-ai@${MAX_OPENCODE_MAJOR}).`);
-      if (!Array.isArray(r.json) || !r.json.length) break;
-      pick = chooseRelease(r.json, candidateAssetNames(tr), MAX_OPENCODE_MAJOR);
-    }
-    if (!pick) throw new Error(`No OpenCode ${MAX_OPENCODE_MAJOR}.x download matches ${tr.os}/${tr.arch}. Install OpenCode ${MAX_OPENCODE_MAJOR}.x yourself (npm i -g opencode-ai@${MAX_OPENCODE_MAJOR}) and it will be found automatically, or use the Direct API backend.`);
-    return { tag: pick.tag, assets: pick.assets, size: pick.assets[0].size || 0 };
-  }
-
-  async install(progress, confirm) {
-    progress = progress || (() => {});
-    progress("Looking up the latest OpenCode release...");
-    const plan = await this.plan();
-    confirm =
-      confirm ||
-      ((pl) =>
-        this.plugin.askConfirm(
-          "Download OpenCode?",
-          "OpenCode is a separate, free, open-source program (not part of this plugin) that powers the AI agent.\n\n" +
-            `This will download ${pl.tag} from github.com/${OPENCODE_REPO}${pl.size ? ` (about ${fmtMB(pl.size)})` : ""}, ` +
-            "check its SHA-256 checksum, and unpack it into a folder in your user profile, outside your vault:\n" +
-            `${this.installRoot()}\n\n` +
-            "It only runs while Obsidian is open, is reachable only from this computer, and contacts the AI provider you configure. " +
-            "In Agent mode it can read and edit files in your vault. You can delete that folder at any time.",
-          "Download and install"
-        ));
-    if (!(await confirm(plan))) {
-      const err = new Error("OpenCode install cancelled.");
-      err.cancelled = true;
-      throw err;
-    }
-    let lastErr;
-    for (const asset of plan.assets) {
-      try {
-        return await this.installAsset(plan.tag, asset, progress);
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-    throw lastErr;
-  }
-
-  async installAsset(tag, asset, progress) {
-    const fs = nodeReq("fs");
-    const path = nodeReq("path");
-    const os = nodeReq("os");
-    const safe = (s) => str(s).replace(/[^\w.\-]/g, "_");
-    const dest = path.join(this.installRoot(), `${safe(tag)}-${safe(asset.name.replace(/\.(zip|tar\.gz)$/, ""))}`);
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "qt-opencode-"));
-    try {
-      const archive = path.join(tmp, asset.name);
-      let lastPct = -2;
-      progress(`Downloading OpenCode ${tag}...`);
-      const res = await downloadFile(asset.browser_download_url, archive, (got, total) => {
-        const pct = total ? Math.floor((got / total) * 100) : -1;
-        if (pct !== lastPct) {
-          lastPct = pct;
-          progress(total ? `Downloading OpenCode... ${pct}% (${fmtMB(got)} of ${fmtMB(total)})` : `Downloading OpenCode... ${fmtMB(got)}`);
-        }
-      });
-      const digest = str(asset.digest).replace(/^sha256:/i, "").toLowerCase();
-      const verified = /^[0-9a-f]{64}$/.test(digest);
-      if (!verified) throw new Error("GitHub didn't publish a checksum for this download, so it was not installed. Install OpenCode yourself and choose it under \"OpenCode program\" in settings.");
-      if (digest !== res.sha256) throw new Error("The download failed its SHA-256 check, so it was discarded.");
-
-      progress("Unpacking...");
-      fs.rmSync(dest, { recursive: true, force: true });
-      await extractArchive(archive, dest);
-      const bin = findBinaryIn(dest);
-      if (!bin) throw new Error("The download didn't contain an opencode program.");
-      if (process.platform !== "win32") fs.chmodSync(bin, 0o755);
-
-      progress("Checking that it runs (the first run can take a minute while antivirus checks it)...");
-      let v = await this.version(bin, false, 120000);
-      if (!v && process.platform === "darwin") {
-        try {
-          await runCmd("codesign", ["--force", "--sign", "-", bin]);
-        } catch (e) {
-          /* best effort */
-        }
-        v = await this.version(bin, false, 120000);
-      }
-      if (!v) throw new Error("The downloaded OpenCode didn't answer within two minutes. Antivirus may still be scanning it, so wait a minute and press Check again. If it keeps failing, download it yourself from the GitHub releases page and choose it under \"OpenCode program\".");
-
-      this.ai.managedBinary = bin;
-      this.ai.installedVersion = v;
-      await this.plugin.save();
-
-      // keep only the current version
-      for (const e of fs.readdirSync(this.installRoot(), { withFileTypes: true })) {
-        const p = path.join(this.installRoot(), e.name);
-        if (e.isDirectory() && p !== dest) fs.rmSync(p, { recursive: true, force: true });
-      }
-      return { version: v, verified, path: bin };
-    } finally {
-      try {
-        fs.rmSync(tmp, { recursive: true, force: true });
-      } catch (e) {
-        /* ignore */
-      }
-    }
-  }
-
-  /** OpenCode's data folder for the managed server. Kept separate from any other OpenCode install so their databases can't collide. */
-  dataHome() {
-    const path = nodeReq("path");
-    const os = nodeReq("os");
-    return path.join(os.homedir(), ".question-tracker", "opencode-data");
-  }
-
-  /** Move a broken OpenCode database aside (kept as .broken-<time>) so it can create a fresh one. Returns true if anything was moved. */
-  quarantineDb() {
-    const fs = nodeReq("fs");
-    const path = nodeReq("path");
-    const os = nodeReq("os");
-    const dirs = [path.join(this.dataHome(), "opencode")];
-    const stamp = Date.now();
-    let moved = false;
-    for (const dir of dirs) {
-      for (const name of ["opencode.db", "opencode.db-wal", "opencode.db-shm"]) {
-        const f = path.join(dir, name);
-        try {
-          if (fs.existsSync(f)) {
-            fs.renameSync(f, `${f}.broken-${stamp}`);
-            moved = true;
-          }
-        } catch (e) {
-          /* ignore */
-        }
-      }
-    }
-    return moved;
-  }
-
-  async start(progress, retried) {
-    progress = progress || (() => {});
-    if (this.isRunning()) return;
-    const bin = await this.findBinary();
-    if (!bin) throw new Error("OpenCode isn't installed.");
-    const { spawn } = nodeReq("child_process");
-    const crypto = nodeReq("crypto");
-    const os = nodeReq("os");
-    const port = await freePort();
-    const password = crypto.randomBytes(16).toString("hex");
-    progress("Starting OpenCode...");
-    try {
-      nodeReq("fs").mkdirSync(this.dataHome(), { recursive: true });
-    } catch (e) {
-      /* ignore */
-    }
-    this.tail = "";
-    const proc = spawn(bin, ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
-      cwd: this.plugin.vaultPath() || os.homedir(),
-      env: Object.assign({}, process.env, {
-        OPENCODE_SERVER_PASSWORD: password,
-        OPENCODE_SERVER_USERNAME: "opencode",
-        XDG_DATA_HOME: this.dataHome(),
-      }),
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: bin === "opencode" && process.platform === "win32",
-    });
-    const keep = (d) => (this.tail = (this.tail + d).slice(-1500));
-    proc.stdout.on("data", keep);
-    proc.stderr.on("data", keep);
-    proc.on("error", (e) => keep(e.message));
-    proc.on("exit", () => {
-      if (this.proc === proc) {
-        this.proc = null;
-        this.conn = null;
-      }
-    });
-    this.proc = proc;
-    this.conn = { url: `http://127.0.0.1:${port}`, username: "opencode", password };
-
-    const client = new OpenCodeClient(this.conn);
-    const t0 = Date.now();
-    for (let i = 0; i < 180; i++) {
-      if (!this.isRunning()) {
-        const out = this.tail.replace(/\x1b\[[0-9;]*m/g, "").replace(/\[[0-9;]*m/g, "").trim();
-        if (!retried && /Database is not empty|no session table/i.test(out) && this.quarantineDb()) {
-          progress("Repairing OpenCode's database...");
-          return this.start(progress, true);
-        }
-        throw new Error(`OpenCode stopped right after starting. ${out.slice(-300)}`);
-      }
-      try {
-        await client.health();
-        return;
-      } catch (e) {
-        if (i % 2 === 1) {
-          const secs = Math.round((Date.now() - t0) / 1000);
-          progress(secs > 10 ? `Starting OpenCode... ${secs}s (the first start is slow while antivirus checks the program)` : `Starting OpenCode... ${secs}s`);
-        }
-        await sleep(500);
-      }
-    }
-    this.stop();
-    throw new Error(`OpenCode didn't become ready within 90 seconds. ${this.tail.trim().slice(-300)}`);
-  }
-
-  stop() {
-    const p = this.proc;
-    this.proc = null;
-    this.conn = null;
-    if (p && p.exitCode === null) {
-      try {
-        p.kill();
-      } catch (e) {
-        /* ignore */
-      }
-      const t = setTimeout(() => {
-        try {
-          if (p.exitCode === null) p.kill("SIGKILL");
-        } catch (e) {
-          /* ignore */
-        }
-      }, 3000);
-      if (t && t.unref) t.unref();
-    }
-  }
-
-  /** Make sure an existing OpenCode is running. It never downloads anything. Safe to call repeatedly. */
-  ensure(progress) {
-    if (this.starting) return this.starting;
-    this.starting = (async () => {
-      if (this.isRunning()) return;
-      if (!Platform.isDesktopApp) throw new Error("OpenCode auto-setup needs the desktop app (it isn't available on mobile yet).");
-      if (!(await this.findBinary())) {
-        if (this.tooNew) throw new Error(this.tooNewMessage());
-        throw new Error("OpenCode isn't set up yet. Open Settings > MCQ Tracker > AI assistant and press Download and install, or choose a copy you already have.");
-      }
-      await this.start(progress);
-    })().finally(() => {
-      this.starting = null;
-    });
-    return this.starting;
-  }
-
-  /** Save an API key into OpenCode's own auth.json (merged, not overwritten). */
-  saveProviderKey(providerId, key) {
-    const fs = nodeReq("fs");
-    const path = nodeReq("path");
-    const os = nodeReq("os");
-    const dir = path.join(this.dataHome(), "opencode");
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, "auth.json");
-    let cur = "";
-    try {
-      cur = fs.readFileSync(file, "utf8");
-    } catch (e) {
-      /* new file */
-    }
-    fs.writeFileSync(file, mergeAuth(cur, providerId, key.trim()), { mode: 0o600 });
-    if (process.platform !== "win32") fs.chmodSync(file, 0o600); // the file holds secrets: owner-only even if it already existed
-    this.stop(); // restart on next use so it picks the key up
-    return file;
-  }
-}
-
-module.exports = {
-  nodeReq,
-  OPENCODE_REPO,
-  MAX_OPENCODE_MAJOR,
-  opencodeMajor,
-  PROVIDERS,
-  platformTriple,
-  candidateAssetNames,
-  chooseRelease,
-  mergeAuth,
-  killTree,
-  runCmd,
-  downloadFile,
-  extractArchive,
-  assertExtractedTree,
-  findBinaryIn,
-  freePort,
-  OpenCodeManager,
 };
 };
 
@@ -41055,7 +40327,6 @@ module.exports = {
 __defs["plugin"] = function (module, exports, require) {
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
-const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
@@ -41085,7 +40356,7 @@ const { renderCornellBlock } = require("./cornell-view");
 const studyTools = require("./study-tools");
 const { AssignmentModal } = require("./assignments-modal");
 const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimateMinutes, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskEstimate, updateTaskTitle } = require("./assignments");
-const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
+const { OpenCodeClient, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const { normalizeThinkFirstSeconds } = require("./think-first");
@@ -41296,7 +40567,6 @@ class QuestionTrackerPlugin extends Plugin {
       this.writeSession();
     }
 
-    this.manager = new OpenCodeManager(this);
     this.setupReminder();
     this.setupStudyNudge();
     this.setupNoteReviewStatus();
@@ -41304,10 +40574,6 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerInterval(activeWindow.setInterval(() => this.tickPomodoro(), 1000));
     this.app.workspace.onLayoutReady(() => {
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
-      const ai = this.settings.ai;
-      if (Platform.isDesktopApp && ai.enabled && ai.managed && ai.preStart && this.backend() === "opencode") {
-        this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
-      }
       if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
       this.decorateFileExplorer();
       this.indexReadingPlans()
@@ -41318,15 +40584,17 @@ class QuestionTrackerPlugin extends Plugin {
       this.flushPendingAttempts().then((r) => {
         if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
       }).catch(() => {});
-      if (this.readPendingCardGrades().length && (this.backend() === "api" || (this.manager && this.manager.conn))) {
-        this.flushPendingCardGrades()
-          .then((r) => {
-            if (r.graded) new Notice(`Graded ${r.graded} typed answer${r.graded === 1 ? "" : "s"} that were waiting for AI.`, 5000);
-          })
-          .catch(() => {});
+      if (this.readPendingCardGrades().length) {
+        const flush = () =>
+          this.flushPendingCardGrades()
+            .then((r) => {
+              if (r.graded) new Notice(`Graded ${r.graded} typed answer${r.graded === 1 ? "" : "s"} that were waiting for AI.`, 5000);
+            })
+            .catch(() => {});
+        if (this.backend() === "api") flush();
+        else this.openCode().health().then(flush).catch(() => {});
       }
     });
-    this.registerDomEvent(window, "beforeunload", () => this.manager.stop());
     this.registerView(VIEW_TYPE, (leaf) => new PracticeView(leaf, this));
     this.registerView(VIEW_TYPE_TODAY, (leaf) => new TodayView(leaf, this));
     this.registerView(VIEW_TYPE_INSIGHTS, (leaf) => new InsightsView(leaf, this));
@@ -42055,10 +41323,9 @@ class QuestionTrackerPlugin extends Plugin {
     return Platform.isMobile || this.settings.ai.backend === "api" ? "api" : "opencode";
   }
 
-  /** Connection details: the managed local server if running, otherwise the manual settings. */
+  /** Connection details for the OpenCode server you run yourself. */
   conn() {
     const ai = this.settings.ai;
-    if (ai.managed && this.manager.conn) return this.manager.conn;
     const fromSecret = ai.passwordSecret ? secretKeys.readSecretValue(this.app, ai.passwordSecret) : "";
     return { url: ai.url, username: ai.username, password: fromSecret || ai.password || this.sessionOpenCodePassword || "" };
   }
@@ -42080,15 +41347,12 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async ensureOpenCode(progress) {
-    const note = new Notice("Setting up OpenCode...", 0);
-    const say = (m) => {
-      note.setMessage(m);
-      if (progress) progress(m);
-    };
+    if (progress) progress("Connecting to OpenCode...");
+    const oc = this.openCode();
     try {
-      await this.manager.ensure(say);
-    } finally {
-      note.hide();
+      await oc.health();
+    } catch (e) {
+      throw new Error(friendlyError(e, oc.base()));
     }
   }
 
@@ -42350,9 +41614,7 @@ class QuestionTrackerPlugin extends Plugin {
     await this.app.workspace.getLeaf("tab").openFile(file);
   }
 
-  onunload() {
-    if (this.manager) this.manager.stop();
-  }
+  onunload() {}
 
   /* ---- views */
 
@@ -51283,10 +50545,10 @@ class PomodoroView extends ItemView {
     progress.setAttr("aria-valuemax", String(data.phaseSeconds));
     progress.setAttr("aria-valuenow", String(elapsed));
     progress.setAttr("aria-valuetext", `${data.display} remaining`);
-    const fill = progress.createDiv({ cls: "qt-meter-fill qt-pomodoro-progress-fill" });
+    const fill = progress.createDiv({ cls: `qt-meter-fill qt-pomodoro-progress-fill${data.running ? " is-running" : ""}` });
     fill.style.width = `${percent}%`;
     if (data.running) {
-      fill.style.animation = `qt-pomodoro-fill ${data.phaseSeconds}s linear forwards`;
+      fill.style.setProperty("--qt-pomodoro-duration", `${data.phaseSeconds}s`);
       if (elapsed) fill.style.animationDelay = `-${elapsed}s`;
     }
     card.createDiv({
@@ -52324,12 +51586,11 @@ class PracticeView extends ItemView {
     const drawOpenCode = () => {
       body.createDiv({
         cls: "qt-hint",
-        text: "OpenCode needs an AI provider and key of its own. Open the plugin settings to connect one (the first time, you'll be asked to confirm a download), then come back here.",
+        text: "OpenCode needs an AI provider of its own. Install and start OpenCode (opencode serve), connect a provider in OpenCode, then open the plugin settings to set the server URL.",
       });
       const open = body.createEl("button", { text: "Open AI settings", cls: openedSettings ? "" : "mod-cta qt-primary" });
       open.addEventListener("click", async () => {
         ai.backend = "opencode";
-        ai.autoDeclined = false;
         await p.save();
         p.openSettings();
         openedSettings = true;
@@ -62877,7 +62138,6 @@ const { Notice, Platform, PluginSettingTab, SecretComponent, Setting } = require
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
 const { str } = require("./util");
-const { OPENCODE_REPO, PROVIDERS } = require("./opencode-manager");
 const { friendlyError } = require("./opencode-client");
 const { fvals, hasFilters } = require("./filters");
 const { NameModal } = require("./modals");
@@ -63858,153 +63118,15 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
     };
 
     const renderOpenCode = () => {
-    new Setting(containerEl)
-      .setName("Set up and run OpenCode for me")
-      .setDesc(
-        "Desktop only. The plugin runs OpenCode in the background (reachable only from this computer) when you use the AI chat, and stops it when Obsidian closes. " +
-          "The first time you use it, the plugin sets OpenCode up for you (you'll be asked to confirm the download). Turn off to connect to a server you run yourself."
-      )
-      .addToggle((t) =>
-        t.setValue(ai.managed).onChange(async (v) => {
-          ai.managed = v;
-          await this.plugin.save();
-          this.display();
-        })
-      );
-
-    if (ai.managed) {
-      new Setting(containerEl)
-        .setName("Start OpenCode when Obsidian opens")
-        .setDesc("Starts it quietly in the background so your first AI message doesn't wait. It stops when Obsidian closes. Off by default.")
-        .addToggle((t) =>
-          t.setValue(!!ai.preStart).onChange(async (v) => {
-            ai.preStart = v;
-            await this.plugin.save();
-          })
-        );
-      const mgr = this.plugin.manager;
-      const status = new Setting(containerEl).setName("Status").setDesc("");
-      // Built only from saved settings, so drawing this page never touches the disk or starts a program.
-      const statusText = () => {
-        if (mgr.isRunning()) return `Running on ${mgr.conn.url}${ai.installedVersion ? ` (v${ai.installedVersion})` : ""}.`;
-        if (mgr.setupBusy) return mgr.setupMsg || "Setting up OpenCode...";
-        if (mgr.setupError) return `Setup didn't finish: ${mgr.setupError} Press Download and install to try again.`;
-        if (ai.autoDeclined && !ai.managedBinary && !ai.binaryPath && !mgr.foundPath) {
-          return "Not set up. You said no to the automatic download, so it won't ask again. Press Download and install whenever you want it.";
-        }
-        if (ai.managedBinary || ai.binaryPath || mgr.foundPath) {
-          return `Ready${ai.installedVersion ? ` (v${ai.installedVersion})` : ""}. It starts when you use the AI chat.`;
-        }
-        return "Not set up yet.";
-      };
-      const showStatus = () => status.setDesc(statusText());
-      showStatus();
-      status.addButton((b) =>
-        b.setButtonText("Check again").onClick(() => {
-          status.setDesc("Checking...");
-          mgr
-            .describe()
-            .then((d) => status.setDesc(d))
-            .catch((e) => status.setDesc(str(e.message)));
-        })
-      );
-      const guarded = (fn) => async () => {
-        if (mgr.setupBusy) return new Notice("OpenCode is already being set up. Please wait.");
-        if (ai.autoDeclined) {
-          ai.autoDeclined = false;
-          await this.plugin.save();
-        }
-        const note = new Notice("Working...", 0);
-        try {
-          await fn((m) => note.setMessage(m));
-        } catch (e) {
-          new Notice(str(e.message), 10000);
-        } finally {
-          note.hide();
-          this.display();
-        }
-      };
-      // First time OpenCode is turned on: set it up automatically, after the page has drawn.
-      if (!mgr.setupRun && !ai.managedBinary && !ai.binaryPath && !ai.autoDeclined && Platform.isDesktopApp) {
-        activeWindow.setTimeout(() => {
-          if (!containerEl.isConnected || mgr.setupRun) return;
-          mgr.setupMsg = "";
-          const run = mgr.autoSetup((m) => {
-            mgr.setupMsg = m;
-            if (containerEl.isConnected) showStatus();
-          });
-          showStatus();
-          run.then(() => {
-            if (containerEl.isConnected) this.display();
-          });
-        }, 300);
-      }
-      status
-        .addButton((b) =>
-          b.setButtonText("Download and install").onClick(
-            guarded(async (say) => {
-              mgr.stop();
-              const r = await mgr.install(say);
-              new Notice(`Installed OpenCode v${r.version} (checksum verified).`, 8000);
-            })
-          )
-        )
-        .addButton((b) =>
-          b.setButtonText(mgr.isRunning() ? "Stop" : "Start").onClick(
-            guarded(async (say) => {
-              if (mgr.isRunning()) mgr.stop();
-              else await this.plugin.manager.ensure(say);
-            })
-          )
-        );
       containerEl.createEl("p", {
         cls: "setting-item-description",
-        text: `Download slow or stuck? You can skip it: download the Windows zip yourself from github.com/${OPENCODE_REPO}/releases (your browser is usually faster), unzip it, and enter the path to opencode.exe under "OpenCode program" below. Or use the Direct API backend, which needs no download at all.`,
+        text:
+          "OpenCode is a separate program you install and run yourself. Start it with opencode serve (default http://127.0.0.1:4096), " +
+          "connect an AI provider in OpenCode, then enter the server details here. The plugin only connects to that server; it does not download, start, stop or update it.",
       });
-
-      let providerId = PROVIDERS[0][0];
-      let apiKey = "";
-      new Setting(containerEl)
-        .setName("Connect an AI provider")
-        .setDesc(
-          "Paste an API key and it is saved into OpenCode's own auth.json (merged with anything already there), not into your vault. " +
-            "Already connected through OpenCode itself? You can skip this."
-        )
-        .addDropdown((d) => {
-          for (const [id, label] of PROVIDERS) d.addOption(id, label);
-          d.setValue(providerId).onChange((v) => (providerId = v));
-        })
-        .addText((t) => {
-          t.inputEl.type = "password";
-          t.setPlaceholder("API key").onChange((v) => (apiKey = v));
-        })
-        .addButton((b) =>
-          b.setButtonText("Save key").onClick(() => {
-            if (!apiKey.trim()) return new Notice("Paste a key first.");
-            try {
-              const file = mgr.saveProviderKey(providerId, apiKey);
-              new Notice(`Saved to ${file}. OpenCode restarts the next time you use the AI chat.`, 8000);
-              apiKey = "";
-              this.display();
-            } catch (e) {
-              new Notice(str(e.message), 10000);
-            }
-          })
-        );
-
-      new Setting(containerEl)
-        .setName("OpenCode program (optional)")
-        .setDesc("Full path to an opencode program you installed yourself. Leave empty to use the downloaded one or the one on your PATH.")
-        .addText((t) =>
-          t.setValue(ai.binaryPath).onChange(async (v) => {
-            ai.binaryPath = v.trim();
-            await this.plugin.save();
-          })
-        );
-    } else {
       new Setting(containerEl)
         .setName("Server URL")
-        .setDesc("For a server you start yourself with `opencode serve`. Default is http://127.0.0.1:4096")
+        .setDesc("The address printed by opencode serve. Default is http://127.0.0.1:4096")
         .addText((t) =>
           t.setValue(ai.url).onChange(async (v) => {
             ai.url = v.trim();
@@ -64063,68 +63185,62 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             })
           );
       }
-    }
-
-    new Setting(containerEl)
-      .setName("Model (optional)")
-      .setDesc("Format provider/model, for example anthropic/claude-sonnet-4-5. Leave empty to use OpenCode's default.")
-      .addText((t) =>
-        t.setValue(ai.model).onChange(async (v) => {
-          ai.model = v.trim();
-          await this.plugin.save();
-        })
-      );
-    new Setting(containerEl)
-      .setName("Agent (optional)")
-      .setDesc("An OpenCode agent name. Leave empty for the default. Use Test connection to see the names available.")
-      .addText((t) =>
-        t.setValue(ai.agent).onChange(async (v) => {
-          ai.agent = v.trim();
-          await this.plugin.save();
-        })
-      );
-    new Setting(containerEl)
-      .setName("Review agent edits before applying")
-      .setDesc(
-        "Agent mode only. The plugin pauses edits to your question, card and deck notes plus the current note, shows a diff, and writes only the files you approve. Closing the review discards the agent's changes. This review does not cover other files or shell commands. On by default."
-      )
-      .addToggle((t) =>
-        t.setValue(ai.reviewAgentEdits !== false).onChange(async (v) => {
-          ai.reviewAgentEdits = v;
-          await this.plugin.save();
-        })
-      );
-    new Setting(containerEl)
-      .setName("Allow shell commands in Agent mode")
-      .setDesc("Off by default. When on, OpenCode may run shell commands on this computer in Agent mode. The Markdown edit review does not approve or undo those commands. Leave it off unless you deliberately need them.")
-      .addToggle((t) =>
-        t.setValue(ai.agentShell === true).onChange(async (v) => {
-          ai.agentShell = v;
-          await this.plugin.save();
-        })
-      );
-    new Setting(containerEl).setName("Test connection").addButton((b) =>
-      b.setButtonText("Test").onClick(async () => {
-        if (ai.managed && !this.plugin.manager.isRunning()) {
-          return new Notice("OpenCode isn't running yet. It starts when you use the AI chat, or press Start above.", 8000);
-        }
-        const oc = this.plugin.openCode();
-        try {
-          const h = await oc.health();
-          let names = "";
+      new Setting(containerEl)
+        .setName("Model (optional)")
+        .setDesc("Format provider/model, for example anthropic/claude-sonnet-4-5. Leave empty to use OpenCode's default.")
+        .addText((t) =>
+          t.setValue(ai.model).onChange(async (v) => {
+            ai.model = v.trim();
+            await this.plugin.save();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Agent (optional)")
+        .setDesc("An OpenCode agent name. Leave empty for the default. Use Test connection to see the names available.")
+        .addText((t) =>
+          t.setValue(ai.agent).onChange(async (v) => {
+            ai.agent = v.trim();
+            await this.plugin.save();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Review agent edits before applying")
+        .setDesc(
+          "Agent mode only. The plugin pauses edits to your question, card and deck notes plus the current note, shows a diff, and writes only the files you approve. Closing the review discards the agent's changes. This review does not cover other files or shell commands. On by default."
+        )
+        .addToggle((t) =>
+          t.setValue(ai.reviewAgentEdits !== false).onChange(async (v) => {
+            ai.reviewAgentEdits = v;
+            await this.plugin.save();
+          })
+        );
+      new Setting(containerEl)
+        .setName("Allow shell commands in Agent mode")
+        .setDesc("Off by default. When on, OpenCode may run shell commands on this computer in Agent mode. The Markdown edit review does not approve or undo those commands. Leave it off unless you deliberately need them.")
+        .addToggle((t) =>
+          t.setValue(ai.agentShell === true).onChange(async (v) => {
+            ai.agentShell = v;
+            await this.plugin.save();
+          })
+        );
+      new Setting(containerEl).setName("Test connection").addButton((b) =>
+        b.setButtonText("Test").onClick(async () => {
+          const oc = this.plugin.openCode();
           try {
-            const agents = await oc.agents();
-            names = Array.isArray(agents) ? agents.map((a) => a.name || a.id).filter(Boolean).join(", ") : "";
+            const h = await oc.health();
+            let names = "";
+            try {
+              const agents = await oc.agents();
+              names = Array.isArray(agents) ? agents.map((a) => a.name || a.id).filter(Boolean).join(", ") : "";
+            } catch (e) {
+              /* agents list is optional */
+            }
+            new Notice(`Connected to OpenCode${h && h.version ? " " + h.version : ""}.${names ? " Agents: " + names : ""}`, 8000);
           } catch (e) {
-            /* agents list is optional */
+            new Notice(friendlyError(e, oc.base()), 8000);
           }
-          new Notice(`Connected to OpenCode${h && h.version ? " " + h.version : ""}.${names ? " Agents: " + names : ""}`, 8000);
-        } catch (e) {
-          new Notice(friendlyError(e, oc.base()), 8000);
-        }
-      })
-    );
-
+        })
+      );
     };
 
     if (this.plugin.backend() === "api") renderApi();
@@ -79381,7 +78497,6 @@ const { AutoAnkiModal } = require("./auto-anki-modal");
 const studyBundle = require("./study-bundle");
 const studyBundleImport = require("./study-bundle-import");
 const zipWrite = require("./zip-write");
-const { MAX_OPENCODE_MAJOR, OpenCodeManager, assertExtractedTree, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
@@ -79596,17 +78711,6 @@ QuestionTrackerPlugin.__test = {
   studyBundle,
   studyBundleImport,
   zipWrite,
-  OpenCodeManager,
-  MAX_OPENCODE_MAJOR,
-  opencodeMajor,
-  platformTriple,
-  candidateAssetNames,
-  chooseRelease,
-  mergeAuth,
-  downloadFile,
-  extractArchive,
-  assertExtractedTree,
-  findBinaryIn,
   replaceMyNotes,
   gradeAnswer,
   gradeAnswerDetailed: numericGrading.gradeAnswerDetailed,

@@ -50,6 +50,7 @@ test("the progress bar tracks elapsed time within the current phase", async () =
   assert.equal(bar.meta.attrs["aria-valuetext"], "12:30 remaining");
   assert.equal(fill.style.width, "50%");
   assert.equal(fill.style.animation, undefined);
+  assert.equal(fill.classes.has("is-running"), false);
 });
 
 test("the bar animates continuously while the timer is running", async () => {
@@ -63,7 +64,8 @@ test("the bar animates continuously while the timer is running", async () => {
   view.render();
   const { bar, fill } = progress(dom);
   assert.equal(bar.meta.attrs["aria-valuenow"], "60");
-  assert.equal(fill.style.animation, "qt-pomodoro-fill 1500s linear forwards");
+  assert.equal(fill.style["--qt-pomodoro-duration"], "1500s");
+  assert.equal(fill.classes.has("is-running"), true);
   const delayed = Math.abs(Number(String(fill.style.animationDelay).replace("s", "")));
   assert.ok(delayed >= 59 && delayed <= 61, `animation starts near the elapsed second (got ${fill.style.animationDelay})`);
 });

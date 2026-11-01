@@ -1,7 +1,6 @@
 "use strict";
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
-const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
@@ -31,7 +30,7 @@ const { renderCornellBlock } = require("./cornell-view");
 const studyTools = require("./study-tools");
 const { AssignmentModal } = require("./assignments-modal");
 const { assignmentId, assignmentMarkdown, assignmentStats, categoryFor, estimateMinutes, isAssignmentNote, normalizeAssignmentSettings, normalizeStatus, parseAssignment, safeName, typeId, uniquePath, updateTaskCheckbox, updateTaskDue, updateTaskEstimate, updateTaskTitle } = require("./assignments");
-const { OpenCodeClient, modelFromString, partsToTurns } = require("./opencode-client");
+const { OpenCodeClient, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { ApiClient } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const { normalizeThinkFirstSeconds } = require("./think-first");
@@ -242,7 +241,6 @@ class QuestionTrackerPlugin extends Plugin {
       this.writeSession();
     }
 
-    this.manager = new OpenCodeManager(this);
     this.setupReminder();
     this.setupStudyNudge();
     this.setupNoteReviewStatus();
@@ -250,10 +248,6 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerInterval(activeWindow.setInterval(() => this.tickPomodoro(), 1000));
     this.app.workspace.onLayoutReady(() => {
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
-      const ai = this.settings.ai;
-      if (Platform.isDesktopApp && ai.enabled && ai.managed && ai.preStart && this.backend() === "opencode") {
-        this.manager.ensure(() => {}).catch(() => {}); // quiet: errors show when you actually use the chat
-      }
       if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
       this.decorateFileExplorer();
       this.indexReadingPlans()
@@ -264,15 +258,17 @@ class QuestionTrackerPlugin extends Plugin {
       this.flushPendingAttempts().then((r) => {
         if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
       }).catch(() => {});
-      if (this.readPendingCardGrades().length && (this.backend() === "api" || (this.manager && this.manager.conn))) {
-        this.flushPendingCardGrades()
-          .then((r) => {
-            if (r.graded) new Notice(`Graded ${r.graded} typed answer${r.graded === 1 ? "" : "s"} that were waiting for AI.`, 5000);
-          })
-          .catch(() => {});
+      if (this.readPendingCardGrades().length) {
+        const flush = () =>
+          this.flushPendingCardGrades()
+            .then((r) => {
+              if (r.graded) new Notice(`Graded ${r.graded} typed answer${r.graded === 1 ? "" : "s"} that were waiting for AI.`, 5000);
+            })
+            .catch(() => {});
+        if (this.backend() === "api") flush();
+        else this.openCode().health().then(flush).catch(() => {});
       }
     });
-    this.registerDomEvent(window, "beforeunload", () => this.manager.stop());
     this.registerView(VIEW_TYPE, (leaf) => new PracticeView(leaf, this));
     this.registerView(VIEW_TYPE_TODAY, (leaf) => new TodayView(leaf, this));
     this.registerView(VIEW_TYPE_INSIGHTS, (leaf) => new InsightsView(leaf, this));
@@ -1001,10 +997,9 @@ class QuestionTrackerPlugin extends Plugin {
     return Platform.isMobile || this.settings.ai.backend === "api" ? "api" : "opencode";
   }
 
-  /** Connection details: the managed local server if running, otherwise the manual settings. */
+  /** Connection details for the OpenCode server you run yourself. */
   conn() {
     const ai = this.settings.ai;
-    if (ai.managed && this.manager.conn) return this.manager.conn;
     const fromSecret = ai.passwordSecret ? secretKeys.readSecretValue(this.app, ai.passwordSecret) : "";
     return { url: ai.url, username: ai.username, password: fromSecret || ai.password || this.sessionOpenCodePassword || "" };
   }
@@ -1026,15 +1021,12 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   async ensureOpenCode(progress) {
-    const note = new Notice("Setting up OpenCode...", 0);
-    const say = (m) => {
-      note.setMessage(m);
-      if (progress) progress(m);
-    };
+    if (progress) progress("Connecting to OpenCode...");
+    const oc = this.openCode();
     try {
-      await this.manager.ensure(say);
-    } finally {
-      note.hide();
+      await oc.health();
+    } catch (e) {
+      throw new Error(friendlyError(e, oc.base()));
     }
   }
 
@@ -1296,9 +1288,7 @@ class QuestionTrackerPlugin extends Plugin {
     await this.app.workspace.getLeaf("tab").openFile(file);
   }
 
-  onunload() {
-    if (this.manager) this.manager.stop();
-  }
+  onunload() {}
 
   /* ---- views */
 

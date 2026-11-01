@@ -2,6 +2,15 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.169.1 — 2026-11-01
+
+- Removed the OpenCode auto-installer, so the shipped bundle no longer uses
+  Node's `fs` or `child_process`. OpenCode remains available through a
+  manually started local server.
+- Removed the duplicate phone `height` declaration and the Pomodoro
+  `!important`, preserving the `dvh` fallback and reduced-motion behavior.
+- 1,318 tests pass; `npm run check` clean; `main.js` rebuilt.
+
 ## 1.169.0 — 2026-11-01
 
 - Insights opens on a combined Overview with grades, course health, FSRS

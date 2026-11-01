@@ -952,12 +952,11 @@ class PracticeView extends ItemView {
     const drawOpenCode = () => {
       body.createDiv({
         cls: "qt-hint",
-        text: "OpenCode needs an AI provider and key of its own. Open the plugin settings to connect one (the first time, you'll be asked to confirm a download), then come back here.",
+        text: "OpenCode needs an AI provider of its own. Install and start OpenCode (opencode serve), connect a provider in OpenCode, then open the plugin settings to set the server URL.",
       });
       const open = body.createEl("button", { text: "Open AI settings", cls: openedSettings ? "" : "mod-cta qt-primary" });
       open.addEventListener("click", async () => {
         ai.backend = "opencode";
-        ai.autoDeclined = false;
         await p.save();
         p.openSettings();
         openedSettings = true;

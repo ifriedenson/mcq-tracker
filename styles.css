@@ -2263,7 +2263,6 @@
 
 .qt-wrap.qt-mobile {
   height: 100vh;
-  height: 100dvh;
   /* Cap to the leaf's content box so Obsidian's own header cannot push the answer bar off-screen. */
   max-height: 100%;
   max-width: none;
@@ -2272,6 +2271,11 @@
   gap: 0;
   position: relative;
   overflow: hidden;
+}
+
+/* Older WebViews ignore dvh; this upgrades the fallback where supported. */
+.qt-wrap.qt-mobile {
+  height: 100dvh;
 }
 
 .qt-mobile .qt-m-bar {
@@ -7625,12 +7629,13 @@
 .qt-pomodoro-card { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 16px; border: 1px solid var(--background-modifier-border); border-radius: 10px; background: var(--background-secondary); }
 .qt-pomodoro-progress { width: 100%; margin: 2px 0 4px; }
 .qt-pomodoro-progress-fill { background: var(--interactive-accent); }
+.qt-pomodoro-progress-fill.is-running { animation: qt-pomodoro-fill var(--qt-pomodoro-duration, 0s) linear forwards; }
 @keyframes qt-pomodoro-fill {
   from { width: 0%; }
   to { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .qt-pomodoro-progress-fill { animation: none !important; }
+  .qt-pomodoro-progress-fill.is-running { animation: none; }
 }
 .qt-pomodoro-phase { color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; font-size: var(--font-ui-smaller); }
 .qt-pomodoro-clock { font-size: 48px; font-weight: 700; font-variant-numeric: tabular-nums; }

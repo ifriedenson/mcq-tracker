@@ -127,7 +127,6 @@ const { AutoAnkiModal } = require("./auto-anki-modal");
 const studyBundle = require("./study-bundle");
 const studyBundleImport = require("./study-bundle-import");
 const zipWrite = require("./zip-write");
-const { MAX_OPENCODE_MAJOR, OpenCodeManager, assertExtractedTree, candidateAssetNames, chooseRelease, downloadFile, extractArchive, findBinaryIn, mergeAuth, opencodeMajor, platformTriple } = require("./opencode-manager");
 const { buildTestSet, computeStats, errorLog, fmtPct, overallStats, packTestSession, parseHistory, sliceQuestionRange, statVals, suggestMinutes, trendBy, trendDelta, unpackTestSession, weakestRow, weekStart, weeklyAccuracy } = require("./stats");
 const { InsightsView } = require("./insights-view");
 const { TestView } = require("./exam-view");
@@ -342,17 +341,6 @@ QuestionTrackerPlugin.__test = {
   studyBundle,
   studyBundleImport,
   zipWrite,
-  OpenCodeManager,
-  MAX_OPENCODE_MAJOR,
-  opencodeMajor,
-  platformTriple,
-  candidateAssetNames,
-  chooseRelease,
-  mergeAuth,
-  downloadFile,
-  extractArchive,
-  assertExtractedTree,
-  findBinaryIn,
   replaceMyNotes,
   gradeAnswer,
   gradeAnswerDetailed: numericGrading.gradeAnswerDetailed,

@@ -36,15 +36,11 @@ class ChatPanel {
     if (this.view.plugin.backend() === "api") {
       this.turns = apiTurns(this.apiHistory());
       this.draw();
-    } else if (this.ai.enabled && opts.getSessionId() && this.serverReady()) this.refresh();
+    } else if (this.ai.enabled && opts.getSessionId()) this.refresh();
   }
 
   get ai() {
     return this.view.plugin.settings.ai;
-  }
-
-  serverReady() {
-    return this.view.plugin.backend() === "api" || !this.ai.managed || this.view.plugin.manager.isRunning();
   }
 
   /** One countdown per chat session; New chat starts a fresh one. */
@@ -322,8 +318,7 @@ class ChatPanel {
     let sid = this.opts.getSessionId();
     let timer = null;
     try {
-      // First use: offers to download OpenCode, then starts it in the background.
-      if (ai.managed) await plugin.ensureOpenCode((m) => this.status.setText(m));
+      await plugin.ensureOpenCode((m) => this.status.setText(m));
       const oc = plugin.openCode();
       if (sid) {
         try {
@@ -334,7 +329,7 @@ class ChatPanel {
           this.turns = [];
         }
       }
-      if (ai.managed) await this.checkProvider(oc);
+      await this.checkProvider(oc);
       if (!sid) {
         const s = await oc.createSession(this.opts.title || "MCQ Tracker");
         sid = s && s.id;
@@ -435,14 +430,14 @@ class ChatPanel {
     }
     if (n === 0) {
       throw new Error(
-        "OpenCode has no AI provider connected yet. Open Settings > MCQ Tracker > OpenCode (AI), choose a provider and paste an API key."
+        "OpenCode has no AI provider connected yet. Connect a provider in OpenCode itself, then try again."
       );
     }
   }
 
   async refresh(sid) {
     sid = sid || this.opts.getSessionId();
-    if (!sid || !this.serverReady()) return;
+    if (!sid) return;
     try {
       const msgs = await this.view.plugin.openCode().messages(sid);
       this.turns = partsToTurns(msgs);

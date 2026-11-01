@@ -78,18 +78,6 @@ test("apkg: decompression bounds reject oversized archives, entries and counts",
   assert.throws(() => apkg.readZipEntries(fixture, { maxTotalBytes: 10 }), /too much data/);
 });
 
-test("archive extraction: normal trees pass and symlinks are rejected", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mcq-extract-"));
-  try {
-    fs.mkdirSync(path.join(root, "nested"));
-    fs.writeFileSync(path.join(root, "nested", "file.txt"), "ok");
-    assert.doesNotThrow(() => T.assertExtractedTree(root));
-    fs.symlinkSync(fs.existsSync("/etc/passwd") ? "/etc/passwd" : path.join(root, "nested", "file.txt"), path.join(root, "escape"));
-    assert.throws(() => T.assertExtractedTree(root), /symbolic link/);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
 
 test("agent tools: shell is disabled in Agent mode unless explicitly enabled", () => {
   assert.deepEqual(T.ChatPanel.toolsForMode("tutor", true), { edit: false, write: false, patch: false, bash: false });
