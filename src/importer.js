@@ -155,7 +155,7 @@ function agentPrompt(o) {
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
   return [
-    `Import every question from the ${o.kind === "pptx" || o.kind === "pptm" ? "PowerPoint deck" : o.kind === "docx" || o.kind === "docm" ? "Word document" : "document"} "${o.name}" into notes.`,
+    `Import every question from the ${o.kind === "pptx" || o.kind === "pptm" || o.kind === "ppsx" ? "PowerPoint deck" : o.kind === "docx" || o.kind === "docm" ? "Word document" : "document"} "${o.name}" into notes.`,
     "",
     "Files (paths are relative to the folder you are working in):",
     `- The document's text, with page or slide markers: ${o.textPath}`,

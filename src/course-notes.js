@@ -206,7 +206,7 @@ class CourseNotesModal extends Modal {
     const setName = (name) => {
       if (!this.title && name) this.title = documentBaseName(name);
     };
-    const input = createEl("input", { type: "file", attr: { accept: ".pdf,.pptx,.pptm,.docx,.docm,.odt,.odp,.txt,.md,.markdown,.csv,.tsv,.html,.htm,.rtf" } });
+    const input = createEl("input", { type: "file", attr: { accept: ".pdf,.pptx,.pptm,.ppsx,.docx,.docm,.odt,.odp,.txt,.md,.markdown,.csv,.tsv,.html,.htm,.rtf" } });
     input.hidden = true;
     input.addEventListener("change", () => {
       this.file = input.files && input.files[0] ? input.files[0] : null;
@@ -370,7 +370,7 @@ class CourseNotesModal extends Modal {
         summary,
         summaryModel,
         importedOn: localDate(),
-        pageLabel: src.kind === "pptx" || src.kind === "pptm" || src.kind === "odp" ? "Slide" : "Page",
+        pageLabel: src.kind === "pptx" || src.kind === "pptm" || src.kind === "ppsx" || src.kind === "odp" ? "Slide" : "Page",
       });
       const path = uniquePath(this.app.vault, folder, note.title, "md");
       await this.app.vault.create(path, note.text);

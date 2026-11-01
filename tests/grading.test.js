@@ -36,6 +36,14 @@ test("an attempt with no confidence rating (timed test) uses the normal schedule
   assert.equal(fm.next_review, "2026-10-27");
 });
 
+test("the default mistake labels cover the STEM-specific reasons in the plan", () => {
+  const labels = T.DEFAULT_SETTINGS.errorTypes;
+  for (const label of ["setup error", "algebra/arithmetic slip", "unit error", "sign error", "wrong formula"]) {
+    assert.ok(labels.includes(label), `missing default mistake label: ${label}`);
+  }
+  assert.ok(labels.includes("content gap"), "the existing generic labels stay available");
+});
+
 test("the reason for a miss is saved in the properties and the last history line", () => {
   const fm = { history: ["d|incorrect|5|A|1|"] };
   T.setLastErrorType(fm, "careless");

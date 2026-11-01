@@ -14,6 +14,7 @@ const KINDS = {
   pdf: "PDF",
   pptx: "PowerPoint",
   pptm: "PowerPoint",
+  ppsx: "PowerPoint Show",
   docx: "Word",
   docm: "Word",
   odt: "OpenDocument text",
@@ -29,7 +30,7 @@ const KINDS = {
 };
 
 const DOCUMENT_EXTENSIONS = Object.keys(KINDS);
-const SLIDE_KINDS = new Set(["pptx", "pptm", "odp"]);
+const SLIDE_KINDS = new Set(["pptx", "pptm", "ppsx", "odp"]);
 
 function extensionOf(name) {
   const m = str(name).match(/\.([a-z0-9]+)$/i);
@@ -310,7 +311,7 @@ async function readDocumentPages(buf, name, spec, progress) {
   if (kind === "pdf") throw new Error("PDFs are read by readPdfPages, not readDocumentPages.");
   const label = documentLabel(name);
   let pages;
-  if (kind === "pptx" || kind === "pptm") pages = await pptxPages(buf);
+  if (kind === "pptx" || kind === "pptm" || kind === "ppsx") pages = await pptxPages(buf);
   else if (kind === "docx" || kind === "docm") pages = await docxPages(buf);
   else if (kind === "odt" || kind === "odp") pages = await odfPages(buf, kind);
   else {

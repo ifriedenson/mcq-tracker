@@ -50,7 +50,7 @@ const DEFAULT_SETTINGS = {
   intervals: [1, 3, 7, 21, 60],
   scheduler: "ladder", // "ladder" (default) | "fsrs"
   fsrsRetention: 0.9, // desired recall probability when FSRS is on (0.85-0.95)
-  errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed"],
+  errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed", "setup error", "algebra/arithmetic slip", "unit error", "sign error", "wrong formula"],
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
   knownDays: 14, // default snooze length for the Known button
   knownDaysByCourse: {}, // optional course-specific snooze overrides

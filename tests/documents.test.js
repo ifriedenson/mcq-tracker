@@ -73,6 +73,7 @@ const slide = (lines) =>
 test("documents: file types are recognised from their extension, including upper case", () => {
   assert.equal(D.documentKind("deck.pptx"), "pptx");
   assert.equal(D.documentKind("DECK.PPTX"), "pptx");
+  assert.equal(D.documentKind("slideshow.ppsx"), "ppsx");
   assert.equal(D.documentKind("questions.docx"), "docx");
   assert.equal(D.documentKind("notes.ODT"), "odt");
   assert.equal(D.documentKind("page.html"), "html");
@@ -81,6 +82,7 @@ test("documents: file types are recognised from their extension, including upper
   assert.equal(D.documentKind("no-extension"), "");
   assert.equal(D.documentBaseName("Questions/Deck.pptx"), "Deck");
   assert.ok(D.DOCUMENT_EXTENSIONS.includes("pptx"));
+  assert.ok(D.DOCUMENT_EXTENSIONS.includes("ppsx"));
 });
 
 test("documents: PowerPoint slides are read in slide order, with entities decoded", async () => {
@@ -93,6 +95,18 @@ test("documents: PowerPoint slides are read in slide order, with entities decode
   assert.equal(out.total, 2);
   assert.match(out.pages[0].text, /Question 1: What is 2 \+ 2\?/);
   assert.match(out.pages[0].text, /A\. 3 & 1/);
+  assert.match(out.pages[1].text, /Question 2/);
+});
+
+test("documents: a PowerPoint Show is read as ordered slides", async () => {
+  const buf = zip({
+    "ppt/slides/slide1.xml": slide(["Question 1: What is 3 + 4?", "- A. 6", "- B. 7"]),
+    "ppt/slides/slide2.xml": slide(["Question 2: What is 5 + 5?", "- A. 9", "- B. 10"]),
+  });
+  const out = await read(buf, "lecture.ppsx");
+  assert.equal(out.kind, "ppsx");
+  assert.equal(out.total, 2);
+  assert.match(out.pages[0].text, /Question 1/);
   assert.match(out.pages[1].text, /Question 2/);
 });
 

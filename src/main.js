@@ -9,6 +9,7 @@
  * bundled into the single main.js that Obsidian loads by scripts/build.js.
  */
 const { QuestionTrackerPlugin } = require("./plugin");
+const { DEFAULT_SETTINGS } = require("./constants");
 const { API_SYSTEM, buildReportMarkdown, cacheIssues, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
 const { fmtDate, fmtDateTime } = require("./util");
 const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
@@ -215,6 +216,7 @@ const support = require("./support");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
+  DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,
   parseNote,

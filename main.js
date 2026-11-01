@@ -18945,7 +18945,7 @@ const DEFAULT_SETTINGS = {
   intervals: [1, 3, 7, 21, 60],
   scheduler: "ladder", // "ladder" (default) | "fsrs"
   fsrsRetention: 0.9, // desired recall probability when FSRS is on (0.85-0.95)
-  errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed"],
+  errorTypes: ["careless", "content gap", "misread", "ran out of time", "guessed", "setup error", "algebra/arithmetic slip", "unit error", "sign error", "wrong formula"],
   confidenceLabels: ["Guessing", "Unsure", "Confident"],
   knownDays: 14, // default snooze length for the Known button
   knownDaysByCourse: {}, // optional course-specific snooze overrides
@@ -20131,7 +20131,7 @@ class CourseNotesModal extends Modal {
     const setName = (name) => {
       if (!this.title && name) this.title = documentBaseName(name);
     };
-    const input = createEl("input", { type: "file", attr: { accept: ".pdf,.pptx,.pptm,.docx,.docm,.odt,.odp,.txt,.md,.markdown,.csv,.tsv,.html,.htm,.rtf" } });
+    const input = createEl("input", { type: "file", attr: { accept: ".pdf,.pptx,.pptm,.ppsx,.docx,.docm,.odt,.odp,.txt,.md,.markdown,.csv,.tsv,.html,.htm,.rtf" } });
     input.hidden = true;
     input.addEventListener("change", () => {
       this.file = input.files && input.files[0] ? input.files[0] : null;
@@ -20295,7 +20295,7 @@ class CourseNotesModal extends Modal {
         summary,
         summaryModel,
         importedOn: localDate(),
-        pageLabel: src.kind === "pptx" || src.kind === "pptm" || src.kind === "odp" ? "Slide" : "Page",
+        pageLabel: src.kind === "pptx" || src.kind === "pptm" || src.kind === "ppsx" || src.kind === "odp" ? "Slide" : "Page",
       });
       const path = uniquePath(this.app.vault, folder, note.title, "md");
       await this.app.vault.create(path, note.text);
@@ -21429,6 +21429,7 @@ const KINDS = {
   pdf: "PDF",
   pptx: "PowerPoint",
   pptm: "PowerPoint",
+  ppsx: "PowerPoint Show",
   docx: "Word",
   docm: "Word",
   odt: "OpenDocument text",
@@ -21444,7 +21445,7 @@ const KINDS = {
 };
 
 const DOCUMENT_EXTENSIONS = Object.keys(KINDS);
-const SLIDE_KINDS = new Set(["pptx", "pptm", "odp"]);
+const SLIDE_KINDS = new Set(["pptx", "pptm", "ppsx", "odp"]);
 
 function extensionOf(name) {
   const m = str(name).match(/\.([a-z0-9]+)$/i);
@@ -21725,7 +21726,7 @@ async function readDocumentPages(buf, name, spec, progress) {
   if (kind === "pdf") throw new Error("PDFs are read by readPdfPages, not readDocumentPages.");
   const label = documentLabel(name);
   let pages;
-  if (kind === "pptx" || kind === "pptm") pages = await pptxPages(buf);
+  if (kind === "pptx" || kind === "pptm" || kind === "ppsx") pages = await pptxPages(buf);
   else if (kind === "docx" || kind === "docm") pages = await docxPages(buf);
   else if (kind === "odt" || kind === "odp") pages = await odfPages(buf, kind);
   else {
@@ -29448,7 +29449,7 @@ function agentPrompt(o) {
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
   return [
-    `Import every question from the ${o.kind === "pptx" || o.kind === "pptm" ? "PowerPoint deck" : o.kind === "docx" || o.kind === "docm" ? "Word document" : "document"} "${o.name}" into notes.`,
+    `Import every question from the ${o.kind === "pptx" || o.kind === "pptm" || o.kind === "ppsx" ? "PowerPoint deck" : o.kind === "docx" || o.kind === "docm" ? "Word document" : "document"} "${o.name}" into notes.`,
     "",
     "Files (paths are relative to the folder you are working in):",
     `- The document's text, with page or slide markers: ${o.textPath}`,
@@ -75909,6 +75910,7 @@ __defs["main"] = function (module, exports, require) {
  * bundled into the single main.js that Obsidian loads by scripts/build.js.
  */
 const { QuestionTrackerPlugin } = require("./plugin");
+const { DEFAULT_SETTINGS } = require("./constants");
 const { API_SYSTEM, buildReportMarkdown, cacheIssues, finalizeNote, groupIssues, noteIssues, parseNote } = require("./importer");
 const { fmtDate, fmtDateTime } = require("./util");
 const { adaptiveTargetRank, adaptiveWeight, cloneFilters, filterOptionCounts, filterOptions, findDuplicateIds, folderChain, folderLabel, hasFilters, indexOfficialIds, isDue, matchFilters, matchSets, officialIdOf, pickQuestion, renameFolderInSettings, renameFolderPath, weightOf } = require("./filters");
@@ -76115,6 +76117,7 @@ const support = require("./support");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
+  DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,
   parseNote,
