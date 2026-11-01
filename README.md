@@ -14,7 +14,7 @@ MCQ Tracker turns Obsidian into a local-first exam-prep workspace. Keep question
 
 ## Features
 
-- **Exam-style practice screen.** The passage sits on the left, and the question, answer choices, confidence buttons and Submit sit on the right. On narrow screens the passage stacks above the question.
+- **Exam-style practice screen.** The passage sits on the left, and the question, answer choices, confidence buttons and Submit sit on the right. On phones the practice screen switches to a dedicated mobile layout with Passage/Question tabs and a bottom answer bar; desktop keeps the split. See [docs/mobile-layout.md](docs/mobile-layout.md).
 - **Automatic grading** for multiple-choice and student-produced-response questions, or self-grading when a note has no answer key.
 - **Timer** with pause. It survives closing the app, and on mobile it can pause itself when you switch apps.
 - **Review after answering.** See the question and choices again with your pick and the correct answer marked, plus an explanation you can show or hide (the default is a setting).
