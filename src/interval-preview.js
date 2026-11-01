@@ -37,7 +37,7 @@ function intervalPreviews(fm, deckName, settings, now) {
   for (const [grade, rating] of RATING_GRADES) {
     try {
       if (cfg.scheduler === "fsrs") {
-        out[grade] = fsrs.reviewNote(fm, { rating, now: at }, cfg.fsrsRetention, cfg.fsrsWeights).days;
+        out[grade] = fsrs.reviewNote(fm, { rating, now: at }, cfg.fsrsRetention).days;
       } else if (cfg.scheduler === "sm2") {
         out[grade] = sm2.reviewNote(fm, { rating, now: at }, cfg.sm2).days;
       } else {

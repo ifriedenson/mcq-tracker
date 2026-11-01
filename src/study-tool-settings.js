@@ -630,7 +630,7 @@ const PAGES = {
   "scheduler-fit": {
     title: "Scheduler fitting",
     description:
-      "Fits a desired-retention target from the review counters cards already keep. It suggests a bounded 0.80-0.95 target and only changes the existing FSRS retention setting when you press Apply.",
+      "Fits request_retention per deck from the review counters cards already keep. It suggests a bounded 0.85-0.95 target and only changes that deck's FSRS retention when you press Apply. The 21 FSRS weights stay fixed at the shipped defaults.",
     enabledGetter: "schedulerFitEnabled",
     enable: (plugin, v) => update(plugin, "schedulerFit", schedulerFit.normalizeSchedulerFitSettings, { enabled: v }),
     afterToggle: "onStudyWorkspaceToggled",
@@ -645,8 +645,8 @@ const PAGES = {
         set: async (plugin, v) => update(plugin, "schedulerFit", schedulerFit.normalizeSchedulerFitSettings, { minSamples: v }),
       },
     ],
-    note: "The fit card appears in the Retention tab and changes no schedule by itself.",
-    open: { label: "Open the fit card", run: (plugin) => plugin.activateStudyWorkspace("retention") },
+    note: "Apply and Reset live in Settings -> MCQ Tracker -> Scheduler; the Retention tab links there. Weights are never trained.",
+    open: { label: "Open Scheduler settings", run: (plugin) => plugin.openSettings() },
   },
   "study-map": {
     title: "Study map",

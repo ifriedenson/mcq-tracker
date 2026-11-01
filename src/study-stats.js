@@ -150,8 +150,7 @@ function cardReviewRows(card, settings) {
   const fm = card.fm || {};
   const entries = parseHistory(fm.history).filter((entry) => entry.result === "correct" || entry.result === "incorrect");
   const source = { kind: "card", file: card.file, fm };
-  const weights = typeof settings.fsrsWeights === "function" ? settings.fsrsWeights(card) : settings.fsrsWeights;
-  if (str(fm.srs).startsWith("fsrs")) return fsrsRows(source, entries, settings.fsrsRetention, weights);
+  if (str(fm.srs).startsWith("fsrs")) return fsrsRows(source, entries, settings.fsrsRetention);
   if (str(fm.sm2).startsWith("sm2")) return sm2Rows(source, entries);
   return ladderRows(source, entries);
 }
@@ -380,7 +379,7 @@ function buildStudyStats(input) {
   const notes = Array.isArray(opts.notes) ? opts.notes : [];
   const now = opts.now instanceof Date && !isNaN(opts.now.getTime()) ? opts.now : new Date();
   const cardRows = [];
-  for (const card of cards) cardRows.push(...cardReviewRows(card, { ...settings, fsrsRetention: opts.fsrsRetention, fsrsWeights: opts.fsrsWeights }));
+  for (const card of cards) cardRows.push(...cardReviewRows(card, { ...settings, fsrsRetention: opts.fsrsRetention }));
   const rows = [...cardRows, ...historyRows(questions, "question"), ...historyRows(notes, "note")].sort((a, b) => b.when.localeCompare(a.when));
   const retention = retentionByMaturity(cardRows);
   const metrics = cardMetrics(cards, now);
@@ -393,7 +392,7 @@ function buildStudyStats(input) {
     metrics,
     weekday: weekdayRhythm(rows),
     days,
-    decks: deckBreakdown(cards, { ...settings, fsrsRetention: opts.fsrsRetention, fsrsWeights: opts.fsrsWeights }),
+    decks: deckBreakdown(cards, { ...settings, fsrsRetention: opts.fsrsRetention }),
     buttonMix: buttonMix(counters),
     buttonMixByMaturity: buttonMixByMaturity(cardRows),
     heatmap: counterHeatmap(counters, settings.heatmapWeeks, now),

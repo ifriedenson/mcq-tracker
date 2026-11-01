@@ -81,8 +81,6 @@ class StudyWorkspaceView extends ItemView {
     this.retentionData = null;
     this.vocabFilter = "";
     this.readingFilter = "all";
-    this.fitReport = null;
-    this.fsrsFitReports = null;
     this.lecturePreview = null;
     this.readAloudText = "";
     this.readAloudPlan = null;
@@ -1108,113 +1106,13 @@ class StudyWorkspaceView extends ItemView {
   }
 
   renderSchedulerFit(root) {
-    this.renderFsrsWeightFit(root);
     const card = root.createDiv({ cls: "qt-study-card qt-scheduler-fit" });
-    card.createEl("h3", { text: "Desired-retention fit" });
-    card.createDiv({ cls: "qt-hint", text: "Uses the review counters already stored on your cards. Fitting is local; Apply only changes the FSRS desired-retention setting." });
-    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
-    actions.createEl("button", { text: "Fit target", cls: "mod-cta" }).addEventListener("click", () => {
-      this.fitReport = this.plugin.schedulerFitReport();
-      this.saveMessage(describeFit(this.fitReport));
-      this.render();
-    });
-    const fit = this.fitReport;
-    if (!fit) {
-      card.createDiv({ cls: "qt-study-empty", text: "Rate a few cards, then fit a target from your own recall." });
-      return;
-    }
-    const stats = card.createDiv({ cls: "qt-study-stats" });
-    const stat = (value, label) => {
-      const box = stats.createDiv({ cls: "qt-study-stat" });
-      box.createDiv({ cls: "qt-study-stat-value", text: String(value) });
-      box.createDiv({ cls: "qt-study-stat-label", text: label });
-    };
-    stat(fit.reviews, "reviews");
-    stat(fit.ready ? `${fit.observedPercent}%` : "—", "observed recall");
-    stat(fit.ready && typeof fit.recommended === "number" ? fit.recommended.toFixed(2) : "—", "suggested target");
-    stat(fit.confidence, "confidence");
-    for (const advice of fit.advice) card.createDiv({ cls: "qt-study-row-meta", text: advice });
-    const used = fit.buckets.filter((bucket) => bucket.reviews > 0);
-    if (used.length) {
-      const list = card.createDiv({ cls: "qt-study-list" });
-      for (const bucket of used) {
-        const row = list.createDiv({ cls: "qt-study-row" });
-        const main = row.createDiv({ cls: "qt-study-row-main" });
-        main.createDiv({ cls: "qt-study-row-title", text: bucket.label });
-        main.createDiv({ cls: "qt-study-row-meta", text: `${Math.round(bucket.accuracy * 100)}% recall · ${bucket.reviews} review${bucket.reviews === 1 ? "" : "s"}` });
-      }
-    }
-    if (fit.ready && typeof fit.recommended === "number" && Math.abs((fit.current || 0) - fit.recommended) >= 0.001) {
-      const apply = card.createDiv({ cls: "qt-row qt-study-actions" });
-      apply.createEl("button", { text: `Apply target ${fit.recommended.toFixed(2)}`, cls: "mod-cta" }).addEventListener("click", async () => {
-        this.plugin.settings.fsrsRetention = fit.recommended;
-        await this.plugin.save();
-        this.fitReport = null;
-        this.saveMessage(`Desired retention set to ${fit.recommended.toFixed(2)}.`);
-        this.render();
-      });
-    } else if (fit.ready) {
-      card.createDiv({ cls: "qt-study-row-meta", text: "The current target already matches the fit." });
-    }
-  }
-
-  /** Opt-in, per-deck decay-weight fitting with a visible reset path. */
-  renderFsrsWeightFit(root) {
-    if (typeof this.plugin.fsrsFitReports !== "function") return;
-    const card = root.createDiv({ cls: "qt-study-card qt-fsrs-fit" });
-    card.createEl("h3", { text: "FSRS weight fit" });
+    card.createEl("h3", { text: "Per-deck retention fit" });
     card.createDiv({
       cls: "qt-hint",
-      text: "Opt-in per deck. Fits only the FSRS decay weight from replayed review history and applies it only when a held-out tail improves on the fixed defaults. Reset restores the defaults; nothing changes until Apply.",
+      text: "Fit request_retention from each deck's own review history in Settings → MCQ Tracker → Scheduler. FSRS weights stay fixed at the shipped defaults, and no target changes until you press Apply.",
     });
-    if (!this.fsrsFitReports) {
-      const custom = Array.isArray(this.plugin.settings.cards && this.plugin.settings.cards.decks)
-        ? this.plugin.settings.cards.decks.filter((deck) => deck && deck.fsrsWeights)
-        : [];
-      if (custom.length) this.fsrsFitReports = this.plugin.fsrsFitReports();
-    }
-    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
-    actions.createEl("button", { text: "Fit weights", cls: "mod-cta" }).addEventListener("click", () => {
-      this.fsrsFitReports = this.plugin.fsrsFitReports();
-      const accepted = this.fsrsFitReports.filter((row) => row.accepted).length;
-      this.saveMessage(accepted ? `${accepted} deck fit${accepted === 1 ? "" : "s"} passed validation.` : "No deck fit passed validation.");
-      this.render();
-    });
-    const reports = this.fsrsFitReports || [];
-    if (!reports.length) {
-      card.createDiv({ cls: "qt-study-empty", text: "Rate cards with FSRS first, then fit a bounded decay weight." });
-      return;
-    }
-    for (const report of reports) {
-      const row = card.createDiv({ cls: "qt-study-row" });
-      const main = row.createDiv({ cls: "qt-study-row-main" });
-      main.createDiv({ cls: "qt-study-row-title", text: report.deck });
-      const bits = [`${report.samples || 0} reviews`, `${report.cards || 0} cards`];
-      if (report.custom) bits.push(`custom decay ${Number(report.currentDecay).toFixed(3)}`);
-      main.createDiv({ cls: "qt-study-row-meta", text: bits.join(" · ") });
-      if (report.accepted) {
-        main.createDiv({
-          cls: "qt-study-row-meta",
-          text: `Decay ${Number(report.defaultDecay).toFixed(3)} → ${Number(report.fittedDecay).toFixed(3)} · held-out improvement ${Number(report.improvement).toFixed(3)}`,
-        });
-        row.createEl("button", { text: "Apply", cls: "mod-cta" }).addEventListener("click", async () => {
-          await this.plugin.applyFsrsFitWeights(report.deck, report.weights);
-          this.fsrsFitReports = null;
-          this.saveMessage(`Applied ${report.deck} FSRS weights.`);
-          this.render();
-        });
-      } else {
-        main.createDiv({ cls: "qt-study-row-meta", text: report.reason });
-      }
-      if (report.custom) {
-        row.createEl("button", { text: "Reset to defaults" }).addEventListener("click", async () => {
-          await this.plugin.resetFsrsFitWeights(report.deck);
-          this.fsrsFitReports = null;
-          this.saveMessage(`Reset ${report.deck} to the default FSRS weights.`);
-          this.render();
-        });
-      }
-    }
+    card.createEl("button", { text: "Open Scheduler settings" }).addEventListener("click", () => this.plugin.openSettings());
   }
 
   /* ---- Vocabulary ------------------------------------------------------ */

@@ -15,7 +15,6 @@ const { DEFAULT_PLAIN_CARDS, inferPlainCard, normalizePlainCards, plainDeckName 
 const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 const { adaptiveIntervalDays } = require("./card-learning");
 const { DEFAULT_COUCHDB, normalizeCouchDb } = require("./couchdb-sync");
-const fsrsFit = require("./fsrs-fit");
 
 const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
 const CARD_TYPE_LABELS = {
@@ -103,7 +102,6 @@ function normalizeDecks(list) {
       scheduler: normalizeSchedulerChoice(raw.scheduler),
       intervals: normalizeDeckIntervals(raw.intervals),
       fsrsRetention: normalizeDeckRetention(raw.fsrsRetention || raw.fsrs_retention),
-      fsrsWeights: fsrsFit.normalizeFsrsWeights(raw.fsrsWeights || raw.fsrs_weights),
       sm2: normalizeSm2(raw.sm2),
     });
   }
@@ -267,12 +265,6 @@ function effectiveFsrsRetention(settings, deckName) {
   return settings && settings.fsrsRetention;
 }
 
-/** A deck's opt-in custom FSRS weights, or null to use the fixed defaults. */
-function effectiveFsrsWeights(settings, deckName) {
-  const deck = deckConfig(settings, deckName);
-  return deck ? fsrsFit.normalizeFsrsWeights(deck.fsrsWeights) : null;
-}
-
 /** Deck SM-2 timing with the built-in defaults filled in. */
 function effectiveSm2(settings, deckName) {
   const deck = deckConfig(settings, deckName);
@@ -285,7 +277,6 @@ function schedulerForDeck(settings, deckName, fm) {
     scheduler: effectiveScheduler(settings, deckName, fm),
     intervals: effectiveDeckIntervals(settings, deckName),
     fsrsRetention: effectiveFsrsRetention(settings, deckName),
-    fsrsWeights: effectiveFsrsWeights(settings, deckName),
     sm2: effectiveSm2(settings, deckName),
   };
 }
@@ -750,7 +741,6 @@ module.exports = {
   effectiveScheduler,
   effectiveDeckIntervals,
   effectiveFsrsRetention,
-  effectiveFsrsWeights,
   effectiveSm2,
   normalizeSchedulerChoice,
   schedulerForDeck,

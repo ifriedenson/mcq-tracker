@@ -12336,7 +12336,6 @@ const { DEFAULT_PLAIN_CARDS, inferPlainCard, normalizePlainCards, plainDeckName 
 const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 const { adaptiveIntervalDays } = require("./card-learning");
 const { DEFAULT_COUCHDB, normalizeCouchDb } = require("./couchdb-sync");
-const fsrsFit = require("./fsrs-fit");
 
 const CARD_TYPES = ["basic", "reversed", "cloze", "image-occlusion"];
 const CARD_TYPE_LABELS = {
@@ -12424,7 +12423,6 @@ function normalizeDecks(list) {
       scheduler: normalizeSchedulerChoice(raw.scheduler),
       intervals: normalizeDeckIntervals(raw.intervals),
       fsrsRetention: normalizeDeckRetention(raw.fsrsRetention || raw.fsrs_retention),
-      fsrsWeights: fsrsFit.normalizeFsrsWeights(raw.fsrsWeights || raw.fsrs_weights),
       sm2: normalizeSm2(raw.sm2),
     });
   }
@@ -12588,12 +12586,6 @@ function effectiveFsrsRetention(settings, deckName) {
   return settings && settings.fsrsRetention;
 }
 
-/** A deck's opt-in custom FSRS weights, or null to use the fixed defaults. */
-function effectiveFsrsWeights(settings, deckName) {
-  const deck = deckConfig(settings, deckName);
-  return deck ? fsrsFit.normalizeFsrsWeights(deck.fsrsWeights) : null;
-}
-
 /** Deck SM-2 timing with the built-in defaults filled in. */
 function effectiveSm2(settings, deckName) {
   const deck = deckConfig(settings, deckName);
@@ -12606,7 +12598,6 @@ function schedulerForDeck(settings, deckName, fm) {
     scheduler: effectiveScheduler(settings, deckName, fm),
     intervals: effectiveDeckIntervals(settings, deckName),
     fsrsRetention: effectiveFsrsRetention(settings, deckName),
-    fsrsWeights: effectiveFsrsWeights(settings, deckName),
     sm2: effectiveSm2(settings, deckName),
   };
 }
@@ -13071,7 +13062,6 @@ module.exports = {
   effectiveScheduler,
   effectiveDeckIntervals,
   effectiveFsrsRetention,
-  effectiveFsrsWeights,
   effectiveSm2,
   normalizeSchedulerChoice,
   schedulerForDeck,
@@ -16951,7 +16941,7 @@ function ensureDeck(st, name) {
   st.decks = Array.isArray(st.decks) ? st.decks : [];
   let cfg = st.decks.find((d) => d.name.toLowerCase() === str(name).trim().toLowerCase());
   if (!cfg) {
-    cfg = { name: str(name).trim(), folder: "", course: "", answerMode: "", gradingStrictness: "", scheduler: "", intervals: [], fsrsRetention: 0, fsrsWeights: null, sm2: normalizeSm2() };
+    cfg = { name: str(name).trim(), folder: "", course: "", answerMode: "", gradingStrictness: "", scheduler: "", intervals: [], fsrsRetention: 0, sm2: normalizeSm2() };
     st.decks.push(cfg);
   }
   return cfg;
@@ -27241,268 +27231,99 @@ module.exports = {
 /* ---- src/fsrs-fit.js ---- */
 __defs["fsrs-fit"] = function (module, exports, require) {
 /*
- * Bounded FSRS weight fitting.
+ * Per-deck desired-retention fitting for FSRS.
  *
- * Full FSRS training needs a large review log and a validated training policy.
- * This module deliberately fits one weight: w[20], the decay term in the
- * forgetting curve. It replays each card's existing history with the current
- * defaults, scores candidate decay values by binary log-loss, and accepts a
- * candidate only when a chronological held-out tail improves on the default by
- * a fixed margin. A deck with no accepted fit keeps the fixed defaults.
+ * The review permits the smaller step: optimize request_retention per deck and
+ * document that the 21 FSRS weights stay at the shipped defaults. This module
+ * only reads the review counters cards already keep. It never writes a card or
+ * changes a schedule; the plugin applies a recommendation to one deck only
+ * after the user presses Apply, and one click resets that deck to the global
+ * target. Full multi-weight training is deliberately not implemented.
  */
-const { parseHistory } = require("./stats");
+const { collectReviewRecords, fitRetention, normalizeSchedulerFitSettings } = require("./scheduler-fit");
 const { str } = require("./util");
-const fsrsLib = require("./fsrs-lib");
-const fsrs = require("./fsrs");
 
-const DEFAULT_WEIGHTS = fsrsLib.default_w;
-const DECAY_INDEX = 20;
-const MIN_DECAY = 0.05;
-const MAX_DECAY = 0.5;
-const DECAY_STEP = 0.005;
-const MIN_REVIEWS = 50;
-const MIN_TRAIN = 30;
-const MIN_VALIDATION = 10;
-const MIN_CARDS = 5;
-const MIN_IMPROVEMENT = 0.01;
-const MAX_HISTORY_ROWS = 500;
-const MAX_POINTS = 5000;
+const MIN_RETENTION = 0.85;
+const MAX_RETENTION = 0.95;
+const DEFAULT_RETENTION = 0.9;
 
-const round = (n) => Number(Number(n).toFixed(4));
-const clamp = (n, low, high) => Math.min(high, Math.max(low, n));
-
-function normalizeDecay(value) {
-  const n = Number(value);
+function normalizeRetention(value) {
+  const raw = typeof value === "string" ? value.trim() : value;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const n = Number(raw);
   if (!Number.isFinite(n)) return null;
-  return Math.round(clamp(n, MIN_DECAY, MAX_DECAY) / DECAY_STEP) * DECAY_STEP;
+  return Math.round(Math.min(MAX_RETENTION, Math.max(MIN_RETENTION, n)) * 100) / 100;
 }
 
-/** Build a complete FSRS-6 weight vector that differs only in the decay term. */
-function weightsForDecay(value) {
-  const decay = normalizeDecay(value);
-  if (decay === null) return null;
-  const out = DEFAULT_WEIGHTS.slice();
-  out[DECAY_INDEX] = Number(decay.toFixed(6));
-  return out;
+function deckKey(name) {
+  return str(name).trim().toLowerCase();
 }
 
 /**
- * Accept only the one safe custom shape this module creates: defaults for
- * every state-transition weight, and a bounded decay weight. Anything else is
- * treated as absent so old or hand-edited settings cannot change schedules.
+ * Fit every deck independently. A deck with a saved override stays visible even
+ * when it has no usable review data, so Reset is always reachable.
  */
-function normalizeFsrsWeights(value) {
-  if (!Array.isArray(value) || value.length !== DEFAULT_WEIGHTS.length) return null;
-  for (let i = 0; i < DECAY_INDEX; i++) {
-    if (!Number.isFinite(Number(value[i])) || Math.abs(Number(value[i]) - DEFAULT_WEIGHTS[i]) > 1e-9) return null;
-  }
-  return weightsForDecay(value[DECAY_INDEX]);
-}
-
-/** Predicted recall for one review under a candidate decay. */
-function predictedRecall(stability, elapsedDays, decay) {
-  const s = Number(stability);
-  const days = Number(elapsedDays);
-  const d = normalizeDecay(decay);
-  if (!(s > 0) || !(days > 0) || d === null) return null;
-  return fsrsLib.forgetting_curve(d, days, s);
-}
-
-function logLoss(points, decay) {
-  let total = 0;
-  let used = 0;
-  for (const point of points) {
-    const p = predictedRecall(point.stability, point.elapsed, decay);
-    if (p === null || !Number.isFinite(p)) continue;
-    const y = point.correct ? 1 : 0;
-    const q = Math.min(1 - 1e-9, Math.max(1e-9, p));
-    total += -(y * Math.log(q) + (1 - y) * Math.log(1 - q));
-    used++;
-  }
-  return used ? total / used : null;
-}
-
-/**
- * Collect one training point per review after the first. The state is replayed
- * with the fixed defaults, so changing a candidate decay never rewrites a note
- * or changes the source history; old binary and counter-only rows still work.
- */
-function collectDecayPoints(cards, options) {
+function fitRetentionDecks(cards, options) {
   const opts = options && typeof options === "object" ? options : {};
-  const now = opts.now instanceof Date && !isNaN(opts.now.getTime()) ? opts.now : new Date();
-  const points = [];
-  for (const card of Array.isArray(cards) ? cards : []) {
-    const fm = card && card.fm && typeof card.fm === "object" ? card.fm : null;
-    if (!fm) continue;
-    // Only cards that have actually been scheduled by FSRS contribute; a
-    // ladder-only card has no FSRS state to validate against.
-    if (!str(fm.srs).startsWith("fsrs")) continue;
-    const deck = str(card.deck || fm.deck || fm.deck_name).trim() || "Unsorted";
-    const path = str(card.file && card.file.path);
-    const entries = parseHistory(fm.history)
-      .map((entry) => ({ ...entry, at: new Date(entry.when) }))
-      .filter((entry) => !isNaN(entry.at.getTime()) && entry.at.getTime() <= now.getTime())
-      .filter((entry) => entry.result === "correct" || entry.result === "incorrect")
-      .sort((a, b) => a.at - b.at)
-      .slice(-MAX_HISTORY_ROWS);
-    if (entries.length < 2) continue;
-    const scheduler = fsrs.makeScheduler(opts.retention, null);
-    let state = fsrsLib.createEmptyCard(entries[0].at);
-    let previous = null;
-    for (const entry of entries) {
-      if (previous && state.stability > 0 && entry.at > previous) {
-        const elapsed = (entry.at.getTime() - previous.getTime()) / 86400000;
-        if (elapsed > 0) {
-          points.push({
-            when: entry.at.getTime(),
-            deck,
-            path,
-            stability: Number(state.stability),
-            elapsed,
-            correct: entry.result === "correct",
-          });
-        }
-      }
-      const rating = fsrs.gradeForAttempt(entry.result === "correct", entry.conf, entry.seconds, fm.target_seconds);
-      try {
-        state = scheduler.next(state, entry.at, rating).card;
-        previous = entry.at;
-      } catch (_) {
-        break;
-      }
-    }
+  const current = opts.currentRetention && typeof opts.currentRetention === "object" ? opts.currentRetention : {};
+  const fallback = normalizeRetention(opts.globalRetention) || DEFAULT_RETENTION;
+  const settings = normalizeSchedulerFitSettings({ minSamples: opts.minSamples });
+  const currentByKey = new Map();
+  for (const [name, value] of Object.entries(current)) {
+    if (!str(name).trim()) continue;
+    currentByKey.set(deckKey(name), normalizeRetention(value) || fallback);
   }
-  return points.sort((a, b) => a.when - b.when).slice(-MAX_POINTS);
-}
-
-function reject(reason, extra) {
-  return {
-    accepted: false,
-    reason,
-    defaultDecay: DEFAULT_WEIGHTS[DECAY_INDEX],
-    weights: null,
-    fittedDecay: null,
-    ...extra,
-  };
-}
-
-/**
- * Fit one deck's decay from its points. The last 20% of reviews (by time) is
- * never used to choose the candidate; it only decides whether the fit is good
- * enough to apply. This keeps the test honest on small histories.
- */
-function fitDecay(points, options) {
-  const opts = options && typeof options === "object" ? options : {};
-  const list = (Array.isArray(points) ? points : [])
-    .filter((point) => point && Number(point.stability) > 0 && Number(point.elapsed) > 0)
-    .sort((a, b) => Number(a.when) - Number(b.when));
-  const cardCount = Math.max(0, Math.round(Number(opts.cards) || 0));
-  const minReviews = Math.max(MIN_REVIEWS, Math.round(Number(opts.minReviews) || MIN_REVIEWS));
-  const minCards = Math.max(1, Math.round(Number(opts.minCards) || MIN_CARDS));
-  const minImprovement = Number.isFinite(Number(opts.minImprovement)) ? Number(opts.minImprovement) : MIN_IMPROVEMENT;
-  const base = { samples: list.length, cards: cardCount, minReviews, minCards, minImprovement };
-  if (list.length < minReviews) return reject(`Needs at least ${minReviews} reviews; ${list.length} available.`, base);
-  if (cardCount < minCards) return reject(`Needs at least ${minCards} cards; ${cardCount} available.`, base);
-  const validationCount = Math.max(MIN_VALIDATION, Math.round(list.length * 0.2));
-  const train = list.slice(0, list.length - validationCount);
-  const validation = list.slice(list.length - validationCount);
-  if (train.length < MIN_TRAIN || validation.length < MIN_VALIDATION) {
-    return reject(`Needs at least ${MIN_TRAIN} training and ${MIN_VALIDATION} held-out reviews.`, { ...base, train: train.length, validation: validation.length });
-  }
-  const defaultDecay = DEFAULT_WEIGHTS[DECAY_INDEX];
-  const baselineTrainLoss = logLoss(train, defaultDecay);
-  const baselineValidationLoss = logLoss(validation, defaultDecay);
-  let bestDecay = null;
-  let bestTrainLoss = Infinity;
-  for (let d = MIN_DECAY; d <= MAX_DECAY + 1e-9; d += DECAY_STEP) {
-    const loss = logLoss(train, d);
-    if (loss !== null && loss < bestTrainLoss) {
-      bestTrainLoss = loss;
-      bestDecay = d;
-    }
-  }
-  if (bestDecay === null) return reject("No candidate could be scored.", base);
-  const fittedValidationLoss = logLoss(validation, bestDecay);
-  const improvement = baselineValidationLoss === null || fittedValidationLoss === null ? 0 : baselineValidationLoss - fittedValidationLoss;
-  const weights = weightsForDecay(bestDecay);
-  const metrics = {
-    ...base,
-    train: train.length,
-    validation: validation.length,
-    defaultDecay,
-    fittedDecay: Number(bestDecay.toFixed(6)),
-    weights,
-    baselineTrainLoss: baselineTrainLoss === null ? null : round(baselineTrainLoss),
-    trainLoss: round(bestTrainLoss),
-    baselineValidationLoss: baselineValidationLoss === null ? null : round(baselineValidationLoss),
-    validationLoss: fittedValidationLoss === null ? null : round(fittedValidationLoss),
-    improvement: round(improvement),
-  };
-  if (Math.abs(bestDecay - defaultDecay) < DECAY_STEP / 2) {
-    return reject("The fit is already at the default decay; nothing to apply.", { ...metrics, weights: null, fittedDecay: null });
-  }
-  if (improvement < minImprovement) {
-    return reject(`Held-out loss improved by ${round(improvement)}; needs at least ${minImprovement}.`, { ...metrics, weights: null });
-  }
-  return { accepted: true, reason: "", ...metrics };
-}
-
-/** Fit every deck independently. Decks without custom weights inherit defaults. */
-function fitFsrsDecks(cards, options) {
-  const opts = options && typeof options === "object" ? options : {};
-  const currentWeights = opts.currentWeights && typeof opts.currentWeights === "object" ? opts.currentWeights : {};
-  const points = collectDecayPoints(cards, opts);
   const groups = new Map();
-  // A deck with saved custom weights must remain visible so its one-click
-  // reset is available even when no usable review points remain.
-  for (const deck of Object.keys(currentWeights)) groups.set(deck, { points: [], cards: new Set() });
-  for (const point of points) {
-    if (!groups.has(point.deck)) groups.set(point.deck, { points: [], cards: new Set() });
-    const group = groups.get(point.deck);
-    group.points.push(point);
-    if (point.path) group.cards.add(point.path);
+  for (const [key, value] of currentByKey.entries()) {
+    groups.set(key, { deck: str(Object.keys(current).find((name) => deckKey(name) === key) || key).trim(), records: [], cards: new Set(), current: value });
   }
-  return [...groups.entries()]
-    .map(([deck, group]) => {
-      const custom = normalizeFsrsWeights(currentWeights[deck]);
-      const fit = fitDecay(group.points, {
-        ...opts,
-        cards: group.cards.size,
-      });
+  for (const record of collectReviewRecords(cards)) {
+    const key = deckKey(record.deck) || "unsorted";
+    if (!groups.has(key)) groups.set(key, { deck: record.deck || "Unsorted", records: [], cards: new Set(), current: fallback });
+    const group = groups.get(key);
+    group.records.push(record);
+    if (record.path) group.cards.add(record.path);
+  }
+  return [...groups.values()]
+    .map((group) => {
+      const currentValue = currentByKey.get(deckKey(group.deck)) || group.current || fallback;
+      const fit = fitRetention(group.records, { minSamples: settings.minSamples, current: currentValue });
+      const recommended = normalizeRetention(fit.recommended);
+      const accepted = fit.ready && recommended !== null && Math.abs(currentValue - recommended) >= 0.001;
+      const reason = !fit.ready
+        ? fit.advice[0] || `Needs at least ${fit.minSamples} reviews; ${fit.reviews} recorded so far.`
+        : accepted
+          ? ""
+          : "The current target already matches the observed recall.";
       return {
-        deck,
-        cards: group.cards.size,
-        custom: Boolean(custom),
-        currentDecay: custom ? custom[DECAY_INDEX] : DEFAULT_WEIGHTS[DECAY_INDEX],
         ...fit,
+        deck: group.deck,
+        cards: group.cards.size,
+        current: currentValue,
+        recommended,
+        accepted,
+        reason,
+        custom: Math.abs(currentValue - fallback) >= 0.001,
+        weightsFixed: true,
       };
     })
     .sort((a, b) => a.deck.localeCompare(b.deck));
 }
 
-function describeFsrsFit(fit) {
-  if (!fit) return "No card review history yet.";
-  if (!fit.accepted) return fit.reason || "No validated fit is available.";
-  return `Decay ${fit.defaultDecay.toFixed(3)} → ${fit.fittedDecay.toFixed(3)}; held-out loss improved by ${fit.improvement.toFixed(3)} across ${fit.samples} reviews.`;
+function describeFsrsRetentionFit(fit) {
+  if (!fit || !Number.isFinite(fit.reviews)) return "No card review history yet.";
+  if (!fit.ready) return `Needs at least ${fit.minSamples} reviews; ${fit.reviews} recorded so far.`;
+  if (!fit.accepted) return fit.reason || "The current target already matches the observed recall.";
+  return `Observed recall ${fit.observedPercent}% across ${fit.reviews} reviews. Target ${fit.current.toFixed(2)} → ${fit.recommended.toFixed(2)}. Weights stay fixed.`;
 }
 
 module.exports = {
-  DECAY_INDEX,
-  DEFAULT_WEIGHTS,
-  MIN_DECAY,
-  MAX_DECAY,
-  DECAY_STEP,
-  MIN_REVIEWS,
-  MIN_CARDS,
-  MIN_IMPROVEMENT,
-  collectDecayPoints,
-  describeFsrsFit,
-  fitDecay,
-  fitFsrsDecks,
-  normalizeDecay,
-  normalizeFsrsWeights,
-  predictedRecall,
-  weightsForDecay,
+  DEFAULT_RETENTION,
+  MAX_RETENTION,
+  MIN_RETENTION,
+  describeFsrsRetentionFit,
+  fitRetentionDecks,
+  normalizeRetention,
 };
 };
 
@@ -31873,7 +31694,7 @@ function intervalPreviews(fm, deckName, settings, now) {
   for (const [grade, rating] of RATING_GRADES) {
     try {
       if (cfg.scheduler === "fsrs") {
-        out[grade] = fsrs.reviewNote(fm, { rating, now: at }, cfg.fsrsRetention, cfg.fsrsWeights).days;
+        out[grade] = fsrs.reviewNote(fm, { rating, now: at }, cfg.fsrsRetention).days;
       } else if (cfg.scheduler === "sm2") {
         out[grade] = sm2.reviewNote(fm, { rating, now: at }, cfg.sm2).days;
       } else {
@@ -35306,7 +35127,7 @@ function applyAttempt(fm, a, intervals, options) {
   let fsrsError = "";
   if (opts.scheduler === "fsrs") {
     try {
-      fsrsReview = reviewNote(fm, a, opts.fsrsRetention, opts.fsrsWeights);
+      fsrsReview = reviewNote(fm, a, opts.fsrsRetention);
     } catch (e) {
       fsrsError = str(e && e.message);
     }
@@ -40843,7 +40664,7 @@ const { parseApkg } = require("./apkg");
 const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
-const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckOf, deckSummary, effectiveFsrsWeights, isCardNote, schedulerForDeck, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
+const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckOf, deckSummary, effectiveFsrsRetention, isCardNote, schedulerForDeck, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { inferPlainCard, isPlainPath, normalizePlainCards } = require("./plain-cards");
 const { cardUpdateDiff } = require("./card-write-diff");
 const { DueQueueModal, buildDueQueue, normalizeDailyCap } = require("./due-queue");
@@ -46457,7 +46278,6 @@ ${body}
       counters: this.settings.studyCounters,
       settings: this.settings.studyStats,
       fsrsRetention: this.settings.fsrsRetention,
-      fsrsWeights: (card) => effectiveFsrsWeights(this.settings, card && card.deck),
       now: new Date(),
     });
   }
@@ -48812,7 +48632,6 @@ ${body}
         ...shared,
         scheduler: sched.scheduler,
         fsrsRetention: sched.fsrsRetention,
-        fsrsWeights: sched.fsrsWeights,
         sm2: sched.sm2,
         examCap: this.examCapFor(attempt.course || copy.course, attempt.now),
       });
@@ -48829,7 +48648,6 @@ ${body}
           reviewUpdated: attempt.reviewUpdated,
           scheduler: sched.scheduler,
           fsrsRetention: sched.fsrsRetention,
-          fsrsWeights: sched.fsrsWeights,
           sm2: sched.sm2,
           examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
         });
@@ -48895,7 +48713,6 @@ ${body}
               reviewUpdated: attempt.reviewUpdated,
               scheduler: sched.scheduler,
               fsrsRetention: sched.fsrsRetention,
-              fsrsWeights: sched.fsrsWeights,
               sm2: sched.sm2,
               sameDayReviews: attempt.sameDayReviews === true,
               adaptiveFrequency: attempt.adaptiveFrequency === true,
@@ -49493,26 +49310,31 @@ ${body}
     return fitRetention(collectReviewRecords(cards), { minSamples: options.minSamples, current: this.settings.fsrsRetention });
   }
 
-  /** Bounded, per-deck decay-weight fit; nothing is written until Apply. */
-  fsrsFitReports() {
-    const cards = this.getCards();
-    const currentWeights = {};
+  /** Per-deck desired-retention fit. Weights remain at the shipped defaults. */
+  fsrsRetentionReports() {
+    const options = normalizeSchedulerFitSettings(this.settings.schedulerFit);
+    const cards = typeof this.getCards === "function" ? this.getCards() : [];
+    const current = {};
     for (const config of (this.settings.cards && Array.isArray(this.settings.cards.decks) ? this.settings.cards.decks : [])) {
       const deck = str(config && config.name).trim();
-      if (deck && effectiveFsrsWeights(this.settings, deck)) currentWeights[deck] = effectiveFsrsWeights(this.settings, deck);
+      if (deck) current[deck] = effectiveFsrsRetention(this.settings, deck);
     }
     for (const card of cards) {
       const deck = str(card && card.deck).trim() || "Unsorted";
-      if (!(deck in currentWeights)) currentWeights[deck] = effectiveFsrsWeights(this.settings, deck);
+      if (!(deck in current)) current[deck] = effectiveFsrsRetention(this.settings, deck);
     }
-    return fsrsFit.fitFsrsDecks(cards, { currentWeights, retention: this.settings.fsrsRetention, now: new Date() });
+    return fsrsFit.fitRetentionDecks(cards, {
+      currentRetention: current,
+      globalRetention: this.settings.fsrsRetention,
+      minSamples: options.minSamples,
+    });
   }
 
-  /** Apply only a validated custom weight vector to one deck. */
-  async applyFsrsFitWeights(deckName, weights) {
+  /** Apply one validated target to one deck. Other decks and all weights stay untouched. */
+  async applyFsrsRetention(deckName, retention) {
     const deck = str(deckName).trim();
-    const normalized = fsrsFit.normalizeFsrsWeights(weights);
-    if (!deck || !normalized) return null;
+    const target = fsrsFit.normalizeRetention(retention);
+    if (!deck || target === null) return null;
     const current = this.settings.cards && typeof this.settings.cards === "object" ? this.settings.cards : {};
     const decks = Array.isArray(current.decks) ? current.decks.map((entry) => ({ ...entry })) : [];
     let cfg = decks.find((entry) => str(entry.name).trim().toLowerCase() === deck.toLowerCase());
@@ -49520,22 +49342,22 @@ ${body}
       cfg = { name: deck, folder: "", course: "", answerMode: "", gradingStrictness: "", scheduler: "", intervals: [], fsrsRetention: 0, sm2: {} };
       decks.push(cfg);
     }
-    cfg.fsrsWeights = normalized;
+    cfg.fsrsRetention = target;
     this.settings.cards = mergeCardSettings({ ...current, decks });
     await this.save();
     this.refreshViews();
-    return normalized[fsrsFit.DECAY_INDEX];
+    return target;
   }
 
-  /** One-click rollback to the fixed FSRS defaults for one deck. */
-  async resetFsrsFitWeights(deckName) {
+  /** One-click rollback: clear this deck's target and inherit the global one. */
+  async resetFsrsRetention(deckName) {
     const deck = str(deckName).trim();
     if (!deck) return null;
     const current = this.settings.cards && typeof this.settings.cards === "object" ? this.settings.cards : {};
     const decks = Array.isArray(current.decks) ? current.decks.map((entry) => ({ ...entry })) : [];
     const cfg = decks.find((entry) => str(entry.name).trim().toLowerCase() === deck.toLowerCase());
-    if (!cfg || !cfg.fsrsWeights) return null;
-    cfg.fsrsWeights = null;
+    if (!cfg || !(Number(cfg.fsrsRetention) > 0)) return null;
+    cfg.fsrsRetention = 0;
     this.settings.cards = mergeCardSettings({ ...current, decks });
     await this.save();
     this.refreshViews();
@@ -62586,9 +62408,51 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
               this.plugin.refreshViews();
             })
         );
+      const fitPanel = containerEl.createDiv({ cls: "qt-settings-card" });
+      const plugin = this.plugin;
+      const drawRetentionFit = (reports) => {
+        fitPanel.empty();
+        fitPanel.createEl("h3", { text: "Per-deck retention fit" });
+        fitPanel.createEl("p", {
+          cls: "setting-item-description",
+          text: "Fits request_retention from each deck's own review history. The 21 FSRS weights stay fixed at the shipped defaults. Nothing changes until Apply; Reset clears that deck's target.",
+        });
+        const rows = (Array.isArray(reports) ? reports : []).filter((row) => row && (row.reviews > 0 || row.custom));
+        if (!rows.length) {
+          fitPanel.createEl("p", { cls: "setting-item-description", text: "No reviewed cards yet. Rate some cards, then fit the decks." });
+          return;
+        }
+        for (const report of rows) {
+          const label = `${report.reviews} reviews · ${report.cards} cards · current ${Number(report.current).toFixed(2)}`;
+          const setting = new Setting(fitPanel)
+            .setName(report.deck)
+            .setDesc(report.accepted ? `${label} · suggested ${Number(report.recommended).toFixed(2)}` : `${label}${report.reason ? ` · ${report.reason}` : ""}`);
+          if (report.accepted) {
+            setting.addButton((b) =>
+              b.setButtonText(`Apply ${Number(report.recommended).toFixed(2)}`).setCta().onClick(async () => {
+                await plugin.applyFsrsRetention(report.deck, report.recommended);
+                drawRetentionFit(plugin.fsrsRetentionReports());
+              })
+            );
+          }
+          if (report.custom) {
+            setting.addButton((b) =>
+              b.setButtonText("Reset").setWarning().onClick(async () => {
+                await plugin.resetFsrsRetention(report.deck);
+                drawRetentionFit(plugin.fsrsRetentionReports());
+              })
+            );
+          }
+        }
+      };
+      new Setting(containerEl)
+        .setName("Fit retention per deck")
+        .setDesc("Read each deck's review counters and suggest a target between 85% and 95%. Weights are not trained.")
+        .addButton((b) => b.setButtonText("Fit decks").onClick(() => drawRetentionFit(plugin.fsrsRetentionReports())));
+      fitPanel.createEl("p", { cls: "setting-item-description", text: "Press Fit decks to read the current history. Weights remain fixed." });
       containerEl.createEl("p", {
         cls: "setting-item-description",
-        text: "FSRS uses the MIT-licensed ts-fsrs 5.4.1 scheduler. State is stored in the note's srs property; history remains the source of truth.",
+        text: "FSRS uses the MIT-licensed ts-fsrs 5.4.1 scheduler with its shipped weights. State is stored in the note's srs property; history remains the source of truth.",
       });
     }
 
@@ -69054,8 +68918,7 @@ function cardReviewRows(card, settings) {
   const fm = card.fm || {};
   const entries = parseHistory(fm.history).filter((entry) => entry.result === "correct" || entry.result === "incorrect");
   const source = { kind: "card", file: card.file, fm };
-  const weights = typeof settings.fsrsWeights === "function" ? settings.fsrsWeights(card) : settings.fsrsWeights;
-  if (str(fm.srs).startsWith("fsrs")) return fsrsRows(source, entries, settings.fsrsRetention, weights);
+  if (str(fm.srs).startsWith("fsrs")) return fsrsRows(source, entries, settings.fsrsRetention);
   if (str(fm.sm2).startsWith("sm2")) return sm2Rows(source, entries);
   return ladderRows(source, entries);
 }
@@ -69284,7 +69147,7 @@ function buildStudyStats(input) {
   const notes = Array.isArray(opts.notes) ? opts.notes : [];
   const now = opts.now instanceof Date && !isNaN(opts.now.getTime()) ? opts.now : new Date();
   const cardRows = [];
-  for (const card of cards) cardRows.push(...cardReviewRows(card, { ...settings, fsrsRetention: opts.fsrsRetention, fsrsWeights: opts.fsrsWeights }));
+  for (const card of cards) cardRows.push(...cardReviewRows(card, { ...settings, fsrsRetention: opts.fsrsRetention }));
   const rows = [...cardRows, ...historyRows(questions, "question"), ...historyRows(notes, "note")].sort((a, b) => b.when.localeCompare(a.when));
   const retention = retentionByMaturity(cardRows);
   const metrics = cardMetrics(cards, now);
@@ -69297,7 +69160,7 @@ function buildStudyStats(input) {
     metrics,
     weekday: weekdayRhythm(rows),
     days,
-    decks: deckBreakdown(cards, { ...settings, fsrsRetention: opts.fsrsRetention, fsrsWeights: opts.fsrsWeights }),
+    decks: deckBreakdown(cards, { ...settings, fsrsRetention: opts.fsrsRetention }),
     buttonMix: buttonMix(counters),
     buttonMixByMaturity: buttonMixByMaturity(cardRows),
     heatmap: counterHeatmap(counters, settings.heatmapWeeks, now),
@@ -70708,7 +70571,7 @@ const PAGES = {
   "scheduler-fit": {
     title: "Scheduler fitting",
     description:
-      "Fits a desired-retention target from the review counters cards already keep. It suggests a bounded 0.80-0.95 target and only changes the existing FSRS retention setting when you press Apply.",
+      "Fits request_retention per deck from the review counters cards already keep. It suggests a bounded 0.85-0.95 target and only changes that deck's FSRS retention when you press Apply. The 21 FSRS weights stay fixed at the shipped defaults.",
     enabledGetter: "schedulerFitEnabled",
     enable: (plugin, v) => update(plugin, "schedulerFit", schedulerFit.normalizeSchedulerFitSettings, { enabled: v }),
     afterToggle: "onStudyWorkspaceToggled",
@@ -70723,8 +70586,8 @@ const PAGES = {
         set: async (plugin, v) => update(plugin, "schedulerFit", schedulerFit.normalizeSchedulerFitSettings, { minSamples: v }),
       },
     ],
-    note: "The fit card appears in the Retention tab and changes no schedule by itself.",
-    open: { label: "Open the fit card", run: (plugin) => plugin.activateStudyWorkspace("retention") },
+    note: "Apply and Reset live in Settings -> MCQ Tracker -> Scheduler; the Retention tab links there. Weights are never trained.",
+    open: { label: "Open Scheduler settings", run: (plugin) => plugin.openSettings() },
   },
   "study-map": {
     title: "Study map",
@@ -73038,8 +72901,6 @@ class StudyWorkspaceView extends ItemView {
     this.retentionData = null;
     this.vocabFilter = "";
     this.readingFilter = "all";
-    this.fitReport = null;
-    this.fsrsFitReports = null;
     this.lecturePreview = null;
     this.readAloudText = "";
     this.readAloudPlan = null;
@@ -74065,113 +73926,13 @@ class StudyWorkspaceView extends ItemView {
   }
 
   renderSchedulerFit(root) {
-    this.renderFsrsWeightFit(root);
     const card = root.createDiv({ cls: "qt-study-card qt-scheduler-fit" });
-    card.createEl("h3", { text: "Desired-retention fit" });
-    card.createDiv({ cls: "qt-hint", text: "Uses the review counters already stored on your cards. Fitting is local; Apply only changes the FSRS desired-retention setting." });
-    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
-    actions.createEl("button", { text: "Fit target", cls: "mod-cta" }).addEventListener("click", () => {
-      this.fitReport = this.plugin.schedulerFitReport();
-      this.saveMessage(describeFit(this.fitReport));
-      this.render();
-    });
-    const fit = this.fitReport;
-    if (!fit) {
-      card.createDiv({ cls: "qt-study-empty", text: "Rate a few cards, then fit a target from your own recall." });
-      return;
-    }
-    const stats = card.createDiv({ cls: "qt-study-stats" });
-    const stat = (value, label) => {
-      const box = stats.createDiv({ cls: "qt-study-stat" });
-      box.createDiv({ cls: "qt-study-stat-value", text: String(value) });
-      box.createDiv({ cls: "qt-study-stat-label", text: label });
-    };
-    stat(fit.reviews, "reviews");
-    stat(fit.ready ? `${fit.observedPercent}%` : "—", "observed recall");
-    stat(fit.ready && typeof fit.recommended === "number" ? fit.recommended.toFixed(2) : "—", "suggested target");
-    stat(fit.confidence, "confidence");
-    for (const advice of fit.advice) card.createDiv({ cls: "qt-study-row-meta", text: advice });
-    const used = fit.buckets.filter((bucket) => bucket.reviews > 0);
-    if (used.length) {
-      const list = card.createDiv({ cls: "qt-study-list" });
-      for (const bucket of used) {
-        const row = list.createDiv({ cls: "qt-study-row" });
-        const main = row.createDiv({ cls: "qt-study-row-main" });
-        main.createDiv({ cls: "qt-study-row-title", text: bucket.label });
-        main.createDiv({ cls: "qt-study-row-meta", text: `${Math.round(bucket.accuracy * 100)}% recall · ${bucket.reviews} review${bucket.reviews === 1 ? "" : "s"}` });
-      }
-    }
-    if (fit.ready && typeof fit.recommended === "number" && Math.abs((fit.current || 0) - fit.recommended) >= 0.001) {
-      const apply = card.createDiv({ cls: "qt-row qt-study-actions" });
-      apply.createEl("button", { text: `Apply target ${fit.recommended.toFixed(2)}`, cls: "mod-cta" }).addEventListener("click", async () => {
-        this.plugin.settings.fsrsRetention = fit.recommended;
-        await this.plugin.save();
-        this.fitReport = null;
-        this.saveMessage(`Desired retention set to ${fit.recommended.toFixed(2)}.`);
-        this.render();
-      });
-    } else if (fit.ready) {
-      card.createDiv({ cls: "qt-study-row-meta", text: "The current target already matches the fit." });
-    }
-  }
-
-  /** Opt-in, per-deck decay-weight fitting with a visible reset path. */
-  renderFsrsWeightFit(root) {
-    if (typeof this.plugin.fsrsFitReports !== "function") return;
-    const card = root.createDiv({ cls: "qt-study-card qt-fsrs-fit" });
-    card.createEl("h3", { text: "FSRS weight fit" });
+    card.createEl("h3", { text: "Per-deck retention fit" });
     card.createDiv({
       cls: "qt-hint",
-      text: "Opt-in per deck. Fits only the FSRS decay weight from replayed review history and applies it only when a held-out tail improves on the fixed defaults. Reset restores the defaults; nothing changes until Apply.",
+      text: "Fit request_retention from each deck's own review history in Settings → MCQ Tracker → Scheduler. FSRS weights stay fixed at the shipped defaults, and no target changes until you press Apply.",
     });
-    if (!this.fsrsFitReports) {
-      const custom = Array.isArray(this.plugin.settings.cards && this.plugin.settings.cards.decks)
-        ? this.plugin.settings.cards.decks.filter((deck) => deck && deck.fsrsWeights)
-        : [];
-      if (custom.length) this.fsrsFitReports = this.plugin.fsrsFitReports();
-    }
-    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
-    actions.createEl("button", { text: "Fit weights", cls: "mod-cta" }).addEventListener("click", () => {
-      this.fsrsFitReports = this.plugin.fsrsFitReports();
-      const accepted = this.fsrsFitReports.filter((row) => row.accepted).length;
-      this.saveMessage(accepted ? `${accepted} deck fit${accepted === 1 ? "" : "s"} passed validation.` : "No deck fit passed validation.");
-      this.render();
-    });
-    const reports = this.fsrsFitReports || [];
-    if (!reports.length) {
-      card.createDiv({ cls: "qt-study-empty", text: "Rate cards with FSRS first, then fit a bounded decay weight." });
-      return;
-    }
-    for (const report of reports) {
-      const row = card.createDiv({ cls: "qt-study-row" });
-      const main = row.createDiv({ cls: "qt-study-row-main" });
-      main.createDiv({ cls: "qt-study-row-title", text: report.deck });
-      const bits = [`${report.samples || 0} reviews`, `${report.cards || 0} cards`];
-      if (report.custom) bits.push(`custom decay ${Number(report.currentDecay).toFixed(3)}`);
-      main.createDiv({ cls: "qt-study-row-meta", text: bits.join(" · ") });
-      if (report.accepted) {
-        main.createDiv({
-          cls: "qt-study-row-meta",
-          text: `Decay ${Number(report.defaultDecay).toFixed(3)} → ${Number(report.fittedDecay).toFixed(3)} · held-out improvement ${Number(report.improvement).toFixed(3)}`,
-        });
-        row.createEl("button", { text: "Apply", cls: "mod-cta" }).addEventListener("click", async () => {
-          await this.plugin.applyFsrsFitWeights(report.deck, report.weights);
-          this.fsrsFitReports = null;
-          this.saveMessage(`Applied ${report.deck} FSRS weights.`);
-          this.render();
-        });
-      } else {
-        main.createDiv({ cls: "qt-study-row-meta", text: report.reason });
-      }
-      if (report.custom) {
-        row.createEl("button", { text: "Reset to defaults" }).addEventListener("click", async () => {
-          await this.plugin.resetFsrsFitWeights(report.deck);
-          this.fsrsFitReports = null;
-          this.saveMessage(`Reset ${report.deck} to the default FSRS weights.`);
-          this.render();
-        });
-      }
-    }
+    card.createEl("button", { text: "Open Scheduler settings" }).addEventListener("click", () => this.plugin.openSettings());
   }
 
   /* ---- Vocabulary ------------------------------------------------------ */

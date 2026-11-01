@@ -92,7 +92,7 @@ const { parseApkg } = require("./apkg");
 const { buildApkg, apkgMediaWarning } = require("./apkg-export");
 const { parseQtiArchive } = require("./qti-archive");
 const { extractCardsFromMarkdown, flashcardsFlag } = require("./cards-extract");
-const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckOf, deckSummary, effectiveFsrsWeights, isCardNote, schedulerForDeck, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
+const { cardAttempt, cardNote, cardQueue, courseForFolder, deckConfig, deckOf, deckSummary, effectiveFsrsRetention, isCardNote, schedulerForDeck, mergeCardSettings, parseCardBody, parseMaskRows, resolveCard } = require("./cards");
 const { inferPlainCard, isPlainPath, normalizePlainCards } = require("./plain-cards");
 const { cardUpdateDiff } = require("./card-write-diff");
 const { DueQueueModal, buildDueQueue, normalizeDailyCap } = require("./due-queue");
@@ -5706,7 +5706,6 @@ ${body}
       counters: this.settings.studyCounters,
       settings: this.settings.studyStats,
       fsrsRetention: this.settings.fsrsRetention,
-      fsrsWeights: (card) => effectiveFsrsWeights(this.settings, card && card.deck),
       now: new Date(),
     });
   }
@@ -8061,7 +8060,6 @@ ${body}
         ...shared,
         scheduler: sched.scheduler,
         fsrsRetention: sched.fsrsRetention,
-        fsrsWeights: sched.fsrsWeights,
         sm2: sched.sm2,
         examCap: this.examCapFor(attempt.course || copy.course, attempt.now),
       });
@@ -8078,7 +8076,6 @@ ${body}
           reviewUpdated: attempt.reviewUpdated,
           scheduler: sched.scheduler,
           fsrsRetention: sched.fsrsRetention,
-          fsrsWeights: sched.fsrsWeights,
           sm2: sched.sm2,
           examCap: this.examCapFor(attempt.course || fm.course, attempt.now),
         });
@@ -8144,7 +8141,6 @@ ${body}
               reviewUpdated: attempt.reviewUpdated,
               scheduler: sched.scheduler,
               fsrsRetention: sched.fsrsRetention,
-              fsrsWeights: sched.fsrsWeights,
               sm2: sched.sm2,
               sameDayReviews: attempt.sameDayReviews === true,
               adaptiveFrequency: attempt.adaptiveFrequency === true,
@@ -8742,26 +8738,31 @@ ${body}
     return fitRetention(collectReviewRecords(cards), { minSamples: options.minSamples, current: this.settings.fsrsRetention });
   }
 
-  /** Bounded, per-deck decay-weight fit; nothing is written until Apply. */
-  fsrsFitReports() {
-    const cards = this.getCards();
-    const currentWeights = {};
+  /** Per-deck desired-retention fit. Weights remain at the shipped defaults. */
+  fsrsRetentionReports() {
+    const options = normalizeSchedulerFitSettings(this.settings.schedulerFit);
+    const cards = typeof this.getCards === "function" ? this.getCards() : [];
+    const current = {};
     for (const config of (this.settings.cards && Array.isArray(this.settings.cards.decks) ? this.settings.cards.decks : [])) {
       const deck = str(config && config.name).trim();
-      if (deck && effectiveFsrsWeights(this.settings, deck)) currentWeights[deck] = effectiveFsrsWeights(this.settings, deck);
+      if (deck) current[deck] = effectiveFsrsRetention(this.settings, deck);
     }
     for (const card of cards) {
       const deck = str(card && card.deck).trim() || "Unsorted";
-      if (!(deck in currentWeights)) currentWeights[deck] = effectiveFsrsWeights(this.settings, deck);
+      if (!(deck in current)) current[deck] = effectiveFsrsRetention(this.settings, deck);
     }
-    return fsrsFit.fitFsrsDecks(cards, { currentWeights, retention: this.settings.fsrsRetention, now: new Date() });
+    return fsrsFit.fitRetentionDecks(cards, {
+      currentRetention: current,
+      globalRetention: this.settings.fsrsRetention,
+      minSamples: options.minSamples,
+    });
   }
 
-  /** Apply only a validated custom weight vector to one deck. */
-  async applyFsrsFitWeights(deckName, weights) {
+  /** Apply one validated target to one deck. Other decks and all weights stay untouched. */
+  async applyFsrsRetention(deckName, retention) {
     const deck = str(deckName).trim();
-    const normalized = fsrsFit.normalizeFsrsWeights(weights);
-    if (!deck || !normalized) return null;
+    const target = fsrsFit.normalizeRetention(retention);
+    if (!deck || target === null) return null;
     const current = this.settings.cards && typeof this.settings.cards === "object" ? this.settings.cards : {};
     const decks = Array.isArray(current.decks) ? current.decks.map((entry) => ({ ...entry })) : [];
     let cfg = decks.find((entry) => str(entry.name).trim().toLowerCase() === deck.toLowerCase());
@@ -8769,22 +8770,22 @@ ${body}
       cfg = { name: deck, folder: "", course: "", answerMode: "", gradingStrictness: "", scheduler: "", intervals: [], fsrsRetention: 0, sm2: {} };
       decks.push(cfg);
     }
-    cfg.fsrsWeights = normalized;
+    cfg.fsrsRetention = target;
     this.settings.cards = mergeCardSettings({ ...current, decks });
     await this.save();
     this.refreshViews();
-    return normalized[fsrsFit.DECAY_INDEX];
+    return target;
   }
 
-  /** One-click rollback to the fixed FSRS defaults for one deck. */
-  async resetFsrsFitWeights(deckName) {
+  /** One-click rollback: clear this deck's target and inherit the global one. */
+  async resetFsrsRetention(deckName) {
     const deck = str(deckName).trim();
     if (!deck) return null;
     const current = this.settings.cards && typeof this.settings.cards === "object" ? this.settings.cards : {};
     const decks = Array.isArray(current.decks) ? current.decks.map((entry) => ({ ...entry })) : [];
     const cfg = decks.find((entry) => str(entry.name).trim().toLowerCase() === deck.toLowerCase());
-    if (!cfg || !cfg.fsrsWeights) return null;
-    cfg.fsrsWeights = null;
+    if (!cfg || !(Number(cfg.fsrsRetention) > 0)) return null;
+    cfg.fsrsRetention = 0;
     this.settings.cards = mergeCardSettings({ ...current, decks });
     await this.save();
     this.refreshViews();

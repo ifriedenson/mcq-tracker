@@ -367,9 +367,51 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
               this.plugin.refreshViews();
             })
         );
+      const fitPanel = containerEl.createDiv({ cls: "qt-settings-card" });
+      const plugin = this.plugin;
+      const drawRetentionFit = (reports) => {
+        fitPanel.empty();
+        fitPanel.createEl("h3", { text: "Per-deck retention fit" });
+        fitPanel.createEl("p", {
+          cls: "setting-item-description",
+          text: "Fits request_retention from each deck's own review history. The 21 FSRS weights stay fixed at the shipped defaults. Nothing changes until Apply; Reset clears that deck's target.",
+        });
+        const rows = (Array.isArray(reports) ? reports : []).filter((row) => row && (row.reviews > 0 || row.custom));
+        if (!rows.length) {
+          fitPanel.createEl("p", { cls: "setting-item-description", text: "No reviewed cards yet. Rate some cards, then fit the decks." });
+          return;
+        }
+        for (const report of rows) {
+          const label = `${report.reviews} reviews · ${report.cards} cards · current ${Number(report.current).toFixed(2)}`;
+          const setting = new Setting(fitPanel)
+            .setName(report.deck)
+            .setDesc(report.accepted ? `${label} · suggested ${Number(report.recommended).toFixed(2)}` : `${label}${report.reason ? ` · ${report.reason}` : ""}`);
+          if (report.accepted) {
+            setting.addButton((b) =>
+              b.setButtonText(`Apply ${Number(report.recommended).toFixed(2)}`).setCta().onClick(async () => {
+                await plugin.applyFsrsRetention(report.deck, report.recommended);
+                drawRetentionFit(plugin.fsrsRetentionReports());
+              })
+            );
+          }
+          if (report.custom) {
+            setting.addButton((b) =>
+              b.setButtonText("Reset").setWarning().onClick(async () => {
+                await plugin.resetFsrsRetention(report.deck);
+                drawRetentionFit(plugin.fsrsRetentionReports());
+              })
+            );
+          }
+        }
+      };
+      new Setting(containerEl)
+        .setName("Fit retention per deck")
+        .setDesc("Read each deck's review counters and suggest a target between 85% and 95%. Weights are not trained.")
+        .addButton((b) => b.setButtonText("Fit decks").onClick(() => drawRetentionFit(plugin.fsrsRetentionReports())));
+      fitPanel.createEl("p", { cls: "setting-item-description", text: "Press Fit decks to read the current history. Weights remain fixed." });
       containerEl.createEl("p", {
         cls: "setting-item-description",
-        text: "FSRS uses the MIT-licensed ts-fsrs 5.4.1 scheduler. State is stored in the note's srs property; history remains the source of truth.",
+        text: "FSRS uses the MIT-licensed ts-fsrs 5.4.1 scheduler with its shipped weights. State is stored in the note's srs property; history remains the source of truth.",
       });
     }
 
