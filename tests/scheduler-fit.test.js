@@ -53,6 +53,15 @@ test("scheduler fit: observed recall recommends a stepped target and buckets the
   assert.match(S.describeFit(fit), /0\.85/);
 });
 
+test("scheduler fit: applyAttempt writes the real scheduler interval for fitting", () => {
+  const fm = {};
+  T.applyAttempt(fm, { correct: true, chosen: "A", conf: 2, seconds: 5, now: new Date(2026, 0, 1) }, [1, 3, 7], {});
+  assert.equal(fm.interval, 1);
+  const records = S.collectReviewRecords([{ fm, file: { path: "Cards/new.md" }, deck: "Biology" }]);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].interval, 1);
+});
+
 test("scheduler fit: target stays inside the safe band and low recall adds advice", () => {
   const low = S.fitRetention([card(30, 9, 30)], { minSamples: 20 });
   assert.equal(low.recommended, 0.8);

@@ -96,6 +96,39 @@ test("AI service: retry classification distinguishes a bad key from a temporary 
   assert.equal(ai.isRetryableError(new Error("Failed to fetch")), true);
 });
 
+test("AI service: retry policy backs off on temporary failures and stops on auth errors", async () => {
+  const delays = [];
+  let calls = 0;
+  const reply = await ai.withRetry(
+    async () => {
+      calls++;
+      if (calls < 3) throw new Error("HTTP 503: unavailable");
+      return "ok";
+    },
+    { baseDelayMs: 10, sleep: async (ms) => delays.push(ms) }
+  );
+  assert.equal(reply, "ok");
+  assert.equal(calls, 3);
+  assert.deepEqual(delays, [10, 20]);
+
+  calls = 0;
+  await assert.rejects(
+    () => ai.withRetry(async () => { calls++; throw new Error("HTTP 401: bad key"); }, { sleep: async () => {} }),
+    /HTTP 401/
+  );
+  assert.equal(calls, 1, "an auth error is not retried");
+
+  let retries = 0;
+  await assert.rejects(
+    () => ai.withRetry(
+      async () => { throw new Error("HTTP 429: rate limited"); },
+      { sleep: async () => {}, onRetry: () => { retries++; return false; } }
+    ),
+    /HTTP 429/
+  );
+  assert.equal(retries, 1, "the retry callback can refuse when the budget is spent");
+});
+
 async function startPlugin() {
   const app = makeApp([]);
   const { Plugin: QT } = load();

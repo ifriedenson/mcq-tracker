@@ -80,6 +80,7 @@ test("quiz block: a linked ID records through the ordinary attempt scheduler", a
   assert.ok(summary.nextReview);
   assert.equal(app.files[0].fm.attempts, 1);
   assert.equal(app.files[0].fm.result, "correct");
+  assert.equal(app.files[0].fm.last_confidence, 0, "inline quizzes do not invent a confidence rating");
 });
 
 test("quiz block: the code block and review command are registered", async () => {

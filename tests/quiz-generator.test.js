@@ -67,15 +67,23 @@ test("quiz generator: the command is registered and generation reuses the AI req
   await plugin.onload();
   plugin.settings.ai.enabled = true;
   let sent = null;
+  let calls = 0;
   plugin.aiComplete = async (system, user) => {
-    sent = { system, user };
-    return JSON.stringify({ questions: [{ question: "What is ATP?", choices: ["Energy currency", "DNA", "Lipid"], answer: "A", explanation: "It carries energy." }] });
+    calls++;
+    if (calls === 1) {
+      sent = { system, user };
+      return JSON.stringify({ questions: [{ question: "What is ATP?", choices: ["Energy currency", "DNA", "Lipid"], answer: "A", explanation: "It carries energy." }] });
+    }
+    return '{"answer":"A"}';
   };
   assert.ok(plugin.commands.some((command) => command.id === "generate-quiz"));
   const generated = await plugin.generateQuizFromNotes({ folders: ["Notes"], count: 2, language: "English", types: ["mcq"] });
   assert.equal(generated.items.length, 1);
   assert.match(sent.user, /ATP is the energy currency/);
   assert.equal(generated.items[0].answer, "A");
+  assert.equal(generated.verification.checked, 1);
+  assert.equal(generated.items[0].verification.status, "match");
+  assert.equal(calls, 2, "generation is followed by the blind answer check");
 });
 
 test("quiz generator: confirmed drafts write select-all questions with their full key", async () => {
@@ -89,6 +97,7 @@ test("quiz generator: confirmed drafts write select-all questions with their ful
   const result = await plugin.createQuickAddQuestions(generated.items, { folder: "Questions" });
   assert.equal(result.created, 1);
   assert.deepEqual(result.errors, []);
+  assert.equal(plugin.aiWriteHistory().length, 1, "AI-generated quick-add notes are undoable");
   const text = await app.vault.read(app.vault.getAbstractFileByPath(result.paths[0]));
   assert.match(text, /question_type: multi/);
   assert.match(text, /answer: "?A, B"?/);

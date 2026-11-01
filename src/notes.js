@@ -343,7 +343,8 @@ function applyAttempt(fm, a, intervals, options) {
   // days for repair, while the leech counts misses in a row and may suspend.
   const needsFixing = !a.correct ? applyNeedsFixing(fm, a.now, opts.needsFixingDays) : null;
   if (opts.reviewUpdated) fm.review_updated = str(opts.reviewUpdated);
-  const scheduledReview = isSameDayReview(grade, opts.sameDayReviews)
+  const sameDay = isSameDayReview(grade, opts.sameDayReviews);
+  const scheduledReview = sameDay
     ? fmtDate(a.now)
     : fsrsReview
       ? fsrsReview.nextReview
@@ -352,6 +353,10 @@ function applyAttempt(fm, a, intervals, options) {
         : fmtDate(addDays(a.now, days));
   const examCap = applyExamCap(fm, scheduledReview, opts.examCap, a.now);
   fm.next_review = examCap ? examCap.date : scheduledReview;
+  // Scheduler-fit reads this property. It is the scheduler's interval, not the
+  // exam-capped due date, so compression does not distort the recall buckets.
+  const intervalDays = sameDay ? 0 : fsrsReview ? fsrsReview.days : sm2Review ? sm2Review.days : days;
+  fm.interval = Math.max(0, Math.round(Number(intervalDays) || 0));
   if (fsrsReview) {
     fm.srs = fsrsReview.srs;
     fm.scheduler = "fsrs";

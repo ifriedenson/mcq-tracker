@@ -59,6 +59,18 @@ test("plugin: Direct AI proposals apply only the checked allow-listed action", a
   assert.match(app.files[0].text, /Remember the units\./);
 });
 
+test("plugin: update_section is guarded even when the target is the active note", async () => {
+  const app = makeApp([{ path: "Notes/q1.md", fm: { question_id: "q1" } }]);
+  app.workspace.getActiveFile = () => app.files[0];
+  const plugin = new QT(app);
+  await plugin.onload();
+  const result = await plugin.applyByokToolProposals([
+    { tool: "update_section", path: "Notes/q1.md", heading: "My Notes", content: "Outside the AI roots." },
+  ]);
+  assert.equal(result.updated, 0);
+  assert.match(result.errors[0], /limited to/i);
+});
+
 test("plugin: a Direct AI question proposal writes a normal practice note", async () => {
   const app = makeApp([]);
   const plugin = new QT(app);

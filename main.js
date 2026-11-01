@@ -1096,12 +1096,43 @@ function runBudgetState(run, limits, now) {
   };
 }
 
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 400;
+
 /** A 401/400 will not fix itself; 429, 5xx and network errors may. */
 function isRetryableError(error) {
   const m = str(error && error.message ? error.message : error);
   if (/HTTP 40[0134]|HTTP 422/.test(m)) return false;
   if (/HTTP 408|HTTP 409|HTTP 425|HTTP 429|HTTP 5\d\d/.test(m)) return true;
   return /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|Failed to fetch|net::|network/i.test(m);
+}
+
+/**
+ * Run an async provider call with capped exponential backoff. `onRetry` can
+ * refuse a retry (for example when a daily request cap has been reached), and
+ * a non-retryable error is rethrown immediately. The sleep function is
+ * injectable so the policy is testable without waiting.
+ */
+async function withRetry(fn, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const attempts = Math.max(1, Math.min(5, Math.round(Number(opts.attempts) || RETRY_ATTEMPTS)));
+  const baseDelay = Math.max(0, Number(opts.baseDelayMs) || RETRY_BASE_DELAY_MS);
+  const wait = typeof opts.sleep === "function" ? opts.sleep : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (e) {
+      lastError = e;
+      if (attempt >= attempts || !isRetryableError(e)) throw e;
+      if (typeof opts.onRetry === "function") {
+        const allowed = await opts.onRetry(e, attempt);
+        if (allowed === false) throw e;
+      }
+      await wait(baseDelay * Math.pow(2, attempt - 1));
+    }
+  }
+  throw lastError;
 }
 
 function featureListText() {
@@ -1114,6 +1145,8 @@ module.exports = {
   FEATURE_IDS,
   DEFAULT_AI_LIMITS,
   AI_CAPABILITIES,
+  RETRY_ATTEMPTS,
+  RETRY_BASE_DELAY_MS,
   CAPABILITY_LABELS,
   normalizeBackend,
   normalizeFeatureId,
@@ -1132,6 +1165,7 @@ module.exports = {
   budgetState,
   runBudgetState,
   isRetryableError,
+  withRetry,
   featureListText,
 };
 };
@@ -34728,7 +34762,8 @@ function applyAttempt(fm, a, intervals, options) {
   // days for repair, while the leech counts misses in a row and may suspend.
   const needsFixing = !a.correct ? applyNeedsFixing(fm, a.now, opts.needsFixingDays) : null;
   if (opts.reviewUpdated) fm.review_updated = str(opts.reviewUpdated);
-  const scheduledReview = isSameDayReview(grade, opts.sameDayReviews)
+  const sameDay = isSameDayReview(grade, opts.sameDayReviews);
+  const scheduledReview = sameDay
     ? fmtDate(a.now)
     : fsrsReview
       ? fsrsReview.nextReview
@@ -34737,6 +34772,10 @@ function applyAttempt(fm, a, intervals, options) {
         : fmtDate(addDays(a.now, days));
   const examCap = applyExamCap(fm, scheduledReview, opts.examCap, a.now);
   fm.next_review = examCap ? examCap.date : scheduledReview;
+  // Scheduler-fit reads this property. It is the scheduler's interval, not the
+  // exam-capped due date, so compression does not distort the recall buckets.
+  const intervalDays = sameDay ? 0 : fsrsReview ? fsrsReview.days : sm2Review ? sm2Review.days : days;
+  fm.interval = Math.max(0, Math.round(Number(intervalDays) || 0));
   if (fsrsReview) {
     fm.srs = fsrsReview.srs;
     fm.scheduler = "fsrs";
@@ -44014,12 +44053,11 @@ class QuestionTrackerPlugin extends Plugin {
       }
     }
 
-    const active = this.app.workspace.getActiveFile ? this.app.workspace.getActiveFile() : null;
     for (const edit of edits) {
       try {
         const file = this.app.vault.getAbstractFileByPath(edit.path);
         if (!(file instanceof TFile)) throw new Error(`"${edit.path}" is not in the vault.`);
-        if (!active || active.path !== file.path) assertAllowedWritePath(file.path, this.settings);
+        assertAllowedWritePath(file.path, this.settings);
         const text = await this.app.vault.cachedRead(file);
         await this.app.vault.modify(file, aiTools.replaceSection(text, edit.heading, edit.content));
         result.updated++;
@@ -44084,6 +44122,7 @@ class QuestionTrackerPlugin extends Plugin {
     const course = str(opts.course).trim();
     const paths = [];
     const errors = [];
+    const aiGenerated = opts.ai === true || opts.aiGenerated === true || list.some((item) => item && (item.aiGenerated || item.verification));
     if (!list.length) return { created: 0, paths, errors: ["There are no questions to write."] };
     await ensureFolder(this.app, folder);
     for (const item of list) {
@@ -44099,11 +44138,20 @@ class QuestionTrackerPlugin extends Plugin {
       }
       const qid = path.replace(/^.*\//, "").replace(/\.md$/i, "");
       try {
+        assertAllowedWritePath(path, this.settings);
         await this.app.vault.create(path, quickAddNote({ ...item, course: item.course || course }, qid));
         paths.push(path);
       } catch (e) {
         errors.push(title + ": " + str(e && e.message ? e.message : e));
       }
+    }
+    if (paths.length && aiGenerated) {
+      this.recordAiWrite(makeAiWriteRecord({
+        kind: "questions",
+        model: opts.model || list.map((item) => item && item.aiGenerated).find(Boolean) || this.aiModelLabel("generation"),
+        summary: opts.summary || "AI-generated questions",
+        paths,
+      }));
     }
     if (paths.length) this.refreshViews();
     return { created: paths.length, paths, errors };
@@ -44228,7 +44276,7 @@ class QuestionTrackerPlugin extends Plugin {
     return this.recordAttempt(target.file, {
       chosen: str(result && result.selected),
       correct: !!(result && result.correct),
-      conf: 2,
+      conf: 0, // inline quizzes never ask for a confidence rating
       seconds: Math.max(1, Math.round(Number(seconds) || 0)),
       now: new Date(),
       course: target.fm.course,
@@ -45014,9 +45062,12 @@ class QuestionTrackerPlugin extends Plugin {
     const reply = await this.aiComplete(prompt.system, prompt.user, { feature: "generation", maxTokens: 4000 });
     const parsed = parseGeneratorQuestions(reply, { count: config.count, types: config.types });
     if (!parsed.items.length) throw new Error("The AI returned no usable questions. Try different notes or fewer types.");
+    const verification = await this.verifyDraftQuestions(parsed.items);
+    for (const item of parsed.items) item.aiGenerated = this.aiModelLabel("generation");
     return {
       kind: "questions",
-      items: parsed.items,
+      items: parsed.items.filter((item) => !(item.verification && item.verification.drop)),
+      verification,
       issues: parsed.issues,
       sourceCount: source.count,
       truncated: source.truncated,
@@ -46910,22 +46961,33 @@ ${body}
     if (!can.ok) throw new Error(can.reason);
     const maxTokens = aiService.clampMaxTokens(ai, o.maxTokens);
     const model = this.aiModelFor(feature);
-    this.spendAiRequest(feature, aiService.estimateRequestTokens(system, messages, o.images));
-    if (this.backend() === "opencode") {
-      await this.ensureOpenCode();
-      const oc = this.openCode();
-      const session = await oc.createSession("MCQ Tracker AI");
-      const body = { parts: [{ type: "text", text: (Array.isArray(messages) ? messages : []).map((m) => str(m && m.content)).join("\n\n") }], system };
-      const parsed = modelFromString(model);
-      if (parsed) body.model = parsed;
-      await oc.send(session.id, body);
-      const turns = partsToTurns(await oc.messages(session.id));
-      const last = [...turns].reverse().find((turn) => turn.role === "assistant");
-      const text = last ? last.texts.join("\n").trim() : "";
-      if (!text) throw new Error("OpenCode returned an empty reply.");
-      return text;
-    }
-    return new ApiClient(ai, this.app, { model }).chat(system, Array.isArray(messages) ? messages : [], { ...o, maxTokens });
+    const tokens = aiService.estimateRequestTokens(system, messages, o.images);
+    this.spendAiRequest(feature, tokens);
+    const call = async () => {
+      if (this.backend() === "opencode") {
+        await this.ensureOpenCode();
+        const oc = this.openCode();
+        const session = await oc.createSession("MCQ Tracker AI");
+        const body = { parts: [{ type: "text", text: (Array.isArray(messages) ? messages : []).map((m) => str(m && m.content)).join("\n\n") }], system };
+        const parsed = modelFromString(model);
+        if (parsed) body.model = parsed;
+        await oc.send(session.id, body);
+        const turns = partsToTurns(await oc.messages(session.id));
+        const last = [...turns].reverse().find((turn) => turn.role === "assistant");
+        const text = last ? last.texts.join("\n").trim() : "";
+        if (!text) throw new Error("OpenCode returned an empty reply.");
+        return text;
+      }
+      return new ApiClient(ai, this.app, { model }).chat(system, Array.isArray(messages) ? messages : [], { ...o, maxTokens });
+    };
+    return aiService.withRetry(call, {
+      onRetry: () => {
+        const retry = this.aiCanSpend(feature);
+        if (!retry.ok) return false;
+        this.spendAiRequest(feature, tokens);
+        return true;
+      },
+    });
   }
 
   /** One-message convenience wrapper used by generation, verification and grading. */
@@ -54338,7 +54400,12 @@ class QuizGeneratorModal extends Modal {
     this.busy = true;
     this.render();
     try {
-      const result = await this.plugin.createQuickAddQuestions(this.generated.items, { folder: this.plugin.settings.questionFolder });
+      const result = await this.plugin.createQuickAddQuestions(this.generated.items, {
+        folder: this.plugin.settings.questionFolder,
+        ai: true,
+        model: this.generated.model,
+        summary: "Quiz generator",
+      });
       const made = result.created || 0;
       new Notice(made ? `Created ${made} question${made === 1 ? "" : "s"}.` : "Nothing new was written.", 6000);
       this.close();

@@ -128,7 +128,12 @@ class QuizGeneratorModal extends Modal {
     this.busy = true;
     this.render();
     try {
-      const result = await this.plugin.createQuickAddQuestions(this.generated.items, { folder: this.plugin.settings.questionFolder });
+      const result = await this.plugin.createQuickAddQuestions(this.generated.items, {
+        folder: this.plugin.settings.questionFolder,
+        ai: true,
+        model: this.generated.model,
+        summary: "Quiz generator",
+      });
       const made = result.created || 0;
       new Notice(made ? `Created ${made} question${made === 1 ? "" : "s"}.` : "Nothing new was written.", 6000);
       this.close();

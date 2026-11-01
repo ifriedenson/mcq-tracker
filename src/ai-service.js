@@ -232,12 +232,43 @@ function runBudgetState(run, limits, now) {
   };
 }
 
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 400;
+
 /** A 401/400 will not fix itself; 429, 5xx and network errors may. */
 function isRetryableError(error) {
   const m = str(error && error.message ? error.message : error);
   if (/HTTP 40[0134]|HTTP 422/.test(m)) return false;
   if (/HTTP 408|HTTP 409|HTTP 425|HTTP 429|HTTP 5\d\d/.test(m)) return true;
   return /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|Failed to fetch|net::|network/i.test(m);
+}
+
+/**
+ * Run an async provider call with capped exponential backoff. `onRetry` can
+ * refuse a retry (for example when a daily request cap has been reached), and
+ * a non-retryable error is rethrown immediately. The sleep function is
+ * injectable so the policy is testable without waiting.
+ */
+async function withRetry(fn, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const attempts = Math.max(1, Math.min(5, Math.round(Number(opts.attempts) || RETRY_ATTEMPTS)));
+  const baseDelay = Math.max(0, Number(opts.baseDelayMs) || RETRY_BASE_DELAY_MS);
+  const wait = typeof opts.sleep === "function" ? opts.sleep : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (e) {
+      lastError = e;
+      if (attempt >= attempts || !isRetryableError(e)) throw e;
+      if (typeof opts.onRetry === "function") {
+        const allowed = await opts.onRetry(e, attempt);
+        if (allowed === false) throw e;
+      }
+      await wait(baseDelay * Math.pow(2, attempt - 1));
+    }
+  }
+  throw lastError;
 }
 
 function featureListText() {
@@ -250,6 +281,8 @@ module.exports = {
   FEATURE_IDS,
   DEFAULT_AI_LIMITS,
   AI_CAPABILITIES,
+  RETRY_ATTEMPTS,
+  RETRY_BASE_DELAY_MS,
   CAPABILITY_LABELS,
   normalizeBackend,
   normalizeFeatureId,
@@ -268,5 +301,6 @@ module.exports = {
   budgetState,
   runBudgetState,
   isRetryableError,
+  withRetry,
   featureListText,
 };
