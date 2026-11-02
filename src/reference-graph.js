@@ -12,6 +12,7 @@
  *   - a definition reused by later rows    `f(x) = x^2`
  *   - an implicit relation in x and y      `y^2 = 2x + 1`, `x^2 + y^2 = 9`
  *   - a regression fitted to the data      `y ~ m x + b`
+ *   - a parameter with a slider            `a = 2`
  * Explicit rows are sampled; implicit rows are traced with marching squares;
  * regression rows are fitted to the x/y table with a local least-squares
  * solver, so no calculator service or third-party code is involved.
@@ -312,6 +313,14 @@ function parseGraphRow(text) {
   if (definition) {
     return { kind: "definition", text: raw, name: definition.name, params: definition.params, body: rhs, label: `${lhs} = ${rhs}` };
   }
+  if (IDENT_NAME.test(lhs) && lhs !== "x" && lhs !== "y") {
+    if (Object.prototype.hasOwnProperty.call(FUNCTIONS, lhs) || Object.prototype.hasOwnProperty.call(CONSTANTS, lhs)) {
+      throw new Error(`"${lhs}" is a built-in name. Pick another one, like a or k.`);
+    }
+    const value = numericLiteral(rhs);
+    if (value === null) throw new Error(`A parameter value must be a number, like ${lhs} = 2.`);
+    return { kind: "parameter", text: raw, name: lhs, value, label: raw };
+  }
   if (lhs === "y" && !mentions(rhs, "y")) return { kind: "explicit", text: raw, body: rhs, label: raw };
   if (rhs === "y" && !mentions(lhs, "y")) return { kind: "explicit", text: raw, body: lhs, label: raw };
   return { kind: "implicit", text: raw, lhs, rhs, label: raw };
@@ -320,6 +329,16 @@ function parseGraphRow(text) {
 function numeric(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+const NUMBER_LITERAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+
+/** A plain signed number, or null when the text is anything else. */
+function numericLiteral(text) {
+  const raw = String(text == null ? "" : text).trim();
+  if (!NUMBER_LITERAL.test(raw)) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
 }
 
 function readView(options) {
@@ -642,6 +661,7 @@ function buildGraph(options) {
   if (!(view.yMax > view.yMin)) throw new Error("The maximum y must be larger than the minimum y.");
   const rows = Array.isArray(opts.rows) ? opts.rows : [];
   const data = readDataPoints(opts.data);
+  const parameterValues = opts.parameters && typeof opts.parameters === "object" ? opts.parameters : {};
   const samples = numeric(opts.samples, 400);
   const resolution = opts.resolution || {};
   const definitions = {};
@@ -670,6 +690,12 @@ function buildGraph(options) {
         };
         row.name = parsed.name;
         row.params = params;
+      } else if (parsed.kind === "parameter") {
+        const override = numeric(parameterValues[parsed.name], NaN);
+        const value = Number.isFinite(override) ? override : parsed.value;
+        definitions[parsed.name] = value;
+        row.name = parsed.name;
+        row.value = value;
       } else if (parsed.kind === "explicit") {
         const compiled = compileScoped(parsed.body, ["x"], definitions);
         const fn = (x) => compiled({ x });

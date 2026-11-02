@@ -10843,3 +10843,39 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   font-variant-numeric: tabular-nums;
   grid-column: 2 / 4;
 }
+
+/* Reference graph parameter sliders. */
+.qt-ref .qt-ref-graph-slider {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-column: 2 / 4;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.qt-ref .qt-ref-graph-range {
+  width: 100%;
+}
+
+.qt-ref .qt-ref-graph-slider-readout {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.qt-ref .qt-ref-graph-play {
+  font-size: 0.75rem;
+  min-height: 26px;
+  padding: 2px 10px;
+}
+
+.qt-ref .qt-ref-graph-slider-bounds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  grid-column: 2 / 4;
+}
+
+.qt-ref .qt-ref-graph-slider-bounds .qt-ref-graph-bound input {
+  width: 64px;
+}

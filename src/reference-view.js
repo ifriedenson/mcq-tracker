@@ -12,7 +12,7 @@ const {
   unitCategory,
 } = require("./reference-data");
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
-const { buildGraph } = require("./reference-graph");
+const { buildGraph, parseGraphRow } = require("./reference-graph");
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
@@ -90,6 +90,8 @@ class ReferenceView extends ItemView {
     this.graphErrorEl = null;
     this.graphRowErrorEls = [];
     this.graphFitEls = [];
+    this.graphSliderEls = [];
+    this.graphAnimationTimer = null;
     this.calculatorMode = "basic";
     this.calculatorExpression = "";
     this.calculatorResult = "";
@@ -324,6 +326,7 @@ class ReferenceView extends ItemView {
     const list = root.createDiv({ cls: "qt-ref-graph-rows" });
     this.graphRowErrorEls = [];
     this.graphFitEls = [];
+    this.graphSliderEls = [];
     this.graphRows.forEach((row, index) => {
       const color = GRAPH_COLORS[index % GRAPH_COLORS.length];
       const rowEl = list.createDiv({ cls: "qt-ref-graph-row" });
@@ -346,6 +349,18 @@ class ReferenceView extends ItemView {
       input.style.borderLeft = `3px solid ${color}`;
       input.addEventListener("input", () => {
         row.text = input.value;
+        try {
+          const parsed = parseGraphRow(row.text);
+          if (parsed.kind === "parameter") {
+            row.name = parsed.name;
+            row.value = parsed.value;
+            if (row.min === undefined) row.min = "-10";
+            if (row.max === undefined) row.max = "10";
+            if (row.step === undefined) row.step = "0.1";
+          }
+        } catch (e) {
+          // the row shows its own error when the graph is drawn
+        }
         this.drawGraph();
       });
       input.addEventListener("keydown", (event) => {
@@ -361,6 +376,24 @@ class ReferenceView extends ItemView {
       }).addEventListener("click", () => this.removeGraphRow(index));
       this.graphRowErrorEls[index] = rowEl.createDiv({ cls: "qt-ref-graph-row-error", attr: { "aria-live": "polite" } });
       this.graphFitEls[index] = rowEl.createDiv({ cls: "qt-ref-graph-fit", attr: { "aria-live": "polite" } });
+      let parsed = null;
+      try {
+        parsed = parseGraphRow(row.text);
+      } catch (e) {
+        parsed = null;
+      }
+      if (parsed && parsed.kind === "parameter") {
+        if (row.name !== parsed.name) {
+          row.name = parsed.name;
+          row.value = parsed.value;
+        }
+        if (row.min === undefined) row.min = "-10";
+        if (row.max === undefined) row.max = "10";
+        if (row.step === undefined) row.step = "0.1";
+        this.renderGraphSlider(rowEl, row, index);
+      } else {
+        row.name = undefined;
+      }
     });
 
     const actions = root.createDiv({ cls: "qt-row qt-ref-graph-actions" });
@@ -402,7 +435,89 @@ class ReferenceView extends ItemView {
     this.drawGraph();
   }
 
+  renderGraphSlider(rowEl, row, index) {
+    const wrap = rowEl.createDiv({ cls: "qt-ref-graph-slider" });
+    const range = wrap.createEl("input", {
+      cls: "qt-ref-graph-range",
+      attr: { type: "range", min: row.min, max: row.max, step: row.step, "aria-label": `${row.name} slider` },
+    });
+    range.value = String(row.value);
+    const readout = wrap.createDiv({ cls: "qt-ref-graph-slider-readout", text: `${row.name} = ${formatGraphFit(row.value)}` });
+    range.addEventListener("input", () => {
+      row.value = Number(range.value);
+      readout.setText(`${row.name} = ${formatGraphFit(row.value)}`);
+      this.drawGraph();
+    });
+    wrap.createEl("button", {
+      cls: "qt-ref-graph-play",
+      text: row.playing ? "Pause" : "Play",
+      attr: { "aria-label": row.playing ? `Pause ${row.name}` : `Animate ${row.name}` },
+    }).addEventListener("click", () => this.toggleGraphAnimation(index));
+    const bounds = rowEl.createDiv({ cls: "qt-ref-graph-slider-bounds" });
+    for (const key of ["min", "max", "step"]) {
+      const field = bounds.createDiv({ cls: "qt-ref-graph-bound" });
+      field.createEl("span", { text: key });
+      const input = field.createEl("input", {
+        cls: "qt-ref-amount",
+        attr: { type: "number", step: "any", "aria-label": `${row.name} ${key}` },
+      });
+      input.value = row[key];
+      input.addEventListener("change", () => {
+        row[key] = input.value;
+        this.render();
+      });
+    }
+    this.graphSliderEls[index] = { range, readout };
+  }
+
+  toggleGraphAnimation(index) {
+    if (this.graphAnimationTimer) {
+      this.stopGraphAnimation();
+      return;
+    }
+    const row = this.graphRows[index];
+    if (!row) return;
+    row.playing = true;
+    this.startGraphAnimation(index);
+    this.render();
+  }
+
+  startGraphAnimation(index) {
+    const step = Math.abs(Number(this.graphRows[index] && this.graphRows[index].step)) || 0.1;
+    this.graphAnimationTimer = setInterval(() => {
+      const row = this.graphRows[index];
+      if (!row) {
+        this.stopGraphAnimation();
+        return;
+      }
+      let min = Number(row.min);
+      let max = Number(row.max);
+      if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
+        min = -10;
+        max = 10;
+      }
+      let next = Number(row.value) + step;
+      if (!Number.isFinite(next) || next > max + 1e-9) next = min;
+      row.value = Number(next.toFixed(6));
+      this.drawGraph();
+    }, 60);
+  }
+
+  stopGraphAnimation(redraw) {
+    if (this.graphAnimationTimer) {
+      clearInterval(this.graphAnimationTimer);
+      this.graphAnimationTimer = null;
+    }
+    for (const row of this.graphRows) row.playing = false;
+    if (redraw !== false) this.render();
+  }
+
+  onClose() {
+    this.stopGraphAnimation(false);
+  }
+
   removeGraphRow(index) {
+    if (this.graphAnimationTimer) this.stopGraphAnimation(false);
     this.graphRows.splice(index, 1);
     if (!this.graphRows.length) this.graphRows.push({ text: "", hidden: false });
     this.render();
@@ -429,6 +544,9 @@ class ReferenceView extends ItemView {
       graph = buildGraph({
         rows: this.graphRows.map((row) => (row.hidden ? "" : { text: row.text, guess: row.guess })),
         data: this.graphData,
+        parameters: Object.fromEntries(
+          this.graphRows.filter((row) => row.name && row.value !== undefined).map((row) => [row.name, row.value])
+        ),
         xMin: this.graphXMin,
         xMax: this.graphXMax,
         yMin: this.graphYMin,
@@ -458,6 +576,13 @@ class ReferenceView extends ItemView {
         } else {
           fitEl.setText("");
         }
+      }
+      const slider = this.graphSliderEls[row.index];
+      if (slider && row.kind === "parameter") {
+        slider.range.value = String(row.value);
+        slider.readout.setText(`${row.name} = ${formatGraphFit(row.value)}`);
+        const parameterRow = this.graphRows[row.index];
+        if (parameterRow) parameterRow.value = row.value;
       }
       const color = GRAPH_COLORS[row.index % GRAPH_COLORS.length];
       if (row.points && row.points.length) this.paintGraphPoints(ctx, row.points, height, px, py, color);

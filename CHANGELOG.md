@@ -2,6 +2,14 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.174.0 — 2026-11-02
+
+- Parameter rows such as `a = 2` render a slider with adjustable bounds and
+  step, a live readout and Play/Pause animation.
+- Later expressions, definitions and regressions share the same parameter value,
+  so one slider can drive several rows. Reserved names and non-numeric values
+  are rejected with clear messages.
+
 ## 1.173.0 — 2026-11-02
 
 - The Reference Graph tab gains a Desmos-style x/y data table and `~` regression

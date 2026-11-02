@@ -265,3 +265,57 @@ test("reference view: the data table feeds a regression row", async () => {
   await dom.click("Add data point");
   assert.equal(view.graphData.length, 4);
 });
+
+test("graph: parameter rows feed later rows and accept overrides", () => {
+  const parsed = graph.parseGraphRow("a = 2");
+  assert.equal(parsed.kind, "parameter");
+  assert.equal(parsed.name, "a");
+  assert.equal(parsed.value, 2);
+  assert.equal(graph.parseGraphRow("k = -1.5").value, -1.5);
+  assert.throws(() => graph.parseGraphRow("sin = 2"), /built-in/);
+  assert.throws(() => graph.parseGraphRow("a = x + 1"), /must be a number/);
+  assert.equal(graph.parseGraphRow("x = y^2").kind, "implicit");
+
+  const built = graph.buildGraph({ rows: ["a = 2", "y = a x"], xMin: -1, xMax: 1, yMin: -2, yMax: 2, samples: 5 });
+  assert.equal(built.rows[0].kind, "parameter");
+  assert.equal(built.rows[0].value, 2);
+  const mid = built.rows[1].points.find((point) => Math.abs(point.x - 0.5) < 1e-9);
+  assert.ok(Math.abs(mid.y - 1) < 1e-9, "a = 2 doubles x");
+
+  const moved = graph.buildGraph({
+    rows: ["a = 2", "y = a x"],
+    parameters: { a: 4 },
+    xMin: 1,
+    xMax: 1.5,
+    yMin: 0,
+    yMax: 8,
+    samples: 3,
+  });
+  assert.ok(Math.abs(moved.rows[1].points[0].y - 4) < 1e-9, "the slider value overrides the typed value");
+});
+
+test("reference view: a parameter row renders a slider and repaints", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  view.graphRows = [{ text: "a = 2", hidden: false }, { text: "y = a x", hidden: false }];
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  assert.ok(view.graphSliderEls[0], "the slider controls are rendered");
+  assert.ok(dom.texts().includes("Play"));
+  assert.ok(dom.texts().includes("a = 2"));
+  assert.equal(view.graphRows[0].min, "-10");
+  assert.equal(view.graphRows[0].max, "10");
+  assert.equal(view.graphRows[0].step, "0.1");
+
+  view.graphRows[0].value = 3;
+  view.drawGraph();
+  assert.ok(dom.texts().includes("a = 3"), "the readout follows the slider value");
+  view.onClose();
+  assert.equal(view.graphAnimationTimer, null);
+});

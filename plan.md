@@ -1237,7 +1237,7 @@ Owner direction: inventory everything the Desmos Graphing Calculator does, recor
 | Release | Desmos capability | Permissive source (licence, URL) | Status |
 |---|---|---|---|
 | 1.173.0 | Tables and regression: `y ~ m x + b`, `y_1 ~ a x_1 + b`, custom models, fitted parameters and R² | `mljs/levenberg-marquardt` (MIT, https://github.com/mljs/levenberg-marquardt); `simple-statistics` for R² (ISC, https://github.com/simple-statistics/simple-statistics) | **Shipped** |
-| 1.174.0 | Sliders and animation: free parameter rows `a = 2`, bounds, step, play/pause, one slider driving many rows | `paulmasson/mathcell` interactive inputs (MIT, https://github.com/paulmasson/mathcell); `stevenpetryk/mafs` movable points (MIT, https://github.com/stevenpetryk/mafs) | Queued |
+| 1.174.0 | Sliders and animation: free parameter rows `a = 2`, bounds, step, play/pause, one slider driving many rows | `paulmasson/mathcell` interactive inputs (MIT, https://github.com/paulmasson/mathcell); `stevenpetryk/mafs` movable points (MIT, https://github.com/stevenpetryk/mafs) | **Shipped** |
 | 1.175.0 | Inequalities: `y < 2x + 1`, `x^2 + y^2 <= 9`, strict dashed vs non-strict solid boundary, region shading | `stevenpetryk/mafs` `Plot.Inequality` (MIT); `jsxgraph/jsxgraph` inequality regions under its MIT option (https://github.com/jsxgraph/jsxgraph) | Queued |
 | 1.176.0 | Domain and range restrictions plus piecewise `{condition: value, ...}` | `jsxgraph/jsxgraph` MIT option; `mauriciopoppe/function-plot` piecewise examples (MIT, https://github.com/mauriciopoppe/function-plot) | Queued |
 | 1.177.0 | Polar graphing `r = 1 + cos(theta)`, polar grid, theta domain | `mauriciopoppe/function-plot` polar example (MIT); `jsxgraph` polar board (MIT option) | Queued |
