@@ -2,6 +2,18 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.170.0 — 2026-11-02
+
+- Responsive UI pass for Cards, Assignments, Insights, Reference, Study Tools,
+  Study Workspace, Study statistics, Review calendar, Local events and
+  Pomodoro at desktop and narrow pane widths.
+- Study Workspace keeps the section rail on desktop and uses the compact section
+  picker in narrow panes; all 19 sections remain reachable.
+- Narrow fields, selects and actions meet a 44 px hit-area target, and local-event
+  month cells use colour markers when full titles cannot fit.
+- Real Obsidian 1.14.5 captures at 1200/390 in light and dark were inspected;
+  **1,376 tests pass**, `npm run check` is clean and `main.js` is rebuilt.
+
 ## 1.169.3 — 2026-11-01
 
 - Restored the optional one-click OpenCode installer removed in 1.169.1:

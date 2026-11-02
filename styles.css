@@ -10608,3 +10608,46 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-screen.qt-study-workspace-wrap .qt-reading-tools > .qt-study-form {
   margin: 0 0 12px;
 }
+
+/* Narrow panes keep the same 44px hit-area contract as the phone layout.
+   Search fields and row actions were the remaining controls below that size,
+   and the month cells are too narrow for readable event labels. */
+@container qt-screen (max-width: 760px) {
+  .qt-screen .qt-input,
+  .qt-screen .qt-ref-search,
+  .qt-screen .qt-select,
+  .qt-screen .qt-study-field input,
+  .qt-screen .qt-study-field textarea,
+  .qt-screen .qt-workspace-filter {
+    min-height: 44px;
+  }
+
+  .qt-screen .qt-assignment-task-actions > button,
+  .qt-screen.qt-review-calendar .qt-study-row-actions > button,
+  .qt-screen.qt-local-events .qt-study-row-actions > button,
+  .qt-screen .qt-day-agenda .qt-study-row-actions > button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .qt-screen .qt-local-events-tab {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+@container qt-screen (max-width: 460px) {
+  /* A seven-column month grid cannot fit a readable title in a 38px cell.
+     Keep the colour marker and use the selected-day list for the full title. */
+  .qt-screen .qt-local-events-tab-item {
+    width: 7px;
+    height: 7px;
+    min-height: 0;
+    margin: 2px auto;
+    padding: 0;
+    border-radius: 50%;
+    color: transparent;
+    font-size: 0;
+    pointer-events: none;
+  }
+}

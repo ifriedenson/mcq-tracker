@@ -134,3 +134,10 @@ test("phone module contracts are scoped and ordered after the shared rules", () 
   assert.match(css, /\.qt-screen\.qt-pomodoro-view \{[^}]*min-height: 100%/s);
   assert.match(css, /\.qt-today-header \.qt-row \.qt-link \{[^}]*flex: 0 0 auto/s);
 });
+
+test("narrow panes keep 44px controls and use colour markers for month events", () => {
+  assert.match(css, /@container qt-screen \(max-width: 760px\) \{[\s\S]*?\.qt-screen \.qt-input,[\s\S]*?\.qt-screen \.qt-workspace-filter \{[^}]*min-height: 44px/s);
+  assert.match(css, /\.qt-screen \.qt-assignment-task-actions > button,[\s\S]*?\.qt-screen\.qt-review-calendar \.qt-study-row-actions > button,[\s\S]*?\.qt-screen\.qt-local-events \.qt-study-row-actions > button,[\s\S]*?\.qt-screen \.qt-day-agenda \.qt-study-row-actions > button \{[^}]*min-height: 44px[^}]*min-width: 44px/s);
+  assert.match(css, /\.qt-screen \.qt-local-events-tab \{[^}]*min-height: 44px/s);
+  assert.match(css, /@container qt-screen \(max-width: 460px\) \{[\s\S]*?\.qt-screen \.qt-local-events-tab-item \{[^}]*width: 7px[^}]*pointer-events: none/s);
+});
