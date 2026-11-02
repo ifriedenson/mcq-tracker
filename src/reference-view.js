@@ -23,6 +23,7 @@ const { tableCsv, expressionsText, exportScale, exportFileName, canvasPngBytes, 
 const { EXAMPLES, exampleById } = require("./graph-examples");
 const { statisticsReport } = require("./statistics");
 const { parseScalar, numericDerivative, definiteIntegral, summation, productOver } = require("./calculus");
+const { rowSummary, graphSummary, graphTable } = require("./graph-accessibility");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -671,6 +672,18 @@ class ReferenceView extends ItemView {
       },
     });
     this.graphTraceEl = root.createDiv({ cls: "qt-ref-graph-trace", attr: { "aria-live": "polite" } });
+    const accessibility = root.createDiv({ cls: "qt-ref-graph-accessibility" });
+    accessibility.createDiv({ cls: "qt-ref-graph-data-head", text: "Accessible summary" });
+    this.graphSummaryEl = accessibility.createDiv({
+      cls: "qt-ref-graph-summary qt-sr-only",
+      attr: { "aria-live": "polite", "aria-label": "Graph row summaries" },
+    });
+    const tableField = accessibility.createEl("label", { cls: "qt-ref-graph-polar" });
+    const tableToggle = tableField.createEl("input", { attr: { type: "checkbox", "aria-label": "Show graph data table" } });
+    tableToggle.checked = this.graphTableView === true;
+    tableToggle.addEventListener("change", () => this.toggleGraphTable(tableToggle.checked === true));
+    tableField.createSpan({ text: "data table view" });
+    this.graphTableEl = accessibility.createDiv({ cls: "qt-ref-graph-table" });
     const pointAt = (event) => {
       const graph = this.graphBuilt;
       if (!graph) return null;
@@ -898,6 +911,41 @@ class ReferenceView extends ItemView {
     if (points) numberField("pointSize", "Point size", STYLE_LIMITS.minPoint, STYLE_LIMITS.maxPoint, 0.5);
   }
 
+  renderGraphAccessible(graph) {
+    if (this.graphSummaryEl) this.graphSummaryEl.setText(graphSummary(graph));
+    const report = graphTable(graph);
+    this.graphTableReport = report;
+    if (!this.graphTableEl) return report;
+    if (typeof this.graphTableEl.empty === "function") this.graphTableEl.empty();
+    else this.graphTableEl.setText("");
+    if (!this.graphTableView) return report;
+    if (!report.ok) {
+      this.graphTableEl.setText(report.message);
+      return report;
+    }
+    const table = this.graphTableEl.createEl("table", { attr: { "aria-label": report.caption } });
+    table.createEl("caption", { text: report.caption });
+    const head = table.createEl("thead");
+    const headRow = head.createEl("tr");
+    for (const header of report.headers) headRow.createEl("th", { text: header, attr: { scope: "col" } });
+    const body = table.createEl("tbody");
+    for (const row of report.rows) {
+      const tableRow = body.createEl("tr");
+      tableRow.createEl("th", { text: row.number, attr: { scope: "row" } });
+      tableRow.createEl("td", { text: row.expression });
+      tableRow.createEl("td", { text: row.kind });
+      tableRow.createEl("td", { text: row.detail });
+    }
+    return report;
+  }
+
+  toggleGraphTable(checked) {
+    this.graphTableView = checked === true;
+    const report = this.renderGraphAccessible(this.graphBuilt);
+    if (this.graphTableView && !report.ok) new Notice(report.message);
+    return report;
+  }
+
   calculateGraphCalculus(operation) {
     this.graphCalculus = this.graphCalculus || { expression: "", a: "", b: "", result: "" };
     const state = this.graphCalculus;
@@ -1102,6 +1150,7 @@ class ReferenceView extends ItemView {
       }
     }
     this.paintGraphScene(ctx, graph, width, height);
+    this.renderGraphAccessible(graph);
   }
 
   /** Paints one built graph into any 2D context; the screen canvas and PNG export share it. */

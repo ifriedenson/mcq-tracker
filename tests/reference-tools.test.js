@@ -1783,3 +1783,125 @@ test("reference view: the calculus panel computes and reports failures with a No
   assert.equal(view.calculateGraphCalculus("integral").ok, false, "a bad expression is refused");
   assert.ok(view.graphCalculus.result.length > 0);
 });
+
+
+test("graph accessibility: every row kind has a text summary", () => {
+  const a = T.graphAccessibility;
+  const built = graph.buildGraph({
+    rows: ["y = x^2", "r = 2 cos(3 theta)", "(cos(t), sin(t)) fill", "x^2 + y^2 = 9", "y < 2x + 1", "(1, 2)", "[(1, 2), (3, 4)]", "f(x) = x^2", "a = 2"],
+    xMin: -10,
+    xMax: 10,
+    yMin: -10,
+    yMax: 10,
+    samples: 200,
+    resolution: { x: 200, y: 100 },
+    regionResolution: { x: 80, y: 40 },
+  });
+  const summaries = built.rows.map((row, index) => a.rowSummary(row, index));
+  assert.equal(summaries.length, 9);
+  for (const [index, summary] of summaries.entries()) {
+    assert.match(summary, new RegExp(`^Row ${index + 1},`));
+  }
+  assert.match(summaries[0], /curve with \d+ sampled points/);
+  assert.match(summaries[0], /point of interest/);
+  assert.match(summaries[1], /^Row 2, r = 2 cos\(3 theta\): polar curve with \d+ sampled points/);
+  assert.match(summaries[2], /parametric curve with \d+ sampled points/);
+  assert.match(summaries[3], /implicit curve with \d+ segments/);
+  assert.match(summaries[4], /shaded inequality region/);
+  assert.match(summaries[5], /point with 1 marker/);
+  assert.match(summaries[6], /point list with 2 markers/);
+  assert.match(summaries[7], /a definition, not drawn/);
+  assert.match(summaries[8], /a slider with value 2/);
+  const whole = a.graphSummary(built);
+  assert.match(whole, /^Graph with 9 rows\./);
+  assert.match(whole, /x from -10 to 10, y from -10 to 10/);
+  assert.ok(whole.indexOf(summaries[0]) > 0);
+});
+
+test("graph accessibility: missing and non-finite values are described honestly", () => {
+  const a = T.graphAccessibility;
+  assert.match(a.rowSummary({ text: "sqrt(x)", kind: "explicit", points: [{ x: -1, y: null }] }, 0), /no real values in this window/);
+  assert.match(a.rowSummary({ text: "sqrt(x)", kind: "explicit", points: [{ x: -1, y: NaN }] }, 0), /no real values in this window/);
+  const error = a.rowSummary({ text: "y =", kind: "explicit", error: "Expected an expression." }, 1);
+  assert.match(error, /Expected an expression\.$/);
+  assert.equal(error.endsWith(".."), false, "the error keeps one full stop");
+  const longText = "y = " + "x + ".repeat(60) + "1";
+  const long = a.rowSummary({ text: longText, kind: "explicit", points: [{ x: 0, y: 1 }] }, 2);
+  assert.ok(long.indexOf(longText) > 0, "a long expression is kept in full");
+  assert.match(long, /curve with 1 sampled point/);
+  assert.equal(a.graphSummary({ rows: [] }), "The graph is empty. Add an expression to draw a graph.");
+  assert.equal(a.rowSummary(null, 0), "Row 1: nothing to draw.");
+  assert.match(a.rowSummary({ text: "a =", kind: "parameter", value: NaN }, 0), /slider with value —/);
+  assert.match(a.rowSummary({ text: "y < x", kind: "inequality", region: null }, 0), /no shaded region/);
+});
+
+test("graph accessibility: the data table follows drawn order and formatting", () => {
+  const a = T.graphAccessibility;
+  const built = graph.buildGraph({
+    rows: ["y = x^2", "(1, 2)", "f(x) = x^2"],
+    xMin: -5,
+    xMax: 5,
+    yMin: -5,
+    yMax: 5,
+    samples: 100,
+    resolution: { x: 100, y: 50 },
+  });
+  const table = a.graphTable(built);
+  assert.equal(table.ok, true);
+  assert.equal(table.caption, "Graph data table");
+  assert.deepEqual(table.headers, ["Row", "Expression", "Kind", "What is drawn"]);
+  assert.equal(table.rows.length, 3);
+  assert.deepEqual(table.rows.map((row) => row.number), ["1", "2", "3"]);
+  assert.deepEqual(table.rows.map((row) => row.expression), ["y = x^2", "(1, 2)", "f(x) = x^2"]);
+  assert.deepEqual(table.rows.map((row) => row.kind), ["curve", "point", "definition"]);
+  assert.match(table.rows[0].detail, /sampled points/);
+  assert.match(table.rows[2].detail, /not drawn/);
+  const empty = a.graphTable({ rows: [] });
+  assert.deepEqual(empty, { ok: false, reason: "empty", message: "Draw a graph before opening the data table." });
+  assert.equal(a.graphTable(null).reason, "empty");
+});
+
+test("reference view: the summary is exposed and the table degrades with a Notice", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.graphRows = [{ text: "y = x^2", hidden: false }, { text: "(1, 2)", hidden: false }];
+  view.render();
+  const labels = () => dom.all.map((element) => (element.meta && (element.meta.attr || {})["aria-label"]) || "").filter(Boolean);
+  assert.ok(labels().indexOf("Show graph data table") >= 0);
+  assert.ok(labels().indexOf("Graph row summaries") >= 0);
+  const summaryEl = dom.all.find((element) => (element.meta && (element.meta.attr || {})["aria-label"]) === "Graph row summaries");
+  assert.ok(summaryEl.classes.has("qt-sr-only"), "the summary is screen-reader only");
+  assert.match(summaryEl.meta.text || "", /^Graph with 2 rows\./);
+  assert.match(summaryEl.meta.text || "", /Row 1, y = x\^2/);
+
+  const report = view.toggleGraphTable(true);
+  assert.equal(report.ok, true);
+  const tables = dom.all.filter((element) => element.meta && element.meta.tag === "table");
+  assert.equal(tables.length, 1);
+  assert.equal(tables[0].meta.attr["aria-label"], "Graph data table");
+  const captions = dom.all.filter((element) => element.meta && element.meta.tag === "caption");
+  assert.equal(captions.length, 1);
+  assert.equal(captions[0].meta.text, "Graph data table");
+  const columnHeaders = dom.all.filter((element) => element.meta && element.meta.tag === "th" && (element.meta.attr || {}).scope === "col");
+  assert.deepEqual(columnHeaders.map((element) => element.meta.text), ["Row", "Expression", "Kind", "What is drawn"]);
+  const rowHeaders = dom.all.filter((element) => element.meta && element.meta.tag === "th" && (element.meta.attr || {}).scope === "row");
+  assert.deepEqual(rowHeaders.map((element) => element.meta.text), ["1", "2"]);
+
+  const { obsidian } = require("./helpers/load");
+  view.graphRows = [];
+  view.render();
+  view.drawGraph();
+  const noticesBefore = obsidian.notices.length;
+  const empty = view.toggleGraphTable(true);
+  assert.equal(empty.ok, false);
+  assert.equal(empty.reason, "empty");
+  assert.equal(obsidian.notices.length, noticesBefore + 1, "an empty graph raises a Notice");
+  assert.match(obsidian.notices[obsidian.notices.length - 1], /Draw a graph before opening the data table/);
+});

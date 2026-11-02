@@ -2,6 +2,14 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.190.0 — 2026-11-02
+
+- The graph has a screen-reader summary of the window and each row, and an
+  optional data-table view listing every row's expression, kind and what is
+  drawn, with a caption and scoped column and row headers.
+- The table refuses an empty graph with a Notice instead of rendering an empty
+  table. This completes the Desmos parity roadmap in plan.md.
+
 ## 1.189.0 — 2026-11-02
 
 - The graph tab has a calculus panel for the entered expression: a numeric
