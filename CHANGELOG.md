@@ -2,6 +2,15 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.185.0 — 2026-11-02
+
+- Each graph row has its own style: line width, an optional dashed stroke, fill
+  opacity on filled rows, and point size on point rows.
+- Style controls appear only on rows where they apply, carry accessible names,
+  and are saved with the row list, window, lock and display options.
+- Unstyled rows keep the previous rendering exactly; styles change only the
+  canvas, never the samples, points of interest or the trace.
+
 ## 1.184.0 — 2026-11-02
 
 - Optional minor gridlines between the labelled major lines, and x/y axis

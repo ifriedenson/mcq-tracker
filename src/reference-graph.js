@@ -239,6 +239,31 @@ function formatAxisTick(value, options) {
   return formatTickValue(value);
 }
 
+const STYLE_DEFAULTS = { width: 2, dashed: false, fillOpacity: 0.16, pointSize: 4.5 };
+const STYLE_LIMITS = { minWidth: 1, maxWidth: 8, minPoint: 2, maxPoint: 12 };
+const DASH_PATTERN = [6, 4];
+
+function clampNumber(value, fallback, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+/**
+ * Resolve one row's style to the values the canvas draws with. Missing values
+ * fall back to the shipped defaults, so an unstyled block renders exactly as it
+ * did before styles existed; each value is clamped to a sane on-screen range.
+ */
+function resolveRowStyle(style) {
+  const opts = style || {};
+  return {
+    width: clampNumber(opts.width, STYLE_DEFAULTS.width, STYLE_LIMITS.minWidth, STYLE_LIMITS.maxWidth),
+    dashed: opts.dashed === true,
+    fillOpacity: clampNumber(opts.fillOpacity, STYLE_DEFAULTS.fillOpacity, 0, 1),
+    pointSize: clampNumber(opts.pointSize, STYLE_DEFAULTS.pointSize, STYLE_LIMITS.minPoint, STYLE_LIMITS.maxPoint),
+  };
+}
+
 const VIEW_LIMITS = { minSpan: 0.02, maxSpan: 20000 };
 
 /** Normalise a window back into the sampler's usable range. */
@@ -1609,7 +1634,14 @@ function buildGraph(options) {
     const input = rows[i];
     const raw = typeof input === "string" ? input : String((input && input.text) || "");
     const guess = input && typeof input === "object" ? input.guess : null;
-    const row = { index: i, text: raw, kind: "empty", label: raw, error: "" };
+    const row = {
+      index: i,
+      text: raw,
+      kind: "empty",
+      label: raw,
+      error: "",
+      styling: resolveRowStyle(input && typeof input === "object" ? input.styling : null),
+    };
     try {
       const parsed = parseGraphRow(raw);
       row.kind = parsed.kind;
@@ -1811,6 +1843,10 @@ module.exports = {
   CONSTANTS,
   DEFAULT_VIEW,
   VIEW_LIMITS,
+  STYLE_DEFAULTS,
+  STYLE_LIMITS,
+  DASH_PATTERN,
+  resolveRowStyle,
   axisTicks,
   formatAxisTick,
   formatPiLabel,

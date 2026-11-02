@@ -59269,6 +59269,31 @@ function formatAxisTick(value, options) {
   return formatTickValue(value);
 }
 
+const STYLE_DEFAULTS = { width: 2, dashed: false, fillOpacity: 0.16, pointSize: 4.5 };
+const STYLE_LIMITS = { minWidth: 1, maxWidth: 8, minPoint: 2, maxPoint: 12 };
+const DASH_PATTERN = [6, 4];
+
+function clampNumber(value, fallback, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+/**
+ * Resolve one row's style to the values the canvas draws with. Missing values
+ * fall back to the shipped defaults, so an unstyled block renders exactly as it
+ * did before styles existed; each value is clamped to a sane on-screen range.
+ */
+function resolveRowStyle(style) {
+  const opts = style || {};
+  return {
+    width: clampNumber(opts.width, STYLE_DEFAULTS.width, STYLE_LIMITS.minWidth, STYLE_LIMITS.maxWidth),
+    dashed: opts.dashed === true,
+    fillOpacity: clampNumber(opts.fillOpacity, STYLE_DEFAULTS.fillOpacity, 0, 1),
+    pointSize: clampNumber(opts.pointSize, STYLE_DEFAULTS.pointSize, STYLE_LIMITS.minPoint, STYLE_LIMITS.maxPoint),
+  };
+}
+
 const VIEW_LIMITS = { minSpan: 0.02, maxSpan: 20000 };
 
 /** Normalise a window back into the sampler's usable range. */
@@ -60639,7 +60664,14 @@ function buildGraph(options) {
     const input = rows[i];
     const raw = typeof input === "string" ? input : String((input && input.text) || "");
     const guess = input && typeof input === "object" ? input.guess : null;
-    const row = { index: i, text: raw, kind: "empty", label: raw, error: "" };
+    const row = {
+      index: i,
+      text: raw,
+      kind: "empty",
+      label: raw,
+      error: "",
+      styling: resolveRowStyle(input && typeof input === "object" ? input.styling : null),
+    };
     try {
       const parsed = parseGraphRow(raw);
       row.kind = parsed.kind;
@@ -60841,6 +60873,10 @@ module.exports = {
   CONSTANTS,
   DEFAULT_VIEW,
   VIEW_LIMITS,
+  STYLE_DEFAULTS,
+  STYLE_LIMITS,
+  DASH_PATTERN,
+  resolveRowStyle,
   axisTicks,
   formatAxisTick,
   formatPiLabel,
@@ -61257,7 +61293,8 @@ const { ELEMENTS, categoryLabel, searchElements } = require("./reference-element
 const {
   markerLayout, buildGraph, parseGraphRow, traceAt,
   clampView, zoomView, panView, fitView,
-  axisTicks, formatAxisTick } = require("./reference-graph");
+  axisTicks, formatAxisTick,
+  STYLE_LIMITS, DASH_PATTERN, resolveRowStyle } = require("./reference-graph");
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
@@ -61327,6 +61364,16 @@ class ReferenceView extends ItemView {
       { text: "sin(x)", hidden: false },
       { text: "x^2 + y^2 = 9", hidden: false },
     ];
+    if (Array.isArray(storedGraph.rows) && storedGraph.rows.length) {
+      const restored = storedGraph.rows
+        .filter((row) => row && typeof row === "object")
+        .map((row) => ({
+          text: String(row.text || ""),
+          hidden: row.hidden === true,
+          styling: resolveRowStyle(row.styling),
+        }));
+      if (restored.length) this.graphRows = restored;
+    }
     const storedDisplay = storedGraph.display || {};
     this.graphViewport = clampView(storedGraph.view);
     this.graphLocked = storedGraph.locked === true;
@@ -61702,6 +61749,7 @@ class ReferenceView extends ItemView {
         } catch (e) {
           // the row shows its own error when the graph is drawn
         }
+        this.persistGraphState();
         this.drawGraph();
       });
       input.addEventListener("keydown", (event) => {
@@ -61735,11 +61783,13 @@ class ReferenceView extends ItemView {
       } else {
         row.name = undefined;
       }
+      this.renderGraphStyleControls(rowEl, row, index, parsed);
     });
 
     const actions = root.createDiv({ cls: "qt-row qt-ref-graph-actions" });
     actions.createEl("button", { text: "Add expression", cls: "qt-ref-graph-add" }).addEventListener("click", () => {
-      this.graphRows.push({ text: "", hidden: false });
+      this.graphRows.push({ text: "", hidden: false, styling: resolveRowStyle(null) });
+      this.persistGraphState();
       this.render();
     });
 
@@ -61967,10 +62017,51 @@ class ReferenceView extends ItemView {
     this.stopGraphAnimation(false);
   }
 
+  renderGraphStyleControls(rowEl, row, index, parsed) {
+    const kind = parsed ? parsed.kind : "";
+    const strokes = ["explicit", "regression", "implicit", "inequality", "polar", "parametric"].indexOf(kind) >= 0;
+    const filled = kind === "parametric" && parsed && parsed.fill === true;
+    const points = kind === "point" || kind === "points";
+    if (!strokes && !filled && !points) return;
+    const style = resolveRowStyle(row.styling);
+    row.styling = style;
+    const wrap = rowEl.createDiv({ cls: "qt-ref-graph-style" });
+    const numberField = (key, name, min, max, step) => {
+      const field = wrap.createEl("label", { cls: "qt-ref-graph-bound" });
+      field.createSpan({ text: name });
+      const input = field.createEl("input", {
+        cls: "qt-ref-amount",
+        attr: { type: "number", min, max, step, "aria-label": `${name} for expression ${index + 1}` },
+      });
+      input.value = String(style[key]);
+      input.addEventListener("change", () => {
+        row.styling = resolveRowStyle(Object.assign({}, row.styling, { [key]: Number(input.value) }));
+        input.value = String(row.styling[key]);
+        this.persistGraphState();
+        this.drawGraph();
+      });
+    };
+    if (strokes) numberField("width", "Line width", STYLE_LIMITS.minWidth, STYLE_LIMITS.maxWidth, 0.5);
+    if (strokes) {
+      const field = wrap.createEl("label", { cls: "qt-ref-graph-polar" });
+      const box = field.createEl("input", { attr: { type: "checkbox", "aria-label": `Dashed line for expression ${index + 1}` } });
+      box.checked = style.dashed;
+      box.addEventListener("change", () => {
+        row.styling = resolveRowStyle(Object.assign({}, row.styling, { dashed: box.checked === true }));
+        this.persistGraphState();
+        this.drawGraph();
+      });
+      field.createSpan({ text: "dashed" });
+    }
+    if (filled) numberField("fillOpacity", "Fill opacity", 0, 1, 0.05);
+    if (points) numberField("pointSize", "Point size", STYLE_LIMITS.minPoint, STYLE_LIMITS.maxPoint, 0.5);
+  }
+
   removeGraphRow(index) {
     if (this.graphAnimationTimer) this.stopGraphAnimation(false);
     this.graphRows.splice(index, 1);
     if (!this.graphRows.length) this.graphRows.push({ text: "", hidden: false });
+    this.persistGraphState();
     this.render();
   }
 
@@ -61993,7 +62084,7 @@ class ReferenceView extends ItemView {
     let graph;
     try {
       graph = buildGraph({
-        rows: this.graphRows.map((row) => (row.hidden ? "" : { text: row.text, guess: row.guess })),
+        rows: this.graphRows.map((row) => (row.hidden ? "" : { text: row.text, guess: row.guess, styling: row.styling })),
         data: this.graphData,
         parameters: Object.fromEntries(
           this.graphRows.filter((row) => row.name && row.value !== undefined).map((row) => [row.name, row.value])
@@ -62043,9 +62134,9 @@ class ReferenceView extends ItemView {
       }
       const color = GRAPH_COLORS[row.index % GRAPH_COLORS.length];
       if (row.markers && row.markers.length) this.paintGraphMarkers(ctx, row, graph, width, height, color);
-      if (row.polygon && row.polygon.length) this.paintGraphPolygon(ctx, row.polygon, color, px, py);
-      if (row.points && row.points.length) this.paintGraphPoints(ctx, row.points, width, height, px, py, color);
-      if (row.segments && row.segments.length) this.paintGraphSegments(ctx, row.segments, px, py, color, row.strict === true);
+      if (row.polygon && row.polygon.length) this.paintGraphPolygon(ctx, row, color, px, py);
+      if (row.points && row.points.length) this.paintGraphPoints(ctx, row, width, height, px, py, color);
+      if (row.segments && row.segments.length) this.paintGraphSegments(ctx, row, px, py, color);
     }
     if (graph.data.length && graph.rows.some((row) => row.kind === "regression")) {
       this.paintGraphData(ctx, graph.data, px, py);
@@ -62083,7 +62174,15 @@ class ReferenceView extends ItemView {
     this.drawGraph();
   }
 
-  persistGraphView() {
+  graphRowState() {
+    return this.graphRows.map((row) => ({
+      text: String(row.text || ""),
+      hidden: row.hidden === true,
+      styling: resolveRowStyle(row.styling),
+    }));
+  }
+
+  persistGraphState() {
     const settings = this.plugin.settings;
     if (!settings) return;
     if (!settings.reference) settings.reference = {};
@@ -62091,32 +62190,23 @@ class ReferenceView extends ItemView {
       view: Object.assign({}, this.graphViewport),
       locked: this.graphLocked,
       display: Object.assign({}, this.graphDisplay),
+      rows: this.graphRowState(),
     };
     if (typeof this.plugin.save === "function") {
       try {
         this.plugin.save();
       } catch (e) {
-        // The window stays in memory; Obsidian reports a failed settings write itself.
+        // The graph stays in memory; Obsidian reports a failed settings write itself.
       }
     }
   }
 
+  persistGraphView() {
+    this.persistGraphState();
+  }
+
   persistGraphDisplay() {
-    const settings = this.plugin.settings;
-    if (!settings) return;
-    if (!settings.reference) settings.reference = {};
-    settings.reference.graph = {
-      view: Object.assign({}, this.graphViewport),
-      locked: this.graphLocked,
-      display: Object.assign({}, this.graphDisplay),
-    };
-    if (typeof this.plugin.save === "function") {
-      try {
-        this.plugin.save();
-      } catch (e) {
-        // The display options stay in memory; Obsidian reports a failed settings write itself.
-      }
-    }
+    this.persistGraphState();
   }
 
   onGraphKeydown(event) {
@@ -62230,13 +62320,14 @@ class ReferenceView extends ItemView {
   }
 
   paintGraphMarkers(ctx, row, graph, width, height, color) {
+    const style = resolveRowStyle(row.styling);
     const layout = markerLayout(row.markers, graph, width, height);
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = Math.max(1, style.width);
     for (const marker of layout) {
       ctx.beginPath();
-      ctx.arc(marker.x, marker.y, 4.5, 0, Math.PI * 2);
+      ctx.arc(marker.x, marker.y, style.pointSize, 0, Math.PI * 2);
       if (row.style === "open") ctx.stroke();
       else ctx.fill();
       if (!marker.label) continue;
@@ -62299,10 +62390,12 @@ class ReferenceView extends ItemView {
     ctx.fill();
   }
 
-  paintGraphPolygon(ctx, polygon, color, px, py) {
+  paintGraphPolygon(ctx, row, color, px, py) {
+    const polygon = row.polygon;
     if (!polygon || polygon.length < 3) return;
+    const style = resolveRowStyle(row.styling);
     ctx.fillStyle = color;
-    ctx.globalAlpha = 0.16;
+    ctx.globalAlpha = style.fillOpacity;
     ctx.beginPath();
     ctx.moveTo(px(polygon[0].x), py(polygon[0].y));
     for (let i = 1; i < polygon.length; i++) ctx.lineTo(px(polygon[i].x), py(polygon[i].y));
@@ -62311,11 +62404,14 @@ class ReferenceView extends ItemView {
     ctx.globalAlpha = 1;
   }
 
-  paintGraphPoints(ctx, points, width, height, px, py, color) {
+  paintGraphPoints(ctx, row, width, height, px, py, color) {
+    const style = resolveRowStyle(row.styling);
+    const points = row.points;
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = style.width;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
+    if (style.dashed && ctx.setLineDash) ctx.setLineDash(DASH_PATTERN);
     ctx.beginPath();
     let drawing = false;
     let lastX = null;
@@ -62339,6 +62435,7 @@ class ReferenceView extends ItemView {
       lastY = y;
     }
     ctx.stroke();
+    if (style.dashed && ctx.setLineDash) ctx.setLineDash([]);
   }
 
   paintPolarGrid(ctx, graph, width, height) {
@@ -62381,14 +62478,16 @@ class ReferenceView extends ItemView {
     ctx.globalAlpha = 1;
   }
 
-  paintGraphSegments(ctx, segments, px, py, color, dashed) {
+  paintGraphSegments(ctx, row, px, py, color) {
+    const style = resolveRowStyle(row.styling);
+    const dashed = style.dashed || row.strict === true;
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = style.width;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    if (dashed && ctx.setLineDash) ctx.setLineDash([6, 4]);
+    if (dashed && ctx.setLineDash) ctx.setLineDash(DASH_PATTERN);
     ctx.beginPath();
-    for (const segment of segments) {
+    for (const segment of row.segments) {
       ctx.moveTo(px(segment.x1), py(segment.y1));
       ctx.lineTo(px(segment.x2), py(segment.y2));
     }

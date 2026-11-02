@@ -1226,3 +1226,102 @@ test("reference view: display controls are labelled, default off, and persist wi
   const restored = new T.ReferenceView({ app }, plugin);
   assert.deepEqual(restored.graphDisplay, { minorGrid: true, axisLabels: true, piTicks: true, angle: "degrees" }, "the options restore on reload");
 });
+
+
+test("graph: row styles default to the pre-1.185 values and clamp to on-screen bounds", () => {
+  assert.deepEqual(graph.resolveRowStyle(null), { width: 2, dashed: false, fillOpacity: 0.16, pointSize: 4.5 });
+  assert.equal(graph.resolveRowStyle({ width: 0 }).width, 1);
+  assert.equal(graph.resolveRowStyle({ width: 99 }).width, 8);
+  assert.equal(graph.resolveRowStyle({ fillOpacity: -1 }).fillOpacity, 0);
+  assert.equal(graph.resolveRowStyle({ fillOpacity: 2 }).fillOpacity, 1);
+  assert.equal(graph.resolveRowStyle({ pointSize: 0 }).pointSize, 2);
+  assert.equal(graph.resolveRowStyle({ pointSize: 99 }).pointSize, 12);
+  assert.equal(graph.resolveRowStyle({ dashed: true }).dashed, true);
+  assert.deepEqual(graph.DASH_PATTERN, [6, 4]);
+  const unstyled = graph.buildGraph({ rows: ["y = x^2 - 4"], xMin: -5, xMax: 5, yMin: -6, yMax: 22, samples: 41 });
+  assert.deepEqual(unstyled.rows[0].styling, { width: 2, dashed: false, fillOpacity: 0.16, pointSize: 4.5 });
+  const explicit = graph.buildGraph({ rows: [{ text: "y = x^2 - 4", styling: {} }], xMin: -5, xMax: 5, yMin: -6, yMax: 22, samples: 41 });
+  const strip = (built) => JSON.stringify({ rows: built.rows.map((row) => ({ points: row.points, interest: row.interest })), interest: built.interest });
+  assert.equal(strip(explicit), strip(unstyled), "an unstyled block renders exactly as before");
+});
+
+test("reference view: style controls appear only where they apply and are labelled", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.graphRows = [
+    { text: "y = x^2 - 4", hidden: false },
+    { text: "(1, 2)", hidden: false },
+    { text: "(cos(t), sin(t)) fill", hidden: false },
+    { text: "f(x) = x^2", hidden: false },
+  ];
+  view.render();
+  const labels = () => dom.all.map((element) => (element.meta && (element.meta.attr || {})["aria-label"]) || "").filter(Boolean);
+  const has = (text) => labels().some((label) => label === text);
+  assert.ok(has("Line width for expression 1"));
+  assert.ok(has("Dashed line for expression 1"));
+  assert.equal(has("Point size for expression 1"), false, "a curve has no point size control");
+  assert.ok(has("Point size for expression 2"), "a point row gets a point size");
+  assert.equal(has("Line width for expression 2"), false, "a point row has no width control");
+  assert.ok(has("Fill opacity for expression 3"), "only a filled row gets fill opacity");
+  assert.equal(has("Line width for expression 4"), false, "a definition has nothing to stroke");
+  const width = dom.all.find((element) => element.meta && (element.meta.attr || {})["aria-label"] === "Line width for expression 1");
+  assert.equal(width.meta.attr.type, "number");
+  assert.equal(String(width.meta.attr.min), "1");
+  assert.equal(String(width.meta.attr.max), "8");
+});
+
+test("reference view: styles persist per row, restore on reload, and never change the geometry", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.graphRows = [
+    { text: "y = x^2 - 4", hidden: false },
+    { text: "y = 2x", hidden: false },
+    { text: "(1, 2)", hidden: false },
+    { text: "(cos(t), sin(t)) fill", hidden: false },
+  ];
+  view.render();
+  const signature = (built) => JSON.stringify({
+    rows: built.rows.map((row) => ({ points: row.points || null, markers: row.markers || null, polygon: row.polygon || null, interest: row.interest || null })),
+    interest: built.interest,
+    trace: graph.traceAt(built, 1.5),
+  });
+  view.drawGraph();
+  const plain = signature(view.graphBuilt);
+  view.graphRows[0].styling = { width: 8, dashed: true, fillOpacity: 1, pointSize: 12 };
+  view.graphRows[1].styling = { width: 1, dashed: true, fillOpacity: 0, pointSize: 2 };
+  view.graphRows[2].styling = { width: 8, dashed: false, fillOpacity: 0, pointSize: 12 };
+  view.graphRows[3].styling = { width: 1, dashed: true, fillOpacity: 0, pointSize: 2 };
+  view.persistGraphState();
+  view.drawGraph();
+  assert.equal(signature(view.graphBuilt), plain, "styles are rendering only");
+  assert.ok(view.graphBuilt.interest.some((point) => point.kinds.includes("intersection")));
+  view.graphViewport = { xMin: -10000, xMax: 10000, yMin: -10000, yMax: 10000 };
+  view.drawGraph();
+  view.graphViewport = { xMin: -0.01, xMax: 0.01, yMin: -0.01, yMax: 0.01 };
+  view.drawGraph();
+  assert.equal(view.graphBuilt.rows[0].styling.width, 8, "styles survive both zoom extremes");
+
+  const stored = plugin.settings.reference.graph.rows;
+  assert.equal(stored.length, 4);
+  assert.deepEqual(stored[0].styling, { width: 8, dashed: true, fillOpacity: 1, pointSize: 12 });
+  const restored = new T.ReferenceView({ app }, plugin);
+  assert.equal(restored.graphRows.length, 4);
+  assert.equal(restored.graphRows[0].text, "y = x^2 - 4");
+  assert.deepEqual(restored.graphRows[0].styling, { width: 8, dashed: true, fillOpacity: 1, pointSize: 12 });
+  assert.deepEqual(restored.graphRows[2].styling, { width: 8, dashed: false, fillOpacity: 0, pointSize: 12 });
+  assert.deepEqual(restored.graphRows[3].styling, { width: 1, dashed: true, fillOpacity: 0, pointSize: 2 });
+});
