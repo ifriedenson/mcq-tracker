@@ -10713,9 +10713,9 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   }
 }
 
-/* Sidebar task list: the Study Workspace Tasks rows at pane width. */
+/* Sidebar task list: a pane-sized board over the local Tasks rows. */
 .qt-task-list {
-  padding: 10px;
+  padding: 12px 10px 20px;
 }
 
 .qt-task-list-head {
@@ -10723,21 +10723,44 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 8px;
-  justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+}
+
+.qt-task-list-titlebar {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 8px;
+  min-width: 0;
 }
 
 .qt-task-list-head h2 {
-  font-size: 1em;
+  font-size: 1.05em;
+  letter-spacing: 0.01em;
   margin: 0;
+}
+
+.qt-task-list-badge {
+  background: var(--background-modifier-hover);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.72em;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 8px;
+}
+
+.qt-task-list-open {
+  flex: 0 0 auto;
+  font-size: 0.8em;
 }
 
 .qt-task-list-count,
 .qt-task-list-meta,
 .qt-task-list-empty {
   color: var(--text-muted);
-  font-size: 0.85em;
-  line-height: 1.4;
+  font-size: 0.82em;
+  line-height: 1.45;
 }
 
 .qt-task-list-count {
@@ -10745,33 +10768,115 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 }
 
 .qt-task-list-add {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
   display: grid;
   gap: 6px;
-  grid-template-columns: minmax(0, 1fr);
   margin-bottom: 10px;
+  padding: 8px;
 }
 
 .qt-task-list-add .qt-input {
   width: 100%;
 }
 
+.qt-task-list-add-row {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) auto;
+}
+
+.qt-task-list-add-button {
+  min-width: 52px;
+}
+
+.qt-task-list-filters {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.qt-task-chip {
+  background: var(--background-modifier-hover);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.72em;
+  line-height: 1;
+  padding: 3px 8px;
+}
+
+.qt-task-chip:hover {
+  border-color: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.qt-task-chip.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.qt-task-list-filter-clear {
+  font-size: 0.75em;
+}
+
 .qt-task-list-rows {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
 }
 
 .qt-task-list-row {
   align-items: flex-start;
-  border-radius: 6px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-left: 3px solid var(--background-modifier-border);
+  border-radius: 8px;
   display: grid;
   gap: 8px;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  padding: 6px 4px;
+  padding: 7px 8px 7px 9px;
 }
 
 .qt-task-list-row:hover {
   background: var(--background-modifier-hover);
+  border-color: var(--background-modifier-border-hover);
+}
+
+.qt-task-list-row.is-overdue {
+  border-left-color: var(--text-error);
+}
+
+.qt-task-list-row.is-today {
+  border-left-color: var(--interactive-accent);
+}
+
+.qt-task-list-row.is-done {
+  opacity: 0.62;
+}
+
+.qt-task-check {
+  accent-color: var(--interactive-accent);
+  margin: 2px 0 0;
+}
+
+.qt-task-list-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.qt-task-list-title {
+  font-size: 0.9em;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .qt-task-list-row.is-done .qt-task-list-title {
@@ -10779,24 +10884,103 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   text-decoration: line-through;
 }
 
-.qt-task-check {
-  margin: 3px 0 0;
+.qt-task-list-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
-.qt-task-list-title {
-  font-size: 0.92em;
-  overflow-wrap: anywhere;
+.qt-task-pill {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 0.72em;
+  line-height: 1.5;
+  padding: 0 7px;
+}
+
+.qt-task-pill.is-overdue {
+  border-color: var(--text-error);
+  color: var(--text-error);
+}
+
+.qt-task-pill.is-today {
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
+}
+
+.qt-task-source {
+  font-size: 0.65em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.qt-task-tags {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.qt-task-tag-edit {
+  background: none;
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: 999px;
+  box-shadow: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.68em;
+  line-height: 1;
+  padding: 2px 7px;
+}
+
+.qt-task-tag-edit:hover {
+  border-color: var(--text-accent);
+  color: var(--text-accent);
+}
+
+.qt-task-tag-input {
+  flex: 1 1 100%;
+  font-size: 0.8em;
+  min-width: 0;
 }
 
 .qt-task-list-remove {
   background: none;
   border: none;
+  border-radius: 6px;
   box-shadow: none;
-  color: var(--text-muted);
+  color: var(--text-faint);
   cursor: pointer;
-  font-size: 1em;
+  font-size: 0.95em;
   line-height: 1;
-  padding: 2px 4px;
+  padding: 4px 5px;
+}
+
+.qt-task-list-remove:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-error);
+}
+
+.qt-task-list-empty {
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.qt-task-list-empty h3 {
+  font-size: 0.95em;
+  margin: 0 0 4px;
+}
+
+.qt-task-list-empty button {
+  margin-top: 8px;
+}
+
+.qt-task-list-blank {
+  font-size: 0.82em;
 }
 
 /* Reference graph data table and regression fits. */

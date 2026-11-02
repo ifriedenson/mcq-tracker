@@ -2,6 +2,15 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.176.0 — 2026-11-02
+
+- Sidebar **Task list** restyle: an open/total badge, a counts line, a card-shaped
+  add form and task cards with a red edge for overdue work, an accent edge for
+  work due today, strike-through on completed rows and detail pills.
+- Tasks can carry **tags**: set up to four when adding a task or from a row's
+  **+ tag** field, shown as chips; a chip filters the list and **Clear** resets it.
+- **1,395 tests pass**, `npm run check` is clean and `main.js` is rebuilt.
+
 ## 1.175.0 — 2026-11-02
 
 - Inequality rows (`y < 2x + 1`, `x^2 + y^2 <= 9`, `≤`, `≥`) shade the

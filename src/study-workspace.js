@@ -909,6 +909,35 @@ function courseDashboard(subjects, lectures, absences, grades, options) {
 
 /* ---- Study tasks (Better Task-style planning and local reminders) -------- */
 
+const MAX_TAGS = 4;
+const MAX_TAG = 24;
+
+/** One tag: no leading hash, no spaces, no doubled dashes, bounded length. */
+function tagValue(value) {
+  return str(value)
+    .trim()
+    .replace(/^#+/, "")
+    .replace(/[\s,]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, MAX_TAG);
+}
+
+/** Tags from a list or a comma/space separated string; four at most, case-insensitively unique. */
+function tagList(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[\s,]+/);
+  const tags = [];
+  const seen = new Set();
+  for (const item of raw) {
+    const tag = tagValue(item);
+    if (!tag || seen.has(tag.toLowerCase())) continue;
+    seen.add(tag.toLowerCase());
+    tags.push(tag);
+    if (tags.length >= MAX_TAGS) break;
+  }
+  return tags;
+}
+
 function normalizeStudyTask(value) {
   const source = asObject(value);
   const title = textValue(source.title, MAX_TITLE);
@@ -917,6 +946,7 @@ function normalizeStudyTask(value) {
     id: str(source.id).trim().slice(0, 160) || idFor("task", [title, source.course || "", source.due || "", source.createdAt || 0]),
     title,
     course: textValue(source.course, MAX_TITLE),
+    tags: tagList(source.tags),
     due: dayValue(source.due),
     done: source.done === true,
     source: textValue(source.source, 40) || "manual",

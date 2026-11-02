@@ -8,6 +8,17 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
+- **1.176.0 release (Nov 2, 2026):** polishes the sidebar **Task list** and adds task **tags**.
+ The list now has an open/total badge, a counts line, a card-shaped add form and task cards (red edge for overdue,
+ accent edge for due today, strike-through when done, course/due/exam-plan pills, hover delete). `studyTasks` rows gain
+ an optional bounded `tags` array (max 4, 24 chars each, no hash or spaces, case-insensitively unique) normalised by
+ `tagList`/`tagValue` in `src/study-workspace.js`; tags are set when adding a task or with a row's **+ tag** inline editor,
+ render as chips, and a chip filters the list with a **Clear** action. Old task rows load unchanged. Version **1.176.0** is
+ in `manifest.json`, `package.json`, `package-lock.json` and `versions.json`; notes are in `docs/release-notes/1.176.0.md`,
+ and the changelog is current. Verification: **1,395 tests pass / 0 fail**, `npm run check` clean across **231 modules**,
+ `main.js` rebuilt at **3,309,519 bytes**, `git diff --check` clean. The push-to-main release workflow tags and publishes
+ the three assets.
+
 - **1.175.0 release (Nov 2, 2026):** inequality rows in the Reference Graph tab. `parseGraphRow` returns an `inequality` row for top-level `<`, `>`, `<=`, `>=`, `≤` and `≥`; `buildGraph` compiles both sides, traces the boundary with the existing marching-squares helper and samples a coarse region grid (`sampleRegion`), and the view fills those cells at 16% opacity and dashes the boundary for strict comparisons. Regions follow the window and parameter sliders, and an empty region reports inline. Tests are in `tests/reference-tools.test.js`; `main.js` is rebuilt and the push-to-main workflow publishes the three assets.
 - **1.174.0 release (Nov 2, 2026):** the Reference Graph tab has Desmos-style parameter sliders. A row such as `a = 2` is parsed as a `parameter` row, shared with every later expression, definition and regression; the view renders a range input, live readout, min/max/step fields and a Play/Pause button that animates the value on a 60 ms interval and repaints the canvas, stopping on close or row removal. `parseGraphRow` rejects built-in names and non-numeric values. Tests are in `tests/reference-tools.test.js`; `main.js` is rebuilt and the push-to-main workflow publishes the three assets.
 - **1.173.0 release (Nov 2, 2026):** the Reference **Graph** tab has a Desmos-style x/y data table and `~` regression rows. `y ~ m x + b`, `y ~ a e^(b x)` and `y_1 ~ a x_1 + b` fit every free name as a parameter with a local Levenberg-Marquardt least-squares solver (`fitParameters`); the row shows its fitted parameters and R², the fit is sampled into the canvas and the data points are drawn on top. Blank pairs are skipped while typing, a bad cell reports its own message without breaking other rows, and there is no new dependency, no `eval`, no network request and no Desmos code or key. `plan.md` §3.11 records the full Desmos parity roadmap, one release number per capability, with the permissive source for each and the blocked AGPL/GPL sources named. Tests are in `tests/reference-tools.test.js`; `main.js` is rebuilt and the push-to-main workflow publishes the three assets. Known gate: no hand pass in a live Obsidian vault yet.
