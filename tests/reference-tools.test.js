@@ -593,3 +593,113 @@ test("reference view: polar rows and the polar grid render", async () => {
   assert.ok(!/Unknown name|not valid|Expected|incomplete/i.test(text), "the polar row renders without an error");
   assert.ok(text.includes("polar grid"), "the polar grid control is present");
 });
+
+test("graph: parametric rows parse the pair, the parameter and fill", () => {
+  const parsed = graph.parseGraphRow("(cos(t), sin(t))");
+  assert.equal(parsed.kind, "parametric");
+  assert.equal(parsed.xBody, "cos(t)");
+  assert.equal(parsed.yBody, "sin(t)");
+  assert.equal(parsed.fill, false);
+  assert.equal(parsed.condition, "");
+  const bounded = graph.parseGraphRow("(cos(t), sin(t)) {0 < t < 2pi}");
+  assert.equal(bounded.kind, "parametric");
+  assert.equal(bounded.condition, "0 < t < 2pi");
+  const filled = graph.parseGraphRow("(cos(t), sin(t)) fill {0 < t < 2pi}");
+  assert.equal(filled.kind, "parametric");
+  assert.equal(filled.fill, true);
+  assert.equal(filled.condition, "0 < t < 2pi");
+  const theta = graph.parseGraphRow("(cos(θ), sin(θ))");
+  assert.equal(theta.xBody, "cos(theta)", "θ is accepted as theta");
+  assert.equal(graph.parseGraphRow("(sin(t))").kind, "explicit", "a single parenthesised expression stays explicit");
+  assert.throws(() => graph.parseGraphRow("(cos(t), sin(t), 1)"), /exactly two/);
+  assert.throws(() => graph.parseGraphRow("(cos(t),)"), /Both x and y/);
+});
+
+test("graph: parametric curves sweep smoothly over bounds and defaults", () => {
+  const circle = graph.buildGraph({ rows: ["(cos(t), sin(t))"], xMin: -2, xMax: 2, yMin: -2, yMax: 2, samples: 200 });
+  const row = circle.rows[0];
+  assert.equal(row.error, "");
+  assert.deepEqual(row.bounds, [0, Math.PI * 2]);
+  assert.ok(row.points.length >= 380, "the sweep is densely sampled");
+  for (const point of row.points) {
+    assert.ok(point.y !== null, "a circle has no gaps");
+    assert.ok(Math.abs(Math.hypot(point.x, point.y) - 1) < 1e-9);
+  }
+  assert.ok(Math.abs(row.points[0].x - 1) < 1e-9 && Math.abs(row.points[0].y) < 1e-9);
+  const last = row.points[row.points.length - 1];
+  assert.ok(Math.abs(last.x - 1) < 1e-9 && Math.abs(last.y) < 1e-9, "the sweep closes at 2π");
+  let maxStep = 0;
+  for (let i = 1; i < row.points.length; i++) {
+    maxStep = Math.max(maxStep, Math.hypot(row.points[i].x - row.points[i - 1].x, row.points[i].y - row.points[i - 1].y));
+  }
+  assert.ok(maxStep < (Math.PI * 2) / 400 * 1.5, "consecutive samples stay adjacent");
+
+  const bounded = graph.buildGraph({ rows: ["(t, t^2) {0 < t < 2}"], xMin: -1, xMax: 3, yMin: -1, yMax: 5, samples: 100 });
+  const curve = bounded.rows[0];
+  assert.equal(curve.error, "");
+  assert.deepEqual(curve.bounds, [0, 2]);
+  assert.ok(Math.abs(curve.points[0].x) < 1e-9 && Math.abs(curve.points[0].y) < 1e-9);
+  const end = curve.points[curve.points.length - 1];
+  assert.ok(Math.abs(end.x - 2) < 1e-9 && Math.abs(end.y - 4) < 1e-9, "the upper bound is reached exactly");
+});
+
+test("graph: parametric rows read sliders, definitions and restrictions", () => {
+  const withSlider = graph.buildGraph({ rows: ["a = 2", "(a cos(t), a sin(t))"], xMin: -3, xMax: 3, yMin: -3, yMax: 3, samples: 100 });
+  assert.ok(Math.abs(Math.hypot(withSlider.rows[1].points[0].x, withSlider.rows[1].points[0].y) - 2) < 1e-9, "the slider scales the curve");
+  const moved = graph.buildGraph({ rows: ["a = 2", "(a cos(t), a sin(t))"], parameters: { a: 0.5 }, samples: 100 });
+  assert.ok(Math.abs(Math.hypot(moved.rows[1].points[0].x, moved.rows[1].points[0].y) - 0.5) < 1e-9);
+
+  const definition = graph.buildGraph({ rows: ["f(x) = x^2", "(t, f(t)) {0 < t < 2}"], samples: 100 });
+  assert.equal(definition.rows[1].error, "");
+  const end = definition.rows[1].points[definition.rows[1].points.length - 1];
+  assert.ok(Math.abs(end.y - 4) < 1e-9, "a definition is callable in both coordinates");
+
+  const filtered = graph.buildGraph({ rows: ["(cos(t), sin(t)) {t < pi}"], samples: 100 });
+  const drawn = filtered.rows[0].points.filter((point) => point.y !== null);
+  assert.ok(drawn.length > 0 && drawn.every((point) => point.t < Math.PI + 1e-9), "a one-sided condition filters the default sweep");
+
+  const gap = graph.buildGraph({ rows: ["(sqrt(t - 3), t)"], xMin: -1, xMax: 3, yMin: 0, yMax: 7, samples: 100 });
+  assert.equal(gap.rows[0].error, "");
+  assert.ok(gap.rows[0].points.some((point) => point.y === null), "a non-real coordinate leaves a gap");
+});
+
+test("graph: parametric fill shades a closed curve and rejects the rest", () => {
+  const filled = graph.buildGraph({ rows: ["(cos(t), sin(t)) fill"], samples: 100 });
+  assert.equal(filled.rows[0].error, "");
+  assert.ok(filled.rows[0].polygon.length >= 200, "the polygon follows the curve");
+  assert.ok(filled.rows[0].polygon.every((point) => Math.abs(Math.hypot(point.x, point.y) - 1) < 1e-9));
+
+  const open = graph.buildGraph({ rows: ["(t, t^2) fill {0 < t < 2}"], samples: 100 });
+  assert.match(open.rows[0].error, /closed curve/);
+
+  const gaps = graph.buildGraph({ rows: ["(sqrt(t - 3), t) fill"], xMin: -1, xMax: 3, yMin: 0, yMax: 7, samples: 100 });
+  assert.match(gaps.rows[0].error, /continuous/);
+});
+
+test("graph: unsupported parametric input reports a clear error", () => {
+  assert.match(graph.buildGraph({ rows: ["(cos(x), sin(x))"] }).rows[0].error, /Unknown name "x"/);
+  assert.match(graph.buildGraph({ rows: ["(t, )"] }).rows[0].error, /Both x and y/);
+  assert.match(graph.buildGraph({ rows: ["(t, t) {0 < t < q}"] }).rows[0].error, /parametric bound must be a number/i);
+  assert.match(graph.buildGraph({ rows: ["(t, t) {2 < t < 1}"] }).rows[0].error, /larger than its start/);
+  assert.match(graph.buildGraph({ rows: ["(sqrt(-1 - t), t)"] }).rows[0].error, /no values in this window/);
+});
+
+test("reference view: parametric and filled rows render", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  view.graphRows = [
+    { text: "(cos(t), sin(t)) fill", hidden: false },
+    { text: "(t, t^2) {0 < t < 2}", hidden: false },
+  ];
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const text = dom.texts().join(" | ");
+  assert.ok(!/Unknown name|not valid|Expected|incomplete/i.test(text), "parametric rows render without an error");
+  assert.ok(text.toLowerCase().includes("parametric"), "the note explains parametric rows");
+});

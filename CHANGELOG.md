@@ -2,6 +2,17 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.179.0 — 2026-11-02
+
+- Parametric rows `(cos(t), sin(t))` plot x and y against a shared parameter
+  `t` (or `theta`), sweeping 0..2π by default and reading sliders and f/g/h
+  definitions in both coordinates.
+- A two-sided bound such as `{0 < t < 2pi}` sets the sweep exactly; any other
+  `{…}` condition filters it, and non-real coordinates leave a gap instead of
+  drawing a chord.
+- `fill` after the pair shades a closed curve at 16% opacity and is rejected
+  with an inline message for open or discontinuous curves.
+
 ## 1.178.0 — 2026-11-02
 
 - Polar rows (`r = 1 + cos(theta)`, `r = 2 sin(3 theta)`, `r = 3`) sweep theta

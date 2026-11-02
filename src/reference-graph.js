@@ -17,6 +17,7 @@
  *   - a domain/range restriction           `y = x^2 {0 < x < 3}`, `{y > 0}`
  *   - a piecewise value                    `y = {x < 0: -x, x >= 0: x}`
  *   - a polar curve in r and theta         `r = 1 + cos(theta)`
+ *   - a parametric pair in t               `(cos(t), sin(t))`
  * Explicit rows are sampled; implicit rows are traced with marching squares;
  * inequalities shade a coarse cell grid and draw their boundary;
  * regression rows are fitted to the x/y table with a local least-squares
@@ -450,13 +451,32 @@ function parseGraphRow(text) {
   if (!raw) return { kind: "empty", text: raw, label: "", condition: "" };
   let body = raw.replace(/θ/g, "theta");
   const restrictions = [];
+  let fill = false;
   for (;;) {
+    if (!fill && body.startsWith("(") && /(^|\s)fill$/i.test(body)) {
+      fill = true;
+      body = body.replace(/(^|\s)fill$/i, "").trim();
+      if (!body) throw new Error('A "fill" row still needs a curve, like (cos(t), sin(t)) fill.');
+      continue;
+    }
     const split = splitRestriction(body);
     if (!split.condition) break;
     restrictions.push(split.condition);
     body = split.body;
   }
   const condition = restrictions.join(" and ");
+  const parametric = splitParametric(body);
+  if (parametric) {
+    return {
+      kind: "parametric",
+      text: raw,
+      xBody: parametric.xBody,
+      yBody: parametric.yBody,
+      fill,
+      label: raw,
+      condition,
+    };
+  }
   const comparison = splitComparison(body);
   if (comparison) {
     if (!comparison.lhs || !comparison.rhs) throw new Error("Both sides of the comparison need an expression.");
@@ -530,6 +550,107 @@ function readView(options) {
     yMin: numeric(opts.yMin, DEFAULT_VIEW.yMin),
     yMax: numeric(opts.yMax, DEFAULT_VIEW.yMax),
   };
+}
+
+/**
+ * Split `(cos(t), sin(t))` into its two coordinate expressions.
+ * A single parenthesised expression stays an explicit row.
+ */
+function splitParametric(text) {
+  const trimmed = String(text == null ? "" : text).trim();
+  if (!trimmed.startsWith("(")) return null;
+  let depth = 0;
+  let closeAt = -1;
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth === 0) {
+        closeAt = i;
+        break;
+      }
+    }
+  }
+  if (closeAt !== trimmed.length - 1) return null;
+  const parts = splitTopLevel(trimmed.slice(1, -1), ",");
+  if (parts.length === 1) return null;
+  if (parts.length !== 2) throw new Error("A parametric row needs exactly two expressions, like (cos(t), sin(t)).");
+  const xBody = parts[0].trim();
+  const yBody = parts[1].trim();
+  if (!xBody || !yBody) throw new Error("Both x and y in a parametric row need an expression, like (cos(t), sin(t)).");
+  return { xBody, yBody };
+}
+
+function parametricBound(text, definitions) {
+  let value;
+  try {
+    value = compileScoped(text, [], definitions)({});
+  } catch (e) {
+    throw new Error(`A parametric bound must be a number, like {0 < t < 2pi}: ${e.message}`);
+  }
+  if (!Number.isFinite(value)) throw new Error("A parametric bound must be a finite number, like {0 < t < 2pi}.");
+  return value;
+}
+
+/**
+ * A condition that is exactly `low < t < high` (or `theta`) sets the sweep.
+ * Any other condition filters a 0..2pi sweep instead.
+ */
+function parametricRange(condition, definitions) {
+  if (!condition) return null;
+  const match = /^\s*(.+?)\s*(?:<=|<)\s*(?:t|theta)\s*(?:<=|<)\s*(.+?)\s*$/.exec(condition);
+  if (!match) return null;
+  const start = parametricBound(match[1], definitions);
+  const end = parametricBound(match[2], definitions);
+  if (!(end > start)) throw new Error("The end of a parametric range must be larger than its start.");
+  return { start, end };
+}
+
+/**
+ * Sample a parametric pair over `bounds` into x/y points.
+ * A non-finite coordinate leaves a gap so no chord is drawn across it.
+ */
+function sampleParametric(xFn, yFn, condition, bounds, samples) {
+  const count = Math.max(240, Math.min(4000, Math.round(numeric(samples, 600))));
+  const start = bounds[0];
+  const end = bounds[1];
+  const points = [];
+  for (let i = 0; i < count; i++) {
+    const t = start + ((end - start) * i) / (count - 1);
+    let x;
+    let y;
+    try {
+      const scope = { t, theta: t };
+      x = xFn(scope);
+      y = yFn(scope);
+    } catch (e) {
+      x = NaN;
+      y = NaN;
+    }
+    const allowed = Number.isFinite(x) && Number.isFinite(y) && (!condition || condition({ t, theta: t, x, y }));
+    points.push(allowed ? { x, y, t } : { x: null, y: null, t });
+  }
+  return points;
+}
+
+/**
+ * Turn sampled points into a fill polygon, refusing anything that is not a
+ * continuous closed curve so a bad fill reports instead of shading wrongly.
+ */
+function parametricFillPolygon(points) {
+  const drawn = points.filter((point) => point.y !== null);
+  if (drawn.length < 3) return { error: "Fill needs a closed curve with at least three points." };
+  if (drawn.length !== points.length) return { error: "Fill needs a continuous curve; this one has gaps where a coordinate is not a number." };
+  const first = drawn[0];
+  const last = drawn[drawn.length - 1];
+  const xs = drawn.map((point) => point.x);
+  const ys = drawn.map((point) => point.y);
+  const span = Math.max(Math.max.apply(null, xs) - Math.min.apply(null, xs), Math.max.apply(null, ys) - Math.min.apply(null, ys), 1e-9);
+  if (Math.hypot(first.x - last.x, first.y - last.y) > span * 0.05) {
+    return { error: "Fill needs a closed curve: make the parameter range end where it starts." };
+  }
+  return { polygon: drawn.map((point) => ({ x: point.x, y: point.y })) };
 }
 
 /**
@@ -907,7 +1028,7 @@ function buildGraph(options) {
       if (parsed.condition && (parsed.kind === "definition" || parsed.kind === "parameter" || parsed.kind === "regression")) {
         throw new Error("A restriction goes on an expression or equation, not on a definition, slider or regression.");
       }
-      const condition = parsed.condition && parsed.kind !== "polar" ? compileCondition(parsed.condition, ["x", "y"], definitions) : null;
+      const condition = parsed.condition && parsed.kind !== "polar" && parsed.kind !== "parametric" ? compileCondition(parsed.condition, ["x", "y"], definitions) : null;
       if (parsed.kind === "definition") {
         const params = parsed.params.slice();
         const body = compileScoped(parsed.body, params, definitions);
@@ -934,6 +1055,22 @@ function buildGraph(options) {
         const polarCondition = parsed.condition ? compileCondition(parsed.condition, ["theta", "r"], definitions) : null;
         row.points = samplePolar((scope) => compiled(scope), polarCondition, samples * 2);
         if (!row.points.some((point) => point.y !== null)) row.error = "That polar curve has no values in this window.";
+      } else if (parsed.kind === "parametric") {
+        const xCompiled = compileScoped(parsed.xBody, ["t", "theta"], definitions);
+        const yCompiled = compileScoped(parsed.yBody, ["t", "theta"], definitions);
+        const range = parametricRange(parsed.condition, definitions);
+        const filter = range || !parsed.condition ? null : compileCondition(parsed.condition, ["t", "theta", "x", "y"], definitions);
+        const bounds = range ? [range.start, range.end] : [0, Math.PI * 2];
+        row.points = sampleParametric(xCompiled, yCompiled, filter, bounds, samples * 2);
+        row.bounds = bounds;
+        row.fill = parsed.fill === true;
+        if (!row.points.some((point) => point.y !== null)) {
+          row.error = "That parametric curve has no values in this window.";
+        } else if (row.fill) {
+          const filled = parametricFillPolygon(row.points);
+          if (filled.error) row.error = filled.error;
+          else row.polygon = filled.polygon;
+        }
       } else if (parsed.kind === "explicit") {
         const compiled = compileScoped(parsed.body, ["x"], definitions);
         const base = (x) => compiled({ x });
@@ -1058,8 +1195,10 @@ module.exports = {
   readDataPoints,
   regressionParameters,
   sampleExplicit,
+  sampleParametric,
   samplePolar,
   sampleRegion,
+  parametricFillPolygon,
   splitRestriction,
   tokenize,
   traceImplicit,
