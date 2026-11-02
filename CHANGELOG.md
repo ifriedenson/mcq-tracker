@@ -2,6 +2,16 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.182.0 — 2026-11-02
+
+- Graph rows mark their points of interest: roots, the y-intercept, local
+  extrema and the crossings between two rows, each refined by bisection or a
+  ternary search and labelled on the canvas.
+- Hovering the canvas reads out the x and y of the nearest curve, interpolated
+  between samples, and a gap under the cursor reports no value.
+- A **points of interest** control turns the rings off, and restrictions keep
+  hidden roots out of the list.
+
 ## 1.181.0 — 2026-11-02
 
 - The graph function library gains `sec`, `csc`, `cot`, the hyperbolic family

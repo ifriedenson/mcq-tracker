@@ -13,7 +13,7 @@ const {
 } = require("./reference-data");
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
 const {
-  markerLayout, buildGraph, parseGraphRow } = require("./reference-graph");
+  markerLayout, buildGraph, parseGraphRow, traceAt } = require("./reference-graph");
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
@@ -88,6 +88,10 @@ class ReferenceView extends ItemView {
     this.graphYMax = "10";
     this.graphData = [];
     this.graphPolarGrid = false;
+    this.graphInterest = true;
+    this.graphTrace = null;
+    this.graphTraceEl = null;
+    this.graphBuilt = null;
     this.graphCanvas = null;
     this.graphErrorEl = null;
     this.graphRowErrorEls = [];
@@ -308,7 +312,7 @@ class ReferenceView extends ItemView {
   renderGraph(root) {
     root.createDiv({
       cls: "qt-ref-note",
-      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Polar rows start with r, like r = 1 + cos(theta) or r = 2 sin(3 theta): theta (or θ) sweeps 0 to 2π, sliders work inside the radius, an optional {theta > 0} or {r > 0} restriction limits the sweep, and the polar grid control overlays rings and spokes on any row. A parametric row is a pair of expressions in a shared parameter, like (cos(t), sin(t)): t (or theta) runs 0 to 2π unless a two-sided bound such as {0 < t < 2pi} sets the range, other {…} conditions filter the sweep, sliders and definitions work in both coordinates, and the word fill after the pair shades a closed curve. A pair without the parameter, like (1, 2) or (a, b) with sliders, is a point marker: add open for a hollow marker or closed for a filled one, and a quoted text such as \"A\" replaces its coordinate label. Square brackets hold a list, like [(1, 2), (3, 4)], and restrictions filter which points show. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A trailing brace restricts a row to part of its domain or range, like y = x^2 {0 < x < 3} or {0 < y < 1}, and braces with cases make a piecewise row, like y = {x < 0: -x, x >= 0: x}. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e, tau and sin, cos, tan, sec, csc, cot, asin, acos, atan, sinh, cosh, tanh, csch, sech, coth, asinh, acosh, atanh, acsch, asech, acoth, sqrt, abs, ln, log, exp, floor, ceil, sign or round, plus mod, nthroot, gcd, lcm, nCr and nPr, which take two values. Operators are + - * / ^.",
+      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Polar rows start with r, like r = 1 + cos(theta) or r = 2 sin(3 theta): theta (or θ) sweeps 0 to 2π, sliders work inside the radius, an optional {theta > 0} or {r > 0} restriction limits the sweep, and the polar grid control overlays rings and spokes on any row. A parametric row is a pair of expressions in a shared parameter, like (cos(t), sin(t)): t (or theta) runs 0 to 2π unless a two-sided bound such as {0 < t < 2pi} sets the range, other {…} conditions filter the sweep, sliders and definitions work in both coordinates, and the word fill after the pair shades a closed curve. A pair without the parameter, like (1, 2) or (a, b) with sliders, is a point marker: add open for a hollow marker or closed for a filled one, and a quoted text such as \"A\" replaces its coordinate label. Square brackets hold a list, like [(1, 2), (3, 4)], and restrictions filter which points show. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A trailing brace restricts a row to part of its domain or range, like y = x^2 {0 < x < 3} or {0 < y < 1}, and braces with cases make a piecewise row, like y = {x < 0: -x, x >= 0: x}. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e, tau and sin, cos, tan, sec, csc, cot, asin, acos, atan, sinh, cosh, tanh, csch, sech, coth, asinh, acosh, atanh, acsch, asech, acoth, sqrt, abs, ln, log, exp, floor, ceil, sign or round, plus mod, nthroot, gcd, lcm, nCr and nPr, which take two values. Operators are + - * / ^. Roots, y-intercepts, extrema and crossings between rows are marked with small rings, which the points-of-interest control turns off, and hovering the canvas reads out the x and y of the nearest curve.",
     });
     const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
     for (const [key, label] of [["graphXMin", "min x"], ["graphXMax", "max x"], ["graphYMin", "min y"], ["graphYMax", "max y"]]) {
@@ -333,6 +337,15 @@ class ReferenceView extends ItemView {
       this.drawGraph();
     });
     polarField.createSpan({ text: "polar grid" });
+
+    const interestField = controls.createEl("label", { cls: "qt-ref-graph-polar" });
+    const interestToggle = interestField.createEl("input", { attr: { type: "checkbox", "aria-label": "Points of interest" } });
+    interestToggle.checked = this.graphInterest;
+    interestToggle.addEventListener("change", () => {
+      this.graphInterest = interestToggle.checked === true;
+      this.drawGraph();
+    });
+    interestField.createSpan({ text: "points of interest" });
 
     const list = root.createDiv({ cls: "qt-ref-graph-rows" });
     this.graphRowErrorEls = [];
@@ -442,6 +455,38 @@ class ReferenceView extends ItemView {
     });
 
     this.graphCanvas = root.createEl("canvas", { cls: "qt-ref-canvas qt-ref-graph-canvas", attr: { "aria-label": "Graph of the expressions" } });
+    this.graphTraceEl = root.createDiv({ cls: "qt-ref-graph-trace", attr: { "aria-live": "polite" } });
+    this.graphCanvas.addEventListener("pointermove", (event) => {
+      const graph = this.graphBuilt;
+      if (!graph) return;
+      const rect = this.graphCanvas.getBoundingClientRect ? this.graphCanvas.getBoundingClientRect() : null;
+      const width = rect && Number(rect.width) > 0 ? Number(rect.width) : Number(this.graphCanvas.clientWidth) || 640;
+      const height = rect && Number(rect.height) > 0 ? Number(rect.height) : 320;
+      const left = rect ? Number(rect.left) || 0 : 0;
+      const top = rect ? Number(rect.top) || 0 : 0;
+      const across = Math.min(1, Math.max(0, (event.clientX - left) / width));
+      const down = Math.min(1, Math.max(0, (event.clientY - top) / height));
+      const x = graph.xMin + across * (graph.xMax - graph.xMin);
+      const y = graph.yMin + (1 - down) * (graph.yMax - graph.yMin);
+      this.graphTrace = { x, y };
+      const traces = traceAt(graph, x);
+      if (this.graphTraceEl) {
+        if (!traces.length) {
+          this.graphTraceEl.setText("No curve at this x.");
+        } else {
+          let best = traces[0];
+          for (const trace of traces) if (Math.abs(trace.y - y) < Math.abs(best.y - y)) best = trace;
+          this.graphTraceEl.setText(`x = ${formatGraphTick(best.x)} · y = ${formatGraphTick(best.y)} · row ${best.rowIndex + 1}`);
+        }
+      }
+      this.drawGraph();
+    });
+    this.graphCanvas.addEventListener("pointerleave", () => {
+      if (!this.graphTrace) return;
+      this.graphTrace = null;
+      if (this.graphTraceEl) this.graphTraceEl.setText("");
+      this.drawGraph();
+    });
     this.graphErrorEl = root.createDiv({ cls: "qt-ref-note" });
     this.drawGraph();
   }
@@ -571,6 +616,7 @@ class ReferenceView extends ItemView {
       return;
     }
     if (this.graphErrorEl) this.graphErrorEl.setText(graph.dataError || "");
+    this.graphBuilt = graph;
     const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
     const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
     this.paintGraphGrid(ctx, graph, width, height, px, py);
@@ -609,6 +655,8 @@ class ReferenceView extends ItemView {
     if (graph.data.length && graph.rows.some((row) => row.kind === "regression")) {
       this.paintGraphData(ctx, graph.data, px, py);
     }
+    if (this.graphInterest) this.paintGraphInterest(ctx, graph, width, height, px, py);
+    this.paintGraphTrace(ctx, graph, width, height, px, py);
   }
 
   paintGraphData(ctx, points, px, py) {
@@ -681,6 +729,56 @@ class ReferenceView extends ItemView {
     }
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
+  }
+
+  paintGraphInterest(ctx, graph, width, height, px, py) {
+    const entries = Array.isArray(graph.interest) ? graph.interest : [];
+    if (!entries.length) return;
+    ctx.font = "10px sans-serif";
+    ctx.textBaseline = "bottom";
+    for (const point of entries) {
+      const x = px(point.x);
+      const y = py(point.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const color = GRAPH_COLORS[(point.rowIndex || 0) % GRAPH_COLORS.length];
+      ctx.strokeStyle = color;
+      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (!point.label) continue;
+      ctx.fillStyle = color;
+      ctx.textAlign = x > width - 74 ? "right" : "left";
+      ctx.fillText(point.label, x + (x > width - 74 ? -7 : 7), Math.max(y - 6, 11));
+    }
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
+  }
+
+  paintGraphTrace(ctx, graph, width, height, px, py) {
+    const pointer = this.graphTrace;
+    if (!pointer) return;
+    const traces = traceAt(graph, pointer.x);
+    if (!traces.length) return;
+    let best = traces[0];
+    for (const trace of traces) if (Math.abs(trace.y - pointer.y) < Math.abs(best.y - pointer.y)) best = trace;
+    const x = px(best.x);
+    const y = py(best.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    ctx.strokeStyle = "rgba(127, 127, 127, 0.55)";
+    ctx.lineWidth = 1;
+    if (ctx.setLineDash) ctx.setLineDash([3, 4]);
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+    if (ctx.setLineDash) ctx.setLineDash([]);
+    ctx.fillStyle = GRAPH_COLORS[(best.rowIndex || 0) % GRAPH_COLORS.length];
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   paintGraphPolygon(ctx, polygon, color, px, py) {

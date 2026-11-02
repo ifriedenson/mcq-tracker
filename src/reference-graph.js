@@ -893,6 +893,206 @@ function sampleExplicit(fn, view, samples) {
   return points;
 }
 
+const POI_LIMIT = 24;
+
+/** Bisect a sign change down to the machine-precision root. */
+function refineRoot(fn, lo, hi) {
+  let a = lo;
+  let b = hi;
+  let fa = fn(a);
+  for (let i = 0; i < 80 && b - a > 1e-12; i++) {
+    const mid = (a + b) / 2;
+    const fm = fn(mid);
+    if (!Number.isFinite(fm)) break;
+    if (fm === 0) return mid;
+    if ((fa < 0) === (fm < 0)) {
+      a = mid;
+      fa = fm;
+    } else {
+      b = mid;
+    }
+  }
+  return (a + b) / 2;
+}
+
+/** Ternary search for one local maximum or minimum inside a bracket. */
+function refineExtremum(fn, lo, hi, mode) {
+  let a = lo;
+  let b = hi;
+  for (let i = 0; i < 100 && b - a > 1e-12; i++) {
+    const m1 = a + (b - a) / 3;
+    const m2 = b - (b - a) / 3;
+    const v1 = fn(m1);
+    const v2 = fn(m2);
+    if (!Number.isFinite(v1) || !Number.isFinite(v2)) break;
+    if (mode === "minimum" ? v1 < v2 : v1 > v2) b = m2;
+    else a = m1;
+  }
+  return (a + b) / 2;
+}
+
+/**
+ * Collect the roots, the y-intercept and the extrema of one sampled curve.
+ * Every candidate is refined against the compiled function and merged when two
+ * readings land on the same x, so a vertex that is also an intercept appears
+ * once. A restriction already removed the values it excludes, so a root
+ * outside the drawn domain is never reported.
+ */
+function findRowInterest(fn, points, view, rowIndex) {
+  const span = Math.max(view.xMax - view.xMin, 1e-9);
+  const tolerance = span * 1e-6;
+  const found = [];
+  const push = (kind, x, y) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (x < view.xMin - tolerance || x > view.xMax + tolerance) return;
+    const existing = found.find((point) => Math.abs(point.x - x) <= tolerance);
+    if (existing) {
+      if (!existing.kinds.includes(kind)) existing.kinds.push(kind);
+      return;
+    }
+    if (found.length >= POI_LIMIT) return;
+    found.push({ kind, kinds: [kind], x, y, label: formatPointLabel(x, y), rowIndex });
+  };
+  if (view.xMin <= 0 && view.xMax >= 0) {
+    let zero;
+    try {
+      zero = fn(0);
+    } catch (e) {
+      zero = NaN;
+    }
+    if (Number.isFinite(zero)) push("intercept", 0, zero);
+  }
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    if (a.y === null || b.y === null) continue;
+    if (a.y === 0) {
+      push("root", a.x, 0);
+      continue;
+    }
+    if ((a.y < 0) === (b.y < 0)) continue;
+    const x = refineRoot(fn, a.x, b.x);
+    let y;
+    try {
+      y = fn(x);
+    } catch (e) {
+      y = NaN;
+    }
+    push("root", x, Number.isFinite(y) ? y : 0);
+  }
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i - 1];
+    const here = points[i];
+    const next = points[i + 1];
+    if (prev.y === null || here.y === null || next.y === null) continue;
+    const before = here.y - prev.y;
+    const after = next.y - here.y;
+    if (before === 0 || after === 0 || (before < 0) === (after < 0)) continue;
+    const mode = before > 0 ? "maximum" : "minimum";
+    const x = refineExtremum(fn, prev.x, next.x, mode);
+    let y;
+    try {
+      y = fn(x);
+    } catch (e) {
+      y = NaN;
+    }
+    push(mode, x, Number.isFinite(y) ? y : here.y);
+  }
+  found.sort((a, b) => a.x - b.x);
+  return found;
+}
+
+/**
+ * Find where two sampled curves cross by bisecting the difference on the
+ * shared sample grid. A tangency with no sign change is not reported.
+ */
+function findIntersections(curves, view) {
+  const span = Math.max(view.xMax - view.xMin, 1e-9);
+  const tolerance = span * 1e-6;
+  const found = [];
+  for (let i = 0; i < curves.length; i++) {
+    for (let j = i + 1; j < curves.length; j++) {
+      const first = curves[i];
+      const second = curves[j];
+      const length = Math.min(first.points.length, second.points.length);
+      const difference = (x) => {
+        try {
+          return first.fn(x) - second.fn(x);
+        } catch (e) {
+          return NaN;
+        }
+      };
+      for (let k = 0; k < length - 1 && found.length < POI_LIMIT; k++) {
+        const a0 = first.points[k];
+        const a1 = first.points[k + 1];
+        const b0 = second.points[k];
+        const b1 = second.points[k + 1];
+        if (a0.y === null || a1.y === null || b0.y === null || b1.y === null) continue;
+        const d0 = a0.y - b0.y;
+        const d1 = a1.y - b1.y;
+        if (d0 !== 0 && (d0 < 0) === (d1 < 0)) continue;
+        let x;
+        if (d0 === 0) {
+          x = a0.x;
+        } else {
+          const left = difference(a0.x);
+          const right = difference(a1.x);
+          if (!Number.isFinite(left) || !Number.isFinite(right) || (left === 0 && right === 0)) continue;
+          x = refineRoot(difference, a0.x, a1.x);
+        }
+        let y;
+        try {
+          y = first.fn(x);
+        } catch (e) {
+          y = NaN;
+        }
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        if (found.some((point) => Math.abs(point.x - x) <= tolerance)) continue;
+        found.push({
+          kind: "intersection",
+          kinds: ["intersection"],
+          x,
+          y,
+          label: formatPointLabel(x, y),
+          rowIndex: second.index,
+          rows: [first.index, second.index],
+        });
+      }
+    }
+  }
+  found.sort((a, b) => a.x - b.x);
+  return found;
+}
+
+/**
+ * Read every sampled curve at one x. Explicit and regression rows interpolate
+ * between their samples; a gap or an x outside the window reports nothing.
+ */
+function traceAt(built, x) {
+  const rows = built && Array.isArray(built.rows) ? built.rows : [];
+  if (!Number.isFinite(x)) return [];
+  const out = [];
+  for (const row of rows) {
+    if (!row.points || !row.points.length) continue;
+    if (row.kind !== "explicit" && row.kind !== "regression") continue;
+    const points = row.points;
+    const first = points[0];
+    const last = points[points.length - 1];
+    if (!(x >= Math.min(first.x, last.x) - 1e-12 && x <= Math.max(first.x, last.x) + 1e-12)) continue;
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      if (x < a.x - 1e-12 || x > b.x + 1e-12) continue;
+      if (a.y === null || b.y === null || b.x === a.x) break;
+      const t = (x - a.x) / (b.x - a.x);
+      const y = a.y + (b.y - a.y) * t;
+      if (Number.isFinite(y)) out.push({ rowIndex: row.index, x, y });
+      break;
+    }
+  }
+  return out;
+}
+
 /**
  * Trace where a two-variable residual is zero with marching squares.
  * Returns line segments in graph coordinates; each cell contributes at most two.
@@ -1219,6 +1419,7 @@ function buildGraph(options) {
   const regionResolution = opts.regionResolution || {};
   const definitions = {};
   const out = [];
+  const curves = [];
   for (let i = 0; i < rows.length; i++) {
     const input = rows[i];
     const raw = typeof input === "string" ? input : String((input && input.text) || "");
@@ -1301,7 +1502,12 @@ function buildGraph(options) {
             }
           : base;
         row.points = sampleExplicit(fn, view, samples);
-        if (!row.points.some((point) => point.y !== null)) row.error = "That expression has no real values in this window.";
+        row.interest = findRowInterest(fn, row.points, view, i);
+        curves.push({ index: i, fn, points: row.points });
+        if (!row.points.some((point) => point.y !== null)) {
+          row.error = "That expression has no real values in this window.";
+          row.interest = [];
+        }
       } else if (parsed.kind === "regression") {
         const paramNames = regressionParameters(parsed.rhs, definitions);
         if (!paramNames.length) throw new Error('Add a name to fit, like y ~ m x + b.');
@@ -1332,7 +1538,12 @@ function buildGraph(options) {
         row.residual = fitted.cost;
         const sample = (x) => model(x, fitted.values);
         row.points = sampleExplicit(sample, view, samples);
-        if (!row.points.some((point) => point.y !== null)) row.error = "That fit has no real values in this window.";
+        row.interest = findRowInterest(sample, row.points, view, i);
+        curves.push({ index: i, fn: sample, points: row.points });
+        if (!row.points.some((point) => point.y !== null)) {
+          row.error = "That fit has no real values in this window.";
+          row.interest = [];
+        }
       } else if (parsed.kind === "implicit") {
         const relation = compileRelation(parsed.lhs, parsed.rhs, definitions);
         const fn = condition ? (x, y) => (condition({ x, y }) ? relation(x, y) : NaN) : relation;
@@ -1361,8 +1572,19 @@ function buildGraph(options) {
     }
     out.push(row);
   }
+  const intersections = findIntersections(curves, view);
+  for (const crossing of intersections) {
+    const row = out[crossing.rowIndex];
+    if (!row) continue;
+    if (!row.interest) row.interest = [];
+    row.interest.push(crossing);
+  }
+  const interest = [];
+  for (const row of out) if (row.interest && row.interest.length) interest.push.apply(interest, row.interest);
+  interest.sort((a, b) => a.x - b.x);
   return {
     rows: out,
+    interest,
     data: data.points,
     dataError: data.error,
     xMin: view.xMin,
@@ -1416,6 +1638,9 @@ module.exports = {
   readDataPoints,
   regressionParameters,
   sampleExplicit,
+  findRowInterest,
+  findIntersections,
+  traceAt,
   markerLayout,
   formatPointLabel,
   sampleParametric,

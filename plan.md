@@ -1244,7 +1244,7 @@ Owner direction: inventory everything the Desmos Graphing Calculator does, recor
 | 1.179.0 | Parametric curves `(cos(t), sin(t))` with t bounds and curve fill | `mafs` `Plot.Parametric` (MIT); `function-plot` parametric example (MIT) | **Shipped** |
 | 1.180.0 | Points, point lists, labels and open/closed point styles | `mafs` points and movable points (MIT); `Graphr` point styling (MIT, https://github.com/yerich/Graphr) | **Shipped** |
 | 1.181.0 | Full function library: sec/csc/cot, hyperbolic and inverse hyperbolic, mod, sign, round, nthroot, gcd/lcm, nCr/nPr, tau | `mathjs` function definitions (Apache-2.0, https://github.com/josdejong/mathjs); `expr-eval` grammar (MIT, https://github.com/silentmatt/expr-eval) | **Shipped** |
-| 1.182.0 | Points of interest (roots, intercepts, extrema, intersections) and cursor trace readout | `Graphr` root/trace tools (MIT); `numeric` bracketing and Newton solvers (MIT, https://github.com/sloisel/numeric) | Queued |
+| 1.182.0 | Points of interest (roots, intercepts, extrema, intersections) and cursor trace readout | `Graphr` root/trace tools (MIT); `numeric` bracketing and Newton solvers (MIT, https://github.com/sloisel/numeric) | **Shipped** |
 | 1.183.0 | Zoom, pan, zoom-fit, default viewport and lock viewport | `function-plot` re-evaluation on scale change (MIT); `Graphr` mouse zoom/pan (MIT) | Queued |
 | 1.184.0 | Graph settings: minor gridlines, axis labels, pi ticks, degrees/radians | `jsxgraph` axis/ticks board (MIT option); `function-plot` axis options (MIT) | Queued |
 | 1.185.0 | Row styling: line width, dashed lines, fill opacity and point size | `jsxgraph` styling options (MIT option) | Queued |

@@ -59923,6 +59923,206 @@ function sampleExplicit(fn, view, samples) {
   return points;
 }
 
+const POI_LIMIT = 24;
+
+/** Bisect a sign change down to the machine-precision root. */
+function refineRoot(fn, lo, hi) {
+  let a = lo;
+  let b = hi;
+  let fa = fn(a);
+  for (let i = 0; i < 80 && b - a > 1e-12; i++) {
+    const mid = (a + b) / 2;
+    const fm = fn(mid);
+    if (!Number.isFinite(fm)) break;
+    if (fm === 0) return mid;
+    if ((fa < 0) === (fm < 0)) {
+      a = mid;
+      fa = fm;
+    } else {
+      b = mid;
+    }
+  }
+  return (a + b) / 2;
+}
+
+/** Ternary search for one local maximum or minimum inside a bracket. */
+function refineExtremum(fn, lo, hi, mode) {
+  let a = lo;
+  let b = hi;
+  for (let i = 0; i < 100 && b - a > 1e-12; i++) {
+    const m1 = a + (b - a) / 3;
+    const m2 = b - (b - a) / 3;
+    const v1 = fn(m1);
+    const v2 = fn(m2);
+    if (!Number.isFinite(v1) || !Number.isFinite(v2)) break;
+    if (mode === "minimum" ? v1 < v2 : v1 > v2) b = m2;
+    else a = m1;
+  }
+  return (a + b) / 2;
+}
+
+/**
+ * Collect the roots, the y-intercept and the extrema of one sampled curve.
+ * Every candidate is refined against the compiled function and merged when two
+ * readings land on the same x, so a vertex that is also an intercept appears
+ * once. A restriction already removed the values it excludes, so a root
+ * outside the drawn domain is never reported.
+ */
+function findRowInterest(fn, points, view, rowIndex) {
+  const span = Math.max(view.xMax - view.xMin, 1e-9);
+  const tolerance = span * 1e-6;
+  const found = [];
+  const push = (kind, x, y) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (x < view.xMin - tolerance || x > view.xMax + tolerance) return;
+    const existing = found.find((point) => Math.abs(point.x - x) <= tolerance);
+    if (existing) {
+      if (!existing.kinds.includes(kind)) existing.kinds.push(kind);
+      return;
+    }
+    if (found.length >= POI_LIMIT) return;
+    found.push({ kind, kinds: [kind], x, y, label: formatPointLabel(x, y), rowIndex });
+  };
+  if (view.xMin <= 0 && view.xMax >= 0) {
+    let zero;
+    try {
+      zero = fn(0);
+    } catch (e) {
+      zero = NaN;
+    }
+    if (Number.isFinite(zero)) push("intercept", 0, zero);
+  }
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    if (a.y === null || b.y === null) continue;
+    if (a.y === 0) {
+      push("root", a.x, 0);
+      continue;
+    }
+    if ((a.y < 0) === (b.y < 0)) continue;
+    const x = refineRoot(fn, a.x, b.x);
+    let y;
+    try {
+      y = fn(x);
+    } catch (e) {
+      y = NaN;
+    }
+    push("root", x, Number.isFinite(y) ? y : 0);
+  }
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i - 1];
+    const here = points[i];
+    const next = points[i + 1];
+    if (prev.y === null || here.y === null || next.y === null) continue;
+    const before = here.y - prev.y;
+    const after = next.y - here.y;
+    if (before === 0 || after === 0 || (before < 0) === (after < 0)) continue;
+    const mode = before > 0 ? "maximum" : "minimum";
+    const x = refineExtremum(fn, prev.x, next.x, mode);
+    let y;
+    try {
+      y = fn(x);
+    } catch (e) {
+      y = NaN;
+    }
+    push(mode, x, Number.isFinite(y) ? y : here.y);
+  }
+  found.sort((a, b) => a.x - b.x);
+  return found;
+}
+
+/**
+ * Find where two sampled curves cross by bisecting the difference on the
+ * shared sample grid. A tangency with no sign change is not reported.
+ */
+function findIntersections(curves, view) {
+  const span = Math.max(view.xMax - view.xMin, 1e-9);
+  const tolerance = span * 1e-6;
+  const found = [];
+  for (let i = 0; i < curves.length; i++) {
+    for (let j = i + 1; j < curves.length; j++) {
+      const first = curves[i];
+      const second = curves[j];
+      const length = Math.min(first.points.length, second.points.length);
+      const difference = (x) => {
+        try {
+          return first.fn(x) - second.fn(x);
+        } catch (e) {
+          return NaN;
+        }
+      };
+      for (let k = 0; k < length - 1 && found.length < POI_LIMIT; k++) {
+        const a0 = first.points[k];
+        const a1 = first.points[k + 1];
+        const b0 = second.points[k];
+        const b1 = second.points[k + 1];
+        if (a0.y === null || a1.y === null || b0.y === null || b1.y === null) continue;
+        const d0 = a0.y - b0.y;
+        const d1 = a1.y - b1.y;
+        if (d0 !== 0 && (d0 < 0) === (d1 < 0)) continue;
+        let x;
+        if (d0 === 0) {
+          x = a0.x;
+        } else {
+          const left = difference(a0.x);
+          const right = difference(a1.x);
+          if (!Number.isFinite(left) || !Number.isFinite(right) || (left === 0 && right === 0)) continue;
+          x = refineRoot(difference, a0.x, a1.x);
+        }
+        let y;
+        try {
+          y = first.fn(x);
+        } catch (e) {
+          y = NaN;
+        }
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        if (found.some((point) => Math.abs(point.x - x) <= tolerance)) continue;
+        found.push({
+          kind: "intersection",
+          kinds: ["intersection"],
+          x,
+          y,
+          label: formatPointLabel(x, y),
+          rowIndex: second.index,
+          rows: [first.index, second.index],
+        });
+      }
+    }
+  }
+  found.sort((a, b) => a.x - b.x);
+  return found;
+}
+
+/**
+ * Read every sampled curve at one x. Explicit and regression rows interpolate
+ * between their samples; a gap or an x outside the window reports nothing.
+ */
+function traceAt(built, x) {
+  const rows = built && Array.isArray(built.rows) ? built.rows : [];
+  if (!Number.isFinite(x)) return [];
+  const out = [];
+  for (const row of rows) {
+    if (!row.points || !row.points.length) continue;
+    if (row.kind !== "explicit" && row.kind !== "regression") continue;
+    const points = row.points;
+    const first = points[0];
+    const last = points[points.length - 1];
+    if (!(x >= Math.min(first.x, last.x) - 1e-12 && x <= Math.max(first.x, last.x) + 1e-12)) continue;
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      if (x < a.x - 1e-12 || x > b.x + 1e-12) continue;
+      if (a.y === null || b.y === null || b.x === a.x) break;
+      const t = (x - a.x) / (b.x - a.x);
+      const y = a.y + (b.y - a.y) * t;
+      if (Number.isFinite(y)) out.push({ rowIndex: row.index, x, y });
+      break;
+    }
+  }
+  return out;
+}
+
 /**
  * Trace where a two-variable residual is zero with marching squares.
  * Returns line segments in graph coordinates; each cell contributes at most two.
@@ -60249,6 +60449,7 @@ function buildGraph(options) {
   const regionResolution = opts.regionResolution || {};
   const definitions = {};
   const out = [];
+  const curves = [];
   for (let i = 0; i < rows.length; i++) {
     const input = rows[i];
     const raw = typeof input === "string" ? input : String((input && input.text) || "");
@@ -60331,7 +60532,12 @@ function buildGraph(options) {
             }
           : base;
         row.points = sampleExplicit(fn, view, samples);
-        if (!row.points.some((point) => point.y !== null)) row.error = "That expression has no real values in this window.";
+        row.interest = findRowInterest(fn, row.points, view, i);
+        curves.push({ index: i, fn, points: row.points });
+        if (!row.points.some((point) => point.y !== null)) {
+          row.error = "That expression has no real values in this window.";
+          row.interest = [];
+        }
       } else if (parsed.kind === "regression") {
         const paramNames = regressionParameters(parsed.rhs, definitions);
         if (!paramNames.length) throw new Error('Add a name to fit, like y ~ m x + b.');
@@ -60362,7 +60568,12 @@ function buildGraph(options) {
         row.residual = fitted.cost;
         const sample = (x) => model(x, fitted.values);
         row.points = sampleExplicit(sample, view, samples);
-        if (!row.points.some((point) => point.y !== null)) row.error = "That fit has no real values in this window.";
+        row.interest = findRowInterest(sample, row.points, view, i);
+        curves.push({ index: i, fn: sample, points: row.points });
+        if (!row.points.some((point) => point.y !== null)) {
+          row.error = "That fit has no real values in this window.";
+          row.interest = [];
+        }
       } else if (parsed.kind === "implicit") {
         const relation = compileRelation(parsed.lhs, parsed.rhs, definitions);
         const fn = condition ? (x, y) => (condition({ x, y }) ? relation(x, y) : NaN) : relation;
@@ -60391,8 +60602,19 @@ function buildGraph(options) {
     }
     out.push(row);
   }
+  const intersections = findIntersections(curves, view);
+  for (const crossing of intersections) {
+    const row = out[crossing.rowIndex];
+    if (!row) continue;
+    if (!row.interest) row.interest = [];
+    row.interest.push(crossing);
+  }
+  const interest = [];
+  for (const row of out) if (row.interest && row.interest.length) interest.push.apply(interest, row.interest);
+  interest.sort((a, b) => a.x - b.x);
   return {
     rows: out,
+    interest,
     data: data.points,
     dataError: data.error,
     xMin: view.xMin,
@@ -60446,6 +60668,9 @@ module.exports = {
   readDataPoints,
   regressionParameters,
   sampleExplicit,
+  findRowInterest,
+  findIntersections,
+  traceAt,
   markerLayout,
   formatPointLabel,
   sampleParametric,
@@ -60835,7 +61060,7 @@ const {
 } = require("./reference-data");
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
 const {
-  markerLayout, buildGraph, parseGraphRow } = require("./reference-graph");
+  markerLayout, buildGraph, parseGraphRow, traceAt } = require("./reference-graph");
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
@@ -60910,6 +61135,10 @@ class ReferenceView extends ItemView {
     this.graphYMax = "10";
     this.graphData = [];
     this.graphPolarGrid = false;
+    this.graphInterest = true;
+    this.graphTrace = null;
+    this.graphTraceEl = null;
+    this.graphBuilt = null;
     this.graphCanvas = null;
     this.graphErrorEl = null;
     this.graphRowErrorEls = [];
@@ -61130,7 +61359,7 @@ class ReferenceView extends ItemView {
   renderGraph(root) {
     root.createDiv({
       cls: "qt-ref-note",
-      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Polar rows start with r, like r = 1 + cos(theta) or r = 2 sin(3 theta): theta (or θ) sweeps 0 to 2π, sliders work inside the radius, an optional {theta > 0} or {r > 0} restriction limits the sweep, and the polar grid control overlays rings and spokes on any row. A parametric row is a pair of expressions in a shared parameter, like (cos(t), sin(t)): t (or theta) runs 0 to 2π unless a two-sided bound such as {0 < t < 2pi} sets the range, other {…} conditions filter the sweep, sliders and definitions work in both coordinates, and the word fill after the pair shades a closed curve. A pair without the parameter, like (1, 2) or (a, b) with sliders, is a point marker: add open for a hollow marker or closed for a filled one, and a quoted text such as \"A\" replaces its coordinate label. Square brackets hold a list, like [(1, 2), (3, 4)], and restrictions filter which points show. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A trailing brace restricts a row to part of its domain or range, like y = x^2 {0 < x < 3} or {0 < y < 1}, and braces with cases make a piecewise row, like y = {x < 0: -x, x >= 0: x}. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e, tau and sin, cos, tan, sec, csc, cot, asin, acos, atan, sinh, cosh, tanh, csch, sech, coth, asinh, acosh, atanh, acsch, asech, acoth, sqrt, abs, ln, log, exp, floor, ceil, sign or round, plus mod, nthroot, gcd, lcm, nCr and nPr, which take two values. Operators are + - * / ^.",
+      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Polar rows start with r, like r = 1 + cos(theta) or r = 2 sin(3 theta): theta (or θ) sweeps 0 to 2π, sliders work inside the radius, an optional {theta > 0} or {r > 0} restriction limits the sweep, and the polar grid control overlays rings and spokes on any row. A parametric row is a pair of expressions in a shared parameter, like (cos(t), sin(t)): t (or theta) runs 0 to 2π unless a two-sided bound such as {0 < t < 2pi} sets the range, other {…} conditions filter the sweep, sliders and definitions work in both coordinates, and the word fill after the pair shades a closed curve. A pair without the parameter, like (1, 2) or (a, b) with sliders, is a point marker: add open for a hollow marker or closed for a filled one, and a quoted text such as \"A\" replaces its coordinate label. Square brackets hold a list, like [(1, 2), (3, 4)], and restrictions filter which points show. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A trailing brace restricts a row to part of its domain or range, like y = x^2 {0 < x < 3} or {0 < y < 1}, and braces with cases make a piecewise row, like y = {x < 0: -x, x >= 0: x}. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e, tau and sin, cos, tan, sec, csc, cot, asin, acos, atan, sinh, cosh, tanh, csch, sech, coth, asinh, acosh, atanh, acsch, asech, acoth, sqrt, abs, ln, log, exp, floor, ceil, sign or round, plus mod, nthroot, gcd, lcm, nCr and nPr, which take two values. Operators are + - * / ^. Roots, y-intercepts, extrema and crossings between rows are marked with small rings, which the points-of-interest control turns off, and hovering the canvas reads out the x and y of the nearest curve.",
     });
     const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
     for (const [key, label] of [["graphXMin", "min x"], ["graphXMax", "max x"], ["graphYMin", "min y"], ["graphYMax", "max y"]]) {
@@ -61155,6 +61384,15 @@ class ReferenceView extends ItemView {
       this.drawGraph();
     });
     polarField.createSpan({ text: "polar grid" });
+
+    const interestField = controls.createEl("label", { cls: "qt-ref-graph-polar" });
+    const interestToggle = interestField.createEl("input", { attr: { type: "checkbox", "aria-label": "Points of interest" } });
+    interestToggle.checked = this.graphInterest;
+    interestToggle.addEventListener("change", () => {
+      this.graphInterest = interestToggle.checked === true;
+      this.drawGraph();
+    });
+    interestField.createSpan({ text: "points of interest" });
 
     const list = root.createDiv({ cls: "qt-ref-graph-rows" });
     this.graphRowErrorEls = [];
@@ -61264,6 +61502,38 @@ class ReferenceView extends ItemView {
     });
 
     this.graphCanvas = root.createEl("canvas", { cls: "qt-ref-canvas qt-ref-graph-canvas", attr: { "aria-label": "Graph of the expressions" } });
+    this.graphTraceEl = root.createDiv({ cls: "qt-ref-graph-trace", attr: { "aria-live": "polite" } });
+    this.graphCanvas.addEventListener("pointermove", (event) => {
+      const graph = this.graphBuilt;
+      if (!graph) return;
+      const rect = this.graphCanvas.getBoundingClientRect ? this.graphCanvas.getBoundingClientRect() : null;
+      const width = rect && Number(rect.width) > 0 ? Number(rect.width) : Number(this.graphCanvas.clientWidth) || 640;
+      const height = rect && Number(rect.height) > 0 ? Number(rect.height) : 320;
+      const left = rect ? Number(rect.left) || 0 : 0;
+      const top = rect ? Number(rect.top) || 0 : 0;
+      const across = Math.min(1, Math.max(0, (event.clientX - left) / width));
+      const down = Math.min(1, Math.max(0, (event.clientY - top) / height));
+      const x = graph.xMin + across * (graph.xMax - graph.xMin);
+      const y = graph.yMin + (1 - down) * (graph.yMax - graph.yMin);
+      this.graphTrace = { x, y };
+      const traces = traceAt(graph, x);
+      if (this.graphTraceEl) {
+        if (!traces.length) {
+          this.graphTraceEl.setText("No curve at this x.");
+        } else {
+          let best = traces[0];
+          for (const trace of traces) if (Math.abs(trace.y - y) < Math.abs(best.y - y)) best = trace;
+          this.graphTraceEl.setText(`x = ${formatGraphTick(best.x)} · y = ${formatGraphTick(best.y)} · row ${best.rowIndex + 1}`);
+        }
+      }
+      this.drawGraph();
+    });
+    this.graphCanvas.addEventListener("pointerleave", () => {
+      if (!this.graphTrace) return;
+      this.graphTrace = null;
+      if (this.graphTraceEl) this.graphTraceEl.setText("");
+      this.drawGraph();
+    });
     this.graphErrorEl = root.createDiv({ cls: "qt-ref-note" });
     this.drawGraph();
   }
@@ -61393,6 +61663,7 @@ class ReferenceView extends ItemView {
       return;
     }
     if (this.graphErrorEl) this.graphErrorEl.setText(graph.dataError || "");
+    this.graphBuilt = graph;
     const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
     const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
     this.paintGraphGrid(ctx, graph, width, height, px, py);
@@ -61431,6 +61702,8 @@ class ReferenceView extends ItemView {
     if (graph.data.length && graph.rows.some((row) => row.kind === "regression")) {
       this.paintGraphData(ctx, graph.data, px, py);
     }
+    if (this.graphInterest) this.paintGraphInterest(ctx, graph, width, height, px, py);
+    this.paintGraphTrace(ctx, graph, width, height, px, py);
   }
 
   paintGraphData(ctx, points, px, py) {
@@ -61503,6 +61776,56 @@ class ReferenceView extends ItemView {
     }
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
+  }
+
+  paintGraphInterest(ctx, graph, width, height, px, py) {
+    const entries = Array.isArray(graph.interest) ? graph.interest : [];
+    if (!entries.length) return;
+    ctx.font = "10px sans-serif";
+    ctx.textBaseline = "bottom";
+    for (const point of entries) {
+      const x = px(point.x);
+      const y = py(point.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const color = GRAPH_COLORS[(point.rowIndex || 0) % GRAPH_COLORS.length];
+      ctx.strokeStyle = color;
+      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (!point.label) continue;
+      ctx.fillStyle = color;
+      ctx.textAlign = x > width - 74 ? "right" : "left";
+      ctx.fillText(point.label, x + (x > width - 74 ? -7 : 7), Math.max(y - 6, 11));
+    }
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
+  }
+
+  paintGraphTrace(ctx, graph, width, height, px, py) {
+    const pointer = this.graphTrace;
+    if (!pointer) return;
+    const traces = traceAt(graph, pointer.x);
+    if (!traces.length) return;
+    let best = traces[0];
+    for (const trace of traces) if (Math.abs(trace.y - pointer.y) < Math.abs(best.y - pointer.y)) best = trace;
+    const x = px(best.x);
+    const y = py(best.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    ctx.strokeStyle = "rgba(127, 127, 127, 0.55)";
+    ctx.lineWidth = 1;
+    if (ctx.setLineDash) ctx.setLineDash([3, 4]);
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+    if (ctx.setLineDash) ctx.setLineDash([]);
+    ctx.fillStyle = GRAPH_COLORS[(best.rowIndex || 0) % GRAPH_COLORS.length];
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   paintGraphPolygon(ctx, polygon, color, px, py) {

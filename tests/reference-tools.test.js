@@ -945,3 +945,80 @@ test("graph: a new function samples through the view transform without Infinity"
   assert.ok(sec.points.filter((point) => point.y !== null).length > 300);
   assert.ok(Number.isNaN(graph.compileExpression("sec(pi / 2)")(0)), "the pole is a gap");
 });
+
+
+test("graph: roots, intercepts and extrema are refined, and restrictions hide excluded roots", () => {
+  const built = graph.buildGraph({ rows: ["y = x^2 - 4"], xMin: -5, xMax: 5, yMin: -6, yMax: 22, samples: 41 });
+  const row = built.rows[0];
+  assert.equal(row.error, "");
+  const roots = row.interest.filter((point) => point.kinds.includes("root"));
+  assert.equal(roots.length, 2);
+  assert.ok(Math.abs(roots[0].x + 2) < 1e-6, "the left root is refined by bisection");
+  assert.ok(Math.abs(roots[1].x - 2) < 1e-6);
+  assert.ok(roots.every((point) => Math.abs(point.y) < 1e-9));
+  const intercept = row.interest.find((point) => point.kinds.includes("intercept"));
+  assert.ok(intercept && Math.abs(intercept.y + 4) < 1e-9);
+  assert.ok(intercept.kinds.includes("minimum"), "the vertex is both the intercept and the minimum");
+
+  const positive = graph.buildGraph({ rows: ["y = x^2 + 1"], xMin: -2, xMax: 2, yMin: 0, yMax: 6, samples: 21 }).rows[0];
+  const low = positive.interest.find((point) => point.kinds.includes("minimum"));
+  assert.ok(low && Math.abs(low.x) < 1e-9 && Math.abs(low.y - 1) < 1e-9);
+
+  const restricted = graph.buildGraph({ rows: ["y = x^2 - 4 {x > 0}"], xMin: -5, xMax: 5, yMin: -6, yMax: 22, samples: 41 }).rows[0];
+  const live = restricted.interest.filter((point) => point.kinds.includes("root"));
+  assert.equal(live.length, 1, "a restriction hides the root it excludes");
+  assert.ok(Math.abs(live[0].x - 2) < 1e-6);
+  assert.ok(built.interest.length >= row.interest.length, "the graph collects every row's points");
+});
+
+test("graph: crossings between two rows are found, and a tangency is not", () => {
+  const built = graph.buildGraph({ rows: ["y = x^2", "y = 2x + 3"], xMin: -5, xMax: 5, yMin: -5, yMax: 25, samples: 81 });
+  const crossings = built.interest.filter((point) => point.kinds.includes("intersection"));
+  assert.equal(crossings.length, 2);
+  assert.ok(Math.abs(crossings[0].x + 1) < 1e-6);
+  assert.ok(Math.abs(crossings[1].x - 3) < 1e-6);
+  assert.deepEqual(crossings[0].rows, [0, 1]);
+  assert.ok(crossings.every((point) => Math.abs(point.x * point.x - (2 * point.x + 3)) < 1e-6));
+  assert.equal(built.rows[1].interest.filter((point) => point.kinds.includes("intersection")).length, 2, "the later row carries the crossings");
+
+  const apart = graph.buildGraph({ rows: ["y = x^2", "y = -1"], xMin: -2, xMax: 2, yMin: -3, yMax: 5, samples: 21 });
+  assert.equal(apart.interest.filter((point) => point.kinds.includes("intersection")).length, 0, "a tangency with no sign change is not a crossing");
+  const single = graph.buildGraph({ rows: ["y = x"], xMin: -2, xMax: 2, yMin: -2, yMax: 2, samples: 21 });
+  assert.equal(single.interest.filter((point) => point.kinds.includes("intersection")).length, 0);
+});
+
+test("graph: the cursor trace interpolates a curve and reports a gap as nothing", () => {
+  const built = graph.buildGraph({ rows: ["y = x^2", "y = 1 / x"], xMin: -2, xMax: 2, yMin: -5, yMax: 5, samples: 41 });
+  const onSample = graph.traceAt(built, 1.5).find((trace) => trace.rowIndex === 0);
+  assert.ok(onSample && Math.abs(onSample.y - 2.25) < 1e-9);
+  const between = graph.traceAt(built, 1.55).find((trace) => trace.rowIndex === 0);
+  assert.ok(between && Math.abs(between.y - 1.55 * 1.55) < 0.02, "between samples it interpolates");
+  assert.equal(graph.traceAt(built, 0).some((trace) => trace.rowIndex === 1), false, "the pole is a gap");
+  assert.deepEqual(graph.traceAt(built, 42), [], "an x outside the window reports nothing");
+  const polar = graph.buildGraph({ rows: ["r = 3"], xMin: -5, xMax: 5, yMin: -5, yMax: 5, samples: 60 });
+  assert.deepEqual(graph.traceAt(polar, 2), [], "only explicit and fitted rows trace by x");
+});
+
+test("reference view: points of interest and the cursor trace paint without errors", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.graphRows = [{ text: "y = x^2 - 4", hidden: false }, { text: "y = 2x", hidden: false }];
+  view.render();
+  assert.equal(view.graphInterest, true, "points of interest are on by default");
+  assert.ok(view.graphTraceEl);
+  view.drawGraph();
+  assert.ok(view.graphBuilt.interest.length >= 3);
+  assert.ok(view.graphBuilt.interest.some((point) => point.kinds.includes("intersection")));
+  view.graphTrace = { x: 1, y: -3 };
+  view.drawGraph();
+  view.graphInterest = false;
+  view.drawGraph();
+  assert.equal(view.graphInterest, false);
+});
