@@ -2,6 +2,15 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.177.0 — 2026-11-02
+
+- Domain and range restrictions (`y = x^2 {0 < x < 3}`, `{0 < y < 1}`) draw only
+  inside their condition on expressions, implicit equations and inequalities.
+- Piecewise rows (`y = {x < 0: -x, x >= 0: x}`) evaluate cases in order with an
+  optional default branch; chained comparisons and `and`/`or` are supported.
+- Restrictions compose with parameter sliders and reject being placed on a
+  definition, slider or regression with a clear inline message.
+
 ## 1.176.0 — 2026-11-02
 
 - Sidebar **Task list** restyle: an open/total badge, a counts line, a card-shaped

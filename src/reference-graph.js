@@ -14,6 +14,8 @@
  *   - a regression fitted to the data      `y ~ m x + b`
  *   - a parameter with a slider            `a = 2`
  *   - an inequality shading a region       `y < 2x + 1`, `x^2 + y^2 <= 9`
+ *   - a domain/range restriction           `y = x^2 {0 < x < 3}`, `{y > 0}`
+ *   - a piecewise value                    `y = {x < 0: -x, x >= 0: x}`
  * Explicit rows are sampled; implicit rows are traced with marching squares;
  * inequalities shade a coarse cell grid and draw their boundary;
  * regression rows are fitted to the x/y table with a local least-squares
@@ -75,7 +77,17 @@ function tokenize(text, functionNames) {
       i = j;
       continue;
     }
-    if ("+-*/^(),~".includes(ch)) {
+    if (ch === "<" || ch === ">") {
+      if (src[i + 1] === "=") {
+        out.push({ type: ch + "=" });
+        i += 2;
+      } else {
+        out.push({ type: ch });
+        i++;
+      }
+      continue;
+    }
+    if ("+-*/^(),~{}:=≤≥".includes(ch)) {
       out.push({ type: ch });
       i++;
       continue;
@@ -106,7 +118,7 @@ function insertImplicitMultiplication(tokens, functionNames) {
  * `scopeNames` are the names read from the scope object (for example x, or x and y);
  * `environment` maps extra names to numbers or to user-defined functions.
  */
-function compileScoped(text, scopeNames, environment) {
+function compileScoped(text, scopeNames, environment, mode) {
   const scope = Array.isArray(scopeNames) ? scopeNames : [];
   const env = environment || {};
   const functionNames = Object.keys(env).filter((name) => env[name] && typeof env[name] === "object");
@@ -176,6 +188,95 @@ function compileScoped(text, scopeNames, environment) {
     return args;
   }
 
+  const COMPARISONS = ["<", ">", "<=", ">=", "≤", "≥", "="];
+
+  function compareTest(op) {
+    if (op === "<") return (a, b) => a < b;
+    if (op === ">") return (a, b) => a > b;
+    if (op === "<=" || op === "≤") return (a, b) => a <= b;
+    if (op === ">=" || op === "≥") return (a, b) => a >= b;
+    return (a, b) => Math.abs(a - b) <= 1e-9;
+  }
+
+  /** One comparison or a chain such as `0 < x < 3`. */
+  function comparison() {
+    let left = expression();
+    let test = null;
+    while (peek() && COMPARISONS.indexOf(peek().type) >= 0) {
+      const op = tokens[at++].type;
+      const previous = left;
+      const right = expression();
+      const check = compareTest(op);
+      const prior = test;
+      test = prior
+        ? (vals) => prior(vals) && check(previous(vals), right(vals))
+        : (vals) => check(previous(vals), right(vals));
+      left = right;
+    }
+    if (!test) throw new Error("Expected a comparison such as x > 0.");
+    return test;
+  }
+
+  /** Comparisons joined with `and` / `or`. */
+  function condition() {
+    let test = comparison();
+    while (peek() && peek().type === "ident" && /^(and|or)$/i.test(peek().value)) {
+      const op = tokens[at++].value.toLowerCase();
+      const left = test;
+      const right = comparison();
+      test = op === "and" ? (vals) => left(vals) && right(vals) : (vals) => left(vals) || right(vals);
+    }
+    return test;
+  }
+
+  /** True when the tokens ahead are `condition: value` rather than a default value. */
+  function looksLikeCondition() {
+    let paren = 0;
+    let brace = 0;
+    for (let i = at; i < tokens.length; i++) {
+      const type = tokens[i].type;
+      if (type === "(") paren++;
+      else if (type === ")") paren--;
+      else if (type === "{") brace++;
+      else if (type === "}") {
+        if (paren === 0 && brace === 0) return false;
+        brace--;
+      } else if (paren === 0 && brace === 0) {
+        if (type === ":" || type === ",") return false;
+        if (COMPARISONS.indexOf(type) >= 0) return true;
+      }
+    }
+    return false;
+  }
+
+  /** `{x < 0: -x, x >= 0: x}` or a final default value. */
+  function piecewise() {
+    take("{");
+    const cases = [];
+    let fallback = null;
+    while (peek() && peek().type !== "}") {
+      if (looksLikeCondition()) {
+        const test = condition();
+        take(":");
+        cases.push({ test, value: expression() });
+      } else {
+        fallback = expression();
+      }
+      if (peek() && peek().type === ",") {
+        at++;
+        continue;
+      }
+      break;
+    }
+    take("}");
+    return (vals) => {
+      for (const entry of cases) {
+        if (entry.test(vals)) return entry.value(vals);
+      }
+      return fallback ? fallback(vals) : NaN;
+    };
+  }
+
   function primary() {
     const token = peek();
     if (!token) throw new Error("The expression is incomplete.");
@@ -213,6 +314,7 @@ function compileScoped(text, scopeNames, environment) {
       const known = scope.concat(["pi", "e"]);
       throw new Error(`Unknown name "${name}". Use ${known.join(", ")} and the listed functions.`);
     }
+    if (token.type === "{") return piecewise();
     if (token.type === "(") {
       at++;
       const inner = expression();
@@ -222,9 +324,14 @@ function compileScoped(text, scopeNames, environment) {
     throw new Error(`Unexpected "${token.type}".`);
   }
 
-  const fn = expression();
+  const fn = mode === "condition" ? condition() : expression();
   if (at !== tokens.length) throw new Error("Unexpected extra text after the expression.");
   return fn;
+}
+
+/** Compile `x > 0 and y < 1` into a `(scope) => boolean` predicate. */
+function compileCondition(text, scopeNames, environment) {
+  return compileScoped(text, scopeNames, environment, "condition");
 }
 
 /** Compile one expression in x into a plain `(x) => number` function. */
@@ -258,8 +365,8 @@ function splitTopLevel(text, separator) {
   let start = 0;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
-    if (ch === "(") depth++;
-    else if (ch === ")") depth = Math.max(0, depth - 1);
+    if (ch === "(" || ch === "{") depth++;
+    else if (ch === ")" || ch === "}") depth = Math.max(0, depth - 1);
     else if (ch === separator && depth === 0) {
       parts.push(text.slice(start, i));
       start = i + 1;
@@ -280,8 +387,8 @@ function splitComparison(text) {
   let depth = 0;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
-    if (ch === "(") depth++;
-    else if (ch === ")") depth = Math.max(0, depth - 1);
+    if (ch === "(" || ch === "{") depth++;
+    else if (ch === ")" || ch === "}") depth = Math.max(0, depth - 1);
     else if (depth === 0 && COMPARISON_CHARS.indexOf(ch) >= 0) {
       let op = ch;
       if ((ch === "<" || ch === ">") && text[i + 1] === "=") op += "=";
@@ -289,6 +396,34 @@ function splitComparison(text) {
     }
   }
   return null;
+}
+
+const COMPARISON_IN_TEXT = /[<>≤≥=]/;
+
+/**
+ * Peel a trailing `{condition}` off a row. A brace group with a top-level
+ * colon is a piecewise value, not a restriction, so it stays in the body.
+ */
+function splitRestriction(text) {
+  const trimmed = String(text == null ? "" : text).trim();
+  if (!trimmed.endsWith("}")) return { body: trimmed, condition: "" };
+  let depth = 0;
+  for (let i = trimmed.length - 1; i >= 0; i--) {
+    const ch = trimmed[i];
+    if (ch === "}") depth++;
+    else if (ch === "{") {
+      depth--;
+      if (depth === 0) {
+        const before = trimmed.slice(0, i).trim();
+        const inside = trimmed.slice(i + 1, -1).trim();
+        if (!before || !inside) return { body: trimmed, condition: "" };
+        if (splitTopLevel(inside, ":").length > 1) return { body: trimmed, condition: "" };
+        if (!COMPARISON_IN_TEXT.test(inside)) return { body: trimmed, condition: "" };
+        return { body: before, condition: inside };
+      }
+    }
+  }
+  return { body: trimmed, condition: "" };
 }
 
 function functionDefinition(lhs) {
@@ -311,8 +446,17 @@ function functionDefinition(lhs) {
  */
 function parseGraphRow(text) {
   const raw = String(text == null ? "" : text).trim();
-  if (!raw) return { kind: "empty", text: raw, label: "" };
-  const comparison = splitComparison(raw);
+  if (!raw) return { kind: "empty", text: raw, label: "", condition: "" };
+  let body = raw;
+  const restrictions = [];
+  for (;;) {
+    const split = splitRestriction(body);
+    if (!split.condition) break;
+    restrictions.push(split.condition);
+    body = split.body;
+  }
+  const condition = restrictions.join(" and ");
+  const comparison = splitComparison(body);
   if (comparison) {
     if (!comparison.lhs || !comparison.rhs) throw new Error("Both sides of the comparison need an expression.");
     return {
@@ -323,9 +467,10 @@ function parseGraphRow(text) {
       rhs: comparison.rhs,
       strict: comparison.op === "<" || comparison.op === ">",
       label: raw,
+      condition,
     };
   }
-  const tildeParts = splitTopLevel(raw, "~");
+  const tildeParts = splitTopLevel(body, "~");
   if (tildeParts.length > 2) throw new Error('Use a single "~" in each row.');
   if (tildeParts.length === 2) {
     const lhs = tildeParts[0].trim();
@@ -333,17 +478,17 @@ function parseGraphRow(text) {
     if (!lhs || !rhs) throw new Error('Both sides of "~" need an expression.');
     if (splitTopLevelEquals(rhs).length > 1) throw new Error('Use either "=" or "~" in one row, not both.');
     if (lhs !== "y" && lhs !== "y_1") throw new Error("A regression row starts with y ~ ..., like y ~ m x + b.");
-    return { kind: "regression", text: raw, lhs, rhs: normalizeRegressionText(rhs), label: raw };
+    return { kind: "regression", text: raw, lhs, rhs: normalizeRegressionText(rhs), label: raw, condition };
   }
-  const parts = splitTopLevelEquals(raw);
+  const parts = splitTopLevelEquals(body);
   if (parts.length > 2) throw new Error('Use a single "=" in each row.');
-  if (parts.length === 1) return { kind: "explicit", text: raw, body: raw, label: `y = ${raw}` };
+  if (parts.length === 1) return { kind: "explicit", text: raw, body: parts[0].trim(), label: `y = ${parts[0].trim()}`, condition };
   const lhs = parts[0].trim();
   const rhs = parts[1].trim();
   if (!lhs || !rhs) throw new Error('Both sides of "=" need an expression.');
   const definition = functionDefinition(lhs);
   if (definition) {
-    return { kind: "definition", text: raw, name: definition.name, params: definition.params, body: rhs, label: `${lhs} = ${rhs}` };
+    return { kind: "definition", text: raw, name: definition.name, params: definition.params, body: rhs, label: `${lhs} = ${rhs}`, condition };
   }
   if (IDENT_NAME.test(lhs) && lhs !== "x" && lhs !== "y") {
     if (Object.prototype.hasOwnProperty.call(FUNCTIONS, lhs) || Object.prototype.hasOwnProperty.call(CONSTANTS, lhs)) {
@@ -351,11 +496,11 @@ function parseGraphRow(text) {
     }
     const value = numericLiteral(rhs);
     if (value === null) throw new Error(`A parameter value must be a number, like ${lhs} = 2.`);
-    return { kind: "parameter", text: raw, name: lhs, value, label: raw };
+    return { kind: "parameter", text: raw, name: lhs, value, label: raw, condition };
   }
-  if (lhs === "y" && !mentions(rhs, "y")) return { kind: "explicit", text: raw, body: rhs, label: raw };
-  if (rhs === "y" && !mentions(lhs, "y")) return { kind: "explicit", text: raw, body: lhs, label: raw };
-  return { kind: "implicit", text: raw, lhs, rhs, label: raw };
+  if (lhs === "y" && !mentions(rhs, "y")) return { kind: "explicit", text: raw, body: rhs, label: raw, condition };
+  if (rhs === "y" && !mentions(lhs, "y")) return { kind: "explicit", text: raw, body: lhs, label: raw, condition };
+  return { kind: "implicit", text: raw, lhs, rhs, label: raw, condition };
 }
 
 function numeric(value, fallback) {
@@ -734,6 +879,10 @@ function buildGraph(options) {
       const parsed = parseGraphRow(raw);
       row.kind = parsed.kind;
       row.label = parsed.label;
+      if (parsed.condition && (parsed.kind === "definition" || parsed.kind === "parameter" || parsed.kind === "regression")) {
+        throw new Error("A restriction goes on an expression or equation, not on a definition, slider or regression.");
+      }
+      const condition = parsed.condition ? compileCondition(parsed.condition, ["x", "y"], definitions) : null;
       if (parsed.kind === "definition") {
         const params = parsed.params.slice();
         const body = compileScoped(parsed.body, params, definitions);
@@ -757,7 +906,13 @@ function buildGraph(options) {
         row.value = value;
       } else if (parsed.kind === "explicit") {
         const compiled = compileScoped(parsed.body, ["x"], definitions);
-        const fn = (x) => compiled({ x });
+        const base = (x) => compiled({ x });
+        const fn = condition
+          ? (x) => {
+              const y = base(x);
+              return Number.isFinite(y) && condition({ x, y }) ? y : NaN;
+            }
+          : base;
         row.points = sampleExplicit(fn, view, samples);
         if (!row.points.some((point) => point.y !== null)) row.error = "That expression has no real values in this window.";
       } else if (parsed.kind === "regression") {
@@ -792,13 +947,15 @@ function buildGraph(options) {
         row.points = sampleExplicit(sample, view, samples);
         if (!row.points.some((point) => point.y !== null)) row.error = "That fit has no real values in this window.";
       } else if (parsed.kind === "implicit") {
-        const fn = compileRelation(parsed.lhs, parsed.rhs, definitions);
+        const relation = compileRelation(parsed.lhs, parsed.rhs, definitions);
+        const fn = condition ? (x, y) => (condition({ x, y }) ? relation(x, y) : NaN) : relation;
         row.segments = traceImplicit(fn, view, resolution);
         if (!row.segments.length) row.error = "That equation has no points in this window.";
       } else if (parsed.kind === "inequality") {
         const left = compileScoped(parsed.lhs, ["x", "y"], definitions);
         const right = compileScoped(parsed.rhs, ["x", "y"], definitions);
-        const residual = (x, y) => left({ x, y }) - right({ x, y });
+        const difference = (x, y) => left({ x, y }) - right({ x, y });
+        const residual = condition ? (x, y) => (condition({ x, y }) ? difference(x, y) : NaN) : difference;
         const below = parsed.op.charAt(0) === "<" || parsed.op === "≤";
         const inside = (x, y) => {
           const value = residual(x, y);
@@ -864,6 +1021,7 @@ module.exports = {
   buildPlot,
   compileExpression,
   compileRelation,
+  compileCondition,
   compileScoped,
   fitParameters,
   parseGraphRow,
@@ -871,6 +1029,7 @@ module.exports = {
   regressionParameters,
   sampleExplicit,
   sampleRegion,
+  splitRestriction,
   tokenize,
   traceImplicit,
 };

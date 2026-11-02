@@ -366,3 +366,138 @@ test("graph: inequality rows shade the correct region and draw the boundary", ()
   assert.equal(cellAt(disk, 4, 4), 0, "a corner is outside the disk");
   assert.equal(disk.rows[0].strict, false);
 });
+
+test("graph: restrictions parse and limit the plotted domain", () => {
+  const parsed = graph.parseGraphRow("y = x^2 {0 < x < 3}");
+  assert.equal(parsed.kind, "explicit");
+  assert.equal(parsed.body, "x^2");
+  assert.equal(parsed.condition, "0 < x < 3");
+  assert.equal(graph.parseGraphRow("x^2 {x > 0}").condition, "x > 0");
+  assert.equal(graph.parseGraphRow("y = x {x > 0} {x < 1}").condition, "x < 1 and x > 0");
+  assert.equal(graph.parseGraphRow("y = {x<0: -x, x>=0: x}").condition, "", "a piecewise brace is not a restriction");
+
+  const built = graph.buildGraph({
+    rows: ["y = x^2 {0 < x < 3}"],
+    xMin: -1,
+    xMax: 4,
+    yMin: -1,
+    yMax: 10,
+    samples: 51,
+  });
+  const row = built.rows[0];
+  assert.equal(row.error, "");
+  const inside = row.points.filter((point) => point.y !== null);
+  assert.ok(inside.length > 0);
+  assert.ok(inside.every((point) => point.x > 0 && point.x < 3), "only the restricted domain is drawn");
+  const at = (x) => inside.reduce((best, point) => (Math.abs(point.x - x) < Math.abs(best.x - x) ? point : best));
+  assert.ok(Math.abs(at(1.5).y - 2.25) < 0.05);
+  assert.equal(row.points.filter((point) => point.x < 0 && point.y !== null).length, 0);
+  assert.equal(row.points.filter((point) => point.x > 3 && point.y !== null).length, 0);
+});
+
+test("graph: piecewise rows switch branches and meet at the boundary", () => {
+  const built = graph.buildGraph({
+    rows: ["y = {x < 0: -x, x >= 0: x}"],
+    xMin: -2,
+    xMax: 2,
+    yMin: -1,
+    yMax: 3,
+    samples: 41,
+  });
+  const row = built.rows[0];
+  assert.equal(row.error, "");
+  const at = (x) => row.points.reduce((best, point) => (Math.abs(point.x - x) < Math.abs(best.x - x) ? point : best));
+  assert.ok(Math.abs(at(-1.5).y - 1.5) < 1e-9);
+  assert.ok(Math.abs(at(1.5).y - 1.5) < 1e-9);
+  assert.ok(Math.abs(at(0).y) < 1e-9, "the branches meet at the boundary");
+
+  const stepped = graph.buildGraph({
+    rows: ["y = {x < 0: x^2, x < 1: x, 2}"],
+    xMin: -2,
+    xMax: 3,
+    yMin: -1,
+    yMax: 3,
+    samples: 51,
+  });
+  const steppedAt = (x) => stepped.rows[0].points.reduce((best, point) => (Math.abs(point.x - x) < Math.abs(best.x - x) ? point : best));
+  assert.ok(Math.abs(steppedAt(-1).y - 1) < 0.05);
+  assert.ok(Math.abs(steppedAt(0.5).y - 0.5) < 0.05);
+  assert.ok(Math.abs(steppedAt(2.5).y - 2) < 1e-9, "the final value is the default branch");
+});
+
+test("graph: restrictions compose with sliders, y-ranges and inequalities", () => {
+  const slider = graph.buildGraph({
+    rows: ["a = 2", "y = x^2 {x > a}"],
+    xMin: -1,
+    xMax: 4,
+    yMin: -1,
+    yMax: 16,
+    samples: 51,
+  });
+  assert.equal(slider.rows[0].kind, "parameter");
+  const live = slider.rows[1].points.filter((point) => point.y !== null);
+  assert.ok(live.length > 0);
+  assert.ok(live.every((point) => point.x > 2), "the slider value is the restriction boundary");
+  const moved = graph.buildGraph({
+    rows: ["a = 2", "y = x^2 {x > a}"],
+    parameters: { a: 3 },
+    xMin: -1,
+    xMax: 4,
+    yMin: -1,
+    yMax: 16,
+    samples: 51,
+  });
+  assert.ok(moved.rows[1].points.filter((point) => point.y !== null).every((point) => point.x > 3));
+
+  const band = graph.buildGraph({ rows: ["y = x {0 < y < 1}"], xMin: -2, xMax: 2, yMin: -2, yMax: 2, samples: 81 });
+  const banded = band.rows[0].points.filter((point) => point.y !== null);
+  assert.ok(banded.length > 0);
+  assert.ok(banded.every((point) => point.y > 0 && point.y < 1), "the y-range restriction is applied");
+
+  const circle = graph.buildGraph({
+    rows: ["x^2 + y^2 = 9 {x > 0}"],
+    xMin: -5,
+    xMax: 5,
+    yMin: -5,
+    yMax: 5,
+    samples: 21,
+    resolution: { x: 80, y: 80 },
+  });
+  assert.ok(circle.rows[0].segments.length > 5);
+  assert.ok(circle.rows[0].segments.every((segment) => segment.x1 >= -0.2 && segment.x2 >= -0.2), "only the right half is drawn");
+
+  const shaded = graph.buildGraph({
+    rows: ["x^2 + y^2 < 9 {y > 0}"],
+    xMin: -5,
+    xMax: 5,
+    yMin: -5,
+    yMax: 5,
+    samples: 21,
+    resolution: { x: 60, y: 60 },
+    regionResolution: { x: 60, y: 60 },
+  });
+  const region = shaded.rows[0].region;
+  const cellAt = (x, y) => region.cells[Math.floor((y - region.y0) / region.dy) * region.cols + Math.floor((x - region.x0) / region.dx)];
+  assert.equal(cellAt(0, 2), 1, "the upper half is shaded");
+  assert.equal(cellAt(0, -2), 0, "the lower half is not");
+  assert.equal(cellAt(4, 0), 0, "outside the disk is not shaded");
+});
+
+test("reference view: restriction and piecewise rows render without an error", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  view.graphRows = [
+    { text: "y = x^2 {0 < x < 3}", hidden: false },
+    { text: "y = {x < 0: -x, x >= 0: x}", hidden: false },
+  ];
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const text = dom.texts().join(" | ");
+  assert.ok(!/not valid|Unknown name|Expected|incomplete/i.test(text), "neither row reports an error");
+});

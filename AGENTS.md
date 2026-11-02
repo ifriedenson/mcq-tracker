@@ -8,6 +8,7 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
+- **1.177.0 release (Nov 2, 2026):** domain/range restrictions and piecewise rows in the Reference Graph tab. `splitRestriction` peels trailing `{...}` groups (a group with a top-level colon is piecewise, not a restriction), `compileCondition` compiles chained comparisons with `and`/`or`, and `compileScoped` gains a `{condition: value, ..., default}` primary. Restrictions wrap explicit values with NaN outside the condition, and implicit/inequality residuals the same way, so only the permitted part is sampled, traced or shaded; sliders and y-ranges compose, and a restriction on a definition, slider or regression reports inline. Tests are in `tests/reference-tools.test.js`; `main.js` is rebuilt and the push-to-main workflow publishes the three assets.
 - **1.176.0 release (Nov 2, 2026):** polishes the sidebar **Task list** and adds task **tags**.
  The list now has an open/total badge, a counts line, a card-shaped add form and task cards (red edge for overdue,
  accent edge for due today, strike-through when done, course/due/exam-plan pills, hover delete). `studyTasks` rows gain
