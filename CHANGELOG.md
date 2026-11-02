@@ -2,6 +2,16 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.181.0 — 2026-11-02
+
+- The graph function library gains `sec`, `csc`, `cot`, the hyperbolic family
+  (`sinh`, `cosh`, `tanh`, `csch`, `sech`, `coth`), the inverse-hyperbolic family
+  (`asinh`, `acosh`, `atanh`, `acsch`, `asech`, `acoth`), `sign` and `round`.
+- Two-value functions `mod`, `nthroot`, `gcd`, `lcm`, `nCr` and `nPr` evaluate
+  with domain checks, and `tau` joins `pi` and `e` as a constant.
+- Poles in `sec`, `csc`, `cot` and `atanh` sample as gaps instead of Infinity
+  strokes, and malformed calls report inline instead of drawing nothing.
+
 ## 1.180.0 — 2026-11-02
 
 - Points `(1, 2)`, `(-3, 0.5)` and slider points `(a, b)` draw markers instead

@@ -818,3 +818,130 @@ test("reference view: points, lists and open markers render", async () => {
   assert.ok(!/Unknown name|not valid|Expected|incomplete/i.test(text), "point rows render without an error");
   assert.ok(/point marker/i.test(text), "the note explains point markers");
 });
+
+test("graph: the reciprocal and hyperbolic families evaluate", () => {
+  const val = (text) => graph.compileExpression(text)(0);
+  assert.equal(val("sec(0)"), 1);
+  assert.ok(Math.abs(val("csc(pi / 2)") - 1) < 1e-12);
+  assert.ok(Math.abs(val("cot(pi / 4)") - 1) < 1e-12);
+  assert.ok(Number.isNaN(val("sec(pi / 2)")), "sec has a gap at its pole");
+  assert.ok(Number.isNaN(val("csc(0)")));
+  assert.ok(Number.isNaN(val("cot(0)")));
+  assert.equal(val("sinh(0)"), 0);
+  assert.equal(val("cosh(0)"), 1);
+  assert.equal(val("tanh(0)"), 0);
+  assert.ok(Math.abs(val("csch(1)") - 1 / Math.sinh(1)) < 1e-12);
+  assert.equal(val("sech(0)"), 1);
+  assert.ok(Math.abs(val("coth(2)") - 1 / Math.tanh(2)) < 1e-12);
+  assert.ok(Math.abs(val("asinh(sinh(1))") - 1) < 1e-12);
+  assert.ok(Math.abs(val("acosh(cosh(2))") - 2) < 1e-12);
+  assert.ok(Math.abs(val("atanh(tanh(0.5))") - 0.5) < 1e-12);
+  assert.ok(Math.abs(val("acsch(csch(1))") - 1) < 1e-12);
+  assert.ok(Math.abs(val("asech(sech(0.5))") - 0.5) < 1e-12);
+  assert.ok(Math.abs(val("acoth(coth(2))") - 2) < 1e-12);
+  assert.ok(Number.isNaN(val("acosh(0.5)")), "acosh keeps its domain");
+  assert.ok(Number.isNaN(val("atanh(1)")), "atanh keeps its domain");
+});
+
+test("graph: sign, round and tau evaluate", () => {
+  const val = (text) => graph.compileExpression(text)(0);
+  assert.equal(val("sign(-3)"), -1);
+  assert.equal(val("sign(0)"), 0);
+  assert.equal(val("sign(2.5)"), 1);
+  assert.equal(val("round(2.5)"), 3, "halves round away from zero");
+  assert.equal(val("round(-2.5)"), -3);
+  assert.equal(val("round(2.4)"), 2);
+  assert.ok(Math.abs(val("tau") - Math.PI * 2) < 1e-12);
+  assert.ok(Math.abs(val("sin(tau)") - 0) < 1e-12);
+});
+
+test("graph: two-value functions evaluate and reject bad arguments", () => {
+  const val = (text) => graph.compileExpression(text)(0);
+  assert.equal(val("mod(7, 3)"), 1);
+  assert.equal(val("mod(-1, 3)"), 2, "mod follows the divisor sign");
+  assert.equal(val("mod(1.5, 1)"), 0.5);
+  assert.ok(Number.isNaN(val("mod(1, 0)")));
+  assert.ok(Math.abs(val("nthroot(8, 3)") - 2) < 1e-12);
+  assert.ok(Math.abs(val("nthroot(-8, 3)") + 2) < 1e-12, "an odd root accepts a negative radicand");
+  assert.ok(Number.isNaN(val("nthroot(-4, 2)")), "an even root of a negative is not real");
+  assert.ok(Math.abs(val("nthroot(16, 4)") - 2) < 1e-12);
+  assert.equal(val("gcd(12, 18)"), 6);
+  assert.equal(val("gcd(-12, 18)"), 6);
+  assert.equal(val("gcd(0, 0)"), 0);
+  assert.equal(val("lcm(4, 6)"), 12);
+  assert.equal(val("lcm(0, 5)"), 0);
+  assert.equal(val("nCr(5, 2)"), 10);
+  assert.equal(val("nPr(5, 2)"), 20);
+  assert.equal(val("nCr(6, 0)"), 1);
+  assert.ok(Number.isNaN(graph.compileExpression("gcd(x, 2)")(1.5)), "a non-whole argument yields no value");
+  assert.ok(Number.isNaN(graph.compileExpression("nCr(x, 2)")(5.5)));
+  assert.ok(Number.isNaN(graph.compileExpression("nPr(x, 2)")(-1)));
+  assert.ok(Number.isNaN(graph.compileExpression("nthroot(x, 2)")(-4)));
+});
+
+test("graph: malformed function calls report inline instead of drawing", () => {
+  assert.match(graph.buildGraph({ rows: ["y = gcd(1.5, 2)"] }).rows[0].error, /gcd needs whole numbers/);
+  assert.match(graph.buildGraph({ rows: ["y = lcm(2, 3.5)"] }).rows[0].error, /lcm needs whole numbers/);
+  assert.match(graph.buildGraph({ rows: ["y = nCr(5, 6)"] }).rows[0].error, /0 ≤ r ≤ n/);
+  assert.match(graph.buildGraph({ rows: ["y = nPr(4, 5)"] }).rows[0].error, /0 ≤ r ≤ n/);
+  assert.match(graph.buildGraph({ rows: ["y = nthroot(8, 2.5)"] }).rows[0].error, /whole root/);
+  assert.match(graph.buildGraph({ rows: ["y = mod(1, 2, 3)"] }).rows[0].error, /mod takes 2 values/);
+  assert.match(graph.buildGraph({ rows: ["y = sinh(1, 2)"] }).rows[0].error, /sinh takes one value/);
+  assert.match(graph.buildGraph({ rows: ["tau = 2"] }).rows[0].error, /built-in name/);
+  assert.match(graph.buildGraph({ rows: ["y = arcsinh(x)"] }).rows[0].error, /Unknown name "arcsinh"/);
+});
+
+test("graph: new functions compose with sliders, definitions, polar, parametric and points", () => {
+  const built = graph.buildGraph({
+    rows: ["a = 2", "g(x) = nthroot(x, 3)", "y = a sinh(x)", "y = g(x)", "r = sec(theta)", "(pi, tau)"],
+    xMin: -2,
+    xMax: 2,
+    yMin: -10,
+    yMax: 10,
+    samples: 200,
+  });
+  const curve = built.rows[2];
+  assert.equal(curve.error, "");
+  const drawn = curve.points.filter((point) => point.y !== null);
+  assert.ok(drawn.length > 100);
+  const middle = drawn.find((point) => Math.abs(point.x) < 0.02);
+  assert.ok(Math.abs(middle.y - 2 * Math.sinh(middle.x)) < 1e-9, "the slider drives the new function");
+
+  const definition = built.rows[3];
+  assert.equal(definition.error, "");
+  const cube = definition.points.find((point) => Math.abs(point.x + 1.5) < 0.02);
+  assert.ok(cube.y < 0 && Math.abs(cube.y - Math.cbrt(cube.x)) < 1e-6, "a nthroot definition draws across negative x");
+
+  assert.equal(built.rows[4].error, "");
+  assert.ok(built.rows[4].points.some((point) => point.y !== null), "sec draws in polar form");
+
+  assert.equal(built.rows[5].kind, "point");
+  assert.ok(Math.abs(built.rows[5].markers[0].x - Math.PI) < 1e-12);
+  assert.ok(Math.abs(built.rows[5].markers[0].y - Math.PI * 2) < 1e-12, "tau is a point coordinate");
+});
+
+test("graph: a new function samples through the view transform without Infinity", () => {
+  const built = graph.buildGraph({
+    rows: ["y = 2 sinh(x)", "y = sec(x)"],
+    xMin: -2,
+    xMax: 2,
+    yMin: -12,
+    yMax: 12,
+    samples: 400,
+  });
+  const curve = built.rows[0];
+  assert.equal(curve.error, "");
+  const first = curve.points[0];
+  assert.ok(Math.abs(first.x + 2) < 1e-9);
+  assert.ok(Math.abs(first.y - 2 * Math.sinh(-2)) < 1e-9);
+  const px = (x) => ((x - built.xMin) / (built.xMax - built.xMin)) * 400;
+  const py = (y) => 320 - ((y - built.yMin) / (built.yMax - built.yMin)) * 320;
+  assert.ok(Math.abs(px(first.x) - 0) < 1e-9, "the first sample sits on the left edge");
+  assert.ok(Math.abs(py(first.y) - (320 - ((2 * Math.sinh(-2) + 12) / 24) * 320)) < 1e-9);
+
+  const sec = built.rows[1];
+  assert.equal(sec.error, "");
+  assert.ok(sec.points.every((point) => point.y === null || Number.isFinite(point.y)), "sec never yields Infinity");
+  assert.ok(sec.points.filter((point) => point.y !== null).length > 300);
+  assert.ok(Number.isNaN(graph.compileExpression("sec(pi / 2)")(0)), "the pole is a gap");
+});

@@ -59059,9 +59059,24 @@ const FUNCTIONS = {
   sin: Math.sin,
   cos: Math.cos,
   tan: Math.tan,
+  sec: (x) => reciprocalOf(Math.cos(x)),
+  csc: (x) => reciprocalOf(Math.sin(x)),
+  cot: (x) => reciprocalOf(Math.tan(x)),
   asin: Math.asin,
   acos: Math.acos,
   atan: Math.atan,
+  sinh: Math.sinh,
+  cosh: Math.cosh,
+  tanh: Math.tanh,
+  csch: (x) => (x === 0 ? NaN : reciprocalOf(Math.sinh(x))),
+  sech: (x) => reciprocalOf(Math.cosh(x)),
+  coth: (x) => (x === 0 ? NaN : reciprocalOf(Math.tanh(x))),
+  asinh: Math.asinh,
+  acosh: Math.acosh,
+  atanh: (x) => (Math.abs(x) < 1 ? Math.atanh(x) : NaN),
+  acsch: (x) => (x === 0 ? NaN : Math.asinh(reciprocalOf(x))),
+  asech: (x) => (x <= 0 || x > 1 ? NaN : Math.acosh(reciprocalOf(x))),
+  acoth: (x) => (Math.abs(x) <= 1 ? NaN : Math.atanh(reciprocalOf(x))),
   sqrt: Math.sqrt,
   abs: Math.abs,
   ln: Math.log,
@@ -59069,9 +59084,96 @@ const FUNCTIONS = {
   exp: Math.exp,
   floor: Math.floor,
   ceil: Math.ceil,
+  sign: Math.sign,
+  round: (x) => (Number.isFinite(x) ? Math.sign(x) * Math.round(Math.abs(x)) : NaN),
 };
 
-const CONSTANTS = { pi: Math.PI, e: Math.E };
+const CONSTANTS = { pi: Math.PI, e: Math.E, tau: Math.PI * 2 };
+
+/** `1 / value`, or NaN at a pole so a graph draws a gap instead of an Infinity stroke. */
+function reciprocalOf(value) {
+  return Number.isFinite(value) && Math.abs(value) > 1e-9 ? 1 / value : NaN;
+}
+
+function wholeNumbers(values) {
+  return values.every((value) => Number.isInteger(value));
+}
+
+function integerGcd(a, b) {
+  let x = Math.abs(a);
+  let y = Math.abs(b);
+  while (y) {
+    const next = x % y;
+    x = y;
+    y = next;
+  }
+  return x;
+}
+
+function combinationCount(n, r) {
+  let result = 1;
+  for (let i = 1; i <= r; i++) result = (result * (n - r + i)) / i;
+  return Math.round(result);
+}
+
+function permutationCount(n, r) {
+  let result = 1;
+  for (let i = 1; i <= r; i++) result *= n - r + i;
+  return result;
+}
+
+function validChoice(n, r) {
+  return Number.isInteger(n) && Number.isInteger(r) && n >= 0 && r >= 0 && r <= n;
+}
+
+/** Two-value functions; each validates literal arguments so bad input reports inline. */
+const MULTI_FUNCTIONS = {
+  mod: {
+    arity: 2,
+    fn: (a, b) => (b === 0 ? NaN : ((a % b) + b) % b),
+  },
+  nthroot: {
+    arity: 2,
+    fn: (x, n) => {
+      if (!Number.isInteger(n) || n < 2) return NaN;
+      if (x < 0) return n % 2 === 1 ? -Math.pow(-x, 1 / n) : NaN;
+      return Math.pow(x, 1 / n);
+    },
+    validate: ([x, n]) => (Number.isInteger(n) && n >= 2 ? "" : "nthroot needs a whole root of 2 or more, like nthroot(8, 3)."),
+  },
+  gcd: {
+    arity: 2,
+    fn: (a, b) => (wholeNumbers([a, b]) ? integerGcd(a, b) : NaN),
+    validate: ([a, b]) => (wholeNumbers([a, b]) ? "" : "gcd needs whole numbers, like gcd(12, 18)."),
+  },
+  lcm: {
+    arity: 2,
+    fn: (a, b) => {
+      if (!wholeNumbers([a, b])) return NaN;
+      if (a === 0 || b === 0) return 0;
+      return Math.abs((a / integerGcd(a, b)) * b);
+    },
+    validate: ([a, b]) => (wholeNumbers([a, b]) ? "" : "lcm needs whole numbers, like lcm(4, 6)."),
+  },
+  nCr: {
+    arity: 2,
+    fn: (n, r) => (validChoice(n, r) ? combinationCount(n, r) : NaN),
+    validate: ([n, r]) => (validChoice(n, r) ? "" : "nCr needs whole numbers with 0 ≤ r ≤ n, like nCr(5, 2)."),
+  },
+  nPr: {
+    arity: 2,
+    fn: (n, r) => (validChoice(n, r) ? permutationCount(n, r) : NaN),
+    validate: ([n, r]) => (validChoice(n, r) ? "" : "nPr needs whole numbers with 0 ≤ r ≤ n, like nPr(5, 2)."),
+  },
+};
+
+function isBuiltInName(name) {
+  return (
+    Object.prototype.hasOwnProperty.call(FUNCTIONS, name) ||
+    Object.prototype.hasOwnProperty.call(MULTI_FUNCTIONS, name) ||
+    Object.prototype.hasOwnProperty.call(CONSTANTS, name)
+  );
+}
 const IDENT_START = /[A-Za-z_]/;
 const IDENT_PART = /[A-Za-z0-9_]/;
 const IDENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -59079,6 +59181,7 @@ const DEFAULT_VIEW = { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
 
 function isKnownFunction(name, extraNames) {
   if (Object.prototype.hasOwnProperty.call(FUNCTIONS, name)) return true;
+  if (Object.prototype.hasOwnProperty.call(MULTI_FUNCTIONS, name)) return true;
   if (!extraNames) return false;
   if (Array.isArray(extraNames)) return extraNames.indexOf(name) >= 0;
   return Object.prototype.hasOwnProperty.call(extraNames, name);
@@ -59344,6 +59447,24 @@ function compileScoped(text, scopeNames, environment, mode) {
         if (args.length !== 1) throw new Error(`${name} takes one value.`);
         return (vals) => fn(args[0](vals));
       }
+      if (has(MULTI_FUNCTIONS, name)) {
+        const spec = MULTI_FUNCTIONS[name];
+        const args = argumentList();
+        if (args.length !== spec.arity) throw new Error(`${name} takes ${spec.arity} values.`);
+        if (spec.validate) {
+          let values = null;
+          try {
+            values = args.map((arg) => arg({}));
+          } catch (e) {
+            values = null;
+          }
+          if (values && values.every((value) => Number.isFinite(value))) {
+            const message = spec.validate(values);
+            if (message) throw new Error(message);
+          }
+        }
+        return (vals) => spec.fn.apply(null, args.map((arg) => arg(vals)));
+      }
       const known = scope.concat(["pi", "e"]);
       throw new Error(`Unknown name "${name}". Use ${known.join(", ")} and the listed functions.`);
     }
@@ -59466,7 +59587,7 @@ function functionDefinition(lhs) {
   const inner = match[2].trim();
   const params = inner ? inner.split(",").map((part) => part.trim()) : [];
   if (params.some((param) => !IDENT_NAME.test(param))) return null;
-  if (Object.prototype.hasOwnProperty.call(FUNCTIONS, name) || Object.prototype.hasOwnProperty.call(CONSTANTS, name)) {
+  if (isBuiltInName(name)) {
     throw new Error(`"${name}" is already a built-in name. Pick another one, like f or g.`);
   }
   if (new Set(params).size !== params.length) throw new Error("A function cannot use the same parameter name twice.");
@@ -59574,7 +59695,7 @@ function parseGraphRow(text) {
     return { kind: "polar", text: raw, body: rhs, label: raw, condition };
   }
   if (IDENT_NAME.test(lhs) && lhs !== "x" && lhs !== "y") {
-    if (Object.prototype.hasOwnProperty.call(FUNCTIONS, lhs) || Object.prototype.hasOwnProperty.call(CONSTANTS, lhs)) {
+    if (isBuiltInName(lhs)) {
       throw new Error(`"${lhs}" is a built-in name. Pick another one, like a or k.`);
     }
     const value = numericLiteral(rhs);
@@ -59990,7 +60111,7 @@ function regressionParameters(text, definitions) {
     if (name === "x") continue;
     if (name === "y" || name === "y_1") throw new Error('Use x on the right of "~" and y on the left, like y ~ m x + b.');
     if (Object.prototype.hasOwnProperty.call(CONSTANTS, name)) continue;
-    if (Object.prototype.hasOwnProperty.call(FUNCTIONS, name)) continue;
+    if (isBuiltInName(name)) continue;
     if (Object.prototype.hasOwnProperty.call(known, name)) continue;
     if (names.indexOf(name) < 0) names.push(name);
   }
@@ -59998,7 +60119,7 @@ function regressionParameters(text, definitions) {
   let match;
   while ((match = callPattern.exec(text))) {
     const name = match[1];
-    if (Object.prototype.hasOwnProperty.call(FUNCTIONS, name)) continue;
+    if (isBuiltInName(name)) continue;
     if (Object.prototype.hasOwnProperty.call(known, name)) continue;
     throw new Error(`Unknown function "${name}". Define it in an earlier row or use the listed functions.`);
   }
@@ -60313,6 +60434,7 @@ module.exports = {
   CONSTANTS,
   DEFAULT_VIEW,
   FUNCTIONS,
+  MULTI_FUNCTIONS,
   buildGraph,
   buildPlot,
   compileExpression,
@@ -61008,7 +61130,7 @@ class ReferenceView extends ItemView {
   renderGraph(root) {
     root.createDiv({
       cls: "qt-ref-note",
-      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Polar rows start with r, like r = 1 + cos(theta) or r = 2 sin(3 theta): theta (or θ) sweeps 0 to 2π, sliders work inside the radius, an optional {theta > 0} or {r > 0} restriction limits the sweep, and the polar grid control overlays rings and spokes on any row. A parametric row is a pair of expressions in a shared parameter, like (cos(t), sin(t)): t (or theta) runs 0 to 2π unless a two-sided bound such as {0 < t < 2pi} sets the range, other {…} conditions filter the sweep, sliders and definitions work in both coordinates, and the word fill after the pair shades a closed curve. A pair without the parameter, like (1, 2) or (a, b) with sliders, is a point marker: add open for a hollow marker or closed for a filled one, and a quoted text such as \"A\" replaces its coordinate label. Square brackets hold a list, like [(1, 2), (3, 4)], and restrictions filter which points show. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A trailing brace restricts a row to part of its domain or range, like y = x^2 {0 < x < 3} or {0 < y < 1}, and braces with cases make a piecewise row, like y = {x < 0: -x, x >= 0: x}. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
+      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Polar rows start with r, like r = 1 + cos(theta) or r = 2 sin(3 theta): theta (or θ) sweeps 0 to 2π, sliders work inside the radius, an optional {theta > 0} or {r > 0} restriction limits the sweep, and the polar grid control overlays rings and spokes on any row. A parametric row is a pair of expressions in a shared parameter, like (cos(t), sin(t)): t (or theta) runs 0 to 2π unless a two-sided bound such as {0 < t < 2pi} sets the range, other {…} conditions filter the sweep, sliders and definitions work in both coordinates, and the word fill after the pair shades a closed curve. A pair without the parameter, like (1, 2) or (a, b) with sliders, is a point marker: add open for a hollow marker or closed for a filled one, and a quoted text such as \"A\" replaces its coordinate label. Square brackets hold a list, like [(1, 2), (3, 4)], and restrictions filter which points show. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A trailing brace restricts a row to part of its domain or range, like y = x^2 {0 < x < 3} or {0 < y < 1}, and braces with cases make a piecewise row, like y = {x < 0: -x, x >= 0: x}. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e, tau and sin, cos, tan, sec, csc, cot, asin, acos, atan, sinh, cosh, tanh, csch, sech, coth, asinh, acosh, atanh, acsch, asech, acoth, sqrt, abs, ln, log, exp, floor, ceil, sign or round, plus mod, nthroot, gcd, lcm, nCr and nPr, which take two values. Operators are + - * / ^.",
     });
     const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
     for (const [key, label] of [["graphXMin", "min x"], ["graphXMax", "max x"], ["graphYMin", "min y"], ["graphYMax", "max y"]]) {
