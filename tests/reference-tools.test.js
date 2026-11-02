@@ -1570,3 +1570,114 @@ test("reference view: the keypad refuses an empty row list without throwing", as
   assert.equal(result.ok, false);
   assert.equal(result.reason, "empty");
 });
+
+
+test("statistics: list parsing, summary values and correlation", () => {
+  const s = T.statistics;
+  assert.deepEqual(s.parseNumberList("1, 2; 3\n4").values, [1, 2, 3, 4]);
+  assert.equal(s.parseNumberList("  ").reason, "empty");
+  assert.equal(s.parseNumberList("").message, "Enter at least one number.");
+  const invalid = s.parseNumberList("1, x, 3");
+  assert.equal(invalid.reason, "invalid");
+  assert.match(invalid.message, /“x”/);
+  assert.equal(s.parseNumberList("1 Infinity").reason, "invalid");
+  assert.equal(s.parseNumberList("1 NaN").reason, "invalid");
+  assert.deepEqual(s.parseNumberList("-2.5, +3").values, [-2.5, 3]);
+
+  const d = s.describe([1, 2, 3, 4]);
+  assert.equal(d.count, 4);
+  assert.equal(d.sum, 10);
+  assert.equal(d.mean, 2.5);
+  assert.equal(d.median, 2.5);
+  assert.equal(d.q1, 1.75);
+  assert.equal(d.q3, 3.25);
+  assert.equal(d.min, 1);
+  assert.equal(d.max, 4);
+  assert.ok(Math.abs(d.stdev - Math.sqrt(5 / 3)) < 1e-12, "sample standard deviation uses n - 1");
+
+  const single = s.describe([5]);
+  assert.equal(single.median, 5);
+  assert.equal(single.stdev, null, "one value has no sample deviation");
+  assert.equal(single.q1, 5);
+  assert.equal(single.q3, 5);
+  const repeated = s.describe([2, 2, 2]);
+  assert.equal(repeated.mean, 2);
+  assert.equal(repeated.stdev, 0);
+  assert.equal(repeated.q1, 2);
+  assert.equal(repeated.q3, 2);
+
+  assert.equal(s.correlation([1, 2, 3], [2, 4, 6]), 1);
+  assert.equal(s.correlation([1, 2, 3], [6, 4, 2]), -1);
+  assert.equal(s.correlation([2, 2, 2], [1, 2, 3]), null, "no variation gives no correlation");
+  assert.equal(s.correlation([1, 2], [1, 2, 3]), null, "mismatched lengths give no correlation");
+  assert.equal(s.quantile([4, 1, 3, 2], 0.5), 2.5);
+  assert.equal(s.quantile([1, 2, 3, 4], 0), 1);
+  assert.equal(s.quantile([1, 2, 3, 4], 1), 4);
+});
+
+test("statistics: the report refuses empty, invalid and mismatched input", () => {
+  const s = T.statistics;
+  const empty = s.statisticsReport("", "", "");
+  assert.equal(empty.ok, false);
+  assert.equal(empty.reason, "empty");
+  const invalid = s.statisticsReport("1, two");
+  assert.equal(invalid.reason, "invalid");
+  assert.match(invalid.message, /“two”/);
+
+  const ok = s.statisticsReport("1, 2, 3, 4", "1, 2, 3, 4", "2, 4, 6, 8");
+  assert.equal(ok.ok, true);
+  assert.equal(ok.stats.mean, 2.5);
+  assert.equal(ok.correlation, 1);
+  assert.equal(ok.correlationError, "");
+
+  const mismatch = s.statisticsReport("1, 2", "1, 2, 3", "1, 2");
+  assert.match(mismatch.correlationError, /same number of values/);
+  const flat = s.statisticsReport("1, 2, 3", "2, 2, 2", "1, 2, 3");
+  assert.match(flat.correlationError, /variation/);
+  const half = s.statisticsReport("1, 2", "1, 2", "");
+  assert.equal(half.ok, true);
+  assert.equal(half.correlation, null);
+  assert.match(half.correlationError, /Enter at least one number/);
+  const none = s.statisticsReport("1, 2");
+  assert.equal(none.correlation, null);
+  assert.equal(none.correlationError, "");
+});
+
+test("reference view: the statistics panel computes values and reports bad input", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const labels = () => dom.all.map((element) => (element.meta && (element.meta.attr || {})["aria-label"]) || "").filter(Boolean);
+  for (const label of ["Statistics values", "Statistics x values", "Statistics y values", "Calculate statistics"]) {
+    assert.ok(labels().indexOf(label) >= 0, `missing statistics control: ${label}`);
+  }
+
+  const empty = view.calculateGraphStatistics();
+  assert.equal(empty.reason, "empty");
+  assert.match(view.graphStats.result, /Enter at least one number/);
+
+  view.graphStats = { values: "1, 2, 3, 4", x: "1, 2, 3, 4", y: "2, 4, 6, 8", result: "" };
+  view.render();
+  const report = view.calculateGraphStatistics();
+  assert.equal(report.ok, true);
+  assert.equal(report.correlation, 1);
+  for (const part of ["n 4", "mean 2.5", "median 2.5", "stdev 1.29099", "Q1 1.75", "Q3 3.25", "min 1", "max 4", "r 1"]) {
+    assert.ok(view.graphStats.result.indexOf(part) >= 0, `result is missing ${part}: ${view.graphStats.result}`);
+  }
+
+  view.graphStats.values = "1, x";
+  const bad = view.calculateGraphStatistics();
+  assert.equal(bad.reason, "invalid");
+  assert.match(view.graphStats.result, /not a finite number/);
+  view.graphStats.values = "5";
+  const single = view.calculateGraphStatistics();
+  assert.equal(single.ok, true);
+  assert.match(view.graphStats.result, /stdev —/);
+});

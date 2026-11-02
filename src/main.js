@@ -223,6 +223,7 @@ module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
   graphExport: require("./graph-export"),
   graphExamples: require("./graph-examples"),
+  statistics: require("./statistics"),
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,

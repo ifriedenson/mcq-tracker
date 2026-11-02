@@ -21,6 +21,7 @@ const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { tableCsv, expressionsText, exportScale, exportFileName, canvasPngBytes, hasDrawableContent } = require("./graph-export");
 const { EXAMPLES, exampleById } = require("./graph-examples");
+const { statisticsReport } = require("./statistics");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -605,6 +606,31 @@ class ReferenceView extends ItemView {
       this.render();
     });
 
+    this.graphStats = this.graphStats || { values: "", x: "", y: "", result: "" };
+    const statsSection = root.createDiv({ cls: "qt-ref-graph-statistics" });
+    statsSection.createDiv({ cls: "qt-ref-graph-data-head", text: "Statistics" });
+    const statsFields = statsSection.createDiv({ cls: "qt-row qt-ref-graph-stats-fields" });
+    const statsField = (key, label, placeholder) => {
+      const field = statsFields.createEl("label", { cls: "qt-ref-graph-bound" });
+      field.createSpan({ text: label });
+      const input = field.createEl("input", {
+        cls: "qt-ref-amount",
+        attr: { type: "text", "aria-label": `Statistics ${label.toLowerCase()}`, placeholder },
+      });
+      input.value = this.graphStats[key];
+      input.addEventListener("input", () => {
+        this.graphStats[key] = input.value;
+      });
+      return input;
+    };
+    statsField("values", "Values", "1, 2, 3, 4");
+    statsField("x", "x values", "1, 2, 3");
+    statsField("y", "y values", "2, 4, 6");
+    statsSection.createEl("button", { text: "Calculate statistics", attr: { type: "button", "aria-label": "Calculate statistics" } })
+      .addEventListener("click", () => this.calculateGraphStatistics());
+    this.graphStatsEl = statsSection.createDiv({ cls: "qt-ref-graph-stats-result", attr: { "aria-live": "polite" } });
+    this.graphStatsEl.setText(this.graphStats.result || "");
+
     this.graphCanvas = root.createEl("canvas", {
       cls: "qt-ref-canvas qt-ref-graph-canvas",
       attr: {
@@ -839,6 +865,34 @@ class ReferenceView extends ItemView {
     }
     if (filled) numberField("fillOpacity", "Fill opacity", 0, 1, 0.05);
     if (points) numberField("pointSize", "Point size", STYLE_LIMITS.minPoint, STYLE_LIMITS.maxPoint, 0.5);
+  }
+
+  calculateGraphStatistics() {
+    this.graphStats = this.graphStats || { values: "", x: "", y: "", result: "" };
+    const report = statisticsReport(this.graphStats.values, this.graphStats.x, this.graphStats.y);
+    const show = (message) => {
+      this.graphStats.result = message;
+      if (this.graphStatsEl) this.graphStatsEl.setText(message);
+    };
+    if (!report.ok) {
+      show(report.message);
+      return report;
+    }
+    const format = (value) => (value === null || value === undefined || !Number.isFinite(value) ? "—" : formatReferenceNumber(value));
+    const stats = report.stats;
+    const parts = [
+      `n ${stats.count}`,
+      `mean ${format(stats.mean)}`,
+      `median ${format(stats.median)}`,
+      `stdev ${format(stats.stdev)}`,
+      `Q1 ${format(stats.q1)}`,
+      `Q3 ${format(stats.q3)}`,
+      `min ${format(stats.min)}`,
+      `max ${format(stats.max)}`,
+      `r ${format(report.correlation)}`,
+    ];
+    show(parts.join(" · ") + (report.correlationError ? ` (${report.correlationError})` : ""));
+    return report;
   }
 
   insertGraphToken(token) {

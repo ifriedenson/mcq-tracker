@@ -2,6 +2,14 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.188.0 — 2026-11-02
+
+- The graph tab has a statistics panel: enter a list of numbers and get the
+  count, sum, mean, median, sample standard deviation, quartiles and min/max;
+  optional x and y lists add Pearson's correlation.
+- Lists accept commas, semicolons and whitespace. Empty lists and non-numeric
+  or non-finite entries are reported in place instead of throwing.
+
 ## 1.187.0 — 2026-11-02
 
 - The graph tab has a math keypad that inserts x, y, powers, roots, pi, theta,
