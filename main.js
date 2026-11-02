@@ -59046,6 +59046,7 @@ __defs["reference-graph"] = function (module, exports, require) {
  *   - an inequality shading a region       `y < 2x + 1`, `x^2 + y^2 <= 9`
  *   - a domain/range restriction           `y = x^2 {0 < x < 3}`, `{y > 0}`
  *   - a piecewise value                    `y = {x < 0: -x, x >= 0: x}`
+ *   - a polar curve in r and theta         `r = 1 + cos(theta)`
  * Explicit rows are sampled; implicit rows are traced with marching squares;
  * inequalities shade a coarse cell grid and draw their boundary;
  * regression rows are fitted to the x/y table with a local least-squares
@@ -59477,7 +59478,7 @@ function functionDefinition(lhs) {
 function parseGraphRow(text) {
   const raw = String(text == null ? "" : text).trim();
   if (!raw) return { kind: "empty", text: raw, label: "", condition: "" };
-  let body = raw;
+  let body = raw.replace(/θ/g, "theta");
   const restrictions = [];
   for (;;) {
     const split = splitRestriction(body);
@@ -59520,6 +59521,9 @@ function parseGraphRow(text) {
   if (definition) {
     return { kind: "definition", text: raw, name: definition.name, params: definition.params, body: rhs, label: `${lhs} = ${rhs}`, condition };
   }
+  if (lhs === "r") {
+    return { kind: "polar", text: raw, body: rhs, label: raw, condition };
+  }
   if (IDENT_NAME.test(lhs) && lhs !== "x" && lhs !== "y") {
     if (Object.prototype.hasOwnProperty.call(FUNCTIONS, lhs) || Object.prototype.hasOwnProperty.call(CONSTANTS, lhs)) {
       throw new Error(`"${lhs}" is a built-in name. Pick another one, like a or k.`);
@@ -59556,6 +59560,27 @@ function readView(options) {
     yMin: numeric(opts.yMin, DEFAULT_VIEW.yMin),
     yMax: numeric(opts.yMax, DEFAULT_VIEW.yMax),
   };
+}
+
+/**
+ * Sample `r = f(theta)` over 0..2pi into x/y points.
+ * A negative radius lands on the opposite side and a non-finite radius leaves a gap.
+ */
+function samplePolar(fn, condition, samples) {
+  const count = Math.max(240, Math.min(4000, Math.round(numeric(samples, 900))));
+  const points = [];
+  for (let i = 0; i < count; i++) {
+    const theta = (Math.PI * 2 * i) / (count - 1);
+    let radius;
+    try {
+      radius = fn({ theta });
+    } catch (e) {
+      radius = NaN;
+    }
+    const allowed = Number.isFinite(radius) && (!condition || condition({ theta, r: radius }));
+    points.push(allowed ? { x: radius * Math.cos(theta), y: radius * Math.sin(theta), theta } : { x: null, y: null, theta });
+  }
+  return points;
 }
 
 function sampleExplicit(fn, view, samples) {
@@ -59912,7 +59937,7 @@ function buildGraph(options) {
       if (parsed.condition && (parsed.kind === "definition" || parsed.kind === "parameter" || parsed.kind === "regression")) {
         throw new Error("A restriction goes on an expression or equation, not on a definition, slider or regression.");
       }
-      const condition = parsed.condition ? compileCondition(parsed.condition, ["x", "y"], definitions) : null;
+      const condition = parsed.condition && parsed.kind !== "polar" ? compileCondition(parsed.condition, ["x", "y"], definitions) : null;
       if (parsed.kind === "definition") {
         const params = parsed.params.slice();
         const body = compileScoped(parsed.body, params, definitions);
@@ -59934,6 +59959,11 @@ function buildGraph(options) {
         definitions[parsed.name] = value;
         row.name = parsed.name;
         row.value = value;
+      } else if (parsed.kind === "polar") {
+        const compiled = compileScoped(parsed.body, ["theta"], definitions);
+        const polarCondition = parsed.condition ? compileCondition(parsed.condition, ["theta", "r"], definitions) : null;
+        row.points = samplePolar((scope) => compiled(scope), polarCondition, samples * 2);
+        if (!row.points.some((point) => point.y !== null)) row.error = "That polar curve has no values in this window.";
       } else if (parsed.kind === "explicit") {
         const compiled = compileScoped(parsed.body, ["x"], definitions);
         const base = (x) => compiled({ x });
@@ -60058,6 +60088,7 @@ module.exports = {
   readDataPoints,
   regressionParameters,
   sampleExplicit,
+  samplePolar,
   sampleRegion,
   splitRestriction,
   tokenize,
@@ -60515,6 +60546,7 @@ class ReferenceView extends ItemView {
     this.graphYMin = "-10";
     this.graphYMax = "10";
     this.graphData = [];
+    this.graphPolarGrid = false;
     this.graphCanvas = null;
     this.graphErrorEl = null;
     this.graphRowErrorEls = [];
@@ -60735,7 +60767,7 @@ class ReferenceView extends ItemView {
   renderGraph(root) {
     root.createDiv({
       cls: "qt-ref-note",
-      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A trailing brace restricts a row to part of its domain or range, like y = x^2 {0 < x < 3} or {0 < y < 1}, and braces with cases make a piecewise row, like y = {x < 0: -x, x >= 0: x}. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
+      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Polar rows start with r, like r = 1 + cos(theta) or r = 2 sin(3 theta): theta (or θ) sweeps 0 to 2π, sliders work inside the radius, an optional {theta > 0} or {r > 0} restriction limits the sweep, and the polar grid control overlays rings and spokes on any row. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A trailing brace restricts a row to part of its domain or range, like y = x^2 {0 < x < 3} or {0 < y < 1}, and braces with cases make a piecewise row, like y = {x < 0: -x, x >= 0: x}. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
     });
     const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
     for (const [key, label] of [["graphXMin", "min x"], ["graphXMax", "max x"], ["graphYMin", "min y"], ["graphYMax", "max y"]]) {
@@ -60751,6 +60783,15 @@ class ReferenceView extends ItemView {
         this.drawGraph();
       });
     }
+
+    const polarField = controls.createEl("label", { cls: "qt-ref-graph-polar" });
+    const polarToggle = polarField.createEl("input", { attr: { type: "checkbox", "aria-label": "Polar grid" } });
+    polarToggle.checked = this.graphPolarGrid;
+    polarToggle.addEventListener("change", () => {
+      this.graphPolarGrid = polarToggle.checked === true;
+      this.drawGraph();
+    });
+    polarField.createSpan({ text: "polar grid" });
 
     const list = root.createDiv({ cls: "qt-ref-graph-rows" });
     this.graphRowErrorEls = [];
@@ -60992,6 +61033,7 @@ class ReferenceView extends ItemView {
     const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
     const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
     this.paintGraphGrid(ctx, graph, width, height, px, py);
+    if (this.graphPolarGrid) this.paintPolarGrid(ctx, graph, width, height);
     for (const row of graph.rows) {
       if (row.region) this.paintGraphRegion(ctx, row.region, GRAPH_COLORS[row.index % GRAPH_COLORS.length], px, py);
     }
@@ -61018,7 +61060,7 @@ class ReferenceView extends ItemView {
         if (parameterRow) parameterRow.value = row.value;
       }
       const color = GRAPH_COLORS[row.index % GRAPH_COLORS.length];
-      if (row.points && row.points.length) this.paintGraphPoints(ctx, row.points, height, px, py, color);
+      if (row.points && row.points.length) this.paintGraphPoints(ctx, row.points, width, height, px, py, color);
       if (row.segments && row.segments.length) this.paintGraphSegments(ctx, row.segments, px, py, color, row.strict === true);
     }
     if (graph.data.length && graph.rows.some((row) => row.kind === "regression")) {
@@ -61078,29 +61120,58 @@ class ReferenceView extends ItemView {
     }
   }
 
-  paintGraphPoints(ctx, points, height, px, py, color) {
+  paintGraphPoints(ctx, points, width, height, px, py, color) {
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     ctx.beginPath();
     let drawing = false;
+    let lastX = null;
     let lastY = null;
     for (const point of points) {
       if (point.y === null) {
         drawing = false;
+        lastX = null;
         lastY = null;
         continue;
       }
       const x = px(point.x);
       const y = py(point.y);
-      if (!drawing || (lastY !== null && Math.abs(y - lastY) > height * 0.8)) {
+      if (!drawing || (lastX !== null && Math.abs(x - lastX) > width * 0.8) || (lastY !== null && Math.abs(y - lastY) > height * 0.8)) {
         ctx.moveTo(x, y);
         drawing = true;
       } else {
         ctx.lineTo(x, y);
       }
+      lastX = x;
       lastY = y;
+    }
+    ctx.stroke();
+  }
+
+  paintPolarGrid(ctx, graph, width, height) {
+    const unitX = width / (graph.xMax - graph.xMin);
+    const unitY = height / (graph.yMax - graph.yMin);
+    const cx = ((0 - graph.xMin) / (graph.xMax - graph.xMin)) * width;
+    const cy = height - ((0 - graph.yMin) / (graph.yMax - graph.yMin)) * height;
+    const maxRadius = Math.max(Math.abs(graph.xMin), Math.abs(graph.xMax), Math.abs(graph.yMin), Math.abs(graph.yMax));
+    if (!(maxRadius > 0)) return;
+    const step = niceStep(maxRadius, 5);
+    ctx.strokeStyle = "rgba(127, 127, 127, 0.22)";
+    ctx.lineWidth = 1;
+    for (let radius = step; radius <= maxRadius + step * 1e-6; radius += step) {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, radius * unitX, radius * unitY, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    for (let degrees = 0; degrees < 180; degrees += 30) {
+      const angle = (degrees * Math.PI) / 180;
+      const dx = maxRadius * unitX * Math.cos(angle);
+      const dy = maxRadius * unitY * Math.sin(angle);
+      ctx.moveTo(cx - dx, cy + dy);
+      ctx.lineTo(cx + dx, cy - dy);
     }
     ctx.stroke();
   }

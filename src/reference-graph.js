@@ -16,6 +16,7 @@
  *   - an inequality shading a region       `y < 2x + 1`, `x^2 + y^2 <= 9`
  *   - a domain/range restriction           `y = x^2 {0 < x < 3}`, `{y > 0}`
  *   - a piecewise value                    `y = {x < 0: -x, x >= 0: x}`
+ *   - a polar curve in r and theta         `r = 1 + cos(theta)`
  * Explicit rows are sampled; implicit rows are traced with marching squares;
  * inequalities shade a coarse cell grid and draw their boundary;
  * regression rows are fitted to the x/y table with a local least-squares
@@ -447,7 +448,7 @@ function functionDefinition(lhs) {
 function parseGraphRow(text) {
   const raw = String(text == null ? "" : text).trim();
   if (!raw) return { kind: "empty", text: raw, label: "", condition: "" };
-  let body = raw;
+  let body = raw.replace(/θ/g, "theta");
   const restrictions = [];
   for (;;) {
     const split = splitRestriction(body);
@@ -490,6 +491,9 @@ function parseGraphRow(text) {
   if (definition) {
     return { kind: "definition", text: raw, name: definition.name, params: definition.params, body: rhs, label: `${lhs} = ${rhs}`, condition };
   }
+  if (lhs === "r") {
+    return { kind: "polar", text: raw, body: rhs, label: raw, condition };
+  }
   if (IDENT_NAME.test(lhs) && lhs !== "x" && lhs !== "y") {
     if (Object.prototype.hasOwnProperty.call(FUNCTIONS, lhs) || Object.prototype.hasOwnProperty.call(CONSTANTS, lhs)) {
       throw new Error(`"${lhs}" is a built-in name. Pick another one, like a or k.`);
@@ -526,6 +530,27 @@ function readView(options) {
     yMin: numeric(opts.yMin, DEFAULT_VIEW.yMin),
     yMax: numeric(opts.yMax, DEFAULT_VIEW.yMax),
   };
+}
+
+/**
+ * Sample `r = f(theta)` over 0..2pi into x/y points.
+ * A negative radius lands on the opposite side and a non-finite radius leaves a gap.
+ */
+function samplePolar(fn, condition, samples) {
+  const count = Math.max(240, Math.min(4000, Math.round(numeric(samples, 900))));
+  const points = [];
+  for (let i = 0; i < count; i++) {
+    const theta = (Math.PI * 2 * i) / (count - 1);
+    let radius;
+    try {
+      radius = fn({ theta });
+    } catch (e) {
+      radius = NaN;
+    }
+    const allowed = Number.isFinite(radius) && (!condition || condition({ theta, r: radius }));
+    points.push(allowed ? { x: radius * Math.cos(theta), y: radius * Math.sin(theta), theta } : { x: null, y: null, theta });
+  }
+  return points;
 }
 
 function sampleExplicit(fn, view, samples) {
@@ -882,7 +907,7 @@ function buildGraph(options) {
       if (parsed.condition && (parsed.kind === "definition" || parsed.kind === "parameter" || parsed.kind === "regression")) {
         throw new Error("A restriction goes on an expression or equation, not on a definition, slider or regression.");
       }
-      const condition = parsed.condition ? compileCondition(parsed.condition, ["x", "y"], definitions) : null;
+      const condition = parsed.condition && parsed.kind !== "polar" ? compileCondition(parsed.condition, ["x", "y"], definitions) : null;
       if (parsed.kind === "definition") {
         const params = parsed.params.slice();
         const body = compileScoped(parsed.body, params, definitions);
@@ -904,6 +929,11 @@ function buildGraph(options) {
         definitions[parsed.name] = value;
         row.name = parsed.name;
         row.value = value;
+      } else if (parsed.kind === "polar") {
+        const compiled = compileScoped(parsed.body, ["theta"], definitions);
+        const polarCondition = parsed.condition ? compileCondition(parsed.condition, ["theta", "r"], definitions) : null;
+        row.points = samplePolar((scope) => compiled(scope), polarCondition, samples * 2);
+        if (!row.points.some((point) => point.y !== null)) row.error = "That polar curve has no values in this window.";
       } else if (parsed.kind === "explicit") {
         const compiled = compileScoped(parsed.body, ["x"], definitions);
         const base = (x) => compiled({ x });
@@ -1028,6 +1058,7 @@ module.exports = {
   readDataPoints,
   regressionParameters,
   sampleExplicit,
+  samplePolar,
   sampleRegion,
   splitRestriction,
   tokenize,

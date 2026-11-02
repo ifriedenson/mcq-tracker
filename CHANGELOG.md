@@ -2,6 +2,16 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.178.0 — 2026-11-02
+
+- Polar rows (`r = 1 + cos(theta)`, `r = 2 sin(3 theta)`, `r = 3`) sweep theta
+  from 0 to 2π inclusive, so closed curves meet exactly and open ones do not
+  chord across the window. Both `theta` and `θ` are accepted.
+- A **polar grid** checkbox overlays rings and 30° spokes on the existing
+  cartesian grid, alongside every shipped row type.
+- Sliders work inside radius expressions, `{theta > 0}` / `{r > 0}` restrictions
+  limit the sweep, and unsupported names report an inline error.
+
 ## 1.177.0 — 2026-11-02
 
 - Domain and range restrictions (`y = x^2 {0 < x < 3}`, `{0 < y < 1}`) draw only

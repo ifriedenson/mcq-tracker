@@ -11063,3 +11063,12 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-ref .qt-ref-graph-slider-bounds .qt-ref-graph-bound input {
   width: 64px;
 }
+
+/* Reference graph polar grid toggle. */
+.qt-ref .qt-ref-graph-polar {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 0.8rem;
+  gap: 4px;
+}

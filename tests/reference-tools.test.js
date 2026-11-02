@@ -501,3 +501,95 @@ test("reference view: restriction and piecewise rows render without an error", a
   const text = dom.texts().join(" | ");
   assert.ok(!/not valid|Unknown name|Expected|incomplete/i.test(text), "neither row reports an error");
 });
+
+test("graph: polar rows parse with theta and the theta symbol", () => {
+  const parsed = graph.parseGraphRow("r = 1 + cos(theta)");
+  assert.equal(parsed.kind, "polar");
+  assert.equal(parsed.body, "1 + cos(theta)");
+  assert.equal(graph.parseGraphRow("r = 2 sin(3 theta)").kind, "polar");
+  assert.equal(graph.parseGraphRow("r = 3").kind, "polar");
+  assert.equal(graph.parseGraphRow("r = 1 + cos(θ)").body, "1 + cos(theta)", "θ is accepted as theta");
+  assert.equal(graph.parseGraphRow("a = 2").kind, "parameter");
+  assert.equal(graph.parseGraphRow("y = cos(theta)").kind, "explicit");
+});
+
+test("graph: polar curves sweep the full turn without gaps or chords", () => {
+  const circle = graph.buildGraph({ rows: ["r = 3"], xMin: -5, xMax: 5, yMin: -5, yMax: 5, samples: 400 });
+  const row = circle.rows[0];
+  assert.equal(row.error, "");
+  assert.ok(row.points.length >= 700, "the sweep is densely sampled");
+  for (const point of row.points) {
+    assert.ok(point.y !== null, "every sample is finite");
+    assert.ok(Math.abs(Math.hypot(point.x, point.y) - 3) < 1e-9);
+  }
+  const first = row.points[0];
+  const last = row.points[row.points.length - 1];
+  assert.ok(Math.abs(first.x - last.x) < 1e-9 && Math.abs(first.y - last.y) < 1e-9, "the sweep closes exactly at 2π");
+
+  const cardioid = graph.buildGraph({ rows: ["r = 1 + cos(theta)"], xMin: -3, xMax: 3, yMin: -3, yMax: 3, samples: 200 });
+  const points = cardioid.rows[0].points;
+  assert.ok(Math.abs(points[0].x - 2) < 1e-9 && Math.abs(points[0].y) < 1e-9, "theta = 0 sits at r = 2");
+  const nearest = points.reduce((best, point) => (Math.abs(point.theta - Math.PI) < Math.abs(best.theta - Math.PI) ? point : best), points[0]);
+  assert.ok(Math.hypot(nearest.x, nearest.y) < 0.01, "the cusp closes at the origin");
+  assert.ok(points.every((point) => point.y !== null), "a cardioid has no gaps");
+
+  const negative = graph.buildGraph({ rows: ["r = 1 + 2 cos(theta)"], xMin: -4, xMax: 4, yMin: -4, yMax: 4, samples: 120 });
+  assert.ok(negative.rows[0].points.every((point) => point.y !== null), "negative radii still plot");
+});
+
+test("graph: polar rows read sliders and restrictions", () => {
+  const built = graph.buildGraph({
+    rows: ["a = 2", "r = a + cos(theta) {theta < pi}"],
+    xMin: -4,
+    xMax: 4,
+    yMin: -4,
+    yMax: 4,
+    samples: 120,
+  });
+  const polar = built.rows[1];
+  assert.equal(polar.error, "");
+  const drawn = polar.points.filter((point) => point.y !== null);
+  assert.ok(drawn.length > 0);
+  assert.ok(drawn.every((point) => point.theta < Math.PI + 1e-9), "the theta restriction limits the sweep");
+  assert.ok(Math.abs(polar.points[0].x - 3) < 1e-9, "a = 2 puts the theta = 0 point at r = 3");
+
+  const rRestriction = graph.buildGraph({ rows: ["r = 3 {r > 0}"], xMin: -5, xMax: 5, yMin: -5, yMax: 5, samples: 120 });
+  assert.equal(rRestriction.rows[0].error, "");
+  assert.ok(rRestriction.rows[0].points.every((point) => point.y !== null), "an r restriction keeps the curve");
+
+  const moved = graph.buildGraph({
+    rows: ["a = 2", "r = a + cos(theta)"],
+    parameters: { a: 4 },
+    xMin: -6,
+    xMax: 6,
+    yMin: -6,
+    yMax: 6,
+    samples: 120,
+  });
+  assert.ok(Math.abs(moved.rows[1].points[0].x - 5) < 1e-9, "the slider value moves the radius");
+});
+
+test("graph: unsupported polar input reports a clear error", () => {
+  assert.match(graph.buildGraph({ rows: ["r = 1 + cos(x)"] }).rows[0].error, /Unknown name "x"/);
+  assert.match(graph.buildGraph({ rows: ["r ="] }).rows[0].error, /Both sides/);
+  assert.match(graph.buildGraph({ rows: ["r = 1 + cos(theta) {x > 0}"] }).rows[0].error, /Unknown name "x"/);
+  assert.match(graph.buildGraph({ rows: ["f(x) = x {x > 0}"] }).rows[0].error, /restriction goes on an expression/);
+});
+
+test("reference view: polar rows and the polar grid render", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  view.graphRows = [{ text: "r = 1 + cos(theta)", hidden: false }];
+  view.graphPolarGrid = true;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const text = dom.texts().join(" | ");
+  assert.ok(!/Unknown name|not valid|Expected|incomplete/i.test(text), "the polar row renders without an error");
+  assert.ok(text.includes("polar grid"), "the polar grid control is present");
+});
