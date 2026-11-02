@@ -59041,7 +59041,10 @@ __defs["reference-graph"] = function (module, exports, require) {
  *   - an explicit equation                 `y = sin(x)`
  *   - a definition reused by later rows    `f(x) = x^2`
  *   - an implicit relation in x and y      `y^2 = 2x + 1`, `x^2 + y^2 = 9`
- * Explicit rows are sampled; implicit rows are traced with marching squares.
+ *   - a regression fitted to the data      `y ~ m x + b`
+ * Explicit rows are sampled; implicit rows are traced with marching squares;
+ * regression rows are fitted to the x/y table with a local least-squares
+ * solver, so no calculator service or third-party code is involved.
  */
 
 const FUNCTIONS = {
@@ -59099,7 +59102,7 @@ function tokenize(text, functionNames) {
       i = j;
       continue;
     }
-    if ("+-*/^(),".includes(ch)) {
+    if ("+-*/^(),~".includes(ch)) {
       out.push({ type: ch });
       i++;
       continue;
@@ -59276,7 +59279,7 @@ function mentions(text, name) {
   return identifiersOf(text).indexOf(name) >= 0;
 }
 
-function splitTopLevelEquals(text) {
+function splitTopLevel(text, separator) {
   const parts = [];
   let depth = 0;
   let start = 0;
@@ -59284,13 +59287,17 @@ function splitTopLevelEquals(text) {
     const ch = text[i];
     if (ch === "(") depth++;
     else if (ch === ")") depth = Math.max(0, depth - 1);
-    else if (ch === "=" && depth === 0) {
+    else if (ch === separator && depth === 0) {
       parts.push(text.slice(start, i));
       start = i + 1;
     }
   }
   parts.push(text.slice(start));
   return parts;
+}
+
+function splitTopLevelEquals(text) {
+  return splitTopLevel(text, "=");
 }
 
 function functionDefinition(lhs) {
@@ -59315,6 +59322,16 @@ function parseGraphRow(text) {
   const raw = String(text == null ? "" : text).trim();
   if (!raw) return { kind: "empty", text: raw, label: "" };
   if (/[<>≤≥]/.test(raw)) throw new Error("Inequalities are not supported yet. Use = for an equation.");
+  const tildeParts = splitTopLevel(raw, "~");
+  if (tildeParts.length > 2) throw new Error('Use a single "~" in each row.');
+  if (tildeParts.length === 2) {
+    const lhs = tildeParts[0].trim();
+    const rhs = tildeParts[1].trim();
+    if (!lhs || !rhs) throw new Error('Both sides of "~" need an expression.');
+    if (splitTopLevelEquals(rhs).length > 1) throw new Error('Use either "=" or "~" in one row, not both.');
+    if (lhs !== "y" && lhs !== "y_1") throw new Error("A regression row starts with y ~ ..., like y ~ m x + b.");
+    return { kind: "regression", text: raw, lhs, rhs: normalizeRegressionText(rhs), label: raw };
+  }
   const parts = splitTopLevelEquals(raw);
   if (parts.length > 2) throw new Error('Use a single "=" in each row.');
   if (parts.length === 1) return { kind: "explicit", text: raw, body: raw, label: `y = ${raw}` };
@@ -59481,6 +59498,170 @@ function traceImplicit(fn, view, resolution) {
 }
 
 /**
+ * Read the x/y table used by regression rows. Blank pairs are skipped so a
+ * half-typed row never breaks the plot; bad numbers are reported separately.
+ */
+function readDataPoints(rows) {
+  const points = [];
+  const errors = [];
+  const list = Array.isArray(rows) ? rows : [];
+  for (let i = 0; i < list.length; i++) {
+    const entry = list[i] || {};
+    const rawX = entry.x;
+    const rawY = entry.y;
+    const blankX = rawX === undefined || rawX === null || String(rawX).trim() === "";
+    const blankY = rawY === undefined || rawY === null || String(rawY).trim() === "";
+    if (blankX && blankY) continue;
+    if (blankX || blankY) continue;
+    const x = Number(rawX);
+    const y = Number(rawY);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      errors.push(`Data row ${i + 1} needs two numbers.`);
+      continue;
+    }
+    points.push({ x, y });
+  }
+  return { points, error: errors.join(" ") };
+}
+
+/** `x_1` is the Desmos table column; accept it as another name for x. */
+function normalizeRegressionText(text) {
+  return String(text).replace(/\bx_1\b/g, "x");
+}
+
+/** The names on the right of `~` that are not variables, functions or constants. */
+function regressionParameters(text, definitions) {
+  const known = definitions || {};
+  const tokens = tokenize(text, Object.keys(known));
+  const names = [];
+  for (const token of tokens) {
+    if (token.type !== "ident") continue;
+    const name = token.value;
+    if (name === "x") continue;
+    if (name === "y" || name === "y_1") throw new Error('Use x on the right of "~" and y on the left, like y ~ m x + b.');
+    if (Object.prototype.hasOwnProperty.call(CONSTANTS, name)) continue;
+    if (Object.prototype.hasOwnProperty.call(FUNCTIONS, name)) continue;
+    if (Object.prototype.hasOwnProperty.call(known, name)) continue;
+    if (names.indexOf(name) < 0) names.push(name);
+  }
+  const callPattern = /([A-Za-z_][A-Za-z0-9_]*)\s*\(/g;
+  let match;
+  while ((match = callPattern.exec(text))) {
+    const name = match[1];
+    if (Object.prototype.hasOwnProperty.call(FUNCTIONS, name)) continue;
+    if (Object.prototype.hasOwnProperty.call(known, name)) continue;
+    throw new Error(`Unknown function "${name}". Define it in an earlier row or use the listed functions.`);
+  }
+  return names;
+}
+
+/** Solve A x = b by Gauss-Jordan elimination with partial pivoting. */
+function solveLinearSystem(matrix, vector) {
+  const n = vector.length;
+  const rows = matrix.map((row, i) => row.slice().concat([vector[i]]));
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    for (let row = col + 1; row < n; row++) {
+      if (Math.abs(rows[row][col]) > Math.abs(rows[pivot][col])) pivot = row;
+    }
+    if (!Number.isFinite(rows[pivot][col]) || Math.abs(rows[pivot][col]) < 1e-14) return null;
+    const swap = rows[col];
+    rows[col] = rows[pivot];
+    rows[pivot] = swap;
+    const lead = rows[col][col];
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const factor = rows[row][col] / lead;
+      if (!factor) continue;
+      for (let k = col; k <= n; k++) rows[row][k] -= factor * rows[col][k];
+    }
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const value = rows[i][n] / rows[i][i];
+    if (!Number.isFinite(value)) return null;
+    out.push(value);
+  }
+  return out;
+}
+
+/**
+ * Levenberg-Marquardt least squares on a numeric Jacobian.
+ * Deterministic: it starts from `start` and takes no random step.
+ */
+function fitParameters(model, xs, ys, start, options) {
+  const opts = options || {};
+  const params = start.slice();
+  const count = params.length;
+  const maxIterations = Math.max(1, Math.min(120, Math.round(numeric(opts.iterations, 60))));
+  const evaluate = (values) => {
+    const residuals = [];
+    for (let i = 0; i < xs.length; i++) {
+      let predicted;
+      try {
+        predicted = model(xs[i], values);
+      } catch (e) {
+        return null;
+      }
+      if (!Number.isFinite(predicted)) return null;
+      residuals.push(predicted - ys[i]);
+    }
+    return residuals;
+  };
+  const sumSquares = (residuals) => residuals.reduce((sum, value) => sum + value * value, 0);
+  let residuals = evaluate(params);
+  if (!residuals) throw new Error("That model does not give a number at every data point.");
+  let cost = sumSquares(residuals);
+  let lambda = 1e-3;
+  for (let iteration = 0; iteration < maxIterations && cost > 1e-24; iteration++) {
+    const jacobian = xs.map(() => new Array(count).fill(0));
+    for (let j = 0; j < count; j++) {
+      const h = 1e-6 * Math.max(1, Math.abs(params[j]));
+      const plus = params.slice();
+      plus[j] += h;
+      const minus = params.slice();
+      minus[j] -= h;
+      const up = evaluate(plus);
+      const down = evaluate(minus);
+      if (!up || !down) throw new Error("That model does not give a number at every data point.");
+      for (let i = 0; i < xs.length; i++) jacobian[i][j] = (up[i] - down[i]) / (2 * h);
+    }
+    const normal = [];
+    const gradient = new Array(count).fill(0);
+    for (let j = 0; j < count; j++) {
+      normal.push(new Array(count).fill(0));
+      for (let i = 0; i < xs.length; i++) gradient[j] += jacobian[i][j] * residuals[i];
+    }
+    for (let j = 0; j < count; j++) {
+      for (let k = j; k < count; k++) {
+        let sum = 0;
+        for (let i = 0; i < xs.length; i++) sum += jacobian[i][j] * jacobian[i][k];
+        normal[j][k] = sum;
+        normal[k][j] = sum;
+      }
+    }
+    const damped = normal.map((row, j) => row.map((value, k) => (j === k ? value + lambda * (Math.abs(value) > 1e-12 ? Math.abs(value) : 1) : value)));
+    const step = solveLinearSystem(damped, gradient.map((value) => -value));
+    if (!step) throw new Error("That model cannot be fitted to these points. Try a simpler form.");
+    const candidate = params.map((value, j) => value + step[j]);
+    const candidateResiduals = evaluate(candidate);
+    if (candidateResiduals && sumSquares(candidateResiduals) < cost) {
+      params.splice(0, params.length, ...candidate);
+      residuals = candidateResiduals;
+      cost = sumSquares(candidateResiduals);
+      lambda = Math.max(1e-9, lambda / 3);
+      let biggest = 0;
+      for (const value of step) biggest = Math.max(biggest, Math.abs(value));
+      if (biggest < 1e-10 * (1 + Math.max.apply(null, params.map((value) => Math.abs(value))))) break;
+    } else {
+      lambda *= 4;
+      if (lambda > 1e12) break;
+    }
+  }
+  return { values: params, cost };
+}
+
+/**
  * Build every row of a graph. One bad row gets an error and the rest still plot.
  * Definitions are shared with the rows below them, in order.
  */
@@ -59490,6 +59671,7 @@ function buildGraph(options) {
   if (!(view.xMax > view.xMin)) throw new Error("The maximum x must be larger than the minimum x.");
   if (!(view.yMax > view.yMin)) throw new Error("The maximum y must be larger than the minimum y.");
   const rows = Array.isArray(opts.rows) ? opts.rows : [];
+  const data = readDataPoints(opts.data);
   const samples = numeric(opts.samples, 400);
   const resolution = opts.resolution || {};
   const definitions = {};
@@ -59497,6 +59679,7 @@ function buildGraph(options) {
   for (let i = 0; i < rows.length; i++) {
     const input = rows[i];
     const raw = typeof input === "string" ? input : String((input && input.text) || "");
+    const guess = input && typeof input === "object" ? input.guess : null;
     const row = { index: i, text: raw, kind: "empty", label: raw, error: "" };
     try {
       const parsed = parseGraphRow(raw);
@@ -59522,6 +59705,37 @@ function buildGraph(options) {
         const fn = (x) => compiled({ x });
         row.points = sampleExplicit(fn, view, samples);
         if (!row.points.some((point) => point.y !== null)) row.error = "That expression has no real values in this window.";
+      } else if (parsed.kind === "regression") {
+        const paramNames = regressionParameters(parsed.rhs, definitions);
+        if (!paramNames.length) throw new Error('Add a name to fit, like y ~ m x + b.');
+        if (paramNames.length > 8) throw new Error("A regression can fit at most 8 parameters.");
+        if (!data.points.length) throw new Error("Add data points (x, y) to fit this model.");
+        if (data.points.length < paramNames.length) {
+          throw new Error(`Add at least ${paramNames.length} data points to fit ${paramNames.length} parameters.`);
+        }
+        const xs = data.points.map((point) => point.x);
+        const ys = data.points.map((point) => point.y);
+        const compiled = compileScoped(parsed.rhs, ["x"].concat(paramNames), definitions);
+        const model = (x, values) => {
+          const scope = { x };
+          paramNames.forEach((name, index) => {
+            scope[name] = values[index];
+          });
+          return compiled(scope);
+        };
+        const start = paramNames.map((name) => {
+          const value = guess ? numeric(guess[name], NaN) : NaN;
+          return Number.isFinite(value) ? value : 1;
+        });
+        const fitted = fitParameters(model, xs, ys, start);
+        row.parameters = paramNames.map((name, index) => ({ name, value: fitted.values[index] }));
+        const mean = ys.reduce((sum, value) => sum + value, 0) / ys.length;
+        const total = ys.reduce((sum, value) => sum + (value - mean) * (value - mean), 0);
+        row.r2 = total > 0 ? 1 - fitted.cost / total : fitted.cost < 1e-12 ? 1 : null;
+        row.residual = fitted.cost;
+        const sample = (x) => model(x, fitted.values);
+        row.points = sampleExplicit(sample, view, samples);
+        if (!row.points.some((point) => point.y !== null)) row.error = "That fit has no real values in this window.";
       } else if (parsed.kind === "implicit") {
         const fn = compileRelation(parsed.lhs, parsed.rhs, definitions);
         row.segments = traceImplicit(fn, view, resolution);
@@ -59535,6 +59749,8 @@ function buildGraph(options) {
   }
   return {
     rows: out,
+    data: data.points,
+    dataError: data.error,
     xMin: view.xMin,
     xMax: view.xMax,
     yMin: view.yMin,
@@ -59579,7 +59795,10 @@ module.exports = {
   compileExpression,
   compileRelation,
   compileScoped,
+  fitParameters,
   parseGraphRow,
+  readDataPoints,
+  regressionParameters,
   sampleExplicit,
   tokenize,
   traceImplicit,
@@ -59995,6 +60214,15 @@ function formatGraphTick(value) {
   return String(Object.is(rounded, -0) ? 0 : rounded);
 }
 
+/* Fitted coefficients and R², short enough to sit under a row. */
+function formatGraphFit(value) {
+  if (!Number.isFinite(value)) return "—";
+  const abs = Math.abs(value);
+  if (abs !== 0 && (abs < 1e-4 || abs >= 1e6)) return Number(value.toExponential(3)).toString();
+  const rounded = Number(Number(value).toPrecision(5));
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
 /*
  * A local-only reference panel. It contains no network request or third-party
  * dataset: formulas and constants are static text, the converter is a pure
@@ -60026,9 +60254,11 @@ class ReferenceView extends ItemView {
     this.graphXMax = "10";
     this.graphYMin = "-10";
     this.graphYMax = "10";
+    this.graphData = [];
     this.graphCanvas = null;
     this.graphErrorEl = null;
     this.graphRowErrorEls = [];
+    this.graphFitEls = [];
     this.calculatorMode = "basic";
     this.calculatorExpression = "";
     this.calculatorResult = "";
@@ -60243,7 +60473,7 @@ class ReferenceView extends ItemView {
   renderGraph(root) {
     root.createDiv({
       cls: "qt-ref-note",
-      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
+      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
     });
     const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
     for (const [key, label] of [["graphXMin", "min x"], ["graphXMax", "max x"], ["graphYMin", "min y"], ["graphYMax", "max y"]]) {
@@ -60262,6 +60492,7 @@ class ReferenceView extends ItemView {
 
     const list = root.createDiv({ cls: "qt-ref-graph-rows" });
     this.graphRowErrorEls = [];
+    this.graphFitEls = [];
     this.graphRows.forEach((row, index) => {
       const color = GRAPH_COLORS[index % GRAPH_COLORS.length];
       const rowEl = list.createDiv({ cls: "qt-ref-graph-row" });
@@ -60278,7 +60509,7 @@ class ReferenceView extends ItemView {
       });
       const input = rowEl.createEl("input", {
         cls: "qt-ref-graph-input",
-        attr: { type: "text", placeholder: index === 0 ? "y = sin(x)" : "y^2 = 2x + 1", "aria-label": `Graph expression ${index + 1}` },
+        attr: { type: "text", placeholder: index === 0 ? "y = sin(x)" : index === 1 ? "y^2 = 2x + 1" : "y ~ m x + b", "aria-label": `Graph expression ${index + 1}` },
       });
       input.value = row.text;
       input.style.borderLeft = `3px solid ${color}`;
@@ -60298,11 +60529,40 @@ class ReferenceView extends ItemView {
         attr: { "aria-label": `Remove expression ${index + 1}` },
       }).addEventListener("click", () => this.removeGraphRow(index));
       this.graphRowErrorEls[index] = rowEl.createDiv({ cls: "qt-ref-graph-row-error", attr: { "aria-live": "polite" } });
+      this.graphFitEls[index] = rowEl.createDiv({ cls: "qt-ref-graph-fit", attr: { "aria-live": "polite" } });
     });
 
     const actions = root.createDiv({ cls: "qt-row qt-ref-graph-actions" });
     actions.createEl("button", { text: "Add expression", cls: "qt-ref-graph-add" }).addEventListener("click", () => {
       this.graphRows.push({ text: "", hidden: false });
+      this.render();
+    });
+
+    const dataSection = root.createDiv({ cls: "qt-ref-graph-data" });
+    dataSection.createDiv({ cls: "qt-ref-graph-data-head", text: "Data table (x, y) for regression rows" });
+    const dataRows = dataSection.createDiv({ cls: "qt-ref-graph-data-rows" });
+    this.graphData.forEach((point, index) => {
+      const dataRow = dataRows.createDiv({ cls: "qt-ref-graph-data-row" });
+      for (const key of ["x", "y"]) {
+        const input = dataRow.createEl("input", {
+          cls: "qt-ref-graph-data-input",
+          attr: { type: "number", step: "any", placeholder: key, "aria-label": `Data ${key} row ${index + 1}` },
+        });
+        input.value = point[key];
+        input.addEventListener("input", () => {
+          point[key] = input.value;
+          this.drawGraph();
+        });
+      }
+      dataRow.createEl("button", {
+        cls: "qt-ref-graph-remove",
+        text: "×",
+        attr: { "aria-label": `Remove data point ${index + 1}` },
+      }).addEventListener("click", () => this.removeGraphData(index));
+    });
+    const dataActions = dataSection.createDiv({ cls: "qt-row qt-ref-graph-data-actions" });
+    dataActions.createEl("button", { text: "Add data point", cls: "qt-ref-graph-add" }).addEventListener("click", () => {
+      this.graphData.push({ x: "", y: "" });
       this.render();
     });
 
@@ -60314,6 +60574,11 @@ class ReferenceView extends ItemView {
   removeGraphRow(index) {
     this.graphRows.splice(index, 1);
     if (!this.graphRows.length) this.graphRows.push({ text: "", hidden: false });
+    this.render();
+  }
+
+  removeGraphData(index) {
+    this.graphData.splice(index, 1);
     this.render();
   }
 
@@ -60331,7 +60596,8 @@ class ReferenceView extends ItemView {
     let graph;
     try {
       graph = buildGraph({
-        rows: this.graphRows.map((row) => (row.hidden ? "" : row.text)),
+        rows: this.graphRows.map((row) => (row.hidden ? "" : { text: row.text, guess: row.guess })),
+        data: this.graphData,
         xMin: this.graphXMin,
         xMax: this.graphXMax,
         yMin: this.graphYMin,
@@ -60343,16 +60609,40 @@ class ReferenceView extends ItemView {
       if (this.graphErrorEl) this.graphErrorEl.setText(e.message);
       return;
     }
-    if (this.graphErrorEl) this.graphErrorEl.setText("");
+    if (this.graphErrorEl) this.graphErrorEl.setText(graph.dataError || "");
     const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
     const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
     this.paintGraphGrid(ctx, graph, width, height, px, py);
     for (const row of graph.rows) {
       const statusEl = this.graphRowErrorEls[row.index];
       if (statusEl) statusEl.setText(row.error || (row.kind === "definition" ? "Function defined" : ""));
+      const fitEl = this.graphFitEls[row.index];
+      if (fitEl) {
+        if (row.parameters && row.parameters.length) {
+          const parts = row.parameters.map((param) => `${param.name} = ${formatGraphFit(param.value)}`);
+          parts.push(row.r2 === null ? "R² —" : `R² = ${formatGraphFit(row.r2)}`);
+          fitEl.setText(parts.join(" · "));
+          const source = this.graphRows[row.index];
+          if (source) source.guess = Object.fromEntries(row.parameters.map((param) => [param.name, param.value]));
+        } else {
+          fitEl.setText("");
+        }
+      }
       const color = GRAPH_COLORS[row.index % GRAPH_COLORS.length];
       if (row.points && row.points.length) this.paintGraphPoints(ctx, row.points, height, px, py, color);
       if (row.segments && row.segments.length) this.paintGraphSegments(ctx, row.segments, px, py, color);
+    }
+    if (graph.data.length && graph.rows.some((row) => row.kind === "regression")) {
+      this.paintGraphData(ctx, graph.data, px, py);
+    }
+  }
+
+  paintGraphData(ctx, points, px, py) {
+    ctx.fillStyle = "#8b8b8b";
+    for (const point of points) {
+      ctx.beginPath();
+      ctx.arc(px(point.x), py(point.y), 3, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 

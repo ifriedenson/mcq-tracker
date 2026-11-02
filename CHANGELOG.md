@@ -2,6 +2,17 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.173.0 — 2026-11-02
+
+- The Reference Graph tab gains a Desmos-style x/y data table and `~` regression
+  rows: `y ~ m x + b`, `y ~ a e^(b x)` and `y_1 ~ a x_1 + b`.
+- Free names are fitted locally with a Levenberg-Marquardt least-squares solver;
+  coefficients and R² appear under the row and the data points are plotted.
+- Bad data cells and impossible fits report inline without stopping other rows.
+  No dependency, no `eval` and no network request.
+- plan.md §3.11 now records the Desmos parity roadmap, its permissively licensed
+  reference sources and one release number per capability.
+
 ## 1.172.0 — 2026-11-02
 
 - New sidebar **Task list** over the local Tasks data: open/overdue/due-today

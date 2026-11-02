@@ -1228,6 +1228,34 @@ These names appear in this document but not in the community plugin index, so no
 
 ---
 
+### 3.11 Desmos graphing-calculator parity roadmap (Nov 2, 2026)
+
+Owner direction: inventory everything the Desmos Graphing Calculator does, record where a permissively licensed project could supply the algorithm or interaction pattern, keep the list here, and ship each capability as its own small release so it can be updated in many increments. Release numbers below start at the next free version; the 1.172.0 sidebar Task list release is separate.
+
+**Licence rule for every row.** This plugin stays dependency-free and ships its own code in `main.js`; no source below is bundled as a dependency. The repositories are references for algorithms, syntax and interaction design. Any code actually copied must be MIT, BSD, ISC, 0BSD or Apache-2.0 with its NOTICE, must be recorded in `NOTICES.md`, and must never come from a GPL/AGPL project. **Blocked and never to be copied:** `RaumZeit/MarchingSquares.js` (AGPL-3.0), `Nigecat/obsidian-desmos` (GPL-3.0), Desmos' own code and API (proprietary), JSXGraph except under its MIT option, and `Tom-Alexander/regression-js` until its licence file is verified.
+
+| Release | Desmos capability | Permissive source (licence, URL) | Status |
+|---|---|---|---|
+| 1.173.0 | Tables and regression: `y ~ m x + b`, `y_1 ~ a x_1 + b`, custom models, fitted parameters and R² | `mljs/levenberg-marquardt` (MIT, https://github.com/mljs/levenberg-marquardt); `simple-statistics` for R² (ISC, https://github.com/simple-statistics/simple-statistics) | **Shipped** |
+| 1.174.0 | Sliders and animation: free parameter rows `a = 2`, bounds, step, play/pause, one slider driving many rows | `paulmasson/mathcell` interactive inputs (MIT, https://github.com/paulmasson/mathcell); `stevenpetryk/mafs` movable points (MIT, https://github.com/stevenpetryk/mafs) | Queued |
+| 1.175.0 | Inequalities: `y < 2x + 1`, `x^2 + y^2 <= 9`, strict dashed vs non-strict solid boundary, region shading | `stevenpetryk/mafs` `Plot.Inequality` (MIT); `jsxgraph/jsxgraph` inequality regions under its MIT option (https://github.com/jsxgraph/jsxgraph) | Queued |
+| 1.176.0 | Domain and range restrictions plus piecewise `{condition: value, ...}` | `jsxgraph/jsxgraph` MIT option; `mauriciopoppe/function-plot` piecewise examples (MIT, https://github.com/mauriciopoppe/function-plot) | Queued |
+| 1.177.0 | Polar graphing `r = 1 + cos(theta)`, polar grid, theta domain | `mauriciopoppe/function-plot` polar example (MIT); `jsxgraph` polar board (MIT option) | Queued |
+| 1.178.0 | Parametric curves `(cos(t), sin(t))` with t bounds and curve fill | `mafs` `Plot.Parametric` (MIT); `function-plot` parametric example (MIT) | Queued |
+| 1.179.0 | Points, point lists, labels and open/closed point styles | `mafs` points and movable points (MIT); `Graphr` point styling (MIT, https://github.com/yerich/Graphr) | Queued |
+| 1.180.0 | Full function library: sec/csc/cot, hyperbolic and inverse hyperbolic, mod, sign, round, nthroot, gcd/lcm, nCr/nPr, tau | `mathjs` function definitions (Apache-2.0, https://github.com/josdejong/mathjs); `expr-eval` grammar (MIT, https://github.com/silentmatt/expr-eval) | Queued |
+| 1.181.0 | Points of interest (roots, intercepts, extrema, intersections) and cursor trace readout | `Graphr` root/trace tools (MIT); `numeric` bracketing and Newton solvers (MIT, https://github.com/sloisel/numeric) | Queued |
+| 1.182.0 | Zoom, pan, zoom-fit, default viewport and lock viewport | `function-plot` re-evaluation on scale change (MIT); `Graphr` mouse zoom/pan (MIT) | Queued |
+| 1.183.0 | Graph settings: minor gridlines, axis labels, pi ticks, degrees/radians, polar grid | `jsxgraph` axis/ticks board (MIT option); `function-plot` axis options (MIT) | Queued |
+| 1.184.0 | Row styling: line width, dashed lines, fill opacity, point size and shape | `jsxgraph` styling options (MIT option) | Queued |
+| 1.185.0 | Export: graph PNG, table CSV and copy-expression text | Canvas and clipboard APIs already used by the plugin; no third-party code | Queued |
+| 1.186.0 | Math keypad and examples gallery in the graph tab | Desmos' documented shortcut set as behaviour reference only; `mathlive` MIT option for input ideas (https://github.com/arnog/mathlive) | Queued |
+| 1.187.0 | Statistics: mean/median/stdev/quartile/corr and list entry | `simple-statistics` (ISC) for the formulas | Queued |
+| 1.188.0 | Calculus: numeric derivative, definite integral, sum and product | `scijs/integrate-adaptive-simpson` adaptive quadrature (MIT, https://github.com/scijs/integrate-adaptive-simpson); `mathjs` derivative reference (Apache-2.0) | Queued |
+| 1.189.0 | Accessibility: per-row text summary for screen readers and a data-table view of the graph | Desmos accessibility guidance as behaviour reference only | Queued |
+
+**Not planned, with the reason recorded:** the 3D calculator, Geometry tool and Matrix calculator are separate products outside this panel; complex mode, audio trace, braille output and Desmos share links need device or service support the plugin does not have; the Desmos API itself is proprietary and was already rejected in §3.10 and §11 decision 6. Marching squares for implicit curves and inequalities is written locally rather than copied from the AGPL implementation.
+
 ## 4. Architecture
 
 ### 4.1 Core + modules

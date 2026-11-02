@@ -45,6 +45,15 @@ function formatGraphTick(value) {
   return String(Object.is(rounded, -0) ? 0 : rounded);
 }
 
+/* Fitted coefficients and R², short enough to sit under a row. */
+function formatGraphFit(value) {
+  if (!Number.isFinite(value)) return "—";
+  const abs = Math.abs(value);
+  if (abs !== 0 && (abs < 1e-4 || abs >= 1e6)) return Number(value.toExponential(3)).toString();
+  const rounded = Number(Number(value).toPrecision(5));
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
 /*
  * A local-only reference panel. It contains no network request or third-party
  * dataset: formulas and constants are static text, the converter is a pure
@@ -76,9 +85,11 @@ class ReferenceView extends ItemView {
     this.graphXMax = "10";
     this.graphYMin = "-10";
     this.graphYMax = "10";
+    this.graphData = [];
     this.graphCanvas = null;
     this.graphErrorEl = null;
     this.graphRowErrorEls = [];
+    this.graphFitEls = [];
     this.calculatorMode = "basic";
     this.calculatorExpression = "";
     this.calculatorResult = "";
@@ -293,7 +304,7 @@ class ReferenceView extends ItemView {
   renderGraph(root) {
     root.createDiv({
       cls: "qt-ref-note",
-      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
+      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
     });
     const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
     for (const [key, label] of [["graphXMin", "min x"], ["graphXMax", "max x"], ["graphYMin", "min y"], ["graphYMax", "max y"]]) {
@@ -312,6 +323,7 @@ class ReferenceView extends ItemView {
 
     const list = root.createDiv({ cls: "qt-ref-graph-rows" });
     this.graphRowErrorEls = [];
+    this.graphFitEls = [];
     this.graphRows.forEach((row, index) => {
       const color = GRAPH_COLORS[index % GRAPH_COLORS.length];
       const rowEl = list.createDiv({ cls: "qt-ref-graph-row" });
@@ -328,7 +340,7 @@ class ReferenceView extends ItemView {
       });
       const input = rowEl.createEl("input", {
         cls: "qt-ref-graph-input",
-        attr: { type: "text", placeholder: index === 0 ? "y = sin(x)" : "y^2 = 2x + 1", "aria-label": `Graph expression ${index + 1}` },
+        attr: { type: "text", placeholder: index === 0 ? "y = sin(x)" : index === 1 ? "y^2 = 2x + 1" : "y ~ m x + b", "aria-label": `Graph expression ${index + 1}` },
       });
       input.value = row.text;
       input.style.borderLeft = `3px solid ${color}`;
@@ -348,11 +360,40 @@ class ReferenceView extends ItemView {
         attr: { "aria-label": `Remove expression ${index + 1}` },
       }).addEventListener("click", () => this.removeGraphRow(index));
       this.graphRowErrorEls[index] = rowEl.createDiv({ cls: "qt-ref-graph-row-error", attr: { "aria-live": "polite" } });
+      this.graphFitEls[index] = rowEl.createDiv({ cls: "qt-ref-graph-fit", attr: { "aria-live": "polite" } });
     });
 
     const actions = root.createDiv({ cls: "qt-row qt-ref-graph-actions" });
     actions.createEl("button", { text: "Add expression", cls: "qt-ref-graph-add" }).addEventListener("click", () => {
       this.graphRows.push({ text: "", hidden: false });
+      this.render();
+    });
+
+    const dataSection = root.createDiv({ cls: "qt-ref-graph-data" });
+    dataSection.createDiv({ cls: "qt-ref-graph-data-head", text: "Data table (x, y) for regression rows" });
+    const dataRows = dataSection.createDiv({ cls: "qt-ref-graph-data-rows" });
+    this.graphData.forEach((point, index) => {
+      const dataRow = dataRows.createDiv({ cls: "qt-ref-graph-data-row" });
+      for (const key of ["x", "y"]) {
+        const input = dataRow.createEl("input", {
+          cls: "qt-ref-graph-data-input",
+          attr: { type: "number", step: "any", placeholder: key, "aria-label": `Data ${key} row ${index + 1}` },
+        });
+        input.value = point[key];
+        input.addEventListener("input", () => {
+          point[key] = input.value;
+          this.drawGraph();
+        });
+      }
+      dataRow.createEl("button", {
+        cls: "qt-ref-graph-remove",
+        text: "×",
+        attr: { "aria-label": `Remove data point ${index + 1}` },
+      }).addEventListener("click", () => this.removeGraphData(index));
+    });
+    const dataActions = dataSection.createDiv({ cls: "qt-row qt-ref-graph-data-actions" });
+    dataActions.createEl("button", { text: "Add data point", cls: "qt-ref-graph-add" }).addEventListener("click", () => {
+      this.graphData.push({ x: "", y: "" });
       this.render();
     });
 
@@ -364,6 +405,11 @@ class ReferenceView extends ItemView {
   removeGraphRow(index) {
     this.graphRows.splice(index, 1);
     if (!this.graphRows.length) this.graphRows.push({ text: "", hidden: false });
+    this.render();
+  }
+
+  removeGraphData(index) {
+    this.graphData.splice(index, 1);
     this.render();
   }
 
@@ -381,7 +427,8 @@ class ReferenceView extends ItemView {
     let graph;
     try {
       graph = buildGraph({
-        rows: this.graphRows.map((row) => (row.hidden ? "" : row.text)),
+        rows: this.graphRows.map((row) => (row.hidden ? "" : { text: row.text, guess: row.guess })),
+        data: this.graphData,
         xMin: this.graphXMin,
         xMax: this.graphXMax,
         yMin: this.graphYMin,
@@ -393,16 +440,40 @@ class ReferenceView extends ItemView {
       if (this.graphErrorEl) this.graphErrorEl.setText(e.message);
       return;
     }
-    if (this.graphErrorEl) this.graphErrorEl.setText("");
+    if (this.graphErrorEl) this.graphErrorEl.setText(graph.dataError || "");
     const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
     const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
     this.paintGraphGrid(ctx, graph, width, height, px, py);
     for (const row of graph.rows) {
       const statusEl = this.graphRowErrorEls[row.index];
       if (statusEl) statusEl.setText(row.error || (row.kind === "definition" ? "Function defined" : ""));
+      const fitEl = this.graphFitEls[row.index];
+      if (fitEl) {
+        if (row.parameters && row.parameters.length) {
+          const parts = row.parameters.map((param) => `${param.name} = ${formatGraphFit(param.value)}`);
+          parts.push(row.r2 === null ? "R² —" : `R² = ${formatGraphFit(row.r2)}`);
+          fitEl.setText(parts.join(" · "));
+          const source = this.graphRows[row.index];
+          if (source) source.guess = Object.fromEntries(row.parameters.map((param) => [param.name, param.value]));
+        } else {
+          fitEl.setText("");
+        }
+      }
       const color = GRAPH_COLORS[row.index % GRAPH_COLORS.length];
       if (row.points && row.points.length) this.paintGraphPoints(ctx, row.points, height, px, py, color);
       if (row.segments && row.segments.length) this.paintGraphSegments(ctx, row.segments, px, py, color);
+    }
+    if (graph.data.length && graph.rows.some((row) => row.kind === "regression")) {
+      this.paintGraphData(ctx, graph.data, px, py);
+    }
+  }
+
+  paintGraphData(ctx, points, px, py) {
+    ctx.fillStyle = "#8b8b8b";
+    for (const point of points) {
+      ctx.beginPath();
+      ctx.arc(px(point.x), py(point.y), 3, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 

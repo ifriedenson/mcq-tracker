@@ -193,3 +193,75 @@ test("reference view: graph rows can be added, hidden, edited and removed", asyn
   view.render();
   assert.ok(badDom.texts().some((text) => /Unknown name/.test(text)), "a bad row shows its error inline");
 });
+
+test("graph: a regression row parses like Desmos", () => {
+  const parsed = graph.parseGraphRow("y ~ m x + b");
+  assert.equal(parsed.kind, "regression");
+  assert.equal(parsed.rhs, "m x + b");
+  assert.equal(graph.parseGraphRow("y_1 ~ a x_1 + b").rhs, "a x + b");
+  assert.throws(() => graph.parseGraphRow("x ~ a y + b"), /starts with y/);
+  assert.throws(() => graph.parseGraphRow("y ~ a x + b = 2"), /either/);
+  assert.throws(() => graph.parseGraphRow("y ~ m x ~ b"), /single "~"/);
+  assert.throws(() => graph.parseGraphRow("y ~"), /Both sides/);
+});
+
+test("graph: a regression row fits its parameters to the data table", () => {
+  const built = graph.buildGraph({
+    rows: [{ text: "y ~ m x + b" }],
+    data: [{ x: 1, y: 3 }, { x: 2, y: 5 }, { x: 3, y: 7 }, { x: 4, y: 9 }],
+    xMin: -1,
+    xMax: 5,
+    yMin: -1,
+    yMax: 11,
+    samples: 51,
+    resolution: { x: 40, y: 40 },
+  });
+  const row = built.rows[0];
+  assert.equal(row.kind, "regression");
+  assert.equal(row.error, "");
+  assert.deepEqual(row.parameters.map((param) => param.name), ["m", "b"]);
+  assert.ok(Math.abs(row.parameters[0].value - 2) < 1e-6, "fitted slope is 2");
+  assert.ok(Math.abs(row.parameters[1].value - 1) < 1e-6, "fitted intercept is 1");
+  assert.ok(Math.abs(row.r2 - 1) < 1e-9);
+  assert.equal(built.data.length, 4);
+  const near = row.points.reduce((best, point) => (Math.abs(point.x - 2) < Math.abs(best.x - 2) ? point : best));
+  assert.ok(Math.abs(near.y - 5) < 0.05, "the fitted line is sampled in the window");
+});
+
+test("graph: regression handles curved models and reports unusable data", () => {
+  const points = [0, 1, 2, 3].map((x) => ({ x, y: 2 * Math.exp(0.5 * x) }));
+  const built = graph.buildGraph({ rows: [{ text: "y ~ a e^(b x)" }], data: points, samples: 21, resolution: { x: 20, y: 20 } });
+  const [a, b] = built.rows[0].parameters.map((param) => param.value);
+  assert.ok(Math.abs(a - 2) < 0.01);
+  assert.ok(Math.abs(b - 0.5) < 0.01);
+  assert.ok(built.rows[0].r2 > 0.999);
+
+  assert.match(graph.buildGraph({ rows: ["y ~ m x + b"], data: [{ x: 1, y: 2 }] }).rows[0].error, /at least 2 data points/);
+  assert.match(graph.buildGraph({ rows: ["y ~ m x"] }).rows[0].error, /data points/);
+  assert.match(graph.buildGraph({ rows: ["y ~ y x"], data: [{ x: 1, y: 2 }] }).rows[0].error, /Use x on the right/);
+  assert.match(graph.buildGraph({ rows: ["y ~ q(x)"], data: [{ x: 1, y: 2 }] }).rows[0].error, /Unknown function "q"/);
+  const bad = graph.buildGraph({ rows: ["y = x"], data: [{ x: "abc", y: 2 }] });
+  assert.match(bad.dataError, /two numbers/);
+  assert.equal(bad.rows[0].error, "", "a bad data cell does not break the other rows");
+});
+
+test("reference view: the data table feeds a regression row", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  view.graphRows = [{ text: "y ~ m x + b", hidden: false }];
+  view.graphData = [{ x: "1", y: "3" }, { x: "2", y: "5" }, { x: "3", y: "7" }];
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const text = dom.texts().join(" | ");
+  assert.ok(text.includes("Data table (x, y)"), "the table is rendered");
+  assert.ok(/m = 2/.test(text), "the fitted slope is shown under the row");
+  assert.ok(text.includes("R² = 1"));
+  await dom.click("Add data point");
+  assert.equal(view.graphData.length, 4);
+});
