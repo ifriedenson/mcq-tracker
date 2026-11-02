@@ -149,6 +149,101 @@ const IDENT_PART = /[A-Za-z0-9_]/;
 const IDENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DEFAULT_VIEW = { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
 
+const VIEW_LIMITS = { minSpan: 0.02, maxSpan: 20000 };
+
+/** Normalise a window back into the sampler's usable range. */
+function clampView(view, limits) {
+  const bounds = limits || VIEW_LIMITS;
+  const xMin = Number(view && view.xMin);
+  const xMax = Number(view && view.xMax);
+  const yMin = Number(view && view.yMin);
+  const yMax = Number(view && view.yMax);
+  if (![xMin, xMax, yMin, yMax].every((value) => Number.isFinite(value)) || !(xMax > xMin) || !(yMax > yMin)) {
+    return { xMin: DEFAULT_VIEW.xMin, xMax: DEFAULT_VIEW.xMax, yMin: DEFAULT_VIEW.yMin, yMax: DEFAULT_VIEW.yMax };
+  }
+  const axis = (min, max) => {
+    const span = Math.min(bounds.maxSpan, Math.max(bounds.minSpan, max - min));
+    const center = Math.max(-1e7, Math.min(1e7, (min + max) / 2));
+    return { min: center - span / 2, max: center + span / 2 };
+  };
+  const x = axis(xMin, xMax);
+  const y = axis(yMin, yMax);
+  return { xMin: x.min, xMax: x.max, yMin: y.min, yMax: y.max };
+}
+
+/** Scale the window by factor while holding focus still, then bound the span. */
+function zoomView(view, factor, focus, limits) {
+  const base = clampView(view, limits);
+  const bounds = limits || VIEW_LIMITS;
+  const f = Number(factor);
+  if (!Number.isFinite(f) || f <= 0) return base;
+  const fx = focus && Number.isFinite(focus.x) ? focus.x : (base.xMin + base.xMax) / 2;
+  const fy = focus && Number.isFinite(focus.y) ? focus.y : (base.yMin + base.yMax) / 2;
+  const axis = (min, max, at) => {
+    const next = Math.min(bounds.maxSpan, Math.max(bounds.minSpan, (max - min) * f));
+    const ratio = next / (max - min);
+    return { min: at - (at - min) * ratio, max: at + (max - at) * ratio };
+  };
+  const x = axis(base.xMin, base.xMax, fx);
+  const y = axis(base.yMin, base.yMax, fy);
+  return { xMin: x.min, xMax: x.max, yMin: y.min, yMax: y.max };
+}
+
+/** Shift the window by a fraction of its own span: dx right, dy up. */
+function panView(view, dx, dy, limits) {
+  const base = clampView(view, limits);
+  const spanX = base.xMax - base.xMin;
+  const spanY = base.yMax - base.yMin;
+  const shiftX = Number.isFinite(dx) ? dx * spanX : 0;
+  const shiftY = Number.isFinite(dy) ? dy * spanY : 0;
+  return { xMin: base.xMin + shiftX, xMax: base.xMax + shiftX, yMin: base.yMin + shiftY, yMax: base.yMax + shiftY };
+}
+
+/** Fit the window around everything the graph drew, with an 8% margin. */
+function fitView(built, limits) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  const add = (x, y) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  };
+  const rows = built && Array.isArray(built.rows) ? built.rows : [];
+  for (const row of rows) {
+    for (const point of row.points || []) if (point.y !== null) add(point.x, point.y);
+    for (const segment of row.segments || []) {
+      add(segment.x1, segment.y1);
+      add(segment.x2, segment.y2);
+    }
+    for (const marker of row.markers || []) add(marker.x, marker.y);
+    for (const point of row.polygon || []) add(point.x, point.y);
+    if (row.region) {
+      add(row.region.x0, row.region.y0);
+      add(row.region.x0 + row.region.dx * row.region.cols, row.region.y0 + row.region.dy * row.region.rows);
+    }
+  }
+  for (const point of (built && built.data) || []) add(point.x, point.y);
+  if (!(maxX > minX) && !(maxY > minY)) {
+    return { xMin: DEFAULT_VIEW.xMin, xMax: DEFAULT_VIEW.xMax, yMin: DEFAULT_VIEW.yMin, yMax: DEFAULT_VIEW.yMax };
+  }
+  if (!(maxX > minX)) {
+    minX -= 1;
+    maxX += 1;
+  }
+  if (!(maxY > minY)) {
+    minY -= 1;
+    maxY += 1;
+  }
+  const padX = (maxX - minX) * 0.08;
+  const padY = (maxY - minY) * 0.08;
+  return clampView({ xMin: minX - padX, xMax: maxX + padX, yMin: minY - padY, yMax: maxY + padY }, limits);
+}
+
+
 function isKnownFunction(name, extraNames) {
   if (Object.prototype.hasOwnProperty.call(FUNCTIONS, name)) return true;
   if (Object.prototype.hasOwnProperty.call(MULTI_FUNCTIONS, name)) return true;
@@ -1625,6 +1720,11 @@ function buildPlot(text, options) {
 module.exports = {
   CONSTANTS,
   DEFAULT_VIEW,
+  VIEW_LIMITS,
+  clampView,
+  zoomView,
+  panView,
+  fitView,
   FUNCTIONS,
   MULTI_FUNCTIONS,
   buildGraph,

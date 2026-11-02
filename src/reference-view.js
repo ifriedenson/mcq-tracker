@@ -13,7 +13,8 @@ const {
 } = require("./reference-data");
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
 const {
-  markerLayout, buildGraph, parseGraphRow, traceAt } = require("./reference-graph");
+  markerLayout, buildGraph, parseGraphRow, traceAt,
+  clampView, zoomView, panView, fitView } = require("./reference-graph");
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
@@ -78,14 +79,15 @@ class ReferenceView extends ItemView {
     this.smilesInput = "c1ccccc1";
     this.constantListEl = null;
     this.unitResultEl = null;
+    const storedGraph = (plugin.settings && plugin.settings.reference && plugin.settings.reference.graph) || {};
     this.graphRows = [
       { text: "sin(x)", hidden: false },
       { text: "x^2 + y^2 = 9", hidden: false },
     ];
-    this.graphXMin = "-10";
-    this.graphXMax = "10";
-    this.graphYMin = "-10";
-    this.graphYMax = "10";
+    this.graphViewport = clampView(storedGraph.view);
+    this.graphLocked = storedGraph.locked === true;
+    this.graphViewInputs = {};
+    this.graphDrag = null;
     this.graphData = [];
     this.graphPolarGrid = false;
     this.graphInterest = true;
@@ -315,16 +317,29 @@ class ReferenceView extends ItemView {
       text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Polar rows start with r, like r = 1 + cos(theta) or r = 2 sin(3 theta): theta (or θ) sweeps 0 to 2π, sliders work inside the radius, an optional {theta > 0} or {r > 0} restriction limits the sweep, and the polar grid control overlays rings and spokes on any row. A parametric row is a pair of expressions in a shared parameter, like (cos(t), sin(t)): t (or theta) runs 0 to 2π unless a two-sided bound such as {0 < t < 2pi} sets the range, other {…} conditions filter the sweep, sliders and definitions work in both coordinates, and the word fill after the pair shades a closed curve. A pair without the parameter, like (1, 2) or (a, b) with sliders, is a point marker: add open for a hollow marker or closed for a filled one, and a quoted text such as \"A\" replaces its coordinate label. Square brackets hold a list, like [(1, 2), (3, 4)], and restrictions filter which points show. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A trailing brace restricts a row to part of its domain or range, like y = x^2 {0 < x < 3} or {0 < y < 1}, and braces with cases make a piecewise row, like y = {x < 0: -x, x >= 0: x}. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e, tau and sin, cos, tan, sec, csc, cot, asin, acos, atan, sinh, cosh, tanh, csch, sech, coth, asinh, acosh, atanh, acsch, asech, acoth, sqrt, abs, ln, log, exp, floor, ceil, sign or round, plus mod, nthroot, gcd, lcm, nCr and nPr, which take two values. Operators are + - * / ^. Roots, y-intercepts, extrema and crossings between rows are marked with small rings, which the points-of-interest control turns off, and hovering the canvas reads out the x and y of the nearest curve.",
     });
     const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
-    for (const [key, label] of [["graphXMin", "min x"], ["graphXMax", "max x"], ["graphYMin", "min y"], ["graphYMax", "max y"]]) {
+    for (const [key, label] of [["xMin", "min x"], ["xMax", "max x"], ["yMin", "min y"], ["yMax", "max y"]]) {
       const field = controls.createDiv({ cls: "qt-ref-graph-bound" });
       field.createEl("span", { text: label });
       const input = field.createEl("input", {
         cls: "qt-ref-amount",
         attr: { type: "number", step: "any", "aria-label": `Graph ${label}` },
       });
-      input.value = this[key];
-      input.addEventListener("input", () => {
-        this[key] = input.value;
+      input.value = formatGraphTick(this.graphViewport[key]);
+      this.graphViewInputs[key] = input;
+      input.addEventListener("change", () => {
+        if (this.graphLocked) {
+          input.value = formatGraphTick(this.graphViewport[key]);
+          if (this.graphTraceEl) this.graphTraceEl.setText("The viewport is locked. Unlock it to change the window.");
+          return;
+        }
+        const next = Object.assign({}, this.graphViewport, { [key]: Number(input.value) });
+        if (!(next.xMax > next.xMin) || !(next.yMax > next.yMin)) {
+          input.value = formatGraphTick(this.graphViewport[key]);
+          return;
+        }
+        this.graphViewport = clampView(next);
+        this.syncGraphViewInputs();
+        this.persistGraphView();
         this.drawGraph();
       });
     }
@@ -346,6 +361,26 @@ class ReferenceView extends ItemView {
       this.drawGraph();
     });
     interestField.createSpan({ text: "points of interest" });
+
+    const viewActions = controls.createDiv({ cls: "qt-row qt-ref-graph-view" });
+    viewActions.createEl("button", { text: "\u2212", attr: { type: "button", "aria-label": "Zoom out" } })
+      .addEventListener("click", () => this.zoomGraph(1.25));
+    viewActions.createEl("button", { text: "+", attr: { type: "button", "aria-label": "Zoom in" } })
+      .addEventListener("click", () => this.zoomGraph(0.8));
+    viewActions.createEl("button", { text: "Reset view", attr: { type: "button", "aria-label": "Reset view to fit the expressions" } })
+      .addEventListener("click", () => this.resetGraphView());
+    viewActions.createEl("button", {
+      text: this.graphLocked ? "Unlock view" : "Lock view",
+      attr: {
+        type: "button",
+        "aria-label": this.graphLocked ? "Unlock the viewport" : "Lock the viewport",
+        "aria-pressed": String(this.graphLocked),
+      },
+    }).addEventListener("click", () => {
+      this.graphLocked = !this.graphLocked;
+      this.persistGraphView();
+      this.render();
+    });
 
     const list = root.createDiv({ cls: "qt-ref-graph-rows" });
     this.graphRowErrorEls = [];
@@ -454,11 +489,18 @@ class ReferenceView extends ItemView {
       this.render();
     });
 
-    this.graphCanvas = root.createEl("canvas", { cls: "qt-ref-canvas qt-ref-graph-canvas", attr: { "aria-label": "Graph of the expressions" } });
+    this.graphCanvas = root.createEl("canvas", {
+      cls: "qt-ref-canvas qt-ref-graph-canvas",
+      attr: {
+        tabindex: "0",
+        role: "application",
+        "aria-label": "Graph of the expressions. Drag to pan, scroll to zoom, arrow keys pan and plus or minus zoom.",
+      },
+    });
     this.graphTraceEl = root.createDiv({ cls: "qt-ref-graph-trace", attr: { "aria-live": "polite" } });
-    this.graphCanvas.addEventListener("pointermove", (event) => {
+    const pointAt = (event) => {
       const graph = this.graphBuilt;
-      if (!graph) return;
+      if (!graph) return null;
       const rect = this.graphCanvas.getBoundingClientRect ? this.graphCanvas.getBoundingClientRect() : null;
       const width = rect && Number(rect.width) > 0 ? Number(rect.width) : Number(this.graphCanvas.clientWidth) || 640;
       const height = rect && Number(rect.height) > 0 ? Number(rect.height) : 320;
@@ -466,27 +508,98 @@ class ReferenceView extends ItemView {
       const top = rect ? Number(rect.top) || 0 : 0;
       const across = Math.min(1, Math.max(0, (event.clientX - left) / width));
       const down = Math.min(1, Math.max(0, (event.clientY - top) / height));
-      const x = graph.xMin + across * (graph.xMax - graph.xMin);
-      const y = graph.yMin + (1 - down) * (graph.yMax - graph.yMin);
-      this.graphTrace = { x, y };
-      const traces = traceAt(graph, x);
-      if (this.graphTraceEl) {
-        if (!traces.length) {
-          this.graphTraceEl.setText("No curve at this x.");
-        } else {
-          let best = traces[0];
-          for (const trace of traces) if (Math.abs(trace.y - y) < Math.abs(best.y - y)) best = trace;
-          this.graphTraceEl.setText(`x = ${formatGraphTick(best.x)} · y = ${formatGraphTick(best.y)} · row ${best.rowIndex + 1}`);
+      return {
+        width,
+        height,
+        x: graph.xMin + across * (graph.xMax - graph.xMin),
+        y: graph.yMin + (1 - down) * (graph.yMax - graph.yMin),
+      };
+    };
+    const paintTrace = (at) => {
+      const graph = this.graphBuilt;
+      if (!graph || !this.graphTraceEl) return;
+      const traces = traceAt(graph, at.x);
+      if (!traces.length) {
+        this.graphTraceEl.setText("No curve at this x.");
+        return;
+      }
+      let best = traces[0];
+      for (const trace of traces) if (Math.abs(trace.y - at.y) < Math.abs(best.y - at.y)) best = trace;
+      this.graphTraceEl.setText(`x = ${formatGraphTick(best.x)} · y = ${formatGraphTick(best.y)} · row ${best.rowIndex + 1}`);
+    };
+    this.graphCanvas.addEventListener("pointerdown", (event) => {
+      if (!this.graphBuilt) return;
+      this.graphDrag = {
+        x: Number(event.clientX) || 0,
+        y: Number(event.clientY) || 0,
+        view: Object.assign({}, this.graphViewport),
+        moved: false,
+        id: event.pointerId,
+      };
+      if (this.graphCanvas.setPointerCapture && event.pointerId !== undefined) {
+        try {
+          this.graphCanvas.setPointerCapture(event.pointerId);
+        } catch (e) {
+          // pointer capture is an enhancement, not required for dragging
         }
       }
+    });
+    this.graphCanvas.addEventListener("pointermove", (event) => {
+      const at = pointAt(event);
+      if (!at) return;
+      if (this.graphDrag) {
+        const dx = (Number(event.clientX) || 0) - this.graphDrag.x;
+        const dy = (Number(event.clientY) || 0) - this.graphDrag.y;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) this.graphDrag.moved = true;
+        if (this.graphDrag.moved && !this.graphLocked) {
+          this.graphViewport = panView(this.graphDrag.view, -dx / at.width, dy / at.height);
+          this.syncGraphViewInputs();
+          this.drawGraph();
+          return;
+        }
+        if (this.graphDrag.moved) return;
+      }
+      this.graphTrace = { x: at.x, y: at.y };
+      paintTrace(at);
       this.drawGraph();
     });
+    const endGraphDrag = () => {
+      if (!this.graphDrag) return;
+      const moved = this.graphDrag.moved;
+      this.graphDrag = null;
+      if (moved) {
+        this.persistGraphView();
+        this.graphTrace = null;
+        if (this.graphTraceEl) this.graphTraceEl.setText("");
+        this.drawGraph();
+      }
+    };
+    this.graphCanvas.addEventListener("pointerup", endGraphDrag);
+    this.graphCanvas.addEventListener("pointercancel", endGraphDrag);
     this.graphCanvas.addEventListener("pointerleave", () => {
+      if (this.graphDrag) return;
       if (!this.graphTrace) return;
       this.graphTrace = null;
       if (this.graphTraceEl) this.graphTraceEl.setText("");
       this.drawGraph();
     });
+    this.graphCanvas.addEventListener("wheel", (event) => {
+      const at = pointAt(event);
+      if (!at) return;
+      if (event.preventDefault) event.preventDefault();
+      if (this.graphLocked) {
+        if (this.graphTraceEl) this.graphTraceEl.setText("The viewport is locked. Unlock it to zoom.");
+        return;
+      }
+      const factor = Math.min(2, Math.max(0.5, Math.exp((Number(event.deltaY) || 0) * 0.0015)));
+      this.graphViewport = zoomView(this.graphViewport, factor, { x: at.x, y: at.y });
+      this.syncGraphViewInputs();
+      this.persistGraphView();
+      this.graphTrace = { x: at.x, y: at.y };
+      paintTrace(at);
+      this.drawGraph();
+    }, { passive: false });
+    this.graphCanvas.addEventListener("keydown", (event) => this.onGraphKeydown(event));
     this.graphErrorEl = root.createDiv({ cls: "qt-ref-note" });
     this.drawGraph();
   }
@@ -603,10 +716,10 @@ class ReferenceView extends ItemView {
         parameters: Object.fromEntries(
           this.graphRows.filter((row) => row.name && row.value !== undefined).map((row) => [row.name, row.value])
         ),
-        xMin: this.graphXMin,
-        xMax: this.graphXMax,
-        yMin: this.graphYMin,
-        yMax: this.graphYMax,
+        xMin: this.graphViewport.xMin,
+        xMax: this.graphViewport.xMax,
+        yMin: this.graphViewport.yMin,
+        yMax: this.graphViewport.yMax,
         samples: Math.max(3, Math.round(width * 1.5)),
         resolution: { x: Math.round(width / 3), y: Math.round(height / 3) },
         regionResolution: { x: Math.round(width / 7), y: Math.round(height / 10) },
@@ -657,6 +770,74 @@ class ReferenceView extends ItemView {
     }
     if (this.graphInterest) this.paintGraphInterest(ctx, graph, width, height, px, py);
     this.paintGraphTrace(ctx, graph, width, height, px, py);
+  }
+
+  syncGraphViewInputs() {
+    for (const key of ["xMin", "xMax", "yMin", "yMax"]) {
+      const input = this.graphViewInputs[key];
+      if (input) input.value = formatGraphTick(this.graphViewport[key]);
+    }
+  }
+
+  zoomGraph(factor, focus) {
+    if (this.graphLocked) {
+      if (this.graphTraceEl) this.graphTraceEl.setText("The viewport is locked. Unlock it to zoom.");
+      return;
+    }
+    this.graphViewport = zoomView(this.graphViewport, factor, focus);
+    this.syncGraphViewInputs();
+    this.persistGraphView();
+    this.drawGraph();
+  }
+
+  resetGraphView() {
+    if (this.graphLocked) {
+      if (this.graphTraceEl) this.graphTraceEl.setText("The viewport is locked. Unlock it to auto-fit.");
+      return;
+    }
+    this.graphViewport = fitView(this.graphBuilt);
+    this.syncGraphViewInputs();
+    this.persistGraphView();
+    this.drawGraph();
+  }
+
+  persistGraphView() {
+    const settings = this.plugin.settings;
+    if (!settings) return;
+    if (!settings.reference) settings.reference = {};
+    settings.reference.graph = { view: Object.assign({}, this.graphViewport), locked: this.graphLocked };
+    if (typeof this.plugin.save === "function") {
+      try {
+        this.plugin.save();
+      } catch (e) {
+        // The window stays in memory; Obsidian reports a failed settings write itself.
+      }
+    }
+  }
+
+  onGraphKeydown(event) {
+    const key = event && event.key;
+    if (!key) return;
+    const zoomKeys = { "+": 0.8, "=": 0.8, "-": 1.25, "_": 1.25 };
+    if (Object.prototype.hasOwnProperty.call(zoomKeys, key)) {
+      if (event.preventDefault) event.preventDefault();
+      this.zoomGraph(zoomKeys[key]);
+      return;
+    }
+    const steps = {
+      ArrowLeft: [-0.1, 0],
+      ArrowRight: [0.1, 0],
+      ArrowUp: [0, 0.1],
+      ArrowDown: [0, -0.1],
+    };
+    const step = steps[key];
+    if (!step) return;
+    if (event.preventDefault) event.preventDefault();
+    if (this.graphLocked) return;
+    this.graphViewport = panView(this.graphViewport, step[0], step[1]);
+    this.syncGraphViewInputs();
+    this.persistGraphView();
+    this.drawGraph();
   }
 
   paintGraphData(ctx, points, px, py) {

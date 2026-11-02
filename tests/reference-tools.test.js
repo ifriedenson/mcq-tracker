@@ -1022,3 +1022,109 @@ test("reference view: points of interest and the cursor trace paint without erro
   view.drawGraph();
   assert.equal(view.graphInterest, false);
 });
+
+
+test("graph: the viewport pans and zooms about the focus with bounded spans", () => {
+  const start = { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
+  const zoomed = graph.zoomView(start, 0.5, { x: 5, y: 5 });
+  assert.equal(zoomed.xMax - zoomed.xMin, 10);
+  assert.equal(zoomed.yMax - zoomed.yMin, 10);
+  assert.ok(Math.abs(zoomed.xMin + 2.5) < 1e-9, "the focus keeps its place");
+  assert.ok(Math.abs(zoomed.xMax - 7.5) < 1e-9);
+  assert.ok(Math.abs((5 - zoomed.xMin) / 10 - 0.75) < 1e-9, "the focus is at the same fraction as before");
+  const panned = graph.panView(start, 0.25, -0.25);
+  assert.equal(panned.xMin, -5);
+  assert.equal(panned.yMin, -15);
+  const tiny = graph.zoomView(start, 1e-9, { x: 0, y: 0 });
+  assert.ok(Math.abs(tiny.xMax - tiny.xMin - graph.VIEW_LIMITS.minSpan) < 1e-9, "zoom in is bounded");
+  const huge = graph.zoomView(start, 1e9);
+  assert.ok(Math.abs(huge.xMax - huge.xMin - graph.VIEW_LIMITS.maxSpan) < 1e-6, "zoom out is bounded");
+  assert.equal(graph.clampView({ xMin: 2, xMax: 2 }).xMin, -10, "an unusable window falls back to the default");
+  assert.equal(graph.clampView({ xMin: -1, xMax: 1, yMin: -4, yMax: 4 }).yMax, 4);
+});
+
+test("graph: points of interest, intersections and the trace stay correct in a panned and zoomed window", () => {
+  const panned = graph.buildGraph({ rows: ["y = x^2 - 4", "y = 2x"], xMin: 1, xMax: 5, yMin: -2, yMax: 10, samples: 81 });
+  const roots = panned.interest.filter((point) => point.kinds.includes("root"));
+  assert.equal(roots.length, 1, "the root at -2 is outside the window");
+  assert.ok(Math.abs(roots[0].x - 2) < 1e-6);
+  const crossings = panned.interest.filter((point) => point.kinds.includes("intersection"));
+  assert.equal(crossings.length, 1, "x = 1 - sqrt(5) is outside the window");
+  assert.ok(Math.abs(crossings[0].x - (1 + Math.sqrt(5))) < 1e-6);
+  const trace = graph.traceAt(panned, 3);
+  assert.ok(Math.abs(trace.find((row) => row.rowIndex === 0).y - 5) < 1e-9);
+  assert.ok(Math.abs(trace.find((row) => row.rowIndex === 1).y - 6) < 1e-9);
+
+  const zoomed = graph.buildGraph({ rows: ["y = x^2 - 4"], xMin: 1.9, xMax: 2.1, yMin: -0.2, yMax: 0.2, samples: 61 });
+  const tight = zoomed.interest.filter((point) => point.kinds.includes("root"));
+  assert.equal(tight.length, 1);
+  assert.ok(Math.abs(tight[0].x - 2) < 1e-9, "a zoomed window refines the same root");
+  assert.ok(Math.abs(graph.traceAt(zoomed, 2)[0].y) < 1e-9);
+
+  const fitted = graph.fitView(panned);
+  assert.ok(fitted.xMin < 1 && fitted.xMax > 5, "auto-fit covers the drawn data");
+  assert.ok(fitted.yMin < -1 && fitted.yMax > 9);
+  assert.deepEqual(graph.fitView({ rows: [] }), { xMin: -10, xMax: 10, yMin: -10, yMax: 10 });
+});
+
+test("reference view: pan, zoom, lock and reset control one persisted viewport", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.graphRows = [{ text: "y = x^2 - 4", hidden: false }];
+  view.render();
+  const start = Object.assign({}, view.graphViewport);
+  view.zoomGraph(0.5);
+  assert.ok(view.graphViewport.xMax - view.graphViewport.xMin < start.xMax - start.xMin, "zoom in narrows the window");
+  const beforePan = Object.assign({}, view.graphViewport);
+  view.onGraphKeydown({ key: "ArrowRight", preventDefault() {} });
+  assert.ok(view.graphViewport.xMin > beforePan.xMin, "the arrow key pans");
+  assert.ok(Math.abs(view.graphViewport.xMax - view.graphViewport.xMin - (beforePan.xMax - beforePan.xMin)) < 1e-9, "panning keeps the span");
+  view.graphLocked = true;
+  view.persistGraphView();
+  const lockedSpan = view.graphViewport.xMax - view.graphViewport.xMin;
+  view.zoomGraph(0.5);
+  view.onGraphKeydown({ key: "ArrowLeft", preventDefault() {} });
+  view.resetGraphView();
+  assert.equal(view.graphViewport.xMax - view.graphViewport.xMin, lockedSpan, "a locked viewport ignores zoom, pan and reset");
+  assert.equal(plugin.settings.reference.graph.locked, true);
+
+  const restored = new T.ReferenceView({ app }, plugin);
+  assert.equal(restored.graphLocked, true, "the lock survives a reload");
+  assert.equal(restored.graphViewport.xMin, view.graphViewport.xMin);
+  assert.equal(restored.graphViewport.xMax, view.graphViewport.xMax);
+
+  view.graphLocked = false;
+  view.resetGraphView();
+  assert.ok(view.graphViewport.xMin <= -2 && view.graphViewport.xMax >= 2, "reset fits the expression");
+  assert.equal(plugin.settings.reference.graph.locked, false);
+});
+
+test("reference view: the viewport controls are focusable labelled buttons on a keyboard canvas", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const labelled = (name) => dom.all.find((element) => element.meta && element.meta.tag === "button" && (element.meta.attr || element.meta.attrs || {})["aria-label"] === name);
+  for (const name of ["Zoom in", "Zoom out", "Reset view to fit the expressions", "Lock the viewport"]) {
+    assert.ok(labelled(name), `a labelled button exists for ${name}`);
+  }
+  const canvas = dom.all.find((element) => element.meta && element.meta.tag === "canvas");
+  assert.equal((canvas.meta.attr || canvas.meta.attrs || {}).tabindex, "0");
+  assert.match((canvas.meta.attr || canvas.meta.attrs || {})["aria-label"], /arrow keys pan/i);
+  await dom.click("Reset view");
+  await dom.click("+");
+  await dom.click("\u2212");
+});

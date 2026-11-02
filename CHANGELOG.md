@@ -2,6 +2,17 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.183.0 — 2026-11-02
+
+- The graph canvas pans and zooms: drag to pan, scroll or pinch to zoom about
+  the cursor, and use the `+`/`−` buttons, arrow keys and `+`/`-` keys when the
+  canvas is focused.
+- The window is one viewport object that every row kind, the sampler and the
+  cursor trace read, so points of interest and the trace stay correct after
+  panning or zooming.
+- **Lock view** pins the window and persists it with the graph settings;
+  **Reset view** auto-fits the drawn data in one action. Zoom is bounded.
+
 ## 1.182.0 — 2026-11-02
 
 - Graph rows mark their points of interest: roots, the y-intercept, local
