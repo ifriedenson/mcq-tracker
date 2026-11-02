@@ -2,6 +2,16 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.172.0 — 2026-11-02
+
+- New sidebar **Task list** over the local Tasks data: open/overdue/due-today
+  counts, add with an optional due date, complete, reopen and delete rows, and a
+  shortcut to the Study Workspace Tasks tab.
+- Opens from the **Open the task list** command and the `list-checks` ribbon
+  button while Tasks is on, reuses the right sidebar leaf, falls back to a tab on
+  phones, and detaches when Tasks is turned off.
+- **1,385 tests pass**, `npm run check` is clean and `main.js` is rebuilt.
+
 ## 1.171.0 — 2026-11-02
 
 - The Reference Graph tab is a Desmos-style expression list: several rows, each

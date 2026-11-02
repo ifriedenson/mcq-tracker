@@ -97,6 +97,7 @@ const audioBookmarks = require("./audio-bookmarks");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const { StudyWorkspaceView } = require("./study-workspace-view");
+const { TaskListView } = require("./task-list-view");
 const quizNoteGate = require("./quiz-note-gate");
 const quizport = require("./quizport");
 const sourceRecall = require("./source-recall");
@@ -397,6 +398,7 @@ QuestionTrackerPlugin.__test = {
   InsightsView,
   TestView,
   TodayView,
+  TaskListView,
   QuestionTrackerSettingTab,
   SETTINGS_MODULES,
   GLOBAL_TABS,

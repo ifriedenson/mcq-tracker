@@ -2,7 +2,7 @@
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
@@ -13,6 +13,7 @@ const { QuestionTrackerSettingTab } = require("./settings-tab");
 const { AssignmentsView } = require("./assignments-view");
 const { StudyToolsView } = require("./study-tools-view");
 const { StudyWorkspaceView } = require("./study-workspace-view");
+const { TaskListView } = require("./task-list-view");
 const studyWorkspace = require("./study-workspace");
 const courseIdentity = require("./course-identity");
 const exams = require("./exams");
@@ -259,6 +260,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_STUDY_STATS, (leaf) => new StudyStatsView(leaf, this));
     this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
+    this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
     this.noteReviewDock = new NoteReviewDock(this);
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshNoteReviewDock()));
     this.registerEvent(this.app.workspace.on("file-open", () => this.refreshNoteReviewDock()));
@@ -363,6 +365,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });
     this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
     this.addCommand({ id: "open-study-workspace", name: "Open Study Workspace", callback: () => this.activateStudyWorkspace() });
+    this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
     this.addCommand({ id: "build-recall-queue", name: "Recall Scheduler: build a queue", callback: () => this.activateStudyWorkspace("recall") });
@@ -1369,7 +1372,7 @@ class QuestionTrackerPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_STUDY_WORKSPACE)) {
       if (leaf.view && leaf.view.render) leaf.view.render();
     }
-    for (const type of [VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO]) {
+    for (const type of [VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
         if (leaf.view && leaf.view.render) leaf.view.render();
       }
@@ -1720,6 +1723,8 @@ class QuestionTrackerPlugin extends Plugin {
     else this.removeModuleRibbon("study-tools");
     if (this.studyWorkspaceEnabled()) this.addModuleRibbon("study-workspace", "workflow", "Open Study Workspace", () => this.activateStudyWorkspace());
     else this.removeModuleRibbon("study-workspace");
+    if (this.studyTasksEnabled()) this.addModuleRibbon("task-list", "list-checks", "Open the task list", () => this.activateTaskList());
+    else this.removeModuleRibbon("task-list");
     if (this.noteReviewDockEnabled()) this.addModuleRibbon("note-review", "repeat", "Open the next due note", () => this.openNextDueNote());
     else this.removeModuleRibbon("note-review");
     if (this.reviewCalendarEnabled()) this.addModuleRibbon("review-calendar", "calendar-clock", "Open review calendar", () => this.activateReviewCalendar());
@@ -1858,6 +1863,7 @@ class QuestionTrackerPlugin extends Plugin {
 
   async onStudyWorkspaceToggled() {
     this.refreshRibbon();
+    if (!this.studyTasksEnabled()) this.detachModuleLeaves([VIEW_TYPE_TASK_LIST]);
     if (!this.studyWorkspaceEnabled()) {
       this.detachModuleLeaves([VIEW_TYPE_STUDY_WORKSPACE]);
       return;
@@ -2110,6 +2116,28 @@ class QuestionTrackerPlugin extends Plugin {
     await ws.revealLeaf(leaf);
     if (leaf.view && leaf.view.setTab && tab) leaf.view.setTab(tab);
     else if (leaf.view && leaf.view.render) leaf.view.render();
+    return leaf.view;
+  }
+
+  /** The compact task list lives in the right sidebar; phones fall back to a tab. */
+  async activateTaskList() {
+    if (!this.studyTasksEnabled()) {
+      new Notice("Turn on Tasks in Settings, Global, Modules to use the task list.");
+      this.openSettings();
+      return null;
+    }
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_TASK_LIST)[0];
+    if (!leaf) {
+      if (typeof ws.getRightLeaf === "function" && !Platform.isMobile) {
+        leaf = ws.getRightLeaf(false) || ws.getRightLeaf(true);
+      }
+      if (!leaf) leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_TASK_LIST, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    if (leaf.view && leaf.view.render) leaf.view.render();
     return leaf.view;
   }
 
