@@ -149,6 +149,96 @@ const IDENT_PART = /[A-Za-z0-9_]/;
 const IDENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DEFAULT_VIEW = { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
 
+/** A 1, 2 or 5 times a power of ten near `span / divisions`. */
+function tickStep(span, divisions) {
+  const rough = Math.abs(span) / Math.max(1, divisions);
+  if (!(rough > 0) || !Number.isFinite(rough)) return 1;
+  const power = Math.pow(10, Math.floor(Math.log10(rough)));
+  const normalized = rough / power;
+  const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return step * power;
+}
+
+const PI_TICK_STEPS = [Math.PI / 12, Math.PI / 6, Math.PI / 4, Math.PI / 3, Math.PI / 2, Math.PI, 2 * Math.PI, 3 * Math.PI, 4 * Math.PI, 6 * Math.PI, 8 * Math.PI, 16 * Math.PI, 32 * Math.PI, 64 * Math.PI, 128 * Math.PI, 256 * Math.PI];
+const DEGREE_TICK_STEPS = [15, 30, 45, 90, 180, 360, 720, 1440, 2880, 5760, 11520, 23040, 46080];
+
+/**
+ * Choose labelled and minor tick positions for one axis.
+ * Pi ticks and degree ticks change positions on the x axis only, and both fall
+ * back to decimal ticks when the window is too narrow or wide for a readable step.
+ */
+function axisTicks(min, max, divisions, options) {
+  const opts = options || {};
+  const span = Math.max(Number(max) - Number(min), 1e-12);
+  const count = Math.max(1, Math.round(Number(divisions) || 5));
+  const raw = span / count;
+  let step = 0;
+  if (opts.axis === "x" && opts.piTicks) {
+    for (const candidate of PI_TICK_STEPS) {
+      if (candidate >= raw) {
+        if (candidate <= span / 2) step = candidate;
+        break;
+      }
+    }
+    if (!step) step = tickStep(span, count);
+  } else if (opts.axis === "x" && opts.angleMode === "degrees") {
+    const degreeRaw = (span * 180) / Math.PI / count;
+    let degrees = 0;
+    for (const candidate of DEGREE_TICK_STEPS) {
+      if (candidate >= degreeRaw) {
+        degrees = candidate;
+        break;
+      }
+    }
+    step = degrees ? (degrees * Math.PI) / 180 : tickStep(span, count);
+  } else {
+    step = tickStep(span, count);
+  }
+  const ticks = [];
+  const first = Math.ceil(min / step - 1e-9);
+  for (let i = first; i * step <= max + 1e-9 && ticks.length < 80; i++) ticks.push(i * step);
+  const minorStep = step / 5;
+  const minors = [];
+  const firstMinor = Math.ceil(min / minorStep - 1e-9);
+  for (let i = firstMinor; i * minorStep <= max + 1e-9 && minors.length < 400; i++) minors.push(i * minorStep);
+  return { step, minorStep, ticks, minors };
+}
+
+function formatTickValue(value) {
+  const rounded = Number(Number(value).toPrecision(6));
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+/** A multiple of pi/2 as a compact label, and a decimal when it is not one. */
+function formatPiLabel(value) {
+  const halves = Math.round((value / Math.PI) * 2);
+  if (!Number.isFinite(halves) || Math.abs((value / Math.PI) * 2 - halves) > 1e-6) return formatTickValue(value);
+  if (halves === 0) return "0";
+  const sign = halves < 0 ? "-" : "";
+  const size = Math.abs(halves);
+  if (size % 2 === 0) {
+    const whole = size / 2;
+    return `${sign}${whole === 1 ? "" : whole}\u03c0`;
+  }
+  return `${sign}${size === 1 ? "" : size}\u03c0/2`;
+}
+
+/** Radians as a whole or decimal degree label. */
+function formatDegreeLabel(value) {
+  const degrees = Number(((value * 180) / Math.PI).toPrecision(8));
+  const rounded = Math.round(degrees);
+  if (Math.abs(degrees - rounded) < 1e-6) return String(Object.is(rounded, -0) ? 0 : rounded);
+  return formatTickValue(degrees);
+}
+
+/** Format one tick. Pi ticks and degrees apply to the x axis only. */
+function formatAxisTick(value, options) {
+  const opts = options || {};
+  if (opts.axis === "x" && opts.angleMode === "degrees") return `${formatDegreeLabel(value)}\u00b0`;
+  if (opts.axis === "x" && opts.piTicks) return formatPiLabel(value);
+  return formatTickValue(value);
+}
+
 const VIEW_LIMITS = { minSpan: 0.02, maxSpan: 20000 };
 
 /** Normalise a window back into the sampler's usable range. */
@@ -1721,6 +1811,11 @@ module.exports = {
   CONSTANTS,
   DEFAULT_VIEW,
   VIEW_LIMITS,
+  axisTicks,
+  formatAxisTick,
+  formatPiLabel,
+  formatDegreeLabel,
+  formatTickValue,
   clampView,
   zoomView,
   panView,

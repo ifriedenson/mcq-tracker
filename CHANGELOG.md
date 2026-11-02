@@ -2,6 +2,15 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.184.0 — 2026-11-02
+
+- Optional minor gridlines between the labelled major lines, and x/y axis
+  labels drawn in a gutter so they never overlap the tick text.
+- Pi ticks label the x axis at multiples of π/2 (`π/2`, `π`, `3π/2`, `2π`), and
+  an angle mode renders the same positions in degrees (`90°`, `180°`).
+- Every display option is off by default and persisted with the viewport, so
+  existing graphs render exactly as before until a control is switched on.
+
 ## 1.183.0 — 2026-11-02
 
 - The graph canvas pans and zooms: drag to pan, scroll or pinch to zoom about

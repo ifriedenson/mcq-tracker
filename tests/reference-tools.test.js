@@ -1128,3 +1128,101 @@ test("reference view: the viewport controls are focusable labelled buttons on a 
   await dom.click("+");
   await dom.click("\u2212");
 });
+
+
+test("graph: tick steps stay readable and pi/degree labels cover zero, negatives and multiples past 2pi", () => {
+  assert.equal(graph.formatAxisTick(0, { axis: "x", piTicks: true }), "0");
+  assert.equal(graph.formatAxisTick(Math.PI / 2, { axis: "x", piTicks: true }), "\u03c0/2");
+  assert.equal(graph.formatAxisTick(-Math.PI / 2, { axis: "x", piTicks: true }), "-\u03c0/2");
+  assert.equal(graph.formatAxisTick(Math.PI, { axis: "x", piTicks: true }), "\u03c0");
+  assert.equal(graph.formatAxisTick(-Math.PI, { axis: "x", piTicks: true }), "-\u03c0");
+  assert.equal(graph.formatAxisTick(3 * Math.PI / 2, { axis: "x", piTicks: true }), "3\u03c0/2");
+  assert.equal(graph.formatAxisTick(2 * Math.PI, { axis: "x", piTicks: true }), "2\u03c0");
+  assert.equal(graph.formatAxisTick(3 * Math.PI, { axis: "x", piTicks: true }), "3\u03c0");
+  assert.equal(graph.formatAxisTick(4 * Math.PI, { axis: "x", piTicks: true }), "4\u03c0");
+  assert.equal(graph.formatAxisTick(0, { axis: "x", angleMode: "degrees" }), "0\u00b0");
+  assert.equal(graph.formatAxisTick(Math.PI / 2, { axis: "x", angleMode: "degrees" }), "90\u00b0");
+  assert.equal(graph.formatAxisTick(-Math.PI, { axis: "x", angleMode: "degrees" }), "-180\u00b0");
+  assert.equal(graph.formatAxisTick(2 * Math.PI, { axis: "x", angleMode: "degrees" }), "360\u00b0");
+  assert.equal(graph.formatAxisTick(Math.PI / 2, { axis: "y", piTicks: true }), "1.5708", "the y axis stays decimal");
+
+  const pi = graph.axisTicks(-10, 10, 7, { axis: "x", piTicks: true });
+  assert.ok(pi.ticks.length >= 5 && pi.ticks.length <= 15);
+  assert.ok(pi.ticks.every((value) => Math.abs(value / (Math.PI / 2) - Math.round(value / (Math.PI / 2))) < 1e-6));
+  assert.ok(Math.abs(pi.minorStep * 5 - pi.step) < 1e-12, "minor lines share the major scale");
+  const narrow = graph.axisTicks(-0.01, 0.01, 7, { axis: "x", piTicks: true });
+  assert.ok(narrow.ticks.length >= 2, "a narrow window falls back to decimal ticks");
+  assert.ok(narrow.minors.length < 60, "a narrow window does not draw thousands of minor lines");
+  for (const span of [graph.VIEW_LIMITS.minSpan, graph.VIEW_LIMITS.maxSpan]) {
+    const plain = graph.axisTicks(-span / 2, span / 2, 7);
+    assert.ok(plain.ticks.length >= 2 && plain.ticks.length <= 30);
+    assert.ok(plain.minors.length < 200);
+    const angled = graph.axisTicks(-span / 2, span / 2, 7, { axis: "x", piTicks: true });
+    assert.ok(angled.minors.length < 200);
+  }
+  const degrees = graph.axisTicks(-10, 10, 7, { axis: "x", angleMode: "degrees" });
+  assert.ok(degrees.ticks.length >= 3);
+  assert.ok(degrees.ticks.every((value) => Math.abs((value * 180) / Math.PI - Math.round((value * 180) / Math.PI / 90) * 90) < 1e-6));
+  assert.equal(graph.formatTickValue(2.5), "2.5");
+});
+
+test("reference view: display settings render labels without changing samples, points of interest or the trace", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.graphRows = [{ text: "y = x^2 - 4", hidden: false }, { text: "y = 2x", hidden: false }];
+  view.render();
+  const signature = (built) => JSON.stringify({
+    rows: built.rows.map((row) => ({ kind: row.kind, points: row.points || null, interest: row.interest || null })),
+    interest: built.interest,
+    trace: graph.traceAt(built, 1.5),
+  });
+  view.graphDisplay = { minorGrid: false, axisLabels: false, piTicks: false, angle: "radians" };
+  view.drawGraph();
+  const plain = signature(view.graphBuilt);
+  assert.ok(view.graphBuilt.interest.some((point) => point.kinds.includes("intersection")));
+  for (const display of [
+    { minorGrid: true, axisLabels: true, piTicks: true, angle: "radians" },
+    { minorGrid: true, axisLabels: true, piTicks: true, angle: "degrees" },
+    { minorGrid: true, axisLabels: false, piTicks: false, angle: "degrees" },
+  ]) {
+    view.graphDisplay = display;
+    view.drawGraph();
+    assert.equal(signature(view.graphBuilt), plain, "display options must not change geometry, points of interest or the trace");
+  }
+});
+
+test("reference view: display controls are labelled, default off, and persist with the graph settings", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  assert.deepEqual(view.graphDisplay, { minorGrid: false, axisLabels: false, piTicks: false, angle: "radians" }, "existing blocks keep the old rendering");
+  const labelled = (name) => dom.all.find((element) => element.meta && (element.meta.attr || {})["aria-label"] === name);
+  for (const name of ["Minor gridlines", "Axis labels", "Pi ticks"]) {
+    const box = labelled(name);
+    assert.ok(box, `a labelled checkbox exists for ${name}`);
+    assert.equal(box.meta.attr.type, "checkbox");
+  }
+  const angle = labelled("Angle mode");
+  assert.ok(angle);
+  assert.equal(angle.meta.tag, "select");
+  view.graphDisplay = { minorGrid: true, axisLabels: true, piTicks: true, angle: "degrees" };
+  view.persistGraphDisplay();
+  assert.deepEqual(plugin.settings.reference.graph.display, view.graphDisplay, "the display options persist beside the viewport");
+  assert.ok(plugin.settings.reference.graph.view, "persisting display keeps the stored window");
+  const restored = new T.ReferenceView({ app }, plugin);
+  assert.deepEqual(restored.graphDisplay, { minorGrid: true, axisLabels: true, piTicks: true, angle: "degrees" }, "the options restore on reload");
+});

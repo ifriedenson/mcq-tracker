@@ -14,7 +14,8 @@ const {
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
 const {
   markerLayout, buildGraph, parseGraphRow, traceAt,
-  clampView, zoomView, panView, fitView } = require("./reference-graph");
+  clampView, zoomView, panView, fitView,
+  axisTicks, formatAxisTick } = require("./reference-graph");
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
@@ -84,8 +85,15 @@ class ReferenceView extends ItemView {
       { text: "sin(x)", hidden: false },
       { text: "x^2 + y^2 = 9", hidden: false },
     ];
+    const storedDisplay = storedGraph.display || {};
     this.graphViewport = clampView(storedGraph.view);
     this.graphLocked = storedGraph.locked === true;
+    this.graphDisplay = {
+      minorGrid: storedDisplay.minorGrid === true,
+      axisLabels: storedDisplay.axisLabels === true,
+      piTicks: storedDisplay.piTicks === true,
+      angle: storedDisplay.angle === "degrees" ? "degrees" : "radians",
+    };
     this.graphViewInputs = {};
     this.graphDrag = null;
     this.graphData = [];
@@ -380,6 +388,38 @@ class ReferenceView extends ItemView {
       this.graphLocked = !this.graphLocked;
       this.persistGraphView();
       this.render();
+    });
+
+    const displayActions = controls.createDiv({ cls: "qt-row qt-ref-graph-display" });
+    const displayBox = (key, label) => {
+      const field = displayActions.createEl("label", { cls: "qt-ref-graph-polar" });
+      const box = field.createEl("input", { attr: { type: "checkbox", "aria-label": label } });
+      box.checked = this.graphDisplay[key] === true;
+      box.addEventListener("change", () => {
+        this.graphDisplay = Object.assign({}, this.graphDisplay, { [key]: box.checked === true });
+        this.persistGraphDisplay();
+        this.drawGraph();
+      });
+      field.createSpan({ text: label.toLowerCase() });
+    };
+    displayBox("minorGrid", "Minor gridlines");
+    displayBox("axisLabels", "Axis labels");
+    displayBox("piTicks", "Pi ticks");
+    const angleField = displayActions.createEl("label", { cls: "qt-ref-graph-polar" });
+    angleField.createSpan({ text: "angle" });
+    const angleSelect = angleField.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": "Angle mode" } });
+    for (const [value, label] of [["radians", "Radians"], ["degrees", "Degrees"]]) {
+      const option = angleSelect.createEl("option", { text: label });
+      option.value = value;
+      option.selected = this.graphDisplay.angle === value;
+    }
+    angleSelect.value = this.graphDisplay.angle;
+    angleSelect.addEventListener("change", () => {
+      this.graphDisplay = Object.assign({}, this.graphDisplay, {
+        angle: angleSelect.value === "degrees" ? "degrees" : "radians",
+      });
+      this.persistGraphDisplay();
+      this.drawGraph();
     });
 
     const list = root.createDiv({ cls: "qt-ref-graph-rows" });
@@ -805,12 +845,34 @@ class ReferenceView extends ItemView {
     const settings = this.plugin.settings;
     if (!settings) return;
     if (!settings.reference) settings.reference = {};
-    settings.reference.graph = { view: Object.assign({}, this.graphViewport), locked: this.graphLocked };
+    settings.reference.graph = {
+      view: Object.assign({}, this.graphViewport),
+      locked: this.graphLocked,
+      display: Object.assign({}, this.graphDisplay),
+    };
     if (typeof this.plugin.save === "function") {
       try {
         this.plugin.save();
       } catch (e) {
         // The window stays in memory; Obsidian reports a failed settings write itself.
+      }
+    }
+  }
+
+  persistGraphDisplay() {
+    const settings = this.plugin.settings;
+    if (!settings) return;
+    if (!settings.reference) settings.reference = {};
+    settings.reference.graph = {
+      view: Object.assign({}, this.graphViewport),
+      locked: this.graphLocked,
+      display: Object.assign({}, this.graphDisplay),
+    };
+    if (typeof this.plugin.save === "function") {
+      try {
+        this.plugin.save();
+      } catch (e) {
+        // The display options stay in memory; Obsidian reports a failed settings write itself.
       }
     }
   }
@@ -850,18 +912,39 @@ class ReferenceView extends ItemView {
   }
 
   paintGraphGrid(ctx, graph, width, height, px, py) {
-    const stepX = niceStep(graph.xMax - graph.xMin, Math.max(4, Math.round(width / 90)));
-    const stepY = niceStep(graph.yMax - graph.yMin, Math.max(3, Math.round(height / 70)));
-    const axisY = Math.min(Math.max(py(0), 0), width);
-    const axisX = Math.min(Math.max(px(0), 0), height - 14);
+    const display = this.graphDisplay;
+    const top = display.axisLabels ? 16 : 0;
+    const bottom = display.axisLabels ? height - 16 : height;
+    const xAxis = axisTicks(graph.xMin, graph.xMax, Math.max(4, Math.round(width / 90)), {
+      axis: "x",
+      piTicks: display.piTicks === true,
+      angleMode: display.angle,
+    });
+    const yAxis = axisTicks(graph.yMin, graph.yMax, Math.max(3, Math.round(height / 70)), { axis: "y" });
+    const axisY = Math.min(Math.max(px(0), 0), width);
+    const axisX = Math.min(Math.max(py(0), top), bottom - 14);
+    if (display.minorGrid) {
+      ctx.strokeStyle = "rgba(127, 127, 127, 0.09)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (const x of xAxis.minors) {
+        ctx.moveTo(px(x), top);
+        ctx.lineTo(px(x), bottom);
+      }
+      for (const y of yAxis.minors) {
+        ctx.moveTo(0, py(y));
+        ctx.lineTo(width, py(y));
+      }
+      ctx.stroke();
+    }
     ctx.strokeStyle = "rgba(127, 127, 127, 0.18)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let x = Math.ceil(graph.xMin / stepX) * stepX; x <= graph.xMax + stepX * 1e-6; x += stepX) {
-      ctx.moveTo(px(x), 0);
-      ctx.lineTo(px(x), height);
+    for (const x of xAxis.ticks) {
+      ctx.moveTo(px(x), top);
+      ctx.lineTo(px(x), bottom);
     }
-    for (let y = Math.ceil(graph.yMin / stepY) * stepY; y <= graph.yMax + stepY * 1e-6; y += stepY) {
+    for (const y of yAxis.ticks) {
       ctx.moveTo(0, py(y));
       ctx.lineTo(width, py(y));
     }
@@ -873,23 +956,35 @@ class ReferenceView extends ItemView {
       ctx.lineTo(width, py(0));
     }
     if (graph.xMin <= 0 && graph.xMax >= 0) {
-      ctx.moveTo(px(0), 0);
-      ctx.lineTo(px(0), height);
+      ctx.moveTo(px(0), top);
+      ctx.lineTo(px(0), bottom);
     }
     ctx.stroke();
     ctx.fillStyle = "rgba(127, 127, 127, 0.85)";
     ctx.font = "11px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    for (let x = Math.ceil(graph.xMin / stepX) * stepX; x <= graph.xMax + stepX * 1e-6; x += stepX) {
-      if (Math.abs(x) < stepX / 1000) continue;
-      ctx.fillText(formatGraphTick(x), px(x), axisX + 3);
+    for (const x of xAxis.ticks) {
+      if (Math.abs(x) < xAxis.step / 1000) continue;
+      ctx.fillText(formatAxisTick(x, { axis: "x", piTicks: display.piTicks, angleMode: display.angle }), px(x), axisX + 3);
     }
     ctx.textAlign = "right";
-    for (let y = Math.ceil(graph.yMin / stepY) * stepY; y <= graph.yMax + stepY * 1e-6; y += stepY) {
-      if (Math.abs(y) < stepY / 1000) continue;
-      ctx.fillText(formatGraphTick(y), Math.max(axisY - 4, 16), Math.max(py(y) - 7, 0));
+    for (const y of yAxis.ticks) {
+      if (Math.abs(y) < yAxis.step / 1000) continue;
+      ctx.fillText(formatAxisTick(y, { axis: "y" }), Math.max(axisY - 4, 16), Math.max(py(y) - 7, top));
     }
+    if (display.axisLabels) {
+      ctx.fillStyle = "rgba(127, 127, 127, 0.85)";
+      ctx.font = "11px sans-serif";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "bottom";
+      ctx.fillText("x", width - 4, height - 2);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText("y", 4, 2);
+    }
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
   }
 
   paintGraphMarkers(ctx, row, graph, width, height, color) {

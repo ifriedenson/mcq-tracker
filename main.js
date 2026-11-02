@@ -59179,6 +59179,96 @@ const IDENT_PART = /[A-Za-z0-9_]/;
 const IDENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DEFAULT_VIEW = { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
 
+/** A 1, 2 or 5 times a power of ten near `span / divisions`. */
+function tickStep(span, divisions) {
+  const rough = Math.abs(span) / Math.max(1, divisions);
+  if (!(rough > 0) || !Number.isFinite(rough)) return 1;
+  const power = Math.pow(10, Math.floor(Math.log10(rough)));
+  const normalized = rough / power;
+  const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return step * power;
+}
+
+const PI_TICK_STEPS = [Math.PI / 12, Math.PI / 6, Math.PI / 4, Math.PI / 3, Math.PI / 2, Math.PI, 2 * Math.PI, 3 * Math.PI, 4 * Math.PI, 6 * Math.PI, 8 * Math.PI, 16 * Math.PI, 32 * Math.PI, 64 * Math.PI, 128 * Math.PI, 256 * Math.PI];
+const DEGREE_TICK_STEPS = [15, 30, 45, 90, 180, 360, 720, 1440, 2880, 5760, 11520, 23040, 46080];
+
+/**
+ * Choose labelled and minor tick positions for one axis.
+ * Pi ticks and degree ticks change positions on the x axis only, and both fall
+ * back to decimal ticks when the window is too narrow or wide for a readable step.
+ */
+function axisTicks(min, max, divisions, options) {
+  const opts = options || {};
+  const span = Math.max(Number(max) - Number(min), 1e-12);
+  const count = Math.max(1, Math.round(Number(divisions) || 5));
+  const raw = span / count;
+  let step = 0;
+  if (opts.axis === "x" && opts.piTicks) {
+    for (const candidate of PI_TICK_STEPS) {
+      if (candidate >= raw) {
+        if (candidate <= span / 2) step = candidate;
+        break;
+      }
+    }
+    if (!step) step = tickStep(span, count);
+  } else if (opts.axis === "x" && opts.angleMode === "degrees") {
+    const degreeRaw = (span * 180) / Math.PI / count;
+    let degrees = 0;
+    for (const candidate of DEGREE_TICK_STEPS) {
+      if (candidate >= degreeRaw) {
+        degrees = candidate;
+        break;
+      }
+    }
+    step = degrees ? (degrees * Math.PI) / 180 : tickStep(span, count);
+  } else {
+    step = tickStep(span, count);
+  }
+  const ticks = [];
+  const first = Math.ceil(min / step - 1e-9);
+  for (let i = first; i * step <= max + 1e-9 && ticks.length < 80; i++) ticks.push(i * step);
+  const minorStep = step / 5;
+  const minors = [];
+  const firstMinor = Math.ceil(min / minorStep - 1e-9);
+  for (let i = firstMinor; i * minorStep <= max + 1e-9 && minors.length < 400; i++) minors.push(i * minorStep);
+  return { step, minorStep, ticks, minors };
+}
+
+function formatTickValue(value) {
+  const rounded = Number(Number(value).toPrecision(6));
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+/** A multiple of pi/2 as a compact label, and a decimal when it is not one. */
+function formatPiLabel(value) {
+  const halves = Math.round((value / Math.PI) * 2);
+  if (!Number.isFinite(halves) || Math.abs((value / Math.PI) * 2 - halves) > 1e-6) return formatTickValue(value);
+  if (halves === 0) return "0";
+  const sign = halves < 0 ? "-" : "";
+  const size = Math.abs(halves);
+  if (size % 2 === 0) {
+    const whole = size / 2;
+    return `${sign}${whole === 1 ? "" : whole}\u03c0`;
+  }
+  return `${sign}${size === 1 ? "" : size}\u03c0/2`;
+}
+
+/** Radians as a whole or decimal degree label. */
+function formatDegreeLabel(value) {
+  const degrees = Number(((value * 180) / Math.PI).toPrecision(8));
+  const rounded = Math.round(degrees);
+  if (Math.abs(degrees - rounded) < 1e-6) return String(Object.is(rounded, -0) ? 0 : rounded);
+  return formatTickValue(degrees);
+}
+
+/** Format one tick. Pi ticks and degrees apply to the x axis only. */
+function formatAxisTick(value, options) {
+  const opts = options || {};
+  if (opts.axis === "x" && opts.angleMode === "degrees") return `${formatDegreeLabel(value)}\u00b0`;
+  if (opts.axis === "x" && opts.piTicks) return formatPiLabel(value);
+  return formatTickValue(value);
+}
+
 const VIEW_LIMITS = { minSpan: 0.02, maxSpan: 20000 };
 
 /** Normalise a window back into the sampler's usable range. */
@@ -60751,6 +60841,11 @@ module.exports = {
   CONSTANTS,
   DEFAULT_VIEW,
   VIEW_LIMITS,
+  axisTicks,
+  formatAxisTick,
+  formatPiLabel,
+  formatDegreeLabel,
+  formatTickValue,
   clampView,
   zoomView,
   panView,
@@ -61161,7 +61256,8 @@ const {
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
 const {
   markerLayout, buildGraph, parseGraphRow, traceAt,
-  clampView, zoomView, panView, fitView } = require("./reference-graph");
+  clampView, zoomView, panView, fitView,
+  axisTicks, formatAxisTick } = require("./reference-graph");
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
@@ -61231,8 +61327,15 @@ class ReferenceView extends ItemView {
       { text: "sin(x)", hidden: false },
       { text: "x^2 + y^2 = 9", hidden: false },
     ];
+    const storedDisplay = storedGraph.display || {};
     this.graphViewport = clampView(storedGraph.view);
     this.graphLocked = storedGraph.locked === true;
+    this.graphDisplay = {
+      minorGrid: storedDisplay.minorGrid === true,
+      axisLabels: storedDisplay.axisLabels === true,
+      piTicks: storedDisplay.piTicks === true,
+      angle: storedDisplay.angle === "degrees" ? "degrees" : "radians",
+    };
     this.graphViewInputs = {};
     this.graphDrag = null;
     this.graphData = [];
@@ -61527,6 +61630,38 @@ class ReferenceView extends ItemView {
       this.graphLocked = !this.graphLocked;
       this.persistGraphView();
       this.render();
+    });
+
+    const displayActions = controls.createDiv({ cls: "qt-row qt-ref-graph-display" });
+    const displayBox = (key, label) => {
+      const field = displayActions.createEl("label", { cls: "qt-ref-graph-polar" });
+      const box = field.createEl("input", { attr: { type: "checkbox", "aria-label": label } });
+      box.checked = this.graphDisplay[key] === true;
+      box.addEventListener("change", () => {
+        this.graphDisplay = Object.assign({}, this.graphDisplay, { [key]: box.checked === true });
+        this.persistGraphDisplay();
+        this.drawGraph();
+      });
+      field.createSpan({ text: label.toLowerCase() });
+    };
+    displayBox("minorGrid", "Minor gridlines");
+    displayBox("axisLabels", "Axis labels");
+    displayBox("piTicks", "Pi ticks");
+    const angleField = displayActions.createEl("label", { cls: "qt-ref-graph-polar" });
+    angleField.createSpan({ text: "angle" });
+    const angleSelect = angleField.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": "Angle mode" } });
+    for (const [value, label] of [["radians", "Radians"], ["degrees", "Degrees"]]) {
+      const option = angleSelect.createEl("option", { text: label });
+      option.value = value;
+      option.selected = this.graphDisplay.angle === value;
+    }
+    angleSelect.value = this.graphDisplay.angle;
+    angleSelect.addEventListener("change", () => {
+      this.graphDisplay = Object.assign({}, this.graphDisplay, {
+        angle: angleSelect.value === "degrees" ? "degrees" : "radians",
+      });
+      this.persistGraphDisplay();
+      this.drawGraph();
     });
 
     const list = root.createDiv({ cls: "qt-ref-graph-rows" });
@@ -61952,12 +62087,34 @@ class ReferenceView extends ItemView {
     const settings = this.plugin.settings;
     if (!settings) return;
     if (!settings.reference) settings.reference = {};
-    settings.reference.graph = { view: Object.assign({}, this.graphViewport), locked: this.graphLocked };
+    settings.reference.graph = {
+      view: Object.assign({}, this.graphViewport),
+      locked: this.graphLocked,
+      display: Object.assign({}, this.graphDisplay),
+    };
     if (typeof this.plugin.save === "function") {
       try {
         this.plugin.save();
       } catch (e) {
         // The window stays in memory; Obsidian reports a failed settings write itself.
+      }
+    }
+  }
+
+  persistGraphDisplay() {
+    const settings = this.plugin.settings;
+    if (!settings) return;
+    if (!settings.reference) settings.reference = {};
+    settings.reference.graph = {
+      view: Object.assign({}, this.graphViewport),
+      locked: this.graphLocked,
+      display: Object.assign({}, this.graphDisplay),
+    };
+    if (typeof this.plugin.save === "function") {
+      try {
+        this.plugin.save();
+      } catch (e) {
+        // The display options stay in memory; Obsidian reports a failed settings write itself.
       }
     }
   }
@@ -61997,18 +62154,39 @@ class ReferenceView extends ItemView {
   }
 
   paintGraphGrid(ctx, graph, width, height, px, py) {
-    const stepX = niceStep(graph.xMax - graph.xMin, Math.max(4, Math.round(width / 90)));
-    const stepY = niceStep(graph.yMax - graph.yMin, Math.max(3, Math.round(height / 70)));
-    const axisY = Math.min(Math.max(py(0), 0), width);
-    const axisX = Math.min(Math.max(px(0), 0), height - 14);
+    const display = this.graphDisplay;
+    const top = display.axisLabels ? 16 : 0;
+    const bottom = display.axisLabels ? height - 16 : height;
+    const xAxis = axisTicks(graph.xMin, graph.xMax, Math.max(4, Math.round(width / 90)), {
+      axis: "x",
+      piTicks: display.piTicks === true,
+      angleMode: display.angle,
+    });
+    const yAxis = axisTicks(graph.yMin, graph.yMax, Math.max(3, Math.round(height / 70)), { axis: "y" });
+    const axisY = Math.min(Math.max(px(0), 0), width);
+    const axisX = Math.min(Math.max(py(0), top), bottom - 14);
+    if (display.minorGrid) {
+      ctx.strokeStyle = "rgba(127, 127, 127, 0.09)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (const x of xAxis.minors) {
+        ctx.moveTo(px(x), top);
+        ctx.lineTo(px(x), bottom);
+      }
+      for (const y of yAxis.minors) {
+        ctx.moveTo(0, py(y));
+        ctx.lineTo(width, py(y));
+      }
+      ctx.stroke();
+    }
     ctx.strokeStyle = "rgba(127, 127, 127, 0.18)";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let x = Math.ceil(graph.xMin / stepX) * stepX; x <= graph.xMax + stepX * 1e-6; x += stepX) {
-      ctx.moveTo(px(x), 0);
-      ctx.lineTo(px(x), height);
+    for (const x of xAxis.ticks) {
+      ctx.moveTo(px(x), top);
+      ctx.lineTo(px(x), bottom);
     }
-    for (let y = Math.ceil(graph.yMin / stepY) * stepY; y <= graph.yMax + stepY * 1e-6; y += stepY) {
+    for (const y of yAxis.ticks) {
       ctx.moveTo(0, py(y));
       ctx.lineTo(width, py(y));
     }
@@ -62020,23 +62198,35 @@ class ReferenceView extends ItemView {
       ctx.lineTo(width, py(0));
     }
     if (graph.xMin <= 0 && graph.xMax >= 0) {
-      ctx.moveTo(px(0), 0);
-      ctx.lineTo(px(0), height);
+      ctx.moveTo(px(0), top);
+      ctx.lineTo(px(0), bottom);
     }
     ctx.stroke();
     ctx.fillStyle = "rgba(127, 127, 127, 0.85)";
     ctx.font = "11px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    for (let x = Math.ceil(graph.xMin / stepX) * stepX; x <= graph.xMax + stepX * 1e-6; x += stepX) {
-      if (Math.abs(x) < stepX / 1000) continue;
-      ctx.fillText(formatGraphTick(x), px(x), axisX + 3);
+    for (const x of xAxis.ticks) {
+      if (Math.abs(x) < xAxis.step / 1000) continue;
+      ctx.fillText(formatAxisTick(x, { axis: "x", piTicks: display.piTicks, angleMode: display.angle }), px(x), axisX + 3);
     }
     ctx.textAlign = "right";
-    for (let y = Math.ceil(graph.yMin / stepY) * stepY; y <= graph.yMax + stepY * 1e-6; y += stepY) {
-      if (Math.abs(y) < stepY / 1000) continue;
-      ctx.fillText(formatGraphTick(y), Math.max(axisY - 4, 16), Math.max(py(y) - 7, 0));
+    for (const y of yAxis.ticks) {
+      if (Math.abs(y) < yAxis.step / 1000) continue;
+      ctx.fillText(formatAxisTick(y, { axis: "y" }), Math.max(axisY - 4, 16), Math.max(py(y) - 7, top));
     }
+    if (display.axisLabels) {
+      ctx.fillStyle = "rgba(127, 127, 127, 0.85)";
+      ctx.font = "11px sans-serif";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "bottom";
+      ctx.fillText("x", width - 4, height - 2);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText("y", 4, 2);
+    }
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
   }
 
   paintGraphMarkers(ctx, row, graph, width, height, color) {
