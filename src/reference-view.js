@@ -12,7 +12,8 @@ const {
   unitCategory,
 } = require("./reference-data");
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
-const { buildGraph, parseGraphRow } = require("./reference-graph");
+const {
+  markerLayout, buildGraph, parseGraphRow } = require("./reference-graph");
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
@@ -307,7 +308,7 @@ class ReferenceView extends ItemView {
   renderGraph(root) {
     root.createDiv({
       cls: "qt-ref-note",
-      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Polar rows start with r, like r = 1 + cos(theta) or r = 2 sin(3 theta): theta (or θ) sweeps 0 to 2π, sliders work inside the radius, an optional {theta > 0} or {r > 0} restriction limits the sweep, and the polar grid control overlays rings and spokes on any row. A parametric row is a pair of expressions in a shared parameter, like (cos(t), sin(t)): t (or theta) runs 0 to 2π unless a two-sided bound such as {0 < t < 2pi} sets the range, other {…} conditions filter the sweep, sliders and definitions work in both coordinates, and the word fill after the pair shades a closed curve. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A trailing brace restricts a row to part of its domain or range, like y = x^2 {0 < x < 3} or {0 < y < 1}, and braces with cases make a piecewise row, like y = {x < 0: -x, x >= 0: x}. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
+      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Polar rows start with r, like r = 1 + cos(theta) or r = 2 sin(3 theta): theta (or θ) sweeps 0 to 2π, sliders work inside the radius, an optional {theta > 0} or {r > 0} restriction limits the sweep, and the polar grid control overlays rings and spokes on any row. A parametric row is a pair of expressions in a shared parameter, like (cos(t), sin(t)): t (or theta) runs 0 to 2π unless a two-sided bound such as {0 < t < 2pi} sets the range, other {…} conditions filter the sweep, sliders and definitions work in both coordinates, and the word fill after the pair shades a closed curve. A pair without the parameter, like (1, 2) or (a, b) with sliders, is a point marker: add open for a hollow marker or closed for a filled one, and a quoted text such as \"A\" replaces its coordinate label. Square brackets hold a list, like [(1, 2), (3, 4)], and restrictions filter which points show. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A trailing brace restricts a row to part of its domain or range, like y = x^2 {0 < x < 3} or {0 < y < 1}, and braces with cases make a piecewise row, like y = {x < 0: -x, x >= 0: x}. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
     });
     const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
     for (const [key, label] of [["graphXMin", "min x"], ["graphXMax", "max x"], ["graphYMin", "min y"], ["graphYMax", "max y"]]) {
@@ -600,6 +601,7 @@ class ReferenceView extends ItemView {
         if (parameterRow) parameterRow.value = row.value;
       }
       const color = GRAPH_COLORS[row.index % GRAPH_COLORS.length];
+      if (row.markers && row.markers.length) this.paintGraphMarkers(ctx, row, graph, width, height, color);
       if (row.polygon && row.polygon.length) this.paintGraphPolygon(ctx, row.polygon, color, px, py);
       if (row.points && row.points.length) this.paintGraphPoints(ctx, row.points, width, height, px, py, color);
       if (row.segments && row.segments.length) this.paintGraphSegments(ctx, row.segments, px, py, color, row.strict === true);
@@ -659,6 +661,26 @@ class ReferenceView extends ItemView {
       if (Math.abs(y) < stepY / 1000) continue;
       ctx.fillText(formatGraphTick(y), Math.max(axisY - 4, 16), Math.max(py(y) - 7, 0));
     }
+  }
+
+  paintGraphMarkers(ctx, row, graph, width, height, color) {
+    const layout = markerLayout(row.markers, graph, width, height);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    for (const marker of layout) {
+      ctx.beginPath();
+      ctx.arc(marker.x, marker.y, 4.5, 0, Math.PI * 2);
+      if (row.style === "open") ctx.stroke();
+      else ctx.fill();
+      if (!marker.label) continue;
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = marker.align;
+      ctx.textBaseline = "bottom";
+      ctx.fillText(marker.label, marker.labelX, marker.labelY);
+    }
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
   }
 
   paintGraphPolygon(ctx, polygon, color, px, py) {

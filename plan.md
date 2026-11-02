@@ -1242,12 +1242,12 @@ Owner direction: inventory everything the Desmos Graphing Calculator does, recor
 | 1.177.0 | Domain and range restrictions plus piecewise `{condition: value, ...}` | `jsxgraph/jsxgraph` MIT option; `mauriciopoppe/function-plot` piecewise examples (MIT, https://github.com/mauriciopoppe/function-plot) | **Shipped** |
 | 1.178.0 | Polar graphing `r = 1 + cos(theta)`, polar grid, theta domain | `mauriciopoppe/function-plot` polar example (MIT); `jsxgraph` polar board (MIT option) | **Shipped** |
 | 1.179.0 | Parametric curves `(cos(t), sin(t))` with t bounds and curve fill | `mafs` `Plot.Parametric` (MIT); `function-plot` parametric example (MIT) | **Shipped** |
-| 1.180.0 | Points, point lists, labels and open/closed point styles | `mafs` points and movable points (MIT); `Graphr` point styling (MIT, https://github.com/yerich/Graphr) | Queued |
+| 1.180.0 | Points, point lists, labels and open/closed point styles | `mafs` points and movable points (MIT); `Graphr` point styling (MIT, https://github.com/yerich/Graphr) | **Shipped** |
 | 1.181.0 | Full function library: sec/csc/cot, hyperbolic and inverse hyperbolic, mod, sign, round, nthroot, gcd/lcm, nCr/nPr, tau | `mathjs` function definitions (Apache-2.0, https://github.com/josdejong/mathjs); `expr-eval` grammar (MIT, https://github.com/silentmatt/expr-eval) | Queued |
 | 1.182.0 | Points of interest (roots, intercepts, extrema, intersections) and cursor trace readout | `Graphr` root/trace tools (MIT); `numeric` bracketing and Newton solvers (MIT, https://github.com/sloisel/numeric) | Queued |
 | 1.183.0 | Zoom, pan, zoom-fit, default viewport and lock viewport | `function-plot` re-evaluation on scale change (MIT); `Graphr` mouse zoom/pan (MIT) | Queued |
 | 1.184.0 | Graph settings: minor gridlines, axis labels, pi ticks, degrees/radians | `jsxgraph` axis/ticks board (MIT option); `function-plot` axis options (MIT) | Queued |
-| 1.185.0 | Row styling: line width, dashed lines, fill opacity, point size and shape | `jsxgraph` styling options (MIT option) | Queued |
+| 1.185.0 | Row styling: line width, dashed lines, fill opacity and point size | `jsxgraph` styling options (MIT option) | Queued |
 | 1.186.0 | Export: graph PNG, table CSV and copy-expression text | Canvas and clipboard APIs already used by the plugin; no third-party code | Queued |
 | 1.187.0 | Math keypad and examples gallery in the graph tab | Desmos' documented shortcut set as behaviour reference only; `mathlive` MIT option for input ideas (https://github.com/arnog/mathlive) | Queued |
 | 1.188.0 | Statistics: mean/median/stdev/quartile/corr and list entry | `simple-statistics` (ISC) for the formulas | Queued |

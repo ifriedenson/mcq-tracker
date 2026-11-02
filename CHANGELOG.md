@@ -2,6 +2,17 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.180.0 — 2026-11-02
+
+- Points `(1, 2)`, `(-3, 0.5)` and slider points `(a, b)` draw markers instead
+  of a polyline; a pair that uses `t` or `theta` stays a parametric curve and a
+  single parenthesised expression stays explicit.
+- `open` and `closed` select a hollow or filled marker, and a quoted label such
+  as `(1, 2) "A"` replaces the coordinate label; labels flip inward at the right
+  edge and drop below the top edge so they stay on-canvas.
+- Point lists `[(1, 2), (3, 4)]` draw one marker per pair, restrictions filter
+  individual points, and sliders and definitions are read in the coordinates.
+
 ## 1.179.0 — 2026-11-02
 
 - Parametric rows `(cos(t), sin(t))` plot x and y against a shared parameter

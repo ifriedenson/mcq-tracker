@@ -18,6 +18,7 @@
  *   - a piecewise value                    `y = {x < 0: -x, x >= 0: x}`
  *   - a polar curve in r and theta         `r = 1 + cos(theta)`
  *   - a parametric pair in t               `(cos(t), sin(t))`
+ *   - a point or point list                `(1, 2)`, `[(1, 2), (3, 4)]`
  * Explicit rows are sampled; implicit rows are traced with marching squares;
  * inequalities shade a coarse cell grid and draw their boundary;
  * regression rows are fitted to the x/y table with a local least-squares
@@ -452,12 +453,30 @@ function parseGraphRow(text) {
   let body = raw.replace(/θ/g, "theta");
   const restrictions = [];
   let fill = false;
+  let markerStyle = "closed";
+  let label = "";
   for (;;) {
-    if (!fill && body.startsWith("(") && /(^|\s)fill$/i.test(body)) {
-      fill = true;
-      body = body.replace(/(^|\s)fill$/i, "").trim();
-      if (!body) throw new Error('A "fill" row still needs a curve, like (cos(t), sin(t)) fill.');
-      continue;
+    if (body.startsWith("(") || body.startsWith("[")) {
+      const styleMatch = /(^|\s)(open|closed)$/i.exec(body);
+      if (styleMatch) {
+        markerStyle = styleMatch[2].toLowerCase();
+        body = body.slice(0, body.length - styleMatch[0].length).trim();
+        if (!body) throw new Error('An "open" or "closed" row still needs a point, like (1, 2) open.');
+        continue;
+      }
+      const labelMatch = /(^|\s)"([^"]*)"$/.exec(body);
+      if (labelMatch) {
+        label = labelMatch[2];
+        body = body.slice(0, body.length - labelMatch[0].length).trim();
+        if (!body) throw new Error('A label still needs a point, like (1, 2) "A".');
+        continue;
+      }
+      if (!fill && /(^|\s)fill$/i.test(body)) {
+        fill = true;
+        body = body.replace(/(^|\s)fill$/i, "").trim();
+        if (!body) throw new Error('A "fill" row still needs a curve, like (cos(t), sin(t)) fill.');
+        continue;
+      }
     }
     const split = splitRestriction(body);
     if (!split.condition) break;
@@ -465,8 +484,18 @@ function parseGraphRow(text) {
     body = split.body;
   }
   const condition = restrictions.join(" and ");
+  const pointList = splitPointList(body);
+  if (pointList) {
+    if (fill) throw new Error("Fill needs a single closed curve, not a point list.");
+    return { kind: "points", text: raw, pairs: pointList, style: markerStyle, label, condition };
+  }
   const parametric = splitParametric(body);
   if (parametric) {
+    const freeParameter = ["t", "theta"].some((name) => mentions(parametric.xBody, name) || mentions(parametric.yBody, name));
+    if (!freeParameter) {
+      if (fill) throw new Error("Fill needs a curve, like (cos(t), sin(t)) fill.");
+      return { kind: "point", text: raw, xBody: parametric.xBody, yBody: parametric.yBody, style: markerStyle, label, condition };
+    }
     return {
       kind: "parametric",
       text: raw,
@@ -580,6 +609,59 @@ function splitParametric(text) {
   const yBody = parts[1].trim();
   if (!xBody || !yBody) throw new Error("Both x and y in a parametric row need an expression, like (cos(t), sin(t)).");
   return { xBody, yBody };
+}
+
+/**
+ * Split `[(1, 2), (3, 4)]` into its pairs. Each entry must be a pair.
+ */
+function splitPointList(text) {
+  const trimmed = String(text == null ? "" : text).trim();
+  if (!trimmed.startsWith("[")) return null;
+  if (!trimmed.endsWith("]")) return null;
+  const inner = trimmed.slice(1, -1).trim();
+  if (!inner) throw new Error("A point list needs at least one point, like [(1, 2), (3, 4)].");
+  return splitTopLevel(inner, ",").map((part) => {
+    const pair = splitParametric(part.trim());
+    if (!pair) throw new Error("Each point in a list needs a pair, like (1, 2).");
+    return pair;
+  });
+}
+
+function formatPointLabel(x, y) {
+  const fmt = (value) => {
+    const rounded = Math.round(value * 1e6) / 1e6;
+    return String(Object.is(rounded, -0) ? 0 : rounded);
+  };
+  return `(${fmt(x)}, ${fmt(y)})`;
+}
+
+/**
+ * Pixel positions for point markers and their labels under the current view.
+ * A label that would overflow an edge flips to the other side or below the marker.
+ */
+function markerLayout(markers, view, width, height) {
+  const spanX = view.xMax - view.xMin;
+  const spanY = view.yMax - view.yMin;
+  const list = Array.isArray(markers) ? markers : [];
+  return list.map((marker) => {
+    const x = spanX > 0 ? ((marker.x - view.xMin) / spanX) * width : 0;
+    const y = spanY > 0 ? height - ((marker.y - view.yMin) / spanY) * height : 0;
+    const label = String(marker.label || "");
+    const estimate = label.length * 6.6;
+    let labelX = x + 8;
+    let align = "left";
+    if (label && labelX + estimate > width - 2) {
+      labelX = x - 8;
+      align = "right";
+    }
+    if (labelX < 4) {
+      labelX = 4;
+      align = "left";
+    }
+    let labelY = y - 8;
+    if (labelY < 14) labelY = y + 16;
+    return { x, y, label, labelX, labelY, align };
+  });
 }
 
 function parametricBound(text, definitions) {
@@ -1055,6 +1137,23 @@ function buildGraph(options) {
         const polarCondition = parsed.condition ? compileCondition(parsed.condition, ["theta", "r"], definitions) : null;
         row.points = samplePolar((scope) => compiled(scope), polarCondition, samples * 2);
         if (!row.points.some((point) => point.y !== null)) row.error = "That polar curve has no values in this window.";
+      } else if (parsed.kind === "point" || parsed.kind === "points") {
+        const pairs = parsed.kind === "points" ? parsed.pairs : [{ xBody: parsed.xBody, yBody: parsed.yBody }];
+        const markers = [];
+        for (const pair of pairs) {
+          const x = compileScoped(pair.xBody, [], definitions)({});
+          const y = compileScoped(pair.yBody, [], definitions)({});
+          if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            throw new Error("A point needs numeric coordinates, like (1, 2) or (a, b) with a slider.");
+          }
+          if (condition && !condition({ x, y })) continue;
+          const label = parsed.kind === "point" && parsed.label ? parsed.label : formatPointLabel(x, y);
+          markers.push({ x, y, label });
+        }
+        row.markers = markers;
+        row.style = parsed.style;
+        row.label = parsed.label;
+        if (!markers.length) row.error = parsed.condition ? "No point matches that restriction." : "That point list is empty.";
       } else if (parsed.kind === "parametric") {
         const xCompiled = compileScoped(parsed.xBody, ["t", "theta"], definitions);
         const yCompiled = compileScoped(parsed.yBody, ["t", "theta"], definitions);
@@ -1195,6 +1294,8 @@ module.exports = {
   readDataPoints,
   regressionParameters,
   sampleExplicit,
+  markerLayout,
+  formatPointLabel,
   sampleParametric,
   samplePolar,
   sampleRegion,

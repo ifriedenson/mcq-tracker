@@ -703,3 +703,118 @@ test("reference view: parametric and filled rows render", async () => {
   assert.ok(!/Unknown name|not valid|Expected|incomplete/i.test(text), "parametric rows render without an error");
   assert.ok(text.toLowerCase().includes("parametric"), "the note explains parametric rows");
 });
+
+test("graph: pairs are points unless they use the parameter", () => {
+  const point = graph.parseGraphRow("(1, 2)");
+  assert.equal(point.kind, "point");
+  assert.equal(point.xBody, "1");
+  assert.equal(point.yBody, "2");
+  assert.equal(point.style, "closed");
+  assert.equal(point.label, "");
+  const sliderPoint = graph.parseGraphRow("(a, b)");
+  assert.equal(sliderPoint.kind, "point", "a slider pair is a point");
+  assert.equal(graph.parseGraphRow("(-3, 0.5)").kind, "point");
+  assert.equal(graph.parseGraphRow("(cos(t), sin(t))").kind, "parametric", "t keeps a pair parametric");
+  assert.equal(graph.parseGraphRow("(theta, 2)").kind, "parametric", "theta keeps a pair parametric");
+  assert.equal(graph.parseGraphRow("(sin(t))").kind, "explicit");
+  const list = graph.parseGraphRow("[(1, 2), (3, 4)]");
+  assert.equal(list.kind, "points");
+  assert.equal(list.pairs.length, 2);
+  const open = graph.parseGraphRow("(1, 2) open");
+  assert.equal(open.kind, "point");
+  assert.equal(open.style, "open");
+  const labelled = graph.parseGraphRow('(1, 2) "A" open');
+  assert.equal(labelled.label, "A");
+  assert.equal(labelled.style, "open");
+  const filtered = graph.parseGraphRow("(1, 2) {x > 0}");
+  assert.equal(filtered.kind, "point");
+  assert.equal(filtered.condition, "x > 0");
+});
+
+test("graph: points build markers, not a polyline", () => {
+  const built = graph.buildGraph({ rows: ["(1, 2)", '(0, 0) "origin" open', "[(1, 2), (3, 4)]"], samples: 100 });
+  const single = built.rows[0];
+  assert.equal(single.error, "");
+  assert.equal(single.kind, "point");
+  assert.equal(single.points, undefined, "a point is never sampled as a line");
+  assert.deepEqual(single.markers, [{ x: 1, y: 2, label: "(1, 2)" }]);
+  assert.equal(single.style, "closed");
+
+  const labelled = built.rows[1];
+  assert.equal(labelled.style, "open");
+  assert.equal(labelled.markers[0].label, "origin");
+
+  const list = built.rows[2];
+  assert.equal(list.error, "");
+  assert.equal(list.markers.length, 2);
+  assert.deepEqual(list.markers.map((marker) => marker.label), ["(1, 2)", "(3, 4)"]);
+  assert.equal(list.points, undefined);
+});
+
+test("graph: point markers follow the view transform and clamp labels on-canvas", () => {
+  const view = { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
+  const middle = graph.markerLayout([{ x: 0, y: 0, label: "(0, 0)" }], view, 400, 320);
+  assert.deepEqual(middle[0], { x: 200, y: 160, label: "(0, 0)", labelX: 208, labelY: 152, align: "left" });
+
+  const corner = graph.markerLayout([{ x: 10, y: 10, label: "(10, 10)" }], view, 400, 320);
+  assert.equal(corner[0].x, 400);
+  assert.equal(corner[0].y, 0);
+  assert.equal(corner[0].align, "right", "a label at the right edge flips inward");
+  assert.ok(corner[0].labelX <= 400);
+  assert.equal(corner[0].labelY, 16, "a label at the top edge drops below the marker");
+  for (const marker of middle.concat(corner)) {
+    assert.ok(marker.labelX >= 0 && marker.labelX <= 400);
+    assert.ok(marker.labelY >= 0 && marker.labelY <= 320);
+  }
+
+  const scaled = graph.markerLayout([{ x: 1, y: 2, label: "(1, 2)" }], { xMin: 0, xMax: 2, yMin: 0, yMax: 4 }, 200, 200);
+  assert.equal(scaled[0].x, 100);
+  assert.equal(scaled[0].y, 100);
+});
+
+test("graph: point rows read sliders, definitions and restrictions", () => {
+  const withSliders = graph.buildGraph({ rows: ["a = 2", "b = 3", "(a, b)"], samples: 100 });
+  assert.deepEqual(withSliders.rows[2].markers, [{ x: 2, y: 3, label: "(2, 3)" }]);
+  const moved = graph.buildGraph({ rows: ["a = 2", "b = 3", "(a, b)"], parameters: { a: 5, b: 1 }, samples: 100 });
+  assert.deepEqual(moved.rows[2].markers, [{ x: 5, y: 1, label: "(5, 1)" }], "a slider update moves the marker and its label");
+
+  const definition = graph.buildGraph({ rows: ["f(x) = x + 1", "(2, f(2))"], samples: 100 });
+  assert.equal(definition.rows[1].error, "");
+  assert.equal(definition.rows[1].markers[0].y, 3);
+
+  const kept = graph.buildGraph({ rows: ["[(1, 2), (-1, 2)] {x > 0}"], samples: 100 });
+  assert.equal(kept.rows[0].markers.length, 1);
+  assert.equal(kept.rows[0].error, "");
+
+  const removed = graph.buildGraph({ rows: ["(-1, 2) {x > 0}"] });
+  assert.equal(removed.rows[0].markers.length, 0);
+  assert.match(removed.rows[0].error, /No point matches/);
+});
+
+test("graph: unsupported point input reports a clear error", () => {
+  assert.match(graph.buildGraph({ rows: ["(x, 2)"] }).rows[0].error, /Unknown name "x"/);
+  assert.match(graph.buildGraph({ rows: ["[]"] }).rows[0].error, /at least one point/);
+  assert.match(graph.buildGraph({ rows: ["[(1, 2), 3]"] }).rows[0].error, /needs a pair/);
+  assert.match(graph.buildGraph({ rows: ["(1, 2) fill"] }).rows[0].error, /Fill needs a curve/);
+  assert.match(graph.buildGraph({ rows: ["[(1, 2)] fill"] }).rows[0].error, /not a point list/);
+});
+
+test("reference view: points, lists and open markers render", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  view.graphRows = [
+    { text: "(1, 2)", hidden: false },
+    { text: "[(0, 0), (2, 2)] open", hidden: false },
+  ];
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const text = dom.texts().join(" | ");
+  assert.ok(!/Unknown name|not valid|Expected|incomplete/i.test(text), "point rows render without an error");
+  assert.ok(/point marker/i.test(text), "the note explains point markers");
+});
