@@ -1465,3 +1465,108 @@ test("reference view: empty exports are refused without throwing", async () => {
   assert.equal((await view.copyGraphExpressions()).reason, "empty");
   assert.equal(app.created, undefined, "nothing is written when there is nothing to export");
 });
+
+
+test("graph examples: every catalogue entry parses and draws", () => {
+  const ex = T.graphExamples;
+  assert.equal(ex.EXAMPLES.length, 7);
+  const ids = ex.EXAMPLES.map((example) => example.id);
+  assert.equal(new Set(ids).size, ids.length, "example ids are unique");
+  for (const example of ex.EXAMPLES) {
+    assert.ok(example.name.length > 0 && example.rows.length > 0);
+    const built = graph.buildGraph({
+      rows: example.rows,
+      xMin: -10,
+      xMax: 10,
+      yMin: -10,
+      yMax: 10,
+      samples: 200,
+      resolution: { x: 200, y: 100 },
+      regionResolution: { x: 80, y: 40 },
+    });
+    assert.equal(built.rows.length, example.rows.length);
+    for (const row of built.rows) {
+      assert.equal(row.error || "", "", `${example.id} reports no error`);
+      const drawn = (row.points || []).filter((point) => point.y !== null).length + (row.markers || []).length + (row.region ? 1 : 0);
+      assert.ok(drawn > 0, `${example.id} draws something`);
+    }
+  }
+  assert.equal(ex.exampleById("parabola").name, "Parabola");
+  assert.equal(ex.exampleById("nope"), null);
+  const copy = ex.exampleTexts("trig");
+  copy.push("mutated");
+  assert.equal(ex.exampleTexts("trig").length, 2, "the catalogue is not mutated");
+});
+
+test("reference view: the keypad inserts at the caret and the gallery loads examples", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.graphRows = [{ text: "", hidden: false }];
+  view.render();
+  const labels = () => dom.all.map((element) => (element.meta && (element.meta.attr || {})["aria-label"]) || "").filter(Boolean);
+  for (const label of ["Insert x", "Insert power", "Insert sine", "Insert theta", "Insert less than or equal"]) {
+    assert.ok(labels().indexOf(label) >= 0, `missing keypad button: ${label}`);
+  }
+  for (const label of ["Load example: Parabola", "Load example: Polar rose", "Load example: Piecewise"]) {
+    assert.ok(labels().indexOf(label) >= 0, `missing example button: ${label}`);
+  }
+
+  const input = view.graphRowInputs[0];
+  input.value = "y = ";
+  input.selectionStart = 4;
+  input.selectionEnd = 4;
+  input.setSelectionRange = (start, end) => {
+    input.selectionStart = start;
+    input.selectionEnd = end;
+  };
+  view.graphKeypadIndex = 0;
+  const inserted = view.insertGraphToken("sin(");
+  assert.equal(inserted.ok, true);
+  assert.equal(view.graphRows[0].text, "y = sin(");
+  assert.equal(input.value, "y = sin(");
+  assert.equal(inserted.caret, 8);
+  assert.equal(plugin.settings.reference.graph.rows[0].text, "y = sin(", "the keypad edit is persisted");
+  const replacedToken = view.insertGraphToken("2)");
+  assert.equal(view.graphRows[0].text, "y = sin(2)");
+  assert.equal(replacedToken.caret, 10);
+
+  view.graphRows = [{ text: "y = x", hidden: false }];
+  view.render();
+  const appended = view.loadGraphExample("parabola");
+  assert.equal(appended.ok, true);
+  assert.equal(appended.replaced, false, "typed rows are kept");
+  assert.equal(view.graphRows.length, 2);
+  assert.deepEqual(view.graphRows.map((row) => row.text), ["y = x", "y = x^2 - 4"]);
+  assert.equal(plugin.settings.reference.graph.rows.length, 2);
+
+  view.graphRows = [{ text: "   ", hidden: false }];
+  view.render();
+  const replaced = view.loadGraphExample("trig");
+  assert.equal(replaced.replaced, true, "an empty list is replaced");
+  assert.deepEqual(view.graphRows.map((row) => row.text), ["y = sin(x)", "y = cos(x)"]);
+  assert.equal(view.loadGraphExample("missing").reason, "unknown");
+});
+
+test("reference view: the keypad refuses an empty row list without throwing", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.graphRows = [];
+  view.render();
+  const result = view.insertGraphToken("x");
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "empty");
+});

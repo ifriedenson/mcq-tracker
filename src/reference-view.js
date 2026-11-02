@@ -20,6 +20,7 @@ const {
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { tableCsv, expressionsText, exportScale, exportFileName, canvasPngBytes, hasDrawableContent } = require("./graph-export");
+const { EXAMPLES, exampleById } = require("./graph-examples");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -34,6 +35,27 @@ const { PUNNETT_GENOTYPES, TRIG_IDENTITIES, UNIT_CIRCLE, normalizeGenotype, punn
 
 /* One colour per expression row, cycled when the list grows. */
 const GRAPH_COLORS = ["#5b8def", "#e5534b", "#2ea043", "#d29922", "#a371f7", "#39c5cf", "#f778ba", "#db6d28"];
+
+/* The graph keypad inserts these tokens at the caret of the focused expression row. */
+const GRAPH_KEYPAD = [
+  { token: "x", label: "Insert x" },
+  { token: "y", label: "Insert y" },
+  { token: "^", label: "Insert power" },
+  { token: "sqrt(", label: "Insert square root" },
+  { token: "pi", label: "Insert pi" },
+  { token: "theta", label: "Insert theta" },
+  { token: "sin(", label: "Insert sine" },
+  { token: "cos(", label: "Insert cosine" },
+  { token: "tan(", label: "Insert tangent" },
+  { token: "ln(", label: "Insert natural logarithm" },
+  { token: "log(", label: "Insert logarithm" },
+  { token: "e", label: "Insert Euler's number" },
+  { token: "(", label: "Insert open parenthesis" },
+  { token: ")", label: "Insert close parenthesis" },
+  { token: "abs(", label: "Insert absolute value" },
+  { token: "<=", label: "Insert less than or equal" },
+  { token: ">=", label: "Insert greater than or equal" },
+];
 
 /** A grid step near the requested division count: 1, 2, 5 times a power of ten. */
 function niceStep(span, divisions) {
@@ -434,8 +456,29 @@ class ReferenceView extends ItemView {
       this.drawGraph();
     });
 
+    const keypad = root.createDiv({ cls: "qt-row qt-ref-graph-keypad" });
+    keypad.createSpan({ cls: "qt-ref-graph-keypad-label", text: "Keypad" });
+    for (const key of GRAPH_KEYPAD) {
+      keypad.createEl("button", {
+        cls: "qt-ref-graph-key",
+        text: key.token,
+        attr: { type: "button", "aria-label": key.label },
+      }).addEventListener("click", () => this.insertGraphToken(key.token));
+    }
+
+    const gallery = root.createDiv({ cls: "qt-row qt-ref-graph-examples" });
+    gallery.createSpan({ cls: "qt-ref-graph-examples-label", text: "Examples" });
+    for (const example of EXAMPLES) {
+      gallery.createEl("button", {
+        cls: "qt-ref-graph-example",
+        text: example.name,
+        attr: { type: "button", "aria-label": `Load example: ${example.name}` },
+      }).addEventListener("click", () => this.loadGraphExample(example.id));
+    }
+
     const list = root.createDiv({ cls: "qt-ref-graph-rows" });
     this.graphRowErrorEls = [];
+    this.graphRowInputs = [];
     this.graphFitEls = [];
     this.graphSliderEls = [];
     this.graphRows.forEach((row, index) => {
@@ -458,6 +501,11 @@ class ReferenceView extends ItemView {
       });
       input.value = row.text;
       input.style.borderLeft = `3px solid ${color}`;
+      this.graphRowInputs[index] = input;
+      input.addEventListener("focus", () => {
+        this.graphKeypadIndex = index;
+        this.graphKeypadTarget = input;
+      });
       input.addEventListener("input", () => {
         row.text = input.value;
         try {
@@ -791,6 +839,60 @@ class ReferenceView extends ItemView {
     }
     if (filled) numberField("fillOpacity", "Fill opacity", 0, 1, 0.05);
     if (points) numberField("pointSize", "Point size", STYLE_LIMITS.minPoint, STYLE_LIMITS.maxPoint, 0.5);
+  }
+
+  insertGraphToken(token) {
+    const index = Number.isInteger(this.graphKeypadIndex) && this.graphRowInputs[this.graphKeypadIndex] ? this.graphKeypadIndex : 0;
+    const source = this.graphRowInputs[index] || (this.graphRowInputs || [])[0];
+    const row = this.graphRows[index];
+    if (!source || !row) {
+      this.graphExportStatus("Add an expression before using the keypad.");
+      return { ok: false, reason: "empty" };
+    }
+    const value = typeof source.value === "string" ? source.value : String(row.text || "");
+    const rawStart = Number(source.selectionStart);
+    const rawEnd = Number(source.selectionEnd);
+    const start = Number.isFinite(rawStart) && rawStart >= 0 && rawStart <= value.length ? rawStart : value.length;
+    const end = Number.isFinite(rawEnd) && rawEnd >= start && rawEnd <= value.length ? rawEnd : start;
+    row.text = value.slice(0, start) + String(token) + value.slice(end);
+    source.value = row.text;
+    const caret = start + String(token).length;
+    if (typeof source.setSelectionRange === "function") {
+      try {
+        source.setSelectionRange(caret, caret);
+      } catch (e) {
+        // a read-only selection is harmless; the text still updates
+      }
+    }
+    try {
+      const parsed = parseGraphRow(row.text);
+      if (parsed.kind === "parameter") {
+        row.name = parsed.name;
+        row.value = parsed.value;
+        if (row.min === undefined) row.min = "-10";
+        if (row.max === undefined) row.max = "10";
+        if (row.step === undefined) row.step = "0.1";
+      }
+    } catch (e) {
+      // the row reports its own parse error when the graph is drawn
+    }
+    this.persistGraphState();
+    this.drawGraph();
+    if (typeof source.focus === "function") source.focus();
+    return { ok: true, text: row.text, caret };
+  }
+
+  loadGraphExample(id) {
+    const example = exampleById(id);
+    if (!example) return { ok: false, reason: "unknown" };
+    const kept = this.graphRows.filter((row) => String(row.text || "").trim());
+    const added = example.rows.map((text) => ({ text, hidden: false, styling: resolveRowStyle(null) }));
+    const replaced = kept.length === 0;
+    this.graphRows = (replaced ? [] : kept).concat(added);
+    this.persistGraphState();
+    this.render();
+    this.drawGraph();
+    return { ok: true, replaced, rows: added.length, total: this.graphRows.length };
   }
 
   removeGraphRow(index) {

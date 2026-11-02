@@ -222,6 +222,7 @@ const support = require("./support");
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
   graphExport: require("./graph-export"),
+  graphExamples: require("./graph-examples"),
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,

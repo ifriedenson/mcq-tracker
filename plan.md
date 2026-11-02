@@ -1249,7 +1249,7 @@ Owner direction: inventory everything the Desmos Graphing Calculator does, recor
 | 1.184.0 | Graph settings: minor gridlines, axis labels, pi ticks, degrees/radians | `jsxgraph` axis/ticks board (MIT option); `function-plot` axis options (MIT) | **Shipped** |
 | 1.185.0 | Row styling: line width, dashed lines, fill opacity and point size | `jsxgraph` styling options (MIT option) | **Shipped** |
 | 1.186.0 | Export: graph PNG, table CSV and copy-expression text | Canvas and clipboard APIs already used by the plugin; no third-party code | **Shipped** |
-| 1.187.0 | Math keypad and examples gallery in the graph tab | Desmos' documented shortcut set as behaviour reference only; `mathlive` MIT option for input ideas (https://github.com/arnog/mathlive) | Queued |
+| 1.187.0 | Math keypad and examples gallery in the graph tab | Desmos' documented shortcut set as behaviour reference only; `mathlive` MIT option for input ideas (https://github.com/arnog/mathlive) | **Shipped** |
 | 1.188.0 | Statistics: mean/median/stdev/quartile/corr and list entry | `simple-statistics` (ISC) for the formulas | Queued |
 | 1.189.0 | Calculus: numeric derivative, definite integral, sum and product | `scijs/integrate-adaptive-simpson` adaptive quadrature (MIT, https://github.com/scijs/integrate-adaptive-simpson); `mathjs` derivative reference (Apache-2.0) | Queued |
 | 1.190.0 | Accessibility: per-row text summary for screen readers and a data-table view of the graph | Desmos accessibility guidance as behaviour reference only | Queued |

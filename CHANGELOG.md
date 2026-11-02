@@ -2,6 +2,15 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.187.0 — 2026-11-02
+
+- The graph tab has a math keypad that inserts x, y, powers, roots, pi, theta,
+  trig and logarithms, parentheses, absolute value and comparison operators at
+  the caret of the focused expression.
+- An examples gallery loads parabola, sine and cosine, polar rose, parametric
+  circle, inequality region, point list and piecewise graphs. It replaces an
+  empty list and appends to rows already typed, and the result is saved.
+
 ## 1.186.0 — 2026-11-02
 
 - The graph block exports its canvas as a PNG, its data table as CSV, and any
