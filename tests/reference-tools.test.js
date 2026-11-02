@@ -1325,3 +1325,143 @@ test("reference view: styles persist per row, restore on reload, and never chang
   assert.deepEqual(restored.graphRows[2].styling, { width: 8, dashed: false, fillOpacity: 0, pointSize: 12 });
   assert.deepEqual(restored.graphRows[3].styling, { width: 1, dashed: true, fillOpacity: 0, pointSize: 2 });
 });
+
+
+test("graph export: CSV fields, expression text, scale and names are exact", () => {
+  const ex = T.graphExport;
+  assert.equal(ex.csvCell("a,b"), '"a,b"');
+  assert.equal(ex.csvCell('say "hi"'), '"say ""hi"""');
+  assert.equal(ex.csvCell("two\nlines"), '"two\nlines"');
+  assert.equal(ex.csvCell("plain"), "plain");
+  const rows = [{ x: "1", y: "2" }, { x: "3,5", y: 'a"b' }, { x: "", y: "" }, { x: "4", y: "line\nbreak" }];
+  assert.equal(ex.tableCsv(rows), 'x,y\n1,2\n"3,5","a""b"\n4,"line\nbreak"');
+  assert.equal(ex.tableCsv([]), "");
+  assert.equal(ex.tableCsv([{ x: "", y: "  " }]), "");
+  assert.equal(ex.expressionsText([{ text: "y = x^2 - 4" }, { text: "  " }, { text: "(cos(t), sin(t)) fill" }]), "y = x^2 - 4\n(cos(t), sin(t)) fill");
+  assert.equal(ex.expressionsText([]), "");
+  assert.equal(ex.exportScale(undefined), 1);
+  assert.equal(ex.exportScale(2), 2);
+  assert.equal(ex.exportScale(9), 3);
+  assert.equal(ex.exportScale(0.5), 1);
+  const when = new Date(2026, 10, 2, 22, 5, 9);
+  assert.equal(ex.exportFileName("graph", when, "png"), "graph-20261102-220509.png");
+  assert.equal(ex.exportFileName("graph-data", when, "csv"), "graph-data-20261102-220509.csv");
+  assert.equal(ex.exportFileName("graph", new Date(NaN), "png").startsWith("graph-"), true);
+});
+
+test("graph export: PNG bytes come from a blob or a data URL and failures are honest", async () => {
+  const ex = T.graphExport;
+  const bytes = new Uint8Array([137, 80, 78, 71]);
+  const fromBlob = { toBlob(callback) { callback({ arrayBuffer: async () => bytes.buffer }); } };
+  assert.deepEqual(Array.from(await ex.canvasPngBytes(fromBlob)), [137, 80, 78, 71]);
+  const fromUrl = { toDataURL: () => "data:image/png;base64," + Buffer.from(bytes).toString("base64") };
+  assert.deepEqual(Array.from(await ex.canvasPngBytes(fromUrl)), [137, 80, 78, 71]);
+  let message = "";
+  try {
+    await ex.canvasPngBytes({ toBlob(callback) { callback(null); } });
+  } catch (e) {
+    message = e.message;
+  }
+  assert.match(message, /could not be encoded/);
+  message = "";
+  try {
+    await ex.canvasPngBytes(null);
+  } catch (e) {
+    message = e.message;
+  }
+  assert.match(message, /No canvas/);
+  message = "";
+  try {
+    await ex.canvasPngBytes({});
+  } catch (e) {
+    message = e.message;
+  }
+  assert.match(message, /cannot encode a PNG/);
+});
+
+test("reference view: PNG, CSV and copy controls are labelled, save the drawn state and change nothing", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.graphRows = [
+    { text: "y = x^2 - 4", hidden: false, styling: { width: 5, dashed: true } },
+    { text: "(1, 2)", hidden: false },
+  ];
+  view.graphData = [{ x: "1", y: "2" }, { x: "3,5", y: 'a"b' }, { x: "", y: "" }];
+  view.render();
+  const labels = () => dom.all.map((element) => (element.meta && (element.meta.attr || {})["aria-label"]) || "").filter(Boolean);
+  for (const label of ["Export graph as PNG", "Export data table as CSV", "Copy all expressions", "Copy expression 1", "Copy expression 2"]) {
+    assert.ok(labels().indexOf(label) >= 0, `missing button: ${label}`);
+  }
+  global.devicePixelRatio = 2;
+  view.drawGraph();
+  const signature = (built) => JSON.stringify({
+    rows: built.rows.map((row) => ({ points: row.points || null, markers: row.markers || null, polygon: row.polygon || null, interest: row.interest || null, styling: row.styling })),
+    interest: built.interest,
+    trace: graph.traceAt(built, 1.5),
+  });
+  const before = signature(view.graphBuilt);
+  const calls = [];
+  const ctx = new Proxy({}, {
+    get: (_target, property) => {
+      if (property === "measureText") return () => ({ width: 10 });
+      return (...args) => { calls.push(String(property)); return undefined; };
+    },
+    set: () => true,
+  });
+  const exportCanvas = { width: 0, height: 0, getContext: () => ctx, toBlob(callback) { callback({ arrayBuffer: async () => new Uint8Array([137, 80, 78, 71]).buffer }); } };
+  global.document = { createElement: (tag) => (tag === "canvas" ? exportCanvas : {}) };
+  const image = await view.exportGraphImage();
+  const csv = await view.exportGraphCsv();
+  delete global.document;
+  delete global.devicePixelRatio;
+
+  assert.equal(image.ok, true, JSON.stringify(image));
+  assert.match(image.path, /^Exports\/graph-\d{8}-\d{6}\.png$/);
+  assert.equal(exportCanvas.width, 1280, "PNG uses the device pixel ratio");
+  assert.equal(exportCanvas.height, 640);
+  assert.ok(calls.indexOf("lineTo") >= 0 && calls.indexOf("fillText") >= 0, "the exported scene is painted, not blank");
+  const saved = app.createdBinary[0];
+  assert.equal(saved.path, image.path);
+  assert.deepEqual(Array.from(saved.buffer), [137, 80, 78, 71]);
+
+  assert.equal(csv.ok, true, JSON.stringify(csv));
+  const csvFile = app.created.find((file) => file.path === csv.path);
+  assert.match(csv.path, /^Exports\/graph-data-\d{8}-\d{6}\.csv$/);
+  assert.equal(csvFile.text, 'x,y\n1,2\n"3,5","a""b"\n');
+
+  const all = await view.copyGraphExpressions();
+  assert.equal(all.ok, false);
+  assert.equal(all.reason, "clipboard");
+  const one = await view.copyGraphExpression(0);
+  assert.equal(one.reason, "clipboard");
+  const blank = await view.copyGraphExpression(5);
+  assert.equal(blank.reason, "empty");
+  assert.equal(signature(view.graphBuilt), before, "export paths never touch the graph");
+});
+
+test("reference view: empty exports are refused without throwing", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.graphRows = [{ text: "", hidden: false }];
+  view.graphData = [];
+  view.render();
+  view.drawGraph();
+  assert.equal((await view.exportGraphCsv()).reason, "empty");
+  assert.equal((await view.exportGraphImage()).reason, "empty");
+  assert.equal((await view.copyGraphExpressions()).reason, "empty");
+  assert.equal(app.created, undefined, "nothing is written when there is nothing to export");
+});

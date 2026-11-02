@@ -29711,6 +29711,143 @@ exports.show_diff_message = show_diff_message;
 module.exports = Object.assign(exports.default || {}, exports)
 };
 
+/* ---- src/graph-export.js ---- */
+__defs["graph-export"] = function (module, exports, require) {
+/*
+ * Export helpers for the Reference graph.
+ *
+ * Pure functions only: the view owns the canvas, the vault and the clipboard. `csvCell`,
+ * `tableCsv`, `expressionsText`, `exportScale` and `exportFileName` are deterministic so the
+ * rows and values that leave the block can be tested without a DOM or an Obsidian vault.
+ */
+
+/** One CSV field: quoted only when it contains a comma, a quote or a line break. */
+function csvCell(value) {
+  const text = value === null || value === undefined ? "" : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/**
+ * The data table as CSV. Exactly the strings the table holds are written, in table order;
+ * a row whose x and y are both blank is skipped, and an empty table returns "".
+ */
+function tableCsv(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const filled = list.filter((row) => row && (String(row.x === undefined ? "" : row.x).trim() || String(row.y === undefined ? "" : row.y).trim()));
+  if (!filled.length) return "";
+  const lines = ["x,y"];
+  for (const row of filled) lines.push(`${csvCell(row.x)},${csvCell(row.y)}`);
+  return lines.join("\n");
+}
+
+/** The non-blank expression rows' source text, one per line, in list order. */
+function expressionsText(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  return list
+    .map((row) => (row && typeof row.text === "string" ? row.text : ""))
+    .filter((text) => text.trim())
+    .join("\n");
+}
+
+/** The export scale: the device pixel ratio, bounded so a huge ratio cannot exhaust memory. */
+function exportScale(ratio) {
+  const value = Number(ratio);
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(3, Math.max(1, value));
+}
+
+/** A collision-free name such as graph-20261102-220509.png; invalid dates fall back to "now". */
+function exportFileName(prefix, when, extension) {
+  const date = when instanceof Date && Number.isFinite(when.getTime()) ? when : new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  return `${prefix}-${stamp}.${extension}`;
+}
+
+/** Whether anything was actually drawn: samples, segments, markers, polygons, regions or data. */
+function hasDrawableContent(graph) {
+  const rows = graph && Array.isArray(graph.rows) ? graph.rows : [];
+  const drawn = rows.some(
+    (row) =>
+      (row.points && row.points.some((point) => point && point.y !== null && Number.isFinite(point.y))) ||
+      (row.segments && row.segments.length > 0) ||
+      (row.markers && row.markers.length > 0) ||
+      (row.polygon && row.polygon.length > 0) ||
+      row.region
+  );
+  const data = graph && Array.isArray(graph.data) ? graph.data.length : 0;
+  return drawn || data > 0;
+}
+
+/**
+ * PNG bytes from a canvas. Prefers toBlob and falls back to a data URL; every failure is a
+ * plain Error with a sentence that can be shown to the reader, never a crash.
+ */
+function canvasPngBytes(canvas) {
+  return new Promise((resolve, reject) => {
+    if (!canvas) {
+      reject(new Error("No canvas is available on this device."));
+      return;
+    }
+    if (typeof canvas.toBlob === "function") {
+      try {
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error("The image could not be encoded on this device."));
+            return;
+          }
+          if (typeof blob.arrayBuffer !== "function") {
+            reject(new Error("The image could not be read on this device."));
+            return;
+          }
+          blob.arrayBuffer().then(
+            (buffer) => resolve(new Uint8Array(buffer)),
+            () => reject(new Error("The image could not be read on this device."))
+          );
+        }, "image/png");
+        return;
+      } catch (e) {
+        // fall through to the data URL
+      }
+    }
+    if (typeof canvas.toDataURL === "function") {
+      let data = "";
+      try {
+        data = String(canvas.toDataURL("image/png") || "");
+      } catch (e) {
+        reject(new Error("The image could not be encoded on this device."));
+        return;
+      }
+      const match = /^data:image\/png;base64,(.*)$/.exec(data);
+      if (!match || typeof atob !== "function") {
+        reject(new Error("The image could not be encoded on this device."));
+        return;
+      }
+      try {
+        const binary = atob(match[1]);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        resolve(bytes);
+      } catch (e) {
+        reject(new Error("The image could not be read on this device."));
+      }
+      return;
+    }
+    reject(new Error("This device cannot encode a PNG."));
+  });
+}
+
+module.exports = {
+  csvCell,
+  tableCsv,
+  expressionsText,
+  exportScale,
+  exportFileName,
+  hasDrawableContent,
+  canvasPngBytes,
+};
+};
+
 /* ---- src/handwriting.js ---- */
 __defs["handwriting"] = function (module, exports, require) {
 /*
@@ -61297,6 +61434,7 @@ const {
   STYLE_LIMITS, DASH_PATTERN, resolveRowStyle } = require("./reference-graph");
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
+const { tableCsv, expressionsText, exportScale, exportFileName, canvasPngBytes, hasDrawableContent } = require("./graph-export");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -61763,6 +61901,11 @@ class ReferenceView extends ItemView {
         text: "×",
         attr: { "aria-label": `Remove expression ${index + 1}` },
       }).addEventListener("click", () => this.removeGraphRow(index));
+      rowEl.createEl("button", {
+        cls: "qt-ref-graph-remove",
+        text: "\u29c9",
+        attr: { type: "button", "aria-label": `Copy expression ${index + 1}` },
+      }).addEventListener("click", () => this.copyGraphExpression(index));
       this.graphRowErrorEls[index] = rowEl.createDiv({ cls: "qt-ref-graph-row-error", attr: { "aria-live": "polite" } });
       this.graphFitEls[index] = rowEl.createDiv({ cls: "qt-ref-graph-fit", attr: { "aria-live": "polite" } });
       let parsed = null;
@@ -61792,6 +61935,14 @@ class ReferenceView extends ItemView {
       this.persistGraphState();
       this.render();
     });
+
+    const exportActions = root.createDiv({ cls: "qt-row qt-ref-graph-export" });
+    exportActions.createEl("button", { text: "Export PNG", attr: { type: "button", "aria-label": "Export graph as PNG" } })
+      .addEventListener("click", () => this.exportGraphImage());
+    exportActions.createEl("button", { text: "Export CSV", attr: { type: "button", "aria-label": "Export data table as CSV" } })
+      .addEventListener("click", () => this.exportGraphCsv());
+    exportActions.createEl("button", { text: "Copy expressions", attr: { type: "button", "aria-label": "Copy all expressions" } })
+      .addEventListener("click", () => this.copyGraphExpressions());
 
     const dataSection = root.createDiv({ cls: "qt-ref-graph-data" });
     dataSection.createDiv({ cls: "qt-ref-graph-data-head", text: "Data table (x, y) for regression rows" });
@@ -62076,10 +62227,14 @@ class ReferenceView extends ItemView {
     const rawWidth = Number(canvas.clientWidth);
     const width = Number.isFinite(rawWidth) && rawWidth > 0 ? Math.round(rawWidth) : 640;
     const height = 320;
-    canvas.width = width;
-    canvas.height = height;
+    this.graphWidth = width;
+    this.graphHeight = height;
+    const ratio = exportScale(typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1);
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
     const ctx = canvas.getContext ? canvas.getContext("2d") : null;
     if (!ctx) return;
+    if (typeof ctx.setTransform === "function") ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, width, height);
     let graph;
     try {
@@ -62103,13 +62258,6 @@ class ReferenceView extends ItemView {
     }
     if (this.graphErrorEl) this.graphErrorEl.setText(graph.dataError || "");
     this.graphBuilt = graph;
-    const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
-    const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
-    this.paintGraphGrid(ctx, graph, width, height, px, py);
-    if (this.graphPolarGrid) this.paintPolarGrid(ctx, graph, width, height);
-    for (const row of graph.rows) {
-      if (row.region) this.paintGraphRegion(ctx, row.region, GRAPH_COLORS[row.index % GRAPH_COLORS.length], px, py);
-    }
     for (const row of graph.rows) {
       const statusEl = this.graphRowErrorEls[row.index];
       if (statusEl) statusEl.setText(row.error || (row.kind === "definition" ? "Function defined" : ""));
@@ -62132,6 +62280,20 @@ class ReferenceView extends ItemView {
         const parameterRow = this.graphRows[row.index];
         if (parameterRow) parameterRow.value = row.value;
       }
+    }
+    this.paintGraphScene(ctx, graph, width, height);
+  }
+
+  /** Paints one built graph into any 2D context; the screen canvas and PNG export share it. */
+  paintGraphScene(ctx, graph, width, height) {
+    const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
+    const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
+    this.paintGraphGrid(ctx, graph, width, height, px, py);
+    if (this.graphPolarGrid) this.paintPolarGrid(ctx, graph, width, height);
+    for (const row of graph.rows) {
+      if (row.region) this.paintGraphRegion(ctx, row.region, GRAPH_COLORS[row.index % GRAPH_COLORS.length], px, py);
+    }
+    for (const row of graph.rows) {
       const color = GRAPH_COLORS[row.index % GRAPH_COLORS.length];
       if (row.markers && row.markers.length) this.paintGraphMarkers(ctx, row, graph, width, height, color);
       if (row.polygon && row.polygon.length) this.paintGraphPolygon(ctx, row, color, px, py);
@@ -62143,6 +62305,136 @@ class ReferenceView extends ItemView {
     }
     if (this.graphInterest) this.paintGraphInterest(ctx, graph, width, height, px, py);
     this.paintGraphTrace(ctx, graph, width, height, px, py);
+  }
+
+  graphExportStatus(text) {
+    if (this.graphTraceEl && typeof this.graphTraceEl.setText === "function") this.graphTraceEl.setText(text);
+    else new Notice(text);
+  }
+
+  async saveGraphFile(name, data, binary) {
+    const vault = this.app && this.app.vault;
+    if (!vault) return { ok: false, reason: "vault" };
+    const folder = "Exports";
+    try {
+      if (typeof vault.createFolder === "function" && typeof vault.getAbstractFileByPath === "function") {
+        const existing = await vault.getAbstractFileByPath(folder);
+        if (!existing) await vault.createFolder(folder);
+      }
+      const path = `${folder}/${name}`;
+      const write = binary && typeof vault.createBinary === "function"
+        ? (payload) => vault.createBinary(path, payload)
+        : typeof vault.create === "function" ? (payload) => vault.create(path, payload) : null;
+      if (!write) {
+        this.graphExportStatus("This device cannot write files into the vault.");
+        return { ok: false, reason: "vault" };
+      }
+      await write(data);
+      this.graphExportStatus(`Saved ${path}.`);
+      return { ok: true, path };
+    } catch (e) {
+      this.graphExportStatus(`Could not save ${name}: ${e && e.message ? e.message : "unknown error"}.`);
+      return { ok: false, reason: "save" };
+    }
+  }
+
+  async exportGraphCsv() {
+    const csv = tableCsv(this.graphData);
+    if (!csv) {
+      this.graphExportStatus("Add a data point before exporting a CSV.");
+      return { ok: false, reason: "empty" };
+    }
+    return this.saveGraphFile(exportFileName("graph-data", new Date(), "csv"), `${csv}\n`, false);
+  }
+
+  graphExportDocument() {
+    if (typeof document !== "undefined" && document && typeof document.createElement === "function") return document;
+    if (typeof activeDocument !== "undefined" && activeDocument && typeof activeDocument.createElement === "function") return activeDocument;
+    return null;
+  }
+
+  async exportGraphImage() {
+    const graph = this.graphBuilt;
+    if (!graph || !hasDrawableContent(graph)) {
+      this.graphExportStatus("Add an expression that draws something before exporting an image.");
+      return { ok: false, reason: "empty" };
+    }
+    const doc = this.graphExportDocument();
+    if (!doc) {
+      this.graphExportStatus("This device cannot build an image from the graph.");
+      return { ok: false, reason: "canvas" };
+    }
+    const ratio = exportScale(typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1);
+    const width = this.graphWidth || 640;
+    const height = this.graphHeight || 320;
+    let canvas = null;
+    let ctx = null;
+    try {
+      canvas = doc.createElement("canvas");
+      if (canvas) {
+        canvas.width = Math.round(width * ratio);
+        canvas.height = Math.round(height * ratio);
+        ctx = canvas.getContext ? canvas.getContext("2d") : null;
+      }
+    } catch (e) {
+      canvas = null;
+    }
+    if (!canvas || !ctx) {
+      this.graphExportStatus("This device cannot build an image from the graph.");
+      return { ok: false, reason: "canvas" };
+    }
+    if (typeof ctx.scale === "function") ctx.scale(ratio, ratio);
+    this.paintGraphScene(ctx, graph, width, height);
+    let bytes;
+    try {
+      bytes = await canvasPngBytes(canvas);
+    } catch (e) {
+      this.graphExportStatus(e && e.message ? e.message : "The image could not be encoded on this device.");
+      return { ok: false, reason: "encode" };
+    }
+    return this.saveGraphFile(exportFileName("graph", new Date(), "png"), bytes, true);
+  }
+
+  copyTextToClipboard(text, success) {
+    const nav = typeof navigator !== "undefined" ? navigator : null;
+    if (!nav || !nav.clipboard || typeof nav.clipboard.writeText !== "function") {
+      this.graphExportStatus("The clipboard is not available on this device.");
+      return Promise.resolve({ ok: false, reason: "clipboard" });
+    }
+    try {
+      return Promise.resolve(nav.clipboard.writeText(text)).then(
+        () => {
+          this.graphExportStatus(success);
+          return { ok: true };
+        },
+        () => {
+          this.graphExportStatus("The clipboard refused the copy.");
+          return { ok: false, reason: "clipboard" };
+        }
+      );
+    } catch (e) {
+      this.graphExportStatus("The clipboard refused the copy.");
+      return Promise.resolve({ ok: false, reason: "clipboard" });
+    }
+  }
+
+  copyGraphExpression(index) {
+    const row = this.graphRows[index];
+    const text = row && typeof row.text === "string" ? row.text : "";
+    if (!text.trim()) {
+      this.graphExportStatus("This expression is empty.");
+      return Promise.resolve({ ok: false, reason: "empty" });
+    }
+    return this.copyTextToClipboard(text, `Copied expression ${index + 1}.`);
+  }
+
+  copyGraphExpressions() {
+    const text = expressionsText(this.graphRows);
+    if (!text) {
+      this.graphExportStatus("Add an expression before copying.");
+      return Promise.resolve({ ok: false, reason: "empty" });
+    }
+    return this.copyTextToClipboard(text, `Copied ${text.split("\n").length} expressions.`);
   }
 
   syncGraphViewInputs() {
@@ -82986,6 +83278,7 @@ const support = require("./support");
 
 module.exports = QuestionTrackerPlugin;
 QuestionTrackerPlugin.__test = {
+  graphExport: require("./graph-export"),
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,

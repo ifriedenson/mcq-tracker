@@ -2,6 +2,16 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.186.0 — 2026-11-02
+
+- The graph block exports its canvas as a PNG, its data table as CSV, and any
+  expression as text, from labelled buttons that sit with the existing controls.
+- Exports read the drawn state: the PNG re-paints the current window, row styles
+  and display options at the device pixel ratio, and the CSV uses the table's own
+  values with commas, quotes and line breaks escaped.
+- Empty lists and platforms without a canvas, vault write or clipboard are
+  refused with a message instead of throwing.
+
 ## 1.185.0 — 2026-11-02
 
 - Each graph row has its own style: line width, an optional dashed stroke, fill
