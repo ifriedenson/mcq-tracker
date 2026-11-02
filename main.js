@@ -59043,7 +59043,9 @@ __defs["reference-graph"] = function (module, exports, require) {
  *   - an implicit relation in x and y      `y^2 = 2x + 1`, `x^2 + y^2 = 9`
  *   - a regression fitted to the data      `y ~ m x + b`
  *   - a parameter with a slider            `a = 2`
+ *   - an inequality shading a region       `y < 2x + 1`, `x^2 + y^2 <= 9`
  * Explicit rows are sampled; implicit rows are traced with marching squares;
+ * inequalities shade a coarse cell grid and draw their boundary;
  * regression rows are fitted to the x/y table with a local least-squares
  * solver, so no calculator service or third-party code is involved.
  */
@@ -59301,6 +59303,24 @@ function splitTopLevelEquals(text) {
   return splitTopLevel(text, "=");
 }
 
+const COMPARISON_CHARS = "<>≤≥";
+
+/** Split `lhs < rhs` (or <=, >, >=, ≤, ≥) at the first top-level comparison. */
+function splitComparison(text) {
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && COMPARISON_CHARS.indexOf(ch) >= 0) {
+      let op = ch;
+      if ((ch === "<" || ch === ">") && text[i + 1] === "=") op += "=";
+      return { lhs: text.slice(0, i).trim(), op, rhs: text.slice(i + op.length).trim() };
+    }
+  }
+  return null;
+}
+
 function functionDefinition(lhs) {
   const match = /^([A-Za-z_][A-Za-z0-9_]*)\s*\(([^()]*)\)$/.exec(lhs);
   if (!match) return null;
@@ -59322,7 +59342,19 @@ function functionDefinition(lhs) {
 function parseGraphRow(text) {
   const raw = String(text == null ? "" : text).trim();
   if (!raw) return { kind: "empty", text: raw, label: "" };
-  if (/[<>≤≥]/.test(raw)) throw new Error("Inequalities are not supported yet. Use = for an equation.");
+  const comparison = splitComparison(raw);
+  if (comparison) {
+    if (!comparison.lhs || !comparison.rhs) throw new Error("Both sides of the comparison need an expression.");
+    return {
+      kind: "inequality",
+      text: raw,
+      lhs: comparison.lhs,
+      op: comparison.op,
+      rhs: comparison.rhs,
+      strict: comparison.op === "<" || comparison.op === ">",
+      label: raw,
+    };
+  }
   const tildeParts = splitTopLevel(raw, "~");
   if (tildeParts.length > 2) throw new Error('Use a single "~" in each row.');
   if (tildeParts.length === 2) {
@@ -59517,6 +59549,32 @@ function traceImplicit(fn, view, resolution) {
 }
 
 /**
+ * Sample an inequality predicate into a coarse cell grid the canvas can fill.
+ */
+function sampleRegion(inside, view, resolution) {
+  const opts = resolution || {};
+  const cols = Math.max(8, Math.min(240, Math.round(numeric(opts.x, 110))));
+  const rows = Math.max(8, Math.min(180, Math.round(numeric(opts.y, 70))));
+  const dx = (view.xMax - view.xMin) / cols;
+  const dy = (view.yMax - view.yMin) / rows;
+  const cells = [];
+  for (let j = 0; j < rows; j++) {
+    const y = view.yMin + dy * (j + 0.5);
+    for (let i = 0; i < cols; i++) {
+      const x = view.xMin + dx * (i + 0.5);
+      let hit = false;
+      try {
+        hit = inside(x, y) === true;
+      } catch (e) {
+        hit = false;
+      }
+      cells.push(hit ? 1 : 0);
+    }
+  }
+  return { x0: view.xMin, y0: view.yMin, dx, dy, cols, rows, cells };
+}
+
+/**
  * Read the x/y table used by regression rows. Blank pairs are skipped so a
  * half-typed row never breaks the plot; bad numbers are reported separately.
  */
@@ -59694,6 +59752,7 @@ function buildGraph(options) {
   const parameterValues = opts.parameters && typeof opts.parameters === "object" ? opts.parameters : {};
   const samples = numeric(opts.samples, 400);
   const resolution = opts.resolution || {};
+  const regionResolution = opts.regionResolution || {};
   const definitions = {};
   const out = [];
   for (let i = 0; i < rows.length; i++) {
@@ -59766,6 +59825,21 @@ function buildGraph(options) {
         const fn = compileRelation(parsed.lhs, parsed.rhs, definitions);
         row.segments = traceImplicit(fn, view, resolution);
         if (!row.segments.length) row.error = "That equation has no points in this window.";
+      } else if (parsed.kind === "inequality") {
+        const left = compileScoped(parsed.lhs, ["x", "y"], definitions);
+        const right = compileScoped(parsed.rhs, ["x", "y"], definitions);
+        const residual = (x, y) => left({ x, y }) - right({ x, y });
+        const below = parsed.op.charAt(0) === "<" || parsed.op === "≤";
+        const inside = (x, y) => {
+          const value = residual(x, y);
+          return Number.isFinite(value) && (below ? value < 0 : value > 0);
+        };
+        row.strict = parsed.strict;
+        row.region = sampleRegion(inside, view, regionResolution);
+        row.segments = traceImplicit(residual, view, resolution);
+        if (!row.segments.length && !row.region.cells.some((cell) => cell)) {
+          row.error = "That inequality has no region in this window.";
+        }
       }
     } catch (e) {
       row.error = String((e && e.message) || e) || "That row is not valid.";
@@ -59826,6 +59900,7 @@ module.exports = {
   readDataPoints,
   regressionParameters,
   sampleExplicit,
+  sampleRegion,
   tokenize,
   traceImplicit,
 };
@@ -60501,7 +60576,7 @@ class ReferenceView extends ItemView {
   renderGraph(root) {
     root.createDiv({
       cls: "qt-ref-note",
-      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
+      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
     });
     const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
     for (const [key, label] of [["graphXMin", "min x"], ["graphXMax", "max x"], ["graphYMin", "min y"], ["graphYMax", "max y"]]) {
@@ -60748,6 +60823,7 @@ class ReferenceView extends ItemView {
         yMax: this.graphYMax,
         samples: Math.max(3, Math.round(width * 1.5)),
         resolution: { x: Math.round(width / 3), y: Math.round(height / 3) },
+        regionResolution: { x: Math.round(width / 7), y: Math.round(height / 10) },
       });
     } catch (e) {
       if (this.graphErrorEl) this.graphErrorEl.setText(e.message);
@@ -60757,6 +60833,9 @@ class ReferenceView extends ItemView {
     const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
     const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
     this.paintGraphGrid(ctx, graph, width, height, px, py);
+    for (const row of graph.rows) {
+      if (row.region) this.paintGraphRegion(ctx, row.region, GRAPH_COLORS[row.index % GRAPH_COLORS.length], px, py);
+    }
     for (const row of graph.rows) {
       const statusEl = this.graphRowErrorEls[row.index];
       if (statusEl) statusEl.setText(row.error || (row.kind === "definition" ? "Function defined" : ""));
@@ -60781,7 +60860,7 @@ class ReferenceView extends ItemView {
       }
       const color = GRAPH_COLORS[row.index % GRAPH_COLORS.length];
       if (row.points && row.points.length) this.paintGraphPoints(ctx, row.points, height, px, py, color);
-      if (row.segments && row.segments.length) this.paintGraphSegments(ctx, row.segments, px, py, color);
+      if (row.segments && row.segments.length) this.paintGraphSegments(ctx, row.segments, px, py, color, row.strict === true);
     }
     if (graph.data.length && graph.rows.some((row) => row.kind === "regression")) {
       this.paintGraphData(ctx, graph.data, px, py);
@@ -60867,17 +60946,33 @@ class ReferenceView extends ItemView {
     ctx.stroke();
   }
 
-  paintGraphSegments(ctx, segments, px, py, color) {
+  paintGraphRegion(ctx, region, color, px, py) {
+    const cellWidth = Math.abs(px(region.x0 + region.dx) - px(region.x0)) + 0.5;
+    const cellHeight = Math.abs(py(region.y0 + region.dy) - py(region.y0)) + 0.5;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.16;
+    for (let j = 0; j < region.rows; j++) {
+      for (let i = 0; i < region.cols; i++) {
+        if (!region.cells[j * region.cols + i]) continue;
+        ctx.fillRect(px(region.x0 + region.dx * i), py(region.y0 + region.dy * (j + 1)), cellWidth, cellHeight);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  paintGraphSegments(ctx, segments, px, py, color, dashed) {
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
+    if (dashed && ctx.setLineDash) ctx.setLineDash([6, 4]);
     ctx.beginPath();
     for (const segment of segments) {
       ctx.moveTo(px(segment.x1), py(segment.y1));
       ctx.lineTo(px(segment.x2), py(segment.y2));
     }
     ctx.stroke();
+    if (dashed && ctx.setLineDash) ctx.setLineDash([]);
   }
 
   renderPeriodic(root) {

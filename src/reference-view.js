@@ -306,7 +306,7 @@ class ReferenceView extends ItemView {
   renderGraph(root) {
     root.createDiv({
       cls: "qt-ref-note",
-      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
+      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. A row with <, >, <=, >=, ≤ or ≥ shades a region, like y < 2x + 1 or x^2 + y^2 <= 9, with a dashed boundary when the comparison is strict. A row with ~ fits a model to the data table below, like y ~ m x + b or y ~ a e^(b x); every other name in the row becomes a fitted parameter, shown with R² under the row. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
     });
     const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
     for (const [key, label] of [["graphXMin", "min x"], ["graphXMax", "max x"], ["graphYMin", "min y"], ["graphYMax", "max y"]]) {
@@ -553,6 +553,7 @@ class ReferenceView extends ItemView {
         yMax: this.graphYMax,
         samples: Math.max(3, Math.round(width * 1.5)),
         resolution: { x: Math.round(width / 3), y: Math.round(height / 3) },
+        regionResolution: { x: Math.round(width / 7), y: Math.round(height / 10) },
       });
     } catch (e) {
       if (this.graphErrorEl) this.graphErrorEl.setText(e.message);
@@ -562,6 +563,9 @@ class ReferenceView extends ItemView {
     const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
     const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
     this.paintGraphGrid(ctx, graph, width, height, px, py);
+    for (const row of graph.rows) {
+      if (row.region) this.paintGraphRegion(ctx, row.region, GRAPH_COLORS[row.index % GRAPH_COLORS.length], px, py);
+    }
     for (const row of graph.rows) {
       const statusEl = this.graphRowErrorEls[row.index];
       if (statusEl) statusEl.setText(row.error || (row.kind === "definition" ? "Function defined" : ""));
@@ -586,7 +590,7 @@ class ReferenceView extends ItemView {
       }
       const color = GRAPH_COLORS[row.index % GRAPH_COLORS.length];
       if (row.points && row.points.length) this.paintGraphPoints(ctx, row.points, height, px, py, color);
-      if (row.segments && row.segments.length) this.paintGraphSegments(ctx, row.segments, px, py, color);
+      if (row.segments && row.segments.length) this.paintGraphSegments(ctx, row.segments, px, py, color, row.strict === true);
     }
     if (graph.data.length && graph.rows.some((row) => row.kind === "regression")) {
       this.paintGraphData(ctx, graph.data, px, py);
@@ -672,17 +676,33 @@ class ReferenceView extends ItemView {
     ctx.stroke();
   }
 
-  paintGraphSegments(ctx, segments, px, py, color) {
+  paintGraphRegion(ctx, region, color, px, py) {
+    const cellWidth = Math.abs(px(region.x0 + region.dx) - px(region.x0)) + 0.5;
+    const cellHeight = Math.abs(py(region.y0 + region.dy) - py(region.y0)) + 0.5;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.16;
+    for (let j = 0; j < region.rows; j++) {
+      for (let i = 0; i < region.cols; i++) {
+        if (!region.cells[j * region.cols + i]) continue;
+        ctx.fillRect(px(region.x0 + region.dx * i), py(region.y0 + region.dy * (j + 1)), cellWidth, cellHeight);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  paintGraphSegments(ctx, segments, px, py, color, dashed) {
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
+    if (dashed && ctx.setLineDash) ctx.setLineDash([6, 4]);
     ctx.beginPath();
     for (const segment of segments) {
       ctx.moveTo(px(segment.x1), py(segment.y1));
       ctx.lineTo(px(segment.x2), py(segment.y2));
     }
     ctx.stroke();
+    if (dashed && ctx.setLineDash) ctx.setLineDash([]);
   }
 
   renderPeriodic(root) {

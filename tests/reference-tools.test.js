@@ -101,7 +101,7 @@ test("graph: each row parses as an expression, equation, definition or implicit 
   assert.equal(graph.parseGraphRow("y^2 = 2x + 1").kind, "implicit");
   assert.equal(graph.parseGraphRow("y = x + y").kind, "implicit");
   assert.equal(graph.parseGraphRow("   ").kind, "empty");
-  assert.throws(() => graph.parseGraphRow("y < x"), /Inequalities/);
+  assert.equal(graph.parseGraphRow("y < x").kind, "inequality");
   assert.throws(() => graph.parseGraphRow("sin(x) = 1"), /built-in/);
   assert.throws(() => graph.parseGraphRow("y = y = y"), /single "="/);
 });
@@ -318,4 +318,51 @@ test("reference view: a parameter row renders a slider and repaints", async () =
   assert.ok(dom.texts().includes("a = 3"), "the readout follows the slider value");
   view.onClose();
   assert.equal(view.graphAnimationTimer, null);
+});
+
+test("graph: inequality rows shade the correct region and draw the boundary", () => {
+  const strict = graph.parseGraphRow("y < 2x + 1");
+  assert.equal(strict.kind, "inequality");
+  assert.equal(strict.strict, true);
+  assert.equal(graph.parseGraphRow("y <= 2x + 1").strict, false);
+  assert.equal(graph.parseGraphRow("x^2 + y^2 ≥ 9").op, "≥");
+  assert.equal(graph.parseGraphRow("x^2 + y^2 ≤ 9").strict, false);
+  assert.throws(() => graph.parseGraphRow("y <"), /Both sides/);
+
+  const built = graph.buildGraph({
+    rows: ["y < 2x + 1"],
+    xMin: -5,
+    xMax: 5,
+    yMin: -5,
+    yMax: 5,
+    samples: 41,
+    resolution: { x: 80, y: 80 },
+    regionResolution: { x: 40, y: 40 },
+  });
+  const row = built.rows[0];
+  assert.equal(row.kind, "inequality");
+  assert.equal(row.error, "");
+  assert.ok(row.segments.length > 5, "the boundary is traced");
+  const cellAt = (source, x, y) => {
+    const region = source.rows[0].region;
+    const i = Math.floor((x - region.x0) / region.dx);
+    const j = Math.floor((y - region.y0) / region.dy);
+    return region.cells[j * region.cols + i];
+  };
+  assert.equal(cellAt(built, 0, -4), 1, "below the line is shaded");
+  assert.equal(cellAt(built, 0, 4), 0, "above the line is clear");
+
+  const disk = graph.buildGraph({
+    rows: ["x^2 + y^2 <= 9"],
+    xMin: -5,
+    xMax: 5,
+    yMin: -5,
+    yMax: 5,
+    samples: 21,
+    resolution: { x: 60, y: 60 },
+    regionResolution: { x: 60, y: 60 },
+  });
+  assert.equal(cellAt(disk, 0, 0), 1, "the centre is inside the disk");
+  assert.equal(cellAt(disk, 4, 4), 0, "a corner is outside the disk");
+  assert.equal(disk.rows[0].strict, false);
 });

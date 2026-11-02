@@ -2,6 +2,14 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.175.0 — 2026-11-02
+
+- Inequality rows (`y < 2x + 1`, `x^2 + y^2 <= 9`, `≤`, `≥`) shade the
+  satisfying region in the Reference Graph tab.
+- Strict comparisons draw a dashed boundary and inclusive ones a solid boundary;
+  regions follow the window and parameter sliders, and an empty region reports
+  inline without stopping other rows.
+
 ## 1.174.0 — 2026-11-02
 
 - Parameter rows such as `a = 2` render a slider with adjustable bounds and
