@@ -128,6 +128,10 @@ test("insights overview: shows the study heatmap, course time and weak skills", 
   const texts = dom.texts();
   assert.ok(texts.includes("Overview"));
   assert.ok(texts.includes("At a glance"));
+  assert.ok(texts.includes("Study activity"));
+  const activity = dom.all.find((el) => el.classes && el.classes.has("qt-dash-activity"));
+  assert.ok(activity, "activity tiles sit in their own named grid");
+  assert.equal(activity.children.length, 7, "every overview activity tile is kept");
   assert.ok(texts.includes("Study heatmap"));
   assert.ok(texts.includes("Study time by course"));
   assert.ok(texts.includes("Confidence calibration"));
@@ -167,6 +171,34 @@ test("insights opens on Overview with grades, course health, FSRS depth, due loa
   assert.ok(texts.includes("Courses to watch"));
   assert.ok(texts.some((text) => /No lectures or absences logged for this course/.test(text)));
   assert.ok(texts.includes("Next exam"), "the existing next-exam section is still below");
+});
+
+test("insights overview: missing readiness never renders a null percentage", async () => {
+  const { app, plugin, dom } = await setup();
+  plugin.studyPlan = () => ({ course: "Biology", daysLeft: 3, readiness: null, due: 1, fresh: 0, cardsDue: 0, topics: null });
+  const v = makeView(T.InsightsView, plugin, app, dom);
+  v.render();
+  const texts = dom.texts();
+  assert.ok(texts.includes("Readiness"));
+  assert.ok(!texts.some((t) => /null%/.test(t)), "an unknown readiness is a dash, not null%");
+  assert.ok(texts.includes("—"), "the missing readiness uses the shared placeholder");
+});
+
+test("insights overview: first run is onboarding, not a wall of zero tiles", async () => {
+  const app = makeApp([{ path: "Q/a.md", fm: {} }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const dom = makeDom();
+  const v = makeView(T.InsightsView, plugin, app, dom);
+  v.render();
+  const texts = dom.texts();
+  assert.equal(v.tab, "overview");
+  assert.ok(texts.includes("Your study snapshot"));
+  assert.ok(texts.includes("A few minutes of practice fills this in"));
+  assert.ok(texts.includes("Practice a question"));
+  assert.ok(!texts.includes("At a glance"), "the zero dashboard waits for real activity");
+  assert.ok(!texts.includes("FSRS depth"));
+  assert.equal(dom.all.filter((el) => el.classes && el.classes.has("qt-dash-empty")).length, 1);
 });
 
 test("insights progress: shows the goal, weekly momentum, mastery and next steps", async () => {

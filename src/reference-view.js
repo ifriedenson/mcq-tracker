@@ -37,6 +37,7 @@ class ReferenceView extends ItemView {
     super(leaf);
     this.plugin = plugin;
     this.tab = "formulas"; // formulas | structures | units | calculator | graph | elements | constants | ap | resources
+    this.tabScrollLeft = 0;
     this.subject = (plugin.settings.reference && plugin.settings.reference.defaultSubject) || "all";
     this.query = "";
     this.constantQuery = "";
@@ -123,8 +124,7 @@ class ReferenceView extends ItemView {
       text: "Bundled formulas, constants, unit conversions, one-screen reference sheets, a local calculator and an unofficial AP score estimator. Everything is local and works offline.",
     });
 
-    const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-ref-tabs" });
-    for (const [id, label] of [
+    const sections = [
       ["formulas", "Formulas"],
       ["structures", "Structures"],
       ["units", "Unit converter"],
@@ -135,14 +135,28 @@ class ReferenceView extends ItemView {
       ["sheets", "Sheets"],
       ["ap", "AP score"],
       ["resources", "AP resources"],
-    ]) {
+    ];
+    const picker = root.createEl("select", {
+      cls: "qt-ref-picker qt-select",
+      attr: { "aria-label": "Reference section" },
+    });
+    for (const [id, label] of sections) picker.createEl("option", { value: id, text: label });
+    picker.value = this.tab;
+    picker.addEventListener("change", () => {
+      this.tab = picker.value;
+      this.render();
+    });
+    const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-ref-tabs" });
+    for (const [id, label] of sections) {
       const button = tabs.createEl("button", { text: label, cls: "qt-ref-tab" });
       if (this.tab === id) button.addClass("mod-cta");
       button.addEventListener("click", () => {
+        this.tabScrollLeft = tabs.scrollLeft;
         this.tab = id;
         this.render();
       });
     }
+    tabs.scrollLeft = this.tabScrollLeft;
 
     if (this.tab === "structures") this.renderStructures(root);
     else if (this.tab === "units") this.renderUnits(root);
@@ -371,7 +385,11 @@ class ReferenceView extends ItemView {
       cls: "qt-ref-note",
       text: "Atomic masses and blanks follow the AP Chemistry Periodic Table of the Elements (2020).",
     });
-    this.periodicGridEl = root.createDiv({ cls: "qt-ref-periodic", attr: { role: "grid", "aria-label": "Periodic table" } });
+    const periodicWrap = root.createDiv({
+      cls: "qt-ref-periodic-wrap",
+      attr: { role: "region", "aria-label": "Periodic table, scroll horizontally" },
+    });
+    this.periodicGridEl = periodicWrap.createDiv({ cls: "qt-ref-periodic", attr: { role: "grid", "aria-label": "Periodic table" } });
     this.periodicDetailEl = root.createDiv({ cls: "qt-ref-element-detail" });
     this.renderElementGrid();
     this.renderElementDetail();
@@ -466,7 +484,7 @@ class ReferenceView extends ItemView {
   renderFormulas(root) {
     const search = root.createEl("input", {
       cls: "qt-ref-search",
-      attr: { type: "search", placeholder: "Search formulas (for example: quadratic, momentum, dilution)" },
+      attr: { type: "search", placeholder: "Search formulas (e.g. quadratic)" },
     });
     search.value = this.query;
     search.addEventListener("input", () => {

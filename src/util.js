@@ -40,9 +40,9 @@ async function ensureFolder(app, folder) {
   return cur;
 }
 
-function localDate() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function localDate(value) {
+  const d = value instanceof Date && !Number.isNaN(value.getTime()) ? value : new Date();
+  return fmtDate(d);
 }
 
 module.exports = {

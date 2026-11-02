@@ -95,6 +95,7 @@ class InsightsView extends ItemView {
     for (const [id, label] of [["overview", "Overview"], ["progress", "Progress"], ["weak", "Weak spots"], ["concepts", "Concepts"], ["errors", "Error log"]]) {
       const b = tabs.createEl("button", { text: label });
       if (this.tab === id) b.addClass("mod-cta");
+      b.setAttr("aria-pressed", this.tab === id ? "true" : "false");
       b.addEventListener("click", () => {
         this.tab = id;
         this.render();
@@ -155,12 +156,16 @@ class InsightsView extends ItemView {
     const health = this.courseHealth();
     const activeDays = data.heatmap.reduce((n, week) => n + week.days.filter((d) => !d.future && (d.minutes || d.attempts)).length, 0);
     const studyMinutes = data.heatmap.reduce((n, week) => n + week.days.reduce((m, d) => m + d.minutes, 0), 0);
-
-    if (!o.notes && !data.cardStats.total && !studyMinutes && !data.knowledge.attempts) {
-      root.createDiv({
-        cls: "qt-empty",
-        text: "No study activity yet. Answer a question, save an FRQ attempt or start a focus session and this dashboard fills in.",
-      });
+    const hasActivity = Boolean(
+      o.seen ||
+        data.knowledge.attempts ||
+        studyMinutes ||
+        (data.memory && data.memory.cards) ||
+        (health && health.total) ||
+        (gradebook && gradebook.summary && gradebook.summary.graded)
+    );
+    if (!hasActivity) {
+      this.renderOverviewEmpty(root, { questions, data, gradebook });
       return;
     }
 
@@ -198,7 +203,7 @@ class InsightsView extends ItemView {
       memoryCards ? fmtPct(data.memory.now) : "—",
       memoryCards
         ? `${memoryCards} card${memoryCards === 1 ? "" : "s"}${data.retention && data.retention.attempts ? ` · ${fmtPct(data.retention.accuracy)} on repeats` : ""}`
-        : "No FSRS cards yet"
+        : "No stability estimates yet"
     );
     const dueDays = data.forward.days.filter((day) => day.count).length;
     summary(
@@ -206,18 +211,22 @@ class InsightsView extends ItemView {
       String(data.forward.total),
       `${data.cardStats.due} card${data.cardStats.due === 1 ? "" : "s"} due now · ${dueDays} day${dueDays === 1 ? "" : "s"} ahead`
     );
+    const readiness =
+      plan && plan.readiness !== null && plan.readiness !== undefined && Number.isFinite(Number(plan.readiness))
+        ? Number(plan.readiness)
+        : null;
     summary(
       "Readiness",
-      plan ? `${plan.readiness}%` : "—",
+      readiness === null ? "—" : `${Math.round(readiness)}%`,
       plan ? `${plan.course} · ${plan.daysLeft === 0 ? "exam today" : `${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"} away`}` : "No exam in the plan window"
     );
 
     root.createEl("h3", { cls: "qt-today-section", text: "Courses to watch" });
     if (!health || !health.total) {
-      root.createDiv({ cls: "qt-hint", text: "Add a subject, a lecture or a grade item in Study Workspace to build course health." });
+      root.createDiv({ cls: "qt-hint qt-dash-watch-note", text: "Add a subject, a lecture or a grade item in Study Workspace to build course health." });
     } else if (!health.watch && !health.atRisk) {
       root.createDiv({
-        cls: "qt-hint",
+        cls: "qt-hint qt-dash-watch-note",
         text: `All ${health.total} course${health.total === 1 ? "" : "s"} clear: no warning in grades, attendance, overdue tasks or upcoming exams.`,
       });
     } else {
@@ -234,7 +243,9 @@ class InsightsView extends ItemView {
       }
     }
 
-    const tiles = root.createDiv({ cls: "qt-dash-stats" });
+    root.createEl("h3", { cls: "qt-today-section", text: "Study activity" });
+    root.createDiv({ cls: "qt-hint", text: "Practice volume, accuracy, focus time and review load from your notes." });
+    const tiles = root.createDiv({ cls: "qt-dash-stats qt-dash-activity" });
     const tile = (label, value, hint) => {
       const box = tiles.createDiv({ cls: "qt-dash-stat" });
       box.createDiv({ cls: "qt-dash-value", text: value });
@@ -306,11 +317,50 @@ class InsightsView extends ItemView {
       const box = root.createDiv({ cls: "qt-dash-exam" });
       box.createDiv({ cls: "qt-today-kicker", text: plan.daysLeft === 0 ? "Exam today" : `${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"} away` });
       box.createDiv({ cls: "qt-today-title", text: plan.course });
-      box.createDiv({ cls: "qt-today-meta", text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.topics ? ` · ${plan.topics.mastered}/${plan.topics.declared} topics mastered (${plan.topics.pct}%)` : ""}` });
+      box.createDiv({ cls: "qt-today-meta", text: `Readiness ${readiness === null ? "—" : `${Math.round(readiness)}%`} · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.topics ? ` · ${plan.topics.mastered}/${plan.topics.declared} topics mastered (${plan.topics.pct}%)` : ""}` });
       box.createEl("button", { text: "Start 10 min", cls: "mod-cta" }).addEventListener("click", () => p.startStudyPlan(plan, false));
     }
 
     root.createDiv({ cls: "qt-hint qt-dash-privacy", text: "Everything on this dashboard is calculated locally; nothing is uploaded." });
+  }
+
+  /** First run: explain what fills the dashboard and offer the smallest useful actions. */
+  renderOverviewEmpty(root, { questions, data, gradebook }) {
+    const p = this.plugin;
+    const card = root.createDiv({ cls: "qt-dash-empty" });
+    card.createDiv({ cls: "qt-today-kicker", text: "Your study snapshot" });
+    card.createEl("h3", { text: "A few minutes of practice fills this in" });
+    card.createDiv({
+      cls: "qt-hint qt-dash-empty-copy",
+      text: "Answer a question, review a card or log a focus session. Grades, memory and study trends appear here once there is something to measure.",
+    });
+    const facts = card.createDiv({ cls: "qt-dash-empty-facts" });
+    let factCount = 0;
+    const fact = (text) => {
+      facts.createSpan({ text });
+      factCount++;
+    };
+    if (data.overall.notes) fact(`${data.overall.notes} question${data.overall.notes === 1 ? "" : "s"} ready`);
+    if (data.cardStats.total) fact(`${data.cardStats.total} card${data.cardStats.total === 1 ? "" : "s"} ready`);
+    if (gradebook && gradebook.courses && gradebook.courses.length) {
+      fact(`${gradebook.courses.length} course${gradebook.courses.length === 1 ? "" : "s"} in the gradebook`);
+    }
+    if (!factCount) fact("No notes yet");
+
+    const canPractice = questions.length && typeof p.practiceWith === "function";
+    const canReview = data.cardStats.total && typeof p.activateCards === "function";
+    const canLog = typeof p.openFocusLog === "function";
+    if (!canPractice && !canReview && !canLog) return;
+    const actions = card.createDiv({ cls: "qt-dash-empty-actions" });
+    let primary = true;
+    const action = (text, handler) => {
+      const button = actions.createEl("button", { text, cls: primary ? "mod-cta" : "" });
+      button.addEventListener("click", handler);
+      primary = false;
+    };
+    if (canPractice) action("Practice a question", () => p.practiceWith({}, "unseen"));
+    if (canReview) action("Review cards", () => p.activateCards());
+    if (canLog) action("Log study time", () => p.openFocusLog());
   }
 
   /** A goal-first progress page: today's target, weekly momentum, mastery and the next step. */

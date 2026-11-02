@@ -616,13 +616,13 @@ class TodayView extends ItemView {
       });
       const course = card.createEl("input", { cls: "qt-focus-course", attr: { placeholder: "Course (optional)", "aria-label": "Course for this focus session" } });
       course.value = p.settings.studyLog.lastCourse || "";
-      const row = card.createDiv({ cls: "qt-row qt-small-row" });
+      const options = card.createDiv({ cls: "qt-focus-options" });
       for (const minutes of [15, 25, 45]) {
-        row.createEl("button", { text: `Start ${minutes}`, cls: minutes === 25 ? "mod-cta" : "" }).addEventListener("click", () =>
+        options.createEl("button", { text: `Start ${minutes}`, cls: `qt-focus-start${minutes === 25 ? " mod-cta" : ""}` }).addEventListener("click", () =>
           p.startFocusSession(minutes, course.value)
         );
       }
-      row.createEl("button", { text: "Log study time", cls: "qt-link" }).addEventListener("click", () => p.openFocusLog());
+      card.createEl("button", { text: "Log study time", cls: "qt-link qt-focus-log" }).addEventListener("click", () => p.openFocusLog());
     }
     if (summary.weekMinutes || summary.todayMinutes) {
       card.createDiv({ cls: "qt-toggle-hint", text: `${summary.weekMinutes} min in the last 7 days · goal ${summary.goalPct}% today` });

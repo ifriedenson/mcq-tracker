@@ -50,46 +50,77 @@ class AssignmentsView extends ItemView {
     const today = localDate();
     const stats = p.assignmentStats({ today });
     const summary = stats.summary;
+    const empty = !summary.total && !stats.courses.length;
     const head = root.createDiv({ cls: "qt-screen-head" });
     head.createDiv({ cls: "qt-today-kicker", text: "Gradebook" });
     head.createEl("h2", { text: "Assignments & grades" });
-    head.createDiv({
-      cls: "qt-today-count qt-screen-subtitle",
-      text: `${summary.open} open · ${summary.overdue} overdue · ${summary.graded} graded · ${stats.courses.length} course${stats.courses.length === 1 ? "" : "s"}`,
-    });
-    const actions = root.createDiv({ cls: "qt-row qt-small-row qt-toolbar" });
+    if (empty) {
+      head.createDiv({ cls: "qt-screen-subtitle", text: "Add a deadline, a score and a course target; the gradebook does the rest." });
+    } else {
+      const line = head.createDiv({ cls: "qt-assignment-summary qt-screen-subtitle" });
+      for (const [value, label, mod] of [
+        [summary.open, "open", ""],
+        [summary.overdue, "overdue", summary.overdue ? " is-alert" : ""],
+        [summary.graded, "graded", ""],
+        [stats.courses.length, `course${stats.courses.length === 1 ? "" : "s"}`, ""],
+      ]) {
+        const item = line.createSpan({ cls: `qt-assignment-summary-item${mod}` });
+        item.createSpan({ cls: "qt-assignment-summary-value", text: String(value) });
+        item.createSpan({ cls: "qt-assignment-summary-label", text: label });
+      }
+    }
+    const actions = root.createDiv({ cls: "qt-row qt-assignment-actions" });
     actions.createEl("button", { text: "Add assignment", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.openNew());
     actions.createEl("button", { text: "Assignment settings" }).addEventListener("click", () => p.openSettings());
 
-    const work = stats.workload;
-    if (work && work.total) {
-      root.createDiv({
-        cls: "qt-assignment-workload",
-        text: `Estimated workload · today ${formatEstimate(work.todayMinutes) || "0m"} · next 7 days ${formatEstimate(work.weekMinutes) || "0m"}${work.overdueMinutes ? ` · overdue ${formatEstimate(work.overdueMinutes)}` : ""}`,
-      });
+    if (empty) {
+      this.renderOnboarding(root);
+      el.scrollTop = top;
+      return;
     }
 
-    if (stats.gpa !== null) {
-      const card = root.createDiv({ cls: "qt-assignment-gpa" });
-      card.createDiv({ cls: "qt-today-kicker", text: "Credit-weighted GPA" });
-      card.createDiv({ cls: "qt-assignment-gpa-value", text: String(stats.gpa.toFixed(2)) });
-      card.createDiv({
-        cls: "qt-today-meta",
-        text: `${stats.gradedCourses} graded course${stats.gradedCourses === 1 ? "" : "s"} · ${stats.credits} credits · unweighted ${stats.unweightedGpa.toFixed(2)}`,
-      });
-      card.createDiv({ cls: "qt-toggle-hint", text: "Credits and course targets are under Settings, Assignments, Courses." });
-    } else {
-      const card = root.createDiv({ cls: "qt-assignment-empty" });
-      card.createDiv({ cls: "qt-today-kicker", text: "No course grade yet" });
-      card.createDiv({ cls: "qt-today-meta", text: "Add an assignment with a score, or set a course target and final weight in settings." });
+    const work = stats.workload;
+    const showWorkload = !!(work && work.total);
+    const showGpa = stats.gpa !== null || stats.courses.length > 0;
+    if (showWorkload || showGpa) {
+      const overview = root.createDiv({ cls: "qt-assignment-overview" });
+      let cards = 0;
+      if (showWorkload) {
+        const card = overview.createDiv({ cls: "qt-assignment-workload" });
+        card.createDiv({ cls: "qt-today-kicker", text: "Estimated workload" });
+        const row = card.createDiv({ cls: "qt-assignment-workload-stats" });
+        const stat = (label, value, alert) => {
+          const box = row.createDiv({ cls: `qt-assignment-workload-stat${alert ? " is-alert" : ""}` });
+          box.createDiv({ cls: "qt-assignment-workload-value", text: value });
+          box.createDiv({ cls: "qt-assignment-workload-label", text: label });
+        };
+        stat("Today", formatEstimate(work.todayMinutes) || "0m", false);
+        stat("Next 7 days", formatEstimate(work.weekMinutes) || "0m", false);
+        stat("Overdue", work.overdueMinutes ? formatEstimate(work.overdueMinutes) : "None", work.overdueMinutes > 0);
+        cards++;
+      }
+      if (showGpa) {
+        const card = overview.createDiv({ cls: "qt-assignment-gpa" });
+        card.createDiv({ cls: "qt-today-kicker", text: "Credit-weighted GPA" });
+        card.createDiv({ cls: "qt-assignment-gpa-value", text: stats.gpa === null ? "—" : String(stats.gpa.toFixed(2)) });
+        const copy = card.createDiv({ cls: "qt-assignment-gpa-copy" });
+        copy.createDiv({
+          cls: "qt-today-meta",
+          text:
+            stats.gpa === null
+              ? "No graded work yet. Add a score to an assignment to calculate GPA."
+              : `${stats.gradedCourses} graded course${stats.gradedCourses === 1 ? "" : "s"} · ${stats.credits} credits · unweighted ${stats.unweightedGpa.toFixed(2)}`,
+        });
+        cards++;
+      }
+      if (cards === 1) overview.addClass("is-single");
     }
 
     root.createEl("h3", { cls: "qt-today-section", text: "Courses" });
     if (!stats.courses.length) {
-      const card = root.createDiv({ cls: "qt-assignment-empty" });
+      const card = root.createDiv({ cls: "qt-assignment-empty qt-assignment-courses-empty" });
       card.createDiv({ cls: "qt-today-title", text: "Add your first assignment" });
-      card.createDiv({ cls: "qt-today-meta", text: "Assignments are ordinary notes with a due date, course, category weight and optional score." });
-      card.createEl("button", { text: "Add assignment", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.openNew());
+      card.createDiv({ cls: "qt-today-meta", text: "Assignments are ordinary notes with a due date, course, category weight and optional score. Use Add assignment above to start." });
     } else {
       const grid = root.createDiv({ cls: "qt-assignment-courses" });
       for (const course of stats.courses) this.renderCourse(grid, course);
@@ -99,6 +130,27 @@ class AssignmentsView extends ItemView {
     this.renderFilters(root);
     this.renderTasks(root, today);
     el.scrollTop = top;
+  }
+
+  renderOnboarding(root) {
+    const card = root.createDiv({ cls: "qt-assignment-empty qt-assignment-courses-empty qt-assignment-onboarding" });
+    card.createDiv({ cls: "qt-today-kicker", text: "Start here" });
+    card.createEl("h3", { text: "One place for every deadline" });
+    card.createDiv({
+      cls: "qt-today-meta",
+      text: "Add your first assignment above. Each one is an ordinary note, so it stays searchable and works with your other notes.",
+    });
+    const steps = card.createDiv({ cls: "qt-assignment-onboarding-steps" });
+    for (const [number, title, copy] of [
+      ["01", "Capture the work", "Add a course, due date and estimate for each assignment."],
+      ["02", "Record the score", "A scored assignment feeds the course grade and GPA immediately."],
+      ["03", "Set the target", "Add credits and a final weight under Assignment settings to plan the final."],
+    ]) {
+      const step = steps.createDiv({ cls: "qt-assignment-onboarding-step" });
+      step.createSpan({ cls: "qt-assignment-onboarding-step-number", text: number });
+      step.createDiv({ cls: "qt-assignment-onboarding-step-title", text: title });
+      step.createDiv({ cls: "qt-assignment-onboarding-step-copy", text: copy });
+    }
   }
 
   renderFilters(root) {
@@ -144,7 +196,7 @@ class AssignmentsView extends ItemView {
     }
     card.createDiv({ cls: targetClass, text: targetText });
 
-    const actions = card.createDiv({ cls: "qt-row qt-small-row" });
+    const actions = card.createDiv({ cls: "qt-row qt-small-row qt-assignment-course-actions" });
     if (p.mcqEnabled()) {
       actions.createEl("button", { text: "Practice this course" }).addEventListener("click", () => p.practiceWith({ course: [course.course] }, "smart"));
     }

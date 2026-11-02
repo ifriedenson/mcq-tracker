@@ -1,11 +1,26 @@
 "use strict";
 /* Local event calendar: CRUD, categories, colour tabs and recurrence. */
-const { ItemView, Modal, Notice } = require("obsidian");
+const { ItemView, Modal, Notice, Platform } = require("obsidian");
 const { VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
-const { LOCAL_EVENT_CATEGORIES, eventsInRange, monthCells, todayKey } = require("./local-events");
+const { LOCAL_EVENT_CATEGORIES, addDaysKey, eventsInRange, eventsOnDate, monthCells, todayKey } = require("./local-events");
 const { str } = require("./util");
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEK_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function dayLabel(key) {
+  const date = new Date(`${key}T12:00:00`);
+  if (isNaN(date.getTime())) return key;
+  return `${DAY_NAMES[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()}`;
+}
+
+function startOfWeek(key, weekStartsOn) {
+  const date = new Date(`${key}T12:00:00`);
+  if (isNaN(date.getTime())) return key;
+  const offset = weekStartsOn === "sunday" ? date.getDay() : (date.getDay() + 6) % 7;
+  return addDaysKey(key, -offset);
+}
 
 class LocalEventModal extends Modal {
   constructor(app, plugin, event) {
@@ -119,6 +134,21 @@ class LocalEventsView extends ItemView {
 
   async onClose() {}
 
+  isMobileAgenda() {
+    return Platform.isMobile === true && Platform.isPhone !== false;
+  }
+
+  selectDay(key) {
+    this.selected = key;
+    const date = new Date(`${key}T12:00:00`);
+    if (!isNaN(date.getTime())) this.cursor = new Date(date.getFullYear(), date.getMonth(), 1);
+    this.render();
+  }
+
+  shiftDay(delta) {
+    this.selectDay(addDaysKey(this.selected, delta));
+  }
+
   render() {
     const el = this.contentEl;
     el.empty();
@@ -134,11 +164,16 @@ class LocalEventsView extends ItemView {
     const head = root.createDiv({ cls: "qt-local-events-head qt-screen-head" });
     head.createEl("h2", { text: "Local events" });
     head.createDiv({ cls: "qt-hint", text: "Stored in plugin data and separate from imported .ics feeds and Full Calendar notes. Recurrence is expanded locally." });
-    const actions = root.createDiv({ cls: "qt-row qt-local-events-actions qt-toolbar" });
+    const mobile = this.isMobileAgenda();
+    const actions = root.createDiv({ cls: `qt-row qt-local-events-actions${mobile ? " qt-day-agenda-actions" : " qt-toolbar"}` });
     actions.createEl("button", { text: "New event", cls: "mod-cta" }).addEventListener("click", () => this.openNew());
-    actions.createEl("button", { text: "Previous month" }).addEventListener("click", () => this.shiftMonth(-1));
-    actions.createEl("button", { text: "Today" }).addEventListener("click", () => this.goToday());
-    actions.createEl("button", { text: "Next month" }).addEventListener("click", () => this.shiftMonth(1));
+    if (mobile) {
+      actions.createEl("button", { text: "Today" }).addEventListener("click", () => this.goToday());
+    } else {
+      actions.createEl("button", { text: "Previous month" }).addEventListener("click", () => this.shiftMonth(-1));
+      actions.createEl("button", { text: "Today" }).addEventListener("click", () => this.goToday());
+      actions.createEl("button", { text: "Next month" }).addEventListener("click", () => this.shiftMonth(1));
+    }
 
     const tabs = root.createDiv({ cls: "qt-local-events-tabs" });
     for (const [id, label] of [["all", "All"], ...LOCAL_EVENT_CATEGORIES.map((item) => [item.id, item.label])]) {
@@ -151,6 +186,10 @@ class LocalEventsView extends ItemView {
     }
 
     const events = (settings.events || []).filter((event) => this.filter === "all" || event.category === this.filter);
+    if (mobile) {
+      this.renderMobileAgenda(root, settings, events);
+      return;
+    }
     const first = new Date(this.cursor.getFullYear(), this.cursor.getMonth(), 1);
     const last = new Date(this.cursor.getFullYear(), this.cursor.getMonth() + 1, 0);
     const rows = eventsInRange(events, this.key(first), this.key(last));
@@ -203,6 +242,71 @@ class LocalEventsView extends ItemView {
       main.createDiv({
         cls: "qt-study-row-meta",
         text: `${event.startTime ? `${event.startTime}${event.endTime ? `–${event.endTime}` : ""} · ` : ""}${event.category}${event.repeat !== "none" ? ` · repeats ${event.repeat}` : ""}${event.repeatUntil ? ` until ${event.repeatUntil}` : ""}`,
+      });
+      if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: "Edit" }).addEventListener("click", () => this.openEdit(event.id));
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.deleteLocalEvent(event.id);
+        this.render();
+      });
+    }
+  }
+
+  renderMobileAgenda(root, settings, events) {
+    root.addClass("qt-day-agenda-phone");
+    const weekStart = startOfWeek(this.selected, settings.weekStartsOn);
+    const weekEnd = addDaysKey(weekStart, 6);
+    const counts = new Map();
+    for (const row of eventsInRange(events, weekStart, weekEnd)) counts.set(row.key, (counts.get(row.key) || 0) + 1);
+    const selectedEvents = eventsOnDate(events, this.selected);
+    const agenda = root.createDiv({ cls: "qt-day-agenda qt-local-events-agenda" });
+    const nav = agenda.createDiv({ cls: "qt-day-agenda-nav" });
+    nav.createEl("button", { cls: "qt-day-agenda-step", text: "Prev", attr: { "aria-label": "Previous day" } }).addEventListener("click", () => this.shiftDay(-1));
+    const title = nav.createDiv({ cls: "qt-day-agenda-title" });
+    title.createDiv({ cls: "qt-day-agenda-date", text: dayLabel(this.selected) });
+    title.createDiv({
+      cls: "qt-day-agenda-sub",
+      text: selectedEvents.length ? `${selectedEvents.length} event${selectedEvents.length === 1 ? "" : "s"}` : "No events",
+    });
+    nav.createEl("button", { cls: "qt-day-agenda-step", text: "Next", attr: { "aria-label": "Next day" } }).addEventListener("click", () => this.shiftDay(1));
+
+    const labels = settings.weekStartsOn === "sunday" ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] : WEEK_LABELS;
+    const week = agenda.createDiv({ cls: "qt-day-agenda-week" });
+    for (let index = 0; index < 7; index++) {
+      const key = addDaysKey(weekStart, index);
+      const cell = week.createDiv({ cls: "qt-day-agenda-day" });
+      if (key === todayKey(new Date())) cell.addClass("is-today");
+      if (key === this.selected) cell.addClass("is-selected");
+      cell.setAttr("aria-label", dayLabel(key));
+      cell.createDiv({ cls: "qt-day-agenda-day-label", text: labels[index] });
+      cell.createDiv({ cls: "qt-day-agenda-day-number", text: String(Number(key.slice(8))) });
+      const total = counts.get(key) || 0;
+      cell.createDiv({ cls: "qt-day-agenda-day-count", text: total ? String(total) : "·" });
+      cell.addEventListener("click", () => this.selectDay(key));
+    }
+
+    const listCard = agenda.createDiv({ cls: "qt-study-card qt-day-agenda-list" });
+    if (!selectedEvents.length) listCard.addClass("is-empty");
+    listCard.createEl("h3", { text: "Events this day" });
+    if (!selectedEvents.length) {
+      listCard.createDiv({ cls: "qt-study-empty", text: "No events on this day." });
+      return;
+    }
+    const list = listCard.createDiv({ cls: "qt-study-list" });
+    for (const event of selectedEvents) {
+      const row = list.createDiv({ cls: "qt-study-row qt-day-agenda-row qt-day-agenda-event" });
+      if (row.style) row.style.borderLeftColor = event.color;
+      row.createDiv({
+        cls: "qt-day-agenda-time",
+        text: event.startTime ? `${event.startTime}${event.endTime ? `–${event.endTime}` : ""}` : "All day",
+      });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      const eventTitle = main.createDiv({ cls: "qt-study-row-title", text: event.title });
+      if (eventTitle.style) eventTitle.style.color = event.color;
+      main.createDiv({
+        cls: "qt-study-row-meta",
+        text: `${event.category}${event.repeat !== "none" ? ` · repeats ${event.repeat}` : ""}${event.repeatUntil ? ` until ${event.repeatUntil}` : ""}`,
       });
       if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });

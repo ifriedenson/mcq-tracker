@@ -27,6 +27,13 @@ function bar(container, value, max, cls) {
   return track;
 }
 
+function labeledCell(row, label, text, cls) {
+  const cell = row.createDiv({ cls: cls || "" });
+  cell.setAttr("data-label", label);
+  if (text !== undefined) cell.setText(String(text));
+  return cell;
+}
+
 class StudyStatsView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -122,10 +129,10 @@ class StudyStatsView extends ItemView {
       for (const maturity of MATURITY_ORDER) {
         const bucket = split.byMaturity[maturity];
         const line = table.createDiv({ cls: "qt-study-stats-row is-mix" });
-        line.createDiv({ text: data.retention.byMaturity[maturity].label });
-        line.createDiv({ text: String(bucket.total) });
-        line.createDiv({ text: String(bucket.again) });
-        line.createDiv({ text: pct(bucket.againRate) });
+        labeledCell(line, "Maturity", data.retention.byMaturity[maturity].label);
+        labeledCell(line, "Rated", bucket.total);
+        labeledCell(line, "Again", bucket.again);
+        labeledCell(line, "Again rate", pct(bucket.againRate));
       }
     }
   }
@@ -199,15 +206,19 @@ class StudyStatsView extends ItemView {
       return;
     }
     const table = card.createDiv({ cls: "qt-study-stats-table" });
+    const labels = ["Deck", "Cards", "Reviews", "Retention", "Avg interval"];
     const header = table.createDiv({ cls: "qt-study-stats-row is-head" });
-    for (const label of ["Deck", "Cards", "Reviews", "Retention", "Avg interval"]) header.createDiv({ text: label });
+    for (const label of labels) header.createDiv({ text: label });
     for (const deck of data.decks) {
       const line = table.createDiv({ cls: "qt-study-stats-row" });
-      line.createDiv({ text: deck.deck });
-      line.createDiv({ text: String(deck.cards) });
-      line.createDiv({ text: String(deck.reviews) });
-      line.createDiv({ text: pct(deck.retention) });
-      line.createDiv({ text: deck.averageInterval === null ? "—" : `${Math.round(deck.averageInterval)}d` });
+      const values = [
+        deck.deck,
+        String(deck.cards),
+        String(deck.reviews),
+        pct(deck.retention),
+        deck.averageInterval === null ? "—" : `${Math.round(deck.averageInterval)}d`,
+      ];
+      values.forEach((value, index) => labeledCell(line, labels[index], value));
     }
   }
 
@@ -220,16 +231,16 @@ class StudyStatsView extends ItemView {
     for (const id of MATURITY_ORDER) {
       const row = data.retention.byMaturity[id];
       const line = table.createDiv({ cls: "qt-study-stats-row" });
-      line.createDiv({ text: row.label });
-      line.createDiv({ text: String(row.attempts) });
-      const value = line.createDiv({ cls: "qt-study-stats-retention" });
+      labeledCell(line, "Maturity", row.label);
+      labeledCell(line, "Reviews", row.attempts);
+      const value = labeledCell(line, "Retention", undefined, "qt-study-stats-retention");
       value.createSpan({ text: pct(row.retention) });
       bar(value, row.retention === null ? 0 : row.retention * 100, 100, "is-retention");
     }
     const total = table.createDiv({ cls: "qt-study-stats-row is-total" });
-    total.createDiv({ text: "All reviews" });
-    total.createDiv({ text: String(data.retention.all.attempts) });
-    total.createDiv({ cls: "qt-study-stats-retention", text: pct(data.retention.all.retention) });
+    labeledCell(total, "Maturity", "All reviews");
+    labeledCell(total, "Reviews", data.retention.all.attempts);
+    labeledCell(total, "Retention", pct(data.retention.all.retention), "qt-study-stats-retention");
   }
 
   renderMemory(root, data) {

@@ -6844,46 +6844,77 @@ class AssignmentsView extends ItemView {
     const today = localDate();
     const stats = p.assignmentStats({ today });
     const summary = stats.summary;
+    const empty = !summary.total && !stats.courses.length;
     const head = root.createDiv({ cls: "qt-screen-head" });
     head.createDiv({ cls: "qt-today-kicker", text: "Gradebook" });
     head.createEl("h2", { text: "Assignments & grades" });
-    head.createDiv({
-      cls: "qt-today-count qt-screen-subtitle",
-      text: `${summary.open} open · ${summary.overdue} overdue · ${summary.graded} graded · ${stats.courses.length} course${stats.courses.length === 1 ? "" : "s"}`,
-    });
-    const actions = root.createDiv({ cls: "qt-row qt-small-row qt-toolbar" });
+    if (empty) {
+      head.createDiv({ cls: "qt-screen-subtitle", text: "Add a deadline, a score and a course target; the gradebook does the rest." });
+    } else {
+      const line = head.createDiv({ cls: "qt-assignment-summary qt-screen-subtitle" });
+      for (const [value, label, mod] of [
+        [summary.open, "open", ""],
+        [summary.overdue, "overdue", summary.overdue ? " is-alert" : ""],
+        [summary.graded, "graded", ""],
+        [stats.courses.length, `course${stats.courses.length === 1 ? "" : "s"}`, ""],
+      ]) {
+        const item = line.createSpan({ cls: `qt-assignment-summary-item${mod}` });
+        item.createSpan({ cls: "qt-assignment-summary-value", text: String(value) });
+        item.createSpan({ cls: "qt-assignment-summary-label", text: label });
+      }
+    }
+    const actions = root.createDiv({ cls: "qt-row qt-assignment-actions" });
     actions.createEl("button", { text: "Add assignment", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.openNew());
     actions.createEl("button", { text: "Assignment settings" }).addEventListener("click", () => p.openSettings());
 
-    const work = stats.workload;
-    if (work && work.total) {
-      root.createDiv({
-        cls: "qt-assignment-workload",
-        text: `Estimated workload · today ${formatEstimate(work.todayMinutes) || "0m"} · next 7 days ${formatEstimate(work.weekMinutes) || "0m"}${work.overdueMinutes ? ` · overdue ${formatEstimate(work.overdueMinutes)}` : ""}`,
-      });
+    if (empty) {
+      this.renderOnboarding(root);
+      el.scrollTop = top;
+      return;
     }
 
-    if (stats.gpa !== null) {
-      const card = root.createDiv({ cls: "qt-assignment-gpa" });
-      card.createDiv({ cls: "qt-today-kicker", text: "Credit-weighted GPA" });
-      card.createDiv({ cls: "qt-assignment-gpa-value", text: String(stats.gpa.toFixed(2)) });
-      card.createDiv({
-        cls: "qt-today-meta",
-        text: `${stats.gradedCourses} graded course${stats.gradedCourses === 1 ? "" : "s"} · ${stats.credits} credits · unweighted ${stats.unweightedGpa.toFixed(2)}`,
-      });
-      card.createDiv({ cls: "qt-toggle-hint", text: "Credits and course targets are under Settings, Assignments, Courses." });
-    } else {
-      const card = root.createDiv({ cls: "qt-assignment-empty" });
-      card.createDiv({ cls: "qt-today-kicker", text: "No course grade yet" });
-      card.createDiv({ cls: "qt-today-meta", text: "Add an assignment with a score, or set a course target and final weight in settings." });
+    const work = stats.workload;
+    const showWorkload = !!(work && work.total);
+    const showGpa = stats.gpa !== null || stats.courses.length > 0;
+    if (showWorkload || showGpa) {
+      const overview = root.createDiv({ cls: "qt-assignment-overview" });
+      let cards = 0;
+      if (showWorkload) {
+        const card = overview.createDiv({ cls: "qt-assignment-workload" });
+        card.createDiv({ cls: "qt-today-kicker", text: "Estimated workload" });
+        const row = card.createDiv({ cls: "qt-assignment-workload-stats" });
+        const stat = (label, value, alert) => {
+          const box = row.createDiv({ cls: `qt-assignment-workload-stat${alert ? " is-alert" : ""}` });
+          box.createDiv({ cls: "qt-assignment-workload-value", text: value });
+          box.createDiv({ cls: "qt-assignment-workload-label", text: label });
+        };
+        stat("Today", formatEstimate(work.todayMinutes) || "0m", false);
+        stat("Next 7 days", formatEstimate(work.weekMinutes) || "0m", false);
+        stat("Overdue", work.overdueMinutes ? formatEstimate(work.overdueMinutes) : "None", work.overdueMinutes > 0);
+        cards++;
+      }
+      if (showGpa) {
+        const card = overview.createDiv({ cls: "qt-assignment-gpa" });
+        card.createDiv({ cls: "qt-today-kicker", text: "Credit-weighted GPA" });
+        card.createDiv({ cls: "qt-assignment-gpa-value", text: stats.gpa === null ? "—" : String(stats.gpa.toFixed(2)) });
+        const copy = card.createDiv({ cls: "qt-assignment-gpa-copy" });
+        copy.createDiv({
+          cls: "qt-today-meta",
+          text:
+            stats.gpa === null
+              ? "No graded work yet. Add a score to an assignment to calculate GPA."
+              : `${stats.gradedCourses} graded course${stats.gradedCourses === 1 ? "" : "s"} · ${stats.credits} credits · unweighted ${stats.unweightedGpa.toFixed(2)}`,
+        });
+        cards++;
+      }
+      if (cards === 1) overview.addClass("is-single");
     }
 
     root.createEl("h3", { cls: "qt-today-section", text: "Courses" });
     if (!stats.courses.length) {
-      const card = root.createDiv({ cls: "qt-assignment-empty" });
+      const card = root.createDiv({ cls: "qt-assignment-empty qt-assignment-courses-empty" });
       card.createDiv({ cls: "qt-today-title", text: "Add your first assignment" });
-      card.createDiv({ cls: "qt-today-meta", text: "Assignments are ordinary notes with a due date, course, category weight and optional score." });
-      card.createEl("button", { text: "Add assignment", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.openNew());
+      card.createDiv({ cls: "qt-today-meta", text: "Assignments are ordinary notes with a due date, course, category weight and optional score. Use Add assignment above to start." });
     } else {
       const grid = root.createDiv({ cls: "qt-assignment-courses" });
       for (const course of stats.courses) this.renderCourse(grid, course);
@@ -6893,6 +6924,27 @@ class AssignmentsView extends ItemView {
     this.renderFilters(root);
     this.renderTasks(root, today);
     el.scrollTop = top;
+  }
+
+  renderOnboarding(root) {
+    const card = root.createDiv({ cls: "qt-assignment-empty qt-assignment-courses-empty qt-assignment-onboarding" });
+    card.createDiv({ cls: "qt-today-kicker", text: "Start here" });
+    card.createEl("h3", { text: "One place for every deadline" });
+    card.createDiv({
+      cls: "qt-today-meta",
+      text: "Add your first assignment above. Each one is an ordinary note, so it stays searchable and works with your other notes.",
+    });
+    const steps = card.createDiv({ cls: "qt-assignment-onboarding-steps" });
+    for (const [number, title, copy] of [
+      ["01", "Capture the work", "Add a course, due date and estimate for each assignment."],
+      ["02", "Record the score", "A scored assignment feeds the course grade and GPA immediately."],
+      ["03", "Set the target", "Add credits and a final weight under Assignment settings to plan the final."],
+    ]) {
+      const step = steps.createDiv({ cls: "qt-assignment-onboarding-step" });
+      step.createSpan({ cls: "qt-assignment-onboarding-step-number", text: number });
+      step.createDiv({ cls: "qt-assignment-onboarding-step-title", text: title });
+      step.createDiv({ cls: "qt-assignment-onboarding-step-copy", text: copy });
+    }
   }
 
   renderFilters(root) {
@@ -6938,7 +6990,7 @@ class AssignmentsView extends ItemView {
     }
     card.createDiv({ cls: targetClass, text: targetText });
 
-    const actions = card.createDiv({ cls: "qt-row qt-small-row" });
+    const actions = card.createDiv({ cls: "qt-row qt-small-row qt-assignment-course-actions" });
     if (p.mcqEnabled()) {
       actions.createEl("button", { text: "Practice this course" }).addEventListener("click", () => p.practiceWith({ course: [course.course] }, "smart"));
     }
@@ -16470,7 +16522,7 @@ module.exports = {
 
 /* ---- src/cards-settings.js ---- */
 __defs["cards-settings"] = function (module, exports, require) {
-const { Notice, Setting } = require("obsidian");
+const { Notice, SecretComponent, Setting } = require("obsidian");
 const { localDate, str } = require("./util");
 const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 const { deckSummary, effectiveScheduler, normalizeDeckIntervals } = require("./cards");
@@ -16479,7 +16531,7 @@ const { normalizeAutoAnki } = require("./auto-anki");
 const { normalizeText2Anki } = require("./text2anki");
 const { renderSettingsTabs } = require("./settings-ui");
 const { COUCHDB_PASSWORD_SECRET, normalizeCouchDb } = require("./couchdb-sync");
-const { hasSecretStorage, storeSecretValue } = require("./secret-keys");
+const { hasSecretStorage, selectPasswordSecret, storeSecretValue } = require("./secret-keys");
 
 const CARDS_TABS = [
   { id: "decks", label: "Decks", icon: "layers" },
@@ -17039,17 +17091,54 @@ function renderSync(containerEl, plugin) {
         })
     );
   const secretReady = hasSecretStorage(plugin.app);
-  new Setting(containerEl)
-    .setName("Password")
-    .setDesc(secretReady ? "Stored in Obsidian Secret Storage, never in data.json. Leave blank to keep the saved password." : "Obsidian Secret Storage is unavailable in this app version, so no password can be saved.")
-    .addText((t) => {
-      t.inputEl.type = "password";
-      t.setPlaceholder(secretReady ? "Saved in Secret Storage" : "Secret Storage unavailable").onChange(async (v) => {
-        if (!secretReady || !String(v).trim()) return;
-        storeSecretValue(plugin.app, COUCHDB_PASSWORD_SECRET, v);
-        t.setValue("");
+  const secretPicker = secretReady && typeof SecretComponent === "function";
+  if (secretPicker) {
+    new Setting(containerEl)
+      .setName("Password")
+      .setDesc(
+        "Stored in Obsidian Secret Storage, never in data.json. Select or create a secret. Secret Storage may be per device."
+      )
+      .setClass("qt-settings-secret-row")
+      .addComponent((el) => {
+        const comp = new SecretComponent(plugin.app, el);
+        comp.setValue(current.passwordSecret || "").onChange(async (value) => {
+          const next = { ...normalizeCouchDb(current) };
+          selectPasswordSecret(next, value);
+          plugin.settings.cards.couchdb = next;
+          await plugin.save();
+        });
       });
-    });
+  } else if (secretReady) {
+    const name = current.passwordSecret || COUCHDB_PASSWORD_SECRET;
+    new Setting(containerEl)
+      .setName("Password")
+      .setDesc("Stored in Obsidian Secret Storage, never in data.json. Leave blank to keep the saved password.")
+      .setClass("qt-settings-secret-row")
+      .addText((t) => {
+        t.inputEl.type = "password";
+        t.setPlaceholder("Saved in Secret Storage").onChange(async (v) => {
+          if (!String(v).trim()) return;
+          if (!storeSecretValue(plugin.app, name, v)) return;
+          plugin.settings.cards.couchdb = { ...normalizeCouchDb(current), passwordSecret: name, password: "" };
+          t.setValue("");
+          await plugin.save();
+        });
+      });
+  } else {
+    new Setting(containerEl)
+      .setName("Password")
+      .setDesc(
+        "Secret Storage is not available in this Obsidian version. The password is stored as plain text in data.json and syncs with your vault; anyone with access to the vault can read it."
+      )
+      .setClass("qt-settings-secret-row")
+      .addText((t) => {
+        t.inputEl.type = "password";
+        t.setValue(current.password || "").onChange(async (v) => {
+          plugin.settings.cards.couchdb = { ...normalizeCouchDb(current), password: String(v) };
+          await plugin.save();
+        });
+      });
+  }
   const actions = new Setting(containerEl)
     .setName("Connection and sync")
     .setDesc(current.lastSync ? `Last sync: ${current.lastSync}` : "No sync yet.")
@@ -17536,6 +17625,47 @@ class CardView extends ItemView {
     head.createEl("h2", { text: "Cards" });
     head.createDiv({ cls: "qt-screen-subtitle", text: "Build decks, clear what is due, and keep every card tied to its source note." });
 
+    if (!all.length) {
+      const empty = root.createDiv({ cls: "qt-onboard-card" });
+      empty.createEl("h3", { text: "No cards yet" });
+      empty.createDiv({
+        cls: "qt-onboard-text",
+        text: "Create a flashcard or a vocabulary note. Each card is a Markdown note with its own deck, course tag and review history.",
+      });
+      empty.createEl("button", { text: "Create the first card", cls: "mod-cta qt-primary" }).addEventListener("click", () =>
+        this.openCardModal()
+      );
+      return;
+    }
+
+    const dueHere = shown.filter((c) => !Number(c.fm.attempts) || str(c.fm.next_review).slice(0, 10) <= today).length;
+    const hero = root.createDiv({ cls: "qt-cards-hero" });
+    const heroCopy = hero.createDiv({ cls: "qt-cards-hero-copy" });
+    heroCopy.createDiv({ cls: "qt-cards-hero-kicker", text: dueHere ? "Review queue" : shown.length ? "Card library" : "Filtered view" });
+    heroCopy.createDiv({
+      cls: "qt-cards-hero-title",
+      text: dueHere
+        ? `${dueHere} card${dueHere === 1 ? "" : "s"} ready to review`
+        : shown.length
+          ? `${shown.length} card${shown.length === 1 ? "" : "s"} in this view`
+          : "No cards match this view",
+    });
+    heroCopy.createDiv({
+      cls: "qt-cards-hero-meta",
+      text: dueHere
+        ? "Clear the due queue first, then work through any new cards."
+        : shown.length
+          ? "Everything in this view is scheduled ahead. Start a review to browse the deck."
+          : "Clear a deck or course filter, or add a card to this deck.",
+    });
+    const start = hero.createEl("button", {
+      text: dueHere ? `Start review (${dueHere})` : "Review all cards",
+      cls: "mod-cta qt-primary qt-cards-start",
+    });
+    start.disabled = !shown.length;
+    start.addEventListener("click", () => this.startReview(dueHere ? "due" : "all"));
+
+
     const tools = root.createDiv({ cls: "qt-row qt-cards-tools qt-toolbar" });
     const add = tools.createEl("button", { text: "New card", cls: "mod-cta" });
     add.addEventListener("click", () => this.openCardModal());
@@ -17562,38 +17692,21 @@ class CardView extends ItemView {
     summary.createSpan({ text: `${stats.total} card${stats.total === 1 ? "" : "s"}` });
     summary.createSpan({ text: `${stats.due} due` });
     summary.createSpan({ text: `${stats.fresh} new` });
-    if (pending.length) summary.createSpan({ cls: "qt-cards-pending-count", text: `${pending.length} pending` });
-
-    this.renderPendingGrades(root, pending);
-    this.renderDeckPicker(root, all, today);
-    this.renderCoursePicker(root, all);
-
-    if (!all.length) {
-      const empty = root.createDiv({ cls: "qt-onboard-card" });
-      empty.createEl("h3", { text: "No cards yet" });
-      empty.createDiv({
-        cls: "qt-onboard-text",
-        text: "Create a flashcard or a vocabulary note. Each card is a Markdown note with its own deck, course tag and review history.",
-      });
-      empty.createEl("button", { text: "Create the first card", cls: "mod-cta qt-primary" }).addEventListener("click", () =>
-        this.openCardModal()
-      );
-      return;
+    if (pending.length) {
+      summary.addClass("has-pending");
+      summary.createSpan({ cls: "qt-cards-pending-count", text: `${pending.length} pending` });
     }
 
-    const dueHere = shown.filter((c) => !Number(c.fm.attempts) || str(c.fm.next_review).slice(0, 10) <= today).length;
-    const start = root.createEl("button", {
-      text: dueHere ? `Start review (${dueHere})` : "Review all cards",
-      cls: "mod-cta qt-primary qt-cards-start",
-    });
-    start.disabled = !shown.length;
-    start.addEventListener("click", () => this.startReview(dueHere ? "due" : "all"));
+    this.renderPendingGrades(root, pending);
 
-    this.renderCardRetention(root, shown, today);
+    const filters = root.createDiv({ cls: "qt-cards-filters" });
+    this.renderDeckPicker(filters, all, today);
+    this.renderCoursePicker(filters, all);
 
     root.createEl("h3", { cls: "qt-cards-heading", text: "In this view" });
     if (!shown.length) {
       root.createDiv({ cls: "qt-hint", text: "No cards match this deck and course. Pick another deck or clear the course filter." });
+      this.renderCardRetention(root, shown, today);
       return;
     }
     const list = root.createDiv({ cls: "qt-cards-list" });
@@ -17620,6 +17733,8 @@ class CardView extends ItemView {
     if (shown.length > preview.length) {
       root.createDiv({ cls: "qt-hint", text: `Showing ${preview.length} of ${shown.length}. Start a review for the rest.` });
     }
+
+    this.renderCardRetention(root, shown, today);
   }
 
   /** Repeat-review accuracy for the cards in the current deck/course filter. */
@@ -20037,6 +20152,8 @@ const DEFAULT_COUCHDB = {
   url: "",
   database: "mcq-tracker",
   username: "",
+  passwordSecret: "",
+  password: "", // legacy plain-text fallback for Obsidian versions without Secret Storage
   lastSync: "",
   lastError: "",
 };
@@ -20083,6 +20200,8 @@ function normalizeCouchDb(value) {
     url: str(src.url).trim().replace(/\/+$/, ""),
     database: database.replace(/^\/+|\/+$/g, "").slice(0, 200),
     username: str(src.username).trim(),
+    passwordSecret: str(src.passwordSecret).trim(),
+    password: str(src.password),
     lastSync: str(src.lastSync).trim(),
     lastError: str(src.lastError).trim().slice(0, 500),
   };
@@ -31481,6 +31600,7 @@ class InsightsView extends ItemView {
     for (const [id, label] of [["overview", "Overview"], ["progress", "Progress"], ["weak", "Weak spots"], ["concepts", "Concepts"], ["errors", "Error log"]]) {
       const b = tabs.createEl("button", { text: label });
       if (this.tab === id) b.addClass("mod-cta");
+      b.setAttr("aria-pressed", this.tab === id ? "true" : "false");
       b.addEventListener("click", () => {
         this.tab = id;
         this.render();
@@ -31541,12 +31661,16 @@ class InsightsView extends ItemView {
     const health = this.courseHealth();
     const activeDays = data.heatmap.reduce((n, week) => n + week.days.filter((d) => !d.future && (d.minutes || d.attempts)).length, 0);
     const studyMinutes = data.heatmap.reduce((n, week) => n + week.days.reduce((m, d) => m + d.minutes, 0), 0);
-
-    if (!o.notes && !data.cardStats.total && !studyMinutes && !data.knowledge.attempts) {
-      root.createDiv({
-        cls: "qt-empty",
-        text: "No study activity yet. Answer a question, save an FRQ attempt or start a focus session and this dashboard fills in.",
-      });
+    const hasActivity = Boolean(
+      o.seen ||
+        data.knowledge.attempts ||
+        studyMinutes ||
+        (data.memory && data.memory.cards) ||
+        (health && health.total) ||
+        (gradebook && gradebook.summary && gradebook.summary.graded)
+    );
+    if (!hasActivity) {
+      this.renderOverviewEmpty(root, { questions, data, gradebook });
       return;
     }
 
@@ -31584,7 +31708,7 @@ class InsightsView extends ItemView {
       memoryCards ? fmtPct(data.memory.now) : "—",
       memoryCards
         ? `${memoryCards} card${memoryCards === 1 ? "" : "s"}${data.retention && data.retention.attempts ? ` · ${fmtPct(data.retention.accuracy)} on repeats` : ""}`
-        : "No FSRS cards yet"
+        : "No stability estimates yet"
     );
     const dueDays = data.forward.days.filter((day) => day.count).length;
     summary(
@@ -31592,18 +31716,22 @@ class InsightsView extends ItemView {
       String(data.forward.total),
       `${data.cardStats.due} card${data.cardStats.due === 1 ? "" : "s"} due now · ${dueDays} day${dueDays === 1 ? "" : "s"} ahead`
     );
+    const readiness =
+      plan && plan.readiness !== null && plan.readiness !== undefined && Number.isFinite(Number(plan.readiness))
+        ? Number(plan.readiness)
+        : null;
     summary(
       "Readiness",
-      plan ? `${plan.readiness}%` : "—",
+      readiness === null ? "—" : `${Math.round(readiness)}%`,
       plan ? `${plan.course} · ${plan.daysLeft === 0 ? "exam today" : `${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"} away`}` : "No exam in the plan window"
     );
 
     root.createEl("h3", { cls: "qt-today-section", text: "Courses to watch" });
     if (!health || !health.total) {
-      root.createDiv({ cls: "qt-hint", text: "Add a subject, a lecture or a grade item in Study Workspace to build course health." });
+      root.createDiv({ cls: "qt-hint qt-dash-watch-note", text: "Add a subject, a lecture or a grade item in Study Workspace to build course health." });
     } else if (!health.watch && !health.atRisk) {
       root.createDiv({
-        cls: "qt-hint",
+        cls: "qt-hint qt-dash-watch-note",
         text: `All ${health.total} course${health.total === 1 ? "" : "s"} clear: no warning in grades, attendance, overdue tasks or upcoming exams.`,
       });
     } else {
@@ -31620,7 +31748,9 @@ class InsightsView extends ItemView {
       }
     }
 
-    const tiles = root.createDiv({ cls: "qt-dash-stats" });
+    root.createEl("h3", { cls: "qt-today-section", text: "Study activity" });
+    root.createDiv({ cls: "qt-hint", text: "Practice volume, accuracy, focus time and review load from your notes." });
+    const tiles = root.createDiv({ cls: "qt-dash-stats qt-dash-activity" });
     const tile = (label, value, hint) => {
       const box = tiles.createDiv({ cls: "qt-dash-stat" });
       box.createDiv({ cls: "qt-dash-value", text: value });
@@ -31692,11 +31822,50 @@ class InsightsView extends ItemView {
       const box = root.createDiv({ cls: "qt-dash-exam" });
       box.createDiv({ cls: "qt-today-kicker", text: plan.daysLeft === 0 ? "Exam today" : `${plan.daysLeft} day${plan.daysLeft === 1 ? "" : "s"} away` });
       box.createDiv({ cls: "qt-today-title", text: plan.course });
-      box.createDiv({ cls: "qt-today-meta", text: `Readiness ${plan.readiness}% · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.topics ? ` · ${plan.topics.mastered}/${plan.topics.declared} topics mastered (${plan.topics.pct}%)` : ""}` });
+      box.createDiv({ cls: "qt-today-meta", text: `Readiness ${readiness === null ? "—" : `${Math.round(readiness)}%`} · ${plan.due} due · ${plan.fresh} new · ${plan.cardsDue} cards${plan.topics ? ` · ${plan.topics.mastered}/${plan.topics.declared} topics mastered (${plan.topics.pct}%)` : ""}` });
       box.createEl("button", { text: "Start 10 min", cls: "mod-cta" }).addEventListener("click", () => p.startStudyPlan(plan, false));
     }
 
     root.createDiv({ cls: "qt-hint qt-dash-privacy", text: "Everything on this dashboard is calculated locally; nothing is uploaded." });
+  }
+
+  /** First run: explain what fills the dashboard and offer the smallest useful actions. */
+  renderOverviewEmpty(root, { questions, data, gradebook }) {
+    const p = this.plugin;
+    const card = root.createDiv({ cls: "qt-dash-empty" });
+    card.createDiv({ cls: "qt-today-kicker", text: "Your study snapshot" });
+    card.createEl("h3", { text: "A few minutes of practice fills this in" });
+    card.createDiv({
+      cls: "qt-hint qt-dash-empty-copy",
+      text: "Answer a question, review a card or log a focus session. Grades, memory and study trends appear here once there is something to measure.",
+    });
+    const facts = card.createDiv({ cls: "qt-dash-empty-facts" });
+    let factCount = 0;
+    const fact = (text) => {
+      facts.createSpan({ text });
+      factCount++;
+    };
+    if (data.overall.notes) fact(`${data.overall.notes} question${data.overall.notes === 1 ? "" : "s"} ready`);
+    if (data.cardStats.total) fact(`${data.cardStats.total} card${data.cardStats.total === 1 ? "" : "s"} ready`);
+    if (gradebook && gradebook.courses && gradebook.courses.length) {
+      fact(`${gradebook.courses.length} course${gradebook.courses.length === 1 ? "" : "s"} in the gradebook`);
+    }
+    if (!factCount) fact("No notes yet");
+
+    const canPractice = questions.length && typeof p.practiceWith === "function";
+    const canReview = data.cardStats.total && typeof p.activateCards === "function";
+    const canLog = typeof p.openFocusLog === "function";
+    if (!canPractice && !canReview && !canLog) return;
+    const actions = card.createDiv({ cls: "qt-dash-empty-actions" });
+    let primary = true;
+    const action = (text, handler) => {
+      const button = actions.createEl("button", { text, cls: primary ? "mod-cta" : "" });
+      button.addEventListener("click", handler);
+      primary = false;
+    };
+    if (canPractice) action("Practice a question", () => p.practiceWith({}, "unseen"));
+    if (canReview) action("Review cards", () => p.activateCards());
+    if (canLog) action("Log study time", () => p.openFocusLog());
   }
 
   /** A goal-first progress page: today's target, weekly momentum, mastery and the next step. */
@@ -33079,12 +33248,27 @@ module.exports = {
 /* ---- src/local-events-view.js ---- */
 __defs["local-events-view"] = function (module, exports, require) {
 /* Local event calendar: CRUD, categories, colour tabs and recurrence. */
-const { ItemView, Modal, Notice } = require("obsidian");
+const { ItemView, Modal, Notice, Platform } = require("obsidian");
 const { VIEW_TYPE_LOCAL_EVENTS } = require("./constants");
-const { LOCAL_EVENT_CATEGORIES, eventsInRange, monthCells, todayKey } = require("./local-events");
+const { LOCAL_EVENT_CATEGORIES, addDaysKey, eventsInRange, eventsOnDate, monthCells, todayKey } = require("./local-events");
 const { str } = require("./util");
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEK_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function dayLabel(key) {
+  const date = new Date(`${key}T12:00:00`);
+  if (isNaN(date.getTime())) return key;
+  return `${DAY_NAMES[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()}`;
+}
+
+function startOfWeek(key, weekStartsOn) {
+  const date = new Date(`${key}T12:00:00`);
+  if (isNaN(date.getTime())) return key;
+  const offset = weekStartsOn === "sunday" ? date.getDay() : (date.getDay() + 6) % 7;
+  return addDaysKey(key, -offset);
+}
 
 class LocalEventModal extends Modal {
   constructor(app, plugin, event) {
@@ -33198,6 +33382,21 @@ class LocalEventsView extends ItemView {
 
   async onClose() {}
 
+  isMobileAgenda() {
+    return Platform.isMobile === true && Platform.isPhone !== false;
+  }
+
+  selectDay(key) {
+    this.selected = key;
+    const date = new Date(`${key}T12:00:00`);
+    if (!isNaN(date.getTime())) this.cursor = new Date(date.getFullYear(), date.getMonth(), 1);
+    this.render();
+  }
+
+  shiftDay(delta) {
+    this.selectDay(addDaysKey(this.selected, delta));
+  }
+
   render() {
     const el = this.contentEl;
     el.empty();
@@ -33213,11 +33412,16 @@ class LocalEventsView extends ItemView {
     const head = root.createDiv({ cls: "qt-local-events-head qt-screen-head" });
     head.createEl("h2", { text: "Local events" });
     head.createDiv({ cls: "qt-hint", text: "Stored in plugin data and separate from imported .ics feeds and Full Calendar notes. Recurrence is expanded locally." });
-    const actions = root.createDiv({ cls: "qt-row qt-local-events-actions qt-toolbar" });
+    const mobile = this.isMobileAgenda();
+    const actions = root.createDiv({ cls: `qt-row qt-local-events-actions${mobile ? " qt-day-agenda-actions" : " qt-toolbar"}` });
     actions.createEl("button", { text: "New event", cls: "mod-cta" }).addEventListener("click", () => this.openNew());
-    actions.createEl("button", { text: "Previous month" }).addEventListener("click", () => this.shiftMonth(-1));
-    actions.createEl("button", { text: "Today" }).addEventListener("click", () => this.goToday());
-    actions.createEl("button", { text: "Next month" }).addEventListener("click", () => this.shiftMonth(1));
+    if (mobile) {
+      actions.createEl("button", { text: "Today" }).addEventListener("click", () => this.goToday());
+    } else {
+      actions.createEl("button", { text: "Previous month" }).addEventListener("click", () => this.shiftMonth(-1));
+      actions.createEl("button", { text: "Today" }).addEventListener("click", () => this.goToday());
+      actions.createEl("button", { text: "Next month" }).addEventListener("click", () => this.shiftMonth(1));
+    }
 
     const tabs = root.createDiv({ cls: "qt-local-events-tabs" });
     for (const [id, label] of [["all", "All"], ...LOCAL_EVENT_CATEGORIES.map((item) => [item.id, item.label])]) {
@@ -33230,6 +33434,10 @@ class LocalEventsView extends ItemView {
     }
 
     const events = (settings.events || []).filter((event) => this.filter === "all" || event.category === this.filter);
+    if (mobile) {
+      this.renderMobileAgenda(root, settings, events);
+      return;
+    }
     const first = new Date(this.cursor.getFullYear(), this.cursor.getMonth(), 1);
     const last = new Date(this.cursor.getFullYear(), this.cursor.getMonth() + 1, 0);
     const rows = eventsInRange(events, this.key(first), this.key(last));
@@ -33282,6 +33490,71 @@ class LocalEventsView extends ItemView {
       main.createDiv({
         cls: "qt-study-row-meta",
         text: `${event.startTime ? `${event.startTime}${event.endTime ? `–${event.endTime}` : ""} · ` : ""}${event.category}${event.repeat !== "none" ? ` · repeats ${event.repeat}` : ""}${event.repeatUntil ? ` until ${event.repeatUntil}` : ""}`,
+      });
+      if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: "Edit" }).addEventListener("click", () => this.openEdit(event.id));
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.deleteLocalEvent(event.id);
+        this.render();
+      });
+    }
+  }
+
+  renderMobileAgenda(root, settings, events) {
+    root.addClass("qt-day-agenda-phone");
+    const weekStart = startOfWeek(this.selected, settings.weekStartsOn);
+    const weekEnd = addDaysKey(weekStart, 6);
+    const counts = new Map();
+    for (const row of eventsInRange(events, weekStart, weekEnd)) counts.set(row.key, (counts.get(row.key) || 0) + 1);
+    const selectedEvents = eventsOnDate(events, this.selected);
+    const agenda = root.createDiv({ cls: "qt-day-agenda qt-local-events-agenda" });
+    const nav = agenda.createDiv({ cls: "qt-day-agenda-nav" });
+    nav.createEl("button", { cls: "qt-day-agenda-step", text: "Prev", attr: { "aria-label": "Previous day" } }).addEventListener("click", () => this.shiftDay(-1));
+    const title = nav.createDiv({ cls: "qt-day-agenda-title" });
+    title.createDiv({ cls: "qt-day-agenda-date", text: dayLabel(this.selected) });
+    title.createDiv({
+      cls: "qt-day-agenda-sub",
+      text: selectedEvents.length ? `${selectedEvents.length} event${selectedEvents.length === 1 ? "" : "s"}` : "No events",
+    });
+    nav.createEl("button", { cls: "qt-day-agenda-step", text: "Next", attr: { "aria-label": "Next day" } }).addEventListener("click", () => this.shiftDay(1));
+
+    const labels = settings.weekStartsOn === "sunday" ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] : WEEK_LABELS;
+    const week = agenda.createDiv({ cls: "qt-day-agenda-week" });
+    for (let index = 0; index < 7; index++) {
+      const key = addDaysKey(weekStart, index);
+      const cell = week.createDiv({ cls: "qt-day-agenda-day" });
+      if (key === todayKey(new Date())) cell.addClass("is-today");
+      if (key === this.selected) cell.addClass("is-selected");
+      cell.setAttr("aria-label", dayLabel(key));
+      cell.createDiv({ cls: "qt-day-agenda-day-label", text: labels[index] });
+      cell.createDiv({ cls: "qt-day-agenda-day-number", text: String(Number(key.slice(8))) });
+      const total = counts.get(key) || 0;
+      cell.createDiv({ cls: "qt-day-agenda-day-count", text: total ? String(total) : "·" });
+      cell.addEventListener("click", () => this.selectDay(key));
+    }
+
+    const listCard = agenda.createDiv({ cls: "qt-study-card qt-day-agenda-list" });
+    if (!selectedEvents.length) listCard.addClass("is-empty");
+    listCard.createEl("h3", { text: "Events this day" });
+    if (!selectedEvents.length) {
+      listCard.createDiv({ cls: "qt-study-empty", text: "No events on this day." });
+      return;
+    }
+    const list = listCard.createDiv({ cls: "qt-study-list" });
+    for (const event of selectedEvents) {
+      const row = list.createDiv({ cls: "qt-study-row qt-day-agenda-row qt-day-agenda-event" });
+      if (row.style) row.style.borderLeftColor = event.color;
+      row.createDiv({
+        cls: "qt-day-agenda-time",
+        text: event.startTime ? `${event.startTime}${event.endTime ? `–${event.endTime}` : ""}` : "All day",
+      });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      const eventTitle = main.createDiv({ cls: "qt-study-row-title", text: event.title });
+      if (eventTitle.style) eventTitle.style.color = event.color;
+      main.createDiv({
+        cls: "qt-study-row-meta",
+        text: `${event.category}${event.repeat !== "none" ? ` · repeats ${event.repeat}` : ""}${event.repeatUntil ? ` until ${event.repeatUntil}` : ""}`,
       });
       if (event.notes) main.createDiv({ cls: "qt-study-row-meta", text: event.notes });
       const buttons = row.createDiv({ cls: "qt-study-row-actions" });
@@ -41264,7 +41537,6 @@ class QuestionTrackerPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
     this.plainCardIndex = new Map();
-    await this.refreshPlainCards();
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
     this._calendarCache = null;
@@ -41273,24 +41545,6 @@ class QuestionTrackerPlugin extends Plugin {
     this._pendingCardGradeFlush = null;
     this._aiRun = { startedAt: 0, requests: 0 };
     this.agentEditUndo = null;
-    // Calendar notes are resolved by their durable UID/date properties, so any
-    // create/delete/rename (or frontmatter edit) invalidates the shared index.
-    const invalidateNotes = () => this.invalidateCalendarNotes();
-    this.registerEvent(this.app.vault.on("create", invalidateNotes));
-    this.registerEvent(this.app.vault.on("delete", invalidateNotes));
-    this.registerEvent(this.app.vault.on("rename", invalidateNotes));
-    this.registerEvent(this.app.metadataCache.on("changed", invalidateNotes));
-    const refreshPlainCards = () => {
-      const plain = this.settings.cards && this.settings.cards.plainMarkdown;
-      if (!plain || plain.enabled !== true) return;
-      this.refreshPlainCards()
-        .then(() => this.refreshViews())
-        .catch(() => {});
-    };
-    this.registerEvent(this.app.vault.on("create", refreshPlainCards));
-    this.registerEvent(this.app.vault.on("delete", refreshPlainCards));
-    this.registerEvent(this.app.vault.on("rename", refreshPlainCards));
-    this.registerEvent(this.app.metadataCache.on("changed", refreshPlainCards));
 
     // The timer is kept per device (not in the synced settings). One that was running when the
     // app closed becomes paused, counting only up to the last heartbeat (time away isn't counted).
@@ -41304,12 +41558,8 @@ class QuestionTrackerPlugin extends Plugin {
     }
 
     this.manager = new OpenCodeManager(this);
-    this.setupReminder();
-    this.setupStudyNudge();
-    this.setupNoteReviewStatus();
-    this.setupPomodoroStatus();
-    this.registerInterval(activeWindow.setInterval(() => this.tickPomodoro(), 1000));
     this.app.workspace.onLayoutReady(() => {
+      this.startDeferredStartup();
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
       const ai = this.settings.ai;
       if (Platform.isDesktopApp && ai.enabled && ai.managed && ai.preStart && this.backend() === "opencode") {
@@ -41317,11 +41567,6 @@ class QuestionTrackerPlugin extends Plugin {
       }
       if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
       this.decorateFileExplorer();
-      this.indexReadingPlans()
-        .then((count) => {
-          if (count) this.refreshViews();
-        })
-        .catch(() => {});
       this.flushPendingAttempts().then((r) => {
         if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
       }).catch(() => {});
@@ -41911,6 +42156,54 @@ class QuestionTrackerPlugin extends Plugin {
     });
   }
 
+  /** Work that can wait until Obsidian has finished restoring the workspace. */
+  startDeferredStartup() {
+    this.setupReminder();
+    this.setupStudyNudge();
+    this.setupNoteReviewStatus();
+    this.setupPomodoroStatus();
+    this.registerInterval(activeWindow.setInterval(() => this.tickPomodoro(), 1000));
+
+    // These are vault-wide listeners. Registering them after layout avoids
+    // reacting to the initial file enumeration and metadata scan.
+    const invalidateNotes = () => this.invalidateCalendarNotes();
+    this.registerEvent(this.app.vault.on("create", invalidateNotes));
+    this.registerEvent(this.app.vault.on("delete", invalidateNotes));
+    this.registerEvent(this.app.vault.on("rename", invalidateNotes));
+    this.registerEvent(this.app.metadataCache.on("changed", invalidateNotes));
+
+    const refreshPlainCards = () => {
+      const plain = this.settings.cards && this.settings.cards.plainMarkdown;
+      if (!plain || plain.enabled !== true) return;
+      this.refreshPlainCards()
+        .then(() => this.refreshViews())
+        .catch(() => {});
+    };
+    this.registerEvent(this.app.vault.on("create", refreshPlainCards));
+    this.registerEvent(this.app.vault.on("delete", refreshPlainCards));
+    this.registerEvent(this.app.vault.on("rename", refreshPlainCards));
+    this.registerEvent(this.app.metadataCache.on("changed", refreshPlainCards));
+
+    // The old onload awaited this full-folder scan before any view could open.
+    // Start it after layout and repaint Cards once the index is ready.
+    const plain = this.settings.cards && this.settings.cards.plainMarkdown;
+    if (plain && plain.enabled === true) {
+      this.refreshPlainCards()
+        .then((count) => {
+          if (count) this.refreshViews();
+        })
+        .catch(() => {});
+    }
+
+    // Today and plans can render without this index; refresh them once the
+    // reading-plan fences have been collected.
+    this.indexReadingPlans()
+      .then((count) => {
+        if (count) this.refreshViews();
+      })
+      .catch(() => {});
+  }
+
   /* ---- settings */
 
   async loadSettings() {
@@ -42032,13 +42325,10 @@ class QuestionTrackerPlugin extends Plugin {
     // Move legacy plain-text keys into Secret Storage where Obsidian provides it.
     // This runs before the settings page is drawn, so a migrated key is never
     // written back to data.json.
-    if (secretKeys.migrateApiKeys(this.app, this.settings.ai.api)) await this.save();
-    const openCodePassword = str(this.settings.ai.password).trim();
-    if (openCodePassword && secretKeys.storeSecretValue(this.app, secretKeys.OPENCODE_PASSWORD_SECRET, openCodePassword)) {
-      this.settings.ai.password = "";
-      this.settings.ai.passwordSecret = secretKeys.OPENCODE_PASSWORD_SECRET;
-      await this.save();
-    }
+    let migratedSecrets = secretKeys.migrateApiKeys(this.app, this.settings.ai.api);
+    migratedSecrets += secretKeys.migratePasswordSecret(this.app, this.settings.ai, secretKeys.OPENCODE_PASSWORD_SECRET);
+    migratedSecrets += secretKeys.migratePasswordSecret(this.app, this.settings.cards.couchdb, COUCHDB_PASSWORD_SECRET);
+    if (migratedSecrets) await this.save();
   }
 
   save() {
@@ -42066,7 +42356,7 @@ class QuestionTrackerPlugin extends Plugin {
   conn() {
     const ai = this.settings.ai;
     if (ai.managed && this.manager.conn) return this.manager.conn;
-    const fromSecret = ai.passwordSecret ? secretKeys.readSecretValue(this.app, ai.passwordSecret) : "";
+    const fromSecret = secretKeys.readSecretValue(this.app, ai.passwordSecret || secretKeys.OPENCODE_PASSWORD_SECRET);
     return { url: ai.url, username: ai.username, password: fromSecret || ai.password || this.sessionOpenCodePassword || "" };
   }
 
@@ -48032,7 +48322,11 @@ ${body}
   /** Create one client per operation so a changed URL/password is picked up immediately. */
   couchDbClient() {
     const config = normalizeCouchDb(this.settings.cards.couchdb);
-    const password = secretKeys.readSecretValue(this.app, COUCHDB_PASSWORD_SECRET);
+    const password = secretKeys.resolveSecretValue(
+      this.app,
+      config.passwordSecret || COUCHDB_PASSWORD_SECRET,
+      config.password
+    );
     return new CouchDbClient(config, {
       password,
       request: typeof this.couchDbRequest === "function" ? this.couchDbRequest : requestUrl,
@@ -49869,9 +50163,9 @@ ${body}
   async addAudioBookmark(input) {
     const entry = audioBookmarks.addAudioBookmark(input, Date.now());
     if (!entry) return null;
-    const current = studyWorkspace.normalizeAudioBookmarkSettings(this.settings.audioBookmarks);
+    const current = audioBookmarks.normalizeAudioBookmarkSettings(this.settings.audioBookmarks);
     if (current.entries.some((existing) => existing.path === entry.path && existing.at === entry.at && existing.label === entry.label)) return entry;
-    this.settings.audioBookmarks = studyWorkspace.normalizeAudioBookmarkSettings({
+    this.settings.audioBookmarks = audioBookmarks.normalizeAudioBookmarkSettings({
       ...current,
       entries: current.entries.concat(entry).slice(-audioBookmarks.MAX_BOOKMARKS),
     });
@@ -49881,8 +50175,8 @@ ${body}
   }
 
   async removeAudioBookmark(id) {
-    const current = studyWorkspace.normalizeAudioBookmarkSettings(this.settings.audioBookmarks);
-    this.settings.audioBookmarks = studyWorkspace.normalizeAudioBookmarkSettings({
+    const current = audioBookmarks.normalizeAudioBookmarkSettings(this.settings.audioBookmarks);
+    this.settings.audioBookmarks = audioBookmarks.normalizeAudioBookmarkSettings({
       ...current,
       entries: current.entries.filter((entry) => entry.id !== id),
     });
@@ -51303,8 +51597,8 @@ class PomodoroView extends ItemView {
     const actions = card.createDiv({ cls: "qt-row qt-pomodoro-actions" });
     if (data.running) actions.createEl("button", { text: "Pause", cls: "mod-cta" }).addEventListener("click", () => this.plugin.pausePomodoro());
     else actions.createEl("button", { text: data.remaining < data.phaseSeconds ? "Resume" : "Start", cls: "mod-cta" }).addEventListener("click", () => this.plugin.startPomodoro());
-    actions.createEl("button", { text: "Reset" }).addEventListener("click", () => this.plugin.resetPomodoro());
-    actions.createEl("button", { text: "Skip phase" }).addEventListener("click", () => this.plugin.skipPomodoro());
+    actions.createEl("button", { text: "Reset", cls: "qt-pomodoro-secondary" }).addEventListener("click", () => this.plugin.resetPomodoro());
+    actions.createEl("button", { text: "Skip phase", cls: "qt-pomodoro-secondary" }).addEventListener("click", () => this.plugin.skipPomodoro());
     const settings = data.settings;
     card.createDiv({
       cls: "qt-hint",
@@ -59323,6 +59617,7 @@ class ReferenceView extends ItemView {
     super(leaf);
     this.plugin = plugin;
     this.tab = "formulas"; // formulas | structures | units | calculator | graph | elements | constants | ap | resources
+    this.tabScrollLeft = 0;
     this.subject = (plugin.settings.reference && plugin.settings.reference.defaultSubject) || "all";
     this.query = "";
     this.constantQuery = "";
@@ -59409,8 +59704,7 @@ class ReferenceView extends ItemView {
       text: "Bundled formulas, constants, unit conversions, one-screen reference sheets, a local calculator and an unofficial AP score estimator. Everything is local and works offline.",
     });
 
-    const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-ref-tabs" });
-    for (const [id, label] of [
+    const sections = [
       ["formulas", "Formulas"],
       ["structures", "Structures"],
       ["units", "Unit converter"],
@@ -59421,14 +59715,28 @@ class ReferenceView extends ItemView {
       ["sheets", "Sheets"],
       ["ap", "AP score"],
       ["resources", "AP resources"],
-    ]) {
+    ];
+    const picker = root.createEl("select", {
+      cls: "qt-ref-picker qt-select",
+      attr: { "aria-label": "Reference section" },
+    });
+    for (const [id, label] of sections) picker.createEl("option", { value: id, text: label });
+    picker.value = this.tab;
+    picker.addEventListener("change", () => {
+      this.tab = picker.value;
+      this.render();
+    });
+    const tabs = root.createDiv({ cls: "qt-row qt-small-row qt-ref-tabs" });
+    for (const [id, label] of sections) {
       const button = tabs.createEl("button", { text: label, cls: "qt-ref-tab" });
       if (this.tab === id) button.addClass("mod-cta");
       button.addEventListener("click", () => {
+        this.tabScrollLeft = tabs.scrollLeft;
         this.tab = id;
         this.render();
       });
     }
+    tabs.scrollLeft = this.tabScrollLeft;
 
     if (this.tab === "structures") this.renderStructures(root);
     else if (this.tab === "units") this.renderUnits(root);
@@ -59657,7 +59965,11 @@ class ReferenceView extends ItemView {
       cls: "qt-ref-note",
       text: "Atomic masses and blanks follow the AP Chemistry Periodic Table of the Elements (2020).",
     });
-    this.periodicGridEl = root.createDiv({ cls: "qt-ref-periodic", attr: { role: "grid", "aria-label": "Periodic table" } });
+    const periodicWrap = root.createDiv({
+      cls: "qt-ref-periodic-wrap",
+      attr: { role: "region", "aria-label": "Periodic table, scroll horizontally" },
+    });
+    this.periodicGridEl = periodicWrap.createDiv({ cls: "qt-ref-periodic", attr: { role: "grid", "aria-label": "Periodic table" } });
     this.periodicDetailEl = root.createDiv({ cls: "qt-ref-element-detail" });
     this.renderElementGrid();
     this.renderElementDetail();
@@ -59752,7 +60064,7 @@ class ReferenceView extends ItemView {
   renderFormulas(root) {
     const search = root.createEl("input", {
       cls: "qt-ref-search",
-      attr: { type: "search", placeholder: "Search formulas (for example: quadratic, momentum, dilution)" },
+      attr: { type: "search", placeholder: "Search formulas (e.g. quadratic)" },
     });
     search.value = this.query;
     search.addEventListener("input", () => {
@@ -61053,13 +61365,27 @@ module.exports = {
 /* ---- src/review-calendar-view.js ---- */
 __defs["review-calendar-view"] = function (module, exports, require) {
 /* Review calendar: due-date grid and next-7-day workload. */
-const { ItemView, Notice } = require("obsidian");
+const { ItemView, Notice, Platform } = require("obsidian");
 const { VIEW_TYPE_REVIEW_CALENDAR } = require("./constants");
-const { calendarCells, workloadLabel } = require("./review-calendar");
+const { addDays, calendarCells, workloadLabel } = require("./review-calendar");
 const { localDate, str } = require("./util");
 
 const WEEK_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function dayLabel(key) {
+  const date = new Date(`${key}T12:00:00`);
+  if (isNaN(date.getTime())) return key;
+  return `${DAY_NAMES[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()}`;
+}
+
+function startOfWeek(key, weekStartsOn) {
+  const date = new Date(`${key}T12:00:00`);
+  if (isNaN(date.getTime())) return key;
+  const offset = weekStartsOn === "sunday" ? date.getDay() : (date.getDay() + 6) % 7;
+  return addDays(key, -offset);
+}
 
 class ReviewCalendarView extends ItemView {
   constructor(leaf, plugin) {
@@ -61093,6 +61419,21 @@ class ReviewCalendarView extends ItemView {
     return this.plugin.reviewCalendarSettings();
   }
 
+  isMobileAgenda() {
+    return Platform.isMobile === true && Platform.isPhone !== false;
+  }
+
+  selectDay(key) {
+    this.selected = key;
+    const date = new Date(`${key}T12:00:00`);
+    if (!isNaN(date.getTime())) this.cursor = new Date(date.getFullYear(), date.getMonth(), 1);
+    this.render();
+  }
+
+  shiftDay(delta) {
+    this.selectDay(addDays(this.selected, delta));
+  }
+
   render() {
     const el = this.contentEl;
     el.empty();
@@ -61119,6 +61460,11 @@ class ReviewCalendarView extends ItemView {
     stat(snapshot.next7.total, "next 7 days");
     stat(workloadLabel(snapshot.next7.minutes), "estimated work");
 
+    if (this.isMobileAgenda()) {
+      this.renderMobile(root, snapshot);
+      return;
+    }
+
     const actions = root.createDiv({ cls: "qt-row qt-review-calendar-actions qt-toolbar" });
     actions.createEl("button", { text: "Add this note", cls: "mod-cta" }).addEventListener("click", () => this.addNote());
     actions.createEl("button", { text: "Add this folder" }).addEventListener("click", () => this.addFolder());
@@ -61136,6 +61482,52 @@ class ReviewCalendarView extends ItemView {
     card.createEl("h3", { text: "Review calendar is off" });
     card.createDiv({ cls: "qt-onboard-text", text: "Turn it on in Settings → Review calendar." });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
+  }
+
+  renderMobile(root, snapshot) {
+    root.addClass("qt-day-agenda-phone");
+    const actions = root.createDiv({ cls: "qt-row qt-review-calendar-actions qt-day-agenda-actions" });
+    actions.createEl("button", { text: "Add note", cls: "mod-cta", attr: { "aria-label": "Add this note" } }).addEventListener("click", () => this.addNote());
+    actions.createEl("button", { text: "Add folder", attr: { "aria-label": "Add this folder" } }).addEventListener("click", () => this.addFolder());
+    actions.createEl("button", { text: "Today" }).addEventListener("click", () => this.goToday());
+
+    const agenda = root.createDiv({ cls: "qt-day-agenda qt-review-agenda" });
+    this.renderDayNav(agenda, snapshot);
+    this.renderDayWeek(agenda, snapshot);
+    this.renderSelected(agenda, snapshot, "Due this day");
+  }
+
+  renderDayNav(root, snapshot) {
+    const nav = root.createDiv({ cls: "qt-day-agenda-nav" });
+    nav.createEl("button", { cls: "qt-day-agenda-step", text: "Prev", attr: { "aria-label": "Previous day" } }).addEventListener("click", () => this.shiftDay(-1));
+    const title = nav.createDiv({ cls: "qt-day-agenda-title" });
+    title.createDiv({ cls: "qt-day-agenda-date", text: dayLabel(this.selected) });
+    const day = (snapshot.days || []).find((item) => item.date === this.selected);
+    title.createDiv({
+      cls: "qt-day-agenda-sub",
+      text: day && day.total ? `${day.total} item${day.total === 1 ? "" : "s"} · ${workloadLabel(day.minutes)}` : "No work due",
+    });
+    nav.createEl("button", { cls: "qt-day-agenda-step", text: "Next", attr: { "aria-label": "Next day" } }).addEventListener("click", () => this.shiftDay(1));
+  }
+
+  renderDayWeek(root, snapshot) {
+    const settings = this.settings();
+    const labels = settings.weekStartsOn === "sunday" ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] : WEEK_LABELS;
+    const start = startOfWeek(this.selected, settings.weekStartsOn);
+    const byDay = new Map((snapshot.days || []).map((day) => [day.date, day]));
+    const week = root.createDiv({ cls: "qt-day-agenda-week" });
+    for (let index = 0; index < 7; index++) {
+      const key = addDays(start, index);
+      const cell = week.createDiv({ cls: "qt-day-agenda-day" });
+      if (key === snapshot.today) cell.addClass("is-today");
+      if (key === this.selected) cell.addClass("is-selected");
+      cell.setAttr("aria-label", dayLabel(key));
+      cell.createDiv({ cls: "qt-day-agenda-day-label", text: labels[index] });
+      cell.createDiv({ cls: "qt-day-agenda-day-number", text: String(Number(key.slice(8))) });
+      const total = byDay.has(key) ? byDay.get(key).total : 0;
+      cell.createDiv({ cls: "qt-day-agenda-day-count", text: total ? String(total) : "·" });
+      cell.addEventListener("click", () => this.selectDay(key));
+    }
   }
 
   renderWorkload(root, snapshot) {
@@ -61177,17 +61569,18 @@ class ReviewCalendarView extends ItemView {
     }
   }
 
-  renderSelected(root, snapshot) {
-    const card = root.createDiv({ cls: "qt-study-card" });
-    card.createEl("h3", { text: this.selected });
+  renderSelected(root, snapshot, title) {
+    const card = root.createDiv({ cls: root.hasClass("qt-day-agenda") ? "qt-study-card qt-day-agenda-list" : "qt-study-card" });
+    card.createEl("h3", { text: title || this.selected });
     const day = (snapshot.days || []).find((item) => item.date === this.selected);
     if (!day || !day.total) {
+      card.addClass("is-empty");
       card.createDiv({ cls: "qt-study-empty", text: "No notes or cards due on this day." });
       return;
     }
     const list = card.createDiv({ cls: "qt-study-list" });
     for (const row of [...day.notes, ...day.cards]) {
-      const item = list.createDiv({ cls: "qt-study-row" });
+      const item = list.createDiv({ cls: "qt-study-row qt-day-agenda-row" });
       const main = item.createDiv({ cls: "qt-study-row-main" });
       main.createDiv({ cls: "qt-study-row-title", text: row.title });
       main.createDiv({
@@ -62345,6 +62738,68 @@ function storeApiKey(app, api, provider, key) {
 }
 
 /**
+ * Record a chosen password secret name and drop the legacy plain-text copy.
+ * Works for the OpenCode server password and the CouchDB password, which both
+ * keep `passwordSecret` plus an older `password` field.
+ */
+function selectPasswordSecret(target, name) {
+  if (!target) return "";
+  const value = str(name).trim();
+  target.passwordSecret = value;
+  target.password = "";
+  return value;
+}
+
+/** Read a named secret, then fall back to the legacy stored value. */
+function resolveSecretValue(app, name, fallback) {
+  return readSecret(secretStorageOf(app), name) || str(fallback);
+}
+
+/**
+ * Move a legacy plain-text password into Secret Storage and keep only its
+ * name. Idempotent; leaves the plain-text value untouched when Secret Storage
+ * is unavailable or the write throws.
+ */
+function migratePasswordSecret(app, target, defaultName) {
+  const store = secretStorageOf(app);
+  if (!store || !target) return 0;
+  const legacy = str(target.password);
+  const current = str(target.passwordSecret).trim();
+  const fallbackName = str(defaultName).trim();
+  const name = current || fallbackName;
+  if (legacy.trim()) {
+    try {
+      if (!readSecret(store, name)) store.setSecret(name, legacy);
+      target.passwordSecret = name;
+      target.password = "";
+      return 1;
+    } catch (e) {
+      return 0;
+    }
+  }
+  // Older releases used a fixed secret name without recording it in settings.
+  if (!current && fallbackName && readSecret(store, fallbackName)) {
+    target.passwordSecret = fallbackName;
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * Record the chosen secret name in settings and remove any legacy plain-text
+ * copy for that provider. Settings never receive the secret value.
+ */
+function selectApiSecret(api, provider, name) {
+  if (!api) return "";
+  const value = str(name).trim();
+  api.secrets = api.secrets || {};
+  if (value) api.secrets[provider] = value;
+  else delete api.secrets[provider];
+  if (api.keys) delete api.keys[provider];
+  return value;
+}
+
+/**
  * Move any legacy plain-text keys into Secret Storage. Idempotent. Existing
  * selected secrets win; the plain-text copy is still removed so it cannot
  * remain in a synced data.json.
@@ -62383,8 +62838,12 @@ module.exports = {
   storeSecretValue,
   migrateApiKeys,
   newSecretName,
+  migratePasswordSecret,
   resolveApiKey,
+  resolveSecretValue,
   secretName,
+  selectApiSecret,
+  selectPasswordSecret,
   storeApiKey,
 };
 };
@@ -62911,7 +63370,7 @@ const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
 const { normalizeVerificationMode } = require("./answer-verification");
 const { SAME_DAY_NOTE } = require("./fsrs");
-const { hasSecretStorage, readSecretValue, storeSecretValue, OPENCODE_PASSWORD_SECRET } = require("./secret-keys");
+const { hasSecretStorage, readSecretValue, selectApiSecret, selectPasswordSecret, storeSecretValue, OPENCODE_PASSWORD_SECRET } = require("./secret-keys");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -63790,8 +64249,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             .addComponent((el) => {
               const comp = new SecretComponent(this.app, el);
               comp.setValue(current).onChange(async (value) => {
-                api.secrets = api.secrets || {};
-                api.secrets[api.provider] = str(value).trim();
+                selectApiSecret(api, api.provider, value);
                 await this.plugin.save();
               });
             });
@@ -63856,7 +64314,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       new Setting(containerEl).setName("Test").addButton((b) =>
         b.setButtonText("Test").onClick(async () => {
           try {
-            const r = await new ApiClient(ai).chat("You are a connection test.", [{ role: "user", content: "Reply with the single word OK." }]);
+            const r = await new ApiClient(ai, this.app).chat("You are a connection test.", [{ role: "user", content: "Reply with the single word OK." }]);
             new Notice(`Connected. Reply: ${r.trim().slice(0, 60)}`, 6000);
           } catch (e) {
             new Notice(friendlyApiError(e), 10000);
@@ -64029,47 +64487,67 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           })
         );
       const secretStorage = hasSecretStorage(this.app);
-      const savedPassword = secretStorage && ai.passwordSecret ? readSecretValue(this.app, ai.passwordSecret) : str(ai.password);
-      new Setting(containerEl)
-        .setName("Password")
-        .setDesc(
-          secretStorage
-            ? "Stored in Obsidian's Secret Storage, outside data.json. Secret Storage may be per device."
-            : "Secret Storage is not available in this Obsidian version. The password stays in memory for this session unless you explicitly allow saving it below."
-        )
-        .addText((t) => {
-          t.inputEl.type = "password";
-          t.setValue(savedPassword || this.plugin.sessionOpenCodePassword || "").onChange(async (v) => {
-            this.plugin.sessionOpenCodePassword = v;
-            if (secretStorage) {
-              if (v) {
-                if (storeSecretValue(this.app, OPENCODE_PASSWORD_SECRET, v)) {
-                  ai.passwordSecret = OPENCODE_PASSWORD_SECRET;
-                  ai.password = "";
+      const secretPicker = secretStorage && typeof SecretComponent === "function";
+      if (secretPicker) {
+        new Setting(containerEl)
+          .setName("Password")
+          .setDesc(
+            "Stored in Obsidian's Secret Storage, outside data.json. Select or create a secret. Secret Storage may be per device."
+          )
+          .setClass("qt-settings-secret-row")
+          .addComponent((el) => {
+            const comp = new SecretComponent(this.app, el);
+            comp.setValue(ai.passwordSecret || "").onChange(async (value) => {
+              selectPasswordSecret(ai, value);
+              ai.rememberPassword = false;
+              this.plugin.sessionOpenCodePassword = "";
+              await this.plugin.save();
+            });
+          });
+      } else {
+        const savedPassword = secretStorage && ai.passwordSecret ? readSecretValue(this.app, ai.passwordSecret) : str(ai.password);
+        new Setting(containerEl)
+          .setName("Password")
+          .setDesc(
+            secretStorage
+              ? "Stored in Obsidian's Secret Storage, outside data.json. Secret Storage may be per device."
+              : "Secret Storage is not available in this Obsidian version. The password stays in memory for this session unless you explicitly allow saving it below."
+          )
+          .setClass("qt-settings-secret-row")
+          .addText((t) => {
+            t.inputEl.type = "password";
+            t.setValue(savedPassword || this.plugin.sessionOpenCodePassword || "").onChange(async (v) => {
+              this.plugin.sessionOpenCodePassword = v;
+              if (secretStorage) {
+                if (v) {
+                  if (storeSecretValue(this.app, OPENCODE_PASSWORD_SECRET, v)) {
+                    ai.passwordSecret = OPENCODE_PASSWORD_SECRET;
+                    ai.password = "";
+                  } else {
+                    ai.password = v;
+                  }
                 } else {
-                  ai.password = v;
+                  ai.passwordSecret = "";
+                  ai.password = "";
                 }
               } else {
-                ai.passwordSecret = "";
-                ai.password = "";
+                ai.password = ai.rememberPassword === true ? v : "";
               }
-            } else {
-              ai.password = ai.rememberPassword === true ? v : "";
-            }
-            await this.plugin.save();
-          });
-        });
-      if (!secretStorage) {
-        new Setting(containerEl)
-          .setName("Remember OpenCode password")
-          .setDesc("Off by default. When on, the password is saved as plain text in data.json and syncs with the vault. Leave it off to enter the password again after restarting Obsidian.")
-          .addToggle((t) =>
-            t.setValue(ai.rememberPassword === true).onChange(async (v) => {
-              ai.rememberPassword = v;
-              ai.password = v ? this.plugin.sessionOpenCodePassword || "" : "";
               await this.plugin.save();
-            })
-          );
+            });
+          });
+        if (!secretStorage) {
+          new Setting(containerEl)
+            .setName("Remember OpenCode password")
+            .setDesc("Off by default. When on, the password is saved as plain text in data.json and syncs with the vault. Leave it off to enter the password again after restarting Obsidian.")
+            .addToggle((t) =>
+              t.setValue(ai.rememberPassword === true).onChange(async (v) => {
+                ai.rememberPassword = v;
+                ai.password = v ? this.plugin.sessionOpenCodePassword || "" : "";
+                await this.plugin.save();
+              })
+            );
+        }
       }
     }
 
@@ -64279,6 +64757,16 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       },
       { className: "qt-settings-modules", tabClass: "qt-settings-module" }
     );
+    const picker = rootEl.createEl("select", {
+      cls: "qt-settings-module-picker qt-select",
+      attr: { "aria-label": "Settings module" },
+    });
+    for (const module of SETTINGS_MODULES) picker.createEl("option", { value: module.id, text: module.label });
+    picker.value = this.activeModule;
+    picker.addEventListener("change", () => {
+      this.activeModule = picker.value;
+      this.display();
+    });
   }
 
   renderMcqTabs(containerEl) {
@@ -70182,6 +70670,13 @@ function bar(container, value, max, cls) {
   return track;
 }
 
+function labeledCell(row, label, text, cls) {
+  const cell = row.createDiv({ cls: cls || "" });
+  cell.setAttr("data-label", label);
+  if (text !== undefined) cell.setText(String(text));
+  return cell;
+}
+
 class StudyStatsView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -70277,10 +70772,10 @@ class StudyStatsView extends ItemView {
       for (const maturity of MATURITY_ORDER) {
         const bucket = split.byMaturity[maturity];
         const line = table.createDiv({ cls: "qt-study-stats-row is-mix" });
-        line.createDiv({ text: data.retention.byMaturity[maturity].label });
-        line.createDiv({ text: String(bucket.total) });
-        line.createDiv({ text: String(bucket.again) });
-        line.createDiv({ text: pct(bucket.againRate) });
+        labeledCell(line, "Maturity", data.retention.byMaturity[maturity].label);
+        labeledCell(line, "Rated", bucket.total);
+        labeledCell(line, "Again", bucket.again);
+        labeledCell(line, "Again rate", pct(bucket.againRate));
       }
     }
   }
@@ -70354,15 +70849,19 @@ class StudyStatsView extends ItemView {
       return;
     }
     const table = card.createDiv({ cls: "qt-study-stats-table" });
+    const labels = ["Deck", "Cards", "Reviews", "Retention", "Avg interval"];
     const header = table.createDiv({ cls: "qt-study-stats-row is-head" });
-    for (const label of ["Deck", "Cards", "Reviews", "Retention", "Avg interval"]) header.createDiv({ text: label });
+    for (const label of labels) header.createDiv({ text: label });
     for (const deck of data.decks) {
       const line = table.createDiv({ cls: "qt-study-stats-row" });
-      line.createDiv({ text: deck.deck });
-      line.createDiv({ text: String(deck.cards) });
-      line.createDiv({ text: String(deck.reviews) });
-      line.createDiv({ text: pct(deck.retention) });
-      line.createDiv({ text: deck.averageInterval === null ? "—" : `${Math.round(deck.averageInterval)}d` });
+      const values = [
+        deck.deck,
+        String(deck.cards),
+        String(deck.reviews),
+        pct(deck.retention),
+        deck.averageInterval === null ? "—" : `${Math.round(deck.averageInterval)}d`,
+      ];
+      values.forEach((value, index) => labeledCell(line, labels[index], value));
     }
   }
 
@@ -70375,16 +70874,16 @@ class StudyStatsView extends ItemView {
     for (const id of MATURITY_ORDER) {
       const row = data.retention.byMaturity[id];
       const line = table.createDiv({ cls: "qt-study-stats-row" });
-      line.createDiv({ text: row.label });
-      line.createDiv({ text: String(row.attempts) });
-      const value = line.createDiv({ cls: "qt-study-stats-retention" });
+      labeledCell(line, "Maturity", row.label);
+      labeledCell(line, "Reviews", row.attempts);
+      const value = labeledCell(line, "Retention", undefined, "qt-study-stats-retention");
       value.createSpan({ text: pct(row.retention) });
       bar(value, row.retention === null ? 0 : row.retention * 100, 100, "is-retention");
     }
     const total = table.createDiv({ cls: "qt-study-stats-row is-total" });
-    total.createDiv({ text: "All reviews" });
-    total.createDiv({ text: String(data.retention.all.attempts) });
-    total.createDiv({ cls: "qt-study-stats-retention", text: pct(data.retention.all.retention) });
+    labeledCell(total, "Maturity", "All reviews");
+    labeledCell(total, "Reviews", data.retention.all.attempts);
+    labeledCell(total, "Retention", pct(data.retention.all.retention), "qt-study-stats-retention");
   }
 
   renderMemory(root, data) {
@@ -72093,7 +72592,8 @@ class StudyToolsView extends ItemView {
 
   async onOpen() {
     this.contentEl.addClass("qt-root");
-    this.contentEl.addClass("qt-study-tools");
+    this.contentEl.removeClass("qt-study-tools");
+    this.contentEl.addClass("qt-study-tools-view");
     this.render();
   }
 
@@ -72123,7 +72623,7 @@ class StudyToolsView extends ItemView {
   render() {
     const root = this.contentEl;
     root.empty();
-    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap qt-screen" });
+    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap qt-study-tools-view-wrap qt-screen" });
     if (!this.plugin.studyToolsEnabled()) {
       this.renderOff(wrap);
       return;
@@ -72172,7 +72672,7 @@ class StudyToolsView extends ItemView {
     };
     if (data.studyGoals.enabled) stat(summary.open, "open goals");
     if (data.lectureLog.enabled) stat(lectures.length, "lectures logged");
-    if (data.cornellNotes.enabled) stat("Note", "Cornell blocks");
+    if (data.cornellNotes.enabled) stat("Ready", "Cornell notes");
     if (!data.studyGoals.enabled && !data.lectureLog.enabled && !data.cornellNotes.enabled) {
       root.createDiv({ cls: "qt-study-empty", text: "Turn on at least one study tool in Settings." });
       return;
@@ -72194,7 +72694,7 @@ class StudyToolsView extends ItemView {
       } else {
         card.createDiv({ cls: "qt-study-empty", text: "No open goals yet. Set one to keep a small, concrete target in view." });
       }
-      card.createEl("button", { text: summary.next ? "Open goals" : "Set a goal", cls: "qt-link" }).addEventListener("click", () => this.setTab("goals"));
+      card.createEl("button", { text: summary.next ? "Open goals" : "Set a goal", cls: "qt-link qt-study-card-action" }).addEventListener("click", () => this.setTab("goals"));
     }
     if (data.lectureLog.enabled) {
       const card = grid.createDiv({ cls: "qt-study-card" });
@@ -72205,13 +72705,27 @@ class StudyToolsView extends ItemView {
       } else {
         card.createDiv({ cls: "qt-study-empty", text: "No upcoming lecture is logged. Add one after class or paste a whole timetable line." });
       }
-      card.createEl("button", { text: "Open lecture log", cls: "qt-link" }).addEventListener("click", () => this.setTab("lectures"));
+      card.createEl("button", { text: "Open lecture log", cls: "qt-link qt-study-card-action" }).addEventListener("click", () => this.setTab("lectures"));
     }
     if (data.cornellNotes.enabled) {
       const card = grid.createDiv({ cls: "qt-study-card" });
       card.createEl("h3", { text: "Cornell notes" });
       card.createDiv({ cls: "qt-study-next-meta", text: "Create a cue-first note, then use Recall mode in the block to hide the notes until you answer each cue." });
-      card.createEl("button", { text: "Create Cornell note", cls: "qt-link" }).addEventListener("click", () => this.setTab("cornell"));
+      card.createEl("button", { text: "Create Cornell note", cls: "qt-link qt-study-card-action" }).addEventListener("click", () => this.setTab("cornell"));
+    }
+
+    const guide = root.createDiv({ cls: "qt-study-guide" });
+    guide.createEl("h3", { text: "How the tools fit together" });
+    const steps = guide.createDiv({ cls: "qt-study-guide-steps" });
+    for (const [number, title, copy] of [
+      ["1", "Capture", "Log a lecture after class or set one concrete study goal."],
+      ["2", "Review", "Use Cornell cues in your notes to test recall instead of rereading."],
+      ["3", "Continue", "Today surfaces the next lecture and open goal so you know where to start."],
+    ]) {
+      const step = steps.createDiv({ cls: "qt-study-step" });
+      step.createDiv({ cls: "qt-study-step-number", text: number });
+      step.createDiv({ cls: "qt-study-step-title", text: title });
+      step.createDiv({ cls: "qt-study-step-copy", text: copy });
     }
   }
 
@@ -73860,6 +74374,88 @@ const TABS = [
 
 const SCORE_LABELS = { clarity: "Clarity", accuracy: "Accuracy", simplicity: "Simplicity" };
 
+/* One composed first-run panel per section. The card above it owns the action;
+   this panel explains what happens next instead of leaving a bare sentence at
+   the bottom of a long form. */
+const EMPTY_STATES = {
+  feynman: {
+    title: "Start with one concept",
+    steps: ["Name a concept you can already explain roughly.", "Work through the four prompts without looking it up.", "Score the explanation and drill the weakest dimension."],
+  },
+  recall: {
+    title: "Build your first recall queue",
+    steps: ["Choose headings for structure or fragments for detail.", "Point the queue at a folder if you want a narrower scope.", "Review only the units that are due today."],
+  },
+  planner: {
+    title: "Turn an exam date into a plan",
+    steps: ["Set the exam date and keep a buffer before it.", "Add one topic per line and choose the number of passes.", "Tick off passes as you complete them; the day grid follows."],
+  },
+  flow: {
+    title: "Capture a source while it is fresh",
+    steps: ["Paste the passage and the source path.", "Explain it once in your own words.", "Draft a card or mark the excerpt understood."],
+  },
+  subjects: {
+    title: "Add the courses you are tracking",
+    steps: ["Give each subject a name and a folder.", "Pick a colour for course chips and dashboards.", "Add projects or absences from this tab later."],
+  },
+  courses: {
+    title: "Build a course dashboard",
+    steps: ["Add a subject or a first grade above.", "Weighted entries become the course average.", "Open a course overview for lectures, exams and readings."],
+  },
+  tasks: {
+    title: "Keep the next study action visible",
+    steps: ["Add a manual task, or generate passes from an exam date.", "The queue sorts open work by due date.", "Mark work done without touching any note."],
+  },
+  annotations: {
+    title: "Keep the question with the quote",
+    steps: ["Paste a passage or use the current editor selection.", "Write the question it raised and your answer.", "Search the index by quote, source or question later."],
+  },
+  deepNotes: {
+    title: "Interrogate one idea",
+    steps: ["Start with a claim you want to test.", "Move through five local Socratic prompts.", "Finish at synthesis; no model is called."],
+  },
+  retention: {
+    title: "Forecast what is coming due",
+    steps: ["Scan the cards already in this vault.", "See due, new and overdue work for the next 30 days.", "The scan is read-only and never moves a schedule."],
+  },
+  vocabulary: {
+    title: "Start a local word bank",
+    steps: ["Add a term, definition and optional example.", "Bulk import a list when you have one.", "Review each word on a simple 1/3/7/21-day ladder."],
+  },
+  readingLibrary: {
+    title: "Open your reading shelf",
+    steps: ["Add a book to Want to read or Reading.", "Log page progress and keep the quotes that matter.", "Finished books move to their own shelf."],
+  },
+  quizIndex: {
+    title: "Index the quizzes already in your vault",
+    steps: ["Scan the whole vault or one folder.", "See quiz, question, result and attempt counts.", "Scanning is read-only; no attempts are created."],
+  },
+  health: {
+    title: "See which course needs attention",
+    steps: ["Add a subject, lecture or grade.", "Course health checks grades, attendance and overdue work.", "Open the reasons behind every Good, Watch or At-risk row."],
+  },
+  lectures: {
+    title: "Turn the lecture log into a study note",
+    steps: ["Add lectures with a course, title, date and topics.", "Preview one note with concepts and vocabulary.", "Save it with a numbered filename; nothing is overwritten."],
+  },
+  readAloud: {
+    title: "Load a note and listen",
+    steps: ["Load the active note or paste text.", "Choose Full note, a briefing or key points.", "Start reading; the current sentence stays highlighted."],
+  },
+  bookmarks: {
+    title: "Mark the parts worth hearing again",
+    steps: ["Point at an audio attachment in the vault.", "Add a timestamp and a short label.", "Copy a media link that opens at that moment."],
+  },
+  feynmanAi: {
+    title: "Get a second opinion on an explanation",
+    steps: ["Complete a Feynman cycle with at least one answer.", "Turn on AI under Settings and choose a provider.", "AI scores sit beside your own; they never replace them."],
+  },
+  pdfAnnotations: {
+    title: "Index your PDF annotations",
+    steps: ["Annotate a PDF so its sidecar exists in the vault.", "Scan the sidecars without creating or editing files.", "Open the PDF or sidecar from every row."],
+  },
+};
+
 class StudyWorkspaceView extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -73914,7 +74510,8 @@ class StudyWorkspaceView extends ItemView {
 
   async onOpen() {
     this.contentEl.addClass("qt-root");
-    this.contentEl.addClass("qt-study-tools");
+    this.contentEl.removeClass("qt-study-tools");
+    this.contentEl.addClass("qt-study-tools-view");
     this.contentEl.addClass("qt-study-workspace");
     this.render();
   }
@@ -73929,8 +74526,13 @@ class StudyWorkspaceView extends ItemView {
   }
 
   setTab(tab) {
-    this.tab = TABS.some((entry) => entry.id === tab) ? tab : "feynman";
-    if (!this.enabledTabs().some((entry) => entry.id === this.tab)) this.tab = "feynman";
+    const requested = TABS.some((entry) => entry.id === tab) ? tab : "feynman";
+    const next = this.enabledTabs().some((entry) => entry.id === requested) ? requested : "feynman";
+    /* Action feedback belongs to the section that produced it. Carrying
+       "Scanned 1 card" into Vocabulary or a saved preview into Bookmarks makes
+       those sections look like they just ran someone else's action. */
+    if (next !== this.tab) this.message = "";
+    this.tab = next;
     this.render();
   }
 
@@ -73945,7 +74547,7 @@ class StudyWorkspaceView extends ItemView {
   render() {
     const root = this.contentEl;
     root.empty();
-    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap qt-screen" });
+    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap qt-study-workspace-wrap qt-screen" });
     if (!this.plugin.studyWorkspaceEnabled()) {
       this.renderOff(wrap);
       return;
@@ -73956,33 +74558,40 @@ class StudyWorkspaceView extends ItemView {
     const title = header.createDiv({ cls: "qt-study-heading" });
     title.createEl("h2", { text: "Study Workspace" });
     title.createDiv({ cls: "qt-hint", text: "Guided, local study workflows. Each tab has its own settings switch." });
-    const nav = wrap.createDiv({ cls: "qt-study-tabs" });
+    const picker = header.createDiv({ cls: "qt-workspace-picker" });
+    picker.createSpan({ cls: "qt-workspace-picker-label", text: "Section" });
+    const sectionPicker = picker.createEl("select", { cls: "dropdown", attr: { "aria-label": "Study Workspace section", "aria-controls": "qt-study-workspace-panel" } });
+    for (const tab of tabs) sectionPicker.createEl("option", { value: tab.id, text: tab.label });
+    sectionPicker.value = this.tab;
+    sectionPicker.addEventListener("change", () => this.setTab(sectionPicker.value));
+    const nav = wrap.createDiv({ cls: "qt-study-tabs qt-workspace-tabs", attr: { "aria-label": "Study Workspace sections" } });
     for (const tab of tabs) {
       const button = nav.createEl("button", { cls: "qt-study-tab", text: tab.label });
       if (tab.id === this.tab) button.addClass("is-active");
       button.setAttr("aria-pressed", tab.id === this.tab ? "true" : "false");
       button.addEventListener("click", () => this.setTab(tab.id));
     }
-    if (this.message) wrap.createDiv({ cls: "qt-study-message", text: this.message });
-    if (this.tab === "feynman") this.renderFeynman(wrap);
-    else if (this.tab === "recall") this.renderRecall(wrap);
-    else if (this.tab === "planner") this.renderPlanner(wrap);
-    else if (this.tab === "flow") this.renderFlow(wrap);
-    else if (this.tab === "subjects") this.renderSubjects(wrap);
-    else if (this.tab === "courses") this.renderCourses(wrap);
-    else if (this.tab === "tasks") this.renderTasks(wrap);
-    else if (this.tab === "annotations") this.renderAnnotations(wrap);
-    else if (this.tab === "deepNotes") this.renderDeepNotes(wrap);
-    else if (this.tab === "retention") this.renderRetention(wrap);
-    else if (this.tab === "vocabulary") this.renderVocabulary(wrap);
-    else if (this.tab === "readingLibrary") this.renderReadingLibrary(wrap);
-    else if (this.tab === "quizIndex") this.renderQuizIndex(wrap);
-    else if (this.tab === "health") this.renderCourseHealth(wrap);
-    else if (this.tab === "lectures") this.renderLectureCompiler(wrap);
-    else if (this.tab === "readAloud") this.renderReadAloud(wrap);
-    else if (this.tab === "bookmarks") this.renderAudioBookmarks(wrap);
-    else if (this.tab === "feynmanAi") this.renderFeynmanAi(wrap);
-    else if (this.tab === "pdfAnnotations") this.renderPdfAnnotations(wrap);
+    if (this.message) wrap.createDiv({ cls: "qt-study-message", attr: { role: "status" }, text: this.message });
+    const body = wrap.createDiv({ cls: "qt-workspace-body", attr: { id: "qt-study-workspace-panel", role: "region", "aria-label": `${TABS.find((tab) => tab.id === this.tab).label} section` } });
+    if (this.tab === "feynman") this.renderFeynman(body);
+    else if (this.tab === "recall") this.renderRecall(body);
+    else if (this.tab === "planner") this.renderPlanner(body);
+    else if (this.tab === "flow") this.renderFlow(body);
+    else if (this.tab === "subjects") this.renderSubjects(body);
+    else if (this.tab === "courses") this.renderCourses(body);
+    else if (this.tab === "tasks") this.renderTasks(body);
+    else if (this.tab === "annotations") this.renderAnnotations(body);
+    else if (this.tab === "deepNotes") this.renderDeepNotes(body);
+    else if (this.tab === "retention") this.renderRetention(body);
+    else if (this.tab === "vocabulary") this.renderVocabulary(body);
+    else if (this.tab === "readingLibrary") this.renderReadingLibrary(body);
+    else if (this.tab === "quizIndex") this.renderQuizIndex(body);
+    else if (this.tab === "health") this.renderCourseHealth(body);
+    else if (this.tab === "lectures") this.renderLectureCompiler(body);
+    else if (this.tab === "readAloud") this.renderReadAloud(body);
+    else if (this.tab === "bookmarks") this.renderAudioBookmarks(body);
+    else if (this.tab === "feynmanAi") this.renderFeynmanAi(body);
+    else if (this.tab === "pdfAnnotations") this.renderPdfAnnotations(body);
   }
 
   renderOff(root) {
@@ -74027,7 +74636,15 @@ class StudyWorkspaceView extends ItemView {
   }
 
   renderTabsEmpty(root, text) {
-    root.createDiv({ cls: "qt-study-empty", text });
+    const state = EMPTY_STATES[this.tab] || {};
+    const panel = root.createDiv({ cls: "qt-workspace-empty-panel", attr: { "data-empty-state": this.tab } });
+    panel.createDiv({ cls: "qt-workspace-empty-kicker", text: "First run" });
+    panel.createEl("h3", { text: state.title || "Start here" });
+    panel.createDiv({ cls: "qt-workspace-empty-copy", text });
+    const steps = Array.isArray(state.steps) ? state.steps : [];
+    if (!steps.length) return;
+    const list = panel.createEl("ol", { cls: "qt-workspace-empty-steps" });
+    for (const step of steps) list.createEl("li", { text: step });
   }
 
   /* ---- Feynman Learning ------------------------------------------------ */
@@ -74178,7 +74795,9 @@ class StudyWorkspaceView extends ItemView {
     ], this.recallMode || data.mode);
     const folder = this.renderField(form, "Folder (optional)", "text", "Biology", data.folder);
     const limit = this.renderField(form, "Limit", "number", "20", String(data.limit));
-    const statsRow = controls.createDiv({ cls: "qt-study-next-meta", text: `${stats.tracked} tracked · ${stats.due} due · ${stats.learned} reviewed` });
+    if (stats.tracked || stats.due || stats.learned) {
+      controls.createDiv({ cls: "qt-study-next-meta", text: `${stats.tracked} tracked · ${stats.due} due · ${stats.learned} reviewed` });
+    }
     const actions = controls.createDiv({ cls: "qt-row qt-study-actions" });
     actions.createEl("button", { text: "Build queue", cls: "mod-cta" }).addEventListener("click", async () => {
       this.recallMode = mode.value;
@@ -74234,8 +74853,12 @@ class StudyWorkspaceView extends ItemView {
 
   renderPlanner(root) {
     const data = this.settings().lerntracker;
-    const add = root.createDiv({ cls: "qt-study-card" });
-    add.createEl("h3", { text: "New topic plan" });
+    const hasPlans = data.plans.length > 0;
+    const add = hasPlans
+      ? root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" })
+      : root.createDiv({ cls: "qt-study-card" });
+    if (hasPlans) add.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "New topic plan" });
+    else add.createEl("h3", { text: "New topic plan" });
     add.createDiv({ cls: "qt-hint", text: "Plan repeated passes over a course's topics. Buffer days stay free before the exam." });
     const form = add.createDiv({ cls: "qt-study-form" });
     const course = this.renderField(form, "Course", "text", "Biology");
@@ -74302,10 +74925,14 @@ class StudyWorkspaceView extends ItemView {
         text: summary.nextDay ? `Next allocation: ${summary.nextDay.date} — ${summary.nextDay.topics.join(", ")}` : "No study day fits before the buffer. Move the exam date or shorten the buffer.",
       });
     }
-    const addTopic = card.createDiv({ cls: "qt-study-form qt-workspace-inline-form" });
+    const topicTools = plan.topics.length
+      ? card.createEl("details", { cls: "qt-workspace-disclosure qt-workspace-inline-disclosure" })
+      : null;
+    if (topicTools) topicTools.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Add a topic" });
+    const addTopic = (topicTools || card).createDiv({ cls: "qt-study-form qt-workspace-inline-form" });
     const topicName = this.renderField(addTopic, "Add topic", "text", "Krebs cycle");
     const topicTarget = this.renderField(addTopic, "Target passes", "number", "3", String(plan.targetPasses));
-    const topicActions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    const topicActions = (topicTools || card).createDiv({ cls: "qt-row qt-study-actions" });
     topicActions.createEl("button", { text: "Add topic" }).addEventListener("click", async () => {
       await this.plugin.addPlannerTopic(plan.id, { name: topicName.value, targetPasses: topicTarget.value });
       this.render();
@@ -74364,8 +74991,12 @@ class StudyWorkspaceView extends ItemView {
   renderFlow(root) {
     const data = this.settings().studyFlow;
     const stats = flowStats(data.excerpts);
-    const add = root.createDiv({ cls: "qt-study-card" });
-    add.createEl("h3", { text: "Capture a source excerpt" });
+    const hasExcerpts = data.excerpts.length > 0;
+    const add = hasExcerpts
+      ? root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" })
+      : root.createDiv({ cls: "qt-study-card" });
+    if (hasExcerpts) add.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Capture a source excerpt" });
+    else add.createEl("h3", { text: "Capture a source excerpt" });
     add.createDiv({ cls: "qt-hint", text: "Keep the source path, the passage, your explanation and a card draft together. The source note is not modified." });
     const form = add.createDiv({ cls: "qt-study-form" });
     const source = this.renderField(form, "Source path", "text", "Readings/biology.pdf");
@@ -74388,11 +75019,16 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage("Excerpt added to the inbox.");
       this.render();
     });
-    const filterRow = root.createDiv({ cls: "qt-row qt-study-actions" });
+    if (!data.excerpts.length) {
+      this.renderTabsEmpty(root, "No source excerpts yet. Capture the first passage above; it stays in this vault.");
+      return;
+    }
+    const filterRow = root.createDiv({ cls: "qt-row qt-study-actions qt-workspace-filters" });
     filterRow.createDiv({ cls: "qt-study-next-meta", text: `${stats.inbox} inbox · ${stats.review} reviewing · ${stats.understood} understood · ${stats.withCards} card drafts` });
     for (const [value, label] of [["all", "All"], ["inbox", "Inbox"], ["review", "Reviewing"], ["understood", "Understood"]]) {
-      const button = filterRow.createEl("button", { text: label });
+      const button = filterRow.createEl("button", { text: label, cls: "qt-workspace-filter" });
       if (value === this.flowFilter) button.addClass("is-active");
+      button.setAttr("aria-pressed", value === this.flowFilter ? "true" : "false");
       button.addEventListener("click", () => {
         this.flowFilter = value;
         this.render();
@@ -74404,7 +75040,7 @@ class StudyWorkspaceView extends ItemView {
       .filter((entry) => this.flowFilter === "all" || entry.status === this.flowFilter)
       .sort((a, b) => b.createdAt - a.createdAt);
     if (!excerpts.length) {
-      listCard.createDiv({ cls: "qt-study-empty", text: "Nothing in this view. Capture an excerpt above." });
+      listCard.createDiv({ cls: "qt-study-empty qt-workspace-filter-empty", text: "No excerpts match this filter. Choose All to see the rest." });
       return;
     }
     const list = listCard.createDiv({ cls: "qt-study-list" });
@@ -74626,8 +75262,8 @@ class StudyWorkspaceView extends ItemView {
       this.render();
     });
 
-    const generate = root.createDiv({ cls: "qt-study-card" });
-    generate.createEl("h3", { text: "Generate exam tasks" });
+    const generate = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" });
+    generate.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Generate exam tasks" });
     generate.createDiv({ cls: "qt-hint", text: "Spreads repeated topic passes over the days before the exam. Tasks are previews of work, not scheduled cards." });
     const genForm = generate.createDiv({ cls: "qt-study-form" });
     const genCourse = this.renderField(genForm, "Course", "text", "Biology");
@@ -74641,6 +75277,10 @@ class StudyWorkspaceView extends ItemView {
       this.render();
     });
 
+    if (!data.tasks.length) {
+      this.renderTabsEmpty(root, "No tasks yet. Add one above or generate passes from an exam date; nothing is written to a note.");
+      return;
+    }
     const summaryCard = root.createDiv({ cls: "qt-study-card" });
     const summaryHead = summaryCard.createDiv({ cls: "qt-workspace-head" });
     summaryHead.createEl("h3", { text: "Task queue" });
@@ -74649,10 +75289,6 @@ class StudyWorkspaceView extends ItemView {
     summaryActions.createEl("button", { text: "Remind" }).addEventListener("click", async () => {
       await this.plugin.remindStudyTasks();
     });
-    if (!data.tasks.length) {
-      summaryCard.createDiv({ cls: "qt-study-empty", text: "No tasks yet. Add one or generate an exam plan." });
-      return;
-    }
     const list = summaryCard.createDiv({ cls: "qt-study-list" });
     const tasks = data.tasks.slice().sort((a, b) => (a.done === b.done ? 0 : a.done ? 1 : -1) || (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31"));
     for (const task of tasks) {
@@ -74712,6 +75348,10 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage("Annotation added.");
       this.render();
     });
+    if (!data.annotations.length) {
+      this.renderTabsEmpty(root, "No annotations yet. Capture a passage and the question it raised; the source note is never modified.");
+      return;
+    }
     const search = root.createDiv({ cls: "qt-study-card" });
     search.createEl("h3", { text: "Annotation index" });
     const filter = search.createEl("input", { cls: "qt-input", type: "search" });
@@ -74725,7 +75365,7 @@ class StudyWorkspaceView extends ItemView {
       .filter((entry) => !this.annotationFilter || `${entry.quote} ${entry.question} ${entry.answer} ${entry.sourcePath}`.toLowerCase().includes(this.annotationFilter))
       .sort((a, b) => b.createdAt - a.createdAt);
     if (!entries.length) {
-      search.createDiv({ cls: "qt-study-empty", text: data.annotations.length ? "No annotation matches that search." : "No annotations yet. Select a passage and capture your question." });
+      search.createDiv({ cls: "qt-study-empty qt-workspace-filter-empty", text: "No annotation matches that search." });
       return;
     }
     const list = search.createDiv({ cls: "qt-study-list" });
@@ -74848,7 +75488,6 @@ class StudyWorkspaceView extends ItemView {
   /* ---- Retention ------------------------------------------------------- */
 
   renderRetention(root) {
-    if (typeof this.plugin.schedulerFitEnabled === "function" && this.plugin.schedulerFitEnabled()) this.renderSchedulerFit(root);
     const controls = root.createDiv({ cls: "qt-study-card" });
     controls.createEl("h3", { text: "Card retention forecast" });
     controls.createDiv({
@@ -74867,7 +75506,7 @@ class StudyWorkspaceView extends ItemView {
       this.render();
     });
     if (!this.retentionData) {
-      this.renderTabsEmpty(root, "Scan the card module to see due work and a 30-day forecast.");
+      this.renderTabsEmpty(root, "Scan the card module to see due work and a 30-day forecast. The scan does not change a schedule.");
       return;
     }
     const stats = root.createDiv({ cls: "qt-study-stats" });
@@ -74896,6 +75535,7 @@ class StudyWorkspaceView extends ItemView {
     listCard.createEl("h3", { text: "Due and future cards" });
     if (!this.retentionData.rows.length) {
       listCard.createDiv({ cls: "qt-study-empty", text: "No cards are available in this vault yet." });
+      if (typeof this.plugin.schedulerFitEnabled === "function" && this.plugin.schedulerFitEnabled()) this.renderSchedulerFit(root);
       return;
     }
     const list = listCard.createDiv({ cls: "qt-study-list" });
@@ -74906,6 +75546,7 @@ class StudyWorkspaceView extends ItemView {
       main.createDiv({ cls: "qt-study-row-meta", text: `${card.course ? `${card.course} · ` : ""}${card.fresh ? "New" : card.due || "Scheduled"}${card.attempts ? ` · ${card.attempts} review${card.attempts === 1 ? "" : "s"}` : ""}` });
       if (card.path) row.createEl("button", { text: "Open" }).addEventListener("click", () => this.plugin.openStudyFlowSource(card.path));
     }
+    if (typeof this.plugin.schedulerFitEnabled === "function" && this.plugin.schedulerFitEnabled()) this.renderSchedulerFit(root);
   }
 
   renderSchedulerFit(root) {
@@ -74943,8 +75584,10 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage("Word added.");
       this.render();
     });
-    const bulk = root.createDiv({ cls: "qt-study-card" });
-    bulk.createEl("h3", { text: "Bulk import" });
+    const hasWords = data.words.length > 0;
+    if (!hasWords) this.renderTabsEmpty(root, "No words yet. Add one above, or open the bulk list when you have several ready.");
+    const bulk = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" });
+    bulk.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Bulk import a word list" });
     bulk.createDiv({ cls: "qt-hint", text: "One word per line: term | definition | optional example | optional media (a vault embed, link or file path)." });
     const bulkForm = bulk.createDiv({ cls: "qt-study-form" });
     const lines = this.renderTextarea(bulkForm, "Words", "ATP | energy currency | ATP powers the cell.", "", 5);
@@ -74954,6 +75597,7 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage(result.count ? `Imported ${result.count} word${result.count === 1 ? "" : "s"}.${result.issues.length ? ` ${result.issues[0]}` : ""}` : "No valid lines. Use term | definition.");
       this.render();
     });
+    if (!hasWords) return;
     const stats = root.createDiv({ cls: "qt-study-stats" });
     const stat = (value, label) => {
       const card = stats.createDiv({ cls: "qt-study-stat" });
@@ -75032,6 +75676,10 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage("Subject added.");
       this.render();
     });
+    if (!data.subjects.length) {
+      this.renderTabsEmpty(root, "No subjects yet. Add the courses you are tracking; projects and absences become available afterwards.");
+      return;
+    }
     const search = root.createDiv({ cls: "qt-study-card" });
     search.createEl("h3", { text: "Subjects" });
     const filter = search.createEl("input", { cls: "qt-input", type: "search" });
@@ -75042,7 +75690,7 @@ class StudyWorkspaceView extends ItemView {
       this.render();
     });
     if (!filtered.length) {
-      search.createDiv({ cls: "qt-study-empty", text: data.subjects.length ? "No subject matches that search." : "No subjects yet. Add the courses you are tracking." });
+      search.createDiv({ cls: "qt-study-empty qt-workspace-filter-empty", text: "No subject matches that search." });
     } else {
       const list = search.createDiv({ cls: "qt-study-list" });
       for (const subject of filtered) {
@@ -75243,24 +75891,30 @@ class StudyWorkspaceView extends ItemView {
   renderReadingLibrary(root) {
     const data = this.settings().readingLibrary;
     const summary = librarySummary(data.books, localDate());
-    const stats = root.createDiv({ cls: "qt-study-stats" });
-    const stat = (value, label) => {
-      const card = stats.createDiv({ cls: "qt-study-stat" });
-      card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
-      card.createDiv({ cls: "qt-study-stat-label", text: label });
-    };
-    stat(summary.reading, "reading");
-    stat(summary.finished, "finished");
-    stat(summary.pagesRead, "pages read");
-    stat(summary.quotes, "quotes");
-    if (summary.finishedToday) {
-      const done = root.createDiv({ cls: "qt-study-card qt-reading-celebration" });
-      done.createEl("h3", { text: "Finished today" });
-      done.createDiv({ cls: "qt-hint", text: `${summary.finishedToday} book${summary.finishedToday === 1 ? "" : "s"} finished today. Add a quote while it is fresh.` });
+    const hasBooks = data.books.length > 0;
+    if (hasBooks) {
+      const stats = root.createDiv({ cls: "qt-study-stats" });
+      const stat = (value, label) => {
+        const card = stats.createDiv({ cls: "qt-study-stat" });
+        card.createDiv({ cls: "qt-study-stat-value", text: String(value) });
+        card.createDiv({ cls: "qt-study-stat-label", text: label });
+      };
+      stat(summary.reading, "reading");
+      stat(summary.finished, "finished");
+      stat(summary.pagesRead, "pages read");
+      stat(summary.quotes, "quotes");
+      if (summary.finishedToday) {
+        const done = root.createDiv({ cls: "qt-study-card qt-reading-celebration" });
+        done.createEl("h3", { text: "Finished today" });
+        done.createDiv({ cls: "qt-hint", text: `${summary.finishedToday} book${summary.finishedToday === 1 ? "" : "s"} finished today. Add a quote while it is fresh.` });
+      }
     }
 
-    const add = root.createDiv({ cls: "qt-study-card" });
-    add.createEl("h3", { text: "Add a book" });
+    const add = hasBooks
+      ? root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" })
+      : root.createDiv({ cls: "qt-study-card" });
+    if (hasBooks) add.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Add another book" });
+    else add.createEl("h3", { text: "Add a book" });
     add.createDiv({ cls: "qt-hint", text: "A local bookshelf with want, reading and finished shelves, page progress and quotes. Nothing leaves the vault." });
     const form = add.createDiv({ cls: "qt-study-form" });
     const title = this.renderField(form, "Title", "text", "Deep Work");
@@ -75285,6 +75939,10 @@ class StudyWorkspaceView extends ItemView {
       this.render();
     });
 
+    if (!hasBooks) {
+      this.renderTabsEmpty(root, "No books on the shelf yet. Add one above; page progress, shelves and quotes stay local.");
+      return;
+    }
     const controls = root.createDiv({ cls: "qt-study-card" });
     controls.createEl("h3", { text: "Bookshelf" });
     controls.createDiv({ cls: "qt-hint", text: data.hideFinished ? "Finished books are hidden from the All shelf. Choose Finished to see them." : "Use a shelf to narrow the list; page progress and ratings stay local." });
@@ -75342,13 +76000,15 @@ class StudyWorkspaceView extends ItemView {
         this.render();
       });
     }
-    actions.createEl("button", { text: "Delete" }).addEventListener("click", async () => {
+    actions.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
       await this.plugin.removeReadingBook(book.id);
       this.saveMessage(`Removed ${book.title}.`);
       this.render();
     });
 
-    const progressForm = item.createDiv({ cls: "qt-study-form" });
+    const tools = item.createEl("details", { cls: "qt-reading-tools qt-workspace-disclosure" });
+    tools.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Update progress and quotes" });
+    const progressForm = tools.createDiv({ cls: "qt-study-form" });
     const page = this.renderField(progressForm, "Current page", "number", "0", String(book.currentPage));
     progressForm.createEl("button", { text: "Save page" }).addEventListener("click", async () => {
       const updated = await this.plugin.setReadingProgress(book.id, page.value);
@@ -75368,7 +76028,7 @@ class StudyWorkspaceView extends ItemView {
       this.render();
     });
 
-    const quoteForm = item.createDiv({ cls: "qt-study-form" });
+    const quoteForm = tools.createDiv({ cls: "qt-study-form" });
     const quoteText = this.renderTextarea(quoteForm, "Quote", "A sentence worth keeping", "", 2);
     const quotePage = this.renderField(quoteForm, "Quote page (optional)", "number", "0", "");
     quoteForm.createEl("button", { text: "Add quote" }).addEventListener("click", async () => {
@@ -75414,11 +76074,11 @@ class StudyWorkspaceView extends ItemView {
     const card = root.createDiv({ cls: "qt-study-card" });
     card.createEl("h3", { text: "Course health" });
     card.createDiv({ cls: "qt-hint", text: "Local checks over the course dashboard, topic planner and tasks. No Canvas request, login or note write is made." });
-    card.createDiv({ cls: "qt-study-row-meta", text: `${report.total} courses · ${report.good} good · ${report.watch} to watch · ${report.atRisk} at risk · ${report.warnings} warning${report.warnings === 1 ? "" : "s"}` });
     if (!report.rows.length) {
-      card.createDiv({ cls: "qt-study-empty", text: "Add a subject, a lecture or a grade to build the course list." });
+      this.renderTabsEmpty(root, "Add a subject, a lecture or a grade to build the course list. Every check below is local.");
       return;
     }
+    card.createDiv({ cls: "qt-study-row-meta", text: `${report.total} courses · ${report.good} good · ${report.watch} to watch · ${report.atRisk} at risk · ${report.warnings} warning${report.warnings === 1 ? "" : "s"}` });
     const list = card.createDiv({ cls: "qt-study-list" });
     for (const row of report.rows) {
       const item = list.createDiv({ cls: "qt-study-row" });
@@ -75439,6 +76099,10 @@ class StudyWorkspaceView extends ItemView {
     const card = root.createDiv({ cls: "qt-study-card" });
     card.createEl("h3", { text: "Compile one study note" });
     card.createDiv({ cls: "qt-hint", text: "Turns the local lecture log into one note with an overview, key concepts, a vocabulary table and one section per lecture. Audio transcription stays out of scope." });
+    if (!lectures.length) {
+      this.renderTabsEmpty(root, "The lecture log is empty. Add a lecture in Study Tools first; the compiler only reads that local log.");
+      return;
+    }
     card.createDiv({ cls: "qt-study-row-meta", text: `${lectures.length} lecture${lectures.length === 1 ? "" : "s"} in the log · saves to ${data.folder}` });
     const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
     actions.createEl("button", { text: "Preview", cls: "mod-cta" }).addEventListener("click", () => {
@@ -75604,6 +76268,10 @@ class StudyWorkspaceView extends ItemView {
       this.render();
       this.speakSentence(0);
     });
+    if (!plan.sentences.length) {
+      this.renderTabsEmpty(root, "Load a note or paste text above to build a speaking plan. Nothing is uploaded and no voice settings leave this device.");
+      return;
+    }
     actions.createEl("button", { text: "Pause" }).addEventListener("click", () => {
       const synth = this.speech();
       if (synth && synth.pause) synth.pause();
@@ -75613,10 +76281,6 @@ class StudyWorkspaceView extends ItemView {
       if (synth && synth.resume) synth.resume();
     });
     actions.createEl("button", { text: "Stop" }).addEventListener("click", () => this.stopReadAloud(true));
-    if (!plan.sentences.length) {
-      card.createDiv({ cls: "qt-study-empty", text: "Load a note or paste text to build a speaking plan." });
-      return;
-    }
     card.createDiv({ cls: "qt-study-row-meta", text: `${plan.sentences.length} sentences · about ${durationLabel(plan.estimatedSeconds)}${plan.truncated ? ` · shortened from ${plan.total}` : ""}` });
     const list = card.createDiv({ cls: "qt-study-list qt-read-aloud-list" });
     plan.sentences.forEach((sentence, index) => {
@@ -75674,7 +76338,7 @@ class StudyWorkspaceView extends ItemView {
     });
     const paths = bookmarkPaths(data.entries);
     if (!paths.length) {
-      card.createDiv({ cls: "qt-study-empty", text: "No bookmarks yet. Add the first timestamp above." });
+      this.renderTabsEmpty(root, "No bookmarks yet. Add the first timestamp above; the plugin stores the path and time, never the audio.");
       return;
     }
     const listCard = root.createDiv({ cls: "qt-study-card" });
@@ -77298,13 +77962,13 @@ class TodayView extends ItemView {
       });
       const course = card.createEl("input", { cls: "qt-focus-course", attr: { placeholder: "Course (optional)", "aria-label": "Course for this focus session" } });
       course.value = p.settings.studyLog.lastCourse || "";
-      const row = card.createDiv({ cls: "qt-row qt-small-row" });
+      const options = card.createDiv({ cls: "qt-focus-options" });
       for (const minutes of [15, 25, 45]) {
-        row.createEl("button", { text: `Start ${minutes}`, cls: minutes === 25 ? "mod-cta" : "" }).addEventListener("click", () =>
+        options.createEl("button", { text: `Start ${minutes}`, cls: `qt-focus-start${minutes === 25 ? " mod-cta" : ""}` }).addEventListener("click", () =>
           p.startFocusSession(minutes, course.value)
         );
       }
-      row.createEl("button", { text: "Log study time", cls: "qt-link" }).addEventListener("click", () => p.openFocusLog());
+      card.createEl("button", { text: "Log study time", cls: "qt-link qt-focus-log" }).addEventListener("click", () => p.openFocusLog());
     }
     if (summary.weekMinutes || summary.todayMinutes) {
       card.createDiv({ cls: "qt-toggle-hint", text: `${summary.weekMinutes} min in the last 7 days · goal ${summary.goalPct}% today` });
@@ -78248,9 +78912,9 @@ async function ensureFolder(app, folder) {
   return cur;
 }
 
-function localDate() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function localDate(value) {
+  const d = value instanceof Date && !Number.isNaN(value.getTime()) ? value : new Date();
+  return fmtDate(d);
 }
 
 module.exports = {

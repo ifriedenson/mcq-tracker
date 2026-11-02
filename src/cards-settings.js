@@ -1,5 +1,5 @@
 "use strict";
-const { Notice, Setting } = require("obsidian");
+const { Notice, SecretComponent, Setting } = require("obsidian");
 const { localDate, str } = require("./util");
 const { DEFAULT_SM2, normalizeSm2 } = require("./sm2");
 const { deckSummary, effectiveScheduler, normalizeDeckIntervals } = require("./cards");
@@ -8,7 +8,7 @@ const { normalizeAutoAnki } = require("./auto-anki");
 const { normalizeText2Anki } = require("./text2anki");
 const { renderSettingsTabs } = require("./settings-ui");
 const { COUCHDB_PASSWORD_SECRET, normalizeCouchDb } = require("./couchdb-sync");
-const { hasSecretStorage, storeSecretValue } = require("./secret-keys");
+const { hasSecretStorage, selectPasswordSecret, storeSecretValue } = require("./secret-keys");
 
 const CARDS_TABS = [
   { id: "decks", label: "Decks", icon: "layers" },
@@ -568,17 +568,54 @@ function renderSync(containerEl, plugin) {
         })
     );
   const secretReady = hasSecretStorage(plugin.app);
-  new Setting(containerEl)
-    .setName("Password")
-    .setDesc(secretReady ? "Stored in Obsidian Secret Storage, never in data.json. Leave blank to keep the saved password." : "Obsidian Secret Storage is unavailable in this app version, so no password can be saved.")
-    .addText((t) => {
-      t.inputEl.type = "password";
-      t.setPlaceholder(secretReady ? "Saved in Secret Storage" : "Secret Storage unavailable").onChange(async (v) => {
-        if (!secretReady || !String(v).trim()) return;
-        storeSecretValue(plugin.app, COUCHDB_PASSWORD_SECRET, v);
-        t.setValue("");
+  const secretPicker = secretReady && typeof SecretComponent === "function";
+  if (secretPicker) {
+    new Setting(containerEl)
+      .setName("Password")
+      .setDesc(
+        "Stored in Obsidian Secret Storage, never in data.json. Select or create a secret. Secret Storage may be per device."
+      )
+      .setClass("qt-settings-secret-row")
+      .addComponent((el) => {
+        const comp = new SecretComponent(plugin.app, el);
+        comp.setValue(current.passwordSecret || "").onChange(async (value) => {
+          const next = { ...normalizeCouchDb(current) };
+          selectPasswordSecret(next, value);
+          plugin.settings.cards.couchdb = next;
+          await plugin.save();
+        });
       });
-    });
+  } else if (secretReady) {
+    const name = current.passwordSecret || COUCHDB_PASSWORD_SECRET;
+    new Setting(containerEl)
+      .setName("Password")
+      .setDesc("Stored in Obsidian Secret Storage, never in data.json. Leave blank to keep the saved password.")
+      .setClass("qt-settings-secret-row")
+      .addText((t) => {
+        t.inputEl.type = "password";
+        t.setPlaceholder("Saved in Secret Storage").onChange(async (v) => {
+          if (!String(v).trim()) return;
+          if (!storeSecretValue(plugin.app, name, v)) return;
+          plugin.settings.cards.couchdb = { ...normalizeCouchDb(current), passwordSecret: name, password: "" };
+          t.setValue("");
+          await plugin.save();
+        });
+      });
+  } else {
+    new Setting(containerEl)
+      .setName("Password")
+      .setDesc(
+        "Secret Storage is not available in this Obsidian version. The password is stored as plain text in data.json and syncs with your vault; anyone with access to the vault can read it."
+      )
+      .setClass("qt-settings-secret-row")
+      .addText((t) => {
+        t.inputEl.type = "password";
+        t.setValue(current.password || "").onChange(async (v) => {
+          plugin.settings.cards.couchdb = { ...normalizeCouchDb(current), password: String(v) };
+          await plugin.save();
+        });
+      });
+  }
   const actions = new Setting(containerEl)
     .setName("Connection and sync")
     .setDesc(current.lastSync ? `Last sync: ${current.lastSync}` : "No sync yet.")

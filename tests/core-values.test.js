@@ -14,6 +14,7 @@ const W = T.studyWorkspace;
 const A = T.assignments;
 const H = T.courseHealth;
 const ST = T.studyTools;
+const util = require("../src/util");
 
 const REGISTRY = [
   {
@@ -346,6 +347,7 @@ test("G4 prompt: an ended class appears once in the opt-in attendance prompt and
   plugin.settings.calendar.enabled = true;
   plugin.settings.lectureLog = ST.normalizeLectureLog({ afterClassPrompt: true, lectures: [] });
   const at = new Date(2026, 10, 1, 12, 0, 0);
+  assert.equal(util.localDate(at), "2026-11-01");
   const event = {
     summary: "Biology",
     dateKey: "2026-11-01",

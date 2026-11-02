@@ -203,7 +203,6 @@ class QuestionTrackerPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
     this.plainCardIndex = new Map();
-    await this.refreshPlainCards();
     this._calendarNoteIndex = null;
     this._calendarFolders = null;
     this._calendarCache = null;
@@ -212,24 +211,6 @@ class QuestionTrackerPlugin extends Plugin {
     this._pendingCardGradeFlush = null;
     this._aiRun = { startedAt: 0, requests: 0 };
     this.agentEditUndo = null;
-    // Calendar notes are resolved by their durable UID/date properties, so any
-    // create/delete/rename (or frontmatter edit) invalidates the shared index.
-    const invalidateNotes = () => this.invalidateCalendarNotes();
-    this.registerEvent(this.app.vault.on("create", invalidateNotes));
-    this.registerEvent(this.app.vault.on("delete", invalidateNotes));
-    this.registerEvent(this.app.vault.on("rename", invalidateNotes));
-    this.registerEvent(this.app.metadataCache.on("changed", invalidateNotes));
-    const refreshPlainCards = () => {
-      const plain = this.settings.cards && this.settings.cards.plainMarkdown;
-      if (!plain || plain.enabled !== true) return;
-      this.refreshPlainCards()
-        .then(() => this.refreshViews())
-        .catch(() => {});
-    };
-    this.registerEvent(this.app.vault.on("create", refreshPlainCards));
-    this.registerEvent(this.app.vault.on("delete", refreshPlainCards));
-    this.registerEvent(this.app.vault.on("rename", refreshPlainCards));
-    this.registerEvent(this.app.metadataCache.on("changed", refreshPlainCards));
 
     // The timer is kept per device (not in the synced settings). One that was running when the
     // app closed becomes paused, counting only up to the last heartbeat (time away isn't counted).
@@ -243,12 +224,8 @@ class QuestionTrackerPlugin extends Plugin {
     }
 
     this.manager = new OpenCodeManager(this);
-    this.setupReminder();
-    this.setupStudyNudge();
-    this.setupNoteReviewStatus();
-    this.setupPomodoroStatus();
-    this.registerInterval(activeWindow.setInterval(() => this.tickPomodoro(), 1000));
     this.app.workspace.onLayoutReady(() => {
+      this.startDeferredStartup();
       if (welcomeShouldShow(this.app)) activeWindow.setTimeout(() => this.openWelcome(), 1200);
       const ai = this.settings.ai;
       if (Platform.isDesktopApp && ai.enabled && ai.managed && ai.preStart && this.backend() === "opencode") {
@@ -256,11 +233,6 @@ class QuestionTrackerPlugin extends Plugin {
       }
       if (this.settings.openPracticeOnStartUp && this.mcqEnabled()) this.activateView().catch(() => {});
       this.decorateFileExplorer();
-      this.indexReadingPlans()
-        .then((count) => {
-          if (count) this.refreshViews();
-        })
-        .catch(() => {});
       this.flushPendingAttempts().then((r) => {
         if (r.sent) new Notice(`Saved ${r.sent} practice result${r.sent === 1 ? "" : "s"} that were waiting offline.`, 5000);
       }).catch(() => {});
@@ -850,6 +822,54 @@ class QuestionTrackerPlugin extends Plugin {
     });
   }
 
+  /** Work that can wait until Obsidian has finished restoring the workspace. */
+  startDeferredStartup() {
+    this.setupReminder();
+    this.setupStudyNudge();
+    this.setupNoteReviewStatus();
+    this.setupPomodoroStatus();
+    this.registerInterval(activeWindow.setInterval(() => this.tickPomodoro(), 1000));
+
+    // These are vault-wide listeners. Registering them after layout avoids
+    // reacting to the initial file enumeration and metadata scan.
+    const invalidateNotes = () => this.invalidateCalendarNotes();
+    this.registerEvent(this.app.vault.on("create", invalidateNotes));
+    this.registerEvent(this.app.vault.on("delete", invalidateNotes));
+    this.registerEvent(this.app.vault.on("rename", invalidateNotes));
+    this.registerEvent(this.app.metadataCache.on("changed", invalidateNotes));
+
+    const refreshPlainCards = () => {
+      const plain = this.settings.cards && this.settings.cards.plainMarkdown;
+      if (!plain || plain.enabled !== true) return;
+      this.refreshPlainCards()
+        .then(() => this.refreshViews())
+        .catch(() => {});
+    };
+    this.registerEvent(this.app.vault.on("create", refreshPlainCards));
+    this.registerEvent(this.app.vault.on("delete", refreshPlainCards));
+    this.registerEvent(this.app.vault.on("rename", refreshPlainCards));
+    this.registerEvent(this.app.metadataCache.on("changed", refreshPlainCards));
+
+    // The old onload awaited this full-folder scan before any view could open.
+    // Start it after layout and repaint Cards once the index is ready.
+    const plain = this.settings.cards && this.settings.cards.plainMarkdown;
+    if (plain && plain.enabled === true) {
+      this.refreshPlainCards()
+        .then((count) => {
+          if (count) this.refreshViews();
+        })
+        .catch(() => {});
+    }
+
+    // Today and plans can render without this index; refresh them once the
+    // reading-plan fences have been collected.
+    this.indexReadingPlans()
+      .then((count) => {
+        if (count) this.refreshViews();
+      })
+      .catch(() => {});
+  }
+
   /* ---- settings */
 
   async loadSettings() {
@@ -971,13 +991,10 @@ class QuestionTrackerPlugin extends Plugin {
     // Move legacy plain-text keys into Secret Storage where Obsidian provides it.
     // This runs before the settings page is drawn, so a migrated key is never
     // written back to data.json.
-    if (secretKeys.migrateApiKeys(this.app, this.settings.ai.api)) await this.save();
-    const openCodePassword = str(this.settings.ai.password).trim();
-    if (openCodePassword && secretKeys.storeSecretValue(this.app, secretKeys.OPENCODE_PASSWORD_SECRET, openCodePassword)) {
-      this.settings.ai.password = "";
-      this.settings.ai.passwordSecret = secretKeys.OPENCODE_PASSWORD_SECRET;
-      await this.save();
-    }
+    let migratedSecrets = secretKeys.migrateApiKeys(this.app, this.settings.ai.api);
+    migratedSecrets += secretKeys.migratePasswordSecret(this.app, this.settings.ai, secretKeys.OPENCODE_PASSWORD_SECRET);
+    migratedSecrets += secretKeys.migratePasswordSecret(this.app, this.settings.cards.couchdb, COUCHDB_PASSWORD_SECRET);
+    if (migratedSecrets) await this.save();
   }
 
   save() {
@@ -1005,7 +1022,7 @@ class QuestionTrackerPlugin extends Plugin {
   conn() {
     const ai = this.settings.ai;
     if (ai.managed && this.manager.conn) return this.manager.conn;
-    const fromSecret = ai.passwordSecret ? secretKeys.readSecretValue(this.app, ai.passwordSecret) : "";
+    const fromSecret = secretKeys.readSecretValue(this.app, ai.passwordSecret || secretKeys.OPENCODE_PASSWORD_SECRET);
     return { url: ai.url, username: ai.username, password: fromSecret || ai.password || this.sessionOpenCodePassword || "" };
   }
 
@@ -6971,7 +6988,11 @@ ${body}
   /** Create one client per operation so a changed URL/password is picked up immediately. */
   couchDbClient() {
     const config = normalizeCouchDb(this.settings.cards.couchdb);
-    const password = secretKeys.readSecretValue(this.app, COUCHDB_PASSWORD_SECRET);
+    const password = secretKeys.resolveSecretValue(
+      this.app,
+      config.passwordSecret || COUCHDB_PASSWORD_SECRET,
+      config.password
+    );
     return new CouchDbClient(config, {
       password,
       request: typeof this.couchDbRequest === "function" ? this.couchDbRequest : requestUrl,
@@ -8808,9 +8829,9 @@ ${body}
   async addAudioBookmark(input) {
     const entry = audioBookmarks.addAudioBookmark(input, Date.now());
     if (!entry) return null;
-    const current = studyWorkspace.normalizeAudioBookmarkSettings(this.settings.audioBookmarks);
+    const current = audioBookmarks.normalizeAudioBookmarkSettings(this.settings.audioBookmarks);
     if (current.entries.some((existing) => existing.path === entry.path && existing.at === entry.at && existing.label === entry.label)) return entry;
-    this.settings.audioBookmarks = studyWorkspace.normalizeAudioBookmarkSettings({
+    this.settings.audioBookmarks = audioBookmarks.normalizeAudioBookmarkSettings({
       ...current,
       entries: current.entries.concat(entry).slice(-audioBookmarks.MAX_BOOKMARKS),
     });
@@ -8820,8 +8841,8 @@ ${body}
   }
 
   async removeAudioBookmark(id) {
-    const current = studyWorkspace.normalizeAudioBookmarkSettings(this.settings.audioBookmarks);
-    this.settings.audioBookmarks = studyWorkspace.normalizeAudioBookmarkSettings({
+    const current = audioBookmarks.normalizeAudioBookmarkSettings(this.settings.audioBookmarks);
+    this.settings.audioBookmarks = audioBookmarks.normalizeAudioBookmarkSettings({
       ...current,
       entries: current.entries.filter((entry) => entry.id !== id),
     });

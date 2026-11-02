@@ -141,6 +141,10 @@ test("assignments view: shows weighted grades, GPA and a working Mark done butto
   assert.ok(texts.some((t) => /3.70/.test(t)));
   assert.ok(texts.some((t) => /Estimated workload/.test(t)));
   assert.ok(texts.some((t) => /~45m/.test(t)));
+  const summary = dom.all.find((el) => el.classes && el.classes.has("qt-assignment-summary"));
+  assert.ok(summary, "the counts are a compact summary line");
+  assert.equal(summary.children.length, 4, "open, overdue, graded and courses stay visible");
+  assert.equal(dom.all.filter((el) => el.classes && el.classes.has("qt-assignment-overview")).length, 1);
   await dom.click("Mark done");
   assert.equal(app.files[0].fm.status, "submitted");
   assert.match(app.files[0].text, /- \[x\] Paper/);

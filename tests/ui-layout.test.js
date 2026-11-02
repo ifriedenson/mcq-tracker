@@ -49,7 +49,56 @@ test("workflow views share toolbars, tabs and compact summaries", () => {
   assert.match(css, /\.qt-screen \.qt-ref-tabs/);
 });
 
+test("study views use a view-specific root instead of the inline study-tools row", () => {
+  for (const file of ["study-tools-view.js", "study-workspace-view.js"]) {
+    assert.match(source(file), /qt-study-tools-view/, `${file} is missing its view root class`);
+    assert.match(source(file), /removeClass\("qt-study-tools"\)/, `${file} does not clear the old root class`);
+    assert.doesNotMatch(source(file), /addClass\("qt-study-tools"\)/, `${file} reuses the inline row class`);
+  }
+});
+
 test("settings navigation stays usable in a narrow pane", () => {
   assert.match(css, /\.qt-settings-modules,\s*\.qt-settings-tabs \{[^}]*flex-wrap: nowrap/s);
   assert.match(css, /\.qt-settings-modules,\s*\.qt-settings-tabs \{[^}]*overflow-x: auto/s);
+});
+
+test("module polish keeps the primary action ahead of filters", () => {
+  assert.match(source("today-view.js"), /qt-focus-options/);
+  assert.match(source("today-view.js"), /qt-focus-log/);
+  assert.match(source("cards-view.js"), /qt-cards-hero/);
+  assert.match(source("cards-view.js"), /qt-cards-filters/);
+  assert.match(css, /\.qt-today \.qt-focus-options \{[^}]*grid-template-columns: repeat\(3/s);
+  assert.match(css, /\.qt-screen\.qt-study-tools-view-wrap \.qt-study-card > \.qt-study-card-action \{[^}]*min-height: 44px/s);
+  assert.match(css, /\.qt-cards-hero \{[^}]*align-items: center/s);
+  assert.match(css, /\.qt-cards-filters \{[^}]*grid-template-columns: repeat\(2/s);
+  const cardsSource = source("cards-view.js");
+  assert.ok(cardsSource.indexOf("qt-cards-hero") < cardsSource.indexOf("qt-cards-tools"), "the review hero precedes the toolbar in DOM order");
+  assert.match(css, /\.qt-today \.qt-focus-options > button:not\(\.mod-cta\) \{[^}]*border: 1px solid/s);
+});
+
+test("SAT callouts render the Bluebook question chrome", () => {
+  const satCss = css.slice(css.indexOf('.callout[data-callout="sat"] {'), css.indexOf("/* ---- first-run screen"));
+  assert.ok(satCss.length > 1000, "the SAT callout styles are present");
+  assert.doesNotMatch(satCss, /#[0-9a-f]{3,8}\b/i, "SAT callout chrome must use theme tokens");
+  assert.match(css, /\.callout\[data-callout="sat"\]\s*\{[^}]*--sat-select: var\(--interactive-accent\)/s);
+  assert.match(css, /\.callout\[data-callout="sat"\]\s*\{[^}]*--sat-marked: var\(--color-red\)/s);
+  assert.match(css, /color: var\(--text-on-accent\)/);
+  assert.match(css, /\.callout\[data-callout="sat"\] > \.callout-title::before \{[^}]*content: "Mark for Review"/s);
+  assert.match(css, /\.callout\[data-callout="sat"\] > \.callout-title::after \{[^}]*content: "ABC"/s);
+  assert.match(css, /data-callout-metadata~="marked"/);
+  assert.match(css, /\.callout\[data-callout="sat"\] > \.callout-content > blockquote \{[^}]*float: left/s);
+  assert.match(css, /counter\(sat-choice, upper-alpha\)/);
+  assert.match(css, /\.callout\[data-callout="sat"\] > \.callout-content > ul:not\(:first-child\) > li\[data-task="x"\] \{[^}]*--sat-select/s);
+  assert.match(css, /var\(--font-text, serif\)/);
+  assert.match(css, /\.callout\[data-callout="sat"\] > \.callout-title > \.callout-fold \{[^}]*order: 3/s);
+  assert.match(css, /@media \(max-width: 640px\) \{[\s\S]*?\.callout\[data-callout="sat"\] > \.callout-content > blockquote \{[^}]*float: none/s);
+});
+
+test("long navigation is a compact picker instead of a clipped rail", () => {
+  assert.match(source("settings-tab.js"), /qt-settings-module-picker/);
+  assert.match(source("reference-view.js"), /qt-ref-picker/);
+  assert.match(css, /\.qt-settings-modules \{\s*display: none/s);
+  assert.match(css, /\.qt-settings-module-picker \{\s*display: block/s);
+  assert.match(css, /\.qt-ref-tabs\.qt-small-row \{\s*display: none/s);
+  assert.match(css, /\.qt-ref-picker \{\s*display: block/s);
 });

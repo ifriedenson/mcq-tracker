@@ -95,6 +95,68 @@ function storeApiKey(app, api, provider, key) {
 }
 
 /**
+ * Record a chosen password secret name and drop the legacy plain-text copy.
+ * Works for the OpenCode server password and the CouchDB password, which both
+ * keep `passwordSecret` plus an older `password` field.
+ */
+function selectPasswordSecret(target, name) {
+  if (!target) return "";
+  const value = str(name).trim();
+  target.passwordSecret = value;
+  target.password = "";
+  return value;
+}
+
+/** Read a named secret, then fall back to the legacy stored value. */
+function resolveSecretValue(app, name, fallback) {
+  return readSecret(secretStorageOf(app), name) || str(fallback);
+}
+
+/**
+ * Move a legacy plain-text password into Secret Storage and keep only its
+ * name. Idempotent; leaves the plain-text value untouched when Secret Storage
+ * is unavailable or the write throws.
+ */
+function migratePasswordSecret(app, target, defaultName) {
+  const store = secretStorageOf(app);
+  if (!store || !target) return 0;
+  const legacy = str(target.password);
+  const current = str(target.passwordSecret).trim();
+  const fallbackName = str(defaultName).trim();
+  const name = current || fallbackName;
+  if (legacy.trim()) {
+    try {
+      if (!readSecret(store, name)) store.setSecret(name, legacy);
+      target.passwordSecret = name;
+      target.password = "";
+      return 1;
+    } catch (e) {
+      return 0;
+    }
+  }
+  // Older releases used a fixed secret name without recording it in settings.
+  if (!current && fallbackName && readSecret(store, fallbackName)) {
+    target.passwordSecret = fallbackName;
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * Record the chosen secret name in settings and remove any legacy plain-text
+ * copy for that provider. Settings never receive the secret value.
+ */
+function selectApiSecret(api, provider, name) {
+  if (!api) return "";
+  const value = str(name).trim();
+  api.secrets = api.secrets || {};
+  if (value) api.secrets[provider] = value;
+  else delete api.secrets[provider];
+  if (api.keys) delete api.keys[provider];
+  return value;
+}
+
+/**
  * Move any legacy plain-text keys into Secret Storage. Idempotent. Existing
  * selected secrets win; the plain-text copy is still removed so it cannot
  * remain in a synced data.json.
@@ -133,7 +195,11 @@ module.exports = {
   storeSecretValue,
   migrateApiKeys,
   newSecretName,
+  migratePasswordSecret,
   resolveApiKey,
+  resolveSecretValue,
   secretName,
+  selectApiSecret,
+  selectPasswordSecret,
   storeApiKey,
 };

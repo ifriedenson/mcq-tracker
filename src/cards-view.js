@@ -176,6 +176,47 @@ class CardView extends ItemView {
     head.createEl("h2", { text: "Cards" });
     head.createDiv({ cls: "qt-screen-subtitle", text: "Build decks, clear what is due, and keep every card tied to its source note." });
 
+    if (!all.length) {
+      const empty = root.createDiv({ cls: "qt-onboard-card" });
+      empty.createEl("h3", { text: "No cards yet" });
+      empty.createDiv({
+        cls: "qt-onboard-text",
+        text: "Create a flashcard or a vocabulary note. Each card is a Markdown note with its own deck, course tag and review history.",
+      });
+      empty.createEl("button", { text: "Create the first card", cls: "mod-cta qt-primary" }).addEventListener("click", () =>
+        this.openCardModal()
+      );
+      return;
+    }
+
+    const dueHere = shown.filter((c) => !Number(c.fm.attempts) || str(c.fm.next_review).slice(0, 10) <= today).length;
+    const hero = root.createDiv({ cls: "qt-cards-hero" });
+    const heroCopy = hero.createDiv({ cls: "qt-cards-hero-copy" });
+    heroCopy.createDiv({ cls: "qt-cards-hero-kicker", text: dueHere ? "Review queue" : shown.length ? "Card library" : "Filtered view" });
+    heroCopy.createDiv({
+      cls: "qt-cards-hero-title",
+      text: dueHere
+        ? `${dueHere} card${dueHere === 1 ? "" : "s"} ready to review`
+        : shown.length
+          ? `${shown.length} card${shown.length === 1 ? "" : "s"} in this view`
+          : "No cards match this view",
+    });
+    heroCopy.createDiv({
+      cls: "qt-cards-hero-meta",
+      text: dueHere
+        ? "Clear the due queue first, then work through any new cards."
+        : shown.length
+          ? "Everything in this view is scheduled ahead. Start a review to browse the deck."
+          : "Clear a deck or course filter, or add a card to this deck.",
+    });
+    const start = hero.createEl("button", {
+      text: dueHere ? `Start review (${dueHere})` : "Review all cards",
+      cls: "mod-cta qt-primary qt-cards-start",
+    });
+    start.disabled = !shown.length;
+    start.addEventListener("click", () => this.startReview(dueHere ? "due" : "all"));
+
+
     const tools = root.createDiv({ cls: "qt-row qt-cards-tools qt-toolbar" });
     const add = tools.createEl("button", { text: "New card", cls: "mod-cta" });
     add.addEventListener("click", () => this.openCardModal());
@@ -202,38 +243,21 @@ class CardView extends ItemView {
     summary.createSpan({ text: `${stats.total} card${stats.total === 1 ? "" : "s"}` });
     summary.createSpan({ text: `${stats.due} due` });
     summary.createSpan({ text: `${stats.fresh} new` });
-    if (pending.length) summary.createSpan({ cls: "qt-cards-pending-count", text: `${pending.length} pending` });
-
-    this.renderPendingGrades(root, pending);
-    this.renderDeckPicker(root, all, today);
-    this.renderCoursePicker(root, all);
-
-    if (!all.length) {
-      const empty = root.createDiv({ cls: "qt-onboard-card" });
-      empty.createEl("h3", { text: "No cards yet" });
-      empty.createDiv({
-        cls: "qt-onboard-text",
-        text: "Create a flashcard or a vocabulary note. Each card is a Markdown note with its own deck, course tag and review history.",
-      });
-      empty.createEl("button", { text: "Create the first card", cls: "mod-cta qt-primary" }).addEventListener("click", () =>
-        this.openCardModal()
-      );
-      return;
+    if (pending.length) {
+      summary.addClass("has-pending");
+      summary.createSpan({ cls: "qt-cards-pending-count", text: `${pending.length} pending` });
     }
 
-    const dueHere = shown.filter((c) => !Number(c.fm.attempts) || str(c.fm.next_review).slice(0, 10) <= today).length;
-    const start = root.createEl("button", {
-      text: dueHere ? `Start review (${dueHere})` : "Review all cards",
-      cls: "mod-cta qt-primary qt-cards-start",
-    });
-    start.disabled = !shown.length;
-    start.addEventListener("click", () => this.startReview(dueHere ? "due" : "all"));
+    this.renderPendingGrades(root, pending);
 
-    this.renderCardRetention(root, shown, today);
+    const filters = root.createDiv({ cls: "qt-cards-filters" });
+    this.renderDeckPicker(filters, all, today);
+    this.renderCoursePicker(filters, all);
 
     root.createEl("h3", { cls: "qt-cards-heading", text: "In this view" });
     if (!shown.length) {
       root.createDiv({ cls: "qt-hint", text: "No cards match this deck and course. Pick another deck or clear the course filter." });
+      this.renderCardRetention(root, shown, today);
       return;
     }
     const list = root.createDiv({ cls: "qt-cards-list" });
@@ -260,6 +284,8 @@ class CardView extends ItemView {
     if (shown.length > preview.length) {
       root.createDiv({ cls: "qt-hint", text: `Showing ${preview.length} of ${shown.length}. Start a review for the rest.` });
     }
+
+    this.renderCardRetention(root, shown, today);
   }
 
   /** Repeat-review accuracy for the cards in the current deck/course filter. */

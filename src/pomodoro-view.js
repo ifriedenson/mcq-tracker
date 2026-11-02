@@ -65,8 +65,8 @@ class PomodoroView extends ItemView {
     const actions = card.createDiv({ cls: "qt-row qt-pomodoro-actions" });
     if (data.running) actions.createEl("button", { text: "Pause", cls: "mod-cta" }).addEventListener("click", () => this.plugin.pausePomodoro());
     else actions.createEl("button", { text: data.remaining < data.phaseSeconds ? "Resume" : "Start", cls: "mod-cta" }).addEventListener("click", () => this.plugin.startPomodoro());
-    actions.createEl("button", { text: "Reset" }).addEventListener("click", () => this.plugin.resetPomodoro());
-    actions.createEl("button", { text: "Skip phase" }).addEventListener("click", () => this.plugin.skipPomodoro());
+    actions.createEl("button", { text: "Reset", cls: "qt-pomodoro-secondary" }).addEventListener("click", () => this.plugin.resetPomodoro());
+    actions.createEl("button", { text: "Skip phase", cls: "qt-pomodoro-secondary" }).addEventListener("click", () => this.plugin.skipPomodoro());
     const settings = data.settings;
     card.createDiv({
       cls: "qt-hint",

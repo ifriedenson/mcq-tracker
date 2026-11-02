@@ -20,6 +20,8 @@ const DEFAULT_COUCHDB = {
   url: "",
   database: "mcq-tracker",
   username: "",
+  passwordSecret: "",
+  password: "", // legacy plain-text fallback for Obsidian versions without Secret Storage
   lastSync: "",
   lastError: "",
 };
@@ -66,6 +68,8 @@ function normalizeCouchDb(value) {
     url: str(src.url).trim().replace(/\/+$/, ""),
     database: database.replace(/^\/+|\/+$/g, "").slice(0, 200),
     username: str(src.username).trim(),
+    passwordSecret: str(src.passwordSecret).trim(),
+    password: str(src.password),
     lastSync: str(src.lastSync).trim(),
     lastError: str(src.lastError).trim().slice(0, 500),
   };

@@ -49,7 +49,8 @@ class StudyToolsView extends ItemView {
 
   async onOpen() {
     this.contentEl.addClass("qt-root");
-    this.contentEl.addClass("qt-study-tools");
+    this.contentEl.removeClass("qt-study-tools");
+    this.contentEl.addClass("qt-study-tools-view");
     this.render();
   }
 
@@ -79,7 +80,7 @@ class StudyToolsView extends ItemView {
   render() {
     const root = this.contentEl;
     root.empty();
-    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap qt-screen" });
+    const wrap = root.createDiv({ cls: "qt-wrap qt-study-tools-wrap qt-study-tools-view-wrap qt-screen" });
     if (!this.plugin.studyToolsEnabled()) {
       this.renderOff(wrap);
       return;
@@ -128,7 +129,7 @@ class StudyToolsView extends ItemView {
     };
     if (data.studyGoals.enabled) stat(summary.open, "open goals");
     if (data.lectureLog.enabled) stat(lectures.length, "lectures logged");
-    if (data.cornellNotes.enabled) stat("Note", "Cornell blocks");
+    if (data.cornellNotes.enabled) stat("Ready", "Cornell notes");
     if (!data.studyGoals.enabled && !data.lectureLog.enabled && !data.cornellNotes.enabled) {
       root.createDiv({ cls: "qt-study-empty", text: "Turn on at least one study tool in Settings." });
       return;
@@ -150,7 +151,7 @@ class StudyToolsView extends ItemView {
       } else {
         card.createDiv({ cls: "qt-study-empty", text: "No open goals yet. Set one to keep a small, concrete target in view." });
       }
-      card.createEl("button", { text: summary.next ? "Open goals" : "Set a goal", cls: "qt-link" }).addEventListener("click", () => this.setTab("goals"));
+      card.createEl("button", { text: summary.next ? "Open goals" : "Set a goal", cls: "qt-link qt-study-card-action" }).addEventListener("click", () => this.setTab("goals"));
     }
     if (data.lectureLog.enabled) {
       const card = grid.createDiv({ cls: "qt-study-card" });
@@ -161,13 +162,27 @@ class StudyToolsView extends ItemView {
       } else {
         card.createDiv({ cls: "qt-study-empty", text: "No upcoming lecture is logged. Add one after class or paste a whole timetable line." });
       }
-      card.createEl("button", { text: "Open lecture log", cls: "qt-link" }).addEventListener("click", () => this.setTab("lectures"));
+      card.createEl("button", { text: "Open lecture log", cls: "qt-link qt-study-card-action" }).addEventListener("click", () => this.setTab("lectures"));
     }
     if (data.cornellNotes.enabled) {
       const card = grid.createDiv({ cls: "qt-study-card" });
       card.createEl("h3", { text: "Cornell notes" });
       card.createDiv({ cls: "qt-study-next-meta", text: "Create a cue-first note, then use Recall mode in the block to hide the notes until you answer each cue." });
-      card.createEl("button", { text: "Create Cornell note", cls: "qt-link" }).addEventListener("click", () => this.setTab("cornell"));
+      card.createEl("button", { text: "Create Cornell note", cls: "qt-link qt-study-card-action" }).addEventListener("click", () => this.setTab("cornell"));
+    }
+
+    const guide = root.createDiv({ cls: "qt-study-guide" });
+    guide.createEl("h3", { text: "How the tools fit together" });
+    const steps = guide.createDiv({ cls: "qt-study-guide-steps" });
+    for (const [number, title, copy] of [
+      ["1", "Capture", "Log a lecture after class or set one concrete study goal."],
+      ["2", "Review", "Use Cornell cues in your notes to test recall instead of rereading."],
+      ["3", "Continue", "Today surfaces the next lecture and open goal so you know where to start."],
+    ]) {
+      const step = steps.createDiv({ cls: "qt-study-step" });
+      step.createDiv({ cls: "qt-study-step-number", text: number });
+      step.createDiv({ cls: "qt-study-step-title", text: title });
+      step.createDiv({ cls: "qt-study-step-copy", text: copy });
     }
   }
 

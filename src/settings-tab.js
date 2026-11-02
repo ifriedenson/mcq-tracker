@@ -29,7 +29,7 @@ const { normalizeAiContext } = require("./ai-context");
 const { AI_FEATURES, CAPABILITY_LABELS } = require("./ai-service");
 const { normalizeVerificationMode } = require("./answer-verification");
 const { SAME_DAY_NOTE } = require("./fsrs");
-const { hasSecretStorage, readSecretValue, storeSecretValue, OPENCODE_PASSWORD_SECRET } = require("./secret-keys");
+const { hasSecretStorage, readSecretValue, selectApiSecret, selectPasswordSecret, storeSecretValue, OPENCODE_PASSWORD_SECRET } = require("./secret-keys");
 
 const SETTINGS_MODULES = [
   { id: "global", label: "Global", icon: "settings" },
@@ -908,8 +908,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
             .addComponent((el) => {
               const comp = new SecretComponent(this.app, el);
               comp.setValue(current).onChange(async (value) => {
-                api.secrets = api.secrets || {};
-                api.secrets[api.provider] = str(value).trim();
+                selectApiSecret(api, api.provider, value);
                 await this.plugin.save();
               });
             });
@@ -974,7 +973,7 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       new Setting(containerEl).setName("Test").addButton((b) =>
         b.setButtonText("Test").onClick(async () => {
           try {
-            const r = await new ApiClient(ai).chat("You are a connection test.", [{ role: "user", content: "Reply with the single word OK." }]);
+            const r = await new ApiClient(ai, this.app).chat("You are a connection test.", [{ role: "user", content: "Reply with the single word OK." }]);
             new Notice(`Connected. Reply: ${r.trim().slice(0, 60)}`, 6000);
           } catch (e) {
             new Notice(friendlyApiError(e), 10000);
@@ -1147,47 +1146,67 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           })
         );
       const secretStorage = hasSecretStorage(this.app);
-      const savedPassword = secretStorage && ai.passwordSecret ? readSecretValue(this.app, ai.passwordSecret) : str(ai.password);
-      new Setting(containerEl)
-        .setName("Password")
-        .setDesc(
-          secretStorage
-            ? "Stored in Obsidian's Secret Storage, outside data.json. Secret Storage may be per device."
-            : "Secret Storage is not available in this Obsidian version. The password stays in memory for this session unless you explicitly allow saving it below."
-        )
-        .addText((t) => {
-          t.inputEl.type = "password";
-          t.setValue(savedPassword || this.plugin.sessionOpenCodePassword || "").onChange(async (v) => {
-            this.plugin.sessionOpenCodePassword = v;
-            if (secretStorage) {
-              if (v) {
-                if (storeSecretValue(this.app, OPENCODE_PASSWORD_SECRET, v)) {
-                  ai.passwordSecret = OPENCODE_PASSWORD_SECRET;
-                  ai.password = "";
+      const secretPicker = secretStorage && typeof SecretComponent === "function";
+      if (secretPicker) {
+        new Setting(containerEl)
+          .setName("Password")
+          .setDesc(
+            "Stored in Obsidian's Secret Storage, outside data.json. Select or create a secret. Secret Storage may be per device."
+          )
+          .setClass("qt-settings-secret-row")
+          .addComponent((el) => {
+            const comp = new SecretComponent(this.app, el);
+            comp.setValue(ai.passwordSecret || "").onChange(async (value) => {
+              selectPasswordSecret(ai, value);
+              ai.rememberPassword = false;
+              this.plugin.sessionOpenCodePassword = "";
+              await this.plugin.save();
+            });
+          });
+      } else {
+        const savedPassword = secretStorage && ai.passwordSecret ? readSecretValue(this.app, ai.passwordSecret) : str(ai.password);
+        new Setting(containerEl)
+          .setName("Password")
+          .setDesc(
+            secretStorage
+              ? "Stored in Obsidian's Secret Storage, outside data.json. Secret Storage may be per device."
+              : "Secret Storage is not available in this Obsidian version. The password stays in memory for this session unless you explicitly allow saving it below."
+          )
+          .setClass("qt-settings-secret-row")
+          .addText((t) => {
+            t.inputEl.type = "password";
+            t.setValue(savedPassword || this.plugin.sessionOpenCodePassword || "").onChange(async (v) => {
+              this.plugin.sessionOpenCodePassword = v;
+              if (secretStorage) {
+                if (v) {
+                  if (storeSecretValue(this.app, OPENCODE_PASSWORD_SECRET, v)) {
+                    ai.passwordSecret = OPENCODE_PASSWORD_SECRET;
+                    ai.password = "";
+                  } else {
+                    ai.password = v;
+                  }
                 } else {
-                  ai.password = v;
+                  ai.passwordSecret = "";
+                  ai.password = "";
                 }
               } else {
-                ai.passwordSecret = "";
-                ai.password = "";
+                ai.password = ai.rememberPassword === true ? v : "";
               }
-            } else {
-              ai.password = ai.rememberPassword === true ? v : "";
-            }
-            await this.plugin.save();
-          });
-        });
-      if (!secretStorage) {
-        new Setting(containerEl)
-          .setName("Remember OpenCode password")
-          .setDesc("Off by default. When on, the password is saved as plain text in data.json and syncs with the vault. Leave it off to enter the password again after restarting Obsidian.")
-          .addToggle((t) =>
-            t.setValue(ai.rememberPassword === true).onChange(async (v) => {
-              ai.rememberPassword = v;
-              ai.password = v ? this.plugin.sessionOpenCodePassword || "" : "";
               await this.plugin.save();
-            })
-          );
+            });
+          });
+        if (!secretStorage) {
+          new Setting(containerEl)
+            .setName("Remember OpenCode password")
+            .setDesc("Off by default. When on, the password is saved as plain text in data.json and syncs with the vault. Leave it off to enter the password again after restarting Obsidian.")
+            .addToggle((t) =>
+              t.setValue(ai.rememberPassword === true).onChange(async (v) => {
+                ai.rememberPassword = v;
+                ai.password = v ? this.plugin.sessionOpenCodePassword || "" : "";
+                await this.plugin.save();
+              })
+            );
+        }
       }
     }
 
@@ -1397,6 +1416,16 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       },
       { className: "qt-settings-modules", tabClass: "qt-settings-module" }
     );
+    const picker = rootEl.createEl("select", {
+      cls: "qt-settings-module-picker qt-select",
+      attr: { "aria-label": "Settings module" },
+    });
+    for (const module of SETTINGS_MODULES) picker.createEl("option", { value: module.id, text: module.label });
+    picker.value = this.activeModule;
+    picker.addEventListener("change", () => {
+      this.activeModule = picker.value;
+      this.display();
+    });
   }
 
   renderMcqTabs(containerEl) {

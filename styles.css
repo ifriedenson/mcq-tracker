@@ -17,6 +17,20 @@
   margin: 2px 0 10px;
 }
 
+.qt-settings-module-picker {
+  appearance: auto;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  display: none;
+  font-weight: 600;
+  margin: 2px 0 10px;
+  min-height: 44px;
+  padding: 0 10px;
+  width: 100%;
+}
+
 .qt-module-index {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -3674,6 +3688,338 @@
   min-height: 1.2em;
 }
 
+/* SAT (Bluebook) question callout.
+
+   > [!sat] 8
+   > > Passage text (optional). A nested quote becomes the left
+   > > column, like Reading and Writing questions.
+   >
+   > Question text...
+   > - first choice
+   > - second choice
+   > - third choice
+   > - fourth choice
+
+   The title is the question number. A bulleted list becomes the
+   lettered answer choices. [!sat|marked] fills the banner maroon; so
+   does a first line "- [x] Mark for Review" (click the banner to toggle).
+   Write a choice as a task to select it: "- [x] choice" (or click
+   the choice to toggle it, when the choices are written "- [ ]"). */
+
+.callout[data-callout="sat"] {
+  --callout-icon: lucide-bookmark;
+  --sat-line: var(--text-normal);
+  --sat-select: var(--interactive-accent);
+  --sat-marked: var(--color-red);
+  --sat-ui-font: Roboto, var(--font-interface);
+  --sat-divider: var(--text-faint);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 0;
+  overflow: hidden;
+  color: var(--text-normal);
+  font-family: "Noto Serif", Georgia, var(--font-text, serif);
+}
+
+/* Header bar: number box, banner + "Mark for Review", ABC button on
+   the right, dashed rule */
+.callout[data-callout="sat"] > .callout-title {
+  align-items: stretch;
+  gap: 0;
+  padding: 0 0 3px;
+  /* gray bar on top, spaced dashes along the bottom edge */
+  background:
+    linear-gradient(var(--background-secondary), var(--background-secondary)) top / 100% calc(100% - 3px) no-repeat,
+    repeating-linear-gradient(to right, var(--text-normal) 0 19px, transparent 19px 22px) bottom / 100% 2px no-repeat,
+    var(--background-primary);
+  font-family: var(--sat-ui-font);
+  color: var(--text-normal);
+}
+.callout[data-callout="sat"] > .callout-title > .callout-title-inner {
+  order: 0;
+  /* trim to the capital letters so the number centers on its glyph,
+     whatever the font's line metrics; this box sets the bar height */
+  display: block;
+  box-sizing: content-box;
+  text-box: trim-both cap alphabetic;
+  min-width: 2.1em; /* square: matches the 2.1em bar height */
+  padding: calc((2.1em - 1cap) / 2) 0;
+  text-align: center;
+  background: var(--text-normal);
+  color: var(--background-primary);
+  font-weight: 700;
+}
+
+/* Hand-drawn banner: wide outline, rounded top, notched bottom.
+   ::before is the white fill, ::after the outline on top of it. */
+.callout[data-callout="sat"] > .callout-title > .callout-icon {
+  order: 1;
+  align-self: center;
+  position: relative;
+  display: flex;
+  width: 0.875em;
+  height: 1.05em;
+  margin-left: 0.9em;
+}
+.callout[data-callout="sat"] > .callout-title > .callout-icon .svg-icon {
+  display: none;
+}
+.callout[data-callout="sat"] > .callout-title > .callout-icon::before,
+.callout[data-callout="sat"] > .callout-title > .callout-icon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16.5 20'%3E%3Cpath d='M2 2.1a0.6 0.6 0 0 1 0.6-0.6h11.3a0.6 0.6 0 0 1 0.6 0.6v16.4l-6.25-4-6.25 4z' fill='black' stroke='black' stroke-width='1.8' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.callout[data-callout="sat"] > .callout-title > .callout-icon::before {
+  background: var(--background-primary);
+}
+.callout[data-callout="sat"] > .callout-title > .callout-icon::after {
+  background: var(--text-normal);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16.5 20'%3E%3Cpath d='M2 2.1a0.6 0.6 0 0 1 0.6-0.6h11.3a0.6 0.6 0 0 1 0.6 0.6v16.4l-6.25-4-6.25 4z' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.callout[data-callout="sat"] > .callout-title::before {
+  order: 2;
+  align-self: center;
+  content: "Mark for Review";
+  margin-left: 0.4em;
+}
+
+/* Marked: "[!sat|marked]", or the "- [x] Mark for Review" toggle below.
+   Maroon banner (black outline kept), underlined label. */
+.callout[data-callout="sat"][data-callout-metadata~="marked"] > .callout-title::before,
+.callout[data-callout="sat"]:has(> .callout-content > ul:first-child > li[data-task="x"]) > .callout-title::before {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 1px;
+}
+.callout[data-callout="sat"][data-callout-metadata~="marked"] > .callout-title > .callout-icon::before,
+.callout[data-callout="sat"]:has(> .callout-content > ul:first-child > li[data-task="x"]) > .callout-title > .callout-icon::before {
+  background: var(--sat-marked);
+}
+
+/* Answer-eliminator button: "ABC" with a slash along the box's
+   diagonal, scored by a white strip under it */
+.callout[data-callout="sat"] > .callout-title::after {
+  order: 4;
+  align-self: center;
+  content: "ABC";
+  display: block;
+  box-sizing: content-box;
+  text-align: center;
+  text-box: trim-both cap alphabetic;
+  /* sizes are in this element's smaller font: 2.4em ≈ 1.8em of the bar;
+     slightly shorter than wide */
+  width: 2.4em;
+  height: 1cap;
+  padding: calc((2.15em - 1cap) / 2) 0;
+  margin: 0 1em 0 auto;
+  border: 1.5px solid var(--text-normal);
+  border-radius: 0.6em;
+  background: var(--background-primary);
+  font-size: 0.75em;
+  font-weight: 700;
+  letter-spacing: -0.06em;
+}
+/* Slash and white score strip, laid exactly over the button on top of
+   the letters (same font size, so the same em sizes). Both layers share
+   one position; the strip extends under the slash so no letter can
+   show between them. */
+.callout[data-callout="sat"] > .callout-title {
+  position: relative;
+}
+.callout[data-callout="sat"] > .callout-title > .callout-title-inner::before,
+.callout[data-callout="sat"] > .callout-title > .callout-title-inner::after {
+  content: "";
+  position: absolute;
+  right: 1em;
+  top: calc(50% - 1.5px); /* center of the bar, above the dashes */
+  transform: translateY(-50%);
+  width: calc(2.4em + 3px);
+  height: calc(2.15em + 3px);
+  font-size: 0.75em;
+  pointer-events: none;
+}
+.callout[data-callout="sat"] > .callout-title > .callout-title-inner::before {
+  background: var(--background-primary);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 215' preserveAspectRatio='none'%3E%3Cpath d='M39.4 176.9 197.8 35.0 208.9 47.4 50.5 189.3z'/%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat;
+}
+.callout[data-callout="sat"] > .callout-title > .callout-title-inner::after {
+  background: var(--text-normal);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 215' preserveAspectRatio='none'%3E%3Cpath d='M36.6 173.8 195.0 31.9 203.4 41.2 45.0 183.1z'/%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat;
+}
+.callout[data-callout="sat"] > .callout-title > .callout-fold {
+  order: 3;
+  align-self: center;
+  margin-left: auto;
+  padding-right: 0.5em;
+}
+/* With a fold control before it, ABC is no longer flush to the title's
+   margin box; keep the slash overlay attached to ABC's right edge. */
+.callout[data-callout="sat"] > .callout-title:has(> .callout-fold)::after {
+  margin-left: 0.4em;
+}
+
+.callout[data-callout="sat"] > .callout-content {
+  position: relative;
+  /* Live Preview sets overflow: auto here, which clips the Mark for
+     Review toggle placed up in the header */
+  overflow: visible;
+  display: flow-root;
+  padding: 0.8em 1.25em 1em;
+  line-height: 1.6;
+}
+
+/* Mark for Review toggle: a task list as the first line of the callout,
+   "- [ ] Mark for Review". It is hidden and its checkbox is stretched
+   over the header's banner and label, so clicking there toggles it.
+   Placed up from the content into the header bar (2.1em + 3px dashes). */
+.callout[data-callout="sat"] > .callout-content > ul:first-child {
+  position: absolute;
+  z-index: 1;
+  top: calc(-2.1em - 3px);
+  left: 2.1em;
+  width: 9.6em;
+  height: 2.1em;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.callout[data-callout="sat"] > .callout-content > ul:first-child > li {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  color: transparent;
+  font-size: 0;
+}
+.callout[data-callout="sat"] > .callout-content > ul:first-child > li > input.task-list-item-checkbox {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* Passage: nested quote floats left; a centered bar divides the columns */
+.callout[data-callout="sat"] > .callout-content > blockquote {
+  float: left;
+  width: calc(50% - 1.25em);
+  margin: 0;
+  padding: 0;
+  border: none;
+  font-style: normal;
+  color: var(--text-normal);
+  background: none;
+}
+.callout[data-callout="sat"] > .callout-content:has(> blockquote) {
+  position: relative;
+}
+.callout[data-callout="sat"] > .callout-content:has(> blockquote)::before {
+  content: "";
+  position: absolute;
+  top: 1em;
+  bottom: 1em;
+  left: calc(50% - 2px);
+  width: 4px;
+  border-radius: 2px;
+  background: var(--sat-divider);
+}
+.callout[data-callout="sat"] > .callout-content:has(> blockquote) > :not(blockquote) {
+  margin-left: calc(50% + 1.25em);
+}
+
+/* Answer choices */
+.callout[data-callout="sat"] > .callout-content > ul:not(:first-child) {
+  list-style: none;
+  padding-left: 0;
+  margin-top: 1em;
+  margin-bottom: 0;
+  counter-reset: sat-choice;
+}
+.callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li {
+  counter-increment: sat-choice;
+  position: relative;
+  margin: 0.75em 0;
+  margin-inline-start: 0;
+  padding: 0.55em 1em 0.55em 3em;
+  line-height: 1.6;
+  border: 1.5px solid var(--sat-line);
+  border-radius: 8px;
+}
+.callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li > .list-bullet,
+.callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li > .list-collapse-indicator {
+  display: none;
+}
+.callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li::before {
+  content: counter(sat-choice, upper-alpha);
+  position: absolute;
+  left: 0.75em;
+  /* center on the first text line. This element's em is 0.8 of the
+     choice's: padding 0.55/0.8, line 1.6/0.8, circle 1.35em + 3px border */
+  top: calc(0.6875em + (2em - 1.35em - 3px) / 2);
+  display: block;
+  box-sizing: content-box;
+  text-align: center;
+  text-box: trim-both cap alphabetic;
+  width: 1.35em;
+  height: 1cap;
+  padding: calc((1.35em - 1cap) / 2) 0;
+  border: 1.5px solid var(--text-normal);
+  border-radius: 50%;
+  font-family: var(--sat-ui-font);
+  font-size: 0.8em;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Selected choice: "- [x]". The task checkbox is stretched invisibly
+   over the whole box, so clicking the box toggles it. */
+.callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li > input.task-list-item-checkbox {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li.task-list-item[data-task="x"],
+.callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li.task-list-item[data-task="x"] * {
+  color: var(--text-normal);
+  text-decoration: none;
+}
+.callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li[data-task="x"] {
+  border-color: var(--sat-select);
+  box-shadow: 0 0 0 1.5px var(--sat-select);
+}
+.callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li[data-task="x"]::before {
+  border-color: var(--sat-select);
+  background: var(--sat-select);
+  color: var(--text-on-accent);
+}
+
+/* Narrow panes cannot fit a readable two-column passage. Stack the
+   passage above the question and turn the column divider into a rule. */
+@media (max-width: 640px) {
+  .callout[data-callout="sat"] > .callout-content > blockquote {
+    float: none;
+    width: auto;
+    margin: 0 0 1em;
+    padding: 0 0 1em;
+    border-bottom: 2px solid var(--sat-divider);
+  }
+  .callout[data-callout="sat"] > .callout-content:has(> blockquote)::before {
+    display: none;
+  }
+  .callout[data-callout="sat"] > .callout-content:has(> blockquote) > :not(blockquote):not(ul:first-child) {
+    margin-left: 0;
+  }
+}
+
 /* ---- first-run screen: no questions yet (theme variables only, so light and dark both work) */
 .qt-wrap.qt-onboard {
   display: flex;
@@ -4714,6 +5060,14 @@
   margin-bottom: 12px;
 }
 
+.qt-ref-picker {
+  appearance: auto;
+  display: none;
+  margin-bottom: 12px;
+  min-height: 44px;
+  width: 100%;
+}
+
 .qt-ref-subject,
 .qt-ref-tab {
   background: var(--background-secondary);
@@ -4908,13 +5262,21 @@
   width: 100%;
 }
 
+.qt-ref-periodic-wrap {
+  margin: 8px 0 14px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
 .qt-ref-periodic {
   display: grid;
   gap: 2px;
   grid-template-columns: repeat(18, minmax(0, 1fr));
-  margin: 8px 0 14px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+  margin: 0;
+  min-width: 480px;
+  padding-bottom: 0;
 }
 
 .qt-ref-element {
@@ -6992,6 +7354,13 @@
   font-size: 1rem;
   margin: 0;
 }
+/* Statistics cards size to their content; the shared 260px card height was
+   reserved for a review surface and left empty stat panels mostly blank. */
+.qt-study-stats-view .qt-study-card {
+  gap: 8px;
+  min-height: 0;
+  padding: 14px 16px;
+}
 .qt-study-empty {
   color: var(--text-muted);
   font-size: 0.9rem;
@@ -7735,7 +8104,7 @@
   flex-wrap: wrap;
 }
 
-.qt-screen .qt-small-row:not(.qt-tabbar):not(.qt-segmented) > button {
+.qt-screen .qt-small-row:not(.qt-tabbar):not(.qt-segmented):not(.qt-ref-subjects) > button {
   flex: 0 1 auto;
   min-width: 7.5rem;
 }
@@ -8242,6 +8611,38 @@
   max-width: 1040px;
 }
 
+/* Secret Storage picker rows: long secret names and their descriptions stay
+   inside the settings column instead of pushing the row wider on a phone. */
+.qt-settings-secret-row {
+  flex-wrap: wrap;
+}
+
+.qt-settings-secret-row .setting-item-info,
+.qt-settings-secret-row .setting-item-control {
+  min-width: 0;
+}
+
+.qt-settings-secret-row .setting-item-control {
+  flex: 1 1 16rem;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.qt-settings-secret-row .setting-item-control > * {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.qt-settings-secret-row .secret-component,
+.qt-settings-secret-row .secret-component * {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.qt-settings-secret-row .secret-component {
+  width: 100%;
+}
+
 .qt-settings-modules,
 .qt-settings-tabs {
   flex-wrap: nowrap;
@@ -8265,6 +8666,48 @@ body.is-mobile .qt-screen .qt-study-heading h2 {
   font-size: 1.6rem;
 }
 
+body.is-mobile .qt-settings-modules {
+  display: none;
+}
+
+body.is-mobile .qt-settings-module-picker {
+  display: block;
+}
+
+.qt-settings-modules {
+  display: none;
+}
+
+.qt-settings-module-picker {
+  display: block;
+}
+
+body.is-mobile .qt-settings-tabs {
+  flex-wrap: wrap;
+  overflow-x: visible;
+}
+
+body.is-mobile .qt-settings-body .setting-item-control {
+  flex-wrap: wrap;
+  max-width: 100%;
+  min-width: 48px;
+}
+
+body.is-mobile .qt-settings-body .setting-item-control .checkbox-container {
+  flex: 0 0 auto;
+  min-width: 40px;
+}
+
+body.is-mobile .qt-settings-body .setting-item-control > * {
+  max-width: 100%;
+  min-width: 0;
+}
+
+body.is-mobile .qt-settings-body .setting-item-control > button {
+  height: auto;
+  white-space: normal;
+}
+
 body.is-mobile .qt-settings-body {
   max-width: none;
 }
@@ -8279,7 +8722,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 
 @container qt-screen (max-width: 760px) {
   .qt-screen .qt-toolbar > button,
-  .qt-screen .qt-small-row:not(.qt-tabbar):not(.qt-segmented) > button {
+  .qt-screen .qt-small-row:not(.qt-tabbar):not(.qt-segmented):not(.qt-ref-subjects) > button {
     flex: 1 1 calc(50% - 8px);
     min-width: 0;
   }
@@ -8430,7 +8873,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 
 @container qt-screen (max-width: 460px) {
   .qt-screen .qt-toolbar > button,
-  .qt-screen .qt-small-row:not(.qt-tabbar):not(.qt-segmented) > button {
+  .qt-screen .qt-small-row:not(.qt-tabbar):not(.qt-segmented):not(.qt-ref-subjects) > button {
     flex-basis: 100%;
   }
 
@@ -8447,6 +8890,11 @@ body.is-mobile .qt-screen .qt-local-events-tab {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  /* Five summary cards leave one orphan in a two-column grid; let it use the row. */
+  .qt-screen.qt-study-stats-view .qt-study-stats > .qt-study-stat:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
   .qt-screen .qt-review-calendar-weekday {
     font-size: 9px;
     padding: 3px 0;
@@ -8459,4 +8907,1704 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   .qt-screen .qt-pomodoro-actions {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---- Compact day agenda for Review calendar and Local events ---------- */
+/* Rendered only on phones; the desktop month grid keeps its existing markup. */
+.qt-day-agenda {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.qt-day-agenda-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qt-day-agenda-actions > button {
+  flex: 1 1 0;
+  min-height: 40px;
+  min-width: 0;
+}
+
+.qt-day-agenda-nav {
+  align-items: center;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(48px, auto) minmax(0, 1fr) minmax(48px, auto);
+}
+
+.qt-day-agenda-step {
+  min-height: 40px;
+  padding: 4px 10px;
+}
+
+.qt-day-agenda-title {
+  min-width: 0;
+  text-align: center;
+}
+
+.qt-day-agenda-date {
+  font-size: 1.05rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.qt-day-agenda-sub {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-day-agenda-week {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.qt-day-agenda-day {
+  align-items: center;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  justify-content: center;
+  min-height: 62px;
+  padding: 5px 2px;
+  text-align: center;
+  touch-action: manipulation;
+}
+
+.qt-day-agenda-day.is-today {
+  border-color: var(--interactive-accent);
+}
+
+.qt-day-agenda-day.is-selected {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+.qt-day-agenda-day-label,
+.qt-day-agenda-day-count {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-day-agenda-day-number {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.qt-day-agenda-day-count {
+  min-height: 1em;
+}
+
+.qt-day-agenda .qt-study-card {
+  margin: 0;
+  padding: 12px;
+}
+
+.qt-day-agenda-list h3 {
+  margin-bottom: 4px;
+}
+
+.qt-day-agenda .qt-study-row {
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.qt-day-agenda-time {
+  color: var(--text-muted);
+  flex: none;
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  padding-top: 2px;
+}
+
+.qt-day-agenda-event {
+  border-left: 3px solid transparent;
+  padding-left: 8px;
+}
+
+.qt-day-agenda .qt-study-row-actions {
+  flex-wrap: wrap;
+}
+
+.qt-day-agenda .qt-study-row-actions button {
+  min-height: 36px;
+}
+
+.qt-day-agenda-phone .qt-review-calendar-head .qt-hint,
+.qt-day-agenda-phone .qt-local-events-head .qt-hint {
+  display: none;
+}
+
+@media (max-width: 360px) {
+  .qt-day-agenda-day-label {
+    font-size: 9px;
+  }
+
+  .qt-day-agenda-step {
+    padding: 4px 6px;
+  }
+
+  .qt-day-agenda-time {
+    font-size: 10px;
+  }
+}
+
+/* ---- Narrow workflow screens: reference tools and study statistics ----
+   These container-query rules leave the wide two-column/table layouts
+   untouched while giving a narrow pane or phone a readable single surface. */
+@container qt-screen (max-width: 460px) {
+  .qt-screen .qt-ref-tabs {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    padding-bottom: 6px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+  }
+
+  .qt-screen .qt-ref-tabs.qt-small-row > button.qt-ref-tab {
+    flex: 0 0 auto;
+    min-height: 44px;
+    scroll-snap-align: start;
+    white-space: nowrap;
+  }
+
+  .qt-screen .qt-ref-tabs.qt-small-row {
+    display: none;
+  }
+
+  .qt-screen .qt-ref-picker {
+    display: block;
+  }
+
+  .qt-screen .qt-ref-subjects {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .qt-screen .qt-ref-subjects > button {
+    flex: 0 1 auto;
+    min-height: 44px;
+    min-width: 44px;
+    width: auto;
+  }
+
+  .qt-screen .qt-local-events-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .qt-screen .qt-ref-periodic-wrap {
+    margin: 8px 0 14px;
+    padding-bottom: 6px;
+    scrollbar-width: thin;
+  }
+
+  .qt-screen .qt-ref-periodic {
+    grid-template-columns: repeat(18, minmax(38px, 1fr));
+    min-width: max-content;
+  }
+
+  .qt-screen .qt-ref-element {
+    min-height: 40px;
+  }
+
+  .qt-screen .qt-ref-element-number {
+    font-size: 0.56rem;
+  }
+
+  .qt-screen .qt-ref-element-symbol {
+    font-size: 0.82rem;
+  }
+
+  .qt-screen .qt-ap-controls {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .qt-screen .qt-ap-controls > .dropdown,
+  .qt-screen .qt-ap-controls > .qt-link {
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .qt-screen .qt-ap-unit {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+  }
+
+  .qt-screen .qt-ap-unit input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .qt-screen .qt-ap-input-row {
+    align-items: stretch;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  .qt-screen .qt-ap-input-row label {
+    flex: 1 1 100%;
+  }
+
+  .qt-screen .qt-ap-input-row input,
+  .qt-screen .qt-ap-cutoff input {
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    box-sizing: border-box;
+    flex: 1 1 auto;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .qt-screen .qt-ap-cutoff-row {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-screen .qt-ap-cutoff {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .qt-screen .qt-ap-cutoff input {
+    max-width: none;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .qt-screen .qt-ap-history-row,
+  .qt-screen .qt-ap-saved-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .qt-screen .qt-ap-history-row > .qt-link {
+    align-self: flex-start;
+  }
+
+  .qt-screen .qt-ap-saved-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .qt-screen .qt-study-stats-table {
+    display: grid;
+    gap: 8px;
+    overflow: visible;
+  }
+
+  .qt-screen .qt-study-stats-row.is-head {
+    display: none;
+  }
+
+  .qt-screen .qt-study-stats-row {
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    display: grid;
+    gap: 8px 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
+    padding: 10px 12px;
+  }
+
+  .qt-screen .qt-study-stats-row > * {
+    min-width: 0;
+  }
+
+  .qt-screen .qt-study-stats-row > [data-label]::before {
+    color: var(--text-faint);
+    content: attr(data-label);
+    display: block;
+    font-size: var(--font-ui-smaller);
+    font-weight: 500;
+    line-height: 1.3;
+    margin-bottom: 2px;
+  }
+
+  .qt-screen .qt-study-stats-row > [data-label]:first-child {
+    font-weight: 600;
+    grid-column: 1 / -1;
+  }
+
+  .qt-screen .qt-study-stats-row > [data-label]:first-child::before {
+    font-weight: 500;
+  }
+
+  .qt-screen .qt-study-stats-row .qt-study-stats-retention {
+    align-items: center;
+    display: grid;
+    gap: 6px;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .qt-screen .qt-study-stats-row .qt-study-stats-retention::before {
+    grid-column: 1 / -1;
+  }
+
+  .qt-screen .qt-study-stats-row.is-total {
+    border-color: var(--interactive-accent);
+  }
+}
+
+/* ---- Phone layout pass: workflow modules ------------------------------- */
+/* These rules intentionally come after the shared shell and the earlier
+   container blocks, so equal-specificity rules there cannot win. Calendar,
+   Practice, Reference and Study Stats do not use these new scopes. */
+.qt-workspace-picker {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .qt-today-hero .qt-today-actions {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .qt-today-actions > button {
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    min-height: 44px;
+    padding: 8px 12px;
+    width: 100%;
+  }
+
+  .qt-today-header .qt-row {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .qt-today-header .qt-row .qt-link {
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    min-height: 40px;
+    padding: 6px 12px;
+  }
+
+  .qt-today .qt-progress-window {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .qt-today .qt-progress-window .qt-chip {
+    font-size: 0.8rem;
+    min-height: 40px;
+    padding: 4px 2px;
+    white-space: nowrap;
+    width: 100%;
+  }
+
+  .qt-today .qt-row .qt-link,
+  .qt-today .qt-progress-legend .qt-link,
+  .qt-today .qt-pending-row .qt-link {
+    align-items: center;
+    display: inline-flex;
+    min-height: 40px;
+    padding: 4px 6px;
+  }
+
+  .qt-local-events-tab {
+    min-width: 44px;
+  }
+}
+
+@container qt-screen (max-width: 760px) {
+  .qt-screen .qt-cards-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .qt-screen .qt-cards-stats.has-pending {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-screen .qt-cards-stats > span {
+    align-items: center;
+    display: flex;
+    justify-content: center;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    padding: 10px 6px;
+    text-align: center;
+  }
+
+  .qt-screen .qt-cards-row .qt-link {
+    min-height: 40px;
+    min-width: 64px;
+  }
+
+  .qt-screen .qt-dash-stats > .qt-dash-stat:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .qt-screen .qt-dash-label,
+  .qt-screen .qt-dash-value {
+    overflow-wrap: anywhere;
+  }
+
+  .qt-screen .qt-progress-window {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .qt-screen .qt-progress-window .qt-chip {
+    font-size: 0.8rem;
+    min-height: 40px;
+    padding: 4px 2px;
+    white-space: nowrap;
+    width: 100%;
+  }
+
+  .qt-screen .qt-ins-row > button,
+  .qt-screen .qt-ins-row > .qt-link,
+  .qt-screen .qt-progress-legend .qt-link {
+    align-items: center;
+    display: inline-flex;
+    min-height: 40px;
+    padding: 4px 6px;
+  }
+
+  .qt-screen .qt-assignment-empty {
+    padding: 14px 16px;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-tabs {
+    display: none;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-picker {
+    align-items: center;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .qt-workspace-picker-label {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .qt-workspace-picker .dropdown {
+    min-height: 44px;
+    width: 100%;
+  }
+}
+
+@container qt-screen (max-width: 460px) {
+  .qt-screen .qt-cards-tools {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-screen .qt-cards-tools button {
+    flex: none;
+    font-size: 0.86rem;
+    min-width: 0;
+    padding-inline: 6px;
+    white-space: nowrap;
+    width: 100%;
+  }
+
+  .qt-screen .qt-cards-tools button:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .qt-screen .qt-cards-filter .qt-chips {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+
+  .qt-screen .qt-cards-filter .qt-chip {
+    flex: 0 0 auto;
+  }
+
+  .qt-screen.qt-study-tools-view-wrap .qt-study-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .qt-screen.qt-study-tools-view-wrap .qt-study-tab {
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .qt-screen.qt-study-tools-view-wrap .qt-study-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .qt-screen.qt-study-tools-view-wrap .qt-study-stat {
+    min-width: 0;
+    padding: 12px 10px;
+  }
+
+  .qt-screen.qt-study-tools-view-wrap .qt-study-stat-value {
+    font-size: 1.35rem;
+  }
+
+  .qt-screen.qt-study-tools-view-wrap .qt-study-stat-label {
+    font-size: 0.72rem;
+    line-height: 1.25;
+  }
+
+  .qt-screen.qt-study-tools-view-wrap .qt-study-card > .qt-study-card-action {
+    align-self: stretch;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    font-weight: 600;
+    margin-top: auto;
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+
+  .qt-screen .qt-pomodoro-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-screen .qt-pomodoro-actions .mod-cta {
+    grid-column: 1 / -1;
+    min-height: 48px;
+  }
+
+  .qt-screen .qt-pomodoro-actions .qt-pomodoro-secondary {
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    min-height: 44px;
+    width: 100%;
+  }
+}
+
+/* Two and three action buttons keep equal, readable columns on the smallest
+   phone. Labels are short here; the full action name stays in aria-label. */
+.qt-day-agenda-actions {
+  display: grid;
+  gap: 6px;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+}
+
+.qt-day-agenda-actions > button {
+  font-size: 0.82rem;
+  min-height: 44px;
+  min-width: 0;
+  padding: 4px 6px;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.qt-day-agenda .qt-day-agenda-list.is-empty {
+  align-self: stretch;
+  flex: 0 0 auto;
+  min-height: 0;
+  width: 100%;
+}
+
+.qt-day-agenda-list.is-empty .qt-study-empty {
+  padding-bottom: 4px;
+}
+
+.qt-day-agenda .qt-study-row-actions button {
+  min-height: 40px;
+}
+
+/* Workflow cards size to their content. The 260px study-card minimum belongs
+   to the exam-style study surface, not to these list and form views. */
+.qt-screen.qt-study-tools-view-wrap .qt-study-card,
+.qt-screen.qt-study-workspace-wrap .qt-study-card,
+.qt-screen.qt-review-calendar .qt-study-card,
+.qt-screen.qt-local-events .qt-study-card {
+  min-height: 0;
+}
+
+.qt-screen.qt-study-tools-view-wrap .qt-study-card > .qt-study-card-action {
+  margin-top: auto;
+}
+
+.qt-today-grid {
+  align-items: start;
+}
+
+.qt-today-panel > .qt-today-card {
+  flex: 0 0 auto;
+}
+
+.qt-tasks-card {
+  align-content: start;
+}
+
+.qt-screen.qt-pomodoro-view {
+  justify-content: center;
+  min-height: 100%;
+}
+
+@media (max-width: 700px) {
+  .qt-today-header .qt-row .qt-link {
+    align-self: flex-start;
+    flex: 0 0 auto;
+    width: auto;
+  }
+}
+
+/* Five Insights tabs do not fit one narrow row. Lay all five out explicitly
+   instead of clipping the third label and hiding the two after it. */
+@container qt-screen (max-width: 460px) {
+  .qt-ins.qt-screen .qt-tabbar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .qt-ins.qt-screen .qt-tabbar button {
+    flex: 0 0 auto;
+    min-width: 0;
+    padding-inline: 6px;
+    width: 100%;
+  }
+}
+
+@container qt-screen (max-width: 360px) {
+  .qt-ins.qt-screen .qt-tabbar button {
+    font-size: 0.82rem;
+    padding-inline: 2px;
+  }
+}
+
+/* ---- Module polish: Today, Study Tools, Cards ------------------------- */
+/* Today: the summary is text, not a second input, and the focus actions are
+   a deliberate 3-up timer group with one full-width log action. */
+.qt-today .qt-today-header {
+  align-items: center;
+  gap: 4px 14px;
+}
+
+.qt-today .qt-today-header .qt-today-date {
+  flex-basis: 100%;
+}
+
+.qt-today .qt-today-header h2 {
+  font-size: 1.9rem;
+  letter-spacing: -0.02em;
+}
+
+.qt-today .qt-today-header .qt-today-count {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--text-muted);
+  flex: 1 1 280px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  padding: 0;
+}
+
+.qt-today .qt-today-header .qt-row {
+  margin-left: auto;
+}
+
+.qt-today .qt-today-hero {
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.qt-today .qt-today-hero .qt-today-start {
+  flex-basis: 240px;
+}
+
+.qt-today .qt-focus-card {
+  gap: 12px;
+}
+
+.qt-today .qt-focus-options {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.qt-today .qt-focus-options > button,
+.qt-today .qt-focus-log {
+  min-height: 40px;
+  padding: 7px 6px;
+  width: 100%;
+}
+
+.qt-today .qt-focus-log {
+  align-self: stretch;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.qt-today .qt-progress-legend {
+  gap: 6px 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+/* Study Tools: actions read as buttons on both widths, not tiny links. */
+.qt-screen.qt-study-tools-view-wrap .qt-study-stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 82px;
+}
+
+.qt-screen.qt-study-tools-view-wrap .qt-study-stat-value {
+  line-height: 1.1;
+}
+
+.qt-screen.qt-study-tools-view-wrap .qt-study-stat-label {
+  line-height: 1.3;
+}
+
+.qt-screen.qt-study-tools-view-wrap .qt-study-card {
+  min-height: 190px;
+}
+
+.qt-screen.qt-study-tools-view-wrap .qt-study-card > .qt-study-card-action {
+  align-self: flex-start;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  font-weight: 600;
+  margin-top: auto;
+  min-height: 44px;
+  padding: 8px 12px;
+}
+
+.qt-screen.qt-study-tools-view-wrap .qt-study-card > .qt-study-card-action:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* Cards: the review decision leads; filters and retention follow the content. */
+.qt-cards-hero {
+  align-items: center;
+  background: color-mix(in srgb, var(--interactive-accent) 7%, var(--background-secondary));
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 24%, var(--background-modifier-border));
+  border-radius: 14px;
+  display: flex;
+  gap: 20px;
+  padding: 16px 18px;
+}
+
+.qt-cards-hero-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.qt-cards-hero-kicker {
+  color: var(--text-accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.qt-cards-hero-title {
+  font-size: 1.18rem;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.qt-cards-hero-meta {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  margin-top: 4px;
+}
+
+.qt-cards-hero .qt-cards-start {
+  flex: 0 0 auto;
+  min-height: 48px;
+  min-width: 220px;
+  width: auto;
+}
+
+.qt-cards-filters {
+  display: grid;
+  gap: 14px 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.qt-cards-filters .qt-cards-filter {
+  min-width: 0;
+}
+
+.qt-cards-heading {
+  margin: 14px 0 0;
+}
+
+.qt-card-retention {
+  display: grid;
+  gap: 8px;
+}
+
+.qt-screen .qt-cards-tools button:not(.mod-cta) {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+@media (max-width: 700px) {
+  .qt-cards-hero {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 16px;
+  }
+
+  .qt-cards-hero .qt-cards-start {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .qt-cards-filters {
+    gap: 12px;
+    grid-template-columns: 1fr;
+  }
+
+  .qt-screen.qt-study-tools-view-wrap .qt-study-card {
+    min-height: 0;
+  }
+
+  .qt-screen.qt-study-tools-view-wrap .qt-study-card > .qt-study-card-action {
+    align-self: stretch;
+  }
+
+  .qt-today .qt-progress-legend {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Secondary focus timers need a visible boundary beside the selected timer. */
+.qt-today .qt-focus-options > button:not(.mod-cta) {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+}
+
+
+/* A one-column Today view should not make every short panel as tall as the
+   tallest dashboard row. */
+@media (max-width: 700px) {
+  .qt-today-grid {
+    grid-auto-rows: auto;
+  }
+}
+
+.qt-study-guide {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+.qt-study-guide h3 {
+  font-size: 1rem;
+  margin: 0 0 12px;
+}
+
+.qt-study-guide-steps {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.qt-study-step {
+  border-top: 2px solid color-mix(in srgb, var(--interactive-accent) 42%, var(--background-modifier-border));
+  padding-top: 9px;
+}
+
+.qt-study-step-number {
+  color: var(--text-accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.qt-study-step-title {
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.qt-study-step-copy {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  margin-top: 3px;
+}
+
+@media (max-width: 700px) {
+  .qt-study-guide-steps {
+    gap: 10px;
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Module polish: Assignments and Insights ------------------------- */
+/* Assignments: counts are a compact line, workload and GPA share one snapshot
+   row, and the first run is one deliberate panel instead of three empty ones. */
+.qt-assignments {
+  gap: 12px;
+}
+
+.qt-assignments .qt-screen-head {
+  gap: 4px;
+}
+
+.qt-assignment-summary {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.qt-assignment-summary-item {
+  align-items: baseline;
+  display: inline-flex;
+  gap: 4px;
+  line-height: 1.4;
+}
+
+.qt-assignment-summary-value {
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.qt-assignment-summary-item.is-alert .qt-assignment-summary-value {
+  color: var(--text-error);
+}
+
+.qt-assignment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-assignment-actions > button {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
+
+.qt-assignment-overview {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.qt-assignment-overview.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.qt-assignment-overview.is-single > * {
+  max-width: 560px;
+}
+
+.qt-screen .qt-assignment-workload {
+  background: color-mix(in srgb, var(--interactive-accent) 7%, var(--background-secondary));
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 24%, var(--background-modifier-border));
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: 12px;
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.qt-assignment-workload-stats {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.qt-assignment-workload-stat {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.qt-assignment-workload-value {
+  font-size: 1.12rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.qt-assignment-workload-label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.qt-assignment-workload-stat.is-alert .qt-assignment-workload-value {
+  color: var(--text-error);
+}
+
+.qt-screen .qt-assignment-gpa {
+  align-items: center;
+  column-gap: 16px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 14px 16px;
+}
+
+.qt-screen .qt-assignment-gpa-value {
+  font-size: 2.2rem;
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.qt-assignment-gpa-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.qt-screen .qt-assignment-gpa-copy .qt-today-meta {
+  grid-column: auto;
+  grid-row: auto;
+  line-height: 1.4;
+}
+
+.qt-assignment-course-actions {
+  gap: 8px;
+}
+
+.qt-screen .qt-assignment-onboarding {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--interactive-accent) 10%, var(--background-secondary)), var(--background-secondary));
+  border-color: color-mix(in srgb, var(--interactive-accent) 30%, var(--background-modifier-border));
+  display: grid;
+  gap: 10px;
+  padding: 18px 20px;
+}
+
+.qt-screen .qt-assignment-onboarding h3 {
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.qt-screen .qt-assignment-onboarding > .qt-today-meta {
+  line-height: 1.5;
+  max-width: 72ch;
+}
+
+.qt-assignment-onboarding-steps {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 2px;
+}
+
+.qt-assignment-onboarding-step {
+  border-top: 2px solid color-mix(in srgb, var(--interactive-accent) 40%, var(--background-modifier-border));
+  display: grid;
+  gap: 4px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding-top: 9px;
+}
+
+.qt-assignment-onboarding-step-number {
+  color: var(--text-accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.qt-assignment-onboarding-step-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.qt-assignment-onboarding-step-copy {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  grid-column: 2;
+  line-height: 1.4;
+}
+
+/* Insights: the summary tiles get their own named section, first run gets an
+   onboarding card, and the seven activity tiles use a balanced four-up row. */
+.qt-screen .qt-dash-activity {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.qt-screen .qt-dash-watch-note {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.qt-screen .qt-dash-empty {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--interactive-accent) 10%, var(--background-secondary)), var(--background-secondary));
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 30%, var(--background-modifier-border));
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  padding: 20px 22px;
+}
+
+.qt-dash-empty h3 {
+  font-size: 1.28rem;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+.qt-dash-empty-copy {
+  line-height: 1.55;
+  max-width: 72ch;
+}
+
+.qt-dash-empty-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qt-dash-empty-facts > span {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  padding: 4px 10px;
+}
+
+.qt-dash-empty-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-top: 2px;
+}
+
+.qt-dash-empty-actions > button {
+  min-height: 44px;
+  width: 100%;
+}
+
+@container qt-screen (max-width: 760px) {
+  .qt-assignment-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-assignment-actions > button {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .qt-assignment-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qt-assignment-onboarding-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qt-screen .qt-dash-activity {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container qt-screen (max-width: 460px) {
+  .qt-ins.qt-screen .qt-tabbar {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .qt-ins.qt-screen .qt-tabbar button {
+    grid-column: span 2;
+    min-height: 44px;
+  }
+
+  .qt-ins.qt-screen .qt-tabbar button:nth-child(4) {
+    grid-column: 2 / span 2;
+  }
+}
+
+/* Keep the compact count line on one phone row, size the course actions as
+   real tap targets, and stop the global full-width primary from stretching the
+   desktop Assignments toolbar across the page. */
+.qt-assignment-summary {
+  font-size: 0.86rem;
+  gap: 4px 12px;
+}
+
+.qt-assignment-summary-item {
+  white-space: nowrap;
+}
+
+.qt-assignment-actions > .qt-primary {
+  margin-top: 0;
+  min-height: 44px;
+}
+
+.qt-screen .qt-assignment-course-actions > button {
+  min-height: 40px;
+}
+
+@container qt-screen (min-width: 761px) {
+  .qt-assignment-actions > .qt-primary {
+    width: auto;
+  }
+}
+
+@container qt-screen (max-width: 760px) {
+  .qt-assignment-actions > button {
+    font-size: 0.86rem;
+    padding-inline: 6px;
+  }
+}
+
+@container qt-screen (max-width: 460px) {
+  .qt-screen .qt-assignment-course-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-screen .qt-assignment-course-actions > button {
+    align-items: center;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    display: inline-flex;
+    font-size: 0.84rem;
+    justify-content: center;
+    line-height: 1.25;
+    min-height: 44px;
+    padding: 6px 8px;
+    width: 100%;
+  }
+
+  .qt-screen .qt-assignment-course-actions > .qt-link {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-accent);
+  }
+}
+
+/* The mastery legend uses compact text links on desktop; keep their hit area
+   consistent with the phone contract too. */
+.qt-screen .qt-progress-legend .qt-link {
+  align-items: center;
+  display: inline-flex;
+  min-height: 40px;
+  padding: 4px 6px;
+}
+
+/* ---- Study Workspace: one compact section picker and deliberate starts --- */
+/* Nineteen sections cannot form a readable tab rail at laptop width. The
+   picker is the primary section control at every width; the button rail stays
+   in the DOM for compatibility but is hidden from the visual layout. */
+.qt-screen.qt-study-workspace-wrap .qt-study-header {
+  align-items: start;
+  display: grid;
+  gap: 12px 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 310px);
+  padding-bottom: 0;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-study-heading {
+  min-width: 0;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-study-heading h2 {
+  font-size: clamp(1.9rem, 2.6vw, 2.2rem);
+  letter-spacing: -0.025em;
+  line-height: 1.08;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-picker {
+  align-items: center;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin-top: 2px;
+  min-width: 0;
+  width: 100%;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-picker .dropdown {
+  min-width: 0;
+  width: 100%;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-picker-label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-study-message {
+  background: var(--background-secondary);
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: var(--radius-s);
+  font-size: 0.86rem;
+  padding: 8px 12px;
+}
+
+/* A first-run section is a designed next step, not a lone muted sentence. */
+.qt-screen.qt-study-workspace-wrap .qt-workspace-empty-panel {
+  align-content: center;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  box-shadow: inset 3px 0 0 var(--interactive-accent);
+  display: grid;
+  gap: 5px 24px;
+  grid-template-areas:
+    "kicker steps"
+    "title steps"
+    "copy steps";
+  grid-template-columns: minmax(0, 1.15fr) minmax(210px, 0.85fr);
+  min-height: 178px;
+  padding: 22px 24px;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-empty-kicker {
+  color: var(--interactive-accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  grid-area: kicker;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-empty-panel h3 {
+  font-size: 1.16rem;
+  grid-area: title;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-empty-copy {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  grid-area: copy;
+  line-height: 1.5;
+  margin-top: 2px;
+  max-width: 54ch;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-empty-steps {
+  align-self: center;
+  counter-reset: qt-empty-step;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  grid-area: steps;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-empty-steps li {
+  color: var(--text-muted);
+  display: grid;
+  font-size: 0.84rem;
+  gap: 8px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  line-height: 1.4;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-empty-steps li::before {
+  align-items: center;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 50%;
+  color: var(--text-normal);
+  content: counter(qt-empty-step);
+  counter-increment: qt-empty-step;
+  display: inline-flex;
+  font-size: 0.7rem;
+  font-weight: 700;
+  height: 22px;
+  justify-content: center;
+  width: 22px;
+}
+
+/* Bulk import is an alternative to the single-word form, so it stays compact
+   until opened instead of adding a second full-height form to the page. */
+.qt-screen.qt-study-workspace-wrap .qt-workspace-disclosure {
+  display: block;
+  padding: 0;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-disclosure-title {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  font-size: 0.94rem;
+  font-weight: 600;
+  gap: 12px;
+  justify-content: space-between;
+  list-style: none;
+  min-height: 48px;
+  padding: 12px 20px;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-disclosure-title::-webkit-details-marker {
+  display: none;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-disclosure-title::after {
+  color: var(--text-muted);
+  content: "+";
+  font-size: 1.15rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-disclosure[open] .qt-workspace-disclosure-title::after {
+  content: "–";
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-disclosure > .qt-hint {
+  margin: 0 20px 10px;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-disclosure > .qt-study-form {
+  margin: 0 20px 12px;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-disclosure > .qt-study-actions {
+  margin: 0 20px 18px;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-filters {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-filter {
+  min-height: 36px;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-filter.is-active {
+  background: var(--background-secondary);
+  border-color: var(--background-modifier-border);
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-workspace-filter-empty {
+  padding: 2px 0 4px;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-study-project-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-audio-chapter {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+@container qt-screen (max-width: 760px) {
+  .qt-screen.qt-study-workspace-wrap .qt-study-header {
+    gap: 12px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-tabs {
+    display: none;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-picker {
+    display: grid;
+    margin-top: 0;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-body {
+    gap: 12px;
+    /* The mobile navigation floats over the scroller; reserve its height so
+       the last control on a long planner, shelf, or queue can clear it. */
+    padding-bottom: 96px;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-empty-panel {
+    gap: 5px;
+    grid-template-areas:
+      "kicker"
+      "title"
+      "copy"
+      "steps";
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+    padding: 18px 18px 20px;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-empty-steps {
+    align-self: start;
+    margin-top: 7px;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-empty-steps li {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-empty-steps li::before {
+    font-size: 0.66rem;
+    height: 20px;
+    width: 20px;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-study-field input,
+  .qt-screen.qt-study-workspace-wrap .qt-study-field select,
+  .qt-screen.qt-study-workspace-wrap .qt-study-field .dropdown {
+    min-height: 44px;
+  }
+
+  .qt-screen.qt-study-workspace-wrap button {
+    min-height: 40px;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-study-actions > .mod-cta,
+  .qt-screen.qt-study-workspace-wrap .qt-primary {
+    min-height: 44px;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-study-row-actions {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    width: 100%;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-study-row-actions > button {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-filters {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-filters > .qt-study-next-meta {
+    grid-column: 1 / -1;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-filter {
+    font-size: 0.78rem;
+    min-height: 40px;
+    min-width: 0;
+    padding-inline: 4px;
+    width: 100%;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-disclosure-title {
+    min-height: 44px;
+    padding: 10px 16px;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-disclosure > .qt-hint,
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-disclosure > .qt-study-form,
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-disclosure > .qt-study-actions {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+}
+
+@container qt-screen (max-width: 460px) {
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-picker {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-workspace-picker-label {
+    display: none;
+  }
+
+  .qt-screen.qt-study-workspace-wrap .qt-study-heading h2 {
+    font-size: 1.82rem;
+  }
+}
+
+/* Reading shelves are rows of prose and controls, not one-line list rows.
+   Keeping them in a horizontal row crushed every field into a narrow strip on
+   desktop, so books stack at all widths and editable fields live in one
+   compact disclosure per book. */
+.qt-screen.qt-study-workspace-wrap .qt-reading-book {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-reading-book > .qt-study-row-actions {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-reading-tools {
+  border-top: 1px dashed var(--background-modifier-border);
+  margin-top: 2px;
+  padding-top: 2px;
+  width: 100%;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-reading-tools .qt-workspace-disclosure-title {
+  min-height: 40px;
+  padding: 8px 0;
+}
+
+.qt-screen.qt-study-workspace-wrap .qt-reading-tools > .qt-study-form {
+  margin: 0 0 12px;
 }
