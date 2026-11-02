@@ -91,3 +91,105 @@ test("periodic table: every mass and blank matches the AP Chemistry 2020 table",
   assert.equal(elements.elementBySymbol("Tc").mass, "");
   assert.equal(elements.elementBySymbol("Og").mass, "");
 });
+
+test("graph: each row parses as an expression, equation, definition or implicit relation", () => {
+  assert.equal(graph.parseGraphRow("sin(x)").kind, "explicit");
+  assert.equal(graph.parseGraphRow("y = 2x + 1").kind, "explicit");
+  assert.equal(graph.parseGraphRow("f(x) = x^2").kind, "definition");
+  assert.equal(graph.parseGraphRow("g(t) = f(t) + 1").params.length, 1);
+  assert.equal(graph.parseGraphRow("x = y^2").kind, "implicit");
+  assert.equal(graph.parseGraphRow("y^2 = 2x + 1").kind, "implicit");
+  assert.equal(graph.parseGraphRow("y = x + y").kind, "implicit");
+  assert.equal(graph.parseGraphRow("   ").kind, "empty");
+  assert.throws(() => graph.parseGraphRow("y < x"), /Inequalities/);
+  assert.throws(() => graph.parseGraphRow("sin(x) = 1"), /built-in/);
+  assert.throws(() => graph.parseGraphRow("y = y = y"), /single "="/);
+});
+
+test("graph: multiple rows share f/g definitions and implicit curves are traced", () => {
+  const built = graph.buildGraph({
+    rows: ["f(x) = x^2", "g(x) = f(x) + 1", "y = g(x)", "y^2 = 2x + 1", "x^2 + y^2 = 9"],
+    xMin: -5,
+    xMax: 5,
+    yMin: -5,
+    yMax: 5,
+    samples: 201,
+    resolution: { x: 120, y: 120 },
+  });
+  assert.equal(built.rows.length, 5);
+  assert.equal(built.rows[0].kind, "definition");
+  assert.equal(built.rows[1].kind, "definition");
+  assert.deepEqual(built.definitions, ["f", "g"]);
+  const explicit = built.rows[2];
+  assert.equal(explicit.error, "");
+  const nearest = explicit.points.reduce((best, point) => (Math.abs(point.x - 2) < Math.abs(best.x - 2) ? point : best));
+  assert.ok(Math.abs(nearest.y - 5) < 0.2, "g(x) = x^2 + 1 comes from the earlier rows");
+  const parabola = built.rows[3];
+  assert.equal(parabola.kind, "implicit");
+  assert.ok(parabola.segments.length > 20);
+  assert.ok(parabola.segments.some((s) => s.x1 > 1 && s.y1 > 1), "upper branch");
+  assert.ok(parabola.segments.some((s) => s.x1 > 1 && s.y1 < -1), "lower branch");
+  const residuals = parabola.segments.map((s) => Math.abs(((s.y1 + s.y2) / 2) ** 2 - (2 * ((s.x1 + s.x2) / 2) + 1)));
+  assert.ok(residuals.every((value) => value < 0.25));
+  assert.ok(residuals.reduce((a, b) => a + b, 0) / residuals.length < 0.05);
+  const circle = built.rows[4];
+  assert.ok(circle.segments.length > 20);
+  for (const segment of circle.segments.slice(0, 40)) {
+    const mx = (segment.x1 + segment.x2) / 2;
+    const my = (segment.y1 + segment.y2) / 2;
+    assert.ok(Math.abs(mx * mx + my * my - 9) < 0.25);
+  }
+});
+
+test("graph: one bad row reports its own error and the other rows still plot", () => {
+  const built = graph.buildGraph({
+    rows: ["y = x", "y = nope(x)", "y^2 = 2x + 1", ""],
+    xMin: -5,
+    xMax: 5,
+    yMin: -5,
+    yMax: 5,
+    samples: 41,
+    resolution: { x: 60, y: 60 },
+  });
+  assert.equal(built.rows[0].error, "");
+  assert.equal(built.rows[0].points.length, 41);
+  assert.match(built.rows[1].error, /Unknown name/);
+  assert.ok(built.rows[2].segments.length > 0);
+  assert.equal(built.rows[3].kind, "empty");
+  assert.equal(built.rows[3].error, "");
+  assert.throws(() => graph.buildGraph({ rows: ["y = x"], xMin: 2, xMax: 2 }), /larger/);
+  assert.throws(() => graph.buildGraph({ rows: ["y = x"], yMin: 2, yMax: 2 }), /larger/);
+});
+
+test("reference view: graph rows can be added, hidden, edited and removed", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  assert.equal(view.graphRows.length, 2);
+  assert.equal(view.graphRows[0].text, "sin(x)");
+  assert.equal(view.graphRows[1].text, "x^2 + y^2 = 9", "implicit rows are offered out of the box");
+  assert.ok(view.graphCanvas);
+
+  await dom.click("Add expression");
+  assert.equal(view.graphRows.length, 3);
+
+  view.graphRows[0].hidden = true;
+  view.render();
+  assert.ok(dom.texts().includes("○"), "the hidden row shows a hollow swatch");
+
+  view.removeGraphRow(0);
+  assert.equal(view.graphRows.length, 2);
+
+  const badDom = makeDom();
+  view.contentEl = badDom.root;
+  view.graphRows = [{ text: "y = nope(x)", hidden: false }, { text: "y^2 = 2x + 1", hidden: false }];
+  view.render();
+  assert.ok(badDom.texts().some((text) => /Unknown name/.test(text)), "a bad row shows its error inline");
+});

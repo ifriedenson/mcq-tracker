@@ -12,7 +12,7 @@ const {
   unitCategory,
 } = require("./reference-data");
 const { ELEMENTS, categoryLabel, searchElements } = require("./reference-elements");
-const { buildPlot } = require("./reference-graph");
+const { buildGraph } = require("./reference-graph");
 const { renderSmilesSvg } = require("./smiles");
 const { safeSvg } = require("./svg-safety");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
@@ -26,6 +26,24 @@ const {
 } = require("./ap-resources");
 const { apExamTrend } = require("./ap-exam-history");
 const { PUNNETT_GENOTYPES, TRIG_IDENTITIES, UNIT_CIRCLE, normalizeGenotype, punnettSquare, searchCodons } = require("./reference-sheets");
+
+/* One colour per expression row, cycled when the list grows. */
+const GRAPH_COLORS = ["#5b8def", "#e5534b", "#2ea043", "#d29922", "#a371f7", "#39c5cf", "#f778ba", "#db6d28"];
+
+/** A grid step near the requested division count: 1, 2, 5 times a power of ten. */
+function niceStep(span, divisions) {
+  const rough = Math.abs(span) / Math.max(1, divisions);
+  if (!(rough > 0) || !Number.isFinite(rough)) return 1;
+  const power = Math.pow(10, Math.floor(Math.log10(rough)));
+  const normalized = rough / power;
+  const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return step * power;
+}
+
+function formatGraphTick(value) {
+  const rounded = Number(Number(value).toPrecision(6));
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
 
 /*
  * A local-only reference panel. It contains no network request or third-party
@@ -50,11 +68,17 @@ class ReferenceView extends ItemView {
     this.smilesInput = "c1ccccc1";
     this.constantListEl = null;
     this.unitResultEl = null;
-    this.graphExpression = "sin(x)";
+    this.graphRows = [
+      { text: "sin(x)", hidden: false },
+      { text: "x^2 + y^2 = 9", hidden: false },
+    ];
     this.graphXMin = "-10";
     this.graphXMax = "10";
+    this.graphYMin = "-10";
+    this.graphYMax = "10";
     this.graphCanvas = null;
     this.graphErrorEl = null;
+    this.graphRowErrorEls = [];
     this.calculatorMode = "basic";
     this.calculatorExpression = "";
     this.calculatorResult = "";
@@ -269,32 +293,78 @@ class ReferenceView extends ItemView {
   renderGraph(root) {
     root.createDiv({
       cls: "qt-ref-note",
-      text: "Plot y = f(x). Use x, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
+      text: "One expression per row, like a Desmos list. A row can be sin(x), y = sin(x), f(x) = x^2 (reuse f, g or h in later rows) or an implicit relation such as y^2 = 2x + 1 and x^2 + y^2 = 9. Use x, y, pi, e and sin, cos, tan, asin, acos, atan, sqrt, abs, ln, log, exp, floor or ceil. Operators are + - * / ^.",
     });
     const controls = root.createDiv({ cls: "qt-ref-graph-controls" });
-    const expression = controls.createEl("input", {
-      cls: "qt-ref-search",
-      attr: { type: "text", placeholder: "sin(x)", "aria-label": "Expression to plot" },
-    });
-    expression.value = this.graphExpression;
-    expression.addEventListener("input", () => {
-      this.graphExpression = expression.value;
-      this.drawGraph();
-    });
-    for (const [key, label] of [["graphXMin", "Minimum x"], ["graphXMax", "Maximum x"]]) {
-      const field = controls.createEl("input", {
+    for (const [key, label] of [["graphXMin", "min x"], ["graphXMax", "max x"], ["graphYMin", "min y"], ["graphYMax", "max y"]]) {
+      const field = controls.createDiv({ cls: "qt-ref-graph-bound" });
+      field.createEl("span", { text: label });
+      const input = field.createEl("input", {
         cls: "qt-ref-amount",
-        attr: { type: "number", step: "any", "aria-label": label },
+        attr: { type: "number", step: "any", "aria-label": `Graph ${label}` },
       });
-      field.value = this[key];
-      field.addEventListener("input", () => {
-        this[key] = field.value;
+      input.value = this[key];
+      input.addEventListener("input", () => {
+        this[key] = input.value;
         this.drawGraph();
       });
     }
-    this.graphCanvas = root.createEl("canvas", { cls: "qt-ref-canvas", attr: { "aria-label": "Graph of the expression" } });
+
+    const list = root.createDiv({ cls: "qt-ref-graph-rows" });
+    this.graphRowErrorEls = [];
+    this.graphRows.forEach((row, index) => {
+      const color = GRAPH_COLORS[index % GRAPH_COLORS.length];
+      const rowEl = list.createDiv({ cls: "qt-ref-graph-row" });
+      const swatch = rowEl.createEl("button", {
+        cls: "qt-ref-graph-swatch",
+        text: row.hidden ? "○" : "●",
+        attr: { "aria-label": row.hidden ? `Show expression ${index + 1}` : `Hide expression ${index + 1}` },
+      });
+      swatch.style.color = color;
+      if (row.hidden) swatch.addClass("is-hidden");
+      swatch.addEventListener("click", () => {
+        row.hidden = !row.hidden;
+        this.render();
+      });
+      const input = rowEl.createEl("input", {
+        cls: "qt-ref-graph-input",
+        attr: { type: "text", placeholder: index === 0 ? "y = sin(x)" : "y^2 = 2x + 1", "aria-label": `Graph expression ${index + 1}` },
+      });
+      input.value = row.text;
+      input.style.borderLeft = `3px solid ${color}`;
+      input.addEventListener("input", () => {
+        row.text = input.value;
+        this.drawGraph();
+      });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Backspace" && !row.text && this.graphRows.length > 1) {
+          event.preventDefault();
+          this.removeGraphRow(index);
+        }
+      });
+      rowEl.createEl("button", {
+        cls: "qt-ref-graph-remove",
+        text: "×",
+        attr: { "aria-label": `Remove expression ${index + 1}` },
+      }).addEventListener("click", () => this.removeGraphRow(index));
+      this.graphRowErrorEls[index] = rowEl.createDiv({ cls: "qt-ref-graph-row-error", attr: { "aria-live": "polite" } });
+    });
+
+    const actions = root.createDiv({ cls: "qt-row qt-ref-graph-actions" });
+    actions.createEl("button", { text: "Add expression", cls: "qt-ref-graph-add" }).addEventListener("click", () => {
+      this.graphRows.push({ text: "", hidden: false });
+      this.render();
+    });
+
+    this.graphCanvas = root.createEl("canvas", { cls: "qt-ref-canvas qt-ref-graph-canvas", attr: { "aria-label": "Graph of the expressions" } });
     this.graphErrorEl = root.createDiv({ cls: "qt-ref-note" });
     this.drawGraph();
+  }
+
+  removeGraphRow(index) {
+    this.graphRows.splice(index, 1);
+    if (!this.graphRows.length) this.graphRows.push({ text: "", hidden: false });
+    this.render();
   }
 
   drawGraph() {
@@ -308,51 +378,86 @@ class ReferenceView extends ItemView {
     const ctx = canvas.getContext ? canvas.getContext("2d") : null;
     if (!ctx) return;
     ctx.clearRect(0, 0, width, height);
-    let plot;
+    let graph;
     try {
-      plot = buildPlot(this.graphExpression, { xMin: this.graphXMin, xMax: this.graphXMax });
+      graph = buildGraph({
+        rows: this.graphRows.map((row) => (row.hidden ? "" : row.text)),
+        xMin: this.graphXMin,
+        xMax: this.graphXMax,
+        yMin: this.graphYMin,
+        yMax: this.graphYMax,
+        samples: Math.max(3, Math.round(width * 1.5)),
+        resolution: { x: Math.round(width / 3), y: Math.round(height / 3) },
+      });
     } catch (e) {
       if (this.graphErrorEl) this.graphErrorEl.setText(e.message);
       return;
     }
     if (this.graphErrorEl) this.graphErrorEl.setText("");
-    const px = (x) => ((x - plot.xMin) / (plot.xMax - plot.xMin)) * width;
-    const py = (y) => height - ((y - plot.yMin) / (plot.yMax - plot.yMin)) * height;
-    ctx.strokeStyle = "rgba(127, 127, 127, 0.22)";
+    const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
+    const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
+    this.paintGraphGrid(ctx, graph, width, height, px, py);
+    for (const row of graph.rows) {
+      const statusEl = this.graphRowErrorEls[row.index];
+      if (statusEl) statusEl.setText(row.error || (row.kind === "definition" ? "Function defined" : ""));
+      const color = GRAPH_COLORS[row.index % GRAPH_COLORS.length];
+      if (row.points && row.points.length) this.paintGraphPoints(ctx, row.points, height, px, py, color);
+      if (row.segments && row.segments.length) this.paintGraphSegments(ctx, row.segments, px, py, color);
+    }
+  }
+
+  paintGraphGrid(ctx, graph, width, height, px, py) {
+    const stepX = niceStep(graph.xMax - graph.xMin, Math.max(4, Math.round(width / 90)));
+    const stepY = niceStep(graph.yMax - graph.yMin, Math.max(3, Math.round(height / 70)));
+    const axisY = Math.min(Math.max(py(0), 0), width);
+    const axisX = Math.min(Math.max(px(0), 0), height - 14);
+    ctx.strokeStyle = "rgba(127, 127, 127, 0.18)";
     ctx.lineWidth = 1;
-    for (let i = 0; i <= 8; i++) {
-      const x = (width * i) / 8;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
+    ctx.beginPath();
+    for (let x = Math.ceil(graph.xMin / stepX) * stepX; x <= graph.xMax + stepX * 1e-6; x += stepX) {
+      ctx.moveTo(px(x), 0);
+      ctx.lineTo(px(x), height);
     }
-    for (let i = 0; i <= 6; i++) {
-      const y = (height * i) / 6;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
+    for (let y = Math.ceil(graph.yMin / stepY) * stepY; y <= graph.yMax + stepY * 1e-6; y += stepY) {
+      ctx.moveTo(0, py(y));
+      ctx.lineTo(width, py(y));
     }
-    ctx.strokeStyle = "rgba(127, 127, 127, 0.6)";
-    if (plot.xMin <= 0 && plot.xMax >= 0) {
-      ctx.beginPath();
-      ctx.moveTo(px(0), 0);
-      ctx.lineTo(px(0), height);
-      ctx.stroke();
-    }
-    if (plot.yMin <= 0 && plot.yMax >= 0) {
-      ctx.beginPath();
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(127, 127, 127, 0.55)";
+    ctx.beginPath();
+    if (graph.yMin <= 0 && graph.yMax >= 0) {
       ctx.moveTo(0, py(0));
       ctx.lineTo(width, py(0));
-      ctx.stroke();
     }
-    ctx.strokeStyle = "#5b8def";
+    if (graph.xMin <= 0 && graph.xMax >= 0) {
+      ctx.moveTo(px(0), 0);
+      ctx.lineTo(px(0), height);
+    }
+    ctx.stroke();
+    ctx.fillStyle = "rgba(127, 127, 127, 0.85)";
+    ctx.font = "11px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    for (let x = Math.ceil(graph.xMin / stepX) * stepX; x <= graph.xMax + stepX * 1e-6; x += stepX) {
+      if (Math.abs(x) < stepX / 1000) continue;
+      ctx.fillText(formatGraphTick(x), px(x), axisX + 3);
+    }
+    ctx.textAlign = "right";
+    for (let y = Math.ceil(graph.yMin / stepY) * stepY; y <= graph.yMax + stepY * 1e-6; y += stepY) {
+      if (Math.abs(y) < stepY / 1000) continue;
+      ctx.fillText(formatGraphTick(y), Math.max(axisY - 4, 16), Math.max(py(y) - 7, 0));
+    }
+  }
+
+  paintGraphPoints(ctx, points, height, px, py, color) {
+    ctx.strokeStyle = color;
     ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
     ctx.beginPath();
     let drawing = false;
     let lastY = null;
-    for (const point of plot.points) {
+    for (const point of points) {
       if (point.y === null) {
         drawing = false;
         lastY = null;
@@ -367,6 +472,19 @@ class ReferenceView extends ItemView {
         ctx.lineTo(x, y);
       }
       lastY = y;
+    }
+    ctx.stroke();
+  }
+
+  paintGraphSegments(ctx, segments, px, py, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    for (const segment of segments) {
+      ctx.moveTo(px(segment.x1), py(segment.y1));
+      ctx.lineTo(px(segment.x2), py(segment.y2));
     }
     ctx.stroke();
   }

@@ -2,6 +2,17 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.171.0 — 2026-11-02
+
+- The Reference Graph tab is a Desmos-style expression list: several rows, each
+  one an expression in `x`, `y = f(x)`, a reusable `f(x) = x^2` definition, or an
+  implicit relation such as `y^2 = 2x + 1` or `x^2 + y^2 = 9`.
+- Rows have their own colour and hide toggle, the window has separate `x` and `y`
+  ranges, and a bad row reports inline without stopping the others.
+- Explicit rows are sampled and implicit curves are traced locally with marching
+  squares; the restricted parser still has no `eval`, network request or Desmos
+  key. **1,380 tests pass**, `npm run check` is clean and `main.js` is rebuilt.
+
 ## 1.170.0 — 2026-11-02
 
 - Responsive UI pass for Cards, Assignments, Insights, Reference, Study Tools,

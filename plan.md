@@ -298,7 +298,7 @@
 
 | Area | Actual status | Evidence / remaining gap |
 |---|---|---|
-| Reference panel (formulas, constants, units, calculator, graph, periodic table, sheets) | **Done** | Data audited against the 2025 AP Chemistry sheet and 2020 AP table; tests cover search, conversion, plotting, the element table and the 1.106.0 unit-circle, trig, codon and Punnett sheets. |
+| Reference panel (formulas, constants, units, calculator, graph, periodic table, sheets) | **Done** | Data audited against the 2025 AP Chemistry sheet and 2020 AP table; tests cover search, conversion, plotting, the element table and the 1.106.0 unit-circle, trig, codon and Punnett sheets. The graph is a multi-expression Desmos-style list: each row is an expression in x, `y = f(x)`, a reusable `f(x) = …` definition, or an implicit relation such as `y^2 = 2x + 1`; explicit rows are sampled and implicit rows are traced with local marching squares. |
 | Reference sheets (§5.22.5) | **Done in 1.106.0** | Unit circle (16 angles), grouped trig identities, all 64 RNA codons with search, and a two-parent Punnett square with genotype counts. Local data only. |
 | Generate practice from any note (P1 §5.23) | **Done** | `AI: generate practice from this note`; preview shows source, destination, count and difficulty; blind check and AI undo reused. |
 | Per-note subtopic memory (P2 §5.23) | **Done** | AI output writes `subtopic` per question and `generated_subtopics` on the source note; later prompts avoid covered subtopics. |
