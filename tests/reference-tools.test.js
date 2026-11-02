@@ -1681,3 +1681,105 @@ test("reference view: the statistics panel computes values and reports bad input
   assert.equal(single.ok, true);
   assert.match(view.graphStats.result, /stdev —/);
 });
+
+
+test("calculus: derivative and integral values, edges and reversed bounds", () => {
+  const c = T.calculus;
+  const square = T.referenceGraph.compileExpression("x^2", {});
+  const slope = c.numericDerivative(square, 3);
+  assert.equal(slope.ok, true);
+  assert.ok(Math.abs(slope.value - 6) < 1e-6, `slope was ${slope.value}`);
+  assert.equal(c.numericDerivative(() => 5, 2).value, 0, "a flat function has slope 0");
+  assert.equal(c.numericDerivative((x) => Math.sqrt(x), 0).reason, "undefined");
+  assert.equal(c.numericDerivative(null, 1).reason, "function");
+  assert.equal(c.numericDerivative(square, 1, { step: 0 }).reason, "step");
+  assert.equal(c.numericDerivative(square, 1, { step: NaN }).reason, "step");
+  assert.equal(c.numericDerivative(square, Infinity).reason, "point");
+
+  const area = c.definiteIntegral(square, 0, 1);
+  assert.equal(area.ok, true);
+  assert.ok(Math.abs(area.value - 1 / 3) < 1e-9, `area was ${area.value}`);
+  const backwards = c.definiteIntegral(square, 1, 0);
+  assert.ok(Math.abs(backwards.value + 1 / 3) < 1e-9, "reversed bounds negate the integral");
+  assert.equal(c.definiteIntegral(square, 2, 2).value, 0);
+  assert.equal(c.definiteIntegral((x) => 1 / (x - 0.5), 0, 1).reason, "undefined", "a pole stops the integral");
+  assert.equal(c.definiteIntegral(square, 0, 1, { tolerance: 0 }).reason, "tolerance");
+  assert.equal(c.definiteIntegral(square, 0, 1, { tolerance: NaN }).reason, "tolerance");
+  assert.equal(c.definiteIntegral(square, 0, Infinity).reason, "bounds");
+  assert.equal(c.definiteIntegral(undefined, 0, 1).reason, "function");
+});
+
+test("calculus: sums and products handle empty, single and non-evaluable ranges", () => {
+  const c = T.calculus;
+  assert.equal(c.summation((x) => x, 1, 4).value, 10);
+  assert.deepEqual(c.summation((x) => x, 4, 1), { ok: true, value: 0, terms: 0 });
+  assert.equal(c.summation((x) => x, 5, 5).value, 5);
+  assert.equal(c.productOver((x) => x, 1, 4).value, 24);
+  assert.deepEqual(c.productOver((x) => x, 4, 1), { ok: true, value: 1, terms: 0 });
+  assert.equal(c.productOver((x) => x, 5, 5).value, 5);
+  assert.equal(c.productOver(() => 0, 1, 3).value, 0);
+  assert.equal(c.summation((x) => x, 1.5, 3).reason, "range");
+  assert.equal(c.productOver((x) => x, 1, Infinity).reason, "range");
+  assert.equal(c.summation((x) => x, 1, 3, { limit: 2 }).reason, "range");
+  assert.equal(c.summation(() => NaN, 1, 3).reason, "undefined");
+  assert.equal(c.productOver(() => Infinity, 1, 2).reason, "undefined");
+  assert.equal(c.summation(null, 1, 2).reason, "function");
+  assert.equal(c.parseScalar("NaN").reason, "invalid");
+  assert.equal(c.parseScalar("").reason, "empty");
+  assert.equal(c.parseScalar("-2.5").value, -2.5);
+});
+
+test("reference view: the calculus panel computes and reports failures with a Notice", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const labels = () => dom.all.map((element) => (element.meta && (element.meta.attr || {})["aria-label"]) || "").filter(Boolean);
+  for (const label of ["Calculus expression", "Calculus lower bound", "Calculus upper bound", "Calculate derivative", "Calculate integral", "Calculate sum", "Calculate product"]) {
+    assert.ok(labels().indexOf(label) >= 0, `missing calculus control: ${label}`);
+  }
+  const { obsidian } = require("./helpers/load");
+
+  view.graphCalculus = { expression: "x^2", a: "3", b: "1", result: "" };
+  view.render();
+  const derivative = view.calculateGraphCalculus("derivative");
+  assert.equal(derivative.ok, true);
+  assert.ok(Math.abs(derivative.value - 6) < 1e-6);
+  assert.match(view.graphCalculus.result, /^Derivative at 3 = 6/);
+  const integral = view.calculateGraphCalculus("integral");
+  assert.equal(integral.ok, true);
+  assert.ok(Math.abs(integral.value + 26 / 3) < 1e-6);
+  assert.match(view.graphCalculus.result, /^Integral from 3 to 1 = -8\.6666/);
+
+  view.graphCalculus = { expression: "x", a: "1", b: "4", result: "" };
+  view.render();
+  assert.equal(view.calculateGraphCalculus("sum").value, 10);
+  assert.match(view.graphCalculus.result, /^Sum from 1 to 4 = 10/);
+  assert.equal(view.calculateGraphCalculus("product").value, 24);
+  assert.match(view.graphCalculus.result, /^Product from 1 to 4 = 24/);
+
+  view.graphCalculus = { expression: "", a: "0", b: "1", result: "" };
+  view.render();
+  const noticesBefore = obsidian.notices.length;
+  const missing = view.calculateGraphCalculus("derivative");
+  assert.equal(missing.reason, "function");
+  assert.equal(obsidian.notices.length, noticesBefore + 1, "the failure raises one Notice");
+  assert.match(obsidian.notices[obsidian.notices.length - 1], /Enter an expression in x/);
+
+  view.graphCalculus = { expression: "x^2", a: "NaN", b: "1", result: "" };
+  view.render();
+  const badBound = view.calculateGraphCalculus("integral");
+  assert.equal(badBound.reason, "invalid");
+  assert.match(view.graphCalculus.result, /not a finite number/);
+
+  view.graphCalculus = { expression: "x +", a: "0", b: "1", result: "" };
+  view.render();
+  assert.equal(view.calculateGraphCalculus("integral").ok, false, "a bad expression is refused");
+  assert.ok(view.graphCalculus.result.length > 0);
+});

@@ -2,6 +2,15 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.189.0 — 2026-11-02
+
+- The graph tab has a calculus panel for the entered expression: a numeric
+  derivative at a point, a definite integral between two bounds, and whole-number
+  sums and products over a range.
+- Reversed bounds give the negative integral; an empty range sums to 0 and
+  multiplies to 1; non-finite values, bad bounds, bad steps or tolerances and an
+  unparsable expression are reported with a Notice instead of throwing.
+
 ## 1.188.0 — 2026-11-02
 
 - The graph tab has a statistics panel: enter a list of numbers and get the

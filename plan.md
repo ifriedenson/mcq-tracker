@@ -1251,7 +1251,7 @@ Owner direction: inventory everything the Desmos Graphing Calculator does, recor
 | 1.186.0 | Export: graph PNG, table CSV and copy-expression text | Canvas and clipboard APIs already used by the plugin; no third-party code | **Shipped** |
 | 1.187.0 | Math keypad and examples gallery in the graph tab | Desmos' documented shortcut set as behaviour reference only; `mathlive` MIT option for input ideas (https://github.com/arnog/mathlive) | **Shipped** |
 | 1.188.0 | Statistics: mean/median/stdev/quartile/corr and list entry | `simple-statistics` (ISC) for the formulas | **Shipped** |
-| 1.189.0 | Calculus: numeric derivative, definite integral, sum and product | `scijs/integrate-adaptive-simpson` adaptive quadrature (MIT, https://github.com/scijs/integrate-adaptive-simpson); `mathjs` derivative reference (Apache-2.0) | Queued |
+| 1.189.0 | Calculus: numeric derivative, definite integral, sum and product | `scijs/integrate-adaptive-simpson` adaptive quadrature (MIT, https://github.com/scijs/integrate-adaptive-simpson); `mathjs` derivative reference (Apache-2.0) | **Shipped** |
 | 1.190.0 | Accessibility: per-row text summary for screen readers and a data-table view of the graph | Desmos accessibility guidance as behaviour reference only | Queued |
 
 **Not planned, with the reason recorded:** the 3D calculator, Geometry tool and Matrix calculator are separate products outside this panel; complex mode, audio trace, braille output and Desmos share links need device or service support the plugin does not have; the Desmos API itself is proprietary and was already rejected in §3.10 and §11 decision 6. Marching squares for implicit curves and inequalities is written locally rather than copied from the AGPL implementation.
