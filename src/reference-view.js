@@ -41,6 +41,7 @@ const { createHistory, pushHistory, undoHistory, redoHistory, canUndo, canRedo, 
 const { normalizePaper, parseGridStep, paperTicks, paperSummary } = require("./graph-paper");
 const { isNotationText } = require("./graph-summation");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
+const matrixMath = require("./matrix");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
 const {
@@ -189,6 +190,14 @@ class ReferenceView extends ItemView {
     this.calculatorExpressionEl = null;
     this.calculatorResultEl = null;
     this.calculatorErrorEl = null;
+    const storedMatrix = (plugin.settings && plugin.settings.reference && plugin.settings.reference.matrix) || {};
+    this.matrixState = matrixMath.normalizeState(storedMatrix);
+    if (!Array.isArray(storedMatrix.a)) this.matrixState.a = [["1", "2"], ["3", "4"]];
+    if (!Array.isArray(storedMatrix.b)) this.matrixState.b = [["5", "6"], ["7", "8"]];
+    this.matrixScalar = "2";
+    this.matrixResult = "";
+    this.matrixError = "";
+    this.matrixResultEl = null;
     this.elementQuery = "";
     this.selectedElement = null;
     this.periodicGridEl = null;
@@ -256,6 +265,7 @@ class ReferenceView extends ItemView {
       ["structures", "Structures"],
       ["units", "Unit converter"],
       ["calculator", "Calculator"],
+      ["matrix", "Matrix"],
       ["graph", "Graph"],
       ["elements", "Periodic table"],
       ["constants", "Constants"],
@@ -288,6 +298,7 @@ class ReferenceView extends ItemView {
     if (this.tab === "structures") this.renderStructures(root);
     else if (this.tab === "units") this.renderUnits(root);
     else if (this.tab === "calculator") this.renderCalculator(root);
+    else if (this.tab === "matrix") this.renderMatrix(root);
     else if (this.tab === "graph") this.renderGraph(root);
     else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
@@ -391,6 +402,171 @@ class ReferenceView extends ItemView {
     this.calculatorResult = result.text;
     this.calculatorError = result.ok ? "" : result.error;
     this.paintCalculator();
+  }
+
+  renderMatrix(root) {
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "A local matrix calculator. Enter A and B, then add, subtract, multiply, transpose, scale, find a determinant, inverse or reduced row-echelon form, or solve A x = b using the first column of B. Every operation stays on this device.",
+    });
+
+    const gridSection = (key, label) => {
+      const section = root.createDiv({ cls: "qt-ref-matrix-section" });
+      section.createEl("h4", { text: label });
+      const rows = this.matrixState[key];
+      const columns = rows[0] ? rows[0].length : 1;
+      const grid = section.createDiv({ cls: "qt-ref-matrix-grid", attr: { role: "group", "aria-label": label } });
+      rows.forEach((row, r) => {
+        const rowEl = grid.createDiv({ cls: "qt-ref-matrix-row" });
+        row.forEach((cell, c) => {
+          const input = rowEl.createEl("input", {
+            cls: "qt-ref-matrix-cell",
+            attr: { type: "number", step: "any", "aria-label": `${label} row ${r + 1} column ${c + 1}` },
+          });
+          input.value = cell;
+          input.addEventListener("input", () => {
+            this.matrixState[key][r][c] = input.value;
+            this.persistMatrixState();
+          });
+        });
+      });
+      const size = section.createDiv({ cls: "qt-row qt-ref-matrix-size" });
+      size.createEl("button", { text: "Add row", attr: { type: "button", "aria-label": `Add row to ${label}` } })
+        .addEventListener("click", () => this.changeMatrixSize(key, "row", 1));
+      size.createEl("button", { text: "Remove row", attr: { type: "button", "aria-label": `Remove row from ${label}` } })
+        .addEventListener("click", () => this.changeMatrixSize(key, "row", -1));
+      size.createEl("button", { text: "Add column", attr: { type: "button", "aria-label": `Add column to ${label}` } })
+        .addEventListener("click", () => this.changeMatrixSize(key, "column", 1));
+      size.createEl("button", { text: "Remove column", attr: { type: "button", "aria-label": `Remove column from ${label}` } })
+        .addEventListener("click", () => this.changeMatrixSize(key, "column", -1));
+      section.createDiv({ cls: "qt-ref-matrix-dimensions", text: `${rows.length} × ${columns}` });
+    };
+
+    gridSection("a", "Matrix A");
+    gridSection("b", "Matrix B");
+
+    const scalarRow = root.createDiv({ cls: "qt-row qt-ref-matrix-scalar" });
+    const scalarLabel = scalarRow.createEl("label", { cls: "qt-ref-graph-bound" });
+    scalarLabel.createSpan({ text: "scalar" });
+    const scalarInput = scalarLabel.createEl("input", {
+      cls: "qt-ref-amount",
+      attr: { type: "number", step: "any", "aria-label": "Matrix scalar" },
+    });
+    scalarInput.value = this.matrixScalar;
+    scalarInput.addEventListener("input", () => {
+      this.matrixScalar = scalarInput.value;
+    });
+
+    const operations = root.createDiv({ cls: "qt-row qt-ref-matrix-operations" });
+    const operation = (label, aria, run) => {
+      operations.createEl("button", { text: label, attr: { type: "button", "aria-label": aria } })
+        .addEventListener("click", run);
+    };
+    operation("A + B", "Add matrix A and matrix B", () => this.runMatrix("add"));
+    operation("A − B", "Subtract matrix B from matrix A", () => this.runMatrix("subtract"));
+    operation("A × B", "Multiply matrix A by matrix B", () => this.runMatrix("multiply"));
+    operation("scalar × A", "Multiply matrix A by the scalar", () => this.runMatrix("scaleA"));
+    operation("scalar × B", "Multiply matrix B by the scalar", () => this.runMatrix("scaleB"));
+    operation("transpose A", "Transpose matrix A", () => this.runMatrix("transposeA"));
+    operation("transpose B", "Transpose matrix B", () => this.runMatrix("transposeB"));
+    operation("determinant A", "Determinant of matrix A", () => this.runMatrix("detA"));
+    operation("determinant B", "Determinant of matrix B", () => this.runMatrix("detB"));
+    operation("inverse A", "Inverse of matrix A", () => this.runMatrix("inverseA"));
+    operation("inverse B", "Inverse of matrix B", () => this.runMatrix("inverseB"));
+    operation("RREF A", "Reduced row-echelon form of matrix A", () => this.runMatrix("rrefA"));
+    operation("RREF B", "Reduced row-echelon form of matrix B", () => this.runMatrix("rrefB"));
+    operation("solve A x = b", "Solve A x = b using the first column of B", () => this.runMatrix("solve"));
+
+    const resultSection = root.createDiv({ cls: "qt-ref-matrix-result" });
+    resultSection.createDiv({ cls: "qt-ref-graph-data-head", text: "Result" });
+    this.matrixResultEl = resultSection.createEl("pre", {
+      cls: "qt-ref-matrix-output",
+      attr: { "aria-live": "polite", "aria-label": "Matrix result" },
+    });
+    this.matrixResultEl.setText(this.matrixError || this.matrixResult || "Choose an operation.");
+    root.createDiv({ cls: "qt-ref-matrix-hint", text: "Blank or non-numeric cells are reported in the result area; the matrices are not changed." });
+  }
+
+  changeMatrixSize(key, dimension, delta) {
+    const rows = this.matrixState[key];
+    if (dimension === "row") {
+      if (delta > 0) {
+        if (rows.length >= matrixMath.UI_MAX_SIZE) return;
+        rows.push(Array.from({ length: rows[0].length }, () => ""));
+      } else {
+        if (rows.length <= 1) return;
+        rows.pop();
+      }
+    } else {
+      const width = rows[0].length + delta;
+      if (width < 1 || width > matrixMath.UI_MAX_SIZE) return;
+      for (const row of rows) {
+        if (delta > 0) row.push("");
+        else row.pop();
+      }
+    }
+    this.matrixResult = "";
+    this.matrixError = "";
+    this.persistMatrixState();
+    this.render();
+  }
+
+  runMatrix(operation) {
+    const fail = (message) => {
+      this.persistMatrixState();
+      this.matrixError = message;
+      this.matrixResult = "";
+      if (this.matrixResultEl) this.matrixResultEl.setText(message);
+      new Notice(message);
+      return { ok: false, message };
+    };
+    try {
+      const a = matrixMath.grid(this.matrixState.a, "Matrix A");
+      const b = matrixMath.grid(this.matrixState.b, "Matrix B");
+      let value;
+      if (operation === "add") value = matrixMath.add(a, b);
+      else if (operation === "subtract") value = matrixMath.subtract(a, b);
+      else if (operation === "multiply") value = matrixMath.multiply(a, b);
+      else if (operation === "scaleA") value = matrixMath.scalarMultiply(a, this.matrixScalar);
+      else if (operation === "scaleB") value = matrixMath.scalarMultiply(b, this.matrixScalar);
+      else if (operation === "transposeA") value = matrixMath.transpose(a);
+      else if (operation === "transposeB") value = matrixMath.transpose(b);
+      else if (operation === "detA") value = matrixMath.determinant(a);
+      else if (operation === "detB") value = matrixMath.determinant(b);
+      else if (operation === "inverseA") value = matrixMath.inverse(a);
+      else if (operation === "inverseB") value = matrixMath.inverse(b);
+      else if (operation === "rrefA") value = matrixMath.rref(a);
+      else if (operation === "rrefB") value = matrixMath.rref(b);
+      else if (operation === "solve") value = matrixMath.solve(a, b.map((row) => [row[0]]));
+      else return fail("Choose a matrix operation.");
+      this.persistMatrixState();
+      this.matrixError = "";
+      if (typeof value === "number") this.matrixResult = matrixMath.formatNumber(value);
+      else if (Array.isArray(value)) this.matrixResult = matrixMath.formatMatrix(value);
+      else this.matrixResult = `${matrixMath.formatMatrix(value.matrix)}\nrank ${value.rank}`;
+      if (this.matrixResultEl) this.matrixResultEl.setText(this.matrixResult);
+      return { ok: true, value: this.matrixResult };
+    } catch (e) {
+      return fail(e && e.message ? e.message : "That matrix operation could not be completed.");
+    }
+  }
+
+  persistMatrixState() {
+    const settings = this.plugin.settings;
+    if (!settings) return;
+    if (!settings.reference) settings.reference = {};
+    settings.reference.matrix = {
+      a: this.matrixState.a.map((row) => row.slice()),
+      b: this.matrixState.b.map((row) => row.slice()),
+      scalar: this.matrixScalar,
+    };
+    if (typeof this.plugin.save === "function") {
+      try {
+        this.plugin.save();
+      } catch (e) {
+        // The matrices stay in memory; Obsidian reports a failed settings write itself.
+      }
+    }
   }
 
   renderGraph(root) {

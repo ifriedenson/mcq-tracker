@@ -63,6 +63,7 @@ const answerVerification = require("./answer-verification");
 const computedVerification = require("./computed-verification");
 const figures = require("./figures");
 const calculator = require("./calculator");
+const matrix = require("./matrix");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
@@ -301,6 +302,7 @@ QuestionTrackerPlugin.__test = {
   computedVerification,
   figures,
   calculator,
+  matrix,
   WeakSpotModal,
   QuickAddModal,
   quickAdd,

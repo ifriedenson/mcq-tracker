@@ -871,6 +871,7 @@ function mergeReferenceSettings(saved) {
     hideDuringTests: src.hideDuringTests !== false,
     hideCalculatorDuringTests: src.hideCalculatorDuringTests !== false,
     calculator: src.calculator !== false,
+    matrix: src.matrix && typeof src.matrix === "object" ? src.matrix : undefined,
     defaultSubject: REFERENCE_SUBJECTS.some((s) => s.id === subject) ? subject : "all",
   };
 }

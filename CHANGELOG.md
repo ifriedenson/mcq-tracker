@@ -2,6 +2,16 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.198.0 — 2026-11-03
+
+- The Reference panel has a local **Matrix** tab: enter matrices A and B,
+  resize them up to 6×6, and add, subtract, multiply, scale or transpose them.
+  It also computes determinants, inverses, reduced row-echelon form and the
+  solution of `A x = b` using the first column of B.
+- Matrix operations are pure functions in `src/matrix.js`; the tab validates
+  dimensions, blank cells and non-finite values, announces failures in a polite
+  live region, and saves both matrices in the Reference settings.
+
 ## 1.197.0 — 2026-11-03
 
 - Graph expressions accept summation and product notation:

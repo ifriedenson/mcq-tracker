@@ -11247,3 +11247,55 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-ref .qt-ref-graph-paper-step input {
   width: 84px;
 }
+
+/* Reference matrix calculator. */
+.qt-ref .qt-ref-matrix-section {
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.qt-ref .qt-ref-matrix-section h4 {
+  margin: 0;
+}
+
+.qt-ref .qt-ref-matrix-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: fit-content;
+}
+
+.qt-ref .qt-ref-matrix-row {
+  display: flex;
+  gap: 4px;
+}
+
+.qt-ref .qt-ref-matrix-cell {
+  text-align: right;
+  width: 72px;
+}
+
+.qt-ref .qt-ref-matrix-size,
+.qt-ref .qt-ref-matrix-operations {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qt-ref .qt-ref-matrix-dimensions,
+.qt-ref .qt-ref-matrix-hint {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.qt-ref .qt-ref-matrix-output {
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  margin: 0;
+  overflow-x: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+}

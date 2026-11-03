@@ -1273,6 +1273,27 @@ Owner direction: inventory everything the Desmos Graphing Calculator does, recor
 
 Every queued row in this table is now shipped; the only remaining row is the blocked Desmos-account row, whose concrete blocker is the proprietary service. As of 1.197.0 there is no unshipped local row in this roadmap. The graph tab's remaining known quality gates (no live Obsidian hand pass, no real screen reader) are recorded in each release note rather than hidden here.
 
+### 3.13 Extended calculator roadmap (Nov 3, 2026)
+
+Owner decisions: include explicit and implicit 3D surfaces; do not build braille output; do not add Desmos share links or the Desmos API; allow a vendored JSXGraph build under its MIT option; add geometry transformations in a later release. The 3D, geometry and matrix tools are separate Reference surfaces from the 2D graph. Each release follows the existing rule: a pure module first, one `ReferenceView` adapter, local persistence, focused tests, a rebuilt `main.js`, and an honest release note.
+
+| Release | Capability | Scope | Status |
+|---|---|---|---|
+| 1.198.0 | Matrix calculator | Matrix A/B up to 6×6, arithmetic, scale, transpose, determinant, inverse, RREF and `A x = b` | **Shipped** |
+| 1.199.0 | Complex arithmetic | Complex values, `i`, calculator support and formatting | **Queued** |
+| 1.200.0 | Complex graph mode | Domain coloring and complex points | **Queued** |
+| 1.201.0 | Geometry primitives | Points, segments, lines, circles, polygons and measurements | **Queued** |
+| 1.202.0 | Geometry constructions | Midpoints, intersections, perpendiculars and bisectors | **Queued** |
+| 1.203.0 | Geometry transformations | Translate, rotate, reflect and dilate | **Queued** |
+| 1.204.0 | 3D core | Explicit `z = f(x,y)` surfaces, points, camera and software renderer | **Queued** |
+| 1.205.0 | 3D implicit surfaces | `F(x,y,z) = 0` via bounded marching cubes | **Queued** |
+| 1.206.0 | 3D curves and performance | Parametric curves, LOD, color, export and print | **Queued** |
+| 1.207.0 | Audio trace | Web Audio sonification of curves and points | **Queued** |
+| 1.208.0 | Local vector field | Quiver, streamlines and magnitude scaling | **Queued** |
+| 1.209.0 | JSXGraph adapter | MIT-vendored advanced geometry and vector-field presentation | **Queued** |
+
+**Removed by owner decision:** braille output (including BRF and translation) and all Desmos share-link/API work, including a plugin-owned link format. No network integration is planned for these tools.
+
 ## 4. Architecture
 
 ### 4.1 Core + modules
