@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.214.1 — 2026-11-03
+
+- Fixed **Study agent replies failing to render** in the live Obsidian view.
+  `ChatPanel` renders assistant Markdown through the owning view's `md` helper;
+  the sidebar `AgentView` did not define one, so the first reply would throw a
+  `TypeError`. It now uses the plugin's existing Markdown renderer.
+- Added a mounted-view regression test that opens the real `AgentView`, draws
+  an assistant reply and confirms the insert action is rendered.
+
 ## 1.214.0 — 2026-11-03
 
 - Finished the right-sidebar **Study agent** gaps: a bot ribbon entry, an

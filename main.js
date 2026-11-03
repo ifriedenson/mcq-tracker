@@ -726,6 +726,7 @@ const { ChatPanel } = require("./chat-panel");
 const { readActiveNoteContext } = require("./note-context");
 const { buildGeneralContext } = require("./opencode-client");
 const { insertReplyIntoNote } = require("./agent-note");
+const { renderMarkdownInto } = require("./view-helpers");
 
 const VIEW_TYPE_AGENT = "question-tracker-agent";
 
@@ -782,6 +783,11 @@ class AgentView extends ItemView {
 
   getIcon() {
     return "bot";
+  }
+
+  /** ChatPanel renders assistant replies through the owning view's markdown helper. */
+  md(markdown, el, sourcePath) {
+    renderMarkdownInto(this.app, markdown, el, sourcePath, this);
   }
 
   async onOpen() {

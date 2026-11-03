@@ -53,9 +53,11 @@ file index to the configured provider; it does not send the rest of the vault.
 `tests/agent-view.test.js` covers local ranking and citations, context assembly,
 automatic retrieval before a question, the active-note action, transcript
 wiring, cursor insertion, append fallback, refusal without an active note, and
-the ribbon/command entry points. `tests/note-context.test.js` and
-`tests/think-first.test.js` cover the shared note context, provider, countdown,
-stop/cancel and error paths reused by the panel.
+the ribbon/command entry points. A mounted-view test opens the real `AgentView`,
+renders an assistant reply through its Markdown helper and confirms the insert
+action. `tests/note-context.test.js` and `tests/think-first.test.js` cover the
+shared note context, provider, countdown, stop/cancel and error paths reused by
+the panel.
 
 ## Manual gate
 

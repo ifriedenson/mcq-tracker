@@ -104,6 +104,24 @@ test("study agent: ask-about-note turns on note context and sends the note", asy
   assert.ok(panel.turns.some((turn) => turn.role === "assistant" && turn.texts.includes("A reply")));
 });
 
+test("study agent: the mounted view renders assistant markdown", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  plugin.settings.ai.backend = "api";
+  const dom = makeDom();
+  const view = new a.AgentView({ app }, plugin);
+  view.contentEl = dom.root;
+  await view.onOpen();
+
+  assert.equal(typeof view.md, "function");
+  view.chatPanel.turns = [{ role: "assistant", texts: ["**A useful answer**"], tools: [] }];
+  view.chatPanel.sig = "";
+  assert.doesNotThrow(() => view.chatPanel.draw());
+  assert.ok(dom.texts().includes("Insert into active note"));
+});
+
 test("study agent: insert action writes an assistant reply into the active note", async () => {
   let inserted = "";
   const editor = { replaceSelection: (text) => (inserted = text) };

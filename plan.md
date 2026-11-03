@@ -94,6 +94,7 @@
 
 ## Current focus (Oct 30, 2026)
 
+- [x] **1.214.1 sidebar agent hotfix (Nov 3, 2026):** `ChatPanel` renders assistant Markdown through `view.md`, but `AgentView` did not define it, so live replies would throw before drawing. `AgentView.md` now delegates to the existing `renderMarkdownInto` helper; a mounted-view regression test opens the real view and renders an assistant reply. No card-import behavior changed.
 - [x] **1.214.0 sidebar agent completion (Nov 3, 2026):** closing gaps in the right-sidebar Study agent: bot ribbon entry, active-note quick action, automatic local cited retrieval before every question, insert-at-cursor/append reply action, Direct API stop-waiting, and documented MIT/independence in `docs/sidebar-agent.md` and `NOTICES.md`. No Copilot source; no card-import behavior changed.
 - [x] **1.213.0 sidebar agent (Nov 3, 2026):** right-sidebar Study agent with local cited vault search, existing AI chat/providers, opt-in full-vault context, and card creation through the existing approval window. Original MIT code; no Obsidian Copilot source copied.
 - [x] **1.212.0 document cards (Nov 3, 2026):** PDF/Markdown card extraction, local-first with preview and opt-in AI fallback. Text PDFs use the existing PDF.js reader; scans point to OCR.
