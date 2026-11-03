@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.210.4 — 2026-11-03
+
+- Each row in the read-only **PDF annotations** index now offers **Copy page
+  link**, which copies an Obsidian wikilink such as
+  `[[Papers/biology.pdf#page=12]]`, and **Open at page 12**, which opens the
+  PDF at that page.
+- Links are built only for a `.pdf` path with a positive whole page number;
+  wikilink-breaking characters are removed from the path. Nothing is opened,
+  resolved or written until you press a button.
+
 ## 1.210.3 — 2026-11-03
 
 - Adds the opt-in **Citations** Study Workspace module: import a `.bib` file

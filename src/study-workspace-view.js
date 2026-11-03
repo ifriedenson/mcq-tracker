@@ -9,6 +9,7 @@ const { VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
 const { localDate, str } = require("./util");
 const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
+const pdfAnnotationIndex = require("./pdf-annotation-index");
 const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
@@ -2131,7 +2132,7 @@ class StudyWorkspaceView extends ItemView {
   renderPdfAnnotations(root) {
     const card = root.createDiv({ cls: "qt-study-card" });
     card.createEl("h3", { text: "PDF annotations" });
-    card.createDiv({ cls: "qt-hint", text: "Read-only index of the .annotations.md sidecars already in the vault. Nothing is created, edited or opened automatically." });
+    card.createDiv({ cls: "qt-hint", text: "Read-only index of the .annotations.md sidecars already in the vault. Nothing is created or edited. Each row can copy a [[file.pdf#page=N]] deep link or open the PDF at that page." });
     const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
     actions.createEl("button", { text: "Scan annotations", cls: "mod-cta" }).addEventListener("click", async () => {
       try {
@@ -2165,6 +2166,21 @@ class StudyWorkspaceView extends ItemView {
       const buttons = item.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Open PDF" }).addEventListener("click", () => this.app.workspace.openLinkText(row.pdfPath, "", false));
       buttons.createEl("button", { text: "Open sidecar" }).addEventListener("click", () => this.app.workspace.openLinkText(row.sidecarPath, "", false));
+      const pageLink = pdfAnnotationIndex.pdfPageLink(row.pdfPath, row.page);
+      if (pageLink) {
+        const subpath = pdfAnnotationIndex.pdfPageSubpath(row.pdfPath, row.page);
+        buttons.createEl("button", { text: "Open at page " + row.page }).addEventListener("click", () => this.app.workspace.openLinkText(subpath, "", false));
+        buttons.createEl("button", { text: "Copy page link" }).addEventListener("click", async () => {
+          try {
+            if (typeof navigator === "undefined" || !navigator.clipboard) throw new Error("Clipboard unavailable");
+            await navigator.clipboard.writeText(pageLink);
+            this.saveMessage("Copied " + pageLink + ".");
+          } catch (e) {
+            this.saveMessage("Could not copy " + pageLink + " in this view.");
+          }
+          this.render();
+        });
+      }
     }
   }
 

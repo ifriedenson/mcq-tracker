@@ -10,6 +10,7 @@ const { annotationSummary, parseAnnotationFile, pdfPathFromSidecar } = require("
 
 const MAX_FILES = 1000;
 const MAX_ROWS = 2000;
+const MAX_PAGE = 100000;
 
 function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -110,9 +111,32 @@ function collectPdfAnnotations(entries, options) {
   };
 }
 
+/**
+ * `file.pdf#page=3` for a PDF page, or "" when the path or page is unusable.
+ * Only the link text is built; nothing is opened, resolved or written.
+ */
+function pdfPageSubpath(path, page) {
+  const clean = str(path).trim().replace(/^\/+/, "");
+  const number = Math.round(Number(page));
+  if (!clean || !/\.pdf$/i.test(clean)) return "";
+  if (!Number.isFinite(number) || number < 1 || number > MAX_PAGE) return "";
+  const safe = clean.replace(/[|#[\]\r\n]/g, "").trim();
+  if (!safe) return "";
+  return safe + "#page=" + number;
+}
+
+/** The copyable `[[file.pdf#page=3]]` wikilink, or "" for an unusable page. */
+function pdfPageLink(path, page) {
+  const subpath = pdfPageSubpath(path, page);
+  return subpath ? "[[" + subpath + "]]" : "";
+}
+
 module.exports = {
   MAX_FILES,
+  MAX_PAGE,
   MAX_ROWS,
   collectPdfAnnotations,
   normalizePdfAnnotationIndexSettings,
+  pdfPageLink,
+  pdfPageSubpath,
 };

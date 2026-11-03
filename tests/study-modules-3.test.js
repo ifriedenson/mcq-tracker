@@ -105,6 +105,51 @@ test("pdf annotation index: settings clamp and normalize", () => {
   assert.equal(PI.normalizePdfAnnotationIndexSettings({ enabled: false }).enabled, false);
 });
 
+test("pdf annotation index: page deep links are safe and only cover PDFs", () => {
+  assert.equal(PI.pdfPageSubpath("Papers/biology.pdf", 12), "Papers/biology.pdf#page=12");
+  assert.equal(PI.pdfPageLink("Papers/biology.pdf", 12), "[[Papers/biology.pdf#page=12]]");
+  assert.equal(PI.pdfPageLink("/Papers/biology.pdf", 2.6), "[[Papers/biology.pdf#page=3]]");
+  assert.equal(PI.pdfPageLink("Papers/notes.md", 2), "");
+  assert.equal(PI.pdfPageLink("Papers/biology.pdf", 0), "");
+  assert.equal(PI.pdfPageLink("Papers/biology.pdf", -3), "");
+  assert.equal(PI.pdfPageLink("Papers/biology.pdf", 100001), "");
+  assert.equal(PI.pdfPageLink("", 4), "");
+  assert.equal(PI.pdfPageLink("Papers/a|b.pdf", 1), "[[Papers/ab.pdf#page=1]]");
+  assert.equal(PI.pdfPageLink("Papers/bi#o.pdf", 1), "[[Papers/bio.pdf#page=1]]");
+});
+
+test("pdf annotation index: a row copies and opens its page deep link", async () => {
+  const app = makeApp([]);
+  const sidecar = PA.serializeAnnotationFile("Papers/biology.pdf", "h", [{ page: 4, type: "highlight", color: "yellow", quote: "Energy." }]);
+  app.vault.getMarkdownFiles = () => [{ path: "Papers/biology.annotations.md", text: sidecar }];
+  app.vault.cachedRead = async (file) => file.text;
+  const opened = [];
+  app.workspace.openLinkText = (path) => opened.push(path);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.pdfAnnotationIndex = { enabled: true, folder: "", limit: 200 };
+  const view = new T.StudyWorkspaceView({ app }, plugin);
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "pdfAnnotations";
+  view.pdfAnnotationData = await plugin.getPdfAnnotationIndex();
+  view.render();
+  assert.ok(dom.texts().some((text) => text === "Copy page link"));
+  await dom.click("Open at page 4");
+  assert.deepEqual(opened, ["Papers/biology.pdf#page=4"]);
+
+  const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const copied = [];
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: { writeText: async (text) => copied.push(text) } } });
+  try {
+    await dom.click("Copy page link");
+  } finally {
+    if (original) Object.defineProperty(globalThis, "navigator", original);
+    else delete globalThis.navigator;
+  }
+  assert.deepEqual(copied, ["[[Papers/biology.pdf#page=4]]"]);
+});
+
 test("plugin: AI feedback is stored beside the manual score and clears without losing it", async () => {
   const plugin = await setup();
   const session = await plugin.addFeynmanSession({ topic: "Osmosis", course: "Biology" });
