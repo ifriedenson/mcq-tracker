@@ -39,6 +39,7 @@ const { printDocument, printSummary } = require("./graph-print");
 const { normalizeImageState, imagePlacement, imageRectPixels, imageSummary } = require("./graph-image");
 const { createHistory, pushHistory, undoHistory, redoHistory, canUndo, canRedo, snapshotRows, sameRows, duplicateRows, historyMessage } = require("./graph-history");
 const { normalizePaper, parseGridStep, paperTicks, paperSummary } = require("./graph-paper");
+const { isNotationText } = require("./graph-summation");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -571,23 +572,7 @@ class ReferenceView extends ItemView {
         this.graphKeypadTarget = input;
         this.beginGraphEdit();
       });
-      input.addEventListener("input", () => {
-        row.text = input.value;
-        try {
-          const parsed = parseGraphRow(row.text);
-          if (parsed.kind === "parameter") {
-            row.name = parsed.name;
-            row.value = parsed.value;
-            if (row.min === undefined) row.min = "-10";
-            if (row.max === undefined) row.max = "10";
-            if (row.step === undefined) row.step = "0.1";
-          }
-        } catch (e) {
-          // the row shows its own error when the graph is drawn
-        }
-        this.persistGraphState();
-        this.drawGraph();
-      });
+      input.addEventListener("input", () => this.setGraphRowText(index, input.value));
       input.addEventListener("change", () => this.commitGraphEdit());
       input.addEventListener("blur", () => this.commitGraphEdit());
       input.addEventListener("keydown", (event) => {
@@ -1493,6 +1478,39 @@ class ReferenceView extends ItemView {
   }
 
   announceGraphPaper(text) {
+    if (this.graphTraceEl && typeof this.graphTraceEl.setText === "function") this.graphTraceEl.setText(text);
+  }
+
+  setGraphRowText(index, text) {
+    const row = this.graphRows[index];
+    if (!row) return { ok: false, reason: "row" };
+    row.text = String(text === null || text === undefined ? "" : text);
+    try {
+      const parsed = parseGraphRow(row.text);
+      if (parsed.kind === "parameter") {
+        row.name = parsed.name;
+        row.value = parsed.value;
+        if (row.min === undefined) row.min = "-10";
+        if (row.max === undefined) row.max = "10";
+        if (row.step === undefined) row.step = "0.1";
+      } else {
+        row.name = undefined;
+      }
+    } catch (e) {
+      // the row shows its own error when the graph is drawn
+    }
+    this.drawGraph();
+    const built = this.graphBuilt && this.graphBuilt.rows[index];
+    const notationFailure = built && built.error && isNotationText(row.text) && !/no real values|no region/i.test(built.error);
+    if (notationFailure) {
+      this.announceGraphRowError(`Graph expression ${index + 1}: ${built.error}`);
+      return { ok: false, reason: "notation", message: built.error, persisted: false };
+    }
+    this.persistGraphState();
+    return { ok: true, text: row.text };
+  }
+
+  announceGraphRowError(text) {
     if (this.graphTraceEl && typeof this.graphTraceEl.setText === "function") this.graphTraceEl.setText(text);
   }
 

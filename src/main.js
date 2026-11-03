@@ -232,6 +232,7 @@ QuestionTrackerPlugin.__test = {
   graphImage: require("./graph-image"),
   graphHistory: require("./graph-history"),
   graphPaper: require("./graph-paper"),
+  graphSummation: require("./graph-summation"),
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,

@@ -2770,3 +2770,122 @@ test("reference view: graph paper controls validate, announce, paint and persist
   const legacyDefault = new T.ReferenceView({ app }, legacyPlugin);
   assert.deepEqual(gridCalls(legacyView), gridCalls(legacyDefault), "legacy settings paint exactly the default paper");
 });
+
+test("graph summation: parsing, evaluation, limits and refusals are pure", () => {
+  const s = T.graphSummation;
+  assert.equal(s.applyNotation("sum", 1, 10, (i) => i * i).value, 385);
+  assert.equal(s.applyNotation("prod", 1, 5, (i) => i).value, 120);
+  assert.equal(s.applyNotation("sum", 4, 4, () => 7).value, 7);
+  assert.equal(s.iterationRange(1.5, 3).reason, "bounds");
+  assert.match(s.iterationRange(1.5, 3).message, /whole number/);
+  assert.equal(s.iterationRange(5, 1).reason, "bounds");
+  assert.match(s.iterationRange(5, 1).message, /at most/);
+  assert.equal(s.iterationRange(1, 100000).reason, "limit");
+  assert.match(s.iterationRange(1, 100000).message, /limit is 10000/);
+  assert.equal(s.applyNotation("sum", 1, 3, () => Infinity).reason, "term");
+
+  const good = s.notationAt("sum(n^2, n, 1, 10)", 0);
+  assert.equal(good.ok, true);
+  assert.deepEqual([good.kind, good.expression, good.variable, good.start, good.end], ["sum", "n^2", "n", "1", "10"]);
+  assert.equal(s.notationAt("prod(k, k, 1, 5) + 2", 0).kind, "prod");
+  assert.equal(s.notationAt("sum(n^2, n, 1)", 0).reason, "arguments");
+  assert.equal(s.notationAt("sum(n^2, n, 1, 10", 0).reason, "syntax");
+
+  assert.equal(s.validateParts({ kind: "sum", expression: "n^2", variable: "n", start: "1", end: "10" }).ok, true);
+  assert.equal(s.validateParts({ kind: "sum", expression: "m^2", variable: "n", start: "1", end: "10" }).reason, "variable");
+  assert.match(s.validateParts({ kind: "sum", expression: "m^2", variable: "n", start: "1", end: "10" }).message, /does not use the loop variable n/);
+  assert.equal(s.validateParts({ kind: "sum", expression: "n^2", variable: "n", start: "1", end: "n" }).reason, "bounds");
+  assert.match(s.validateParts({ kind: "sum", expression: "n^2", variable: "n", start: "1", end: "n" }).message, /bounds cannot use/);
+  assert.equal(s.validateParts({ kind: "sum", expression: "x^2", variable: "x", start: "1", end: "3" }).reason, "variable");
+  assert.equal(s.validateParts({ kind: "sum", expression: "n^2", variable: "n", start: "1.5", end: "3" }).reason, "bounds");
+  assert.equal(s.validateParts({ kind: "sum", expression: "n^2", variable: "n", start: "5", end: "1" }).reason, "bounds");
+  assert.equal(s.validateParts({ kind: "sum", expression: "n^2", variable: "n", start: "1", end: "100000" }).reason, "limit");
+
+  const seen = [];
+  const rewritten = s.rewriteNotations("2 * sum(n^2, n, 1, 3) + prod(k, k, 1, 2)", (parts) => {
+    seen.push(parts.kind);
+    return parts.kind === "sum" ? "A0" : "B0";
+  });
+  assert.equal(rewritten, "2 * A0 + B0");
+  assert.deepEqual(seen, ["sum", "prod"]);
+  assert.equal(s.isNotationText("sum(n^2, n, 1, 10)"), true);
+  assert.equal(s.isNotationText("summary(x)"), false);
+});
+
+test("graph summation: expressions evaluate, reject, announce and paint through the view", async () => {
+  const { obsidian } = require("./helpers/load");
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  view.graphRows = [{ text: "y = x", hidden: false }];
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const traceText = () => dom.all.filter((element) => element.meta && element.meta.cls === "qt-ref-graph-trace").pop().meta.text;
+  const signature = () => {
+    const calls = [];
+    const ctx = new Proxy({}, {
+      get: (_target, property) => {
+        if (property === "measureText") return () => ({ width: 10 });
+        return (...args) => { if (property === "lineTo") calls.push(args.join(",")); };
+      },
+      set: () => true,
+    });
+    view.paintGraphScene(ctx, view.graphBuilt, 640, 320);
+    return calls.join(";");
+  };
+
+  assert.equal(graph.compileExpression("sum(n^2, n, 1, 10)")(0), 385);
+  assert.equal(graph.compileExpression("prod(k, k, 1, 5)")(0), 120);
+  assert.equal(graph.compileExpression("sum(x^k, k, 1, 3)")(2), 14);
+  assert.throws(() => graph.compileExpression("sum(n^2, n, 1.5, 3)"), /whole number/);
+  assert.throws(() => graph.compileExpression("sum(n^2, n, 5, 1)"), /at most/);
+  assert.throws(() => graph.compileExpression("sum(n^2, n, 1, 100000)"), /limit is 10000/);
+  assert.throws(() => graph.compileExpression("sum(m^2, n, 1, 3)"), /does not use the loop variable n/);
+  assert.throws(() => graph.compileExpression("sum(n^2, n, 1, n)"), /bounds cannot use/);
+  assert.throws(() => graph.compileExpression("sum(x^2, x, 1, 3)"), /not x/);
+  assert.throws(() => graph.compileExpression("sum(n^2, n, 1)"), /four arguments/);
+
+  const before = signature();
+  const summed = view.setGraphRowText(0, "sum(x^k, k, 1, 3)");
+  assert.equal(summed.ok, true, JSON.stringify(summed));
+  assert.equal(view.graphBuilt.rows[0].error, "");
+  const nearest = (target) => view.graphBuilt.rows[0].points.reduce((best, point) => (Math.abs(point.x - target) < Math.abs(best.x - target) ? point : best));
+  assert.ok(Math.abs(nearest(0).y) < 0.05);
+  assert.ok(Math.abs(nearest(2).y - 14) < 0.5);
+  assert.notEqual(signature(), before, "a sum expression changes the painted canvas");
+  assert.equal(plugin.settings.reference.graph.rows[0].text, "sum(x^k, k, 1, 3)");
+
+  assert.equal(view.setGraphRowText(0, "prod(k, k, 1, 5)").ok, true);
+  assert.equal(view.graphBuilt.rows[0].points[0].y, 120);
+  assert.equal(view.setGraphRowText(0, "sum(n^2, n, 1, 10)").ok, true);
+  assert.equal(view.graphBuilt.rows[0].points[0].y, 385);
+  const persisted = plugin.settings.reference.graph.rows[0].text;
+
+  const noticesBefore = obsidian.notices.length;
+  const failures = [
+    ["sum(n^2, n, 1.5, 3)", /whole number/],
+    ["sum(n^2, n, 1, 3.5)", /whole number/],
+    ["sum(n^2, n, 5, 1)", /at most/],
+    ["sum(n^2, n, 1, 100000)", /limit is 10000/],
+    ["sum(n^2, n, 1)", /four arguments/],
+    ["sum(n^2, n, 1, 10", /closing parenthesis/],
+    ["sum(m^2, n, 1, 3)", /does not use the loop variable n/],
+    ["sum(n^2, n, 1, n)", /bounds cannot use/],
+    ["sum(x^2, x, 1, 3)", /not x/],
+  ];
+  for (const [text, pattern] of failures) {
+    const result = view.setGraphRowText(0, text);
+    assert.equal(result.ok, false, text);
+    assert.equal(result.reason, "notation", text);
+    assert.equal(result.persisted, false, text);
+    assert.match(result.message, pattern);
+    assert.match(traceText(), pattern);
+    assert.equal(plugin.settings.reference.graph.rows[0].text, persisted, `a broken expression is not persisted: ${text}`);
+  }
+  assert.equal(obsidian.notices.length, noticesBefore, "rejections use the polite live region, not a Notice storm");
+});

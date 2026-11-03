@@ -1,4 +1,5 @@
 "use strict";
+const summation = require("./graph-summation");
 /*
  * A deliberately small expression parser for the Reference plotter.
  *
@@ -438,7 +439,31 @@ function compileScoped(text, scopeNames, environment, mode) {
   const scope = Array.isArray(scopeNames) ? scopeNames : [];
   const env = environment || {};
   const functionNames = Object.keys(env).filter((name) => env[name] && typeof env[name] === "object");
-  const tokens = tokenize(text, functionNames);
+  let notationCount = 0;
+  const expanded = summation.rewriteNotations(text, (parts) => {
+    const check = summation.validateParts(parts, {
+      reserved: scope.concat(Object.keys(FUNCTIONS), Object.keys(MULTI_FUNCTIONS), Object.keys(CONSTANTS), Object.keys(env)),
+    });
+    if (!check.ok) throw new Error(check.message);
+    const term = compileScoped(parts.expression, scope.concat([parts.variable]), env);
+    const start = compileScoped(parts.start, scope, env);
+    const end = compileScoped(parts.end, scope, env);
+    const name = `__notation${notationCount++}`;
+    env[name] = {
+      compiled: true,
+      fn: (vals) => {
+        const startValue = start(vals);
+        const endValue = end(vals);
+        const range = summation.iterationRange(startValue, endValue);
+        if (!range.ok) throw new Error(range.message);
+        const applied = summation.applyNotation(parts.kind, range.start, range.end, (i) => term(Object.assign({}, vals, { [parts.variable]: i })), range.count);
+        if (!applied.ok) throw new Error(applied.message);
+        return applied.value;
+      },
+    };
+    return name;
+  });
+  const tokens = tokenize(expanded, functionNames);
   let at = 0;
   const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
   const peek = () => tokens[at];
@@ -611,6 +636,7 @@ function compileScoped(text, scopeNames, environment, mode) {
       }
       if (has(env, name)) {
         const entry = env[name];
+        if (entry && entry.compiled === true) return entry.fn;
         if (typeof entry === "number") return () => entry;
         if (entry && Array.isArray(entry.params) && typeof entry.fn === "function") {
           const args = argumentList();

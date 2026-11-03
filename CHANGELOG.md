@@ -2,6 +2,19 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.197.0 — 2026-11-03
+
+- Graph expressions accept summation and product notation:
+  `sum(n^2, n, 1, 10)` and `prod(k, k, 1, 5)`, including sums that depend on the
+  plot variable such as `sum(x^k, k, 1, 3)`. They evaluate numerically and draw
+  through the existing canvas scene, so the screen, PNG export and print sheet
+  all follow.
+- Bounds must be whole numbers with start at most end and at most 10,000 steps;
+  the loop variable must be a single unused reserved-free name, must appear in
+  the expression, and must not appear in the bounds. Rejections are announced in
+  the polite live region with a human-readable message, and a rejected expression
+  is not persisted.
+
 ## 1.196.0 — 2026-11-03
 
 - Graph paper controls: **grid** and **axes** checkboxes hide either layer, and
