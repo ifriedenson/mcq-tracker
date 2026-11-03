@@ -70,6 +70,11 @@ const geometry = require("./geometry");
 const geometryPanel = require("./geometry-panel");
 const graph3d = require("./graph-3d");
 const graph3dPanel = require("./graph-3d-panel");
+const graph3dExport = require("./graph-3d-export");
+const audioTrace = require("./audio-trace");
+const vectorField = require("./vector-field");
+const vectorPanel = require("./vector-panel");
+const jsxgraphAdapter = require("./jsxgraph-adapter");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
@@ -315,6 +320,11 @@ QuestionTrackerPlugin.__test = {
   geometryPanel,
   graph3d,
   graph3dPanel,
+  graph3dExport,
+  audioTrace,
+  vectorField,
+  vectorPanel,
+  jsxgraphAdapter,
   WeakSpotModal,
   QuickAddModal,
   quickAdd,

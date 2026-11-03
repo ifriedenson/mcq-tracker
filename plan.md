@@ -1287,12 +1287,15 @@ Owner decisions: include explicit and implicit 3D surfaces; do not build braille
 | 1.203.0 | Geometry transformations | Translate, rotate, reflect and dilate | **Shipped** |
 | 1.204.0 | 3D core | Explicit `z = f(x,y)` surfaces, points, camera and software renderer | **Shipped** |
 | 1.205.0 | 3D implicit surfaces | `F(x,y,z) = 0` via bounded marching cubes | **Shipped** |
-| 1.206.0 | 3D curves and performance | Parametric curves, LOD, color, export and print | **Queued** |
-| 1.207.0 | Audio trace | Web Audio sonification of curves and points | **Queued** |
-| 1.208.0 | Local vector field | Quiver, streamlines and magnitude scaling | **Queued** |
-| 1.209.0 | JSXGraph adapter | MIT-vendored advanced geometry and vector-field presentation | **Queued** |
+| 1.206.0 | 3D curves and performance | Parametric curves, LOD, color, export and print | **Shipped in 1.209.0** |
+| 1.207.0 | Audio trace | Web Audio sonification of curves and points | **Shipped in 1.209.0** |
+| 1.208.0 | Local vector field | Quiver, streamlines and magnitude scaling | **Shipped in 1.209.0** |
+| 1.209.0 | JSXGraph adapter | MIT-vendored advanced geometry and vector-field presentation | **Shipped** |
 
 **Removed by owner decision:** braille output (including BRF and translation) and all Desmos share-link/API work, including a plugin-owned link format. No network integration is planned for these tools.
+
+**Roadmap close-out:** 1.206–1.209 were completed together and published as **1.209.0**. Separate 1.206–1.208 tags were not created; the 1.209.0 release notes are the single record for 3D curves/LOD/export/print, audio trace, the local vector field and the MIT-option JSXGraph adapter. The vendor notice is in `NOTICES.md`; the source of truth for the shipped behavior is the focused tests and release notes.
+
 
 ## 4. Architecture
 

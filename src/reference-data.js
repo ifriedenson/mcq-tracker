@@ -875,6 +875,7 @@ function mergeReferenceSettings(saved) {
     complexCalculator: src.complexCalculator === true,
     matrix: src.matrix && typeof src.matrix === "object" ? src.matrix : undefined,
     threeD: src.threeD && typeof src.threeD === "object" ? src.threeD : undefined,
+    vectorField: src.vectorField && typeof src.vectorField === "object" ? src.vectorField : undefined,
     defaultSubject: REFERENCE_SUBJECTS.some((s) => s.id === subject) ? subject : "all",
   };
 }

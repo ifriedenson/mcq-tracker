@@ -47,6 +47,8 @@ const geometry = require("./geometry");
 const geometryPanel = require("./geometry-panel");
 const graph3d = require("./graph-3d");
 const graph3dPanel = require("./graph-3d-panel");
+const vectorField = require("./vector-field");
+const vectorPanel = require("./vector-panel");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
 const {
@@ -220,12 +222,39 @@ class ReferenceView extends ItemView {
     this.threeDBounds = graph3d.normalizeBounds(storedThreeD.bounds);
     this.threeDCamera = graph3d.normalizeCamera(storedThreeD.camera);
     this.threeDPointsText = String(storedThreeD.points || "");
+    this.threeDLod = graph3d.normalizeLod(storedThreeD.lod);
+    this.threeDCurves = [];
+    for (const entry of Array.isArray(storedThreeD.curves) ? storedThreeD.curves : []) {
+      const start = Number(entry && entry.tMin);
+      const end = Number(entry && entry.tMax);
+      if (entry && typeof entry.text === "string" && entry.text.trim() && Number.isFinite(start) && Number.isFinite(end) && end > start) {
+        this.threeDCurves.push({ text: entry.text.trim(), tMin: start, tMax: end, color: graph3d.normalizeCurveColor(entry.color, "#ffd166") });
+      }
+      if (this.threeDCurves.length >= graph3d.MAX_CURVES) break;
+    }
+    this.threeDCurveText = String(storedThreeD.curveText || "(cos(t), sin(t), t / 3)");
+    this.threeDCurveColor = graph3d.normalizeCurveColor(storedThreeD.curveColor, "#ffd166");
+    this.threeDCurveTMin = String(storedThreeD.curveTMin || "0");
+    this.threeDCurveTMax = String(storedThreeD.curveTMax || "6.283");
+    this.threeDAudioStatusEl = null;
+    this.threeDAudioHandle = null;
+    this.threeDAudioContext = null;
     this.threeDStatusEl = null;
     this.threeDErrorEl = null;
     this.threeDCanvas = null;
     this.threeDBuilt = null;
     this.threeDRenderWidth = 320;
     this.threeDRenderHeight = 200;
+    const storedField = (plugin.settings && plugin.settings.reference && plugin.settings.reference.vectorField) || {};
+    this.vectorFieldP = String(storedField.p || "-y");
+    this.vectorFieldQ = String(storedField.q || "x");
+    this.vectorFieldSettings = vectorField.normalizeSettings(storedField);
+    this.vectorFieldCanvas = null;
+    this.vectorFieldStatusEl = null;
+    this.vectorFieldErrorEl = null;
+    this.vectorFieldBuilt = null;
+    this.vectorFieldBoardEl = null;
+    this.vectorFieldBoard = null;
     this.elementQuery = "";
     this.selectedElement = null;
     this.periodicGridEl = null;
@@ -297,6 +326,7 @@ class ReferenceView extends ItemView {
       ["graph", "Graph"],
       ["geometry", "Geometry"],
       ["threeD", "3D"],
+      ["fields", "Vector field"],
       ["elements", "Periodic table"],
       ["constants", "Constants"],
       ["sheets", "Sheets"],
@@ -332,6 +362,7 @@ class ReferenceView extends ItemView {
     else if (this.tab === "graph") this.renderGraph(root);
     else if (this.tab === "geometry") this.renderGeometry(root);
     else if (this.tab === "threeD") this.renderThreeD(root);
+    else if (this.tab === "fields") this.renderVectorField(root);
     else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
     else if (this.tab === "sheets") this.renderSheets(root);
@@ -705,6 +736,12 @@ class ReferenceView extends ItemView {
     }
     this.geometryStatusEl = root.createDiv({ cls: "qt-ref-geometry-status", attr: { "aria-live": "polite", "aria-label": "Geometry status" } });
     this.geometryStatusEl.setText(geometry.summary(this.geometryModel));
+    const boardForm = root.createDiv({ cls: "qt-ref-geometry-form" });
+    boardForm.createDiv({ cls: "qt-ref-graph-data-head", text: "Advanced presentation" });
+    boardForm.createDiv({ cls: "qt-ref-matrix-hint", text: "JSXGraph 1.14.2 (MIT) renders this drawing on an interactive board. It runs locally; no network request is made." });
+    this.geometryBoardEl = boardForm.createDiv({ cls: "qt-ref-jsxgraph-board" });
+    boardForm.createEl("button", { text: "Open JSXGraph board", attr: { type: "button", "aria-label": "Open geometry in JSXGraph" } })
+      .addEventListener("click", () => this.openGeometryBoard());
     this.geometryCanvas = root.createEl("canvas", {
       cls: "qt-ref-canvas qt-ref-geometry-canvas",
       attr: { tabindex: "0", role: "application", "aria-label": "Geometry drawing. Use the coordinate fields and object list to create and remove objects." },
@@ -3534,7 +3571,7 @@ class ReferenceView extends ItemView {
   }
 }
 
-Object.assign(ReferenceView.prototype, geometryPanel, graph3dPanel);
+Object.assign(ReferenceView.prototype, geometryPanel, graph3dPanel, vectorPanel);
 
 module.exports = {
   ReferenceView,

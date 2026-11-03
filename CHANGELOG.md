@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.209.0 — 2026-11-03
+
+- Completes the four remaining extended-calculator roadmap items in one release:
+  **3D curves and detail levels**, **audio trace**, the local **Vector field** tab,
+  and the MIT-licensed **JSXGraph** presentation adapter for geometry and fields.
+- The 3D tab accepts `(x(t), y(t), z(t))` curves with t bounds, colour, Draft /
+  Balanced / High detail, PNG export, print sheets and a bounded Web Audio
+  sonification of curves and points. Curves and the selected detail persist.
+- The new **Vector field** tab evaluates `P(x, y)` and `Q(x, y)` locally, scales
+  arrows by magnitude or normalizes them, draws RK4 streamlines and persists its
+  window and display settings. Geometry and vector fields can open an interactive
+  JSXGraph board from the vendored 1.14.2 MIT build.
+- No network request, dynamic `eval`, WebGL or map service was added. Tests cover
+  curve sampling and bounds, LOD, print output, audio scheduling, field sampling,
+  streamlines, persistence and both JSXGraph scene adapters.
+
 ## 1.205.0 — 2026-11-03
 
 - The Reference **3D** tab now has Explicit and Implicit modes. Implicit mode

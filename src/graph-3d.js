@@ -235,13 +235,164 @@ function parsePoints(text) {
   });
 }
 
+const LOD_LEVELS = {
+  draft: { label: "Draft", steps: 36, samples: 60 },
+  balanced: { label: "Balanced", steps: 64, samples: 160 },
+  high: { label: "High", steps: 120, samples: 300 },
+};
+const MAX_CURVES = 8;
+const MAX_CURVE_SAMPLES = 400;
+
+function normalizeLod(value) {
+  const key = String(value || "").toLowerCase();
+  return Object.prototype.hasOwnProperty.call(LOD_LEVELS, key) ? key : "balanced";
+}
+
+function lodSettings(value) {
+  return Object.assign({ name: normalizeLod(value) }, LOD_LEVELS[normalizeLod(value)]);
+}
+
+function normalizeCurveColor(value, fallback) {
+  const source = String(value || "");
+  return /^#[0-9a-f]{6}$/i.test(source) ? source.toLowerCase() : fallback || "#ffd166";
+}
+
+function splitTopLevel(text) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < text.length; index++) {
+    const ch = text[index];
+    if (ch === "(" || ch === "[") depth++;
+    else if (ch === ")" || ch === "]") depth--;
+    else if (ch === "," && depth === 0) {
+      parts.push(text.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts.map((part) => part.trim());
+}
+
+/** Compile `(x(t), y(t), z(t))`, accepting optional x/y/z labels. */
+function compileCurve(text) {
+  const source = String(text || "").trim();
+  if (!source) throw new Error("Enter a 3D curve, like (cos(t), sin(t), t / 3).");
+  let body = source;
+  if (body.startsWith("(") && body.endsWith(")")) body = body.slice(1, -1);
+  const parts = splitTopLevel(body);
+  if (parts.length !== 3) throw new Error("A 3D curve needs three comma-separated expressions in t, like (cos(t), sin(t), t / 3).");
+  const labels = ["x", "y", "z"];
+  const compiled = parts.map((part, index) => {
+    const cleaned = part.replace(new RegExp(`^${labels[index]}\\s*=\\s*`, "i"), "").trim();
+    if (!cleaned) throw new Error(`The ${labels[index]} component of the 3D curve is empty.`);
+    return compileScoped(cleaned, ["t", "theta"], {});
+  });
+  return {
+    mode: "curve",
+    text: source,
+    fn(t) {
+      const env = { t, theta: t };
+      return { x: compiled[0](env), y: compiled[1](env), z: compiled[2](env) };
+    },
+  };
+}
+
+function sampleCurve(curve, options) {
+  const opts = options || {};
+  const samples = clamp(Math.round(Number(opts.samples) || 160), 8, MAX_CURVE_SAMPLES);
+  const tMin = Number(opts.tMin);
+  const tMax = Number(opts.tMax);
+  if (!Number.isFinite(tMin) || !Number.isFinite(tMax) || !(tMax > tMin)) throw new Error("A 3D curve needs a finite start below its end.");
+  const points = [];
+  for (let index = 0; index <= samples; index++) {
+    const t = tMin + ((tMax - tMin) * index) / samples;
+    let point;
+    try { point = curve.fn(t); } catch (e) { point = null; }
+    if (point && [point.x, point.y, point.z].every(Number.isFinite)) points.push({ x: point.x, y: point.y, z: point.z, t });
+    else points.push(null);
+  }
+  return { text: curve.text, tMin, tMax, samples, points };
+}
+
+function drawCurveOverlay(ctx, curves, camera, width, height, options) {
+  if (!ctx) return { curves: 0, samples: 0 };
+  const opts = options || {};
+  let drawn = 0;
+  let samples = 0;
+  for (const entry of Array.isArray(curves) ? curves : []) {
+    const curve = entry && (entry.curve || entry);
+    if (!curve || typeof curve.fn !== "function") continue;
+    const result = sampleCurve(curve, {
+      tMin: entry.tMin === undefined ? opts.tMin : entry.tMin,
+      tMax: entry.tMax === undefined ? opts.tMax : entry.tMax,
+      samples: entry.samples || opts.samples || 160,
+    });
+    samples += result.points.length;
+    ctx.strokeStyle = normalizeCurveColor(entry.color, opts.color);
+    ctx.lineWidth = clamp(Number(entry.width) || 2, 1, 6);
+    if (typeof ctx.setLineDash === "function") ctx.setLineDash([]);
+    ctx.beginPath();
+    let open = false;
+    for (const point of result.points) {
+      const projected = point ? projectPoint(point, camera, width, height) : null;
+      if (!projected) { open = false; continue; }
+      if (!open) { ctx.moveTo(projected.x, projected.y); open = true; }
+      else ctx.lineTo(projected.x, projected.y);
+    }
+    ctx.stroke();
+    drawn++;
+  }
+  return { curves: drawn, samples };
+}
+
+function drawPointsOverlay(ctx, points, camera, width, height) {
+  if (!ctx || !Array.isArray(points)) return 0;
+  let drawn = 0;
+  for (let index = 0; index < points.length; index++) {
+    const projected = projectPoint(points[index], camera, width, height);
+    if (!projected) continue;
+    ctx.beginPath();
+    ctx.arc(projected.x, projected.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffd166";
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#1f2937";
+    ctx.stroke();
+    if (typeof ctx.fillText === "function") {
+      ctx.font = "12px sans-serif";
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillText(`P${index + 1}`, projected.x + 6, projected.y - 6);
+    }
+    drawn++;
+  }
+  return drawn;
+}
+
+function curveSummary(curves, options) {
+  const count = Array.isArray(curves) ? curves.length : 0;
+  const lod = lodSettings((options || {}).lod);
+  return `${count} 3D curve${count === 1 ? "" : "s"} at ${lod.label.toLowerCase()} detail.`;
+}
+
 module.exports = {
   DEFAULT_BOUNDS,
   DEFAULT_CAMERA,
+  LOD_LEVELS,
+  MAX_CURVES,
+  MAX_CURVE_SAMPLES,
   MAX_PIXELS,
   cameraBasis,
   cameraPosition,
+  compileCurve,
   compileSurface,
+  curveSummary,
+  drawCurveOverlay,
+  drawPointsOverlay,
+  lodSettings,
+  normalizeCurveColor,
+  normalizeLod,
+  sampleCurve,
   normalizeBounds,
   normalizeCamera,
   parsePoints,

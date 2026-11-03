@@ -12,6 +12,7 @@ const path = require("path");
 
 const root = path.join(__dirname, "..");
 const srcDir = path.join(root, "src");
+const vendorDir = path.join(root, "vendor");
 const ENTRY = "main";
 
 const jsFiles = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
@@ -33,6 +34,9 @@ function bundledNotices() {
 
 function build() {
   const files = new Map(jsFiles(srcDir).map((f) => [f.replace(/\.js$/, ""), path.join(srcDir, f)]));
+  if (fs.existsSync(vendorDir)) {
+    for (const file of jsFiles(vendorDir)) files.set(`vendor/${file.replace(/\.js$/, "")}`, path.join(vendorDir, file));
+  }
   const ids = [...files.keys()].sort((a, b) => {
     if (a === ENTRY) return 1;
     if (b === ENTRY) return -1;
@@ -53,6 +57,7 @@ function __load(id) {
   return module.exports;
 }
 function __require(name) {
+  if (name.startsWith("../vendor/")) return __load("vendor/" + name.slice("../vendor/".length).replace(/\.js$/, ""));
   return name.startsWith("./") ? __load(name.slice(2).replace(/\.js$/, "")) : require(name);
 }
 `;
@@ -78,6 +83,6 @@ if (require.main === module) {
     console.log("main.js is up to date.");
   } else {
     fs.writeFileSync(target, next);
-    console.log(`Wrote main.js (${next.length} bytes from ${jsFiles(srcDir).length} modules).`);
+    console.log(`Wrote main.js (${next.length} bytes from ${jsFiles(srcDir).length + (fs.existsSync(vendorDir) ? jsFiles(vendorDir).length : 0)} modules).`);
   }
 }
