@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.209.2 — 2026-11-03
+
+- The Insights Progress and Today mastery pickers now offer names from the
+  calendar course registry before a question note has a `course` value. Names,
+  codes and aliases resolve to one subject; selecting a registry subject with no
+  notes shows an empty result and keeps the picker available.
+- Existing question-course scopes are unchanged when no registry is set. The
+  progress snapshot cache includes the registry, so adding or renaming a course
+  refreshes the dashboard.
+- Cleared the remaining release-review CSS warnings: the SAT callout now uses
+  sibling selectors instead of `:has`, its marked state is mirrored by a small
+  post-processor, and `text-decoration`/`column-gap` declarations use compatible
+  forms.
+- The optional OpenCode desktop installer is unchanged.
+
 ## 1.209.1 — 2026-11-03
 
 - Removed the optional JSXGraph presentation adapter and its vendored 1.14.2

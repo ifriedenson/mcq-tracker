@@ -715,7 +715,7 @@
 }
 
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-card.is-reading-week .uni-event-title {
-  text-decoration: line-through;
+  text-decoration-line: line-through;
 }
 
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-event-term-badge {
@@ -3787,15 +3787,14 @@
 }
 
 /* Marked: "[!sat|marked]", or the "- [x] Mark for Review" toggle below.
-   Maroon banner (black outline kept), underlined label. */
+   The toggle is mirrored to .qt-sat-marked by the plugin. Maroon banner
+   (black outline kept), ruled label. */
 .callout[data-callout="sat"][data-callout-metadata~="marked"] > .callout-title::before,
-.callout[data-callout="sat"]:has(> .callout-content > ul:first-child > li[data-task="x"]) > .callout-title::before {
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 1px;
+.callout[data-callout="sat"].qt-sat-marked > .callout-title::before {
+  border-bottom: 1px solid currentColor;
 }
 .callout[data-callout="sat"][data-callout-metadata~="marked"] > .callout-title > .callout-icon::before,
-.callout[data-callout="sat"]:has(> .callout-content > ul:first-child > li[data-task="x"]) > .callout-title > .callout-icon::before {
+.callout[data-callout="sat"].qt-sat-marked > .callout-title > .callout-icon::before {
   background: var(--sat-marked);
 }
 
@@ -3855,12 +3854,6 @@
   margin-left: auto;
   padding-right: 0.5em;
 }
-/* With a fold control before it, ABC is no longer flush to the title's
-   margin box; keep the slash overlay attached to ABC's right edge. */
-.callout[data-callout="sat"] > .callout-title:has(> .callout-fold)::after {
-  margin-left: 0.4em;
-}
-
 .callout[data-callout="sat"] > .callout-content {
   position: relative;
   /* Live Preview sets overflow: auto here, which clips the Mark for
@@ -3906,29 +3899,18 @@
 
 /* Passage: nested quote floats left; a centered bar divides the columns */
 .callout[data-callout="sat"] > .callout-content > blockquote {
+  box-sizing: border-box;
   float: left;
   width: calc(50% - 1.25em);
   margin: 0;
-  padding: 0;
+  padding: 0 1.25em 0 0;
   border: none;
+  border-right: 2px solid var(--sat-divider);
   font-style: normal;
   color: var(--text-normal);
   background: none;
 }
-.callout[data-callout="sat"] > .callout-content:has(> blockquote) {
-  position: relative;
-}
-.callout[data-callout="sat"] > .callout-content:has(> blockquote)::before {
-  content: "";
-  position: absolute;
-  top: 1em;
-  bottom: 1em;
-  left: calc(50% - 2px);
-  width: 4px;
-  border-radius: 2px;
-  background: var(--sat-divider);
-}
-.callout[data-callout="sat"] > .callout-content:has(> blockquote) > :not(blockquote) {
+.callout[data-callout="sat"] > .callout-content > blockquote ~ *:not(blockquote) {
   margin-left: calc(50% + 1.25em);
 }
 
@@ -3990,7 +3972,7 @@
 .callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li.task-list-item[data-task="x"],
 .callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li.task-list-item[data-task="x"] * {
   color: var(--text-normal);
-  text-decoration: none;
+  text-decoration-line: none;
 }
 .callout[data-callout="sat"] > .callout-content > ul:not(:first-child) > li[data-task="x"] {
   border-color: var(--sat-select);
@@ -4010,12 +3992,10 @@
     width: auto;
     margin: 0 0 1em;
     padding: 0 0 1em;
+    border-right: none;
     border-bottom: 2px solid var(--sat-divider);
   }
-  .callout[data-callout="sat"] > .callout-content:has(> blockquote)::before {
-    display: none;
-  }
-  .callout[data-callout="sat"] > .callout-content:has(> blockquote) > :not(blockquote):not(ul:first-child) {
+  .callout[data-callout="sat"] > .callout-content > blockquote ~ *:not(blockquote) {
     margin-left: 0;
   }
 }
@@ -8428,7 +8408,7 @@
 
 .qt-screen .qt-assignment-gpa {
   align-items: center;
-  column-gap: 20px;
+  gap: 0 20px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   padding: 18px 20px;
@@ -10149,7 +10129,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 
 .qt-screen .qt-assignment-gpa {
   align-items: center;
-  column-gap: 16px;
+  gap: 0 16px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   padding: 14px 16px;
@@ -10991,7 +10971,7 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 
 .qt-task-list-row.is-done .qt-task-list-title {
   color: var(--text-muted);
-  text-decoration: line-through;
+  text-decoration-line: line-through;
 }
 
 .qt-task-list-meta {

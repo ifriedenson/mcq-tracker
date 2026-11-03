@@ -270,7 +270,7 @@ No browser/preview verification applies: this is an Obsidian plugin, not a web a
 1. **Done in 1.119.0:** the chosen mastery scope is saved in settings and restored when the dashboard reopens.
 2. **Done in 1.120.0/1.121.0:** the bands can switch between all time, the last 7 days and the last 30 days, reading dated history and saving the choice.
 3. **Done in 1.123.0:** the embed has band Practice buttons and a per-block `masteryDays` override.
-4. Use names from the course registry when notes have no `course` value, so the picker can still offer subjects.
+4. **Done in 1.209.2:** the Insights Progress and Today pickers offer names from the course registry before any note has a `course` value; names, codes and aliases resolve to one subject, and an empty registry scope keeps its picker and empty state.
 5. **Done in 1.125.0:** a band's Practice button names the band and window in the Quick Practice header.
 6. **Done in 1.127.0:** Today shows a mastered-count trend against the previous window.
 

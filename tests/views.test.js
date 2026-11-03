@@ -881,3 +881,28 @@ test("timed test: an FRQ prompt joins the session and opens the grader with its 
   assert.equal(plugin.calls.at(-1).path, "AP FRQs/AP Biology/Cells.md");
   assert.equal(plugin.calls.at(-1).answer, "A cell uses a membrane and transport proteins.");
 });
+
+
+test("insights progress: the registry supplies a scope before a note has a course", async () => {
+  const app = makeApp([{ path: "Q/unfiled.md", fm: { attempts: 1, correct_count: 1 } }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.calendar.courses = [
+    { id: "bio", name: "Biology", code: "BIO 101", folder: "Courses/Bio", aliases: [] },
+    { id: "calc", name: "MATH 101 - Calculus", code: "MATH 101", folder: "Courses/Math", aliases: ["Calc"] },
+  ];
+  const dom = makeDom();
+  const v = new T.InsightsView({ app }, plugin);
+  v.app = app;
+  v.contentEl = dom.root;
+  v.tab = "progress";
+  v.render();
+  assert.ok(dom.all.some((el) => el.meta && el.meta.tag === "option" && el.meta.text === "Biology"));
+  assert.ok(dom.all.some((el) => el.meta && el.meta.tag === "option" && el.meta.text === "MATH 101 - Calculus"));
+  const picker = dom.all.find((el) => el.meta && el.meta.tag === "select" && el.handlers.some((h) => h.ev === "change"));
+  picker.value = "Biology";
+  await picker.handlers.find((h) => h.ev === "change").fn({});
+  assert.equal(v.masteryScope, "Biology");
+  assert.equal(plugin.settings.masteryScope, "Biology");
+  assert.ok(dom.texts().some((text) => /No questions in Biology yet\./.test(text)));
+});

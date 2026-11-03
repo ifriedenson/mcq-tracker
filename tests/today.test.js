@@ -342,3 +342,25 @@ test("today: desktop CSS fills the pane and uses container-query breakpoints", (
 
   assert.ok(css.includes("@media (min-width: 1600px)"), "the window media query stays as a fallback");
 });
+
+
+test("today: a registry-only mastery subject keeps its picker and empty state", async () => {
+  const app = makeApp([{ path: "Questions/unfiled.md", fm: { attempts: 1, correct_count: 1 } }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.calendar.courses = [
+    { id: "bio", name: "Biology", code: "BIO 101", folder: "Courses/Bio", aliases: [] },
+  ];
+  const dom = makeDom();
+  const view = new T.TodayView({ app }, plugin);
+  view.app = app;
+  view.contentEl = dom.root;
+  view.render();
+  const picker = dom.all.find((el) => el.meta && el.meta.tag === "select" && el.handlers.some((h) => h.ev === "change"));
+  assert.ok(picker, "Today offers the registry subject");
+  picker.value = "Biology";
+  await picker.handlers.find((h) => h.ev === "change").fn({});
+  assert.equal(plugin.settings.masteryScope, "Biology");
+  assert.ok(dom.texts().some((text) => /No questions in Biology yet\./.test(text)));
+  assert.ok(dom.all.some((el) => el.meta && el.meta.tag === "select" && el.handlers.some((h) => h.ev === "change")), "the picker stays after selecting an empty registry subject");
+});

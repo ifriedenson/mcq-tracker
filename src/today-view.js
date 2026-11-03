@@ -242,13 +242,14 @@ class TodayView extends ItemView {
   renderMasteryCard(root, questions, today) {
     const p = this.plugin;
     const settings = p.settings || {};
+    const registry = settings.calendar ? settings.calendar.courses : [];
     const savedScope = String(settings.masteryScope || "").trim();
-    const scopes = masteryScopes(questions);
+    const scopes = masteryScopes(questions, registry);
     const scope = savedScope && scopes.some((entry) => entry.toLowerCase() === savedScope.toLowerCase()) ? savedScope : "";
     const days = masteryWindowDays(settings.masteryDays);
-    const pool = scopeQuestions(questions, scope);
+    const pool = scopeQuestions(questions, scope, registry);
     const mastery = buildMastery(pool, { days, today });
-    if (!mastery.total) return;
+    if (!mastery.total && !scope) return;
     const trend = buildMasteryTrend(pool, { days, today });
     const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-wide" });
     const controls = (container) => {

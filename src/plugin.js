@@ -151,6 +151,7 @@ const localEvents = require("./local-events");
 const noteReviewDock = require("./note-review-dock");
 const sessionReport = require("./session-report");
 const { NoteReviewDock } = require("./note-review-dock");
+const satCallout = require("./sat-callout");
 const { ReviewCalendarView } = require("./review-calendar-view");
 const { StudyStatsView } = require("./study-stats-view");
 const { LocalEventModal, LocalEventsView } = require("./local-events-view");
@@ -262,6 +263,17 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
     this.noteReviewDock = new NoteReviewDock(this);
+    if (typeof this.registerMarkdownPostProcessor === "function") {
+      this.registerMarkdownPostProcessor((el) => satCallout.syncSatCallouts(el));
+    }
+    if (typeof activeDocument !== "undefined" && activeDocument) {
+      this.registerDomEvent(activeDocument, "click", (event) => {
+        const target = event && event.target;
+        const callout = target && typeof target.closest === "function" ? target.closest(satCallout.SAT_SELECTOR) : null;
+        if (!callout) return;
+        setTimeout(() => satCallout.syncSatCallout(callout), 0);
+      });
+    }
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshNoteReviewDock()));
     this.registerEvent(this.app.workspace.on("file-open", () => this.refreshNoteReviewDock()));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.refreshNoteReviewDock()));
@@ -5910,7 +5922,9 @@ ${body}
     const weeks = Math.max(1, Math.min(26, Math.round(Number(opts.weeks) || 12)));
     const scope = str(opts.masteryScope).trim();
     const days = masteryWindowDays(opts.masteryDays);
-    const key = `progress|${localDate(at)}|${weeks}|${scope}|${days}`;
+    const courses = this.settings.calendar && Array.isArray(this.settings.calendar.courses) ? this.settings.calendar.courses : [];
+    const registryKey = courses.map((course) => `${course.id || course.name}:${course.name || ""}:${(course.aliases || []).join(",")}`).join("|");
+    const key = `progress|${localDate(at)}|${weeks}|${scope}|${days}|${registryKey}`;
     return this.snapshot(key, () =>
       buildProgress({
         questions: this.getQuestions(),
@@ -5921,6 +5935,7 @@ ${body}
         weeks,
         masteryScope: scope,
         masteryDays: days,
+        courses,
       })
     );
   }
@@ -6322,11 +6337,12 @@ ${body}
         field: opts.field,
         weeks: opts.weeks,
       });
+      const courses = this.settings.calendar && Array.isArray(this.settings.calendar.courses) ? this.settings.calendar.courses : [];
       const requestedScope = data.course || str(this.settings.masteryScope).trim();
-      const scopes = masteryScopes(questions);
+      const scopes = masteryScopes(questions, courses);
       const masteryScope = !data.course && requestedScope && !scopes.some((scope) => scope.toLowerCase() === requestedScope.toLowerCase()) ? "" : requestedScope;
       const masteryDays = opts.masteryDays === undefined ? masteryWindowDays(this.settings.masteryDays) : opts.masteryDays;
-      const scopedMastery = scopeQuestions(questions, masteryScope);
+      const scopedMastery = scopeQuestions(questions, masteryScope, courses);
       data.mastery = buildMastery(scopedMastery, { days: masteryDays, today });
       data.masteryTrend = buildMasteryTrend(scopedMastery, { days: masteryDays, today });
       data.masteryScope = masteryScope;

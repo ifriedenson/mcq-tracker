@@ -18,6 +18,13 @@ test("the shipped bundle carries the optional desktop OpenCode installer", () =>
   assert.equal(bundle.includes("jsxgraph-core"), false, "the vendored JSXGraph file must not be bundled");
 });
 
+test("styles avoid browser features the release scanner flags", () => {
+  const css = fs.readFileSync(path.join(root, "styles.css"), "utf8");
+  assert.equal(css.includes(":has("), false, "SAT layout must use sibling selectors, not :has");
+  assert.equal(css.includes("column-gap"), false, "use the supported gap shorthand");
+  assert.equal(/text-decoration\s*:/.test(css), false, "use text-decoration-line or a border");
+});
+
 test("styles avoid duplicate height declarations and !important", () => {
   const css = fs.readFileSync(path.join(root, "styles.css"), "utf8");
   assert.equal(css.includes("!important"), false);

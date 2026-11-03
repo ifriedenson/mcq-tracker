@@ -36096,12 +36096,13 @@ class InsightsView extends ItemView {
     const cards = p.getCards ? p.getCards() : [];
     const now = new Date();
     const studyLog = p.settings.studyLog;
-    const scopes = masteryScopes(questions);
+    const registry = p.settings && p.settings.calendar ? p.settings.calendar.courses : [];
+    const scopes = masteryScopes(questions, registry);
     if (this.masteryScope && !scopes.some((scope) => scope.toLowerCase() === this.masteryScope.toLowerCase())) this.masteryScope = "";
     const frq = p.getFrqKnowledge ? p.getFrqKnowledge() : null;
     const progress = p.progressSnapshot
-      ? p.progressSnapshot({ weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays, today: now })
-      : buildProgress({ questions, cards, frq, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays });
+      ? p.progressSnapshot({ weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays, today: now, courses: registry })
+      : buildProgress({ questions, cards, frq, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays, courses: registry });
     const dash = p.dashboardSnapshot
       ? p.dashboardSnapshot({ field: this.overviewField, today: now, weeks: this.progressWeeks })
       : buildDashboard({ questions, cards, studyLog, field: this.overviewField, today: now, weeks: this.progressWeeks });
@@ -36230,7 +36231,7 @@ class InsightsView extends ItemView {
           `Practice ${band.count} ${band.label.toLowerCase()} question${band.count === 1 ? "" : "s"}${scopeLabel}${practiceWindow}`
         );
         go.addEventListener("click", () => {
-          const pool = bandQuestions(questionsInScope(questions, progress.masteryScope), band.id, { days: progress.masteryDays, today: now });
+          const pool = bandQuestions(questionsInScope(questions, progress.masteryScope, registry), band.id, { days: progress.masteryDays, today: now });
           const windowText = progress.masteryDays ? ` · last ${progress.masteryDays} days` : " · all time";
           p.practiceQuestionPool(pool, `${band.label}${progress.masteryScope ? ` · ${progress.masteryScope}` : ""}${windowText}`);
         });
@@ -45979,6 +45980,7 @@ const localEvents = require("./local-events");
 const noteReviewDock = require("./note-review-dock");
 const sessionReport = require("./session-report");
 const { NoteReviewDock } = require("./note-review-dock");
+const satCallout = require("./sat-callout");
 const { ReviewCalendarView } = require("./review-calendar-view");
 const { StudyStatsView } = require("./study-stats-view");
 const { LocalEventModal, LocalEventsView } = require("./local-events-view");
@@ -46090,6 +46092,17 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
     this.noteReviewDock = new NoteReviewDock(this);
+    if (typeof this.registerMarkdownPostProcessor === "function") {
+      this.registerMarkdownPostProcessor((el) => satCallout.syncSatCallouts(el));
+    }
+    if (typeof activeDocument !== "undefined" && activeDocument) {
+      this.registerDomEvent(activeDocument, "click", (event) => {
+        const target = event && event.target;
+        const callout = target && typeof target.closest === "function" ? target.closest(satCallout.SAT_SELECTOR) : null;
+        if (!callout) return;
+        setTimeout(() => satCallout.syncSatCallout(callout), 0);
+      });
+    }
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshNoteReviewDock()));
     this.registerEvent(this.app.workspace.on("file-open", () => this.refreshNoteReviewDock()));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.refreshNoteReviewDock()));
@@ -51738,7 +51751,9 @@ ${body}
     const weeks = Math.max(1, Math.min(26, Math.round(Number(opts.weeks) || 12)));
     const scope = str(opts.masteryScope).trim();
     const days = masteryWindowDays(opts.masteryDays);
-    const key = `progress|${localDate(at)}|${weeks}|${scope}|${days}`;
+    const courses = this.settings.calendar && Array.isArray(this.settings.calendar.courses) ? this.settings.calendar.courses : [];
+    const registryKey = courses.map((course) => `${course.id || course.name}:${course.name || ""}:${(course.aliases || []).join(",")}`).join("|");
+    const key = `progress|${localDate(at)}|${weeks}|${scope}|${days}|${registryKey}`;
     return this.snapshot(key, () =>
       buildProgress({
         questions: this.getQuestions(),
@@ -51749,6 +51764,7 @@ ${body}
         weeks,
         masteryScope: scope,
         masteryDays: days,
+        courses,
       })
     );
   }
@@ -52150,11 +52166,12 @@ ${body}
         field: opts.field,
         weeks: opts.weeks,
       });
+      const courses = this.settings.calendar && Array.isArray(this.settings.calendar.courses) ? this.settings.calendar.courses : [];
       const requestedScope = data.course || str(this.settings.masteryScope).trim();
-      const scopes = masteryScopes(questions);
+      const scopes = masteryScopes(questions, courses);
       const masteryScope = !data.course && requestedScope && !scopes.some((scope) => scope.toLowerCase() === requestedScope.toLowerCase()) ? "" : requestedScope;
       const masteryDays = opts.masteryDays === undefined ? masteryWindowDays(this.settings.masteryDays) : opts.masteryDays;
-      const scopedMastery = scopeQuestions(questions, masteryScope);
+      const scopedMastery = scopeQuestions(questions, masteryScope, courses);
       data.mastery = buildMastery(scopedMastery, { days: masteryDays, today });
       data.masteryTrend = buildMasteryTrend(scopedMastery, { days: masteryDays, today });
       data.masteryScope = masteryScope;
@@ -58275,6 +58292,7 @@ const { isStudyable } = require("./study-status");
 const { computeStats, creditSummary, overallStats, parseHistory, weakestRow } = require("./stats");
 const { studySummary } = require("./focus");
 const { courseKey, knowledgeSummary } = require("./analytics");
+const courseIdentity = require("./course-identity");
 const { creditOf } = require("./history");
 const fsrs = require("./fsrs");
 const fsrsLib = require("./fsrs-lib");
@@ -58467,23 +58485,48 @@ function masteryTrendText(trend) {
   return `${trend.delta > 0 ? "+" : ""}${trend.delta} mastered${period} vs ${previous}.`;
 }
 
-/** Distinct `course` values that can scope the mastery view, sorted. Blank values are skipped. */
-function masteryScopes(questions) {
+function registryCourses(courses) {
+  return courseIdentity.registryOf(courses);
+}
+
+function registryLabel(course) {
+  return str(course && (course.name || course.code)).trim();
+}
+
+/**
+ * Distinct course scopes for the mastery picker, sorted. The calendar registry
+ * is included first, so a registered subject is selectable even before a note
+ * has a `course` property. Registered aliases and codes resolve to one name.
+ */
+function masteryScopes(questions, courses) {
+  const registry = registryCourses(courses);
   const seen = new Map();
-  for (const question of Array.isArray(questions) ? questions : []) {
-    const label = str(question.fm && question.fm.course).trim();
-    const key = courseKey(label);
-    if (key && !seen.has(key)) seen.set(key, label);
-  }
+  const add = (value) => {
+    const label = str(value).trim();
+    if (!label) return;
+    const resolved = courseIdentity.resolveCourse(registry, label);
+    const display = resolved ? registryLabel(resolved) : label;
+    const key = resolved
+      ? `registry:${courseIdentity.normalizeText(resolved.id || resolved.name || resolved.code)}`
+      : `raw:${courseKey(label)}`;
+    if (!key.endsWith(":") && !seen.has(key)) seen.set(key, display);
+  };
+  for (const course of registry) add(registryLabel(course));
+  for (const question of Array.isArray(questions) ? questions : []) add(question.fm && question.fm.course);
   return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
 /** The questions inside one course scope. An empty scope means every question. */
-function scopeQuestions(questions, scope) {
+function scopeQuestions(questions, scope, courses) {
   const list = Array.isArray(questions) ? questions : [];
-  const key = courseKey(str(scope).trim());
-  if (!key) return list;
-  return list.filter((question) => courseKey(question.fm && question.fm.course) === key);
+  const value = str(scope).trim();
+  if (!value) return list;
+  const registry = registryCourses(courses);
+  if (registry.length) {
+    return list.filter((question) => courseIdentity.sameCourse(registry, question.fm && question.fm.course, value));
+  }
+  const key = courseKey(value);
+  return key ? list.filter((question) => courseKey(question.fm && question.fm.course) === key) : list;
 }
 
 /** Questions in one mastery band. An unknown band returns nothing rather than guessing. */
@@ -58608,7 +58651,8 @@ function buildProgress(options) {
   const weeks = buildWeeks(questions, studyLog.sessions, today, opts.weeks || 4);
   const masteryScope = str(opts.masteryScope).trim();
   const masteryDays = masteryWindowDays(opts.masteryDays);
-  const scopedMastery = scopeQuestions(questions, masteryScope);
+  const courses = opts.courses || null;
+  const scopedMastery = scopeQuestions(questions, masteryScope, courses);
   const goalMinutes = study.goalMinutes || 0;
   const overall = overallStats(questions);
   const frq = opts.frq || null;
@@ -58632,7 +58676,7 @@ function buildProgress(options) {
     masteryTrend: buildMasteryTrend(scopedMastery, { days: masteryDays, today }),
     masteryScope,
     masteryDays,
-    masteryScopes: masteryScopes(questions),
+    masteryScopes: masteryScopes(questions, courses),
     courses: buildCourses(questions, studyLog.sessions, opts.courseLimit || 6),
     next: buildNext(questions, cards, today),
   };
@@ -70737,6 +70781,47 @@ module.exports = {
   renderReviewCalendarSettings,
   renderStudyStatsSettings,
 };
+};
+
+/* ---- src/sat-callout.js ---- */
+__defs["sat-callout"] = function (module, exports, require) {
+
+const SAT_SELECTOR = '.callout[data-callout="sat"]';
+const MARKED_CLASS = "qt-sat-marked";
+const TOGGLE_SELECTOR = ".callout-content > ul:first-child > li";
+
+function isMarked(item) {
+  if (!item) return false;
+  if (item.getAttribute && item.getAttribute("data-task") === "x") return true;
+  if (typeof item.querySelector !== "function") return false;
+  const input = item.querySelector('input[type="checkbox"]');
+  return !!(input && input.checked);
+}
+
+function syncSatCallout(callout) {
+  if (!callout || typeof callout.querySelector !== "function") return false;
+  const marked = isMarked(callout.querySelector(TOGGLE_SELECTOR));
+  if (callout.classList && typeof callout.classList.toggle === "function") {
+    callout.classList.toggle(MARKED_CLASS, marked);
+  }
+  return marked;
+}
+
+function syncSatCallouts(root) {
+  if (!root || typeof root.querySelectorAll !== "function") return 0;
+  let count = 0;
+  if (typeof root.matches === "function" && root.matches(SAT_SELECTOR)) {
+    syncSatCallout(root);
+    count += 1;
+  }
+  for (const callout of root.querySelectorAll(SAT_SELECTOR)) {
+    syncSatCallout(callout);
+    count += 1;
+  }
+  return count;
+}
+
+module.exports = { SAT_SELECTOR, MARKED_CLASS, syncSatCallout, syncSatCallouts };
 };
 
 /* ---- src/sat-math.js ---- */
@@ -86673,13 +86758,14 @@ class TodayView extends ItemView {
   renderMasteryCard(root, questions, today) {
     const p = this.plugin;
     const settings = p.settings || {};
+    const registry = settings.calendar ? settings.calendar.courses : [];
     const savedScope = String(settings.masteryScope || "").trim();
-    const scopes = masteryScopes(questions);
+    const scopes = masteryScopes(questions, registry);
     const scope = savedScope && scopes.some((entry) => entry.toLowerCase() === savedScope.toLowerCase()) ? savedScope : "";
     const days = masteryWindowDays(settings.masteryDays);
-    const pool = scopeQuestions(questions, scope);
+    const pool = scopeQuestions(questions, scope, registry);
     const mastery = buildMastery(pool, { days, today });
-    if (!mastery.total) return;
+    if (!mastery.total && !scope) return;
     const trend = buildMasteryTrend(pool, { days, today });
     const panel = root.createDiv({ cls: "qt-today-panel qt-today-panel-wide" });
     const controls = (container) => {

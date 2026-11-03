@@ -369,12 +369,13 @@ class InsightsView extends ItemView {
     const cards = p.getCards ? p.getCards() : [];
     const now = new Date();
     const studyLog = p.settings.studyLog;
-    const scopes = masteryScopes(questions);
+    const registry = p.settings && p.settings.calendar ? p.settings.calendar.courses : [];
+    const scopes = masteryScopes(questions, registry);
     if (this.masteryScope && !scopes.some((scope) => scope.toLowerCase() === this.masteryScope.toLowerCase())) this.masteryScope = "";
     const frq = p.getFrqKnowledge ? p.getFrqKnowledge() : null;
     const progress = p.progressSnapshot
-      ? p.progressSnapshot({ weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays, today: now })
-      : buildProgress({ questions, cards, frq, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays });
+      ? p.progressSnapshot({ weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays, today: now, courses: registry })
+      : buildProgress({ questions, cards, frq, studyLog, today: now, weeks: this.progressWeeks, masteryScope: this.masteryScope, masteryDays: this.masteryDays, courses: registry });
     const dash = p.dashboardSnapshot
       ? p.dashboardSnapshot({ field: this.overviewField, today: now, weeks: this.progressWeeks })
       : buildDashboard({ questions, cards, studyLog, field: this.overviewField, today: now, weeks: this.progressWeeks });
@@ -503,7 +504,7 @@ class InsightsView extends ItemView {
           `Practice ${band.count} ${band.label.toLowerCase()} question${band.count === 1 ? "" : "s"}${scopeLabel}${practiceWindow}`
         );
         go.addEventListener("click", () => {
-          const pool = bandQuestions(questionsInScope(questions, progress.masteryScope), band.id, { days: progress.masteryDays, today: now });
+          const pool = bandQuestions(questionsInScope(questions, progress.masteryScope, registry), band.id, { days: progress.masteryDays, today: now });
           const windowText = progress.masteryDays ? ` · last ${progress.masteryDays} days` : " · all time";
           p.practiceQuestionPool(pool, `${band.label}${progress.masteryScope ? ` · ${progress.masteryScope}` : ""}${windowText}`);
         });

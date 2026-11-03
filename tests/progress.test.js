@@ -275,3 +275,24 @@ test("progress mastery holds a perfect historical score below mastered when FSRS
   assert.equal(mastery.mastered, 0);
   assert.equal(mastery.bands.find((band) => band.id === "strong").count, 1);
 });
+
+
+test("progress mastery offers registry subjects before any note has a course", () => {
+  const registry = [
+    { id: "bio", name: "Biology", code: "BIO 101", folder: "Courses/Bio", aliases: [] },
+    { id: "calc", name: "MATH 101 - Calculus", code: "MATH 101", folder: "Courses/Math", aliases: ["Calc"] },
+  ];
+  const questions = [
+    question("Q/calc.md", { course: "Calc", attempts: 1, correct_count: 1 }),
+    question("Q/none.md", {}),
+  ];
+  assert.deepEqual(T.masteryScopes(questions, registry), ["Biology", "MATH 101 - Calculus"]);
+  assert.deepEqual(T.scopeQuestions(questions, "MATH 101 - Calculus", registry).map((q) => q.file.path), ["Q/calc.md"]);
+  assert.deepEqual(T.scopeQuestions(questions, "BIO 101", registry), []);
+  const progress = T.buildProgress({ questions, today: "2026-10-28", courses: registry, masteryScope: "MATH 101 - Calculus" });
+  assert.equal(progress.masteryScope, "MATH 101 - Calculus");
+  assert.equal(progress.mastery.total, 1);
+  assert.equal(progress.mastery.bands.find((band) => band.id === "mastered").count, 1);
+  assert.deepEqual(progress.masteryScopes, ["Biology", "MATH 101 - Calculus"]);
+  assert.deepEqual(T.masteryScopes(questions), ["Calc"]);
+});

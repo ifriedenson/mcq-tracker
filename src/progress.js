@@ -8,6 +8,7 @@ const { isStudyable } = require("./study-status");
 const { computeStats, creditSummary, overallStats, parseHistory, weakestRow } = require("./stats");
 const { studySummary } = require("./focus");
 const { courseKey, knowledgeSummary } = require("./analytics");
+const courseIdentity = require("./course-identity");
 const { creditOf } = require("./history");
 const fsrs = require("./fsrs");
 const fsrsLib = require("./fsrs-lib");
@@ -200,23 +201,48 @@ function masteryTrendText(trend) {
   return `${trend.delta > 0 ? "+" : ""}${trend.delta} mastered${period} vs ${previous}.`;
 }
 
-/** Distinct `course` values that can scope the mastery view, sorted. Blank values are skipped. */
-function masteryScopes(questions) {
+function registryCourses(courses) {
+  return courseIdentity.registryOf(courses);
+}
+
+function registryLabel(course) {
+  return str(course && (course.name || course.code)).trim();
+}
+
+/**
+ * Distinct course scopes for the mastery picker, sorted. The calendar registry
+ * is included first, so a registered subject is selectable even before a note
+ * has a `course` property. Registered aliases and codes resolve to one name.
+ */
+function masteryScopes(questions, courses) {
+  const registry = registryCourses(courses);
   const seen = new Map();
-  for (const question of Array.isArray(questions) ? questions : []) {
-    const label = str(question.fm && question.fm.course).trim();
-    const key = courseKey(label);
-    if (key && !seen.has(key)) seen.set(key, label);
-  }
+  const add = (value) => {
+    const label = str(value).trim();
+    if (!label) return;
+    const resolved = courseIdentity.resolveCourse(registry, label);
+    const display = resolved ? registryLabel(resolved) : label;
+    const key = resolved
+      ? `registry:${courseIdentity.normalizeText(resolved.id || resolved.name || resolved.code)}`
+      : `raw:${courseKey(label)}`;
+    if (!key.endsWith(":") && !seen.has(key)) seen.set(key, display);
+  };
+  for (const course of registry) add(registryLabel(course));
+  for (const question of Array.isArray(questions) ? questions : []) add(question.fm && question.fm.course);
   return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
 /** The questions inside one course scope. An empty scope means every question. */
-function scopeQuestions(questions, scope) {
+function scopeQuestions(questions, scope, courses) {
   const list = Array.isArray(questions) ? questions : [];
-  const key = courseKey(str(scope).trim());
-  if (!key) return list;
-  return list.filter((question) => courseKey(question.fm && question.fm.course) === key);
+  const value = str(scope).trim();
+  if (!value) return list;
+  const registry = registryCourses(courses);
+  if (registry.length) {
+    return list.filter((question) => courseIdentity.sameCourse(registry, question.fm && question.fm.course, value));
+  }
+  const key = courseKey(value);
+  return key ? list.filter((question) => courseKey(question.fm && question.fm.course) === key) : list;
 }
 
 /** Questions in one mastery band. An unknown band returns nothing rather than guessing. */
@@ -341,7 +367,8 @@ function buildProgress(options) {
   const weeks = buildWeeks(questions, studyLog.sessions, today, opts.weeks || 4);
   const masteryScope = str(opts.masteryScope).trim();
   const masteryDays = masteryWindowDays(opts.masteryDays);
-  const scopedMastery = scopeQuestions(questions, masteryScope);
+  const courses = opts.courses || null;
+  const scopedMastery = scopeQuestions(questions, masteryScope, courses);
   const goalMinutes = study.goalMinutes || 0;
   const overall = overallStats(questions);
   const frq = opts.frq || null;
@@ -365,7 +392,7 @@ function buildProgress(options) {
     masteryTrend: buildMasteryTrend(scopedMastery, { days: masteryDays, today }),
     masteryScope,
     masteryDays,
-    masteryScopes: masteryScopes(questions),
+    masteryScopes: masteryScopes(questions, courses),
     courses: buildCourses(questions, studyLog.sessions, opts.courseLimit || 6),
     next: buildNext(questions, cards, today),
   };
