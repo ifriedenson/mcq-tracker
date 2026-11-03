@@ -85169,6 +85169,7 @@ const voiceMemo = require("./voice-memo");
 const { CODE_BLOCK_MODES: READ_ALOUD_CODE, READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
+const { describeFsrsRetentionFit } = require("./fsrs-fit");
 const courseIdentity = require("./course-identity");
 const { bookmarkLink, bookmarkPaths, chaptersFor, formatTimestamp, parseTimestamp } = require("./audio-bookmarks");
 const { STATUS_LABELS: READING_LABELS, bookProgress, librarySummary, shelfBooks } = require("./reading-library");
@@ -86504,6 +86505,7 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage(`Scanned ${this.retentionData.total} card${this.retentionData.total === 1 ? "" : "s"}.`);
       this.render();
     });
+    if (typeof this.plugin.schedulerFitEnabled === "function" && this.plugin.schedulerFitEnabled()) this.renderSchedulerFit(root);
     if (!this.retentionData) {
       this.renderTabsEmpty(root, "Scan the card module to see due work and a 30-day forecast. The scan does not change a schedule.");
       return;
@@ -86534,7 +86536,6 @@ class StudyWorkspaceView extends ItemView {
     listCard.createEl("h3", { text: "Due and future cards" });
     if (!this.retentionData.rows.length) {
       listCard.createDiv({ cls: "qt-study-empty", text: "No cards are available in this vault yet." });
-      if (typeof this.plugin.schedulerFitEnabled === "function" && this.plugin.schedulerFitEnabled()) this.renderSchedulerFit(root);
       return;
     }
     const list = listCard.createDiv({ cls: "qt-study-list" });
@@ -86545,16 +86546,50 @@ class StudyWorkspaceView extends ItemView {
       main.createDiv({ cls: "qt-study-row-meta", text: `${card.course ? `${card.course} · ` : ""}${card.fresh ? "New" : card.due || "Scheduled"}${card.attempts ? ` · ${card.attempts} review${card.attempts === 1 ? "" : "s"}` : ""}` });
       if (card.path) row.createEl("button", { text: "Open" }).addEventListener("click", () => this.plugin.openStudyFlowSource(card.path));
     }
-    if (typeof this.plugin.schedulerFitEnabled === "function" && this.plugin.schedulerFitEnabled()) this.renderSchedulerFit(root);
   }
 
   renderSchedulerFit(root) {
+    const reports = typeof this.plugin.fsrsRetentionReports === "function" ? this.plugin.fsrsRetentionReports() : [];
+    if (!reports.length) return;
     const card = root.createDiv({ cls: "qt-study-card qt-scheduler-fit" });
     card.createEl("h3", { text: "Per-deck retention fit" });
     card.createDiv({
       cls: "qt-hint",
-      text: "Fit request_retention from each deck's own review history in Settings → MCQ Tracker → Scheduler. FSRS weights stay fixed at the shipped defaults, and no target changes until you press Apply.",
+      text: "Fitted from each deck's own review counters. FSRS weights stay fixed at the shipped defaults, and no target changes until you press Apply.",
     });
+    const ready = reports.filter((row) => row.ready);
+    const suggestions = reports.filter((row) => row.accepted);
+    card.createDiv({
+      cls: "qt-study-row-meta",
+      text: `${reports.length} deck${reports.length === 1 ? "" : "s"} · ${ready.length} with enough reviews · ${suggestions.length} suggestion${suggestions.length === 1 ? "" : "s"}`,
+    });
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const report of reports) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: report.deck });
+      main.createDiv({ cls: "qt-study-row-meta", text: describeFsrsRetentionFit(report) });
+      const current = Number(report.current) > 0 ? Number(report.current).toFixed(2) : "—";
+      main.createDiv({
+        cls: "qt-study-row-meta",
+        text: `${report.reviews} review${report.reviews === 1 ? "" : "s"} · ${report.cards} card${report.cards === 1 ? "" : "s"} · current ${current}${report.custom ? " · custom" : ""}`,
+      });
+      const buttons = row.createDiv({ cls: "qt-row qt-study-row-actions" });
+      if (report.accepted) {
+        buttons.createEl("button", { text: `Apply ${Number(report.recommended).toFixed(2)}`, cls: "mod-cta" }).addEventListener("click", async () => {
+          await this.plugin.applyFsrsRetention(report.deck, report.recommended);
+          this.saveMessage(`Applied ${Number(report.recommended).toFixed(2)} to ${report.deck}.`);
+          this.render();
+        });
+      }
+      if (report.custom) {
+        buttons.createEl("button", { text: "Reset" }).addEventListener("click", async () => {
+          await this.plugin.resetFsrsRetention(report.deck);
+          this.saveMessage(`${report.deck} now inherits the global target.`);
+          this.render();
+        });
+      }
+    }
     card.createEl("button", { text: "Open Scheduler settings" }).addEventListener("click", () => this.plugin.openSettings());
   }
 

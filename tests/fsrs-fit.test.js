@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { load } = require("./helpers/load");
-const { makeApp } = require("./helpers/fake");
+const { makeApp, makeDom } = require("./helpers/fake");
 
 const { T, Plugin: QT } = load();
 const F = T.fsrsFit;
@@ -142,4 +142,40 @@ test("fsrs retention fit: a review uses the deck target and no custom weights", 
   );
   assert.ok(fm.srs.startsWith("fsrs6|"));
   assert.ok(T.fsrs.decodeSrs(fm.srs));
+});
+
+test("fsrs retention fit: the Retention tab lists each deck, its fit and its actions", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.cards.enabled = true;
+  plugin.settings.schedulerFit = { ...(plugin.settings.schedulerFit || {}), enabled: true };
+  plugin.settings.fsrsRetention = 0.9;
+  plugin.getCards = () => [
+    reviewCard("Cards/Biology/a.md", "Biology", 10, 10),
+    reviewCard("Cards/Biology/b.md", "Biology", 10, 10),
+    reviewCard("Cards/Biology/c.md", "Biology", 10, 10),
+    reviewCard("Cards/Chemistry/a.md", "Chemistry", 10, 8),
+    reviewCard("Cards/Chemistry/b.md", "Chemistry", 10, 8),
+    reviewCard("Cards/Physics/a.md", "Physics", 4, 3),
+  ];
+  const reports = plugin.fsrsRetentionReports();
+  assert.equal(reports.find((row) => row.deck === "Biology").recommended, 0.95);
+
+  const dom = makeDom();
+  const view = new T.StudyWorkspaceView({ app }, plugin);
+  view.contentEl = dom.root;
+  view.tab = "retention";
+  view.render();
+  const texts = dom.texts();
+  assert.ok(texts.includes("Per-deck retention fit"), "the card is titled");
+  assert.ok(texts.includes("Biology"), "each fitted deck is listed");
+  assert.ok(texts.some((text) => text.includes("Apply 0.95")), "an accepted fit offers Apply");
+  assert.ok(texts.some((text) => text.includes("3 decks · 2 with enough reviews · 2 suggestions")), texts.join(" | "));
+  assert.ok(texts.some((text) => text.includes("Needs at least 20 reviews")), "an unready deck says what it needs");
+
+  await plugin.applyFsrsRetention("Biology", 0.95);
+  assert.equal(plugin.settings.cards.decks.find((row) => row.name === "Biology").fsrsRetention, 0.95);
+  await plugin.resetFsrsRetention("Biology");
+  assert.equal(plugin.settings.cards.decks.find((row) => row.name === "Biology").fsrsRetention, 0);
 });

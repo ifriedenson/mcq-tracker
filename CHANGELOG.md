@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.210.11 — 2026-11-03
+
+- The Retention tab's **Per-deck retention fit** card now shows the fit it
+  describes instead of only linking to Settings: every deck with its review
+  count, current target, the observation behind the suggestion, and Apply or
+  Reset where those actions are valid. A deck without enough reviews says how
+  many it has. The card no longer waits for a card scan, because it reads the
+  review counters directly.
+
 ## 1.210.10 — 2026-11-03
 
 - **Writing session (read-only)** in the Study Flow tab. Count words reports
