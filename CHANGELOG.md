@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.210.13 — 2026-11-03
+
+- **Every Study Workspace tab is covered by a test that mounts it through the
+  view's dispatch**: Feynman, Recall, Topic planner, Courses, Annotations, Deep
+  Notes and Quiz index join the tabs that already had workspace-level tests.
+- **Use exam topics** in the Topic planner used to fail silently when no exam
+  matched; it now says so in a notice, without clearing the typed plan.
+
 ## 1.210.12 — 2026-11-03
 
 - **Course health** rows are no longer dead ends. Each course keeps its checks

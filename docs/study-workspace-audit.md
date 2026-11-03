@@ -1,73 +1,71 @@
 # Study Workspace tool audit (Nov 3, 2026)
 
-**Scope:** every tab in the Study Workspace view (`src/study-workspace-view.js`), plus the
-shared model (`src/study-workspace.js`) and the plugin methods each tab calls.
+**Scope:** every tab in the Study Workspace view (`src/study-workspace-view.js`), the shared
+model (`src/study-workspace.js`) and the plugin methods each tab calls.
 
-**Method.** For each tool I checked four things in code, not by reading the plan: a render path
-exists and is reachable from the tab dispatch; every `this.plugin.*` member the tab calls is
-defined; each rendered action has a handler that reaches a real model or plugin path; and the
-empty state names what to do next. Model exports that no view used were listed separately to
-catch implemented-but-unwired capability.
+**Method.** Per tool, four structural checks: a render path reachable from the tab dispatch;
+every `this.plugin.*` member the tab calls defined; every rendered control reaching a real
+model or plugin path; and no empty state left as a dead end. Then each tab is mounted through
+the view's own dispatch and driven end to end: fill the form, create, assert the persisted
+model, read the saved row, open it, delete it and reach the documented empty state.
 
-**Result:** all 21 tabs render and call only defined plugin members. Two tools were incomplete and
-were finished in **1.210.11** (the Retention fit card was a stub) and **1.210.12** (Course health rows
-had no action); the rest were already implemented. No tab renders a settings-only
-placeholder card any more.
+**Result:** all 21 tabs render, call only defined plugin members, and every button, field and
+row has a working path. Three tools were incomplete and are fixed: the Retention fit card was a
+stub (1.210.11), Course health rows had no action (1.210.12), and the planner's **Use exam
+topics** refusal was silent (1.210.13).
 
-| # | Tool (tab id) | Actions | Workspace tests | Status |
-|---|---|---|---|---|
-| 1 | Feynman (`feynman`) | 3 | 0 | complete; no dedicated workspace test, reviewed in code |
-| 2 | Recall (`recall`) | 3 | 0 | complete; no dedicated workspace test, reviewed in code |
-| 3 | Topic planner (`planner`) | 7 | 0 | complete; no dedicated workspace test, reviewed in code |
-| 4 | Study Flow (`flow`) | 5 | 1 | complete |
-| 5 | Subjects (`subjects`) | 7 | 1 | complete |
-| 6 | Courses (`courses`) | 3 | 0 | complete; no dedicated workspace test, reviewed in code |
-| 7 | Tasks (`tasks`) | 8 | 3 | complete |
-| 8 | Time blocks (`timeBlocks`) | 1 | 2 | complete |
-| 9 | Annotations (`annotations`) | 4 | 0 | complete; no dedicated workspace test, reviewed in code |
-| 10 | Deep Notes (`deepNotes`) | 3 | 0 | complete; no dedicated workspace test, reviewed in code |
-| 11 | Retention (`retention`) | 2 | 4 | complete in 1.210.11 (fit card was a stub) |
-| 12 | Vocabulary (`vocabulary`) | 4 | 2 | complete |
-| 13 | Reading library (`readingLibrary`) | 1 | 4 | complete |
-| 14 | Citations (`citations`) | 4 | 1 | complete |
-| 15 | Quiz index (`quizIndex`) | 2 | 0 | complete; no dedicated workspace test, reviewed in code |
-| 16 | Course health (`health`) | 0 | 1 | complete |
-| 17 | Lecture notes (`lectures`) | 2 | 2 | complete |
-| 18 | Read aloud (`readAloud`) | 7 | 1 | complete |
-| 19 | Bookmarks (`bookmarks`) | 3 | 1 | complete |
-| 20 | AI feedback (`feynmanAi`) | 2 | 1 | complete |
-| 21 | PDF annotations (`pdfAnnotations`) | 5 | 2 | complete |
+| # | Tool (tab id) | Backing test | Release |
+|---|---|---|---|
+| 1 | Feynman (`feynman`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
+| 2 | Recall (`recall`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
+| 3 | Topic planner (`planner`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
+| 4 | Courses (`courses`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
+| 5 | Annotations (`annotations`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
+| 6 | Deep Notes (`deepNotes`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
+| 7 | Quiz index (`quizIndex`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
+| 8 | Course health (`health`) | `tests/study-workspace-health.test.js` | 1.210.12 |
+| 9 | Retention (`retention`) | `tests/fsrs-fit.test.js` | 1.210.11 |
+| 10 | Study Flow (`flow`) | `tests/writing-sessions.test.js` | 1.210.10 |
+| 11 | Subjects (`subjects`) | `tests/core-values.test.js` | 1.169.0 |
+| 12 | Tasks (`tasks`) | `tests/task-list.test.js` | 1.172.0 |
+| 13 | Time blocks (`timeBlocks`) | `tests/time-blocks.test.js` | 1.210.1 |
+| 14 | Vocabulary (`vocabulary`) | `tests/glossary.test.js` | 1.210.9 |
+| 15 | Reading library (`readingLibrary`) | `tests/reading-library.test.js` | pre-1.210 |
+| 16 | Citations (`citations`) | `tests/citations.test.js` | 1.210.3 |
+| 17 | Lecture notes (`lectures`) | `tests/core-values.test.js` | 1.169.0 |
+| 18 | Read aloud (`readAloud`) | `tests/read-aloud.test.js` | 1.210.6 |
+| 19 | Bookmarks (`bookmarks`) | `tests/study-modules-2.test.js` | 1.210.3 |
+| 20 | AI feedback (`feynmanAi`) | `tests/study-modules-3.test.js` | 1.210.4 |
+| 21 | PDF annotations (`pdfAnnotations`) | `tests/study-modules-3.test.js` | 1.210.4 |
 
-## The one gap found and fixed: Retention → per-deck fit
+The **Release** column is the release that introduced the named test, read from git history,
+so every row is backed by a file in the tree rather than by memory.
 
-`renderSchedulerFit` rendered a title, a hint and **Open Scheduler settings** while
-`plugin.fsrsRetentionReports()`, `applyFsrsRetention`, `resetFsrsRetention` and
-`describeFsrsRetentionFit` already existed for the Settings page. The card now lists every deck
-with its review count, card count and current target, the observation behind the suggestion or
-the reviews still needed, **Apply \<value\>** for an accepted fit and **Reset** for a custom
-target. It appears without a card scan because it reads review counters, stays hidden when there
-are no cards, and is covered by `tests/fsrs-fit.test.js`. Shipped as 1.210.11.
+## The three gaps, and what closed them
 
-## Unwired-looking exports that are not gaps
+1. **Retention → per-deck fit (1.210.11).** `renderSchedulerFit` was a hint plus a Settings
+   link while `fsrsRetentionReports`, `applyFsrsRetention`, `resetFsrsRetention` and
+   `describeFsrsRetentionFit` already existed. It now lists each deck's reviews, cards, current
+   target and the observation behind the suggestion, with **Apply** only for an accepted fit and
+   **Reset** only for a custom target. Covered by `tests/fsrs-fit.test.js`.
+2. **Course health (1.210.12).** Rows printed checks with no action, so a warning was a dead
+   end. Each row now states how many warnings remain and offers **Overview**, which reuses
+   `openCourseOverview`. Covered by `tests/study-workspace-health.test.js`.
+3. **Topic planner → Use exam topics (1.210.13).** The refusal called `saveMessage` without a
+   re-render, so pressing it with no matching exam showed nothing. It now raises the view's
+   existing `Notice`, which also avoids re-rendering away a half-typed plan. Covered by
+   `tests/study-workspace-tabs.test.js`.
 
-`allocatePlan`, `daysBetween`, `recallStats`, `normalizeStudyTask`, `normalizeGrade`,
-`normalizeFlowExcerpt`, `normalizeVocabWord` and the constant tables are used inside
-`study-workspace.js` itself or destructured by name in the view; the module-qualified search that
-listed them was a false positive, not dead capability. `timeBlocks` is the sibling module the
-planner imports directly.
+## What the new suite covers
 
-## Second gap fixed: Course health had no actions
+`tests/study-workspace-tabs.test.js` mounts each of Feynman, Recall, Topic planner, Courses, Annotations, Deep
+Notes and Quiz index through the dispatch, and for every control asserts both the persisted
+state and what the reader sees. Refusals are asserted too: an empty Feynman step, a plan with
+no course or date, an annotation with no quote, and a quiz scan of an empty folder.
 
-`renderCourseHealth` printed each course's checks but gave the reader nothing to
-do, so a warning was a dead end. Each row now states how many warnings remain and
-offers **Overview**, which reuses `plugin.openCourseOverview` from the Courses tab.
-Shipped as 1.210.12 and covered by `tests/study-workspace-health.test.js`.
+## Still open
 
-## What is still open
-
-- **Test coverage, not implementation:** Feynman, Recall, Topic planner, Courses, Annotations,
-  Deep Notes and Quiz index have no workspace-level test that mounts their tab. Each was read in
-  code: creation form, list of saved rows, open/select, delete and an empty state are all wired
-  to plugin methods, and the plugin methods are exercised by their own module tests.
-- **Owner-gated work is unchanged:** the §5.22.12 subject colours and event tags remain behind
-  their gate, and nothing in the workspace was changed to work around it.
+- No real-Obsidian visual pass: these are DOM-stub tests, so layout and styling remain a manual
+  check on desktop and phone.
+- The §5.22.12 subject colours and event tags stay behind their owner gate; nothing here
+  touches them.

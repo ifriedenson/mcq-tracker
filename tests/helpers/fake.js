@@ -97,6 +97,9 @@ function makeApp(notes) {
       onLayoutReady: () => {},
       getLeavesOfType: () => [],
       getLeaf: () => ({ openFile: async (f) => app.opened.push(f.path) }),
+      openLinkText: async (linktext) => {
+        app.opened.push(linktext);
+      },
       getActiveFile: () => null,
     },
     loadLocalStorage: (key) => (key in storage ? storage[key] : null),

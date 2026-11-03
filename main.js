@@ -85753,12 +85753,14 @@ class StudyWorkspaceView extends ItemView {
       });
       if (!found || !Array.isArray(found.topics) || !found.topics.length) {
         this.saveMessage("No matching exam topics found. Add topics to the exam note or type them here.");
+        new Notice("No matching exam topics found. Add topics to the exam note or type them here.");
         return;
       }
       topics.value = found.topics.join("\n");
       if (!course.value.trim() && found.course) course.value = found.course;
       if (!exam.value && found.date) exam.value = found.date;
       this.saveMessage(`Loaded ${found.topics.length} topic${found.topics.length === 1 ? "" : "s"} from ${found.title || "the exam"}.`);
+      new Notice(`Loaded ${found.topics.length} topic${found.topics.length === 1 ? "" : "s"} from ${found.title || "the exam"}.`);
     });
     const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
     actions.createEl("button", { text: "Create plan", cls: "mod-cta" }).addEventListener("click", async () => {
