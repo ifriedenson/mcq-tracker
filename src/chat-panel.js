@@ -18,13 +18,14 @@ function toolsForMode(mode, agentShell) {
 
 class ChatPanel {
   /**
-   * opts: { title, sourcePath, getSessionId, setSessionId, getRole, setRole, buildContext(mode), quick: [{label,prompt}], onSaveNote(text) }
+   * opts: { title, sourcePath, getSessionId, setSessionId, getRole, setRole, buildContext(mode), beforeSend(text), quick: [{label,prompt,run}], onSaveNote(text), saveNoteLabel }
    */
   constructor(view, root, opts) {
     this.view = view;
     this.root = root;
     this.opts = opts;
     this.busy = false;
+    this.apiCancelToken = 0;
     this.turns = [];
     this.pending = "";
     this.error = "";
@@ -152,7 +153,11 @@ class ChatPanel {
       const chips = root.createDiv({ cls: "qt-chips" });
       for (const q of this.opts.quick) {
         const c = chips.createEl("button", { text: q.label, cls: "qt-chip" });
-        c.addEventListener("click", () => this.send(q.prompt));
+        c.addEventListener("click", () => {
+          if (this.busy) return;
+          if (typeof q.run === "function") q.run.call(this);
+          else this.send(q.prompt);
+        });
       }
     }
 
@@ -176,6 +181,10 @@ class ChatPanel {
     this.stopBtn = row.createEl("button", { text: "Stop" });
     this.stopBtn.addClass("qt-hidden");
     this.stopBtn.addEventListener("click", async () => {
+      if (this.view.plugin.backend() === "api") {
+        this.cancelApi();
+        return;
+      }
       const sid = this.opts.getSessionId();
       if (!sid) return;
       try {
@@ -285,9 +294,37 @@ class ChatPanel {
   setBusy(b) {
     this.busy = b;
     if (!this.sendBtn) return;
-    this.stopBtn.toggleClass("qt-hidden", !(b && this.view.plugin.backend() !== "api"));
+    this.stopBtn.toggleClass("qt-hidden", !b);
     this.sendBtn.disabled = b || this.thinkFirstRemaining() > 0;
     this.status.setText(b ? "Working..." : "");
+  }
+
+  /** Stop waiting for a Direct API reply; a late reply is ignored. */
+  cancelApi() {
+    this.apiCancelToken = (this.apiCancelToken || 0) + 1;
+    this.pending = "";
+    this.error = "Stopped waiting for the reply. The provider may still finish the request.";
+    this.setBusy(false);
+    this.draw();
+  }
+
+  /** Quick action: make sure the active note is sent, then ask about it. */
+  async askAboutActiveNote(prompt) {
+    if (this.busy || !this.ai.enabled) return;
+    let raw = null;
+    try {
+      raw = this.opts.readNoteContext ? await this.opts.readNoteContext() : null;
+    } catch (e) {
+      raw = null;
+    }
+    if (!raw || !str(raw.path)) {
+      if (this.status) this.status.setText("Open a note first.");
+      return;
+    }
+    this.includeNote = true;
+    this.includeSelection = false;
+    this.paintContext();
+    return this.send(prompt || "Explain the key ideas in this note and how they connect. Cite the note.");
   }
 
   async send(text) {
@@ -296,6 +333,13 @@ class ChatPanel {
     if (this.thinkFirstRemaining() > 0) {
       this.refreshThinkFirst();
       return;
+    }
+    if (this.opts.beforeSend) {
+      try {
+        await this.opts.beforeSend(text);
+      } catch (e) {
+        /* retrieval is best effort; the chat request still goes through */
+      }
     }
     const currentNote = await this.prepareContext();
     if (this.view.plugin.backend() === "api") return this.sendApi(text, currentNote);
@@ -396,6 +440,7 @@ class ChatPanel {
     this.error = "";
     this.input.value = "";
     this.pending = text;
+    const token = (this.apiCancelToken = (this.apiCancelToken || 0) + 1);
     this.setBusy(true);
     this.draw();
     const hist = this.apiHistory();
@@ -406,6 +451,7 @@ class ChatPanel {
         .filter(Boolean)
         .join("\n\n");
       const reply = await this.view.plugin.aiChat(system, hist.concat([{ role: "user", content: text }]), { feature: "chat" });
+      if (token !== this.apiCancelToken) return;
       hist.push({ role: "user", content: text }, { role: "assistant", content: reply });
       this.pending = "";
       if (agent && typeof this.view.plugin.parseByokToolProposals === "function") {
@@ -414,14 +460,17 @@ class ChatPanel {
         if (parsed.errors.length) new Notice(`Some AI actions were ignored: ${parsed.errors.join(" ")}`, 8000);
       }
     } catch (e) {
+      if (token !== this.apiCancelToken) return;
       this.error = friendlyApiError(e);
       this.pending = "";
       this.input.value = text; // keep it so you can retry
     } finally {
-      this.setBusy(false);
-      this.turns = apiTurns(hist);
-      this.draw();
-      if (proposals.length) new AiToolReviewModal(this.view.app, this.view.plugin, proposals).open();
+      if (token === this.apiCancelToken) {
+        this.setBusy(false);
+        this.turns = apiTurns(hist);
+        this.draw();
+        if (proposals.length) new AiToolReviewModal(this.view.app, this.view.plugin, proposals).open();
+      }
     }
   }
 
@@ -469,7 +518,10 @@ class ChatPanel {
       for (const text of t.texts) this.view.md(text, b.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
       for (const line of t.tools) b.createDiv({ cls: "qt-tool", text: line });
       if (t.role === "assistant" && t.texts.length && this.opts.onSaveNote && !this.busy) {
-        const sv = b.createEl("button", { text: "Add to My Notes", cls: "qt-save-note" });
+        const sv = b.createEl("button", {
+          text: this.opts.saveNoteLabel || "Add to My Notes",
+          cls: "qt-save-note",
+        });
         sv.addEventListener("click", () => this.opts.onSaveNote(t.texts.join("\n\n")));
       }
     }

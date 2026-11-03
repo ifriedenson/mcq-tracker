@@ -94,6 +94,7 @@
 
 ## Current focus (Oct 30, 2026)
 
+- [x] **1.214.0 sidebar agent completion (Nov 3, 2026):** closing gaps in the right-sidebar Study agent: bot ribbon entry, active-note quick action, automatic local cited retrieval before every question, insert-at-cursor/append reply action, Direct API stop-waiting, and documented MIT/independence in `docs/sidebar-agent.md` and `NOTICES.md`. No Copilot source; no card-import behavior changed.
 - [x] **1.213.0 sidebar agent (Nov 3, 2026):** right-sidebar Study agent with local cited vault search, existing AI chat/providers, opt-in full-vault context, and card creation through the existing approval window. Original MIT code; no Obsidian Copilot source copied.
 - [x] **1.212.0 document cards (Nov 3, 2026):** PDF/Markdown card extraction, local-first with preview and opt-in AI fallback. Text PDFs use the existing PDF.js reader; scans point to OCR.
 - [x] **1.211.1 import fix (Nov 3, 2026):** the `.apkg` reader now keeps every card row for a note instead of only the first. Reversed notes import both directions, multi-card notes retain each Anki card ID and schedule, and single-card import keys remain stable. Covered by `tests/apkg.test.js`.

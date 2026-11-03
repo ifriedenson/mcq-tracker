@@ -1867,6 +1867,34 @@
   font-size: var(--font-ui-small);
 }
 
+.qt-agent-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0;
+}
+
+.qt-agent-hit a {
+  font-size: var(--font-ui-small);
+  overflow-wrap: anywhere;
+}
+
+.qt-agent-snippet {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  overflow-wrap: anywhere;
+}
+
+.qt-agent-chat .qt-chat {
+  max-height: 50vh;
+}
+
+.qt-agent-chat .qt-save-note {
+  margin-top: 6px;
+  min-height: 36px;
+  font-size: var(--font-ui-small);
+}
+
 .qt-error {
   color: var(--text-error);
   font-size: var(--font-ui-small);

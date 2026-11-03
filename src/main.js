@@ -39,6 +39,7 @@ const tagTimer = require("./tag-timer");
 const { ChatPanel } = require("./chat-panel");
 const documentCards = require("./document-cards");
 const agentView = require("./agent-view");
+const agentNote = require("./agent-note");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
 const aiService = require("./ai-service");
@@ -575,6 +576,7 @@ QuestionTrackerPlugin.__test = {
   documents,
   documentCards,
   agentView,
+  agentNote,
   QUICK_START_URL,
   aiReady,
   emptyState,

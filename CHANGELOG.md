@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.214.0 — 2026-11-03
+
+- Finished the right-sidebar **Study agent** gaps: a bot ribbon entry, an
+  **Ask about this note** action, automatic local vault retrieval before each
+  question, and **Insert into active note** for every completed reply.
+- Direct API requests now have a working **Stop** that stops waiting and ignores
+  the late reply. Insertion goes at the editor cursor, appends when no editor is
+  open, refuses a missing/non-Markdown note, and never rewrites frontmatter.
+- Documented the agent's original MIT licensing and independence from Obsidian
+  Copilot in `docs/sidebar-agent.md` and `NOTICES.md`.
+
 ## 1.213.0 — 2026-11-03
 
 - Added a **Study agent** in the right sidebar. Chat with the configured AI

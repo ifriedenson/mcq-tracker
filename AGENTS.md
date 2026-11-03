@@ -8,6 +8,7 @@ Obsidian plugin written in dependency-free JavaScript. Source lives in `src/`; `
 
 ## Current state
 
+- **1.214.0 release (Nov 3, 2026):** closes the sidebar **Study agent** gaps. The `bot` ribbon button and existing command open the view; **Ask about this note** opts that request into active-note context; every question retrieves ranked local excerpts and cites path/line; completed replies can be **Insert into active note** at the cursor, with an append fallback and no frontmatter changes. Direct API **Stop** stops waiting and ignores the late reply. Original MIT code, no Copilot source; licensing is documented in `docs/sidebar-agent.md` and `NOTICES.md`. Covered by expanded `tests/agent-view.test.js`.
 - **1.213.0 release (Nov 3, 2026):** adds the MIT-licensed right-sidebar **Study agent**. It reuses the existing ChatPanel, AI providers and tool-review write guards, adds local cited vault search, and makes full-vault context opt-in. Local search works without AI.
 - **1.212.0 release (Nov 3, 2026):** adds PDF and Markdown flashcard extraction with local-first parsing, preview-before-write, and opt-in AI fallback. Scanned PDFs continue to use OCR.
 - **1.211.1 release (Nov 3, 2026):** fixes `.apkg` import losing every card row after the first for a note. Reversed notes now import both directions and multi-card notes keep distinct Anki card IDs, schedules and import keys; single-card keys are unchanged. Covered by the updated `tests/apkg.test.js`. Version **1.211.1**; full suite and bundle checks are recorded in the release notes.
