@@ -25,6 +25,16 @@ const { statisticsReport } = require("./statistics");
 const { parseScalar, numericDerivative, definiteIntegral, summation, productOver } = require("./calculus");
 const { rowSummary, graphSummary, graphTable } = require("./graph-accessibility");
 const { isFolderRow, normalizeFolderName, folderName, folderGroups, rowVisibility, folderSummary } = require("./graph-folders");
+const {
+  MAX_COLUMNS,
+  normalizeColumns,
+  normalizeTable,
+  normalizeRegressionPair,
+  resolveTable,
+  regressionPair,
+  tableSummary,
+  tableExport,
+} = require("./graph-table");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -136,7 +146,16 @@ class ReferenceView extends ItemView {
     };
     this.graphViewInputs = {};
     this.graphDrag = null;
+    this.graphColumns = normalizeColumns([{ name: "x" }, { name: "y" }]);
     this.graphData = [];
+    if (storedGraph.table && typeof storedGraph.table === "object") {
+      const restoredTable = normalizeTable(storedGraph.table);
+      this.graphColumns = restoredTable.columns;
+      this.graphData = restoredTable.rows;
+    } else if (Array.isArray(storedGraph.data)) {
+      this.graphData = normalizeTable({ columns: this.graphColumns, rows: storedGraph.data }).rows;
+    }
+    this.graphRegression = normalizeRegressionPair(storedGraph.regression, this.graphColumns);
     this.graphPolarGrid = false;
     this.graphInterest = true;
     this.graphTrace = null;
@@ -592,18 +611,73 @@ class ReferenceView extends ItemView {
       .addEventListener("click", () => this.copyGraphExpressions());
 
     const dataSection = root.createDiv({ cls: "qt-ref-graph-data" });
-    dataSection.createDiv({ cls: "qt-ref-graph-data-head", text: "Data table (x, y) for regression rows" });
+    dataSection.createDiv({ cls: "qt-ref-graph-data-head", text: "Data table for regression rows" });
+    const tableState = resolveTable(this.graphColumns, this.graphData);
+    const columnFields = dataSection.createDiv({ cls: "qt-ref-graph-columns" });
+    this.graphColumns.forEach((column, index) => {
+      const field = columnFields.createDiv({ cls: "qt-ref-graph-column" });
+      const nameInput = field.createEl("input", {
+        cls: "qt-ref-graph-column-name",
+        attr: { type: "text", "aria-label": `Table column ${index + 1} name`, placeholder: "name" },
+      });
+      nameInput.value = column.name;
+      nameInput.addEventListener("change", () => this.renameGraphColumn(index, nameInput.value));
+      const expressionInput = field.createEl("input", {
+        cls: "qt-ref-graph-column-expression",
+        attr: { type: "text", "aria-label": `Table column ${index + 1} expression`, placeholder: "expression (optional)" },
+      });
+      expressionInput.value = column.expression;
+      expressionInput.addEventListener("input", () => {
+        column.expression = expressionInput.value;
+        this.persistGraphState();
+        this.drawGraph();
+      });
+      if (column.expression) field.createSpan({ cls: "qt-ref-graph-column-computed", text: "computed" });
+      field.createEl("button", {
+        cls: "qt-ref-graph-remove",
+        text: "×",
+        attr: { type: "button", "aria-label": `Remove table column ${column.name}` },
+      }).addEventListener("click", () => this.removeGraphColumn(index));
+    });
+    const columnActions = dataSection.createDiv({ cls: "qt-row qt-ref-graph-column-actions" });
+    columnActions.createEl("button", { text: "Add column", cls: "qt-ref-graph-add", attr: { type: "button", "aria-label": "Add table column" } })
+      .addEventListener("click", () => this.addGraphColumn());
+    const pairRow = dataSection.createDiv({ cls: "qt-row qt-ref-graph-pair" });
+    const pairField = (axis, label) => {
+      const field = pairRow.createEl("label", { cls: "qt-ref-graph-bound" });
+      field.createSpan({ text: label });
+      const select = field.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": `Regression ${axis} column` } });
+      for (const column of this.graphColumns) select.createEl("option", { text: column.name, value: column.name });
+      select.value = this.graphRegression[axis];
+      select.addEventListener("change", () => {
+        this.graphRegression = Object.assign({}, this.graphRegression, { [axis]: select.value });
+        this.persistGraphState();
+        this.drawGraph();
+      });
+    };
+    pairField("x", "regression x");
+    pairField("y", "regression y");
+    dataSection.createDiv({ cls: "qt-ref-graph-table-note", text: "A column with an expression is computed from the other columns by name." });
     const dataRows = dataSection.createDiv({ cls: "qt-ref-graph-data-rows" });
     this.graphData.forEach((point, index) => {
       const dataRow = dataRows.createDiv({ cls: "qt-ref-graph-data-row" });
-      for (const key of ["x", "y"]) {
+      for (const column of this.graphColumns) {
+        if (column.expression) {
+          const value = tableState.byName[column.name].values[index];
+          dataRow.createSpan({
+            cls: "qt-ref-graph-data-computed",
+            text: Number.isFinite(value) ? String(Number(value.toPrecision(8))) : "—",
+          });
+          continue;
+        }
         const input = dataRow.createEl("input", {
           cls: "qt-ref-graph-data-input",
-          attr: { type: "number", step: "any", placeholder: key, "aria-label": `Data ${key} row ${index + 1}` },
+          attr: { type: "number", step: "any", placeholder: column.name, "aria-label": `Data ${column.name} row ${index + 1}` },
         });
-        input.value = point[key];
+        input.value = point[column.name] === undefined ? "" : point[column.name];
         input.addEventListener("input", () => {
-          point[key] = input.value;
+          point[column.name] = input.value;
+          this.persistGraphState();
           this.drawGraph();
         });
       }
@@ -613,9 +687,19 @@ class ReferenceView extends ItemView {
         attr: { "aria-label": `Remove data point ${index + 1}` },
       }).addEventListener("click", () => this.removeGraphData(index));
     });
+    if (tableState.errors.length) {
+      dataSection.createDiv({
+        cls: "qt-ref-graph-table-error",
+        attr: { "aria-live": "polite" },
+        text: tableState.errors.map((error) => error.message).join(" "),
+      });
+    }
     const dataActions = dataSection.createDiv({ cls: "qt-row qt-ref-graph-data-actions" });
     dataActions.createEl("button", { text: "Add data point", cls: "qt-ref-graph-add" }).addEventListener("click", () => {
-      this.graphData.push({ x: "", y: "" });
+      const row = {};
+      for (const column of this.graphColumns) row[column.name] = "";
+      this.graphData.push(row);
+      this.persistGraphState();
       this.render();
     });
 
@@ -982,7 +1066,8 @@ class ReferenceView extends ItemView {
 
   renderGraphAccessible(graph) {
     const folders = folderSummary(this.graphRows);
-    if (this.graphSummaryEl) this.graphSummaryEl.setText(folders ? `${graphSummary(graph)} ${folders}` : graphSummary(graph));
+    const tableText = tableSummary(this.graphColumns, this.graphData, this.graphRegression);
+    if (this.graphSummaryEl) this.graphSummaryEl.setText([graphSummary(graph), folders, tableText].filter(Boolean).join(" "));
     const report = graphTable(graph);
     this.graphTableReport = report;
     if (!this.graphTableEl) return report;
@@ -1156,7 +1241,60 @@ class ReferenceView extends ItemView {
 
   removeGraphData(index) {
     this.graphData.splice(index, 1);
+    this.persistGraphState();
     this.render();
+  }
+
+  renameGraphColumn(index, value) {
+    const column = this.graphColumns[index];
+    if (!column) return { ok: false, reason: "column" };
+    const oldName = column.name;
+    const next = normalizeColumns(this.graphColumns.map((entry, i) => (i === index ? { name: value, expression: entry.expression } : entry)));
+    const newName = next[index].name;
+    if (newName === oldName) {
+      this.render();
+      return { ok: true, name: oldName };
+    }
+    this.graphColumns = next;
+    for (const row of this.graphData) {
+      if (Object.prototype.hasOwnProperty.call(row, oldName)) row[newName] = row[oldName];
+      delete row[oldName];
+    }
+    if (this.graphRegression.x === oldName) this.graphRegression.x = newName;
+    if (this.graphRegression.y === oldName) this.graphRegression.y = newName;
+    this.graphRegression = normalizeRegressionPair(this.graphRegression, this.graphColumns);
+    this.persistGraphState();
+    this.render();
+    return { ok: true, name: newName };
+  }
+
+  addGraphColumn() {
+    if (this.graphColumns.length >= MAX_COLUMNS) {
+      new Notice(`A table can have at most ${MAX_COLUMNS} columns.`);
+      return { ok: false, reason: "maximum" };
+    }
+    const next = normalizeColumns(this.graphColumns.concat([{ name: `column${this.graphColumns.length + 1}` }]));
+    const added = next[this.graphColumns.length];
+    this.graphColumns = next;
+    for (const row of this.graphData) row[added.name] = "";
+    this.persistGraphState();
+    this.render();
+    return { ok: true, name: added.name };
+  }
+
+  removeGraphColumn(index) {
+    if (this.graphColumns.length <= 2) {
+      new Notice("Keep at least two table columns.");
+      return { ok: false, reason: "minimum" };
+    }
+    const column = this.graphColumns[index];
+    if (!column) return { ok: false, reason: "column" };
+    this.graphColumns.splice(index, 1);
+    for (const row of this.graphData) delete row[column.name];
+    this.graphRegression = normalizeRegressionPair(this.graphRegression, this.graphColumns);
+    this.persistGraphState();
+    this.render();
+    return { ok: true, name: column.name };
   }
 
   drawGraph() {
@@ -1177,9 +1315,10 @@ class ReferenceView extends ItemView {
     let graph;
     try {
       const visibility = rowVisibility(this.graphRows);
+      const pair = regressionPair(this.graphColumns, this.graphData, this.graphRegression.x, this.graphRegression.y);
       graph = buildGraph({
         rows: this.graphRows.map((row, index) => (row.hidden || !visibility[index] ? "" : { text: row.text, guess: row.guess, styling: row.styling })),
-        data: this.graphData,
+        data: pair.ok ? pair.points : [],
         parameters: Object.fromEntries(
           this.graphRows.filter((row) => row.name && row.value !== undefined).map((row) => [row.name, row.value])
         ),
@@ -1279,7 +1418,8 @@ class ReferenceView extends ItemView {
   }
 
   async exportGraphCsv() {
-    const csv = tableCsv(this.graphData);
+    const table = tableExport(this.graphColumns, this.graphData);
+    const csv = tableCsv(table.rows, table.headers);
     if (!csv) {
       this.graphExportStatus("Add a data point before exporting a CSV.");
       return { ok: false, reason: "empty" };
@@ -1425,6 +1565,15 @@ class ReferenceView extends ItemView {
       locked: this.graphLocked,
       display: Object.assign({}, this.graphDisplay),
       rows: this.graphRowState(),
+      table: {
+        columns: this.graphColumns.map((column) => ({ name: column.name, expression: column.expression })),
+        rows: this.graphData.map((row) => {
+          const cells = {};
+          for (const column of this.graphColumns) cells[column.name] = String(row[column.name] === undefined ? "" : row[column.name]);
+          return cells;
+        }),
+      },
+      regression: Object.assign({}, this.graphRegression),
     };
     if (typeof this.plugin.save === "function") {
       try {

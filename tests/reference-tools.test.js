@@ -259,7 +259,7 @@ test("reference view: the data table feeds a regression row", async () => {
   view.tab = "graph";
   view.render();
   const text = dom.texts().join(" | ");
-  assert.ok(text.includes("Data table (x, y)"), "the table is rendered");
+  assert.ok(text.includes("Data table for regression rows"), "the table is rendered");
   assert.ok(/m = 2/.test(text), "the fitted slope is shown under the row");
   assert.ok(text.includes("R² = 1"));
   await dom.click("Add data point");
@@ -2005,4 +2005,167 @@ test("reference view: folders collapse, hide their rows, persist and reach the s
   assert.equal(view.graphRows[view.graphRows.length - 2].folder, "Folder");
   assert.equal(view.graphRows[view.graphRows.length - 1].text, "");
   assert.equal(view.removeGraphFolder(0), false, "an expression is not a folder");
+});
+
+test("graph table: columns, computed expressions, named pairs and summaries are pure", () => {
+  const t = T.graphTable;
+  const columns = t.normalizeColumns([
+    { name: "time" },
+    { name: "x" },
+    { name: "x" },
+    { name: "total", expression: "2 * time" },
+  ]);
+  assert.deepEqual(columns.map((column) => column.name), ["time", "x", "x_2", "total"]);
+  assert.equal(columns[3].expression, "2 * time");
+  assert.equal(t.normalizeColumns([{ name: "bad name!" }]).length, 2, "at least two columns are kept");
+  assert.equal(t.normalizeColumns([{ name: "1st" }])[0].name, "c_1st");
+  assert.equal(t.normalizeColumns([]).length, 2);
+  assert.equal(t.normalizeColumns(new Array(20).fill({})).length, t.MAX_COLUMNS);
+
+  const resolved = t.resolveTable(columns, [{ time: "2", x: "3" }, { time: "4", x: "" }]);
+  assert.deepEqual(resolved.byName.time.values, [2, 4]);
+  assert.deepEqual(resolved.byName.total.values, [4, 8]);
+  assert.deepEqual(resolved.byName.x_2.values, [null, null], "a renamed duplicate column starts blank");
+  assert.equal(resolved.errors.length, 0, "blank cells are skipped, not reported");
+
+  const computed = t.resolveTable(
+    [{ name: "a" }, { name: "b" }, { name: "sum", expression: "a + b * 2" }],
+    [{ a: "1", b: "2" }, { a: "", b: "3" }]
+  );
+  assert.deepEqual(computed.byName.sum.values, [5, null]);
+  assert.equal(computed.errors.length, 0);
+
+  const unknown = t.resolveTable([{ name: "x" }, { name: "y" }, { name: "z", expression: "nope + 1" }], []);
+  assert.match(unknown.errors[0].message, /Unknown column "nope"/);
+  const cycle = t.resolveTable(
+    [{ name: "x" }, { name: "y" }, { name: "a", expression: "b + 1" }, { name: "b", expression: "a + 1" }],
+    [{ x: "1", y: "2" }]
+  );
+  assert.ok(cycle.errors.some((error) => /depends on itself/.test(error.message)));
+
+  const pair = t.regressionPair(
+    [{ name: "time" }, { name: "height" }, { name: "double", expression: "2 * height" }],
+    [{ time: "1", height: "3" }, { time: "2", height: "5" }, { time: "", height: "9" }],
+    "time",
+    "height"
+  );
+  assert.equal(pair.ok, true);
+  assert.deepEqual(pair.points, [{ x: 1, y: 3 }, { x: 2, y: 5 }]);
+  assert.equal(pair.skipped, 1);
+  assert.equal(pair.xName, "time");
+  const computedPair = t.regressionPair(
+    [{ name: "time" }, { name: "height" }, { name: "double", expression: "2 * height" }],
+    [{ time: "1", height: "3" }],
+    "time",
+    "double"
+  );
+  assert.deepEqual(computedPair.points, [{ x: 1, y: 6 }]);
+  assert.equal(t.regressionPair([{ name: "a" }, { name: "b" }], [], "nope", "b").reason, "column");
+
+  assert.equal(
+    t.tableSummary(columns, [{ time: "1", x: "2" }], { x: "time", y: "x" }),
+    "Data table with 4 columns: time, x, x_2, total (computed) and 1 row. Regression uses time and x."
+  );
+  const exported = t.tableExport(
+    [{ name: "x" }, { name: "y" }, { name: "sum", expression: "x + y" }],
+    [{ x: "1", y: "2" }, { x: "", y: "" }]
+  );
+  assert.deepEqual(exported.headers, ["x", "y", "sum"]);
+  assert.deepEqual(exported.rows, [{ x: "1", y: "2", sum: "3" }]);
+  assert.equal(T.graphExport.tableCsv(exported.rows, exported.headers), "x,y,sum\n1,2,3");
+  assert.equal(T.graphExport.tableCsv([], exported.headers), "");
+});
+
+test("reference view: named columns, computed cells and a named regression pair", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  view.graphRows = [{ text: "y ~ m x + b", hidden: false }];
+  view.graphColumns = [
+    { name: "time", expression: "" },
+    { name: "height", expression: "" },
+    { name: "double", expression: "2 * height" },
+  ];
+  view.graphData = [
+    { time: "1", height: "3", double: "" },
+    { time: "2", height: "5", double: "" },
+    { time: "3", height: "7", double: "" },
+  ];
+  view.graphRegression = { x: "time", y: "height" };
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  view.drawGraph();
+
+  const labels = () => dom.all.map((element) => (element.meta && (element.meta.attr || {})["aria-label"]) || "").filter(Boolean);
+  for (const label of ["Table column 3 name", "Table column 3 expression", "Add table column", "Remove table column double", "Regression x column", "Regression y column", "Data time row 1"]) {
+    assert.ok(labels().indexOf(label) >= 0, `missing control: ${label}`);
+  }
+  assert.ok(dom.texts().includes("Data table for regression rows"));
+  const built = view.graphBuilt.rows[0];
+  assert.equal(built.error, "");
+  assert.ok(Math.abs(built.parameters[0].value - 2) < 1e-6, "the named pair fits the slope");
+  assert.ok(Math.abs(built.parameters[1].value - 1) < 1e-6);
+  const summaryEl = dom.all.find((element) => (element.meta && (element.meta.attr || {})["aria-label"]) === "Graph row summaries");
+  assert.match(summaryEl.meta.text, /Data table with 3 columns: time, height, double \(computed\) and 3 rows\./);
+  assert.match(summaryEl.meta.text, /Regression uses time and height\./);
+
+  assert.deepEqual(view.addGraphColumn(), { ok: true, name: "column4" });
+  assert.equal(view.graphColumns.length, 4);
+  assert.equal(view.graphData[0].column4, "");
+  assert.deepEqual(view.removeGraphColumn(3), { ok: true, name: "column4" });
+  assert.equal(view.graphColumns.length, 3);
+
+  assert.deepEqual(view.renameGraphColumn(0, "minutes"), { ok: true, name: "minutes" });
+  assert.equal(view.graphData[0].minutes, "1");
+  assert.equal(view.graphData[0].time, undefined);
+  assert.equal(view.graphRegression.x, "minutes");
+
+  view.graphColumns[2].expression = "nope + 1";
+  const errorDom = makeDom();
+  view.contentEl = errorDom.root;
+  view.render();
+  assert.ok(errorDom.texts().some((text) => /Unknown column "nope"/.test(text)), "a bad column expression is reported");
+  view.graphColumns[2].expression = "2 * height";
+
+  view.persistGraphState();
+  const stored = plugin.settings.reference.graph;
+  assert.deepEqual(stored.table.columns.map((column) => column.name), ["minutes", "height", "double"]);
+  assert.equal(stored.table.columns[2].expression, "2 * height");
+  assert.deepEqual(stored.regression, { x: "minutes", y: "height" });
+  const restored = new T.ReferenceView({ app }, plugin);
+  assert.deepEqual(restored.graphColumns.map((column) => column.name), ["minutes", "height", "double"]);
+  assert.equal(restored.graphData[1].height, "5");
+  assert.deepEqual(restored.graphRegression, { x: "minutes", y: "height" });
+
+  view.graphColumns = [{ name: "a" }, { name: "b" }];
+  view.graphData = [{ a: "1", b: "2" }];
+  view.graphRegression = { x: "a", y: "b" };
+  assert.equal(view.removeGraphColumn(0).reason, "minimum", "two columns are kept for a regression");
+
+  const csvDom = makeDom();
+  view.contentEl = csvDom.root;
+  view.graphColumns = [
+    { name: "time", expression: "" },
+    { name: "height", expression: "" },
+    { name: "double", expression: "2 * height" },
+  ];
+  view.graphData = [{ time: "1", height: "3", double: "" }, { time: "", height: "", double: "" }];
+  view.graphRegression = { x: "time", y: "height" };
+  view.render();
+  const csv = await view.exportGraphCsv();
+  assert.equal(csv.ok, true, JSON.stringify(csv));
+  const file = app.created.find((entry) => entry.path === csv.path);
+  assert.equal(file.text, "time,height,double\n1,3,6\n");
+
+  const legacy = new QT(app);
+  await legacy.onload();
+  legacy.settings.reference = { graph: { data: [{ x: "1", y: "2" }] } };
+  const legacyView = new T.ReferenceView({ app }, legacy);
+  assert.deepEqual(legacyView.graphColumns.map((column) => column.name), ["x", "y"]);
+  assert.deepEqual(legacyView.graphData, [{ x: "1", y: "2" }]);
 });

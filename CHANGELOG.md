@@ -2,6 +2,15 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.192.0 — 2026-11-03
+
+- The graph data table has named columns: add, rename or remove up to eight
+  columns, and give a column an expression such as `2 * time` so its cells are
+  computed from the other columns. Regression rows can use any named column
+  pair, chosen with the regression x and y selectors.
+- The screen-reader summary announces the column count, names, computed columns
+  and the selected regression pair, and CSV export writes every named column.
+
 ## 1.191.0 — 2026-11-03
 
 - The graph expression list has collapsible folders. A folder header groups the

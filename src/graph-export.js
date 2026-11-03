@@ -15,14 +15,16 @@ function csvCell(value) {
 
 /**
  * The data table as CSV. Exactly the strings the table holds are written, in table order;
- * a row whose x and y are both blank is skipped, and an empty table returns "".
+ * a row whose cells are all blank is skipped, and an empty table returns "". Named
+ * headers carry extra table columns; without them the historical x,y header is kept.
  */
-function tableCsv(rows) {
+function tableCsv(rows, headers) {
+  const names = Array.isArray(headers) && headers.length ? headers.map(String) : ["x", "y"];
   const list = Array.isArray(rows) ? rows : [];
-  const filled = list.filter((row) => row && (String(row.x === undefined ? "" : row.x).trim() || String(row.y === undefined ? "" : row.y).trim()));
+  const filled = list.filter((row) => row && names.some((name) => String(row[name] === undefined ? "" : row[name]).trim()));
   if (!filled.length) return "";
-  const lines = ["x,y"];
-  for (const row of filled) lines.push(`${csvCell(row.x)},${csvCell(row.y)}`);
+  const lines = [names.map(csvCell).join(",")];
+  for (const row of filled) lines.push(names.map((name) => csvCell(row[name])).join(","));
   return lines.join("\n");
 }
 
