@@ -230,6 +230,7 @@ QuestionTrackerPlugin.__test = {
   graphTable: require("./graph-table"),
   graphPrint: require("./graph-print"),
   graphImage: require("./graph-image"),
+  graphHistory: require("./graph-history"),
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,

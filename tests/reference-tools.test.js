@@ -2470,3 +2470,161 @@ test("reference view: background image insertion, calibration, scene, print, PNG
   delete global.Image;
   delete global.document;
 });
+
+test("graph history: bounded snapshots, undo/redo and duplicate are pure", () => {
+  const h = T.graphHistory;
+  const rows = [{ text: "x", hidden: false, styling: { width: 2, dashed: false } }];
+  let history = h.createHistory(3);
+  assert.equal(h.canUndo(history), false);
+  assert.equal(h.canRedo(history), false);
+  assert.equal(h.undoHistory(history, rows).reason, "empty");
+  assert.equal(h.redoHistory(history, rows).reason, "empty");
+  const pushed = h.pushHistory(history, rows);
+  assert.equal(pushed.ok, true);
+  assert.equal(h.canUndo(pushed.history), true);
+  const next = rows.concat([{ text: "x^2" }]);
+  const undone = h.undoHistory(pushed.history, next);
+  assert.equal(undone.ok, true);
+  assert.deepEqual(undone.snapshot, [{ text: "x", hidden: false, styling: { width: 2, dashed: false } }]);
+  assert.equal(h.canRedo(undone.history), true);
+  const redone = h.redoHistory(undone.history, undone.snapshot);
+  assert.equal(redone.ok, true);
+  assert.deepEqual(redone.snapshot, next);
+  const invalidated = h.pushHistory(redone.history, [{ text: "z" }]);
+  assert.equal(h.canRedo(invalidated.history), false, "a new edit drops the redo stack");
+
+  let bounded = h.createHistory(2);
+  for (let i = 0; i < 5; i++) bounded = h.pushHistory(bounded, [{ text: String(i) }]).history;
+  assert.equal(bounded.past.length, 2);
+  assert.deepEqual(bounded.past[1], [{ text: "4" }], "the oldest snapshots are dropped");
+
+  const duplicated = h.duplicateRows([{ text: "a" }, { text: "b" }], 0);
+  assert.equal(duplicated.ok, true);
+  assert.deepEqual(duplicated.rows.map((row) => row.text), ["a", "a", "b"]);
+  assert.equal(duplicated.index, 1);
+  assert.equal(h.duplicateRows([{ text: "a" }], -1).reason, "index");
+  assert.equal(h.duplicateRows([{ text: "a" }], 2).reason, "index");
+  assert.equal(h.duplicateRows(null, 0).reason, "rows");
+  assert.equal(h.duplicateRows([{ folder: "F", collapsed: false }], 0).reason, "folder");
+
+  const original = [{ text: "a", styling: { width: 2 } }];
+  const snapshot = h.snapshotRows(original);
+  original[0].text = "changed";
+  original[0].styling.width = 8;
+  assert.equal(snapshot[0].text, "a");
+  assert.equal(snapshot[0].styling.width, 2);
+  assert.equal(h.sameRows(original, snapshot), false);
+  assert.equal(h.pushHistory(h.createHistory(), "nope").reason, "snapshot");
+  assert.equal(h.createHistory(0).limit, 1);
+  assert.equal(h.createHistory(9999).limit, h.MAX_LIMIT);
+  assert.equal(h.createHistory("x").limit, h.HISTORY_LIMIT);
+  assert.equal(h.historyMessage("undo", [{ text: "a" }]), "Undid the last expression change. The list has 1 expression.");
+  assert.match(h.historyMessage("redo", [{ text: "a" }, { text: "b" }]), /^Redid the expression change\. The list has 2 expressions\.$/);
+  assert.match(h.historyMessage("duplicate", [{ text: "a" }, { text: "b" }], 1), /^Duplicated expression 2\./);
+});
+
+test("reference view: undo, redo and duplicate follow the rendered rows and canvas", async () => {
+  const { obsidian } = require("./helpers/load");
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  view.graphRows = [{ text: "y = x", hidden: false }];
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const labels = () => dom.all.map((element) => (element.meta && (element.meta.attr || {})["aria-label"]) || "").filter(Boolean);
+  for (const label of ["Undo expression change", "Redo expression change", "Duplicate expression 1"]) {
+    assert.ok(labels().indexOf(label) >= 0, `missing control: ${label}`);
+  }
+  assert.equal(view.graphUndoEl.disabled, true);
+  assert.equal(view.graphRedoEl.disabled, true);
+  const traceText = () => dom.all.filter((element) => element.meta && element.meta.cls === "qt-ref-graph-trace").pop().meta.text;
+  const texts = () => view.graphRows.map((row) => row.text);
+  const paints = [];
+  const originalPaint = view.paintGraphScene.bind(view);
+  view.paintGraphScene = (ctx, graph, width, height) => {
+    paints.push(graph.rows.map((row) => row.text));
+    return originalPaint(ctx, graph, width, height);
+  };
+  const fire = (input, event, payload) => {
+    for (const handler of input.__own.handlers.filter((entry) => entry.ev === event)) handler.fn(payload || {});
+  };
+  const type = (index, text) => {
+    const input = view.graphRowInputs[index];
+    fire(input, "focus");
+    input.value = text;
+    fire(input, "input");
+    fire(input, "change");
+  };
+
+  assert.equal(view.addGraphRow(), 2);
+  type(0, "y = x^2");
+  assert.equal(view.addGraphRow(), 3);
+  const duplicated = view.duplicateGraphRow(0);
+  assert.equal(duplicated.ok, true, JSON.stringify(duplicated));
+  assert.deepEqual(texts(), ["y = x^2", "y = x^2", "", ""]);
+  assert.equal(view.graphUndoEl.disabled, false);
+  assert.equal(view.graphRedoEl.disabled, true);
+  assert.match(traceText(), /Duplicated expression 1\. The list has 4 expressions\./);
+  assert.deepEqual(paints.at(-1), ["y = x^2", "y = x^2", "", ""], "the canvas paints the duplicated list");
+
+  let result = view.undoGraphChange();
+  assert.equal(result.ok, true);
+  assert.deepEqual(texts(), ["y = x^2", "", ""]);
+  assert.equal(view.graphRedoEl.disabled, false);
+  assert.match(traceText(), /Undid the last expression change\. The list has 3 expressions\./);
+  assert.deepEqual(paints.at(-1), ["y = x^2", "", ""]);
+  assert.equal(view.undoGraphChange().ok, true);
+  assert.deepEqual(texts(), ["y = x^2", ""]);
+  assert.equal(view.undoGraphChange().ok, true);
+  assert.deepEqual(texts(), ["y = x", ""]);
+  assert.equal(view.undoGraphChange().ok, true);
+  assert.deepEqual(texts(), ["y = x"]);
+  assert.equal(view.graphUndoEl.disabled, true);
+  const pastBeginning = view.undoGraphChange();
+  assert.equal(pastBeginning.reason, "empty");
+  assert.match(traceText(), /Nothing to undo\./);
+  assert.deepEqual(texts(), ["y = x"]);
+
+  for (let i = 0; i < 4; i++) assert.equal(view.redoGraphChange().ok, true, `redo ${i}`);
+  assert.deepEqual(texts(), ["y = x^2", "y = x^2", "", ""]);
+  assert.equal(view.graphRedoEl.disabled, true);
+  const pastEnd = view.redoGraphChange();
+  assert.equal(pastEnd.reason, "empty");
+  assert.match(traceText(), /Nothing to redo\./);
+
+  assert.equal(view.undoGraphChange().ok, true);
+  assert.deepEqual(texts(), ["y = x^2", "", ""]);
+  assert.equal(view.graphRedoEl.disabled, false);
+  type(2, "y = 1");
+  assert.deepEqual(texts(), ["y = x^2", "", "y = 1"]);
+  assert.equal(view.graphRedoEl.disabled, true, "a new edit invalidates redo");
+  assert.equal(view.redoGraphChange().reason, "empty");
+
+  view.removeGraphRow(0);
+  assert.deepEqual(texts(), ["", "y = 1"]);
+  assert.equal(view.undoGraphChange().ok, true);
+  assert.deepEqual(texts(), ["y = x^2", "", "y = 1"], "undo restores a deleted row");
+
+  view.persistGraphState();
+  const restored = new T.ReferenceView({ app }, plugin);
+  assert.equal(restored.graphHistory.past.length, 0, "history is session-only");
+  assert.deepEqual(restored.graphRows.map((row) => row.text), ["y = x^2", "", "y = 1"]);
+  const legacyPlugin = new QT(app);
+  await legacyPlugin.onload();
+  legacyPlugin.settings.reference = { graph: {} };
+  const legacyView = new T.ReferenceView({ app }, legacyPlugin);
+  assert.equal(legacyView.graphHistory.past.length, 0);
+  assert.equal(legacyView.graphRows.length, 2);
+  assert.equal(legacyView.graphUndoEl, null);
+
+  const noticesBefore = obsidian.notices.length;
+  const bad = view.duplicateGraphRow(99);
+  assert.equal(bad.reason, "index");
+  assert.equal(obsidian.notices.length, noticesBefore + 1);
+  assert.match(traceText(), /There is no expression at that position\./);
+});

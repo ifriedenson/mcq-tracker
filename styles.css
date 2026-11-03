@@ -11232,3 +11232,13 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-ref .qt-ref-graph-image-opacity-input {
   width: 140px;
 }
+
+/* Reference graph expression history controls. */
+.qt-ref .qt-ref-graph-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.qt-ref .qt-ref-graph-duplicate {
+  font-size: 0.7rem;
+}

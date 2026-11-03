@@ -2,6 +2,18 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.195.0 — 2026-11-03
+
+- The graph expression list supports **Undo** and **Redo** for adding, editing,
+  deleting and duplicating rows, plus a per-row **Duplicate** action that inserts
+  a copy directly below. Undo restores the real row list, not just the text
+  field, and a new edit clears the redo stack.
+- History is bounded to 50 steps and lives only for the session, so memory cannot
+  grow without limit and saved settings are unchanged. Every action is a labelled
+  button with a correct disabled state, also reachable with Ctrl/Cmd+Z,
+  Shift+Ctrl/Cmd+Z and Ctrl/Cmd+Y, and each change is announced in the polite live
+  region.
+
 ## 1.194.0 — 2026-11-03
 
 - The graph tab can place a vault image behind the axes. Enter the image path,

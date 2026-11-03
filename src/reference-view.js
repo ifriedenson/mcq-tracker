@@ -37,6 +37,7 @@ const {
 } = require("./graph-table");
 const { printDocument, printSummary } = require("./graph-print");
 const { normalizeImageState, imagePlacement, imageRectPixels, imageSummary } = require("./graph-image");
+const { createHistory, pushHistory, undoHistory, redoHistory, canUndo, canRedo, snapshotRows, sameRows, duplicateRows, historyMessage } = require("./graph-history");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -137,6 +138,10 @@ class ReferenceView extends ItemView {
           }));
       if (restored.length) this.graphRows = restored;
     }
+    this.graphHistory = createHistory();
+    this.graphEditBaseline = null;
+    this.graphUndoEl = null;
+    this.graphRedoEl = null;
     const storedDisplay = storedGraph.display || {};
     this.graphViewport = clampView(storedGraph.view);
     this.graphLocked = storedGraph.locked === true;
@@ -542,6 +547,7 @@ class ReferenceView extends ItemView {
       input.addEventListener("focus", () => {
         this.graphKeypadIndex = index;
         this.graphKeypadTarget = input;
+        this.beginGraphEdit();
       });
       input.addEventListener("input", () => {
         row.text = input.value;
@@ -560,7 +566,22 @@ class ReferenceView extends ItemView {
         this.persistGraphState();
         this.drawGraph();
       });
+      input.addEventListener("change", () => this.commitGraphEdit());
+      input.addEventListener("blur", () => this.commitGraphEdit());
       input.addEventListener("keydown", (event) => {
+        const mod = event.ctrlKey || event.metaKey;
+        const key = String(event.key || "").toLowerCase();
+        if (mod && key === "z") {
+          event.preventDefault();
+          if (event.shiftKey) this.redoGraphChange();
+          else this.undoGraphChange();
+          return;
+        }
+        if (mod && key === "y") {
+          event.preventDefault();
+          this.redoGraphChange();
+          return;
+        }
         if (event.key === "Backspace" && !row.text && this.graphRows.length > 1) {
           event.preventDefault();
           this.removeGraphRow(index);
@@ -576,6 +597,11 @@ class ReferenceView extends ItemView {
         text: "\u29c9",
         attr: { type: "button", "aria-label": `Copy expression ${index + 1}` },
       }).addEventListener("click", () => this.copyGraphExpression(index));
+      rowEl.createEl("button", {
+        cls: "qt-ref-graph-remove qt-ref-graph-duplicate",
+        text: "\u29c9\u002b",
+        attr: { type: "button", "aria-label": `Duplicate expression ${index + 1}` },
+      }).addEventListener("click", () => this.duplicateGraphRow(index));
       this.graphRowErrorEls[index] = rowEl.createDiv({ cls: "qt-ref-graph-row-error", attr: { "aria-live": "polite" } });
       this.graphFitEls[index] = rowEl.createDiv({ cls: "qt-ref-graph-fit", attr: { "aria-live": "polite" } });
       let parsed = null;
@@ -600,11 +626,12 @@ class ReferenceView extends ItemView {
     });
 
     const actions = root.createDiv({ cls: "qt-row qt-ref-graph-actions" });
-    actions.createEl("button", { text: "Add expression", cls: "qt-ref-graph-add" }).addEventListener("click", () => {
-      this.graphRows.push({ text: "", hidden: false, styling: resolveRowStyle(null) });
-      this.persistGraphState();
-      this.render();
-    });
+    this.graphUndoEl = actions.createEl("button", { text: "Undo", cls: "qt-ref-graph-add qt-ref-graph-undo", attr: { type: "button", "aria-label": "Undo expression change" } });
+    this.graphUndoEl.addEventListener("click", () => this.undoGraphChange());
+    this.graphRedoEl = actions.createEl("button", { text: "Redo", cls: "qt-ref-graph-add qt-ref-graph-redo", attr: { type: "button", "aria-label": "Redo expression change" } });
+    this.graphRedoEl.addEventListener("click", () => this.redoGraphChange());
+    this.syncGraphHistoryControls();
+    actions.createEl("button", { text: "Add expression", cls: "qt-ref-graph-add" }).addEventListener("click", () => this.addGraphRow());
     actions.createEl("button", { text: "Add folder", cls: "qt-ref-graph-add", attr: { type: "button", "aria-label": "Add folder" } })
       .addEventListener("click", () => this.addGraphFolder());
 
@@ -1057,6 +1084,7 @@ class ReferenceView extends ItemView {
   }
 
   addGraphFolder() {
+    this.recordGraphChange();
     this.graphRows.push({ folder: "Folder", collapsed: false });
     this.graphRows.push({ text: "", hidden: false, styling: resolveRowStyle(null) });
     this.persistGraphState();
@@ -1075,6 +1103,7 @@ class ReferenceView extends ItemView {
 
   removeGraphFolder(index) {
     if (!isFolderRow(this.graphRows[index])) return false;
+    this.recordGraphChange();
     this.graphRows.splice(index, 1);
     if (!this.graphRows.length) this.graphRows.push({ text: "", hidden: false, styling: resolveRowStyle(null) });
     this.persistGraphState();
@@ -1210,6 +1239,7 @@ class ReferenceView extends ItemView {
     const rawEnd = Number(source.selectionEnd);
     const start = Number.isFinite(rawStart) && rawStart >= 0 && rawStart <= value.length ? rawStart : value.length;
     const end = Number.isFinite(rawEnd) && rawEnd >= start && rawEnd <= value.length ? rawEnd : start;
+    this.recordGraphChange();
     row.text = value.slice(0, start) + String(token) + value.slice(end);
     source.value = row.text;
     const caret = start + String(token).length;
@@ -1241,6 +1271,7 @@ class ReferenceView extends ItemView {
   loadGraphExample(id) {
     const example = exampleById(id);
     if (!example) return { ok: false, reason: "unknown" };
+    this.recordGraphChange();
     const kept = this.graphRows.filter((row) => isFolderRow(row) || String(row.text || "").trim());
     const added = example.rows.map((text) => ({ text, hidden: false, styling: resolveRowStyle(null) }));
     const replaced = kept.length === 0;
@@ -1253,6 +1284,7 @@ class ReferenceView extends ItemView {
 
   removeGraphRow(index) {
     if (this.graphAnimationTimer) this.stopGraphAnimation(false);
+    this.recordGraphChange();
     this.graphRows.splice(index, 1);
     if (!this.graphRows.length) this.graphRows.push({ text: "", hidden: false });
     this.persistGraphState();
@@ -1315,6 +1347,93 @@ class ReferenceView extends ItemView {
     this.persistGraphState();
     this.render();
     return { ok: true, name: column.name };
+  }
+
+  beginGraphEdit() {
+    if (!this.graphEditBaseline) this.graphEditBaseline = snapshotRows(this.graphRows);
+  }
+
+  commitGraphEdit() {
+    const baseline = this.graphEditBaseline;
+    this.graphEditBaseline = null;
+    if (!baseline || sameRows(baseline, this.graphRows)) return { ok: false, reason: "unchanged" };
+    const pushed = pushHistory(this.graphHistory, baseline);
+    if (pushed.ok) this.graphHistory = pushed.history;
+    this.syncGraphHistoryControls();
+    return { ok: true };
+  }
+
+  recordGraphChange() {
+    const pushed = pushHistory(this.graphHistory, snapshotRows(this.graphRows));
+    if (pushed.ok) this.graphHistory = pushed.history;
+    this.syncGraphHistoryControls();
+    return pushed;
+  }
+
+  syncGraphHistoryControls() {
+    if (this.graphUndoEl) this.graphUndoEl.disabled = !canUndo(this.graphHistory);
+    if (this.graphRedoEl) this.graphRedoEl.disabled = !canRedo(this.graphHistory);
+  }
+
+  announceGraphHistory(text) {
+    if (this.graphTraceEl && typeof this.graphTraceEl.setText === "function") this.graphTraceEl.setText(text);
+    else new Notice(text);
+  }
+
+  addGraphRow() {
+    this.recordGraphChange();
+    this.graphRows.push({ text: "", hidden: false, styling: resolveRowStyle(null) });
+    this.persistGraphState();
+    this.render();
+    return this.graphRows.length;
+  }
+
+  duplicateGraphRow(index) {
+    const result = duplicateRows(this.graphRows, index);
+    if (!result.ok) {
+      this.announceGraphHistory(result.message);
+      new Notice(result.message);
+      return result;
+    }
+    this.recordGraphChange();
+    this.graphRows = result.rows;
+    this.persistGraphState();
+    this.render();
+    this.announceGraphHistory(historyMessage("duplicate", this.graphRows, index));
+    return { ok: true, index: result.index, total: this.graphRows.length };
+  }
+
+  undoGraphChange() {
+    this.commitGraphEdit();
+    const result = undoHistory(this.graphHistory, snapshotRows(this.graphRows));
+    this.graphHistory = result.history;
+    if (!result.ok) {
+      this.syncGraphHistoryControls();
+      this.announceGraphHistory(result.message);
+      return result;
+    }
+    this.graphRows = snapshotRows(result.snapshot);
+    this.persistGraphState();
+    this.render();
+    this.syncGraphHistoryControls();
+    this.announceGraphHistory(historyMessage("undo", this.graphRows));
+    return { ok: true, rows: this.graphRows.length };
+  }
+
+  redoGraphChange() {
+    const result = redoHistory(this.graphHistory, snapshotRows(this.graphRows));
+    this.graphHistory = result.history;
+    if (!result.ok) {
+      this.syncGraphHistoryControls();
+      this.announceGraphHistory(result.message);
+      return result;
+    }
+    this.graphRows = snapshotRows(result.snapshot);
+    this.persistGraphState();
+    this.render();
+    this.syncGraphHistoryControls();
+    this.announceGraphHistory(historyMessage("redo", this.graphRows));
+    return { ok: true, rows: this.graphRows.length };
   }
 
   renderGraphImageControls(root) {
