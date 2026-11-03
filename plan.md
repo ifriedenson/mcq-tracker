@@ -1281,7 +1281,7 @@ Owner decisions: include explicit and implicit 3D surfaces; do not build braille
 |---|---|---|---|
 | 1.198.0 | Matrix calculator | Matrix A/B up to 6×6, arithmetic, scale, transpose, determinant, inverse, RREF and `A x = b` | **Shipped** |
 | 1.199.0 | Complex arithmetic | Complex values, `i`, calculator support and formatting | **Shipped** |
-| 1.200.0 | Complex graph mode | Domain coloring and complex points | **Queued** |
+| 1.200.0 | Complex graph mode | Domain coloring and complex points | **Shipped** |
 | 1.201.0 | Geometry primitives | Points, segments, lines, circles, polygons and measurements | **Queued** |
 | 1.202.0 | Geometry constructions | Midpoints, intersections, perpendiculars and bisectors | **Queued** |
 | 1.203.0 | Geometry transformations | Translate, rotate, reflect and dilate | **Queued** |

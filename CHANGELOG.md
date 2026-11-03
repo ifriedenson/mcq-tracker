@@ -2,6 +2,15 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.200.0 — 2026-11-03
+
+- The Reference Graph has an opt-in **complex** mode. The first visible
+  expression is evaluated in `z` and drawn as domain coloring: hue is argument,
+  lightness is magnitude, and invalid samples stay transparent. The raster is
+  painted through the existing scene, so grid, PNG export and print follow.
+- Complex graph input reuses the restricted `src/complex.js` parser; the mode is
+  saved locally and defaults off.
+
 ## 1.199.0 — 2026-11-03
 
 - The Reference Calculator has an opt-in **complex** mode. It accepts `i`,

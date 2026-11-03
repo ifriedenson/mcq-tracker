@@ -30311,6 +30311,7 @@ const KIND_LABELS = {
   points: "point list",
   definition: "definition",
   parameter: "slider",
+  complex: "complex domain",
 };
 
 function formatValue(value) {
@@ -30337,6 +30338,7 @@ function interestCount(row) {
 function rowDetail(row) {
   if (!row) return "nothing to draw";
   if (row.error) return String(row.error);
+  if (row.kind === "complex") return row.detail || "a complex domain coloring";
   const kind = KIND_LABELS[row.kind] || "row";
   const points = finitePointCount(row);
   const markers = markerCount(row);
@@ -30410,6 +30412,109 @@ function graphTable(graph) {
 }
 
 module.exports = { KIND_LABELS, rowDetail, rowSummary, graphSummary, graphTable };
+};
+
+/* ---- src/graph-complex.js ---- */
+__defs["graph-complex"] = function (module, exports, require) {
+/*
+ * Complex domain coloring for the Reference graph.
+ *
+ * `compileComplex` comes from src/complex.js. This module only samples a
+ * rectangular window, maps each finite value's argument to hue and magnitude
+ * to lightness, and returns a deterministic RGBA buffer. There is no DOM,
+ * Obsidian, network or third-party code here.
+ */
+const complex = require("./complex");
+
+const MAX_PIXELS = 160000;
+
+function hslToRgb(hue, saturation, lightness) {
+  const h = ((hue % 1) + 1) % 1;
+  const s = Math.min(1, Math.max(0, saturation));
+  const l = Math.min(1, Math.max(0, lightness));
+  const chroma = (1 - Math.abs(2 * l - 1)) * s;
+  const sector = h * 6;
+  const x = chroma * (1 - Math.abs((sector % 2) - 1));
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (sector < 1) [r, g, b] = [chroma, x, 0];
+  else if (sector < 2) [r, g, b] = [x, chroma, 0];
+  else if (sector < 3) [r, g, b] = [0, chroma, x];
+  else if (sector < 4) [r, g, b] = [0, x, chroma];
+  else if (sector < 5) [r, g, b] = [x, 0, chroma];
+  else [r, g, b] = [chroma, 0, x];
+  const m = l - chroma / 2;
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255), 255];
+}
+
+/** One complex value as an RGBA pixel. Non-finite values are transparent. */
+function colorForValue(value) {
+  const z = complex.from(value);
+  if (!complex.finite(z) || !Number.isFinite(complex.abs(z))) return [0, 0, 0, 0];
+  const hue = complex.arg(z) / (Math.PI * 2);
+  const magnitude = complex.abs(z);
+  const lightness = 0.48 + 0.30 * Math.tanh(Math.log1p(magnitude) / 3);
+  return hslToRgb(hue, 0.72, lightness);
+}
+
+function formatWindow(options) {
+  return `x from ${options.xMin} to ${options.xMax}, y from ${options.yMin} to ${options.yMax}`;
+}
+
+/**
+ * Render `f(z)` over the window. The returned pixels are row-major RGBA and
+ * can be copied into a canvas ImageData by the view.
+ */
+function renderDomain(expression, options) {
+  const opts = options || {};
+  const text = String(expression || "").trim();
+  if (!text) throw new Error("Enter a complex expression in z.");
+  const xMin = Number(opts.xMin);
+  const xMax = Number(opts.xMax);
+  const yMin = Number(opts.yMin);
+  const yMax = Number(opts.yMax);
+  if (![xMin, xMax, yMin, yMax].every(Number.isFinite) || !(xMax > xMin) || !(yMax > yMin)) {
+    throw new Error("The complex graph window must have finite, increasing bounds.");
+  }
+  const width = Math.max(16, Math.min(640, Math.round(Number(opts.width) || 320)));
+  const height = Math.max(16, Math.min(400, Math.round(Number(opts.height) || 160)));
+  if (width * height > MAX_PIXELS) throw new Error(`That complex image is too large; the limit is ${MAX_PIXELS} pixels.`);
+  const fn = complex.compileComplex(text, { variables: ["z", "x", "y"] });
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  const xSpan = xMax - xMin;
+  const ySpan = yMax - yMin;
+  let finite = 0;
+  for (let row = 0; row < height; row++) {
+    const imaginary = yMax - ((row + 0.5) / height) * ySpan;
+    for (let column = 0; column < width; column++) {
+      const real = xMin + ((column + 0.5) / width) * xSpan;
+      let value;
+      try {
+        value = fn({ z: complex.make(real, imaginary), x: complex.make(real, 0), y: complex.make(imaginary, 0) });
+      } catch (e) {
+        value = complex.make(NaN, NaN);
+      }
+      const color = colorForValue(value);
+      if (color[3]) finite++;
+      const offset = (row * width + column) * 4;
+      pixels[offset] = color[0];
+      pixels[offset + 1] = color[1];
+      pixels[offset + 2] = color[2];
+      pixels[offset + 3] = color[3];
+    }
+  }
+  return {
+    width,
+    height,
+    pixels,
+    expression: text,
+    finite,
+    summary: `Complex domain coloring of ${text} over ${formatWindow(opts)} with ${width} by ${height} samples; hue is argument and lightness is magnitude.`,
+  };
+}
+
+module.exports = { MAX_PIXELS, colorForValue, hslToRgb, renderDomain };
 };
 
 /* ---- src/graph-examples.js ---- */
@@ -30514,7 +30619,8 @@ function hasDrawableContent(graph) {
       row.region
   );
   const data = graph && Array.isArray(graph.data) ? graph.data.length : 0;
-  return drawn || data > 0;
+  const complexImage = graph && graph.complexImage && graph.complexImage.width > 0 && graph.complexImage.height > 0;
+  return drawn || data > 0 || complexImage;
 }
 
 /**
@@ -63831,6 +63937,7 @@ const { normalizeImageState, imagePlacement, imageRectPixels, imageSummary } = r
 const { createHistory, pushHistory, undoHistory, redoHistory, canUndo, canRedo, snapshotRows, sameRows, duplicateRows, historyMessage } = require("./graph-history");
 const { normalizePaper, parseGridStep, paperTicks, paperSummary } = require("./graph-paper");
 const { isNotationText } = require("./graph-summation");
+const { renderDomain } = require("./graph-complex");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, evaluateComplexCalculator, normalizeCalculatorMode } = require("./calculator");
 const matrixMath = require("./matrix");
 const { openExternal } = require("./settings-ui");
@@ -63964,6 +64071,8 @@ class ReferenceView extends ItemView {
     this.graphImagePath = "";
     this.graphImageLoading = false;
     this.graphPolarGrid = false;
+    this.graphComplex = storedGraph.complex === true;
+    this.graphComplexImage = null;
     this.graphInterest = true;
     this.graphTrace = null;
     this.graphTraceEl = null;
@@ -64430,6 +64539,16 @@ class ReferenceView extends ItemView {
       this.drawGraph();
     });
     polarField.createSpan({ text: "polar grid" });
+
+    const complexField = controls.createEl("label", { cls: "qt-ref-graph-polar" });
+    const complexToggle = complexField.createEl("input", { attr: { type: "checkbox", "aria-label": "Complex graph mode" } });
+    complexToggle.checked = this.graphComplex;
+    complexToggle.addEventListener("change", () => {
+      this.graphComplex = complexToggle.checked === true;
+      this.persistGraphState();
+      this.drawGraph();
+    });
+    complexField.createSpan({ text: "complex" });
 
     const interestField = controls.createEl("label", { cls: "qt-ref-graph-polar" });
     const interestToggle = interestField.createEl("input", { attr: { type: "checkbox", "aria-label": "Points of interest" } });
@@ -65687,6 +65806,10 @@ class ReferenceView extends ItemView {
     if (!ctx) return;
     if (typeof ctx.setTransform === "function") ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, width, height);
+    if (this.graphComplex) {
+      this.drawComplexGraph(ctx, width, height, ratio);
+      return;
+    }
     let graph;
     try {
       const visibility = rowVisibility(this.graphRows);
@@ -65738,11 +65861,67 @@ class ReferenceView extends ItemView {
     this.renderGraphAccessible(graph);
   }
 
+  /** Complex mode paints the first visible expression as a domain-coloring raster. */
+  drawComplexGraph(ctx, width, height, ratio) {
+    const activeIndex = this.graphRows.findIndex((row) => !isFolderRow(row) && !row.hidden && String(row.text || "").trim());
+    const active = activeIndex >= 0 ? this.graphRows[activeIndex] : null;
+    const graph = {
+      xMin: this.graphViewport.xMin,
+      xMax: this.graphViewport.xMax,
+      yMin: this.graphViewport.yMin,
+      yMax: this.graphViewport.yMax,
+      data: [],
+      complex: true,
+      complexImage: null,
+      rows: [],
+    };
+    if (!active) {
+      graph.rows.push({ index: 0, text: "", kind: "complex", error: "Enter a complex expression in z.", detail: "No expression." });
+    } else {
+      try {
+        const image = renderDomain(active.text, {
+          xMin: graph.xMin,
+          xMax: graph.xMax,
+          yMin: graph.yMin,
+          yMax: graph.yMax,
+          width: Math.round(width * ratio),
+          height: Math.round(height * ratio),
+        });
+        graph.complexImage = image;
+        graph.rows.push({ index: activeIndex, text: active.text, kind: "complex", error: "", detail: image.summary });
+        if (this.graphRowErrorEls[activeIndex]) this.graphRowErrorEls[activeIndex].setText("Domain coloring");
+      } catch (e) {
+        const message = e && e.message ? e.message : "That complex expression could not be drawn.";
+        graph.rows.push({ index: activeIndex, text: active.text, kind: "complex", error: message, detail: message });
+        if (this.graphRowErrorEls[activeIndex]) this.graphRowErrorEls[activeIndex].setText(message);
+      }
+    }
+    this.graphComplexImage = graph.complexImage;
+    this.graphBuilt = graph;
+    if (this.graphErrorEl) this.graphErrorEl.setText("");
+    this.paintGraphScene(ctx, graph, width, height);
+    this.renderGraphAccessible(graph);
+  }
+
+  paintGraphComplex(ctx, graph) {
+    const image = graph && graph.complexImage;
+    if (!image) return;
+    let data = null;
+    if (typeof ctx.createImageData === "function") {
+      data = ctx.createImageData(image.width, image.height);
+      if (data && data.data && typeof data.data.set === "function") data.data.set(image.pixels);
+    } else if (typeof ImageData !== "undefined") {
+      try { data = new ImageData(image.pixels, image.width, image.height); } catch (e) { data = null; }
+    }
+    if (data && typeof ctx.putImageData === "function") ctx.putImageData(data, 0, 0);
+  }
+
   /** Paints one built graph into any 2D context; the screen canvas and PNG export share it. */
   paintGraphScene(ctx, graph, width, height) {
     const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
     const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
     this.paintGraphImage(ctx, graph, width, height);
+    if (graph.complexImage) this.paintGraphComplex(ctx, graph);
     this.paintGraphGrid(ctx, graph, width, height, px, py);
     if (this.graphPolarGrid) this.paintPolarGrid(ctx, graph, width, height);
     for (const row of graph.rows) {
@@ -66047,6 +66226,7 @@ class ReferenceView extends ItemView {
       view: Object.assign({}, this.graphViewport),
       locked: this.graphLocked,
       display: Object.assign({}, this.graphDisplay),
+      complex: this.graphComplex,
       paper: Object.assign({}, this.graphPaper),
       rows: this.graphRowState(),
       image: this.graphImageState,
@@ -86850,6 +87030,7 @@ const figures = require("./figures");
 const calculator = require("./calculator");
 const matrix = require("./matrix");
 const complex = require("./complex");
+const graphComplex = require("./graph-complex");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
@@ -87090,6 +87271,7 @@ QuestionTrackerPlugin.__test = {
   calculator,
   matrix,
   complex,
+  graphComplex,
   WeakSpotModal,
   QuickAddModal,
   quickAdd,

@@ -19,6 +19,7 @@ const KIND_LABELS = {
   points: "point list",
   definition: "definition",
   parameter: "slider",
+  complex: "complex domain",
 };
 
 function formatValue(value) {
@@ -45,6 +46,7 @@ function interestCount(row) {
 function rowDetail(row) {
   if (!row) return "nothing to draw";
   if (row.error) return String(row.error);
+  if (row.kind === "complex") return row.detail || "a complex domain coloring";
   const kind = KIND_LABELS[row.kind] || "row";
   const points = finitePointCount(row);
   const markers = markerCount(row);

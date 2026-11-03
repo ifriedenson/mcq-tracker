@@ -40,6 +40,7 @@ const { normalizeImageState, imagePlacement, imageRectPixels, imageSummary } = r
 const { createHistory, pushHistory, undoHistory, redoHistory, canUndo, canRedo, snapshotRows, sameRows, duplicateRows, historyMessage } = require("./graph-history");
 const { normalizePaper, parseGridStep, paperTicks, paperSummary } = require("./graph-paper");
 const { isNotationText } = require("./graph-summation");
+const { renderDomain } = require("./graph-complex");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, evaluateComplexCalculator, normalizeCalculatorMode } = require("./calculator");
 const matrixMath = require("./matrix");
 const { openExternal } = require("./settings-ui");
@@ -173,6 +174,8 @@ class ReferenceView extends ItemView {
     this.graphImagePath = "";
     this.graphImageLoading = false;
     this.graphPolarGrid = false;
+    this.graphComplex = storedGraph.complex === true;
+    this.graphComplexImage = null;
     this.graphInterest = true;
     this.graphTrace = null;
     this.graphTraceEl = null;
@@ -639,6 +642,16 @@ class ReferenceView extends ItemView {
       this.drawGraph();
     });
     polarField.createSpan({ text: "polar grid" });
+
+    const complexField = controls.createEl("label", { cls: "qt-ref-graph-polar" });
+    const complexToggle = complexField.createEl("input", { attr: { type: "checkbox", "aria-label": "Complex graph mode" } });
+    complexToggle.checked = this.graphComplex;
+    complexToggle.addEventListener("change", () => {
+      this.graphComplex = complexToggle.checked === true;
+      this.persistGraphState();
+      this.drawGraph();
+    });
+    complexField.createSpan({ text: "complex" });
 
     const interestField = controls.createEl("label", { cls: "qt-ref-graph-polar" });
     const interestToggle = interestField.createEl("input", { attr: { type: "checkbox", "aria-label": "Points of interest" } });
@@ -1896,6 +1909,10 @@ class ReferenceView extends ItemView {
     if (!ctx) return;
     if (typeof ctx.setTransform === "function") ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, width, height);
+    if (this.graphComplex) {
+      this.drawComplexGraph(ctx, width, height, ratio);
+      return;
+    }
     let graph;
     try {
       const visibility = rowVisibility(this.graphRows);
@@ -1947,11 +1964,67 @@ class ReferenceView extends ItemView {
     this.renderGraphAccessible(graph);
   }
 
+  /** Complex mode paints the first visible expression as a domain-coloring raster. */
+  drawComplexGraph(ctx, width, height, ratio) {
+    const activeIndex = this.graphRows.findIndex((row) => !isFolderRow(row) && !row.hidden && String(row.text || "").trim());
+    const active = activeIndex >= 0 ? this.graphRows[activeIndex] : null;
+    const graph = {
+      xMin: this.graphViewport.xMin,
+      xMax: this.graphViewport.xMax,
+      yMin: this.graphViewport.yMin,
+      yMax: this.graphViewport.yMax,
+      data: [],
+      complex: true,
+      complexImage: null,
+      rows: [],
+    };
+    if (!active) {
+      graph.rows.push({ index: 0, text: "", kind: "complex", error: "Enter a complex expression in z.", detail: "No expression." });
+    } else {
+      try {
+        const image = renderDomain(active.text, {
+          xMin: graph.xMin,
+          xMax: graph.xMax,
+          yMin: graph.yMin,
+          yMax: graph.yMax,
+          width: Math.round(width * ratio),
+          height: Math.round(height * ratio),
+        });
+        graph.complexImage = image;
+        graph.rows.push({ index: activeIndex, text: active.text, kind: "complex", error: "", detail: image.summary });
+        if (this.graphRowErrorEls[activeIndex]) this.graphRowErrorEls[activeIndex].setText("Domain coloring");
+      } catch (e) {
+        const message = e && e.message ? e.message : "That complex expression could not be drawn.";
+        graph.rows.push({ index: activeIndex, text: active.text, kind: "complex", error: message, detail: message });
+        if (this.graphRowErrorEls[activeIndex]) this.graphRowErrorEls[activeIndex].setText(message);
+      }
+    }
+    this.graphComplexImage = graph.complexImage;
+    this.graphBuilt = graph;
+    if (this.graphErrorEl) this.graphErrorEl.setText("");
+    this.paintGraphScene(ctx, graph, width, height);
+    this.renderGraphAccessible(graph);
+  }
+
+  paintGraphComplex(ctx, graph) {
+    const image = graph && graph.complexImage;
+    if (!image) return;
+    let data = null;
+    if (typeof ctx.createImageData === "function") {
+      data = ctx.createImageData(image.width, image.height);
+      if (data && data.data && typeof data.data.set === "function") data.data.set(image.pixels);
+    } else if (typeof ImageData !== "undefined") {
+      try { data = new ImageData(image.pixels, image.width, image.height); } catch (e) { data = null; }
+    }
+    if (data && typeof ctx.putImageData === "function") ctx.putImageData(data, 0, 0);
+  }
+
   /** Paints one built graph into any 2D context; the screen canvas and PNG export share it. */
   paintGraphScene(ctx, graph, width, height) {
     const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
     const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
     this.paintGraphImage(ctx, graph, width, height);
+    if (graph.complexImage) this.paintGraphComplex(ctx, graph);
     this.paintGraphGrid(ctx, graph, width, height, px, py);
     if (this.graphPolarGrid) this.paintPolarGrid(ctx, graph, width, height);
     for (const row of graph.rows) {
@@ -2256,6 +2329,7 @@ class ReferenceView extends ItemView {
       view: Object.assign({}, this.graphViewport),
       locked: this.graphLocked,
       display: Object.assign({}, this.graphDisplay),
+      complex: this.graphComplex,
       paper: Object.assign({}, this.graphPaper),
       rows: this.graphRowState(),
       image: this.graphImageState,

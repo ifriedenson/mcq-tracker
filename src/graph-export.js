@@ -64,7 +64,8 @@ function hasDrawableContent(graph) {
       row.region
   );
   const data = graph && Array.isArray(graph.data) ? graph.data.length : 0;
-  return drawn || data > 0;
+  const complexImage = graph && graph.complexImage && graph.complexImage.width > 0 && graph.complexImage.height > 0;
+  return drawn || data > 0 || complexImage;
 }
 
 /**

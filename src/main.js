@@ -65,6 +65,7 @@ const figures = require("./figures");
 const calculator = require("./calculator");
 const matrix = require("./matrix");
 const complex = require("./complex");
+const graphComplex = require("./graph-complex");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
@@ -305,6 +306,7 @@ QuestionTrackerPlugin.__test = {
   calculator,
   matrix,
   complex,
+  graphComplex,
   WeakSpotModal,
   QuickAddModal,
   quickAdd,
