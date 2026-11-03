@@ -30289,6 +30289,492 @@ exports.show_diff_message = show_diff_message;
 module.exports = Object.assign(exports.default || {}, exports)
 };
 
+/* ---- src/geometry.js ---- */
+__defs["geometry"] = function (module, exports, require) {
+/*
+ * Local Euclidean geometry model for the Reference Geometry tab.
+ *
+ * Objects are plain records with stable ids. Points resolve to coordinates;
+ * segments, lines, rays, circles and polygons refer to point ids. The module has
+ * no DOM, Obsidian, storage or network dependency, and it never evaluates code.
+ */
+
+const MAX_OBJECTS = 200;
+
+function finite(value, label) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw new Error(`${label} must be a finite number.`);
+  return number;
+}
+
+function createModel() {
+  return { objects: [], nextId: 1 };
+}
+
+function objectById(model, id) {
+  return model && Array.isArray(model.objects) ? model.objects.find((object) => object && object.id === id) || null : null;
+}
+
+function nextId(model, prefix) {
+  let candidate;
+  do {
+    candidate = `${prefix}${model.nextId++}`;
+  } while (objectById(model, candidate));
+  return candidate;
+}
+
+function addObject(model, object) {
+  if (!model || !Array.isArray(model.objects)) throw new Error("The geometry model is not available.");
+  if (model.objects.length >= MAX_OBJECTS) throw new Error(`A geometry drawing can have at most ${MAX_OBJECTS} objects.`);
+  if (!object || typeof object !== "object") throw new Error("Add a geometry object first.");
+  const copy = Object.assign({}, object);
+  if (!copy.id) copy.id = nextId(model, copy.type === "point" ? "p" : "g");
+  if (objectById(model, copy.id)) throw new Error(`The geometry object id ${copy.id} is already used.`);
+  model.objects.push(copy);
+  return copy;
+}
+
+function addPoint(model, x, y, label) {
+  return addObject(model, {
+    type: "point",
+    x: finite(x, "Point x"),
+    y: finite(y, "Point y"),
+    label: String(label || "").trim(),
+  });
+}
+
+function requirePoint(model, id, label) {
+  const object = objectById(model, id);
+  if (!object || object.type !== "point") throw new Error(`${label || "The object"} must be an existing point.`);
+  return object;
+}
+
+function addSegment(model, a, b, label) {
+  requirePoint(model, a, "The first endpoint");
+  requirePoint(model, b, "The second endpoint");
+  if (a === b) throw new Error("A segment needs two different points.");
+  return addObject(model, { type: "segment", points: [a, b], label: String(label || "").trim() });
+}
+
+function addLine(model, a, b, label) {
+  requirePoint(model, a, "The first line point");
+  requirePoint(model, b, "The second line point");
+  if (a === b) throw new Error("A line needs two different points.");
+  return addObject(model, { type: "line", points: [a, b], label: String(label || "").trim() });
+}
+
+function addRay(model, origin, through, label) {
+  requirePoint(model, origin, "The ray origin");
+  requirePoint(model, through, "The ray direction point");
+  if (origin === through) throw new Error("A ray needs a different direction point.");
+  return addObject(model, { type: "ray", points: [origin, through], label: String(label || "").trim() });
+}
+
+function addCircle(model, center, through, label) {
+  requirePoint(model, center, "The circle centre");
+  requirePoint(model, through, "The circle radius point");
+  const c = pointOf(model, center);
+  const p = pointOf(model, through);
+  if (c.x === p.x && c.y === p.y) throw new Error("A circle needs a radius point away from its centre.");
+  return addObject(model, { type: "circle", points: [center, through], label: String(label || "").trim() });
+}
+
+function addPolygon(model, pointIds, label) {
+  const ids = Array.isArray(pointIds) ? pointIds.map(String) : [];
+  if (ids.length < 3) throw new Error("A polygon needs at least three points.");
+  if (new Set(ids).size !== ids.length) throw new Error("A polygon cannot repeat a point.");
+  for (const id of ids) requirePoint(model, id, "Every polygon vertex");
+  return addObject(model, { type: "polygon", points: ids, label: String(label || "").trim() });
+}
+
+/** Resolve any point-like object. Constructions added later extend this switch. */
+function pointOf(model, id) {
+  const object = objectById(model, id);
+  if (!object) throw new Error(`The point ${id} does not exist.`);
+  if (object.type === "point") return { x: object.x, y: object.y };
+  throw new Error(`${object.type} is not a point.`);
+}
+
+function resolveObject(model, object) {
+  if (!object) return null;
+  if (object.type === "point") return { type: "point", id: object.id, point: { x: object.x, y: object.y }, label: object.label };
+  if (object.type === "segment" || object.type === "line" || object.type === "ray") {
+    const a = pointOf(model, object.points[0]);
+    const b = pointOf(model, object.points[1]);
+    return { type: object.type, id: object.id, a, b, label: object.label };
+  }
+  if (object.type === "circle") {
+    const center = pointOf(model, object.points[0]);
+    const through = pointOf(model, object.points[1]);
+    return {
+      type: "circle",
+      id: object.id,
+      center,
+      through,
+      radius: Math.hypot(through.x - center.x, through.y - center.y),
+      label: object.label,
+    };
+  }
+  if (object.type === "polygon") {
+    const points = object.points.map((id) => pointOf(model, id));
+    return { type: "polygon", id: object.id, points, label: object.label };
+  }
+  return { type: object.type, id: object.id, label: object.label };
+}
+
+function distance(a, b) {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+function midpoint(a, b) {
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
+
+function slope(a, b) {
+  if (a.x === b.x) return null;
+  return (b.y - a.y) / (b.x - a.x);
+}
+
+function polygonArea(points) {
+  let sum = 0;
+  for (let index = 0; index < points.length; index++) {
+    const a = points[index];
+    const b = points[(index + 1) % points.length];
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(sum) / 2;
+}
+
+function polygonPerimeter(points) {
+  let total = 0;
+  for (let index = 0; index < points.length; index++) {
+    total += distance(points[index], points[(index + 1) % points.length]);
+  }
+  return total;
+}
+
+function angleAt(a, vertex, c) {
+  const first = Math.atan2(a.y - vertex.y, a.x - vertex.x);
+  const second = Math.atan2(c.y - vertex.y, c.x - vertex.x);
+  let degrees = ((second - first) * 180) / Math.PI;
+  while (degrees < 0) degrees += 360;
+  while (degrees > 180) degrees = 360 - degrees;
+  return degrees;
+}
+
+function formatNumber(value) {
+  if (value === null || value === undefined) return "undefined";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "undefined";
+  const rounded = Number(number.toPrecision(8));
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+function measure(model, object) {
+  const resolved = resolveObject(model, object);
+  if (!resolved) return [];
+  if (resolved.type === "point") return [`x ${formatNumber(resolved.point.x)}`, `y ${formatNumber(resolved.point.y)}`];
+  if (resolved.type === "segment") {
+    return [
+      `length ${formatNumber(distance(resolved.a, resolved.b))}`,
+      `slope ${formatNumber(slope(resolved.a, resolved.b))}`,
+      `midpoint (${formatNumber(midpoint(resolved.a, resolved.b).x)}, ${formatNumber(midpoint(resolved.a, resolved.b).y)})`,
+    ];
+  }
+  if (resolved.type === "line" || resolved.type === "ray") return [`slope ${formatNumber(slope(resolved.a, resolved.b))}`];
+  if (resolved.type === "circle") {
+    return [
+      `radius ${formatNumber(resolved.radius)}`,
+      `circumference ${formatNumber(2 * Math.PI * resolved.radius)}`,
+      `area ${formatNumber(Math.PI * resolved.radius * resolved.radius)}`,
+    ];
+  }
+  if (resolved.type === "polygon") {
+    return [
+      `vertices ${resolved.points.length}`,
+      `perimeter ${formatNumber(polygonPerimeter(resolved.points))}`,
+      `area ${formatNumber(polygonArea(resolved.points))}`,
+    ];
+  }
+  return [];
+}
+
+function describe(model, object) {
+  const resolved = resolveObject(model, object);
+  if (!resolved) return "Nothing to draw.";
+  const name = object.label ? `${object.type} ${object.label}` : object.type;
+  const measures = measure(model, object);
+  return `${name}${measures.length ? `: ${measures.join(", ")}` : ""}.`;
+}
+
+function removeObject(model, id) {
+  const target = objectById(model, id);
+  if (!target) return { ok: false, reason: "missing" };
+  const removed = new Set([id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const object of model.objects) {
+      if (removed.has(object.id)) continue;
+      if (Array.isArray(object.points) && object.points.some((pointId) => removed.has(pointId))) {
+        removed.add(object.id);
+        changed = true;
+      }
+    }
+  }
+  model.objects = model.objects.filter((object) => !removed.has(object.id));
+  return { ok: true, removed: removed.size };
+}
+
+function summary(model) {
+  const objects = model && Array.isArray(model.objects) ? model.objects : [];
+  if (!objects.length) return "The geometry drawing is empty.";
+  const counts = {};
+  for (const object of objects) counts[object.type] = (counts[object.type] || 0) + 1;
+  const parts = Object.keys(counts).sort().map((type) => `${counts[type]} ${type}${counts[type] === 1 ? "" : "s"}`);
+  return `Geometry drawing with ${objects.length} object${objects.length === 1 ? "" : "s"}: ${parts.join(", ")}.`;
+}
+
+function clone(model) {
+  return JSON.parse(JSON.stringify(model));
+}
+
+function normalizeModel(value) {
+  const source = value && typeof value === "object" && Array.isArray(value.objects) ? value : null;
+  const model = createModel();
+  if (!source) return model;
+  for (const raw of source.objects.slice(0, MAX_OBJECTS)) {
+    if (!raw || typeof raw !== "object") continue;
+    try {
+      if (raw.type === "point") {
+        addObject(model, { id: String(raw.id || ""), type: "point", x: finite(raw.x, "Point x"), y: finite(raw.y, "Point y"), label: String(raw.label || "") });
+      } else if (raw.type === "segment" || raw.type === "line" || raw.type === "ray") {
+        addObject(model, { id: String(raw.id || ""), type: raw.type, points: (raw.points || []).map(String), label: String(raw.label || "") });
+      } else if (raw.type === "circle") {
+        addObject(model, { id: String(raw.id || ""), type: "circle", points: (raw.points || []).map(String), label: String(raw.label || "") });
+      } else if (raw.type === "polygon") {
+        addObject(model, { id: String(raw.id || ""), type: "polygon", points: (raw.points || []).map(String), label: String(raw.label || "") });
+      }
+    } catch (e) {
+      // Skip a damaged stored object; the rest of the drawing still loads.
+    }
+  }
+  model.nextId = Math.max(model.objects.length + 1, Number(source.nextId) || 1);
+  return model;
+}
+
+const GEOMETRY_COLORS = ["#5b8def", "#e5534b", "#2ea043", "#d29922", "#a371f7", "#39c5cf"];
+
+/** Paint a geometry model into any 2D context; the view owns the canvas. */
+function paintGeometry(ctx, model, view, width, height) {
+  const v = view || { xMin: -10, xMax: 10, yMin: -10, yMax: 10 };
+  const px = (x) => ((x - v.xMin) / (v.xMax - v.xMin)) * width;
+  const py = (y) => height - ((y - v.yMin) / (v.yMax - v.yMin)) * height;
+  ctx.strokeStyle = "rgba(127, 127, 127, 0.18)";
+  ctx.lineWidth = 1;
+  for (let x = Math.ceil(v.xMin); x <= v.xMax; x++) {
+    ctx.beginPath();
+    ctx.moveTo(px(x), 0);
+    ctx.lineTo(px(x), height);
+    ctx.stroke();
+  }
+  for (let y = Math.ceil(v.yMin); y <= v.yMax; y++) {
+    ctx.beginPath();
+    ctx.moveTo(0, py(y));
+    ctx.lineTo(width, py(y));
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "rgba(127, 127, 127, 0.55)";
+  ctx.beginPath();
+  if (v.yMin <= 0 && v.yMax >= 0) { ctx.moveTo(0, py(0)); ctx.lineTo(width, py(0)); }
+  if (v.xMin <= 0 && v.xMax >= 0) { ctx.moveTo(px(0), 0); ctx.lineTo(px(0), height); }
+  ctx.stroke();
+  (model && Array.isArray(model.objects) ? model.objects : []).forEach((object, index) => {
+    const resolved = resolveObject(model, object);
+    if (!resolved) return;
+    const color = GEOMETRY_COLORS[index % GEOMETRY_COLORS.length];
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    const dot = (point, label) => {
+      ctx.beginPath();
+      ctx.arc(px(point.x), py(point.y), 4, 0, Math.PI * 2);
+      ctx.fill();
+      if (label) { ctx.font = "12px sans-serif"; ctx.fillText(label, px(point.x) + 6, py(point.y) - 6); }
+    };
+    if (resolved.type === "point") dot(resolved.point, object.label || object.id);
+    else if (resolved.type === "segment") {
+      ctx.beginPath(); ctx.moveTo(px(resolved.a.x), py(resolved.a.y)); ctx.lineTo(px(resolved.b.x), py(resolved.b.y)); ctx.stroke();
+      dot(resolved.a, ""); dot(resolved.b, "");
+    } else if (resolved.type === "line" || resolved.type === "ray") {
+      const dx = resolved.b.x - resolved.a.x;
+      const dy = resolved.b.y - resolved.a.y;
+      const length = Math.hypot(dx, dy) || 1;
+      const start = resolved.type === "ray" ? resolved.a : { x: resolved.a.x - (dx / length) * 1000, y: resolved.a.y - (dy / length) * 1000 };
+      const end = { x: resolved.a.x + (dx / length) * 1000, y: resolved.a.y + (dy / length) * 1000 };
+      ctx.beginPath(); ctx.moveTo(px(start.x), py(start.y)); ctx.lineTo(px(end.x), py(end.y)); ctx.stroke();
+      dot(resolved.a, ""); dot(resolved.b, "");
+    } else if (resolved.type === "circle") {
+      const rx = Math.abs(px(resolved.center.x + resolved.radius) - px(resolved.center.x));
+      const ry = Math.abs(py(resolved.center.y) - py(resolved.center.y + resolved.radius));
+      ctx.beginPath();
+      if (typeof ctx.ellipse === "function") ctx.ellipse(px(resolved.center.x), py(resolved.center.y), rx, ry, 0, 0, Math.PI * 2);
+      else ctx.arc(px(resolved.center.x), py(resolved.center.y), rx, 0, Math.PI * 2);
+      ctx.stroke();
+      dot(resolved.center, object.label || object.id);
+    } else if (resolved.type === "polygon") {
+      ctx.beginPath();
+      resolved.points.forEach((point, pointIndex) => {
+        if (pointIndex === 0) ctx.moveTo(px(point.x), py(point.y));
+        else ctx.lineTo(px(point.x), py(point.y));
+      });
+      ctx.closePath();
+      ctx.fillStyle = `${color}33`;
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.stroke();
+      resolved.points.forEach((point) => dot(point, ""));
+    }
+  });
+}
+
+module.exports = {
+  MAX_OBJECTS,
+  addCircle,
+  addLine,
+  addObject,
+  addPoint,
+  addPolygon,
+  addRay,
+  addSegment,
+  angleAt,
+  clone,
+  createModel,
+  describe,
+  distance,
+  formatNumber,
+  measure,
+  midpoint,
+  normalizeModel,
+  objectById,
+  pointOf,
+  polygonArea,
+  polygonPerimeter,
+  paintGeometry,
+  removeObject,
+  resolveObject,
+  slope,
+  summary,
+};
+};
+
+/* ---- src/geometry-panel.js ---- */
+__defs["geometry-panel"] = function (module, exports, require) {
+/*
+ * Event and canvas methods for the Reference Geometry tab.
+ *
+ * These are attached to ReferenceView.prototype so the large view file only
+ * carries the tab markup. All model work stays in the pure geometry module.
+ */
+const { Notice } = require("obsidian");
+const geometry = require("./geometry");
+const { exportScale } = require("./graph-export");
+
+function addGeometryPoint(x, y) {
+  try {
+    const point = geometry.addPoint(this.geometryModel, x, y, "");
+    this.persistGeometryState();
+    this.geometryA = this.geometryA || point.id;
+    this.geometryB = this.geometryB || point.id;
+    this.render();
+    this.announceGeometry(`Point ${point.id} added.`);
+    return { ok: true, point };
+  } catch (e) {
+    return this.failGeometry(e);
+  }
+}
+
+function addGeometryObject(type, first, second, polygonText) {
+  try {
+    let object;
+    if (type === "polygon") object = geometry.addPolygon(this.geometryModel, String(polygonText || "").split(/[,\s]+/).filter(Boolean));
+    else if (type === "circle") object = geometry.addCircle(this.geometryModel, first, second);
+    else if (type === "line") object = geometry.addLine(this.geometryModel, first, second);
+    else if (type === "ray") object = geometry.addRay(this.geometryModel, first, second);
+    else object = geometry.addSegment(this.geometryModel, first, second);
+    this.persistGeometryState();
+    this.render();
+    this.announceGeometry(`${object.type} added.`);
+    return { ok: true, object };
+  } catch (e) {
+    return this.failGeometry(e);
+  }
+}
+
+function removeGeometryObject(id) {
+  const result = geometry.removeObject(this.geometryModel, id);
+  this.persistGeometryState();
+  this.render();
+  this.announceGeometry(result.ok ? `Removed ${result.removed} geometry object${result.removed === 1 ? "" : "s"}.` : "That geometry object no longer exists.");
+  return result;
+}
+
+function failGeometry(error) {
+  const message = error && error.message ? error.message : "That geometry object could not be created.";
+  if (this.geometryStatusEl) this.geometryStatusEl.setText(message);
+  new Notice(message);
+  return { ok: false, message };
+}
+
+function announceGeometry(text) {
+  if (this.geometryStatusEl) this.geometryStatusEl.setText(text);
+  else new Notice(text);
+}
+
+function persistGeometryState() {
+  const settings = this.plugin.settings;
+  if (!settings) return;
+  if (!settings.reference) settings.reference = {};
+  settings.reference.geometry = {
+    objects: JSON.parse(JSON.stringify(this.geometryModel.objects)),
+    nextId: this.geometryModel.nextId,
+    view: Object.assign({}, this.geometryViewport),
+  };
+  if (typeof this.plugin.save === "function") {
+    try {
+      this.plugin.save();
+    } catch (e) {
+      // The drawing stays in memory; Obsidian reports a failed settings write itself.
+    }
+  }
+}
+
+function drawGeometry() {
+  const canvas = this.geometryCanvas;
+  if (!canvas) return;
+  const width = Number(canvas.clientWidth) > 0 ? Math.round(Number(canvas.clientWidth)) : 640;
+  const height = 320;
+  const ratio = exportScale(typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1);
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  const ctx = canvas.getContext ? canvas.getContext("2d") : null;
+  if (!ctx) return;
+  if (typeof ctx.setTransform === "function") ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  geometry.paintGeometry(ctx, this.geometryModel, this.geometryViewport, width, height);
+}
+
+module.exports = {
+  addGeometryObject,
+  addGeometryPoint,
+  announceGeometry,
+  drawGeometry,
+  failGeometry,
+  persistGeometryState,
+  removeGeometryObject,
+};
+};
+
 /* ---- src/graph-accessibility.js ---- */
 __defs["graph-accessibility"] = function (module, exports, require) {
 /*
@@ -63940,6 +64426,8 @@ const { isNotationText } = require("./graph-summation");
 const { renderDomain } = require("./graph-complex");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, evaluateComplexCalculator, normalizeCalculatorMode } = require("./calculator");
 const matrixMath = require("./matrix");
+const geometry = require("./geometry");
+const geometryPanel = require("./geometry-panel");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
 const {
@@ -64099,6 +64587,14 @@ class ReferenceView extends ItemView {
     this.matrixResult = "";
     this.matrixError = "";
     this.matrixResultEl = null;
+    const storedGeometry = (plugin.settings && plugin.settings.reference && plugin.settings.reference.geometry) || {};
+    this.geometryModel = geometry.normalizeModel(storedGeometry);
+    this.geometryViewport = clampView(storedGeometry.view);
+    this.geometryA = "";
+    this.geometryB = "";
+    this.geometryPolygonIds = "";
+    this.geometryStatusEl = null;
+    this.geometryCanvas = null;
     this.elementQuery = "";
     this.selectedElement = null;
     this.periodicGridEl = null;
@@ -64168,6 +64664,7 @@ class ReferenceView extends ItemView {
       ["calculator", "Calculator"],
       ["matrix", "Matrix"],
       ["graph", "Graph"],
+      ["geometry", "Geometry"],
       ["elements", "Periodic table"],
       ["constants", "Constants"],
       ["sheets", "Sheets"],
@@ -64201,6 +64698,7 @@ class ReferenceView extends ItemView {
     else if (this.tab === "calculator") this.renderCalculator(root);
     else if (this.tab === "matrix") this.renderMatrix(root);
     else if (this.tab === "graph") this.renderGraph(root);
+    else if (this.tab === "geometry") this.renderGeometry(root);
     else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
     else if (this.tab === "sheets") this.renderSheets(root);
@@ -64496,6 +64994,75 @@ class ReferenceView extends ItemView {
         // The matrices stay in memory; Obsidian reports a failed settings write itself.
       }
     }
+  }
+
+  renderGeometry(root) {
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "A local Euclidean drawing. Add points by coordinate, then make segments, lines, rays, circles or polygons from those points. Every object is listed with its measurements and can be removed without touching the vault.",
+    });
+    const pointForm = root.createDiv({ cls: "qt-ref-geometry-form" });
+    pointForm.createDiv({ cls: "qt-ref-graph-data-head", text: "Add a point" });
+    const pointFields = pointForm.createDiv({ cls: "qt-row qt-ref-geometry-fields" });
+    const field = (label, aria) => {
+      const wrap = pointFields.createEl("label", { cls: "qt-ref-graph-bound" });
+      wrap.createSpan({ text: label });
+      const input = wrap.createEl("input", { cls: "qt-ref-amount", attr: { type: "number", step: "any", "aria-label": aria } });
+      input.value = "0";
+      return input;
+    };
+    const xInput = field("x", "New point x");
+    const yInput = field("y", "New point y");
+    pointForm.createEl("button", { text: "Add point", attr: { type: "button", "aria-label": "Add point" } })
+      .addEventListener("click", () => this.addGeometryPoint(xInput.value, yInput.value));
+
+    const points = this.geometryModel.objects.filter((object) => object.type === "point");
+    const objectForm = root.createDiv({ cls: "qt-ref-geometry-form" });
+    objectForm.createDiv({ cls: "qt-ref-graph-data-head", text: "Add an object" });
+    const selectPoint = (label, aria) => {
+      const wrap = objectForm.createEl("label", { cls: "qt-ref-graph-bound" });
+      wrap.createSpan({ text: label });
+      const select = wrap.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": aria } });
+      for (const point of points) select.createEl("option", { text: point.label || point.id, value: point.id });
+      return select;
+    };
+    this.geometryA = this.geometryA || (points[0] && points[0].id) || "";
+    this.geometryB = this.geometryB || (points[1] && points[1].id) || "";
+    const first = selectPoint("first point", "Geometry first point");
+    const second = selectPoint("second point", "Geometry second point");
+    first.value = this.geometryA;
+    second.value = this.geometryB;
+    first.addEventListener("change", () => { this.geometryA = first.value; });
+    second.addEventListener("change", () => { this.geometryB = second.value; });
+    const typeWrap = objectForm.createEl("label", { cls: "qt-ref-graph-bound" });
+    typeWrap.createSpan({ text: "type" });
+    const typeSelect = typeWrap.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": "Geometry object type" } });
+    for (const type of ["segment", "line", "ray", "circle"]) typeSelect.createEl("option", { text: type, value: type });
+    typeSelect.value = "segment";
+    const polygonWrap = objectForm.createEl("label", { cls: "qt-ref-graph-bound" });
+    polygonWrap.createSpan({ text: "polygon point ids" });
+    const polygonInput = polygonWrap.createEl("input", { cls: "qt-ref-amount", attr: { type: "text", "aria-label": "Polygon point ids", placeholder: "p1, p2, p3" } });
+    polygonInput.value = this.geometryPolygonIds;
+    polygonInput.addEventListener("input", () => { this.geometryPolygonIds = polygonInput.value; });
+    objectForm.createEl("button", { text: "Add object", attr: { type: "button", "aria-label": "Add geometry object" } })
+      .addEventListener("click", () => this.addGeometryObject(typeSelect.value, first.value, second.value, polygonInput.value));
+
+    const list = root.createDiv({ cls: "qt-ref-geometry-list" });
+    list.createDiv({ cls: "qt-ref-graph-data-head", text: "Objects" });
+    if (!this.geometryModel.objects.length) list.createDiv({ cls: "qt-ref-matrix-hint", text: "Start with a point." });
+    for (const object of this.geometryModel.objects) {
+      const row = list.createDiv({ cls: "qt-ref-geometry-object" });
+      row.createSpan({ cls: "qt-ref-geometry-object-text", text: geometry.describe(this.geometryModel, object) });
+      row.createEl("button", { text: "×", cls: "qt-ref-graph-remove", attr: { type: "button", "aria-label": `Remove ${object.type} ${object.label || object.id}` } })
+        .addEventListener("click", () => this.removeGeometryObject(object.id));
+    }
+    this.geometryStatusEl = root.createDiv({ cls: "qt-ref-geometry-status", attr: { "aria-live": "polite", "aria-label": "Geometry status" } });
+    this.geometryStatusEl.setText(geometry.summary(this.geometryModel));
+    this.geometryCanvas = root.createEl("canvas", {
+      cls: "qt-ref-canvas qt-ref-geometry-canvas",
+      attr: { tabindex: "0", role: "application", "aria-label": "Geometry drawing. Use the coordinate fields and object list to create and remove objects." },
+    });
+    this.drawGeometry();
   }
 
   renderGraph(root) {
@@ -67319,6 +67886,8 @@ class ReferenceView extends ItemView {
     }
   }
 }
+
+Object.assign(ReferenceView.prototype, geometryPanel);
 
 module.exports = {
   ReferenceView,
@@ -87031,6 +87600,8 @@ const calculator = require("./calculator");
 const matrix = require("./matrix");
 const complex = require("./complex");
 const graphComplex = require("./graph-complex");
+const geometry = require("./geometry");
+const geometryPanel = require("./geometry-panel");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
@@ -87272,6 +87843,8 @@ QuestionTrackerPlugin.__test = {
   matrix,
   complex,
   graphComplex,
+  geometry,
+  geometryPanel,
   WeakSpotModal,
   QuickAddModal,
   quickAdd,

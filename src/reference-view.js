@@ -43,6 +43,8 @@ const { isNotationText } = require("./graph-summation");
 const { renderDomain } = require("./graph-complex");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, evaluateComplexCalculator, normalizeCalculatorMode } = require("./calculator");
 const matrixMath = require("./matrix");
+const geometry = require("./geometry");
+const geometryPanel = require("./geometry-panel");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
 const {
@@ -202,6 +204,14 @@ class ReferenceView extends ItemView {
     this.matrixResult = "";
     this.matrixError = "";
     this.matrixResultEl = null;
+    const storedGeometry = (plugin.settings && plugin.settings.reference && plugin.settings.reference.geometry) || {};
+    this.geometryModel = geometry.normalizeModel(storedGeometry);
+    this.geometryViewport = clampView(storedGeometry.view);
+    this.geometryA = "";
+    this.geometryB = "";
+    this.geometryPolygonIds = "";
+    this.geometryStatusEl = null;
+    this.geometryCanvas = null;
     this.elementQuery = "";
     this.selectedElement = null;
     this.periodicGridEl = null;
@@ -271,6 +281,7 @@ class ReferenceView extends ItemView {
       ["calculator", "Calculator"],
       ["matrix", "Matrix"],
       ["graph", "Graph"],
+      ["geometry", "Geometry"],
       ["elements", "Periodic table"],
       ["constants", "Constants"],
       ["sheets", "Sheets"],
@@ -304,6 +315,7 @@ class ReferenceView extends ItemView {
     else if (this.tab === "calculator") this.renderCalculator(root);
     else if (this.tab === "matrix") this.renderMatrix(root);
     else if (this.tab === "graph") this.renderGraph(root);
+    else if (this.tab === "geometry") this.renderGeometry(root);
     else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
     else if (this.tab === "sheets") this.renderSheets(root);
@@ -599,6 +611,75 @@ class ReferenceView extends ItemView {
         // The matrices stay in memory; Obsidian reports a failed settings write itself.
       }
     }
+  }
+
+  renderGeometry(root) {
+    root.createDiv({
+      cls: "qt-ref-note",
+      text: "A local Euclidean drawing. Add points by coordinate, then make segments, lines, rays, circles or polygons from those points. Every object is listed with its measurements and can be removed without touching the vault.",
+    });
+    const pointForm = root.createDiv({ cls: "qt-ref-geometry-form" });
+    pointForm.createDiv({ cls: "qt-ref-graph-data-head", text: "Add a point" });
+    const pointFields = pointForm.createDiv({ cls: "qt-row qt-ref-geometry-fields" });
+    const field = (label, aria) => {
+      const wrap = pointFields.createEl("label", { cls: "qt-ref-graph-bound" });
+      wrap.createSpan({ text: label });
+      const input = wrap.createEl("input", { cls: "qt-ref-amount", attr: { type: "number", step: "any", "aria-label": aria } });
+      input.value = "0";
+      return input;
+    };
+    const xInput = field("x", "New point x");
+    const yInput = field("y", "New point y");
+    pointForm.createEl("button", { text: "Add point", attr: { type: "button", "aria-label": "Add point" } })
+      .addEventListener("click", () => this.addGeometryPoint(xInput.value, yInput.value));
+
+    const points = this.geometryModel.objects.filter((object) => object.type === "point");
+    const objectForm = root.createDiv({ cls: "qt-ref-geometry-form" });
+    objectForm.createDiv({ cls: "qt-ref-graph-data-head", text: "Add an object" });
+    const selectPoint = (label, aria) => {
+      const wrap = objectForm.createEl("label", { cls: "qt-ref-graph-bound" });
+      wrap.createSpan({ text: label });
+      const select = wrap.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": aria } });
+      for (const point of points) select.createEl("option", { text: point.label || point.id, value: point.id });
+      return select;
+    };
+    this.geometryA = this.geometryA || (points[0] && points[0].id) || "";
+    this.geometryB = this.geometryB || (points[1] && points[1].id) || "";
+    const first = selectPoint("first point", "Geometry first point");
+    const second = selectPoint("second point", "Geometry second point");
+    first.value = this.geometryA;
+    second.value = this.geometryB;
+    first.addEventListener("change", () => { this.geometryA = first.value; });
+    second.addEventListener("change", () => { this.geometryB = second.value; });
+    const typeWrap = objectForm.createEl("label", { cls: "qt-ref-graph-bound" });
+    typeWrap.createSpan({ text: "type" });
+    const typeSelect = typeWrap.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": "Geometry object type" } });
+    for (const type of ["segment", "line", "ray", "circle"]) typeSelect.createEl("option", { text: type, value: type });
+    typeSelect.value = "segment";
+    const polygonWrap = objectForm.createEl("label", { cls: "qt-ref-graph-bound" });
+    polygonWrap.createSpan({ text: "polygon point ids" });
+    const polygonInput = polygonWrap.createEl("input", { cls: "qt-ref-amount", attr: { type: "text", "aria-label": "Polygon point ids", placeholder: "p1, p2, p3" } });
+    polygonInput.value = this.geometryPolygonIds;
+    polygonInput.addEventListener("input", () => { this.geometryPolygonIds = polygonInput.value; });
+    objectForm.createEl("button", { text: "Add object", attr: { type: "button", "aria-label": "Add geometry object" } })
+      .addEventListener("click", () => this.addGeometryObject(typeSelect.value, first.value, second.value, polygonInput.value));
+
+    const list = root.createDiv({ cls: "qt-ref-geometry-list" });
+    list.createDiv({ cls: "qt-ref-graph-data-head", text: "Objects" });
+    if (!this.geometryModel.objects.length) list.createDiv({ cls: "qt-ref-matrix-hint", text: "Start with a point." });
+    for (const object of this.geometryModel.objects) {
+      const row = list.createDiv({ cls: "qt-ref-geometry-object" });
+      row.createSpan({ cls: "qt-ref-geometry-object-text", text: geometry.describe(this.geometryModel, object) });
+      row.createEl("button", { text: "×", cls: "qt-ref-graph-remove", attr: { type: "button", "aria-label": `Remove ${object.type} ${object.label || object.id}` } })
+        .addEventListener("click", () => this.removeGeometryObject(object.id));
+    }
+    this.geometryStatusEl = root.createDiv({ cls: "qt-ref-geometry-status", attr: { "aria-live": "polite", "aria-label": "Geometry status" } });
+    this.geometryStatusEl.setText(geometry.summary(this.geometryModel));
+    this.geometryCanvas = root.createEl("canvas", {
+      cls: "qt-ref-canvas qt-ref-geometry-canvas",
+      attr: { tabindex: "0", role: "application", "aria-label": "Geometry drawing. Use the coordinate fields and object list to create and remove objects." },
+    });
+    this.drawGeometry();
   }
 
   renderGraph(root) {
@@ -3422,6 +3503,8 @@ class ReferenceView extends ItemView {
     }
   }
 }
+
+Object.assign(ReferenceView.prototype, geometryPanel);
 
 module.exports = {
   ReferenceView,

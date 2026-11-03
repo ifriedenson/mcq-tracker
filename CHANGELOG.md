@@ -2,6 +2,15 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.201.0 — 2026-11-03
+
+- The Reference panel has a **Geometry** tab. Add points by coordinate, then
+  create segments, lines, rays, circles and polygons from point ids. Every
+  object lists its measurements and can be removed; stale dependants are
+  removed with their points. The drawing is saved locally.
+- `src/geometry.js` holds the pure model and canvas painter; no dependency or
+  network request was added.
+
 ## 1.200.0 — 2026-11-03
 
 - The Reference Graph has an opt-in **complex** mode. The first visible

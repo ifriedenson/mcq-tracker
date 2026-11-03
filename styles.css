@@ -11299,3 +11299,45 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   padding: 10px;
   white-space: pre-wrap;
 }
+
+/* Reference geometry tab. */
+.qt-ref .qt-ref-geometry-form {
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.qt-ref .qt-ref-geometry-fields {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-ref .qt-ref-geometry-fields input {
+  width: 72px;
+}
+
+.qt-ref .qt-ref-geometry-object {
+  align-items: center;
+  border-bottom: 1px solid var(--background-modifier-border);
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.qt-ref .qt-ref-geometry-object-text {
+  font-size: 0.86rem;
+}
+
+.qt-ref .qt-ref-geometry-status {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin-top: 8px;
+}
+
+.qt-ref .qt-ref-geometry-canvas {
+  margin-top: 8px;
+}
