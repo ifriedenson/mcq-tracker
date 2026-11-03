@@ -15,6 +15,7 @@ const { StudyToolsView } = require("./study-tools-view");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
 const studyWorkspace = require("./study-workspace");
+const timeBlocks = require("./time-blocks");
 const courseIdentity = require("./course-identity");
 const exams = require("./exams");
 const { courseOverview } = require("./course-overview");
@@ -377,6 +378,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });
     this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
     this.addCommand({ id: "open-study-workspace", name: "Open Study Workspace", callback: () => this.activateStudyWorkspace() });
+    this.addCommand({ id: "open-time-blocks", name: "Time blocks: open the planner", callback: () => this.activateStudyWorkspace("timeBlocks") });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
@@ -1620,12 +1622,20 @@ class QuestionTrackerPlugin extends Plugin {
     return pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(this.settings.pdfAnnotationIndex).enabled;
   }
 
+  timeBlocksEnabled() {
+    return timeBlocks.normalizeTimeBlocks(this.settings.timeBlocks).enabled;
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled() || this.readingLibraryEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.timeBlocksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled() || this.readingLibraryEnabled();
   }
 
   studyWorkspaceSettings() {
     return studyWorkspace.normalizeStudyWorkspaceSettings(this.settings);
+  }
+
+  timeBlocksSettings() {
+    return timeBlocks.normalizeTimeBlocks(this.settings.timeBlocks);
   }
 
   /** Assignments and grades are on unless the module was turned off. */
@@ -9421,6 +9431,221 @@ ${body}
     await this.save();
     this.refreshViews();
     return tasks;
+  }
+
+  /* ---- Time-block planner --------------------------------------------- */
+
+  async addTimeBlock(input) {
+    const block = timeBlocks.createTimeBlock(input, Date.now());
+    if (!block) return null;
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.concat(block).slice(-timeBlocks.MAX_BLOCKS),
+    });
+    await this.save();
+    this.refreshViews();
+    return block;
+  }
+
+  async updateTimeBlock(id, patch) {
+    const current = this.timeBlocksSettings();
+    const existing = current.blocks.find((block) => block.id === id);
+    if (!existing) return null;
+    const updated = timeBlocks.normalizeTimeBlock({ ...existing, ...(patch || {}), id, createdAt: existing.createdAt });
+    if (!updated) return null;
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.map((block) => (block.id === id ? updated : block)),
+    });
+    await this.save();
+    this.refreshViews();
+    return updated;
+  }
+
+  async removeTimeBlock(id) {
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.filter((block) => block.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async addTimeBlockTask(blockId, input) {
+    const current = this.timeBlocksSettings();
+    const block = current.blocks.find((row) => row.id === blockId);
+    if (!block) return null;
+    const title = str(input && input.title).trim();
+    if (!title) return null;
+    return this.updateTimeBlock(blockId, {
+      tasks: block.tasks.concat({ title, studyTaskId: input && input.studyTaskId, createdAt: Date.now() }),
+    });
+  }
+
+  async toggleTimeBlockTask(blockId, taskId, done) {
+    const current = this.timeBlocksSettings();
+    const block = current.blocks.find((row) => row.id === blockId);
+    if (!block) return null;
+    const target = block.tasks.find((task) => task.id === taskId);
+    if (!target) return null;
+    const tasks = block.tasks.map((task) => (task.id === taskId ? { ...task, done: done === true } : task));
+    const updated = timeBlocks.normalizeTimeBlock({ ...block, tasks });
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.map((row) => (row.id === blockId ? updated : row)),
+    });
+    if (target.studyTaskId) {
+      const taskState = this.studyWorkspaceSettings().studyTasks;
+      this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
+        ...taskState,
+        tasks: taskState.tasks.map((task) => (task.id === target.studyTaskId ? { ...task, done: done === true } : task)),
+      });
+    }
+    await this.save();
+    this.refreshViews();
+    return updated;
+  }
+
+  async removeTimeBlockTask(blockId, taskId) {
+    const current = this.timeBlocksSettings();
+    const block = current.blocks.find((row) => row.id === blockId);
+    if (!block) return null;
+    return this.updateTimeBlock(blockId, { tasks: block.tasks.filter((task) => task.id !== taskId) });
+  }
+
+  async addTimeBlockProject(input) {
+    const project = timeBlocks.createTimeProject(input, Date.now());
+    if (!project) return null;
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      projects: current.projects.concat(project).slice(-timeBlocks.MAX_PROJECTS),
+    });
+    await this.save();
+    this.refreshViews();
+    return project;
+  }
+
+  async removeTimeBlockProject(id) {
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      projects: current.projects.filter((project) => project.id !== id),
+      blocks: current.blocks.map((block) => (block.projectId === id ? { ...block, projectId: "" } : block)),
+      routines: current.routines.map((routine) => (routine.projectId === id ? { ...routine, projectId: "" } : routine)),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async addTimeBlockRoutine(input) {
+    const routine = timeBlocks.createTimeRoutine(input, Date.now());
+    if (!routine) return null;
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      routines: current.routines.concat(routine).slice(-timeBlocks.MAX_ROUTINES),
+    });
+    await this.save();
+    this.refreshViews();
+    return routine;
+  }
+
+  async removeTimeBlockRoutine(id) {
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      routines: current.routines.filter((routine) => routine.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async applyTimeBlockRoutines(date) {
+    const current = this.timeBlocksSettings();
+    const result = timeBlocks.applyRoutines(current.routines, current.blocks, date || timeBlocks.todayValue(), Date.now());
+    if (!result.created.length) return [];
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, blocks: result.blocks });
+    await this.save();
+    this.refreshViews();
+    return result.created;
+  }
+
+  async addTimeBlockBacklog(input) {
+    const item = timeBlocks.createBacklogItem(input, Date.now());
+    if (!item) return null;
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      backlog: current.backlog.concat(item).slice(-timeBlocks.MAX_BACKLOG),
+    });
+    await this.save();
+    this.refreshViews();
+    return item;
+  }
+
+  async removeTimeBlockBacklog(id) {
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      backlog: current.backlog.filter((item) => item.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async scheduleTimeBlockBacklog(id, input) {
+    const current = this.timeBlocksSettings();
+    const item = current.backlog.find((row) => row.id === id);
+    if (!item) return null;
+    const block = timeBlocks.createTimeBlock({
+      ...(input || {}),
+      title: input && input.title ? input.title : item.title,
+      projectId: input && input.projectId ? input.projectId : item.projectId,
+      course: input && input.course ? input.course : item.course,
+      type: input && input.type ? input.type : "study",
+    }, Date.now());
+    if (!block) return null;
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.concat(block).slice(-timeBlocks.MAX_BLOCKS),
+      backlog: current.backlog.filter((row) => row.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+    return block;
+  }
+
+  async scheduleStudyTask(taskId, input) {
+    const task = this.studyWorkspaceSettings().studyTasks.tasks.find((row) => row.id === taskId);
+    if (!task) return null;
+    return this.addTimeBlock({
+      ...(input || {}),
+      title: input && input.title ? input.title : task.title,
+      course: input && input.course ? input.course : task.course,
+      tasks: [{ title: task.title, studyTaskId: task.id }],
+    });
+  }
+
+  async writeTimeBlockDay(date) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const folder = str(current.notesFolder).trim().replace(/^\/+|\/+$/g, "") || "Time blocks";
+    const path = folder + "/" + key + ".md";
+    const markdown = timeBlocks.blocksToMarkdown(key, current.blocks, current.projects);
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        /* the folder may already exist after a sync */
+      }
+    }
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    if (existing) await this.app.vault.modify(existing, markdown);
+    else await this.app.vault.create(path, markdown);
+    return path;
   }
 
   async remindStudyTasks() {

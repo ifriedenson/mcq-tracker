@@ -9,6 +9,7 @@ const { addDays, dayValue } = require("./study-tools");
 const courseIdentity = require("./course-identity");
 const { fencedQuizBlocks, parseQuizBlock } = require("./quiz-block");
 const readAloud = require("./read-aloud");
+const timeBlocks = require("./time-blocks");
 const lectureCompiler = require("./lecture-compiler");
 const courseHealth = require("./course-health");
 const audioBookmarks = require("./audio-bookmarks");
@@ -1316,6 +1317,7 @@ function normalizeStudyWorkspaceSettings(value) {
     feynmanAi: feynmanAi.normalizeFeynmanAiSettings(source.feynmanAi),
     pdfAnnotationIndex: pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(source.pdfAnnotationIndex),
     readingLibrary: readingLibrary.normalizeLibrary(source.readingLibrary),
+    timeBlocks: timeBlocks.normalizeTimeBlocks(source.timeBlocks),
   };
 }
 
@@ -1395,5 +1397,6 @@ module.exports = {
   reviewRecallUnit,
   subjectSummary,
   taskSummary,
+  timeBlocks,
   vocabSummary,
 };

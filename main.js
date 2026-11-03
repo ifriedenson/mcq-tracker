@@ -20301,6 +20301,7 @@ const DEFAULT_SETTINGS = {
   cbtExam: { enabled: true, history: {} }, // CBT exam navigator, local sidecar history and adaptive review
   courseHub: { enabled: true, grades: [] }, // course dashboard and local grade chips
   studyTasks: { enabled: true, tasks: [] }, // manual and generated exam tasks with local reminders
+  timeBlocks: { enabled: false }, // opt-in local time-block planner; off by default
   annotations: { enabled: true, annotations: [] }, // selection Q&A and annotation index
   deepNotes: { enabled: true, sessions: [] }, // guided Socratic sessions
   retention: { enabled: true }, // read-only card forecast
@@ -46159,6 +46160,7 @@ const { StudyToolsView } = require("./study-tools-view");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
 const studyWorkspace = require("./study-workspace");
+const timeBlocks = require("./time-blocks");
 const courseIdentity = require("./course-identity");
 const exams = require("./exams");
 const { courseOverview } = require("./course-overview");
@@ -46521,6 +46523,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-study-tools", name: "Open Study Tools", callback: () => this.activateStudyTools() });
     this.addCommand({ id: "new-cornell-note", name: "Cornell notes: create a note", callback: () => this.activateStudyTools("cornell") });
     this.addCommand({ id: "open-study-workspace", name: "Open Study Workspace", callback: () => this.activateStudyWorkspace() });
+    this.addCommand({ id: "open-time-blocks", name: "Time blocks: open the planner", callback: () => this.activateStudyWorkspace("timeBlocks") });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
@@ -47764,12 +47767,20 @@ class QuestionTrackerPlugin extends Plugin {
     return pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(this.settings.pdfAnnotationIndex).enabled;
   }
 
+  timeBlocksEnabled() {
+    return timeBlocks.normalizeTimeBlocks(this.settings.timeBlocks).enabled;
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled() || this.readingLibraryEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.timeBlocksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled() || this.readingLibraryEnabled();
   }
 
   studyWorkspaceSettings() {
     return studyWorkspace.normalizeStudyWorkspaceSettings(this.settings);
+  }
+
+  timeBlocksSettings() {
+    return timeBlocks.normalizeTimeBlocks(this.settings.timeBlocks);
   }
 
   /** Assignments and grades are on unless the module was turned off. */
@@ -55565,6 +55576,221 @@ ${body}
     await this.save();
     this.refreshViews();
     return tasks;
+  }
+
+  /* ---- Time-block planner --------------------------------------------- */
+
+  async addTimeBlock(input) {
+    const block = timeBlocks.createTimeBlock(input, Date.now());
+    if (!block) return null;
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.concat(block).slice(-timeBlocks.MAX_BLOCKS),
+    });
+    await this.save();
+    this.refreshViews();
+    return block;
+  }
+
+  async updateTimeBlock(id, patch) {
+    const current = this.timeBlocksSettings();
+    const existing = current.blocks.find((block) => block.id === id);
+    if (!existing) return null;
+    const updated = timeBlocks.normalizeTimeBlock({ ...existing, ...(patch || {}), id, createdAt: existing.createdAt });
+    if (!updated) return null;
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.map((block) => (block.id === id ? updated : block)),
+    });
+    await this.save();
+    this.refreshViews();
+    return updated;
+  }
+
+  async removeTimeBlock(id) {
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.filter((block) => block.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async addTimeBlockTask(blockId, input) {
+    const current = this.timeBlocksSettings();
+    const block = current.blocks.find((row) => row.id === blockId);
+    if (!block) return null;
+    const title = str(input && input.title).trim();
+    if (!title) return null;
+    return this.updateTimeBlock(blockId, {
+      tasks: block.tasks.concat({ title, studyTaskId: input && input.studyTaskId, createdAt: Date.now() }),
+    });
+  }
+
+  async toggleTimeBlockTask(blockId, taskId, done) {
+    const current = this.timeBlocksSettings();
+    const block = current.blocks.find((row) => row.id === blockId);
+    if (!block) return null;
+    const target = block.tasks.find((task) => task.id === taskId);
+    if (!target) return null;
+    const tasks = block.tasks.map((task) => (task.id === taskId ? { ...task, done: done === true } : task));
+    const updated = timeBlocks.normalizeTimeBlock({ ...block, tasks });
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.map((row) => (row.id === blockId ? updated : row)),
+    });
+    if (target.studyTaskId) {
+      const taskState = this.studyWorkspaceSettings().studyTasks;
+      this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({
+        ...taskState,
+        tasks: taskState.tasks.map((task) => (task.id === target.studyTaskId ? { ...task, done: done === true } : task)),
+      });
+    }
+    await this.save();
+    this.refreshViews();
+    return updated;
+  }
+
+  async removeTimeBlockTask(blockId, taskId) {
+    const current = this.timeBlocksSettings();
+    const block = current.blocks.find((row) => row.id === blockId);
+    if (!block) return null;
+    return this.updateTimeBlock(blockId, { tasks: block.tasks.filter((task) => task.id !== taskId) });
+  }
+
+  async addTimeBlockProject(input) {
+    const project = timeBlocks.createTimeProject(input, Date.now());
+    if (!project) return null;
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      projects: current.projects.concat(project).slice(-timeBlocks.MAX_PROJECTS),
+    });
+    await this.save();
+    this.refreshViews();
+    return project;
+  }
+
+  async removeTimeBlockProject(id) {
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      projects: current.projects.filter((project) => project.id !== id),
+      blocks: current.blocks.map((block) => (block.projectId === id ? { ...block, projectId: "" } : block)),
+      routines: current.routines.map((routine) => (routine.projectId === id ? { ...routine, projectId: "" } : routine)),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async addTimeBlockRoutine(input) {
+    const routine = timeBlocks.createTimeRoutine(input, Date.now());
+    if (!routine) return null;
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      routines: current.routines.concat(routine).slice(-timeBlocks.MAX_ROUTINES),
+    });
+    await this.save();
+    this.refreshViews();
+    return routine;
+  }
+
+  async removeTimeBlockRoutine(id) {
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      routines: current.routines.filter((routine) => routine.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async applyTimeBlockRoutines(date) {
+    const current = this.timeBlocksSettings();
+    const result = timeBlocks.applyRoutines(current.routines, current.blocks, date || timeBlocks.todayValue(), Date.now());
+    if (!result.created.length) return [];
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({ ...current, blocks: result.blocks });
+    await this.save();
+    this.refreshViews();
+    return result.created;
+  }
+
+  async addTimeBlockBacklog(input) {
+    const item = timeBlocks.createBacklogItem(input, Date.now());
+    if (!item) return null;
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      backlog: current.backlog.concat(item).slice(-timeBlocks.MAX_BACKLOG),
+    });
+    await this.save();
+    this.refreshViews();
+    return item;
+  }
+
+  async removeTimeBlockBacklog(id) {
+    const current = this.timeBlocksSettings();
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      backlog: current.backlog.filter((item) => item.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+  }
+
+  async scheduleTimeBlockBacklog(id, input) {
+    const current = this.timeBlocksSettings();
+    const item = current.backlog.find((row) => row.id === id);
+    if (!item) return null;
+    const block = timeBlocks.createTimeBlock({
+      ...(input || {}),
+      title: input && input.title ? input.title : item.title,
+      projectId: input && input.projectId ? input.projectId : item.projectId,
+      course: input && input.course ? input.course : item.course,
+      type: input && input.type ? input.type : "study",
+    }, Date.now());
+    if (!block) return null;
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.concat(block).slice(-timeBlocks.MAX_BLOCKS),
+      backlog: current.backlog.filter((row) => row.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+    return block;
+  }
+
+  async scheduleStudyTask(taskId, input) {
+    const task = this.studyWorkspaceSettings().studyTasks.tasks.find((row) => row.id === taskId);
+    if (!task) return null;
+    return this.addTimeBlock({
+      ...(input || {}),
+      title: input && input.title ? input.title : task.title,
+      course: input && input.course ? input.course : task.course,
+      tasks: [{ title: task.title, studyTaskId: task.id }],
+    });
+  }
+
+  async writeTimeBlockDay(date) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const folder = str(current.notesFolder).trim().replace(/^\/+|\/+$/g, "") || "Time blocks";
+    const path = folder + "/" + key + ".md";
+    const markdown = timeBlocks.blocksToMarkdown(key, current.blocks, current.projects);
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        /* the folder may already exist after a sync */
+      }
+    }
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    if (existing) await this.app.vault.modify(existing, markdown);
+    else await this.app.vault.create(path, markdown);
+    return path;
   }
 
   async remindStudyTasks() {
@@ -80631,6 +80857,7 @@ const studyNudge = require("./study-nudge");
 const courseTemplates = require("./course-templates");
 const audioBookmarks = require("./audio-bookmarks");
 const readingLibrary = require("./reading-library");
+const timeBlocks = require("./time-blocks");
 
 /** Sidebar order follows the plan: local tools, then the workspace, then analysis. */
 const STUDY_TOOL_SETTINGS_MODULES = [
@@ -80644,6 +80871,7 @@ const STUDY_TOOL_SETTINGS_MODULES = [
   { id: "subjects", label: "Subject Manager", icon: "folder-tree" },
   { id: "courses", label: "Courses", icon: "graduation-cap" },
   { id: "study-tasks", label: "Tasks", icon: "check-square" },
+  { id: "time-blocks", label: "Time blocks", icon: "calendar-clock" },
   { id: "annotations", label: "Annotations", icon: "highlighter" },
   { id: "deep-notes", label: "Deep Notes", icon: "messages-square" },
   { id: "retention", label: "Retention", icon: "line-chart" },
@@ -80915,6 +81143,63 @@ const PAGES = {
       return `${studyWorkspace.dueStudyTasks(tasks, new Date().toISOString().slice(0, 10)).length} due today of ${tasks.length}.`;
     },
     open: { label: "Open Tasks", run: (plugin) => plugin.activateStudyWorkspace("tasks") },
+  },
+  "time-blocks": {
+    title: "Time blocks",
+    description:
+      "A local day planner: blocks own a span of time, tasks live inside them, and projects or domains are optional lenses. It reuses study tasks and courses, offers routines for the selected day, and keeps a backlog for work that has not been placed yet. No calendar sync or provider is added.",
+    enabledGetter: "timeBlocksEnabled",
+    enable: (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { enabled: v }),
+    afterToggle: "onStudyWorkspaceToggled",
+    fields: [
+      {
+        type: "dropdown",
+        name: "Week starts on",
+        desc: "Controls the Week and Grid columns.",
+        options: [
+          { id: "monday", label: "Monday" },
+          { id: "sunday", label: "Sunday" },
+        ],
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).weekStartsOn,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { weekStartsOn: v }),
+      },
+      {
+        type: "text",
+        name: "Day starts at",
+        desc: "The first hour shown in the Day timeline.",
+        placeholder: "07:00",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).dayStart,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { dayStart: v }),
+      },
+      {
+        type: "text",
+        name: "Day ends at",
+        desc: "The last hour shown in the Day timeline.",
+        placeholder: "22:00",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).dayEnd,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { dayEnd: v }),
+      },
+      {
+        type: "text",
+        name: "Day-note folder",
+        desc: "A day can be written as readable Markdown with a Schedule section. The planner itself stays local.",
+        placeholder: "Time blocks",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).notesFolder,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { notesFolder: v }),
+      },
+      {
+        type: "toggle",
+        name: "Show calendar events",
+        desc: "Read-only classes and events from the current calendar; a block that shares their time is marked. Calendar entries are never edited or copied.",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).showCalendar,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { showCalendar: v }),
+      },
+    ],
+    status: (plugin) => {
+      const data = timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks);
+      return data.blocks.length + " block(s), " + data.projects.length + " project(s) and " + data.backlog.length + " backlog item(s).";
+    },
+    open: { label: "Open Time blocks", run: (plugin) => plugin.activateStudyWorkspace("timeBlocks") },
   },
   annotations: {
     title: "Annotations",
@@ -82150,6 +82435,7 @@ const { addDays, dayValue } = require("./study-tools");
 const courseIdentity = require("./course-identity");
 const { fencedQuizBlocks, parseQuizBlock } = require("./quiz-block");
 const readAloud = require("./read-aloud");
+const timeBlocks = require("./time-blocks");
 const lectureCompiler = require("./lecture-compiler");
 const courseHealth = require("./course-health");
 const audioBookmarks = require("./audio-bookmarks");
@@ -83457,6 +83743,7 @@ function normalizeStudyWorkspaceSettings(value) {
     feynmanAi: feynmanAi.normalizeFeynmanAiSettings(source.feynmanAi),
     pdfAnnotationIndex: pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(source.pdfAnnotationIndex),
     readingLibrary: readingLibrary.normalizeLibrary(source.readingLibrary),
+    timeBlocks: timeBlocks.normalizeTimeBlocks(source.timeBlocks),
   };
 }
 
@@ -83536,6 +83823,7 @@ module.exports = {
   reviewRecallUnit,
   subjectSummary,
   taskSummary,
+  timeBlocks,
   vocabSummary,
 };
 };
@@ -83550,6 +83838,7 @@ __defs["study-workspace-view"] = function (module, exports, require) {
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
 const { localDate, str } = require("./util");
+const timeBlocks = require("./time-blocks");
 const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
@@ -83584,6 +83873,7 @@ const TABS = [
   { id: "subjects", label: "Subjects", module: "subjectManager" },
   { id: "courses", label: "Courses", module: "courseHub" },
   { id: "tasks", label: "Tasks", module: "studyTasks" },
+  { id: "timeBlocks", label: "Time blocks", module: "timeBlocks" },
   { id: "annotations", label: "Annotations", module: "annotations" },
   { id: "deepNotes", label: "Deep Notes", module: "deepNotes" },
   { id: "retention", label: "Retention", module: "retention" },
@@ -83627,6 +83917,10 @@ const EMPTY_STATES = {
   courses: {
     title: "Build a course dashboard",
     steps: ["Add a subject or a first grade above.", "Weighted entries become the course average.", "Open a course overview for lectures, exams and readings."],
+  },
+  timeBlocks: {
+    title: "Plan where the work happens",
+    steps: ["Choose a day and add a block with a start and end time.", "Put small tasks inside the block; link an existing study task from the backlog.", "Use routines for repeating work and Project/domain lenses to see where the hours went."],
   },
   tasks: {
     title: "Keep the next study action visible",
@@ -83716,6 +84010,9 @@ class StudyWorkspaceView extends ItemView {
     this.bookmarkLabel = "";
     this.feynmanAiId = "";
     this.pdfAnnotationData = null;
+    this.timeBlockView = "day";
+    this.timeBlockDate = localDate();
+    this.timeBlockEditId = "";
   }
 
   async onClose() {
@@ -83806,6 +84103,7 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "subjects") this.renderSubjects(body);
     else if (this.tab === "courses") this.renderCourses(body);
     else if (this.tab === "tasks") this.renderTasks(body);
+    else if (this.tab === "timeBlocks") this.renderTimeBlocks(body);
     else if (this.tab === "annotations") this.renderAnnotations(body);
     else if (this.tab === "deepNotes") this.renderDeepNotes(body);
     else if (this.tab === "retention") this.renderRetention(body);
@@ -83825,7 +84123,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback, the PDF annotation index and the Reading library each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Time blocks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback, the PDF annotation index and the Reading library each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -85067,6 +85365,543 @@ class StudyWorkspaceView extends ItemView {
       });
     } else {
       card.createDiv({ cls: "qt-study-row-meta", text: "No AI feedback stored for this explanation yet." });
+    }
+  }
+
+  /* ---- Time blocks ----------------------------------------------------- */
+
+  timeBlockProjectOptions(data) {
+    return [
+      { value: "", label: "No project or domain" },
+      ...data.projects.map((project) => ({ value: project.id, label: project.kind === "domain" ? "Domain · " + project.name : project.name })),
+    ];
+  }
+
+  timeBlockProjectName(data, id) {
+    const project = data.projects.find((entry) => entry.id === id);
+    if (!project) return "";
+    return project.kind === "domain" ? "Domain · " + project.name : project.name;
+  }
+
+  timeBlockCalendar() {
+    if (typeof this.plugin.calendarSettings !== "function" || typeof this.plugin.calendarEvents !== "function") {
+      return { enabled: false, events: [], settings: null };
+    }
+    let settings = null;
+    try {
+      settings = this.plugin.calendarSettings();
+    } catch (e) {
+      return { enabled: false, events: [], settings: null };
+    }
+    if (!settings || settings.enabled !== true) return { enabled: false, events: [], settings };
+    try {
+      return { enabled: true, events: this.plugin.calendarEvents() || [], settings };
+    } catch (e) {
+      return { enabled: true, events: [], settings };
+    }
+  }
+
+  renderTimeBlockCalendar(root, data, date, calendar) {
+    if (!calendar || !calendar.enabled || data.showCalendar === false) return;
+    const summary = timeBlocks.calendarDaySummary(calendar.events, date, data.blocks);
+    const card = root.createDiv({ cls: "qt-study-card qt-time-blocks-calendar" });
+    card.createEl("h3", { text: "Calendar" });
+    card.createDiv({ cls: "qt-hint", text: "Read-only classes and events from the current calendar. A block that shares their time is marked here; calendar entries are never edited, moved or copied." });
+    card.createDiv({
+      cls: "qt-study-row-meta",
+      text: summary.events + " event" + (summary.events === 1 ? "" : "s") + " · " + timeBlocks.durationLabel(summary.busyMinutes) + " booked" + (summary.conflicts ? " · " + summary.conflicts + " block" + (summary.conflicts === 1 ? "" : "s") + " overlap" : ""),
+    });
+    if (!summary.rows.length) {
+      card.createDiv({ cls: "qt-hint", text: "No calendar events on this day. The planner stays usable with the calendar module off." });
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const event of summary.rows) {
+      const row = list.createDiv({ cls: "qt-study-row qt-time-block-calendar-event" + (event.overlaps.length ? " is-conflict" : "") });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      const title = main.createDiv({ cls: "qt-study-row-title", text: event.title });
+      const meta = [event.allDay ? "All day" : event.start + (event.end ? " – " + event.end : ""), event.location, event.course].filter(Boolean).join(" · ");
+      if (meta) title.createSpan({ cls: "qt-study-row-meta", text: " " + meta });
+      if (event.overlaps.length) {
+        main.createDiv({ cls: "qt-time-block-calendar-conflict", text: "Overlaps: " + event.overlaps.map((block) => block.start + " " + block.title).join(", ") });
+      }
+    }
+  }
+
+  timeBlockDateControls(root) {
+    const controls = root.createDiv({ cls: "qt-row qt-time-blocks-date" });
+    controls.createEl("button", { text: "Previous day", attr: { "aria-label": "Previous day" } }).addEventListener("click", () => {
+      this.timeBlockDate = timeBlocks.addDays(this.timeBlockDate, -1);
+      this.render();
+    });
+    const date = controls.createEl("input", { cls: "qt-input", type: "date", attr: { "aria-label": "Time-block day" } });
+    date.value = this.timeBlockDate;
+    date.addEventListener("change", () => {
+      this.timeBlockDate = timeBlocks.dayValue(date.value) || localDate();
+      this.render();
+    });
+    controls.createEl("button", { text: "Today" }).addEventListener("click", () => {
+      this.timeBlockDate = localDate();
+      this.render();
+    });
+    controls.createEl("button", { text: "Next day", attr: { "aria-label": "Next day" } }).addEventListener("click", () => {
+      this.timeBlockDate = timeBlocks.addDays(this.timeBlockDate, 1);
+      this.render();
+    });
+    controls.createSpan({ cls: "qt-study-row-meta", text: this.timeBlockDate });
+    return controls;
+  }
+
+  renderTimeBlocks(root) {
+    const data = this.settings().timeBlocks;
+    const labels = [
+      ["day", "Day"],
+      ["week", "Week"],
+      ["grid", "Grid"],
+      ["backlog", "Backlog"],
+      ["routines", "Routines"],
+      ["projects", "Projects & domains"],
+      ["timeline", "Timeline"],
+    ];
+    const nav = root.createDiv({ cls: "qt-time-blocks-nav", attr: { "aria-label": "Time-block views" } });
+    for (const [id, label] of labels) {
+      const button = nav.createEl("button", { text: label, cls: "qt-time-blocks-nav-button" });
+      if (this.timeBlockView === id) button.addClass("is-active");
+      button.setAttr("aria-pressed", this.timeBlockView === id ? "true" : "false");
+      button.addEventListener("click", () => {
+        this.timeBlockView = id;
+        this.timeBlockEditId = "";
+        this.render();
+      });
+    }
+    if (!timeBlocks.TIME_BLOCK_VIEWS.includes(this.timeBlockView)) this.timeBlockView = "day";
+    if (!timeBlocks.dayValue(this.timeBlockDate)) this.timeBlockDate = localDate();
+    const summary = timeBlocks.blockSummary(data.blocks, this.timeBlockDate);
+    root.createDiv({
+      cls: "qt-study-row-meta",
+      text: summary.blocks + " block" + (summary.blocks === 1 ? "" : "s") + " · " + timeBlocks.durationLabel(summary.minutes) + " planned · " + summary.open + " open task" + (summary.open === 1 ? "" : "s") + " on this day",
+    });
+    if (this.timeBlockView === "day") this.renderTimeBlockDay(root, data);
+    else if (this.timeBlockView === "week") this.renderTimeBlockWeek(root, data);
+    else if (this.timeBlockView === "grid") this.renderTimeBlockGrid(root, data);
+    else if (this.timeBlockView === "backlog") this.renderTimeBlockBacklog(root, data);
+    else if (this.timeBlockView === "routines") this.renderTimeBlockRoutines(root, data);
+    else if (this.timeBlockView === "projects") this.renderTimeBlockProjects(root, data);
+    else if (this.timeBlockView === "timeline") this.renderTimeBlockTimeline(root, data);
+  }
+
+  renderTimeBlockDay(root, data) {
+    const dayControls = root.createDiv({ cls: "qt-study-card" });
+    const head = dayControls.createDiv({ cls: "qt-workspace-head" });
+    head.createEl("h3", { text: "Day plan" });
+    this.timeBlockDateControls(head);
+    dayControls.createDiv({ cls: "qt-hint", text: "Blocks own the time; tasks live inside them. Add an existing study task from the Backlog, or write a small task directly here." });
+    this.renderTimeBlockCalendar(root, data, this.timeBlockDate, this.timeBlockCalendar());
+    const write = dayControls.createDiv({ cls: "qt-row qt-study-actions" });
+    write.createEl("button", { text: "Write day note" }).addEventListener("click", async () => {
+      try {
+        const path = await this.plugin.writeTimeBlockDay(this.timeBlockDate);
+        this.saveMessage("Saved " + path + ".");
+      } catch (e) {
+        this.saveMessage(String((e && e.message) || "Could not write the day note."));
+      }
+      this.render();
+    });
+    const projectOptions = this.timeBlockProjectOptions(data);
+    const add = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" });
+    add.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Add a time block" });
+    const form = add.createDiv({ cls: "qt-study-form" });
+    const title = this.renderField(form, "Block", "text", "Deep work: cell respiration");
+    const start = this.renderField(form, "Start", "time", "", data.dayStart);
+    const end = this.renderField(form, "End", "time", "", "10:30");
+    const type = this.renderSelect(form, "Type", timeBlocks.TIME_BLOCK_TYPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })), "study");
+    const project = this.renderSelect(form, "Project or domain", projectOptions, "");
+    const course = this.renderField(form, "Course (optional)", "text", "Biology");
+    const notes = this.renderTextarea(form, "Notes (optional)", "What is this block for?", "", 2);
+    const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add block", cls: "mod-cta" }).addEventListener("click", async () => {
+      const block = await this.plugin.addTimeBlock({
+        date: this.timeBlockDate,
+        start: start.value,
+        end: end.value,
+        title: title.value,
+        type: type.value,
+        projectId: project.value,
+        course: course.value,
+        notes: notes.value,
+      });
+      if (!block) {
+        this.saveMessage("Add a name and a valid end time after the start.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Block added.");
+      this.render();
+    });
+    const blocks = timeBlocks.blocksForDate(data.blocks, this.timeBlockDate);
+    if (!blocks.length) {
+      this.renderTabsEmpty(root, "No blocks on this day. Add one above, then put the work inside it.");
+      return;
+    }
+    const list = root.createDiv({ cls: "qt-study-list qt-time-blocks-day-list" });
+    for (const block of blocks) this.renderTimeBlockCard(list, block, data);
+  }
+
+  renderTimeBlockCard(list, block, data) {
+    const card = list.createDiv({ cls: "qt-time-block qt-study-card" });
+    if (block.type) card.addClass("is-" + block.type);
+    const head = card.createDiv({ cls: "qt-workspace-head" });
+    const main = head.createDiv({ cls: "qt-time-block-main" });
+    main.createDiv({ cls: "qt-time-block-time", text: block.start + " – " + block.end + " · " + timeBlocks.durationLabel(timeBlocks.durationMinutes(block)) });
+    main.createDiv({ cls: "qt-time-block-title", text: block.title });
+    const meta = [block.type, this.timeBlockProjectName(data, block.projectId), block.course].filter(Boolean).join(" · ");
+    if (meta) main.createDiv({ cls: "qt-study-row-meta", text: meta });
+    const actions = head.createDiv({ cls: "qt-row qt-study-row-actions" });
+    if (block.type === "review" || block.type === "practice") {
+      actions.createEl("button", { text: block.type === "review" ? "Start cards" : "Start practice", cls: "mod-cta" }).addEventListener("click", () => {
+        if (block.type === "review" && typeof this.plugin.openStudySkin === "function") this.plugin.openStudySkin();
+        else if (block.type === "practice" && typeof this.plugin.activateQuickPractice === "function") this.plugin.activateQuickPractice();
+      });
+    }
+    actions.createEl("button", { text: this.timeBlockEditId === block.id ? "Cancel edit" : "Edit" }).addEventListener("click", () => {
+      this.timeBlockEditId = this.timeBlockEditId === block.id ? "" : block.id;
+      this.render();
+    });
+    actions.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+      await this.plugin.removeTimeBlock(block.id);
+      this.saveMessage("Block removed.");
+      this.render();
+    });
+
+    if (this.timeBlockEditId === block.id) {
+      const form = card.createDiv({ cls: "qt-study-form qt-time-block-edit" });
+      const title = this.renderField(form, "Block", "text", "", block.title);
+      const start = this.renderField(form, "Start", "time", "", block.start);
+      const end = this.renderField(form, "End", "time", "", block.end);
+      const type = this.renderSelect(form, "Type", timeBlocks.TIME_BLOCK_TYPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })), block.type);
+      const project = this.renderSelect(form, "Project or domain", this.timeBlockProjectOptions(data), block.projectId);
+      const course = this.renderField(form, "Course (optional)", "text", "", block.course);
+      const notes = this.renderTextarea(form, "Notes (optional)", "", block.notes, 2);
+      form.createEl("button", { text: "Save block", cls: "mod-cta" }).addEventListener("click", async () => {
+        const updated = await this.plugin.updateTimeBlock(block.id, {
+          title: title.value,
+          start: start.value,
+          end: end.value,
+          type: type.value,
+          projectId: project.value,
+          course: course.value,
+          notes: notes.value,
+        });
+        if (!updated) {
+          this.saveMessage("Keep a name and an end time after the start.");
+          this.render();
+          return;
+        }
+        this.timeBlockEditId = "";
+        this.saveMessage("Block saved.");
+        this.render();
+      });
+    } else if (block.notes) {
+      card.createDiv({ cls: "qt-time-block-notes", text: block.notes });
+    }
+
+    const tasks = card.createDiv({ cls: "qt-time-block-tasks" });
+    for (const task of block.tasks) {
+      const row = tasks.createDiv({ cls: "qt-time-block-task" });
+      const check = row.createEl("input", { type: "checkbox", attr: { "aria-label": "Done: " + task.title } });
+      check.checked = task.done;
+      check.addEventListener("change", async () => {
+        await this.plugin.toggleTimeBlockTask(block.id, task.id, check.checked);
+        this.render();
+      });
+      const label = row.createDiv({ cls: "qt-time-block-task-title" + (task.done ? " is-done" : ""), text: task.title });
+      if (task.studyTaskId) label.createSpan({ cls: "qt-study-row-meta", text: " linked task" });
+      row.createEl("button", { text: "Remove", cls: "qt-link qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeTimeBlockTask(block.id, task.id);
+        this.render();
+      });
+    }
+    const addTask = card.createDiv({ cls: "qt-row qt-time-block-task-add" });
+    const input = addTask.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Add a task inside this block" } });
+    addTask.createEl("button", { text: "Add task" }).addEventListener("click", async () => {
+      if (!str(input.value).trim()) {
+        this.saveMessage("Name the task first.");
+        this.render();
+        return;
+      }
+      await this.plugin.addTimeBlockTask(block.id, { title: input.value });
+      this.render();
+    });
+  }
+
+  renderTimeBlockWeek(root, data) {
+    const week = timeBlocks.weekSummary(data.blocks, this.timeBlockDate, data.weekStartsOn);
+    const calendar = this.timeBlockCalendar();
+    const calWeek = calendar.enabled && data.showCalendar !== false
+      ? timeBlocks.calendarWeekSummary(calendar.events, this.timeBlockDate, data.weekStartsOn, data.blocks)
+      : null;
+    const card = root.createDiv({ cls: "qt-study-card" });
+    const head = card.createDiv({ cls: "qt-workspace-head" });
+    head.createEl("h3", { text: "Week" });
+    this.timeBlockDateControls(head);
+    card.createDiv({ cls: "qt-study-row-meta", text: week.blocks + " blocks · " + timeBlocks.durationLabel(week.minutes) + " planned · " + week.open + " open tasks" });
+    const grid = card.createDiv({ cls: "qt-time-blocks-week" });
+    for (const day of week.days) {
+      const calDay = calWeek ? calWeek.days.find((entry) => entry.date === day.date) : null;
+      const conflictBlockIds = new Set(calDay ? calDay.rows.flatMap((event) => event.overlaps.map((block) => block.id)) : []);
+      const column = grid.createDiv({ cls: "qt-time-blocks-week-day" + (day.date === this.timeBlockDate ? " is-selected" : "") });
+      const title = column.createDiv({ cls: "qt-time-blocks-week-title" });
+      title.createSpan({ text: timeBlocks.WEEKDAY_NAMES[timeBlocks.weekdayOf(day.date)] + " " + day.date.slice(5) });
+      title.createSpan({ cls: "qt-study-row-meta", text: timeBlocks.durationLabel(day.minutes) });
+      if (calDay && calDay.events) {
+        column.createDiv({ cls: "qt-time-blocks-week-calendar", text: calDay.events + " calendar · " + timeBlocks.durationLabel(calDay.busyMinutes) });
+        for (const event of calDay.rows) {
+          column.createDiv({
+            cls: "qt-time-blocks-week-event" + (event.overlaps.length ? " is-conflict" : ""),
+            text: (event.allDay ? "All day · " : event.start + " · ") + event.title,
+          });
+        }
+      }
+      const blocks = timeBlocks.blocksForDate(data.blocks, day.date);
+      if (!blocks.length) column.createDiv({ cls: "qt-hint", text: "No blocks" });
+      for (const block of blocks) {
+        const row = column.createDiv({ cls: "qt-time-blocks-week-block" + (conflictBlockIds.has(block.id) ? " is-conflict" : "") });
+        row.createDiv({ cls: "qt-time-blocks-week-block-time", text: block.start + "–" + block.end });
+        row.createDiv({ cls: "qt-time-blocks-week-block-title", text: block.title });
+        if (block.projectId) row.createDiv({ cls: "qt-study-row-meta", text: this.timeBlockProjectName(data, block.projectId) });
+        row.addEventListener("click", () => {
+          this.timeBlockDate = day.date;
+          this.timeBlockView = "day";
+          this.render();
+        });
+      }
+      column.createEl("button", { text: "Open day", cls: "qt-link" }).addEventListener("click", () => {
+        this.timeBlockDate = day.date;
+        this.timeBlockView = "day";
+        this.render();
+      });
+    }
+  }
+
+  renderTimeBlockGrid(root, data) {
+    const week = timeBlocks.weekSummary(data.blocks, this.timeBlockDate, data.weekStartsOn);
+    const dates = week.days.map((day) => day.date);
+    const timeline = timeBlocks.projectTimeline(data.blocks, data.projects, 7, dates[6]);
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Grid" });
+    card.createDiv({ cls: "qt-hint", text: "One row per project or domain, one column per day. Minutes come from the blocks; click a cell to open that day." });
+    if (!timeline.rows.length) {
+      this.renderTabsEmpty(root, "No projects or time blocks yet. Add a project or a block first.");
+      return;
+    }
+    const table = card.createDiv({ cls: "qt-time-blocks-grid" });
+    const header = table.createDiv({ cls: "qt-time-blocks-grid-row is-header" });
+    header.createDiv({ cls: "qt-time-blocks-grid-label", text: "Project" });
+    for (const date of dates) header.createDiv({ cls: "qt-time-blocks-grid-cell", text: timeBlocks.WEEKDAY_NAMES[timeBlocks.weekdayOf(date)] + " " + date.slice(5) });
+    for (const row of timeline.rows) {
+      const line = table.createDiv({ cls: "qt-time-blocks-grid-row" });
+      const label = line.createDiv({ cls: "qt-time-blocks-grid-label" });
+      const dot = label.createSpan({ cls: "qt-workspace-subject-dot" });
+      dot.style.background = row.color;
+      label.createSpan({ text: row.name });
+      for (const date of dates) {
+        const minutes = row.byDay[date] || 0;
+        const cell = line.createEl("button", { cls: "qt-time-blocks-grid-cell" + (minutes ? " has-work" : ""), text: minutes ? timeBlocks.durationLabel(minutes) : "—" });
+        cell.setAttr("aria-label", row.name + " on " + date);
+        cell.addEventListener("click", () => {
+          this.timeBlockDate = date;
+          this.timeBlockView = "day";
+          this.render();
+        });
+      }
+    }
+  }
+
+  renderTimeBlockBacklog(root, data) {
+    const studyTasks = this.settings().studyTasks.tasks;
+    const tasks = timeBlocks.unscheduledStudyTasks(studyTasks, data.blocks, this.timeBlockDate);
+    const add = root.createDiv({ cls: "qt-study-card" });
+    add.createEl("h3", { text: "Backlog" });
+    add.createDiv({ cls: "qt-hint", text: "Intentions that have not been placed yet. Existing open study tasks are included; scheduling one puts it in a block without creating a second task." });
+    const form = add.createDiv({ cls: "qt-study-form" });
+    const intention = this.renderField(form, "New intention", "text", "Review the chapter 4 summary");
+    const project = this.renderSelect(form, "Project or domain", this.timeBlockProjectOptions(data), "");
+    const course = this.renderField(form, "Course (optional)", "text", "");
+    const resurface = this.renderField(form, "Resurface on (optional)", "date", "");
+    const addActions = add.createDiv({ cls: "qt-row qt-study-actions" });
+    addActions.createEl("button", { text: "Add to backlog", cls: "mod-cta" }).addEventListener("click", async () => {
+      const item = await this.plugin.addTimeBlockBacklog({ title: intention.value, projectId: project.value, course: course.value, resurface: resurface.value });
+      if (!item) {
+        this.saveMessage("Name the intention first.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Backlog intention added.");
+      this.render();
+    });
+    const schedule = root.createDiv({ cls: "qt-study-card" });
+    schedule.createEl("h3", { text: "Place work" });
+    schedule.createDiv({ cls: "qt-hint", text: "Choose where a backlog item should land, then schedule it." });
+    const scheduleForm = schedule.createDiv({ cls: "qt-study-form" });
+    const date = this.renderField(scheduleForm, "Date", "date", "", this.timeBlockDate);
+    const start = this.renderField(scheduleForm, "Start", "time", "", data.dayStart);
+    const end = this.renderField(scheduleForm, "End", "time", "", "10:30");
+    const scheduleProject = this.renderSelect(scheduleForm, "Project or domain", this.timeBlockProjectOptions(data), "");
+    const scheduleValues = () => ({ date: date.value, start: start.value, end: end.value, projectId: scheduleProject.value });
+    if (!tasks.length && !data.backlog.length) {
+      this.renderTabsEmpty(root, "The backlog is clear. Add an intention above or leave it empty until something new appears.");
+      return;
+    }
+    const list = schedule.createDiv({ cls: "qt-study-list" });
+    for (const task of tasks) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: task.title });
+      main.createDiv({ cls: "qt-study-row-meta", text: (task.course ? task.course + " · " : "") + (task.due ? "due " + task.due : "no due date") + (task.overdue ? " · overdue" : "") });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: "Schedule", cls: "mod-cta" }).addEventListener("click", async () => {
+        const block = await this.plugin.scheduleStudyTask(task.id, scheduleValues());
+        this.saveMessage(block ? "Scheduled " + task.title + "." : "Use an end time after the start.");
+        this.render();
+      });
+    }
+    for (const item of data.backlog) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: item.title });
+      main.createDiv({ cls: "qt-study-row-meta", text: (item.projectId ? this.timeBlockProjectName(data, item.projectId) + " · " : "") + (item.resurface ? "resurface " + item.resurface : "unscheduled") });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: "Schedule", cls: "mod-cta" }).addEventListener("click", async () => {
+        const block = await this.plugin.scheduleTimeBlockBacklog(item.id, scheduleValues());
+        this.saveMessage(block ? "Scheduled " + item.title + "." : "Use an end time after the start.");
+        this.render();
+      });
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeTimeBlockBacklog(item.id);
+        this.render();
+      });
+    }
+  }
+
+  renderTimeBlockRoutines(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Routines" });
+    card.createDiv({ cls: "qt-hint", text: "Repeating blocks are offers, not automatic writes. Add the missing routines to " + this.timeBlockDate + " when you want them." });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add this day's routines", cls: "mod-cta" }).addEventListener("click", async () => {
+      const created = await this.plugin.applyTimeBlockRoutines(this.timeBlockDate);
+      this.saveMessage(created.length ? "Added " + created.length + " routine block" + (created.length === 1 ? "" : "s") + "." : "This day already has every matching routine.");
+      this.render();
+    });
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const title = this.renderField(form, "Routine", "text", "Morning review");
+    const start = this.renderField(form, "Start", "time", "", data.dayStart);
+    const end = this.renderField(form, "End", "time", "", "10:30");
+    const type = this.renderSelect(form, "Type", timeBlocks.TIME_BLOCK_TYPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })), "study");
+    const project = this.renderSelect(form, "Project or domain", this.timeBlockProjectOptions(data), "");
+    const daysWrap = form.createDiv({ cls: "qt-time-block-days" });
+    const boxes = {};
+    for (let index = 0; index < 7; index++) {
+      const label = daysWrap.createEl("label", { cls: "qt-time-block-day" });
+      const box = label.createEl("input", { type: "checkbox", attr: { "aria-label": "Routine on " + timeBlocks.WEEKDAY_NAMES[index] } });
+      box.checked = index === timeBlocks.weekdayOf(this.timeBlockDate);
+      boxes[index] = box;
+      label.createSpan({ text: timeBlocks.WEEKDAY_NAMES[index] });
+    }
+    const add = card.createDiv({ cls: "qt-row qt-study-actions" });
+    add.createEl("button", { text: "Add routine" }).addEventListener("click", async () => {
+      const days = Object.entries(boxes).filter(([, box]) => box.checked).map(([index]) => Number(index));
+      const routine = await this.plugin.addTimeBlockRoutine({ title: title.value, start: start.value, end: end.value, type: type.value, projectId: project.value, days });
+      if (!routine) {
+        this.saveMessage("Add a name, a valid time range and at least one day.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Routine added.");
+      this.render();
+    });
+    if (!data.routines.length) {
+      this.renderTabsEmpty(root, "No routines yet. Add one above; it stays an offer until you place it on a day.");
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const routine of data.routines) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: routine.title });
+      main.createDiv({ cls: "qt-study-row-meta", text: routine.start + "–" + routine.end + " · " + routine.days.map((day) => timeBlocks.WEEKDAY_NAMES[day]).join(", ") });
+      row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeTimeBlockRoutine(routine.id);
+        this.render();
+      });
+    }
+  }
+
+  renderTimeBlockProjects(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Projects & domains" });
+    card.createDiv({ cls: "qt-hint", text: "Projects group related work; domains are broader life areas. Both are optional lenses over the same blocks." });
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const name = this.renderField(form, "Name", "text", "Biology");
+    const kind = this.renderSelect(form, "Kind", [{ value: "project", label: "Project" }, { value: "domain", label: "Domain" }], "project");
+    const color = this.renderField(form, "Colour (optional)", "text", "#6f8ff5");
+    const course = this.renderField(form, "Course (optional)", "text", "Biology");
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add project or domain", cls: "mod-cta" }).addEventListener("click", async () => {
+      const project = await this.plugin.addTimeBlockProject({ name: name.value, kind: kind.value, color: color.value, course: course.value });
+      if (!project) {
+        this.saveMessage("Name the project or domain first.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Project added.");
+      this.render();
+    });
+    if (!data.projects.length) {
+      this.renderTabsEmpty(root, "No projects or domains yet. Add one above to group blocks and see where the hours went.");
+      return;
+    }
+    const totals = {};
+    for (const block of data.blocks) totals[block.projectId || ""] = (totals[block.projectId || ""] || 0) + timeBlocks.durationMinutes(block);
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const project of data.projects) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      const heading = main.createDiv({ cls: "qt-study-row-title" });
+      const dot = heading.createSpan({ cls: "qt-workspace-subject-dot" });
+      dot.style.background = project.color;
+      heading.createSpan({ text: project.name });
+      main.createDiv({ cls: "qt-study-row-meta", text: project.kind + (project.course ? " · " + project.course : "") + " · " + timeBlocks.durationLabel(totals[project.id] || 0) + " planned" });
+      row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeTimeBlockProject(project.id);
+        this.render();
+      });
+    }
+  }
+
+  renderTimeBlockTimeline(root, data) {
+    const timeline = timeBlocks.projectTimeline(data.blocks, data.projects, 14, this.timeBlockDate);
+    const totals = timeBlocks.normalizeTimeline(data.blocks);
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Timeline" });
+    card.createDiv({ cls: "qt-hint", text: "The last 14 days of block time, grouped by project or domain. It is history, not a second calendar." });
+    card.createDiv({ cls: "qt-study-row-meta", text: totals.blocks + " blocks · " + timeBlocks.durationLabel(totals.totalMinutes) + " total · " + totals.tasks + " tasks" });
+    if (!timeline.rows.length) {
+      this.renderTabsEmpty(root, "No project time yet. Add a block and a project to build the timeline.");
+      return;
+    }
+    const max = Math.max(1, ...timeline.rows.map((row) => row.minutes));
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of timeline.rows) {
+      const item = list.createDiv({ cls: "qt-study-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      const heading = main.createDiv({ cls: "qt-study-row-title" });
+      const dot = heading.createSpan({ cls: "qt-workspace-subject-dot" });
+      dot.style.background = row.color;
+      heading.createSpan({ text: row.name });
+      const bar = main.createDiv({ cls: "qt-study-bar" });
+      bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = Math.round((row.minutes / max) * 100) + "%";
+      main.createDiv({ cls: "qt-study-row-meta", text: row.kind + " · " + timeBlocks.durationLabel(row.minutes) });
     }
   }
 
@@ -86831,6 +87666,650 @@ module.exports = {
   normalizeThinkFirstSeconds,
   thinkFirstRemainingMs,
   thinkFirstLabel,
+};
+};
+
+/* ---- src/time-blocks.js ---- */
+__defs["time-blocks"] = function (module, exports, require) {
+/*
+ * Local, dependency-free time-block planning. Blocks own a span of a day;
+ * tasks live inside them. Projects and domains are optional lenses, and the
+ * backlog reuses the plugin's existing study tasks instead of creating a
+ * second task system.
+ */
+const { hashString, str } = require("./util");
+
+const MAX_BLOCKS = 2000;
+const MAX_PROJECTS = 100;
+const MAX_ROUTINES = 100;
+const MAX_BACKLOG = 500;
+const MAX_TASKS_PER_BLOCK = 40;
+const MAX_TITLE = 200;
+const MAX_TEXT = 12000;
+const TIME_BLOCK_TYPES = ["study", "class", "personal", "review", "practice", "other"];
+const TIME_BLOCK_VIEWS = ["day", "week", "grid", "backlog", "routines", "projects", "timeline"];
+const PROJECT_KINDS = ["project", "domain"];
+const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const PROJECT_COLORS = ["#6f8ff5", "#d97757", "#5cae8a", "#c084d6", "#d5a84f", "#5ba8c9"];
+
+function objectValue(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function textValue(value, max) {
+  return str(value).replace(/\r\n?/g, "\n").trim().slice(0, max || MAX_TITLE);
+}
+
+function numberValue(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function idFor(prefix, parts) {
+  return `${prefix}-${hashString(parts.join("|"))}`;
+}
+
+function pad(value) {
+  return String(value).padStart(2, "0");
+}
+
+function parseDay(value) {
+  const key = str(value).trim().slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (date.getUTCFullYear() !== Number(match[1]) || date.getUTCMonth() !== Number(match[2]) - 1 || date.getUTCDate() !== Number(match[3])) return null;
+  return date;
+}
+
+function dayKey(date) {
+  const value = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+}
+
+function dayValue(value) {
+  const parsed = parseDay(value);
+  if (!parsed) return "";
+  return `${parsed.getUTCFullYear()}-${pad(parsed.getUTCMonth() + 1)}-${pad(parsed.getUTCDate())}`;
+}
+
+function todayValue(now) {
+  return dayKey(now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date());
+}
+
+function addDays(value, count) {
+  const parsed = parseDay(value);
+  if (!parsed) return "";
+  parsed.setUTCDate(parsed.getUTCDate() + Math.round(count));
+  return `${parsed.getUTCFullYear()}-${pad(parsed.getUTCMonth() + 1)}-${pad(parsed.getUTCDate())}`;
+}
+
+function weekdayOf(value) {
+  const parsed = parseDay(value);
+  return parsed ? parsed.getUTCDay() : 0;
+}
+
+function startOfWeek(value, weekStartsOn) {
+  const key = dayValue(value) || todayValue();
+  const day = weekdayOf(key);
+  const offset = weekStartsOn === "sunday" ? day : (day + 6) % 7;
+  return addDays(key, -offset);
+}
+
+function weekDates(value, weekStartsOn) {
+  const start = startOfWeek(value, weekStartsOn);
+  return Array.from({ length: 7 }, (_, index) => addDays(start, index));
+}
+
+function normalizeTime(value) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(str(value).trim());
+  if (!match) return "";
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return "";
+  return `${pad(hour)}:${pad(minute)}`;
+}
+
+function minutesOf(value) {
+  const time = normalizeTime(value);
+  if (!time) return -1;
+  const [hour, minute] = time.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function timeFromMinutes(total) {
+  const value = Math.max(0, Math.min(1439, Math.round(total)));
+  return `${pad(Math.floor(value / 60))}:${pad(value % 60)}`;
+}
+
+function durationMinutes(block) {
+  const start = minutesOf(block && block.start);
+  const end = minutesOf(block && block.end);
+  return start >= 0 && end > start ? end - start : 0;
+}
+
+function durationLabel(minutes) {
+  const value = Math.max(0, Math.round(Number(minutes) || 0));
+  if (value < 60) return `${value} min`;
+  const hours = Math.floor(value / 60);
+  const rest = value % 60;
+  return `${hours}h${rest ? ` ${rest}m` : ""}`;
+}
+
+function enabledValue(value) {
+  return !!(value && typeof value === "object" && value.enabled === true);
+}
+
+function normalizeType(value) {
+  const type = str(value).trim().toLowerCase();
+  return TIME_BLOCK_TYPES.includes(type) ? type : "study";
+}
+
+function normalizeView(value) {
+  const view = str(value).trim();
+  return TIME_BLOCK_VIEWS.includes(view) ? view : "day";
+}
+
+function normalizeProjectKind(value) {
+  const kind = str(value).trim().toLowerCase();
+  return PROJECT_KINDS.includes(kind) ? kind : "project";
+}
+
+function projectColor(value, id) {
+  const color = str(value).trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(color)) return color;
+  return PROJECT_COLORS[Math.abs(Number.parseInt(hashString(id || "project"), 36)) % PROJECT_COLORS.length];
+}
+
+function normalizeBlockTask(value, createdAt) {
+  const source = objectValue(value);
+  const title = textValue(source.title, MAX_TITLE);
+  if (!title) return null;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("tbt", [title, source.studyTaskId || "", createdAt || 0]),
+    title,
+    done: source.done === true,
+    studyTaskId: textValue(source.studyTaskId, 160),
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, createdAt || 0))),
+  };
+}
+
+function normalizeTimeBlock(value) {
+  const source = objectValue(value);
+  const title = textValue(source.title, MAX_TITLE);
+  const date = dayValue(source.date);
+  const start = normalizeTime(source.start);
+  const end = normalizeTime(source.end);
+  if (!title || !date || !start || !end || minutesOf(end) <= minutesOf(start)) return null;
+  const createdAt = Math.max(0, Math.round(numberValue(source.createdAt, 0)));
+  const tasks = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.tasks) ? source.tasks : []) {
+    const task = normalizeBlockTask(raw, createdAt);
+    if (!task || seen.has(task.id)) continue;
+    seen.add(task.id);
+    tasks.push(task);
+    if (tasks.length >= MAX_TASKS_PER_BLOCK) break;
+  }
+  const projectId = textValue(source.projectId, 160);
+  const routineId = textValue(source.routineId, 160);
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("tb", [date, start, end, title, source.createdAt || 0]),
+    date,
+    start,
+    end,
+    title,
+    type: normalizeType(source.type),
+    projectId,
+    course: textValue(source.course, MAX_TITLE),
+    notes: textValue(source.notes, MAX_TEXT),
+    tasks,
+    routineId,
+    createdAt,
+    updatedAt: Math.max(0, Math.round(numberValue(source.updatedAt, createdAt))),
+  };
+}
+
+function normalizeTimeBlocks(value) {
+  const source = objectValue(value);
+  const blocks = [];
+  const seenBlocks = new Set();
+  for (const raw of Array.isArray(source.blocks) ? source.blocks : []) {
+    const block = normalizeTimeBlock(raw);
+    if (!block || seenBlocks.has(block.id)) continue;
+    seenBlocks.add(block.id);
+    blocks.push(block);
+    if (blocks.length >= MAX_BLOCKS) break;
+  }
+  const projects = [];
+  const seenProjects = new Set();
+  for (const raw of Array.isArray(source.projects) ? source.projects : []) {
+    const project = normalizeTimeProject(raw);
+    if (!project || seenProjects.has(project.id)) continue;
+    seenProjects.add(project.id);
+    projects.push(project);
+    if (projects.length >= MAX_PROJECTS) break;
+  }
+  const routines = [];
+  const seenRoutines = new Set();
+  for (const raw of Array.isArray(source.routines) ? source.routines : []) {
+    const routine = normalizeTimeRoutine(raw);
+    if (!routine || seenRoutines.has(routine.id)) continue;
+    seenRoutines.add(routine.id);
+    routines.push(routine);
+    if (routines.length >= MAX_ROUTINES) break;
+  }
+  const backlog = [];
+  const seenBacklog = new Set();
+  for (const raw of Array.isArray(source.backlog) ? source.backlog : []) {
+    const item = normalizeBacklogItem(raw);
+    if (!item || seenBacklog.has(item.id)) continue;
+    seenBacklog.add(item.id);
+    backlog.push(item);
+    if (backlog.length >= MAX_BACKLOG) break;
+  }
+  return {
+    enabled: enabledValue(source),
+    showCalendar: source.showCalendar !== false,
+    weekStartsOn: source.weekStartsOn === "sunday" ? "sunday" : "monday",
+    dayStart: normalizeTime(source.dayStart) || "07:00",
+    dayEnd: normalizeTime(source.dayEnd) || "22:00",
+    notesFolder: textValue(source.notesFolder, 200) || "Time blocks",
+    view: normalizeView(source.view),
+    blocks,
+    projects,
+    routines,
+    backlog,
+  };
+}
+
+function createTimeBlock(input, now) {
+  const source = objectValue(input);
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeTimeBlock({
+    ...source,
+    id: source.id || idFor("tb", [source.date || "", source.start || "", source.end || "", source.title || "", stamp]),
+    createdAt: source.createdAt || stamp,
+    updatedAt: stamp,
+  });
+}
+
+function normalizeTimeProject(value) {
+  const source = objectValue(value);
+  const name = textValue(source.name, MAX_TITLE);
+  if (!name) return null;
+  const id = str(source.id).trim().slice(0, 160) || idFor("tbp", [name, source.kind || "project", source.createdAt || 0]);
+  return {
+    id,
+    name,
+    kind: normalizeProjectKind(source.kind),
+    color: projectColor(source.color, id),
+    course: textValue(source.course, MAX_TITLE),
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function createTimeProject(input, now) {
+  const source = objectValue(input);
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeTimeProject({ ...source, createdAt: source.createdAt || stamp });
+}
+
+function normalizeRoutineDays(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/[,\s]+/);
+  const found = new Set();
+  for (const item of raw) {
+    const text = str(item).trim().toLowerCase();
+    if (!text) continue;
+    const index = WEEKDAY_NAMES.findIndex((name) => name.toLowerCase() === text.slice(0, 3));
+    const numeric = Number(text);
+    if (index >= 0) found.add(index);
+    else if (Number.isInteger(numeric) && numeric >= 0 && numeric <= 6) found.add(numeric);
+  }
+  return [...found].sort((a, b) => a - b);
+}
+
+function normalizeTimeRoutine(value) {
+  const source = objectValue(value);
+  const title = textValue(source.title, MAX_TITLE);
+  const start = normalizeTime(source.start);
+  const end = normalizeTime(source.end);
+  const days = normalizeRoutineDays(source.days);
+  if (!title || !start || !end || minutesOf(end) <= minutesOf(start) || !days.length) return null;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("tbr", [title, start, end, days.join(""), source.createdAt || 0]),
+    title,
+    days,
+    start,
+    end,
+    type: normalizeType(source.type),
+    projectId: textValue(source.projectId, 160),
+    course: textValue(source.course, MAX_TITLE),
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function createTimeRoutine(input, now) {
+  const source = objectValue(input);
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeTimeRoutine({ ...source, createdAt: source.createdAt || stamp });
+}
+
+function normalizeBacklogItem(value) {
+  const source = objectValue(value);
+  const title = textValue(source.title, MAX_TITLE);
+  if (!title) return null;
+  return {
+    id: str(source.id).trim().slice(0, 160) || idFor("tbb", [title, source.projectId || "", source.createdAt || 0]),
+    title,
+    projectId: textValue(source.projectId, 160),
+    course: textValue(source.course, MAX_TITLE),
+    resurface: dayValue(source.resurface),
+    createdAt: Math.max(0, Math.round(numberValue(source.createdAt, 0))),
+  };
+}
+
+function createBacklogItem(input, now) {
+  const source = objectValue(input);
+  const stamp = Math.max(0, Math.round(numberValue(now, Date.now())));
+  return normalizeBacklogItem({ ...source, createdAt: source.createdAt || stamp });
+}
+
+function blocksForDate(blocks, date) {
+  const key = dayValue(date);
+  return (Array.isArray(blocks) ? blocks : [])
+    .filter((block) => block && block.date === key)
+    .sort((a, b) => a.start.localeCompare(b.start) || a.createdAt - b.createdAt);
+}
+
+function blocksInRange(blocks, start, end) {
+  const first = dayValue(start);
+  const last = dayValue(end);
+  if (!first || !last || last < first) return [];
+  return (Array.isArray(blocks) ? blocks : []).filter((block) => block.date >= first && block.date <= last);
+}
+
+function blockSummary(blocks, date) {
+  const list = blocksForDate(blocks, date);
+  const minutes = list.reduce((sum, block) => sum + durationMinutes(block), 0);
+  const tasks = list.flatMap((block) => block.tasks);
+  return {
+    date: dayValue(date),
+    blocks: list.length,
+    minutes,
+    tasks: tasks.length,
+    done: tasks.filter((task) => task.done).length,
+    open: tasks.filter((task) => !task.done).length,
+  };
+}
+
+function weekSummary(blocks, date, weekStartsOn) {
+  const days = weekDates(date, weekStartsOn).map((key) => blockSummary(blocks, key));
+  return {
+    days,
+    blocks: days.reduce((sum, day) => sum + day.blocks, 0),
+    minutes: days.reduce((sum, day) => sum + day.minutes, 0),
+    open: days.reduce((sum, day) => sum + day.open, 0),
+  };
+}
+
+function scheduledStudyTaskIds(blocks) {
+  const ids = new Set();
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    for (const task of block.tasks || []) {
+      if (task.studyTaskId) ids.add(task.studyTaskId);
+    }
+  }
+  return ids;
+}
+
+/** Existing open study tasks that are not already inside any time block. */
+function unscheduledStudyTasks(tasks, blocks, today) {
+  const scheduled = scheduledStudyTaskIds(blocks);
+  const day = dayValue(today);
+  return (Array.isArray(tasks) ? tasks : [])
+    .filter((task) => task && !task.done && !scheduled.has(task.id))
+    .sort((a, b) => (a.due || "9999-12-31").localeCompare(b.due || "9999-12-31") || a.createdAt - b.createdAt)
+    .map((task) => ({ ...task, overdue: !!(day && task.due && task.due < day) }));
+}
+
+function eventClock(value) {
+  const date = value instanceof Date ? value : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return timeFromMinutes(date.getHours() * 60 + date.getMinutes());
+}
+
+function eventMinute(value) {
+  const date = value instanceof Date ? value : null;
+  if (!date || Number.isNaN(date.getTime())) return -1;
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+function overlapsBlock(event, block) {
+  const start = eventMinute(event.dtstart);
+  const finish = eventMinute(event.dtend);
+  const blockStart = minutesOf(block.start);
+  const blockEnd = minutesOf(block.end);
+  if (start < 0 || finish <= start || blockStart < 0 || blockEnd <= blockStart) return false;
+  return Math.max(start, blockStart) < Math.min(finish, blockEnd);
+}
+
+/**
+ * Read-only calendar context for one day. Events come from the existing
+ * calendar; a block that shares their time is marked, never moved or copied.
+ */
+function calendarDaySummary(events, date, blocks) {
+  const key = dayValue(date);
+  const list = (Array.isArray(events) ? events : [])
+    .filter((event) => {
+      if (!event) return false;
+      if (str(event.dateKey)) return event.dateKey === key;
+      return event.dtstart instanceof Date && !Number.isNaN(event.dtstart.getTime()) && dayKey(event.dtstart) === key;
+    })
+    .sort((a, b) => {
+      const aAll = a.allDay === true;
+      const bAll = b.allDay === true;
+      if (aAll !== bAll) return aAll ? -1 : 1;
+      return eventMinute(a.dtstart) - eventMinute(b.dtstart);
+    });
+  const dayBlocks = blocksForDate(blocks, key);
+  const rows = list.map((event, index) => {
+    const allDay = event.allDay === true;
+    const start = allDay ? "" : eventClock(event.dtstart);
+    const end = allDay ? "" : eventClock(event.dtend);
+    const overlapping = allDay
+      ? []
+      : dayBlocks
+          .filter((block) => overlapsBlock(event, block))
+          .map((block) => ({ id: block.id, title: block.title, start: block.start, end: block.end }));
+    return {
+      id: str(event.uid || event.id).trim() || idFor("tbc", [key, str(event.summary), start, index]),
+      title: textValue(event.summary, MAX_TITLE) || "Untitled event",
+      start,
+      end,
+      allDay,
+      location: textValue(event.location, MAX_TITLE),
+      course: textValue(event.course || (event.details && event.details.subject), MAX_TITLE),
+      overlaps: overlapping,
+    };
+  });
+  const spans = rows
+    .filter((row) => !row.allDay && row.start && row.end)
+    .map((row) => ({ start: minutesOf(row.start), end: minutesOf(row.end) }))
+    .filter((span) => span.start >= 0 && span.end > span.start)
+    .sort((a, b) => a.start - b.start);
+  let busyMinutes = 0;
+  let cursor = 0;
+  for (const span of spans) {
+    const start = Math.max(cursor, span.start);
+    if (span.end > start) busyMinutes += span.end - start;
+    cursor = Math.max(cursor, span.end);
+  }
+  const conflictBlocks = new Set(rows.flatMap((row) => row.overlaps.map((block) => block.id)));
+  return {
+    date: key,
+    events: rows.length,
+    rows,
+    busyMinutes,
+    conflicts: rows.filter((row) => row.overlaps.length > 0).length,
+    conflictBlocks: conflictBlocks.size,
+  };
+}
+
+function calendarWeekSummary(events, date, weekStartsOn, blocks) {
+  const days = weekDates(date, weekStartsOn).map((key) => calendarDaySummary(events, key, blocks));
+  return {
+    days,
+    events: days.reduce((sum, day) => sum + day.events, 0),
+    busyMinutes: days.reduce((sum, day) => sum + day.busyMinutes, 0),
+    conflicts: days.reduce((sum, day) => sum + day.conflicts, 0),
+  };
+}
+
+function projectMap(projects) {
+  const map = new Map();
+  for (const project of Array.isArray(projects) ? projects : []) map.set(project.id, project);
+  return map;
+}
+
+function blocksToMarkdown(date, blocks, projects) {
+  const map = projectMap(projects);
+  const lines = [`# ${dayValue(date) || date}`, "", "## Schedule", ""];
+  for (const block of blocksForDate(blocks, date)) {
+    const project = map.get(block.projectId);
+    const tag = project ? ` [${project.kind === "domain" ? "D" : "P"}:${project.name}]` : "";
+    lines.push(`- ${block.start} - ${block.end} ${block.title}${tag}`);
+    for (const task of block.tasks) lines.push(`  - [${task.done ? "x" : " "}] ${task.title}`);
+    for (const noteLine of str(block.notes).split("\n").filter(Boolean)) lines.push(`  - ${noteLine}`);
+    lines.push("");
+  }
+  if (lines[lines.length - 1] === "") lines.pop();
+  return `${lines.join("\n")}\n`;
+}
+
+/** Create any routine blocks missing for a date; existing routine blocks win. */
+function applyRoutines(routines, blocks, date, now) {
+  const key = dayValue(date);
+  if (!key) return { blocks: Array.isArray(blocks) ? blocks : [], created: [] };
+  const day = weekdayOf(key);
+  const existing = new Set(
+    (Array.isArray(blocks) ? blocks : [])
+      .filter((block) => block && block.date === key && block.routineId)
+      .map((block) => block.routineId)
+  );
+  const created = [];
+  for (const routine of Array.isArray(routines) ? routines : []) {
+    if (!routine || !routine.days.includes(day) || existing.has(routine.id)) continue;
+    const block = createTimeBlock(
+      {
+        date: key,
+        start: routine.start,
+        end: routine.end,
+        title: routine.title,
+        type: routine.type,
+        projectId: routine.projectId,
+        course: routine.course,
+        routineId: routine.id,
+      },
+      Math.max(0, Math.round(numberValue(now, Date.now()))) + created.length
+    );
+    if (block) {
+      created.push(block);
+      existing.add(routine.id);
+    }
+  }
+  return { blocks: (Array.isArray(blocks) ? blocks : []).concat(created), created };
+}
+
+function projectMinutes(blocks, start, end) {
+  const totals = {};
+  for (const block of blocksInRange(blocks, start, end)) {
+    const key = block.projectId || "none";
+    totals[key] = (totals[key] || 0) + durationMinutes(block);
+  }
+  return totals;
+}
+
+function projectTimeline(blocks, projects, days, endDate) {
+  const end = dayValue(endDate);
+  const count = Math.max(1, Math.round(Number(days) || 14));
+  const start = addDays(end, -(count - 1));
+  const dates = Array.from({ length: count }, (_, index) => addDays(start, index));
+  const map = projectMap(projects);
+  const rows = [];
+  for (const project of Array.isArray(projects) ? projects : []) rows.push({ id: project.id, name: project.name, kind: project.kind, color: project.color, minutes: 0, byDay: {} });
+  rows.push({ id: "", name: "Unassigned", kind: "domain", color: "#8a8a8a", minutes: 0, byDay: {} });
+  const index = new Map(rows.map((row) => [row.id, row]));
+  for (const block of blocksInRange(blocks, start, end)) {
+    const row = index.get(block.projectId) || index.get("");
+    row.minutes += durationMinutes(block);
+    row.byDay[block.date] = (row.byDay[block.date] || 0) + durationMinutes(block);
+  }
+  for (const row of rows) {
+    for (const date of dates) row.byDay[date] = row.byDay[date] || 0;
+  }
+  return {
+    start,
+    end,
+    dates,
+    rows: rows.filter((row) => row.minutes > 0).sort((a, b) => b.minutes - a.minutes || a.name.localeCompare(b.name)),
+  };
+}
+
+function normalizeTimeline(value) {
+  const blocks = Array.isArray(value) ? value : [];
+  const future = blocks.filter((block) => block.date > todayValue());
+  const totalMinutes = blocks.reduce((sum, block) => sum + durationMinutes(block), 0);
+  return {
+    blocks: blocks.length,
+    future: future.length,
+    totalMinutes,
+    tasks: blocks.reduce((sum, block) => sum + block.tasks.length, 0),
+  };
+}
+
+module.exports = {
+  MAX_BACKLOG,
+  MAX_BLOCKS,
+  MAX_PROJECTS,
+  MAX_ROUTINES,
+  MAX_TASKS_PER_BLOCK,
+  PROJECT_COLORS,
+  PROJECT_KINDS,
+  TIME_BLOCK_TYPES,
+  TIME_BLOCK_VIEWS,
+  WEEKDAY_NAMES,
+  addDays,
+  applyRoutines,
+  blockSummary,
+  blocksForDate,
+  blocksInRange,
+  blocksToMarkdown,
+  calendarDaySummary,
+  calendarWeekSummary,
+  createBacklogItem,
+  createTimeBlock,
+  createTimeProject,
+  createTimeRoutine,
+  dayValue,
+  durationLabel,
+  durationMinutes,
+  normalizeBacklogItem,
+  normalizeTime,
+  normalizeTimeBlock,
+  normalizeTimeBlocks,
+  normalizeTimeProject,
+  normalizeTimeRoutine,
+  normalizeTimeline,
+  projectMinutes,
+  projectTimeline,
+  startOfWeek,
+  timeFromMinutes,
+  todayValue,
+  unscheduledStudyTasks,
+  weekDates,
+  weekSummary,
+  weekdayOf,
 };
 };
 
@@ -89955,6 +91434,7 @@ const intervalPreview = require("./interval-preview");
 const contextRetrieval = require("./context-retrieval");
 const { StudyToolsView } = require("./study-tools-view");
 const studyWorkspace = require("./study-workspace");
+const timeBlocks = require("./time-blocks");
 const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
 const courseHealth = require("./course-health");
@@ -90384,6 +91864,7 @@ QuestionTrackerPlugin.__test = {
   settingsGlobal,
   readingLibrary,
   studyWorkspace,
+  timeBlocks,
   readAloud,
   lectureCompiler,
   courseHealth,

@@ -7,6 +7,7 @@
 const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
 const { localDate, str } = require("./util");
+const timeBlocks = require("./time-blocks");
 const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
@@ -41,6 +42,7 @@ const TABS = [
   { id: "subjects", label: "Subjects", module: "subjectManager" },
   { id: "courses", label: "Courses", module: "courseHub" },
   { id: "tasks", label: "Tasks", module: "studyTasks" },
+  { id: "timeBlocks", label: "Time blocks", module: "timeBlocks" },
   { id: "annotations", label: "Annotations", module: "annotations" },
   { id: "deepNotes", label: "Deep Notes", module: "deepNotes" },
   { id: "retention", label: "Retention", module: "retention" },
@@ -84,6 +86,10 @@ const EMPTY_STATES = {
   courses: {
     title: "Build a course dashboard",
     steps: ["Add a subject or a first grade above.", "Weighted entries become the course average.", "Open a course overview for lectures, exams and readings."],
+  },
+  timeBlocks: {
+    title: "Plan where the work happens",
+    steps: ["Choose a day and add a block with a start and end time.", "Put small tasks inside the block; link an existing study task from the backlog.", "Use routines for repeating work and Project/domain lenses to see where the hours went."],
   },
   tasks: {
     title: "Keep the next study action visible",
@@ -173,6 +179,9 @@ class StudyWorkspaceView extends ItemView {
     this.bookmarkLabel = "";
     this.feynmanAiId = "";
     this.pdfAnnotationData = null;
+    this.timeBlockView = "day";
+    this.timeBlockDate = localDate();
+    this.timeBlockEditId = "";
   }
 
   async onClose() {
@@ -263,6 +272,7 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "subjects") this.renderSubjects(body);
     else if (this.tab === "courses") this.renderCourses(body);
     else if (this.tab === "tasks") this.renderTasks(body);
+    else if (this.tab === "timeBlocks") this.renderTimeBlocks(body);
     else if (this.tab === "annotations") this.renderAnnotations(body);
     else if (this.tab === "deepNotes") this.renderDeepNotes(body);
     else if (this.tab === "retention") this.renderRetention(body);
@@ -282,7 +292,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback, the PDF annotation index and the Reading library each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Time blocks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback, the PDF annotation index and the Reading library each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -1524,6 +1534,543 @@ class StudyWorkspaceView extends ItemView {
       });
     } else {
       card.createDiv({ cls: "qt-study-row-meta", text: "No AI feedback stored for this explanation yet." });
+    }
+  }
+
+  /* ---- Time blocks ----------------------------------------------------- */
+
+  timeBlockProjectOptions(data) {
+    return [
+      { value: "", label: "No project or domain" },
+      ...data.projects.map((project) => ({ value: project.id, label: project.kind === "domain" ? "Domain · " + project.name : project.name })),
+    ];
+  }
+
+  timeBlockProjectName(data, id) {
+    const project = data.projects.find((entry) => entry.id === id);
+    if (!project) return "";
+    return project.kind === "domain" ? "Domain · " + project.name : project.name;
+  }
+
+  timeBlockCalendar() {
+    if (typeof this.plugin.calendarSettings !== "function" || typeof this.plugin.calendarEvents !== "function") {
+      return { enabled: false, events: [], settings: null };
+    }
+    let settings = null;
+    try {
+      settings = this.plugin.calendarSettings();
+    } catch (e) {
+      return { enabled: false, events: [], settings: null };
+    }
+    if (!settings || settings.enabled !== true) return { enabled: false, events: [], settings };
+    try {
+      return { enabled: true, events: this.plugin.calendarEvents() || [], settings };
+    } catch (e) {
+      return { enabled: true, events: [], settings };
+    }
+  }
+
+  renderTimeBlockCalendar(root, data, date, calendar) {
+    if (!calendar || !calendar.enabled || data.showCalendar === false) return;
+    const summary = timeBlocks.calendarDaySummary(calendar.events, date, data.blocks);
+    const card = root.createDiv({ cls: "qt-study-card qt-time-blocks-calendar" });
+    card.createEl("h3", { text: "Calendar" });
+    card.createDiv({ cls: "qt-hint", text: "Read-only classes and events from the current calendar. A block that shares their time is marked here; calendar entries are never edited, moved or copied." });
+    card.createDiv({
+      cls: "qt-study-row-meta",
+      text: summary.events + " event" + (summary.events === 1 ? "" : "s") + " · " + timeBlocks.durationLabel(summary.busyMinutes) + " booked" + (summary.conflicts ? " · " + summary.conflicts + " block" + (summary.conflicts === 1 ? "" : "s") + " overlap" : ""),
+    });
+    if (!summary.rows.length) {
+      card.createDiv({ cls: "qt-hint", text: "No calendar events on this day. The planner stays usable with the calendar module off." });
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const event of summary.rows) {
+      const row = list.createDiv({ cls: "qt-study-row qt-time-block-calendar-event" + (event.overlaps.length ? " is-conflict" : "") });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      const title = main.createDiv({ cls: "qt-study-row-title", text: event.title });
+      const meta = [event.allDay ? "All day" : event.start + (event.end ? " – " + event.end : ""), event.location, event.course].filter(Boolean).join(" · ");
+      if (meta) title.createSpan({ cls: "qt-study-row-meta", text: " " + meta });
+      if (event.overlaps.length) {
+        main.createDiv({ cls: "qt-time-block-calendar-conflict", text: "Overlaps: " + event.overlaps.map((block) => block.start + " " + block.title).join(", ") });
+      }
+    }
+  }
+
+  timeBlockDateControls(root) {
+    const controls = root.createDiv({ cls: "qt-row qt-time-blocks-date" });
+    controls.createEl("button", { text: "Previous day", attr: { "aria-label": "Previous day" } }).addEventListener("click", () => {
+      this.timeBlockDate = timeBlocks.addDays(this.timeBlockDate, -1);
+      this.render();
+    });
+    const date = controls.createEl("input", { cls: "qt-input", type: "date", attr: { "aria-label": "Time-block day" } });
+    date.value = this.timeBlockDate;
+    date.addEventListener("change", () => {
+      this.timeBlockDate = timeBlocks.dayValue(date.value) || localDate();
+      this.render();
+    });
+    controls.createEl("button", { text: "Today" }).addEventListener("click", () => {
+      this.timeBlockDate = localDate();
+      this.render();
+    });
+    controls.createEl("button", { text: "Next day", attr: { "aria-label": "Next day" } }).addEventListener("click", () => {
+      this.timeBlockDate = timeBlocks.addDays(this.timeBlockDate, 1);
+      this.render();
+    });
+    controls.createSpan({ cls: "qt-study-row-meta", text: this.timeBlockDate });
+    return controls;
+  }
+
+  renderTimeBlocks(root) {
+    const data = this.settings().timeBlocks;
+    const labels = [
+      ["day", "Day"],
+      ["week", "Week"],
+      ["grid", "Grid"],
+      ["backlog", "Backlog"],
+      ["routines", "Routines"],
+      ["projects", "Projects & domains"],
+      ["timeline", "Timeline"],
+    ];
+    const nav = root.createDiv({ cls: "qt-time-blocks-nav", attr: { "aria-label": "Time-block views" } });
+    for (const [id, label] of labels) {
+      const button = nav.createEl("button", { text: label, cls: "qt-time-blocks-nav-button" });
+      if (this.timeBlockView === id) button.addClass("is-active");
+      button.setAttr("aria-pressed", this.timeBlockView === id ? "true" : "false");
+      button.addEventListener("click", () => {
+        this.timeBlockView = id;
+        this.timeBlockEditId = "";
+        this.render();
+      });
+    }
+    if (!timeBlocks.TIME_BLOCK_VIEWS.includes(this.timeBlockView)) this.timeBlockView = "day";
+    if (!timeBlocks.dayValue(this.timeBlockDate)) this.timeBlockDate = localDate();
+    const summary = timeBlocks.blockSummary(data.blocks, this.timeBlockDate);
+    root.createDiv({
+      cls: "qt-study-row-meta",
+      text: summary.blocks + " block" + (summary.blocks === 1 ? "" : "s") + " · " + timeBlocks.durationLabel(summary.minutes) + " planned · " + summary.open + " open task" + (summary.open === 1 ? "" : "s") + " on this day",
+    });
+    if (this.timeBlockView === "day") this.renderTimeBlockDay(root, data);
+    else if (this.timeBlockView === "week") this.renderTimeBlockWeek(root, data);
+    else if (this.timeBlockView === "grid") this.renderTimeBlockGrid(root, data);
+    else if (this.timeBlockView === "backlog") this.renderTimeBlockBacklog(root, data);
+    else if (this.timeBlockView === "routines") this.renderTimeBlockRoutines(root, data);
+    else if (this.timeBlockView === "projects") this.renderTimeBlockProjects(root, data);
+    else if (this.timeBlockView === "timeline") this.renderTimeBlockTimeline(root, data);
+  }
+
+  renderTimeBlockDay(root, data) {
+    const dayControls = root.createDiv({ cls: "qt-study-card" });
+    const head = dayControls.createDiv({ cls: "qt-workspace-head" });
+    head.createEl("h3", { text: "Day plan" });
+    this.timeBlockDateControls(head);
+    dayControls.createDiv({ cls: "qt-hint", text: "Blocks own the time; tasks live inside them. Add an existing study task from the Backlog, or write a small task directly here." });
+    this.renderTimeBlockCalendar(root, data, this.timeBlockDate, this.timeBlockCalendar());
+    const write = dayControls.createDiv({ cls: "qt-row qt-study-actions" });
+    write.createEl("button", { text: "Write day note" }).addEventListener("click", async () => {
+      try {
+        const path = await this.plugin.writeTimeBlockDay(this.timeBlockDate);
+        this.saveMessage("Saved " + path + ".");
+      } catch (e) {
+        this.saveMessage(String((e && e.message) || "Could not write the day note."));
+      }
+      this.render();
+    });
+    const projectOptions = this.timeBlockProjectOptions(data);
+    const add = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" });
+    add.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Add a time block" });
+    const form = add.createDiv({ cls: "qt-study-form" });
+    const title = this.renderField(form, "Block", "text", "Deep work: cell respiration");
+    const start = this.renderField(form, "Start", "time", "", data.dayStart);
+    const end = this.renderField(form, "End", "time", "", "10:30");
+    const type = this.renderSelect(form, "Type", timeBlocks.TIME_BLOCK_TYPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })), "study");
+    const project = this.renderSelect(form, "Project or domain", projectOptions, "");
+    const course = this.renderField(form, "Course (optional)", "text", "Biology");
+    const notes = this.renderTextarea(form, "Notes (optional)", "What is this block for?", "", 2);
+    const actions = add.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add block", cls: "mod-cta" }).addEventListener("click", async () => {
+      const block = await this.plugin.addTimeBlock({
+        date: this.timeBlockDate,
+        start: start.value,
+        end: end.value,
+        title: title.value,
+        type: type.value,
+        projectId: project.value,
+        course: course.value,
+        notes: notes.value,
+      });
+      if (!block) {
+        this.saveMessage("Add a name and a valid end time after the start.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Block added.");
+      this.render();
+    });
+    const blocks = timeBlocks.blocksForDate(data.blocks, this.timeBlockDate);
+    if (!blocks.length) {
+      this.renderTabsEmpty(root, "No blocks on this day. Add one above, then put the work inside it.");
+      return;
+    }
+    const list = root.createDiv({ cls: "qt-study-list qt-time-blocks-day-list" });
+    for (const block of blocks) this.renderTimeBlockCard(list, block, data);
+  }
+
+  renderTimeBlockCard(list, block, data) {
+    const card = list.createDiv({ cls: "qt-time-block qt-study-card" });
+    if (block.type) card.addClass("is-" + block.type);
+    const head = card.createDiv({ cls: "qt-workspace-head" });
+    const main = head.createDiv({ cls: "qt-time-block-main" });
+    main.createDiv({ cls: "qt-time-block-time", text: block.start + " – " + block.end + " · " + timeBlocks.durationLabel(timeBlocks.durationMinutes(block)) });
+    main.createDiv({ cls: "qt-time-block-title", text: block.title });
+    const meta = [block.type, this.timeBlockProjectName(data, block.projectId), block.course].filter(Boolean).join(" · ");
+    if (meta) main.createDiv({ cls: "qt-study-row-meta", text: meta });
+    const actions = head.createDiv({ cls: "qt-row qt-study-row-actions" });
+    if (block.type === "review" || block.type === "practice") {
+      actions.createEl("button", { text: block.type === "review" ? "Start cards" : "Start practice", cls: "mod-cta" }).addEventListener("click", () => {
+        if (block.type === "review" && typeof this.plugin.openStudySkin === "function") this.plugin.openStudySkin();
+        else if (block.type === "practice" && typeof this.plugin.activateQuickPractice === "function") this.plugin.activateQuickPractice();
+      });
+    }
+    actions.createEl("button", { text: this.timeBlockEditId === block.id ? "Cancel edit" : "Edit" }).addEventListener("click", () => {
+      this.timeBlockEditId = this.timeBlockEditId === block.id ? "" : block.id;
+      this.render();
+    });
+    actions.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+      await this.plugin.removeTimeBlock(block.id);
+      this.saveMessage("Block removed.");
+      this.render();
+    });
+
+    if (this.timeBlockEditId === block.id) {
+      const form = card.createDiv({ cls: "qt-study-form qt-time-block-edit" });
+      const title = this.renderField(form, "Block", "text", "", block.title);
+      const start = this.renderField(form, "Start", "time", "", block.start);
+      const end = this.renderField(form, "End", "time", "", block.end);
+      const type = this.renderSelect(form, "Type", timeBlocks.TIME_BLOCK_TYPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })), block.type);
+      const project = this.renderSelect(form, "Project or domain", this.timeBlockProjectOptions(data), block.projectId);
+      const course = this.renderField(form, "Course (optional)", "text", "", block.course);
+      const notes = this.renderTextarea(form, "Notes (optional)", "", block.notes, 2);
+      form.createEl("button", { text: "Save block", cls: "mod-cta" }).addEventListener("click", async () => {
+        const updated = await this.plugin.updateTimeBlock(block.id, {
+          title: title.value,
+          start: start.value,
+          end: end.value,
+          type: type.value,
+          projectId: project.value,
+          course: course.value,
+          notes: notes.value,
+        });
+        if (!updated) {
+          this.saveMessage("Keep a name and an end time after the start.");
+          this.render();
+          return;
+        }
+        this.timeBlockEditId = "";
+        this.saveMessage("Block saved.");
+        this.render();
+      });
+    } else if (block.notes) {
+      card.createDiv({ cls: "qt-time-block-notes", text: block.notes });
+    }
+
+    const tasks = card.createDiv({ cls: "qt-time-block-tasks" });
+    for (const task of block.tasks) {
+      const row = tasks.createDiv({ cls: "qt-time-block-task" });
+      const check = row.createEl("input", { type: "checkbox", attr: { "aria-label": "Done: " + task.title } });
+      check.checked = task.done;
+      check.addEventListener("change", async () => {
+        await this.plugin.toggleTimeBlockTask(block.id, task.id, check.checked);
+        this.render();
+      });
+      const label = row.createDiv({ cls: "qt-time-block-task-title" + (task.done ? " is-done" : ""), text: task.title });
+      if (task.studyTaskId) label.createSpan({ cls: "qt-study-row-meta", text: " linked task" });
+      row.createEl("button", { text: "Remove", cls: "qt-link qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeTimeBlockTask(block.id, task.id);
+        this.render();
+      });
+    }
+    const addTask = card.createDiv({ cls: "qt-row qt-time-block-task-add" });
+    const input = addTask.createEl("input", { cls: "qt-input", type: "text", attr: { placeholder: "Add a task inside this block" } });
+    addTask.createEl("button", { text: "Add task" }).addEventListener("click", async () => {
+      if (!str(input.value).trim()) {
+        this.saveMessage("Name the task first.");
+        this.render();
+        return;
+      }
+      await this.plugin.addTimeBlockTask(block.id, { title: input.value });
+      this.render();
+    });
+  }
+
+  renderTimeBlockWeek(root, data) {
+    const week = timeBlocks.weekSummary(data.blocks, this.timeBlockDate, data.weekStartsOn);
+    const calendar = this.timeBlockCalendar();
+    const calWeek = calendar.enabled && data.showCalendar !== false
+      ? timeBlocks.calendarWeekSummary(calendar.events, this.timeBlockDate, data.weekStartsOn, data.blocks)
+      : null;
+    const card = root.createDiv({ cls: "qt-study-card" });
+    const head = card.createDiv({ cls: "qt-workspace-head" });
+    head.createEl("h3", { text: "Week" });
+    this.timeBlockDateControls(head);
+    card.createDiv({ cls: "qt-study-row-meta", text: week.blocks + " blocks · " + timeBlocks.durationLabel(week.minutes) + " planned · " + week.open + " open tasks" });
+    const grid = card.createDiv({ cls: "qt-time-blocks-week" });
+    for (const day of week.days) {
+      const calDay = calWeek ? calWeek.days.find((entry) => entry.date === day.date) : null;
+      const conflictBlockIds = new Set(calDay ? calDay.rows.flatMap((event) => event.overlaps.map((block) => block.id)) : []);
+      const column = grid.createDiv({ cls: "qt-time-blocks-week-day" + (day.date === this.timeBlockDate ? " is-selected" : "") });
+      const title = column.createDiv({ cls: "qt-time-blocks-week-title" });
+      title.createSpan({ text: timeBlocks.WEEKDAY_NAMES[timeBlocks.weekdayOf(day.date)] + " " + day.date.slice(5) });
+      title.createSpan({ cls: "qt-study-row-meta", text: timeBlocks.durationLabel(day.minutes) });
+      if (calDay && calDay.events) {
+        column.createDiv({ cls: "qt-time-blocks-week-calendar", text: calDay.events + " calendar · " + timeBlocks.durationLabel(calDay.busyMinutes) });
+        for (const event of calDay.rows) {
+          column.createDiv({
+            cls: "qt-time-blocks-week-event" + (event.overlaps.length ? " is-conflict" : ""),
+            text: (event.allDay ? "All day · " : event.start + " · ") + event.title,
+          });
+        }
+      }
+      const blocks = timeBlocks.blocksForDate(data.blocks, day.date);
+      if (!blocks.length) column.createDiv({ cls: "qt-hint", text: "No blocks" });
+      for (const block of blocks) {
+        const row = column.createDiv({ cls: "qt-time-blocks-week-block" + (conflictBlockIds.has(block.id) ? " is-conflict" : "") });
+        row.createDiv({ cls: "qt-time-blocks-week-block-time", text: block.start + "–" + block.end });
+        row.createDiv({ cls: "qt-time-blocks-week-block-title", text: block.title });
+        if (block.projectId) row.createDiv({ cls: "qt-study-row-meta", text: this.timeBlockProjectName(data, block.projectId) });
+        row.addEventListener("click", () => {
+          this.timeBlockDate = day.date;
+          this.timeBlockView = "day";
+          this.render();
+        });
+      }
+      column.createEl("button", { text: "Open day", cls: "qt-link" }).addEventListener("click", () => {
+        this.timeBlockDate = day.date;
+        this.timeBlockView = "day";
+        this.render();
+      });
+    }
+  }
+
+  renderTimeBlockGrid(root, data) {
+    const week = timeBlocks.weekSummary(data.blocks, this.timeBlockDate, data.weekStartsOn);
+    const dates = week.days.map((day) => day.date);
+    const timeline = timeBlocks.projectTimeline(data.blocks, data.projects, 7, dates[6]);
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Grid" });
+    card.createDiv({ cls: "qt-hint", text: "One row per project or domain, one column per day. Minutes come from the blocks; click a cell to open that day." });
+    if (!timeline.rows.length) {
+      this.renderTabsEmpty(root, "No projects or time blocks yet. Add a project or a block first.");
+      return;
+    }
+    const table = card.createDiv({ cls: "qt-time-blocks-grid" });
+    const header = table.createDiv({ cls: "qt-time-blocks-grid-row is-header" });
+    header.createDiv({ cls: "qt-time-blocks-grid-label", text: "Project" });
+    for (const date of dates) header.createDiv({ cls: "qt-time-blocks-grid-cell", text: timeBlocks.WEEKDAY_NAMES[timeBlocks.weekdayOf(date)] + " " + date.slice(5) });
+    for (const row of timeline.rows) {
+      const line = table.createDiv({ cls: "qt-time-blocks-grid-row" });
+      const label = line.createDiv({ cls: "qt-time-blocks-grid-label" });
+      const dot = label.createSpan({ cls: "qt-workspace-subject-dot" });
+      dot.style.background = row.color;
+      label.createSpan({ text: row.name });
+      for (const date of dates) {
+        const minutes = row.byDay[date] || 0;
+        const cell = line.createEl("button", { cls: "qt-time-blocks-grid-cell" + (minutes ? " has-work" : ""), text: minutes ? timeBlocks.durationLabel(minutes) : "—" });
+        cell.setAttr("aria-label", row.name + " on " + date);
+        cell.addEventListener("click", () => {
+          this.timeBlockDate = date;
+          this.timeBlockView = "day";
+          this.render();
+        });
+      }
+    }
+  }
+
+  renderTimeBlockBacklog(root, data) {
+    const studyTasks = this.settings().studyTasks.tasks;
+    const tasks = timeBlocks.unscheduledStudyTasks(studyTasks, data.blocks, this.timeBlockDate);
+    const add = root.createDiv({ cls: "qt-study-card" });
+    add.createEl("h3", { text: "Backlog" });
+    add.createDiv({ cls: "qt-hint", text: "Intentions that have not been placed yet. Existing open study tasks are included; scheduling one puts it in a block without creating a second task." });
+    const form = add.createDiv({ cls: "qt-study-form" });
+    const intention = this.renderField(form, "New intention", "text", "Review the chapter 4 summary");
+    const project = this.renderSelect(form, "Project or domain", this.timeBlockProjectOptions(data), "");
+    const course = this.renderField(form, "Course (optional)", "text", "");
+    const resurface = this.renderField(form, "Resurface on (optional)", "date", "");
+    const addActions = add.createDiv({ cls: "qt-row qt-study-actions" });
+    addActions.createEl("button", { text: "Add to backlog", cls: "mod-cta" }).addEventListener("click", async () => {
+      const item = await this.plugin.addTimeBlockBacklog({ title: intention.value, projectId: project.value, course: course.value, resurface: resurface.value });
+      if (!item) {
+        this.saveMessage("Name the intention first.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Backlog intention added.");
+      this.render();
+    });
+    const schedule = root.createDiv({ cls: "qt-study-card" });
+    schedule.createEl("h3", { text: "Place work" });
+    schedule.createDiv({ cls: "qt-hint", text: "Choose where a backlog item should land, then schedule it." });
+    const scheduleForm = schedule.createDiv({ cls: "qt-study-form" });
+    const date = this.renderField(scheduleForm, "Date", "date", "", this.timeBlockDate);
+    const start = this.renderField(scheduleForm, "Start", "time", "", data.dayStart);
+    const end = this.renderField(scheduleForm, "End", "time", "", "10:30");
+    const scheduleProject = this.renderSelect(scheduleForm, "Project or domain", this.timeBlockProjectOptions(data), "");
+    const scheduleValues = () => ({ date: date.value, start: start.value, end: end.value, projectId: scheduleProject.value });
+    if (!tasks.length && !data.backlog.length) {
+      this.renderTabsEmpty(root, "The backlog is clear. Add an intention above or leave it empty until something new appears.");
+      return;
+    }
+    const list = schedule.createDiv({ cls: "qt-study-list" });
+    for (const task of tasks) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: task.title });
+      main.createDiv({ cls: "qt-study-row-meta", text: (task.course ? task.course + " · " : "") + (task.due ? "due " + task.due : "no due date") + (task.overdue ? " · overdue" : "") });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: "Schedule", cls: "mod-cta" }).addEventListener("click", async () => {
+        const block = await this.plugin.scheduleStudyTask(task.id, scheduleValues());
+        this.saveMessage(block ? "Scheduled " + task.title + "." : "Use an end time after the start.");
+        this.render();
+      });
+    }
+    for (const item of data.backlog) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: item.title });
+      main.createDiv({ cls: "qt-study-row-meta", text: (item.projectId ? this.timeBlockProjectName(data, item.projectId) + " · " : "") + (item.resurface ? "resurface " + item.resurface : "unscheduled") });
+      const buttons = row.createDiv({ cls: "qt-study-row-actions" });
+      buttons.createEl("button", { text: "Schedule", cls: "mod-cta" }).addEventListener("click", async () => {
+        const block = await this.plugin.scheduleTimeBlockBacklog(item.id, scheduleValues());
+        this.saveMessage(block ? "Scheduled " + item.title + "." : "Use an end time after the start.");
+        this.render();
+      });
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeTimeBlockBacklog(item.id);
+        this.render();
+      });
+    }
+  }
+
+  renderTimeBlockRoutines(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Routines" });
+    card.createDiv({ cls: "qt-hint", text: "Repeating blocks are offers, not automatic writes. Add the missing routines to " + this.timeBlockDate + " when you want them." });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add this day's routines", cls: "mod-cta" }).addEventListener("click", async () => {
+      const created = await this.plugin.applyTimeBlockRoutines(this.timeBlockDate);
+      this.saveMessage(created.length ? "Added " + created.length + " routine block" + (created.length === 1 ? "" : "s") + "." : "This day already has every matching routine.");
+      this.render();
+    });
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const title = this.renderField(form, "Routine", "text", "Morning review");
+    const start = this.renderField(form, "Start", "time", "", data.dayStart);
+    const end = this.renderField(form, "End", "time", "", "10:30");
+    const type = this.renderSelect(form, "Type", timeBlocks.TIME_BLOCK_TYPES.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) })), "study");
+    const project = this.renderSelect(form, "Project or domain", this.timeBlockProjectOptions(data), "");
+    const daysWrap = form.createDiv({ cls: "qt-time-block-days" });
+    const boxes = {};
+    for (let index = 0; index < 7; index++) {
+      const label = daysWrap.createEl("label", { cls: "qt-time-block-day" });
+      const box = label.createEl("input", { type: "checkbox", attr: { "aria-label": "Routine on " + timeBlocks.WEEKDAY_NAMES[index] } });
+      box.checked = index === timeBlocks.weekdayOf(this.timeBlockDate);
+      boxes[index] = box;
+      label.createSpan({ text: timeBlocks.WEEKDAY_NAMES[index] });
+    }
+    const add = card.createDiv({ cls: "qt-row qt-study-actions" });
+    add.createEl("button", { text: "Add routine" }).addEventListener("click", async () => {
+      const days = Object.entries(boxes).filter(([, box]) => box.checked).map(([index]) => Number(index));
+      const routine = await this.plugin.addTimeBlockRoutine({ title: title.value, start: start.value, end: end.value, type: type.value, projectId: project.value, days });
+      if (!routine) {
+        this.saveMessage("Add a name, a valid time range and at least one day.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Routine added.");
+      this.render();
+    });
+    if (!data.routines.length) {
+      this.renderTabsEmpty(root, "No routines yet. Add one above; it stays an offer until you place it on a day.");
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const routine of data.routines) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: routine.title });
+      main.createDiv({ cls: "qt-study-row-meta", text: routine.start + "–" + routine.end + " · " + routine.days.map((day) => timeBlocks.WEEKDAY_NAMES[day]).join(", ") });
+      row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeTimeBlockRoutine(routine.id);
+        this.render();
+      });
+    }
+  }
+
+  renderTimeBlockProjects(root, data) {
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Projects & domains" });
+    card.createDiv({ cls: "qt-hint", text: "Projects group related work; domains are broader life areas. Both are optional lenses over the same blocks." });
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const name = this.renderField(form, "Name", "text", "Biology");
+    const kind = this.renderSelect(form, "Kind", [{ value: "project", label: "Project" }, { value: "domain", label: "Domain" }], "project");
+    const color = this.renderField(form, "Colour (optional)", "text", "#6f8ff5");
+    const course = this.renderField(form, "Course (optional)", "text", "Biology");
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Add project or domain", cls: "mod-cta" }).addEventListener("click", async () => {
+      const project = await this.plugin.addTimeBlockProject({ name: name.value, kind: kind.value, color: color.value, course: course.value });
+      if (!project) {
+        this.saveMessage("Name the project or domain first.");
+        this.render();
+        return;
+      }
+      this.saveMessage("Project added.");
+      this.render();
+    });
+    if (!data.projects.length) {
+      this.renderTabsEmpty(root, "No projects or domains yet. Add one above to group blocks and see where the hours went.");
+      return;
+    }
+    const totals = {};
+    for (const block of data.blocks) totals[block.projectId || ""] = (totals[block.projectId || ""] || 0) + timeBlocks.durationMinutes(block);
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const project of data.projects) {
+      const row = list.createDiv({ cls: "qt-study-row" });
+      const main = row.createDiv({ cls: "qt-study-row-main" });
+      const heading = main.createDiv({ cls: "qt-study-row-title" });
+      const dot = heading.createSpan({ cls: "qt-workspace-subject-dot" });
+      dot.style.background = project.color;
+      heading.createSpan({ text: project.name });
+      main.createDiv({ cls: "qt-study-row-meta", text: project.kind + (project.course ? " · " + project.course : "") + " · " + timeBlocks.durationLabel(totals[project.id] || 0) + " planned" });
+      row.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeTimeBlockProject(project.id);
+        this.render();
+      });
+    }
+  }
+
+  renderTimeBlockTimeline(root, data) {
+    const timeline = timeBlocks.projectTimeline(data.blocks, data.projects, 14, this.timeBlockDate);
+    const totals = timeBlocks.normalizeTimeline(data.blocks);
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Timeline" });
+    card.createDiv({ cls: "qt-hint", text: "The last 14 days of block time, grouped by project or domain. It is history, not a second calendar." });
+    card.createDiv({ cls: "qt-study-row-meta", text: totals.blocks + " blocks · " + timeBlocks.durationLabel(totals.totalMinutes) + " total · " + totals.tasks + " tasks" });
+    if (!timeline.rows.length) {
+      this.renderTabsEmpty(root, "No project time yet. Add a block and a project to build the timeline.");
+      return;
+    }
+    const max = Math.max(1, ...timeline.rows.map((row) => row.minutes));
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of timeline.rows) {
+      const item = list.createDiv({ cls: "qt-study-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      const heading = main.createDiv({ cls: "qt-study-row-title" });
+      const dot = heading.createSpan({ cls: "qt-workspace-subject-dot" });
+      dot.style.background = row.color;
+      heading.createSpan({ text: row.name });
+      const bar = main.createDiv({ cls: "qt-study-bar" });
+      bar.createDiv({ cls: "qt-study-bar-fill" }).style.width = Math.round((row.minutes / max) * 100) + "%";
+      main.createDiv({ cls: "qt-study-row-meta", text: row.kind + " · " + timeBlocks.durationLabel(row.minutes) });
     }
   }
 

@@ -769,9 +769,9 @@ Study Tools contains local workflows that do not belong in Practice, Cards, Cale
 - **Lecture log.** Keep a local list of lectures by course, date, title and optional topics. Add one at a time or paste lines in the form `Course | YYYY-MM-DD | Lecture title | Topics`. Today shows the next upcoming lecture. No audio, transcript or network request is involved.
 - **Study goals.** Set a goal, optional course, target minutes and due date; log progress in 15- or 30-minute steps and mark it done. **Use next exam** creates a goal from the current study plan. Open goals appear on Today with a progress bar. Goals are stored in plugin data, not in your notes.
 
-## Study Workspace (twelve independent modules)
+## Study Workspace (twenty independent modules)
 
-Open **Study Workspace** from the command palette or the ribbon. It contains twelve local workflows, each with its own switch under Settings, Global, Modules. The tabs reuse the Study Tools cards, forms and responsive breakpoint; on phones the forms and score rows stack and the tab strip scrolls.
+Open **Study Workspace** from the command palette or the ribbon. It contains twenty local workflows, each with its own switch under Settings, Global, Modules. The tabs reuse the Study Tools cards, forms and responsive breakpoint; on phones the forms and score rows stack and the tab strip scrolls.
 
 - **Feynman Learning.** Start a four-step cycle for a concept: explain it simply, find the gaps, simplify it with an example, and teach it back. Finish by scoring clarity, accuracy and simplicity from 1 to 5. Saved cycles show their average and highlight weak dimensions. Scoring is local; no model is called.
 - **Recall Scheduler.** Build a queue from note headings or longer knowledge fragments. Choose an optional folder and limit, reveal a unit, then rate it Again, Hard, Good or Easy. The local ladder schedules the next due date; review state lives in plugin data and note text is never rewritten.
@@ -780,6 +780,8 @@ Open **Study Workspace** from the command palette or the ribbon. It contains twe
 - **Subject Manager.** Track subjects, folders and colors, keep local projects with optional due dates and done/reopen state, log absences, and see lecture, absence, project and attendance summaries. Search covers subject names, folders, notes and project titles. It uses the local lecture log when that module is enabled.
 - **Courses.** Combine subjects, the lecture log and local weighted grade entries into course cards with grade chips, lecture counts and absences. It reads the other modules without changing their data.
 - **Tasks.** Keep manual study tasks and generate repeated topic passes before an exam date. **Remind** lists due work in Obsidian; it does not request OS notification permission.
+- **Time blocks.** Plan a day as local time blocks with tasks inside them. Day, Week, Grid, Backlog, Routines, Projects/domains and Timeline views cover the same data; routines are offers, and the backlog reuses open study tasks instead of creating a second task list. **Write day note** exports a readable Markdown Schedule section. The module is off by default.
+- **Calendar context.** With Calendar on, Time blocks shows current classes and events in Day and Week as read-only context and marks any block that overlaps one. Calendar entries are never edited, moved or copied, and the planner still works with Calendar off; **Show calendar events** hides the context if you prefer a clean plan.
 - **Annotations.** Capture the current Markdown selection, a question and an answer in a searchable local index, with source navigation. Source notes stay untouched.
 - **Deep Notes.** Work through five Socratic prompts: claim, assumptions, evidence, counterexample and synthesis. Answers are saved locally and no model is called.
 - **Retention.** Scan existing cards for a read-only 30-day due forecast, overdue and new counts. During card review, each Again, Hard, Good and Easy button also shows the interval that rating would schedule, for ladder, SM-2 and FSRS decks. The previews are read-only: they never change a card schedule or move review data out of a note.

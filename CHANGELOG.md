@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.210.1 — 2026-11-03
+
+- Adds the opt-in **Time blocks** Study Workspace module: local Day, Week,
+  Grid, Backlog, Routines, Projects/domains and Timeline planning, with tasks
+  inside blocks and an optional readable Markdown day-note export.
+- Reuses existing study tasks in the Backlog, treats routines as reusable
+  offers and derives project/timeline minutes from the blocks themselves.
+- When Calendar is on, Day and Week show its classes and events as read-only
+  context and mark a block that overlaps one. Nothing is written, moved or
+  copied; **Show calendar events** turns the context off.
+
 ## 1.210.0 — 2026-11-03
 
 - Adaptive practice is now **Adaptive mastery**. It ranks course, unit, skill,

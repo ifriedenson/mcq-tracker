@@ -23,6 +23,7 @@ const studyNudge = require("./study-nudge");
 const courseTemplates = require("./course-templates");
 const audioBookmarks = require("./audio-bookmarks");
 const readingLibrary = require("./reading-library");
+const timeBlocks = require("./time-blocks");
 
 /** Sidebar order follows the plan: local tools, then the workspace, then analysis. */
 const STUDY_TOOL_SETTINGS_MODULES = [
@@ -36,6 +37,7 @@ const STUDY_TOOL_SETTINGS_MODULES = [
   { id: "subjects", label: "Subject Manager", icon: "folder-tree" },
   { id: "courses", label: "Courses", icon: "graduation-cap" },
   { id: "study-tasks", label: "Tasks", icon: "check-square" },
+  { id: "time-blocks", label: "Time blocks", icon: "calendar-clock" },
   { id: "annotations", label: "Annotations", icon: "highlighter" },
   { id: "deep-notes", label: "Deep Notes", icon: "messages-square" },
   { id: "retention", label: "Retention", icon: "line-chart" },
@@ -307,6 +309,63 @@ const PAGES = {
       return `${studyWorkspace.dueStudyTasks(tasks, new Date().toISOString().slice(0, 10)).length} due today of ${tasks.length}.`;
     },
     open: { label: "Open Tasks", run: (plugin) => plugin.activateStudyWorkspace("tasks") },
+  },
+  "time-blocks": {
+    title: "Time blocks",
+    description:
+      "A local day planner: blocks own a span of time, tasks live inside them, and projects or domains are optional lenses. It reuses study tasks and courses, offers routines for the selected day, and keeps a backlog for work that has not been placed yet. No calendar sync or provider is added.",
+    enabledGetter: "timeBlocksEnabled",
+    enable: (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { enabled: v }),
+    afterToggle: "onStudyWorkspaceToggled",
+    fields: [
+      {
+        type: "dropdown",
+        name: "Week starts on",
+        desc: "Controls the Week and Grid columns.",
+        options: [
+          { id: "monday", label: "Monday" },
+          { id: "sunday", label: "Sunday" },
+        ],
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).weekStartsOn,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { weekStartsOn: v }),
+      },
+      {
+        type: "text",
+        name: "Day starts at",
+        desc: "The first hour shown in the Day timeline.",
+        placeholder: "07:00",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).dayStart,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { dayStart: v }),
+      },
+      {
+        type: "text",
+        name: "Day ends at",
+        desc: "The last hour shown in the Day timeline.",
+        placeholder: "22:00",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).dayEnd,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { dayEnd: v }),
+      },
+      {
+        type: "text",
+        name: "Day-note folder",
+        desc: "A day can be written as readable Markdown with a Schedule section. The planner itself stays local.",
+        placeholder: "Time blocks",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).notesFolder,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { notesFolder: v }),
+      },
+      {
+        type: "toggle",
+        name: "Show calendar events",
+        desc: "Read-only classes and events from the current calendar; a block that shares their time is marked. Calendar entries are never edited or copied.",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).showCalendar,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { showCalendar: v }),
+      },
+    ],
+    status: (plugin) => {
+      const data = timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks);
+      return data.blocks.length + " block(s), " + data.projects.length + " project(s) and " + data.backlog.length + " backlog item(s).";
+    },
+    open: { label: "Open Time blocks", run: (plugin) => plugin.activateStudyWorkspace("timeBlocks") },
   },
   annotations: {
     title: "Annotations",
