@@ -2169,3 +2169,107 @@ test("reference view: named columns, computed cells and a named regression pair"
   assert.deepEqual(legacyView.graphColumns.map((column) => column.name), ["x", "y"]);
   assert.deepEqual(legacyView.graphData, [{ x: "1", y: "2" }]);
 });
+
+test("graph print: the paper document, escaping, refusals and summary are pure", () => {
+  const p = T.graphPrint;
+  const doc = p.printDocument({
+    title: "My <graph>",
+    imageDataUrl: "data:image/png;base64,AAAA",
+    expressions: ["y = x^2", "y < 2x & 1", "   "],
+    window: { xMin: -2, xMax: 2, yMin: -1, yMax: 3 },
+    table: { headers: ["time", "height"], rows: [{ time: "1", height: "<3>" }] },
+    regression: { x: "time", y: "height" },
+  });
+  assert.equal(doc.ok, true, JSON.stringify(doc));
+  assert.match(doc.html, /^<!doctype html>/i);
+  assert.match(doc.html, /@media print/);
+  assert.match(doc.html, /y = x\^2/);
+  assert.match(doc.html, /y &lt; 2x &amp; 1/);
+  assert.match(doc.html, /My &lt;graph&gt;/);
+  assert.match(doc.html, /<th>time<\/th>/);
+  assert.match(doc.html, /<td>&lt;3&gt;<\/td>/);
+  assert.match(doc.html, /data:image\/png;base64,AAAA/);
+  assert.match(doc.html, /Regression uses time and height/);
+  assert.equal(doc.expressions, 2);
+  assert.equal(doc.columns, 2);
+  assert.equal(doc.rows, 1);
+  assert.equal(p.escapeHtml("<a href=\"x\">&'"), "&lt;a href=&quot;x&quot;&gt;&amp;&#39;");
+  assert.equal(p.printDocument({ imageDataUrl: "", expressions: ["y = x"] }).reason, "canvas");
+  assert.equal(p.printDocument({ imageDataUrl: "data:image/png;base64,AA", expressions: [] }).reason, "empty");
+  assert.equal(p.printDocument({ imageDataUrl: "not-a-url", expressions: ["y = x"] }).reason, "canvas");
+  assert.equal(
+    p.printSummary(["y = x"], { headers: ["x", "y"], rows: [{}] }),
+    "Print sheet with the graph image, 1 expression and a 2-column table with 1 row."
+  );
+  assert.equal(p.printSummary([], null), "Print sheet with the graph image, no expressions.");
+  assert.equal(p.printDocument({ imageDataUrl: "data:image/png;base64,AA", expressions: ["y = x"] }).columns, 0);
+});
+
+test("reference view: the print sheet reuses the scene, saves HTML and is announced", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  view.graphRows = [{ text: "y = x^2", hidden: false }, { text: "y < 2x & 1", hidden: false }];
+  view.graphData = [{ x: "1", y: "<2" }];
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const labels = () => dom.all.map((element) => (element.meta && (element.meta.attr || {})["aria-label"]) || "").filter(Boolean);
+  for (const label of ["Print graph", "Save print sheet", "Print status"]) assert.ok(labels().indexOf(label) >= 0, `missing control: ${label}`);
+  const summaryEl = dom.all.find((element) => (element.meta && (element.meta.attr || {})["aria-label"]) === "Graph row summaries");
+  assert.match(summaryEl.meta.text, /Print sheet with the graph image, 2 expressions and a 2-column table with 1 row\./);
+
+  const { obsidian } = require("./helpers/load");
+  const noticesBefore = obsidian.notices.length;
+  global.devicePixelRatio = 2;
+  const calls = [];
+  const ctx = new Proxy({}, {
+    get: (_target, property) => {
+      if (property === "measureText") return () => ({ width: 10 });
+      return (...args) => {
+        calls.push(String(property));
+        return undefined;
+      };
+    },
+    set: () => true,
+  });
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext: () => ctx,
+    toDataURL: (type) => (type === "image/png" ? "data:image/png;base64,AAAA" : ""),
+  };
+  global.document = { createElement: (tag) => (tag === "canvas" ? canvas : {}) };
+  const saved = await view.saveGraphPrint();
+  assert.equal(saved.ok, true, JSON.stringify(saved));
+  assert.match(saved.path, /^Exports\/graph-print-\d{8}-\d{6}\.html$/);
+  assert.equal(canvas.width, 1280, "the print image uses the device pixel ratio");
+  assert.equal(canvas.height, 640);
+  assert.ok(calls.indexOf("lineTo") >= 0 && calls.indexOf("fillText") >= 0, "the print image is painted, not blank");
+  const file = app.created.find((entry) => entry.path === saved.path);
+  assert.match(file.text, /^<!doctype html>/i);
+  assert.match(file.text, /y &lt; 2x &amp; 1/);
+  assert.match(file.text, /<th>x<\/th>/);
+  assert.match(file.text, /<td>&lt;2<\/td>/);
+  assert.equal(obsidian.notices.length, noticesBefore, "a successful save needs no Notice");
+  const statusEl = dom.all.find((element) => (element.meta && (element.meta.attr || {})["aria-label"]) === "Print status");
+  assert.match(statusEl.meta.text, /Saved Exports\/graph-print-/);
+
+  const printed = await view.printGraph();
+  assert.equal(printed.ok, true, JSON.stringify(printed));
+  assert.equal(printed.method, "file", "without a printable window the sheet is saved");
+  assert.match(printed.path, /^Exports\/graph-print-\d{8}-\d{6}\.html$/);
+
+  view.graphRows = [{ text: "", hidden: false }];
+  view.render();
+  view.drawGraph();
+  const empty = await view.saveGraphPrint();
+  assert.equal(empty.reason, "empty");
+  assert.equal(obsidian.notices.length, noticesBefore + 1, "an empty graph raises a Notice instead of printing");
+  delete global.document;
+  delete global.devicePixelRatio;
+});

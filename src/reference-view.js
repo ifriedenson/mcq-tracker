@@ -35,6 +35,7 @@ const {
   tableSummary,
   tableExport,
 } = require("./graph-table");
+const { printDocument, printSummary } = require("./graph-print");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -609,6 +610,14 @@ class ReferenceView extends ItemView {
       .addEventListener("click", () => this.exportGraphCsv());
     exportActions.createEl("button", { text: "Copy expressions", attr: { type: "button", "aria-label": "Copy all expressions" } })
       .addEventListener("click", () => this.copyGraphExpressions());
+    exportActions.createEl("button", { text: "Print graph", attr: { type: "button", "aria-label": "Print graph" } })
+      .addEventListener("click", () => this.printGraph());
+    exportActions.createEl("button", { text: "Save print sheet", attr: { type: "button", "aria-label": "Save print sheet" } })
+      .addEventListener("click", () => this.saveGraphPrint());
+    this.graphPrintStatusEl = root.createDiv({
+      cls: "qt-ref-graph-print-status",
+      attr: { "aria-live": "polite", "aria-label": "Print status" },
+    });
 
     const dataSection = root.createDiv({ cls: "qt-ref-graph-data" });
     dataSection.createDiv({ cls: "qt-ref-graph-data-head", text: "Data table for regression rows" });
@@ -1067,7 +1076,8 @@ class ReferenceView extends ItemView {
   renderGraphAccessible(graph) {
     const folders = folderSummary(this.graphRows);
     const tableText = tableSummary(this.graphColumns, this.graphData, this.graphRegression);
-    if (this.graphSummaryEl) this.graphSummaryEl.setText([graphSummary(graph), folders, tableText].filter(Boolean).join(" "));
+    const printText = printSummary(this.graphRows.map((row) => row.text), tableExport(this.graphColumns, this.graphData));
+    if (this.graphSummaryEl) this.graphSummaryEl.setText([graphSummary(graph), folders, tableText, printText].filter(Boolean).join(" "));
     const report = graphTable(graph);
     this.graphTableReport = report;
     if (!this.graphTableEl) return report;
@@ -1425,6 +1435,113 @@ class ReferenceView extends ItemView {
       return { ok: false, reason: "empty" };
     }
     return this.saveGraphFile(exportFileName("graph-data", new Date(), "csv"), `${csv}\n`, false);
+  }
+
+  graphPrintStatus(text) {
+    if (this.graphPrintStatusEl && typeof this.graphPrintStatusEl.setText === "function") this.graphPrintStatusEl.setText(text);
+    else this.graphExportStatus(text);
+  }
+
+  async buildGraphPrintDocument() {
+    if (!this.graphBuilt) this.drawGraph();
+    const graph = this.graphBuilt;
+    if (!graph || !hasDrawableContent(graph)) {
+      this.graphPrintStatus("Add an expression that draws something before printing.");
+      return { ok: false, reason: "empty", message: "Add an expression that draws something before printing." };
+    }
+    const doc = this.graphExportDocument();
+    if (!doc || typeof doc.createElement !== "function") {
+      this.graphPrintStatus("This device cannot prepare a print sheet.");
+      return { ok: false, reason: "canvas", message: "This device cannot prepare a print sheet." };
+    }
+    const ratio = exportScale(typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1);
+    const width = this.graphWidth || 640;
+    const height = this.graphHeight || 320;
+    let canvas = null;
+    let ctx = null;
+    try {
+      canvas = doc.createElement("canvas");
+      if (canvas) {
+        canvas.width = Math.round(width * ratio);
+        canvas.height = Math.round(height * ratio);
+        ctx = canvas.getContext ? canvas.getContext("2d") : null;
+      }
+    } catch (e) {
+      canvas = null;
+    }
+    if (!canvas || !ctx) {
+      this.graphPrintStatus("This device cannot prepare a print sheet.");
+      return { ok: false, reason: "canvas", message: "This device cannot prepare a print sheet." };
+    }
+    if (typeof ctx.scale === "function") ctx.scale(ratio, ratio);
+    this.paintGraphScene(ctx, graph, width, height);
+    let imageDataUrl = "";
+    try {
+      imageDataUrl = typeof canvas.toDataURL === "function" ? canvas.toDataURL("image/png") : "";
+    } catch (e) {
+      imageDataUrl = "";
+    }
+    if (!imageDataUrl) {
+      this.graphPrintStatus("The graph image could not be prepared for printing.");
+      return { ok: false, reason: "canvas", message: "The graph image could not be prepared for printing." };
+    }
+    const table = tableExport(this.graphColumns, this.graphData);
+    const built = printDocument({
+      title: "Graph",
+      imageDataUrl,
+      expressions: this.graphRows.map((row) => (isFolderRow(row) ? "" : row.text)),
+      window: this.graphViewport,
+      table,
+      regression: this.graphRegression,
+    });
+    if (!built.ok) {
+      this.graphPrintStatus(built.message);
+      return built;
+    }
+    this.graphPrintStatus(printSummary(this.graphRows.map((row) => row.text), table));
+    return built;
+  }
+
+  async saveGraphPrintSheet(built) {
+    const saved = await this.saveGraphFile(exportFileName("graph-print", new Date(), "html"), built.html, false);
+    if (saved.ok) this.graphPrintStatus(`Saved ${saved.path}. Open it and print from the browser.`);
+    return saved;
+  }
+
+  async saveGraphPrint() {
+    const built = await this.buildGraphPrintDocument();
+    if (!built.ok) {
+      new Notice(built.message);
+      return built;
+    }
+    return this.saveGraphPrintSheet(built);
+  }
+
+  async printGraph() {
+    const built = await this.buildGraphPrintDocument();
+    if (!built.ok) {
+      new Notice(built.message);
+      return built;
+    }
+    const targetWindow = typeof window !== "undefined" ? window : null;
+    if (targetWindow && typeof targetWindow.open === "function") {
+      try {
+        const opened = targetWindow.open("", "_blank");
+        if (opened && opened.document && typeof opened.document.write === "function") {
+          opened.document.write(built.html);
+          opened.document.close();
+          if (typeof opened.focus === "function") opened.focus();
+          if (typeof opened.print === "function") opened.print();
+          this.graphPrintStatus("Print sheet opened. Choose Print in the browser dialog.");
+          return { ok: true, method: "print" };
+        }
+      } catch (e) {
+        // A blocked popup falls through to the saved sheet below.
+      }
+    }
+    const saved = await this.saveGraphPrintSheet(built);
+    if (!saved.ok) return saved;
+    return { ok: true, method: "file", path: saved.path };
   }
 
   graphExportDocument() {

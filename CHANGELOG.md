@@ -2,6 +2,17 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.193.0 — 2026-11-03
+
+- The graph tab can print. **Print graph** opens a paper-ready sheet with the
+  drawn graph, the window, every expression and the data table; **Save print
+  sheet** writes the same HTML sheet into `Exports` when a print window is not
+  available.
+- The sheet reuses the existing canvas scene renderer and carries its own
+  black-on-white paper stylesheet with print rules, so nothing is drawn twice.
+  The accessible summary announces what the sheet contains, and every control is
+  labelled.
+
 ## 1.192.0 — 2026-11-03
 
 - The graph data table has named columns: add, rename or remove up to eight

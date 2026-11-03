@@ -228,6 +228,7 @@ QuestionTrackerPlugin.__test = {
   graphAccessibility: require("./graph-accessibility"),
   graphFolders: require("./graph-folders"),
   graphTable: require("./graph-table"),
+  graphPrint: require("./graph-print"),
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,

@@ -5427,6 +5427,12 @@
   padding: 4px 6px;
 }
 
+.qt-ref .qt-ref-graph-print-status {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  min-height: 1em;
+}
+
 .qt-ref-periodic-wrap {
   margin: 8px 0 14px;
   overflow-x: auto;

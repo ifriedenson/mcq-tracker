@@ -30276,6 +30276,186 @@ module.exports = {
 };
 };
 
+/* ---- src/graph-print.js ---- */
+__defs["graph-print"] = function (module, exports, require) {
+/*
+ * Paper/print assembly for the Reference graph.
+ *
+ * The view paints the existing canvas scene once and hands its PNG data URL here.
+ * This module only assembles a self-contained print document: escaping, the paper
+ * stylesheet, the expression list and the optional data table. It has no DOM,
+ * Obsidian or network dependency, and it never trusts a caller's HTML.
+ */
+
+const MAX_EXPRESSIONS = 200;
+const MAX_TABLE_ROWS = 500;
+const MAX_TITLE = 120;
+
+const PRINT_STYLES = `
+@page { margin: 16mm; }
+* { box-sizing: border-box; }
+html { background: #ffffff; }
+body {
+  background: #ffffff;
+  color: #111111;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 12pt;
+  line-height: 1.45;
+  margin: 0 auto;
+  max-width: 170mm;
+  padding: 12mm 6mm;
+}
+header { border-bottom: 1.5pt solid #111111; margin-bottom: 8mm; padding-bottom: 3mm; }
+h1 { font-size: 20pt; margin: 0 0 2mm; }
+h2 { font-size: 13pt; margin: 8mm 0 3mm; }
+p { margin: 0 0 2mm; }
+.meta { color: #444444; font-size: 10pt; }
+figure { margin: 0; page-break-inside: avoid; }
+figure img { border: 0.75pt solid #333333; display: block; height: auto; max-width: 100%; width: 100%; }
+figcaption { color: #444444; font-size: 9.5pt; margin-top: 2mm; }
+ol, table { margin: 0; }
+ol { padding-left: 7mm; }
+ol li { font-family: "Courier New", monospace; font-size: 10.5pt; margin-bottom: 1.5mm; }
+table { border-collapse: collapse; font-size: 10pt; width: 100%; }
+th, td { border: 0.5pt solid #777777; padding: 1.5mm 2mm; text-align: left; }
+th { background: #eeeeee; font-weight: bold; }
+tbody tr:nth-child(even) { background: #f7f7f7; }
+footer { border-top: 0.5pt solid #999999; color: #555555; font-size: 9pt; margin-top: 10mm; padding-top: 2mm; }
+@media print {
+  body { max-width: none; padding: 0; }
+  a { color: inherit; text-decoration: none; }
+  figure, table, ol { page-break-inside: avoid; }
+}
+`;
+
+function textValue(value) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+/** Escape text for HTML text nodes and quoted attributes. */
+function escapeHtml(value) {
+  return textValue(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function cleanTitle(value) {
+  return textValue(value).replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
+}
+
+function cleanExpressions(values) {
+  return (Array.isArray(values) ? values : [])
+    .map((value) => textValue(value).trim())
+    .filter(Boolean)
+    .slice(0, MAX_EXPRESSIONS);
+}
+
+function formatBound(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "\u2014";
+  return String(Number(number.toPrecision(8)));
+}
+
+function cleanTable(table) {
+  const headers = (table && Array.isArray(table.headers) ? table.headers : [])
+    .map((header) => textValue(header).trim())
+    .filter(Boolean);
+  if (!headers.length) return { headers: [], rows: [] };
+  const rows = (table && Array.isArray(table.rows) ? table.rows : [])
+    .slice(0, MAX_TABLE_ROWS)
+    .map((row) => {
+      const cells = {};
+      for (const header of headers) cells[header] = textValue(row && row[header]);
+      return cells;
+    });
+  return { headers, rows };
+}
+
+/** One sentence for the accessible summary; the sheet carries the same wording. */
+function printSummary(expressions, table) {
+  const count = cleanExpressions(expressions).length;
+  const clean = cleanTable(table);
+  const expressionText = count ? `${count} expression${count === 1 ? "" : "s"}` : "no expressions";
+  const tableText = clean.headers.length
+    ? ` and a ${clean.headers.length}-column table with ${clean.rows.length} row${clean.rows.length === 1 ? "" : "s"}`
+    : "";
+  return `Print sheet with the graph image, ${expressionText}${tableText}.`;
+}
+
+/**
+ * Assemble a complete print document. The image must already be a PNG or JPEG data
+ * URL painted by the existing scene renderer; no canvas work happens here.
+ */
+function printDocument(input) {
+  const source = input && typeof input === "object" ? input : {};
+  const expressions = cleanExpressions(source.expressions);
+  if (!expressions.length) {
+    return { ok: false, reason: "empty", message: "Add an expression before printing the graph." };
+  }
+  const imageDataUrl = textValue(source.imageDataUrl).trim();
+  if (!/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(imageDataUrl)) {
+    return { ok: false, reason: "canvas", message: "The graph image could not be prepared for printing." };
+  }
+  const clean = cleanTable(source.table);
+  const title = cleanTitle(source.title) || "Graph";
+  const window = source.window && typeof source.window === "object" ? source.window : {};
+  const bounds = `x from ${formatBound(window.xMin)} to ${formatBound(window.xMax)}, y from ${formatBound(window.yMin)} to ${formatBound(window.yMax)}.`;
+  const pair = source.regression && source.regression.x && source.regression.y
+    ? ` Regression uses ${escapeHtml(source.regression.x)} and ${escapeHtml(source.regression.y)}.`
+    : "";
+  const expressionItems = expressions.map((expression) => `<li>${escapeHtml(expression)}</li>`).join("\n        ");
+  const tableHtml = clean.headers.length
+    ? `\n      <h2>Data table</h2>\n      <table>\n        <thead><tr>${clean.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>\n        <tbody>\n${clean.rows
+      .map((row) => `          <tr>${clean.headers.map((header) => `<td>${escapeHtml(row[header])}</td>`).join("")}</tr>`)
+      .join("\n")}\n        </tbody>\n      </table>`
+    : "";
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${escapeHtml(title)}</title>
+<style>${PRINT_STYLES}</style>
+</head>
+<body>
+  <header>
+    <h1>${escapeHtml(title)}</h1>
+    <p class="meta">Window: ${escapeHtml(bounds)}</p>
+    <p class="meta">${escapeHtml(printSummary(expressions, clean))}${pair}</p>
+  </header>
+  <figure>
+    <img src="${escapeHtml(imageDataUrl)}" alt="${escapeHtml(`Graph of ${expressions.length} expression${expressions.length === 1 ? "" : "s"}`)}">
+    <figcaption>${escapeHtml(bounds)}</figcaption>
+  </figure>
+  <h2>Expressions</h2>
+  <ol>
+        ${expressionItems}
+  </ol>${tableHtml}
+  <footer>Exported from MCQ Tracker. Everything in this sheet was drawn and computed locally.</footer>
+</body>
+</html>`;
+  return {
+    ok: true,
+    html,
+    title,
+    expressions: expressions.length,
+    columns: clean.headers.length,
+    rows: clean.rows.length,
+  };
+}
+
+module.exports = {
+  MAX_EXPRESSIONS,
+  MAX_TABLE_ROWS,
+  PRINT_STYLES,
+  escapeHtml,
+  printSummary,
+  printDocument,
+};
+};
+
 /* ---- src/graph-table.js ---- */
 __defs["graph-table"] = function (module, exports, require) {
 /*
@@ -62331,6 +62511,7 @@ const {
   tableSummary,
   tableExport,
 } = require("./graph-table");
+const { printDocument, printSummary } = require("./graph-print");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -62905,6 +63086,14 @@ class ReferenceView extends ItemView {
       .addEventListener("click", () => this.exportGraphCsv());
     exportActions.createEl("button", { text: "Copy expressions", attr: { type: "button", "aria-label": "Copy all expressions" } })
       .addEventListener("click", () => this.copyGraphExpressions());
+    exportActions.createEl("button", { text: "Print graph", attr: { type: "button", "aria-label": "Print graph" } })
+      .addEventListener("click", () => this.printGraph());
+    exportActions.createEl("button", { text: "Save print sheet", attr: { type: "button", "aria-label": "Save print sheet" } })
+      .addEventListener("click", () => this.saveGraphPrint());
+    this.graphPrintStatusEl = root.createDiv({
+      cls: "qt-ref-graph-print-status",
+      attr: { "aria-live": "polite", "aria-label": "Print status" },
+    });
 
     const dataSection = root.createDiv({ cls: "qt-ref-graph-data" });
     dataSection.createDiv({ cls: "qt-ref-graph-data-head", text: "Data table for regression rows" });
@@ -63363,7 +63552,8 @@ class ReferenceView extends ItemView {
   renderGraphAccessible(graph) {
     const folders = folderSummary(this.graphRows);
     const tableText = tableSummary(this.graphColumns, this.graphData, this.graphRegression);
-    if (this.graphSummaryEl) this.graphSummaryEl.setText([graphSummary(graph), folders, tableText].filter(Boolean).join(" "));
+    const printText = printSummary(this.graphRows.map((row) => row.text), tableExport(this.graphColumns, this.graphData));
+    if (this.graphSummaryEl) this.graphSummaryEl.setText([graphSummary(graph), folders, tableText, printText].filter(Boolean).join(" "));
     const report = graphTable(graph);
     this.graphTableReport = report;
     if (!this.graphTableEl) return report;
@@ -63721,6 +63911,113 @@ class ReferenceView extends ItemView {
       return { ok: false, reason: "empty" };
     }
     return this.saveGraphFile(exportFileName("graph-data", new Date(), "csv"), `${csv}\n`, false);
+  }
+
+  graphPrintStatus(text) {
+    if (this.graphPrintStatusEl && typeof this.graphPrintStatusEl.setText === "function") this.graphPrintStatusEl.setText(text);
+    else this.graphExportStatus(text);
+  }
+
+  async buildGraphPrintDocument() {
+    if (!this.graphBuilt) this.drawGraph();
+    const graph = this.graphBuilt;
+    if (!graph || !hasDrawableContent(graph)) {
+      this.graphPrintStatus("Add an expression that draws something before printing.");
+      return { ok: false, reason: "empty", message: "Add an expression that draws something before printing." };
+    }
+    const doc = this.graphExportDocument();
+    if (!doc || typeof doc.createElement !== "function") {
+      this.graphPrintStatus("This device cannot prepare a print sheet.");
+      return { ok: false, reason: "canvas", message: "This device cannot prepare a print sheet." };
+    }
+    const ratio = exportScale(typeof window !== "undefined" && window.devicePixelRatio ? window.devicePixelRatio : 1);
+    const width = this.graphWidth || 640;
+    const height = this.graphHeight || 320;
+    let canvas = null;
+    let ctx = null;
+    try {
+      canvas = doc.createElement("canvas");
+      if (canvas) {
+        canvas.width = Math.round(width * ratio);
+        canvas.height = Math.round(height * ratio);
+        ctx = canvas.getContext ? canvas.getContext("2d") : null;
+      }
+    } catch (e) {
+      canvas = null;
+    }
+    if (!canvas || !ctx) {
+      this.graphPrintStatus("This device cannot prepare a print sheet.");
+      return { ok: false, reason: "canvas", message: "This device cannot prepare a print sheet." };
+    }
+    if (typeof ctx.scale === "function") ctx.scale(ratio, ratio);
+    this.paintGraphScene(ctx, graph, width, height);
+    let imageDataUrl = "";
+    try {
+      imageDataUrl = typeof canvas.toDataURL === "function" ? canvas.toDataURL("image/png") : "";
+    } catch (e) {
+      imageDataUrl = "";
+    }
+    if (!imageDataUrl) {
+      this.graphPrintStatus("The graph image could not be prepared for printing.");
+      return { ok: false, reason: "canvas", message: "The graph image could not be prepared for printing." };
+    }
+    const table = tableExport(this.graphColumns, this.graphData);
+    const built = printDocument({
+      title: "Graph",
+      imageDataUrl,
+      expressions: this.graphRows.map((row) => (isFolderRow(row) ? "" : row.text)),
+      window: this.graphViewport,
+      table,
+      regression: this.graphRegression,
+    });
+    if (!built.ok) {
+      this.graphPrintStatus(built.message);
+      return built;
+    }
+    this.graphPrintStatus(printSummary(this.graphRows.map((row) => row.text), table));
+    return built;
+  }
+
+  async saveGraphPrintSheet(built) {
+    const saved = await this.saveGraphFile(exportFileName("graph-print", new Date(), "html"), built.html, false);
+    if (saved.ok) this.graphPrintStatus(`Saved ${saved.path}. Open it and print from the browser.`);
+    return saved;
+  }
+
+  async saveGraphPrint() {
+    const built = await this.buildGraphPrintDocument();
+    if (!built.ok) {
+      new Notice(built.message);
+      return built;
+    }
+    return this.saveGraphPrintSheet(built);
+  }
+
+  async printGraph() {
+    const built = await this.buildGraphPrintDocument();
+    if (!built.ok) {
+      new Notice(built.message);
+      return built;
+    }
+    const targetWindow = typeof window !== "undefined" ? window : null;
+    if (targetWindow && typeof targetWindow.open === "function") {
+      try {
+        const opened = targetWindow.open("", "_blank");
+        if (opened && opened.document && typeof opened.document.write === "function") {
+          opened.document.write(built.html);
+          opened.document.close();
+          if (typeof opened.focus === "function") opened.focus();
+          if (typeof opened.print === "function") opened.print();
+          this.graphPrintStatus("Print sheet opened. Choose Print in the browser dialog.");
+          return { ok: true, method: "print" };
+        }
+      } catch (e) {
+        // A blocked popup falls through to the saved sheet below.
+      }
+    }
+    const saved = await this.saveGraphPrintSheet(built);
+    if (!saved.ok) return saved;
+    return { ok: true, method: "file", path: saved.path };
   }
 
   graphExportDocument() {
@@ -84813,6 +85110,7 @@ QuestionTrackerPlugin.__test = {
   graphAccessibility: require("./graph-accessibility"),
   graphFolders: require("./graph-folders"),
   graphTable: require("./graph-table"),
+  graphPrint: require("./graph-print"),
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,
