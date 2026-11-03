@@ -2,6 +2,15 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.202.0 — 2026-11-03
+
+- Geometry constructions: midpoints, line/circle intersections, parallel and
+  perpendicular lines, perpendicular bisectors, angle bisectors and circles
+  through three points. Constructions resolve from their sources, and removing
+  a source removes its dependants.
+- Invalid or degenerate constructions report a readable error instead of
+  breaking the tab.
+
 ## 1.201.0 — 2026-11-03
 
 - The Reference panel has a **Geometry** tab. Add points by coordinate, then

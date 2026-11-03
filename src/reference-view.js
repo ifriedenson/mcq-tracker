@@ -647,14 +647,27 @@ class ReferenceView extends ItemView {
     this.geometryB = this.geometryB || (points[1] && points[1].id) || "";
     const first = selectPoint("first point", "Geometry first point");
     const second = selectPoint("second point", "Geometry second point");
+    const third = selectPoint("third point", "Geometry third point");
     first.value = this.geometryA;
     second.value = this.geometryB;
+    third.value = this.geometryB;
     first.addEventListener("change", () => { this.geometryA = first.value; });
     second.addEventListener("change", () => { this.geometryB = second.value; });
+    const selectSource = (label, aria) => {
+      const wrap = objectForm.createEl("label", { cls: "qt-ref-graph-bound" });
+      wrap.createSpan({ text: label });
+      const select = wrap.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": aria } });
+      for (const object of this.geometryModel.objects.filter((entry) => entry.type !== "point")) {
+        select.createEl("option", { text: `${object.type} ${object.label || object.id}`, value: object.id });
+      }
+      return select;
+    };
+    const sourceA = selectSource("source A", "Geometry source A");
+    const sourceB = selectSource("source B", "Geometry source B");
     const typeWrap = objectForm.createEl("label", { cls: "qt-ref-graph-bound" });
     typeWrap.createSpan({ text: "type" });
     const typeSelect = typeWrap.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": "Geometry object type" } });
-    for (const type of ["segment", "line", "ray", "circle"]) typeSelect.createEl("option", { text: type, value: type });
+    for (const type of ["segment", "line", "ray", "circle", "midpoint", "intersection", "parallel", "perpendicular", "perpendicularBisector", "angleBisector", "circumcircle"]) typeSelect.createEl("option", { text: type, value: type });
     typeSelect.value = "segment";
     const polygonWrap = objectForm.createEl("label", { cls: "qt-ref-graph-bound" });
     polygonWrap.createSpan({ text: "polygon point ids" });
@@ -662,7 +675,7 @@ class ReferenceView extends ItemView {
     polygonInput.value = this.geometryPolygonIds;
     polygonInput.addEventListener("input", () => { this.geometryPolygonIds = polygonInput.value; });
     objectForm.createEl("button", { text: "Add object", attr: { type: "button", "aria-label": "Add geometry object" } })
-      .addEventListener("click", () => this.addGeometryObject(typeSelect.value, first.value, second.value, polygonInput.value));
+      .addEventListener("click", () => this.addGeometryObject(typeSelect.value, first.value, second.value, polygonInput.value, third.value, sourceA.value, sourceB.value));
 
     const list = root.createDiv({ cls: "qt-ref-geometry-list" });
     list.createDiv({ cls: "qt-ref-graph-data-head", text: "Objects" });

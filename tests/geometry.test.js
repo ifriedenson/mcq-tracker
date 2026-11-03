@@ -84,3 +84,54 @@ test("reference view: geometry points and objects render and persist", async () 
   assert.equal(removed.ok, true);
   assert.equal(view.geometryModel.objects.length, 1, "the dependent segment is removed too");
 });
+
+test("geometry: dependent constructions resolve and update from their sources", () => {
+  const g = T.geometry;
+  const model = g.createModel();
+  const a = g.addPoint(model, 0, 0, "A");
+  const b = g.addPoint(model, 4, 0, "B");
+  const c = g.addPoint(model, 0, 3, "C");
+  const midpoint = g.addMidpoint(model, a.id, b.id);
+  assert.deepEqual(g.pointOf(model, midpoint.id), { x: 2, y: 0 });
+  const ab = g.addLine(model, a.id, b.id);
+  const ac = g.addLine(model, a.id, c.id);
+  const crossing = g.addIntersection(model, ab.id, ac.id);
+  const crossingPoint = g.pointOf(model, crossing.id);
+  assert.ok(Math.abs(crossingPoint.x) < 1e-9 && Math.abs(crossingPoint.y) < 1e-9);
+  const parallel = g.addParallel(model, c.id, ab.id);
+  const parallelResolved = g.resolveObject(model, parallel);
+  assert.equal(parallelResolved.b.y, 3);
+  const perpendicular = g.addPerpendicular(model, c.id, ab.id);
+  const perpendicularResolved = g.resolveObject(model, perpendicular);
+  assert.equal(perpendicularResolved.b.x, 0);
+  const bisector = g.addPerpendicularBisector(model, a.id, b.id);
+  assert.deepEqual(g.resolveObject(model, bisector).a, { x: 2, y: 0 });
+  const angle = g.addAngleBisector(model, a.id, b.id, c.id);
+  const angleResolved = g.resolveObject(model, angle);
+  assert.ok(angleResolved.b.x > 0 && angleResolved.b.y > 0);
+  const circle = g.addCircumcircle(model, a.id, b.id, c.id);
+  const circleResolved = g.resolveObject(model, circle);
+  assert.ok(Math.abs(circleResolved.center.x - 2) < 1e-9);
+  assert.ok(Math.abs(circleResolved.center.y - 1.5) < 1e-9);
+  assert.ok(Math.abs(circleResolved.radius - 2.5) < 1e-9);
+  assert.throws(() => g.addCircumcircle(model, a.id, b.id, g.addPoint(model, 8, 0, "D").id), /collinear/i);
+});
+
+test("reference view: construction controls create a midpoint", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "geometry";
+  view.render();
+  const a = view.addGeometryPoint(0, 0).point;
+  const b = view.addGeometryPoint(4, 0).point;
+  const result = view.addGeometryObject("midpoint", a.id, b.id, "", b.id, "", "");
+  assert.equal(result.ok, true);
+  assert.equal(result.object.type, "midpoint");
+  assert.deepEqual(T.geometry.pointOf(view.geometryModel, result.object.id), { x: 2, y: 0 });
+});

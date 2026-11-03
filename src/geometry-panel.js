@@ -23,10 +23,17 @@ function addGeometryPoint(x, y) {
   }
 }
 
-function addGeometryObject(type, first, second, polygonText) {
+function addGeometryObject(type, first, second, polygonText, third, sourceA, sourceB) {
   try {
     let object;
     if (type === "polygon") object = geometry.addPolygon(this.geometryModel, String(polygonText || "").split(/[,\s]+/).filter(Boolean));
+    else if (type === "midpoint") object = geometry.addMidpoint(this.geometryModel, first, second);
+    else if (type === "intersection") object = geometry.addIntersection(this.geometryModel, sourceA, sourceB);
+    else if (type === "parallel") object = geometry.addParallel(this.geometryModel, first, sourceA);
+    else if (type === "perpendicular") object = geometry.addPerpendicular(this.geometryModel, first, sourceA);
+    else if (type === "perpendicularBisector") object = geometry.addPerpendicularBisector(this.geometryModel, first, second);
+    else if (type === "angleBisector") object = geometry.addAngleBisector(this.geometryModel, first, second, third);
+    else if (type === "circumcircle") object = geometry.addCircumcircle(this.geometryModel, first, second, third);
     else if (type === "circle") object = geometry.addCircle(this.geometryModel, first, second);
     else if (type === "line") object = geometry.addLine(this.geometryModel, first, second);
     else if (type === "ray") object = geometry.addRay(this.geometryModel, first, second);

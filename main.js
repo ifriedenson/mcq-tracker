@@ -30387,11 +30387,164 @@ function addPolygon(model, pointIds, label) {
   return addObject(model, { type: "polygon", points: ids, label: String(label || "").trim() });
 }
 
-/** Resolve any point-like object. Constructions added later extend this switch. */
-function pointOf(model, id) {
+function addMidpoint(model, a, b, label) {
+  requirePoint(model, a, "The first midpoint point");
+  requirePoint(model, b, "The second midpoint point");
+  if (a === b) throw new Error("A midpoint needs two different points.");
+  return addObject(model, { type: "midpoint", points: [a, b], label: String(label || "").trim() });
+}
+
+function addIntersection(model, first, second, label) {
+  if (!intersectionPoints(model, first, second).length) throw new Error("These objects do not intersect.");
+  return addObject(model, { type: "intersection", sources: [first, second], label: String(label || "").trim() });
+}
+
+function directionOf(model, lineId) {
+  const line = lineOf(model, lineId);
+  const dx = line.b.x - line.a.x;
+  const dy = line.b.y - line.a.y;
+  const length = Math.hypot(dx, dy);
+  if (!(length > 0)) throw new Error("A constructed line needs two different points.");
+  return { x: dx / length, y: dy / length };
+}
+
+function addParallel(model, pointId, lineId, label) {
+  requirePoint(model, pointId, "The parallel point");
+  const point = pointOf(model, pointId);
+  const direction = directionOf(model, lineId);
+  return addObject(model, { type: "parallel", points: [pointId], line: lineId, direction, label: String(label || "").trim() });
+}
+
+function addPerpendicular(model, pointId, lineId, label) {
+  requirePoint(model, pointId, "The perpendicular point");
+  const direction = directionOf(model, lineId);
+  return addObject(model, { type: "perpendicular", points: [pointId], line: lineId, direction: { x: -direction.y, y: direction.x }, label: String(label || "").trim() });
+}
+
+function addPerpendicularBisector(model, a, b, label) {
+  requirePoint(model, a, "The first bisector point");
+  requirePoint(model, b, "The second bisector point");
+  const first = pointOf(model, a);
+  const second = pointOf(model, b);
+  const center = midpoint(first, second);
+  const dx = second.x - first.x;
+  const dy = second.y - first.y;
+  const length = Math.hypot(dx, dy);
+  if (!(length > 0)) throw new Error("A perpendicular bisector needs two different points.");
+  return addObject(model, { type: "perpendicularBisector", points: [a, b], through: center, direction: { x: -dy / length, y: dx / length }, label: String(label || "").trim() });
+}
+
+function addAngleBisector(model, vertex, a, b, label) {
+  requirePoint(model, vertex, "The angle vertex");
+  requirePoint(model, a, "The first angle point");
+  requirePoint(model, b, "The second angle point");
+  const v = pointOf(model, vertex);
+  const first = pointOf(model, a);
+  const second = pointOf(model, b);
+  const firstLength = distance(v, first);
+  const secondLength = distance(v, second);
+  if (!(firstLength > 0) || !(secondLength > 0)) throw new Error("An angle bisector needs two points away from the vertex.");
+  const direction = { x: (first.x - v.x) / firstLength + (second.x - v.x) / secondLength, y: (first.y - v.y) / firstLength + (second.y - v.y) / secondLength };
+  const length = Math.hypot(direction.x, direction.y);
+  if (!(length > 1e-10)) throw new Error("The angle is straight; its bisector is not unique.");
+  return addObject(model, { type: "angleBisector", points: [vertex, a, b], through: v, direction: { x: direction.x / length, y: direction.y / length }, label: String(label || "").trim() });
+}
+
+function addCircumcircle(model, a, b, c, label) {
+  requirePoint(model, a, "The first circle point");
+  requirePoint(model, b, "The second circle point");
+  requirePoint(model, c, "The third circle point");
+  const first = pointOf(model, a);
+  const second = pointOf(model, b);
+  const third = pointOf(model, c);
+  const determinant = 2 * (first.x * (second.y - third.y) + second.x * (third.y - first.y) + third.x * (first.y - second.y));
+  if (Math.abs(determinant) < 1e-10) throw new Error("Those three points are collinear; there is no circle through them.");
+  const firstSq = first.x * first.x + first.y * first.y;
+  const secondSq = second.x * second.x + second.y * second.y;
+  const thirdSq = third.x * third.x + third.y * third.y;
+  const center = {
+    x: (firstSq * (second.y - third.y) + secondSq * (third.y - first.y) + thirdSq * (first.y - second.y)) / determinant,
+    y: (firstSq * (third.x - second.x) + secondSq * (first.x - third.x) + thirdSq * (second.x - first.x)) / determinant,
+  };
+  return addObject(model, { type: "circumcircle", points: [a, b, c], center, radius: distance(center, first), label: String(label || "").trim() });
+}
+
+function lineOf(model, id) {
+  const object = objectById(model, id);
+  if (!object || !["segment", "line", "ray"].includes(object.type)) throw new Error(`${id || "The object"} must be a line, ray or segment.`);
+  return { a: pointOf(model, object.points[0]), b: pointOf(model, object.points[1]) };
+}
+
+function intersectLines(first, second) {
+  const denominator = (first.a.x - first.b.x) * (second.a.y - second.b.y) - (first.a.y - first.b.y) * (second.a.x - second.b.x);
+  if (Math.abs(denominator) < 1e-10) return [];
+  const a = first.a.x * first.b.y - first.a.y * first.b.x;
+  const b = second.a.x * second.b.y - second.a.y * second.b.x;
+  const x = (a * (second.a.x - second.b.x) - (first.a.x - first.b.x) * b) / denominator;
+  const y = (a * (second.a.y - second.b.y) - (first.a.y - first.b.y) * b) / denominator;
+  return [{ x, y }];
+}
+
+function intersectLineCircle(line, circle) {
+  const dx = line.b.x - line.a.x;
+  const dy = line.b.y - line.a.y;
+  const fx = line.a.x - circle.center.x;
+  const fy = line.a.y - circle.center.y;
+  const a = dx * dx + dy * dy;
+  if (!(a > 0)) return [];
+  const b = 2 * (fx * dx + fy * dy);
+  const c = fx * fx + fy * fy - circle.radius * circle.radius;
+  const discriminant = b * b - 4 * a * c;
+  if (discriminant < -1e-10) return [];
+  const root = Math.sqrt(Math.max(0, discriminant));
+  const values = Math.abs(root) < 1e-10 ? [-b / (2 * a)] : [(-b - root) / (2 * a), (-b + root) / (2 * a)];
+  return values.map((t) => ({ x: line.a.x + t * dx, y: line.a.y + t * dy }));
+}
+
+function intersectCircles(first, second) {
+  const dx = second.center.x - first.center.x;
+  const dy = second.center.y - first.center.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1e-10 || distance > first.radius + second.radius + 1e-10 || distance < Math.abs(first.radius - second.radius) - 1e-10) return [];
+  const along = (first.radius * first.radius - second.radius * second.radius + distance * distance) / (2 * distance);
+  const height = Math.sqrt(Math.max(0, first.radius * first.radius - along * along));
+  const base = { x: first.center.x + (along * dx) / distance, y: first.center.y + (along * dy) / distance };
+  if (height < 1e-10) return [base];
+  return [
+    { x: base.x - (height * dy) / distance, y: base.y + (height * dx) / distance },
+    { x: base.x + (height * dy) / distance, y: base.y - (height * dx) / distance },
+  ];
+}
+
+function intersectionPoints(model, firstId, secondId) {
+  const first = resolveObject(model, objectById(model, firstId));
+  const second = resolveObject(model, objectById(model, secondId));
+  if (!first || !second) return [];
+  if ((first.type === "line" || first.type === "ray" || first.type === "segment") && (second.type === "line" || second.type === "ray" || second.type === "segment")) return intersectLines(first, second);
+  if ((first.type === "line" || first.type === "ray" || first.type === "segment") && second.type === "circle") return intersectLineCircle(first, second);
+  if (first.type === "circle" && (second.type === "line" || second.type === "ray" || second.type === "segment")) return intersectLineCircle(second, first);
+  if (first.type === "circle" && second.type === "circle") return intersectCircles(first, second);
+  return [];
+}
+
+/** Resolve any point-like object, including dependent constructions. */
+function pointOf(model, id, seen) {
   const object = objectById(model, id);
   if (!object) throw new Error(`The point ${id} does not exist.`);
+  const trail = seen || new Set();
+  if (trail.has(id)) throw new Error("A geometry construction cannot depend on itself.");
+  trail.add(id);
   if (object.type === "point") return { x: object.x, y: object.y };
+  if (object.type === "midpoint") {
+    const a = pointOf(model, object.points[0], trail);
+    const b = pointOf(model, object.points[1], trail);
+    return midpoint(a, b);
+  }
+  if (object.type === "intersection") {
+    const hits = intersectionPoints(model, object.sources[0], object.sources[1]);
+    if (!hits.length) throw new Error("These objects do not intersect.");
+    return hits[0];
+  }
   throw new Error(`${object.type} is not a point.`);
 }
 
@@ -30414,6 +30567,23 @@ function resolveObject(model, object) {
       radius: Math.hypot(through.x - center.x, through.y - center.y),
       label: object.label,
     };
+  }
+  if (object.type === "midpoint" || object.type === "intersection") {
+    try {
+      return { type: "point", id: object.id, point: pointOf(model, object.id), label: object.label };
+    } catch (e) {
+      return null;
+    }
+  }
+  if (object.type === "circumcircle") {
+    return { type: "circle", id: object.id, center: object.center, radius: object.radius, label: object.label };
+  }
+  if (object.type === "parallel" || object.type === "perpendicular") {
+    const through = pointOf(model, object.points[0]);
+    return { type: "line", id: object.id, a: through, b: { x: through.x + object.direction.x, y: through.y + object.direction.y }, label: object.label };
+  }
+  if (object.type === "perpendicularBisector" || object.type === "angleBisector") {
+    return { type: "line", id: object.id, a: object.through, b: { x: object.through.x + object.direction.x, y: object.through.y + object.direction.y }, label: object.label };
   }
   if (object.type === "polygon") {
     const points = object.points.map((id) => pointOf(model, id));
@@ -30516,7 +30686,10 @@ function removeObject(model, id) {
     changed = false;
     for (const object of model.objects) {
       if (removed.has(object.id)) continue;
-      if (Array.isArray(object.points) && object.points.some((pointId) => removed.has(pointId))) {
+      const refs = Array.isArray(object.points) ? object.points.slice() : [];
+      if (object.line) refs.push(object.line);
+      if (Array.isArray(object.sources)) refs.push(...object.sources);
+      if (refs.some((pointId) => removed.has(pointId))) {
         removed.add(object.id);
         changed = true;
       }
@@ -30554,6 +30727,12 @@ function normalizeModel(value) {
         addObject(model, { id: String(raw.id || ""), type: "circle", points: (raw.points || []).map(String), label: String(raw.label || "") });
       } else if (raw.type === "polygon") {
         addObject(model, { id: String(raw.id || ""), type: "polygon", points: (raw.points || []).map(String), label: String(raw.label || "") });
+      } else if (raw.type === "midpoint" || raw.type === "perpendicularBisector" || raw.type === "angleBisector" || raw.type === "circumcircle") {
+        addObject(model, { id: String(raw.id || ""), type: raw.type, points: (raw.points || []).map(String), through: raw.through, direction: raw.direction, center: raw.center, radius: raw.radius, label: String(raw.label || "") });
+      } else if (raw.type === "intersection") {
+        addObject(model, { id: String(raw.id || ""), type: "intersection", sources: (raw.sources || []).map(String), label: String(raw.label || "") });
+      } else if (raw.type === "parallel" || raw.type === "perpendicular") {
+        addObject(model, { id: String(raw.id || ""), type: raw.type, points: (raw.points || []).map(String), line: String(raw.line || ""), direction: raw.direction, label: String(raw.label || "") });
       }
     } catch (e) {
       // Skip a damaged stored object; the rest of the drawing still loads.
@@ -30640,7 +30819,14 @@ function paintGeometry(ctx, model, view, width, height) {
 
 module.exports = {
   MAX_OBJECTS,
+  addAngleBisector,
   addCircle,
+  addCircumcircle,
+  addIntersection,
+  addMidpoint,
+  addParallel,
+  addPerpendicular,
+  addPerpendicularBisector,
   addLine,
   addObject,
   addPoint,
@@ -30694,10 +30880,17 @@ function addGeometryPoint(x, y) {
   }
 }
 
-function addGeometryObject(type, first, second, polygonText) {
+function addGeometryObject(type, first, second, polygonText, third, sourceA, sourceB) {
   try {
     let object;
     if (type === "polygon") object = geometry.addPolygon(this.geometryModel, String(polygonText || "").split(/[,\s]+/).filter(Boolean));
+    else if (type === "midpoint") object = geometry.addMidpoint(this.geometryModel, first, second);
+    else if (type === "intersection") object = geometry.addIntersection(this.geometryModel, sourceA, sourceB);
+    else if (type === "parallel") object = geometry.addParallel(this.geometryModel, first, sourceA);
+    else if (type === "perpendicular") object = geometry.addPerpendicular(this.geometryModel, first, sourceA);
+    else if (type === "perpendicularBisector") object = geometry.addPerpendicularBisector(this.geometryModel, first, second);
+    else if (type === "angleBisector") object = geometry.addAngleBisector(this.geometryModel, first, second, third);
+    else if (type === "circumcircle") object = geometry.addCircumcircle(this.geometryModel, first, second, third);
     else if (type === "circle") object = geometry.addCircle(this.geometryModel, first, second);
     else if (type === "line") object = geometry.addLine(this.geometryModel, first, second);
     else if (type === "ray") object = geometry.addRay(this.geometryModel, first, second);
@@ -65030,14 +65223,27 @@ class ReferenceView extends ItemView {
     this.geometryB = this.geometryB || (points[1] && points[1].id) || "";
     const first = selectPoint("first point", "Geometry first point");
     const second = selectPoint("second point", "Geometry second point");
+    const third = selectPoint("third point", "Geometry third point");
     first.value = this.geometryA;
     second.value = this.geometryB;
+    third.value = this.geometryB;
     first.addEventListener("change", () => { this.geometryA = first.value; });
     second.addEventListener("change", () => { this.geometryB = second.value; });
+    const selectSource = (label, aria) => {
+      const wrap = objectForm.createEl("label", { cls: "qt-ref-graph-bound" });
+      wrap.createSpan({ text: label });
+      const select = wrap.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": aria } });
+      for (const object of this.geometryModel.objects.filter((entry) => entry.type !== "point")) {
+        select.createEl("option", { text: `${object.type} ${object.label || object.id}`, value: object.id });
+      }
+      return select;
+    };
+    const sourceA = selectSource("source A", "Geometry source A");
+    const sourceB = selectSource("source B", "Geometry source B");
     const typeWrap = objectForm.createEl("label", { cls: "qt-ref-graph-bound" });
     typeWrap.createSpan({ text: "type" });
     const typeSelect = typeWrap.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": "Geometry object type" } });
-    for (const type of ["segment", "line", "ray", "circle"]) typeSelect.createEl("option", { text: type, value: type });
+    for (const type of ["segment", "line", "ray", "circle", "midpoint", "intersection", "parallel", "perpendicular", "perpendicularBisector", "angleBisector", "circumcircle"]) typeSelect.createEl("option", { text: type, value: type });
     typeSelect.value = "segment";
     const polygonWrap = objectForm.createEl("label", { cls: "qt-ref-graph-bound" });
     polygonWrap.createSpan({ text: "polygon point ids" });
@@ -65045,7 +65251,7 @@ class ReferenceView extends ItemView {
     polygonInput.value = this.geometryPolygonIds;
     polygonInput.addEventListener("input", () => { this.geometryPolygonIds = polygonInput.value; });
     objectForm.createEl("button", { text: "Add object", attr: { type: "button", "aria-label": "Add geometry object" } })
-      .addEventListener("click", () => this.addGeometryObject(typeSelect.value, first.value, second.value, polygonInput.value));
+      .addEventListener("click", () => this.addGeometryObject(typeSelect.value, first.value, second.value, polygonInput.value, third.value, sourceA.value, sourceB.value));
 
     const list = root.createDiv({ cls: "qt-ref-geometry-list" });
     list.createDiv({ cls: "qt-ref-graph-data-head", text: "Objects" });
