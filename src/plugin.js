@@ -94,6 +94,7 @@ const { CardModal } = require("./card-modal");
 const { ImageOcclusionModal } = require("./image-occlusion-modal");
 const { CardExportModal, CardImportModal, cardsToAnki, cardsToQuestionSet, cardsToQuizlet, parseAnkiText, parseCrowdAnkiJson, parseGenericCsv, parseFlashQuizText, parseGiftText, parseMarkdownQuiz, parseMarkdownTable, parseMochiMarkdown, parseMoodleXml, parseQtiXml, parseQuestionSetText, parseQuizPortJson, parseQuizletPdf, parseQuizletText, parseSpacedRepetition } = require("./cards-import");
 const { CardExtractModal } = require("./cards-extract-modal");
+const { DocumentCardsModal } = require("./document-cards");
 const { buildMochiArchive, cardsToMochiDecks, mochiMediaWarning } = require("./mochi-export");
 const { cardsToLearnKit, parseLearnKit } = require("./learnkit");
 const { AnkiConnectModal, AnkiConnectClient, ankiExclusionReason, buildAnkiNotes, localSyncRecord, normalizeAnkiConnect, remoteSyncRecord, resolveSyncAction, syncDecision, syncHash } = require("./anki-connect");
@@ -557,6 +558,7 @@ class QuestionTrackerPlugin extends Plugin {
       },
     });
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
+    this.addCommand({ id: "cards-import-document", name: "Cards: extract cards from a PDF or Markdown file", callback: () => this.openDocumentCards() });
     this.addCommand({
       id: "cards-rescan-plain",
       name: "Cards: rescan plain Markdown folder",
@@ -2763,6 +2765,17 @@ class QuestionTrackerPlugin extends Plugin {
         if (onDone) onDone(result);
       }
     ).open();
+  }
+
+  openDocumentCards(options, onDone) {
+    if (this.moduleOff("cards")) {
+      new Notice("Turn on Cards under Settings, Global, Modules to extract flashcards.");
+      return;
+    }
+    new DocumentCardsModal(this.app, this, options || {}, (result) => {
+      this.refreshViews();
+      if (onDone) onDone(result);
+    }).open();
   }
 
   openCardExport(options, onDone) {

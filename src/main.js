@@ -37,6 +37,7 @@ const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
 const tagTimer = require("./tag-timer");
 const { ChatPanel } = require("./chat-panel");
+const documentCards = require("./document-cards");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
 const aiService = require("./ai-service");
@@ -571,6 +572,7 @@ QuestionTrackerPlugin.__test = {
   ocr,
   OcrModal,
   documents,
+  documentCards,
   QUICK_START_URL,
   aiReady,
   emptyState,

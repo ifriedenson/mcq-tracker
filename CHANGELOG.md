@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.212.0 — 2026-11-03
+
+- Added **Cards: extract cards from a PDF or Markdown file**. Text is read
+  locally first; Q/A pairs, definition lines, tables, separators and cloze marks
+  become cards. Scanned PDFs still use the existing OCR flow.
+- Every card is previewed before writing. Optional AI fallback runs only when
+  local extraction finds nothing, and is off by default.
+
 ## 1.211.1 — 2026-11-03
 
 - Fixed **Anki package (.apkg)** import dropping all but the first card of a
