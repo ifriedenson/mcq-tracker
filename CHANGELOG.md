@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.216.0 — 2026-11-03
+
+- **An annotation sidebar in the PDF reader**: every annotation in the open PDF
+  is listed with its type, page, note and tag chips, searchable and
+  type-filterable with the same rules as the index tab. A toolbar toggle and the
+  **A** shortcut collapse it.
+- **Click a row to jump** to its page and ring the exact mark; the selected row
+  is visibly distinct.
+- **Edit notes and tags, or delete, from the sidebar**: each change is written to
+  the `.annotations.md` sidecar and redrawn at once, and a delete never moves the
+  page.
+- **Tags at creation time**: the mark and quote prompts now have a tag field, and
+  the PDF annotations tab carries tags so its chips and the digest reflect
+  sidebar edits.
+
 ## 1.215.0 — 2026-11-03
 
 - **A fuller PDF annotator**: highlight, underline, strike-through and box marks

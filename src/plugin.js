@@ -57,7 +57,7 @@ const { OcrModal } = require("./ocr-modal");
 const { PaperScannerModal } = require("./paper-scanner");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const { PdfInkModal } = require("./pdf-ink-modal");
-const { annotationLink, annotationSummary, annotationsMarkdown, parseAnnotationFile, sidecarPathFor, upsertAnnotation, removeAnnotation } = require("./pdf-annotations");
+const { annotationLink, annotationSummary, annotationsMarkdown, normalizeTags, parseAnnotationFile, sidecarPathFor, upsertAnnotation, removeAnnotation } = require("./pdf-annotations");
 const { WelcomeModal } = require("./welcome-modal");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
@@ -1378,6 +1378,22 @@ class QuestionTrackerPlugin extends Plugin {
     return (await this.pdfAnnotationRows(source)).rows.find((row) => row.id === id) || null;
   }
 
+  /** Replaces one annotation's tags with the bounded, hash-free tag list. */
+  async updatePdfAnnotationTags(pdfPath, id, tags) {
+    const source = String(pdfPath || "").trim();
+    const path = sidecarPathFor(source);
+    const file = await this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    const text = await this.app.vault.cachedRead(file);
+    const parsed = parseAnnotationFile(text);
+    const current = (parsed.annotations || []).find((annotation) => annotation.id === id);
+    if (!current) return null;
+    const next = upsertAnnotation(text, { ...current, tags: normalizeTags(tags), updatedAt: new Date().toISOString() }, { pdfPath: source, pdfHash: parsed.pdfHash });
+    await this.app.vault.modify(file, next.text);
+    this.pdfAnnotationRevision = (this.pdfAnnotationRevision || 0) + 1;
+    return (await this.pdfAnnotationRows(source)).rows.find((row) => row.id === id) || null;
+  }
+
   /** Removes one annotation and returns how many the sidecar still holds. */
   async deletePdfAnnotation(pdfPath, id) {
     const source = String(pdfPath || "").trim();
@@ -1387,6 +1403,7 @@ class QuestionTrackerPlugin extends Plugin {
     const parsed = parseAnnotationFile(await this.app.vault.cachedRead(file));
     const next = removeAnnotation(await this.app.vault.cachedRead(file), id, { pdfPath: source, pdfHash: parsed.pdfHash });
     await this.app.vault.modify(file, next.text);
+    this.pdfAnnotationRevision = (this.pdfAnnotationRevision || 0) + 1;
     this.refreshViews();
     return next.annotations.length;
   }

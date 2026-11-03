@@ -49,6 +49,7 @@ function makeApp(notes) {
       getAllLoadedFiles: () => files,
       cachedRead: async (f) => f.text,
       read: async (f) => f.text,
+      readBinary: async (f) => f.buffer || new Uint8Array([37, 80, 68, 70]),
       getAbstractFileByPath: (p) => files.find((f) => f.path === p) || null,
       create: async (p, text) => {
         const f = new obsidian.TFile();

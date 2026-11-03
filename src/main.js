@@ -469,6 +469,8 @@ QuestionTrackerPlugin.__test = {
   apExamResources,
   pdfAnnotations,
   pdfInk,
+  pdfAnnotatorSidebar: require("./pdf-annotator-sidebar"),
+  pdfInkModal: require("./pdf-ink-modal"),
   PdfAnnotationModal,
   PdfInkModal,
   welcome,

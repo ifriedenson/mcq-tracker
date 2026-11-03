@@ -87,6 +87,7 @@ function collectPdfAnnotations(entries, options) {
         quote: annotation.quote,
         note: annotation.note,
         text: annotation.text,
+        tags: Array.isArray(annotation.tags) ? annotation.tags.slice() : [],
         summary: annotationSummary(annotation),
         createdAt: annotation.createdAt,
       });

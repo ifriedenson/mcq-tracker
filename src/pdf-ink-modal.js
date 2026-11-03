@@ -3,6 +3,7 @@ const { Modal, Notice, Setting, TFile } = require("obsidian");
 const { readPdfPageText, renderPdfPagesAsPng } = require("./pdf");
 const { annotationLink, annotationsMarkdown, hashBytes, parseAnnotationFile, removeAnnotation, sidecarPathFor, upsertAnnotation } = require("./pdf-annotations");
 const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MARK_STYLES, MAX_INK_POINTS, areaAt, boxAt, clamp, drawInkSegment, drawInkStrokes, drawMarks, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes, textInArea } = require("./pdf-ink");
+const { renderSidebar, rowPage, selectionBounds, sidebarRows, tagInput } = require("./pdf-annotator-sidebar");
 
 const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", text: "Text box", highlight: "Highlight", underline: "Underline", strike: "Strike-through", box: "Box", select: "Select text", eraser: "Eraser" };
 const MARK_TOOLS = ["highlight", "underline", "strike", "box", "select"];
@@ -40,6 +41,13 @@ class TextBoxPromptModal extends Modal {
     this.textEl = el.createEl("textarea", { cls: "qt-pdf-ink-textarea" });
     this.textEl.rows = 5;
     this.textEl.value = this.options.text || "";
+    this.tagEl = null;
+    if (Array.isArray(this.options.tags)) {
+      el.createDiv({ cls: "qt-hint", text: "Tags (optional, comma separated, up to 6, no hash needed)." });
+      this.tagEl = el.createEl("input", { cls: "qt-input", type: "text" });
+      this.tagEl.placeholder = "e.g. exam, weak-spot";
+      this.tagEl.value = this.options.tags.map((tag) => `#${tag}`).join(" ");
+    }
     const row = el.createDiv({ cls: "qt-row qt-pdf-ink-actions" });
     const save = row.createEl("button", { text: "Save", cls: "mod-cta qt-grow" });
     save.addEventListener("click", () => this.commit());
@@ -51,7 +59,7 @@ class TextBoxPromptModal extends Modal {
   commit() {
     const value = this.textEl ? this.textEl.value : "";
     this.close();
-    this.onDone(value);
+    this.onDone(value, this.tagEl ? this.tagEl.value : "");
   }
 
   onClose() {
@@ -97,6 +105,16 @@ class PdfInkModal extends Modal {
     this.pageTotalEl = null;
     this.statusEl = null;
     this.stageEl = null;
+    this.sidebarEl = null;
+    this.toggleEl = null;
+    this.sidebarOpen = true;
+    this.sidebarQuery = "";
+    this.sidebarType = "";
+    this.annotationRows = [];
+    this.selectedId = "";
+    this.editingNoteId = "";
+    this.editingTagsId = "";
+    this.markTags = { highlight: [], underline: [], strike: [], box: [] };
     this.pageWrap = null;
     this.canvas = null;
     this.ctx = null;
@@ -106,6 +124,15 @@ class PdfInkModal extends Modal {
     this.modalEl.addClass("qt-pdf-ink-modal");
     const last = this.plugin.pdfLastPage ? this.plugin.pdfLastPage(this.pdfPath) : 0;
     if (last > 0 && this.page === 1) this.page = last;
+    try {
+      const stored = this.app.loadLocalStorage ? this.app.loadLocalStorage("mcq-pdf-sidebar-open") : null;
+      if (stored === false) this.sidebarOpen = false;
+    } catch (e) {
+      /* ignore storage failures */
+    }
+    if (this.modalEl && this.modalEl.addEventListener) {
+      this.modalEl.addEventListener("keydown", (event) => this.handleKey(event));
+    }
     this.render();
     this.loadPage();
   }
@@ -225,8 +252,15 @@ class PdfInkModal extends Modal {
     const exportNotes = actions.createEl("button", { text: "Export notes", cls: "qt-grow" });
     exportNotes.addEventListener("click", () => this.exportNotes());
 
+    this.toggleEl = actions.createEl("button", { text: "Annotations", cls: "qt-grow qt-pdf-ink-annotations-toggle" });
+    this.toggleEl.addEventListener("click", () => this.toggleSidebar());
+
     this.statusEl = el.createDiv({ cls: "qt-hint" });
-    this.stageEl = el.createDiv({ cls: "qt-pdf-ink-stage" });
+    const layout = el.createDiv({ cls: "qt-pdf-ink-layout" });
+    this.stageEl = layout.createDiv({ cls: "qt-pdf-ink-stage" });
+    this.sidebarEl = layout.createDiv({ cls: "qt-pdf-ink-sidebar-host" });
+    if (!this.sidebarOpen) this.sidebarEl.addClass("is-collapsed");
+    this.renderSidebarPanel();
     if (this.busy) this.setStatus("Loading…");
   }
 
@@ -263,6 +297,7 @@ class PdfInkModal extends Modal {
       const warning = this.savedHash && this.savedHash !== hash ? " The PDF changed since its annotations were saved; check that the page still matches." : "";
       this.setStatus(`Page ${this.page} ready. Draw, then Save.${warning}`);
       if (this.plugin.rememberPdfPage) this.plugin.rememberPdfPage(this.pdfPath, this.page);
+      await this.refreshAnnotations();
     } catch (e) {
       if (token === this.loadToken) this.setStatus(e && e.message ? e.message : String(e));
     } finally {
@@ -280,6 +315,7 @@ class PdfInkModal extends Modal {
     this.markIds = { highlight: "", underline: "", strike: "", box: "" };
     this.quotes = [];
     this.pageQuoteIds = [];
+    this.markTags = { highlight: [], underline: [], strike: [], box: [] };
     this.savedHash = "";
     const existing = this.app.vault.getAbstractFileByPath(this.sidecarPath);
     if (!existing) return;
@@ -305,6 +341,7 @@ class PdfInkModal extends Modal {
       if (annotation.page !== Number(this.page)) continue;
       if (MARK_STYLES.includes(annotation.type) && Array.isArray(annotation.areas) && annotation.areas.length) {
         this.markIds[annotation.type] = annotation.id;
+        this.markTags[annotation.type] = Array.isArray(annotation.tags) ? annotation.tags.slice() : [];
         for (const area of normalizeHighlightAreas(annotation.areas)) this.highlights.push({ ...area, style: annotation.type });
       }
       if (annotation.type === "quote") {
@@ -482,6 +519,9 @@ class PdfInkModal extends Modal {
     if (this.highlightDraft) drawMarks(this.ctx, [this.highlightDraft], width, height);
     drawInkStrokes(this.ctx, this.strokes, width, height, false);
     drawTextBoxes(this.ctx, this.textBoxes, width, height);
+    const selected = this.annotationRows.find((row) => row.id === this.selectedId);
+    const bounds = selectionBounds(selected && selected.areas);
+    if (bounds) drawSelectionRing(this.ctx, bounds, width, height);
   }
 
   snapshot() {
@@ -541,8 +581,8 @@ class PdfInkModal extends Modal {
           return;
         }
         const preview = picked.quote.split("\n").join(" ").slice(0, 160);
-        new TextBoxPromptModal(this.app, { title: "Note on this quote", text: "", hint: preview }, (value) => {
-          this.saveQuote({ quote: picked.quote, areas: picked.areas, note: value, color: this.color });
+        new TextBoxPromptModal(this.app, { title: "Note on this quote", text: "", hint: preview, tags: [] }, (value, tagsText) => {
+          this.saveQuote({ quote: picked.quote, areas: picked.areas, note: value, color: this.color, tags: tagInput(tagsText) });
         }).open();
         this.redraw();
         return;
@@ -550,8 +590,9 @@ class PdfInkModal extends Modal {
       const area = normalizeHighlightArea({ ...rect, color: this.color, style, note: "" });
       this.redraw();
       if (!area) return;
-      new TextBoxPromptModal(this.app, { title: `${TOOL_LABELS[style] || "Mark"} note`, text: "" }, (value) => {
+      new TextBoxPromptModal(this.app, { title: `${TOOL_LABELS[style] || "Mark"} note`, text: "", tags: this.markTags[style] || [] }, (value, tagsText) => {
         area.note = String(value || "").trim();
+        this.markTags[style] = tagInput(tagsText);
         this.pushHistory();
         this.highlights.push(area);
         this.touch();
@@ -577,7 +618,7 @@ class PdfInkModal extends Modal {
       const oldText = existing ? await this.app.vault.cachedRead(existing) : "";
       const result = upsertAnnotation(
         oldText,
-        { page: this.page, type: "quote", color: input.color, quote: input.quote, note: input.note, areas: input.areas },
+        { page: this.page, type: "quote", color: input.color, quote: input.quote, note: input.note, tags: Array.isArray(input.tags) ? input.tags : [], areas: input.areas },
         { pdfPath: this.pdfPath, pdfHash: hash }
       );
       if (existing) await this.app.vault.modify(existing, result.text);
@@ -586,6 +627,7 @@ class PdfInkModal extends Modal {
       this.savedHash = hash;
       this.quotes = (result.annotations || []).filter((entry) => entry.page === Number(this.page) && entry.type === "quote");
       this.pageQuoteIds = this.quotes.map((entry) => entry.id);
+      await this.refreshAnnotations();
       const last = this.quotes[this.quotes.length - 1];
       const link = annotationLink(this.pdfPath, this.page, last ? last.id : "");
       this.setStatus(`Saved a quote${input.note ? " with a note" : ""} on page ${this.page}.${link ? ` Link: ${link}` : ""}`);
@@ -662,6 +704,139 @@ class PdfInkModal extends Modal {
     ).open();
   }
 
+  /** Rebuilds the sidebar from the sidecar. The sidecar stays the only source of truth. */
+  async refreshAnnotations() {
+    let rows = [];
+    try {
+      const data = await this.plugin.pdfAnnotationRows(this.pdfPath);
+      rows = data && Array.isArray(data.rows) ? data.rows : [];
+    } catch (e) {
+      rows = [];
+    }
+    this.annotationRows = rows;
+    for (const row of rows) {
+      if (row.page === Number(this.page) && MARK_STYLES.includes(row.type)) this.markTags[row.type] = Array.isArray(row.tags) ? row.tags.slice() : [];
+    }
+    if (this.selectedId && !rows.some((row) => row.id === this.selectedId)) this.selectedId = "";
+    this.renderSidebarPanel();
+    this.redraw();
+    return rows;
+  }
+
+  renderSidebarPanel() {
+    if (!this.sidebarEl) return;
+    if (this.toggleEl && this.toggleEl.setText) this.toggleEl.setText(`Annotations (${this.annotationRows.length})`);
+    if (!this.sidebarOpen) {
+      this.sidebarEl.empty();
+      return;
+    }
+    const types = [...new Set(this.annotationRows.map((row) => row.type).filter(Boolean))].sort();
+    const model = {
+      rows: sidebarRows(this.annotationRows, { query: this.sidebarQuery, type: this.sidebarType, selectedId: this.selectedId }),
+      total: this.annotationRows.length,
+      query: this.sidebarQuery,
+      type: this.sidebarType,
+      types,
+      editingNoteId: this.editingNoteId,
+      editingTagsId: this.editingTagsId,
+    };
+    renderSidebar(this.sidebarEl, model, {
+      onQuery: (value) => {
+        this.sidebarQuery = String(value || "");
+        this.renderSidebarPanel();
+      },
+      onType: (value) => {
+        this.sidebarType = String(value || "");
+        this.renderSidebarPanel();
+      },
+      onSelect: (id) => this.selectAnnotation(id),
+      onToggle: (open) => this.toggleSidebar(open),
+      onEditNote: (id) => {
+        this.editingNoteId = id;
+        this.editingTagsId = "";
+        this.renderSidebarPanel();
+      },
+      onSaveNote: (id, text) => this.saveSidebarNote(id, text),
+      onEditTags: (id) => {
+        this.editingTagsId = id;
+        this.editingNoteId = "";
+        this.renderSidebarPanel();
+      },
+      onSaveTags: (id, text) => this.saveSidebarTags(id, text),
+      onCancelEdit: () => {
+        this.editingNoteId = "";
+        this.editingTagsId = "";
+        this.renderSidebarPanel();
+      },
+      onDelete: (id) => this.deleteSidebarAnnotation(id),
+    });
+  }
+
+  toggleSidebar(open) {
+    this.sidebarOpen = typeof open === "boolean" ? open : !this.sidebarOpen;
+    try {
+      if (this.app.saveLocalStorage) this.app.saveLocalStorage("mcq-pdf-sidebar-open", this.sidebarOpen);
+    } catch (e) {
+      /* ignore storage failures */
+    }
+    if (this.sidebarEl) {
+      if (this.sidebarOpen) this.sidebarEl.removeClass("is-collapsed");
+      else this.sidebarEl.addClass("is-collapsed");
+    }
+    this.renderSidebarPanel();
+    this.setStatus(this.sidebarOpen ? "Annotation sidebar shown." : "Annotation sidebar hidden.");
+  }
+
+  /** Handles the A shortcut, but never while the reader is typing in a field. */
+  handleKey(event) {
+    if (!event || event.ctrlKey || event.metaKey || event.altKey) return false;
+    const target = event.target || {};
+    const tag = target.tagName ? String(target.tagName).toLowerCase() : "";
+    if (tag === "input" || tag === "textarea" || tag === "select") return false;
+    if (event.key !== "a" && event.key !== "A") return false;
+    if (event.preventDefault) event.preventDefault();
+    this.toggleSidebar();
+    return true;
+  }
+
+  /** Jumps to the row's page (if needed) and rings the exact mark. */
+  async selectAnnotation(id) {
+    const row = this.annotationRows.find((entry) => entry.id === id);
+    if (!row) return;
+    this.selectedId = row.id;
+    this.renderSidebarPanel();
+    if (rowPage(row) !== Number(this.page)) await this.goToPage(rowPage(row));
+    else this.redraw();
+    this.setStatus(`Selected the ${row.type} on page ${row.page}.`);
+  }
+
+  async saveSidebarNote(id, text) {
+    const updated = await this.plugin.updatePdfAnnotationNote(this.pdfPath, id, text);
+    this.editingNoteId = "";
+    await this.refreshAnnotations();
+    this.setStatus(updated ? `Saved the note on page ${updated.page}.` : "That annotation is no longer in the sidecar.");
+  }
+
+  async saveSidebarTags(id, text) {
+    const updated = await this.plugin.updatePdfAnnotationTags(this.pdfPath, id, tagInput(text));
+    this.editingTagsId = "";
+    await this.refreshAnnotations();
+    this.setStatus(updated ? `Saved tags on page ${updated.page}.` : "That annotation is no longer in the sidecar.");
+  }
+
+  /** Deletes without leaving the page: the page index is never part of the write. */
+  async deleteSidebarAnnotation(id) {
+    if (this.dirty && !(await this.save())) return;
+    const before = this.annotationRows.length;
+    const left = await this.plugin.deletePdfAnnotation(this.pdfPath, id);
+    if (this.selectedId === id) this.selectedId = "";
+    if (this.editingNoteId === id) this.editingNoteId = "";
+    if (this.editingTagsId === id) this.editingTagsId = "";
+    await this.loadSidecar();
+    await this.refreshAnnotations();
+    this.setStatus(left === before ? "Nothing was deleted." : `Deleted the annotation; ${left} left in this PDF.`);
+  }
+
   async goToPage(value) {
     const target = clampPage(value, this.total);
     if (target === this.page) {
@@ -731,7 +906,7 @@ class PdfInkModal extends Modal {
       for (const style of MARK_STYLES) {
         const styleAreas = areas.filter((area) => (area.style || "highlight") === style);
         if (styleAreas.length) {
-          const result = upsertAnnotation(nextText, { id: this.markIds[style] || undefined, page, type: style, color: this.color, areas: styleAreas }, meta);
+          const result = upsertAnnotation(nextText, { id: this.markIds[style] || undefined, page, type: style, color: this.color, tags: this.markTags[style] || [], areas: styleAreas }, meta);
           nextText = result.text;
           const savedMark = (result.annotations || []).find((a) => a.page === page && a.type === style && Array.isArray(a.areas) && a.areas.length);
           this.markIds[style] = savedMark ? savedMark.id : "";
@@ -813,6 +988,17 @@ function drawTextBoxes(ctx, boxes, width, height) {
     }
     ctx.restore();
   }
+}
+
+function drawSelectionRing(ctx, bounds, width, height) {
+  if (!ctx || !bounds) return;
+  ctx.save();
+  ctx.strokeStyle = "#7c5cff";
+  ctx.lineWidth = Math.max(2, (width || 1000) * 0.0035);
+  if (typeof ctx.setLineDash === "function") ctx.setLineDash([7, 5]);
+  ctx.strokeRect(bounds.x * width, bounds.y * height, bounds.width * width, bounds.height * height);
+  if (typeof ctx.setLineDash === "function") ctx.setLineDash([]);
+  ctx.restore();
 }
 
 function drawHighlightAreas(ctx, areas, width, height) {

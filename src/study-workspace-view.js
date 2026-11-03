@@ -2375,6 +2375,7 @@ class StudyWorkspaceView extends ItemView {
     actions.createEl("button", { text: "Scan annotations", cls: "mod-cta" }).addEventListener("click", async () => {
       try {
         this.pdfAnnotationData = await this.plugin.getPdfAnnotationIndex();
+        this.pdfAnnotationRevision = this.plugin.pdfAnnotationRevision || 0;
         this.saveMessage(`Found ${this.pdfAnnotationData.stats.annotations} annotation(s) in ${this.pdfAnnotationData.stats.files} sidecar file(s).`);
       } catch (e) {
         this.saveMessage(String((e && e.message) || "Could not read the annotation sidecars."));
@@ -2402,6 +2403,13 @@ class StudyWorkspaceView extends ItemView {
       }
       this.render();
     });
+    if (this.pdfAnnotationData && this.pdfAnnotationRevision !== (this.plugin.pdfAnnotationRevision || 0)) {
+      this.pdfAnnotationRevision = this.plugin.pdfAnnotationRevision || 0;
+      this.plugin.getPdfAnnotationIndex().then((next) => {
+        this.pdfAnnotationData = next;
+        this.render();
+      }).catch(() => {});
+    }
     const data = this.pdfAnnotationData;
     if (!data) {
       this.renderTabsEmpty(root, "Scan to list the PDF annotations already in this vault.");

@@ -11684,3 +11684,139 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   max-height: 96px;
   overflow: auto;
 }
+
+
+/* In-reader annotation sidebar */
+.qt-pdf-ink-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.qt-pdf-ink-layout .qt-pdf-ink-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.qt-pdf-ink-sidebar-host {
+  flex: 0 0 300px;
+  max-height: 70vh;
+  overflow-y: auto;
+  border-left: 1px solid var(--background-modifier-border);
+  padding-left: 10px;
+}
+
+.qt-pdf-ink-sidebar-host.is-collapsed {
+  display: none;
+}
+
+.qt-pdf-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.qt-pdf-sidebar-head h4 {
+  margin: 0;
+  font-size: var(--font-ui-small);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.qt-pdf-sidebar-count {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.qt-pdf-sidebar-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.qt-pdf-sidebar-filters input,
+.qt-pdf-sidebar-filters select {
+  width: 100%;
+}
+
+.qt-pdf-sidebar-shortcut {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  margin-bottom: 8px;
+}
+
+.qt-pdf-sidebar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qt-pdf-sidebar-row {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.qt-pdf-sidebar-row:hover {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.qt-pdf-sidebar-row.is-selected {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px var(--interactive-accent) inset;
+  background: var(--background-modifier-active-hover, var(--background-modifier-hover));
+}
+
+.qt-pdf-sidebar-row-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
+.qt-pdf-sidebar-note {
+  margin-top: 4px;
+  font-size: var(--font-ui-small);
+  white-space: pre-wrap;
+}
+
+.qt-pdf-sidebar-quote {
+  margin-top: 4px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qt-pdf-sidebar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.qt-pdf-sidebar-actions button {
+  font-size: var(--font-ui-smaller);
+  padding: 2px 8px;
+}
+
+.qt-pdf-sidebar-editor {
+  margin-top: 6px;
+}
+
+.qt-pdf-sidebar-empty {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  padding: 8px 0;
+}
