@@ -646,6 +646,186 @@ module.exports = {
 };
 };
 
+/* ---- src/agent-view.js ---- */
+__defs["agent-view"] = function (module, exports, require) {
+/*
+ * Right-sidebar study agent, built from the plugin's own chat and write guards.
+ * It can answer from the vault with clickable citations, search locally without
+ * a provider, and create cards through the existing approval window. Full-vault
+ * context is opt-in. No Obsidian Copilot code is used.
+ */
+const { ItemView, Notice } = require("obsidian");
+const { str } = require("./util");
+const { ChatPanel } = require("./chat-panel");
+const { readActiveNoteContext } = require("./note-context");
+const { buildGeneralContext } = require("./opencode-client");
+
+const VIEW_TYPE_AGENT = "question-tracker-agent";
+
+function terms(query) {
+  return [...new Set(str(query).toLowerCase().split(/[^\p{L}\p{N}_-]+/u).filter((word) => word.length > 2))].slice(0, 8);
+}
+
+/** Local, read-only vault search. Every hit carries its note path and line. */
+async function searchVault(app, query, limit) {
+  const words = terms(query);
+  if (!words.length) return [];
+  const files = app.vault.getMarkdownFiles();
+  const hits = [];
+  for (const file of files) {
+    let text = "";
+    try {
+      text = await app.vault.cachedRead(file);
+    } catch (e) {
+      continue;
+    }
+    const lines = text.split(/\r?\n/);
+    let best = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      const lower = line.toLowerCase();
+      const score = words.reduce((sum, word) => sum + (lower.includes(word) ? 1 : 0), 0);
+      if (score > 0 && (!best || score > best.score)) best = { score, line, index: i };
+    }
+    if (best) hits.push({ path: file.path, line: best.line.slice(0, 300), lineNumber: best.index + 1, score: best.score });
+  }
+  return hits.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, Math.max(1, Math.min(20, limit || 8)));
+}
+
+function citationMarkdown(hit) {
+  return `- [[${hit.path}#L${hit.lineNumber}|${hit.path}]] — ${hit.line}`;
+}
+
+class AgentView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.plugin = plugin;
+    this.results = [];
+    this.includeVaultIndex = false;
+  }
+
+  getViewType() {
+    return VIEW_TYPE_AGENT;
+  }
+
+  getDisplayText() {
+    return "Study agent";
+  }
+
+  getIcon() {
+    return "bot";
+  }
+
+  async onOpen() {
+    this.contentEl.addClass("qt-root");
+    this.render();
+  }
+
+  render() {
+    const root = this.contentEl;
+    root.empty();
+    root.createEl("h4", { text: "Study agent" });
+    root.createDiv({
+      cls: "qt-hint",
+      text: "Ask about your notes, or ask it to create cards. Agent mode proposes cards for your review; nothing is saved without approval.",
+    });
+    if (!this.plugin.settings.ai.enabled) {
+      root.createDiv({ cls: "qt-hint", text: "Turn on AI under Settings > MCQ Tracker > OpenCode (AI) to chat. Local vault search still works below." });
+    }
+
+    const searchRow = root.createDiv({ cls: "qt-row" });
+    this.searchInput = searchRow.createEl("input", { type: "text", attr: { placeholder: "Search your vault..." } });
+    this.searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") this.search();
+    });
+    searchRow.createEl("button", { text: "Search" }).addEventListener("click", () => this.search());
+    const contextLabel = root.createEl("label", { cls: "qt-row" });
+    this.vaultToggle = contextLabel.createEl("input", { type: "checkbox" });
+    contextLabel.appendText(" Include a full-vault file index in chat (opt-in)");
+    this.vaultToggle.addEventListener("change", () => {
+      this.includeVaultIndex = this.vaultToggle.checked;
+    });
+    this.resultsEl = root.createDiv({ cls: "qt-agent-results" });
+    this.chatEl = root.createDiv({ cls: "qt-agent-chat" });
+    this.renderChat();
+  }
+
+  renderChat() {
+    if (!this.chatEl) return;
+    this.chatEl.empty();
+    new ChatPanel(this, this.chatEl, {
+      title: "Study agent",
+      sourcePath: "",
+      getSessionId: () => this.plugin.settings.ai.sessionId,
+      setSessionId: (id) => {
+        this.plugin.settings.ai.sessionId = id;
+        this.plugin.save();
+      },
+      getApiHistory: () => (this.apiHistory = this.apiHistory || []),
+      getRole: () => this.plugin.settings.ai.tutorRole,
+      setRole: (id) => {
+        this.plugin.settings.ai.tutorRole = id;
+        this.plugin.save();
+      },
+      buildContext: (mode, currentNote) => this.buildContext(mode, currentNote),
+      readNoteContext: () => readActiveNoteContext(this.app),
+      quick: [
+        { label: "Summarize my notes", prompt: "Summarize the most important ideas in my notes and cite the notes you use." },
+        { label: "Make cards", prompt: "Turn the key ideas in my notes into flashcards. Propose them for my review." },
+      ],
+    });
+  }
+
+  buildContext(mode, currentNote) {
+    const parts = [
+      buildGeneralContext(this.app, mode, this.plugin.settings.ai.tutorRole, ""),
+      "When you use a vault note, cite it as [[path]] (optionally [[path#L12]]). Do not invent citations. If the vault does not contain the answer, say so.",
+    ];
+    if (this.includeVaultIndex) {
+      const index = this.app.vault.getMarkdownFiles().map((file) => file.path).slice(0, 800).join("\n");
+      parts.push(`Opt-in vault file index (paths only):\n${index}`);
+    }
+    if (this.results.length) {
+      parts.push(`Local vault search results for the latest question:\n${this.results.map(citationMarkdown).join("\n")}`);
+    }
+    if (currentNote) parts.push(currentNote);
+    return parts.filter(Boolean).join("\n\n");
+  }
+
+  async search() {
+    const query = str(this.searchInput.value).trim();
+    if (!query) return;
+    this.resultsEl.setText("Searching...");
+    try {
+      this.results = await searchVault(this.app, query, 8);
+    } catch (error) {
+      this.resultsEl.setText(str(error && error.message) || "Search failed.");
+      return;
+    }
+    this.resultsEl.empty();
+    if (!this.results.length) {
+      this.resultsEl.setText("No matching notes.");
+      return;
+    }
+    this.resultsEl.createDiv({ cls: "qt-hint", text: `${this.results.length} cited result${this.results.length === 1 ? "" : "s"}. These are also shared with the next chat question.` });
+    for (const hit of this.results) {
+      const row = this.resultsEl.createDiv({ cls: "qt-agent-hit" });
+      const link = row.createEl("a", { text: `${hit.path}:${hit.lineNumber}`, href: "#" });
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        this.app.workspace.openLinkText(hit.path, "", false);
+      });
+      row.createDiv({ cls: "qt-agent-snippet", text: hit.line });
+    }
+    this.renderChat();
+    new Notice("Citations added to the next chat question.");
+  }
+}
+
+module.exports = { AgentView, VIEW_TYPE_AGENT, citationMarkdown, searchVault, terms };
+};
+
 /* ---- src/agent-write-guard.js ---- */
 __defs["agent-write-guard"] = function (module, exports, require) {
 /*
@@ -20775,6 +20955,7 @@ const VIEW_TYPE_STUDY_STATS = "question-tracker-study-stats";
 const VIEW_TYPE_LOCAL_EVENTS = "question-tracker-local-events";
 const VIEW_TYPE_POMODORO = "question-tracker-pomodoro";
 const VIEW_TYPE_TASK_LIST = "question-tracker-task-list";
+const VIEW_TYPE_AGENT = "question-tracker-agent";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -21036,6 +21217,7 @@ module.exports = {
   VIEW_TYPE_LOCAL_EVENTS,
   VIEW_TYPE_POMODORO,
   VIEW_TYPE_TASK_LIST,
+  VIEW_TYPE_AGENT,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,
@@ -47382,7 +47564,7 @@ __defs["plugin"] = function (module, exports, require) {
 const { normalizeExamReadyPasses, renderMarkdownInto } = require("./view-helpers");
 const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = require("obsidian");
 const { OpenCodeManager } = require("./opencode-manager");
-const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST } = require("./constants");
+const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST, VIEW_TYPE_AGENT } = require("./constants");
 const { PracticeView } = require("./practice-view");
 const practiceFullscreen = require("./practice-fullscreen");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
@@ -47654,6 +47836,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerView(VIEW_TYPE_LOCAL_EVENTS, (leaf) => new LocalEventsView(leaf, this));
     this.registerView(VIEW_TYPE_POMODORO, (leaf) => new PomodoroView(leaf, this));
     this.registerView(VIEW_TYPE_TASK_LIST, (leaf) => new TaskListView(leaf, this));
+    const { AgentView: StudyAgentView } = require("./agent-view");
+    this.registerView(VIEW_TYPE_AGENT, (leaf) => new StudyAgentView(leaf, this));
     this.noteReviewDock = new NoteReviewDock(this);
     if (typeof this.registerMarkdownPostProcessor === "function") {
       this.registerMarkdownPostProcessor((el) => satCallout.syncSatCallouts(el));
@@ -47939,6 +48123,7 @@ class QuestionTrackerPlugin extends Plugin {
     });
     this.addCommand({ id: "import-cards", name: "Cards: import existing decks", callback: () => this.openCardImport() });
     this.addCommand({ id: "cards-import-document", name: "Cards: extract cards from a PDF or Markdown file", callback: () => this.openDocumentCards() });
+    this.addCommand({ id: "open-study-agent", name: "Study agent: open the sidebar", callback: () => this.activateAgent() });
     this.addCommand({
       id: "cards-rescan-plain",
       name: "Cards: rescan plain Markdown folder",
@@ -50156,6 +50341,20 @@ class QuestionTrackerPlugin extends Plugin {
       this.refreshViews();
       if (onDone) onDone(result);
     }).open();
+  }
+
+  /** Open the study agent in the right sidebar; every file write stays behind the existing review guards. */
+  async activateAgent() {
+    const ws = this.app.workspace;
+    let leaf = ws.getLeavesOfType(VIEW_TYPE_AGENT)[0];
+    if (!leaf) {
+      if (typeof ws.getRightLeaf === "function" && !Platform.isMobile) leaf = ws.getRightLeaf(false) || ws.getRightLeaf(true);
+      if (!leaf) leaf = ws.getLeaf(Platform.isMobile ? true : "tab");
+      await leaf.setViewState({ type: VIEW_TYPE_AGENT, active: true });
+    }
+    if (leaf.loadIfDeferred) await leaf.loadIfDeferred();
+    await ws.revealLeaf(leaf);
+    return leaf.view;
   }
 
   openCardExport(options, onDone) {
@@ -94287,6 +94486,7 @@ const reading = require("./reading");
 const tagTimer = require("./tag-timer");
 const { ChatPanel } = require("./chat-panel");
 const documentCards = require("./document-cards");
+const agentView = require("./agent-view");
 const tutorPresets = require("./tutor-presets");
 const aiContext = require("./ai-context");
 const aiService = require("./ai-service");
@@ -94822,6 +95022,7 @@ QuestionTrackerPlugin.__test = {
   OcrModal,
   documents,
   documentCards,
+  agentView,
   QUICK_START_URL,
   aiReady,
   emptyState,

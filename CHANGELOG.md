@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.213.0 — 2026-11-03
+
+- Added a **Study agent** in the right sidebar. Chat with the configured AI
+  provider, search the vault locally with path-and-line citations, and create
+  cards through the existing review window. Full-vault context is opt-in and
+  local search works without an AI provider.
+
 ## 1.212.0 — 2026-11-03
 
 - Added **Cards: extract cards from a PDF or Markdown file**. Text is read

@@ -19,6 +19,7 @@ const VIEW_TYPE_STUDY_STATS = "question-tracker-study-stats";
 const VIEW_TYPE_LOCAL_EVENTS = "question-tracker-local-events";
 const VIEW_TYPE_POMODORO = "question-tracker-pomodoro";
 const VIEW_TYPE_TASK_LIST = "question-tracker-task-list";
+const VIEW_TYPE_AGENT = "question-tracker-agent";
 
 const FILTER_FIELDS = [
   ["folder", "Folder"], // not a property: comes from where the note is saved, and includes sub folders
@@ -280,6 +281,7 @@ module.exports = {
   VIEW_TYPE_LOCAL_EVENTS,
   VIEW_TYPE_POMODORO,
   VIEW_TYPE_TASK_LIST,
+  VIEW_TYPE_AGENT,
   FILTER_FIELDS,
   MODES,
   DEFAULT_SETTINGS,
