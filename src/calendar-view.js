@@ -32,6 +32,8 @@ const {
 } = require("./calendar-model");
 const { isAttachedToExam, recommendApResource, recommendStudyResource, resourceTitle } = require("./ap-exam-resources");
 const { isAttachedToStudySlot } = require("./ap-resource-notes");
+const calendarPlanner = require("./calendar-planner");
+const timeBlocks = require("./time-blocks");
 
 
 function detailsOf(event) {
@@ -285,6 +287,86 @@ function renderEventCard(plugin, timeline, event, key, options) {
   return card;
 }
 
+/** The Kairos layer inside the calendar day: planned blocks and free slots. */
+function renderDayPlanner(plugin, section, key, plan) {
+  if (!plan) return null;
+  const card = section.createDiv({ cls: "uni-planner-card" });
+  const header = card.createDiv({ cls: "uni-planner-header" });
+  header.createDiv({ cls: "uni-planner-title", text: "Study plan" });
+  header.createDiv({ cls: "uni-planner-summary", text: calendarPlanner.planSummaryLine(plan.summary) });
+  card.createDiv({
+    cls: "uni-planner-hint",
+    text: `Planning window ${plan.windowStart}–${plan.windowEnd}. Classes stay read-only; blocks belong to Time blocks and are never written to the calendar.`,
+  });
+
+  if (plan.blocks.length) {
+    const list = card.createDiv({ cls: "uni-planner-list" });
+    for (const block of plan.blocks) {
+      const row = list.createDiv({ cls: `uni-planner-block${block.overlap ? " is-overlap" : ""}` });
+      row.createSpan({ cls: "uni-planner-time", text: `${block.start}–${block.end}` });
+      row.createSpan({ cls: "uni-planner-block-title", text: block.title });
+      const meta = [block.course, timeBlocks.durationLabel(block.minutes), block.overlap ? "overlaps a class" : ""].filter(Boolean).join(" · ");
+      if (meta) row.createSpan({ cls: "uni-planner-meta", text: meta });
+      const remove = row.createEl("button", { cls: "qt-link", text: "Remove" });
+      remove.addEventListener("click", async (e) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        await plugin.removeTimeBlock(block.id);
+        plugin.refreshCalendarViews();
+      });
+    }
+  } else {
+    card.createDiv({ cls: "uni-planner-empty", text: "No blocks planned for this day yet." });
+  }
+
+  const slots = card.createDiv({ cls: "uni-planner-slots" });
+  slots.createDiv({ cls: "uni-planner-slots-title", text: "Free slots" });
+  if (plan.slots.length) {
+    for (const slot of plan.slots) {
+      const chip = slots.createEl("button", { cls: "uni-planner-slot" });
+      chip.setAttr("title", `Plan a study block for ${slot.start}–${slot.end}`);
+      chip.createSpan({ text: `${slot.start}–${slot.end}` });
+      chip.createSpan({
+        cls: "uni-planner-slot-meta",
+        text: `${timeBlocks.durationLabel(slot.minutes)}${slot.subject ? " · before " + slot.subject : ""}`,
+      });
+      chip.addEventListener("click", async () => {
+        const result = await plugin.planBlockFromCalendarSlot(key, slot);
+        if (!result.ok) {
+          new Notice(result.message);
+          return;
+        }
+        plugin.refreshCalendarViews();
+      });
+    }
+  } else {
+    slots.createDiv({ cls: "uni-planner-empty", text: "No free slot of 30 minutes or more is left in the planning window." });
+  }
+
+  const classes = plan.classes.filter((row) => !row.allDay);
+  if (classes.length) {
+    const after = card.createDiv({ cls: "uni-planner-slots" });
+    after.createDiv({ cls: "uni-planner-slots-title", text: "After a class" });
+    for (const item of classes) {
+      const chip = after.createEl("button", { cls: "uni-planner-slot" });
+      chip.setAttr("title", `Plan a review block after ${item.title}`);
+      chip.createSpan({ text: `${item.end} · ${item.title}` });
+      chip.createSpan({ cls: "uni-planner-slot-meta", text: "Plan a review block" });
+      chip.addEventListener("click", async () => {
+        const result = await plugin.planBlockAfterClass(key, item);
+        if (!result.ok) {
+          new Notice(result.message);
+          return;
+        }
+        plugin.refreshCalendarViews();
+      });
+    }
+  }
+
+  const actions = card.createDiv({ cls: "uni-planner-actions" });
+  actions.createEl("button", { text: "Open Time blocks" }).addEventListener("click", () => plugin.activateStudyWorkspace("timeBlocks"));
+  return card;
+}
+
 /** The original `renderScheduleTimeline`: section header, empty state, timeline. */
 function renderDaySection(plugin, container, key, options) {
   const opts = options || {};
@@ -311,6 +393,7 @@ function renderDaySection(plugin, container, key, options) {
     free.addEventListener("click", () => plugin.openStudySlot(slots));
   }
 
+  const planner = plugin.timeBlocksEnabled ? plugin.calendarPlannerDay(key, events) : null;
   if (!events.length) {
     const empty = section.createDiv({ cls: "uni-empty-schedule" });
     empty.createDiv({ cls: "uni-empty-schedule-icon", text: "🎓" });
@@ -322,6 +405,7 @@ function renderDaySection(plugin, container, key, options) {
       cls: "uni-empty-schedule-subtext",
       text: term && term.readingWeek ? "No classes this week. Use the break to review." : "Enjoy your free time or review your notes!",
     });
+    renderDayPlanner(plugin, section, key, planner);
     return section;
   }
 
@@ -337,6 +421,7 @@ function renderDaySection(plugin, container, key, options) {
       renderEventCard(plugin, timeline, entry.event, key, { liveNodes: opts.liveNodes });
     }
   }
+  renderDayPlanner(plugin, section, key, planner);
   return section;
 }
 

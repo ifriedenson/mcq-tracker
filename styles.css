@@ -11521,3 +11521,97 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   max-width: 720px;
   height: 320px;
 }
+
+/* Kairos-style planner inside the university calendar day section. */
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-card {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-title {
+  font-weight: 600;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-summary,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-hint,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-meta,
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-empty {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-block {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-left: 3px solid var(--interactive-accent);
+  border-radius: 6px;
+  background: var(--background-primary);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-block.is-overlap {
+  border-left-color: var(--text-error);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-slots {
+  margin-top: 12px;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-slots-title {
+  font-size: 0.8em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-slot {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  margin: 6px 6px 0 0;
+  padding: 4px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: var(--background-primary);
+  cursor: pointer;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-slot:hover {
+  border-color: var(--interactive-accent);
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-slot-meta {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+:is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-actions {
+  margin-top: 12px;
+}

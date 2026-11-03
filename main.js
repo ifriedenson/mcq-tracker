@@ -9775,6 +9775,256 @@ module.exports = {
 };
 };
 
+/* ---- src/calendar-planner.js ---- */
+__defs["calendar-planner"] = function (module, exports, require) {
+/*
+ * Kairos-style planning over the university calendar. This module is pure: it
+ * merges the calendar's read-only classes with the local time blocks, works out
+ * what is still free, and builds block drafts. It never edits a calendar event,
+ * never writes a note and never invents a second timetable.
+ */
+const { str } = require("./util");
+const timeBlocks = require("./time-blocks");
+
+const DEFAULT_DAY_START = "08:00";
+const DEFAULT_DAY_END = "22:00";
+const DEFAULT_SLOT_MINUTES = 30;
+const DEFAULT_AFTER_CLASS_MINUTES = 45;
+const MAX_SLOTS = 24;
+const MAX_TITLE = 200;
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function minutesOf(value) {
+  const time = timeBlocks.normalizeTime(value);
+  if (!time) return -1;
+  const [hour, minute] = time.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function clockOf(total) {
+  return timeBlocks.timeFromMinutes(total);
+}
+
+function clampTitle(value, fallback) {
+  const text = str(value).replace(/\s+/g, " ").trim().slice(0, MAX_TITLE);
+  return text || fallback;
+}
+
+/** The planning window for a day, with unusable or inverted input falling back. */
+function planningWindow(options) {
+  const opts = asObject(options);
+  const start = minutesOf(opts.dayStart);
+  const end = minutesOf(opts.dayEnd);
+  if (start < 0 || end < 0 || end <= start) {
+    return { start: minutesOf(DEFAULT_DAY_START), end: minutesOf(DEFAULT_DAY_END) };
+  }
+  return { start, end };
+}
+
+function dateMinutes(value) {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return -1;
+  return value.getHours() * 60 + value.getMinutes();
+}
+
+function eventStamp(event) {
+  const start = dateMinutes(event && event.dtstart);
+  const end = dateMinutes(event && event.dtend);
+  if (start < 0 || end < 0 || end <= start) return null;
+  return { start, end };
+}
+
+function overlaps(a, b) {
+  return a.start < b.end && b.start < a.end;
+}
+
+/**
+ * One day's plan: classes as read-only context, planned blocks as the editable
+ * layer, the free slots still open inside the planning window, and a summary.
+ */
+function dayPlan(events, date, blocks, options) {
+  const opts = asObject(options);
+  const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+  const window = planningWindow(opts);
+  const minMinutes = Math.max(5, Math.min(240, Math.round(Number(opts.minSlotMinutes) || DEFAULT_SLOT_MINUTES)));
+  const list = Array.isArray(events) ? events : [];
+
+  const classes = [];
+  for (const event of list) {
+    if (!event) continue;
+    const stamp = eventStamp(event);
+    const allDay = event.allDay === true || !stamp;
+    const sameDay = str(event.dateKey) ? event.dateKey === key : event.dtstart instanceof Date && timeBlocks.todayValue(event.dtstart) === key;
+    if (!sameDay) continue;
+    classes.push({
+      kind: "class",
+      id: str(event.uid || event.id).trim(),
+      title: clampTitle(event.summary, "Class"),
+      start: allDay ? "" : clockOf(stamp.start),
+      end: allDay ? "" : clockOf(stamp.end),
+      startMinutes: allDay ? -1 : stamp.start,
+      endMinutes: allDay ? -1 : stamp.end,
+      allDay,
+      location: str(event.location).trim(),
+      course: clampTitle(event.summary, ""),
+    });
+  }
+
+  const planned = timeBlocks
+    .blocksForDate(Array.isArray(blocks) ? blocks : [], key)
+    .map((block) => ({
+      kind: "block",
+      id: block.id,
+      title: block.title,
+      start: block.start,
+      end: block.end,
+      startMinutes: minutesOf(block.start),
+      endMinutes: minutesOf(block.end),
+      minutes: timeBlocks.durationMinutes(block),
+      type: block.type,
+      course: block.course,
+      done: block.done === true,
+      projectId: block.projectId || "",
+      overlap: false,
+    }));
+
+  const timedClasses = classes.filter((row) => !row.allDay);
+  for (const block of planned) {
+    block.overlap = timedClasses.some((row) => overlaps(block, row));
+  }
+
+  const items = classes
+    .map((row) => ({ ...row, startMinutes: row.allDay ? -1 : row.startMinutes }))
+    .concat(planned)
+    .sort((a, b) => {
+      const aAll = a.allDay === true;
+      const bAll = b.allDay === true;
+      if (aAll !== bAll) return aAll ? -1 : 1;
+      return a.startMinutes - b.startMinutes;
+    });
+
+  const busy = timedClasses
+    .concat(planned)
+    .filter((row) => row.startMinutes >= 0 && row.endMinutes > row.startMinutes)
+    .map((row) => ({ start: Math.max(window.start, row.startMinutes), end: Math.min(window.end, row.endMinutes) }))
+    .filter((row) => row.end > row.start)
+    .sort((a, b) => a.start - b.start)
+    .reduce((merged, row) => {
+      const last = merged[merged.length - 1];
+      if (last && row.start <= last.end) last.end = Math.max(last.end, row.end);
+      else merged.push({ ...row });
+      return merged;
+    }, []);
+
+  const slots = [];
+  let cursor = window.start;
+  for (const span of busy) {
+    if (span.start - cursor >= minMinutes) slots.push({ start: clockOf(cursor), end: clockOf(span.start), minutes: span.start - cursor });
+    cursor = Math.max(cursor, span.end);
+    if (slots.length >= MAX_SLOTS) break;
+  }
+  if (slots.length < MAX_SLOTS && window.end - cursor >= minMinutes) {
+    slots.push({ start: clockOf(cursor), end: clockOf(window.end), minutes: window.end - cursor });
+  }
+  for (const slot of slots.slice(0, MAX_SLOTS)) {
+    const next = timedClasses.find((row) => row.startMinutes >= minutesOf(slot.end)) || null;
+    slot.subject = next ? next.title : "";
+    slot.course = next ? next.course : "";
+  }
+
+  const classMinutes = timedClasses.reduce((sum, row) => sum + Math.max(0, row.endMinutes - row.startMinutes), 0);
+  const plannedMinutes = planned.reduce((sum, row) => sum + Math.max(0, row.minutes), 0);
+  return {
+    date: key,
+    windowStart: clockOf(window.start),
+    windowEnd: clockOf(window.end),
+    items,
+    classes,
+    blocks: planned,
+    slots: slots.slice(0, MAX_SLOTS),
+    summary: {
+      classes: timedClasses.length,
+      blocks: planned.length,
+      classMinutes,
+      plannedMinutes,
+      freeMinutes: slots.reduce((sum, slot) => sum + slot.minutes, 0),
+      overlaps: planned.filter((row) => row.overlap).length,
+      openSlots: slots.length,
+    },
+  };
+}
+
+/** A draft study block for a free slot; the title borrows the next class. */
+function slotDraft(slot, date, options) {
+  const opts = asObject(options);
+  const source = asObject(slot);
+  const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+  const start = timeBlocks.normalizeTime(source.start);
+  const end = timeBlocks.normalizeTime(source.end);
+  if (!key || !start || !end || minutesOf(end) <= minutesOf(start)) return null;
+  const subject = clampTitle(source.subject || source.course, "");
+  return {
+    date: key,
+    start,
+    end,
+    title: clampTitle(opts.title, subject ? `Study: ${subject}` : "Study block"),
+    type: "study",
+    course: subject,
+    source: "calendar-slot",
+  };
+}
+
+/** A draft review block that follows a class, bounded by the planning window. */
+function afterClassDraft(item, date, options) {
+  const opts = asObject(options);
+  const source = asObject(item);
+  const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+  const startMinutes = Math.round(Number(source.endMinutes));
+  if (!key || !Number.isFinite(startMinutes) || startMinutes < 0) return null;
+  const window = planningWindow(opts);
+  const length = Math.max(15, Math.min(240, Math.round(Number(opts.minutes) || DEFAULT_AFTER_CLASS_MINUTES)));
+  const from = Math.max(startMinutes, window.start);
+  const end = Math.min(from + length, Math.min(window.end, 1439));
+  if (end <= from) return null;
+  const subject = clampTitle(source.course || source.title, "");
+  return {
+    date: key,
+    start: clockOf(from),
+    end: clockOf(end),
+    title: clampTitle(opts.title, subject ? `Review: ${subject}` : "Review after class"),
+    type: "review",
+    course: subject,
+    source: "calendar-class",
+  };
+}
+
+/** One readable line for the calendar card. */
+function planSummaryLine(summary) {
+  const source = asObject(summary);
+  const parts = [];
+  parts.push(`${timeBlocks.durationLabel(source.plannedMinutes || 0) || "0 min"} planned`);
+  if (source.classes) parts.push(`${timeBlocks.durationLabel(source.classMinutes || 0)} in class`);
+  if (source.freeMinutes) parts.push(`${timeBlocks.durationLabel(source.freeMinutes)} free time`);
+  if (source.overlaps) parts.push(`${source.overlaps} block${source.overlaps === 1 ? "" : "s"} over a class`);
+  return parts.join(" · ");
+}
+
+module.exports = {
+  DEFAULT_AFTER_CLASS_MINUTES,
+  DEFAULT_DAY_END,
+  DEFAULT_DAY_START,
+  DEFAULT_SLOT_MINUTES,
+  MAX_SLOTS,
+  afterClassDraft,
+  dayPlan,
+  planSummaryLine,
+  planningWindow,
+  slotDraft,
+};
+};
+
 /* ---- src/calendar-settings.js ---- */
 __defs["calendar-settings"] = function (module, exports, require) {
 /*
@@ -10449,6 +10699,8 @@ const {
 } = require("./calendar-model");
 const { isAttachedToExam, recommendApResource, recommendStudyResource, resourceTitle } = require("./ap-exam-resources");
 const { isAttachedToStudySlot } = require("./ap-resource-notes");
+const calendarPlanner = require("./calendar-planner");
+const timeBlocks = require("./time-blocks");
 
 
 function detailsOf(event) {
@@ -10702,6 +10954,86 @@ function renderEventCard(plugin, timeline, event, key, options) {
   return card;
 }
 
+/** The Kairos layer inside the calendar day: planned blocks and free slots. */
+function renderDayPlanner(plugin, section, key, plan) {
+  if (!plan) return null;
+  const card = section.createDiv({ cls: "uni-planner-card" });
+  const header = card.createDiv({ cls: "uni-planner-header" });
+  header.createDiv({ cls: "uni-planner-title", text: "Study plan" });
+  header.createDiv({ cls: "uni-planner-summary", text: calendarPlanner.planSummaryLine(plan.summary) });
+  card.createDiv({
+    cls: "uni-planner-hint",
+    text: `Planning window ${plan.windowStart}–${plan.windowEnd}. Classes stay read-only; blocks belong to Time blocks and are never written to the calendar.`,
+  });
+
+  if (plan.blocks.length) {
+    const list = card.createDiv({ cls: "uni-planner-list" });
+    for (const block of plan.blocks) {
+      const row = list.createDiv({ cls: `uni-planner-block${block.overlap ? " is-overlap" : ""}` });
+      row.createSpan({ cls: "uni-planner-time", text: `${block.start}–${block.end}` });
+      row.createSpan({ cls: "uni-planner-block-title", text: block.title });
+      const meta = [block.course, timeBlocks.durationLabel(block.minutes), block.overlap ? "overlaps a class" : ""].filter(Boolean).join(" · ");
+      if (meta) row.createSpan({ cls: "uni-planner-meta", text: meta });
+      const remove = row.createEl("button", { cls: "qt-link", text: "Remove" });
+      remove.addEventListener("click", async (e) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        await plugin.removeTimeBlock(block.id);
+        plugin.refreshCalendarViews();
+      });
+    }
+  } else {
+    card.createDiv({ cls: "uni-planner-empty", text: "No blocks planned for this day yet." });
+  }
+
+  const slots = card.createDiv({ cls: "uni-planner-slots" });
+  slots.createDiv({ cls: "uni-planner-slots-title", text: "Free slots" });
+  if (plan.slots.length) {
+    for (const slot of plan.slots) {
+      const chip = slots.createEl("button", { cls: "uni-planner-slot" });
+      chip.setAttr("title", `Plan a study block for ${slot.start}–${slot.end}`);
+      chip.createSpan({ text: `${slot.start}–${slot.end}` });
+      chip.createSpan({
+        cls: "uni-planner-slot-meta",
+        text: `${timeBlocks.durationLabel(slot.minutes)}${slot.subject ? " · before " + slot.subject : ""}`,
+      });
+      chip.addEventListener("click", async () => {
+        const result = await plugin.planBlockFromCalendarSlot(key, slot);
+        if (!result.ok) {
+          new Notice(result.message);
+          return;
+        }
+        plugin.refreshCalendarViews();
+      });
+    }
+  } else {
+    slots.createDiv({ cls: "uni-planner-empty", text: "No free slot of 30 minutes or more is left in the planning window." });
+  }
+
+  const classes = plan.classes.filter((row) => !row.allDay);
+  if (classes.length) {
+    const after = card.createDiv({ cls: "uni-planner-slots" });
+    after.createDiv({ cls: "uni-planner-slots-title", text: "After a class" });
+    for (const item of classes) {
+      const chip = after.createEl("button", { cls: "uni-planner-slot" });
+      chip.setAttr("title", `Plan a review block after ${item.title}`);
+      chip.createSpan({ text: `${item.end} · ${item.title}` });
+      chip.createSpan({ cls: "uni-planner-slot-meta", text: "Plan a review block" });
+      chip.addEventListener("click", async () => {
+        const result = await plugin.planBlockAfterClass(key, item);
+        if (!result.ok) {
+          new Notice(result.message);
+          return;
+        }
+        plugin.refreshCalendarViews();
+      });
+    }
+  }
+
+  const actions = card.createDiv({ cls: "uni-planner-actions" });
+  actions.createEl("button", { text: "Open Time blocks" }).addEventListener("click", () => plugin.activateStudyWorkspace("timeBlocks"));
+  return card;
+}
+
 /** The original `renderScheduleTimeline`: section header, empty state, timeline. */
 function renderDaySection(plugin, container, key, options) {
   const opts = options || {};
@@ -10728,6 +11060,7 @@ function renderDaySection(plugin, container, key, options) {
     free.addEventListener("click", () => plugin.openStudySlot(slots));
   }
 
+  const planner = plugin.timeBlocksEnabled ? plugin.calendarPlannerDay(key, events) : null;
   if (!events.length) {
     const empty = section.createDiv({ cls: "uni-empty-schedule" });
     empty.createDiv({ cls: "uni-empty-schedule-icon", text: "🎓" });
@@ -10739,6 +11072,7 @@ function renderDaySection(plugin, container, key, options) {
       cls: "uni-empty-schedule-subtext",
       text: term && term.readingWeek ? "No classes this week. Use the break to review." : "Enjoy your free time or review your notes!",
     });
+    renderDayPlanner(plugin, section, key, planner);
     return section;
   }
 
@@ -10754,6 +11088,7 @@ function renderDaySection(plugin, container, key, options) {
       renderEventCard(plugin, timeline, entry.event, key, { liveNodes: opts.liveNodes });
     }
   }
+  renderDayPlanner(plugin, section, key, planner);
   return section;
 }
 
@@ -46463,6 +46798,7 @@ const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
 const studyWorkspace = require("./study-workspace");
 const timeBlocks = require("./time-blocks");
+const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
 const courseIdentity = require("./course-identity");
 const exams = require("./exams");
@@ -55977,6 +56313,31 @@ ${body}
   }
 
   /* ---- Time-block planner --------------------------------------------- */
+
+  /** Kairos-style plan for one calendar day: classes, blocks and free slots. */
+  calendarPlannerDay(date, events) {
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const list = Array.isArray(events) ? events : this.calendarEnabled() ? this.calendarEvents() : [];
+    return calendarPlanner.dayPlan(list, key, this.timeBlocksSettings().blocks, {});
+  }
+
+  async planBlockFromCalendarSlot(date, slot) {
+    const draft = calendarPlanner.slotDraft(slot, date);
+    if (!draft) return { ok: false, reason: "slot", message: "That free slot has no usable start and end." };
+    if (!this.timeBlocksEnabled()) return { ok: false, reason: "disabled", message: "Turn on Time blocks first." };
+    const block = await this.addTimeBlock(draft);
+    if (!block) return { ok: false, reason: "block", message: "Could not create that block." };
+    return { ok: true, block };
+  }
+
+  async planBlockAfterClass(date, item) {
+    const draft = calendarPlanner.afterClassDraft(item, date);
+    if (!draft) return { ok: false, reason: "class", message: "There is no room after that class in the planning window." };
+    if (!this.timeBlocksEnabled()) return { ok: false, reason: "disabled", message: "Turn on Time blocks first." };
+    const block = await this.addTimeBlock(draft);
+    if (!block) return { ok: false, reason: "block", message: "Could not create that block." };
+    return { ok: true, block };
+  }
 
   async addTimeBlock(input) {
     const block = timeBlocks.createTimeBlock(input, Date.now());
@@ -92680,6 +93041,7 @@ const contextRetrieval = require("./context-retrieval");
 const { StudyToolsView } = require("./study-tools-view");
 const studyWorkspace = require("./study-workspace");
 const timeBlocks = require("./time-blocks");
+const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
 const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
@@ -93113,6 +93475,7 @@ QuestionTrackerPlugin.__test = {
   readingLibrary,
   studyWorkspace,
   timeBlocks,
+  calendarPlanner,
   citations,
   readAloud,
   lectureCompiler,

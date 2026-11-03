@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.210.8 — 2026-11-03
+
+- The university **Calendar** now carries the Kairos plan itself. Its day
+  section gains a **Study plan** card listing the planned blocks with
+  **Remove**, the free slots inside an 08:00–22:00 window, and one chip per
+  class to plan a 45-minute review block right after it.
+- Clicking a free slot creates a study block through the existing Time blocks
+  store, titled after the next class. Blocks that sit over a class are marked,
+  and the summary reads planned, in-class and free time.
+- Classes, notes and .ics feeds stay read-only: nothing is written back to the
+  calendar, and the card only appears while Time blocks is on.
+
 ## 1.210.7 — 2026-11-03
 
 - **Read aloud** gains a **Voice memo** card: **Record voice memo** captures

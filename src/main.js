@@ -101,6 +101,7 @@ const contextRetrieval = require("./context-retrieval");
 const { StudyToolsView } = require("./study-tools-view");
 const studyWorkspace = require("./study-workspace");
 const timeBlocks = require("./time-blocks");
+const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
 const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
@@ -534,6 +535,7 @@ QuestionTrackerPlugin.__test = {
   readingLibrary,
   studyWorkspace,
   timeBlocks,
+  calendarPlanner,
   citations,
   readAloud,
   lectureCompiler,

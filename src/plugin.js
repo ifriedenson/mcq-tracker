@@ -16,6 +16,7 @@ const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
 const studyWorkspace = require("./study-workspace");
 const timeBlocks = require("./time-blocks");
+const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
 const courseIdentity = require("./course-identity");
 const exams = require("./exams");
@@ -9530,6 +9531,31 @@ ${body}
   }
 
   /* ---- Time-block planner --------------------------------------------- */
+
+  /** Kairos-style plan for one calendar day: classes, blocks and free slots. */
+  calendarPlannerDay(date, events) {
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const list = Array.isArray(events) ? events : this.calendarEnabled() ? this.calendarEvents() : [];
+    return calendarPlanner.dayPlan(list, key, this.timeBlocksSettings().blocks, {});
+  }
+
+  async planBlockFromCalendarSlot(date, slot) {
+    const draft = calendarPlanner.slotDraft(slot, date);
+    if (!draft) return { ok: false, reason: "slot", message: "That free slot has no usable start and end." };
+    if (!this.timeBlocksEnabled()) return { ok: false, reason: "disabled", message: "Turn on Time blocks first." };
+    const block = await this.addTimeBlock(draft);
+    if (!block) return { ok: false, reason: "block", message: "Could not create that block." };
+    return { ok: true, block };
+  }
+
+  async planBlockAfterClass(date, item) {
+    const draft = calendarPlanner.afterClassDraft(item, date);
+    if (!draft) return { ok: false, reason: "class", message: "There is no room after that class in the planning window." };
+    if (!this.timeBlocksEnabled()) return { ok: false, reason: "disabled", message: "Turn on Time blocks first." };
+    const block = await this.addTimeBlock(draft);
+    if (!block) return { ok: false, reason: "block", message: "Could not create that block." };
+    return { ok: true, block };
+  }
 
   async addTimeBlock(input) {
     const block = timeBlocks.createTimeBlock(input, Date.now());
