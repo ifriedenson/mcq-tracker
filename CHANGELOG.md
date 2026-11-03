@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.210.0 — 2026-11-03
+
+- Adaptive practice is now **Adaptive mastery**. It ranks course, unit, skill,
+  topic, test, exam and tag facets from the whole question history, including
+  accuracy, partial credit, pace, skips and recency, and targets the weakest
+  facet in the selected question subgroup.
+- The next item shares the weak facet but is a different question, preferring a
+  different difficulty and an unattempted or long-unattempted note. Exact
+  questions are suppressed for the session and for seven days after an attempt.
+- Small subgroups borrow a prior from the same facet across the whole vault, so
+  one attempt does not define a weakness. The selector is local and read-only;
+  the FSRS due-review path is unchanged.
+
 ## 1.209.2 — 2026-11-03
 
 - The Insights Progress and Today mastery pickers now offer names from the

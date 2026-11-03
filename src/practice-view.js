@@ -173,7 +173,7 @@ class PracticeView extends ItemView {
     await this.flushNotes();
     const st = this.plugin.settings;
     const pool = this.plugin.filtered(this.plugin.getQuestions());
-    const pick = pickQuestion(pool, st.mode, fmtDate(new Date()), this.recent);
+    const pick = pickQuestion(pool, st.mode, fmtDate(new Date()), this.recent, undefined, this.plugin.getQuestions());
     if (!pick) {
       new Notice("No questions match these filters.");
       this.plugin.clearSession();
@@ -335,7 +335,7 @@ class PracticeView extends ItemView {
   async startStudyMatch() {
     const p = this.plugin;
     const pool = p.filtered(p.getQuestions());
-    const queue = buildQuickQueue(pool, p.settings.mode, fmtDate(new Date()), 6);
+    const queue = buildQuickQueue(pool, p.settings.mode, fmtDate(new Date()), 6, p.getQuestions());
     const cards = [];
     for (const q of queue) {
       try {
@@ -357,7 +357,7 @@ class PracticeView extends ItemView {
     const opts = options || {};
     const pool = Array.isArray(opts.pool) ? opts.pool : p.filtered(p.getQuestions());
     const mode = opts.mode || p.settings.mode;
-    const queue = buildQuickQueue(pool, mode, fmtDate(new Date()), kind === "time" ? Math.max(1, pool.length) : value);
+    const queue = buildQuickQueue(pool, mode, fmtDate(new Date()), kind === "time" ? Math.max(1, pool.length) : value, p.getQuestions());
     if (!queue.length) {
       new Notice(opts.label ? `No questions match ${opts.label}.` : "No questions match your current filters.");
       return;
@@ -774,6 +774,12 @@ class PracticeView extends ItemView {
       cls: "qt-count",
       text: `${pool.length} match · ${dueN} due · ${newN} new · ${inMode} in this mode`,
     });
+    if (st.mode === "adaptive") {
+      root.createDiv({
+        cls: "qt-hint",
+        text: "Adaptive mastery targets a weak course, unit, skill, test or tag from your history, then picks a different question from it. FSRS due review is unchanged.",
+      });
+    }
 
     const start = root.createEl("button", { text: "Start", cls: "mod-cta qt-primary" });
     start.disabled = inMode === 0;

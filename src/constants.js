@@ -34,7 +34,7 @@ const FILTER_FIELDS = [
 
 const MODES = [
   ["smart", "Smart mix (weighted)"],
-  ["adaptive", "Adaptive difficulty"],
+  ["adaptive", "Adaptive mastery"],
   ["due", "Due for review"],
   ["unseen", "Never attempted"],
   ["missed", "Missed last time"],

@@ -2,6 +2,7 @@
 const { str } = require("./util");
 const { FILTER_FIELDS } = require("./constants");
 const { isStudyable } = require("./study-status");
+const { pickAdaptiveQuestion } = require("./mastery-picker");
 
 function isDue(fm, today) {
   if (!isStudyable(fm, today)) return false;
@@ -217,11 +218,15 @@ function adaptiveTargetRank(items) {
   return 1;
 }
 
-function pickQuestion(pool, mode, today, recent, rnd) {
+function pickQuestion(pool, mode, today, recent, rnd, all) {
   rnd = rnd || Math.random;
   let items = pool.filter((q) => (MODE_PRED[mode] || MODE_PRED.smart)(q.fm, today));
   items = items.filter((q) => isStudyable(q.fm, today));
   if (!items.length) return null;
+  if (mode === "adaptive") {
+    const picked = pickAdaptiveQuestion(items, all || pool, today, recent, rnd);
+    return picked ? picked.question : null;
+  }
   const tiers = [recent || [], (recent || []).slice(-1), []];
   for (const ex of tiers) {
     const alt = items.filter((q) => !ex.includes(q.file.path));

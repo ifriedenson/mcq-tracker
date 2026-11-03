@@ -254,6 +254,7 @@ QuestionTrackerPlugin.__test = {
   weightOf,
   adaptiveWeight,
   adaptiveTargetRank,
+  masteryPicker: require("./mastery-picker"),
   matchFilters,
   filterOptions,
   matchSets,

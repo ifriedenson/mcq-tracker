@@ -164,11 +164,11 @@ function sliceQuestionRange(items, from, to) {
 }
 
 /** Up to n different questions picked with the chosen mode (the weighted mix favours due and new ones). */
-function buildTestSet(pool, mode, n, today, rnd) {
+function buildTestSet(pool, mode, n, today, rnd, all) {
   const rest = pool.slice();
   const out = [];
   while (out.length < n && rest.length) {
-    const pick = pickQuestion(rest, mode, today, [], rnd);
+    const pick = pickQuestion(rest, mode, today, [], rnd, all);
     if (!pick) break;
     out.push(pick);
     rest.splice(rest.indexOf(pick), 1);

@@ -10,11 +10,11 @@ const QUICK_COUNT_OPTIONS = [5, 10, 20];
  * Selects distinct questions without mutating the caller's pool. The queue is
  * persisted by path so it can be resumed after Obsidian restarts.
  */
-function buildQuickQueue(pool, mode, today, limit) {
+function buildQuickQueue(pool, mode, today, limit, all) {
   const rest = pool.slice();
   const out = [];
   while (out.length < limit && rest.length) {
-    const pick = pickQuestion(rest, mode, today, []);
+    const pick = pickQuestion(rest, mode, today, [], undefined, all);
     if (!pick) break;
     out.push(pick);
     rest.splice(rest.indexOf(pick), 1);
