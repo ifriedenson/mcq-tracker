@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.210.2 — 2026-11-03
+
+- Time blocks can preview an optional daily note from a configured
+  `YYYY-MM-DD.md` folder. Lines such as `09:00 Cell biology` or
+  `09:00 - 10:30 Problem set` become local blocks only after confirmation.
+- Existing blocks are matched and skipped, duplicates are reported, and the
+  daily note itself is never written. **Open daily note** opens the source.
+- This is the one-way part of the Study Flow Planner idea; subject colours and
+  event tags remain backlog items.
+
 ## 1.210.1 — 2026-11-03
 
 - Adds the opt-in **Time blocks** Study Workspace module: local Day, Week,

@@ -354,6 +354,14 @@ const PAGES = {
         set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { notesFolder: v }),
       },
       {
+        type: "text",
+        name: "Daily-note folder",
+        desc: "Optional vault folder with YYYY-MM-DD.md notes. Time blocks can preview HH:MM lines and add them as blocks after confirmation; the daily note is never written.",
+        placeholder: "Daily notes",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).dailyNoteFolder,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { dailyNoteFolder: v }),
+      },
+      {
         type: "toggle",
         name: "Show calendar events",
         desc: "Read-only classes and events from the current calendar; a block that shares their time is marked. Calendar entries are never edited or copied.",

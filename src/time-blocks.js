@@ -243,6 +243,7 @@ function normalizeTimeBlocks(value) {
     dayStart: normalizeTime(source.dayStart) || "07:00",
     dayEnd: normalizeTime(source.dayEnd) || "22:00",
     notesFolder: textValue(source.notesFolder, 200) || "Time blocks",
+    dailyNoteFolder: textValue(source.dailyNoteFolder, 200),
     view: normalizeView(source.view),
     blocks,
     projects,
@@ -500,6 +501,42 @@ function projectMap(projects) {
   return map;
 }
 
+/** One-way reader for a daily-note folder; never writes to the source note. */
+function parseDailyNoteLines(markdown) {
+  const text = str(markdown).replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, "");
+  const rows = [];
+  const seen = new Set();
+  let fence = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^(\x60{3}|~{3})/.test(line.trim())) {
+      fence = !fence;
+      continue;
+    }
+    if (fence) continue;
+    const match = /^\s*(?:[-*+]\s+)?(?:\[[ xX]\]\s+)?(\d{1,2}:\d{2})(?:\s*(?:-|–|—|to)\s*(\d{1,2}:\d{2}))?\s+(.+?)\s*$/i.exec(line);
+    if (!match) continue;
+    const start = normalizeTime(match[1]);
+    const title = textValue(match[3], MAX_TITLE);
+    if (!start || !title) continue;
+    let end = normalizeTime(match[2]);
+    if (!end) end = timeFromMinutes(Math.min(minutesOf(start) + 60, 1439));
+    if (minutesOf(end) <= minutesOf(start)) continue;
+    const key = [start, end, title.toLowerCase()].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({ start, end, title });
+    if (rows.length >= 200) break;
+  }
+  return rows;
+}
+
+function dailyNotePath(date, folder) {
+  const key = dayValue(date);
+  const clean = str(folder).trim().replace(/^\/+|\/+$/g, "");
+  if (!key || !clean || clean.split("/").some((part) => part === "..")) return "";
+  return clean + "/" + key + ".md";
+}
+
 function blocksToMarkdown(date, blocks, projects) {
   const map = projectMap(projects);
   const lines = [`# ${dayValue(date) || date}`, "", "## Schedule", ""];
@@ -616,6 +653,7 @@ module.exports = {
   calendarDaySummary,
   calendarWeekSummary,
   createBacklogItem,
+  dailyNotePath,
   createTimeBlock,
   createTimeProject,
   createTimeRoutine,
@@ -629,6 +667,7 @@ module.exports = {
   normalizeTimeProject,
   normalizeTimeRoutine,
   normalizeTimeline,
+  parseDailyNoteLines,
   projectMinutes,
   projectTimeline,
   startOfWeek,

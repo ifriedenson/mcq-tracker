@@ -8017,6 +8017,8 @@
   color: var(--text-warning);
 }
 .qt-time-blocks-week-block.is-conflict { border-left-color: var(--color-red); }
+.qt-time-blocks-daily { border-left: 3px solid var(--color-green); }
+.qt-time-block-daily-row.is-duplicate { opacity: 0.65; }
 
 @media (max-width: 700px) {
   .qt-workspace-scores {

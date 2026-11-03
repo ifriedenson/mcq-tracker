@@ -182,6 +182,7 @@ class StudyWorkspaceView extends ItemView {
     this.timeBlockView = "day";
     this.timeBlockDate = localDate();
     this.timeBlockEditId = "";
+    this.timeBlockDailyPreview = null;
   }
 
   async onClose() {
@@ -1676,6 +1677,12 @@ class StudyWorkspaceView extends ItemView {
       }
       this.render();
     });
+    write.createEl("button", { text: "Preview daily note" }).addEventListener("click", async () => {
+      this.timeBlockDailyPreview = await this.plugin.previewTimeBlockDayNote(this.timeBlockDate);
+      this.saveMessage(this.timeBlockDailyPreview.ok ? "Daily-note lines previewed." : this.timeBlockDailyPreview.message);
+      this.render();
+    });
+    if (this.timeBlockDailyPreview && this.timeBlockDailyPreview.date === this.timeBlockDate) this.renderTimeBlockDailyNote(root);
     const projectOptions = this.timeBlockProjectOptions(data);
     const add = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" });
     add.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Add a time block" });
@@ -1714,6 +1721,43 @@ class StudyWorkspaceView extends ItemView {
     }
     const list = root.createDiv({ cls: "qt-study-list qt-time-blocks-day-list" });
     for (const block of blocks) this.renderTimeBlockCard(list, block, data);
+  }
+
+  renderTimeBlockDailyNote(root) {
+    const preview = this.timeBlockDailyPreview;
+    const card = root.createDiv({ cls: "qt-study-card qt-time-blocks-daily" });
+    card.createEl("h3", { text: "Daily-note preview" });
+    if (!preview.ok) {
+      card.createDiv({ cls: "qt-hint", text: preview.message + " The planner never writes to the daily note." });
+      return;
+    }
+    card.createDiv({ cls: "qt-hint", text: "Read-only preview of " + preview.path + ". Nothing is changed until you add the blocks; the daily note itself is never written." });
+    card.createDiv({
+      cls: "qt-study-row-meta",
+      text: preview.rows.length + " line" + (preview.rows.length === 1 ? "" : "s") + " · " + preview.newRows.length + " new · " + preview.duplicates + " already planned",
+    });
+    if (!preview.rows.length) {
+      card.createDiv({ cls: "qt-hint", text: "No HH:MM lines found. Add a line such as 09:00 Cell biology, or 09:00 - 10:30 Problem set." });
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of preview.rows) {
+      const item = list.createDiv({ cls: "qt-study-row qt-time-block-daily-row" + (row.duplicate ? " is-duplicate" : "") });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: row.start + " – " + row.end + " · " + row.title });
+      if (row.duplicate) main.createDiv({ cls: "qt-study-row-meta", text: "Already planned; it will be skipped." });
+    }
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: preview.newRows.length ? "Add " + preview.newRows.length + " block" + (preview.newRows.length === 1 ? "" : "s") : "Nothing new to add", cls: "mod-cta" }).addEventListener("click", async () => {
+      if (!preview.newRows.length) return;
+      const result = await this.plugin.importTimeBlockDayNote(preview.date);
+      this.timeBlockDailyPreview = null;
+      this.saveMessage(result.added ? "Added " + result.added + " block" + (result.added === 1 ? "" : "s") + " from " + result.path + "." : "Nothing new to add.");
+      this.render();
+    });
+    actions.createEl("button", { text: "Open daily note" }).addEventListener("click", () => {
+      this.app.workspace.openLinkText(preview.path, "", false);
+    });
   }
 
   renderTimeBlockCard(list, block, data) {

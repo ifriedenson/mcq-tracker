@@ -107,6 +107,45 @@ test("time blocks: calendar context is read-only and marks overlapping blocks", 
   assert.equal(week.conflicts, 1);
 });
 
+test("time blocks: daily-note lines preview one-way and skip duplicates", async () => {
+  const markdown = [
+    "---",
+    "title: Tuesday",
+    "---",
+    "",
+    "# Tuesday",
+    "- 09:00 Cell biology",
+    "- [ ] 10:30 - 12:00 Problem set",
+    "12:15 Standalone",
+    "not 13:00 here",
+  ].join("\n");
+  const rows = B.parseDailyNoteLines(markdown);
+  assert.deepEqual(rows, [
+    { start: "09:00", end: "10:00", title: "Cell biology" },
+    { start: "10:30", end: "12:00", title: "Problem set" },
+    { start: "12:15", end: "13:15", title: "Standalone" },
+  ]);
+  assert.equal(B.dailyNotePath("2026-11-03", "Daily notes"), "Daily notes/2026-11-03.md");
+  assert.equal(B.dailyNotePath("2026-11-03", "../Outside"), "");
+
+  const plugin = await setup();
+  plugin.settings.timeBlocks = { enabled: true, dailyNoteFolder: "Daily" };
+  await plugin.app.vault.create("Daily/2026-11-03.md", markdown);
+  const before = plugin.app.files.find((file) => file.path === "Daily/2026-11-03.md").text;
+  const preview = await plugin.previewTimeBlockDayNote("2026-11-03");
+  assert.equal(preview.ok, true);
+  assert.equal(preview.rows.length, 3);
+  assert.equal(preview.newRows.length, 3);
+  assert.equal(preview.duplicates, 0);
+  const imported = await plugin.importTimeBlockDayNote("2026-11-03");
+  assert.equal(imported.added, 3);
+  assert.equal(B.blocksForDate(plugin.timeBlocksSettings().blocks, "2026-11-03").length, 3);
+  assert.equal(plugin.app.files.find((file) => file.path === "Daily/2026-11-03.md").text, before, "the daily note is unchanged");
+  const again = await plugin.previewTimeBlockDayNote("2026-11-03");
+  assert.equal(again.newRows.length, 0);
+  assert.equal(again.duplicates, 3);
+});
+
 test("time blocks: the plugin persists blocks, projects, routines, backlog and linked task completion", async () => {
   const plugin = await setup();
   const project = await plugin.addTimeBlockProject({ name: "Biology", kind: "project" });

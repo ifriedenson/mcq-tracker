@@ -55774,6 +55774,63 @@ ${body}
     });
   }
 
+  async previewTimeBlockDayNote(date) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const path = timeBlocks.dailyNotePath(key, current.dailyNoteFolder);
+    if (!path) {
+      return { ok: false, reason: "folder", date: key, message: "Set a Daily-note folder in Settings, Time blocks first." };
+    }
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return { ok: false, reason: "missing", date: key, path, message: "No " + path + " in this vault." };
+    let markdown = "";
+    try {
+      markdown = await this.app.vault.read(file);
+    } catch (e) {
+      return { ok: false, reason: "read", date: key, path, message: String((e && e.message) || "Could not read the daily note.") };
+    }
+    const existing = new Set(
+      timeBlocks.blocksForDate(current.blocks, key).map((block) => [block.start, block.end, block.title.toLowerCase()].join("|"))
+    );
+    const rows = timeBlocks.parseDailyNoteLines(markdown).map((row) => ({
+      ...row,
+      duplicate: existing.has([row.start, row.end, row.title.toLowerCase()].join("|")),
+    }));
+    return {
+      ok: true,
+      date: key,
+      path,
+      rows,
+      newRows: rows.filter((row) => !row.duplicate),
+      duplicates: rows.filter((row) => row.duplicate).length,
+    };
+  }
+
+  async importTimeBlockDayNote(date) {
+    const preview = await this.previewTimeBlockDayNote(date);
+    if (!preview.ok || !preview.newRows.length) return { ...preview, added: 0, blocks: [] };
+    const current = this.timeBlocksSettings();
+    const created = [];
+    const stamp = Date.now();
+    for (const row of preview.newRows) {
+      const block = timeBlocks.createTimeBlock({
+        date: preview.date,
+        start: row.start,
+        end: row.end,
+        title: row.title,
+        type: "study",
+      }, stamp + created.length);
+      if (block) created.push(block);
+    }
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.concat(created).slice(-timeBlocks.MAX_BLOCKS),
+    });
+    await this.save();
+    this.refreshViews();
+    return { ...preview, added: created.length, blocks: created };
+  }
+
   async writeTimeBlockDay(date) {
     const current = this.timeBlocksSettings();
     const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
@@ -81188,6 +81245,14 @@ const PAGES = {
         set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { notesFolder: v }),
       },
       {
+        type: "text",
+        name: "Daily-note folder",
+        desc: "Optional vault folder with YYYY-MM-DD.md notes. Time blocks can preview HH:MM lines and add them as blocks after confirmation; the daily note is never written.",
+        placeholder: "Daily notes",
+        get: (plugin) => timeBlocks.normalizeTimeBlocks(plugin.settings.timeBlocks).dailyNoteFolder,
+        set: async (plugin, v) => update(plugin, "timeBlocks", timeBlocks.normalizeTimeBlocks, { dailyNoteFolder: v }),
+      },
+      {
         type: "toggle",
         name: "Show calendar events",
         desc: "Read-only classes and events from the current calendar; a block that shares their time is marked. Calendar entries are never edited or copied.",
@@ -84013,6 +84078,7 @@ class StudyWorkspaceView extends ItemView {
     this.timeBlockView = "day";
     this.timeBlockDate = localDate();
     this.timeBlockEditId = "";
+    this.timeBlockDailyPreview = null;
   }
 
   async onClose() {
@@ -85507,6 +85573,12 @@ class StudyWorkspaceView extends ItemView {
       }
       this.render();
     });
+    write.createEl("button", { text: "Preview daily note" }).addEventListener("click", async () => {
+      this.timeBlockDailyPreview = await this.plugin.previewTimeBlockDayNote(this.timeBlockDate);
+      this.saveMessage(this.timeBlockDailyPreview.ok ? "Daily-note lines previewed." : this.timeBlockDailyPreview.message);
+      this.render();
+    });
+    if (this.timeBlockDailyPreview && this.timeBlockDailyPreview.date === this.timeBlockDate) this.renderTimeBlockDailyNote(root);
     const projectOptions = this.timeBlockProjectOptions(data);
     const add = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" });
     add.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Add a time block" });
@@ -85545,6 +85617,43 @@ class StudyWorkspaceView extends ItemView {
     }
     const list = root.createDiv({ cls: "qt-study-list qt-time-blocks-day-list" });
     for (const block of blocks) this.renderTimeBlockCard(list, block, data);
+  }
+
+  renderTimeBlockDailyNote(root) {
+    const preview = this.timeBlockDailyPreview;
+    const card = root.createDiv({ cls: "qt-study-card qt-time-blocks-daily" });
+    card.createEl("h3", { text: "Daily-note preview" });
+    if (!preview.ok) {
+      card.createDiv({ cls: "qt-hint", text: preview.message + " The planner never writes to the daily note." });
+      return;
+    }
+    card.createDiv({ cls: "qt-hint", text: "Read-only preview of " + preview.path + ". Nothing is changed until you add the blocks; the daily note itself is never written." });
+    card.createDiv({
+      cls: "qt-study-row-meta",
+      text: preview.rows.length + " line" + (preview.rows.length === 1 ? "" : "s") + " · " + preview.newRows.length + " new · " + preview.duplicates + " already planned",
+    });
+    if (!preview.rows.length) {
+      card.createDiv({ cls: "qt-hint", text: "No HH:MM lines found. Add a line such as 09:00 Cell biology, or 09:00 - 10:30 Problem set." });
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of preview.rows) {
+      const item = list.createDiv({ cls: "qt-study-row qt-time-block-daily-row" + (row.duplicate ? " is-duplicate" : "") });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: row.start + " – " + row.end + " · " + row.title });
+      if (row.duplicate) main.createDiv({ cls: "qt-study-row-meta", text: "Already planned; it will be skipped." });
+    }
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: preview.newRows.length ? "Add " + preview.newRows.length + " block" + (preview.newRows.length === 1 ? "" : "s") : "Nothing new to add", cls: "mod-cta" }).addEventListener("click", async () => {
+      if (!preview.newRows.length) return;
+      const result = await this.plugin.importTimeBlockDayNote(preview.date);
+      this.timeBlockDailyPreview = null;
+      this.saveMessage(result.added ? "Added " + result.added + " block" + (result.added === 1 ? "" : "s") + " from " + result.path + "." : "Nothing new to add.");
+      this.render();
+    });
+    actions.createEl("button", { text: "Open daily note" }).addEventListener("click", () => {
+      this.app.workspace.openLinkText(preview.path, "", false);
+    });
   }
 
   renderTimeBlockCard(list, block, data) {
@@ -87915,6 +88024,7 @@ function normalizeTimeBlocks(value) {
     dayStart: normalizeTime(source.dayStart) || "07:00",
     dayEnd: normalizeTime(source.dayEnd) || "22:00",
     notesFolder: textValue(source.notesFolder, 200) || "Time blocks",
+    dailyNoteFolder: textValue(source.dailyNoteFolder, 200),
     view: normalizeView(source.view),
     blocks,
     projects,
@@ -88172,6 +88282,42 @@ function projectMap(projects) {
   return map;
 }
 
+/** One-way reader for a daily-note folder; never writes to the source note. */
+function parseDailyNoteLines(markdown) {
+  const text = str(markdown).replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, "");
+  const rows = [];
+  const seen = new Set();
+  let fence = false;
+  for (const line of text.split(/\r?\n/)) {
+    if (/^(\x60{3}|~{3})/.test(line.trim())) {
+      fence = !fence;
+      continue;
+    }
+    if (fence) continue;
+    const match = /^\s*(?:[-*+]\s+)?(?:\[[ xX]\]\s+)?(\d{1,2}:\d{2})(?:\s*(?:-|–|—|to)\s*(\d{1,2}:\d{2}))?\s+(.+?)\s*$/i.exec(line);
+    if (!match) continue;
+    const start = normalizeTime(match[1]);
+    const title = textValue(match[3], MAX_TITLE);
+    if (!start || !title) continue;
+    let end = normalizeTime(match[2]);
+    if (!end) end = timeFromMinutes(Math.min(minutesOf(start) + 60, 1439));
+    if (minutesOf(end) <= minutesOf(start)) continue;
+    const key = [start, end, title.toLowerCase()].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({ start, end, title });
+    if (rows.length >= 200) break;
+  }
+  return rows;
+}
+
+function dailyNotePath(date, folder) {
+  const key = dayValue(date);
+  const clean = str(folder).trim().replace(/^\/+|\/+$/g, "");
+  if (!key || !clean || clean.split("/").some((part) => part === "..")) return "";
+  return clean + "/" + key + ".md";
+}
+
 function blocksToMarkdown(date, blocks, projects) {
   const map = projectMap(projects);
   const lines = [`# ${dayValue(date) || date}`, "", "## Schedule", ""];
@@ -88288,6 +88434,7 @@ module.exports = {
   calendarDaySummary,
   calendarWeekSummary,
   createBacklogItem,
+  dailyNotePath,
   createTimeBlock,
   createTimeProject,
   createTimeRoutine,
@@ -88301,6 +88448,7 @@ module.exports = {
   normalizeTimeProject,
   normalizeTimeRoutine,
   normalizeTimeline,
+  parseDailyNoteLines,
   projectMinutes,
   projectTimeline,
   startOfWeek,

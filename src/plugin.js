@@ -9629,6 +9629,63 @@ ${body}
     });
   }
 
+  async previewTimeBlockDayNote(date) {
+    const current = this.timeBlocksSettings();
+    const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
+    const path = timeBlocks.dailyNotePath(key, current.dailyNoteFolder);
+    if (!path) {
+      return { ok: false, reason: "folder", date: key, message: "Set a Daily-note folder in Settings, Time blocks first." };
+    }
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) return { ok: false, reason: "missing", date: key, path, message: "No " + path + " in this vault." };
+    let markdown = "";
+    try {
+      markdown = await this.app.vault.read(file);
+    } catch (e) {
+      return { ok: false, reason: "read", date: key, path, message: String((e && e.message) || "Could not read the daily note.") };
+    }
+    const existing = new Set(
+      timeBlocks.blocksForDate(current.blocks, key).map((block) => [block.start, block.end, block.title.toLowerCase()].join("|"))
+    );
+    const rows = timeBlocks.parseDailyNoteLines(markdown).map((row) => ({
+      ...row,
+      duplicate: existing.has([row.start, row.end, row.title.toLowerCase()].join("|")),
+    }));
+    return {
+      ok: true,
+      date: key,
+      path,
+      rows,
+      newRows: rows.filter((row) => !row.duplicate),
+      duplicates: rows.filter((row) => row.duplicate).length,
+    };
+  }
+
+  async importTimeBlockDayNote(date) {
+    const preview = await this.previewTimeBlockDayNote(date);
+    if (!preview.ok || !preview.newRows.length) return { ...preview, added: 0, blocks: [] };
+    const current = this.timeBlocksSettings();
+    const created = [];
+    const stamp = Date.now();
+    for (const row of preview.newRows) {
+      const block = timeBlocks.createTimeBlock({
+        date: preview.date,
+        start: row.start,
+        end: row.end,
+        title: row.title,
+        type: "study",
+      }, stamp + created.length);
+      if (block) created.push(block);
+    }
+    this.settings.timeBlocks = timeBlocks.normalizeTimeBlocks({
+      ...current,
+      blocks: current.blocks.concat(created).slice(-timeBlocks.MAX_BLOCKS),
+    });
+    await this.save();
+    this.refreshViews();
+    return { ...preview, added: created.length, blocks: created };
+  }
+
   async writeTimeBlockDay(date) {
     const current = this.timeBlocksSettings();
     const key = timeBlocks.dayValue(date) || timeBlocks.todayValue();
