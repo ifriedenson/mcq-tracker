@@ -8,6 +8,7 @@ const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
 const { localDate, str } = require("./util");
 const timeBlocks = require("./time-blocks");
+const citations = require("./citations");
 const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
@@ -48,6 +49,7 @@ const TABS = [
   { id: "retention", label: "Retention", module: "retention" },
   { id: "vocabulary", label: "Vocabulary", module: "vocabulary" },
   { id: "readingLibrary", label: "Reading library", module: "readingLibrary" },
+  { id: "citations", label: "Citations", module: "citations" },
   { id: "quizIndex", label: "Quiz index", module: "quizIndex" },
   { id: "health", label: "Course health", module: "courseHealth" },
   { id: "lectures", label: "Lecture notes", module: "lectureCompiler" },
@@ -110,6 +112,10 @@ const EMPTY_STATES = {
   vocabulary: {
     title: "Start a local word bank",
     steps: ["Add a term, definition and optional example.", "Bulk import a list when you have one.", "Review each word on a simple 1/3/7/21-day ladder."],
+  },
+  citations: {
+    title: "Build a local citation library",
+    steps: ["Import a vault .bib file.", "Review the parsed authors, year, journal and DOI.", "Copy a reference or create a citation note; nothing leaves the vault."],
   },
   readingLibrary: {
     title: "Open your reading shelf",
@@ -183,6 +189,7 @@ class StudyWorkspaceView extends ItemView {
     this.timeBlockDate = localDate();
     this.timeBlockEditId = "";
     this.timeBlockDailyPreview = null;
+    this.citationFilter = "";
   }
 
   async onClose() {
@@ -279,6 +286,7 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "retention") this.renderRetention(body);
     else if (this.tab === "vocabulary") this.renderVocabulary(body);
     else if (this.tab === "readingLibrary") this.renderReadingLibrary(body);
+    else if (this.tab === "citations") this.renderCitations(body);
     else if (this.tab === "quizIndex") this.renderQuizIndex(body);
     else if (this.tab === "health") this.renderCourseHealth(body);
     else if (this.tab === "lectures") this.renderLectureCompiler(body);
@@ -293,7 +301,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Time blocks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback, the PDF annotation index and the Reading library each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Time blocks, the citation library, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback, the PDF annotation index and the Reading library each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -2157,6 +2165,73 @@ class StudyWorkspaceView extends ItemView {
       const buttons = item.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Open PDF" }).addEventListener("click", () => this.app.workspace.openLinkText(row.pdfPath, "", false));
       buttons.createEl("button", { text: "Open sidecar" }).addEventListener("click", () => this.app.workspace.openLinkText(row.sidecarPath, "", false));
+    }
+  }
+
+  /* ---- Citations (local BibTeX library) ------------------------------- */
+
+  renderCitations(root) {
+    const data = this.settings().citations;
+    const stats = citations.citationStats(data.entries);
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Citations" });
+    card.createDiv({ cls: "qt-hint", text: "Import a .bib file from this vault, keep the parsed entries locally, copy a formatted reference or create a citation note. No reference-manager login, network request or automatic note write is involved." });
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const path = this.renderField(form, "BibTeX file", "text", "References/library.bib");
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Import .bib", cls: "mod-cta" }).addEventListener("click", async () => {
+      const result = await this.plugin.importCitationFile(path.value);
+      this.saveMessage(result.ok ? "Imported " + result.added + " citation(s); skipped " + result.skipped + " duplicate(s)." : result.message);
+      this.render();
+    });
+    card.createDiv({ cls: "qt-study-row-meta", text: stats.total + " citation(s) · " + stats.withDoi + " with DOI · saved notes go to " + data.folder });
+    if (!data.entries.length) {
+      this.renderTabsEmpty(root, "No citations yet. Import a .bib file above; parsing and storage stay local.");
+      return;
+    }
+    const filter = this.renderField(card, "Filter", "text", "Author, title, journal or key", this.citationFilter);
+    filter.addEventListener("input", () => {
+      this.citationFilter = filter.value;
+      this.render();
+    });
+    const needle = str(this.citationFilter).trim().toLowerCase();
+    const rows = data.entries.filter((entry) => {
+      if (!needle) return true;
+      return [entry.key, entry.title, entry.authors.join(" "), entry.year, entry.journal, entry.doi].join(" ").toLowerCase().includes(needle);
+    });
+    if (!rows.length) {
+      this.renderTabsEmpty(root, "No citations match this filter.");
+      return;
+    }
+    const list = root.createDiv({ cls: "qt-study-list" });
+    for (const entry of rows) {
+      const item = list.createDiv({ cls: "qt-study-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: entry.title });
+      main.createDiv({ cls: "qt-study-row-meta", text: citations.citationLabel(entry) + (entry.journal ? " · " + entry.journal : "") + (entry.doi ? " · DOI " + entry.doi : "") });
+      main.createDiv({ cls: "qt-study-row-meta", text: entry.key + " · " + entry.type + (entry.url ? " · " + entry.url : "") });
+      const buttons = item.createDiv({ cls: "qt-row qt-study-row-actions" });
+      buttons.createEl("button", { text: "Copy citation" }).addEventListener("click", async () => {
+        const text = citations.citationText(entry);
+        try {
+          if (typeof navigator === "undefined" || !navigator.clipboard) throw new Error("Clipboard unavailable");
+          await navigator.clipboard.writeText(text);
+          this.saveMessage("Citation copied.");
+        } catch (e) {
+          this.saveMessage("Could not copy the citation in this view.");
+        }
+        this.render();
+      });
+      buttons.createEl("button", { text: "Create note", cls: "mod-cta" }).addEventListener("click", async () => {
+        const result = await this.plugin.createCitationNote(entry.id);
+        this.saveMessage(result.ok ? "Saved " + result.path + "." : result.message);
+        this.render();
+      });
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeCitation(entry.id);
+        this.saveMessage("Citation removed.");
+        this.render();
+      });
     }
   }
 

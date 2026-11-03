@@ -10,6 +10,7 @@ const courseIdentity = require("./course-identity");
 const { fencedQuizBlocks, parseQuizBlock } = require("./quiz-block");
 const readAloud = require("./read-aloud");
 const timeBlocks = require("./time-blocks");
+const citations = require("./citations");
 const lectureCompiler = require("./lecture-compiler");
 const courseHealth = require("./course-health");
 const audioBookmarks = require("./audio-bookmarks");
@@ -1318,6 +1319,7 @@ function normalizeStudyWorkspaceSettings(value) {
     pdfAnnotationIndex: pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(source.pdfAnnotationIndex),
     readingLibrary: readingLibrary.normalizeLibrary(source.readingLibrary),
     timeBlocks: timeBlocks.normalizeTimeBlocks(source.timeBlocks),
+    citations: citations.normalizeCitationSettings(source.citations),
   };
 }
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.210.3 — 2026-11-03
+
+- Adds the opt-in **Citations** Study Workspace module: import a `.bib` file
+  already in the vault, keep the parsed entries locally, filter by author,
+  title, journal or key, and copy a plain-text reference with a DOI link.
+- **Create note** writes a `type: citation` note with the formatted reference
+  and a details table into the configured folder; an existing file is never
+  overwritten. **Remove** only forgets a library entry.
+- No reference-manager login, network request, CSL processor or Zotero
+  database. Importing changes no note.
+
 ## 1.210.2 — 2026-11-03
 
 - Time blocks can preview an optional daily note from a configured

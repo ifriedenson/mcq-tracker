@@ -14,11 +14,12 @@ async function setup(saved) {
   return plugin;
 }
 
-test("study workspace: twelve independent modules default on and can be switched off", () => {
+test("study workspace: independent modules default on and can be switched off", () => {
   const defaults = W.normalizeStudyWorkspaceSettings({});
-  assert.deepEqual(Object.keys(defaults), ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex", "readingLibrary", "timeBlocks"]);
-  for (const value of Object.values(defaults)) assert.equal(value.enabled, value === defaults.timeBlocks ? false : true);
+  assert.deepEqual(Object.keys(defaults), ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex", "readingLibrary", "timeBlocks", "citations"]);
+  for (const value of Object.values(defaults)) assert.equal(value.enabled, value === defaults.timeBlocks || value === defaults.citations ? false : true);
   assert.equal(defaults.timeBlocks.enabled, false, "the planner is opt-in");
+  assert.equal(defaults.citations.enabled, false, "the citation library is opt-in");
   const off = W.normalizeStudyWorkspaceSettings({
     feynmanLearning: { enabled: false },
     recallScheduler: { enabled: false },
@@ -39,6 +40,7 @@ test("study workspace: twelve independent modules default on and can be switched
     feynmanAi: { enabled: false },
     pdfAnnotationIndex: { enabled: false },
     readingLibrary: { enabled: false },
+    citations: { enabled: false },
   });
   assert.equal(Object.values(off).every((value) => value.enabled === false), true);
 });
@@ -299,7 +301,7 @@ test("plugin: workflow switches gate the view and workflow data survives a reloa
     assert.equal(view.tab, tab);
   }
 
-  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex", "readingLibrary", "timeBlocks"]) {
+  for (const key of ["feynmanLearning", "recallScheduler", "lerntracker", "studyFlow", "subjectManager", "quizIndex", "courseHub", "studyTasks", "annotations", "deepNotes", "retention", "vocabulary", "readAloud", "lectureCompiler", "courseHealth", "audioBookmarks", "feynmanAi", "pdfAnnotationIndex", "readingLibrary", "timeBlocks", "citations"]) {
     restarted.settings[key].enabled = false;
   }
   assert.equal(restarted.studyWorkspaceEnabled(), false);

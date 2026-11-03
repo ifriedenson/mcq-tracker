@@ -24,6 +24,7 @@ const courseTemplates = require("./course-templates");
 const audioBookmarks = require("./audio-bookmarks");
 const readingLibrary = require("./reading-library");
 const timeBlocks = require("./time-blocks");
+const citations = require("./citations");
 
 /** Sidebar order follows the plan: local tools, then the workspace, then analysis. */
 const STUDY_TOOL_SETTINGS_MODULES = [
@@ -43,6 +44,7 @@ const STUDY_TOOL_SETTINGS_MODULES = [
   { id: "retention", label: "Retention", icon: "line-chart" },
   { id: "vocabulary", label: "Vocabulary", icon: "book-a" },
   { id: "reading-library", label: "Reading library", icon: "library" },
+  { id: "citations", label: "Citations", icon: "book-marked" },
   { id: "quiz-index", label: "Quiz index", icon: "list-checks" },
   { id: "quiz-maker", label: "Quiz Maker blocks", icon: "puzzle" },
   { id: "sat-math", label: "SAT math solver", icon: "calculator" },
@@ -413,6 +415,29 @@ const PAGES = {
     afterToggle: "onStudyWorkspaceToggled",
     status: (plugin) => `${studyWorkspace.normalizeVocabulary(plugin.settings.vocabulary).words.length} word(s).`,
     open: { label: "Open Vocabulary", run: (plugin) => plugin.activateStudyWorkspace("vocabulary") },
+  },
+  citations: {
+    title: "Citations",
+    description:
+      "Import a BibTeX file from the vault into a local citation library, copy a formatted reference or create a citation note. No Zotero/ZotLit login, network request or automatic note write is added.",
+    enabledGetter: "citationsEnabled",
+    enable: (plugin, v) => update(plugin, "citations", citations.normalizeCitationSettings, { enabled: v }),
+    afterToggle: "onStudyWorkspaceToggled",
+    fields: [
+      {
+        type: "text",
+        name: "Citation-note folder",
+        desc: "Where Create note writes a citation note. Existing files are never overwritten.",
+        placeholder: "Citations",
+        get: (plugin) => citations.normalizeCitationSettings(plugin.settings.citations).folder,
+        set: async (plugin, v) => update(plugin, "citations", citations.normalizeCitationSettings, { folder: v }),
+      },
+    ],
+    status: (plugin) => {
+      const data = citations.normalizeCitationSettings(plugin.settings.citations);
+      return data.entries.length + " citation(s) in the local library.";
+    },
+    open: { label: "Open Citations", run: (plugin) => plugin.activateStudyWorkspace("citations") },
   },
   "reading-library": {
     title: "Reading library",

@@ -19511,6 +19511,283 @@ module.exports = {
 };
 };
 
+/* ---- src/citations.js ---- */
+__defs["citations"] = function (module, exports, require) {
+/*
+ * Local citation library. A .bib file is parsed in memory; imported entries
+ * live in plugin data, and a citation note is created only on request.
+ */
+const { hashString, str } = require("./util");
+
+const MAX_CITATIONS = 500;
+const MAX_TITLE = 300;
+const MAX_FIELD = 500;
+const CITATION_FOLDER = "Citations";
+
+function objectValue(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function textValue(value, max) {
+  return str(value).replace(/\r\n?/g, "\n").replace(/[{}]/g, "").replace(/\s+/g, " ").trim().slice(0, max || MAX_TITLE);
+}
+
+function normalizeAuthors(value) {
+  const raw = Array.isArray(value) ? value : str(value).split(/\s+and\s+/i);
+  const authors = [];
+  for (const item of raw) {
+    let author = textValue(item, MAX_FIELD);
+    if (!author) continue;
+    if (author.includes(",")) {
+      const [last, ...rest] = author.split(",").map((part) => part.trim());
+      const first = rest.join(" ").trim();
+      if (first && last) author = first + " " + last;
+    }
+    if (!authors.some((entry) => entry.toLowerCase() === author.toLowerCase())) authors.push(author);
+    if (authors.length >= 40) break;
+  }
+  return authors;
+}
+
+function normalizeCitation(value) {
+  const source = objectValue(value);
+  const title = textValue(source.title, MAX_TITLE);
+  if (!title) return null;
+  const key = textValue(source.key || source.id, 160) || "citation-" + hashString(title);
+  const year = textValue(source.year, 12);
+  return {
+    id: key,
+    key,
+    type: textValue(source.type, 40).toLowerCase() || "misc",
+    title,
+    authors: normalizeAuthors(source.authors || source.author),
+    year: /^\d{4}$/.test(year) ? year : "",
+    journal: textValue(source.journal || source.booktitle, MAX_FIELD),
+    publisher: textValue(source.publisher, MAX_FIELD),
+    volume: textValue(source.volume, 40),
+    issue: textValue(source.number || source.issue, 40),
+    pages: textValue(source.pages, 80),
+    doi: textValue(source.doi, MAX_FIELD),
+    url: textValue(source.url, MAX_FIELD),
+    importedAt: Math.max(0, Math.round(Number(source.importedAt) || 0)),
+  };
+}
+
+function normalizeCitationSettings(value) {
+  const source = objectValue(value);
+  const entries = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(source.entries) ? source.entries : []) {
+    const entry = normalizeCitation(raw);
+    if (!entry || seen.has(entry.id.toLowerCase())) continue;
+    seen.add(entry.id.toLowerCase());
+    entries.push(entry);
+    if (entries.length >= MAX_CITATIONS) break;
+  }
+  return {
+    enabled: source.enabled === true,
+    folder: textValue(source.folder, 200) || CITATION_FOLDER,
+    entries,
+  };
+}
+
+function fieldValues(body) {
+  const fields = {};
+  let index = 0;
+  while (index < body.length) {
+    while (index < body.length && /[\s,]/.test(body[index])) index++;
+    if (index >= body.length) break;
+    const name = /^([A-Za-z][\w-]*)\s*=\s*/.exec(body.slice(index));
+    if (!name) {
+      index++;
+      continue;
+    }
+    index += name[0].length;
+    let value = "";
+    if (body[index] === "{") {
+      const start = index;
+      let depth = 0;
+      for (; index < body.length; index++) {
+        if (body[index] === "{") depth++;
+        else if (body[index] === "}") {
+          depth--;
+          if (depth === 0) {
+            value = body.slice(start + 1, index);
+            index++;
+            break;
+          }
+        }
+      }
+    } else if (body[index] === '"') {
+      index++;
+      const start = index;
+      let escaped = false;
+      for (; index < body.length; index++) {
+        const char = body[index];
+        if (!escaped && char === '"') break;
+        escaped = !escaped && char === "\\";
+        if (char !== "\\") escaped = false;
+      }
+      value = body.slice(start, index);
+      index++;
+    } else {
+      const start = index;
+      while (index < body.length && body[index] !== ",") index++;
+      value = body.slice(start, index);
+    }
+    fields[name[1].toLowerCase()] = textValue(value, MAX_FIELD);
+    while (index < body.length && body[index] !== ",") index++;
+    index++;
+  }
+  return fields;
+}
+
+/** Parse BibTeX in memory. Malformed entries are skipped, never guessed. */
+function parseBibTeX(text) {
+  const source = str(text).replace(/\r\n?/g, "\n");
+  const entries = [];
+  let cursor = 0;
+  while (cursor < source.length) {
+    const at = source.indexOf("@", cursor);
+    if (at < 0) break;
+    const head = /^@([A-Za-z]+)\s*\{/.exec(source.slice(at));
+    if (!head) {
+      cursor = at + 1;
+      continue;
+    }
+    const type = head[1].toLowerCase();
+    const open = at + head[0].length - 1;
+    let depth = 0;
+    let end = -1;
+    for (let index = open; index < source.length; index++) {
+      if (source[index] === "{") depth++;
+      else if (source[index] === "}") {
+        depth--;
+        if (depth === 0) {
+          end = index;
+          break;
+        }
+      }
+    }
+    if (end < 0) break;
+    cursor = end + 1;
+    if (["comment", "preamble", "string"].includes(type)) continue;
+    const body = source.slice(open + 1, end);
+    const comma = body.indexOf(",");
+    if (comma < 0) continue;
+    const key = textValue(body.slice(0, comma), 160);
+    const fields = fieldValues(body.slice(comma + 1));
+    const entry = normalizeCitation({
+      ...fields,
+      key,
+      type,
+      importedAt: Date.now(),
+    });
+    if (entry) entries.push(entry);
+    if (entries.length >= MAX_CITATIONS) break;
+  }
+  return entries;
+}
+
+function citationLabel(entry) {
+  const author = entry.authors && entry.authors.length ? entry.authors[0] : "Unknown author";
+  const more = entry.authors && entry.authors.length > 1 ? " et al." : "";
+  return author + more + " (" + (entry.year || "n.d.") + ")";
+}
+
+function citationText(entry) {
+  const source = normalizeCitation(entry);
+  if (!source) return "";
+  const authors = source.authors.length ? source.authors.join(", ") : "Unknown author";
+  const year = source.year || "n.d.";
+  const parts = [authors + " (" + year + ").", source.title.replace(/[.!?]+$/, "") + "."];
+  const publication = [source.journal, source.volume, source.issue, source.pages].filter(Boolean).join(", ");
+  if (publication) parts.push(publication.replace(/\.$/, "") + ".");
+  if (source.publisher) parts.push(source.publisher.replace(/\.$/, "") + ".");
+  if (source.doi) parts.push("https://doi.org/" + source.doi.replace(/^https?:\/\/doi\.org\//i, ""));
+  else if (source.url) parts.push(source.url);
+  return parts.join(" ");
+}
+
+function safeCitationName(entry) {
+  const base = (entry.authors && entry.authors[0] ? entry.authors[0] + " " : "") + (entry.year ? entry.year + " " : "") + entry.title;
+  const clean = base
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\\/:*?"<>|#^[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 90)
+    .replace(/[. ]+$/g, "");
+  return clean || "citation-" + hashString(entry.id);
+}
+
+function citationNoteMarkdown(entry) {
+  const source = normalizeCitation(entry);
+  if (!source) return "";
+  const frontmatter = [
+    "---",
+    "type: citation",
+    "citation_key: " + JSON.stringify(source.key),
+    "title: " + JSON.stringify(source.title),
+    "authors: " + JSON.stringify(source.authors),
+    "year: " + JSON.stringify(source.year),
+    "journal: " + JSON.stringify(source.journal),
+    "doi: " + JSON.stringify(source.doi),
+    "url: " + JSON.stringify(source.url),
+    "tags: [citation]",
+    "---",
+    "",
+  ];
+  const body = ["# " + source.title, "", "## Citation", "", citationText(source), ""];
+  const details = [
+    ["Key", source.key],
+    ["Type", source.type],
+    ["Authors", source.authors.join("; ")],
+    ["Year", source.year],
+    ["Journal", source.journal],
+    ["Publisher", source.publisher],
+    ["Volume", source.volume],
+    ["Issue", source.issue],
+    ["Pages", source.pages],
+    ["DOI", source.doi],
+    ["URL", source.url],
+  ].filter(([, value]) => value);
+  if (details.length) {
+    body.push("## Details", "", "| Field | Value |", "|---|---|");
+    for (const [label, value] of details) body.push("| " + label + " | " + value.replace(/\|/g, "\\|") + " |");
+    body.push("");
+  }
+  return frontmatter.concat(body).join("\n");
+}
+
+function citationStats(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  const years = list.map((entry) => Number(entry.year)).filter((year) => Number.isInteger(year));
+  return {
+    total: list.length,
+    withDoi: list.filter((entry) => !!entry.doi).length,
+    withUrl: list.filter((entry) => !!entry.url).length,
+    oldest: years.length ? Math.min(...years) : null,
+    newest: years.length ? Math.max(...years) : null,
+  };
+}
+
+module.exports = {
+  CITATION_FOLDER,
+  MAX_CITATIONS,
+  citationLabel,
+  citationNoteMarkdown,
+  citationStats,
+  citationText,
+  normalizeAuthors,
+  normalizeCitation,
+  normalizeCitationSettings,
+  parseBibTeX,
+  safeCitationName,
+};
+};
+
 /* ---- src/complex.js ---- */
 __defs["complex"] = function (module, exports, require) {
 /*
@@ -20302,6 +20579,7 @@ const DEFAULT_SETTINGS = {
   courseHub: { enabled: true, grades: [] }, // course dashboard and local grade chips
   studyTasks: { enabled: true, tasks: [] }, // manual and generated exam tasks with local reminders
   timeBlocks: { enabled: false }, // opt-in local time-block planner; off by default
+  citations: { enabled: false }, // opt-in local BibTeX citation library; off by default
   annotations: { enabled: true, annotations: [] }, // selection Q&A and annotation index
   deepNotes: { enabled: true, sessions: [] }, // guided Socratic sessions
   retention: { enabled: true }, // read-only card forecast
@@ -46161,6 +46439,7 @@ const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
 const studyWorkspace = require("./study-workspace");
 const timeBlocks = require("./time-blocks");
+const citations = require("./citations");
 const courseIdentity = require("./course-identity");
 const exams = require("./exams");
 const { courseOverview } = require("./course-overview");
@@ -47771,8 +48050,16 @@ class QuestionTrackerPlugin extends Plugin {
     return timeBlocks.normalizeTimeBlocks(this.settings.timeBlocks).enabled;
   }
 
+  citationsEnabled() {
+    return citations.normalizeCitationSettings(this.settings.citations).enabled;
+  }
+
+  citationsSettings() {
+    return citations.normalizeCitationSettings(this.settings.citations);
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.timeBlocksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled() || this.readingLibraryEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.timeBlocksEnabled() || this.citationsEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled() || this.readingLibraryEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -55772,6 +56059,74 @@ ${body}
       course: input && input.course ? input.course : task.course,
       tasks: [{ title: task.title, studyTaskId: task.id }],
     });
+  }
+
+  async importCitationFile(path) {
+    const clean = str(path).trim();
+    if (!clean) return { ok: false, reason: "path", message: "Enter a vault path to a .bib file." };
+    const file = this.app.vault.getAbstractFileByPath(clean);
+    if (!file) return { ok: false, reason: "missing", message: "No " + clean + " in this vault." };
+    let markdown = "";
+    try {
+      markdown = await this.app.vault.read(file);
+    } catch (e) {
+      return { ok: false, reason: "read", message: String((e && e.message) || "Could not read the BibTeX file.") };
+    }
+    const parsed = citations.parseBibTeX(markdown);
+    if (!parsed.length) return { ok: false, reason: "empty", message: "No usable BibTeX entries found." };
+    const current = this.citationsSettings();
+    const seen = new Set(current.entries.map((entry) => entry.key.toLowerCase()));
+    const added = [];
+    let skipped = 0;
+    for (const entry of parsed) {
+      const key = entry.key.toLowerCase();
+      if (seen.has(key)) {
+        skipped++;
+        continue;
+      }
+      seen.add(key);
+      added.push(entry);
+    }
+    if (added.length) {
+      this.settings.citations = citations.normalizeCitationSettings({
+        ...current,
+        entries: current.entries.concat(added).slice(-citations.MAX_CITATIONS),
+      });
+      await this.save();
+      this.refreshViews();
+    }
+    return { ok: true, added: added.length, skipped, entries: parsed.length };
+  }
+
+  async createCitationNote(id) {
+    const current = this.citationsSettings();
+    const entry = current.entries.find((row) => row.id === id || row.key === id);
+    if (!entry) return { ok: false, reason: "missing", message: "That citation is gone." };
+    const folder = str(current.folder).trim().replace(/^\/+|\/+$/g, "") || citations.CITATION_FOLDER;
+    if (folder.split("/").some((part) => part === "..")) return { ok: false, reason: "path", message: "The citation folder is not safe." };
+    const path = folder + "/" + citations.safeCitationName(entry) + ".md";
+    if (this.app.vault.getAbstractFileByPath(path)) return { ok: false, reason: "exists", path, message: path + " already exists; nothing was overwritten." };
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        /* the folder may already exist after a sync */
+      }
+    }
+    await this.app.vault.create(path, citations.citationNoteMarkdown(entry));
+    return { ok: true, path };
+  }
+
+  async removeCitation(id) {
+    const current = this.citationsSettings();
+    if (!current.entries.some((entry) => entry.id === id)) return false;
+    this.settings.citations = citations.normalizeCitationSettings({
+      ...current,
+      entries: current.entries.filter((entry) => entry.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+    return true;
   }
 
   async previewTimeBlockDayNote(date) {
@@ -80915,6 +81270,7 @@ const courseTemplates = require("./course-templates");
 const audioBookmarks = require("./audio-bookmarks");
 const readingLibrary = require("./reading-library");
 const timeBlocks = require("./time-blocks");
+const citations = require("./citations");
 
 /** Sidebar order follows the plan: local tools, then the workspace, then analysis. */
 const STUDY_TOOL_SETTINGS_MODULES = [
@@ -80934,6 +81290,7 @@ const STUDY_TOOL_SETTINGS_MODULES = [
   { id: "retention", label: "Retention", icon: "line-chart" },
   { id: "vocabulary", label: "Vocabulary", icon: "book-a" },
   { id: "reading-library", label: "Reading library", icon: "library" },
+  { id: "citations", label: "Citations", icon: "book-marked" },
   { id: "quiz-index", label: "Quiz index", icon: "list-checks" },
   { id: "quiz-maker", label: "Quiz Maker blocks", icon: "puzzle" },
   { id: "sat-math", label: "SAT math solver", icon: "calculator" },
@@ -81304,6 +81661,29 @@ const PAGES = {
     afterToggle: "onStudyWorkspaceToggled",
     status: (plugin) => `${studyWorkspace.normalizeVocabulary(plugin.settings.vocabulary).words.length} word(s).`,
     open: { label: "Open Vocabulary", run: (plugin) => plugin.activateStudyWorkspace("vocabulary") },
+  },
+  citations: {
+    title: "Citations",
+    description:
+      "Import a BibTeX file from the vault into a local citation library, copy a formatted reference or create a citation note. No Zotero/ZotLit login, network request or automatic note write is added.",
+    enabledGetter: "citationsEnabled",
+    enable: (plugin, v) => update(plugin, "citations", citations.normalizeCitationSettings, { enabled: v }),
+    afterToggle: "onStudyWorkspaceToggled",
+    fields: [
+      {
+        type: "text",
+        name: "Citation-note folder",
+        desc: "Where Create note writes a citation note. Existing files are never overwritten.",
+        placeholder: "Citations",
+        get: (plugin) => citations.normalizeCitationSettings(plugin.settings.citations).folder,
+        set: async (plugin, v) => update(plugin, "citations", citations.normalizeCitationSettings, { folder: v }),
+      },
+    ],
+    status: (plugin) => {
+      const data = citations.normalizeCitationSettings(plugin.settings.citations);
+      return data.entries.length + " citation(s) in the local library.";
+    },
+    open: { label: "Open Citations", run: (plugin) => plugin.activateStudyWorkspace("citations") },
   },
   "reading-library": {
     title: "Reading library",
@@ -82501,6 +82881,7 @@ const courseIdentity = require("./course-identity");
 const { fencedQuizBlocks, parseQuizBlock } = require("./quiz-block");
 const readAloud = require("./read-aloud");
 const timeBlocks = require("./time-blocks");
+const citations = require("./citations");
 const lectureCompiler = require("./lecture-compiler");
 const courseHealth = require("./course-health");
 const audioBookmarks = require("./audio-bookmarks");
@@ -83809,6 +84190,7 @@ function normalizeStudyWorkspaceSettings(value) {
     pdfAnnotationIndex: pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(source.pdfAnnotationIndex),
     readingLibrary: readingLibrary.normalizeLibrary(source.readingLibrary),
     timeBlocks: timeBlocks.normalizeTimeBlocks(source.timeBlocks),
+    citations: citations.normalizeCitationSettings(source.citations),
   };
 }
 
@@ -83904,6 +84286,7 @@ const { ItemView, Notice } = require("obsidian");
 const { VIEW_TYPE_STUDY_WORKSPACE } = require("./constants");
 const { localDate, str } = require("./util");
 const timeBlocks = require("./time-blocks");
+const citations = require("./citations");
 const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
@@ -83944,6 +84327,7 @@ const TABS = [
   { id: "retention", label: "Retention", module: "retention" },
   { id: "vocabulary", label: "Vocabulary", module: "vocabulary" },
   { id: "readingLibrary", label: "Reading library", module: "readingLibrary" },
+  { id: "citations", label: "Citations", module: "citations" },
   { id: "quizIndex", label: "Quiz index", module: "quizIndex" },
   { id: "health", label: "Course health", module: "courseHealth" },
   { id: "lectures", label: "Lecture notes", module: "lectureCompiler" },
@@ -84006,6 +84390,10 @@ const EMPTY_STATES = {
   vocabulary: {
     title: "Start a local word bank",
     steps: ["Add a term, definition and optional example.", "Bulk import a list when you have one.", "Review each word on a simple 1/3/7/21-day ladder."],
+  },
+  citations: {
+    title: "Build a local citation library",
+    steps: ["Import a vault .bib file.", "Review the parsed authors, year, journal and DOI.", "Copy a reference or create a citation note; nothing leaves the vault."],
   },
   readingLibrary: {
     title: "Open your reading shelf",
@@ -84079,6 +84467,7 @@ class StudyWorkspaceView extends ItemView {
     this.timeBlockDate = localDate();
     this.timeBlockEditId = "";
     this.timeBlockDailyPreview = null;
+    this.citationFilter = "";
   }
 
   async onClose() {
@@ -84175,6 +84564,7 @@ class StudyWorkspaceView extends ItemView {
     else if (this.tab === "retention") this.renderRetention(body);
     else if (this.tab === "vocabulary") this.renderVocabulary(body);
     else if (this.tab === "readingLibrary") this.renderReadingLibrary(body);
+    else if (this.tab === "citations") this.renderCitations(body);
     else if (this.tab === "quizIndex") this.renderQuizIndex(body);
     else if (this.tab === "health") this.renderCourseHealth(body);
     else if (this.tab === "lectures") this.renderLectureCompiler(body);
@@ -84189,7 +84579,7 @@ class StudyWorkspaceView extends ItemView {
     card.createEl("h3", { text: "Study Workspace is off" });
     card.createDiv({
       cls: "qt-onboard-text",
-      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Time blocks, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback, the PDF annotation index and the Reading library each have their own switch under Settings, Global, Modules.",
+      text: "Feynman Learning, Recall Scheduler, the topic planner, Study Flow, Subject Manager, Courses, Tasks, Time blocks, the citation library, Annotations, Deep Notes, Retention, Vocabulary, the Quiz index, Course health, the lecture-note compiler, Read aloud, audio Bookmarks, Feynman AI feedback, the PDF annotation index and the Reading library each have their own switch under Settings, Global, Modules.",
     });
     card.createEl("button", { text: "Open settings", cls: "mod-cta qt-primary" }).addEventListener("click", () => this.plugin.openSettings());
   }
@@ -86053,6 +86443,73 @@ class StudyWorkspaceView extends ItemView {
       const buttons = item.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Open PDF" }).addEventListener("click", () => this.app.workspace.openLinkText(row.pdfPath, "", false));
       buttons.createEl("button", { text: "Open sidecar" }).addEventListener("click", () => this.app.workspace.openLinkText(row.sidecarPath, "", false));
+    }
+  }
+
+  /* ---- Citations (local BibTeX library) ------------------------------- */
+
+  renderCitations(root) {
+    const data = this.settings().citations;
+    const stats = citations.citationStats(data.entries);
+    const card = root.createDiv({ cls: "qt-study-card" });
+    card.createEl("h3", { text: "Citations" });
+    card.createDiv({ cls: "qt-hint", text: "Import a .bib file from this vault, keep the parsed entries locally, copy a formatted reference or create a citation note. No reference-manager login, network request or automatic note write is involved." });
+    const form = card.createDiv({ cls: "qt-study-form" });
+    const path = this.renderField(form, "BibTeX file", "text", "References/library.bib");
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Import .bib", cls: "mod-cta" }).addEventListener("click", async () => {
+      const result = await this.plugin.importCitationFile(path.value);
+      this.saveMessage(result.ok ? "Imported " + result.added + " citation(s); skipped " + result.skipped + " duplicate(s)." : result.message);
+      this.render();
+    });
+    card.createDiv({ cls: "qt-study-row-meta", text: stats.total + " citation(s) · " + stats.withDoi + " with DOI · saved notes go to " + data.folder });
+    if (!data.entries.length) {
+      this.renderTabsEmpty(root, "No citations yet. Import a .bib file above; parsing and storage stay local.");
+      return;
+    }
+    const filter = this.renderField(card, "Filter", "text", "Author, title, journal or key", this.citationFilter);
+    filter.addEventListener("input", () => {
+      this.citationFilter = filter.value;
+      this.render();
+    });
+    const needle = str(this.citationFilter).trim().toLowerCase();
+    const rows = data.entries.filter((entry) => {
+      if (!needle) return true;
+      return [entry.key, entry.title, entry.authors.join(" "), entry.year, entry.journal, entry.doi].join(" ").toLowerCase().includes(needle);
+    });
+    if (!rows.length) {
+      this.renderTabsEmpty(root, "No citations match this filter.");
+      return;
+    }
+    const list = root.createDiv({ cls: "qt-study-list" });
+    for (const entry of rows) {
+      const item = list.createDiv({ cls: "qt-study-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: entry.title });
+      main.createDiv({ cls: "qt-study-row-meta", text: citations.citationLabel(entry) + (entry.journal ? " · " + entry.journal : "") + (entry.doi ? " · DOI " + entry.doi : "") });
+      main.createDiv({ cls: "qt-study-row-meta", text: entry.key + " · " + entry.type + (entry.url ? " · " + entry.url : "") });
+      const buttons = item.createDiv({ cls: "qt-row qt-study-row-actions" });
+      buttons.createEl("button", { text: "Copy citation" }).addEventListener("click", async () => {
+        const text = citations.citationText(entry);
+        try {
+          if (typeof navigator === "undefined" || !navigator.clipboard) throw new Error("Clipboard unavailable");
+          await navigator.clipboard.writeText(text);
+          this.saveMessage("Citation copied.");
+        } catch (e) {
+          this.saveMessage("Could not copy the citation in this view.");
+        }
+        this.render();
+      });
+      buttons.createEl("button", { text: "Create note", cls: "mod-cta" }).addEventListener("click", async () => {
+        const result = await this.plugin.createCitationNote(entry.id);
+        this.saveMessage(result.ok ? "Saved " + result.path + "." : result.message);
+        this.render();
+      });
+      buttons.createEl("button", { text: "Delete", cls: "qt-danger" }).addEventListener("click", async () => {
+        await this.plugin.removeCitation(entry.id);
+        this.saveMessage("Citation removed.");
+        this.render();
+      });
     }
   }
 
@@ -91583,6 +92040,7 @@ const contextRetrieval = require("./context-retrieval");
 const { StudyToolsView } = require("./study-tools-view");
 const studyWorkspace = require("./study-workspace");
 const timeBlocks = require("./time-blocks");
+const citations = require("./citations");
 const readAloud = require("./read-aloud");
 const lectureCompiler = require("./lecture-compiler");
 const courseHealth = require("./course-health");
@@ -92013,6 +92471,7 @@ QuestionTrackerPlugin.__test = {
   readingLibrary,
   studyWorkspace,
   timeBlocks,
+  citations,
   readAloud,
   lectureCompiler,
   courseHealth,

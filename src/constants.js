@@ -169,6 +169,7 @@ const DEFAULT_SETTINGS = {
   courseHub: { enabled: true, grades: [] }, // course dashboard and local grade chips
   studyTasks: { enabled: true, tasks: [] }, // manual and generated exam tasks with local reminders
   timeBlocks: { enabled: false }, // opt-in local time-block planner; off by default
+  citations: { enabled: false }, // opt-in local BibTeX citation library; off by default
   annotations: { enabled: true, annotations: [] }, // selection Q&A and annotation index
   deepNotes: { enabled: true, sessions: [] }, // guided Socratic sessions
   retention: { enabled: true }, // read-only card forecast

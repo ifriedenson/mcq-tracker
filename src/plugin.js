@@ -16,6 +16,7 @@ const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
 const studyWorkspace = require("./study-workspace");
 const timeBlocks = require("./time-blocks");
+const citations = require("./citations");
 const courseIdentity = require("./course-identity");
 const exams = require("./exams");
 const { courseOverview } = require("./course-overview");
@@ -1626,8 +1627,16 @@ class QuestionTrackerPlugin extends Plugin {
     return timeBlocks.normalizeTimeBlocks(this.settings.timeBlocks).enabled;
   }
 
+  citationsEnabled() {
+    return citations.normalizeCitationSettings(this.settings.citations).enabled;
+  }
+
+  citationsSettings() {
+    return citations.normalizeCitationSettings(this.settings.citations);
+  }
+
   studyWorkspaceEnabled() {
-    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.timeBlocksEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled() || this.readingLibraryEnabled();
+    return this.feynmanLearningEnabled() || this.recallSchedulerEnabled() || this.lerntrackerEnabled() || this.studyFlowEnabled() || this.subjectManagerEnabled() || this.quizIndexEnabled() || this.courseHubEnabled() || this.studyTasksEnabled() || this.timeBlocksEnabled() || this.citationsEnabled() || this.annotationsEnabled() || this.deepNotesEnabled() || this.retentionEnabled() || this.vocabularyEnabled() || this.readAloudEnabled() || this.lectureCompilerEnabled() || this.courseHealthEnabled() || this.audioBookmarksEnabled() || this.feynmanAiEnabled() || this.pdfAnnotationIndexEnabled() || this.readingLibraryEnabled();
   }
 
   studyWorkspaceSettings() {
@@ -9627,6 +9636,74 @@ ${body}
       course: input && input.course ? input.course : task.course,
       tasks: [{ title: task.title, studyTaskId: task.id }],
     });
+  }
+
+  async importCitationFile(path) {
+    const clean = str(path).trim();
+    if (!clean) return { ok: false, reason: "path", message: "Enter a vault path to a .bib file." };
+    const file = this.app.vault.getAbstractFileByPath(clean);
+    if (!file) return { ok: false, reason: "missing", message: "No " + clean + " in this vault." };
+    let markdown = "";
+    try {
+      markdown = await this.app.vault.read(file);
+    } catch (e) {
+      return { ok: false, reason: "read", message: String((e && e.message) || "Could not read the BibTeX file.") };
+    }
+    const parsed = citations.parseBibTeX(markdown);
+    if (!parsed.length) return { ok: false, reason: "empty", message: "No usable BibTeX entries found." };
+    const current = this.citationsSettings();
+    const seen = new Set(current.entries.map((entry) => entry.key.toLowerCase()));
+    const added = [];
+    let skipped = 0;
+    for (const entry of parsed) {
+      const key = entry.key.toLowerCase();
+      if (seen.has(key)) {
+        skipped++;
+        continue;
+      }
+      seen.add(key);
+      added.push(entry);
+    }
+    if (added.length) {
+      this.settings.citations = citations.normalizeCitationSettings({
+        ...current,
+        entries: current.entries.concat(added).slice(-citations.MAX_CITATIONS),
+      });
+      await this.save();
+      this.refreshViews();
+    }
+    return { ok: true, added: added.length, skipped, entries: parsed.length };
+  }
+
+  async createCitationNote(id) {
+    const current = this.citationsSettings();
+    const entry = current.entries.find((row) => row.id === id || row.key === id);
+    if (!entry) return { ok: false, reason: "missing", message: "That citation is gone." };
+    const folder = str(current.folder).trim().replace(/^\/+|\/+$/g, "") || citations.CITATION_FOLDER;
+    if (folder.split("/").some((part) => part === "..")) return { ok: false, reason: "path", message: "The citation folder is not safe." };
+    const path = folder + "/" + citations.safeCitationName(entry) + ".md";
+    if (this.app.vault.getAbstractFileByPath(path)) return { ok: false, reason: "exists", path, message: path + " already exists; nothing was overwritten." };
+    if (!this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        /* the folder may already exist after a sync */
+      }
+    }
+    await this.app.vault.create(path, citations.citationNoteMarkdown(entry));
+    return { ok: true, path };
+  }
+
+  async removeCitation(id) {
+    const current = this.citationsSettings();
+    if (!current.entries.some((entry) => entry.id === id)) return false;
+    this.settings.citations = citations.normalizeCitationSettings({
+      ...current,
+      entries: current.entries.filter((entry) => entry.id !== id),
+    });
+    await this.save();
+    this.refreshViews();
+    return true;
   }
 
   async previewTimeBlockDayNote(date) {
