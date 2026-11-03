@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.210.6 — 2026-11-03
+
+- **Read aloud** gains three speech options: **Code blocks** (skip or read),
+  **Spell out acronyms** (NASA as N A S A) and **Skip website URLs** (link
+  labels are kept). The defaults reproduce the previous output.
+- The same three options appear in Settings, Modules, Read aloud. Reading stays
+  on the device voice: no provider, key, MP3 export or upload is involved.
+
 ## 1.210.5 — 2026-11-03
 
 - The **Tasks** tab gains a **Vault checklist (read-only)** section. **Scan

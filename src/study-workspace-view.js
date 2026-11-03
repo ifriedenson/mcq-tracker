@@ -11,7 +11,7 @@ const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
-const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
+const { CODE_BLOCK_MODES: READ_ALOUD_CODE, READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
 const courseIdentity = require("./course-identity");
@@ -2624,6 +2624,21 @@ class StudyWorkspaceView extends ItemView {
     rate.step = "0.1";
     rate.addEventListener("change", async () => {
       await this.plugin.updateReadAloud({ rate: rate.value });
+      this.render();
+    });
+    const code = this.renderSelect(form, "Code blocks", READ_ALOUD_CODE.map((mode) => ({ value: mode.id, label: mode.label })), data.codeBlocks);
+    code.addEventListener("change", async () => {
+      await this.plugin.updateReadAloud({ codeBlocks: code.value });
+      this.render();
+    });
+    const urls = this.renderSelect(form, "Website addresses", [{ value: "keep", label: "Read them" }, { value: "skip", label: "Skip them" }], data.skipUrls ? "skip" : "keep");
+    urls.addEventListener("change", async () => {
+      await this.plugin.updateReadAloud({ skipUrls: urls.value === "skip" });
+      this.render();
+    });
+    const acronyms = this.renderSelect(form, "Acronyms", [{ value: "natural", label: "Read naturally" }, { value: "spell", label: "Spell out" }], data.spellAcronyms ? "spell" : "natural");
+    acronyms.addEventListener("change", async () => {
+      await this.plugin.updateReadAloud({ spellAcronyms: acronyms.value === "spell" });
       this.render();
     });
     const load = card.createDiv({ cls: "qt-row qt-study-actions" });
