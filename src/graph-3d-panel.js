@@ -21,6 +21,7 @@ function persistThreeDState() {
   if (!settings) return;
   if (!settings.reference) settings.reference = {};
   settings.reference.threeD = {
+    mode: this.threeDMode,
     surface: this.threeDSurface,
     bounds: Object.assign({}, this.threeDBounds),
     camera: Object.assign({}, this.threeDCamera),
@@ -51,14 +52,30 @@ function failThreeD(error) {
 function applyThreeDSurface(text) {
   const source = String(text === undefined || text === null ? "" : text).trim();
   try {
-    graph3d.compileSurface(source, "explicit");
+    graph3d.compileSurface(source, this.threeDMode);
   } catch (e) {
     return failThreeD.call(this, e);
   }
   this.threeDSurface = source;
   persistThreeDState.call(this);
   this.drawThreeD();
-  return { ok: true, surface: source };
+  return { ok: true, surface: source, mode: this.threeDMode };
+}
+
+function switchThreeDMode(mode) {
+  const next = mode === "implicit" ? "implicit" : "explicit";
+  if (this.threeDMode === next) return { ok: true, mode: next, surface: this.threeDSurface };
+  let source = this.threeDSurface;
+  try {
+    graph3d.compileSurface(source, next);
+  } catch (e) {
+    source = next === "implicit" ? "x^2 + y^2 + z^2 = 9" : "z = x^2 + y^2";
+  }
+  this.threeDMode = next;
+  this.threeDSurface = source;
+  persistThreeDState.call(this);
+  this.render();
+  return { ok: true, mode: next, surface: source };
 }
 
 function applyThreeDPoints(text) {
@@ -123,15 +140,22 @@ function resetThreeDView() {
 function renderThreeD(root) {
   root.createDiv({
     cls: "qt-ref-note",
-    text: "A local software-rendered 3D surface. Enter an explicit surface as z = f(x, y), set the box and camera, and optionally add points as x, y, z. The image is ray-marched at a bounded resolution; there is no WebGL, mesh library, network request or eval.",
+    text: "A local software-rendered 3D surface. Choose an explicit surface z = f(x, y) or an implicit surface F(x, y, z) = 0, set the box and camera, and optionally add points as x, y, z. Both modes use the same bounded ray-marcher; there is no WebGL, mesh library, network request or eval.",
   });
   const surfaceForm = root.createDiv({ cls: "qt-ref-geometry-form" });
   surfaceForm.createDiv({ cls: "qt-ref-graph-data-head", text: "Surface" });
+  const modes = surfaceForm.createDiv({ cls: "qt-row qt-ref-calculator-modes" });
+  for (const [mode, label] of [["explicit", "Explicit"], ["implicit", "Implicit"]]) {
+    const button = modes.createEl("button", { text: label, cls: "qt-ref-tab", attr: { type: "button", "aria-label": `3D ${label.toLowerCase()} surface mode` } });
+    if (this.threeDMode === mode) button.addClass("mod-cta");
+    button.addEventListener("click", () => this.switchThreeDMode(mode));
+  }
+  const implicit = this.threeDMode === "implicit";
   const surfaceWrap = surfaceForm.createEl("label", { cls: "qt-ref-graph-bound qt-ref-3d-wide" });
-  surfaceWrap.createSpan({ text: "z = f(x, y)" });
+  surfaceWrap.createSpan({ text: implicit ? "F(x, y, z) = 0" : "z = f(x, y)" });
   const surfaceInput = surfaceWrap.createEl("input", {
     cls: "qt-ref-amount qt-ref-3d-expression",
-    attr: { type: "text", placeholder: "z = x^2 + y^2", "aria-label": "3D surface expression" },
+    attr: { type: "text", placeholder: implicit ? "x^2 + y^2 + z^2 = 9" : "z = x^2 + y^2", "aria-label": `3D ${implicit ? "implicit" : "explicit"} surface expression` },
   });
   surfaceInput.value = this.threeDSurface;
   const applySurface = () => this.applyThreeDSurface(surfaceInput.value);
@@ -217,7 +241,7 @@ function drawThreeD() {
 
   let image;
   try {
-    const surface = graph3d.compileSurface(this.threeDSurface, "explicit");
+    const surface = graph3d.compileSurface(this.threeDSurface, this.threeDMode);
     image = graph3d.renderSurface(surface, {
       width,
       height,
@@ -288,4 +312,5 @@ module.exports = {
   resetThreeDView,
   setThreeDBound,
   setThreeDCamera,
+  switchThreeDMode,
 };

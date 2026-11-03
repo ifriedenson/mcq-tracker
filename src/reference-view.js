@@ -215,7 +215,8 @@ class ReferenceView extends ItemView {
     this.geometryStatusEl = null;
     this.geometryCanvas = null;
     const storedThreeD = (plugin.settings && plugin.settings.reference && plugin.settings.reference.threeD) || {};
-    this.threeDSurface = String(storedThreeD.surface || "z = x^2 + y^2");
+    this.threeDMode = storedThreeD.mode === "implicit" ? "implicit" : "explicit";
+    this.threeDSurface = String(storedThreeD.surface || (this.threeDMode === "implicit" ? "x^2 + y^2 + z^2 = 9" : "z = x^2 + y^2"));
     this.threeDBounds = graph3d.normalizeBounds(storedThreeD.bounds);
     this.threeDCamera = graph3d.normalizeCamera(storedThreeD.camera);
     this.threeDPointsText = String(storedThreeD.points || "");

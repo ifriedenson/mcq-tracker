@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.205.0 — 2026-11-03
+
+- The Reference **3D** tab now has Explicit and Implicit modes. Implicit mode
+  accepts an equation `F(x, y, z) = 0`, such as `x^2 + y^2 + z^2 = 9`, and
+  renders its zero set through the same bounded CPU ray-marcher, camera, box
+  and point overlays as explicit `z = f(x, y)` surfaces.
+- The selected mode and expression are saved in `settings.reference.threeD`;
+  older 1.204 settings load in explicit mode unchanged. Switching modes keeps
+  a valid expression and falls back to a matching example when the current text
+  cannot be parsed in the new mode, so the canvas is never left blank.
+- Malformed implicit input, multiple equals signs and broken expressions report
+  a clear inline error and preserve the last valid surface. No WebGL, mesh
+  library, network request, new dependency or `eval` was added.
+
 ## 1.204.0 — 2026-11-03
 
 - The Reference panel has a local **3D** tab. Enter an explicit surface
