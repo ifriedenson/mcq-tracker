@@ -40,7 +40,7 @@ const { normalizeImageState, imagePlacement, imageRectPixels, imageSummary } = r
 const { createHistory, pushHistory, undoHistory, redoHistory, canUndo, canRedo, snapshotRows, sameRows, duplicateRows, historyMessage } = require("./graph-history");
 const { normalizePaper, parseGridStep, paperTicks, paperSummary } = require("./graph-paper");
 const { isNotationText } = require("./graph-summation");
-const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
+const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, evaluateComplexCalculator, normalizeCalculatorMode } = require("./calculator");
 const matrixMath = require("./matrix");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -187,6 +187,7 @@ class ReferenceView extends ItemView {
     this.calculatorExpression = "";
     this.calculatorResult = "";
     this.calculatorError = "";
+    this.complexCalculator = !!(plugin.settings && plugin.settings.reference && plugin.settings.reference.complexCalculator);
     this.calculatorExpressionEl = null;
     this.calculatorResultEl = null;
     this.calculatorErrorEl = null;
@@ -325,7 +326,7 @@ class ReferenceView extends ItemView {
 
     root.createDiv({
       cls: "qt-ref-note",
-      text: "A local calculator. Basic mode has the four operations; scientific mode adds powers, parentheses, roots, logarithms, trigonometry, pi and e. Nothing is sent anywhere.",
+      text: "A local calculator. Basic mode has the four operations; scientific mode adds powers, parentheses, roots, logarithms, trigonometry, pi and e. Turn on Complex to use i and complex results. Nothing is sent anywhere.",
     });
 
     const modes = root.createDiv({ cls: "qt-row qt-ref-calculator-modes" });
@@ -337,6 +338,18 @@ class ReferenceView extends ItemView {
         this.render();
       });
     }
+
+    const complexField = root.createEl("label", { cls: "qt-ref-graph-polar" });
+    const complexBox = complexField.createEl("input", { attr: { type: "checkbox", "aria-label": "Complex calculator" } });
+    complexBox.checked = this.complexCalculator;
+    complexBox.addEventListener("change", () => {
+      this.complexCalculator = complexBox.checked === true;
+      this.calculatorResult = "";
+      this.calculatorError = "";
+      this.persistCalculatorMode();
+      this.paintCalculator();
+    });
+    complexField.createSpan({ text: "complex" });
 
     const display = root.createDiv({ cls: "qt-calc-display" });
     const input = display.createEl("input", {
@@ -398,10 +411,26 @@ class ReferenceView extends ItemView {
   }
 
   calculatorEquals() {
-    const result = evaluateCalculator(this.calculatorExpression);
+    const result = this.complexCalculator
+      ? evaluateComplexCalculator(this.calculatorExpression)
+      : evaluateCalculator(this.calculatorExpression);
     this.calculatorResult = result.text;
     this.calculatorError = result.ok ? "" : result.error;
     this.paintCalculator();
+  }
+
+  persistCalculatorMode() {
+    const settings = this.plugin.settings;
+    if (!settings) return;
+    if (!settings.reference) settings.reference = {};
+    settings.reference.complexCalculator = this.complexCalculator;
+    if (typeof this.plugin.save === "function") {
+      try {
+        this.plugin.save();
+      } catch (e) {
+        // The mode stays in memory; Obsidian reports a failed settings write itself.
+      }
+    }
   }
 
   renderMatrix(root) {

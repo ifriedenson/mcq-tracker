@@ -7,6 +7,7 @@
  */
 const { str } = require("./util");
 const { evaluateExpression } = require("./parameterized");
+const complex = require("./complex");
 
 const CALCULATOR_MODES = ["basic", "scientific"];
 
@@ -21,7 +22,7 @@ const BASIC_KEYS = [
 const SCIENTIFIC_KEYS = [
   ["(", ")", "^", "sqrt("],
   ["sin(", "cos(", "tan(", "ln("],
-  ["log(", "pi", "e", "%"],
+  ["log(", "pi", "e", "i", "%"],
 ];
 
 function normalizeCalculatorMode(value) {
@@ -29,6 +30,10 @@ function normalizeCalculatorMode(value) {
 }
 
 /** Evaluate one expression and return a display-ready result or a readable error. */
+function evaluateComplexCalculator(expression) {
+  return complex.evaluateComplexText(expression);
+}
+
 function evaluateCalculator(expression) {
   const text = str(expression).trim();
   if (!text) return { ok: false, value: null, text: "", error: "Enter a calculation." };
@@ -64,6 +69,7 @@ module.exports = {
   SCIENTIFIC_KEYS,
   appendCalculatorToken,
   evaluateCalculator,
+  evaluateComplexCalculator,
   formatCalculatorValue,
   normalizeCalculatorMode,
 };

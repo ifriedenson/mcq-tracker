@@ -14,6 +14,7 @@ const DEFAULT_REFERENCE_SETTINGS = {
   hideDuringTests: true, // a timed test should not have a reference panel beside it
   hideCalculatorDuringTests: true, // even when the panel is allowed, a no-calculator section hides the calculator
   calculator: true, // the local calculator tab is available when Reference is on
+  complexCalculator: false, // opt-in complex arithmetic in the calculator
   defaultSubject: "all", // "all" | math | physics | chemistry | biology
 };
 
@@ -871,6 +872,7 @@ function mergeReferenceSettings(saved) {
     hideDuringTests: src.hideDuringTests !== false,
     hideCalculatorDuringTests: src.hideCalculatorDuringTests !== false,
     calculator: src.calculator !== false,
+    complexCalculator: src.complexCalculator === true,
     matrix: src.matrix && typeof src.matrix === "object" ? src.matrix : undefined,
     defaultSubject: REFERENCE_SUBJECTS.some((s) => s.id === subject) ? subject : "all",
   };

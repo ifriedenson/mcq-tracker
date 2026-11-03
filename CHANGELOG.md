@@ -2,6 +2,15 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.199.0 — 2026-11-03
+
+- The Reference Calculator has an opt-in **complex** mode. It accepts `i`,
+  complex literals, implicit multiplication, powers, roots, logarithms,
+  trigonometry and the complex helpers `abs`, `arg`, `conj`, `re` and `im`, and
+  formats results as `a + bi`. Invalid or non-finite results are reported.
+- Complex arithmetic and its restricted parser live in `src/complex.js`; the
+  setting is saved locally and defaults off.
+
 ## 1.198.0 — 2026-11-03
 
 - The Reference panel has a local **Matrix** tab: enter matrices A and B,
