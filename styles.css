@@ -11195,3 +11195,40 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   white-space: nowrap;
   border: 0;
 }
+
+/* Reference graph background image controls. */
+.qt-ref .qt-ref-graph-image {
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.qt-ref .qt-ref-graph-image-points {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qt-ref .qt-ref-graph-image-point {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-ref .qt-ref-graph-image-point-name {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  min-width: 88px;
+}
+
+.qt-ref .qt-ref-graph-image-point .qt-ref-graph-bound input {
+  width: 64px;
+}
+
+.qt-ref .qt-ref-graph-image-opacity-input {
+  width: 140px;
+}

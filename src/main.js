@@ -229,6 +229,7 @@ QuestionTrackerPlugin.__test = {
   graphFolders: require("./graph-folders"),
   graphTable: require("./graph-table"),
   graphPrint: require("./graph-print"),
+  graphImage: require("./graph-image"),
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,

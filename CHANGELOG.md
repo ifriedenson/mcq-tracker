@@ -2,6 +2,19 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.194.0 — 2026-11-03
+
+- The graph tab can place a vault image behind the axes. Enter the image path,
+  insert it, and calibrate two image points by giving each point its position in
+  the image (0–1 across and down) and the graph coordinates it should sit on; an
+  opacity slider keeps the grid and curves legible. The image is painted first,
+  beneath the grid, axes and curves, so the same scene carries it into the PNG
+  export and the print sheet.
+- The two-point placement, refusals and summary live in the pure
+  `src/graph-image.js` module. Every new control is labelled, calibration changes
+  are announced in the polite live region, and the image is saved with the graph
+  settings, so older settings still load unchanged.
+
 ## 1.193.0 — 2026-11-03
 
 - The graph tab can print. **Print graph** opens a paper-ready sheet with the

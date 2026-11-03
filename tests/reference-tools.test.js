@@ -2273,3 +2273,200 @@ test("reference view: the print sheet reuses the scene, saves HTML and is announ
   delete global.document;
   delete global.devicePixelRatio;
 });
+
+test("graph image: two-point placement, pixel rect, refusals and summary are pure", () => {
+  const gi = T.graphImage;
+  const state = gi.normalizeImageState({ path: " img.png ", opacity: 2 });
+  assert.equal(state.path, "img.png");
+  assert.equal(state.opacity, 1);
+  assert.deepEqual(state.pointA, { imageX: 0, imageY: 0, graphX: -10, graphY: 10 });
+  assert.deepEqual(state.pointB, { imageX: 1, imageY: 1, graphX: 10, graphY: -10 });
+  const placement = gi.imagePlacement(state);
+  assert.equal(placement.ok, true, JSON.stringify(placement));
+  assert.deepEqual([placement.x0, placement.x1, placement.y0, placement.y1], [-10, 10, 10, -10]);
+  assert.deepEqual([placement.scaleX, placement.scaleY], [20, -20]);
+  const rect = gi.imageRectPixels(state, { xMin: -10, xMax: 10, yMin: -10, yMax: 10 }, 640, 320);
+  assert.deepEqual(rect, { ok: true, left: 0, top: 0, width: 640, height: 320 });
+
+  const custom = gi.imagePlacement({
+    path: "x",
+    pointA: { imageX: 0, imageY: 0, graphX: -2, graphY: 3 },
+    pointB: { imageX: 0.5, imageY: 0.25, graphX: 2, graphY: -1 },
+  });
+  assert.equal(custom.ok, true);
+  assert.deepEqual([custom.scaleX, custom.scaleY], [8, -16]);
+  assert.deepEqual([custom.x0, custom.y0], [-2, 3]);
+  const flipped = gi.imagePlacement({
+    path: "x",
+    pointA: { imageX: 0, imageY: 0, graphX: 2, graphY: -1 },
+    pointB: { imageX: 1, imageY: 1, graphX: -2, graphY: 3 },
+  });
+  assert.equal(flipped.ok, true);
+  assert.deepEqual([flipped.scaleX, flipped.scaleY], [-4, 4]);
+
+  const across = gi.imagePlacement({
+    path: "x",
+    pointA: { imageX: 0.5, imageY: 0, graphX: 0, graphY: 0 },
+    pointB: { imageX: 0.5, imageY: 1, graphX: 1, graphY: 1 },
+  });
+  assert.equal(across.reason, "calibration");
+  assert.match(across.message, /differ in their image across/);
+  const down = gi.imagePlacement({
+    path: "x",
+    pointA: { imageX: 0, imageY: 0.5, graphX: 0, graphY: 0 },
+    pointB: { imageX: 1, imageY: 0.5, graphX: 1, graphY: 1 },
+  });
+  assert.match(down.message, /differ in their image down/);
+  const nonFinite = gi.imagePlacement({
+    path: "x",
+    pointA: { imageX: 0, imageY: 0, graphX: 0, graphY: 0 },
+    pointB: { imageX: "a", imageY: 1, graphX: 1, graphY: 1 },
+  });
+  assert.equal(nonFinite.ok, false);
+  assert.match(nonFinite.message, /four numbers/);
+  const outside = gi.imagePlacement({
+    path: "x",
+    pointA: { imageX: -0.1, imageY: 0, graphX: 0, graphY: 0 },
+    pointB: { imageX: 1, imageY: 1, graphX: 1, graphY: 1 },
+  });
+  assert.match(outside.message, /between 0 and 1/);
+
+  assert.equal(gi.normalizeImageState(null).path, "");
+  assert.equal(gi.normalizeImageState(null).opacity, 0.45);
+  assert.equal(gi.normalizeOpacity("0.3"), 0.3);
+  assert.equal(gi.normalizeOpacity(9), 1);
+  assert.equal(gi.normalizeOpacity(-1), 0);
+  assert.equal(gi.normalizeOpacity("nope"), 0.45);
+  assert.match(gi.imageSummary(state), /^Background image img\.png calibrated with image point 1 at graph \(-10, 10\)/);
+  assert.equal(gi.imageSummary({ path: "" }), "");
+  assert.match(gi.imageSummary({ path: "x", pointA: { imageX: 0.5, imageY: 0, graphX: 0, graphY: 0 }, pointB: { imageX: 0.5, imageY: 1, graphX: 1, graphY: 1 } }), /needs calibration/);
+});
+
+test("reference view: background image insertion, calibration, scene, print, PNG and persistence", async () => {
+  const { obsidian } = require("./helpers/load");
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  view.graphRows = [{ text: "y = x^2", hidden: false }];
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const labels = () => dom.all.map((element) => (element.meta && (element.meta.attr || {})["aria-label"]) || "").filter(Boolean);
+  for (const label of [
+    "Background image path",
+    "Insert background image",
+    "Remove background image",
+    "Image point 1 across",
+    "Image point 1 down",
+    "Image point 1 graph x",
+    "Image point 1 graph y",
+    "Image point 2 across",
+    "Image point 2 down",
+    "Image point 2 graph x",
+    "Image point 2 graph y",
+    "Background image opacity",
+  ]) assert.ok(labels().indexOf(label) >= 0, `missing control: ${label}`);
+
+  const made = [];
+  global.Image = class {
+    constructor() {
+      this.width = 300;
+      this.height = 150;
+      made.push(this);
+    }
+    set src(value) {
+      this._src = value;
+      if (typeof this.onload === "function") this.onload();
+    }
+    get src() { return this._src; }
+  };
+
+  const inserted = view.insertGraphImage("Attachments/diagram.png");
+  assert.equal(inserted.ok, true, JSON.stringify(inserted));
+  assert.equal(view.graphImageState.path, "Attachments/diagram.png");
+  assert.equal(made.length, 1);
+  assert.equal(view.graphImage.width, 300);
+  assert.equal(view.graphImageState.opacity, 0.45);
+  const traceText = () => dom.all.filter((element) => element.meta && element.meta.cls === "qt-ref-graph-trace").pop().meta.text;
+  assert.match(traceText(), /Inserted background image Attachments\/diagram\.png|loaded/);
+
+  const calibrated = view.setGraphImagePoint("pointB", "graphX", "4");
+  assert.equal(calibrated.ok, true, JSON.stringify(calibrated));
+  assert.equal(view.graphImageState.pointB.graphX, 4);
+  assert.match(traceText(), /calibrated with image point 1/);
+  const invalid = view.setGraphImagePoint("pointB", "imageX", "0");
+  assert.equal(invalid.reason, "calibration");
+  assert.match(traceText(), /must differ in their image across positions/);
+  assert.equal(view.setGraphImagePoint("pointB", "imageX", "1").ok, true);
+
+  const noticesBefore = obsidian.notices.length;
+  assert.equal(view.insertGraphImage("   ").reason, "path");
+  assert.equal(obsidian.notices.length, noticesBefore + 1);
+  assert.equal(view.setGraphImageOpacity("0.8").opacity, 0.8);
+
+  const order = [];
+  const ctx = new Proxy({}, {
+    get: (_target, property) => {
+      if (property === "measureText") return () => ({ width: 10 });
+      return (...args) => {
+        order.push(String(property));
+        if (property === "drawImage") order.push(`ARGS:${args.slice(1).join(",")}`);
+      };
+    },
+    set: () => true,
+  });
+  view.paintGraphScene(ctx, view.graphBuilt, 640, 320);
+  assert.ok(order.includes("drawImage"), "the image is painted into the shared scene");
+  assert.ok(order.indexOf("drawImage") < order.indexOf("lineTo"), "the image sits behind the grid and axes");
+  const imageRect = T.graphImage.imageRectPixels(view.graphImageState, view.graphBuilt, 640, 320);
+  assert.ok(order.includes(`ARGS:${imageRect.left},${imageRect.top},${imageRect.width},${imageRect.height}`), "the image is placed from the two-point calibration");
+
+  view.persistGraphState();
+  assert.equal(plugin.settings.reference.graph.image.path, "Attachments/diagram.png");
+  assert.equal(plugin.settings.reference.graph.image.pointB.graphX, 4);
+  assert.equal(plugin.settings.reference.graph.image.opacity, 0.8);
+  const restored = new T.ReferenceView({ app }, plugin);
+  assert.equal(restored.graphImageState.path, "Attachments/diagram.png");
+  assert.equal(restored.graphImageState.pointB.graphX, 4);
+  assert.equal(restored.graphImageState.opacity, 0.8);
+
+  const calls = [];
+  const printCtx = new Proxy({}, {
+    get: (_target, property) => {
+      if (property === "measureText") return () => ({ width: 10 });
+      return (...args) => { calls.push(String(property)); };
+    },
+    set: () => true,
+  });
+  const canvas = { width: 0, height: 0, getContext: () => printCtx, toDataURL: () => "data:image/png;base64,AAAA" };
+  global.document = { createElement: (tag) => (tag === "canvas" ? canvas : {}) };
+  const saved = await view.saveGraphPrint();
+  assert.equal(saved.ok, true, JSON.stringify(saved));
+  assert.match(app.created.find((entry) => entry.path === saved.path).text, /data:image\/png;base64,AAAA/);
+  assert.ok(calls.includes("drawImage"), "the print sheet paints the background image");
+
+  const png = await view.exportGraphImage();
+  assert.equal(png.ok, true, JSON.stringify(png));
+  assert.ok(calls.includes("drawImage"), "the PNG export paints the background image");
+
+  const legacyPlugin = new QT(app);
+  await legacyPlugin.onload();
+  legacyPlugin.settings.reference = { graph: {} };
+  const legacyView = new T.ReferenceView({ app }, legacyPlugin);
+  assert.equal(legacyView.graphImageState.path, "");
+  assert.equal(legacyView.graphImageState.opacity, 0.45);
+
+  const removed = view.removeGraphImage();
+  assert.equal(removed.ok, true);
+  assert.equal(view.graphImageState.path, "");
+  assert.equal(view.graphImage, null);
+  assert.match(traceText(), /Background image removed/);
+  assert.equal(plugin.settings.reference.graph.image.path, "");
+
+  delete global.Image;
+  delete global.document;
+});

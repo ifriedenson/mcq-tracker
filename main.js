@@ -30276,6 +30276,150 @@ module.exports = {
 };
 };
 
+/* ---- src/graph-image.js ---- */
+__defs["graph-image"] = function (module, exports, require) {
+/*
+ * Background-image calibration for the Reference graph.
+ *
+ * A state names one vault image and two calibration points. Each point pairs an
+ * image fraction (0–1 across and down) with graph coordinates, so the image can be
+ * placed, mirrored or flipped by axis-aligned scaling. This module only does that
+ * arithmetic: no DOM, Obsidian, network or image decoding lives here, and an
+ * unusable calibration is always a `{ok:false, reason, message}` refusal.
+ */
+
+const IMAGE_LIMITS = {
+  minOpacity: 0,
+  maxOpacity: 1,
+  defaultOpacity: 0.45,
+};
+
+function textValue(value) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function finiteNumber(value, fallback) {
+  if (value === undefined || value === null || String(value).trim() === "") return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : Number.NaN;
+}
+
+function normalizeOpacity(value) {
+  const number = finiteNumber(value, IMAGE_LIMITS.defaultOpacity);
+  if (!Number.isFinite(number)) return IMAGE_LIMITS.defaultOpacity;
+  return Math.min(IMAGE_LIMITS.maxOpacity, Math.max(IMAGE_LIMITS.minOpacity, number));
+}
+
+function normalizePoint(value, defaults) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    imageX: finiteNumber(source.imageX, defaults.imageX),
+    imageY: finiteNumber(source.imageY, defaults.imageY),
+    graphX: finiteNumber(source.graphX, defaults.graphX),
+    graphY: finiteNumber(source.graphY, defaults.graphY),
+  };
+}
+
+/** A canonical state; a missing or old setting becomes the default uncalibrated state. */
+function normalizeImageState(value) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    path: textValue(source.path).trim(),
+    pointA: normalizePoint(source.pointA, { imageX: 0, imageY: 0, graphX: -10, graphY: 10 }),
+    pointB: normalizePoint(source.pointB, { imageX: 1, imageY: 1, graphX: 10, graphY: -10 }),
+    opacity: normalizeOpacity(source.opacity),
+  };
+}
+
+function refusal(message) {
+  return { ok: false, reason: "calibration", message };
+}
+
+/**
+ * Axis-aligned placement from the two calibration points. The image's graph
+ * origin is extrapolated from point A, so any two non-degenerate points work.
+ */
+function imagePlacement(state) {
+  const value = normalizeImageState(state);
+  const points = [["1", value.pointA], ["2", value.pointB]];
+  for (const [label, point] of points) {
+    for (const key of ["imageX", "imageY", "graphX", "graphY"]) {
+      if (!Number.isFinite(point[key])) return refusal(`Image point ${label} needs four numbers.`);
+    }
+    for (const key of ["imageX", "imageY"]) {
+      if (point[key] < 0 || point[key] > 1) return refusal(`Image point ${label} must sit between 0 and 1 across and down.`);
+    }
+  }
+  const acrossImage = value.pointB.imageX - value.pointA.imageX;
+  const acrossGraph = value.pointB.graphX - value.pointA.graphX;
+  const downImage = value.pointB.imageY - value.pointA.imageY;
+  const downGraph = value.pointB.graphY - value.pointA.graphY;
+  if (Math.abs(acrossImage) < 1e-9) return refusal("The two calibration points must differ in their image across positions.");
+  if (Math.abs(downImage) < 1e-9) return refusal("The two calibration points must differ in their image down positions.");
+  const scaleX = acrossGraph / acrossImage;
+  const scaleY = downGraph / downImage;
+  if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY)) return refusal("The calibration points do not define a usable image scale.");
+  const x0 = value.pointA.graphX - value.pointA.imageX * scaleX;
+  const y0 = value.pointA.graphY - value.pointA.imageY * scaleY;
+  return {
+    ok: true,
+    x0,
+    y0,
+    x1: x0 + scaleX,
+    y1: y0 + scaleY,
+    scaleX,
+    scaleY,
+  };
+}
+
+/** The destination rectangle in canvas pixels for a graph window and canvas size. */
+function imageRectPixels(state, view, width, height) {
+  const placement = imagePlacement(state);
+  if (!placement.ok) return placement;
+  const xMin = Number(view && view.xMin);
+  const xMax = Number(view && view.xMax);
+  const yMin = Number(view && view.yMin);
+  const yMax = Number(view && view.yMax);
+  const w = Number(width);
+  const h = Number(height);
+  if (![xMin, xMax, yMin, yMax, w, h].every(Number.isFinite) || !(xMax > xMin) || !(yMax > yMin) || !(w > 0) || !(h > 0)) {
+    return refusal("The graph window cannot place the background image.");
+  }
+  const px = (x) => ((x - xMin) / (xMax - xMin)) * w;
+  const py = (y) => h - ((y - yMin) / (yMax - yMin)) * h;
+  const left = Math.min(px(placement.x0), px(placement.x1));
+  const right = Math.max(px(placement.x0), px(placement.x1));
+  const top = Math.min(py(placement.y0), py(placement.y1));
+  const bottom = Math.max(py(placement.y0), py(placement.y1));
+  return { ok: true, left, top, width: right - left, height: bottom - top };
+}
+
+function formatNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "\u2014";
+  return String(Number(number.toPrecision(6)));
+}
+
+/** A short state sentence for live regions and the accessible summary. */
+function imageSummary(state) {
+  const value = normalizeImageState(state);
+  if (!value.path) return "";
+  const placement = imagePlacement(value);
+  if (!placement.ok) return `Background image ${value.path} needs calibration: ${placement.message}`;
+  const point = (entry) => `(${formatNumber(entry.graphX)}, ${formatNumber(entry.graphY)})`;
+  return `Background image ${value.path} calibrated with image point 1 at graph ${point(value.pointA)} and image point 2 at graph ${point(value.pointB)}.`;
+}
+
+module.exports = {
+  IMAGE_LIMITS,
+  normalizeImageState,
+  normalizeOpacity,
+  imagePlacement,
+  imageRectPixels,
+  imageSummary,
+};
+};
+
 /* ---- src/graph-print.js ---- */
 __defs["graph-print"] = function (module, exports, require) {
 /*
@@ -62512,6 +62656,7 @@ const {
   tableExport,
 } = require("./graph-table");
 const { printDocument, printSummary } = require("./graph-print");
+const { normalizeImageState, imagePlacement, imageRectPixels, imageSummary } = require("./graph-image");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -62633,6 +62778,10 @@ class ReferenceView extends ItemView {
       this.graphData = normalizeTable({ columns: this.graphColumns, rows: storedGraph.data }).rows;
     }
     this.graphRegression = normalizeRegressionPair(storedGraph.regression, this.graphColumns);
+    this.graphImageState = normalizeImageState(storedGraph.image);
+    this.graphImage = null;
+    this.graphImagePath = "";
+    this.graphImageLoading = false;
     this.graphPolarGrid = false;
     this.graphInterest = true;
     this.graphTrace = null;
@@ -63094,6 +63243,7 @@ class ReferenceView extends ItemView {
       cls: "qt-ref-graph-print-status",
       attr: { "aria-live": "polite", "aria-label": "Print status" },
     });
+    this.renderGraphImageControls(root);
 
     const dataSection = root.createDiv({ cls: "qt-ref-graph-data" });
     dataSection.createDiv({ cls: "qt-ref-graph-data-head", text: "Data table for regression rows" });
@@ -63367,6 +63517,9 @@ class ReferenceView extends ItemView {
     }, { passive: false });
     this.graphCanvas.addEventListener("keydown", (event) => this.onGraphKeydown(event));
     this.graphErrorEl = root.createDiv({ cls: "qt-ref-note" });
+    if (this.graphImageState.path && !this.graphImageLoading && (!this.graphImage || this.graphImagePath !== this.graphImageState.path)) {
+      this.loadGraphImage();
+    }
     this.drawGraph();
   }
 
@@ -63553,7 +63706,8 @@ class ReferenceView extends ItemView {
     const folders = folderSummary(this.graphRows);
     const tableText = tableSummary(this.graphColumns, this.graphData, this.graphRegression);
     const printText = printSummary(this.graphRows.map((row) => row.text), tableExport(this.graphColumns, this.graphData));
-    if (this.graphSummaryEl) this.graphSummaryEl.setText([graphSummary(graph), folders, tableText, printText].filter(Boolean).join(" "));
+    const imageText = imageSummary(this.graphImageState);
+    if (this.graphSummaryEl) this.graphSummaryEl.setText([graphSummary(graph), folders, tableText, printText, imageText].filter(Boolean).join(" "));
     const report = graphTable(graph);
     this.graphTableReport = report;
     if (!this.graphTableEl) return report;
@@ -63783,6 +63937,168 @@ class ReferenceView extends ItemView {
     return { ok: true, name: column.name };
   }
 
+  renderGraphImageControls(root) {
+    const state = this.graphImageState;
+    const section = root.createDiv({ cls: "qt-ref-graph-image" });
+    section.createDiv({ cls: "qt-ref-graph-data-head", text: "Background image" });
+    section.createDiv({
+      cls: "qt-ref-graph-table-note",
+      text: "Enter a vault image path, then calibrate two image points. Image points run from 0 to 1 across and down.",
+    });
+    const pathRow = section.createDiv({ cls: "qt-row qt-ref-graph-image-path" });
+    const pathField = pathRow.createEl("label", { cls: "qt-ref-graph-bound" });
+    pathField.createSpan({ text: "image path" });
+    const pathInput = pathField.createEl("input", {
+      cls: "qt-ref-amount",
+      attr: { type: "text", "aria-label": "Background image path", placeholder: "Attachments/diagram.png" },
+    });
+    pathInput.value = state.path;
+    pathInput.addEventListener("change", () => this.insertGraphImage(pathInput.value));
+    pathRow.createEl("button", { text: "Insert image", attr: { type: "button", "aria-label": "Insert background image" } })
+      .addEventListener("click", () => this.insertGraphImage(pathInput.value));
+    pathRow.createEl("button", { text: "Remove image", attr: { type: "button", "aria-label": "Remove background image" } })
+      .addEventListener("click", () => this.removeGraphImage());
+    const points = section.createDiv({ cls: "qt-ref-graph-image-points" });
+    for (const [key, label] of [["pointA", "Image point 1"], ["pointB", "Image point 2"]]) {
+      const row = points.createDiv({ cls: "qt-ref-graph-image-point" });
+      row.createSpan({ cls: "qt-ref-graph-image-point-name", text: label });
+      for (const [field, suffix] of [["imageX", "across"], ["imageY", "down"], ["graphX", "graph x"], ["graphY", "graph y"]]) {
+        const fieldWrap = row.createEl("label", { cls: "qt-ref-graph-bound" });
+        fieldWrap.createSpan({ text: suffix });
+        const input = fieldWrap.createEl("input", {
+          cls: "qt-ref-amount",
+          attr: { type: "number", step: "any", "aria-label": `${label} ${suffix}` },
+        });
+        input.value = String(state[key][field]);
+        input.addEventListener("change", () => this.setGraphImagePoint(key, field, input.value));
+      }
+    }
+    const opacityRow = section.createDiv({ cls: "qt-row qt-ref-graph-image-opacity" });
+    const opacityField = opacityRow.createEl("label", { cls: "qt-ref-graph-bound" });
+    opacityField.createSpan({ text: "opacity" });
+    const opacity = opacityField.createEl("input", {
+      cls: "qt-ref-graph-image-opacity-input",
+      attr: { type: "range", min: "0", max: "1", step: "0.05", "aria-label": "Background image opacity" },
+    });
+    opacity.value = String(state.opacity);
+    opacity.addEventListener("input", () => this.setGraphImageOpacity(opacity.value));
+  }
+
+  announceGraphImage(text) {
+    if (this.graphTraceEl && typeof this.graphTraceEl.setText === "function") this.graphTraceEl.setText(text);
+    else new Notice(text);
+  }
+
+  graphImageSource(path) {
+    const adapter = this.app && this.app.vault && this.app.vault.adapter;
+    if (adapter && typeof adapter.getResourcePath === "function") {
+      try { return adapter.getResourcePath(path); } catch (error) { return path; }
+    }
+    return path;
+  }
+
+  loadGraphImage() {
+    const state = this.graphImageState;
+    if (!state || !state.path) {
+      this.graphImage = null;
+      this.graphImagePath = "";
+      return { ok: false, reason: "empty" };
+    }
+    if (this.graphImageLoading) return { ok: true, path: state.path };
+    if (this.graphImage && this.graphImagePath === state.path) return { ok: true, path: state.path };
+    const ImageCtor = typeof Image !== "undefined" ? Image : null;
+    if (!ImageCtor) {
+      this.announceGraphImage("This device cannot load a background image.");
+      return { ok: false, reason: "image" };
+    }
+    const image = new ImageCtor();
+    this.graphImageLoading = true;
+    image.onload = () => {
+      this.graphImage = image;
+      this.graphImagePath = state.path;
+      this.graphImageLoading = false;
+      this.announceGraphImage(`Background image ${state.path} loaded.`);
+      this.drawGraph();
+    };
+    image.onerror = () => {
+      this.graphImage = null;
+      this.graphImagePath = "";
+      this.graphImageLoading = false;
+      this.announceGraphImage(`Could not load ${state.path}. Check the vault image path.`);
+    };
+    try {
+      image.src = this.graphImageSource(state.path);
+    } catch (error) {
+      this.graphImageLoading = false;
+      this.announceGraphImage(`Could not load ${state.path}. Check the vault image path.`);
+      return { ok: false, reason: "image" };
+    }
+    return { ok: true, path: state.path };
+  }
+
+  insertGraphImage(path) {
+    const next = normalizeImageState(Object.assign({}, this.graphImageState, { path: String(path === null || path === undefined ? "" : path).trim() }));
+    if (!next.path) {
+      this.announceGraphImage("Enter a vault image path first.");
+      new Notice("Enter a vault image path first.");
+      return { ok: false, reason: "path" };
+    }
+    this.graphImageState = next;
+    this.graphImage = null;
+    this.graphImagePath = "";
+    this.persistGraphState();
+    this.render();
+    this.loadGraphImage();
+    this.announceGraphImage(`Inserted background image ${next.path}.`);
+    return { ok: true, path: next.path };
+  }
+
+  removeGraphImage() {
+    this.graphImageState = normalizeImageState(null);
+    this.graphImage = null;
+    this.graphImagePath = "";
+    this.persistGraphState();
+    this.render();
+    this.announceGraphImage("Background image removed.");
+    return { ok: true };
+  }
+
+  setGraphImagePoint(key, field, value) {
+    const current = this.graphImageState[key];
+    const next = normalizeImageState(Object.assign({}, this.graphImageState, {
+      [key]: Object.assign({}, current, { [field]: value }),
+    }));
+    this.graphImageState = next;
+    this.persistGraphState();
+    const placement = imagePlacement(next);
+    if (!placement.ok) {
+      this.announceGraphImage(placement.message);
+      return { ok: false, reason: "calibration", message: placement.message };
+    }
+    this.drawGraph();
+    this.announceGraphImage(imageSummary(next));
+    return { ok: true, placement };
+  }
+
+  setGraphImageOpacity(value) {
+    this.graphImageState = normalizeImageState(Object.assign({}, this.graphImageState, { opacity: value }));
+    this.persistGraphState();
+    this.drawGraph();
+    this.announceGraphImage(`Background image opacity ${this.graphImageState.opacity}.`);
+    return { ok: true, opacity: this.graphImageState.opacity };
+  }
+
+  paintGraphImage(ctx, graph, width, height) {
+    if (!this.graphImage) return;
+    const rect = imageRectPixels(this.graphImageState, graph, width, height);
+    if (!rect.ok) return;
+    if (typeof ctx.save === "function") ctx.save();
+    ctx.globalAlpha = this.graphImageState.opacity;
+    if (typeof ctx.drawImage === "function") ctx.drawImage(this.graphImage, rect.left, rect.top, rect.width, rect.height);
+    ctx.globalAlpha = 1;
+    if (typeof ctx.restore === "function") ctx.restore();
+  }
+
   drawGraph() {
     const canvas = this.graphCanvas;
     if (!canvas) return;
@@ -63853,6 +64169,7 @@ class ReferenceView extends ItemView {
   paintGraphScene(ctx, graph, width, height) {
     const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
     const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
+    this.paintGraphImage(ctx, graph, width, height);
     this.paintGraphGrid(ctx, graph, width, height, px, py);
     if (this.graphPolarGrid) this.paintPolarGrid(ctx, graph, width, height);
     for (const row of graph.rows) {
@@ -64158,6 +64475,7 @@ class ReferenceView extends ItemView {
       locked: this.graphLocked,
       display: Object.assign({}, this.graphDisplay),
       rows: this.graphRowState(),
+      image: this.graphImageState,
       table: {
         columns: this.graphColumns.map((column) => ({ name: column.name, expression: column.expression })),
         rows: this.graphData.map((row) => {
@@ -85111,6 +85429,7 @@ QuestionTrackerPlugin.__test = {
   graphFolders: require("./graph-folders"),
   graphTable: require("./graph-table"),
   graphPrint: require("./graph-print"),
+  graphImage: require("./graph-image"),
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,

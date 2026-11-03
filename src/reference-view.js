@@ -36,6 +36,7 @@ const {
   tableExport,
 } = require("./graph-table");
 const { printDocument, printSummary } = require("./graph-print");
+const { normalizeImageState, imagePlacement, imageRectPixels, imageSummary } = require("./graph-image");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -157,6 +158,10 @@ class ReferenceView extends ItemView {
       this.graphData = normalizeTable({ columns: this.graphColumns, rows: storedGraph.data }).rows;
     }
     this.graphRegression = normalizeRegressionPair(storedGraph.regression, this.graphColumns);
+    this.graphImageState = normalizeImageState(storedGraph.image);
+    this.graphImage = null;
+    this.graphImagePath = "";
+    this.graphImageLoading = false;
     this.graphPolarGrid = false;
     this.graphInterest = true;
     this.graphTrace = null;
@@ -618,6 +623,7 @@ class ReferenceView extends ItemView {
       cls: "qt-ref-graph-print-status",
       attr: { "aria-live": "polite", "aria-label": "Print status" },
     });
+    this.renderGraphImageControls(root);
 
     const dataSection = root.createDiv({ cls: "qt-ref-graph-data" });
     dataSection.createDiv({ cls: "qt-ref-graph-data-head", text: "Data table for regression rows" });
@@ -891,6 +897,9 @@ class ReferenceView extends ItemView {
     }, { passive: false });
     this.graphCanvas.addEventListener("keydown", (event) => this.onGraphKeydown(event));
     this.graphErrorEl = root.createDiv({ cls: "qt-ref-note" });
+    if (this.graphImageState.path && !this.graphImageLoading && (!this.graphImage || this.graphImagePath !== this.graphImageState.path)) {
+      this.loadGraphImage();
+    }
     this.drawGraph();
   }
 
@@ -1077,7 +1086,8 @@ class ReferenceView extends ItemView {
     const folders = folderSummary(this.graphRows);
     const tableText = tableSummary(this.graphColumns, this.graphData, this.graphRegression);
     const printText = printSummary(this.graphRows.map((row) => row.text), tableExport(this.graphColumns, this.graphData));
-    if (this.graphSummaryEl) this.graphSummaryEl.setText([graphSummary(graph), folders, tableText, printText].filter(Boolean).join(" "));
+    const imageText = imageSummary(this.graphImageState);
+    if (this.graphSummaryEl) this.graphSummaryEl.setText([graphSummary(graph), folders, tableText, printText, imageText].filter(Boolean).join(" "));
     const report = graphTable(graph);
     this.graphTableReport = report;
     if (!this.graphTableEl) return report;
@@ -1307,6 +1317,168 @@ class ReferenceView extends ItemView {
     return { ok: true, name: column.name };
   }
 
+  renderGraphImageControls(root) {
+    const state = this.graphImageState;
+    const section = root.createDiv({ cls: "qt-ref-graph-image" });
+    section.createDiv({ cls: "qt-ref-graph-data-head", text: "Background image" });
+    section.createDiv({
+      cls: "qt-ref-graph-table-note",
+      text: "Enter a vault image path, then calibrate two image points. Image points run from 0 to 1 across and down.",
+    });
+    const pathRow = section.createDiv({ cls: "qt-row qt-ref-graph-image-path" });
+    const pathField = pathRow.createEl("label", { cls: "qt-ref-graph-bound" });
+    pathField.createSpan({ text: "image path" });
+    const pathInput = pathField.createEl("input", {
+      cls: "qt-ref-amount",
+      attr: { type: "text", "aria-label": "Background image path", placeholder: "Attachments/diagram.png" },
+    });
+    pathInput.value = state.path;
+    pathInput.addEventListener("change", () => this.insertGraphImage(pathInput.value));
+    pathRow.createEl("button", { text: "Insert image", attr: { type: "button", "aria-label": "Insert background image" } })
+      .addEventListener("click", () => this.insertGraphImage(pathInput.value));
+    pathRow.createEl("button", { text: "Remove image", attr: { type: "button", "aria-label": "Remove background image" } })
+      .addEventListener("click", () => this.removeGraphImage());
+    const points = section.createDiv({ cls: "qt-ref-graph-image-points" });
+    for (const [key, label] of [["pointA", "Image point 1"], ["pointB", "Image point 2"]]) {
+      const row = points.createDiv({ cls: "qt-ref-graph-image-point" });
+      row.createSpan({ cls: "qt-ref-graph-image-point-name", text: label });
+      for (const [field, suffix] of [["imageX", "across"], ["imageY", "down"], ["graphX", "graph x"], ["graphY", "graph y"]]) {
+        const fieldWrap = row.createEl("label", { cls: "qt-ref-graph-bound" });
+        fieldWrap.createSpan({ text: suffix });
+        const input = fieldWrap.createEl("input", {
+          cls: "qt-ref-amount",
+          attr: { type: "number", step: "any", "aria-label": `${label} ${suffix}` },
+        });
+        input.value = String(state[key][field]);
+        input.addEventListener("change", () => this.setGraphImagePoint(key, field, input.value));
+      }
+    }
+    const opacityRow = section.createDiv({ cls: "qt-row qt-ref-graph-image-opacity" });
+    const opacityField = opacityRow.createEl("label", { cls: "qt-ref-graph-bound" });
+    opacityField.createSpan({ text: "opacity" });
+    const opacity = opacityField.createEl("input", {
+      cls: "qt-ref-graph-image-opacity-input",
+      attr: { type: "range", min: "0", max: "1", step: "0.05", "aria-label": "Background image opacity" },
+    });
+    opacity.value = String(state.opacity);
+    opacity.addEventListener("input", () => this.setGraphImageOpacity(opacity.value));
+  }
+
+  announceGraphImage(text) {
+    if (this.graphTraceEl && typeof this.graphTraceEl.setText === "function") this.graphTraceEl.setText(text);
+    else new Notice(text);
+  }
+
+  graphImageSource(path) {
+    const adapter = this.app && this.app.vault && this.app.vault.adapter;
+    if (adapter && typeof adapter.getResourcePath === "function") {
+      try { return adapter.getResourcePath(path); } catch (error) { return path; }
+    }
+    return path;
+  }
+
+  loadGraphImage() {
+    const state = this.graphImageState;
+    if (!state || !state.path) {
+      this.graphImage = null;
+      this.graphImagePath = "";
+      return { ok: false, reason: "empty" };
+    }
+    if (this.graphImageLoading) return { ok: true, path: state.path };
+    if (this.graphImage && this.graphImagePath === state.path) return { ok: true, path: state.path };
+    const ImageCtor = typeof Image !== "undefined" ? Image : null;
+    if (!ImageCtor) {
+      this.announceGraphImage("This device cannot load a background image.");
+      return { ok: false, reason: "image" };
+    }
+    const image = new ImageCtor();
+    this.graphImageLoading = true;
+    image.onload = () => {
+      this.graphImage = image;
+      this.graphImagePath = state.path;
+      this.graphImageLoading = false;
+      this.announceGraphImage(`Background image ${state.path} loaded.`);
+      this.drawGraph();
+    };
+    image.onerror = () => {
+      this.graphImage = null;
+      this.graphImagePath = "";
+      this.graphImageLoading = false;
+      this.announceGraphImage(`Could not load ${state.path}. Check the vault image path.`);
+    };
+    try {
+      image.src = this.graphImageSource(state.path);
+    } catch (error) {
+      this.graphImageLoading = false;
+      this.announceGraphImage(`Could not load ${state.path}. Check the vault image path.`);
+      return { ok: false, reason: "image" };
+    }
+    return { ok: true, path: state.path };
+  }
+
+  insertGraphImage(path) {
+    const next = normalizeImageState(Object.assign({}, this.graphImageState, { path: String(path === null || path === undefined ? "" : path).trim() }));
+    if (!next.path) {
+      this.announceGraphImage("Enter a vault image path first.");
+      new Notice("Enter a vault image path first.");
+      return { ok: false, reason: "path" };
+    }
+    this.graphImageState = next;
+    this.graphImage = null;
+    this.graphImagePath = "";
+    this.persistGraphState();
+    this.render();
+    this.loadGraphImage();
+    this.announceGraphImage(`Inserted background image ${next.path}.`);
+    return { ok: true, path: next.path };
+  }
+
+  removeGraphImage() {
+    this.graphImageState = normalizeImageState(null);
+    this.graphImage = null;
+    this.graphImagePath = "";
+    this.persistGraphState();
+    this.render();
+    this.announceGraphImage("Background image removed.");
+    return { ok: true };
+  }
+
+  setGraphImagePoint(key, field, value) {
+    const current = this.graphImageState[key];
+    const next = normalizeImageState(Object.assign({}, this.graphImageState, {
+      [key]: Object.assign({}, current, { [field]: value }),
+    }));
+    this.graphImageState = next;
+    this.persistGraphState();
+    const placement = imagePlacement(next);
+    if (!placement.ok) {
+      this.announceGraphImage(placement.message);
+      return { ok: false, reason: "calibration", message: placement.message };
+    }
+    this.drawGraph();
+    this.announceGraphImage(imageSummary(next));
+    return { ok: true, placement };
+  }
+
+  setGraphImageOpacity(value) {
+    this.graphImageState = normalizeImageState(Object.assign({}, this.graphImageState, { opacity: value }));
+    this.persistGraphState();
+    this.drawGraph();
+    this.announceGraphImage(`Background image opacity ${this.graphImageState.opacity}.`);
+    return { ok: true, opacity: this.graphImageState.opacity };
+  }
+
+  paintGraphImage(ctx, graph, width, height) {
+    if (!this.graphImage) return;
+    const rect = imageRectPixels(this.graphImageState, graph, width, height);
+    if (!rect.ok) return;
+    if (typeof ctx.save === "function") ctx.save();
+    ctx.globalAlpha = this.graphImageState.opacity;
+    if (typeof ctx.drawImage === "function") ctx.drawImage(this.graphImage, rect.left, rect.top, rect.width, rect.height);
+    ctx.globalAlpha = 1;
+    if (typeof ctx.restore === "function") ctx.restore();
+  }
+
   drawGraph() {
     const canvas = this.graphCanvas;
     if (!canvas) return;
@@ -1377,6 +1549,7 @@ class ReferenceView extends ItemView {
   paintGraphScene(ctx, graph, width, height) {
     const px = (x) => ((x - graph.xMin) / (graph.xMax - graph.xMin)) * width;
     const py = (y) => height - ((y - graph.yMin) / (graph.yMax - graph.yMin)) * height;
+    this.paintGraphImage(ctx, graph, width, height);
     this.paintGraphGrid(ctx, graph, width, height, px, py);
     if (this.graphPolarGrid) this.paintPolarGrid(ctx, graph, width, height);
     for (const row of graph.rows) {
@@ -1682,6 +1855,7 @@ class ReferenceView extends ItemView {
       locked: this.graphLocked,
       display: Object.assign({}, this.graphDisplay),
       rows: this.graphRowState(),
+      image: this.graphImageState,
       table: {
         columns: this.graphColumns.map((column) => ({ name: column.name, expression: column.expression })),
         rows: this.graphData.map((row) => {
