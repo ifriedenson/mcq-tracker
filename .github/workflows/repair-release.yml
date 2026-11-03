@@ -1,0 +1,55 @@
+name: Repair missing releases
+
+# GitHub keeps one running and one pending job in a concurrency group, so a
+# batch of quick pushes can cancel the middle release runs. This job repairs
+# known missing versions from their exact release commits and is idempotent:
+# an existing release is left alone.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create missing releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          while IFS=: read -r V SHA; do
+            [ -n "$V" ] || continue
+            if gh release view "$V" >/dev/null 2>&1; then
+              echo "Release $V already exists."
+              continue
+            fi
+            echo "Repairing $V at $SHA"
+            git checkout --force "$SHA"
+            NOTES="$RUNNER_TEMP/release-notes-$V.md"
+            if [ -f "docs/release-notes/$V.md" ]; then
+              cp "docs/release-notes/$V.md" "$NOTES"
+            else
+              printf '# MCQ Tracker %s\n\nSee the README for installation and usage.\n' "$V" > "$NOTES"
+            fi
+            if ! git ls-remote --tags origin "refs/tags/$V" | grep -q .; then
+              TAG_OBJ=$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/tags" \
+                -f tag="$V" -f message="MCQ Tracker $V" -f object="$SHA" -f type=commit --jq .sha)
+              gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+                -f ref="refs/tags/$V" -f sha="$TAG_OBJ" >/dev/null
+            fi
+            gh release create "$V" main.js manifest.json styles.css \
+              --title "$V" --notes-file "$NOTES"
+          done <<'RELEASES'
+          1.199.0:788f4e20d96cc593bbf1937861e042459f13f3bd
+          1.200.0:ce7b6da2957116fe4b4283dd41c89b9c55d99887
+          1.201.0:a3a7d38e4c5f18b03805ec9f846e9f5518f5a1ce
+          1.202.0:fda03b009cc9cb30f3e561a70b48c36a2baa5056
+          RELEASES
