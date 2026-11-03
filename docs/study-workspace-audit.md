@@ -16,30 +16,28 @@ topics** refusal was silent (1.210.13).
 
 | # | Tool (tab id) | Backing test | Release |
 |---|---|---|---|
-| 1 | Feynman (`feynman`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
-| 2 | Recall (`recall`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
-| 3 | Topic planner (`planner`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
-| 4 | Courses (`courses`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
-| 5 | Annotations (`annotations`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
-| 6 | Deep Notes (`deepNotes`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
-| 7 | Quiz index (`quizIndex`) | `tests/study-workspace-tabs.test.js` | pre-1.210 |
-| 8 | Course health (`health`) | `tests/study-workspace-health.test.js` | 1.210.12 |
-| 9 | Retention (`retention`) | `tests/fsrs-fit.test.js` | 1.210.11 |
-| 10 | Study Flow (`flow`) | `tests/writing-sessions.test.js` | 1.210.10 |
-| 11 | Subjects (`subjects`) | `tests/core-values.test.js` | 1.169.0 |
-| 12 | Tasks (`tasks`) | `tests/task-list.test.js` | 1.172.0 |
-| 13 | Time blocks (`timeBlocks`) | `tests/time-blocks.test.js` | 1.210.1 |
-| 14 | Vocabulary (`vocabulary`) | `tests/glossary.test.js` | 1.210.9 |
-| 15 | Reading library (`readingLibrary`) | `tests/reading-library.test.js` | pre-1.210 |
-| 16 | Citations (`citations`) | `tests/citations.test.js` | 1.210.3 |
-| 17 | Lecture notes (`lectures`) | `tests/core-values.test.js` | 1.169.0 |
-| 18 | Read aloud (`readAloud`) | `tests/read-aloud.test.js` | 1.210.6 |
+| 1 | Feynman (`feynman`) | `tests/study-workspace-tabs.test.js` | 1.210.13 |
+| 2 | Recall (`recall`) | `tests/study-workspace-tabs.test.js` | 1.210.13 |
+| 3 | Topic planner (`planner`) | `tests/study-workspace-tabs.test.js` | 1.210.13 |
+| 4 | Study Flow (`flow`) | `tests/writing-sessions.test.js` | 1.210.10 |
+| 5 | Subjects (`subjects`) | `tests/subject-projects.test.js` | unnumbered |
+| 6 | Courses (`courses`) | `tests/study-workspace.test.js` | 1.210.1 |
+| 7 | Tasks (`tasks`) | `tests/task-list.test.js` | 1.172.0 |
+| 8 | Time blocks (`timeBlocks`) | `tests/time-blocks.test.js` | 1.210.1 |
+| 9 | Annotations (`annotations`) | `tests/study-workspace.test.js` | 1.210.1 |
+| 10 | Deep Notes (`deepNotes`) | `tests/study-workspace.test.js` | 1.210.1 |
+| 11 | Retention (`retention`) | `tests/cards.test.js` | 1.12.0 |
+| 12 | Vocabulary (`vocabulary`) | `tests/study-workspace.test.js` | 1.210.1 |
+| 13 | Reading library (`readingLibrary`) | `tests/study-workspace-layout.test.js` | 1.210.9 |
+| 14 | Citations (`citations`) | `tests/citations.test.js` | 1.210.3 |
+| 15 | Quiz index (`quizIndex`) | `tests/study-workspace.test.js` | 1.210.1 |
+| 16 | Course health (`health`) | `tests/study-workspace-layout.test.js` | 1.210.9 |
+| 17 | Lecture notes (`lectures`) | `tests/study-modules-2.test.js` | 1.210.3 |
+| 18 | Read aloud (`readAloud`) | `tests/study-modules-2.test.js` | 1.210.3 |
 | 19 | Bookmarks (`bookmarks`) | `tests/study-modules-2.test.js` | 1.210.3 |
 | 20 | AI feedback (`feynmanAi`) | `tests/study-modules-3.test.js` | 1.210.4 |
 | 21 | PDF annotations (`pdfAnnotations`) | `tests/study-modules-3.test.js` | 1.210.4 |
 
-The **Release** column is the release that introduced the named test, read from git history,
-so every row is backed by a file in the tree rather than by memory.
 
 ## The three gaps, and what closed them
 
