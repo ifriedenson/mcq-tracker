@@ -2346,6 +2346,84 @@ Compared with Adaptive Practice 0.7.2 ([README](https://github.com/anupchavan/ad
 
 ---
 
+### 5.24 Academic and researcher plugin scan — captured Nov 3, 2026, unscheduled
+
+**Status:** backlog only. This section records ideas for later ranking; it does not approve any plugin, dependency, code, data model, setting, command or UI. Nothing here overrides the dependency-free, local-first and off-by-default rules in this plan.
+
+**Sources:** [Study Flow Planner](https://community.obsidian.md/plugins/study-flow-planner) and [Study Agent](https://community.obsidian.md/plugins/study-agent), plus an owner-supplied academic-plugin round-up (17 plugins) and its reader comments, all supplied Nov 3, 2026. The marketplace pages are script-rendered, so the two named plugins were checked against their public forum/GitHub descriptions where available. Study Agent's exact study loop still needs a live inspection before any port is scoped.
+
+#### Directly named community plugins
+
+| Source | Idea worth keeping | Fit in MCQ Tracker | Decision |
+|---|---|---|---|
+| **Study Flow Planner** | A visual day/week/month timeline from 05:00 to 23:00; subject colours; events linked to notes; automatic detection of daily-note lines such as `09:00 Event title`; per-event tags, notes, colour and done state. | **Time blocks** in 1.210.1 already owns local Day, Week, Grid, Timeline, project lenses and task-in-block state. Missing pieces are daily-note line import, subject colour rules and event tags outside block tasks. | **Partially covered; candidate P2.** Add an optional one-way reader for `HH:MM Title` lines and subject colours if ranked. Never write the daily note from the planner. No Study Flow Planner code or styles copied. |
+| **Study Agent** | A bring-your-own-key AI assistant configured with provider, API key, Refresh and model selection inside Obsidian. The public excerpt shows the provider/model setup; the exact study loop is not clear. | Direct AI, OpenCode chat, generation, blind verification, write guards, previews and undo already cover the AI surface. A second AI runtime or agent loop would duplicate settings, budgets and safety checks. | **Do not adopt as a second runtime.** Revisit only as a note-grounded study workflow on the existing AI service, after a live inspection and a separate spec. No provider key or prompt is added by this row. |
+
+#### Academic round-up plugins
+
+These are the 17 plugins in the owner-supplied academic round-up. “Reference only” means the interaction is useful design input but does not justify a new subsystem.
+
+| Plugin | Idea worth keeping | Fit / decision |
+|---|---|---|
+| **Calendar** | A daily-note calendar for a research log, with each day linking to work done that day. | **P3 candidate.** Calendar already handles ICS/Full Calendar events, and Time blocks exports a day note. A read-only **Open daily note** action for the selected day could connect them without a second calendar. No daily-note plugin dependency. |
+| **Callout Manager** | A picker for callout types, icons and colours. | **Reference only.** Callouts already render; a visual callout builder is editor styling, not study workflow. Do not add a dependency. |
+| **Citations** | Import a BibTeX library and create citation notes with paper metadata. | **P3 candidate.** A local `.bib` reader could create or preview citation notes without launching a reference manager. This is separate from the existing source-note fields. |
+| **cMenu** | A floating formatting toolbar. | **Do not adopt.** Existing editor commands and the command palette cover the need; a second toolbar adds clutter and maintenance. |
+| **Commander** | Put arbitrary commands on visible buttons in the Obsidian chrome. | **Do not adopt.** The plugin already exposes commands and ribbon entries; per-user chrome customisation belongs to Obsidian. |
+| **Custom Attachment Location** | Rename, move and organise pasted attachments by note and folder. | **P3 candidate, import-only.** The importer may route its own attachments, but no vault-wide watcher or automatic move. |
+| **Heading Level Indent** | Indent body text under headings for readability. | **Reference only.** A reading CSS preference, not a study data feature. |
+| **Hover Editor** | A movable, resizable, editable hover preview. | **Do not adopt.** Obsidian owns page previews; replacing them would be a broad UI fork. |
+| **Iconic** | Per-file and per-folder icons or images. | **Reference only.** Cosmetic navigation; no study state. |
+| **PDF++** | PDF annotations and deep links to a page or rectangle. | **Partially covered.** The PDF Annotation Index already reads sidecar annotations without writing. A P3 candidate is inserting a safe `[[file.pdf#page=N]]` deep link from a saved annotation; no PDF renderer or form engine. |
+| **Pretty Properties** | Covers, coloured properties and friendlier property display. | **Reference only.** Cosmetic metadata presentation; the underlying properties stay unchanged. |
+| **QuickAdd** | Named capture commands that create a note in the right folder from a template. | **Partially covered.** Calendar class notes and course-note actions use templates. A generic user-defined template builder is not justified yet; revisit only if capture requests keep recurring. |
+| **Recent Files** | A recent-note navigator. | **Do not adopt.** Obsidian already has recents and quick switching; no study data is involved. |
+| **Style Settings** | Expose theme and plugin CSS variables to the user. | **Reference only.** A theme-integration surface, not a core study feature. |
+| **Supercharged Links** | Decorate links by folder, tag or property. | **Do not adopt.** Visual link rules would duplicate Obsidian/theme features and add a styling API. |
+| **Tasks** | Aggregate checkbox tasks across the vault, with due dates and query syntax. | **Partially covered.** MCQ Tracker has local `studyTasks`, the sidebar task list, tags and in-app reminders. A P3 candidate is a **read-only** vault checkbox index; do not write or rewrite another plugin's task syntax. |
+| **ZotLit** | Read a Zotero database directly and create literature notes from it. | **Do not bundle.** It needs a reference-manager database and a second process/integration. A local BibTeX/CSL-JSON import is the safer candidate. |
+
+#### Reader-comment suggestions
+
+These came from the reader comments in the same round-up. Several repeat an earlier row; they are kept here so no idea is lost.
+
+| Suggested plugin or idea | What it could mean locally | Decision |
+|---|---|---|
+| **Advanced Tables** | Table formatting, navigation and formulas. | Reference only; Markdown tables already render. |
+| **cMenu** | Floating formatting bar. | Duplicate of the cMenu row; do not adopt. |
+| **Desmos** | Interactive graphing calculator. | Already covered by the local Reference Graph, including regression, sliders, polar, parametric, implicit and 3D modes. |
+| **Excalidraw** | Hand-drawn diagrams and embedded drawings. | Do not adopt; a canvas/drawing engine is a separate product. |
+| **Extended MathJax** | Extra TeX macros and math rendering. | Reference only; existing Obsidian MathJax rendering is enough. |
+| **Homepage** | Open a chosen note on startup. | Do not adopt; startup layout belongs to Obsidian. |
+| **HTML Tags Autocomplete** | Autocomplete HTML tags while editing. | Reference only; editor assistance, not study state. |
+| **Kanban** | Board view over Markdown cards. | Do not adopt; projects and the planner already provide grouping, and a board is a separate view. |
+| **LaTeX Suite** | Snippet expansion and math shortcuts. | Reference only; no snippet engine. |
+| **Multi Column Markdown** | Multi-column note layouts. | Reference only; responsive study cards already use CSS columns where useful. |
+| **Obsidian Matrix** | Matrix and vector rendering/entry. | Reference only; existing math rendering covers display, and a matrix editor is outside the current graph scope. |
+| **Paste URL into Selection** | Turn selected text into a Markdown link. | Reference only; a small editor convenience, not a study module. |
+| **Sortable** | Click-to-sort Markdown tables. | Do not adopt; a live table widget would need a renderer and write-back contract. |
+| **Table Extended** | Merged cells and extended table syntax. | Do not adopt; non-standard Markdown reduces portability. |
+| **Tag Wrangler** | Rename and merge tags across the vault. | Do not adopt a vault-wide rewrite. If tags grow, add a local task-tag rename that touches only `studyTasks`. |
+| **Zoom** | Click or hover to zoom images. | Reference only; Obsidian image preview already exists. |
+| **Footnote shortcut / Tidy footnotes** | Insert and renumber footnotes. | Reference only; editor convenience, not study state. |
+| **Better Word Count** | Selection and vault word counts. | P3 candidate for a read-only writing-session count; no note writes or background index. |
+| **Annotator** | Annotate PDFs and other documents. | Partially covered by the PDF Annotation Index; no new annotation engine. |
+| **Dictionary** | Look up a selected word in a dictionary. | Vocabulary exists locally. An external dictionary request is not approved; a local glossary lookup is the safe alternative. |
+| **Full Calendar** | A full calendar with event notes. | Already supported read-only for event notes; the planner now consumes the same events. |
+| **Quick Add** | Duplicate of QuickAdd. | Already covered by the QuickAdd row. |
+| **Stille table of contents** | Generate and maintain a table of contents. | Reference only; headings and links already work. The name is recorded as written and is unverified. |
+| **Text Format** | Bulk text formatting commands. | Reference only; editor scope. |
+| **Iframes** | Embed web pages inside notes. | Do not adopt; iframes add remote-content and privacy risk. |
+| **Dataview** | Query notes with a query language. | Do not adopt the dependency or a dynamic query language. Existing filters and local indexes are deliberate. |
+| **Dice Roller** | Pick a random note, line or table row. | The useful idea is local random recall; the Recall Scheduler and practice filters already cover it without a dice dependency. |
+| **Highlightr** | A palette for text highlights. | Reference only; cosmetic editor styling. |
+
+#### Rule for any later adoption
+
+Any ranked item must be original code or a clearly licensed port with a notice; no runtime dependency, dynamic code, background service, telemetry or hidden network request. Read-only first, preview before a note write, undo where a write is allowed, and off by default when it adds a new surface. A local parser is preferred to a live integration with another plugin.
+
+**Candidate order if the owner ranks this backlog:** (1) the Study Flow Planner daily-note line reader and subject colours inside Time blocks; (2) a local BibTeX citation-note preview; (3) PDF annotation deep links and a read-only vault task index; (4) an optional Open daily note action. Study Agent stays a reference for workflow design, not a second AI runtime. Everything else in this section is reference-only until a concrete study workflow and acceptance test are written.
+
 ## 6. Property schema (draft)
 
 Names are proposals; keep existing ones unchanged.
