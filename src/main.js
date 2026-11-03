@@ -231,6 +231,7 @@ QuestionTrackerPlugin.__test = {
   graphPrint: require("./graph-print"),
   graphImage: require("./graph-image"),
   graphHistory: require("./graph-history"),
+  graphPaper: require("./graph-paper"),
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,

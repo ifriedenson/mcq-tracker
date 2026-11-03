@@ -2628,3 +2628,145 @@ test("reference view: undo, redo and duplicate follow the rendered rows and canv
   assert.equal(obsidian.notices.length, noticesBefore + 1);
   assert.match(traceText(), /There is no expression at that position\./);
 });
+
+test("graph paper: steps, ticks and summaries are pure", () => {
+  const gp = T.graphPaper;
+  assert.deepEqual(gp.normalizePaper(null), { grid: true, axes: true, step: null });
+  assert.deepEqual(gp.normalizePaper({ grid: false, axes: false, step: "0.5" }), { grid: false, axes: false, step: 0.5 });
+  assert.deepEqual(gp.normalizePaper({ step: "bad" }), { grid: true, axes: true, step: null });
+  assert.deepEqual(gp.parseGridStep(""), { ok: true, step: null });
+  assert.deepEqual(gp.parseGridStep("  "), { ok: true, step: null });
+  assert.deepEqual(gp.parseGridStep("0.5"), { ok: true, step: 0.5 });
+  assert.equal(gp.parseGridStep("abc").reason, "step");
+  assert.match(gp.parseGridStep("abc").message, /Enter a grid step number/);
+  assert.equal(gp.parseGridStep("0").reason, "step");
+  assert.match(gp.parseGridStep("-1").message, /greater than 0/);
+  assert.equal(gp.parseGridStep("0.0001").reason, "step");
+  assert.match(gp.parseGridStep("0.0001").message, /at least 0.001/);
+  assert.equal(gp.parseGridStep("5000").reason, "step");
+  assert.match(gp.parseGridStep("5000").message, /at most 1000/);
+
+  const auto = gp.paperTicks({ step: null }, { xMin: -10, xMax: 10, yMin: -10, yMax: 10 });
+  assert.deepEqual(auto, { ok: true, step: null, vertical: [], horizontal: [], minorVertical: [], minorHorizontal: [] });
+  const fixed = gp.paperTicks({ step: 2 }, { xMin: -10, xMax: 10, yMin: -10, yMax: 10 });
+  assert.equal(fixed.ok, true);
+  assert.equal(fixed.vertical.length, 11);
+  assert.deepEqual(fixed.vertical.slice(0, 3), [-10, -8, -6]);
+  assert.equal(fixed.horizontal.length, 11);
+  assert.equal(fixed.minorVertical.length, 51);
+  const dense = gp.paperTicks({ step: 0.001 }, { xMin: -1000, xMax: 1000, yMin: -1000, yMax: 1000 });
+  assert.equal(dense.reason, "step");
+  assert.match(dense.message, /too many lines/);
+  assert.equal(gp.paperTicks({ step: 1 }, { xMin: 1, xMax: 1, yMin: 0, yMax: 1 }).reason, "view");
+  assert.match(gp.paperSummary({ grid: false, axes: true, step: null }), /grid hidden, axes shown and an automatic grid step/);
+  assert.match(gp.paperSummary({ grid: true, axes: false, step: 0.5 }), /grid shown, axes hidden and a grid step of 0\.5/);
+});
+
+test("reference view: graph paper controls validate, announce, paint and persist", async () => {
+  const { obsidian } = require("./helpers/load");
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  view.graphRows = [{ text: "", hidden: false }];
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.render();
+  const labels = () => dom.all.map((element) => (element.meta && (element.meta.attr || {})["aria-label"]) || "").filter(Boolean);
+  for (const label of ["Show graph grid", "Show graph axes", "Grid step"]) assert.ok(labels().indexOf(label) >= 0, `missing control: ${label}`);
+  const traceText = () => dom.all.filter((element) => element.meta && element.meta.cls === "qt-ref-graph-trace").pop().meta.text;
+  const control = (label) => dom.all.find((element) => element.meta && (element.meta.attr || {})["aria-label"] === label);
+  const gridBox = control("Show graph grid");
+  const axesBox = control("Show graph axes");
+  const stepField = control("Grid step");
+  assert.equal(gridBox.meta.attr.type, "checkbox");
+  assert.equal(axesBox.meta.attr.type, "checkbox");
+  assert.equal(stepField.meta.attr.type, "number");
+  assert.equal(gridBox.checked, true);
+  assert.equal(axesBox.checked, true);
+  assert.equal(stepField.disabled === true, false);
+  assert.equal(dom.all.filter((element) => element.meta && element.meta.attr && element.meta.attr.type === "checkbox" && (element.meta.attr["aria-label"] || "").startsWith("Show graph")).every((element) => element.disabled !== true), true);
+
+  const painted = () => {
+    const calls = [];
+    const ctx = new Proxy({}, {
+      get: (_target, property) => {
+        if (property === "measureText") return () => ({ width: 10 });
+        return (...args) => { calls.push(String(property)); };
+      },
+      set: () => true,
+    });
+    view.paintGraphScene(ctx, view.graphBuilt, 640, 320);
+    return calls;
+  };
+  const count = (calls, name) => calls.filter((call) => call === name).length;
+
+  const both = painted();
+  assert.ok(count(both, "moveTo") > 4 && count(both, "fillText") > 0, "default paper draws a grid and axis labels");
+  assert.equal(view.setGraphPaper("grid", false).ok, true);
+  assert.match(traceText(), /grid hidden, axes shown/);
+  const noGrid = painted();
+  assert.ok(count(noGrid, "moveTo") < count(both, "moveTo"), "hiding the grid changes the canvas output");
+  assert.ok(count(noGrid, "fillText") > 0, "the axes and labels remain");
+  assert.equal(view.setGraphPaper("axes", false).ok, true);
+  assert.match(traceText(), /grid hidden, axes hidden/);
+  const noAxes = painted();
+  assert.equal(count(noAxes, "fillText"), 0, "hiding the axes removes the tick labels");
+  assert.ok(count(noAxes, "moveTo") === 0, "both grid and axes are hidden");
+  assert.equal(plugin.settings.reference.graph.paper.grid, false);
+  assert.equal(plugin.settings.reference.graph.paper.axes, false);
+
+  assert.equal(view.setGraphPaper("grid", true).ok, true);
+  assert.equal(view.setGraphPaper("axes", true).ok, true);
+  assert.equal(view.setGraphPaperStep("2").ok, true);
+  assert.match(traceText(), /grid step of 2/);
+  assert.equal(plugin.settings.reference.graph.paper.step, 2);
+  const stepTwo = painted();
+  assert.equal(view.setGraphPaperStep("5").ok, true);
+  const stepFive = painted();
+  assert.ok(count(stepTwo, "moveTo") > count(stepFive, "moveTo"), "a smaller step draws more lines");
+
+  const noticesBefore = obsidian.notices.length;
+  for (const [value, pattern] of [["abc", /Enter a grid step number/], ["0", /greater than 0/], ["-2", /greater than 0/], ["0.0001", /at least 0.001/], ["5000", /at most 1000/], ["0.001", /too many lines/]]) {
+    const result = view.setGraphPaperStep(value);
+    assert.equal(result.reason, "step", value);
+    assert.match(result.message, pattern);
+    assert.match(traceText(), pattern);
+    assert.equal(plugin.settings.reference.graph.paper.step, 5, "an invalid step is not saved");
+    assert.equal(view.graphPaperStepEl.value, "5", "the field returns to the saved step");
+  }
+  assert.equal(obsidian.notices.length, noticesBefore + 6);
+
+  assert.equal(view.setGraphPaperStep("").ok, true);
+  assert.match(traceText(), /automatic grid step/);
+  assert.equal(plugin.settings.reference.graph.paper.step, null);
+  assert.equal(view.setGraphPaperStep("0.5").ok, true);
+  view.persistGraphState();
+  const stored = plugin.settings.reference.graph.paper;
+  assert.deepEqual(stored, { grid: true, axes: true, step: 0.5 });
+  const restored = new T.ReferenceView({ app }, plugin);
+  assert.deepEqual(restored.graphPaper, { grid: true, axes: true, step: 0.5 });
+
+  const legacyPlugin = new QT(app);
+  await legacyPlugin.onload();
+  legacyPlugin.settings.reference = { graph: {} };
+  const legacyView = new T.ReferenceView({ app }, legacyPlugin);
+  assert.deepEqual(legacyView.graphPaper, { grid: true, axes: true, step: null }, "old settings get the default paper");
+  const gridCalls = (target) => {
+    const calls = [];
+    const ctx = new Proxy({}, {
+      get: (_target, property) => {
+        if (property === "measureText") return () => ({ width: 10 });
+        return (...args) => { calls.push(String(property)); };
+      },
+      set: () => true,
+    });
+    target.paintGraphGrid(ctx, { xMin: -10, xMax: 10, yMin: -10, yMax: 10 }, 640, 320, (x) => (x + 10) * 32, (y) => 160 - y * 16);
+    return calls;
+  };
+  const legacyDefault = new T.ReferenceView({ app }, legacyPlugin);
+  assert.deepEqual(gridCalls(legacyView), gridCalls(legacyDefault), "legacy settings paint exactly the default paper");
+});

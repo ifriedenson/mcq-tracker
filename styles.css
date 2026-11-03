@@ -11242,3 +11242,8 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-ref .qt-ref-graph-duplicate {
   font-size: 0.7rem;
 }
+
+/* Reference graph paper settings. */
+.qt-ref .qt-ref-graph-paper-step input {
+  width: 84px;
+}

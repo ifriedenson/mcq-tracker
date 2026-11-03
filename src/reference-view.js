@@ -38,6 +38,7 @@ const {
 const { printDocument, printSummary } = require("./graph-print");
 const { normalizeImageState, imagePlacement, imageRectPixels, imageSummary } = require("./graph-image");
 const { createHistory, pushHistory, undoHistory, redoHistory, canUndo, canRedo, snapshotRows, sameRows, duplicateRows, historyMessage } = require("./graph-history");
+const { normalizePaper, parseGridStep, paperTicks, paperSummary } = require("./graph-paper");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -151,6 +152,8 @@ class ReferenceView extends ItemView {
       piTicks: storedDisplay.piTicks === true,
       angle: storedDisplay.angle === "degrees" ? "degrees" : "radians",
     };
+    this.graphPaper = normalizePaper(storedGraph.paper);
+    this.graphPaperStepEl = null;
     this.graphViewInputs = {};
     this.graphDrag = null;
     this.graphColumns = normalizeColumns([{ name: "x" }, { name: "y" }]);
@@ -491,6 +494,25 @@ class ReferenceView extends ItemView {
       this.persistGraphDisplay();
       this.drawGraph();
     });
+
+    const paperGridField = displayActions.createEl("label", { cls: "qt-ref-graph-polar" });
+    const paperGrid = paperGridField.createEl("input", { attr: { type: "checkbox", "aria-label": "Show graph grid" } });
+    paperGrid.checked = this.graphPaper.grid;
+    paperGrid.addEventListener("change", () => this.setGraphPaper("grid", paperGrid.checked === true));
+    paperGridField.createSpan({ text: "grid" });
+    const paperAxesField = displayActions.createEl("label", { cls: "qt-ref-graph-polar" });
+    const paperAxes = paperAxesField.createEl("input", { attr: { type: "checkbox", "aria-label": "Show graph axes" } });
+    paperAxes.checked = this.graphPaper.axes;
+    paperAxes.addEventListener("change", () => this.setGraphPaper("axes", paperAxes.checked === true));
+    paperAxesField.createSpan({ text: "axes" });
+    const paperStepField = displayActions.createEl("label", { cls: "qt-ref-graph-bound qt-ref-graph-paper-step" });
+    paperStepField.createSpan({ text: "grid step" });
+    this.graphPaperStepEl = paperStepField.createEl("input", {
+      cls: "qt-ref-amount",
+      attr: { type: "number", step: "any", min: "0.001", max: "1000", "aria-label": "Grid step", placeholder: "auto" },
+    });
+    this.graphPaperStepEl.value = this.graphPaper.step === null ? "" : String(this.graphPaper.step);
+    this.graphPaperStepEl.addEventListener("change", () => this.setGraphPaperStep(this.graphPaperStepEl.value));
 
     const keypad = root.createDiv({ cls: "qt-row qt-ref-graph-keypad" });
     keypad.createSpan({ cls: "qt-ref-graph-keypad-label", text: "Keypad" });
@@ -1436,6 +1458,44 @@ class ReferenceView extends ItemView {
     return { ok: true, rows: this.graphRows.length };
   }
 
+  setGraphPaper(key, value) {
+    if (key !== "grid" && key !== "axes") return { ok: false, reason: "key" };
+    this.graphPaper = normalizePaper(Object.assign({}, this.graphPaper, { [key]: value === true }));
+    this.persistGraphState();
+    this.drawGraph();
+    this.announceGraphPaper(paperSummary(this.graphPaper));
+    return { ok: true, paper: Object.assign({}, this.graphPaper) };
+  }
+
+  setGraphPaperStep(value) {
+    const parsed = parseGridStep(value);
+    if (!parsed.ok) return this.rejectGraphPaperStep(parsed);
+    if (parsed.step !== null) {
+      const ticks = paperTicks(Object.assign({}, this.graphPaper, { step: parsed.step }), this.graphViewport);
+      if (!ticks.ok) return this.rejectGraphPaperStep(ticks);
+    }
+    this.graphPaper = normalizePaper(Object.assign({}, this.graphPaper, { step: parsed.step }));
+    this.persistGraphState();
+    this.drawGraph();
+    this.announceGraphPaper(paperSummary(this.graphPaper));
+    return { ok: true, step: this.graphPaper.step };
+  }
+
+  rejectGraphPaperStep(result) {
+    this.announceGraphPaper(result.message);
+    new Notice(result.message);
+    this.resetGraphPaperStepInput();
+    return result;
+  }
+
+  resetGraphPaperStepInput() {
+    if (this.graphPaperStepEl) this.graphPaperStepEl.value = this.graphPaper.step === null ? "" : String(this.graphPaper.step);
+  }
+
+  announceGraphPaper(text) {
+    if (this.graphTraceEl && typeof this.graphTraceEl.setText === "function") this.graphTraceEl.setText(text);
+  }
+
   renderGraphImageControls(root) {
     const state = this.graphImageState;
     const section = root.createDiv({ cls: "qt-ref-graph-image" });
@@ -1973,6 +2033,7 @@ class ReferenceView extends ItemView {
       view: Object.assign({}, this.graphViewport),
       locked: this.graphLocked,
       display: Object.assign({}, this.graphDisplay),
+      paper: Object.assign({}, this.graphPaper),
       rows: this.graphRowState(),
       image: this.graphImageState,
       table: {
@@ -2038,75 +2099,86 @@ class ReferenceView extends ItemView {
 
   paintGraphGrid(ctx, graph, width, height, px, py) {
     const display = this.graphDisplay;
+    const paper = this.graphPaper || normalizePaper(null);
     const top = display.axisLabels ? 16 : 0;
     const bottom = display.axisLabels ? height - 16 : height;
-    const xAxis = axisTicks(graph.xMin, graph.xMax, Math.max(4, Math.round(width / 90)), {
-      axis: "x",
-      piTicks: display.piTicks === true,
-      angleMode: display.angle,
-    });
-    const yAxis = axisTicks(graph.yMin, graph.yMax, Math.max(3, Math.round(height / 70)), { axis: "y" });
+    const custom = paperTicks(paper, graph);
+    const customStep = custom.ok && custom.step !== null ? custom.step : null;
+    const xAxis = customStep === null
+      ? axisTicks(graph.xMin, graph.xMax, Math.max(4, Math.round(width / 90)), {
+        axis: "x",
+        piTicks: display.piTicks === true,
+        angleMode: display.angle,
+      })
+      : { step: customStep, ticks: custom.vertical, minors: custom.minorVertical };
+    const yAxis = customStep === null
+      ? axisTicks(graph.yMin, graph.yMax, Math.max(3, Math.round(height / 70)), { axis: "y" })
+      : { step: customStep, ticks: custom.horizontal, minors: custom.minorHorizontal };
     const axisY = Math.min(Math.max(px(0), 0), width);
     const axisX = Math.min(Math.max(py(0), top), bottom - 14);
-    if (display.minorGrid) {
-      ctx.strokeStyle = "rgba(127, 127, 127, 0.09)";
+    if (paper.grid) {
+      if (display.minorGrid) {
+        ctx.strokeStyle = "rgba(127, 127, 127, 0.09)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (const x of xAxis.minors) {
+          ctx.moveTo(px(x), top);
+          ctx.lineTo(px(x), bottom);
+        }
+        for (const y of yAxis.minors) {
+          ctx.moveTo(0, py(y));
+          ctx.lineTo(width, py(y));
+        }
+        ctx.stroke();
+      }
+      ctx.strokeStyle = "rgba(127, 127, 127, 0.18)";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      for (const x of xAxis.minors) {
+      for (const x of xAxis.ticks) {
         ctx.moveTo(px(x), top);
         ctx.lineTo(px(x), bottom);
       }
-      for (const y of yAxis.minors) {
+      for (const y of yAxis.ticks) {
         ctx.moveTo(0, py(y));
         ctx.lineTo(width, py(y));
       }
       ctx.stroke();
     }
-    ctx.strokeStyle = "rgba(127, 127, 127, 0.18)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (const x of xAxis.ticks) {
-      ctx.moveTo(px(x), top);
-      ctx.lineTo(px(x), bottom);
-    }
-    for (const y of yAxis.ticks) {
-      ctx.moveTo(0, py(y));
-      ctx.lineTo(width, py(y));
-    }
-    ctx.stroke();
-    ctx.strokeStyle = "rgba(127, 127, 127, 0.55)";
-    ctx.beginPath();
-    if (graph.yMin <= 0 && graph.yMax >= 0) {
-      ctx.moveTo(0, py(0));
-      ctx.lineTo(width, py(0));
-    }
-    if (graph.xMin <= 0 && graph.xMax >= 0) {
-      ctx.moveTo(px(0), top);
-      ctx.lineTo(px(0), bottom);
-    }
-    ctx.stroke();
-    ctx.fillStyle = "rgba(127, 127, 127, 0.85)";
-    ctx.font = "11px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    for (const x of xAxis.ticks) {
-      if (Math.abs(x) < xAxis.step / 1000) continue;
-      ctx.fillText(formatAxisTick(x, { axis: "x", piTicks: display.piTicks, angleMode: display.angle }), px(x), axisX + 3);
-    }
-    ctx.textAlign = "right";
-    for (const y of yAxis.ticks) {
-      if (Math.abs(y) < yAxis.step / 1000) continue;
-      ctx.fillText(formatAxisTick(y, { axis: "y" }), Math.max(axisY - 4, 16), Math.max(py(y) - 7, top));
-    }
-    if (display.axisLabels) {
+    if (paper.axes) {
+      ctx.strokeStyle = "rgba(127, 127, 127, 0.55)";
+      ctx.beginPath();
+      if (graph.yMin <= 0 && graph.yMax >= 0) {
+        ctx.moveTo(0, py(0));
+        ctx.lineTo(width, py(0));
+      }
+      if (graph.xMin <= 0 && graph.xMax >= 0) {
+        ctx.moveTo(px(0), top);
+        ctx.lineTo(px(0), bottom);
+      }
+      ctx.stroke();
       ctx.fillStyle = "rgba(127, 127, 127, 0.85)";
       ctx.font = "11px sans-serif";
-      ctx.textAlign = "right";
-      ctx.textBaseline = "bottom";
-      ctx.fillText("x", width - 4, height - 2);
-      ctx.textAlign = "left";
+      ctx.textAlign = "center";
       ctx.textBaseline = "top";
-      ctx.fillText("y", 4, 2);
+      for (const x of xAxis.ticks) {
+        if (Math.abs(x) < xAxis.step / 1000) continue;
+        ctx.fillText(formatAxisTick(x, { axis: "x", piTicks: display.piTicks, angleMode: display.angle }), px(x), axisX + 3);
+      }
+      ctx.textAlign = "right";
+      for (const y of yAxis.ticks) {
+        if (Math.abs(y) < yAxis.step / 1000) continue;
+        ctx.fillText(formatAxisTick(y, { axis: "y" }), Math.max(axisY - 4, 16), Math.max(py(y) - 7, top));
+      }
+      if (display.axisLabels) {
+        ctx.fillStyle = "rgba(127, 127, 127, 0.85)";
+        ctx.font = "11px sans-serif";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "bottom";
+        ctx.fillText("x", width - 4, height - 2);
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        ctx.fillText("y", 4, 2);
+      }
     }
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";

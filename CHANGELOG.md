@@ -2,6 +2,19 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.196.0 — 2026-11-03
+
+- Graph paper controls: **grid** and **axes** checkboxes hide either layer, and
+  an optional **grid step** sets a fixed spacing for gridlines and tick labels.
+  Empty means automatic spacing; a non-numeric, non-positive, too small or too
+  large step is refused with an announced message and the last valid value is
+  kept.
+- The paper settings are saved under `settings.reference.graph.paper` and restored
+  with the graph. Settings saved before this release get the default paper — grid
+  and axes shown, automatic step — and paint exactly as before. Every control is
+  labelled and keyboard-operable, and changes are announced in the polite live
+  region.
+
 ## 1.195.0 — 2026-11-03
 
 - The graph expression list supports **Undo** and **Redo** for adding, editing,
