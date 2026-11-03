@@ -30450,6 +30450,36 @@ function addAngleBisector(model, vertex, a, b, label) {
   return addObject(model, { type: "angleBisector", points: [vertex, a, b], through: v, direction: { x: direction.x / length, y: direction.y / length }, label: String(label || "").trim() });
 }
 
+function transformPoint(point, kind, params) {
+  const p = params || {};
+  if (kind === "translate") return { x: point.x + Number(p.dx || 0), y: point.y + Number(p.dy || 0) };
+  if (kind === "rotate") {
+    const angle = (Number(p.degrees || 0) * Math.PI) / 180;
+    return { x: point.x * Math.cos(angle) - point.y * Math.sin(angle), y: point.x * Math.sin(angle) + point.y * Math.cos(angle) };
+  }
+  if (kind === "reflectX") return { x: point.x, y: -point.y };
+  if (kind === "reflectY") return { x: -point.x, y: point.y };
+  if (kind === "dilate") {
+    const factor = Number(p.factor);
+    if (!Number.isFinite(factor) || factor === 0) throw new Error("A dilation needs a non-zero finite factor.");
+    return { x: point.x * factor, y: point.y * factor };
+  }
+  throw new Error(`Unknown transformation ${kind}.`);
+}
+
+function addTransform(model, source, kind, params, label) {
+  if (!objectById(model, source)) throw new Error("Choose an existing object to transform.");
+  if (!["translate", "rotate", "reflectX", "reflectY", "dilate"].includes(kind)) throw new Error("Choose a translation, rotation, reflection or dilation.");
+  const p = {};
+  if (kind === "translate") { p.dx = finite((params || {}).dx, "Translation x"); p.dy = finite((params || {}).dy, "Translation y"); }
+  if (kind === "rotate") p.degrees = finite((params || {}).degrees, "Rotation angle");
+  if (kind === "dilate") { p.factor = finite((params || {}).factor, "Dilation factor"); if (p.factor === 0) throw new Error("A dilation cannot use a factor of 0."); }
+  // Resolve once so an invalid source shape is rejected before it is stored.
+  const resolved = resolveObject(model, objectById(model, source));
+  if (!resolved) throw new Error("That source object cannot be transformed.");
+  return addObject(model, { type: "transform", source, kind, params: p, label: String(label || "").trim() });
+}
+
 function addCircumcircle(model, a, b, c, label) {
   requirePoint(model, a, "The first circle point");
   requirePoint(model, b, "The second circle point");
@@ -30545,6 +30575,10 @@ function pointOf(model, id, seen) {
     if (!hits.length) throw new Error("These objects do not intersect.");
     return hits[0];
   }
+  if (object.type === "transform") {
+    const resolved = resolveObject(model, object);
+    if (resolved && resolved.type === "point") return resolved.point;
+  }
   throw new Error(`${object.type} is not a point.`);
 }
 
@@ -30584,6 +30618,20 @@ function resolveObject(model, object) {
   }
   if (object.type === "perpendicularBisector" || object.type === "angleBisector") {
     return { type: "line", id: object.id, a: object.through, b: { x: object.through.x + object.direction.x, y: object.through.y + object.direction.y }, label: object.label };
+  }
+  if (object.type === "transform") {
+    const source = resolveObject(model, objectById(model, object.source));
+    if (!source) return null;
+    if (source.type === "point") return { type: "point", id: object.id, point: transformPoint(source.point, object.kind, object.params), label: object.label };
+    if (source.type === "segment" || source.type === "line" || source.type === "ray") {
+      return { type: source.type, id: object.id, a: transformPoint(source.a, object.kind, object.params), b: transformPoint(source.b, object.kind, object.params), label: object.label };
+    }
+    if (source.type === "circle") {
+      const center = transformPoint(source.center, object.kind, object.params);
+      const through = transformPoint(source.through, object.kind, object.params);
+      return { type: "circle", id: object.id, center, through, radius: Math.hypot(through.x - center.x, through.y - center.y), label: object.label };
+    }
+    if (source.type === "polygon") return { type: "polygon", id: object.id, points: source.points.map((point) => transformPoint(point, object.kind, object.params)), label: object.label };
   }
   if (object.type === "polygon") {
     const points = object.points.map((id) => pointOf(model, id));
@@ -30688,6 +30736,7 @@ function removeObject(model, id) {
       if (removed.has(object.id)) continue;
       const refs = Array.isArray(object.points) ? object.points.slice() : [];
       if (object.line) refs.push(object.line);
+      if (object.source) refs.push(object.source);
       if (Array.isArray(object.sources)) refs.push(...object.sources);
       if (refs.some((pointId) => removed.has(pointId))) {
         removed.add(object.id);
@@ -30733,6 +30782,8 @@ function normalizeModel(value) {
         addObject(model, { id: String(raw.id || ""), type: "intersection", sources: (raw.sources || []).map(String), label: String(raw.label || "") });
       } else if (raw.type === "parallel" || raw.type === "perpendicular") {
         addObject(model, { id: String(raw.id || ""), type: raw.type, points: (raw.points || []).map(String), line: String(raw.line || ""), direction: raw.direction, label: String(raw.label || "") });
+      } else if (raw.type === "transform") {
+        addObject(model, { id: String(raw.id || ""), type: "transform", source: String(raw.source || ""), kind: String(raw.kind || ""), params: raw.params, label: String(raw.label || "") });
       }
     } catch (e) {
       // Skip a damaged stored object; the rest of the drawing still loads.
@@ -30833,6 +30884,7 @@ module.exports = {
   addPolygon,
   addRay,
   addSegment,
+  addTransform,
   angleAt,
   clone,
   createModel,
@@ -30851,6 +30903,7 @@ module.exports = {
   resolveObject,
   slope,
   summary,
+  transformPoint,
 };
 };
 
@@ -30898,6 +30951,48 @@ function addGeometryObject(type, first, second, polygonText, third, sourceA, sou
     this.persistGeometryState();
     this.render();
     this.announceGeometry(`${object.type} added.`);
+    return { ok: true, object };
+  } catch (e) {
+    return this.failGeometry(e);
+  }
+}
+
+function renderTransformForm(view, root) {
+  const form = root.createDiv({ cls: "qt-ref-geometry-form" });
+  form.createDiv({ cls: "qt-ref-graph-data-head", text: "Transform an object" });
+  const sourceWrap = form.createEl("label", { cls: "qt-ref-graph-bound" });
+  sourceWrap.createSpan({ text: "source" });
+  const source = sourceWrap.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": "Transformation source" } });
+  for (const object of view.geometryModel.objects) source.createEl("option", { text: `${object.type} ${object.label || object.id}`, value: object.id });
+  const kindWrap = form.createEl("label", { cls: "qt-ref-graph-bound" });
+  kindWrap.createSpan({ text: "kind" });
+  const kind = kindWrap.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": "Transformation kind" } });
+  for (const [value, label] of [["translate", "translate"], ["rotate", "rotate"], ["reflectX", "reflect x-axis"], ["reflectY", "reflect y-axis"], ["dilate", "dilate"]]) kind.createEl("option", { text: label, value });
+  const fields = form.createDiv({ cls: "qt-row qt-ref-geometry-fields" });
+  const field = (label, aria, defaultValue) => {
+    const wrap = fields.createEl("label", { cls: "qt-ref-graph-bound" });
+    wrap.createSpan({ text: label });
+    const input = wrap.createEl("input", { cls: "qt-ref-amount", attr: { type: "number", step: "any", "aria-label": aria } });
+    input.value = String(defaultValue);
+    return input;
+  };
+  const dx = field("dx", "Transformation dx", 0);
+  const dy = field("dy", "Transformation dy", 0);
+  const degrees = field("degrees", "Transformation angle", 0);
+  const factor = field("factor", "Transformation factor", 2);
+  form.createEl("button", { text: "Add transform", attr: { type: "button", "aria-label": "Add geometry transformation" } })
+    .addEventListener("click", () => view.addGeometryTransform(source.value, kind.value, dx.value, dy.value, degrees.value, factor.value));
+}
+
+function addGeometryTransform(source, kind, dx, dy, degrees, factor) {
+  try {
+    const params = kind === "translate"
+      ? { dx, dy }
+      : kind === "rotate" ? { degrees } : kind === "dilate" ? { factor } : {};
+    const object = geometry.addTransform(this.geometryModel, source, kind, params);
+    this.persistGeometryState();
+    this.render();
+    this.announceGeometry(`${object.kind} transform added.`);
     return { ok: true, object };
   } catch (e) {
     return this.failGeometry(e);
@@ -30959,12 +31054,14 @@ function drawGeometry() {
 
 module.exports = {
   addGeometryObject,
+  addGeometryTransform,
   addGeometryPoint,
   announceGeometry,
   drawGeometry,
   failGeometry,
   persistGeometryState,
   removeGeometryObject,
+  renderTransformForm,
 };
 };
 
@@ -65253,6 +65350,7 @@ class ReferenceView extends ItemView {
     objectForm.createEl("button", { text: "Add object", attr: { type: "button", "aria-label": "Add geometry object" } })
       .addEventListener("click", () => this.addGeometryObject(typeSelect.value, first.value, second.value, polygonInput.value, third.value, sourceA.value, sourceB.value));
 
+    geometryPanel.renderTransformForm(this, root);
     const list = root.createDiv({ cls: "qt-ref-geometry-list" });
     list.createDiv({ cls: "qt-ref-graph-data-head", text: "Objects" });
     if (!this.geometryModel.objects.length) list.createDiv({ cls: "qt-ref-matrix-hint", text: "Start with a point." });

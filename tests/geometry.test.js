@@ -135,3 +135,42 @@ test("reference view: construction controls create a midpoint", async () => {
   assert.equal(result.object.type, "midpoint");
   assert.deepEqual(T.geometry.pointOf(view.geometryModel, result.object.id), { x: 2, y: 0 });
 });
+
+test("geometry: transformations resolve from their source and are removable", () => {
+  const g = T.geometry;
+  const model = g.createModel();
+  const point = g.addPoint(model, 2, 3, "P");
+  const translated = g.addTransform(model, point.id, "translate", { dx: 1, dy: -1 });
+  assert.deepEqual(g.pointOf(model, translated.id), { x: 3, y: 2 });
+  const rotated = g.addTransform(model, point.id, "rotate", { degrees: 90 });
+  const rotatedPoint = g.pointOf(model, rotated.id);
+  assert.ok(Math.abs(rotatedPoint.x + 3) < 1e-9 && Math.abs(rotatedPoint.y - 2) < 1e-9);
+  assert.deepEqual(g.pointOf(model, g.addTransform(model, point.id, "reflectX", {}).id), { x: 2, y: -3 });
+  assert.deepEqual(g.pointOf(model, g.addTransform(model, point.id, "reflectY", {}).id), { x: -2, y: 3 });
+  assert.deepEqual(g.pointOf(model, g.addTransform(model, point.id, "dilate", { factor: 2 }).id), { x: 4, y: 6 });
+  const segment = g.addSegment(model, point.id, g.addPoint(model, 4, 3, "Q").id);
+  const moved = g.addTransform(model, segment.id, "translate", { dx: 1, dy: 1 });
+  assert.deepEqual(g.resolveObject(model, moved).a, { x: 3, y: 4 });
+  assert.throws(() => g.addTransform(model, point.id, "translate", { dx: "x", dy: 0 }), /finite/i);
+  const removed = g.removeObject(model, point.id);
+  assert.equal(removed.ok, true);
+  assert.equal(g.objectById(model, translated.id), null);
+});
+
+test("reference view: transformation controls create a translated point", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "geometry";
+  view.render();
+  const point = view.addGeometryPoint(2, 3).point;
+  const result = view.addGeometryTransform(point.id, "translate", 1, -1, 0, 2);
+  assert.equal(result.ok, true);
+  assert.equal(result.object.type, "transform");
+  assert.deepEqual(T.geometry.pointOf(view.geometryModel, result.object.id), { x: 3, y: 2 });
+});

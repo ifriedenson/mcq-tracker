@@ -47,6 +47,48 @@ function addGeometryObject(type, first, second, polygonText, third, sourceA, sou
   }
 }
 
+function renderTransformForm(view, root) {
+  const form = root.createDiv({ cls: "qt-ref-geometry-form" });
+  form.createDiv({ cls: "qt-ref-graph-data-head", text: "Transform an object" });
+  const sourceWrap = form.createEl("label", { cls: "qt-ref-graph-bound" });
+  sourceWrap.createSpan({ text: "source" });
+  const source = sourceWrap.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": "Transformation source" } });
+  for (const object of view.geometryModel.objects) source.createEl("option", { text: `${object.type} ${object.label || object.id}`, value: object.id });
+  const kindWrap = form.createEl("label", { cls: "qt-ref-graph-bound" });
+  kindWrap.createSpan({ text: "kind" });
+  const kind = kindWrap.createEl("select", { cls: "qt-ref-amount", attr: { "aria-label": "Transformation kind" } });
+  for (const [value, label] of [["translate", "translate"], ["rotate", "rotate"], ["reflectX", "reflect x-axis"], ["reflectY", "reflect y-axis"], ["dilate", "dilate"]]) kind.createEl("option", { text: label, value });
+  const fields = form.createDiv({ cls: "qt-row qt-ref-geometry-fields" });
+  const field = (label, aria, defaultValue) => {
+    const wrap = fields.createEl("label", { cls: "qt-ref-graph-bound" });
+    wrap.createSpan({ text: label });
+    const input = wrap.createEl("input", { cls: "qt-ref-amount", attr: { type: "number", step: "any", "aria-label": aria } });
+    input.value = String(defaultValue);
+    return input;
+  };
+  const dx = field("dx", "Transformation dx", 0);
+  const dy = field("dy", "Transformation dy", 0);
+  const degrees = field("degrees", "Transformation angle", 0);
+  const factor = field("factor", "Transformation factor", 2);
+  form.createEl("button", { text: "Add transform", attr: { type: "button", "aria-label": "Add geometry transformation" } })
+    .addEventListener("click", () => view.addGeometryTransform(source.value, kind.value, dx.value, dy.value, degrees.value, factor.value));
+}
+
+function addGeometryTransform(source, kind, dx, dy, degrees, factor) {
+  try {
+    const params = kind === "translate"
+      ? { dx, dy }
+      : kind === "rotate" ? { degrees } : kind === "dilate" ? { factor } : {};
+    const object = geometry.addTransform(this.geometryModel, source, kind, params);
+    this.persistGeometryState();
+    this.render();
+    this.announceGeometry(`${object.kind} transform added.`);
+    return { ok: true, object };
+  } catch (e) {
+    return this.failGeometry(e);
+  }
+}
+
 function removeGeometryObject(id) {
   const result = geometry.removeObject(this.geometryModel, id);
   this.persistGeometryState();
@@ -102,10 +144,12 @@ function drawGeometry() {
 
 module.exports = {
   addGeometryObject,
+  addGeometryTransform,
   addGeometryPoint,
   announceGeometry,
   drawGeometry,
   failGeometry,
   persistGeometryState,
   removeGeometryObject,
+  renderTransformForm,
 };

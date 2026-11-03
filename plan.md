@@ -1284,7 +1284,7 @@ Owner decisions: include explicit and implicit 3D surfaces; do not build braille
 | 1.200.0 | Complex graph mode | Domain coloring and complex points | **Shipped** |
 | 1.201.0 | Geometry primitives | Points, segments, lines, circles, polygons and measurements | **Shipped** |
 | 1.202.0 | Geometry constructions | Midpoints, intersections, perpendiculars and bisectors | **Shipped** |
-| 1.203.0 | Geometry transformations | Translate, rotate, reflect and dilate | **Queued** |
+| 1.203.0 | Geometry transformations | Translate, rotate, reflect and dilate | **Shipped** |
 | 1.204.0 | 3D core | Explicit `z = f(x,y)` surfaces, points, camera and software renderer | **Queued** |
 | 1.205.0 | 3D implicit surfaces | `F(x,y,z) = 0` via bounded marching cubes | **Queued** |
 | 1.206.0 | 3D curves and performance | Parametric curves, LOD, color, export and print | **Queued** |

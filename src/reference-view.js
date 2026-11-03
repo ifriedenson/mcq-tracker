@@ -677,6 +677,7 @@ class ReferenceView extends ItemView {
     objectForm.createEl("button", { text: "Add object", attr: { type: "button", "aria-label": "Add geometry object" } })
       .addEventListener("click", () => this.addGeometryObject(typeSelect.value, first.value, second.value, polygonInput.value, third.value, sourceA.value, sourceB.value));
 
+    geometryPanel.renderTransformForm(this, root);
     const list = root.createDiv({ cls: "qt-ref-geometry-list" });
     list.createDiv({ cls: "qt-ref-graph-data-head", text: "Objects" });
     if (!this.geometryModel.objects.length) list.createDiv({ cls: "qt-ref-matrix-hint", text: "Start with a point." });

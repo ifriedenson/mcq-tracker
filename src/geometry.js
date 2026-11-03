@@ -158,6 +158,36 @@ function addAngleBisector(model, vertex, a, b, label) {
   return addObject(model, { type: "angleBisector", points: [vertex, a, b], through: v, direction: { x: direction.x / length, y: direction.y / length }, label: String(label || "").trim() });
 }
 
+function transformPoint(point, kind, params) {
+  const p = params || {};
+  if (kind === "translate") return { x: point.x + Number(p.dx || 0), y: point.y + Number(p.dy || 0) };
+  if (kind === "rotate") {
+    const angle = (Number(p.degrees || 0) * Math.PI) / 180;
+    return { x: point.x * Math.cos(angle) - point.y * Math.sin(angle), y: point.x * Math.sin(angle) + point.y * Math.cos(angle) };
+  }
+  if (kind === "reflectX") return { x: point.x, y: -point.y };
+  if (kind === "reflectY") return { x: -point.x, y: point.y };
+  if (kind === "dilate") {
+    const factor = Number(p.factor);
+    if (!Number.isFinite(factor) || factor === 0) throw new Error("A dilation needs a non-zero finite factor.");
+    return { x: point.x * factor, y: point.y * factor };
+  }
+  throw new Error(`Unknown transformation ${kind}.`);
+}
+
+function addTransform(model, source, kind, params, label) {
+  if (!objectById(model, source)) throw new Error("Choose an existing object to transform.");
+  if (!["translate", "rotate", "reflectX", "reflectY", "dilate"].includes(kind)) throw new Error("Choose a translation, rotation, reflection or dilation.");
+  const p = {};
+  if (kind === "translate") { p.dx = finite((params || {}).dx, "Translation x"); p.dy = finite((params || {}).dy, "Translation y"); }
+  if (kind === "rotate") p.degrees = finite((params || {}).degrees, "Rotation angle");
+  if (kind === "dilate") { p.factor = finite((params || {}).factor, "Dilation factor"); if (p.factor === 0) throw new Error("A dilation cannot use a factor of 0."); }
+  // Resolve once so an invalid source shape is rejected before it is stored.
+  const resolved = resolveObject(model, objectById(model, source));
+  if (!resolved) throw new Error("That source object cannot be transformed.");
+  return addObject(model, { type: "transform", source, kind, params: p, label: String(label || "").trim() });
+}
+
 function addCircumcircle(model, a, b, c, label) {
   requirePoint(model, a, "The first circle point");
   requirePoint(model, b, "The second circle point");
@@ -253,6 +283,10 @@ function pointOf(model, id, seen) {
     if (!hits.length) throw new Error("These objects do not intersect.");
     return hits[0];
   }
+  if (object.type === "transform") {
+    const resolved = resolveObject(model, object);
+    if (resolved && resolved.type === "point") return resolved.point;
+  }
   throw new Error(`${object.type} is not a point.`);
 }
 
@@ -292,6 +326,20 @@ function resolveObject(model, object) {
   }
   if (object.type === "perpendicularBisector" || object.type === "angleBisector") {
     return { type: "line", id: object.id, a: object.through, b: { x: object.through.x + object.direction.x, y: object.through.y + object.direction.y }, label: object.label };
+  }
+  if (object.type === "transform") {
+    const source = resolveObject(model, objectById(model, object.source));
+    if (!source) return null;
+    if (source.type === "point") return { type: "point", id: object.id, point: transformPoint(source.point, object.kind, object.params), label: object.label };
+    if (source.type === "segment" || source.type === "line" || source.type === "ray") {
+      return { type: source.type, id: object.id, a: transformPoint(source.a, object.kind, object.params), b: transformPoint(source.b, object.kind, object.params), label: object.label };
+    }
+    if (source.type === "circle") {
+      const center = transformPoint(source.center, object.kind, object.params);
+      const through = transformPoint(source.through, object.kind, object.params);
+      return { type: "circle", id: object.id, center, through, radius: Math.hypot(through.x - center.x, through.y - center.y), label: object.label };
+    }
+    if (source.type === "polygon") return { type: "polygon", id: object.id, points: source.points.map((point) => transformPoint(point, object.kind, object.params)), label: object.label };
   }
   if (object.type === "polygon") {
     const points = object.points.map((id) => pointOf(model, id));
@@ -396,6 +444,7 @@ function removeObject(model, id) {
       if (removed.has(object.id)) continue;
       const refs = Array.isArray(object.points) ? object.points.slice() : [];
       if (object.line) refs.push(object.line);
+      if (object.source) refs.push(object.source);
       if (Array.isArray(object.sources)) refs.push(...object.sources);
       if (refs.some((pointId) => removed.has(pointId))) {
         removed.add(object.id);
@@ -441,6 +490,8 @@ function normalizeModel(value) {
         addObject(model, { id: String(raw.id || ""), type: "intersection", sources: (raw.sources || []).map(String), label: String(raw.label || "") });
       } else if (raw.type === "parallel" || raw.type === "perpendicular") {
         addObject(model, { id: String(raw.id || ""), type: raw.type, points: (raw.points || []).map(String), line: String(raw.line || ""), direction: raw.direction, label: String(raw.label || "") });
+      } else if (raw.type === "transform") {
+        addObject(model, { id: String(raw.id || ""), type: "transform", source: String(raw.source || ""), kind: String(raw.kind || ""), params: raw.params, label: String(raw.label || "") });
       }
     } catch (e) {
       // Skip a damaged stored object; the rest of the drawing still loads.
@@ -541,6 +592,7 @@ module.exports = {
   addPolygon,
   addRay,
   addSegment,
+  addTransform,
   angleAt,
   clone,
   createModel,
@@ -559,4 +611,5 @@ module.exports = {
   resolveObject,
   slope,
   summary,
+  transformPoint,
 };

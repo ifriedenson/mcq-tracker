@@ -2,6 +2,13 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.203.0 — 2026-11-03
+
+- Geometry transformations: translate, rotate about the origin, reflect across
+  the x or y axis, and dilate about the origin. Transforms are dependent
+  objects, so they follow their source and are removed with it.
+- Invalid parameters and missing sources report a readable error.
+
 ## 1.202.0 — 2026-11-03
 
 - Geometry constructions: midpoints, line/circle intersections, parallel and
