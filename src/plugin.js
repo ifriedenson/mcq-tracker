@@ -33,6 +33,7 @@ const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
+const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
 const { renderCornellBlock } = require("./cornell-view");
@@ -972,6 +973,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.retention = studyWorkspace.normalizeRetention(saved.retention);
     this.settings.vocabulary = studyWorkspace.normalizeVocabulary(saved.vocabulary);
     this.settings.readingLibrary = readingLibrary.normalizeLibrary(saved.readingLibrary);
+    this.settings.writingSession = writingSessions.normalizeWritingSession(saved.writingSession);
     this.settings.readAloud = readAloud.normalizeReadAloudSettings(saved.readAloud);
     this.settings.lectureCompiler = lectureCompiler.normalizeLectureCompilerSettings(saved.lectureCompiler);
     this.settings.courseHealth = courseHealth.normalizeCourseHealthSettings(saved.courseHealth);
@@ -9047,7 +9049,73 @@ ${body}
       }
       entries.push({ path: file.path, text });
     }
-    return glossary.collectGlossary(entries, settings);
+    const words = this.studyWorkspaceSettings().vocabulary.words.map((word) => ({
+      term: word.term,
+      definition: word.definition,
+      source: "vocabulary",
+    }));
+    return glossary.collectGlossary(entries, settings, words);
+  }
+
+  /* ---- Read-only writing-session count -------------------------------- */
+
+  writingSessionState() {
+    return writingSessions.normalizeWritingSession(this.settings.writingSession);
+  }
+
+  /** The active note's path, without opening or creating anything. */
+  activeNotePath() {
+    const workspace = this.app.workspace || {};
+    const active = workspace.activeEditor;
+    if (active && active.file && active.file.path) return active.file.path;
+    const file = typeof workspace.getActiveFile === "function" ? workspace.getActiveFile() : null;
+    return file && file.path ? file.path : "";
+  }
+
+  /** The active note's text from the editor, or its cached file. Read-only. */
+  async activeNoteText() {
+    const workspace = this.app.workspace || {};
+    const active = workspace.activeEditor;
+    const editor = active && active.editor;
+    if (editor && typeof editor.getValue === "function") return str(editor.getValue());
+    const path = this.activeNotePath();
+    if (!path) return "";
+    const file = this.app.vault.getAbstractFileByPath ? this.app.vault.getAbstractFileByPath(path) : null;
+    if (!file) return "";
+    try {
+      return await this.app.vault.cachedRead(file);
+    } catch (e) {
+      return "";
+    }
+  }
+
+  async writingSessionReport() {
+    return writingSessions.sessionReport(this.writingSessionState(), await this.activeNoteText(), Date.now());
+  }
+
+  async startWritingSession() {
+    const text = await this.activeNoteText();
+    const result = writingSessions.startWritingSession(this.writingSessionState(), { path: this.activeNotePath(), text }, Date.now());
+    if (!result.ok) return result;
+    this.settings.writingSession = result.value;
+    await this.save();
+    return result;
+  }
+
+  async finishWritingSession() {
+    const text = await this.activeNoteText();
+    const result = writingSessions.finishWritingSession(this.writingSessionState(), text, Date.now());
+    if (!result.ok) return result;
+    this.settings.writingSession = result.value;
+    await this.save();
+    this.refreshViews();
+    return result;
+  }
+
+  async cancelWritingSession() {
+    this.settings.writingSession = writingSessions.cancelWritingSession(this.writingSessionState());
+    await this.save();
+    return this.settings.writingSession;
   }
 
   async getPdfAnnotationIndex() {

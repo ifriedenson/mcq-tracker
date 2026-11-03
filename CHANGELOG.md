@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.210.10 — 2026-11-03
+
+- **Writing session (read-only)** in the Study Flow tab. Count words reports
+  the active note's words, sentences and reading time and, after Start
+  session, the words added since then. A finished session is stored as a
+  local time-and-count row; the note is only read.
+- **The glossary now covers both stores.** Build glossary keeps reading
+  `Term: definition` lines and two-column tables, and also folds in the saved
+  vocabulary list and the lecture-note `| Term | Definition | Lecture |`
+  tables, so one lookup reaches note definitions, lecture vocabulary and
+  dictionary words. A note entry wins over a duplicate vocabulary entry.
+
 ## 1.210.9 — 2026-11-03
 
 - **Rename a task tag** in the Study Workspace Tasks tab. One tag is renamed

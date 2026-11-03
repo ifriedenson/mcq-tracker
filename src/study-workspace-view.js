@@ -13,6 +13,7 @@ const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
+const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { CODE_BLOCK_MODES: READ_ALOUD_CODE, READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
@@ -194,6 +195,7 @@ class StudyWorkspaceView extends ItemView {
     this.vaultTaskFilter = "";
     this.glossaryData = null;
     this.glossaryFilter = "";
+    this.writingReport = null;
     this.timeBlockView = "day";
     this.timeBlockDate = localDate();
     this.timeBlockEditId = "";
@@ -744,6 +746,7 @@ class StudyWorkspaceView extends ItemView {
     });
     if (!data.excerpts.length) {
       this.renderTabsEmpty(root, "No source excerpts yet. Capture the first passage above; it stays in this vault.");
+      this.renderWritingSession(root);
       return;
     }
     const filterRow = root.createDiv({ cls: "qt-row qt-study-actions qt-workspace-filters" });
@@ -764,6 +767,7 @@ class StudyWorkspaceView extends ItemView {
       .sort((a, b) => b.createdAt - a.createdAt);
     if (!excerpts.length) {
       listCard.createDiv({ cls: "qt-study-empty qt-workspace-filter-empty", text: "No excerpts match this filter. Choose All to see the rest." });
+      this.renderWritingSession(root);
       return;
     }
     const list = listCard.createDiv({ cls: "qt-study-list" });
@@ -788,6 +792,71 @@ class StudyWorkspaceView extends ItemView {
         await this.plugin.removeFlowExcerpt(excerpt.id);
         this.render();
       });
+    }
+    this.renderWritingSession(root);
+  }
+
+  /** Read-only word count for the active note and one local session log. */
+  renderWritingSession(root) {
+    const card = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure", attr: this.writingReport ? { open: "" } : {} });
+    card.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Writing session (read-only)" });
+    card.createDiv({
+      cls: "qt-hint",
+      text: "Counts the words, sentences and reading time of the active note, plus the words added since you started. The note is only read: nothing is written to it and no background index runs. Only the session times are stored locally.",
+    });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    const refresh = async () => {
+      this.writingReport = await this.plugin.writingSessionReport();
+      this.render();
+    };
+    actions.createEl("button", { text: "Count words" }).addEventListener("click", async () => {
+      this.writingReport = await this.plugin.writingSessionReport();
+      this.saveMessage(writingSessions.writingSummary(this.writingReport));
+      this.render();
+    });
+    if (this.writingReport) {
+      const report = this.writingReport;
+      card.createDiv({
+        cls: "qt-study-row-meta",
+        text: report.running ? `Running · ${report.path || "active note"} · ${report.minutes} min` : "No session running.",
+      });
+      card.createDiv({ cls: "qt-study-row-meta", text: writingSessions.writingSummary(report) });
+      if (report.running) {
+        actions.createEl("button", { text: "Finish session", cls: "mod-cta" }).addEventListener("click", async () => {
+          const result = await this.plugin.finishWritingSession();
+          await refresh();
+          this.saveMessage(result.ok && result.session ? writingSessions.sessionLine(result.session) : str(result.message));
+          this.render();
+        });
+        actions.createEl("button", { text: "Cancel" }).addEventListener("click", async () => {
+          await this.plugin.cancelWritingSession();
+          await refresh();
+          this.saveMessage("Writing session cancelled.");
+          this.render();
+        });
+      } else {
+        actions.createEl("button", { text: "Start session", cls: "mod-cta" }).addEventListener("click", async () => {
+          const result = await this.plugin.startWritingSession();
+          if (!result.ok) {
+            this.saveMessage(str(result.message));
+            this.render();
+            return;
+          }
+          await refresh();
+          this.saveMessage("Writing session started.");
+          this.render();
+        });
+      }
+      if (report.totals.count) {
+        card.createDiv({
+          cls: "qt-study-row-meta",
+          text: `${report.totals.count} session${report.totals.count === 1 ? "" : "s"} · ${report.totals.minutes} min · +${report.totals.words} words`,
+        });
+        const list = card.createDiv({ cls: "qt-study-list" });
+        for (const session of report.sessions.slice(-5).reverse()) {
+          list.createDiv({ cls: "qt-study-row-meta", text: writingSessions.sessionLine(session) });
+        }
+      }
     }
   }
 
@@ -1462,7 +1531,7 @@ class StudyWorkspaceView extends ItemView {
     if (!data) return;
     card.createDiv({
       cls: "qt-study-row-meta",
-      text: `${data.stats.terms} term(s) · ${data.stats.files} note(s)${data.stats.duplicates ? ` · ${data.stats.duplicates} duplicate(s) kept out` : ""}${data.truncated ? " · first matches only" : ""}`,
+      text: `${data.stats.terms} term(s) · ${data.stats.files} note(s)${data.stats.vocabulary ? ` · ${data.stats.vocabulary} from the vocabulary list` : ""}${data.stats.duplicates ? ` · ${data.stats.duplicates} duplicate(s) kept out` : ""}${data.truncated ? " · first matches only" : ""}`,
     });
     const field = this.renderField(card, "Glossary lookup", "text", "Search a term", this.glossaryFilter);
     field.addEventListener("input", () => {
@@ -1480,9 +1549,9 @@ class StudyWorkspaceView extends ItemView {
       const main = item.createDiv({ cls: "qt-study-row-main" });
       main.createDiv({ cls: "qt-study-row-title", text: row.term });
       main.createDiv({ cls: "qt-study-row-meta", text: row.definition });
-      main.createDiv({ cls: "qt-study-row-meta", text: `${row.path}:${row.line}` });
+      main.createDiv({ cls: "qt-study-row-meta", text: row.path ? `${row.path}:${row.line}` : "Vocabulary list" });
       const buttons = item.createDiv({ cls: "qt-row qt-study-row-actions" });
-      buttons.createEl("button", { text: "Open note" }).addEventListener("click", () => this.app.workspace.openLinkText(row.path, "", false));
+      if (row.path) buttons.createEl("button", { text: "Open note" }).addEventListener("click", () => this.app.workspace.openLinkText(row.path, "", false));
     }
   }
 

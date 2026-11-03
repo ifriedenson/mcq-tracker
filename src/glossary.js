@@ -119,7 +119,7 @@ function glossaryLines(text) {
  * definition of a term wins; later copies are counted, not merged. Nothing is
  * written, linked or resolved.
  */
-function collectGlossary(entries, options) {
+function collectGlossary(entries, options, extra) {
   const settings = normalizeGlossaryOptions(options);
   const rows = [];
   const files = [];
@@ -153,6 +153,31 @@ function collectGlossary(entries, options) {
     }
     if (truncated) break;
   }
+  const extras = [];
+  let vocabulary = 0;
+  for (const item of Array.isArray(extra) ? extra : []) {
+    const source = asObject(item);
+    const row = pair(source.term, source.definition);
+    if (!row) continue;
+    if (seen.has(row.term.toLowerCase())) {
+      duplicates += 1;
+      continue;
+    }
+    if (rows.length >= MAX_ENTRIES) {
+      truncated = true;
+      break;
+    }
+    seen.add(row.term.toLowerCase());
+    extras.push({
+      term: row.term,
+      definition: row.definition,
+      path: str(source.path).trim().slice(0, 400),
+      line: Math.max(0, Math.round(Number(source.line) || 0)),
+      source: str(source.source).trim().slice(0, 40) || "vocabulary",
+    });
+    vocabulary += 1;
+  }
+  rows.push(...extras);
   rows.sort((a, b) => a.term.localeCompare(b.term) || a.path.localeCompare(b.path));
   return {
     entries: rows.slice(0, settings.limit),
@@ -163,6 +188,7 @@ function collectGlossary(entries, options) {
       terms: rows.length,
       shown: Math.min(rows.length, settings.limit),
       duplicates,
+      vocabulary,
     },
   };
 }

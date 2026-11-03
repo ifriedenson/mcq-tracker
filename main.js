@@ -20920,6 +20920,7 @@ const DEFAULT_SETTINGS = {
   retention: { enabled: true }, // read-only card forecast
   vocabulary: { enabled: true, words: [] }, // local dictionary and per-word review ladder
   readingLibrary: { enabled: true, hideFinished: false, books: [] }, // local bookshelf, page progress and captured quotes
+  writingSession: { path: "", startedAt: 0, baseline: 0, sessions: [] }, // read-only writing-session count; only session times are stored
   readAloud: { enabled: true, style: "full", rate: 1, pitch: 1, voice: "" }, // device speech synthesis, local only
   lectureCompiler: { enabled: true, folder: "Lecture notes", includeOverview: true, includeConcepts: true, includeVocabulary: true, includeSections: true }, // compile the lecture log into one study note
   courseHealth: { enabled: true, attendanceThreshold: 75, examWindowDays: 14, minSessions: 3 }, // local course health checks
@@ -31979,7 +31980,7 @@ function glossaryLines(text) {
  * definition of a term wins; later copies are counted, not merged. Nothing is
  * written, linked or resolved.
  */
-function collectGlossary(entries, options) {
+function collectGlossary(entries, options, extra) {
   const settings = normalizeGlossaryOptions(options);
   const rows = [];
   const files = [];
@@ -32013,6 +32014,31 @@ function collectGlossary(entries, options) {
     }
     if (truncated) break;
   }
+  const extras = [];
+  let vocabulary = 0;
+  for (const item of Array.isArray(extra) ? extra : []) {
+    const source = asObject(item);
+    const row = pair(source.term, source.definition);
+    if (!row) continue;
+    if (seen.has(row.term.toLowerCase())) {
+      duplicates += 1;
+      continue;
+    }
+    if (rows.length >= MAX_ENTRIES) {
+      truncated = true;
+      break;
+    }
+    seen.add(row.term.toLowerCase());
+    extras.push({
+      term: row.term,
+      definition: row.definition,
+      path: str(source.path).trim().slice(0, 400),
+      line: Math.max(0, Math.round(Number(source.line) || 0)),
+      source: str(source.source).trim().slice(0, 40) || "vocabulary",
+    });
+    vocabulary += 1;
+  }
+  rows.push(...extras);
   rows.sort((a, b) => a.term.localeCompare(b.term) || a.path.localeCompare(b.path));
   return {
     entries: rows.slice(0, settings.limit),
@@ -32023,6 +32049,7 @@ function collectGlossary(entries, options) {
       terms: rows.length,
       shown: Math.min(rows.length, settings.limit),
       duplicates,
+      vocabulary,
     },
   };
 }
@@ -47021,6 +47048,7 @@ const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
+const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
 const { renderCornellBlock } = require("./cornell-view");
@@ -47960,6 +47988,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.retention = studyWorkspace.normalizeRetention(saved.retention);
     this.settings.vocabulary = studyWorkspace.normalizeVocabulary(saved.vocabulary);
     this.settings.readingLibrary = readingLibrary.normalizeLibrary(saved.readingLibrary);
+    this.settings.writingSession = writingSessions.normalizeWritingSession(saved.writingSession);
     this.settings.readAloud = readAloud.normalizeReadAloudSettings(saved.readAloud);
     this.settings.lectureCompiler = lectureCompiler.normalizeLectureCompilerSettings(saved.lectureCompiler);
     this.settings.courseHealth = courseHealth.normalizeCourseHealthSettings(saved.courseHealth);
@@ -56035,7 +56064,73 @@ ${body}
       }
       entries.push({ path: file.path, text });
     }
-    return glossary.collectGlossary(entries, settings);
+    const words = this.studyWorkspaceSettings().vocabulary.words.map((word) => ({
+      term: word.term,
+      definition: word.definition,
+      source: "vocabulary",
+    }));
+    return glossary.collectGlossary(entries, settings, words);
+  }
+
+  /* ---- Read-only writing-session count -------------------------------- */
+
+  writingSessionState() {
+    return writingSessions.normalizeWritingSession(this.settings.writingSession);
+  }
+
+  /** The active note's path, without opening or creating anything. */
+  activeNotePath() {
+    const workspace = this.app.workspace || {};
+    const active = workspace.activeEditor;
+    if (active && active.file && active.file.path) return active.file.path;
+    const file = typeof workspace.getActiveFile === "function" ? workspace.getActiveFile() : null;
+    return file && file.path ? file.path : "";
+  }
+
+  /** The active note's text from the editor, or its cached file. Read-only. */
+  async activeNoteText() {
+    const workspace = this.app.workspace || {};
+    const active = workspace.activeEditor;
+    const editor = active && active.editor;
+    if (editor && typeof editor.getValue === "function") return str(editor.getValue());
+    const path = this.activeNotePath();
+    if (!path) return "";
+    const file = this.app.vault.getAbstractFileByPath ? this.app.vault.getAbstractFileByPath(path) : null;
+    if (!file) return "";
+    try {
+      return await this.app.vault.cachedRead(file);
+    } catch (e) {
+      return "";
+    }
+  }
+
+  async writingSessionReport() {
+    return writingSessions.sessionReport(this.writingSessionState(), await this.activeNoteText(), Date.now());
+  }
+
+  async startWritingSession() {
+    const text = await this.activeNoteText();
+    const result = writingSessions.startWritingSession(this.writingSessionState(), { path: this.activeNotePath(), text }, Date.now());
+    if (!result.ok) return result;
+    this.settings.writingSession = result.value;
+    await this.save();
+    return result;
+  }
+
+  async finishWritingSession() {
+    const text = await this.activeNoteText();
+    const result = writingSessions.finishWritingSession(this.writingSessionState(), text, Date.now());
+    if (!result.ok) return result;
+    this.settings.writingSession = result.value;
+    await this.save();
+    this.refreshViews();
+    return result;
+  }
+
+  async cancelWritingSession() {
+    this.settings.writingSession = writingSessions.cancelWritingSession(this.writingSessionState());
+    await this.save();
+    return this.settings.writingSession;
   }
 
   async getPdfAnnotationIndex() {
@@ -85069,6 +85164,7 @@ const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
+const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { CODE_BLOCK_MODES: READ_ALOUD_CODE, READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
@@ -85250,6 +85346,7 @@ class StudyWorkspaceView extends ItemView {
     this.vaultTaskFilter = "";
     this.glossaryData = null;
     this.glossaryFilter = "";
+    this.writingReport = null;
     this.timeBlockView = "day";
     this.timeBlockDate = localDate();
     this.timeBlockEditId = "";
@@ -85800,6 +85897,7 @@ class StudyWorkspaceView extends ItemView {
     });
     if (!data.excerpts.length) {
       this.renderTabsEmpty(root, "No source excerpts yet. Capture the first passage above; it stays in this vault.");
+      this.renderWritingSession(root);
       return;
     }
     const filterRow = root.createDiv({ cls: "qt-row qt-study-actions qt-workspace-filters" });
@@ -85820,6 +85918,7 @@ class StudyWorkspaceView extends ItemView {
       .sort((a, b) => b.createdAt - a.createdAt);
     if (!excerpts.length) {
       listCard.createDiv({ cls: "qt-study-empty qt-workspace-filter-empty", text: "No excerpts match this filter. Choose All to see the rest." });
+      this.renderWritingSession(root);
       return;
     }
     const list = listCard.createDiv({ cls: "qt-study-list" });
@@ -85844,6 +85943,71 @@ class StudyWorkspaceView extends ItemView {
         await this.plugin.removeFlowExcerpt(excerpt.id);
         this.render();
       });
+    }
+    this.renderWritingSession(root);
+  }
+
+  /** Read-only word count for the active note and one local session log. */
+  renderWritingSession(root) {
+    const card = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure", attr: this.writingReport ? { open: "" } : {} });
+    card.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Writing session (read-only)" });
+    card.createDiv({
+      cls: "qt-hint",
+      text: "Counts the words, sentences and reading time of the active note, plus the words added since you started. The note is only read: nothing is written to it and no background index runs. Only the session times are stored locally.",
+    });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    const refresh = async () => {
+      this.writingReport = await this.plugin.writingSessionReport();
+      this.render();
+    };
+    actions.createEl("button", { text: "Count words" }).addEventListener("click", async () => {
+      this.writingReport = await this.plugin.writingSessionReport();
+      this.saveMessage(writingSessions.writingSummary(this.writingReport));
+      this.render();
+    });
+    if (this.writingReport) {
+      const report = this.writingReport;
+      card.createDiv({
+        cls: "qt-study-row-meta",
+        text: report.running ? `Running · ${report.path || "active note"} · ${report.minutes} min` : "No session running.",
+      });
+      card.createDiv({ cls: "qt-study-row-meta", text: writingSessions.writingSummary(report) });
+      if (report.running) {
+        actions.createEl("button", { text: "Finish session", cls: "mod-cta" }).addEventListener("click", async () => {
+          const result = await this.plugin.finishWritingSession();
+          await refresh();
+          this.saveMessage(result.ok && result.session ? writingSessions.sessionLine(result.session) : str(result.message));
+          this.render();
+        });
+        actions.createEl("button", { text: "Cancel" }).addEventListener("click", async () => {
+          await this.plugin.cancelWritingSession();
+          await refresh();
+          this.saveMessage("Writing session cancelled.");
+          this.render();
+        });
+      } else {
+        actions.createEl("button", { text: "Start session", cls: "mod-cta" }).addEventListener("click", async () => {
+          const result = await this.plugin.startWritingSession();
+          if (!result.ok) {
+            this.saveMessage(str(result.message));
+            this.render();
+            return;
+          }
+          await refresh();
+          this.saveMessage("Writing session started.");
+          this.render();
+        });
+      }
+      if (report.totals.count) {
+        card.createDiv({
+          cls: "qt-study-row-meta",
+          text: `${report.totals.count} session${report.totals.count === 1 ? "" : "s"} · ${report.totals.minutes} min · +${report.totals.words} words`,
+        });
+        const list = card.createDiv({ cls: "qt-study-list" });
+        for (const session of report.sessions.slice(-5).reverse()) {
+          list.createDiv({ cls: "qt-study-row-meta", text: writingSessions.sessionLine(session) });
+        }
+      }
     }
   }
 
@@ -86518,7 +86682,7 @@ class StudyWorkspaceView extends ItemView {
     if (!data) return;
     card.createDiv({
       cls: "qt-study-row-meta",
-      text: `${data.stats.terms} term(s) · ${data.stats.files} note(s)${data.stats.duplicates ? ` · ${data.stats.duplicates} duplicate(s) kept out` : ""}${data.truncated ? " · first matches only" : ""}`,
+      text: `${data.stats.terms} term(s) · ${data.stats.files} note(s)${data.stats.vocabulary ? ` · ${data.stats.vocabulary} from the vocabulary list` : ""}${data.stats.duplicates ? ` · ${data.stats.duplicates} duplicate(s) kept out` : ""}${data.truncated ? " · first matches only" : ""}`,
     });
     const field = this.renderField(card, "Glossary lookup", "text", "Search a term", this.glossaryFilter);
     field.addEventListener("input", () => {
@@ -86536,9 +86700,9 @@ class StudyWorkspaceView extends ItemView {
       const main = item.createDiv({ cls: "qt-study-row-main" });
       main.createDiv({ cls: "qt-study-row-title", text: row.term });
       main.createDiv({ cls: "qt-study-row-meta", text: row.definition });
-      main.createDiv({ cls: "qt-study-row-meta", text: `${row.path}:${row.line}` });
+      main.createDiv({ cls: "qt-study-row-meta", text: row.path ? `${row.path}:${row.line}` : "Vocabulary list" });
       const buttons = item.createDiv({ cls: "qt-row qt-study-row-actions" });
-      buttons.createEl("button", { text: "Open note" }).addEventListener("click", () => this.app.workspace.openLinkText(row.path, "", false));
+      if (row.path) buttons.createEl("button", { text: "Open note" }).addEventListener("click", () => this.app.workspace.openLinkText(row.path, "", false));
     }
   }
 
@@ -93246,6 +93410,196 @@ module.exports = {
 };
 };
 
+/* ---- src/writing-sessions.js ---- */
+__defs["writing-sessions"] = function (module, exports, require) {
+/*
+ * Read-only writing-session count. This is the local, dependency-free half of
+ * the Better Word Count row in plan.md §5.24: it counts the words in the active
+ * note and how many were added since the session started. A note is only read;
+ * nothing is written to it, and no background index runs. The only state is a
+ * bounded local list of finished session times in the plugin's own settings.
+ */
+const { str } = require("./util");
+
+const MAX_SESSIONS = 200;
+const MAX_PATH = 400;
+const WORDS_PER_MINUTE = 200;
+const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu;
+const SENTENCE = /[.!?]+(?:\s|$)/g;
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function number(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function clamp(value, low, high) {
+  return Math.max(low, Math.min(high, Math.round(value)));
+}
+
+/** Words, characters, sentences and paragraphs in one note body. */
+function countText(text) {
+  const source = str(text).replace(/\r\n?/g, "\n");
+  const words = source.match(WORD) || [];
+  const sentences = (source.match(SENTENCE) || []).length;
+  const trimmed = source.trim();
+  const paragraphs = trimmed ? trimmed.split(/\n\s*\n/).filter((block) => block.trim()).length : 0;
+  return {
+    words: words.length,
+    characters: source.replace(/\s/g, "").length,
+    sentences,
+    paragraphs,
+  };
+}
+
+/** Whole minutes at 200 words per minute; a non-empty note always reads as 1. */
+function readingMinutes(words) {
+  const count = Math.max(0, Math.round(number(words, 0)));
+  return count ? Math.max(1, Math.ceil(count / WORDS_PER_MINUTE)) : 0;
+}
+
+function sessionRow(value) {
+  const source = asObject(value);
+  const path = str(source.path).trim().slice(0, MAX_PATH);
+  const startedAt = Math.max(0, Math.round(number(source.startedAt, 0)));
+  if (!path || !startedAt) return null;
+  const endedAt = Math.max(startedAt, Math.round(number(source.endedAt, 0)));
+  return {
+    path,
+    startedAt,
+    endedAt,
+    words: Math.max(0, Math.round(number(source.words, 0))),
+    minutes: Math.max(0, Math.round((endedAt - startedAt) / 60000)),
+  };
+}
+
+function normalizeWritingSession(value) {
+  const source = asObject(value);
+  const sessions = [];
+  for (const raw of Array.isArray(source.sessions) ? source.sessions : []) {
+    const row = sessionRow(raw);
+    if (!row) continue;
+    sessions.push(row);
+    if (sessions.length >= MAX_SESSIONS) break;
+  }
+  const path = str(source.path).trim().slice(0, MAX_PATH);
+  const startedAt = Math.max(0, Math.round(number(source.startedAt, 0)));
+  return {
+    path: startedAt ? path : "",
+    startedAt: path ? startedAt : 0,
+    baseline: path && startedAt ? Math.max(0, Math.round(number(source.baseline, 0))) : 0,
+    sessions,
+  };
+}
+
+/** Start counting one note from its current word count. */
+function startWritingSession(current, input, now) {
+  const state = normalizeWritingSession(current);
+  const source = asObject(input);
+  const path = str(source.path).trim().slice(0, MAX_PATH);
+  if (!path) return { ok: false, reason: "path", message: "Open a note before starting a writing session." };
+  if (state.startedAt) return { ok: false, reason: "running", message: "A writing session is already running. Finish or cancel it first." };
+  const stamp = Math.max(0, Math.round(number(now, Date.now())));
+  return {
+    ok: true,
+    value: {
+      path,
+      startedAt: stamp,
+      baseline: countText(source.text).words,
+      sessions: state.sessions,
+    },
+  };
+}
+
+/** Stop counting, record the added words and keep the newest bounded sessions. */
+function finishWritingSession(current, text, now) {
+  const state = normalizeWritingSession(current);
+  if (!state.startedAt) return { ok: false, reason: "idle", message: "No writing session is running." };
+  const stamp = Math.max(state.startedAt, Math.round(number(now, Date.now())));
+  const session = sessionRow({
+    path: state.path,
+    startedAt: state.startedAt,
+    endedAt: stamp,
+    words: Math.max(0, countText(text).words - state.baseline),
+  });
+  const sessions = state.sessions.concat(session).slice(-MAX_SESSIONS);
+  return {
+    ok: true,
+    session,
+    value: { path: "", startedAt: 0, baseline: 0, sessions },
+  };
+}
+
+/** Drop the running session without recording it. */
+function cancelWritingSession(current) {
+  const state = normalizeWritingSession(current);
+  return { path: "", startedAt: 0, baseline: 0, sessions: state.sessions };
+}
+
+/** The current counts plus the bounded session totals, for the view. */
+function sessionReport(current, text, now) {
+  const state = normalizeWritingSession(current);
+  const counts = countText(text);
+  const added = state.startedAt ? Math.max(0, counts.words - state.baseline) : 0;
+  const elapsed = state.startedAt ? Math.max(0, Math.round(number(now, Date.now())) - state.startedAt) : 0;
+  const totals = state.sessions.reduce(
+    (sum, session) => ({ count: sum.count + 1, words: sum.words + session.words, minutes: sum.minutes + session.minutes }),
+    { count: 0, words: 0, minutes: 0 }
+  );
+  return {
+    running: !!state.startedAt,
+    path: state.path,
+    startedAt: state.startedAt,
+    baseline: state.baseline,
+    minutes: Math.round(elapsed / 60000),
+    counts: { ...counts, readingMinutes: readingMinutes(counts.words) },
+    added,
+    sessions: state.sessions,
+    totals,
+  };
+}
+
+function baseName(path) {
+  const parts = str(path).split("/");
+  return parts[parts.length - 1] || str(path);
+}
+
+/** `Cells.md · 12 min · +340 words` for one finished session. */
+function sessionLine(session) {
+  const row = sessionRow(session);
+  if (!row) return "";
+  return `${baseName(row.path)} · ${row.minutes} min · +${row.words} words`;
+}
+
+/** `412 words · 3 min read · +96 this session` for the current note. */
+function writingSummary(report) {
+  const source = asObject(report);
+  const counts = asObject(source.counts);
+  const parts = [`${Math.max(0, Math.round(number(counts.words, 0)))} words`];
+  parts.push(`${Math.max(0, Math.round(number(counts.sentences, 0)))} sentences`);
+  parts.push(`${readingMinutes(counts.words)} min read`);
+  if (source.running) parts.push(`+${Math.max(0, Math.round(number(source.added, 0)))} this session`);
+  return parts.join(" · ");
+}
+
+module.exports = {
+  MAX_SESSIONS,
+  WORDS_PER_MINUTE,
+  cancelWritingSession,
+  countText,
+  finishWritingSession,
+  normalizeWritingSession,
+  readingMinutes,
+  sessionLine,
+  sessionReport,
+  startWritingSession,
+  writingSummary,
+};
+};
+
 /* ---- src/zip-write.js ---- */
 __defs["zip-write"] = function (module, exports, require) {
 /*
@@ -93468,6 +93822,7 @@ const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
+const writingSessions = require("./writing-sessions");
 const voiceMemo = require("./voice-memo");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
@@ -93904,6 +94259,7 @@ QuestionTrackerPlugin.__test = {
   vaultTaskIndex,
   taskTags,
   glossary,
+  writingSessions,
   voiceMemo,
   cornell,
   CardView,

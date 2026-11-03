@@ -109,3 +109,60 @@ test("glossary: the plugin scans read-only and the Vocabulary tab looks a term u
   assert.ok(texts.includes("Open note"));
   assert.equal(writes, 0);
 });
+
+const LECTURE = [
+  "## Vocabulary",
+  "",
+  "| Term | Definition | Lecture |",
+  "| --- | --- | --- |",
+  "| Glycolysis | Splitting glucose into pyruvate | 2026-11-02 — Respiration |",
+  "",
+].join("\n");
+
+test("glossary: reads the lecture-note vocabulary table and merges the vocabulary list", () => {
+  const lecture = G.collectGlossary([{ path: "Lecture notes/Respiration.md", text: LECTURE }], {});
+  assert.deepEqual(lecture.entries.map((row) => [row.term, row.definition, row.path, row.line]), [
+    ["Glycolysis", "Splitting glucose into pyruvate", "Lecture notes/Respiration.md", 5],
+  ]);
+  assert.equal(lecture.stats.files, 1);
+
+  const merged = G.collectGlossary(
+    [{ path: "Biology/cells.md", text: NOTE }],
+    {},
+    [
+      { term: "Glycolysis", definition: "Splitting glucose", source: "vocabulary" },
+      { term: "ATP", definition: "duplicate of the note entry", source: "vocabulary" },
+      { term: "Enzyme", definition: "" },
+    ]
+  );
+  assert.deepEqual(merged.entries.map((row) => row.term), ["ATP", "Enzyme", "Glycolysis", "Osmosis"]);
+  assert.equal(merged.entries.find((row) => row.term === "ATP").path, "Biology/cells.md", "the note entry wins");
+  assert.equal(merged.entries.find((row) => row.term === "Glycolysis").source, "vocabulary");
+  assert.equal(merged.entries.find((row) => row.term === "Glycolysis").path, "");
+  assert.equal(merged.stats.vocabulary, 1);
+  assert.equal(merged.stats.terms, 4);
+  assert.equal(merged.stats.duplicates, 1);
+  const limited = G.collectGlossary([], { limit: 1 }, [{ term: "Beta", definition: "b" }, { term: "Alpha", definition: "a" }]);
+  assert.deepEqual(limited.entries.map((row) => row.term), ["Alpha"], "the limit applies after the merge");
+});
+
+test("glossary: the plugin scans the saved vocabulary words into the same lookup", async () => {
+  const app = makeApp([]);
+  app.vault.getMarkdownFiles = () => [{ path: "Biology/cells.md", text: NOTE }];
+  app.vault.cachedRead = async (file) => file.text;
+  let writes = 0;
+  app.vault.create = async () => {
+    writes += 1;
+    return { path: "unexpected.md" };
+  };
+  const plugin = new QT(app);
+  await plugin.onload();
+  await plugin.addVocabWord({ term: "Glycolysis", definition: "Splitting glucose into pyruvate" });
+  const data = await plugin.scanGlossary();
+  assert.deepEqual(data.entries.map((row) => row.term), ["ATP", "Enzyme", "Glycolysis", "Osmosis"]);
+  assert.equal(data.stats.vocabulary, 1);
+  const found = G.lookupGlossary(data.entries, "glyco");
+  assert.equal(found.length, 1);
+  assert.equal(found[0].path, "", "a vocabulary entry has no note path");
+  assert.equal(writes, 0);
+});
