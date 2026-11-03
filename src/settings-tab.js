@@ -649,6 +649,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Distraction-free practice mode")
+      .setDesc(
+        "On phones and tablets, hide Obsidian's top view header and bottom navigation bar while a practice question or result is on screen. Both return when you leave practice, close the view, or turn this off. Desktop is unchanged; safe-area insets and the practice layout are untouched."
+      )
+      .addToggle((t) =>
+        t.setValue(st.distractionFreePractice !== false).onChange(async (v) => {
+          st.distractionFreePractice = v === true;
+          await this.plugin.save();
+          this.plugin.syncPracticeFullscreen();
+        })
+      );
+
+    new Setting(containerEl)
       .setName("Exam-ready badge")
       .setDesc(
         "After a question is answered, show Exam ready once it has N correct answers in a row. This reads the existing streak and changes no attempt, history, review date, Auto Anki, Text2Anki or Spaced Repetition output. Off by default."

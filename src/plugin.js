@@ -4,6 +4,7 @@ const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = 
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST } = require("./constants");
 const { PracticeView } = require("./practice-view");
+const practiceFullscreen = require("./practice-fullscreen");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
 const { TodayView } = require("./today-view");
@@ -211,6 +212,8 @@ function noteNotesSection(body) {
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
+    // A previous plugin instance or a crash may have left the body class behind.
+    practiceFullscreen.setPracticeFullscreen(null, false);
     await this.loadSettings();
     this.plainCardIndex = new Map();
     this._calendarNoteIndex = null;
@@ -282,7 +285,13 @@ class QuestionTrackerPlugin extends Plugin {
         setTimeout(() => satCallout.syncSatCallout(callout), 0);
       });
     }
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshNoteReviewDock()));
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        this.refreshNoteReviewDock();
+        this.syncPracticeFullscreen();
+      })
+    );
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.syncPracticeFullscreen()));
     this.registerEvent(this.app.workspace.on("file-open", () => this.refreshNoteReviewDock()));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.refreshNoteReviewDock()));
     if (typeof activeDocument !== "undefined" && activeDocument) {
@@ -920,6 +929,7 @@ class QuestionTrackerPlugin extends Plugin {
     delete this.settings.showRationale;
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.closedBook = this.settings.closedBook === true;
+    this.settings.distractionFreePractice = this.settings.distractionFreePractice !== false;
     this.settings.hints = this.settings.hints === true;
     this.settings.examReady = this.settings.examReady === true;
     this.settings.examReadyPasses = normalizeExamReadyPasses(this.settings.examReadyPasses);
@@ -1339,7 +1349,37 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   onunload() {
+    practiceFullscreen.setPracticeFullscreen(null, false);
     if (this.manager) this.manager.stop();
+  }
+
+  /* ---- distraction-free practice ---- */
+
+  activePracticeView() {
+    const ws = this.app && this.app.workspace;
+    const leaf = ws && ws.activeLeaf;
+    const view = leaf && leaf.view;
+    if (view && typeof view.getViewType === "function" && view.getViewType() === VIEW_TYPE) return view;
+    return null;
+  }
+
+  isPracticeViewActive(view) {
+    const ws = this.app && this.app.workspace;
+    const leaf = ws && ws.activeLeaf;
+    if (!leaf) return true;
+    return leaf === view.leaf || leaf.view === view;
+  }
+
+  /** Recompute the one body class from the active view, session state and setting. */
+  syncPracticeFullscreen(view) {
+    const active = this.activePracticeView();
+    const candidate = view && this.isPracticeViewActive(view) ? view : active;
+    const on = practiceFullscreen.shouldHidePracticeChrome({
+      enabled: !this.settings || this.settings.distractionFreePractice !== false,
+      isMobile: practiceFullscreen.isMobileDocument(),
+      active: !!(candidate && typeof candidate.isPracticeSessionActive === "function" && candidate.isPracticeSessionActive()),
+    });
+    practiceFullscreen.setPracticeFullscreen(null, on);
   }
 
   /* ---- views */

@@ -24,6 +24,7 @@ const { adaptiveSessionValue, normalizeQuickAdaptive } = require("./adaptive-ses
 const { STUDY_SKIN_LABELS, buildMatchPairs, normalizeStudyMode, normalizeStudySkin, resolveStudySkin, shouldRepeatStudyCard, studyAttemptForChoice, studyAttemptForFlip, studyModeLabel, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
 const { StudyMatchModal } = require("./study-match-modal");
 const { practiceKeyboardAction } = require("./practice-keys");
+const practiceFullscreen = require("./practice-fullscreen");
 
 class PracticeView extends ItemView {
   constructor(leaf, plugin) {
@@ -62,6 +63,7 @@ class PracticeView extends ItemView {
   }
 
   async onOpen() {
+    this._practiceFullscreenClosed = false;
     this.contentEl.addClass("qt-root");
     if (activeDocument && typeof activeDocument.addEventListener === "function") {
       activeDocument.addEventListener("keydown", this.keyboardHandler);
@@ -82,6 +84,8 @@ class PracticeView extends ItemView {
   }
 
   async onClose() {
+    this._practiceFullscreenClosed = true;
+    this.plugin.syncPracticeFullscreen(this);
     if (activeDocument && typeof activeDocument.removeEventListener === "function") {
       activeDocument.removeEventListener("keydown", this.keyboardHandler);
     }
@@ -461,6 +465,11 @@ class PracticeView extends ItemView {
     this.plugin.save();
   }
 
+  /** True only while a question or result is on screen. */
+  isPracticeSessionActive() {
+    return !this._practiceFullscreenClosed && practiceFullscreen.practiceSessionActive(this.state);
+  }
+
   /** True while this Practice leaf is the active workspace leaf. */
   isPracticeKeyboardActive() {
     const ws = this.app && this.app.workspace;
@@ -576,6 +585,9 @@ class PracticeView extends ItemView {
 
   render() {
     const el = this.contentEl;
+    // Keep the body class aligned with the state machine even when a render is
+    // triggered by a refresh, a filter change or an error path.
+    this.plugin.syncPracticeFullscreen(this);
     el.empty();
     this.timerEl = null;
     this.keyboardSubmit = null;
@@ -777,7 +789,7 @@ class PracticeView extends ItemView {
     if (st.mode === "adaptive") {
       root.createDiv({
         cls: "qt-hint",
-        text: "Adaptive mastery targets a weak course, unit, skill, test or tag from your history, then picks a different question from it. FSRS due review is unchanged.",
+        text: "Adaptive mastery targets a weak course, unit, skill, test or tag from your history, then picks a different question that shares another property. A missed question returns once its weak area reaches 75% mastery. FSRS due review is unchanged.",
       });
     }
 

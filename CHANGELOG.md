@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.211.0 — 2026-11-03
+
+- Added **Distraction-free practice mode** for phones and tablets, on by
+  default. It hides Obsidian's top view header and bottom navigation bar while
+  a question or result is active, keeps them hidden through answers, next
+  questions, Passage/Question tabs and timer pause/resume, and restores them on
+  exit, close, active-leaf change, plugin unload/reload or turning the setting
+  off. Desktop is unchanged.
+- Adaptive mastery now prefers a replacement that shares at least two
+  properties with the recent question in the weak area, with a same-area
+  fallback. A missed exact question stays out until its weak area reaches 75%
+  effective accuracy with at least five attempts; a least-recently-attempted
+  fallback prevents an empty session.
+- The adaptive selector remains local and read-only, and the FSRS due-review
+  path is unchanged.
+
 ## 1.210.13 — 2026-11-03
 
 - **Every Study Workspace tab is covered by a test that mounts it through the

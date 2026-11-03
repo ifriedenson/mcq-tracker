@@ -20808,6 +20808,7 @@ const DEFAULT_SETTINGS = {
   leechAction: "flag", // "flag" keeps it in rotation | "suspend" also hides it until restored
   needsFixing: false, // opt-in: flag questions missed on five distinct days for repair
   autoPauseOnMobile: true,
+  distractionFreePractice: true, // mobile only: hide Obsidian chrome while a question/result is active
   explanationDefault: "wrong", // "show" | "wrong" (only after a miss) | "hide"
   closedBook: false, // opt-in: hide the Open note shortcut until the current question is submitted
   hints: false, // opt-in: show a question's optional Hint section before answering
@@ -38681,19 +38682,23 @@ __defs["mastery-picker"] = function (module, exports, require) {
  * This is deliberately separate from the FSRS due queue. Adaptive practice
  * looks at the learner's whole history, ranks the course/unit/skill/test facets
  * that look weakest, and then picks a different question from the weakest
- * facet. A question is never repeated in the same session or for seven days
- * after an attempt, so the learner gets a new surface for the same idea rather
- * than the exact item again.
+ * facet. A question is never repeated in the same session, and a question whose
+ * last attempt was a miss stays out until its weak facet has improved to 75%
+ * with at least five attempts. If the filtered pool has no other eligible
+ * question, the least recently attempted item is the last-resort safety valve
+ * so a very small pool can still be practised.
  *
  * The module is pure: it reads question frontmatter and history only, makes no
  * network request and never writes a note or schedule.
  */
 const { creditOf } = require("./history");
-const { addDays, fmtDate, str } = require("./util");
+const { str } = require("./util");
 const { isStudyable } = require("./study-status");
 
-const ADAPTIVE_COOLDOWN_DAYS = 7;
 const PRIOR_ATTEMPTS = 5;
+const MASTERY_RELEASE = 0.75;
+const MASTERY_MIN_ATTEMPTS = 5;
+const MIN_SHARED_PROPERTIES = 2;
 const TARGET_FACETS = [
   ["skill", 1.15],
   ["unit", 1.05],
@@ -38785,12 +38790,22 @@ function summaryOf(question) {
   let credit = rows.reduce((sum, entry) => sum + creditOf(entry), 0) + extraCorrect;
   let seconds = rows.reduce((sum, entry) => sum + Math.max(0, Number(entry.seconds) || 0), 0);
   if (!rows.length) credit = counterCorrect;
+  let last = null;
+  for (const entry of rows) {
+    if (!last || entry.when >= last.when) last = entry;
+  }
   let lastDay = "";
   for (const entry of rows) {
     const day = dayKey(entry.when);
     if (day > lastDay) lastDay = day;
   }
   if (!lastDay) lastDay = dayKey(fm["date attempted"]);
+  const rawScore = fm.last_score;
+  const numericScore = rawScore === undefined || str(rawScore).trim() === "" ? null : Number(rawScore);
+  const propertyScore = Number.isFinite(numericScore) ? Math.max(0, Math.min(100, numericScore)) : null;
+  const lastScore = last && last.score !== null ? last.score : propertyScore;
+  const lastResult = last ? last.result : str(fm.result).toLowerCase();
+  const lastCredit = last ? creditOf(last) : lastScore !== null ? lastScore / 100 : lastResult === "correct" ? 1 : 0;
   const targetSeconds = Math.max(0, Number(fm.target_seconds) || 0) * attempts;
   return {
     attempts,
@@ -38799,7 +38814,22 @@ function summaryOf(question) {
     targetSeconds,
     skipped: Math.max(0, Math.round(Number(fm.skip_count) || 0)),
     lastDay,
+    lastResult,
+    lastScore,
+    lastCredit,
   };
+}
+
+/** A miss is the last result, or a partial score below 60. */
+function needsMastery(summary) {
+  if (!summary || !summary.attempts) return false;
+  if (summary.lastResult === "incorrect") return true;
+  return summary.lastScore !== null && summary.lastScore < 60;
+}
+
+/** Enough evidence and enough accuracy to let an exact missed item return. */
+function masteryReady(facet) {
+  return !!facet && facet.attempts >= MASTERY_MIN_ATTEMPTS && facet.effective >= MASTERY_RELEASE;
 }
 
 function aggregate(questions) {
@@ -38883,29 +38913,57 @@ function rankFacets(questions, allQuestions) {
   return rows;
 }
 
-function cooldownCutoff(today) {
-  const day = dayKey(today);
-  return day ? fmtDate(addDays(dateFromDay(day), -ADAPTIVE_COOLDOWN_DAYS)) : "";
-}
-
-/** A question is eligible when it is studyable and outside the exact-repeat window. */
-function eligible(question, today, recent) {
+/** A question is eligible when it is studyable, outside this session, and its miss has been mastered. */
+function eligible(question, today, recent, facet) {
   if (!question || !question.fm || !isStudyable(question.fm, today)) return false;
   const path = question.file && question.file.path;
   if (path && (recent || []).includes(path)) return false;
-  const cutoff = cooldownCutoff(today);
-  if (!cutoff) return true;
-  const last = summaryOf(question).lastDay;
-  return !last || daysBetween(last, dayKey(today)) >= ADAPTIVE_COOLDOWN_DAYS;
+  const summary = summaryOf(question);
+  if (!needsMastery(summary)) return true;
+  return masteryReady(facet);
 }
 
 function hasFacet(question, facet) {
   return facetsOf(question).some((item) => item.kind === facet.kind && item.value === facet.value);
 }
 
-function sharedFacetCount(question, facet) {
-  const values = new Set(facetsOf(question).map((item) => `${item.kind}:${item.value}`));
-  return TARGET_FACETS.concat(CONTEXT_FACETS).filter(([kind]) => values.has(`${kind}:${facet.value}`)).length;
+function facetKeySet(question) {
+  return new Set(facetsOf(question).map((item) => `${item.kind}:${item.value}`));
+}
+
+/** How many identity/context properties two questions share. */
+function sharedPropertyCount(a, b) {
+  if (!a || !b) return 0;
+  const other = facetKeySet(b);
+  let count = 0;
+  for (const key of facetKeySet(a)) if (other.has(key)) count++;
+  return count;
+}
+
+function isSimilar(question, anchor) {
+  return !!anchor && sharedPropertyCount(question, anchor) >= MIN_SHARED_PROPERTIES;
+}
+
+/** The most recent question in a facet, preferring the current session's question. */
+function anchorFor(questions, facet, recent) {
+  const matching = (Array.isArray(questions) ? questions : []).filter((question) => hasFacet(question, facet));
+  if (!matching.length) return null;
+  const recentPaths = (Array.isArray(recent) ? recent : []).filter(Boolean);
+  for (let i = recentPaths.length - 1; i >= 0; i--) {
+    const found = matching.find((question) => question.file && question.file.path === recentPaths[i]);
+    if (found) return found;
+  }
+  let best = null;
+  let bestDay = "";
+  for (const question of matching) {
+    const summary = summaryOf(question);
+    if (!summary.lastDay) continue;
+    if (!best || summary.lastDay >= bestDay) {
+      best = question;
+      bestDay = summary.lastDay;
+    }
+  }
+  return best || matching[0];
 }
 
 function difficultyRank(value) {
@@ -38913,7 +38971,7 @@ function difficultyRank(value) {
   return rank === undefined ? 1 : rank;
 }
 
-function candidateWeight(question, facet, today) {
+function candidateWeight(question, facet, today, anchor) {
   const summary = summaryOf(question);
   const desired = facet.effective < 0.6 ? 0 : facet.effective < 0.85 ? 1 : 2;
   const distance = Math.abs(difficultyRank(question.fm && question.fm.difficulty) - desired);
@@ -38921,7 +38979,7 @@ function candidateWeight(question, facet, today) {
   const gap = summary.lastDay ? daysBetween(summary.lastDay, dayKey(today)) : null;
   const novelty = summary.attempts ? 1 + Math.min(1, Math.max(0, gap || 0) / 30) : 1.4;
   const due = question.fm && dayKey(question.fm.next_review) && dayKey(question.fm.next_review) <= dayKey(today) ? 1.15 : 1;
-  const shared = 1 + 0.25 * Math.min(4, sharedFacetCount(question, facet) - 1);
+  const shared = 1 + 0.25 * Math.min(4, Math.max(0, sharedPropertyCount(question, anchor) - 1));
   return shared * difficulty * novelty * due;
 }
 
@@ -38949,36 +39007,92 @@ function pickAdaptiveQuestion(pool, all, today, recent, rnd) {
   if (!available.length) return null;
   const global = Array.isArray(all) && all.length ? all : available;
   const ranked = rankFacets(available, global);
-  for (const facet of ranked.slice(0, 4)) {
-    const candidates = available.filter((question) => eligible(question, today, recent) && hasFacet(question, facet));
-    if (!candidates.length) continue;
-    const question = weightedPick(candidates, (item) => candidateWeight(item, facet, today), rnd);
+  const top = ranked.slice(0, 4);
+
+  const choose = (facet, candidates, anchor, reason) => {
+    if (!candidates.length) return null;
     return {
-      question,
+      question: weightedPick(candidates, (item) => candidateWeight(item, facet, today, anchor), rnd),
       reason: {
         kind: facet.kind,
         value: facet.value,
         accuracy: facet.effective,
         attempts: facet.attempts,
+        ...(reason || {}),
       },
     };
+  };
+
+  // First pass: the replacement shares the weak facet plus another property with
+  // the most recent question in that facet.
+  for (const facet of top) {
+    const anchor = anchorFor(available, facet, recent);
+    const candidates = available.filter(
+      (question) =>
+        question !== anchor &&
+        eligible(question, today, recent, facet) &&
+        hasFacet(question, facet) &&
+        isSimilar(question, anchor)
+    );
+    const picked = choose(facet, candidates, anchor);
+    if (picked) return picked;
   }
-  const fallback = available.filter((question) => eligible(question, today, recent));
-  if (!fallback.length) return null;
+
+  // Second pass: a same-area question is still better than no practice when the
+  // pool has no second-property match.
+  for (const facet of top) {
+    const anchor = anchorFor(available, facet, recent);
+    const candidates = available.filter(
+      (question) => question !== anchor && eligible(question, today, recent, facet) && hasFacet(question, facet)
+    );
+    const picked = choose(facet, candidates, anchor, { similarity: "same-area" });
+    if (picked) return picked;
+  }
+
+  // Any eligible question, even one outside the currently weakest facets.
+  const fallback = available.filter((question) => eligible(question, today, recent, null));
+  if (fallback.length) {
+    return {
+      question: weightedPick(fallback, (question) => (summaryOf(question).attempts ? 1 : 1.5), rnd),
+      reason: { kind: null, value: "", accuracy: null, attempts: 0, similarity: "any" },
+    };
+  }
+
+  // Last resort: every remaining item was missed and its area is still weak.
+  // Return the least recently attempted item rather than an empty session.
+  const recentPaths = new Set((Array.isArray(recent) ? recent : []).filter(Boolean));
+  const leftovers = available
+    .filter((question) => !(question.file && recentPaths.has(question.file.path)))
+    .sort((a, b) => {
+      const dayA = summaryOf(a).lastDay || "";
+      const dayB = summaryOf(b).lastDay || "";
+      if (dayA !== dayB) return dayA.localeCompare(dayB);
+      const pathA = (a.file && a.file.path) || "";
+      const pathB = (b.file && b.file.path) || "";
+      return pathA.localeCompare(pathB);
+    });
+  if (!leftovers.length) return null;
   return {
-    question: weightedPick(fallback, (question) => (summaryOf(question).attempts ? 1 : 1.5), rnd),
-    reason: null,
+    question: leftovers[0],
+    reason: { kind: null, value: "", accuracy: null, attempts: 0, exhausted: true },
   };
 }
 
 module.exports = {
-  ADAPTIVE_COOLDOWN_DAYS,
+  MASTERY_MIN_ATTEMPTS,
+  MASTERY_RELEASE,
+  MIN_SHARED_PROPERTIES,
   PRIOR_ATTEMPTS,
   TARGET_FACETS,
   aggregate,
+  anchorFor,
   facetsOf,
+  isSimilar,
+  masteryReady,
+  needsMastery,
   pickAdaptiveQuestion,
   rankFacets,
+  sharedPropertyCount,
   summaryOf,
 };
 };
@@ -47019,6 +47133,7 @@ const { Notice, Platform, Plugin, TFile, TFolder, requestUrl, stringifyYaml } = 
 const { OpenCodeManager } = require("./opencode-manager");
 const { DEFAULT_SETTINGS, FILTER_FIELDS, FOLDER_AUTO_MAX, VIEW_TYPE, VIEW_TYPE_TODAY, VIEW_TYPE_CALENDAR, VIEW_TYPE_CARDS, VIEW_TYPE_REFERENCE, VIEW_TYPE_ASSIGNMENTS, VIEW_TYPE_STUDY_TOOLS, VIEW_TYPE_STUDY_WORKSPACE, VIEW_TYPE_REVIEW_CALENDAR, VIEW_TYPE_STUDY_STATS, VIEW_TYPE_LOCAL_EVENTS, VIEW_TYPE_POMODORO, VIEW_TYPE_TASK_LIST } = require("./constants");
 const { PracticeView } = require("./practice-view");
+const practiceFullscreen = require("./practice-fullscreen");
 const { InsightsView, VIEW_TYPE_INSIGHTS } = require("./insights-view");
 const { TestView, VIEW_TYPE_TEST } = require("./exam-view");
 const { TodayView } = require("./today-view");
@@ -47226,6 +47341,8 @@ function noteNotesSection(body) {
 
 class QuestionTrackerPlugin extends Plugin {
   async onload() {
+    // A previous plugin instance or a crash may have left the body class behind.
+    practiceFullscreen.setPracticeFullscreen(null, false);
     await this.loadSettings();
     this.plainCardIndex = new Map();
     this._calendarNoteIndex = null;
@@ -47297,7 +47414,13 @@ class QuestionTrackerPlugin extends Plugin {
         setTimeout(() => satCallout.syncSatCallout(callout), 0);
       });
     }
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshNoteReviewDock()));
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        this.refreshNoteReviewDock();
+        this.syncPracticeFullscreen();
+      })
+    );
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.syncPracticeFullscreen()));
     this.registerEvent(this.app.workspace.on("file-open", () => this.refreshNoteReviewDock()));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.refreshNoteReviewDock()));
     if (typeof activeDocument !== "undefined" && activeDocument) {
@@ -47935,6 +48058,7 @@ class QuestionTrackerPlugin extends Plugin {
     delete this.settings.showRationale;
     if (!["show", "wrong", "hide"].includes(this.settings.explanationDefault)) this.settings.explanationDefault = "wrong";
     this.settings.closedBook = this.settings.closedBook === true;
+    this.settings.distractionFreePractice = this.settings.distractionFreePractice !== false;
     this.settings.hints = this.settings.hints === true;
     this.settings.examReady = this.settings.examReady === true;
     this.settings.examReadyPasses = normalizeExamReadyPasses(this.settings.examReadyPasses);
@@ -48354,7 +48478,37 @@ class QuestionTrackerPlugin extends Plugin {
   }
 
   onunload() {
+    practiceFullscreen.setPracticeFullscreen(null, false);
     if (this.manager) this.manager.stop();
+  }
+
+  /* ---- distraction-free practice ---- */
+
+  activePracticeView() {
+    const ws = this.app && this.app.workspace;
+    const leaf = ws && ws.activeLeaf;
+    const view = leaf && leaf.view;
+    if (view && typeof view.getViewType === "function" && view.getViewType() === VIEW_TYPE) return view;
+    return null;
+  }
+
+  isPracticeViewActive(view) {
+    const ws = this.app && this.app.workspace;
+    const leaf = ws && ws.activeLeaf;
+    if (!leaf) return true;
+    return leaf === view.leaf || leaf.view === view;
+  }
+
+  /** Recompute the one body class from the active view, session state and setting. */
+  syncPracticeFullscreen(view) {
+    const active = this.activePracticeView();
+    const candidate = view && this.isPracticeViewActive(view) ? view : active;
+    const on = practiceFullscreen.shouldHidePracticeChrome({
+      enabled: !this.settings || this.settings.distractionFreePractice !== false,
+      isMobile: practiceFullscreen.isMobileDocument(),
+      active: !!(candidate && typeof candidate.isPracticeSessionActive === "function" && candidate.isPracticeSessionActive()),
+    });
+    practiceFullscreen.setPracticeFullscreen(null, on);
   }
 
   /* ---- views */
@@ -57912,6 +58066,60 @@ class PomodoroView extends ItemView {
 module.exports = { PomodoroView };
 };
 
+/* ---- src/practice-fullscreen.js ---- */
+__defs["practice-fullscreen"] = function (module, exports, require) {
+/*
+ * Distraction-free practice chrome.
+ *
+ * The plugin adds one body class only while the active practice view is showing
+ * a question or a result. The stylesheet uses body.is-mobile plus that class to
+ * hide Obsidian's view header and mobile navbar. The class is removed on close,
+ * unload, setting off, active-leaf change and any return to the idle screen.
+ */
+const PRACTICE_FULLSCREEN_CLASS = "mcq-practice-mode";
+const PRACTICE_ACTIVE_STATES = new Set(["question", "result"]);
+
+function practiceSessionActive(state) {
+  return PRACTICE_ACTIVE_STATES.has(String(state || ""));
+}
+
+/** The real document body, with the test/active-document fallbacks Obsidian uses. */
+function documentBody(doc) {
+  if (doc && doc.body) return doc.body;
+  if (typeof activeDocument !== "undefined" && activeDocument && activeDocument.body) return activeDocument.body;
+  if (typeof document !== "undefined" && document && document.body) return document.body;
+  return null;
+}
+
+function isMobileDocument(doc) {
+  const body = documentBody(doc);
+  return !!(body && body.classList && typeof body.classList.contains === "function" && body.classList.contains("is-mobile"));
+}
+
+/** The setting is on by default; only an explicit false turns the mode off. */
+function shouldHidePracticeChrome(options) {
+  const opts = options || {};
+  return opts.enabled !== false && opts.isMobile === true && opts.active === true;
+}
+
+/** Idempotent: adding or removing the class twice is safe. */
+function setPracticeFullscreen(doc, on) {
+  const body = documentBody(doc);
+  if (!body || !body.classList || typeof body.classList.toggle !== "function") return false;
+  body.classList.toggle(PRACTICE_FULLSCREEN_CLASS, !!on);
+  return !!on;
+}
+
+module.exports = {
+  PRACTICE_FULLSCREEN_CLASS,
+  documentBody,
+  isMobileDocument,
+  practiceSessionActive,
+  setPracticeFullscreen,
+  shouldHidePracticeChrome,
+};
+};
+
 /* ---- src/practice-keys.js ---- */
 __defs["practice-keys"] = function (module, exports, require) {
 /*
@@ -57999,6 +58207,7 @@ const { adaptiveSessionValue, normalizeQuickAdaptive } = require("./adaptive-ses
 const { STUDY_SKIN_LABELS, buildMatchPairs, normalizeStudyMode, normalizeStudySkin, resolveStudySkin, shouldRepeatStudyCard, studyAttemptForChoice, studyAttemptForFlip, studyModeLabel, studyProgress, studySeconds, studySkinEnabled } = require("./study-skin");
 const { StudyMatchModal } = require("./study-match-modal");
 const { practiceKeyboardAction } = require("./practice-keys");
+const practiceFullscreen = require("./practice-fullscreen");
 
 class PracticeView extends ItemView {
   constructor(leaf, plugin) {
@@ -58037,6 +58246,7 @@ class PracticeView extends ItemView {
   }
 
   async onOpen() {
+    this._practiceFullscreenClosed = false;
     this.contentEl.addClass("qt-root");
     if (activeDocument && typeof activeDocument.addEventListener === "function") {
       activeDocument.addEventListener("keydown", this.keyboardHandler);
@@ -58057,6 +58267,8 @@ class PracticeView extends ItemView {
   }
 
   async onClose() {
+    this._practiceFullscreenClosed = true;
+    this.plugin.syncPracticeFullscreen(this);
     if (activeDocument && typeof activeDocument.removeEventListener === "function") {
       activeDocument.removeEventListener("keydown", this.keyboardHandler);
     }
@@ -58436,6 +58648,11 @@ class PracticeView extends ItemView {
     this.plugin.save();
   }
 
+  /** True only while a question or result is on screen. */
+  isPracticeSessionActive() {
+    return !this._practiceFullscreenClosed && practiceFullscreen.practiceSessionActive(this.state);
+  }
+
   /** True while this Practice leaf is the active workspace leaf. */
   isPracticeKeyboardActive() {
     const ws = this.app && this.app.workspace;
@@ -58551,6 +58768,9 @@ class PracticeView extends ItemView {
 
   render() {
     const el = this.contentEl;
+    // Keep the body class aligned with the state machine even when a render is
+    // triggered by a refresh, a filter change or an error path.
+    this.plugin.syncPracticeFullscreen(this);
     el.empty();
     this.timerEl = null;
     this.keyboardSubmit = null;
@@ -58752,7 +58972,7 @@ class PracticeView extends ItemView {
     if (st.mode === "adaptive") {
       root.createDiv({
         cls: "qt-hint",
-        text: "Adaptive mastery targets a weak course, unit, skill, test or tag from your history, then picks a different question from it. FSRS due review is unchanged.",
+        text: "Adaptive mastery targets a weak course, unit, skill, test or tag from your history, then picks a different question that shares another property. A missed question returns once its weak area reaches 75% mastery. FSRS due review is unchanged.",
       });
     }
 
@@ -74513,6 +74733,19 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           st.closedBook = v === true;
           await this.plugin.save();
           this.plugin.refreshViews();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Distraction-free practice mode")
+      .setDesc(
+        "On phones and tablets, hide Obsidian's top view header and bottom navigation bar while a practice question or result is on screen. Both return when you leave practice, close the view, or turn this off. Desktop is unchanged; safe-area insets and the practice layout are untouched."
+      )
+      .addToggle((t) =>
+        t.setValue(st.distractionFreePractice !== false).onChange(async (v) => {
+          st.distractionFreePractice = v === true;
+          await this.plugin.save();
+          this.plugin.syncPracticeFullscreen();
         })
       );
 
@@ -93783,6 +94016,7 @@ const sm2 = require("./sm2");
 const { OpenCodeClient, buildGeneralContext, buildTutorContext, friendlyError, modelFromString, partsToTurns } = require("./opencode-client");
 const { PracticeView } = require("./practice-view");
 const practiceKeys = require("./practice-keys");
+const practiceFullscreen = require("./practice-fullscreen");
 const { API_PRESETS, ApiClient, apiTurns, friendlyApiError } = require("./api-client");
 const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
@@ -94035,6 +94269,7 @@ QuestionTrackerPlugin.__test = {
   buildGeneralContext,
   PracticeView,
   practiceKeys,
+  practiceFullscreen,
   OpenCodeClient,
   API_PRESETS,
   ApiClient,

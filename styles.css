@@ -2270,6 +2270,23 @@
   }
 }
 
+/* ================= distraction-free practice =================
+   mcq-practice-mode is added only while the active practice leaf is showing a
+   question or result. The body.is-mobile guard means desktop never changes. */
+body.is-mobile.mcq-practice-mode .mobile-navbar,
+body.is-mobile.mcq-practice-mode .mobile-navbar-actions,
+body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tracker-view"] .view-header,
+body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tracker-view"] > .view-header {
+  display: none;
+}
+
+body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tracker-view"] .view-content {
+  height: 100%;
+  min-height: 0;
+  padding-top: env(safe-area-inset-top);
+  box-sizing: border-box;
+}
+
 /* ================= phone question layout =================
    Obsidian mobile gets a purpose-built screen instead of the desktop split:
    one slim bar, Passage/Question tabs, and an answer bar that only appears

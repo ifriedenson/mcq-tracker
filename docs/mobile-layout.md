@@ -71,10 +71,33 @@ tablet review.
 
 ## CSS boundary
 
-All phone rules live in the `phone question layout` block in `styles.css`.
+Phone layout rules live in the `phone question layout` block in `styles.css`.
 Every selector there is either `.qt-wrap.qt-mobile` or starts with
 `.qt-mobile `, so no phone rule can leak into a desktop or tablet pane. The
-tests assert this boundary directly.
+separate `distraction-free practice` block lives immediately above it and is
+guarded by `body.is-mobile.mcq-practice-mode`; the tests assert both boundaries
+directly.
+
+## Distraction-free practice
+
+The **Distraction-free practice mode** setting is on by default. While the
+active practice leaf is showing a `question` or `result`, the plugin adds
+`mcq-practice-mode` to `document.body`. Under `body.is-mobile`, CSS then hides
+`.workspace-leaf-content[data-type="question-tracker-view"] .view-header` and
+`.mobile-navbar`; desktop never receives the class because the mobile document
+check fails.
+
+The class is removed on the idle screen, `onClose`, plugin unload, a switch to
+another leaf, setting off, and a fresh plugin load. That covers normal exit,
+closing the view, navigating away, reloading the plugin and a stale class left
+by a crash. Multiple practice leaves use the active leaf; closing an inactive
+leaf does not clear the class for the active one. The practice content gets
+`env(safe-area-inset-top)` and keeps the existing bottom safe-area padding on
+the answer and review bars.
+
+The selectors use Obsidian's mobile DOM classes. The real iOS/Android visual
+pass is still a manual gate: the automated tests prove the class lifecycle and
+stylesheet contract, not native rendering.
 
 ## Tests
 
@@ -89,7 +112,9 @@ covers:
 - `dvh` sizing, safe-area padding and no-horizontal-overflow CSS;
 - no mobile classes in the desktop or tablet review tree and no desktop classes
   in the phone tree;
-- every rule in the phone CSS block being scoped under `.qt-mobile`.
+- every rule in the phone CSS block being scoped under `.qt-mobile`;
+- the distraction-free class lifecycle, setting, multi-view cleanup and
+  body-class-scoped header/navbar selectors (`tests/practice-fullscreen.test.js`).
 
 Run the focused check with:
 
