@@ -31,6 +31,8 @@ const courseHealth = require("./course-health");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
+const taskTags = require("./task-tags");
+const glossary = require("./glossary");
 const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
 const { renderCornellBlock } = require("./cornell-view");
@@ -9029,6 +9031,25 @@ ${body}
     return vaultTaskIndex.collectVaultTasks(entries, settings);
   }
 
+  /** Read-only glossary from `Term: definition` lines and two-column tables. */
+  async scanGlossary(options) {
+    const settings = glossary.normalizeGlossaryOptions(options);
+    const entries = [];
+    const files = this.app.vault.getMarkdownFiles ? this.app.vault.getMarkdownFiles() : [];
+    for (const file of files) {
+      if (entries.length >= glossary.MAX_FILES) break;
+      if (settings.folder && !(file.path === settings.folder || file.path.startsWith(settings.folder + "/"))) continue;
+      let text = "";
+      try {
+        text = await this.app.vault.cachedRead(file);
+      } catch (e) {
+        continue;
+      }
+      entries.push({ path: file.path, text });
+    }
+    return glossary.collectGlossary(entries, settings);
+  }
+
   async getPdfAnnotationIndex() {
     const settings = pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(this.settings.pdfAnnotationIndex);
     const entries = [];
@@ -9486,6 +9507,22 @@ ${body}
     await this.save();
     this.refreshViews();
     return task;
+  }
+
+  /** Tags used by the local study tasks, with counts. Read-only. */
+  taskTagUsage() {
+    return taskTags.tagUsage(this.studyWorkspaceSettings().studyTasks.tasks);
+  }
+
+  /** Rename one tag on the local study tasks; no note is read or written. */
+  async renameStudyTaskTag(from, to) {
+    const current = this.studyWorkspaceSettings().studyTasks;
+    const result = taskTags.planTagRename(current.tasks, from, to);
+    if (!result.ok) return result;
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...current, tasks: result.tasks });
+    await this.save();
+    this.refreshViews();
+    return result;
   }
 
   async updateStudyTask(id, patch) {

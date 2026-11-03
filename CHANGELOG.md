@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.210.9 — 2026-11-03
+
+- **Rename a task tag** in the Study Workspace Tasks tab. One tag is renamed
+  across the local study tasks only, with a usage line and a merge when a task
+  already carries the new name. Notes, frontmatter and other plugins' tags are
+  never read or changed.
+- **Glossary from your notes (read-only)** in the Vocabulary tab. Build glossary
+  reads `Term: definition` lines and two-column tables in the vault's Markdown,
+  then looks a term up with exact, prefix and inside-the-definition ranking.
+  Each row links back to its note and line. Nothing is written or uploaded.
+- The Tasks tab's add form now takes optional tags, so a task can be tagged
+  in the workspace instead of only in the sidebar list.
+
 ## 1.210.8 — 2026-11-03
 
 - The university **Calendar** now carries the Kairos plan itself. Its day

@@ -1398,6 +1398,8 @@ module.exports = {
   recallStats,
   reviewRecallUnit,
   subjectSummary,
+  tagList,
+  tagValue,
   taskSummary,
   timeBlocks,
   vocabSummary,

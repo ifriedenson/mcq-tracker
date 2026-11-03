@@ -83,7 +83,7 @@ test("study workspace: first-run hides empty stat grids and secondary forms", as
   vocabulary.view.setTab("vocabulary");
   const vocabBody = lastBody(vocabulary.dom);
   assert.equal(within(vocabBody, "qt-study-stats").length, 0, "no zero vocabulary tiles before the first word");
-  assert.equal(within(vocabBody, "qt-workspace-disclosure").length, 1, "bulk import is a compact disclosure");
+  assert.equal(within(vocabBody, "qt-workspace-disclosure").length, 2, "bulk import and the glossary are compact disclosures");
 
   const tasks = await mount();
   tasks.view.setTab("tasks");

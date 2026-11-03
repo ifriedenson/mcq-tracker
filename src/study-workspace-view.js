@@ -11,6 +11,8 @@ const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
+const taskTags = require("./task-tags");
+const glossary = require("./glossary");
 const voiceMemo = require("./voice-memo");
 const { CODE_BLOCK_MODES: READ_ALOUD_CODE, READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
@@ -190,6 +192,8 @@ class StudyWorkspaceView extends ItemView {
     this.pdfAnnotationData = null;
     this.vaultTaskData = null;
     this.vaultTaskFilter = "";
+    this.glossaryData = null;
+    this.glossaryFilter = "";
     this.timeBlockView = "day";
     this.timeBlockDate = localDate();
     this.timeBlockEditId = "";
@@ -969,15 +973,36 @@ class StudyWorkspaceView extends ItemView {
     const title = this.renderField(form, "Task", "text", "Review cell respiration");
     const course = this.renderField(form, "Course", "text", "Biology");
     const due = this.renderField(form, "Due", "date", "", localDate());
+    const tagField = this.renderField(form, "Tags (optional)", "text", "#math, exam");
     const addActions = add.createDiv({ cls: "qt-row qt-study-actions" });
     addActions.createEl("button", { text: "Add task", cls: "mod-cta" }).addEventListener("click", async () => {
-      const task = await this.plugin.addStudyTask({ title: title.value, course: course.value, due: due.value });
+      const task = await this.plugin.addStudyTask({ title: title.value, course: course.value, due: due.value, tags: tagField.value });
       if (!task) {
         this.saveMessage("Add a task name first.");
         this.render();
         return;
       }
       this.saveMessage("Task added.");
+      this.render();
+    });
+
+    const tagCard = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" });
+    tagCard.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Rename a task tag" });
+    tagCard.createDiv({ cls: "qt-hint", text: "Renames one tag on the local study tasks below. Notes, frontmatter and other plugins' tags are never read or changed." });
+    const tagUsage = this.plugin.taskTagUsage();
+    tagCard.createDiv({
+      cls: "qt-study-row-meta",
+      text: tagUsage.length
+        ? "In use: " + tagUsage.slice(0, 12).map((row) => `#${row.tag} (${row.count})`).join(" · ")
+        : "No tags yet. Add tags when you add a task, or with + tag in the sidebar task list.",
+    });
+    const tagForm = tagCard.createDiv({ cls: "qt-study-form" });
+    const tagFrom = this.renderField(tagForm, "Tag to rename", "text", tagUsage.length ? `#${tagUsage[0].tag}` : "#math");
+    const tagTo = this.renderField(tagForm, "New tag name", "text", "#maths");
+    const tagActions = tagCard.createDiv({ cls: "qt-row qt-study-actions" });
+    tagActions.createEl("button", { text: "Rename tag" }).addEventListener("click", async () => {
+      const result = await this.plugin.renameStudyTaskTag(tagFrom.value, tagTo.value);
+      this.saveMessage(taskTags.renameSummary(result));
       this.render();
     });
 
@@ -1351,7 +1376,10 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage(result.count ? `Imported ${result.count} word${result.count === 1 ? "" : "s"}.${result.issues.length ? ` ${result.issues[0]}` : ""}` : "No valid lines. Use term | definition.");
       this.render();
     });
-    if (!hasWords) return;
+    if (!hasWords) {
+      this.renderGlossary(root);
+      return;
+    }
     const stats = root.createDiv({ cls: "qt-study-stats" });
     const stat = (value, label) => {
       const card = stats.createDiv({ cls: "qt-study-stat" });
@@ -1377,6 +1405,7 @@ class StudyWorkspaceView extends ItemView {
       .sort((a, b) => (!a.due ? "" : a.due).localeCompare(!b.due ? "" : b.due) || a.term.localeCompare(b.term));
     if (!words.length) {
       listCard.createDiv({ cls: "qt-study-empty", text: data.words.length ? "No word matches that search." : "No words yet. Add one or paste a list." });
+      this.renderGlossary(root);
       return;
     }
     const list = listCard.createDiv({ cls: "qt-study-list" });
@@ -1403,6 +1432,57 @@ class StudyWorkspaceView extends ItemView {
         await this.plugin.removeVocabWord(word.id);
         this.render();
       });
+    }
+    this.renderGlossary(root);
+  }
+
+  /** Read-only glossary from the vault's own `Term: definition` lines. */
+  renderGlossary(root) {
+    const card = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure", attr: this.glossaryData ? { open: "" } : {} });
+    card.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Glossary from your notes (read-only)" });
+    card.createDiv({
+      cls: "qt-hint",
+      text: "Reads \"Term: definition\" lines and two-column tables in this vault's Markdown notes. The index only reads: no note is edited or rewritten, and no word leaves your vault.",
+    });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Build glossary" }).addEventListener("click", async () => {
+      try {
+        this.glossaryData = await this.plugin.scanGlossary();
+        this.saveMessage(
+          this.glossaryData.stats.terms
+            ? `Found ${this.glossaryData.stats.terms} term(s) in ${this.glossaryData.stats.files} note(s).`
+            : "No \"Term: definition\" lines found in this vault."
+        );
+      } catch (e) {
+        this.saveMessage(String((e && e.message) || "Could not read the vault glossary."));
+      }
+      this.render();
+    });
+    const data = this.glossaryData;
+    if (!data) return;
+    card.createDiv({
+      cls: "qt-study-row-meta",
+      text: `${data.stats.terms} term(s) · ${data.stats.files} note(s)${data.stats.duplicates ? ` · ${data.stats.duplicates} duplicate(s) kept out` : ""}${data.truncated ? " · first matches only" : ""}`,
+    });
+    const field = this.renderField(card, "Glossary lookup", "text", "Search a term", this.glossaryFilter);
+    field.addEventListener("input", () => {
+      this.glossaryFilter = field.value;
+      this.render();
+    });
+    const rows = glossary.lookupGlossary(data.entries, this.glossaryFilter).slice(0, 40);
+    if (!rows.length) {
+      card.createDiv({ cls: "qt-study-row-meta", text: data.entries.length ? "No term matches that lookup." : "No definitions found yet." });
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of rows) {
+      const item = list.createDiv({ cls: "qt-study-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: row.term });
+      main.createDiv({ cls: "qt-study-row-meta", text: row.definition });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${row.path}:${row.line}` });
+      const buttons = item.createDiv({ cls: "qt-row qt-study-row-actions" });
+      buttons.createEl("button", { text: "Open note" }).addEventListener("click", () => this.app.workspace.openLinkText(row.path, "", false));
     }
   }
 

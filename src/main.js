@@ -111,6 +111,8 @@ const audioBookmarks = require("./audio-bookmarks");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
+const taskTags = require("./task-tags");
+const glossary = require("./glossary");
 const voiceMemo = require("./voice-memo");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
@@ -545,6 +547,8 @@ QuestionTrackerPlugin.__test = {
   feynmanAi,
   pdfAnnotationIndex,
   vaultTaskIndex,
+  taskTags,
+  glossary,
   voiceMemo,
   cornell,
   CardView,

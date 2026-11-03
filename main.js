@@ -31857,6 +31857,212 @@ module.exports = {
 };
 };
 
+/* ---- src/glossary.js ---- */
+__defs["glossary"] = function (module, exports, require) {
+/*
+ * Read-only glossary built from definitions the vault already contains. This is
+ * the local alternative to the Dictionary row in plan.md §5.24: it reads
+ * `Term: definition` lines and two-column Markdown tables, keeps everything in
+ * memory and never edits, resolves or writes a note. No word leaves the vault
+ * and no external dictionary is requested.
+ */
+const { str } = require("./util");
+
+const MAX_FILES = 500;
+const MAX_ENTRIES = 1000;
+const MAX_TERM = 80;
+const MAX_TEXT = 240;
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 500;
+const HEADER_TERM = /^(term|word|key|name|concept)$/i;
+const HEADER_MEANING = /^(meaning|definition|description|explanation|notes?)$/i;
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function clamp(value, low, high) {
+  return Math.max(low, Math.min(high, Math.round(value)));
+}
+
+function normalizeGlossaryOptions(value) {
+  const source = asObject(value);
+  return {
+    folder: str(source.folder).trim().replace(/^\/+|\/+$/g, "").slice(0, 400),
+    limit: clamp(Number.isFinite(Number(source.limit)) ? Number(source.limit) : DEFAULT_LIMIT, 1, MAX_LIMIT),
+  };
+}
+
+function inFolder(path, folder) {
+  if (!folder) return true;
+  return path === folder || path.startsWith(`${folder}/`);
+}
+
+/** Strip emphasis and inline code, then collapse whitespace. */
+function clean(value) {
+  return str(value)
+    .replace(/\*\*|__|`/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** One definition pair, or null when either side is empty or looks like a link. */
+function pair(term, definition) {
+  const key = clean(term);
+  const meaning = clean(definition);
+  if (!key || !meaning) return null;
+  if (key.length > MAX_TERM) return null;
+  if (/^(?:https?:\/\/|www\.)/i.test(key) || key.includes("://")) return null;
+  if (key.startsWith("[") || key.includes("[[") || key.includes("](") || key.includes("|")) return null;
+  if (/^(?:https?:\/\/|www\.)/i.test(meaning) || meaning.includes("://")) return null;
+  return { term: key, definition: meaning.slice(0, MAX_TEXT) };
+}
+
+/**
+ * `Term: definition`, `- Term: definition` or a two-column table row. Headings,
+ * checkboxes, separator rows and a table's own `Term | Meaning` header are not
+ * definitions.
+ */
+function definitionRow(line) {
+  const raw = str(line).trim();
+  if (!raw || /^#{1,6}\s/.test(raw)) return null;
+  if (/^(?:[-*+]\s+)?\[[ xX]\]\s/.test(raw)) return null;
+  if (raw.startsWith("|")) {
+    const cells = raw
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) => clean(cell));
+    if (cells.length < 2 || !cells[0] || !cells[1]) return null;
+    if (/^:?-{2,}:?$/.test(cells[0])) return null;
+    if (HEADER_TERM.test(cells[0]) && HEADER_MEANING.test(cells[1])) return null;
+    return pair(cells[0], cells[1]);
+  }
+  const body = raw.replace(/^(?:[-*+]|\d+[.)])\s+/, "").replace(/^>\s*/, "");
+  const hit = /^([^:]{1,80}?):\s+(\S.*)$/.exec(body);
+  if (!hit) return null;
+  return pair(hit[1], hit[2]);
+}
+
+/** Every definition in one note, with its 1-based line number. */
+function glossaryLines(text) {
+  const lines = str(text).replace(/\r\n?/g, "\n").split("\n");
+  const rows = [];
+  let fence = "";
+  let frontmatter = false;
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (index === 0 && /^---\s*$/.test(line)) {
+      frontmatter = true;
+      continue;
+    }
+    if (frontmatter) {
+      if (/^---\s*$/.test(line)) frontmatter = false;
+      continue;
+    }
+    const open = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (open) {
+      const mark = open[1][0];
+      if (!fence) fence = mark;
+      else if (fence === mark) fence = "";
+      continue;
+    }
+    if (fence) continue;
+    const row = definitionRow(line);
+    if (row) rows.push({ line: index + 1, term: row.term, definition: row.definition });
+  }
+  return rows;
+}
+
+/**
+ * Turn `[{ path, text }]` Markdown notes into one sorted glossary. The first
+ * definition of a term wins; later copies are counted, not merged. Nothing is
+ * written, linked or resolved.
+ */
+function collectGlossary(entries, options) {
+  const settings = normalizeGlossaryOptions(options);
+  const rows = [];
+  const files = [];
+  const seen = new Set();
+  let scanned = 0;
+  let duplicates = 0;
+  let truncated = false;
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const path = str(entry && entry.path).trim();
+    const text = str(entry && entry.text);
+    if (!path || !/\.md$/i.test(path) || !inFolder(path, settings.folder)) continue;
+    if (scanned >= MAX_FILES) {
+      truncated = true;
+      break;
+    }
+    scanned += 1;
+    const found = glossaryLines(text);
+    if (!found.length) continue;
+    files.push(path);
+    for (const row of found) {
+      if (seen.has(row.term.toLowerCase())) {
+        duplicates += 1;
+        continue;
+      }
+      if (rows.length >= MAX_ENTRIES) {
+        truncated = true;
+        break;
+      }
+      seen.add(row.term.toLowerCase());
+      rows.push({ term: row.term, definition: row.definition, path, line: row.line });
+    }
+    if (truncated) break;
+  }
+  rows.sort((a, b) => a.term.localeCompare(b.term) || a.path.localeCompare(b.path));
+  return {
+    entries: rows.slice(0, settings.limit),
+    files,
+    truncated: truncated || rows.length > settings.limit,
+    stats: {
+      files: files.length,
+      terms: rows.length,
+      shown: Math.min(rows.length, settings.limit),
+      duplicates,
+    },
+  };
+}
+
+/**
+ * Ranked lookup: an exact term first, then a prefix, then a match inside the
+ * term, then a match inside the definition. An empty query keeps the index.
+ */
+function lookupGlossary(entries, query) {
+  const list = Array.isArray(entries) ? entries : [];
+  const needle = str(query).trim().toLowerCase();
+  if (!needle) return list.slice();
+  const scored = [];
+  for (const entry of list) {
+    const term = str(entry && entry.term).toLowerCase();
+    const definition = str(entry && entry.definition).toLowerCase();
+    let score = -1;
+    if (term === needle) score = 0;
+    else if (term.startsWith(needle)) score = 1;
+    else if (term.includes(needle)) score = 2;
+    else if (definition.includes(needle)) score = 3;
+    if (score >= 0) scored.push({ entry, score });
+  }
+  return scored.sort((a, b) => a.score - b.score || a.entry.term.localeCompare(b.entry.term)).map((row) => row.entry);
+}
+
+module.exports = {
+  DEFAULT_LIMIT,
+  MAX_ENTRIES,
+  MAX_FILES,
+  MAX_LIMIT,
+  collectGlossary,
+  definitionRow,
+  glossaryLines,
+  lookupGlossary,
+  normalizeGlossaryOptions,
+  pair,
+};
+};
+
 /* ---- src/graph-3d.js ---- */
 __defs["graph-3d"] = function (module, exports, require) {
 /*
@@ -46813,6 +47019,8 @@ const courseHealth = require("./course-health");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
+const taskTags = require("./task-tags");
+const glossary = require("./glossary");
 const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
 const { renderCornellBlock } = require("./cornell-view");
@@ -55811,6 +56019,25 @@ ${body}
     return vaultTaskIndex.collectVaultTasks(entries, settings);
   }
 
+  /** Read-only glossary from `Term: definition` lines and two-column tables. */
+  async scanGlossary(options) {
+    const settings = glossary.normalizeGlossaryOptions(options);
+    const entries = [];
+    const files = this.app.vault.getMarkdownFiles ? this.app.vault.getMarkdownFiles() : [];
+    for (const file of files) {
+      if (entries.length >= glossary.MAX_FILES) break;
+      if (settings.folder && !(file.path === settings.folder || file.path.startsWith(settings.folder + "/"))) continue;
+      let text = "";
+      try {
+        text = await this.app.vault.cachedRead(file);
+      } catch (e) {
+        continue;
+      }
+      entries.push({ path: file.path, text });
+    }
+    return glossary.collectGlossary(entries, settings);
+  }
+
   async getPdfAnnotationIndex() {
     const settings = pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(this.settings.pdfAnnotationIndex);
     const entries = [];
@@ -56268,6 +56495,22 @@ ${body}
     await this.save();
     this.refreshViews();
     return task;
+  }
+
+  /** Tags used by the local study tasks, with counts. Read-only. */
+  taskTagUsage() {
+    return taskTags.tagUsage(this.studyWorkspaceSettings().studyTasks.tasks);
+  }
+
+  /** Rename one tag on the local study tasks; no note is read or written. */
+  async renameStudyTaskTag(from, to) {
+    const current = this.studyWorkspaceSettings().studyTasks;
+    const result = taskTags.planTagRename(current.tasks, from, to);
+    if (!result.ok) return result;
+    this.settings.studyTasks = studyWorkspace.normalizeStudyTasks({ ...current, tasks: result.tasks });
+    await this.save();
+    this.refreshViews();
+    return result;
   }
 
   async updateStudyTask(id, patch) {
@@ -84802,6 +85045,8 @@ module.exports = {
   recallStats,
   reviewRecallUnit,
   subjectSummary,
+  tagList,
+  tagValue,
   taskSummary,
   timeBlocks,
   vocabSummary,
@@ -84822,6 +85067,8 @@ const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
+const taskTags = require("./task-tags");
+const glossary = require("./glossary");
 const voiceMemo = require("./voice-memo");
 const { CODE_BLOCK_MODES: READ_ALOUD_CODE, READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
@@ -85001,6 +85248,8 @@ class StudyWorkspaceView extends ItemView {
     this.pdfAnnotationData = null;
     this.vaultTaskData = null;
     this.vaultTaskFilter = "";
+    this.glossaryData = null;
+    this.glossaryFilter = "";
     this.timeBlockView = "day";
     this.timeBlockDate = localDate();
     this.timeBlockEditId = "";
@@ -85780,15 +86029,36 @@ class StudyWorkspaceView extends ItemView {
     const title = this.renderField(form, "Task", "text", "Review cell respiration");
     const course = this.renderField(form, "Course", "text", "Biology");
     const due = this.renderField(form, "Due", "date", "", localDate());
+    const tagField = this.renderField(form, "Tags (optional)", "text", "#math, exam");
     const addActions = add.createDiv({ cls: "qt-row qt-study-actions" });
     addActions.createEl("button", { text: "Add task", cls: "mod-cta" }).addEventListener("click", async () => {
-      const task = await this.plugin.addStudyTask({ title: title.value, course: course.value, due: due.value });
+      const task = await this.plugin.addStudyTask({ title: title.value, course: course.value, due: due.value, tags: tagField.value });
       if (!task) {
         this.saveMessage("Add a task name first.");
         this.render();
         return;
       }
       this.saveMessage("Task added.");
+      this.render();
+    });
+
+    const tagCard = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure" });
+    tagCard.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Rename a task tag" });
+    tagCard.createDiv({ cls: "qt-hint", text: "Renames one tag on the local study tasks below. Notes, frontmatter and other plugins' tags are never read or changed." });
+    const tagUsage = this.plugin.taskTagUsage();
+    tagCard.createDiv({
+      cls: "qt-study-row-meta",
+      text: tagUsage.length
+        ? "In use: " + tagUsage.slice(0, 12).map((row) => `#${row.tag} (${row.count})`).join(" · ")
+        : "No tags yet. Add tags when you add a task, or with + tag in the sidebar task list.",
+    });
+    const tagForm = tagCard.createDiv({ cls: "qt-study-form" });
+    const tagFrom = this.renderField(tagForm, "Tag to rename", "text", tagUsage.length ? `#${tagUsage[0].tag}` : "#math");
+    const tagTo = this.renderField(tagForm, "New tag name", "text", "#maths");
+    const tagActions = tagCard.createDiv({ cls: "qt-row qt-study-actions" });
+    tagActions.createEl("button", { text: "Rename tag" }).addEventListener("click", async () => {
+      const result = await this.plugin.renameStudyTaskTag(tagFrom.value, tagTo.value);
+      this.saveMessage(taskTags.renameSummary(result));
       this.render();
     });
 
@@ -86162,7 +86432,10 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage(result.count ? `Imported ${result.count} word${result.count === 1 ? "" : "s"}.${result.issues.length ? ` ${result.issues[0]}` : ""}` : "No valid lines. Use term | definition.");
       this.render();
     });
-    if (!hasWords) return;
+    if (!hasWords) {
+      this.renderGlossary(root);
+      return;
+    }
     const stats = root.createDiv({ cls: "qt-study-stats" });
     const stat = (value, label) => {
       const card = stats.createDiv({ cls: "qt-study-stat" });
@@ -86188,6 +86461,7 @@ class StudyWorkspaceView extends ItemView {
       .sort((a, b) => (!a.due ? "" : a.due).localeCompare(!b.due ? "" : b.due) || a.term.localeCompare(b.term));
     if (!words.length) {
       listCard.createDiv({ cls: "qt-study-empty", text: data.words.length ? "No word matches that search." : "No words yet. Add one or paste a list." });
+      this.renderGlossary(root);
       return;
     }
     const list = listCard.createDiv({ cls: "qt-study-list" });
@@ -86214,6 +86488,57 @@ class StudyWorkspaceView extends ItemView {
         await this.plugin.removeVocabWord(word.id);
         this.render();
       });
+    }
+    this.renderGlossary(root);
+  }
+
+  /** Read-only glossary from the vault's own `Term: definition` lines. */
+  renderGlossary(root) {
+    const card = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure", attr: this.glossaryData ? { open: "" } : {} });
+    card.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Glossary from your notes (read-only)" });
+    card.createDiv({
+      cls: "qt-hint",
+      text: "Reads \"Term: definition\" lines and two-column tables in this vault's Markdown notes. The index only reads: no note is edited or rewritten, and no word leaves your vault.",
+    });
+    const actions = card.createDiv({ cls: "qt-row qt-study-actions" });
+    actions.createEl("button", { text: "Build glossary" }).addEventListener("click", async () => {
+      try {
+        this.glossaryData = await this.plugin.scanGlossary();
+        this.saveMessage(
+          this.glossaryData.stats.terms
+            ? `Found ${this.glossaryData.stats.terms} term(s) in ${this.glossaryData.stats.files} note(s).`
+            : "No \"Term: definition\" lines found in this vault."
+        );
+      } catch (e) {
+        this.saveMessage(String((e && e.message) || "Could not read the vault glossary."));
+      }
+      this.render();
+    });
+    const data = this.glossaryData;
+    if (!data) return;
+    card.createDiv({
+      cls: "qt-study-row-meta",
+      text: `${data.stats.terms} term(s) · ${data.stats.files} note(s)${data.stats.duplicates ? ` · ${data.stats.duplicates} duplicate(s) kept out` : ""}${data.truncated ? " · first matches only" : ""}`,
+    });
+    const field = this.renderField(card, "Glossary lookup", "text", "Search a term", this.glossaryFilter);
+    field.addEventListener("input", () => {
+      this.glossaryFilter = field.value;
+      this.render();
+    });
+    const rows = glossary.lookupGlossary(data.entries, this.glossaryFilter).slice(0, 40);
+    if (!rows.length) {
+      card.createDiv({ cls: "qt-study-row-meta", text: data.entries.length ? "No term matches that lookup." : "No definitions found yet." });
+      return;
+    }
+    const list = card.createDiv({ cls: "qt-study-list" });
+    for (const row of rows) {
+      const item = list.createDiv({ cls: "qt-study-row" });
+      const main = item.createDiv({ cls: "qt-study-row-main" });
+      main.createDiv({ cls: "qt-study-row-title", text: row.term });
+      main.createDiv({ cls: "qt-study-row-meta", text: row.definition });
+      main.createDiv({ cls: "qt-study-row-meta", text: `${row.path}:${row.line}` });
+      const buttons = item.createDiv({ cls: "qt-row qt-study-row-actions" });
+      buttons.createEl("button", { text: "Open note" }).addEventListener("click", () => this.app.workspace.openLinkText(row.path, "", false));
     }
   }
 
@@ -88830,6 +89155,96 @@ class TaskListView extends ItemView {
 }
 
 module.exports = { TaskListView };
+};
+
+/* ---- src/task-tags.js ---- */
+__defs["task-tags"] = function (module, exports, require) {
+/*
+ * Local rename of a tag on study tasks only. This is the safe half of the Tag
+ * Wrangler row in plan.md §5.24: it never rewrites a note, frontmatter or
+ * another plugin's tags, and it does not merge tags vault-wide. Tags are the
+ * optional `studyTasks` values the task list already keeps.
+ */
+const { str } = require("./util");
+const studyWorkspace = require("./study-workspace");
+
+const MAX_USAGE = 40;
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function tagsOf(task) {
+  const source = asObject(task).tags;
+  return Array.isArray(source) ? source.map((tag) => str(tag)).filter(Boolean) : [];
+}
+
+/** Every tag the local tasks use, most used first, with open/done counts. */
+function tagUsage(tasks) {
+  const counts = new Map();
+  for (const task of Array.isArray(tasks) ? tasks : []) {
+    const source = asObject(task);
+    for (const tag of tagsOf(source)) {
+      const key = tag.toLowerCase();
+      const row = counts.get(key) || { tag, count: 0, open: 0 };
+      row.count += 1;
+      if (source.done !== true) row.open += 1;
+      counts.set(key, row);
+    }
+  }
+  return [...counts.values()]
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+    .slice(0, MAX_USAGE);
+}
+
+/**
+ * Rename one tag across the local tasks. Returns the renamed list instead of
+ * mutating it, and refuses an empty, identical or unused tag with a message.
+ * A task that already carries the new tag keeps one copy, and the existing
+ * four-tag cap still applies.
+ */
+function planTagRename(tasks, from, to) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  const source = studyWorkspace.tagValue(from);
+  const target = studyWorkspace.tagValue(to);
+  if (!source) return { ok: false, reason: "from", message: "Type the tag to rename." };
+  if (!target) return { ok: false, reason: "to", message: "Type the new tag name." };
+  if (source.toLowerCase() === target.toLowerCase()) {
+    return { ok: false, reason: "same", message: "The new tag is the same as the old one." };
+  }
+  const key = source.toLowerCase();
+  let changed = 0;
+  let merged = 0;
+  const next = list.map((task) => {
+    const tags = tagsOf(task);
+    const index = tags.findIndex((tag) => tag.toLowerCase() === key);
+    if (index < 0) return task;
+    changed += 1;
+    const hadTarget = tags.some((tag, position) => position !== index && tag.toLowerCase() === target.toLowerCase());
+    if (hadTarget) merged += 1;
+    const replaced = tags.map((tag, position) => (position === index ? target : tag));
+    return Object.assign({}, task, { tags: studyWorkspace.tagList(replaced) });
+  });
+  if (!changed) return { ok: false, reason: "none", message: `No task uses #${source}.` };
+  return { ok: true, tasks: next, changed, merged, from: source, to: target };
+}
+
+/** One sentence for the view message, or the refusal that was returned. */
+function renameSummary(result) {
+  const source = asObject(result);
+  if (source.ok === false || !source.ok) return str(source.message);
+  const base = `Renamed #${source.from} to #${source.to} on ${source.changed} task${source.changed === 1 ? "" : "s"}.`;
+  if (!source.merged) return base;
+  return `${base} ${source.merged} task${source.merged === 1 ? " already had" : "s already had"} #${source.to} and ${source.merged === 1 ? "was" : "were"} merged.`;
+}
+
+module.exports = {
+  MAX_USAGE,
+  planTagRename,
+  renameSummary,
+  tagUsage,
+  tagsOf,
+};
 };
 
 /* ---- src/text2anki.js ---- */
@@ -93051,6 +93466,8 @@ const audioBookmarks = require("./audio-bookmarks");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
+const taskTags = require("./task-tags");
+const glossary = require("./glossary");
 const voiceMemo = require("./voice-memo");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
@@ -93485,6 +93902,8 @@ QuestionTrackerPlugin.__test = {
   feynmanAi,
   pdfAnnotationIndex,
   vaultTaskIndex,
+  taskTags,
+  glossary,
   voiceMemo,
   cornell,
   CardView,
