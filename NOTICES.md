@@ -8,44 +8,6 @@ the work.
 
 The build embeds this file and `LICENSE` into the generated `main.js`, so the notices travel with the file Obsidian installs.
 
-## JSXGraph
-
-- **Project:** [jsxgraph/jsxgraph](https://github.com/jsxgraph/jsxgraph) (npm package `jsxgraph`)
-- **Version:** 1.14.2
-- **License:** dual LGPL-3.0-or-later or MIT; this project uses the **MIT option**
-- **Copyright:** 2008-2026 Matthias Ehmann, Michael Gerhaeuser, Carsten Miller, Bianca Valentin, Andreas Walter, Alfred Wassermann, Peter Wilfahrt
-- **What was absorbed:** the published browser distribution `distrib/jsxgraphcore.js`, vendored as `vendor/jsxgraph-core.js`, and a local adapter in `src/jsxgraph-adapter.js` that translates this project's geometry and vector-field records into JSXGraph board elements.
-- **Files:** `vendor/jsxgraph-core.js`, `src/jsxgraph-adapter.js`, `src/geometry-panel.js`, `src/vector-panel.js`, `scripts/build.js` and `styles.css`.
-- **Modifications:** the vendor bundle is otherwise unmodified; its `supportsES6` feature probe was replaced with a static true result so the shipped bundle contains no dynamic `Function` call, the trailing source-map comment is absent, and a small board container stylesheet is local to this plugin.
-- **Boundary:** the runtime is local and receives no network request. It is not loaded until the user opens a JSXGraph board.
-
-The MIT notice that applies to the vendored runtime:
-
-```
-MIT License
-
-Copyright (c) 2008-2026 Matthias Ehmann, Michael Gerhaeuser, Carsten Miller,
-Bianca Valentin, Andreas Walter, Alfred Wassermann, Peter Wilfahrt
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
 ## AP resource links
 
 The AP resource hub in `src/ap-resources.js` contains only official College Board URLs,

@@ -5,7 +5,6 @@
  */
 const { Notice } = require("obsidian");
 const vectorField = require("./vector-field");
-const jsxgraph = require("./jsxgraph-adapter");
 
 function formatFieldNumber(value) {
   const number = Number(value);
@@ -157,28 +156,10 @@ function renderVectorField(root) {
     .addEventListener("click", () => this.applyVectorField(pInput.value, qInput.value, { color: colorInput.value }));
   form.createDiv({ cls: "qt-ref-matrix-hint", text: "Magnitude scaling keeps the arrow directions readable; turn normalize off to compare relative lengths." });
 
-  const boardForm = root.createDiv({ cls: "qt-ref-geometry-form" });
-  boardForm.createDiv({ cls: "qt-ref-graph-data-head", text: "Advanced presentation" });
-  boardForm.createDiv({ cls: "qt-ref-matrix-hint", text: "JSXGraph 1.14.2 (MIT) renders the same vector field with its interactive board. It runs locally; no network request is made." });
-  this.vectorFieldBoardEl = boardForm.createDiv({ cls: "qt-ref-jsxgraph-board" });
-  boardForm.createEl("button", { text: "Open JSXGraph board", attr: { type: "button", "aria-label": "Open vector field in JSXGraph" } })
-    .addEventListener("click", () => this.openVectorFieldBoard());
   this.vectorFieldStatusEl = root.createDiv({ cls: "qt-ref-geometry-status", attr: { "aria-live": "polite", "aria-label": "Vector field status" } });
   this.vectorFieldErrorEl = root.createDiv({ cls: "qt-calc-error", attr: { "aria-live": "polite", "aria-label": "Vector field error" } });
   this.vectorFieldCanvas = root.createEl("canvas", { cls: "qt-ref-canvas qt-ref-vector-canvas", attr: { role: "img", "aria-label": "Vector field rendering. Change P, Q or the window to redraw it." } });
   this.drawVectorField();
-}
-
-function openVectorFieldBoard() {
-  if (!this.vectorFieldBoardEl) return { ok: false, reason: "container", message: "Open the Vector field tab first." };
-  let field;
-  try { field = vectorField.compileField(this.vectorFieldP, this.vectorFieldQ); } catch (e) { return failVectorField.call(this, e); }
-  this.vectorFieldBoardEl.empty();
-  const result = jsxgraph.openVectorBoard(field, this.vectorFieldSettings, this.vectorFieldBoardEl);
-  if (!result.ok) return failVectorField.call(this, new Error(result.message));
-  this.vectorFieldBoard = result.board;
-  announceVectorField.call(this, `JSXGraph board opened with ${result.created.length} elements.`);
-  return result;
 }
 
 module.exports = {
@@ -186,7 +167,6 @@ module.exports = {
   applyVectorField,
   drawVectorField,
   failVectorField,
-  openVectorFieldBoard,
   persistVectorFieldState,
   renderVectorField,
   setVectorFieldOption,

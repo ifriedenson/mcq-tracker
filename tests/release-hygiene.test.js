@@ -14,6 +14,8 @@ test("the shipped bundle carries the optional desktop OpenCode installer", () =>
   }
   assert.ok(bundle.includes("OpenCodeManager"), "the OpenCode installer must be bundled");
   assert.ok(bundle.includes("Download and install"), "the setup action must be reachable");
+  assert.equal(bundle.includes("JSXGraph"), false, "the withdrawn JSXGraph runtime must not be bundled");
+  assert.equal(bundle.includes("jsxgraph-core"), false, "the vendored JSXGraph file must not be bundled");
 });
 
 test("styles avoid duplicate height declarations and !important", () => {

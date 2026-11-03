@@ -253,8 +253,6 @@ class ReferenceView extends ItemView {
     this.vectorFieldStatusEl = null;
     this.vectorFieldErrorEl = null;
     this.vectorFieldBuilt = null;
-    this.vectorFieldBoardEl = null;
-    this.vectorFieldBoard = null;
     this.elementQuery = "";
     this.selectedElement = null;
     this.periodicGridEl = null;
@@ -736,12 +734,6 @@ class ReferenceView extends ItemView {
     }
     this.geometryStatusEl = root.createDiv({ cls: "qt-ref-geometry-status", attr: { "aria-live": "polite", "aria-label": "Geometry status" } });
     this.geometryStatusEl.setText(geometry.summary(this.geometryModel));
-    const boardForm = root.createDiv({ cls: "qt-ref-geometry-form" });
-    boardForm.createDiv({ cls: "qt-ref-graph-data-head", text: "Advanced presentation" });
-    boardForm.createDiv({ cls: "qt-ref-matrix-hint", text: "JSXGraph 1.14.2 (MIT) renders this drawing on an interactive board. It runs locally; no network request is made." });
-    this.geometryBoardEl = boardForm.createDiv({ cls: "qt-ref-jsxgraph-board" });
-    boardForm.createEl("button", { text: "Open JSXGraph board", attr: { type: "button", "aria-label": "Open geometry in JSXGraph" } })
-      .addEventListener("click", () => this.openGeometryBoard());
     this.geometryCanvas = root.createEl("canvas", {
       cls: "qt-ref-canvas qt-ref-geometry-canvas",
       attr: { tabindex: "0", role: "application", "aria-label": "Geometry drawing. Use the coordinate fields and object list to create and remove objects." },

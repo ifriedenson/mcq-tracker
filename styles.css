@@ -11367,18 +11367,6 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   image-rendering: auto;
 }
 
-.qt-ref-jsxgraph-board {
-  min-height: 320px;
-  width: 100%;
-  overflow: hidden;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  background: var(--background-primary);
-}
-.qt-ref-jsxgraph-board .jxgbox {
-  width: 100%;
-  height: 320px;
-}
 .qt-ref-vector-canvas {
   width: 100%;
   max-width: 720px;

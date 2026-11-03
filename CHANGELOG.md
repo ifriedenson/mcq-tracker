@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.209.1 — 2026-11-03
+
+- Removed the optional JSXGraph presentation adapter and its vendored 1.14.2
+  runtime after release review. Geometry and Vector field keep their local
+  canvases; 3D curves, audio trace and vector fields are unchanged.
+- The removed adapter was the new third-party runtime since the accepted 1.205
+  release and added a dynamic-code surface plus a false-positive ZIP/self-update
+  signal. No note or settings migration is required.
+
 ## 1.209.0 — 2026-11-03
 
 - Completes the four remaining extended-calculator roadmap items in one release:

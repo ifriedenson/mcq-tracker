@@ -1,5 +1,5 @@
 "use strict";
-// Curves/LOD, audio trace, vector fields, 3D print output and the JSXGraph adapter.
+// Curves/LOD, audio trace, vector fields and 3D print output.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { load } = require("./helpers/load");
@@ -91,7 +91,7 @@ test("vector fields: sample, scale arrows, integrate streamlines and paint", () 
   assert.ok(painted.streamlines > 0);
 });
 
-test("reference view: curves, LOD, audio state, vector persistence and JSXGraph scenes work", async () => {
+test("reference view: curves, LOD, audio state and vector persistence work", async () => {
   const app = makeApp([]);
   const plugin = new QT(app);
   await plugin.onload();
@@ -129,26 +129,4 @@ test("reference view: curves, LOD, audio state, vector persistence and JSXGraph 
   assert.equal(view.vectorFieldSettings.normalize, false);
   const merged = T.referenceData.mergeReferenceSettings({ vectorField: { p: "x", density: 9 } });
   assert.equal(merged.vectorField.density, 9);
-
-  assert.equal(T.jsxgraphAdapter.available(), true);
-  assert.equal(T.jsxgraphAdapter.runtime().version, "1.14.2");
-  const scene = T.jsxgraphAdapter.geometryScene(T.geometry.createModel(), { xMin: -2, xMax: 2, yMin: -2, yMax: 2 });
-  assert.equal(scene.kind, "geometry");
-  assert.equal(scene.elements.length, 0);
-  const model = T.geometry.createModel();
-  const a = T.geometry.addPoint(model, 0, 0, "A");
-  const b = T.geometry.addPoint(model, 2, 0, "B");
-  T.geometry.addSegment(model, a.id, b.id);
-  const drawing = T.jsxgraphAdapter.geometryScene(model, { xMin: -2, xMax: 2, yMin: -2, yMax: 2 });
-  assert.equal(drawing.elements.length, 3);
-  const created = [];
-  const result = T.jsxgraphAdapter.createBoard({
-    JSXGraph: { initBoard: () => ({ create: (...args) => { created.push(args); return args; } }) },
-  }, {}, drawing);
-  assert.equal(result.ok, true);
-  assert.equal(created.length, 3);
-
-  const fieldScene = T.jsxgraphAdapter.vectorScene(T.vectorField.compileField("-y", "x"), { density: 3 });
-  assert.equal(fieldScene.kind, "field");
-  assert.ok(fieldScene.elements.length > 0);
 });

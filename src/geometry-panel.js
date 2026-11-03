@@ -8,7 +8,6 @@
 const { Notice } = require("obsidian");
 const geometry = require("./geometry");
 const { exportScale } = require("./graph-export");
-const jsxgraph = require("./jsxgraph-adapter");
 
 function addGeometryPoint(x, y) {
   try {
@@ -90,16 +89,6 @@ function addGeometryTransform(source, kind, dx, dy, degrees, factor) {
   }
 }
 
-function openGeometryBoard() {
-  if (!this.geometryBoardEl) return { ok: false, reason: "container", message: "Open the Geometry tab first." };
-  this.geometryBoardEl.empty();
-  const result = jsxgraph.openGeometryBoard(this.geometryModel, this.geometryViewport, this.geometryBoardEl);
-  if (!result.ok) return this.failGeometry(new Error(result.message));
-  this.geometryBoard = result.board;
-  this.announceGeometry(`JSXGraph board opened with ${result.created.length} elements.`);
-  return result;
-}
-
 function removeGeometryObject(id) {
   const result = geometry.removeObject(this.geometryModel, id);
   this.persistGeometryState();
@@ -157,7 +146,6 @@ module.exports = {
   addGeometryObject,
   addGeometryTransform,
   addGeometryPoint,
-  openGeometryBoard,
   announceGeometry,
   drawGeometry,
   failGeometry,

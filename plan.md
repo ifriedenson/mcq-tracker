@@ -1275,7 +1275,7 @@ Every queued row in this table is now shipped; the only remaining row is the blo
 
 ### 3.13 Extended calculator roadmap (Nov 3, 2026)
 
-Owner decisions: include explicit and implicit 3D surfaces; do not build braille output; do not add Desmos share links or the Desmos API; allow a vendored JSXGraph build under its MIT option; add geometry transformations in a later release. The 3D, geometry and matrix tools are separate Reference surfaces from the 2D graph. Each release follows the existing rule: a pure module first, one `ReferenceView` adapter, local persistence, focused tests, a rebuilt `main.js`, and an honest release note.
+Owner decisions: include explicit and implicit 3D surfaces; do not build braille output; do not add Desmos share links or the Desmos API; allow a vendored JSXGraph build under its MIT option (withdrawn in 1.209.1 after release review); add geometry transformations in a later release. The 3D, geometry and matrix tools are separate Reference surfaces from the 2D graph. Each release follows the existing rule: a pure module first, one `ReferenceView` adapter, local persistence, focused tests, a rebuilt `main.js`, and an honest release note.
 
 | Release | Capability | Scope | Status |
 |---|---|---|---|
@@ -1290,11 +1290,11 @@ Owner decisions: include explicit and implicit 3D surfaces; do not build braille
 | 1.206.0 | 3D curves and performance | Parametric curves, LOD, color, export and print | **Shipped in 1.209.0** |
 | 1.207.0 | Audio trace | Web Audio sonification of curves and points | **Shipped in 1.209.0** |
 | 1.208.0 | Local vector field | Quiver, streamlines and magnitude scaling | **Shipped in 1.209.0** |
-| 1.209.0 | JSXGraph adapter | MIT-vendored advanced geometry and vector-field presentation | **Shipped** |
+| 1.209.0 | JSXGraph adapter | MIT-vendored advanced geometry and vector-field presentation | **Shipped in 1.209.0; withdrawn in 1.209.1** |
 
 **Removed by owner decision:** braille output (including BRF and translation) and all Desmos share-link/API work, including a plugin-owned link format. No network integration is planned for these tools.
 
-**Roadmap close-out:** 1.206–1.209 were completed together and published as **1.209.0**. Separate 1.206–1.208 tags were not created; the 1.209.0 release notes are the single record for 3D curves/LOD/export/print, audio trace, the local vector field and the MIT-option JSXGraph adapter. The vendor notice is in `NOTICES.md`; the source of truth for the shipped behavior is the focused tests and release notes.
+**Roadmap close-out:** 1.206–1.209 were completed together and published as **1.209.0**. Separate 1.206–1.208 tags were not created. **1.209.1** withdraws the optional JSXGraph adapter after release review; the 3D curves/LOD/export/print, audio trace and local vector-field canvases remain. There is no vendored JSXGraph runtime or notice in the shipped bundle. The source of truth for the shipped behavior is the focused tests and release notes.
 
 
 ## 4. Architecture
