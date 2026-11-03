@@ -2688,6 +2688,12 @@ class StudyWorkspaceView extends ItemView {
       for (const check of row.checks) {
         main.createDiv({ cls: "qt-study-row-meta", text: `${check.level === "warn" ? "⚠" : "·"} ${check.text}` });
       }
+      const warnings = row.checks.filter((check) => check.level === "warn").length;
+      if (warnings) main.createDiv({ cls: "qt-study-row-meta", text: `${warnings} warning${warnings === 1 ? "" : "s"} to clear` });
+      if (typeof this.plugin.openCourseOverview === "function") {
+        const buttons = item.createDiv({ cls: "qt-row qt-study-row-actions" });
+        buttons.createEl("button", { text: "Overview" }).addEventListener("click", () => this.plugin.openCourseOverview(row.courseId || row.name));
+      }
     }
   }
 

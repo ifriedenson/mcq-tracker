@@ -9,8 +9,9 @@ defined; each rendered action has a handler that reaches a real model or plugin 
 empty state names what to do next. Model exports that no view used were listed separately to
 catch implemented-but-unwired capability.
 
-**Result:** all 21 tabs render and call only defined plugin members. One tool was a stub and was
-completed in **1.210.11**; the rest were already implemented. No tab renders a settings-only
+**Result:** all 21 tabs render and call only defined plugin members. Two tools were incomplete and
+were finished in **1.210.11** (the Retention fit card was a stub) and **1.210.12** (Course health rows
+had no action); the rest were already implemented. No tab renders a settings-only
 placeholder card any more.
 
 | # | Tool (tab id) | Actions | Workspace tests | Status |
@@ -54,6 +55,13 @@ are no cards, and is covered by `tests/fsrs-fit.test.js`. Shipped as 1.210.11.
 `study-workspace.js` itself or destructured by name in the view; the module-qualified search that
 listed them was a false positive, not dead capability. `timeBlocks` is the sibling module the
 planner imports directly.
+
+## Second gap fixed: Course health had no actions
+
+`renderCourseHealth` printed each course's checks but gave the reader nothing to
+do, so a warning was a dead end. Each row now states how many warnings remain and
+offers **Overview**, which reuses `plugin.openCourseOverview` from the Courses tab.
+Shipped as 1.210.12 and covered by `tests/study-workspace-health.test.js`.
 
 ## What is still open
 

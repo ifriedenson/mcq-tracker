@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.210.12 — 2026-11-03
+
+- **Course health** rows are no longer dead ends. Each course keeps its checks
+  and now says how many warnings are left and offers **Overview**, which opens
+  the existing course overview modal for that course. The tab stays read-only:
+  no check, grade or note is changed.
+
 ## 1.210.11 — 2026-11-03
 
 - The Retention tab's **Per-deck retention fit** card now shows the fit it
