@@ -10,6 +10,7 @@ const { localDate, str } = require("./util");
 const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
+const vaultTaskIndex = require("./vault-task-index");
 const { READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
@@ -186,6 +187,8 @@ class StudyWorkspaceView extends ItemView {
     this.bookmarkLabel = "";
     this.feynmanAiId = "";
     this.pdfAnnotationData = null;
+    this.vaultTaskData = null;
+    this.vaultTaskFilter = "";
     this.timeBlockView = "day";
     this.timeBlockDate = localDate();
     this.timeBlockEditId = "";
@@ -979,6 +982,41 @@ class StudyWorkspaceView extends ItemView {
       this.saveMessage(created.length ? `Generated ${created.length} task${created.length === 1 ? "" : "s"}.` : "Add a course, a future exam date and at least one topic.");
       this.render();
     });
+
+    const vault = root.createEl("details", { cls: "qt-study-card qt-workspace-disclosure", attr: this.vaultTaskData ? { open: "" } : {} });
+    vault.createEl("summary", { cls: "qt-workspace-disclosure-title", text: "Vault checklist (read-only)" });
+    vault.createDiv({ cls: "qt-hint", text: "Scan the Markdown notes in this vault for checkbox lines such as \"- [ ] read chapter 3\". The index only reads: no note is edited, reopened or rewritten, and another plugin's task syntax is not interpreted." });
+    const vaultActions = vault.createDiv({ cls: "qt-row qt-study-actions" });
+    vaultActions.createEl("button", { text: "Scan vault" }).addEventListener("click", async () => {
+      try {
+        this.vaultTaskData = await this.plugin.scanVaultTasks();
+        this.saveMessage(`Found ${this.vaultTaskData.stats.rows} checkbox line(s) in ${this.vaultTaskData.stats.files} note(s).`);
+      } catch (e) {
+        this.saveMessage(String((e && e.message) || "Could not read the vault checkboxes."));
+      }
+      this.render();
+    });
+    const vaultData = this.vaultTaskData;
+    if (vaultData) {
+      vault.createDiv({ cls: "qt-study-row-meta", text: `${vaultData.stats.rows} checkbox line(s) · ${vaultData.stats.open} open · ${vaultData.stats.done} done · ${vaultData.stats.files} note(s)` });
+      if (vaultData.truncated) vault.createDiv({ cls: "qt-study-row-meta", text: "Only the first matches are listed; narrow the filter to see the rest." });
+      const vaultFilter = this.renderField(vault, "Vault filter", "text", "Text, tag or note path", this.vaultTaskFilter);
+      vaultFilter.addEventListener("input", () => {
+        this.vaultTaskFilter = vaultFilter.value;
+        this.render();
+      });
+      const vaultTatch = vaultTaskIndex.filterVaultTasks(vaultData.rows, this.vaultTaskFilter);
+      if (!vaultTatch.length) vault.createDiv({ cls: "qt-study-row-meta", text: "No vault checkbox matches this filter." });
+      const vaultList = vault.createDiv({ cls: "qt-study-list" });
+      for (const row of vaultTatch) {
+        const item = vaultList.createDiv({ cls: "qt-study-row" });
+        const main = item.createDiv({ cls: "qt-study-row-main" });
+        main.createDiv({ cls: "qt-study-row-title", text: (row.done ? "☑ " : "☐ ") + row.text });
+        main.createDiv({ cls: "qt-study-row-meta", text: `${row.path}:${row.line}${row.tags.length ? " · " + row.tags.map((tag) => "#" + tag).join(" ") : ""}` });
+        const buttons = item.createDiv({ cls: "qt-row qt-study-row-actions" });
+        buttons.createEl("button", { text: "Open note" }).addEventListener("click", () => this.app.workspace.openLinkText(row.path, "", false));
+      }
+    }
 
     if (!data.tasks.length) {
       this.renderTabsEmpty(root, "No tasks yet. Add one above or generate passes from an exam date; nothing is written to a note.");

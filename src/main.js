@@ -109,6 +109,7 @@ const { CourseOverviewModal } = require("./course-overview-modal");
 const audioBookmarks = require("./audio-bookmarks");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
+const vaultTaskIndex = require("./vault-task-index");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
 const quizNoteGate = require("./quiz-note-gate");
@@ -540,6 +541,7 @@ QuestionTrackerPlugin.__test = {
   audioBookmarks,
   feynmanAi,
   pdfAnnotationIndex,
+  vaultTaskIndex,
   cornell,
   CardView,
   CardModal,

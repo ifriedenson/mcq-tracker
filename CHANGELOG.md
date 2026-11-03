@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.210.5 — 2026-11-03
+
+- The **Tasks** tab gains a **Vault checklist (read-only)** section. **Scan
+  vault** lists `- [ ]` and `- [x]` lines from the Markdown notes with their
+  note path and line number, and filters by text, tag or path.
+- Fenced code blocks are skipped, non-Markdown files are ignored, and the scan
+  is capped at 500 notes and 1,000 lines. Nothing is written: no note is
+  edited, reopened or rewritten and no other plugin's task syntax is changed.
+
 ## 1.210.4 — 2026-11-03
 
 - Each row in the read-only **PDF annotations** index now offers **Copy page

@@ -29,6 +29,7 @@ const readingLibrary = require("./reading-library");
 const courseHealth = require("./course-health");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
+const vaultTaskIndex = require("./vault-task-index");
 const { buildCornellNote } = require("./cornell");
 const { renderCornellBlock } = require("./cornell-view");
 const studyTools = require("./study-tools");
@@ -8941,6 +8942,25 @@ ${body}
   }
 
   /** Read-only: list the PDF annotation sidecars already in the vault. */
+  /** Read-only scan of Markdown checkbox lines; nothing is written. */
+  async scanVaultTasks(options) {
+    const settings = vaultTaskIndex.normalizeVaultTaskIndexOptions(options);
+    const entries = [];
+    const files = this.app.vault.getMarkdownFiles ? this.app.vault.getMarkdownFiles() : [];
+    for (const file of files) {
+      if (entries.length >= vaultTaskIndex.MAX_FILES) break;
+      if (settings.folder && !(file.path === settings.folder || file.path.startsWith(settings.folder + "/"))) continue;
+      let text = "";
+      try {
+        text = await this.app.vault.cachedRead(file);
+      } catch (e) {
+        continue;
+      }
+      entries.push({ path: file.path, text });
+    }
+    return vaultTaskIndex.collectVaultTasks(entries, settings);
+  }
+
   async getPdfAnnotationIndex() {
     const settings = pdfAnnotationIndex.normalizePdfAnnotationIndexSettings(this.settings.pdfAnnotationIndex);
     const entries = [];
