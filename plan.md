@@ -9,6 +9,8 @@
 
 > **How to read the license notes.** License information below comes from each plugin's community page, README, or a stats/index site as seen during research on Oct 27, 2026. Items marked **Verify** were not confirmed. Before copying any code, open the repo's `LICENSE` file and `package.json` yourself. MIT allows reuse if you keep the copyright and license notice. This is not legal advice.
 
+- [x] **PDF annotator upgrade (Nov 3, 2026, released 1.215.0):** the annotator gained underline, strike-through and box marks beside highlight, a **Select text** tool that reads pdf.js text items and turns a drag into a quote annotation with one mark per line, bounded tags and `[[file.pdf#page=N&annotation=id]]` links, a searchable and filterable annotation index with note and tag rows, a numbered Markdown digest export, and per-PDF reading position in local storage. New plugin paths `pdfAnnotationRows`, `updatePdfAnnotationNote`, `deletePdfAnnotation`, `exportPdfAnnotations`, `writePdfAnnotationDigest`, `pdfLastPage` and `rememberPdfPage` plus the **PDF: export annotations to Markdown** command reuse the same `.annotations.md` sidecar, so the PDF is never modified and no new dependency, provider or network request was added. Covered by `tests/pdf-annotator.test.js`.
+
 ## Handoff snapshot (Oct 30, 2026)
 
 **Start a new chat here.** The repository is the source of truth; this section records the current state so a fresh chat does not need the old conversation.

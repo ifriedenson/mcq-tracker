@@ -10,6 +10,7 @@ const { localDate, str } = require("./util");
 const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
+const pdfAnnotations = require("./pdf-annotations");
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
@@ -2380,6 +2381,27 @@ class StudyWorkspaceView extends ItemView {
       }
       this.render();
     });
+    actions.createEl("button", { text: "Open annotator" }).addEventListener("click", () => {
+      const active = this.app.workspace.getActiveFile();
+      const rows = this.pdfAnnotationData ? this.pdfAnnotationData.rows : [];
+      const pdfPath = active && /\.pdf$/i.test(active.path) ? active.path : rows[0] ? rows[0].pdfPath : "";
+      if (!pdfPath) {
+        this.saveMessage("Scan a vault with at least one annotated PDF first.");
+        this.render();
+        return;
+      }
+      this.plugin.openPdfInk(pdfPath);
+    });
+    actions.createEl("button", { text: "Export Markdown" }).addEventListener("click", async () => {
+      const rows = this.pdfAnnotationData ? this.pdfAnnotationData.rows : [];
+      try {
+        const path = await this.plugin.writePdfAnnotationDigest(rows, "PDF annotations");
+        this.saveMessage(path ? `Wrote ${path}.` : "No annotations to export yet.");
+      } catch (e) {
+        this.saveMessage(String((e && e.message) || "Could not export the annotations."));
+      }
+      this.render();
+    });
     const data = this.pdfAnnotationData;
     if (!data) {
       this.renderTabsEmpty(root, "Scan to list the PDF annotations already in this vault.");
@@ -2394,15 +2416,53 @@ class StudyWorkspaceView extends ItemView {
       this.renderTabsEmpty(root, "No sidecar annotations found. Annotate a PDF first.");
       return;
     }
+    const filters = card.createDiv({ cls: "qt-study-form" });
+    const search = filters.createEl("input", { cls: "qt-input", type: "search", placeholder: "Search quotes, notes and tags" });
+    search.value = this.pdfAnnotationFilter || "";
+    search.addEventListener("input", () => {
+      this.pdfAnnotationFilter = search.value;
+      this.render();
+    });
+    const typeOptions = [{ value: "", label: "All types" }];
+    for (const type of Object.keys(stats.byType).sort()) typeOptions.push({ value: type, label: type });
+    const typeSelect = this.renderSelect(filters, "Type", typeOptions, this.pdfAnnotationType || "");
+    typeSelect.addEventListener("change", () => {
+      this.pdfAnnotationType = typeSelect.value;
+      this.render();
+    });
+    const shown = pdfAnnotations.filterAnnotations(data.rows, { query: this.pdfAnnotationFilter, type: this.pdfAnnotationType });
+    card.createDiv({ cls: "qt-study-row-meta", text: `Showing ${shown.length} of ${data.rows.length} annotations` });
+    if (!shown.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "No annotation matches that filter." });
+      return;
+    }
     const list = card.createDiv({ cls: "qt-study-list" });
-    for (const row of data.rows) {
+    for (const row of shown) {
       const item = list.createDiv({ cls: "qt-study-row" });
       const main = item.createDiv({ cls: "qt-study-row-main" });
       main.createDiv({ cls: "qt-study-row-title", text: `${row.pdfPath} · page ${row.page}` });
       main.createDiv({ cls: "qt-study-row-meta", text: `${row.type} · ${row.color}: ${row.summary}` });
+      if (row.note) main.createDiv({ cls: "qt-study-row-meta", text: `Note: ${row.note.slice(0, 160)}` });
+      if (Array.isArray(row.tags) && row.tags.length) {
+        const tags = main.createDiv({ cls: "qt-row qt-pdf-tags" });
+        for (const tag of row.tags) tags.createSpan({ cls: "qt-pdf-tag", text: `#${tag}` });
+      }
       const buttons = item.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Open PDF" }).addEventListener("click", () => this.app.workspace.openLinkText(row.pdfPath, "", false));
       buttons.createEl("button", { text: "Open sidecar" }).addEventListener("click", () => this.app.workspace.openLinkText(row.sidecarPath, "", false));
+      const annotationHref = pdfAnnotations.annotationLink(row.pdfPath, row.page, row.id);
+      if (annotationHref) {
+        buttons.createEl("button", { text: "Copy annotation link" }).addEventListener("click", async () => {
+          try {
+            if (typeof navigator === "undefined" || !navigator.clipboard) throw new Error("Clipboard unavailable");
+            await navigator.clipboard.writeText(annotationHref);
+            this.saveMessage("Copied " + annotationHref + ".");
+          } catch (e) {
+            this.saveMessage("Could not copy " + annotationHref + " in this view.");
+          }
+          this.render();
+        });
+      }
       const pageLink = pdfAnnotationIndex.pdfPageLink(row.pdfPath, row.page);
       if (pageLink) {
         const subpath = pdfAnnotationIndex.pdfPageSubpath(row.pdfPath, row.page);

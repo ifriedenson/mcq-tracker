@@ -11660,3 +11660,27 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 :is(.uni-calendar-container, .uni-schedule-embed) .uni-planner-actions {
   margin-top: 12px;
 }
+
+/* PDF annotator: mark tools and the annotation index */
+.qt-pdf-tags {
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.qt-pdf-tag {
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: var(--font-ui-smaller);
+  background: var(--background-secondary-alt);
+  color: var(--text-muted);
+}
+
+.qt-pdf-ink-quote-preview {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--text-accent);
+  background: var(--background-secondary);
+  max-height: 96px;
+  overflow: auto;
+}

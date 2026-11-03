@@ -387,6 +387,49 @@ function slugId(s) {
   return str(s).toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "Q";
 }
 
+/**
+ * The page's text items with normalized top-left boxes (0..1 of the page), so a
+ * drag on the rendered page can be matched to the words under it. Scale-free.
+ */
+async function readPdfPageText(buf, pageNumber) {
+  if (typeof loadPdfJs !== "function") throw new Error("This version of Obsidian can't read PDFs from plugins.");
+  const pdfjs = await loadPdfJs();
+  let doc;
+  try {
+    doc = await pdfjs.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+  } catch (e) {
+    throw new Error("I couldn't open that PDF. It may be damaged or password protected.");
+  }
+  try {
+    const total = doc.numPages;
+    const n = Math.max(1, Math.min(total, Math.round(Number(pageNumber) || 1)));
+    const page = await doc.getPage(n);
+    const viewport = page.getViewport({ scale: 1 });
+    const content = await page.getTextContent();
+    const width = Math.max(1, viewport.width);
+    const height = Math.max(1, viewport.height);
+    const items = [];
+    for (const item of content.items) {
+      if (!item || typeof item.str !== "string" || !item.str.trim() || !item.transform) continue;
+      const t = matMul(viewport.transform, item.transform);
+      const fontHeight = Math.hypot(t[2], t[3]) || 10;
+      const w = Math.max(0, (item.width || 0) * viewport.scale);
+      const x = Math.max(0, Math.min(width, t[4]));
+      const top = Math.max(0, Math.min(height, t[5] - fontHeight));
+      items.push({
+        s: item.str,
+        x: Math.max(0, Math.min(1, x / width)),
+        y: Math.max(0, Math.min(1, top / height)),
+        w: Math.max(0, Math.min(1, w / width)),
+        h: Math.max(0.001, Math.min(1, fontHeight / height)),
+      });
+    }
+    return { page: n, total, width, height, items };
+  } finally {
+    if (doc && typeof doc.destroy === "function") await doc.destroy().catch(() => {});
+  }
+}
+
 /** Renders selected PDF pages to PNG for an explicit OCR request. */
 async function renderPdfPagesAsPng(buf, spec, progress, scale) {
   if (typeof loadPdfJs !== "function") throw new Error("This version of Obsidian can't read PDFs from plugins.");
@@ -429,6 +472,7 @@ module.exports = {
   canvasToPng,
   cropToPng,
   readPdfPages,
+  readPdfPageText,
   renderPdfPagesAsPng,
   chunkPages,
   chunkText,

@@ -57,7 +57,7 @@ const { OcrModal } = require("./ocr-modal");
 const { PaperScannerModal } = require("./paper-scanner");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const { PdfInkModal } = require("./pdf-ink-modal");
-const { sidecarPathFor } = require("./pdf-annotations");
+const { annotationLink, annotationSummary, annotationsMarkdown, parseAnnotationFile, sidecarPathFor, upsertAnnotation, removeAnnotation } = require("./pdf-annotations");
 const { WelcomeModal } = require("./welcome-modal");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
@@ -338,6 +338,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "ocr-pdf", name: "OCR a scanned PDF", callback: () => this.openOcr() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-draw", name: "PDF: draw with pen or highlighter", callback: () => this.openPdfInk() });
+    this.addCommand({ id: "pdf-export-notes", name: "PDF: export annotations to Markdown", callback: () => this.exportActivePdfAnnotations() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
     this.addCommand({
       id: "practice-folder",
@@ -1334,6 +1335,107 @@ class QuestionTrackerPlugin extends Plugin {
   openPdfInk(pdfPath) {
     if (this.moduleOff("mcq")) return;
     new PdfInkModal(this.app, this, { pdfPath: pdfPath || "" }).open();
+  }
+
+
+  /** Rows for one PDF's sidecar, including tags and mark areas. */
+  async pdfAnnotationRows(pdfPath) {
+    const source = String(pdfPath || "").trim();
+    const path = sidecarPathFor(source);
+    const file = source ? this.app.vault.getAbstractFileByPath(path) : null;
+    if (!file) return { pdfPath: source, sidecarPath: path, pdfHash: "", rows: [] };
+    const parsed = parseAnnotationFile(await this.app.vault.cachedRead(file));
+    const rows = (parsed.annotations || []).map((annotation) => ({
+      id: annotation.id,
+      pdfPath: source,
+      sidecarPath: path,
+      page: annotation.page,
+      type: annotation.type,
+      color: annotation.color,
+      quote: annotation.quote,
+      note: annotation.note,
+      text: annotation.text,
+      tags: annotation.tags,
+      areas: annotation.areas,
+      summary: annotationSummary(annotation),
+      createdAt: annotation.createdAt,
+      updatedAt: annotation.updatedAt,
+    }));
+    return { pdfPath: source, sidecarPath: path, pdfHash: parsed.pdfHash, rows };
+  }
+
+  /** Rewrites one annotation's note in place and stamps it. */
+  async updatePdfAnnotationNote(pdfPath, id, note) {
+    const source = String(pdfPath || "").trim();
+    const path = sidecarPathFor(source);
+    const file = await this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    const parsed = parseAnnotationFile(await this.app.vault.cachedRead(file));
+    const current = (parsed.annotations || []).find((annotation) => annotation.id === id);
+    if (!current) return null;
+    const next = upsertAnnotation(await this.app.vault.cachedRead(file), { ...current, note: String(note || "").trim(), updatedAt: new Date().toISOString() }, { pdfPath: source, pdfHash: parsed.pdfHash });
+    await this.app.vault.modify(file, next.text);
+    return (await this.pdfAnnotationRows(source)).rows.find((row) => row.id === id) || null;
+  }
+
+  /** Removes one annotation and returns how many the sidecar still holds. */
+  async deletePdfAnnotation(pdfPath, id) {
+    const source = String(pdfPath || "").trim();
+    const path = sidecarPathFor(source);
+    const file = await this.app.vault.getAbstractFileByPath(path);
+    if (!file) return 0;
+    const parsed = parseAnnotationFile(await this.app.vault.cachedRead(file));
+    const next = removeAnnotation(await this.app.vault.cachedRead(file), id, { pdfPath: source, pdfHash: parsed.pdfHash });
+    await this.app.vault.modify(file, next.text);
+    this.refreshViews();
+    return next.annotations.length;
+  }
+
+  /** Writes a Markdown digest beside the PDF, numbered instead of overwriting. */
+  async exportPdfAnnotations(pdfPath) {
+    const data = await this.pdfAnnotationRows(pdfPath);
+    return this.writePdfAnnotationDigest(data.rows, data.pdfPath.replace(/^.*\//, "").replace(/\.pdf$/i, ""));
+  }
+
+  async writePdfAnnotationDigest(rows, label) {
+    const text = annotationsMarkdown(rows, { title: `Annotations — ${String(label || "PDF")}` });
+    if (!text) return null;
+    const folder = (rows[0] && rows[0].sidecarPath ? rows[0].sidecarPath.replace(/[^/]*$/, "") : "");
+    const base = `${folder}${String(label || "PDF").replace(/[\\/:*?"<>|]/g, "")} annotations`;
+    let path = `${base}.md`;
+    for (let n = 2; this.app.vault.getAbstractFileByPath(path) && n < 100; n++) path = `${base} ${n}.md`;
+    const file = await this.app.vault.create(path, text);
+    if (this.app.workspace.getLeaf) await this.app.workspace.getLeaf("tab").openFile(file);
+    return path;
+  }
+
+  /** The last page read in a PDF, from local storage (never the vault). */
+  pdfLastPage(pdfPath) {
+    const map = this.app.loadLocalStorage("mcq-pdf-last-page") || {};
+    const page = Math.round(Number(map[String(pdfPath || "")]) || 0);
+    return page > 0 ? page : 0;
+  }
+
+  rememberPdfPage(pdfPath, page) {
+    const key = String(pdfPath || "").trim();
+    if (!key) return;
+    const map = { ...(this.app.loadLocalStorage("mcq-pdf-last-page") || {}) };
+    map[key] = Math.max(1, Math.round(Number(page) || 1));
+    const keys = Object.keys(map);
+    while (keys.length > 100) delete map[keys.shift()];
+    this.app.saveLocalStorage("mcq-pdf-last-page", map);
+  }
+
+  /** Export the active PDF's annotations without opening the reader. */
+  async exportActivePdfAnnotations() {
+    const active = this.app.workspace.getActiveFile();
+    const path = active && /\.pdf$/i.test(active.path) ? active.path : "";
+    if (!path) {
+      new Notice("Open a PDF first.");
+      return;
+    }
+    const written = await this.exportPdfAnnotations(path);
+    new Notice(written ? `Wrote ${written}.` : "No annotations to export yet.");
   }
 
   async openPdfAnnotations(pdfPath) {

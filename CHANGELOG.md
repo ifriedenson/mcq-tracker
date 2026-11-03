@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.215.0 — 2026-11-03
+
+- **A fuller PDF annotator**: highlight, underline, strike-through and box marks
+  alongside pen, highlighter, text boxes and the eraser.
+- **Select text** turns a drag into a quote annotation with the exact words and
+  one mark per selected line; annotations can carry tags and exact links.
+- **Search and filter** the PDF annotation index by text, type and tag, and
+  **export** a Markdown digest (never overwriting an earlier one).
+- The reader now reopens the last page of each PDF.
+
 ## 1.214.1 — 2026-11-03
 
 - Fixed **Study agent replies failing to render** in the live Obsidian view.

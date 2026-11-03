@@ -1,10 +1,11 @@
 "use strict";
 const { Modal, Notice, Setting, TFile } = require("obsidian");
-const { renderPdfPagesAsPng } = require("./pdf");
-const { hashBytes, parseAnnotationFile, removeAnnotation, sidecarPathFor, upsertAnnotation } = require("./pdf-annotations");
-const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MAX_INK_POINTS, areaAt, boxAt, clamp, drawInkSegment, drawInkStrokes, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes } = require("./pdf-ink");
+const { readPdfPageText, renderPdfPagesAsPng } = require("./pdf");
+const { annotationLink, annotationsMarkdown, hashBytes, parseAnnotationFile, removeAnnotation, sidecarPathFor, upsertAnnotation } = require("./pdf-annotations");
+const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MARK_STYLES, MAX_INK_POINTS, areaAt, boxAt, clamp, drawInkSegment, drawInkStrokes, drawMarks, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes, textInArea } = require("./pdf-ink");
 
-const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", text: "Text box", highlight: "Highlight", eraser: "Eraser" };
+const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", text: "Text box", highlight: "Highlight", underline: "Underline", strike: "Strike-through", box: "Box", select: "Select text", eraser: "Eraser" };
+const MARK_TOOLS = ["highlight", "underline", "strike", "box", "select"];
 const COLOR_LABELS = { yellow: "Yellow", green: "Green", blue: "Blue", red: "Red", purple: "Purple", gray: "Gray" };
 const SIZE_PRESETS = {
   thin: { pen: 0.0018, highlighter: 0.012 },
@@ -35,6 +36,7 @@ class TextBoxPromptModal extends Modal {
       cls: "setting-item-description",
       text: "This text is saved in the PDF's annotation sidecar at the place you clicked.",
     });
+    if (this.options.hint) el.createDiv({ cls: "qt-hint qt-pdf-ink-quote-preview", text: `“${this.options.hint}”` });
     this.textEl = el.createEl("textarea", { cls: "qt-pdf-ink-textarea" });
     this.textEl.rows = 5;
     this.textEl.value = this.options.text || "";
@@ -73,7 +75,10 @@ class PdfInkModal extends Modal {
     this.textBoxes = [];
     this.textId = "";
     this.highlights = [];
-    this.highlightId = "";
+    this.markIds = { highlight: "", underline: "", strike: "", box: "" };
+    this.quotes = [];
+    this.pageQuoteIds = [];
+    this.textItems = [];
     this.highlightStart = null;
     this.highlightDraft = null;
     this.lastPoint = null;
@@ -99,6 +104,8 @@ class PdfInkModal extends Modal {
 
   onOpen() {
     this.modalEl.addClass("qt-pdf-ink-modal");
+    const last = this.plugin.pdfLastPage ? this.plugin.pdfLastPage(this.pdfPath) : 0;
+    if (last > 0 && this.page === 1) this.page = last;
     this.render();
     this.loadPage();
   }
@@ -181,9 +188,9 @@ class PdfInkModal extends Modal {
     next.addEventListener("click", () => this.stepPage(1));
 
     new Setting(el).setName("Tool").addDropdown((d) => {
-      for (const tool of [...INK_TOOLS, "text", "highlight", "eraser"]) d.addOption(tool, TOOL_LABELS[tool]);
+      for (const tool of [...INK_TOOLS, "underline", "strike", "box", "select", "text", "highlight", "eraser"]) d.addOption(tool, TOOL_LABELS[tool]);
       d.setValue(this.tool).onChange((v) => {
-        this.tool = INK_TOOLS.includes(v) || v === "text" || v === "highlight" || v === "eraser" ? v : "pen";
+        this.tool = INK_TOOLS.includes(v) || ["underline", "strike", "box", "select", "text", "highlight", "eraser"].includes(v) ? v : "pen";
         if (this.tool === "highlighter" && this.color === "blue") this.color = "yellow";
       });
     });
@@ -213,6 +220,10 @@ class PdfInkModal extends Modal {
     save.addEventListener("click", () => this.save());
     const saveClose = actions.createEl("button", { text: "Save & close", cls: "mod-cta qt-grow" });
     saveClose.addEventListener("click", () => this.save({ close: true }));
+    const copyLink = actions.createEl("button", { text: "Copy page link", cls: "qt-grow" });
+    copyLink.addEventListener("click", () => this.copyPageLink());
+    const exportNotes = actions.createEl("button", { text: "Export notes", cls: "qt-grow" });
+    exportNotes.addEventListener("click", () => this.exportNotes());
 
     this.statusEl = el.createDiv({ cls: "qt-hint" });
     this.stageEl = el.createDiv({ cls: "qt-pdf-ink-stage" });
@@ -237,6 +248,13 @@ class PdfInkModal extends Modal {
       this.history = [];
       await this.loadSidecar();
       if (token !== this.loadToken) return;
+      try {
+        const text = await readPdfPageText(bytes, this.page);
+        this.textItems = token === this.loadToken ? text.items : [];
+      } catch (e) {
+        this.textItems = [];
+      }
+      if (token !== this.loadToken) return;
       await this.showPage(rendered.pages[0].png);
       if (token !== this.loadToken) return;
       this.dirty = false;
@@ -244,6 +262,7 @@ class PdfInkModal extends Modal {
       this.pageTotalEl.setText(`of ${this.total || "?"}`);
       const warning = this.savedHash && this.savedHash !== hash ? " The PDF changed since its annotations were saved; check that the page still matches." : "";
       this.setStatus(`Page ${this.page} ready. Draw, then Save.${warning}`);
+      if (this.plugin.rememberPdfPage) this.plugin.rememberPdfPage(this.pdfPath, this.page);
     } catch (e) {
       if (token === this.loadToken) this.setStatus(e && e.message ? e.message : String(e));
     } finally {
@@ -258,7 +277,9 @@ class PdfInkModal extends Modal {
     this.textBoxes = [];
     this.textId = "";
     this.highlights = [];
-    this.highlightId = "";
+    this.markIds = { highlight: "", underline: "", strike: "", box: "" };
+    this.quotes = [];
+    this.pageQuoteIds = [];
     this.savedHash = "";
     const existing = this.app.vault.getAbstractFileByPath(this.sidecarPath);
     if (!existing) return;
@@ -280,10 +301,16 @@ class PdfInkModal extends Modal {
       this.textId = textLayer.id;
       this.textBoxes = normalizeTextBoxes(textLayer.boxes);
     }
-    const highlightLayer = (parsed.annotations || []).find((a) => a.page === Number(this.page) && a.type === "highlight" && Array.isArray(a.areas) && a.areas.length);
-    if (highlightLayer) {
-      this.highlightId = highlightLayer.id;
-      this.highlights = normalizeHighlightAreas(highlightLayer.areas);
+    for (const annotation of parsed.annotations || []) {
+      if (annotation.page !== Number(this.page)) continue;
+      if (MARK_STYLES.includes(annotation.type) && Array.isArray(annotation.areas) && annotation.areas.length) {
+        this.markIds[annotation.type] = annotation.id;
+        for (const area of normalizeHighlightAreas(annotation.areas)) this.highlights.push({ ...area, style: annotation.type });
+      }
+      if (annotation.type === "quote") {
+        this.quotes.push(annotation);
+        this.pageQuoteIds.push(annotation.id);
+      }
     }
   }
 
@@ -340,9 +367,9 @@ class PdfInkModal extends Modal {
         this.editTextBox(point, boxAt(this.textBoxes, point));
         return;
       }
-      if (this.tool === "highlight") {
+      if (MARK_TOOLS.includes(this.tool)) {
         this.highlightStart = point;
-        this.highlightDraft = normalizeHighlightArea({ x: point[0], y: point[1], width: 0.001, height: 0.001, color: this.color, note: "" });
+        this.highlightDraft = normalizeHighlightArea({ x: point[0], y: point[1], width: 0.001, height: 0.001, color: this.color, note: "", style: this.tool === "select" ? "highlight" : this.tool });
         this.redraw();
         return;
       }
@@ -382,6 +409,7 @@ class PdfInkModal extends Modal {
           height: Math.max(0.001, Math.abs(start[1] - point[1])),
           color: this.color,
           note: "",
+          style: this.tool === "select" ? "highlight" : this.tool,
         });
         this.redraw();
         return;
@@ -449,8 +477,9 @@ class PdfInkModal extends Modal {
     const width = this.canvas.width;
     const height = this.canvas.height;
     this.ctx.clearRect(0, 0, width, height);
-    drawHighlightAreas(this.ctx, this.highlights, width, height);
-    if (this.highlightDraft) drawHighlightAreas(this.ctx, [this.highlightDraft], width, height);
+    drawMarks(this.ctx, this.highlights, width, height);
+    for (const quote of this.quotes) drawMarks(this.ctx, quote.areas, width, height);
+    if (this.highlightDraft) drawMarks(this.ctx, [this.highlightDraft], width, height);
     drawInkStrokes(this.ctx, this.strokes, width, height, false);
     drawTextBoxes(this.ctx, this.textBoxes, width, height);
   }
@@ -490,44 +519,107 @@ class PdfInkModal extends Modal {
   }
 
   finishHighlight() {
-    const start = this.highlightStart;
-    const end = this.lastPoint || start;
+    const startPoint = this.highlightStart;
+    const endPoint = this.lastPoint || startPoint;
+    const selecting = this.tool === "select";
+    const style = selecting ? "highlight" : MARK_STYLES.includes(this.tool) ? this.tool : "highlight";
     this.highlightStart = null;
     this.highlightDraft = null;
-    if (!start || !end) {
+    if (!startPoint || !endPoint) {
       this.redraw();
       return;
     }
-    const width = Math.abs(end[0] - start[0]);
-    const height = Math.abs(end[1] - start[1]);
+    const width = Math.abs(endPoint[0] - startPoint[0]);
+    const height = Math.abs(endPoint[1] - startPoint[1]);
     if (width >= 0.01 && height >= 0.01) {
-      const area = normalizeHighlightArea({
-        x: Math.min(start[0], end[0]),
-        y: Math.min(start[1], end[1]),
-        width,
-        height,
-        color: this.color,
-        note: "",
-      });
+      const rect = { x: Math.min(startPoint[0], endPoint[0]), y: Math.min(startPoint[1], endPoint[1]), width, height };
+      if (selecting) {
+        const picked = textInArea(this.textItems, rect);
+        if (!picked.quote) {
+          this.setStatus("No text under that drag. Use Highlight for a free area, or drag across a line of text.");
+          this.redraw();
+          return;
+        }
+        const preview = picked.quote.split("\n").join(" ").slice(0, 160);
+        new TextBoxPromptModal(this.app, { title: "Note on this quote", text: "", hint: preview }, (value) => {
+          this.saveQuote({ quote: picked.quote, areas: picked.areas, note: value, color: this.color });
+        }).open();
+        this.redraw();
+        return;
+      }
+      const area = normalizeHighlightArea({ ...rect, color: this.color, style, note: "" });
       this.redraw();
       if (!area) return;
-      new TextBoxPromptModal(
-        this.app,
-        { title: "Highlight note", text: "" },
-        (value) => {
-          area.note = String(value || "").trim();
-          this.pushHistory();
-          this.highlights.push(area);
-          this.touch();
-          this.redraw();
-        }
-      ).open();
+      new TextBoxPromptModal(this.app, { title: `${TOOL_LABELS[style] || "Mark"} note`, text: "" }, (value) => {
+        area.note = String(value || "").trim();
+        this.pushHistory();
+        this.highlights.push(area);
+        this.touch();
+        this.redraw();
+      }).open();
       return;
     }
-    const hit = areaAt(this.highlights, end);
+    const hit = areaAt(this.highlights, endPoint);
     if (hit) this.editHighlightNote(hit);
-    else this.setStatus("Drag across an area to highlight it.");
+    else this.setStatus(selecting ? "Drag across text to quote it." : "Drag across an area to mark it.");
     this.redraw();
+  }
+
+  /** Quotes are their own annotations, saved as soon as the note is confirmed. */
+  async saveQuote(input) {
+    try {
+      const file = this.app.vault.getAbstractFileByPath(this.pdfPath);
+      if (!file || !(file instanceof TFile)) throw new Error("That PDF is no longer in the vault.");
+      const bytes = await this.app.vault.readBinary(file);
+      const hash = hashBytes(bytes);
+      const path = sidecarPathFor(this.pdfPath);
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      const oldText = existing ? await this.app.vault.cachedRead(existing) : "";
+      const result = upsertAnnotation(
+        oldText,
+        { page: this.page, type: "quote", color: input.color, quote: input.quote, note: input.note, areas: input.areas },
+        { pdfPath: this.pdfPath, pdfHash: hash }
+      );
+      if (existing) await this.app.vault.modify(existing, result.text);
+      else await this.app.vault.create(path, result.text);
+      this.sidecarPath = path;
+      this.savedHash = hash;
+      this.quotes = (result.annotations || []).filter((entry) => entry.page === Number(this.page) && entry.type === "quote");
+      this.pageQuoteIds = this.quotes.map((entry) => entry.id);
+      const last = this.quotes[this.quotes.length - 1];
+      const link = annotationLink(this.pdfPath, this.page, last ? last.id : "");
+      this.setStatus(`Saved a quote${input.note ? " with a note" : ""} on page ${this.page}.${link ? ` Link: ${link}` : ""}`);
+      this.touch();
+      this.redraw();
+      return true;
+    } catch (e) {
+      this.setStatus(e && e.message ? e.message : String(e));
+      return false;
+    }
+  }
+
+  async copyPageLink() {
+    const link = annotationLink(this.pdfPath, this.page, "");
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(link);
+      this.setStatus(`Copied ${link}.`);
+    } catch (e) {
+      this.setStatus(`Could not copy ${link} in this view.`);
+    }
+  }
+
+  async exportNotes() {
+    if (!this.plugin.exportPdfAnnotations) {
+      this.setStatus("Export is unavailable in this version.");
+      return;
+    }
+    try {
+      const path = await this.plugin.exportPdfAnnotations(this.pdfPath);
+      this.setStatus(path ? `Wrote ${path}.` : "No annotations to export yet.");
+    } catch (e) {
+      this.setStatus(e && e.message ? e.message : String(e));
+    }
   }
 
   editHighlightNote(existing) {
@@ -600,7 +692,7 @@ class PdfInkModal extends Modal {
     const strokes = normalizeInkStrokes(this.strokes);
     const boxes = normalizeTextBoxes(this.textBoxes);
     const areas = normalizeHighlightAreas(this.highlights);
-    if (!strokes.length && !this.inkId && !boxes.length && !this.textId && !areas.length && !this.highlightId) {
+    if (!strokes.length && !this.inkId && !boxes.length && !this.textId && !areas.length) {
       this.setStatus("Draw something, add a text box or highlight an area first.");
       return false;
     }
@@ -618,7 +710,6 @@ class PdfInkModal extends Modal {
       let nextText = oldText;
       let inkId = this.inkId;
       let textId = this.textId;
-      let highlightId = this.highlightId;
       if (strokes.length) {
         const result = upsertAnnotation(nextText, { id: inkId || undefined, page, type: "pen", color: this.color, strokes }, meta);
         nextText = result.text;
@@ -637,14 +728,17 @@ class PdfInkModal extends Modal {
         nextText = removeAnnotation(nextText, textId, meta).text;
         textId = "";
       }
-      if (areas.length) {
-        const result = upsertAnnotation(nextText, { id: highlightId || undefined, page, type: "highlight", color: this.color, areas }, meta);
-        nextText = result.text;
-        const savedHighlights = (result.annotations || []).find((a) => a.page === page && a.type === "highlight" && Array.isArray(a.areas) && a.areas.length);
-        highlightId = savedHighlights ? savedHighlights.id : "";
-      } else if (highlightId) {
-        nextText = removeAnnotation(nextText, highlightId, meta).text;
-        highlightId = "";
+      for (const style of MARK_STYLES) {
+        const styleAreas = areas.filter((area) => (area.style || "highlight") === style);
+        if (styleAreas.length) {
+          const result = upsertAnnotation(nextText, { id: this.markIds[style] || undefined, page, type: style, color: this.color, areas: styleAreas }, meta);
+          nextText = result.text;
+          const savedMark = (result.annotations || []).find((a) => a.page === page && a.type === style && Array.isArray(a.areas) && a.areas.length);
+          this.markIds[style] = savedMark ? savedMark.id : "";
+        } else if (this.markIds[style]) {
+          nextText = removeAnnotation(nextText, this.markIds[style], meta).text;
+          this.markIds[style] = "";
+        }
       }
       if (existing) await this.app.vault.modify(existing, nextText);
       else await this.app.vault.create(path, nextText);
@@ -652,12 +746,12 @@ class PdfInkModal extends Modal {
       this.savedHash = hash;
       this.inkId = inkId;
       this.textId = textId;
-      this.highlightId = highlightId;
+
       this.dirty = this.editSeq !== seq;
       const bits = [];
       if (strokes.length) bits.push(`${strokes.length} stroke${strokes.length === 1 ? "" : "s"}`);
       if (boxes.length) bits.push(`${boxes.length} text box${boxes.length === 1 ? "" : "es"}`);
-      if (areas.length) bits.push(`${areas.length} highlight${areas.length === 1 ? "" : "s"}`);
+      if (areas.length) bits.push(`${areas.length} mark${areas.length === 1 ? "" : "s"}`);
       this.setStatus(bits.length ? `Saved ${bits.join(" and ")} on page ${page}.` : `Removed the overlay from page ${page}.`);
       if (opts.close && !this.dirty) this.close();
       return true;

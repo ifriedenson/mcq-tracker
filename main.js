@@ -46007,6 +46007,49 @@ function slugId(s) {
   return str(s).toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "Q";
 }
 
+/**
+ * The page's text items with normalized top-left boxes (0..1 of the page), so a
+ * drag on the rendered page can be matched to the words under it. Scale-free.
+ */
+async function readPdfPageText(buf, pageNumber) {
+  if (typeof loadPdfJs !== "function") throw new Error("This version of Obsidian can't read PDFs from plugins.");
+  const pdfjs = await loadPdfJs();
+  let doc;
+  try {
+    doc = await pdfjs.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+  } catch (e) {
+    throw new Error("I couldn't open that PDF. It may be damaged or password protected.");
+  }
+  try {
+    const total = doc.numPages;
+    const n = Math.max(1, Math.min(total, Math.round(Number(pageNumber) || 1)));
+    const page = await doc.getPage(n);
+    const viewport = page.getViewport({ scale: 1 });
+    const content = await page.getTextContent();
+    const width = Math.max(1, viewport.width);
+    const height = Math.max(1, viewport.height);
+    const items = [];
+    for (const item of content.items) {
+      if (!item || typeof item.str !== "string" || !item.str.trim() || !item.transform) continue;
+      const t = matMul(viewport.transform, item.transform);
+      const fontHeight = Math.hypot(t[2], t[3]) || 10;
+      const w = Math.max(0, (item.width || 0) * viewport.scale);
+      const x = Math.max(0, Math.min(width, t[4]));
+      const top = Math.max(0, Math.min(height, t[5] - fontHeight));
+      items.push({
+        s: item.str,
+        x: Math.max(0, Math.min(1, x / width)),
+        y: Math.max(0, Math.min(1, top / height)),
+        w: Math.max(0, Math.min(1, w / width)),
+        h: Math.max(0.001, Math.min(1, fontHeight / height)),
+      });
+    }
+    return { page: n, total, width, height, items };
+  } finally {
+    if (doc && typeof doc.destroy === "function") await doc.destroy().catch(() => {});
+  }
+}
+
 /** Renders selected PDF pages to PNG for an explicit OCR request. */
 async function renderPdfPagesAsPng(buf, spec, progress, scale) {
   if (typeof loadPdfJs !== "function") throw new Error("This version of Obsidian can't read PDFs from plugins.");
@@ -46049,6 +46092,7 @@ module.exports = {
   canvasToPng,
   cropToPng,
   readPdfPages,
+  readPdfPageText,
   renderPdfPagesAsPng,
   chunkPages,
   chunkText,
@@ -46406,8 +46450,11 @@ __defs["pdf-annotations"] = function (module, exports, require) {
 const { normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
 
 const ANNOTATION_BLOCK = "mcq-pdf-annotations";
-const ANNOTATION_TYPES = ["highlight", "note", "text", "form", "pen"];
+const ANNOTATION_TYPES = ["highlight", "underline", "strike", "box", "quote", "note", "text", "form", "pen"];
 const ANNOTATION_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
+const MARK_TYPES = ["highlight", "underline", "strike", "box", "quote"];
+const MAX_TAGS = 6;
+const MAX_TAG_LENGTH = 24;
 
 function str(value) {
   return value === undefined || value === null ? "" : String(value);
@@ -46436,6 +46483,19 @@ function pdfPathFromSidecar(sidecarPath) {
   return str(sidecarPath).replace(/\.annotations\.md$/i, ".pdf");
 }
 
+/** Bounded, hash-free, case-insensitively unique tags, the same shape study tasks use. */
+function normalizeTags(value) {
+  const out = [];
+  for (const raw of Array.isArray(value) ? value : []) {
+    const tag = str(raw).replace(/^#+/, "").replace(/\s+/g, "-").slice(0, MAX_TAG_LENGTH);
+    if (!tag) continue;
+    if (out.some((existing) => existing.toLowerCase() === tag.toLowerCase())) continue;
+    out.push(tag);
+    if (out.length >= MAX_TAGS) break;
+  }
+  return out;
+}
+
 function newAnnotationId() {
   return `ann-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -46450,7 +46510,8 @@ function normalizeAnnotation(input) {
   const text = str(src.text).trim();
   const strokes = type === "pen" ? normalizeInkStrokes(src.strokes) : [];
   const boxes = type === "text" ? normalizeTextBoxes(src.boxes) : [];
-  const areas = type === "highlight" ? normalizeHighlightAreas(src.areas) : [];
+  const areas = MARK_TYPES.includes(type) ? normalizeHighlightAreas(src.areas) : [];
+  const tags = normalizeTags(src.tags);
   if (!quote && !note && !text && !strokes.length && !boxes.length && !areas.length) throw new Error("Add a quote, note or text, or draw some ink, for the annotation.");
   const out = {
     id: str(src.id).trim() || newAnnotationId(),
@@ -46460,11 +46521,13 @@ function normalizeAnnotation(input) {
     quote,
     note,
     text,
+    tags,
     createdAt: str(src.createdAt).trim() || new Date().toISOString(),
+    updatedAt: str(src.updatedAt).trim() || "",
   };
   if (type === "pen") out.strokes = strokes;
   if (type === "text" && boxes.length) out.boxes = boxes;
-  if (type === "highlight" && areas.length) out.areas = areas;
+  if (areas.length) out.areas = type !== "quote" && MARK_TYPES.includes(type) ? areas.map((area) => ({ ...area, style: type })) : areas;
   return out;
 }
 
@@ -46500,7 +46563,11 @@ function annotationSummary(annotation) {
     bits.push(`${annotation.boxes.length} text box${annotation.boxes.length === 1 ? "" : "es"}`);
   }
   if (Array.isArray(annotation.areas) && annotation.areas.length) {
-    bits.push(`${annotation.areas.length} highlighted area${annotation.areas.length === 1 ? "" : "s"}`);
+    const noun = { highlight: "highlighted area", quote: "selected line", underline: "underlined area", strike: "strike-through area", box: "boxed area" }[annotation.type] || "marked area";
+    bits.push(`${annotation.areas.length} ${noun}${annotation.areas.length === 1 ? "" : "s"}`);
+  }
+  if (Array.isArray(annotation.tags) && annotation.tags.length) {
+    bits.push(annotation.tags.map((tag) => `#${tag}`).join(" "));
   }
   return bits.join(" - ") || "(no text)";
 }
@@ -46550,6 +46617,99 @@ function removeAnnotation(text, id, meta) {
   return { text: serializeAnnotationFile(pdfPath, pdfHash, annotations), annotations, pdfPath, pdfHash };
 }
 
+/** `[[file.pdf#page=3&annotation=ann-1]]`, or "" when the path, page or id is unusable. */
+function annotationLink(pdfPath, page, id) {
+  const clean = str(pdfPath).trim().replace(/^\/+/, "");
+  const number = Math.round(Number(page));
+  if (!clean || !/\.pdf$/i.test(clean)) return "";
+  if (!Number.isFinite(number) || number < 1 || number > 100000) return "";
+  const safePath = clean.replace(/[|#[\]\r\n]/g, "").trim();
+  if (!safePath) return "";
+  const anchor = str(id).trim();
+  if (!anchor) return `[[${safePath}#page=${number}]]`;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(anchor)) return "";
+  return `[[${safePath}#page=${number}&annotation=${anchor}]]`;
+}
+
+/**
+ * Filters index rows by free text (quote, note, text, PDF path, tags), type,
+ * colour, tag and page. Every option is optional; a page of 0 or less is ignored.
+ */
+function filterAnnotations(rows, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const query = str(opts.query).trim().toLowerCase();
+  const type = str(opts.type).trim().toLowerCase();
+  const color = str(opts.color).trim().toLowerCase();
+  const tag = str(opts.tag).trim().replace(/^#+/, "").toLowerCase();
+  const page = Math.round(Number(opts.page) || 0);
+  return (Array.isArray(rows) ? rows : []).filter((row) => {
+    if (!row) return false;
+    if (type && str(row.type).toLowerCase() !== type) return false;
+    if (color && str(row.color).toLowerCase() !== color) return false;
+    if (page > 0 && Math.round(Number(row.page) || 0) !== page) return false;
+    if (tag && !(Array.isArray(row.tags) ? row.tags : []).some((value) => str(value).toLowerCase() === tag)) return false;
+    if (!query) return true;
+    const haystack = [row.quote, row.note, row.text, row.pdfPath, row.summary, ...(Array.isArray(row.tags) ? row.tags : [])]
+      .map((value) => str(value).toLowerCase())
+      .join(" ");
+    return haystack.includes(query);
+  });
+}
+
+function annotationCounts(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const byType = {};
+  const byColor = {};
+  const byTag = {};
+  const pages = new Set();
+  const pdfs = new Set();
+  for (const row of list) {
+    if (!row) continue;
+    byType[row.type] = (byType[row.type] || 0) + 1;
+    byColor[row.color] = (byColor[row.color] || 0) + 1;
+    for (const tag of Array.isArray(row.tags) ? row.tags : []) byTag[tag] = (byTag[tag] || 0) + 1;
+    pages.add(`${row.pdfPath || ""}#${row.page}`);
+    if (row.pdfPath) pdfs.add(row.pdfPath);
+  }
+  return { total: list.length, byType, byColor, byTag, pages: pages.size, pdfs: pdfs.size };
+}
+
+/**
+ * A portable Markdown digest of annotation rows, grouped by PDF and page. It
+ * carries the quote, the note, the tags and a link back to the exact
+ * annotation, and never includes the PDF bytes.
+ */
+function annotationsMarkdown(rows, options) {
+  const list = (Array.isArray(rows) ? rows : []).filter(Boolean);
+  if (!list.length) return "";
+  const opts = options && typeof options === "object" ? options : {};
+  const title = str(opts.title).trim() || "PDF annotations";
+  const lines = [`# ${title}`, ""];
+  let currentPdf = "";
+  let currentPage = 0;
+  for (const row of list.slice().sort((a, b) => str(a.pdfPath).localeCompare(str(b.pdfPath)) || a.page - b.page || str(a.createdAt).localeCompare(str(b.createdAt)))) {
+    if (row.pdfPath !== currentPdf) {
+      currentPdf = row.pdfPath;
+      currentPage = 0;
+      lines.push(`## ${currentPdf || "Unlinked PDF"}`, "");
+    }
+    if (row.page !== currentPage) {
+      currentPage = row.page;
+      lines.push(`### Page ${currentPage}`, "");
+    }
+    const quote = str(row.quote).replace(/\s+/g, " ").trim();
+    const note = str(row.note).trim();
+    const summary = str(row.summary).replace(/\s+/g, " ").trim();
+    lines.push(`- **${row.type}** (${row.color})${quote ? `: “${quote}”` : summary ? `: ${summary}` : ""}`);
+    if (note) lines.push(`  - Note: ${note.replace(/\n+/g, " ")}`);
+    if (Array.isArray(row.tags) && row.tags.length) lines.push(`  - Tags: ${row.tags.map((tag) => `#${tag}`).join(" ")}`);
+    const link = annotationLink(row.pdfPath, row.page, row.id);
+    if (link) lines.push(`  - Link: ${link}`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
 function annotationsForPage(annotations, page) {
   const n = Math.round(Number(page) || 0);
   return (annotations || []).filter((item) => item.page === n);
@@ -46559,6 +46719,13 @@ module.exports = {
   ANNOTATION_BLOCK,
   ANNOTATION_COLORS,
   ANNOTATION_TYPES,
+  MARK_TYPES,
+  MAX_TAGS,
+  annotationCounts,
+  annotationLink,
+  annotationsMarkdown,
+  filterAnnotations,
+  normalizeTags,
   annotationSummary,
   annotationsForPage,
   hashBytes,
@@ -46587,6 +46754,8 @@ __defs["pdf-ink"] = function (module, exports, require) {
 
 const INK_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
 const INK_TOOLS = ["pen", "highlighter"];
+const MARK_STYLES = ["highlight", "underline", "strike", "box"];
+const MARK_TOOLS = ["highlight", "underline", "strike", "box", "select"];
 const MAX_INK_POINTS = 4000;
 const MAX_INK_STROKES = 200;
 const MAX_TEXT_BOXES = 100;
@@ -46704,12 +46873,14 @@ function normalizeHighlightArea(input) {
   const x = clamp(Number(src.x) || 0, 0, 1 - width);
   const y = clamp(Number(src.y) || 0, 0, 1 - height);
   const color = INK_COLORS.includes(str(src.color)) ? str(src.color) : "yellow";
+  const style = MARK_STYLES.includes(str(src.style)) ? str(src.style) : "highlight";
   return {
     x: round(x, 4),
     y: round(y, 4),
     width: round(width, 4),
     height: round(height, 4),
     color,
+    style,
     note: str(src.note).replace(/\r\n?/g, "\n").trim().slice(0, MAX_TEXT_LENGTH),
   };
 }
@@ -46768,6 +46939,55 @@ function eraseStrokesAt(strokes, point, tolerance) {
   return (Array.isArray(strokes) ? strokes : []).filter((stroke) => !hitStroke(stroke, point, tolerance));
 }
 
+/** The text under a dragged rectangle, in reading order, with one mark area per line. */
+function textInArea(items, rect) {
+  const list = Array.isArray(items) ? items : [];
+  const width = clamp(Number(rect && rect.width) || 0, 0, 1);
+  const height = clamp(Number(rect && rect.height) || 0, 0, 1);
+  const area = {
+    x: clamp(Number(rect && rect.x) || 0, 0, 1 - width),
+    y: clamp(Number(rect && rect.y) || 0, 0, 1 - height),
+    width,
+    height,
+  };
+  if (width < 0.002 || height < 0.002) return { quote: "", areas: [] };
+  const picked = [];
+  for (const item of list) {
+    const text = str(item && item.s).trim();
+    if (!text) continue;
+    const x = Number(item.x);
+    const y = Number(item.y);
+    const w = Math.max(0, Number(item.w) || 0);
+    const h = Math.max(0, Number(item.h) || 0.01);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const overlapX = Math.min(x + w, area.x + area.width) - Math.max(x, area.x);
+    const overlapY = Math.min(y + h, area.y + area.height) - Math.max(y, area.y);
+    const overlap = Math.max(0, overlapX) * Math.max(0, overlapY);
+    const center = x + w / 2 >= area.x && x + w / 2 <= area.x + area.width && y + h / 2 >= area.y && y + h / 2 <= area.y + area.height;
+    if (center || overlap >= 0.5 * Math.max(w * h, 0.000001)) picked.push({ text, x, y, w, h });
+  }
+  if (!picked.length) return { quote: "", areas: [] };
+  picked.sort((a, b) => a.y - b.y || a.x - b.x);
+  const lines = [];
+  for (const item of picked) {
+    const line = lines[lines.length - 1];
+    const tolerance = Math.max(0.004, Math.min(line ? line.h : 1, item.h) * 0.6);
+    if (!line || Math.abs(item.y - line.y) > tolerance) {
+      lines.push({ y: item.y, h: item.h, x0: item.x, x1: item.x + item.w, parts: [item.text] });
+    } else {
+      line.x0 = Math.min(line.x0, item.x);
+      line.x1 = Math.max(line.x1, item.x + item.w);
+      line.h = Math.max(line.h, item.h);
+      line.parts.push(item.text);
+    }
+  }
+  const quote = lines.map((line) => line.parts.join(" ").replace(/\s+/g, " ").trim()).filter(Boolean).join("\n");
+  const areas = lines
+    .map((line) => normalizeHighlightArea({ x: line.x0, y: line.y - line.h * 0.1, width: line.x1 - line.x0, height: line.h * 1.1, color: "yellow", style: "highlight" }))
+    .filter(Boolean);
+  return { quote, areas };
+}
+
 function colorFor(stroke) {
   return INK_COLOR_HEX[stroke && stroke.color] || INK_COLOR_HEX.yellow;
 }
@@ -46819,7 +47039,55 @@ function drawInkSegment(ctx, stroke, from, to, width, height) {
   ctx.restore();
 }
 
+/** Paints highlight, underline, strike-through and box marks, one draw path for all of them. */
+function drawMarks(ctx, areas, width, height) {
+  if (!ctx) return;
+  for (const area of Array.isArray(areas) ? areas : []) {
+    if (!area) continue;
+    const x = area.x * width;
+    const y = area.y * height;
+    const areaWidth = Math.max(1, area.width * width);
+    const areaHeight = Math.max(1, area.height * height);
+    const color = INK_COLOR_HEX[area.color] || INK_COLOR_HEX.yellow;
+    const style = MARK_STYLES.includes(area.style) ? area.style : "highlight";
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    if (style === "highlight") {
+      ctx.globalAlpha = 0.28;
+      ctx.fillRect(x, y, areaWidth, areaHeight);
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, areaWidth, areaHeight);
+    } else if (style === "box") {
+      ctx.globalAlpha = 0.95;
+      ctx.lineWidth = Math.max(1.5, areaHeight * 0.06);
+      ctx.strokeRect(x, y, areaWidth, areaHeight);
+    } else {
+      const thickness = Math.max(1.5, areaHeight * (style === "strike" ? 0.08 : 0.1));
+      const lineY = style === "strike" ? y + areaHeight / 2 : y + areaHeight - thickness / 2;
+      ctx.globalAlpha = 0.95;
+      ctx.lineWidth = thickness;
+      ctx.beginPath();
+      ctx.moveTo(x, lineY);
+      ctx.lineTo(x + areaWidth, lineY);
+      ctx.stroke();
+    }
+    if (area.note) {
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(x + areaWidth - 6, y + 6, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
 module.exports = {
+  MARK_STYLES,
+  MARK_TOOLS,
+  drawMarks,
+  textInArea,
   INK_COLORS,
   INK_COLOR_HEX,
   INK_TOOLS,
@@ -46849,11 +47117,12 @@ module.exports = {
 /* ---- src/pdf-ink-modal.js ---- */
 __defs["pdf-ink-modal"] = function (module, exports, require) {
 const { Modal, Notice, Setting, TFile } = require("obsidian");
-const { renderPdfPagesAsPng } = require("./pdf");
-const { hashBytes, parseAnnotationFile, removeAnnotation, sidecarPathFor, upsertAnnotation } = require("./pdf-annotations");
-const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MAX_INK_POINTS, areaAt, boxAt, clamp, drawInkSegment, drawInkStrokes, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes } = require("./pdf-ink");
+const { readPdfPageText, renderPdfPagesAsPng } = require("./pdf");
+const { annotationLink, annotationsMarkdown, hashBytes, parseAnnotationFile, removeAnnotation, sidecarPathFor, upsertAnnotation } = require("./pdf-annotations");
+const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MARK_STYLES, MAX_INK_POINTS, areaAt, boxAt, clamp, drawInkSegment, drawInkStrokes, drawMarks, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes, textInArea } = require("./pdf-ink");
 
-const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", text: "Text box", highlight: "Highlight", eraser: "Eraser" };
+const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", text: "Text box", highlight: "Highlight", underline: "Underline", strike: "Strike-through", box: "Box", select: "Select text", eraser: "Eraser" };
+const MARK_TOOLS = ["highlight", "underline", "strike", "box", "select"];
 const COLOR_LABELS = { yellow: "Yellow", green: "Green", blue: "Blue", red: "Red", purple: "Purple", gray: "Gray" };
 const SIZE_PRESETS = {
   thin: { pen: 0.0018, highlighter: 0.012 },
@@ -46884,6 +47153,7 @@ class TextBoxPromptModal extends Modal {
       cls: "setting-item-description",
       text: "This text is saved in the PDF's annotation sidecar at the place you clicked.",
     });
+    if (this.options.hint) el.createDiv({ cls: "qt-hint qt-pdf-ink-quote-preview", text: `“${this.options.hint}”` });
     this.textEl = el.createEl("textarea", { cls: "qt-pdf-ink-textarea" });
     this.textEl.rows = 5;
     this.textEl.value = this.options.text || "";
@@ -46922,7 +47192,10 @@ class PdfInkModal extends Modal {
     this.textBoxes = [];
     this.textId = "";
     this.highlights = [];
-    this.highlightId = "";
+    this.markIds = { highlight: "", underline: "", strike: "", box: "" };
+    this.quotes = [];
+    this.pageQuoteIds = [];
+    this.textItems = [];
     this.highlightStart = null;
     this.highlightDraft = null;
     this.lastPoint = null;
@@ -46948,6 +47221,8 @@ class PdfInkModal extends Modal {
 
   onOpen() {
     this.modalEl.addClass("qt-pdf-ink-modal");
+    const last = this.plugin.pdfLastPage ? this.plugin.pdfLastPage(this.pdfPath) : 0;
+    if (last > 0 && this.page === 1) this.page = last;
     this.render();
     this.loadPage();
   }
@@ -47030,9 +47305,9 @@ class PdfInkModal extends Modal {
     next.addEventListener("click", () => this.stepPage(1));
 
     new Setting(el).setName("Tool").addDropdown((d) => {
-      for (const tool of [...INK_TOOLS, "text", "highlight", "eraser"]) d.addOption(tool, TOOL_LABELS[tool]);
+      for (const tool of [...INK_TOOLS, "underline", "strike", "box", "select", "text", "highlight", "eraser"]) d.addOption(tool, TOOL_LABELS[tool]);
       d.setValue(this.tool).onChange((v) => {
-        this.tool = INK_TOOLS.includes(v) || v === "text" || v === "highlight" || v === "eraser" ? v : "pen";
+        this.tool = INK_TOOLS.includes(v) || ["underline", "strike", "box", "select", "text", "highlight", "eraser"].includes(v) ? v : "pen";
         if (this.tool === "highlighter" && this.color === "blue") this.color = "yellow";
       });
     });
@@ -47062,6 +47337,10 @@ class PdfInkModal extends Modal {
     save.addEventListener("click", () => this.save());
     const saveClose = actions.createEl("button", { text: "Save & close", cls: "mod-cta qt-grow" });
     saveClose.addEventListener("click", () => this.save({ close: true }));
+    const copyLink = actions.createEl("button", { text: "Copy page link", cls: "qt-grow" });
+    copyLink.addEventListener("click", () => this.copyPageLink());
+    const exportNotes = actions.createEl("button", { text: "Export notes", cls: "qt-grow" });
+    exportNotes.addEventListener("click", () => this.exportNotes());
 
     this.statusEl = el.createDiv({ cls: "qt-hint" });
     this.stageEl = el.createDiv({ cls: "qt-pdf-ink-stage" });
@@ -47086,6 +47365,13 @@ class PdfInkModal extends Modal {
       this.history = [];
       await this.loadSidecar();
       if (token !== this.loadToken) return;
+      try {
+        const text = await readPdfPageText(bytes, this.page);
+        this.textItems = token === this.loadToken ? text.items : [];
+      } catch (e) {
+        this.textItems = [];
+      }
+      if (token !== this.loadToken) return;
       await this.showPage(rendered.pages[0].png);
       if (token !== this.loadToken) return;
       this.dirty = false;
@@ -47093,6 +47379,7 @@ class PdfInkModal extends Modal {
       this.pageTotalEl.setText(`of ${this.total || "?"}`);
       const warning = this.savedHash && this.savedHash !== hash ? " The PDF changed since its annotations were saved; check that the page still matches." : "";
       this.setStatus(`Page ${this.page} ready. Draw, then Save.${warning}`);
+      if (this.plugin.rememberPdfPage) this.plugin.rememberPdfPage(this.pdfPath, this.page);
     } catch (e) {
       if (token === this.loadToken) this.setStatus(e && e.message ? e.message : String(e));
     } finally {
@@ -47107,7 +47394,9 @@ class PdfInkModal extends Modal {
     this.textBoxes = [];
     this.textId = "";
     this.highlights = [];
-    this.highlightId = "";
+    this.markIds = { highlight: "", underline: "", strike: "", box: "" };
+    this.quotes = [];
+    this.pageQuoteIds = [];
     this.savedHash = "";
     const existing = this.app.vault.getAbstractFileByPath(this.sidecarPath);
     if (!existing) return;
@@ -47129,10 +47418,16 @@ class PdfInkModal extends Modal {
       this.textId = textLayer.id;
       this.textBoxes = normalizeTextBoxes(textLayer.boxes);
     }
-    const highlightLayer = (parsed.annotations || []).find((a) => a.page === Number(this.page) && a.type === "highlight" && Array.isArray(a.areas) && a.areas.length);
-    if (highlightLayer) {
-      this.highlightId = highlightLayer.id;
-      this.highlights = normalizeHighlightAreas(highlightLayer.areas);
+    for (const annotation of parsed.annotations || []) {
+      if (annotation.page !== Number(this.page)) continue;
+      if (MARK_STYLES.includes(annotation.type) && Array.isArray(annotation.areas) && annotation.areas.length) {
+        this.markIds[annotation.type] = annotation.id;
+        for (const area of normalizeHighlightAreas(annotation.areas)) this.highlights.push({ ...area, style: annotation.type });
+      }
+      if (annotation.type === "quote") {
+        this.quotes.push(annotation);
+        this.pageQuoteIds.push(annotation.id);
+      }
     }
   }
 
@@ -47189,9 +47484,9 @@ class PdfInkModal extends Modal {
         this.editTextBox(point, boxAt(this.textBoxes, point));
         return;
       }
-      if (this.tool === "highlight") {
+      if (MARK_TOOLS.includes(this.tool)) {
         this.highlightStart = point;
-        this.highlightDraft = normalizeHighlightArea({ x: point[0], y: point[1], width: 0.001, height: 0.001, color: this.color, note: "" });
+        this.highlightDraft = normalizeHighlightArea({ x: point[0], y: point[1], width: 0.001, height: 0.001, color: this.color, note: "", style: this.tool === "select" ? "highlight" : this.tool });
         this.redraw();
         return;
       }
@@ -47231,6 +47526,7 @@ class PdfInkModal extends Modal {
           height: Math.max(0.001, Math.abs(start[1] - point[1])),
           color: this.color,
           note: "",
+          style: this.tool === "select" ? "highlight" : this.tool,
         });
         this.redraw();
         return;
@@ -47298,8 +47594,9 @@ class PdfInkModal extends Modal {
     const width = this.canvas.width;
     const height = this.canvas.height;
     this.ctx.clearRect(0, 0, width, height);
-    drawHighlightAreas(this.ctx, this.highlights, width, height);
-    if (this.highlightDraft) drawHighlightAreas(this.ctx, [this.highlightDraft], width, height);
+    drawMarks(this.ctx, this.highlights, width, height);
+    for (const quote of this.quotes) drawMarks(this.ctx, quote.areas, width, height);
+    if (this.highlightDraft) drawMarks(this.ctx, [this.highlightDraft], width, height);
     drawInkStrokes(this.ctx, this.strokes, width, height, false);
     drawTextBoxes(this.ctx, this.textBoxes, width, height);
   }
@@ -47339,44 +47636,107 @@ class PdfInkModal extends Modal {
   }
 
   finishHighlight() {
-    const start = this.highlightStart;
-    const end = this.lastPoint || start;
+    const startPoint = this.highlightStart;
+    const endPoint = this.lastPoint || startPoint;
+    const selecting = this.tool === "select";
+    const style = selecting ? "highlight" : MARK_STYLES.includes(this.tool) ? this.tool : "highlight";
     this.highlightStart = null;
     this.highlightDraft = null;
-    if (!start || !end) {
+    if (!startPoint || !endPoint) {
       this.redraw();
       return;
     }
-    const width = Math.abs(end[0] - start[0]);
-    const height = Math.abs(end[1] - start[1]);
+    const width = Math.abs(endPoint[0] - startPoint[0]);
+    const height = Math.abs(endPoint[1] - startPoint[1]);
     if (width >= 0.01 && height >= 0.01) {
-      const area = normalizeHighlightArea({
-        x: Math.min(start[0], end[0]),
-        y: Math.min(start[1], end[1]),
-        width,
-        height,
-        color: this.color,
-        note: "",
-      });
+      const rect = { x: Math.min(startPoint[0], endPoint[0]), y: Math.min(startPoint[1], endPoint[1]), width, height };
+      if (selecting) {
+        const picked = textInArea(this.textItems, rect);
+        if (!picked.quote) {
+          this.setStatus("No text under that drag. Use Highlight for a free area, or drag across a line of text.");
+          this.redraw();
+          return;
+        }
+        const preview = picked.quote.split("\n").join(" ").slice(0, 160);
+        new TextBoxPromptModal(this.app, { title: "Note on this quote", text: "", hint: preview }, (value) => {
+          this.saveQuote({ quote: picked.quote, areas: picked.areas, note: value, color: this.color });
+        }).open();
+        this.redraw();
+        return;
+      }
+      const area = normalizeHighlightArea({ ...rect, color: this.color, style, note: "" });
       this.redraw();
       if (!area) return;
-      new TextBoxPromptModal(
-        this.app,
-        { title: "Highlight note", text: "" },
-        (value) => {
-          area.note = String(value || "").trim();
-          this.pushHistory();
-          this.highlights.push(area);
-          this.touch();
-          this.redraw();
-        }
-      ).open();
+      new TextBoxPromptModal(this.app, { title: `${TOOL_LABELS[style] || "Mark"} note`, text: "" }, (value) => {
+        area.note = String(value || "").trim();
+        this.pushHistory();
+        this.highlights.push(area);
+        this.touch();
+        this.redraw();
+      }).open();
       return;
     }
-    const hit = areaAt(this.highlights, end);
+    const hit = areaAt(this.highlights, endPoint);
     if (hit) this.editHighlightNote(hit);
-    else this.setStatus("Drag across an area to highlight it.");
+    else this.setStatus(selecting ? "Drag across text to quote it." : "Drag across an area to mark it.");
     this.redraw();
+  }
+
+  /** Quotes are their own annotations, saved as soon as the note is confirmed. */
+  async saveQuote(input) {
+    try {
+      const file = this.app.vault.getAbstractFileByPath(this.pdfPath);
+      if (!file || !(file instanceof TFile)) throw new Error("That PDF is no longer in the vault.");
+      const bytes = await this.app.vault.readBinary(file);
+      const hash = hashBytes(bytes);
+      const path = sidecarPathFor(this.pdfPath);
+      const existing = this.app.vault.getAbstractFileByPath(path);
+      const oldText = existing ? await this.app.vault.cachedRead(existing) : "";
+      const result = upsertAnnotation(
+        oldText,
+        { page: this.page, type: "quote", color: input.color, quote: input.quote, note: input.note, areas: input.areas },
+        { pdfPath: this.pdfPath, pdfHash: hash }
+      );
+      if (existing) await this.app.vault.modify(existing, result.text);
+      else await this.app.vault.create(path, result.text);
+      this.sidecarPath = path;
+      this.savedHash = hash;
+      this.quotes = (result.annotations || []).filter((entry) => entry.page === Number(this.page) && entry.type === "quote");
+      this.pageQuoteIds = this.quotes.map((entry) => entry.id);
+      const last = this.quotes[this.quotes.length - 1];
+      const link = annotationLink(this.pdfPath, this.page, last ? last.id : "");
+      this.setStatus(`Saved a quote${input.note ? " with a note" : ""} on page ${this.page}.${link ? ` Link: ${link}` : ""}`);
+      this.touch();
+      this.redraw();
+      return true;
+    } catch (e) {
+      this.setStatus(e && e.message ? e.message : String(e));
+      return false;
+    }
+  }
+
+  async copyPageLink() {
+    const link = annotationLink(this.pdfPath, this.page, "");
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(link);
+      this.setStatus(`Copied ${link}.`);
+    } catch (e) {
+      this.setStatus(`Could not copy ${link} in this view.`);
+    }
+  }
+
+  async exportNotes() {
+    if (!this.plugin.exportPdfAnnotations) {
+      this.setStatus("Export is unavailable in this version.");
+      return;
+    }
+    try {
+      const path = await this.plugin.exportPdfAnnotations(this.pdfPath);
+      this.setStatus(path ? `Wrote ${path}.` : "No annotations to export yet.");
+    } catch (e) {
+      this.setStatus(e && e.message ? e.message : String(e));
+    }
   }
 
   editHighlightNote(existing) {
@@ -47449,7 +47809,7 @@ class PdfInkModal extends Modal {
     const strokes = normalizeInkStrokes(this.strokes);
     const boxes = normalizeTextBoxes(this.textBoxes);
     const areas = normalizeHighlightAreas(this.highlights);
-    if (!strokes.length && !this.inkId && !boxes.length && !this.textId && !areas.length && !this.highlightId) {
+    if (!strokes.length && !this.inkId && !boxes.length && !this.textId && !areas.length) {
       this.setStatus("Draw something, add a text box or highlight an area first.");
       return false;
     }
@@ -47467,7 +47827,6 @@ class PdfInkModal extends Modal {
       let nextText = oldText;
       let inkId = this.inkId;
       let textId = this.textId;
-      let highlightId = this.highlightId;
       if (strokes.length) {
         const result = upsertAnnotation(nextText, { id: inkId || undefined, page, type: "pen", color: this.color, strokes }, meta);
         nextText = result.text;
@@ -47486,14 +47845,17 @@ class PdfInkModal extends Modal {
         nextText = removeAnnotation(nextText, textId, meta).text;
         textId = "";
       }
-      if (areas.length) {
-        const result = upsertAnnotation(nextText, { id: highlightId || undefined, page, type: "highlight", color: this.color, areas }, meta);
-        nextText = result.text;
-        const savedHighlights = (result.annotations || []).find((a) => a.page === page && a.type === "highlight" && Array.isArray(a.areas) && a.areas.length);
-        highlightId = savedHighlights ? savedHighlights.id : "";
-      } else if (highlightId) {
-        nextText = removeAnnotation(nextText, highlightId, meta).text;
-        highlightId = "";
+      for (const style of MARK_STYLES) {
+        const styleAreas = areas.filter((area) => (area.style || "highlight") === style);
+        if (styleAreas.length) {
+          const result = upsertAnnotation(nextText, { id: this.markIds[style] || undefined, page, type: style, color: this.color, areas: styleAreas }, meta);
+          nextText = result.text;
+          const savedMark = (result.annotations || []).find((a) => a.page === page && a.type === style && Array.isArray(a.areas) && a.areas.length);
+          this.markIds[style] = savedMark ? savedMark.id : "";
+        } else if (this.markIds[style]) {
+          nextText = removeAnnotation(nextText, this.markIds[style], meta).text;
+          this.markIds[style] = "";
+        }
       }
       if (existing) await this.app.vault.modify(existing, nextText);
       else await this.app.vault.create(path, nextText);
@@ -47501,12 +47863,12 @@ class PdfInkModal extends Modal {
       this.savedHash = hash;
       this.inkId = inkId;
       this.textId = textId;
-      this.highlightId = highlightId;
+
       this.dirty = this.editSeq !== seq;
       const bits = [];
       if (strokes.length) bits.push(`${strokes.length} stroke${strokes.length === 1 ? "" : "s"}`);
       if (boxes.length) bits.push(`${boxes.length} text box${boxes.length === 1 ? "" : "es"}`);
-      if (areas.length) bits.push(`${areas.length} highlight${areas.length === 1 ? "" : "s"}`);
+      if (areas.length) bits.push(`${areas.length} mark${areas.length === 1 ? "" : "s"}`);
       this.setStatus(bits.length ? `Saved ${bits.join(" and ")} on page ${page}.` : `Removed the overlay from page ${page}.`);
       if (opts.close && !this.dirty) this.close();
       return true;
@@ -47786,7 +48148,7 @@ const { OcrModal } = require("./ocr-modal");
 const { PaperScannerModal } = require("./paper-scanner");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const { PdfInkModal } = require("./pdf-ink-modal");
-const { sidecarPathFor } = require("./pdf-annotations");
+const { annotationLink, annotationSummary, annotationsMarkdown, parseAnnotationFile, sidecarPathFor, upsertAnnotation, removeAnnotation } = require("./pdf-annotations");
 const { WelcomeModal } = require("./welcome-modal");
 const { FocusLogModal } = require("./focus-modal");
 const { FOCUS_STORAGE_KEY, addStudySession, elapsedFocusMs, finishFocus, normalizeStudyLog, pauseFocus, resumeFocus, startFocus, studySummary } = require("./focus");
@@ -48067,6 +48429,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "ocr-pdf", name: "OCR a scanned PDF", callback: () => this.openOcr() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-draw", name: "PDF: draw with pen or highlighter", callback: () => this.openPdfInk() });
+    this.addCommand({ id: "pdf-export-notes", name: "PDF: export annotations to Markdown", callback: () => this.exportActivePdfAnnotations() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
     this.addCommand({
       id: "practice-folder",
@@ -49063,6 +49426,107 @@ class QuestionTrackerPlugin extends Plugin {
   openPdfInk(pdfPath) {
     if (this.moduleOff("mcq")) return;
     new PdfInkModal(this.app, this, { pdfPath: pdfPath || "" }).open();
+  }
+
+
+  /** Rows for one PDF's sidecar, including tags and mark areas. */
+  async pdfAnnotationRows(pdfPath) {
+    const source = String(pdfPath || "").trim();
+    const path = sidecarPathFor(source);
+    const file = source ? this.app.vault.getAbstractFileByPath(path) : null;
+    if (!file) return { pdfPath: source, sidecarPath: path, pdfHash: "", rows: [] };
+    const parsed = parseAnnotationFile(await this.app.vault.cachedRead(file));
+    const rows = (parsed.annotations || []).map((annotation) => ({
+      id: annotation.id,
+      pdfPath: source,
+      sidecarPath: path,
+      page: annotation.page,
+      type: annotation.type,
+      color: annotation.color,
+      quote: annotation.quote,
+      note: annotation.note,
+      text: annotation.text,
+      tags: annotation.tags,
+      areas: annotation.areas,
+      summary: annotationSummary(annotation),
+      createdAt: annotation.createdAt,
+      updatedAt: annotation.updatedAt,
+    }));
+    return { pdfPath: source, sidecarPath: path, pdfHash: parsed.pdfHash, rows };
+  }
+
+  /** Rewrites one annotation's note in place and stamps it. */
+  async updatePdfAnnotationNote(pdfPath, id, note) {
+    const source = String(pdfPath || "").trim();
+    const path = sidecarPathFor(source);
+    const file = await this.app.vault.getAbstractFileByPath(path);
+    if (!file) return null;
+    const parsed = parseAnnotationFile(await this.app.vault.cachedRead(file));
+    const current = (parsed.annotations || []).find((annotation) => annotation.id === id);
+    if (!current) return null;
+    const next = upsertAnnotation(await this.app.vault.cachedRead(file), { ...current, note: String(note || "").trim(), updatedAt: new Date().toISOString() }, { pdfPath: source, pdfHash: parsed.pdfHash });
+    await this.app.vault.modify(file, next.text);
+    return (await this.pdfAnnotationRows(source)).rows.find((row) => row.id === id) || null;
+  }
+
+  /** Removes one annotation and returns how many the sidecar still holds. */
+  async deletePdfAnnotation(pdfPath, id) {
+    const source = String(pdfPath || "").trim();
+    const path = sidecarPathFor(source);
+    const file = await this.app.vault.getAbstractFileByPath(path);
+    if (!file) return 0;
+    const parsed = parseAnnotationFile(await this.app.vault.cachedRead(file));
+    const next = removeAnnotation(await this.app.vault.cachedRead(file), id, { pdfPath: source, pdfHash: parsed.pdfHash });
+    await this.app.vault.modify(file, next.text);
+    this.refreshViews();
+    return next.annotations.length;
+  }
+
+  /** Writes a Markdown digest beside the PDF, numbered instead of overwriting. */
+  async exportPdfAnnotations(pdfPath) {
+    const data = await this.pdfAnnotationRows(pdfPath);
+    return this.writePdfAnnotationDigest(data.rows, data.pdfPath.replace(/^.*\//, "").replace(/\.pdf$/i, ""));
+  }
+
+  async writePdfAnnotationDigest(rows, label) {
+    const text = annotationsMarkdown(rows, { title: `Annotations — ${String(label || "PDF")}` });
+    if (!text) return null;
+    const folder = (rows[0] && rows[0].sidecarPath ? rows[0].sidecarPath.replace(/[^/]*$/, "") : "");
+    const base = `${folder}${String(label || "PDF").replace(/[\\/:*?"<>|]/g, "")} annotations`;
+    let path = `${base}.md`;
+    for (let n = 2; this.app.vault.getAbstractFileByPath(path) && n < 100; n++) path = `${base} ${n}.md`;
+    const file = await this.app.vault.create(path, text);
+    if (this.app.workspace.getLeaf) await this.app.workspace.getLeaf("tab").openFile(file);
+    return path;
+  }
+
+  /** The last page read in a PDF, from local storage (never the vault). */
+  pdfLastPage(pdfPath) {
+    const map = this.app.loadLocalStorage("mcq-pdf-last-page") || {};
+    const page = Math.round(Number(map[String(pdfPath || "")]) || 0);
+    return page > 0 ? page : 0;
+  }
+
+  rememberPdfPage(pdfPath, page) {
+    const key = String(pdfPath || "").trim();
+    if (!key) return;
+    const map = { ...(this.app.loadLocalStorage("mcq-pdf-last-page") || {}) };
+    map[key] = Math.max(1, Math.round(Number(page) || 1));
+    const keys = Object.keys(map);
+    while (keys.length > 100) delete map[keys.shift()];
+    this.app.saveLocalStorage("mcq-pdf-last-page", map);
+  }
+
+  /** Export the active PDF's annotations without opening the reader. */
+  async exportActivePdfAnnotations() {
+    const active = this.app.workspace.getActiveFile();
+    const path = active && /\.pdf$/i.test(active.path) ? active.path : "";
+    if (!path) {
+      new Notice("Open a PDF first.");
+      return;
+    }
+    const written = await this.exportPdfAnnotations(path);
+    new Notice(written ? `Wrote ${written}.` : "No annotations to export yet.");
   }
 
   async openPdfAnnotations(pdfPath) {
@@ -86026,6 +86490,7 @@ const { localDate, str } = require("./util");
 const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
+const pdfAnnotations = require("./pdf-annotations");
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
@@ -88396,6 +88861,27 @@ class StudyWorkspaceView extends ItemView {
       }
       this.render();
     });
+    actions.createEl("button", { text: "Open annotator" }).addEventListener("click", () => {
+      const active = this.app.workspace.getActiveFile();
+      const rows = this.pdfAnnotationData ? this.pdfAnnotationData.rows : [];
+      const pdfPath = active && /\.pdf$/i.test(active.path) ? active.path : rows[0] ? rows[0].pdfPath : "";
+      if (!pdfPath) {
+        this.saveMessage("Scan a vault with at least one annotated PDF first.");
+        this.render();
+        return;
+      }
+      this.plugin.openPdfInk(pdfPath);
+    });
+    actions.createEl("button", { text: "Export Markdown" }).addEventListener("click", async () => {
+      const rows = this.pdfAnnotationData ? this.pdfAnnotationData.rows : [];
+      try {
+        const path = await this.plugin.writePdfAnnotationDigest(rows, "PDF annotations");
+        this.saveMessage(path ? `Wrote ${path}.` : "No annotations to export yet.");
+      } catch (e) {
+        this.saveMessage(String((e && e.message) || "Could not export the annotations."));
+      }
+      this.render();
+    });
     const data = this.pdfAnnotationData;
     if (!data) {
       this.renderTabsEmpty(root, "Scan to list the PDF annotations already in this vault.");
@@ -88410,15 +88896,53 @@ class StudyWorkspaceView extends ItemView {
       this.renderTabsEmpty(root, "No sidecar annotations found. Annotate a PDF first.");
       return;
     }
+    const filters = card.createDiv({ cls: "qt-study-form" });
+    const search = filters.createEl("input", { cls: "qt-input", type: "search", placeholder: "Search quotes, notes and tags" });
+    search.value = this.pdfAnnotationFilter || "";
+    search.addEventListener("input", () => {
+      this.pdfAnnotationFilter = search.value;
+      this.render();
+    });
+    const typeOptions = [{ value: "", label: "All types" }];
+    for (const type of Object.keys(stats.byType).sort()) typeOptions.push({ value: type, label: type });
+    const typeSelect = this.renderSelect(filters, "Type", typeOptions, this.pdfAnnotationType || "");
+    typeSelect.addEventListener("change", () => {
+      this.pdfAnnotationType = typeSelect.value;
+      this.render();
+    });
+    const shown = pdfAnnotations.filterAnnotations(data.rows, { query: this.pdfAnnotationFilter, type: this.pdfAnnotationType });
+    card.createDiv({ cls: "qt-study-row-meta", text: `Showing ${shown.length} of ${data.rows.length} annotations` });
+    if (!shown.length) {
+      card.createDiv({ cls: "qt-study-empty", text: "No annotation matches that filter." });
+      return;
+    }
     const list = card.createDiv({ cls: "qt-study-list" });
-    for (const row of data.rows) {
+    for (const row of shown) {
       const item = list.createDiv({ cls: "qt-study-row" });
       const main = item.createDiv({ cls: "qt-study-row-main" });
       main.createDiv({ cls: "qt-study-row-title", text: `${row.pdfPath} · page ${row.page}` });
       main.createDiv({ cls: "qt-study-row-meta", text: `${row.type} · ${row.color}: ${row.summary}` });
+      if (row.note) main.createDiv({ cls: "qt-study-row-meta", text: `Note: ${row.note.slice(0, 160)}` });
+      if (Array.isArray(row.tags) && row.tags.length) {
+        const tags = main.createDiv({ cls: "qt-row qt-pdf-tags" });
+        for (const tag of row.tags) tags.createSpan({ cls: "qt-pdf-tag", text: `#${tag}` });
+      }
       const buttons = item.createDiv({ cls: "qt-study-row-actions" });
       buttons.createEl("button", { text: "Open PDF" }).addEventListener("click", () => this.app.workspace.openLinkText(row.pdfPath, "", false));
       buttons.createEl("button", { text: "Open sidecar" }).addEventListener("click", () => this.app.workspace.openLinkText(row.sidecarPath, "", false));
+      const annotationHref = pdfAnnotations.annotationLink(row.pdfPath, row.page, row.id);
+      if (annotationHref) {
+        buttons.createEl("button", { text: "Copy annotation link" }).addEventListener("click", async () => {
+          try {
+            if (typeof navigator === "undefined" || !navigator.clipboard) throw new Error("Clipboard unavailable");
+            await navigator.clipboard.writeText(annotationHref);
+            this.saveMessage("Copied " + annotationHref + ".");
+          } catch (e) {
+            this.saveMessage("Could not copy " + annotationHref + " in this view.");
+          }
+          this.render();
+        });
+      }
       const pageLink = pdfAnnotationIndex.pdfPageLink(row.pdfPath, row.page);
       if (pageLink) {
         const subpath = pdfAnnotationIndex.pdfPageSubpath(row.pdfPath, row.page);

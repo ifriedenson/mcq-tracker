@@ -12,8 +12,11 @@
 const { normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
 
 const ANNOTATION_BLOCK = "mcq-pdf-annotations";
-const ANNOTATION_TYPES = ["highlight", "note", "text", "form", "pen"];
+const ANNOTATION_TYPES = ["highlight", "underline", "strike", "box", "quote", "note", "text", "form", "pen"];
 const ANNOTATION_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
+const MARK_TYPES = ["highlight", "underline", "strike", "box", "quote"];
+const MAX_TAGS = 6;
+const MAX_TAG_LENGTH = 24;
 
 function str(value) {
   return value === undefined || value === null ? "" : String(value);
@@ -42,6 +45,19 @@ function pdfPathFromSidecar(sidecarPath) {
   return str(sidecarPath).replace(/\.annotations\.md$/i, ".pdf");
 }
 
+/** Bounded, hash-free, case-insensitively unique tags, the same shape study tasks use. */
+function normalizeTags(value) {
+  const out = [];
+  for (const raw of Array.isArray(value) ? value : []) {
+    const tag = str(raw).replace(/^#+/, "").replace(/\s+/g, "-").slice(0, MAX_TAG_LENGTH);
+    if (!tag) continue;
+    if (out.some((existing) => existing.toLowerCase() === tag.toLowerCase())) continue;
+    out.push(tag);
+    if (out.length >= MAX_TAGS) break;
+  }
+  return out;
+}
+
 function newAnnotationId() {
   return `ann-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -56,7 +72,8 @@ function normalizeAnnotation(input) {
   const text = str(src.text).trim();
   const strokes = type === "pen" ? normalizeInkStrokes(src.strokes) : [];
   const boxes = type === "text" ? normalizeTextBoxes(src.boxes) : [];
-  const areas = type === "highlight" ? normalizeHighlightAreas(src.areas) : [];
+  const areas = MARK_TYPES.includes(type) ? normalizeHighlightAreas(src.areas) : [];
+  const tags = normalizeTags(src.tags);
   if (!quote && !note && !text && !strokes.length && !boxes.length && !areas.length) throw new Error("Add a quote, note or text, or draw some ink, for the annotation.");
   const out = {
     id: str(src.id).trim() || newAnnotationId(),
@@ -66,11 +83,13 @@ function normalizeAnnotation(input) {
     quote,
     note,
     text,
+    tags,
     createdAt: str(src.createdAt).trim() || new Date().toISOString(),
+    updatedAt: str(src.updatedAt).trim() || "",
   };
   if (type === "pen") out.strokes = strokes;
   if (type === "text" && boxes.length) out.boxes = boxes;
-  if (type === "highlight" && areas.length) out.areas = areas;
+  if (areas.length) out.areas = type !== "quote" && MARK_TYPES.includes(type) ? areas.map((area) => ({ ...area, style: type })) : areas;
   return out;
 }
 
@@ -106,7 +125,11 @@ function annotationSummary(annotation) {
     bits.push(`${annotation.boxes.length} text box${annotation.boxes.length === 1 ? "" : "es"}`);
   }
   if (Array.isArray(annotation.areas) && annotation.areas.length) {
-    bits.push(`${annotation.areas.length} highlighted area${annotation.areas.length === 1 ? "" : "s"}`);
+    const noun = { highlight: "highlighted area", quote: "selected line", underline: "underlined area", strike: "strike-through area", box: "boxed area" }[annotation.type] || "marked area";
+    bits.push(`${annotation.areas.length} ${noun}${annotation.areas.length === 1 ? "" : "s"}`);
+  }
+  if (Array.isArray(annotation.tags) && annotation.tags.length) {
+    bits.push(annotation.tags.map((tag) => `#${tag}`).join(" "));
   }
   return bits.join(" - ") || "(no text)";
 }
@@ -156,6 +179,99 @@ function removeAnnotation(text, id, meta) {
   return { text: serializeAnnotationFile(pdfPath, pdfHash, annotations), annotations, pdfPath, pdfHash };
 }
 
+/** `[[file.pdf#page=3&annotation=ann-1]]`, or "" when the path, page or id is unusable. */
+function annotationLink(pdfPath, page, id) {
+  const clean = str(pdfPath).trim().replace(/^\/+/, "");
+  const number = Math.round(Number(page));
+  if (!clean || !/\.pdf$/i.test(clean)) return "";
+  if (!Number.isFinite(number) || number < 1 || number > 100000) return "";
+  const safePath = clean.replace(/[|#[\]\r\n]/g, "").trim();
+  if (!safePath) return "";
+  const anchor = str(id).trim();
+  if (!anchor) return `[[${safePath}#page=${number}]]`;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(anchor)) return "";
+  return `[[${safePath}#page=${number}&annotation=${anchor}]]`;
+}
+
+/**
+ * Filters index rows by free text (quote, note, text, PDF path, tags), type,
+ * colour, tag and page. Every option is optional; a page of 0 or less is ignored.
+ */
+function filterAnnotations(rows, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const query = str(opts.query).trim().toLowerCase();
+  const type = str(opts.type).trim().toLowerCase();
+  const color = str(opts.color).trim().toLowerCase();
+  const tag = str(opts.tag).trim().replace(/^#+/, "").toLowerCase();
+  const page = Math.round(Number(opts.page) || 0);
+  return (Array.isArray(rows) ? rows : []).filter((row) => {
+    if (!row) return false;
+    if (type && str(row.type).toLowerCase() !== type) return false;
+    if (color && str(row.color).toLowerCase() !== color) return false;
+    if (page > 0 && Math.round(Number(row.page) || 0) !== page) return false;
+    if (tag && !(Array.isArray(row.tags) ? row.tags : []).some((value) => str(value).toLowerCase() === tag)) return false;
+    if (!query) return true;
+    const haystack = [row.quote, row.note, row.text, row.pdfPath, row.summary, ...(Array.isArray(row.tags) ? row.tags : [])]
+      .map((value) => str(value).toLowerCase())
+      .join(" ");
+    return haystack.includes(query);
+  });
+}
+
+function annotationCounts(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const byType = {};
+  const byColor = {};
+  const byTag = {};
+  const pages = new Set();
+  const pdfs = new Set();
+  for (const row of list) {
+    if (!row) continue;
+    byType[row.type] = (byType[row.type] || 0) + 1;
+    byColor[row.color] = (byColor[row.color] || 0) + 1;
+    for (const tag of Array.isArray(row.tags) ? row.tags : []) byTag[tag] = (byTag[tag] || 0) + 1;
+    pages.add(`${row.pdfPath || ""}#${row.page}`);
+    if (row.pdfPath) pdfs.add(row.pdfPath);
+  }
+  return { total: list.length, byType, byColor, byTag, pages: pages.size, pdfs: pdfs.size };
+}
+
+/**
+ * A portable Markdown digest of annotation rows, grouped by PDF and page. It
+ * carries the quote, the note, the tags and a link back to the exact
+ * annotation, and never includes the PDF bytes.
+ */
+function annotationsMarkdown(rows, options) {
+  const list = (Array.isArray(rows) ? rows : []).filter(Boolean);
+  if (!list.length) return "";
+  const opts = options && typeof options === "object" ? options : {};
+  const title = str(opts.title).trim() || "PDF annotations";
+  const lines = [`# ${title}`, ""];
+  let currentPdf = "";
+  let currentPage = 0;
+  for (const row of list.slice().sort((a, b) => str(a.pdfPath).localeCompare(str(b.pdfPath)) || a.page - b.page || str(a.createdAt).localeCompare(str(b.createdAt)))) {
+    if (row.pdfPath !== currentPdf) {
+      currentPdf = row.pdfPath;
+      currentPage = 0;
+      lines.push(`## ${currentPdf || "Unlinked PDF"}`, "");
+    }
+    if (row.page !== currentPage) {
+      currentPage = row.page;
+      lines.push(`### Page ${currentPage}`, "");
+    }
+    const quote = str(row.quote).replace(/\s+/g, " ").trim();
+    const note = str(row.note).trim();
+    const summary = str(row.summary).replace(/\s+/g, " ").trim();
+    lines.push(`- **${row.type}** (${row.color})${quote ? `: “${quote}”` : summary ? `: ${summary}` : ""}`);
+    if (note) lines.push(`  - Note: ${note.replace(/\n+/g, " ")}`);
+    if (Array.isArray(row.tags) && row.tags.length) lines.push(`  - Tags: ${row.tags.map((tag) => `#${tag}`).join(" ")}`);
+    const link = annotationLink(row.pdfPath, row.page, row.id);
+    if (link) lines.push(`  - Link: ${link}`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
 function annotationsForPage(annotations, page) {
   const n = Math.round(Number(page) || 0);
   return (annotations || []).filter((item) => item.page === n);
@@ -165,6 +281,13 @@ module.exports = {
   ANNOTATION_BLOCK,
   ANNOTATION_COLORS,
   ANNOTATION_TYPES,
+  MARK_TYPES,
+  MAX_TAGS,
+  annotationCounts,
+  annotationLink,
+  annotationsMarkdown,
+  filterAnnotations,
+  normalizeTags,
   annotationSummary,
   annotationsForPage,
   hashBytes,

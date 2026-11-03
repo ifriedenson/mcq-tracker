@@ -10,6 +10,8 @@
 
 const INK_COLORS = ["yellow", "green", "blue", "red", "purple", "gray"];
 const INK_TOOLS = ["pen", "highlighter"];
+const MARK_STYLES = ["highlight", "underline", "strike", "box"];
+const MARK_TOOLS = ["highlight", "underline", "strike", "box", "select"];
 const MAX_INK_POINTS = 4000;
 const MAX_INK_STROKES = 200;
 const MAX_TEXT_BOXES = 100;
@@ -127,12 +129,14 @@ function normalizeHighlightArea(input) {
   const x = clamp(Number(src.x) || 0, 0, 1 - width);
   const y = clamp(Number(src.y) || 0, 0, 1 - height);
   const color = INK_COLORS.includes(str(src.color)) ? str(src.color) : "yellow";
+  const style = MARK_STYLES.includes(str(src.style)) ? str(src.style) : "highlight";
   return {
     x: round(x, 4),
     y: round(y, 4),
     width: round(width, 4),
     height: round(height, 4),
     color,
+    style,
     note: str(src.note).replace(/\r\n?/g, "\n").trim().slice(0, MAX_TEXT_LENGTH),
   };
 }
@@ -191,6 +195,55 @@ function eraseStrokesAt(strokes, point, tolerance) {
   return (Array.isArray(strokes) ? strokes : []).filter((stroke) => !hitStroke(stroke, point, tolerance));
 }
 
+/** The text under a dragged rectangle, in reading order, with one mark area per line. */
+function textInArea(items, rect) {
+  const list = Array.isArray(items) ? items : [];
+  const width = clamp(Number(rect && rect.width) || 0, 0, 1);
+  const height = clamp(Number(rect && rect.height) || 0, 0, 1);
+  const area = {
+    x: clamp(Number(rect && rect.x) || 0, 0, 1 - width),
+    y: clamp(Number(rect && rect.y) || 0, 0, 1 - height),
+    width,
+    height,
+  };
+  if (width < 0.002 || height < 0.002) return { quote: "", areas: [] };
+  const picked = [];
+  for (const item of list) {
+    const text = str(item && item.s).trim();
+    if (!text) continue;
+    const x = Number(item.x);
+    const y = Number(item.y);
+    const w = Math.max(0, Number(item.w) || 0);
+    const h = Math.max(0, Number(item.h) || 0.01);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const overlapX = Math.min(x + w, area.x + area.width) - Math.max(x, area.x);
+    const overlapY = Math.min(y + h, area.y + area.height) - Math.max(y, area.y);
+    const overlap = Math.max(0, overlapX) * Math.max(0, overlapY);
+    const center = x + w / 2 >= area.x && x + w / 2 <= area.x + area.width && y + h / 2 >= area.y && y + h / 2 <= area.y + area.height;
+    if (center || overlap >= 0.5 * Math.max(w * h, 0.000001)) picked.push({ text, x, y, w, h });
+  }
+  if (!picked.length) return { quote: "", areas: [] };
+  picked.sort((a, b) => a.y - b.y || a.x - b.x);
+  const lines = [];
+  for (const item of picked) {
+    const line = lines[lines.length - 1];
+    const tolerance = Math.max(0.004, Math.min(line ? line.h : 1, item.h) * 0.6);
+    if (!line || Math.abs(item.y - line.y) > tolerance) {
+      lines.push({ y: item.y, h: item.h, x0: item.x, x1: item.x + item.w, parts: [item.text] });
+    } else {
+      line.x0 = Math.min(line.x0, item.x);
+      line.x1 = Math.max(line.x1, item.x + item.w);
+      line.h = Math.max(line.h, item.h);
+      line.parts.push(item.text);
+    }
+  }
+  const quote = lines.map((line) => line.parts.join(" ").replace(/\s+/g, " ").trim()).filter(Boolean).join("\n");
+  const areas = lines
+    .map((line) => normalizeHighlightArea({ x: line.x0, y: line.y - line.h * 0.1, width: line.x1 - line.x0, height: line.h * 1.1, color: "yellow", style: "highlight" }))
+    .filter(Boolean);
+  return { quote, areas };
+}
+
 function colorFor(stroke) {
   return INK_COLOR_HEX[stroke && stroke.color] || INK_COLOR_HEX.yellow;
 }
@@ -242,7 +295,55 @@ function drawInkSegment(ctx, stroke, from, to, width, height) {
   ctx.restore();
 }
 
+/** Paints highlight, underline, strike-through and box marks, one draw path for all of them. */
+function drawMarks(ctx, areas, width, height) {
+  if (!ctx) return;
+  for (const area of Array.isArray(areas) ? areas : []) {
+    if (!area) continue;
+    const x = area.x * width;
+    const y = area.y * height;
+    const areaWidth = Math.max(1, area.width * width);
+    const areaHeight = Math.max(1, area.height * height);
+    const color = INK_COLOR_HEX[area.color] || INK_COLOR_HEX.yellow;
+    const style = MARK_STYLES.includes(area.style) ? area.style : "highlight";
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    if (style === "highlight") {
+      ctx.globalAlpha = 0.28;
+      ctx.fillRect(x, y, areaWidth, areaHeight);
+      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, areaWidth, areaHeight);
+    } else if (style === "box") {
+      ctx.globalAlpha = 0.95;
+      ctx.lineWidth = Math.max(1.5, areaHeight * 0.06);
+      ctx.strokeRect(x, y, areaWidth, areaHeight);
+    } else {
+      const thickness = Math.max(1.5, areaHeight * (style === "strike" ? 0.08 : 0.1));
+      const lineY = style === "strike" ? y + areaHeight / 2 : y + areaHeight - thickness / 2;
+      ctx.globalAlpha = 0.95;
+      ctx.lineWidth = thickness;
+      ctx.beginPath();
+      ctx.moveTo(x, lineY);
+      ctx.lineTo(x + areaWidth, lineY);
+      ctx.stroke();
+    }
+    if (area.note) {
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.arc(x + areaWidth - 6, y + 6, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
 module.exports = {
+  MARK_STYLES,
+  MARK_TOOLS,
+  drawMarks,
+  textInArea,
   INK_COLORS,
   INK_COLOR_HEX,
   INK_TOOLS,
