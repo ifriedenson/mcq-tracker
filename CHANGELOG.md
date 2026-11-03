@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.210.7 — 2026-11-03
+
+- **Read aloud** gains a **Voice memo** card: **Record voice memo** captures
+  the device microphone, and **Stop and save** writes the audio into the memo
+  folder (default `Recordings`) and, when a daily-note folder is set, appends
+  one line such as
+  `- 14:32 ![[Recordings/Voice 2026-11-03 14-32-10.webm]] · 1 min 5 s · lecture recap`
+  to that day's note. The note is created only when it is missing.
+- An optional **Memo label** becomes part of that line. Nothing is transcribed,
+  uploaded or sent to a model, and no provider or dependency is involved.
+
 ## 1.210.6 — 2026-11-03
 
 - **Read aloud** gains three speech options: **Code blocks** (skip or read),

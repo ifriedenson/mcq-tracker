@@ -46477,6 +46477,7 @@ const courseHealth = require("./course-health");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
+const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
 const { renderCornellBlock } = require("./cornell-view");
 const studyTools = require("./study-tools");
@@ -55389,6 +55390,72 @@ ${body}
   }
 
   /** Read-only: list the PDF annotation sidecars already in the vault. */
+  voiceMemoSettings() {
+    return voiceMemo.normalizeVoiceMemoSettings(this.settings.voiceMemo);
+  }
+
+  async updateVoiceMemo(patch) {
+    this.settings.voiceMemo = voiceMemo.normalizeVoiceMemoSettings({ ...this.voiceMemoSettings(), ...(patch || {}) });
+    await this.save();
+    this.refreshViews();
+    return this.settings.voiceMemo;
+  }
+
+  /**
+   * Save a recorded memo into the vault and, when a daily-note folder is set,
+   * append one timestamped line. Nothing is transcribed or uploaded.
+   */
+  async saveVoiceMemo(input) {
+    const source = input && typeof input === "object" ? input : {};
+    const settings = this.voiceMemoSettings();
+    if (!source.data || typeof source.data.byteLength !== "number" || !source.data.byteLength) {
+      return { ok: false, reason: "empty", message: "Nothing was recorded." };
+    }
+    const when = source.date instanceof Date ? source.date : new Date();
+    const base = voiceMemo.memoPath(settings.folder, when, source.mimeType);
+    if (!base) return { ok: false, reason: "path", message: "Set a safe memo folder in the Read aloud settings." };
+    let path = base;
+    for (let n = 2; this.app.vault.getAbstractFileByPath(path) && n < 21; n++) {
+      path = base.replace(/(\.[a-z0-9]+)$/i, " " + n + "$1");
+    }
+    if (this.app.vault.getAbstractFileByPath(path)) {
+      return { ok: false, reason: "exists", message: "A recording with that name already exists." };
+    }
+    const folder = path.slice(0, path.lastIndexOf("/"));
+    if (folder && !this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        /* the folder may already exist after a sync */
+      }
+    }
+    if (typeof this.app.vault.createBinary !== "function") {
+      return { ok: false, reason: "unsupported", message: "This vault cannot save audio files." };
+    }
+    await this.app.vault.createBinary(path, source.data);
+    const notePath = timeBlocks.dailyNotePath(voiceMemo.dayKey(when), settings.dailyNoteFolder);
+    const entry = notePath ? voiceMemo.memoEntry({ time: voiceMemo.memoTime(when), path, seconds: source.durationSeconds, label: source.label }) : "";
+    if (notePath) {
+      const note = this.app.vault.getAbstractFileByPath(notePath);
+      if (note) {
+        const text = await this.app.vault.read(note);
+        await this.app.vault.modify(note, voiceMemo.appendMemoEntry(text, entry));
+      } else {
+        const noteFolder = notePath.slice(0, notePath.lastIndexOf("/"));
+        if (noteFolder && !this.app.vault.getAbstractFileByPath(noteFolder)) {
+          try {
+            await this.app.vault.createFolder(noteFolder);
+          } catch (e) {
+            /* the folder may already exist after a sync */
+          }
+        }
+        await this.app.vault.create(notePath, "# " + voiceMemo.dayKey(when) + "\n\n" + entry + "\n");
+      }
+    }
+    this.refreshViews();
+    return { ok: true, path, notePath, entry };
+  }
+
   /** Read-only scan of Markdown checkbox lines; nothing is written. */
   async scanVaultTasks(options) {
     const settings = vaultTaskIndex.normalizeVaultTaskIndexOptions(options);
@@ -81339,6 +81406,7 @@ const audioBookmarks = require("./audio-bookmarks");
 const readingLibrary = require("./reading-library");
 const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
+const voiceMemo = require("./voice-memo");
 
 /** Sidebar order follows the plan: local tools, then the workspace, then analysis. */
 const STUDY_TOOL_SETTINGS_MODULES = [
@@ -81956,6 +82024,20 @@ const PAGES = {
         desc: "Read NASA as N A S A. Off by default.",
         get: (plugin) => readAloud.normalizeReadAloudSettings(plugin.settings.readAloud).spellAcronyms,
         set: async (plugin, v) => update(plugin, "readAloud", readAloud.normalizeReadAloudSettings, { spellAcronyms: v }),
+      },
+      {
+        type: "text",
+        name: "Voice memo folder",
+        desc: "Where a recorded memo is saved. Defaults to Recordings.",
+        get: (plugin) => voiceMemo.normalizeVoiceMemoSettings(plugin.settings.voiceMemo).folder,
+        set: async (plugin, v) => update(plugin, "voiceMemo", voiceMemo.normalizeVoiceMemoSettings, { folder: v }),
+      },
+      {
+        type: "text",
+        name: "Voice memo daily-note folder",
+        desc: "Optional. When set, stopping a recording also appends one timestamped line to YYYY-MM-DD.md in this folder; the note is created only if it is missing. Leave empty to save audio only.",
+        get: (plugin) => voiceMemo.normalizeVoiceMemoSettings(plugin.settings.voiceMemo).dailyNoteFolder,
+        set: async (plugin, v) => update(plugin, "voiceMemo", voiceMemo.normalizeVoiceMemoSettings, { dailyNoteFolder: v }),
       },
     ],
     open: { label: "Open Read aloud", run: (plugin) => plugin.activateStudyWorkspace("readAloud") },
@@ -84379,6 +84461,7 @@ const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
+const voiceMemo = require("./voice-memo");
 const { CODE_BLOCK_MODES: READ_ALOUD_CODE, READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
@@ -84562,10 +84645,22 @@ class StudyWorkspaceView extends ItemView {
     this.timeBlockEditId = "";
     this.timeBlockDailyPreview = null;
     this.citationFilter = "";
+    this.voiceMemoRecorder = null;
+    this.voiceMemoChunks = [];
+    this.voiceMemoStartedAt = 0;
+    this.voiceMemoLabel = "";
   }
 
   async onClose() {
     this.stopReadAloud(false);
+    if (this.voiceMemoRecorder) {
+      try {
+        this.voiceMemoRecorder.stop();
+      } catch (e) {
+        /* the recorder already stopped */
+      }
+      this.voiceMemoRecorder = null;
+    }
   }
 
   getViewType() {
@@ -86975,6 +87070,85 @@ class StudyWorkspaceView extends ItemView {
     }
   }
 
+  voiceMemoMedia() {
+    const media = typeof navigator !== "undefined" ? navigator.mediaDevices : null;
+    if (!media || typeof media.getUserMedia !== "function") return null;
+    if (typeof MediaRecorder !== "function") return null;
+    return media;
+  }
+
+  async startVoiceMemo() {
+    const media = this.voiceMemoMedia();
+    if (!media) {
+      this.saveMessage("Recording is not available on this device.");
+      this.render();
+      return;
+    }
+    try {
+      const stream = await media.getUserMedia({ audio: true });
+      const chunks = [];
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (event) => {
+        if (event && event.data && event.data.size) chunks.push(event.data);
+      };
+      recorder.onstop = async () => {
+        try {
+          if (typeof stream.getTracks === "function") stream.getTracks().forEach((track) => track.stop());
+        } catch (e) {
+          /* the stream is already closed */
+        }
+        const seconds = Math.max(1, Math.round((Date.now() - this.voiceMemoStartedAt) / 1000));
+        this.voiceMemoRecorder = null;
+        this.voiceMemoChunks = [];
+        this.voiceMemoStartedAt = 0;
+        if (!chunks.length) {
+          this.saveMessage("Nothing was recorded.");
+          this.render();
+          return;
+        }
+        let data = null;
+        try {
+          const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+          data = typeof blob.arrayBuffer === "function" ? await blob.arrayBuffer() : null;
+        } catch (e) {
+          data = null;
+        }
+        if (!data) {
+          this.saveMessage("This device could not hand over the recording.");
+          this.render();
+          return;
+        }
+        const result = await this.plugin.saveVoiceMemo({ data, mimeType: recorder.mimeType || "audio/webm", durationSeconds: seconds, label: this.voiceMemoLabel });
+        this.saveMessage(result.ok ? "Saved " + result.path + (result.notePath ? " and added a line to " + result.notePath : "") + "." : result.message);
+        this.render();
+      };
+      recorder.start();
+      this.voiceMemoRecorder = recorder;
+      this.voiceMemoChunks = chunks;
+      this.voiceMemoStartedAt = Date.now();
+      this.saveMessage("Recording. Press Stop and save when you are done.");
+    } catch (e) {
+      this.saveMessage(String((e && e.message) || "Could not start recording."));
+    }
+    this.render();
+  }
+
+  stopVoiceMemo() {
+    const recorder = this.voiceMemoRecorder;
+    if (!recorder) {
+      this.saveMessage("No recording is running.");
+      this.render();
+      return;
+    }
+    try {
+      recorder.stop();
+    } catch (e) {
+      this.voiceMemoRecorder = null;
+      this.saveMessage("Could not stop the recording.");
+    }
+    this.render();
+  }
+
   renderReadAloud(root) {
     const data = this.settings().readAloud;
     const card = root.createDiv({ cls: "qt-study-card" });
@@ -87009,6 +87183,23 @@ class StudyWorkspaceView extends ItemView {
       await this.plugin.updateReadAloud({ spellAcronyms: acronyms.value === "spell" });
       this.render();
     });
+    const memoCard = root.createDiv({ cls: "qt-study-card" });
+    memoCard.createEl("h3", { text: "Voice memo" });
+    const memoFolder = this.plugin.voiceMemoSettings();
+    memoCard.createDiv({ cls: "qt-hint", text: "Record with this device's microphone. Stopping saves the audio to " + memoFolder.folder + (memoFolder.dailyNoteFolder ? " and appends one timestamped line to the day's note in " + memoFolder.dailyNoteFolder : "; set a daily-note folder in settings to also append a line to the day's note") + ". Nothing is transcribed, uploaded or sent to a model." });
+    const memoLabel = this.renderField(memoCard, "Memo label", "text", "Optional note to add with the recording", this.voiceMemoLabel);
+    memoLabel.addEventListener("input", () => {
+      this.voiceMemoLabel = memoLabel.value;
+    });
+    const memoActions = memoCard.createDiv({ cls: "qt-row qt-study-actions" });
+    if (this.voiceMemoRecorder) {
+      memoActions.createEl("button", { text: "Stop and save", cls: "mod-cta" }).addEventListener("click", () => this.stopVoiceMemo());
+      memoCard.createDiv({ cls: "qt-study-row-meta", text: "Recording since " + voiceMemo.memoTime(this.voiceMemoStartedAt) + "." });
+    } else {
+      memoActions.createEl("button", { text: "Record voice memo", cls: "mod-cta" }).addEventListener("click", () => this.startVoiceMemo());
+      memoCard.createDiv({ cls: "qt-study-row-meta", text: "Audio files are saved as " + voiceMemo.memoPath(memoFolder.folder, new Date(), "audio/webm").replace(/^.*\//, "") + " (the name follows the recording time)." });
+    }
+
     const load = card.createDiv({ cls: "qt-row qt-study-actions" });
     load.createEl("button", { text: "Load the active note" }).addEventListener("click", async () => {
       const file = this.app.workspace.getActiveFile();
@@ -91612,6 +91803,138 @@ module.exports = {
 };
 };
 
+/* ---- src/voice-memo.js ---- */
+__defs["voice-memo"] = function (module, exports, require) {
+/*
+ * Local voice memos: name a recording, build its daily-note line and append it.
+ * The audio is captured by the view with the device microphone; this module is
+ * pure so naming, refusal and the note write stay testable. Nothing here
+ * transcribes, uploads or talks to a speech provider.
+ */
+const { str } = require("./util");
+
+const MEMO_FOLDER = "Recordings";
+const MAX_LABEL = 200;
+const MIME_EXTENSIONS = [
+  { test: /audio\/mp4|audio\/m4a|audio\/aac/i, extension: "m4a" },
+  { test: /audio\/ogg|audio\/opus/i, extension: "ogg" },
+  { test: /audio\/wav|audio\/wave|audio\/x-wav/i, extension: "wav" },
+  { test: /audio\/mpeg|audio\/mp3/i, extension: "mp3" },
+  { test: /audio\/webm/i, extension: "webm" },
+];
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function pad(value) {
+  return String(value).padStart(2, "0");
+}
+
+function safeFolder(value) {
+  const clean = str(value).trim().replace(/^\/+|\/+$/g, "");
+  if (!clean) return "";
+  if (clean.split("/").some((part) => part === ".." || !part)) return "";
+  return clean;
+}
+
+function asDate(value) {
+  const date = value instanceof Date ? value : new Date(value === undefined ? Date.now() : value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeVoiceMemoSettings(value) {
+  const source = asObject(value);
+  return {
+    folder: safeFolder(source.folder) || MEMO_FOLDER,
+    dailyNoteFolder: safeFolder(source.dailyNoteFolder),
+  };
+}
+
+/** `m4a`, `webm`, `ogg`, `wav` or `mp3`; an unknown type falls back to webm. */
+function memoExtension(mimeType) {
+  const type = str(mimeType).trim().toLowerCase();
+  const match = MIME_EXTENSIONS.find((entry) => entry.test.test(type));
+  return match ? match.extension : "webm";
+}
+
+/** `2026-11-03` in local time, or "" for an unusable date. */
+function dayKey(value) {
+  const date = asDate(value);
+  if (!date) return "";
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** `14:32` in local time, or "" for an unusable date. */
+function memoTime(value) {
+  const date = asDate(value);
+  if (!date) return "";
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** `2026-11-03 14-32-10`, the sortable stamp used by the file name. */
+function memoStamp(value) {
+  const date = asDate(value);
+  if (!date) return "";
+  return `${dayKey(date)} ${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+}
+
+/** `Recordings/Voice 2026-11-03 14-32-10.webm`, or "" for an unsafe folder. */
+function memoPath(folder, date, mimeType) {
+  const clean = safeFolder(folder);
+  const stamp = memoStamp(date);
+  if (!clean || !stamp) return "";
+  return `${clean}/Voice ${stamp}.${memoExtension(mimeType)}`;
+}
+
+function durationLabel(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  if (!total) return "";
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  if (!minutes) return `${rest} s`;
+  if (!rest) return `${minutes} min`;
+  return `${minutes} min ${rest} s`;
+}
+
+/** One `- HH:MM ![[path]] · 1 min 20 s · label` line, or "" without time/path. */
+function memoEntry(input) {
+  const source = asObject(input);
+  const path = str(source.path).trim();
+  const time = str(source.time).trim();
+  if (!path || !time) return "";
+  let line = `- ${time} ![[${path}]]`;
+  const duration = durationLabel(source.seconds);
+  if (duration) line += ` · ${duration}`;
+  const label = str(source.label).replace(/\s+/g, " ").trim().slice(0, MAX_LABEL);
+  if (label) line += ` · ${label}`;
+  return line;
+}
+
+/** Append the line to a note body, keeping exactly one trailing newline. */
+function appendMemoEntry(text, entry) {
+  const line = str(entry).trim();
+  if (!line) return str(text);
+  const body = str(text).replace(/\r\n?/g, "\n").replace(/\s+$/, "");
+  return body ? `${body}\n${line}\n` : `${line}\n`;
+}
+
+module.exports = {
+  MAX_LABEL,
+  MEMO_FOLDER,
+  appendMemoEntry,
+  dayKey,
+  durationLabel,
+  memoEntry,
+  memoExtension,
+  memoPath,
+  memoStamp,
+  memoTime,
+  normalizeVoiceMemoSettings,
+  safeFolder,
+};
+};
+
 /* ---- src/weak-spot.js ---- */
 __defs["weak-spot"] = function (module, exports, require) {
 /*
@@ -92366,6 +92689,7 @@ const audioBookmarks = require("./audio-bookmarks");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
+const voiceMemo = require("./voice-memo");
 const { StudyWorkspaceView } = require("./study-workspace-view");
 const { TaskListView } = require("./task-list-view");
 const quizNoteGate = require("./quiz-note-gate");
@@ -92798,6 +93122,7 @@ QuestionTrackerPlugin.__test = {
   feynmanAi,
   pdfAnnotationIndex,
   vaultTaskIndex,
+  voiceMemo,
   cornell,
   CardView,
   CardModal,

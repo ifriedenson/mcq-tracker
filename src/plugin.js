@@ -30,6 +30,7 @@ const courseHealth = require("./course-health");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
+const voiceMemo = require("./voice-memo");
 const { buildCornellNote } = require("./cornell");
 const { renderCornellBlock } = require("./cornell-view");
 const studyTools = require("./study-tools");
@@ -8942,6 +8943,72 @@ ${body}
   }
 
   /** Read-only: list the PDF annotation sidecars already in the vault. */
+  voiceMemoSettings() {
+    return voiceMemo.normalizeVoiceMemoSettings(this.settings.voiceMemo);
+  }
+
+  async updateVoiceMemo(patch) {
+    this.settings.voiceMemo = voiceMemo.normalizeVoiceMemoSettings({ ...this.voiceMemoSettings(), ...(patch || {}) });
+    await this.save();
+    this.refreshViews();
+    return this.settings.voiceMemo;
+  }
+
+  /**
+   * Save a recorded memo into the vault and, when a daily-note folder is set,
+   * append one timestamped line. Nothing is transcribed or uploaded.
+   */
+  async saveVoiceMemo(input) {
+    const source = input && typeof input === "object" ? input : {};
+    const settings = this.voiceMemoSettings();
+    if (!source.data || typeof source.data.byteLength !== "number" || !source.data.byteLength) {
+      return { ok: false, reason: "empty", message: "Nothing was recorded." };
+    }
+    const when = source.date instanceof Date ? source.date : new Date();
+    const base = voiceMemo.memoPath(settings.folder, when, source.mimeType);
+    if (!base) return { ok: false, reason: "path", message: "Set a safe memo folder in the Read aloud settings." };
+    let path = base;
+    for (let n = 2; this.app.vault.getAbstractFileByPath(path) && n < 21; n++) {
+      path = base.replace(/(\.[a-z0-9]+)$/i, " " + n + "$1");
+    }
+    if (this.app.vault.getAbstractFileByPath(path)) {
+      return { ok: false, reason: "exists", message: "A recording with that name already exists." };
+    }
+    const folder = path.slice(0, path.lastIndexOf("/"));
+    if (folder && !this.app.vault.getAbstractFileByPath(folder)) {
+      try {
+        await this.app.vault.createFolder(folder);
+      } catch (e) {
+        /* the folder may already exist after a sync */
+      }
+    }
+    if (typeof this.app.vault.createBinary !== "function") {
+      return { ok: false, reason: "unsupported", message: "This vault cannot save audio files." };
+    }
+    await this.app.vault.createBinary(path, source.data);
+    const notePath = timeBlocks.dailyNotePath(voiceMemo.dayKey(when), settings.dailyNoteFolder);
+    const entry = notePath ? voiceMemo.memoEntry({ time: voiceMemo.memoTime(when), path, seconds: source.durationSeconds, label: source.label }) : "";
+    if (notePath) {
+      const note = this.app.vault.getAbstractFileByPath(notePath);
+      if (note) {
+        const text = await this.app.vault.read(note);
+        await this.app.vault.modify(note, voiceMemo.appendMemoEntry(text, entry));
+      } else {
+        const noteFolder = notePath.slice(0, notePath.lastIndexOf("/"));
+        if (noteFolder && !this.app.vault.getAbstractFileByPath(noteFolder)) {
+          try {
+            await this.app.vault.createFolder(noteFolder);
+          } catch (e) {
+            /* the folder may already exist after a sync */
+          }
+        }
+        await this.app.vault.create(notePath, "# " + voiceMemo.dayKey(when) + "\n\n" + entry + "\n");
+      }
+    }
+    this.refreshViews();
+    return { ok: true, path, notePath, entry };
+  }
+
   /** Read-only scan of Markdown checkbox lines; nothing is written. */
   async scanVaultTasks(options) {
     const settings = vaultTaskIndex.normalizeVaultTaskIndexOptions(options);

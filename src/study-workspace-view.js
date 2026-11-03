@@ -11,6 +11,7 @@ const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
 const vaultTaskIndex = require("./vault-task-index");
+const voiceMemo = require("./voice-memo");
 const { CODE_BLOCK_MODES: READ_ALOUD_CODE, READ_ALOUD_STYLES, buildReadAloudPlan, durationLabel } = require("./read-aloud");
 const { compileLectureNote } = require("./lecture-compiler");
 const { courseHealthReport } = require("./course-health");
@@ -194,10 +195,22 @@ class StudyWorkspaceView extends ItemView {
     this.timeBlockEditId = "";
     this.timeBlockDailyPreview = null;
     this.citationFilter = "";
+    this.voiceMemoRecorder = null;
+    this.voiceMemoChunks = [];
+    this.voiceMemoStartedAt = 0;
+    this.voiceMemoLabel = "";
   }
 
   async onClose() {
     this.stopReadAloud(false);
+    if (this.voiceMemoRecorder) {
+      try {
+        this.voiceMemoRecorder.stop();
+      } catch (e) {
+        /* the recorder already stopped */
+      }
+      this.voiceMemoRecorder = null;
+    }
   }
 
   getViewType() {
@@ -2607,6 +2620,85 @@ class StudyWorkspaceView extends ItemView {
     }
   }
 
+  voiceMemoMedia() {
+    const media = typeof navigator !== "undefined" ? navigator.mediaDevices : null;
+    if (!media || typeof media.getUserMedia !== "function") return null;
+    if (typeof MediaRecorder !== "function") return null;
+    return media;
+  }
+
+  async startVoiceMemo() {
+    const media = this.voiceMemoMedia();
+    if (!media) {
+      this.saveMessage("Recording is not available on this device.");
+      this.render();
+      return;
+    }
+    try {
+      const stream = await media.getUserMedia({ audio: true });
+      const chunks = [];
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (event) => {
+        if (event && event.data && event.data.size) chunks.push(event.data);
+      };
+      recorder.onstop = async () => {
+        try {
+          if (typeof stream.getTracks === "function") stream.getTracks().forEach((track) => track.stop());
+        } catch (e) {
+          /* the stream is already closed */
+        }
+        const seconds = Math.max(1, Math.round((Date.now() - this.voiceMemoStartedAt) / 1000));
+        this.voiceMemoRecorder = null;
+        this.voiceMemoChunks = [];
+        this.voiceMemoStartedAt = 0;
+        if (!chunks.length) {
+          this.saveMessage("Nothing was recorded.");
+          this.render();
+          return;
+        }
+        let data = null;
+        try {
+          const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+          data = typeof blob.arrayBuffer === "function" ? await blob.arrayBuffer() : null;
+        } catch (e) {
+          data = null;
+        }
+        if (!data) {
+          this.saveMessage("This device could not hand over the recording.");
+          this.render();
+          return;
+        }
+        const result = await this.plugin.saveVoiceMemo({ data, mimeType: recorder.mimeType || "audio/webm", durationSeconds: seconds, label: this.voiceMemoLabel });
+        this.saveMessage(result.ok ? "Saved " + result.path + (result.notePath ? " and added a line to " + result.notePath : "") + "." : result.message);
+        this.render();
+      };
+      recorder.start();
+      this.voiceMemoRecorder = recorder;
+      this.voiceMemoChunks = chunks;
+      this.voiceMemoStartedAt = Date.now();
+      this.saveMessage("Recording. Press Stop and save when you are done.");
+    } catch (e) {
+      this.saveMessage(String((e && e.message) || "Could not start recording."));
+    }
+    this.render();
+  }
+
+  stopVoiceMemo() {
+    const recorder = this.voiceMemoRecorder;
+    if (!recorder) {
+      this.saveMessage("No recording is running.");
+      this.render();
+      return;
+    }
+    try {
+      recorder.stop();
+    } catch (e) {
+      this.voiceMemoRecorder = null;
+      this.saveMessage("Could not stop the recording.");
+    }
+    this.render();
+  }
+
   renderReadAloud(root) {
     const data = this.settings().readAloud;
     const card = root.createDiv({ cls: "qt-study-card" });
@@ -2641,6 +2733,23 @@ class StudyWorkspaceView extends ItemView {
       await this.plugin.updateReadAloud({ spellAcronyms: acronyms.value === "spell" });
       this.render();
     });
+    const memoCard = root.createDiv({ cls: "qt-study-card" });
+    memoCard.createEl("h3", { text: "Voice memo" });
+    const memoFolder = this.plugin.voiceMemoSettings();
+    memoCard.createDiv({ cls: "qt-hint", text: "Record with this device's microphone. Stopping saves the audio to " + memoFolder.folder + (memoFolder.dailyNoteFolder ? " and appends one timestamped line to the day's note in " + memoFolder.dailyNoteFolder : "; set a daily-note folder in settings to also append a line to the day's note") + ". Nothing is transcribed, uploaded or sent to a model." });
+    const memoLabel = this.renderField(memoCard, "Memo label", "text", "Optional note to add with the recording", this.voiceMemoLabel);
+    memoLabel.addEventListener("input", () => {
+      this.voiceMemoLabel = memoLabel.value;
+    });
+    const memoActions = memoCard.createDiv({ cls: "qt-row qt-study-actions" });
+    if (this.voiceMemoRecorder) {
+      memoActions.createEl("button", { text: "Stop and save", cls: "mod-cta" }).addEventListener("click", () => this.stopVoiceMemo());
+      memoCard.createDiv({ cls: "qt-study-row-meta", text: "Recording since " + voiceMemo.memoTime(this.voiceMemoStartedAt) + "." });
+    } else {
+      memoActions.createEl("button", { text: "Record voice memo", cls: "mod-cta" }).addEventListener("click", () => this.startVoiceMemo());
+      memoCard.createDiv({ cls: "qt-study-row-meta", text: "Audio files are saved as " + voiceMemo.memoPath(memoFolder.folder, new Date(), "audio/webm").replace(/^.*\//, "") + " (the name follows the recording time)." });
+    }
+
     const load = card.createDiv({ cls: "qt-row qt-study-actions" });
     load.createEl("button", { text: "Load the active note" }).addEventListener("click", async () => {
       const file = this.app.workspace.getActiveFile();

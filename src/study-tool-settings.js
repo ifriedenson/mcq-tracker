@@ -25,6 +25,7 @@ const audioBookmarks = require("./audio-bookmarks");
 const readingLibrary = require("./reading-library");
 const timeBlocks = require("./time-blocks");
 const citations = require("./citations");
+const voiceMemo = require("./voice-memo");
 
 /** Sidebar order follows the plan: local tools, then the workspace, then analysis. */
 const STUDY_TOOL_SETTINGS_MODULES = [
@@ -642,6 +643,20 @@ const PAGES = {
         desc: "Read NASA as N A S A. Off by default.",
         get: (plugin) => readAloud.normalizeReadAloudSettings(plugin.settings.readAloud).spellAcronyms,
         set: async (plugin, v) => update(plugin, "readAloud", readAloud.normalizeReadAloudSettings, { spellAcronyms: v }),
+      },
+      {
+        type: "text",
+        name: "Voice memo folder",
+        desc: "Where a recorded memo is saved. Defaults to Recordings.",
+        get: (plugin) => voiceMemo.normalizeVoiceMemoSettings(plugin.settings.voiceMemo).folder,
+        set: async (plugin, v) => update(plugin, "voiceMemo", voiceMemo.normalizeVoiceMemoSettings, { folder: v }),
+      },
+      {
+        type: "text",
+        name: "Voice memo daily-note folder",
+        desc: "Optional. When set, stopping a recording also appends one timestamped line to YYYY-MM-DD.md in this folder; the note is created only if it is missing. Leave empty to save audio only.",
+        get: (plugin) => voiceMemo.normalizeVoiceMemoSettings(plugin.settings.voiceMemo).dailyNoteFolder,
+        set: async (plugin, v) => update(plugin, "voiceMemo", voiceMemo.normalizeVoiceMemoSettings, { dailyNoteFolder: v }),
       },
     ],
     open: { label: "Open Read aloud", run: (plugin) => plugin.activateStudyWorkspace("readAloud") },
