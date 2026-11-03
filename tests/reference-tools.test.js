@@ -1905,3 +1905,104 @@ test("reference view: the summary is exposed and the table degrades with a Notic
   assert.equal(obsidian.notices.length, noticesBefore + 1, "an empty graph raises a Notice");
   assert.match(obsidian.notices[obsidian.notices.length - 1], /Draw a graph before opening the data table/);
 });
+
+test("graph folders: grouping, visibility and summaries are pure", () => {
+  const folders = T.graphFolders;
+  const rows = [
+    { folder: "Basics", collapsed: false },
+    { text: "y = x" },
+    { text: "y = x^2" },
+    { folder: "  Hard  ", collapsed: true },
+    { text: "y = sin(x)" },
+    { text: "y = cos(x)" },
+  ];
+  assert.equal(folders.isFolderRow(rows[0]), true);
+  assert.equal(folders.isFolderRow(rows[1]), false);
+  assert.equal(folders.isFolderRow(null), false);
+  const groups = folders.folderGroups(rows);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(
+    groups.map((group) => ({ index: group.index, end: group.end, name: group.name, count: group.count, collapsed: group.collapsed })),
+    [
+      { index: 0, end: 3, name: "Basics", count: 2, collapsed: false },
+      { index: 3, end: 6, name: "Hard", count: 2, collapsed: true },
+    ]
+  );
+  assert.deepEqual(folders.rowVisibility(rows), [false, true, true, false, false, false]);
+  assert.equal(
+    folders.folderSummary(rows),
+    "Folders: Basics (2 expressions, expanded), Hard (2 expressions, collapsed). Collapsed folders are not drawn."
+  );
+  assert.equal(folders.folderSummary([{ text: "y = x" }]), "");
+  assert.equal(folders.folderSummary([{ folder: "", collapsed: false }]), "Folders: Untitled folder (0 expressions, expanded).");
+  assert.equal(folders.folderName({ folder: "   " }), "Untitled folder");
+  assert.equal(folders.normalizeFolderName("  a   b  "), "a b");
+  assert.equal(folders.normalizeFolderName("x".repeat(90)).length, folders.MAX_FOLDER_NAME);
+  const expanded = rows.map((row) => Object.assign({}, row));
+  expanded[3].collapsed = false;
+  assert.deepEqual(folders.rowVisibility(expanded), [false, true, true, false, true, true]);
+});
+
+test("reference view: folders collapse, hide their rows, persist and reach the screen-reader summary", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.reference.enabled = true;
+  const view = new T.ReferenceView({ app }, plugin);
+  view.app = app;
+  const dom = makeDom();
+  view.contentEl = dom.root;
+  view.tab = "graph";
+  view.graphRows = [
+    { folder: "Basics", collapsed: false },
+    { text: "y = x^2", hidden: false },
+    { folder: "Hidden", collapsed: true },
+    { text: "y = sin(x)", hidden: false },
+  ];
+  view.render();
+  const labels = () => dom.all.map((element) => (element.meta && (element.meta.attr || {})["aria-label"]) || "").filter(Boolean);
+  assert.ok(labels().includes("Collapse folder Basics"));
+  assert.ok(labels().includes("Expand folder Hidden"));
+  assert.ok(labels().includes("Folder name 3"));
+  assert.equal(view.graphRowInputs.filter(Boolean).length, 1, "a collapsed folder's rows are not rendered");
+  assert.deepEqual(view.graphRowInputs.filter(Boolean).map((input) => input.value), ["y = x^2"], "only the expanded folder's row is editable");
+  const toggle = dom.all.find((element) => (element.meta && (element.meta.attr || {})["aria-label"]) === "Expand folder Hidden");
+  assert.equal(toggle.meta.attr["aria-expanded"], "false");
+
+  view.drawGraph();
+  assert.equal(view.graphBuilt.rows[0].kind, "empty");
+  assert.equal(view.graphBuilt.rows[1].kind, "explicit");
+  assert.equal(view.graphBuilt.rows[2].kind, "empty");
+  assert.equal(view.graphBuilt.rows[3].kind, "empty", "a row inside the collapsed folder is not drawn");
+  const summaryEl = dom.all.find((element) => (element.meta && (element.meta.attr || {})["aria-label"]) === "Graph row summaries");
+  assert.match(summaryEl.meta.text, /Folders: Basics \(1 expression, expanded\), Hidden \(1 expression, collapsed\)\./);
+  assert.match(summaryEl.meta.text, /Collapsed folders are not drawn/);
+
+  assert.equal(view.toggleGraphFolder(2), false);
+  assert.equal(view.graphRows[2].collapsed, false);
+  view.render();
+  assert.equal(view.graphRowInputs.filter(Boolean).length, 2, "expanding shows the folder's rows again");
+
+  view.persistGraphState();
+  const stored = plugin.settings.reference.graph.rows;
+  assert.deepEqual(stored[0], { folder: "Basics", collapsed: false });
+  assert.equal(stored[1].text, "y = x^2");
+  assert.deepEqual(stored[2], { folder: "Hidden", collapsed: false });
+  const restored = new T.ReferenceView({ app }, plugin);
+  assert.equal(restored.graphRows.length, 4);
+  assert.equal(restored.graphRows[0].folder, "Basics");
+  assert.equal(restored.graphRows[2].folder, "Hidden");
+  assert.equal(restored.graphRows[3].text, "y = sin(x)");
+
+  assert.equal(view.removeGraphFolder(0), true, "removing a folder header keeps its rows");
+  assert.equal(view.graphRows.length, 3);
+  assert.equal(view.graphRows.filter((row) => T.graphFolders.isFolderRow(row)).length, 1);
+
+  const addDom = makeDom();
+  view.contentEl = addDom.root;
+  view.render();
+  await addDom.click("Add folder");
+  assert.equal(view.graphRows[view.graphRows.length - 2].folder, "Folder");
+  assert.equal(view.graphRows[view.graphRows.length - 1].text, "");
+  assert.equal(view.removeGraphFolder(0), false, "an expression is not a folder");
+});

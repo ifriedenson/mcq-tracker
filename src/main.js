@@ -226,6 +226,7 @@ QuestionTrackerPlugin.__test = {
   statistics: require("./statistics"),
   calculus: require("./calculus"),
   graphAccessibility: require("./graph-accessibility"),
+  graphFolders: require("./graph-folders"),
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,

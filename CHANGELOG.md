@@ -2,6 +2,16 @@
 
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
+## 1.191.0 — 2026-11-03
+
+- The graph expression list has collapsible folders. A folder header groups the
+  rows below it, with a rename field, a collapse toggle, a live row count and a
+  remove button that keeps the grouped rows. Collapsed rows are skipped by the
+  drawing, trace, points of interest and data table, and the screen-reader
+  summary reports each folder and its state.
+- `plan.md` §3.12 records the remaining Desmos graphing-calculator gaps with
+  per-row licence availability and target versions.
+
 ## 1.190.0 — 2026-11-02
 
 - The graph has a screen-reader summary of the window and each row, and an

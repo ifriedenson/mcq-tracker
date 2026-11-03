@@ -5323,6 +5323,47 @@
   margin: 10px 0;
 }
 
+.qt-ref .qt-ref-graph-folder {
+  align-items: center;
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 28px minmax(0, 1fr) auto 32px;
+  padding: 4px 6px;
+}
+
+.qt-ref .qt-ref-graph-folder-toggle {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  cursor: pointer;
+  min-height: 28px;
+  padding: 0;
+  width: 28px;
+}
+
+.qt-ref .qt-ref-graph-folder-name {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  font-weight: 600;
+  padding: 4px 6px;
+  width: 100%;
+}
+
+.qt-ref .qt-ref-graph-folder-name:focus {
+  background: var(--background-primary);
+  border-color: var(--background-modifier-border);
+}
+
+.qt-ref .qt-ref-graph-folder-count {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
 .qt-ref-periodic-wrap {
   margin: 8px 0 14px;
   overflow-x: auto;

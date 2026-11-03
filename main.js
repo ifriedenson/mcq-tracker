@@ -30184,6 +30184,96 @@ module.exports = {
 };
 };
 
+/* ---- src/graph-folders.js ---- */
+__defs["graph-folders"] = function (module, exports, require) {
+/*
+ * Folder groups for the Reference expression list, Desmos style.
+ *
+ * A folder is a header row `{ folder: "Name", collapsed: false }`. Every row after it
+ * belongs to that folder until the next folder header, so membership is positional and
+ * old row lists stay valid without a migration. Everything here is plain data: the view
+ * renders the headers and the parser only ever sees expression rows, never folders.
+ */
+
+const MAX_FOLDER_NAME = 60;
+
+/** A folder header, not an expression. */
+function isFolderRow(row) {
+  return !!row && typeof row === "object" && typeof row.folder === "string";
+}
+
+/** Trim, collapse whitespace and bound the name so a paste cannot grow the header without limit. */
+function normalizeFolderName(value) {
+  const text = String(value === null || value === undefined ? "" : value)
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.slice(0, MAX_FOLDER_NAME);
+}
+
+/** The name shown to the user; an empty name is still an addressable folder. */
+function folderName(row) {
+  const name = isFolderRow(row) ? normalizeFolderName(row.folder) : "";
+  return name || "Untitled folder";
+}
+
+/** Each folder header with its exclusive end index and how many expression rows it holds. */
+function folderGroups(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const groups = [];
+  for (let i = 0; i < list.length; i++) {
+    if (!isFolderRow(list[i])) continue;
+    let end = i + 1;
+    while (end < list.length && !isFolderRow(list[end])) end += 1;
+    let count = 0;
+    for (let j = i + 1; j < end; j++) if (!isFolderRow(list[j])) count += 1;
+    groups.push({
+      index: i,
+      end,
+      name: folderName(list[i]),
+      collapsed: list[i].collapsed === true,
+      count,
+    });
+  }
+  return groups;
+}
+
+/**
+ * Which rows can reach the drawing. Folder headers never draw, and every expression
+ * inside a collapsed folder is skipped until the folder is expanded again.
+ */
+function rowVisibility(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const visible = list.map((row) => !isFolderRow(row));
+  for (const group of folderGroups(list)) {
+    if (!group.collapsed) continue;
+    for (let i = group.index + 1; i < group.end; i++) visible[i] = false;
+  }
+  return visible;
+}
+
+/** One sentence for the screen-reader summary, or "" when the list has no folders. */
+function folderSummary(rows) {
+  const groups = folderGroups(rows);
+  if (!groups.length) return "";
+  const parts = groups.map((group) => {
+    const count = `${group.count} expression${group.count === 1 ? "" : "s"}`;
+    return `${group.name} (${count}, ${group.collapsed ? "collapsed" : "expanded"})`;
+  });
+  const hidden = groups.some((group) => group.collapsed);
+  return `Folders: ${parts.join(", ")}.${hidden ? " Collapsed folders are not drawn." : ""}`;
+}
+
+module.exports = {
+  MAX_FOLDER_NAME,
+  isFolderRow,
+  normalizeFolderName,
+  folderName,
+  folderGroups,
+  rowVisibility,
+  folderSummary,
+};
+};
+
 /* ---- src/handwriting.js ---- */
 __defs["handwriting"] = function (module, exports, require) {
 /*
@@ -61775,6 +61865,7 @@ const { EXAMPLES, exampleById } = require("./graph-examples");
 const { statisticsReport } = require("./statistics");
 const { parseScalar, numericDerivative, definiteIntegral, summation, productOver } = require("./calculus");
 const { rowSummary, graphSummary, graphTable } = require("./graph-accessibility");
+const { isFolderRow, normalizeFolderName, folderName, folderGroups, rowVisibility, folderSummary } = require("./graph-folders");
 const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, normalizeCalculatorMode } = require("./calculator");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
@@ -61866,11 +61957,13 @@ class ReferenceView extends ItemView {
     if (Array.isArray(storedGraph.rows) && storedGraph.rows.length) {
       const restored = storedGraph.rows
         .filter((row) => row && typeof row === "object")
-        .map((row) => ({
-          text: String(row.text || ""),
-          hidden: row.hidden === true,
-          styling: resolveRowStyle(row.styling),
-        }));
+        .map((row) => (typeof row.folder === "string"
+          ? { folder: normalizeFolderName(row.folder) || "Untitled folder", collapsed: row.collapsed === true }
+          : {
+            text: String(row.text || ""),
+            hidden: row.hidden === true,
+            styling: resolveRowStyle(row.styling),
+          }));
       if (restored.length) this.graphRows = restored;
     }
     const storedDisplay = storedGraph.display || {};
@@ -62235,7 +62328,13 @@ class ReferenceView extends ItemView {
     this.graphRowInputs = [];
     this.graphFitEls = [];
     this.graphSliderEls = [];
+    const visibility = rowVisibility(this.graphRows);
     this.graphRows.forEach((row, index) => {
+      if (isFolderRow(row)) {
+        this.renderGraphFolder(list, row, index);
+        return;
+      }
+      if (!visibility[index]) return;
       const color = GRAPH_COLORS[index % GRAPH_COLORS.length];
       const rowEl = list.createDiv({ cls: "qt-ref-graph-row" });
       const swatch = rowEl.createEl("button", {
@@ -62322,6 +62421,8 @@ class ReferenceView extends ItemView {
       this.persistGraphState();
       this.render();
     });
+    actions.createEl("button", { text: "Add folder", cls: "qt-ref-graph-add", attr: { type: "button", "aria-label": "Add folder" } })
+      .addEventListener("click", () => this.addGraphFolder());
 
     const exportActions = root.createDiv({ cls: "qt-row qt-ref-graph-export" });
     exportActions.createEl("button", { text: "Export PNG", attr: { type: "button", "aria-label": "Export graph as PNG" } })
@@ -62662,8 +62763,67 @@ class ReferenceView extends ItemView {
     if (points) numberField("pointSize", "Point size", STYLE_LIMITS.minPoint, STYLE_LIMITS.maxPoint, 0.5);
   }
 
+  renderGraphFolder(list, row, index) {
+    const wrap = list.createDiv({ cls: "qt-ref-graph-folder" });
+    const name = folderName(row);
+    const toggle = wrap.createEl("button", {
+      cls: "qt-ref-graph-folder-toggle",
+      text: row.collapsed ? "\u25b8" : "\u25be",
+      attr: {
+        type: "button",
+        "aria-label": `${row.collapsed ? "Expand" : "Collapse"} folder ${name}`,
+        "aria-expanded": String(!row.collapsed),
+      },
+    });
+    toggle.addEventListener("click", () => this.toggleGraphFolder(index));
+    const input = wrap.createEl("input", {
+      cls: "qt-ref-graph-folder-name",
+      attr: { type: "text", placeholder: "Folder", "aria-label": `Folder name ${index + 1}` },
+    });
+    input.value = row.folder;
+    input.addEventListener("input", () => {
+      row.folder = input.value;
+      this.persistGraphState();
+    });
+    const group = folderGroups(this.graphRows).find((entry) => entry.index === index);
+    const count = group ? group.count : 0;
+    wrap.createSpan({ cls: "qt-ref-graph-folder-count", text: `${count} expression${count === 1 ? "" : "s"}` });
+    wrap.createEl("button", {
+      cls: "qt-ref-graph-remove",
+      text: "\u00d7",
+      attr: { type: "button", "aria-label": `Remove folder ${name}` },
+    }).addEventListener("click", () => this.removeGraphFolder(index));
+  }
+
+  addGraphFolder() {
+    this.graphRows.push({ folder: "Folder", collapsed: false });
+    this.graphRows.push({ text: "", hidden: false, styling: resolveRowStyle(null) });
+    this.persistGraphState();
+    this.render();
+    return this.graphRows.length;
+  }
+
+  toggleGraphFolder(index) {
+    const row = this.graphRows[index];
+    if (!isFolderRow(row)) return false;
+    row.collapsed = row.collapsed !== true;
+    this.persistGraphState();
+    this.render();
+    return row.collapsed;
+  }
+
+  removeGraphFolder(index) {
+    if (!isFolderRow(this.graphRows[index])) return false;
+    this.graphRows.splice(index, 1);
+    if (!this.graphRows.length) this.graphRows.push({ text: "", hidden: false, styling: resolveRowStyle(null) });
+    this.persistGraphState();
+    this.render();
+    return true;
+  }
+
   renderGraphAccessible(graph) {
-    if (this.graphSummaryEl) this.graphSummaryEl.setText(graphSummary(graph));
+    const folders = folderSummary(this.graphRows);
+    if (this.graphSummaryEl) this.graphSummaryEl.setText(folders ? `${graphSummary(graph)} ${folders}` : graphSummary(graph));
     const report = graphTable(graph);
     this.graphTableReport = report;
     if (!this.graphTableEl) return report;
@@ -62817,7 +62977,7 @@ class ReferenceView extends ItemView {
   loadGraphExample(id) {
     const example = exampleById(id);
     if (!example) return { ok: false, reason: "unknown" };
-    const kept = this.graphRows.filter((row) => String(row.text || "").trim());
+    const kept = this.graphRows.filter((row) => isFolderRow(row) || String(row.text || "").trim());
     const added = example.rows.map((text) => ({ text, hidden: false, styling: resolveRowStyle(null) }));
     const replaced = kept.length === 0;
     this.graphRows = (replaced ? [] : kept).concat(added);
@@ -62857,8 +63017,9 @@ class ReferenceView extends ItemView {
     ctx.clearRect(0, 0, width, height);
     let graph;
     try {
+      const visibility = rowVisibility(this.graphRows);
       graph = buildGraph({
-        rows: this.graphRows.map((row) => (row.hidden ? "" : { text: row.text, guess: row.guess, styling: row.styling })),
+        rows: this.graphRows.map((row, index) => (row.hidden || !visibility[index] ? "" : { text: row.text, guess: row.guess, styling: row.styling })),
         data: this.graphData,
         parameters: Object.fromEntries(
           this.graphRows.filter((row) => row.name && row.value !== undefined).map((row) => [row.name, row.value])
@@ -63087,11 +63248,13 @@ class ReferenceView extends ItemView {
   }
 
   graphRowState() {
-    return this.graphRows.map((row) => ({
-      text: String(row.text || ""),
-      hidden: row.hidden === true,
-      styling: resolveRowStyle(row.styling),
-    }));
+    return this.graphRows.map((row) => (isFolderRow(row)
+      ? { folder: normalizeFolderName(row.folder) || "Untitled folder", collapsed: row.collapsed === true }
+      : {
+        text: String(row.text || ""),
+        hidden: row.hidden === true,
+        styling: resolveRowStyle(row.styling),
+      }));
   }
 
   persistGraphState() {
@@ -84044,6 +84207,7 @@ QuestionTrackerPlugin.__test = {
   statistics: require("./statistics"),
   calculus: require("./calculus"),
   graphAccessibility: require("./graph-accessibility"),
+  graphFolders: require("./graph-folders"),
   DEFAULT_SETTINGS,
   finalizeNote,
   API_SYSTEM,

@@ -1256,6 +1256,23 @@ Owner direction: inventory everything the Desmos Graphing Calculator does, recor
 
 **Not planned, with the reason recorded:** the 3D calculator, Geometry tool and Matrix calculator are separate products outside this panel; complex mode, audio trace, braille output and Desmos share links need device or service support the plugin does not have; the Desmos API itself is proprietary and was already rejected in §3.10 and §11 decision 6. Marching squares for implicit curves and inequalities is written locally rather than copied from the AGPL implementation.
 
+### 3.12 Desmos gap completion roadmap (Nov 3, 2026)
+
+§3.11 closed the graphing-calculator core and its exclusions are unchanged, but an audit on Nov 3, 2026 found documented graphing-calculator capabilities with no row and no exclusion note. This section records every one of them, in priority order, one release each. The licence rule is unchanged: the plugin bundles no third-party code, so each source below is an algorithm or interaction reference only; anything actually copied must be MIT, BSD, ISC, 0BSD or Apache-2.0, recorded in `NOTICES.md`, and never GPL/AGPL. Desmos itself stays proprietary.
+
+| Priority | Target | Desmos capability | Permissive source availability | Status |
+|---|---|---|---|---|
+| 1 | 1.191.0 | **Expression folders:** a header row groups the rows below it, with rename, collapse/expand, a live row count and delete that keeps the grouped rows | No MIT source for Desmos-style list folders was found. The grouping model, UI and persistence are written from scratch in `src/graph-folders.js`. Desmos' folder interaction is a behaviour reference only | **Shipped** |
+| 2 | 1.192.0 | **Multi-column tables:** more than x and y, per-column expressions, and regressions over named columns | No MIT source needed. Extend the local table and the existing least-squares solver; `mafs` (MIT, https://github.com/stevenpetryk/mafs) and `function-plot` (MIT, https://github.com/mauriciopoppe/function-plot) are table/plot interaction references only | Queued |
+| 3 | 1.193.0 | **Print/paper output:** a print sheet with the drawn graph, the window, the expression list and the x/y table | No MIT source. Browser print plus the existing canvas scene renderer; written locally | Queued |
+| 4 | 1.194.0 | **Image insertion and calibration:** place a vault image behind the axes and calibrate it from two reference points | No MIT source identified. Local vault image read plus `CanvasRenderingContext2D.drawImage`; written locally | Queued |
+| 5 | 1.195.0 | **Undo/redo and duplicate row** in the expression list | No MIT source. A bounded local history buffer over the persisted row state; written locally | Queued |
+| 6 | 1.196.0 | **Graph-paper settings:** hide the grid or the axes and set the grid step | No MIT source. Display flags read by the local painter, beside the existing 1.184.0 options | Queued |
+| 7 | 1.197.0 | **Summation and product notation** in a row, such as `sum(n^2, n, 1, 10)` and its product form | `mathjs` (Apache-2.0, https://github.com/josdejong/mathjs) as a grammar reference only; the local recursive-descent parser is extended in place | Queued |
+| — | Blocked | **Saved graphs on a Desmos account / cloud sync** | No MIT source exists: Desmos' account service and API are proprietary. The plugin is local-only and this needs an external account and service it does not use | **Blocked** |
+
+Every row is local, testable work except the blocked account row, whose concrete blocker is the proprietary service. The graph tab's remaining known quality gates (no live Obsidian hand pass, no real screen reader) are recorded in each release note rather than hidden here.
+
 ## 4. Architecture
 
 ### 4.1 Core + modules
