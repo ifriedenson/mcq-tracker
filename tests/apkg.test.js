@@ -48,12 +48,14 @@ test("apkg export: writes a SQLite package that reads back as basic, reversed an
   assert.equal(db.rows(tables.get("notes").root).length, 3);
   assert.equal(db.rows(tables.get("cards").root).length, 4, "a reversed card writes one card in each direction");
   const parsed = apkg.parseApkg(bytes, { sourcePath: "export.apkg" });
-  assert.equal(parsed.cards.length, 3);
+  assert.equal(parsed.cards.length, 4, "a reversed note keeps both directions");
   assert.equal(parsed.cards[0].front, "hola");
   assert.equal(parsed.cards[0].deck, "Spanish");
   assert.equal(parsed.cards[1].cardType, "reversed");
-  assert.equal(parsed.cards[2].cardType, "cloze");
-  assert.equal(parsed.cards[2].back, "Paris");
+  assert.equal(parsed.cards[2].front, "cat");
+  assert.equal(parsed.cards[2].back, "gato");
+  assert.equal(parsed.cards[3].cardType, "cloze");
+  assert.equal(parsed.cards[3].back, "Paris");
   assert.deepEqual(parsed.cards[0].tags, ["greeting"]);
   assert.match(T.apkgExport.apkgExportHint(), /File → Import/);
 });

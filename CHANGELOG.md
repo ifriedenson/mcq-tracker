@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.211.1 — 2026-11-03
+
+- Fixed **Anki package (.apkg)** import dropping all but the first card of a
+  note. Reversed notes now keep both directions, and notes with multiple card
+  siblings keep each card with its own import key and Anki metadata.
+- Single-card notes keep their previous `apkg:...` import key, so duplicate
+  detection and updates are unchanged.
+
 ## 1.211.0 — 2026-11-03
 
 - Added **Distraction-free practice mode** for phones and tablets, on by

@@ -5294,8 +5294,9 @@ function parseApkg(input, options) {
   const cardsByNote = new Map();
   for (const card of cardRows) {
     const nid = str(card.nid);
-    if (!nid || cardsByNote.has(nid)) continue;
-    cardsByNote.set(nid, card);
+    if (!nid) continue;
+    if (!cardsByNote.has(nid)) cardsByNote.set(nid, []);
+    cardsByNote.get(nid).push(card);
   }
   const media = parseJson(entries.has("media") ? entries.get("media").toString("utf8") : "", {});
   const mediaNames = Object.keys(media);
@@ -5315,59 +5316,69 @@ function parseApkg(input, options) {
     }
     const model = models[str(note.mid)] || {};
     const modelName = str(model.name).trim();
-    const card = cardsByNote.get(str(note.id)) || {};
-    const deck = str((decks[str(card.did)] || {}).name).trim() || fallbackDeck;
     const cloze = Number(model.type) === 1 || /cloze/i.test(modelName);
-    let cardType = "basic";
-    let front = htmlToMarkdown(oneLine(rawFront), true);
-    let back = "";
-    if (cloze) {
-      const answers = parseCloze(front).answers;
-      if (!answers.length) {
-        skipped++;
-        skippedDetails.push({ row: str(note.id) || `note ${skipped}`, reason: "No cloze answer" });
-        continue;
-      }
-      cardType = "cloze";
-      back = answers.join(" · ");
-    } else {
-      cardType = Number(card.ord) === 1 || /revers/i.test(modelName) ? "reversed" : "basic";
-      back = htmlToMarkdown(oneLine(fields.slice(1).filter((value) => str(value).trim()).join("\n\n")), true);
-    }
-    if (!front || !back) {
+    const basicFront = htmlToMarkdown(oneLine(rawFront), true);
+    const basicBack = htmlToMarkdown(oneLine(fields.slice(1).filter((value) => str(value).trim()).join("\n\n")), true);
+    const answers = cloze ? parseCloze(basicFront).answers : [];
+    if (cloze && !answers.length) {
       skipped++;
-      skippedDetails.push({ row: str(note.id) || `note ${skipped}`, reason: "Missing front or back" });
+      skippedDetails.push({ row: str(note.id) || `note ${skipped}`, reason: "No cloze answer" });
       continue;
     }
-    const schedule = dueDate(card, collection);
-    cards.push({
-      kind: "card",
-      cardType,
-      deck,
-      front,
-      back,
-      tags: noteTags(note.tags),
-      importSource: source,
-      importFormat: "apkg",
-      importKey: `apkg:${str(note.guid).trim() || str(note.id)}`,
-      attempts: Math.max(0, Math.round(Number(card.reps) || 0)),
-      nextReview: schedule,
-      ankiNoteId: str(note.id),
-      ankiCardId: str(card.id),
-      ankiGuid: str(note.guid),
-      ankiDeck: deck,
-      ankiModel: modelName,
-      ankiDue: Number(card.due) || 0,
-      ankiInterval: Math.max(0, Number(card.ivl) || 0),
-      ankiReps: Math.max(0, Number(card.reps) || 0),
-      ankiLapses: Math.max(0, Number(card.lapses) || 0),
-      ankiOrd: Number(card.ord) || 0,
-    });
+    const noteCards = cardsByNote.get(str(note.id)) || [{}];
+    for (let cardIndex = 0; cardIndex < noteCards.length; cardIndex++) {
+      const card = noteCards[cardIndex] || {};
+      const ord = Math.max(0, Number(card.ord) || 0);
+      let cardType = "basic";
+      let front = basicFront;
+      let back = basicBack;
+      if (cloze) {
+        cardType = "cloze";
+        back = answers[ord] || answers[cardIndex] || answers[0];
+      } else if (Number(card.ord) === 1 || /revers/i.test(modelName)) {
+        cardType = "reversed";
+        if (ord % 2 === 1) {
+          front = basicBack;
+          back = basicFront;
+        }
+      }
+      if (!front || !back) {
+        skipped++;
+        skippedDetails.push({ row: str(note.id) || `note ${skipped}`, card: str(card.id), reason: "Missing front or back" });
+        continue;
+      }
+      const deck = str((decks[str(card.did)] || {}).name).trim() || fallbackDeck;
+      const schedule = dueDate(card, collection);
+      const guid = str(note.guid).trim() || str(note.id);
+      const suffix = noteCards.length > 1 ? `:${str(card.id) || ord}` : "";
+      cards.push({
+        kind: "card",
+        cardType,
+        deck,
+        front,
+        back,
+        tags: noteTags(note.tags),
+        importSource: source,
+        importFormat: "apkg",
+        importKey: `apkg:${guid}${suffix}`,
+        attempts: Math.max(0, Math.round(Number(card.reps) || 0)),
+        nextReview: schedule,
+        ankiNoteId: str(note.id),
+        ankiCardId: str(card.id),
+        ankiGuid: str(note.guid),
+        ankiDeck: deck,
+        ankiModel: modelName,
+        ankiDue: Number(card.due) || 0,
+        ankiInterval: Math.max(0, Number(card.ivl) || 0),
+        ankiReps: Math.max(0, Number(card.reps) || 0),
+        ankiLapses: Math.max(0, Number(card.lapses) || 0),
+        ankiOrd: ord,
+      });
+    }
   }
   if (!cards.length && !skipped) errors.push("No notes were found in that .apkg.");
   return { cards, skipped, errors, warnings, source, format: "apkg", skippedDetails, media: { total: mediaCount, imported: 0, names: mediaNames.slice(0, 50) } };
 }
-
 module.exports = {
   DEFAULT_ZIP_LIMITS,
   readZipEntries,
