@@ -11341,3 +11341,28 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-ref .qt-ref-geometry-canvas {
   margin-top: 8px;
 }
+
+/* Reference 3D surface tab. */
+.qt-ref .qt-ref-3d-wide {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.qt-ref .qt-ref-3d-expression {
+  width: 100%;
+}
+
+.qt-ref .qt-ref-3d-fields {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-ref .qt-ref-3d-fields input {
+  width: 72px;
+}
+
+.qt-ref .qt-ref-3d-canvas {
+  aspect-ratio: 8 / 5;
+  height: auto;
+  image-rendering: auto;
+}

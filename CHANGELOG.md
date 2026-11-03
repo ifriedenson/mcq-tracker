@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.204.0 — 2026-11-03
+
+- The Reference panel has a local **3D** tab. Enter an explicit surface
+  `z = f(x, y)`, set a finite bounding box, and orbit or zoom a camera around a
+  software-rendered image. Points entered as `x, y, z` are projected and
+  labelled over the surface.
+- The renderer is a bounded CPU ray-marcher: low-resolution by design, capped
+  at 80,000 pixels and 160 ray steps, with no WebGL, mesh library, network
+  request or `eval`. Expressions, bounds, camera and points are saved locally;
+  older settings load the default bowl.
+- Invalid expressions, bounds and points are reported without replacing the
+  last valid view.
+
 Release notes are kept per version in [docs/release-notes](docs/release-notes).
 
 ## 1.203.0 — 2026-11-03

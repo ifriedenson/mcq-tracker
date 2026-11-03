@@ -45,6 +45,8 @@ const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, 
 const matrixMath = require("./matrix");
 const geometry = require("./geometry");
 const geometryPanel = require("./geometry-panel");
+const graph3d = require("./graph-3d");
+const graph3dPanel = require("./graph-3d-panel");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
 const {
@@ -212,6 +214,17 @@ class ReferenceView extends ItemView {
     this.geometryPolygonIds = "";
     this.geometryStatusEl = null;
     this.geometryCanvas = null;
+    const storedThreeD = (plugin.settings && plugin.settings.reference && plugin.settings.reference.threeD) || {};
+    this.threeDSurface = String(storedThreeD.surface || "z = x^2 + y^2");
+    this.threeDBounds = graph3d.normalizeBounds(storedThreeD.bounds);
+    this.threeDCamera = graph3d.normalizeCamera(storedThreeD.camera);
+    this.threeDPointsText = String(storedThreeD.points || "");
+    this.threeDStatusEl = null;
+    this.threeDErrorEl = null;
+    this.threeDCanvas = null;
+    this.threeDBuilt = null;
+    this.threeDRenderWidth = 320;
+    this.threeDRenderHeight = 200;
     this.elementQuery = "";
     this.selectedElement = null;
     this.periodicGridEl = null;
@@ -282,6 +295,7 @@ class ReferenceView extends ItemView {
       ["matrix", "Matrix"],
       ["graph", "Graph"],
       ["geometry", "Geometry"],
+      ["threeD", "3D"],
       ["elements", "Periodic table"],
       ["constants", "Constants"],
       ["sheets", "Sheets"],
@@ -316,6 +330,7 @@ class ReferenceView extends ItemView {
     else if (this.tab === "matrix") this.renderMatrix(root);
     else if (this.tab === "graph") this.renderGraph(root);
     else if (this.tab === "geometry") this.renderGeometry(root);
+    else if (this.tab === "threeD") this.renderThreeD(root);
     else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
     else if (this.tab === "sheets") this.renderSheets(root);
@@ -3518,7 +3533,7 @@ class ReferenceView extends ItemView {
   }
 }
 
-Object.assign(ReferenceView.prototype, geometryPanel);
+Object.assign(ReferenceView.prototype, geometryPanel, graph3dPanel);
 
 module.exports = {
   ReferenceView,

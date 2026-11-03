@@ -31065,6 +31065,554 @@ module.exports = {
 };
 };
 
+/* ---- src/graph-3d.js ---- */
+__defs["graph-3d"] = function (module, exports, require) {
+/*
+ * Bounded 3D surface renderer for the Reference panel.
+ *
+ * Explicit and implicit surfaces share one screen-space ray marcher: the
+ * surface is the zero set of F(x,y,z), rays are clipped to a finite box, and a
+ * sign change is refined by bisection. There is no WebGL, mesh library or
+ * third-party code. The renderer is deliberately low-resolution and capped so
+ * a difficult surface cannot lock the editor.
+ */
+const { compileScoped } = require("./reference-graph");
+
+const MAX_PIXELS = 80000;
+const DEFAULT_BOUNDS = { xMin: -5, xMax: 5, yMin: -5, yMax: 5, zMin: -5, zMax: 5 };
+const DEFAULT_CAMERA = { yaw: -0.7, pitch: 0.42, distance: 14 };
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizeVector(vector) {
+  const length = Math.hypot(vector.x, vector.y, vector.z) || 1;
+  return { x: vector.x / length, y: vector.y / length, z: vector.z / length };
+}
+
+function dot(a, b) {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function normalizeBounds(bounds) {
+  const source = bounds || {};
+  const value = {
+    xMin: Number(source.xMin),
+    xMax: Number(source.xMax),
+    yMin: Number(source.yMin),
+    yMax: Number(source.yMax),
+    zMin: Number(source.zMin),
+    zMax: Number(source.zMax),
+  };
+  if (!Object.values(value).every(Number.isFinite) || !(value.xMax > value.xMin) || !(value.yMax > value.yMin) || !(value.zMax > value.zMin)) return Object.assign({}, DEFAULT_BOUNDS);
+  return value;
+}
+
+function normalizeCamera(camera) {
+  const source = camera || {};
+  const yaw = Number(source.yaw);
+  const pitch = Number(source.pitch);
+  const distance = Number(source.distance);
+  return {
+    yaw: Number.isFinite(yaw) ? yaw : DEFAULT_CAMERA.yaw,
+    pitch: Number.isFinite(pitch) ? clamp(pitch, -1.45, 1.45) : DEFAULT_CAMERA.pitch,
+    distance: Number.isFinite(distance) ? clamp(distance, 2, 100) : DEFAULT_CAMERA.distance,
+  };
+}
+
+/** Compile `z = f(x,y)` or an implicit `F(x,y,z) = 0` into one residual function. */
+function compileSurface(text, mode) {
+  const source = String(text || "").trim();
+  if (!source) throw new Error("Enter a 3D expression.");
+  if (mode === "implicit") {
+    const parts = source.split("=");
+    if (parts.length !== 2) throw new Error("An implicit 3D surface needs one equals sign, like x^2 + y^2 + z^2 = 9.");
+    const left = compileScoped(parts[0].trim(), ["x", "y", "z"], {});
+    const right = compileScoped(parts[1].trim(), ["x", "y", "z"], {});
+    return { mode: "implicit", text: source, fn: (point) => left(point) - right(point) };
+  }
+  const explicit = source.replace(/^\s*z\s*=\s*/i, "");
+  const surface = compileScoped(explicit, ["x", "y"], {});
+  return { mode: "explicit", text: source, fn: (point) => point.z - surface(point) };
+}
+
+function cameraPosition(camera) {
+  const c = normalizeCamera(camera);
+  const horizontal = Math.cos(c.pitch) * c.distance;
+  return {
+    x: horizontal * Math.cos(c.yaw),
+    y: horizontal * Math.sin(c.yaw),
+    z: Math.sin(c.pitch) * c.distance,
+  };
+}
+
+function cameraBasis(camera) {
+  const c = normalizeCamera(camera);
+  const eye = cameraPosition(c);
+  const forward = normalizeVector({ x: -eye.x, y: -eye.y, z: -eye.z });
+  const right = normalizeVector({ x: -forward.y, y: forward.x, z: 0 });
+  const up = normalizeVector({
+    x: right.y * forward.z - right.z * forward.y,
+    y: right.z * forward.x - right.x * forward.z,
+    z: right.x * forward.y - right.y * forward.x,
+  });
+  return { eye, forward, right, up };
+}
+
+/** Ray-box intersection. Returns null when the ray misses the bounded volume. */
+function rayBox(origin, direction, bounds) {
+  let near = 0.001;
+  let far = 1000;
+  for (const axis of ["x", "y", "z"]) {
+    const min = bounds[`${axis}Min`];
+    const max = bounds[`${axis}Max`];
+    const value = origin[axis];
+    const delta = direction[axis];
+    if (Math.abs(delta) < 1e-12) {
+      if (value < min || value > max) return null;
+      continue;
+    }
+    let t1 = (min - value) / delta;
+    let t2 = (max - value) / delta;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    near = Math.max(near, t1);
+    far = Math.min(far, t2);
+    if (near > far) return null;
+  }
+  return { near, far };
+}
+
+function pointAt(origin, direction, t) {
+  return { x: origin.x + direction.x * t, y: origin.y + direction.y * t, z: origin.z + direction.z * t };
+}
+
+function normalAt(fn, point) {
+  const eps = 0.002;
+  const dx = fn({ x: point.x + eps, y: point.y, z: point.z }) - fn({ x: point.x - eps, y: point.y, z: point.z });
+  const dy = fn({ x: point.x, y: point.y + eps, z: point.z }) - fn({ x: point.x, y: point.y - eps, z: point.z });
+  const dz = fn({ x: point.x, y: point.y, z: point.z + eps }) - fn({ x: point.x, y: point.y, z: point.z - eps });
+  return normalizeVector({ x: dx, y: dy, z: dz });
+}
+
+function shade(fn, point, bounds) {
+  const normal = normalAt(fn, point);
+  const light = normalizeVector({ x: 0.45, y: -0.7, z: 0.65 });
+  const brightness = clamp(0.34 + 0.66 * Math.abs(dot(normal, light)), 0.2, 1);
+  const span = bounds.zMax - bounds.zMin || 1;
+  const height = clamp((point.z - bounds.zMin) / span, 0, 1);
+  return [
+    Math.round((70 + 80 * height) * brightness),
+    Math.round((120 + 70 * height) * brightness),
+    Math.round((190 + 50 * height) * brightness),
+    255,
+  ];
+}
+
+/**
+ * Render one surface. `resolution` is capped; each ray marches at most
+ * `steps` samples and refines the first sign change with eight bisections.
+ */
+function renderSurface(surface, options) {
+  const opts = options || {};
+  const width = clamp(Math.round(Number(opts.width) || 240), 32, 640);
+  const height = clamp(Math.round(Number(opts.height) || 150), 24, 420);
+  if (width * height > MAX_PIXELS) throw new Error(`That 3D image is too large; the limit is ${MAX_PIXELS} pixels.`);
+  const bounds = normalizeBounds(opts.bounds);
+  const camera = normalizeCamera(opts.camera);
+  const basis = cameraBasis(camera);
+  const aspect = width / height;
+  const fov = 0.9;
+  const steps = clamp(Math.round(Number(opts.steps) || 72), 24, 160);
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  let hits = 0;
+  for (let row = 0; row < height; row++) {
+    const ndcY = 1 - ((row + 0.5) / height) * 2;
+    for (let column = 0; column < width; column++) {
+      const ndcX = ((column + 0.5) / width) * 2 - 1;
+      const direction = normalizeVector({
+        x: basis.forward.x + basis.right.x * ndcX * aspect * fov + basis.up.x * ndcY * fov,
+        y: basis.forward.y + basis.right.y * ndcX * aspect * fov + basis.up.y * ndcY * fov,
+        z: basis.forward.z + basis.right.z * ndcX * aspect * fov + basis.up.z * ndcY * fov,
+      });
+      const box = rayBox(basis.eye, direction, bounds);
+      if (!box) continue;
+      let previousT = box.near;
+      let previous = surface.fn(pointAt(basis.eye, direction, previousT));
+      let hit = null;
+      for (let step = 1; step <= steps; step++) {
+        const t = box.near + ((box.far - box.near) * step) / steps;
+        const value = surface.fn(pointAt(basis.eye, direction, t));
+        if (Number.isFinite(previous) && Number.isFinite(value) && (previous === 0 || previous * value < 0)) {
+          let low = previousT;
+          let high = t;
+          let lowValue = previous;
+          for (let refine = 0; refine < 8; refine++) {
+            const middle = (low + high) / 2;
+            const middleValue = surface.fn(pointAt(basis.eye, direction, middle));
+            if (lowValue * middleValue <= 0) high = middle;
+            else { low = middle; lowValue = middleValue; }
+          }
+          hit = pointAt(basis.eye, direction, (low + high) / 2);
+          break;
+        }
+        previousT = t;
+        previous = value;
+      }
+      if (!hit) continue;
+      const color = shade(surface.fn, hit, bounds);
+      const offset = (row * width + column) * 4;
+      pixels[offset] = color[0];
+      pixels[offset + 1] = color[1];
+      pixels[offset + 2] = color[2];
+      pixels[offset + 3] = color[3];
+      hits++;
+    }
+  }
+  return {
+    width,
+    height,
+    pixels,
+    hits,
+    mode: surface.mode,
+    expression: surface.text,
+    summary: `3D ${surface.mode} surface ${surface.text} with ${hits} visible samples at ${width} by ${height}.`,
+  };
+}
+
+function projectPoint(point, camera, width, height) {
+  const basis = cameraBasis(camera);
+  const dx = point.x - basis.eye.x;
+  const dy = point.y - basis.eye.y;
+  const dz = point.z - basis.eye.z;
+  const depth = dx * basis.forward.x + dy * basis.forward.y + dz * basis.forward.z;
+  if (!(depth > 0)) return null;
+  const aspect = width / height;
+  const ndcX = (dx * basis.right.x + dy * basis.right.y + dz * basis.right.z) / (depth * aspect * 0.9);
+  const ndcY = (dx * basis.up.x + dy * basis.up.y + dz * basis.up.z) / (depth * 0.9);
+  return { x: ((ndcX + 1) / 2) * width, y: ((1 - ndcY) / 2) * height, depth };
+}
+
+function parsePoints(text) {
+  const source = String(text || "").trim();
+  if (!source) return [];
+  return source.split(/[;\n]+/).map((entry) => entry.trim()).filter(Boolean).map((entry) => {
+    const parts = entry.split(/[,\s]+/).map(Number);
+    if (parts.length !== 3 || parts.some((value) => !Number.isFinite(value))) throw new Error(`Point "${entry}" needs three finite coordinates.`);
+    return { x: parts[0], y: parts[1], z: parts[2] };
+  });
+}
+
+module.exports = {
+  DEFAULT_BOUNDS,
+  DEFAULT_CAMERA,
+  MAX_PIXELS,
+  cameraBasis,
+  cameraPosition,
+  compileSurface,
+  normalizeBounds,
+  normalizeCamera,
+  parsePoints,
+  projectPoint,
+  rayBox,
+  renderSurface,
+};
+};
+
+/* ---- src/graph-3d-panel.js ---- */
+__defs["graph-3d-panel"] = function (module, exports, require) {
+/*
+ * Markup, event and canvas methods for the Reference 3D tab.
+ *
+ * The ray-marcher and camera math stay in graph-3d.js. This adapter only reads
+ * the form, keeps the state, and paints the returned raster plus projected
+ * points. It never uses WebGL, a mesh library or a network request.
+ */
+const { Notice } = require("obsidian");
+const graph3d = require("./graph-3d");
+
+function formatThreeDNumber(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  const rounded = Number(n.toPrecision(6));
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+function persistThreeDState() {
+  const settings = this.plugin.settings;
+  if (!settings) return;
+  if (!settings.reference) settings.reference = {};
+  settings.reference.threeD = {
+    surface: this.threeDSurface,
+    bounds: Object.assign({}, this.threeDBounds),
+    camera: Object.assign({}, this.threeDCamera),
+    points: this.threeDPointsText,
+  };
+  if (typeof this.plugin.save === "function") {
+    try {
+      this.plugin.save();
+    } catch (e) {
+      // The image stays in memory; Obsidian reports a failed settings write itself.
+    }
+  }
+}
+
+function announceThreeD(text) {
+  if (this.threeDStatusEl) this.threeDStatusEl.setText(text);
+  else new Notice(text);
+}
+
+function failThreeD(error) {
+  const message = error && error.message ? error.message : "That 3D view could not be drawn.";
+  if (this.threeDErrorEl) this.threeDErrorEl.setText(message);
+  announceThreeD.call(this, message);
+  new Notice(message);
+  return { ok: false, message };
+}
+
+function applyThreeDSurface(text) {
+  const source = String(text === undefined || text === null ? "" : text).trim();
+  try {
+    graph3d.compileSurface(source, "explicit");
+  } catch (e) {
+    return failThreeD.call(this, e);
+  }
+  this.threeDSurface = source;
+  persistThreeDState.call(this);
+  this.drawThreeD();
+  return { ok: true, surface: source };
+}
+
+function applyThreeDPoints(text) {
+  const source = String(text === undefined || text === null ? "" : text);
+  let points;
+  try {
+    points = graph3d.parsePoints(source);
+  } catch (e) {
+    return failThreeD.call(this, e);
+  }
+  this.threeDPointsText = source;
+  persistThreeDState.call(this);
+  this.drawThreeD();
+  return { ok: true, points };
+}
+
+function setThreeDBound(key, value) {
+  const raw = Number(value);
+  const next = Object.assign({}, this.threeDBounds, { [key]: raw });
+  if (!Number.isFinite(raw) || !(next.xMax > next.xMin) || !(next.yMax > next.yMin) || !(next.zMax > next.zMin)) {
+    this.render();
+    return failThreeD.call(this, new Error("The 3D box needs six finite numbers with each minimum below its maximum."));
+  }
+  this.threeDBounds = graph3d.normalizeBounds(next);
+  persistThreeDState.call(this);
+  this.render();
+  return { ok: true, bounds: Object.assign({}, this.threeDBounds) };
+}
+
+function setThreeDCamera(key, value) {
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) {
+    this.render();
+    return failThreeD.call(this, new Error("Camera values must be finite numbers."));
+  }
+  this.threeDCamera = graph3d.normalizeCamera(Object.assign({}, this.threeDCamera, { [key]: raw }));
+  persistThreeDState.call(this);
+  this.render();
+  return { ok: true, camera: Object.assign({}, this.threeDCamera) };
+}
+
+function orbitThreeD(deltaYaw, deltaPitch, distanceFactor) {
+  const next = {
+    yaw: this.threeDCamera.yaw + Number(deltaYaw || 0),
+    pitch: this.threeDCamera.pitch + Number(deltaPitch || 0),
+    distance: this.threeDCamera.distance * (Number(distanceFactor) || 1),
+  };
+  this.threeDCamera = graph3d.normalizeCamera(next);
+  persistThreeDState.call(this);
+  this.render();
+  return { ok: true, camera: Object.assign({}, this.threeDCamera) };
+}
+
+function resetThreeDView() {
+  this.threeDBounds = Object.assign({}, graph3d.DEFAULT_BOUNDS);
+  this.threeDCamera = Object.assign({}, graph3d.DEFAULT_CAMERA);
+  persistThreeDState.call(this);
+  this.render();
+  return { ok: true, bounds: Object.assign({}, this.threeDBounds), camera: Object.assign({}, this.threeDCamera) };
+}
+
+function renderThreeD(root) {
+  root.createDiv({
+    cls: "qt-ref-note",
+    text: "A local software-rendered 3D surface. Enter an explicit surface as z = f(x, y), set the box and camera, and optionally add points as x, y, z. The image is ray-marched at a bounded resolution; there is no WebGL, mesh library, network request or eval.",
+  });
+  const surfaceForm = root.createDiv({ cls: "qt-ref-geometry-form" });
+  surfaceForm.createDiv({ cls: "qt-ref-graph-data-head", text: "Surface" });
+  const surfaceWrap = surfaceForm.createEl("label", { cls: "qt-ref-graph-bound qt-ref-3d-wide" });
+  surfaceWrap.createSpan({ text: "z = f(x, y)" });
+  const surfaceInput = surfaceWrap.createEl("input", {
+    cls: "qt-ref-amount qt-ref-3d-expression",
+    attr: { type: "text", placeholder: "z = x^2 + y^2", "aria-label": "3D surface expression" },
+  });
+  surfaceInput.value = this.threeDSurface;
+  const applySurface = () => this.applyThreeDSurface(surfaceInput.value);
+  surfaceInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      if (event.preventDefault) event.preventDefault();
+      applySurface();
+    }
+  });
+  surfaceForm.createEl("button", { text: "Render surface", attr: { type: "button", "aria-label": "Render 3D surface" } })
+    .addEventListener("click", applySurface);
+
+  const boxForm = root.createDiv({ cls: "qt-ref-geometry-form" });
+  boxForm.createDiv({ cls: "qt-ref-graph-data-head", text: "Bounding box" });
+  const boxFields = boxForm.createDiv({ cls: "qt-row qt-ref-geometry-fields qt-ref-3d-fields" });
+  const boundField = (key, label) => {
+    const wrap = boxFields.createEl("label", { cls: "qt-ref-graph-bound" });
+    wrap.createSpan({ text: label });
+    const input = wrap.createEl("input", { cls: "qt-ref-amount", attr: { type: "number", step: "any", "aria-label": `3D ${label}` } });
+    input.value = formatThreeDNumber(this.threeDBounds[key]);
+    input.addEventListener("change", () => this.setThreeDBound(key, input.value));
+  };
+  for (const [key, label] of [["xMin", "min x"], ["xMax", "max x"], ["yMin", "min y"], ["yMax", "max y"], ["zMin", "min z"], ["zMax", "max z"]]) boundField(key, label);
+
+  const pointsForm = root.createDiv({ cls: "qt-ref-geometry-form" });
+  pointsForm.createDiv({ cls: "qt-ref-graph-data-head", text: "Points" });
+  const pointsWrap = pointsForm.createEl("label", { cls: "qt-ref-graph-bound qt-ref-3d-wide" });
+  pointsWrap.createSpan({ text: "x, y, z; x, y, z" });
+  const pointsInput = pointsWrap.createEl("input", {
+    cls: "qt-ref-amount qt-ref-3d-expression",
+    attr: { type: "text", placeholder: "0, 0, 0; 1, 2, 3", "aria-label": "3D point list" },
+  });
+  pointsInput.value = this.threeDPointsText;
+  pointsForm.createEl("button", { text: "Apply points", attr: { type: "button", "aria-label": "Apply 3D points" } })
+    .addEventListener("click", () => this.applyThreeDPoints(pointsInput.value));
+  pointsForm.createDiv({ cls: "qt-ref-matrix-hint", text: "Separate points with semicolons or new lines. Each point needs three finite coordinates." });
+
+  const cameraForm = root.createDiv({ cls: "qt-ref-geometry-form" });
+  cameraForm.createDiv({ cls: "qt-ref-graph-data-head", text: "Camera" });
+  const cameraFields = cameraForm.createDiv({ cls: "qt-row qt-ref-geometry-fields qt-ref-3d-fields" });
+  const cameraField = (key, label) => {
+    const wrap = cameraFields.createEl("label", { cls: "qt-ref-graph-bound" });
+    wrap.createSpan({ text: label });
+    const input = wrap.createEl("input", { cls: "qt-ref-amount", attr: { type: "number", step: "any", "aria-label": `3D camera ${label}` } });
+    input.value = formatThreeDNumber(this.threeDCamera[key]);
+    input.addEventListener("change", () => this.setThreeDCamera(key, input.value));
+  };
+  cameraField("yaw", "yaw");
+  cameraField("pitch", "pitch");
+  cameraField("distance", "distance");
+  const cameraActions = cameraForm.createDiv({ cls: "qt-row qt-ref-graph-view" });
+  const orbitButton = (label, aria, action) => cameraActions.createEl("button", { text: label, attr: { type: "button", "aria-label": aria } }).addEventListener("click", action);
+  orbitButton("Orbit left", "Orbit the 3D camera left", () => this.orbitThreeD(-0.25, 0, 1));
+  orbitButton("Orbit right", "Orbit the 3D camera right", () => this.orbitThreeD(0.25, 0, 1));
+  orbitButton("Tilt up", "Tilt the 3D camera up", () => this.orbitThreeD(0, 0.15, 1));
+  orbitButton("Tilt down", "Tilt the 3D camera down", () => this.orbitThreeD(0, -0.15, 1));
+  orbitButton("Zoom in", "Zoom the 3D camera in", () => this.orbitThreeD(0, 0, 0.85));
+  orbitButton("Zoom out", "Zoom the 3D camera out", () => this.orbitThreeD(0, 0, 1.18));
+  orbitButton("Reset view", "Reset the 3D box and camera", () => this.resetThreeDView());
+
+  this.threeDStatusEl = root.createDiv({ cls: "qt-ref-geometry-status", attr: { "aria-live": "polite", "aria-label": "3D status" } });
+  this.threeDErrorEl = root.createDiv({ cls: "qt-calc-error", attr: { "aria-live": "polite", "aria-label": "3D error" } });
+  this.threeDCanvas = root.createEl("canvas", {
+    cls: "qt-ref-canvas qt-ref-3d-canvas",
+    attr: { role: "img", "aria-label": "3D surface rendering. Change the expression, box or camera to redraw it." },
+  });
+  this.drawThreeD();
+}
+
+function drawThreeD() {
+  const canvas = this.threeDCanvas;
+  if (!canvas) return null;
+  const width = Math.max(32, Math.min(640, Math.round(Number(this.threeDRenderWidth) || 320)));
+  const height = Math.max(24, Math.min(420, Math.round(Number(this.threeDRenderHeight) || 200)));
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext ? canvas.getContext("2d") : null;
+  if (!ctx) {
+    if (this.threeDErrorEl) this.threeDErrorEl.setText("This device did not provide a 2D canvas.");
+    return null;
+  }
+  ctx.clearRect(0, 0, width, height);
+
+  let image;
+  try {
+    const surface = graph3d.compileSurface(this.threeDSurface, "explicit");
+    image = graph3d.renderSurface(surface, {
+      width,
+      height,
+      bounds: this.threeDBounds,
+      camera: this.threeDCamera,
+      steps: 64,
+    });
+  } catch (e) {
+    this.threeDBuilt = null;
+    const message = e && e.message ? e.message : "That 3D surface could not be drawn.";
+    if (this.threeDErrorEl) this.threeDErrorEl.setText(message);
+    announceThreeD.call(this, "3D surface not drawn.");
+    return null;
+  }
+  this.threeDBuilt = image;
+  if (this.threeDErrorEl) this.threeDErrorEl.setText("");
+
+  let data = null;
+  if (typeof ctx.createImageData === "function") {
+    data = ctx.createImageData(image.width, image.height);
+    if (data && data.data && typeof data.data.set === "function") data.data.set(image.pixels);
+    else data = null;
+  }
+  if (!data && typeof ImageData !== "undefined") {
+    try { data = new ImageData(image.pixels, image.width, image.height); } catch (e) { data = null; }
+  }
+  if (data && typeof ctx.putImageData === "function") ctx.putImageData(data, 0, 0);
+
+  let points = [];
+  let pointError = "";
+  try {
+    points = graph3d.parsePoints(this.threeDPointsText);
+  } catch (e) {
+    pointError = e && e.message ? e.message : "The 3D points could not be read.";
+  }
+  for (let index = 0; index < points.length; index++) {
+    const projected = graph3d.projectPoint(points[index], this.threeDCamera, image.width, image.height);
+    if (!projected) continue;
+    ctx.beginPath();
+    ctx.arc(projected.x, projected.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffd166";
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#1f2937";
+    ctx.stroke();
+    if (typeof ctx.fillText === "function") {
+      ctx.font = "12px sans-serif";
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillText(`P${index + 1}`, projected.x + 6, projected.y - 6);
+    }
+  }
+
+  if (pointError && this.threeDErrorEl) this.threeDErrorEl.setText(pointError);
+  const pointText = points.length === 1 ? "1 point" : `${points.length} points`;
+  announceThreeD.call(this, `${image.summary} ${pointText}.`);
+  return image;
+}
+
+module.exports = {
+  announceThreeD,
+  applyThreeDPoints,
+  applyThreeDSurface,
+  drawThreeD,
+  failThreeD,
+  orbitThreeD,
+  persistThreeDState,
+  renderThreeD,
+  resetThreeDView,
+  setThreeDBound,
+  setThreeDCamera,
+};
+};
+
 /* ---- src/graph-accessibility.js ---- */
 __defs["graph-accessibility"] = function (module, exports, require) {
 /*
@@ -62197,6 +62745,7 @@ function mergeReferenceSettings(saved) {
     calculator: src.calculator !== false,
     complexCalculator: src.complexCalculator === true,
     matrix: src.matrix && typeof src.matrix === "object" ? src.matrix : undefined,
+    threeD: src.threeD && typeof src.threeD === "object" ? src.threeD : undefined,
     defaultSubject: REFERENCE_SUBJECTS.some((s) => s.id === subject) ? subject : "all",
   };
 }
@@ -64718,6 +65267,8 @@ const { BASIC_KEYS, SCIENTIFIC_KEYS, appendCalculatorToken, evaluateCalculator, 
 const matrixMath = require("./matrix");
 const geometry = require("./geometry");
 const geometryPanel = require("./geometry-panel");
+const graph3d = require("./graph-3d");
+const graph3dPanel = require("./graph-3d-panel");
 const { openExternal } = require("./settings-ui");
 const { AP_PROFILES, DEFAULT_CUTOFFS, calculateApScore, profileById, requiredForTarget } = require("./ap-score");
 const {
@@ -64885,6 +65436,17 @@ class ReferenceView extends ItemView {
     this.geometryPolygonIds = "";
     this.geometryStatusEl = null;
     this.geometryCanvas = null;
+    const storedThreeD = (plugin.settings && plugin.settings.reference && plugin.settings.reference.threeD) || {};
+    this.threeDSurface = String(storedThreeD.surface || "z = x^2 + y^2");
+    this.threeDBounds = graph3d.normalizeBounds(storedThreeD.bounds);
+    this.threeDCamera = graph3d.normalizeCamera(storedThreeD.camera);
+    this.threeDPointsText = String(storedThreeD.points || "");
+    this.threeDStatusEl = null;
+    this.threeDErrorEl = null;
+    this.threeDCanvas = null;
+    this.threeDBuilt = null;
+    this.threeDRenderWidth = 320;
+    this.threeDRenderHeight = 200;
     this.elementQuery = "";
     this.selectedElement = null;
     this.periodicGridEl = null;
@@ -64955,6 +65517,7 @@ class ReferenceView extends ItemView {
       ["matrix", "Matrix"],
       ["graph", "Graph"],
       ["geometry", "Geometry"],
+      ["threeD", "3D"],
       ["elements", "Periodic table"],
       ["constants", "Constants"],
       ["sheets", "Sheets"],
@@ -64989,6 +65552,7 @@ class ReferenceView extends ItemView {
     else if (this.tab === "matrix") this.renderMatrix(root);
     else if (this.tab === "graph") this.renderGraph(root);
     else if (this.tab === "geometry") this.renderGeometry(root);
+    else if (this.tab === "threeD") this.renderThreeD(root);
     else if (this.tab === "elements") this.renderPeriodic(root);
     else if (this.tab === "constants") this.renderConstants(root);
     else if (this.tab === "sheets") this.renderSheets(root);
@@ -68191,7 +68755,7 @@ class ReferenceView extends ItemView {
   }
 }
 
-Object.assign(ReferenceView.prototype, geometryPanel);
+Object.assign(ReferenceView.prototype, geometryPanel, graph3dPanel);
 
 module.exports = {
   ReferenceView,
@@ -87906,6 +88470,8 @@ const complex = require("./complex");
 const graphComplex = require("./graph-complex");
 const geometry = require("./geometry");
 const geometryPanel = require("./geometry-panel");
+const graph3d = require("./graph-3d");
+const graph3dPanel = require("./graph-3d-panel");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
@@ -88149,6 +88715,8 @@ QuestionTrackerPlugin.__test = {
   graphComplex,
   geometry,
   geometryPanel,
+  graph3d,
+  graph3dPanel,
   WeakSpotModal,
   QuickAddModal,
   quickAdd,

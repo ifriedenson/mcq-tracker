@@ -68,6 +68,8 @@ const complex = require("./complex");
 const graphComplex = require("./graph-complex");
 const geometry = require("./geometry");
 const geometryPanel = require("./geometry-panel");
+const graph3d = require("./graph-3d");
+const graph3dPanel = require("./graph-3d-panel");
 const { WeakSpotModal } = require("./weak-spot-modal");
 const { QuickAddModal } = require("./quick-add-modal");
 const quickAdd = require("./quick-add");
@@ -311,6 +313,8 @@ QuestionTrackerPlugin.__test = {
   graphComplex,
   geometry,
   geometryPanel,
+  graph3d,
+  graph3dPanel,
   WeakSpotModal,
   QuickAddModal,
   quickAdd,

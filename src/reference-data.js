@@ -874,6 +874,7 @@ function mergeReferenceSettings(saved) {
     calculator: src.calculator !== false,
     complexCalculator: src.complexCalculator === true,
     matrix: src.matrix && typeof src.matrix === "object" ? src.matrix : undefined,
+    threeD: src.threeD && typeof src.threeD === "object" ? src.threeD : undefined,
     defaultSubject: REFERENCE_SUBJECTS.some((s) => s.id === subject) ? subject : "all",
   };
 }
