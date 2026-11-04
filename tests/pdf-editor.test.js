@@ -306,6 +306,20 @@ test("extracts selected pages into their own PDF", async () => {
   assert.equal(empty.reason, "empty");
 });
 
+test("extracting pages from a form bakes the values in instead of dropping the form", async () => {
+  const doc = await authorFixture();
+  const extracted = await editor.extractPdfPages(doc, [0, 1]);
+  assert.equal(extracted.ok, true, extracted.message);
+  assert.equal(extracted.flattened, true, "the extracted copy is flattened first");
+  assert.deepEqual(extracted.indexes, [0, 1]);
+  const reopened = await PDFDocument.load(extracted.bytes);
+  assert.equal(reopened.getPageCount(), 2);
+  assert.deepEqual(reopened.getForm().getFields().map((field) => field.getName()), [], "no orphan fields without a form");
+  const annots = reopened.getPage(0).node.Annots();
+  assert.ok(!annots || annots.size() === 0, "the extracted page carries no dead widget annotation");
+  assert.equal(editor.formFields(doc).fields.length, 1, "the edited document keeps its live form");
+});
+
 test("text is converted to characters a standard PDF font can draw", () => {
   assert.equal(editor.winAnsiText("café — “quoted”…"), 'café - "quoted"...');
   assert.equal(editor.winAnsiText("漢字"), "??");

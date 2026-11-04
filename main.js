@@ -49624,34 +49624,10 @@ async function splitPdf(doc, every) {
   if (Math.ceil(total / size) > MAX_SPLIT_PARTS) {
     return { ok: false, reason: "parts", message: `That would write more than ${MAX_SPLIT_PARTS} files. Use more pages per file.` };
   }
-  /*
-   * A page copy carries a field's widget but not the AcroForm, so the parts
-   * would open with no fields and the filled values would be gone. Flatten a
-   * serialised copy first and split that: the values stay on the page and the
-   * document being edited keeps its live form.
-   */
-  let source = doc;
-  let flattened = false;
-  let fieldCount = 0;
-  try {
-    fieldCount = doc.getForm().getFields().length;
-  } catch (error) {
-    fieldCount = 0;
-  }
-  if (fieldCount) {
-    try {
-      const serialized = await doc.save({ useObjectStreams: true, addDefaultPage: false });
-      const copy = await PDFDocument.load(serialized);
-      const baked = await flattenForm(copy);
-      if (!baked.ok) {
-        return { ok: false, reason: "form", message: `The form could not be flattened for the split: ${baked.message}` };
-      }
-      source = copy;
-      flattened = true;
-    } catch (error) {
-      return { ok: false, reason: "form", message: `The form could not be prepared for the split: ${pdfError(error)}` };
-    }
-  }
+  const prepared = await prepareForPageCopy(doc, "split");
+  if (!prepared.ok) return prepared;
+  const source = prepared.source;
+  const flattened = prepared.flattened;
   const parts = [];
   for (let start = 0; start < total; start += size) {
     const indexes = [];
@@ -49686,6 +49662,32 @@ function editedPathFor(originalPath, exists, label) {
   return path;
 }
 
+/**
+ * A copied page keeps a field's widget but not the AcroForm. Flatten a
+ * serialised copy before extracting pages, so filled values stay visible and
+ * the document being edited keeps its live form.
+ */
+async function prepareForPageCopy(doc, action) {
+  let fieldCount = 0;
+  try {
+    fieldCount = doc.getForm().getFields().length;
+  } catch (error) {
+    fieldCount = 0;
+  }
+  if (!fieldCount) return { ok: true, source: doc, flattened: false };
+  try {
+    const serialized = await doc.save({ useObjectStreams: true, addDefaultPage: false });
+    const copy = await PDFDocument.load(serialized);
+    const baked = await flattenForm(copy);
+    if (!baked.ok) {
+      return { ok: false, reason: "form", message: `The form could not be flattened for the ${action}: ${baked.message}` };
+    }
+    return { ok: true, source: copy, flattened: true };
+  } catch (error) {
+    return { ok: false, reason: "form", message: `The form could not be prepared for the ${action}: ${pdfError(error)}` };
+  }
+}
+
 /** A new PDF holding only the selected pages, in the order given. */
 async function extractPdfPages(doc, indexes) {
   const total = doc.getPageCount();
@@ -49694,12 +49696,14 @@ async function extractPdfPages(doc, indexes) {
     .filter((value) => Number.isFinite(value) && value >= 0 && value < total);
   const unique = [...new Set(picked)].sort((a, b) => a - b);
   if (!unique.length) return { ok: false, reason: "empty", message: "Select at least one page to extract." };
+  const prepared = await prepareForPageCopy(doc, "extract");
+  if (!prepared.ok) return prepared;
   try {
     const out = await PDFDocument.create();
-    const copies = await out.copyPages(doc, unique);
+    const copies = await out.copyPages(prepared.source, unique);
     copies.forEach((page) => out.addPage(page));
     const bytes = await out.save({ useObjectStreams: true, addDefaultPage: false });
-    return { ok: true, bytes, pages: unique.length, indexes: unique };
+    return { ok: true, bytes, pages: unique.length, indexes: unique, flattened: prepared.flattened };
   } catch (error) {
     return { ok: false, reason: "extract", message: `Those pages could not be extracted: ${pdfError(error)}` };
   }
@@ -50663,7 +50667,10 @@ class PdfEditorModal extends Modal {
       return;
     }
     const written = await this.writeCopy(result.bytes, "extract");
-    if (written) this.setStatus(`Saved ${result.pages} page${result.pages === 1 ? "" : "s"} to ${written}.`);
+    if (written) {
+      const formNote = result.flattened ? " (form values baked into the pages)" : "";
+      this.setStatus(`Saved ${result.pages} page${result.pages === 1 ? "" : "s"}${formNote} to ${written}.`);
+    }
   }
 
   /* ---------------------------------------------------------------- forms */

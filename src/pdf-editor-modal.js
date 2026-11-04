@@ -721,7 +721,10 @@ class PdfEditorModal extends Modal {
       return;
     }
     const written = await this.writeCopy(result.bytes, "extract");
-    if (written) this.setStatus(`Saved ${result.pages} page${result.pages === 1 ? "" : "s"} to ${written}.`);
+    if (written) {
+      const formNote = result.flattened ? " (form values baked into the pages)" : "";
+      this.setStatus(`Saved ${result.pages} page${result.pages === 1 ? "" : "s"}${formNote} to ${written}.`);
+    }
   }
 
   /* ---------------------------------------------------------------- forms */

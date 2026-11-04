@@ -1,3 +1,10 @@
+## 1.227.0 - 2026-11-04
+
+- **Extraction preserves form values**: extracting selected pages from a fillable PDF now flattens a serialised copy first,
+  so filled values stay visible instead of the form being dropped. The document being edited keeps its live form, the
+  result reports `flattened`, and `splitPdf` shares the same preparation path. An unsupported form refuses extraction with
+  a clear message. Covered by a new real-byte engine test plus the reader page-operation suite.
+
 ## 1.226.0 - 2026-11-04
 
 - **Continuous PDF reading**: the reader now builds every page into one vertical scroll stack instead of loading one page at a time.
