@@ -251,6 +251,8 @@ class PdfInkModal extends Modal {
     copyLink.addEventListener("click", () => this.copyPageLink());
     const exportNotes = actions.createEl("button", { text: "Export notes", cls: "qt-grow" });
     exportNotes.addEventListener("click", () => this.exportNotes());
+    const editPdf = actions.createEl("button", { text: "Edit pages and forms", cls: "qt-grow" });
+    editPdf.addEventListener("click", () => this.openEditor());
 
     this.toggleEl = actions.createEl("button", { text: "Annotations", cls: "qt-grow qt-pdf-ink-annotations-toggle" });
     this.toggleEl.addEventListener("click", () => this.toggleSidebar());
@@ -857,6 +859,21 @@ class PdfInkModal extends Modal {
     if (!this.dirty) return true;
     const saved = await this.save();
     return saved === true;
+  }
+
+  /** Hands this PDF to the page and form editor, saving unsaved marks first. */
+  async openEditor() {
+    if (!this.plugin || typeof this.plugin.openPdfEditor !== "function") return;
+    const pdfPath = this.pdfPath;
+    if (this.dirty) {
+      try {
+        await this.save();
+      } catch (error) {
+        /* the save path already reports refusals in the status line */
+      }
+    }
+    this.close();
+    this.plugin.openPdfEditor(pdfPath);
   }
 
   async save(options) {

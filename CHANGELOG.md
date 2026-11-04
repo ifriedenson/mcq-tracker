@@ -1,5 +1,67 @@
 # Changelog
 
+## 1.218.4 — 2026-11-04
+
+- **Splitting a form PDF keeps the values**: `splitPdf` flattens a serialised
+  copy through `flattenForm` and splits that, so parts keep what the form showed
+  instead of opening with no fields. The edited document keeps its live form.
+
+## 1.218.3 — 2026-11-04
+
+- **Flattened copies drop their widget annotations**: `flattenForm` now removes
+  the form's widget references from each page's `/Annots`, so a flattened copy no
+  longer carries annotations pointing at deleted fields.
+
+## 1.218.2 — 2026-11-04
+
+- **New fields respect the visible page**: `addFormField` measures a new field
+  against `page.getCropBox()` (origin included) and rejects a stored widget that
+  leaves no room for its border, instead of placing fields outside an offset or
+  cropped page.
+
+## 1.218.1 — 2026-11-04
+
+- **Long explicit field names cannot duplicate**: an explicit `name` is shortened
+  to 60 characters before the duplicate check, so a long name can no longer
+  create a second field under an existing name.
+
+## 1.218.0 — 2026-11-04
+
+- **Undo and redo for every edit**: page operations, form values, drawing the
+  annotations in, added text, images, page numbers and crops are each one
+  reversible step, through buttons that name the action and Ctrl/Cmd+Z /
+  Shift+Ctrl/Cmd+Z. Undo restores the document from the bytes each step saved,
+  so undoing everything returns the file exactly as it was opened; Save clears
+  the history. The stack is bounded and nothing is written before Save.
+- **New form fields**: author a text field, checkbox, dropdown or radio group on a
+  chosen page with its own default text, starting state or choices. Names come from
+  the label with a numeric suffix on collision, saving writes the appearance
+  streams, the form stays fillable and existing values are untouched. One undo
+  step; unusable boxes, empty choice lists and explicit duplicate names are
+  refused.
+- **Watermarks, document properties and split**: one fitted, angled watermark
+  line with its own opacity and colour, editable title/author/subject/keywords,
+  and **Split every N pages** into separate files beside the original. The
+  watermark and the properties are undoable; splitting is an export.
+- **A real PDF editor**: **PDF: open the editor (pages and forms)**, or
+  **Edit pages and forms** in the reader, rotates, reorders, duplicates and
+  deletes pages, adds blank pages, merges pages from another PDF, and extracts
+  selected pages into their own file.
+- **Content editing**: an **Add content** section types text onto one page or
+  every page (size, colour, font, nine positions), places a PNG or JPEG from the
+  vault, stamps `{n}`/`{total}` page numbers and crops the margins; the page
+  previews re-render after each edit.
+- **Form filling**: text fields, checkboxes, radio groups, dropdowns and option
+  lists are editable, with an optional **flatten** so the values cannot be
+  changed afterwards.
+- **Your annotations travel with the copy**: highlights, ink, text boxes and
+  quotes can be burned into the page content, correctly placed on rotated pages
+  and still on the right page after pages are deleted or moved.
+- **Nothing is overwritten**: every save writes `name (edited).pdf` beside the
+  original, so the source PDF and its annotation sidecar stay untouched.
+- Built on **pdf-lib 1.17.1** (MIT), vendored in `vendor/pdf-lib.js`. XFA forms
+  and rewording text already on a page are refused rather than approximated.
+
 ## 1.216.0 — 2026-11-03
 
 - **An annotation sidebar in the PDF reader**: every annotation in the open PDF

@@ -193,3 +193,59 @@ described in the plan before any code is reused.
 ## Shipped dependency audit
 
 See [docs/license-audit.md](docs/license-audit.md) for the current inventory of bundled code, the packages with zero runtime dependencies, and the rule that every future reuse must be checked at its repository and recorded here before it is copied.
+
+## pdf-lib
+
+- **Project:** [pdf-lib](https://github.com/Hopding/pdf-lib) (npm package `pdf-lib`)
+- **Author:** Andrew Dillon
+- **License:** MIT, Copyright (c) 2019 Andrew Dillon (verified in the package's `LICENSE` and `package.json` on November 4, 2026)
+- **Version:** 1.17.1, the published UMD browser build `dist/pdf-lib.min.js`
+- **What was absorbed:** the compiled browser bundle, vendored as `vendor/pdf-lib.js`. It parses and writes PDF object graphs: page trees, page rotation, AcroForm fields with their appearance streams, content streams, fonts and embedded images.
+- **Files in this repository that use the work:** `vendor/pdf-lib.js` (the engine), `src/pdf-editor.js` (the bounded page, form and annotation operations), `src/pdf-editor-modal.js` (the editor window) and the `src/plugin.js` wiring. The operations, the window and the wiring are original code for this plugin.
+- **Bundled inside that build:** `pako` (MIT, Copyright (c) 2014-2017 Vitaly Puzrin and Andrei Tuputcyn), `tslib` (Apache-2.0, Copyright (c) Microsoft Corporation), `@pdf-lib/standard-fonts` (MIT, Andrew Dillon) and `@pdf-lib/upng` (MIT, Photopea). The `tslib` Apache-2.0 banner is retained at the top of `vendor/pdf-lib.js`.
+- **Modifications:** none. The file is byte-for-byte the published `dist/pdf-lib.min.js` (525,099 bytes, SHA-256 `0f9a5cad07941f0826586c94e089d89b918c46e5c17cf2d5a3c6f666e3bc694f`), so it can be compared with the released artifact; the engine's own trailing `sourceMappingURL` comment is left as published. `scripts/check-vendor.js` fails `npm run check` if the file drifts.
+- **Why this library:** page operations, form filling and flattening need real object-level PDF writing, not canvas tricks. pdf-lib is MIT, pure JavaScript with no native code, so it works on desktop and mobile, and it is the audited engine the plan's PDF gate asked for.
+- **Deliberate limits:** XFA forms and editing the text of an existing page are not supported. The editor refuses them with a message instead of approximating them.
+
+The MIT notice that applies to the vendored engine:
+
+```
+MIT License
+
+Copyright (c) 2019 Andrew Dillon
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+The Apache-2.0 notice that applies to the bundled `tslib` helpers, retained inside `vendor/pdf-lib.js`:
+
+```
+Copyright (c) Microsoft Corporation. All rights reserved.
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at http://www.apache.org/licenses/LICENSE-2.0
+
+THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS OF
+ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY IMPLIED
+WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
+MERCHANTABLITY OR NON-INFRINGEMENT.
+
+See the Apache Version 2.0 License for specific language governing permissions
+and limitations under the License.
+```

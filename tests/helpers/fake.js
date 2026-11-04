@@ -177,6 +177,18 @@ function makeDom() {
           };
         }
         if (k === "getAttr") return (name) => (own.meta.attrs || {})[name];
+        if (k === "setAttribute") {
+          return (name, value) => {
+            own.meta.attrs = own.meta.attrs || {};
+            own.meta.attrs[name] = String(value);
+          };
+        }
+        if (k === "getAttribute") return (name) => (own.meta.attrs || {})[name];
+        if (k === "removeAttribute") {
+          return (name) => {
+            if (own.meta.attrs) delete own.meta.attrs[name];
+          };
+        }
         if (k === "createEl") return (tag, opts) => child(tag, opts);
         if (k === "createDiv") return (opts) => child("div", opts);
         if (k === "createSpan") return (opts) => child("span", opts);

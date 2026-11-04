@@ -11820,3 +11820,205 @@ body.is-mobile .qt-screen .qt-local-events-tab {
   color: var(--text-muted);
   padding: 8px 0;
 }
+
+/* ----------------------------------------------------------- PDF editor */
+.qt-pdf-editor-modal {
+  width: min(1100px, 96vw);
+}
+
+.qt-pdf-editor-modal .modal-content {
+  max-height: 86vh;
+}
+
+.qt-pdf-editor-file {
+  margin: 0 0 8px;
+  word-break: break-all;
+}
+
+.qt-pdf-editor-toolbar {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.qt-pdf-editor-status {
+  min-height: 1.4em;
+  margin-bottom: 8px;
+}
+
+.qt-pdf-editor-pages {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.qt-pdf-editor-page {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+.qt-pdf-editor-page.is-selected {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+}
+
+.qt-pdf-editor-thumb {
+  display: grid;
+  place-items: center;
+  height: 120px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--background-primary);
+}
+
+.qt-pdf-editor-image {
+  max-width: 100%;
+  max-height: 116px;
+  object-fit: contain;
+}
+
+.qt-pdf-editor-placeholder {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 76px;
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.qt-pdf-editor-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.qt-pdf-editor-title {
+  font-weight: 600;
+}
+
+.qt-pdf-editor-actions {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.qt-pdf-editor-page-action {
+  min-height: 26px;
+  padding: 2px 8px;
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-pdf-editor-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-pdf-editor-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.qt-pdf-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.qt-pdf-editor-field-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.qt-pdf-editor-field-name {
+  word-break: break-word;
+}
+
+.qt-pdf-editor-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.qt-pdf-editor-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-ui-small);
+}
+
+.qt-pdf-editor-modal.is-busy {
+  cursor: progress;
+}
+
+@media (max-width: 700px) {
+  .qt-pdf-editor-pages {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+
+  .qt-pdf-editor-thumb {
+    height: 96px;
+  }
+}
+
+.qt-pdf-editor-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.qt-pdf-editor-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.qt-pdf-editor-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-pdf-editor-input {
+  width: 7em;
+}
+
+.qt-pdf-editor-row textarea.qt-pdf-editor-input {
+  width: 14em;
+}
+
+.qt-pdf-editor-image-name {
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qt-pdf-editor-history {
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.qt-pdf-editor-history-hint {
+  flex: 1 1 12em;
+  min-width: 8em;
+}

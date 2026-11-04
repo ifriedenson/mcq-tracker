@@ -161,9 +161,36 @@ const obsidian = {
       return this;
     }
   },
-  Modal: class extends Base {},
+  Modal: class extends Base {
+    constructor(app) {
+      super(app);
+      this.app = app;
+      this.closed = false;
+      obsidian.modals.push(this);
+    }
+    // Obsidian builds the modal's elements before it calls onOpen. A test that
+    // supplies its own elements calls onOpen itself; opening with none only
+    // records the modal, so a stray open cannot crash a test.
+    open() {
+      if (this.contentEl && this.onOpen) this.onOpen();
+      return this;
+    }
+    close() {
+      this.closed = true;
+      if (this.onClose) this.onClose();
+      return this;
+    }
+  },
   FuzzySuggestModal: class extends Base {
+    constructor(app) {
+      super(app);
+      this.app = app;
+      obsidian.modals.push(this);
+    }
     setPlaceholder() {}
+    open() {
+      return this;
+    }
   },
   AbstractInputSuggest: class extends Base {},
   Notice: class {
@@ -184,6 +211,7 @@ const obsidian = {
   parseYaml,
   normalizePath: (p) => String(p).replace(/\/+/g, "/").replace(/^\/|\/$/g, ""),
   notices: [],
+  modals: [],
   settingNames: [],
 };
 

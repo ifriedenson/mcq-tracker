@@ -8,13 +8,14 @@ MCQ Tracker is MIT. The root [LICENSE](../LICENSE) applies to the plugin as a wh
 
 ## Runtime dependencies
 
-`package.json` has no runtime or development dependencies and no lockfile packages. The build is a local CommonJS bundler in `scripts/build.js`; Obsidian supplies the runtime API.
+`package.json` has no runtime or development dependencies and no lockfile packages. The build is a local CommonJS bundler in `scripts/build.js`; Obsidian supplies the runtime API. Third-party engine code is vendored as a file instead: `src/fsrs-lib.js` for the scheduler and `vendor/pdf-lib.js` for PDF writing.
 
 ## Bundled or adapted third-party work
 
 | Item | License | Where | Status |
 |---|---|---|---|
 | ts-fsrs 5.4.1 (`dist/index.cjs`) | MIT, Open Spaced Repetition | `src/fsrs-lib.js` | Vendored, with the copyright and MIT text in `NOTICES.md`. |
+| pdf-lib 1.17.1 (`dist/pdf-lib.min.js`) | MIT, Andrew Dillon; the build also carries pako (MIT) and tslib (Apache-2.0) | `vendor/pdf-lib.js` | Vendored byte-for-byte unmodified; `scripts/check-vendor.js` verifies its size and SHA-256 on every `npm run check`. Copyright, MIT text and the bundled notices are in `NOTICES.md`. |
 | University Schedule and Calendar 1.2.0 calendar parser and presentation | MIT, Cesemess | `src/calendar-ics.js`, `src/calendar-model.js`, `src/calendar-notes.js`, `src/calendar-view.js`, `styles.css` | Adapted and modified; pinned commit and changes recorded in `NOTICES.md`. |
 
 ## Original code
@@ -27,7 +28,7 @@ Everything else in `src/` is original for this plugin, including:
 - the SMILES parser/layout/SVG renderer in `src/smiles.js`;
 - the clean-room SM-2 scheduler in `src/sm2.js` (no Better Recall, Anki or SuperMemo code copied).
 
-No GPL, AGPL, LGPL, MPL, non-commercial, no-derivatives or unlicensed code is bundled. No Desmos, RDKit, Ketcher, WKWebView, MathJax, mhchem, Chem or LearnKit source is copied into the bundle.
+No GPL, AGPL, LGPL, MPL, non-commercial, no-derivatives or unlicensed code is bundled. One vendored component, the `tslib` helper set inside `vendor/pdf-lib.js`, is Apache-2.0: permissive, MIT-compatible, and shipped with its notice intact. No Desmos, RDKit, Ketcher, WKWebView, MathJax, mhchem, Chem or LearnKit source is copied into the bundle.
 
 ## Data and content
 

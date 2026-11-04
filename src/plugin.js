@@ -57,6 +57,8 @@ const { OcrModal } = require("./ocr-modal");
 const { PaperScannerModal } = require("./paper-scanner");
 const { PdfAnnotationModal } = require("./pdf-annotation-modal");
 const { PdfInkModal } = require("./pdf-ink-modal");
+const { PdfEditorModal } = require("./pdf-editor-modal");
+const { editedPathFor } = require("./pdf-editor");
 const { annotationLink, annotationSummary, annotationsMarkdown, normalizeTags, parseAnnotationFile, sidecarPathFor, upsertAnnotation, removeAnnotation } = require("./pdf-annotations");
 const { WelcomeModal } = require("./welcome-modal");
 const { FocusLogModal } = require("./focus-modal");
@@ -338,6 +340,7 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "ocr-pdf", name: "OCR a scanned PDF", callback: () => this.openOcr() });
     this.addCommand({ id: "pdf-annotate", name: "PDF: add an annotation", callback: () => this.openPdfAnnotation() });
     this.addCommand({ id: "pdf-draw", name: "PDF: draw with pen or highlighter", callback: () => this.openPdfInk() });
+    this.addCommand({ id: "pdf-edit", name: "PDF: open the editor (pages and forms)", callback: () => this.openActivePdfEditor() });
     this.addCommand({ id: "pdf-export-notes", name: "PDF: export annotations to Markdown", callback: () => this.exportActivePdfAnnotations() });
     this.addCommand({ id: "pdf-open-annotations", name: "PDF: open annotations", callback: () => this.openPdfAnnotations() });
     this.addCommand({
@@ -1335,6 +1338,32 @@ class QuestionTrackerPlugin extends Plugin {
   openPdfInk(pdfPath) {
     if (this.moduleOff("mcq")) return;
     new PdfInkModal(this.app, this, { pdfPath: pdfPath || "" }).open();
+  }
+
+  openPdfEditor(pdfPath) {
+    if (this.moduleOff("mcq")) return;
+    new PdfEditorModal(this.app, this, { pdfPath: pdfPath || "" }).open();
+  }
+
+  /** The editor's command entry: it needs an open PDF to edit. */
+  openActivePdfEditor() {
+    const active = this.app.workspace.getActiveFile();
+    if (!active || !/\.pdf$/i.test(active.path)) {
+      new Notice("Open a PDF first, then run the editor again.");
+      return;
+    }
+    this.openPdfEditor(active.path);
+  }
+
+  /**
+   * Writes edited PDF bytes beside the original under a new name. The source
+   * file, its sidecar and its stored hash are never touched, so annotations
+   * keep pointing at the PDF they were drawn on.
+   */
+  async savePdfCopy(originalPath, bytes, label) {
+    const path = editedPathFor(originalPath, (candidate) => Boolean(this.app.vault.getAbstractFileByPath(candidate)), label);
+    const file = await this.app.vault.createBinary(path, bytes);
+    return { path, file };
   }
 
 

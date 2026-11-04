@@ -471,6 +471,8 @@ QuestionTrackerPlugin.__test = {
   pdfInk,
   pdfAnnotatorSidebar: require("./pdf-annotator-sidebar"),
   pdfInkModal: require("./pdf-ink-modal"),
+  pdfEditor: require("./pdf-editor"),
+  pdfEditorModal: require("./pdf-editor-modal"),
   PdfAnnotationModal,
   PdfInkModal,
   welcome,
