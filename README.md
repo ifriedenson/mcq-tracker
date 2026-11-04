@@ -60,6 +60,7 @@ MCQ Tracker turns Obsidian into a local-first exam-prep workspace. Keep question
 - **Study plan and cram mode.** When the calendar has an upcoming exam, Today builds a plan for matching courses: days left, readiness, due/new counts, card backlog and the weakest skill. **Start 10 min** practices the plan; **Cram 10 min** puts most-missed questions first and skips long-interval reviews unless an item was missed.
 - **Reading plans.** A `reading-plan` block schedules a book by page count, start and target dates, reading days and optional off days. It shows today's chunk, progress and the remaining schedule, and redistributes pages when you fall behind. Progress is logged locally and survives a restart; a passed target becomes **Off pace** rather than inventing a new deadline.
 - **Tag timers.** A `tag-timer` block turns Obsidian tags such as `#study/biology` into local stopwatches or countdowns, with start, pause, stop, reset and per-tag time analytics. State is stored locally and a running timer survives a restart.
+- **Tally and text timer.** A `tally` block counts Correct and Incorrect with adjustable steps, accuracy, CPS and elapsed time. A `text-timer` block adds a count-up clock to a passage. Both keep only local scratchpad state and never write a note, attempt or schedule. See [Tally and text timer](#tally-and-text-timer).
 - **Optional local reminder.** Off by default, a quiet Today card and status-bar nudge appear once a day after the hour you choose. Dismiss it until tomorrow; it never sends an OS notification or a network request.
 - **Focus timer and study log.** Start a 15, 25 or 45 minute session tied to a course, pause and resume it, and log the result. Manual study entry covers offline work. Today shows today's minutes against a configurable daily goal, the current streak, the last seven days and your top courses.
 - **First-run welcome guide.** A short three-step guide on first install: what the plugin does, a preset chooser that sets the real module switches, and buttons for import, practice, Today, cards, calendar and settings. It is shown once per device, never blocks startup, stores progress locally and can be reopened from the command palette or Settings, Global, About.
@@ -119,6 +120,35 @@ Track study time by Obsidian tag with a local `tag-timer` block:
 Each line starts with exactly one tag. A bare tag is a stopwatch; `countdown` accepts `25`, `25m`, `25:00` or `0:30` and defaults to 25 minutes when no time is given. Lines beginning with `//` are comments. A missing tag, more than one tag on a line, a duplicate tag, an unknown kind or an invalid duration shows an in-place message instead of creating a timer.
 
 **Start** begins a stopwatch or countdown; **Pause** freezes it and **Start** resumes; **Stop** logs the session; **Reset** clears the current run. A countdown that reaches zero stops and logs itself even if the note is reopened later. Timer state is local, keyed by note path and tag, and is stored from timestamps, so a running timer resumes after a restart. **Per-tag analytics** groups stopped sessions into today, the last seven days, total time and session count. This block does not edit notes or write attempts, history, streaks, review dates or scheduler state.
+
+## Tally and text timer
+
+Self-mark a practice run with a local `tally` block:
+
+````markdown
+```tally
+title: Biology drill
+correct: Right
+incorrect: Wrong
+steps: 1, 2, 5
+id: biology-drill
+```
+````
+
+The two buttons add the selected step. The block shows total, accuracy, CPS and elapsed session time; **Reset** clears the counts and starts a new session. `title`, `correct`, `incorrect`, `step`, `steps` and `id` are optional. Steps are whole numbers from 1 to 100, with at most six choices; the defaults are 1, 2 and 5. State is keyed by note plus `id`, or note plus block content when no id is given, so add an `id` when two identical blocks should stay separate. A tally is a scratchpad: it is not a graded attempt and does not change the question or card scheduler.
+
+Time a passage with a local `text-timer` block:
+
+````markdown
+```text-timer
+title: Read this
+id: passage-1
+---
+The passage you want to time. The body is shown as plain text.
+```
+````
+
+**Start** begins a count-up clock, **Pause** freezes it, **Start** resumes and **Reset** clears it. The body is plain text, the run is capped at 24 hours and state survives a reload. This is separate from the Focus and Tag timers and is not added to study history.
 
 ## Analytics dashboard
 

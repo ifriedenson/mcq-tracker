@@ -12105,3 +12105,124 @@ body.is-mobile .qt-screen .qt-local-events-tab {
     visibility: hidden;
   }
 }
+
+
+/* Tally counters: a local self-marking scratchpad for one practice run. */
+.qt-tally {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.qt-tally-title {
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.qt-tally-counters {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.qt-tally-button {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  justify-content: center;
+  min-height: 72px;
+  padding: 8px;
+}
+
+.qt-tally-button.is-correct {
+  border-color: var(--text-success, var(--color-green));
+}
+
+.qt-tally-button.is-incorrect {
+  border-color: var(--text-error, var(--color-red));
+}
+
+.qt-tally-count {
+  font-size: 1.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.qt-tally-stats,
+.qt-tally-step-label,
+.qt-tally-message,
+.qt-tally-issue {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.qt-tally-steps {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.qt-tally-step.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.qt-tally-message,
+.qt-tally-issue {
+  color: var(--text-error);
+}
+
+/* Text timer: one passage with an independent local count-up clock. */
+.qt-text-timer {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 14px 16px;
+}
+
+.qt-text-timer-title {
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.qt-text-timer-body {
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.qt-text-timer-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.qt-text-timer-clock {
+  font-size: 1.45rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  min-width: 4ch;
+}
+
+.qt-text-timer-hint,
+.qt-text-timer-issue,
+.qt-text-timer-message {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-text-timer-issue,
+.qt-text-timer-message {
+  color: var(--text-error);
+}

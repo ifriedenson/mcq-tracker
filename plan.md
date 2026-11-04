@@ -3285,6 +3285,12 @@ Final verification: **1,245 tests pass**, `node scripts/build.js` compiles the b
 
 ---
 
+### 5.26 Installed-plugin parity audit — Nov 4, 2026
+
+The owner supplied 23 installed plugins. All supplied community pages were checked; the site returns 200 for a missing plugin too, so the page title (`Plugin not found` versus `<Plugin> - Obsidian Plugin`) was used as the discriminator. Three ids did not resolve: Advanced Tables is `table-editor-obsidian` (not `obsidian-advanced-tables`), Hider is `obsidian-hider` (not `hider`) and Markmind is `obsidian-markmind` (not `markmind`). Folder Sty1es, pdf-to-md, Text Block Timer and WordNet Dictionary are present in the published registry; Tally Counter by "Custom" is not. The full URL and feature matrix is in [docs/installed-plugin-parity.md](docs/installed-plugin-parity.md).
+
+**1.232.0 ships the two safe study-facing gaps:** a `tally` block with correct/incorrect counters, adjustable steps, accuracy, CPS and elapsed time, and a `text-timer` block with a plain-text passage and count-up clock. Both are local, bounded and write only their own settings slice. Everything else remains governed by the decisions already recorded above: Code Runner stays behind the §11 execution gate, Copilot (AGPL-3.0) and Desmos (GPL-3.0) cannot be copied, and Excalidraw, Recent Files, Folder Sty1es, Hider, Minimal Theme Settings and Notebook Navigator remain UI/theme/navigation surfaces rather than study modules. "All features" is therefore **not** claimed; the matrix names each covered, partial and excluded feature, and the remaining gaps need an owner decision or a separate spec.
+
 ## Appendix: Archived brainstorms and superseded drafts
 
 The Gemini brainstorm, the pre-Oct-27 duplicate of this plan and the original product

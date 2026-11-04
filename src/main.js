@@ -36,6 +36,8 @@ const { API_PRESETS, ApiClient, apiTurns, friendlyApiError } = require("./api-cl
 const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
 const tagTimer = require("./tag-timer");
+const tally = require("./tally");
+const textTimer = require("./text-timer");
 const { ChatPanel } = require("./chat-panel");
 const documentCards = require("./document-cards");
 const agentView = require("./agent-view");
@@ -296,6 +298,8 @@ QuestionTrackerPlugin.__test = {
   modelDiscovery,
   reading,
   tagTimer,
+  tally,
+  textTimer,
   ChatPanel,
   agentRetrieval: require("./agent-retrieval"),
   chatHistory: require("./chat-history"),

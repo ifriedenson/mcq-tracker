@@ -22400,6 +22400,8 @@ const DEFAULT_SETTINGS = {
   },
   reading: { progress: {} }, // reading-plan progress keyed by plan id; local only
   tagTimers: { timers: {}, sessions: [] }, // local tag-timer state and completed sessions
+  tallies: { sessions: {} }, // local correct/incorrect counters for `tally` blocks
+  textTimers: { timers: {} }, // local count-up clocks for `text-timer` blocks
   cornellNotes: { enabled: true }, // independent local Cornell-note module
   lectureLog: { enabled: true, lectures: [] }, // independent local lecture-log module
   studyGoals: { enabled: true, goals: [] }, // independent local study-goal module
@@ -53586,6 +53588,10 @@ const { normalizeThinkFirstSeconds } = require("./think-first");
 const readingModel = require("./reading");
 const { normalizeReadingSettings } = readingModel;
 const { normalizeTagTimerSettings, stopRunningTagTimers } = require("./tag-timer");
+const { normalizeTallySettings } = require("./tally");
+const { renderTallyBlock } = require("./tally-view");
+const { normalizeTextTimerSettings } = require("./text-timer");
+const { renderTextTimerBlock } = require("./text-timer-view");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { readPdfPages } = require("./pdf");
@@ -54189,6 +54195,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("simple-flashcards", (source, el, ctx) => this.renderSimpleFlashcardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("reading-plan", (source, el, ctx) => this.renderReadingPlanBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("tag-timer", (source, el, ctx) => this.renderTagTimerBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("tally", (source, el, ctx) => this.renderTallyBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("text-timer", (source, el, ctx) => this.renderTextTimerBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("cornell-note", (source, el) => renderCornellBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
@@ -54504,6 +54512,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.simpleNoteQuiz = normalizeSimpleNoteQuiz(saved.simpleNoteQuiz);
     this.settings.reading = normalizeReadingSettings(saved.reading);
     this.settings.tagTimers = normalizeTagTimerSettings(saved.tagTimers);
+    this.settings.tallies = normalizeTallySettings(saved.tallies);
+    this.settings.textTimers = normalizeTextTimerSettings(saved.textTimers);
     this.settings.cornellNotes = studyTools.normalizeCornellSettings(saved.cornellNotes);
     this.settings.lectureLog = studyTools.normalizeLectureLog(saved.lectureLog);
     this.settings.studyGoals = studyTools.normalizeStudyGoals(saved.studyGoals);
@@ -58699,6 +58709,16 @@ class QuestionTrackerPlugin extends Plugin {
   /** Render a `tag-timer` block with local timer state and per-tag analytics. */
   async renderTagTimerBlock(source, el, ctx) {
     return renderTagTimerBlock(this, source, el, ctx);
+  }
+
+  /** Render a `tally` block with local correct/incorrect counters. */
+  async renderTallyBlock(source, el, ctx) {
+    return renderTallyBlock(this, source, el, ctx);
+  }
+
+  /** Render a `text-timer` block with a local count-up clock. */
+  async renderTextTimerBlock(source, el, ctx) {
+    return renderTextTimerBlock(this, source, el, ctx);
   }
 
   async stopAllTagTimers() {
@@ -96160,6 +96180,389 @@ async function renderTagTimerBlock(plugin, source, el, ctx) {
 module.exports = { TagTimerBlock, renderTagTimerBlock };
 };
 
+/* ---- src/tally.js ---- */
+__defs["tally"] = function (module, exports, require) {
+/*
+ * Local correct/incorrect tally counters for a `tally` block. The block is a
+ * small practice aid: it never writes a note, result, card or scheduler row.
+ * State is kept by source path + block id/content so a reload keeps the
+ * current session.
+ */
+const { hashString, str } = require("./util");
+
+const MAX_SESSIONS = 300;
+const MAX_COUNT = 1000000;
+const MAX_STEP = 100;
+const MAX_STEPS = 6;
+const MAX_LABEL = 40;
+const DEFAULT_STEPS = [1, 2, 5];
+const DEFAULT_STEP = 1;
+
+function clampInt(value, low, high) {
+  const n = Math.round(Number(value) || 0);
+  return Math.max(low, Math.min(high, n));
+}
+
+function cleanLabel(value, fallback) {
+  const text = str(value).replace(/\s+/g, " ").trim().slice(0, MAX_LABEL);
+  return text || fallback;
+}
+
+function parseStep(value, issues, lineNo, key) {
+  const number = Number(str(value).trim());
+  if (!Number.isInteger(number) || number < 1 || number > MAX_STEP) {
+    issues.push(`Line ${lineNo}: ${key} must be a whole number from 1 to ${MAX_STEP}.`);
+    return null;
+  }
+  return number;
+}
+
+/** Parse the optional `key: value` header. Labels are plain text, never HTML. */
+function parseTallyBlock(source) {
+  const parsed = {
+    title: "Tally",
+    correct: "Correct",
+    incorrect: "Incorrect",
+    steps: DEFAULT_STEPS.slice(),
+    step: DEFAULT_STEP,
+    id: "",
+    issues: [],
+    valid: true,
+  };
+  const lines = str(source).replace(/\r\n?/g, "\n").split("\n");
+  let explicitSteps = null;
+  let explicitStep = null;
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index].trim();
+    const lineNo = index + 1;
+    if (!line || line.startsWith("//")) continue;
+    const match = line.match(/^([A-Za-z][A-Za-z-]*)\s*:\s*(.*)$/);
+    if (!match) {
+      parsed.issues.push(`Line ${lineNo}: use "key: value", or remove this line.`);
+      continue;
+    }
+    const key = match[1].toLowerCase();
+    const value = match[2].trim();
+    if (key === "title") {
+      parsed.title = cleanLabel(value, "Tally");
+      if (!value) parsed.issues.push(`Line ${lineNo}: title cannot be empty.`);
+    } else if (key === "correct") {
+      parsed.correct = cleanLabel(value, "Correct");
+      if (!value) parsed.issues.push(`Line ${lineNo}: correct label cannot be empty.`);
+    } else if (key === "incorrect") {
+      parsed.incorrect = cleanLabel(value, "Incorrect");
+      if (!value) parsed.issues.push(`Line ${lineNo}: incorrect label cannot be empty.`);
+    } else if (key === "step") {
+      explicitStep = parseStep(value, parsed.issues, lineNo, "step");
+    } else if (key === "steps") {
+      const values = value.split(/[,\s]+/).filter(Boolean);
+      const steps = [];
+      for (const item of values) {
+        const step = parseStep(item, parsed.issues, lineNo, "steps");
+        if (step !== null && !steps.includes(step)) steps.push(step);
+      }
+      if (!steps.length) parsed.issues.push(`Line ${lineNo}: add at least one step from 1 to ${MAX_STEP}.`);
+      else if (steps.length > MAX_STEPS) {
+        parsed.issues.push(`Line ${lineNo}: use at most ${MAX_STEPS} step sizes.`);
+        explicitSteps = steps.slice(0, MAX_STEPS);
+      } else explicitSteps = steps;
+    } else if (key === "id") {
+      parsed.id = str(value).trim().slice(0, 80);
+      if (!parsed.id) parsed.issues.push(`Line ${lineNo}: id cannot be empty.`);
+    } else {
+      parsed.issues.push(`Line ${lineNo}: "${match[1]}" is not a tally setting. Use title, correct, incorrect, step, steps or id.`);
+    }
+  }
+  if (explicitSteps && explicitSteps.length) parsed.steps = explicitSteps;
+  if (explicitStep !== null) {
+    if (!parsed.steps.includes(explicitStep)) {
+      if (parsed.steps.length >= MAX_STEPS) parsed.issues.push(`Add at most ${MAX_STEPS} step sizes, including the default step.`);
+      else parsed.steps.push(explicitStep);
+    }
+    parsed.step = explicitStep;
+  }
+  if (!parsed.steps.includes(parsed.step)) parsed.step = parsed.steps[0];
+  parsed.valid = parsed.issues.length === 0;
+  return parsed;
+}
+
+function normalizeTallySettings(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const source = src.sessions && typeof src.sessions === "object" && !Array.isArray(src.sessions) ? src.sessions : {};
+  const sessions = {};
+  const keys = Object.keys(source).slice(-MAX_SESSIONS);
+  for (const key of keys) {
+    const raw = source[key];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    sessions[key] = normalizeTallyState(raw, { steps: DEFAULT_STEPS, step: DEFAULT_STEP });
+  }
+  return { sessions };
+}
+
+function normalizeTallyState(value, options) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const parsed = options && typeof options === "object" ? options : {};
+  const steps = Array.isArray(parsed.steps) && parsed.steps.length ? parsed.steps.filter((step) => Number.isInteger(step) && step >= 1 && step <= MAX_STEP) : DEFAULT_STEPS;
+  const requestedStep = clampInt(src.step, 1, MAX_STEP);
+  const step = steps.includes(requestedStep) ? requestedStep : steps.includes(parsed.step) ? parsed.step : steps[0] || DEFAULT_STEP;
+  return {
+    correct: clampInt(src.correct, 0, MAX_COUNT),
+    incorrect: clampInt(src.incorrect, 0, MAX_COUNT),
+    step,
+    startedAt: Math.max(0, Math.round(Number(src.startedAt) || 0)),
+    updated: Math.max(0, Math.round(Number(src.updated) || 0)),
+  };
+}
+
+function tallyKey(sourcePath, source, id) {
+  const stable = str(id).trim() ? `id:${str(id).trim()}` : `src:${str(source).replace(/\r\n?/g, "\n").trim()}`;
+  return `tl-${hashString(`${str(sourcePath) || "note"}|${stable}`)}`;
+}
+
+function recordTally(state, kind, now, options) {
+  const next = normalizeTallyState(state, options);
+  const at = Math.max(0, Math.round(Number(now) || Date.now()));
+  if (!next.startedAt) next.startedAt = at;
+  if (kind === "correct") next.correct = Math.min(MAX_COUNT, next.correct + next.step);
+  else if (kind === "incorrect") next.incorrect = Math.min(MAX_COUNT, next.incorrect + next.step);
+  next.updated = at;
+  return next;
+}
+
+function resetTally(state, options) {
+  const next = normalizeTallyState(state, options);
+  return { correct: 0, incorrect: 0, step: next.step, startedAt: 0, updated: 0 };
+}
+
+function setTallyStep(state, step, options) {
+  const next = normalizeTallyState(state, options);
+  next.step = clampInt(step, 1, MAX_STEP);
+  return next;
+}
+
+function tallyStats(state, now) {
+  const src = state && typeof state === "object" ? state : {};
+  const correct = Math.max(0, Math.round(Number(src.correct) || 0));
+  const incorrect = Math.max(0, Math.round(Number(src.incorrect) || 0));
+  const total = correct + incorrect;
+  const startedAt = Math.max(0, Math.round(Number(src.startedAt) || 0));
+  const at = Math.max(0, Math.round(Number(now) || Date.now()));
+  const elapsedMs = startedAt ? Math.max(0, at - startedAt) : 0;
+  const seconds = elapsedMs / 1000;
+  return {
+    correct,
+    incorrect,
+    total,
+    accuracy: total ? correct / total : null,
+    elapsedMs,
+    cps: seconds >= 1 ? total / seconds : 0,
+    perMinute: seconds >= 1 ? (total / seconds) * 60 : 0,
+  };
+}
+
+function formatTallyClock(ms) {
+  const seconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function tallySettings(plugin) {
+  if (!plugin.settings.tallies || typeof plugin.settings.tallies !== "object" || Array.isArray(plugin.settings.tallies)) {
+    plugin.settings.tallies = { sessions: {} };
+  }
+  if (!plugin.settings.tallies.sessions || typeof plugin.settings.tallies.sessions !== "object" || Array.isArray(plugin.settings.tallies.sessions)) {
+    plugin.settings.tallies.sessions = {};
+  }
+  return plugin.settings.tallies;
+}
+
+module.exports = {
+  DEFAULT_STEPS,
+  MAX_COUNT,
+  MAX_LABEL,
+  MAX_SESSIONS,
+  MAX_STEP,
+  formatTallyClock,
+  normalizeTallySettings,
+  normalizeTallyState,
+  parseTallyBlock,
+  recordTally,
+  resetTally,
+  setTallyStep,
+  tallyKey,
+  tallySettings,
+  tallyStats,
+};
+};
+
+/* ---- src/tally-view.js ---- */
+__defs["tally-view"] = function (module, exports, require) {
+/*
+ * Render a `tally` block as two large local counters plus live session stats.
+ * Nothing here writes a note or records a graded attempt; the counters are a
+ * scratchpad for self-marking a practice run.
+ */
+const { MarkdownRenderChild } = require("obsidian");
+const {
+  formatTallyClock,
+  normalizeTallyState,
+  parseTallyBlock,
+  recordTally,
+  resetTally,
+  setTallyStep,
+  tallyKey,
+  tallySettings,
+  tallyStats,
+} = require("./tally");
+
+class TallyBlock extends MarkdownRenderChild {
+  constructor(containerEl, plugin, parsed, ctx, source) {
+    super(containerEl);
+    this.plugin = plugin;
+    this.parsed = parsed;
+    this.ctx = ctx || {};
+    this.source = source;
+    this.now = typeof this.ctx.now === "function" ? this.ctx.now : () => Date.now();
+    this.key = tallyKey(this.ctx.sourcePath || "", source, parsed.id);
+    this.settings = tallySettings(plugin);
+    this.state = normalizeTallyState(this.settings.sessions[this.key], parsed);
+    this.settings.sessions[this.key] = this.state;
+    this.ticker = null;
+    this.message = "";
+    this.counts = null;
+    this.statsEl = null;
+    this.messageEl = null;
+    this.stepButtons = [];
+  }
+
+  onload() {
+    this.render();
+  }
+
+  onunload() {
+    this.stopTicker();
+  }
+
+  saveState() {
+    return Promise.resolve(this.plugin.save()).catch(() => {
+      this.message = "Could not save the tally. Try again.";
+      if (this.messageEl) this.messageEl.setText(this.message);
+      return false;
+    });
+  }
+
+  stopTicker() {
+    if (this.ticker !== null && typeof activeWindow !== "undefined") activeWindow.clearInterval(this.ticker);
+    this.ticker = null;
+  }
+
+  syncTicker() {
+    if (this.state.startedAt && this.ticker === null && typeof activeWindow !== "undefined") {
+      this.ticker = activeWindow.setInterval(() => this.refresh(), 1000);
+    } else if (!this.state.startedAt) {
+      this.stopTicker();
+    }
+  }
+
+  paintStats() {
+    if (!this.statsEl) return;
+    const stats = tallyStats(this.state, this.now());
+    const accuracy = stats.accuracy === null ? "—" : `${Math.round(stats.accuracy * 100)}%`;
+    this.statsEl.setText(`Total ${stats.total} · ${accuracy} accuracy · ${stats.cps.toFixed(2)} CPS · ${formatTallyClock(stats.elapsedMs)}`);
+  }
+
+  paintCounts() {
+    if (this.counts) {
+      this.counts.correct.count.setText(String(this.state.correct));
+      this.counts.incorrect.count.setText(String(this.state.incorrect));
+      this.counts.correct.button.setAttr("aria-label", `Add ${this.state.step} to ${this.parsed.correct}`);
+      this.counts.incorrect.button.setAttr("aria-label", `Add ${this.state.step} to ${this.parsed.incorrect}`);
+    }
+    this.paintStats();
+  }
+
+  paintSteps() {
+    for (const item of this.stepButtons) {
+      item.el.toggleClass("is-active", item.step === this.state.step);
+      item.el.setAttr("aria-pressed", item.step === this.state.step ? "true" : "false");
+    }
+  }
+
+  makeCounter(root, kind, label, cls) {
+    const button = root.createEl("button", { cls: `qt-tally-button ${cls}`, text: label });
+    button.setAttr("aria-label", `Add ${this.state.step} to ${label}`);
+    const count = button.createSpan({ cls: "qt-tally-count", text: String(kind === "correct" ? this.state.correct : this.state.incorrect) });
+    button.addEventListener("click", () => this.act(kind).catch(() => {}));
+    return { button, count };
+  }
+
+  render() {
+    this.stopTicker();
+    this.containerEl.empty();
+    const root = this.containerEl.createDiv({ cls: "qt-tally" });
+    root.createDiv({ cls: "qt-tally-title", text: this.parsed.title });
+    for (const issue of this.parsed.issues.slice(0, 6)) root.createDiv({ cls: "qt-tally-issue", text: issue });
+
+    const counters = root.createDiv({ cls: "qt-tally-counters" });
+    const correct = this.makeCounter(counters, "correct", this.parsed.correct, "is-correct");
+    const incorrect = this.makeCounter(counters, "incorrect", this.parsed.incorrect, "is-incorrect");
+    this.counts = { correct, incorrect };
+
+    this.statsEl = root.createDiv({ cls: "qt-tally-stats" });
+    this.statsEl.setAttr("aria-live", "polite");
+
+    const stepRow = root.createDiv({ cls: "qt-tally-steps" });
+    stepRow.createSpan({ cls: "qt-tally-step-label", text: "Step" });
+    this.stepButtons = [];
+    for (const step of this.parsed.steps) {
+      const el = stepRow.createEl("button", { cls: "qt-tally-step", text: `×${step}` });
+      el.setAttr("aria-label", `Count ${step} at a time`);
+      el.addEventListener("click", () => this.chooseStep(step).catch(() => {}));
+      this.stepButtons.push({ el, step });
+    }
+    const reset = stepRow.createEl("button", { cls: "qt-tally-reset", text: "Reset" });
+    reset.addEventListener("click", () => this.act("reset").catch(() => {}));
+
+    this.messageEl = root.createDiv({ cls: "qt-tally-message", text: this.message });
+    this.paintCounts();
+    this.paintSteps();
+    this.syncTicker();
+  }
+
+  refresh() {
+    this.paintStats();
+  }
+
+  async chooseStep(step) {
+    this.state = setTallyStep(this.state, step, this.parsed);
+    this.settings.sessions[this.key] = this.state;
+    this.paintSteps();
+    this.paintCounts();
+    await this.saveState();
+  }
+
+  async act(kind) {
+    this.state = kind === "reset" ? resetTally(this.state, this.parsed) : recordTally(this.state, kind, this.now(), this.parsed);
+    this.settings.sessions[this.key] = this.state;
+    this.message = kind === "reset" ? "Counters reset. The next click starts a new session." : "";
+    this.paintCounts();
+    this.syncTicker();
+    await this.saveState();
+  }
+}
+
+async function renderTallyBlock(plugin, source, el, ctx) {
+  const block = new TallyBlock(el, plugin, parseTallyBlock(source), ctx, source);
+  if (ctx && typeof ctx.addChild === "function") ctx.addChild(block);
+  else block.load();
+  return block;
+}
+
+module.exports = { TallyBlock, renderTallyBlock };
+};
+
 /* ---- src/task-list-view.js ---- */
 __defs["task-list-view"] = function (module, exports, require) {
 const { ItemView } = require("obsidian");
@@ -96513,6 +96916,273 @@ module.exports = {
   tagUsage,
   tagsOf,
 };
+};
+
+/* ---- src/text-timer.js ---- */
+__defs["text-timer"] = function (module, exports, require) {
+/*
+ * Count-up timing for one passage in a `text-timer` block. This is a local
+ * reading aid; it does not write a note, log a study session or change the
+ * scheduler. State is keyed by source path + block content or an optional id.
+ */
+const { hashString, str } = require("./util");
+
+const MAX_TIMERS = 300;
+const MAX_ELAPSED_MS = 24 * 60 * 60 * 1000;
+const MAX_TITLE = 80;
+
+function cleanTitle(value) {
+  return str(value).replace(/\s+/g, " ").trim().slice(0, MAX_TITLE) || "Text timer";
+}
+
+/**
+ * A block may start with `title: ...`, `id: ...` and an optional `---` rule.
+ * Everything after the header is shown verbatim as the passage being timed.
+ */
+function parseTextTimerBlock(source) {
+  const lines = str(source).replace(/\r\n?/g, "\n").split("\n");
+  let title = "Text timer";
+  let id = "";
+  let index = 0;
+  for (; index < lines.length; index++) {
+    const line = lines[index].trim();
+    if (!line || line === "---") continue;
+    const match = line.match(/^(title|id)\s*:\s*(.*)$/i);
+    if (!match) break;
+    if (match[1].toLowerCase() === "title") title = cleanTitle(match[2]);
+    else id = str(match[2]).trim().slice(0, 80);
+  }
+  const body = lines.slice(index).join("\n").replace(/^\s+|\s+$/g, "");
+  return {
+    title,
+    id,
+    body,
+    issues: body ? [] : ["Add the passage you want to time below the optional title line."],
+    valid: !!body,
+  };
+}
+
+function normalizeTextTimerSettings(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const source = src.timers && typeof src.timers === "object" && !Array.isArray(src.timers) ? src.timers : {};
+  const timers = {};
+  for (const key of Object.keys(source).slice(-MAX_TIMERS)) {
+    const raw = source[key];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    timers[key] = normalizeTextTimerState(raw);
+  }
+  return { timers };
+}
+
+function normalizeTextTimerState(value) {
+  const src = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const state = ["idle", "running", "paused"].includes(src.state) ? src.state : "idle";
+  const elapsedMs = Math.max(0, Math.min(MAX_ELAPSED_MS, Math.round(Number(src.elapsedMs) || 0)));
+  const startedAt = Math.max(0, Math.round(Number(src.startedAt) || 0));
+  const runningSince = Math.max(0, Math.round(Number(src.runningSince) || 0));
+  if (state === "running" && !runningSince) return { state: "paused", elapsedMs, startedAt, runningSince: 0 };
+  if (state === "running" && elapsedMs >= MAX_ELAPSED_MS) return { state: "paused", elapsedMs: MAX_ELAPSED_MS, startedAt, runningSince: 0 };
+  return { state, elapsedMs, startedAt, runningSince: state === "running" ? runningSince : 0 };
+}
+
+function textTimerKey(sourcePath, source, id) {
+  const stable = str(id).trim() ? `id:${str(id).trim()}` : `src:${str(source).replace(/\r\n?/g, "\n").trim()}`;
+  return `txt-${hashString(`${str(sourcePath) || "note"}|${stable}`)}`;
+}
+
+function currentTextTimerElapsed(state, now) {
+  const src = normalizeTextTimerState(state);
+  const at = Math.max(0, Math.round(Number(now) || Date.now()));
+  const running = src.state === "running" ? Math.max(0, at - src.runningSince) : 0;
+  return Math.min(MAX_ELAPSED_MS, src.elapsedMs + running);
+}
+
+function startTextTimer(state, now) {
+  const src = normalizeTextTimerState(state);
+  const at = Math.max(0, Math.round(Number(now) || Date.now()));
+  if (src.state === "running" || src.elapsedMs >= MAX_ELAPSED_MS) return src;
+  return { state: "running", elapsedMs: src.elapsedMs, startedAt: src.startedAt || at, runningSince: at };
+}
+
+function pauseTextTimer(state, now) {
+  const src = normalizeTextTimerState(state);
+  if (src.state !== "running") return src;
+  const at = Math.max(0, Math.round(Number(now) || Date.now()));
+  return {
+    state: "paused",
+    elapsedMs: Math.min(MAX_ELAPSED_MS, src.elapsedMs + Math.max(0, at - src.runningSince)),
+    startedAt: src.startedAt,
+    runningSince: 0,
+  };
+}
+
+function resetTextTimer(state) {
+  const src = normalizeTextTimerState(state);
+  return { state: "idle", elapsedMs: 0, startedAt: 0, runningSince: 0, previous: src.elapsedMs };
+}
+
+function formatTextTimerClock(ms) {
+  const seconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function textTimerSettings(plugin) {
+  if (!plugin.settings.textTimers || typeof plugin.settings.textTimers !== "object" || Array.isArray(plugin.settings.textTimers)) {
+    plugin.settings.textTimers = { timers: {} };
+  }
+  if (!plugin.settings.textTimers.timers || typeof plugin.settings.textTimers.timers !== "object" || Array.isArray(plugin.settings.textTimers.timers)) {
+    plugin.settings.textTimers.timers = {};
+  }
+  return plugin.settings.textTimers;
+}
+
+module.exports = {
+  MAX_ELAPSED_MS,
+  MAX_TIMERS,
+  currentTextTimerElapsed,
+  formatTextTimerClock,
+  normalizeTextTimerSettings,
+  normalizeTextTimerState,
+  parseTextTimerBlock,
+  pauseTextTimer,
+  resetTextTimer,
+  startTextTimer,
+  textTimerKey,
+  textTimerSettings,
+};
+};
+
+/* ---- src/text-timer-view.js ---- */
+__defs["text-timer-view"] = function (module, exports, require) {
+/*
+ * Render a `text-timer` block as a passage plus a local count-up clock. It is
+ * deliberately plain text and does not write the note or record study time.
+ */
+const { MarkdownRenderChild } = require("obsidian");
+const {
+  currentTextTimerElapsed,
+  formatTextTimerClock,
+  normalizeTextTimerState,
+  parseTextTimerBlock,
+  pauseTextTimer,
+  resetTextTimer,
+  startTextTimer,
+  textTimerKey,
+  textTimerSettings,
+} = require("./text-timer");
+
+class TextTimerBlock extends MarkdownRenderChild {
+  constructor(containerEl, plugin, parsed, ctx, source) {
+    super(containerEl);
+    this.plugin = plugin;
+    this.parsed = parsed;
+    this.ctx = ctx || {};
+    this.now = typeof this.ctx.now === "function" ? this.ctx.now : () => Date.now();
+    this.key = textTimerKey(this.ctx.sourcePath || "", source, parsed.id);
+    this.settings = textTimerSettings(plugin);
+    this.state = normalizeTextTimerState(this.settings.timers[this.key]);
+    this.settings.timers[this.key] = this.state;
+    this.ticker = null;
+    this.message = "";
+    this.clockEl = null;
+    this.toggleEl = null;
+    this.messageEl = null;
+  }
+
+  onload() {
+    this.render();
+  }
+
+  onunload() {
+    this.stopTicker();
+  }
+
+  saveState() {
+    return Promise.resolve(this.plugin.save()).catch(() => {
+      this.message = "Could not save the timer. Try again.";
+      if (this.messageEl) this.messageEl.setText(this.message);
+      return false;
+    });
+  }
+
+  stopTicker() {
+    if (this.ticker !== null && typeof activeWindow !== "undefined") activeWindow.clearInterval(this.ticker);
+    this.ticker = null;
+  }
+
+  syncTicker() {
+    if (this.state.state === "running" && this.ticker === null && typeof activeWindow !== "undefined") {
+      this.ticker = activeWindow.setInterval(() => this.refresh(), 1000);
+    } else if (this.state.state !== "running") {
+      this.stopTicker();
+    }
+  }
+
+  paint() {
+    if (this.clockEl) this.clockEl.setText(formatTextTimerClock(currentTextTimerElapsed(this.state, this.now())));
+    if (this.toggleEl) {
+      this.toggleEl.setText(this.state.state === "running" ? "Pause" : "Start");
+      this.toggleEl.setAttr("aria-label", this.state.state === "running" ? "Pause the text timer" : "Start the text timer");
+    }
+    if (this.messageEl) this.messageEl.setText(this.message);
+  }
+
+  render() {
+    this.stopTicker();
+    this.containerEl.empty();
+    const root = this.containerEl.createDiv({ cls: "qt-text-timer" });
+    root.createDiv({ cls: "qt-text-timer-title", text: this.parsed.title });
+    for (const issue of this.parsed.issues.slice(0, 4)) root.createDiv({ cls: "qt-text-timer-issue", text: issue });
+    if (this.parsed.body) root.createDiv({ cls: "qt-text-timer-body", text: this.parsed.body });
+
+    const controls = root.createDiv({ cls: "qt-text-timer-controls" });
+    this.clockEl = controls.createSpan({ cls: "qt-text-timer-clock", text: "0:00" });
+    this.clockEl.setAttr("aria-live", "polite");
+    this.toggleEl = controls.createEl("button", { cls: "qt-text-timer-toggle", text: "Start" });
+    this.toggleEl.addEventListener("click", () => this.toggle().catch(() => {}));
+    const reset = controls.createEl("button", { cls: "qt-text-timer-reset", text: "Reset" });
+    reset.addEventListener("click", () => this.reset().catch(() => {}));
+    root.createDiv({ cls: "qt-text-timer-hint", text: "Counts up while you read. It does not change your study history." });
+    this.messageEl = root.createDiv({ cls: "qt-text-timer-message", text: this.message });
+    this.paint();
+    this.syncTicker();
+  }
+
+  refresh() {
+    this.paint();
+  }
+
+  async toggle() {
+    const now = this.now();
+    this.state = this.state.state === "running" ? pauseTextTimer(this.state, now) : startTextTimer(this.state, now);
+    this.settings.timers[this.key] = this.state;
+    this.message = this.state.state === "running" ? "Timer started." : "Timer paused.";
+    this.paint();
+    this.syncTicker();
+    await this.saveState();
+  }
+
+  async reset() {
+    this.state = resetTextTimer(this.state);
+    this.settings.timers[this.key] = this.state;
+    this.message = "Timer reset.";
+    this.stopTicker();
+    this.paint();
+    await this.saveState();
+  }
+}
+
+async function renderTextTimerBlock(plugin, source, el, ctx) {
+  const block = new TextTimerBlock(el, plugin, parseTextTimerBlock(source), ctx, source);
+  if (ctx && typeof ctx.addChild === "function") ctx.addChild(block);
+  else block.load();
+  return block;
+}
+
+module.exports = { TextTimerBlock, renderTextTimerBlock };
 };
 
 /* ---- src/text2anki.js ---- */
@@ -100869,6 +101539,8 @@ const { API_PRESETS, ApiClient, apiTurns, friendlyApiError } = require("./api-cl
 const modelDiscovery = require("./model-discovery");
 const reading = require("./reading");
 const tagTimer = require("./tag-timer");
+const tally = require("./tally");
+const textTimer = require("./text-timer");
 const { ChatPanel } = require("./chat-panel");
 const documentCards = require("./document-cards");
 const agentView = require("./agent-view");
@@ -101129,6 +101801,8 @@ QuestionTrackerPlugin.__test = {
   modelDiscovery,
   reading,
   tagTimer,
+  tally,
+  textTimer,
   ChatPanel,
   agentRetrieval: require("./agent-retrieval"),
   chatHistory: require("./chat-history"),

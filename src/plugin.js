@@ -49,6 +49,10 @@ const { normalizeThinkFirstSeconds } = require("./think-first");
 const readingModel = require("./reading");
 const { normalizeReadingSettings } = readingModel;
 const { normalizeTagTimerSettings, stopRunningTagTimers } = require("./tag-timer");
+const { normalizeTallySettings } = require("./tally");
+const { renderTallyBlock } = require("./tally-view");
+const { normalizeTextTimerSettings } = require("./text-timer");
+const { renderTextTimerBlock } = require("./text-timer-view");
 const { sleep, hashString, localDate, ensureFolder, str } = require("./util");
 const { PdfImportModal } = require("./import-modal");
 const { readPdfPages } = require("./pdf");
@@ -652,6 +656,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.registerMarkdownCodeBlockProcessor("simple-flashcards", (source, el, ctx) => this.renderSimpleFlashcardsBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("reading-plan", (source, el, ctx) => this.renderReadingPlanBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("tag-timer", (source, el, ctx) => this.renderTagTimerBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("tally", (source, el, ctx) => this.renderTallyBlock(source, el, ctx));
+    this.registerMarkdownCodeBlockProcessor("text-timer", (source, el, ctx) => this.renderTextTimerBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("cornell-note", (source, el) => renderCornellBlock(this, source, el));
     this.registerMarkdownCodeBlockProcessor("quiz", (source, el, ctx) => this.renderSimpleQuizBlock(source, el, ctx));
     this.registerMarkdownCodeBlockProcessor("quizjson", (source, el) => this.renderSimpleQuizDataBlock(source, el, "json"));
@@ -967,6 +973,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.settings.simpleNoteQuiz = normalizeSimpleNoteQuiz(saved.simpleNoteQuiz);
     this.settings.reading = normalizeReadingSettings(saved.reading);
     this.settings.tagTimers = normalizeTagTimerSettings(saved.tagTimers);
+    this.settings.tallies = normalizeTallySettings(saved.tallies);
+    this.settings.textTimers = normalizeTextTimerSettings(saved.textTimers);
     this.settings.cornellNotes = studyTools.normalizeCornellSettings(saved.cornellNotes);
     this.settings.lectureLog = studyTools.normalizeLectureLog(saved.lectureLog);
     this.settings.studyGoals = studyTools.normalizeStudyGoals(saved.studyGoals);
@@ -5162,6 +5170,16 @@ class QuestionTrackerPlugin extends Plugin {
   /** Render a `tag-timer` block with local timer state and per-tag analytics. */
   async renderTagTimerBlock(source, el, ctx) {
     return renderTagTimerBlock(this, source, el, ctx);
+  }
+
+  /** Render a `tally` block with local correct/incorrect counters. */
+  async renderTallyBlock(source, el, ctx) {
+    return renderTallyBlock(this, source, el, ctx);
+  }
+
+  /** Render a `text-timer` block with a local count-up clock. */
+  async renderTextTimerBlock(source, el, ctx) {
+    return renderTextTimerBlock(this, source, el, ctx);
   }
 
   async stopAllTagTimers() {

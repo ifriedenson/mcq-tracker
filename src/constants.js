@@ -154,6 +154,8 @@ const DEFAULT_SETTINGS = {
   },
   reading: { progress: {} }, // reading-plan progress keyed by plan id; local only
   tagTimers: { timers: {}, sessions: [] }, // local tag-timer state and completed sessions
+  tallies: { sessions: {} }, // local correct/incorrect counters for `tally` blocks
+  textTimers: { timers: {} }, // local count-up clocks for `text-timer` blocks
   cornellNotes: { enabled: true }, // independent local Cornell-note module
   lectureLog: { enabled: true, lectures: [] }, // independent local lecture-log module
   studyGoals: { enabled: true, goals: [] }, // independent local study-goal module

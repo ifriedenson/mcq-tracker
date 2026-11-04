@@ -1,3 +1,7 @@
+## 1.232.0 - 2026-11-04
+
+- **Tally and text-timer blocks**: the installed-plugin review adds two local study blocks. A `tally` block shows side-by-side Correct/Incorrect counters with adjustable step sizes, accuracy, CPS and elapsed session time; state is keyed by note and optional id, survives a reload and never records a graded attempt. A `text-timer` block shows a plain-text passage with a start/pause/reset count-up clock and local state. Both write only their own settings slice. The accompanying audit records all 23 installed plugins, corrects the Advanced Tables, Hider and Markmind community ids, and documents the licensing, Code Runner security and UI/theme boundaries. No dependency, provider or network request was added.
+
 ## 1.231.0 - 2026-11-04
 
 - **Live form fields when adding pages**: adding pages from another fillable PDF now clones each incoming field into the target AcroForm with a deterministic unique name, reparents the copied widget and preserves its value and appearance, so the added page stays fillable and independent of the source. Existing target fields are untouched, source bytes are unchanged, repeated merges resolve name collisions, and non-widget annotations survive. A button, signature, XFA or otherwise unsupported source field refuses the whole merge with `reason: "form"` and a message naming Add-pages. Extraction and splitting keep their separate flatten-on-copy behavior. Covered by real-byte engine tests and a real-window Add-pages test.
