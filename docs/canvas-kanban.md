@@ -56,6 +56,7 @@ slice reads and re-stacks columns instead.
 
 The auto-link slice is in [canvas-auto-link.md](canvas-auto-link.md), on the same pure
 model. The presentations slice is in [canvas-presentations.md](canvas-presentations.md), on the
-same pure model. The next slice, if approved, is query groups: a frame whose label names
-a search, filled with the matching cards from the same model, never moving or removing
-the user's cards.
+same pure model. The query-groups slice is in [canvas-query-groups.md](canvas-query-groups.md),
+on the same pure model. The next slice, if approved, is portals: a card that stands for
+a target card or note on the same board, resolved on the pure model and offered rather
+than written into the canvas internals.

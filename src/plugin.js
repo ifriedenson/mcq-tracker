@@ -26,6 +26,8 @@ const canvasAutoLink = require("./canvas-auto-link");
 const { LinkReportModal } = require("./canvas-auto-link-view");
 const canvasPresentations = require("./canvas-presentations");
 const { PresentationModal, PresentationPlanModal } = require("./canvas-presentations-view");
+const canvasQuery = require("./canvas-query");
+const { QueryGroupsModal } = require("./canvas-query-view");
 const { WebBrowserView } = require("./web-browser-view");
 const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
@@ -438,6 +440,8 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "canvas-auto-link-apply", name: "Canvas: link the active board's matching cards", callback: () => this.applyCanvasLinks() });
     this.addCommand({ id: "canvas-present-report", name: "Canvas: report the active board's presentation plan", callback: () => this.reportCanvasPresentation() });
     this.addCommand({ id: "canvas-present", name: "Canvas: present the active board", callback: () => this.presentActiveCanvas() });
+    this.addCommand({ id: "canvas-query-report", name: "Canvas: report the active board's query groups", callback: () => this.reportCanvasQueryGroups() });
+    this.addCommand({ id: "canvas-query-apply", name: "Canvas: fit the active board's query groups around their matches", callback: () => this.applyCanvasQueryGroups() });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
@@ -2186,6 +2190,48 @@ class QuestionTrackerPlugin extends Plugin {
     const total = plan.slides.length;
     new Notice("Presenting " + total + (total === 1 ? " slide" : " slides") + ". Slide 1 of " + total + ": " + first.title);
     return { ok: true, path: file.path, slides: total, mode: plan.mode, summary: plan.summary, stats: plan.stats, modal };
+  }
+
+  /** Show the query groups on the open board and what each one would match. */
+  async reportCanvasQueryGroups() {
+    const file = typeof this.app.workspace.getActiveFile === "function" ? this.app.workspace.getActiveFile() : null;
+    if (!file || !/\.canvas$/i.test(file.path)) {
+      new Notice("Open a canvas first.");
+      return { ok: false, reason: "file", message: "Open a canvas first." };
+    }
+    const report = canvasQuery.queryReport(await this.app.vault.read(file));
+    if (!report.ok) {
+      new Notice(report.message);
+      return report;
+    }
+    new QueryGroupsModal(this.app, report).open();
+    new Notice(report.summary);
+    return report;
+  }
+
+  /** Fit each query group's frame around its matches; no card is moved. */
+  async applyCanvasQueryGroups() {
+    const file = typeof this.app.workspace.getActiveFile === "function" ? this.app.workspace.getActiveFile() : null;
+    if (!file || !/\.canvas$/i.test(file.path)) {
+      new Notice("Open a canvas first.");
+      return { ok: false, reason: "file", message: "Open a canvas first." };
+    }
+    const fitted = canvasQuery.applyQueries(await this.app.vault.read(file));
+    if (!fitted.ok) {
+      new Notice(fitted.message);
+      return fitted;
+    }
+    if (!fitted.changed) {
+      const message = "Those query groups already fit their matches (" + fitted.stats.queries + ").";
+      new Notice(message);
+      return { ok: true, path: file.path, changed: false, stats: fitted.stats, summary: fitted.summary, message };
+    }
+    await this.app.vault.modify(file, fitted.text);
+    const groups = fitted.applied.length;
+    const message = "Fitted " + groups + (groups === 1 ? " query group" : " query groups")
+      + " around " + fitted.stats.matched + (fitted.stats.matched === 1 ? " card" : " cards") + "; " + fitted.summary;
+    new Notice(message);
+    return { ok: true, path: file.path, changed: true, applied: fitted.applied, stats: fitted.stats, summary: fitted.summary, message };
   }
 
   webBrowserEnabled() {

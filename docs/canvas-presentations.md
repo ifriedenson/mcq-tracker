@@ -73,7 +73,7 @@ deck, and zooming the canvas to each slide. Those need either a second rendering
 or the canvas view's own internals, so this slice draws its own read-only window from the
 validated model instead.
 
-The auto-link slice is in [canvas-auto-link.md](canvas-auto-link.md), on the same pure
-model. The next slice, if approved, is **query groups**: a frame whose label names a
-search, filled with the matching cards from the same validated model, with the user's
-cards never moved or removed.
+The query-groups slice is in [canvas-query-groups.md](canvas-query-groups.md),
+on the same pure model. The next slice, if approved, is portals: a card that stands for
+a target card or note on the same board, resolved on the pure model and offered rather
+than written into the canvas internals.
