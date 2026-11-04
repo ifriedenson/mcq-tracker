@@ -455,7 +455,7 @@ test("the table toolbar commits the active cell before applying a structure acti
   assert.equal(tableEl.inserted.position, "afterend");
   assert.equal(decorated.toolbar.attrs.role, "toolbar");
   assert.equal(decorated.toolbar.attrs["aria-label"], "Table controls");
-  assert.equal(decorated.toolbar.children.length, editor.TABLE_STRUCTURE_ACTIONS.length);
+  assert.equal(decorated.toolbar.children.length, editor.TABLE_STRUCTURE_ACTIONS.length + editor.TABLE_FORMAT_ACTIONS.length);
   assert.equal(decorated.toolbar.children[0].attrs["data-qt-table-action"], "row-insert-below");
   assert.equal(decorated.toolbar.children[0].attrs["aria-label"], "Insert row below");
 
@@ -487,4 +487,139 @@ test("structural changes use the note write path and keep the source valid", asy
   assert.deepEqual(updated.align, ["none", "none", "none"]);
   assert.equal(updated.rows.every((row) => row.length === 3), true);
   assert.match(saved, /\| ATP\s+\|\s+\| Energy\s+\|/);
+});
+
+test("cell formatting toggles on the source, escapes pipes and preserves the table shape", () => {
+  const source = "| Term | Meaning |\r\n| :--- | ---: |\r\n| ATP | Energy |\r\n";
+  const table = editor.parseTables(source)[0];
+  for (const format of ["bold", "italic", "code", "strikethrough"]) {
+    const on = editor.updateTableFormat(source, 0, table, 1, 0, format);
+    assert.equal(on.ok, true);
+    assert.ok(on.text.includes("\r\n"), `${format} keeps CRLF`);
+    const formatted = editor.parseTables(on.text)[0];
+    assert.deepEqual(formatted.align, ["left", "right"]);
+    assert.equal(formatted.rows.every((row) => row.length === 2), true);
+    const off = editor.updateTableFormat(on.text, 0, formatted, 1, 0, format);
+    assert.equal(off.ok, true);
+    assert.deepEqual(editor.parseTables(off.text)[0].rows[1], ["ATP", "Energy"], `${format} toggles back`);
+  }
+
+  const pipeSource = "| Term | Meaning |\n| --- | --- |\n| x \\| y | z |\n";
+  const pipeTable = editor.parseTables(pipeSource)[0];
+  const piped = editor.updateTableFormat(pipeSource, 0, pipeTable, 1, 0, "bold");
+  assert.equal(piped.ok, true);
+  assert.match(piped.text, /\*\*x \\\| y\*\*/);
+  assert.equal(editor.parseTables(piped.text)[0].rows[1][0], "**x \\| y**");
+});
+
+test("formatting and alignment refuse empty cells, missing columns and bad values", () => {
+  const source = "| A | B |\n| --- | --- |\n|  | x |\n";
+  const table = editor.parseTables(source)[0];
+  const empty = editor.updateTableFormat(source, 0, table, 1, 0, "bold");
+  assert.equal(empty.reason, "empty");
+  assert.match(empty.message, /no text to format/i);
+  const missing = editor.updateTableFormat(source, 0, table, 1, 9, "bold");
+  assert.equal(missing.reason, "column");
+  assert.match(missing.message, /column is no longer available/i);
+  assert.equal(editor.toggleCellFormat("ATP", "unknown").reason, "format");
+  const missingAlign = editor.alignTableColumn(table, 9, "left");
+  assert.equal(missingAlign.reason, "column");
+  assert.match(missingAlign.message, /column is no longer available/i);
+  const badAlign = editor.alignTableColumn(table, 1, "sideways");
+  assert.equal(badAlign.reason, "alignment");
+  assert.match(badAlign.message, /left, center, right or default/i);
+  assert.equal(editor.formatTableCell(null, 0, 0, "bold").reason, "table");
+});
+
+test("column alignment updates the delimiter row for every supported value", () => {
+  const source = "| A | B |\n| --- | --- |\n| 1 | 2 |\n";
+  const table = editor.parseTables(source)[0];
+  const expected = { left: ":---", center: ":---:", right: "---:", none: "---" };
+  for (const alignment of ["left", "center", "right", "none"]) {
+    const result = editor.updateTableAlignment(source, 0, table, 1, alignment);
+    assert.equal(result.ok, true, alignment);
+    const updated = editor.parseTables(result.text)[0];
+    assert.equal(updated.align[1], alignment);
+    const delimiter = editor.splitTableRow(result.replacement.split("\n")[1]);
+    assert.equal(delimiter.cells[1], expected[alignment], alignment);
+  }
+
+  const crlfSource = "| A | B |\r\n| --- | --- |\r\n| 1 | 2 |\r\n";
+  const crlf = editor.updateTableAlignment(crlfSource, 0, editor.parseTables(crlfSource)[0], 1, "center");
+  assert.equal(crlf.ok, true);
+  assert.ok(crlf.text.includes("\r\n"));
+  assert.equal(editor.parseTables(crlf.text)[0].align[1], "center");
+});
+
+test("the table toolbar commits the active cell before formatting and alignment", async () => {
+  const source = "| Term | Meaning |\n| --- | --- |\n| ATP | Energy |\n";
+  const table = editor.parseTables(source)[0];
+  const tableEl = fakeTable(["Term", "Meaning"], [["ATP", "Energy"]]);
+  tableEl.ownerDocument = fakeToolbarDoc();
+  const edits = [];
+  const formats = [];
+  const aligns = [];
+  const decorated = editor.decorateTable(tableEl, {
+    table,
+    commit: (row, column, value) => {
+      edits.push({ row, column, value });
+      return { ok: true };
+    },
+    format: (value, row, column) => {
+      formats.push({ value, row, column });
+      return { ok: true };
+    },
+    align: (value, column) => {
+      aligns.push({ value, column });
+      return { ok: true };
+    },
+  });
+
+  const button = (id) => decorated.toolbar.children.find((child) => child.attrs["data-qt-table-action"] === id);
+  assert.ok(button("cell-bold"));
+  assert.ok(button("column-align-center"));
+  const cell = tableEl.rows[1].cells[0];
+  fire(cell, "focus");
+  cell.textContent = "Adenosine triphosphate";
+  fire(button("cell-bold"), "click", { preventDefault() {} });
+  await flush();
+  await flush();
+  assert.deepEqual(edits, [{ row: 1, column: 0, value: "Adenosine triphosphate" }]);
+  assert.deepEqual(formats, [{ value: "bold", row: 1, column: 0 }]);
+
+  fire(button("column-align-center"), "click", { preventDefault() {} });
+  await flush();
+  await flush();
+  assert.deepEqual(aligns, [{ value: "center", column: 0 }]);
+});
+
+test("formatting and alignment go through the note write path", async () => {
+  const note = "Before\n\n| Term | Meaning |\n| --- | --- |\n| ATP | Energy |\n\nAfter";
+  const app = makeApp([{ path: "note.md", text: note }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.tableEditor = { enabled: true };
+  const table = editor.parseTables(note)[0];
+
+  const bold = await plugin.updateTableCellFormat("note.md", 0, table, "bold", 1, 0);
+  assert.equal(bold.ok, true);
+  let saved = app.modified[0].text;
+  let updated = editor.parseTables(saved)[0];
+  assert.equal(updated.rows[1][0], "**ATP**");
+  assert.equal(updated.rows.every((row) => row.length === 2), true);
+
+  const italic = await plugin.updateTableCellFormat("note.md", 0, updated, "italic", 1, 0);
+  assert.equal(italic.ok, true);
+  saved = app.modified[1].text;
+  updated = editor.parseTables(saved)[0];
+  assert.equal(updated.rows[1][0], "***ATP***");
+
+  const centered = await plugin.updateTableAlignment("note.md", 0, updated, "center", 1);
+  assert.equal(centered.ok, true);
+  saved = app.modified[2].text;
+  updated = editor.parseTables(saved)[0];
+  assert.equal(updated.align[1], "center");
+  assert.equal(updated.rows[1][0], "***ATP***");
+  const delimiter = editor.splitTableRow(saved.split("\n")[3]);
+  assert.match(delimiter.cells[1], /^:-{3,}:$/);
 });

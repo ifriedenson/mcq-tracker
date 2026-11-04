@@ -9419,6 +9419,8 @@ ${body}
         table,
         commit: (row, column, value) => this.updateTableCell(sourcePath, lineStart, table, row, column, value),
         structure: (action, row, column) => this.updateTableStructure(sourcePath, lineStart, table, action, row, column),
+        format: (value, row, column) => this.updateTableCellFormat(sourcePath, lineStart, table, value, row, column),
+        align: (value, column) => this.updateTableAlignment(sourcePath, lineStart, table, value, column),
         onError: (message) => {
           if (message) new Notice(message);
         },
@@ -9437,6 +9439,20 @@ ${body}
   async updateTableStructure(sourcePath, sectionStart, table, action, row, column) {
     return this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
       tableEditor.updateTableStructure(current, startLine, expected, action, row, column)
+    );
+  }
+
+  /** Toggles one cell format through the same queue and write path. */
+  async updateTableCellFormat(sourcePath, sectionStart, table, format, row, column) {
+    return this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
+      tableEditor.updateTableFormat(current, startLine, expected, row, column, format)
+    );
+  }
+
+  /** Sets one column alignment through the same queue and write path. */
+  async updateTableAlignment(sourcePath, sectionStart, table, alignment, column) {
+    return this.updateTableBlock(sourcePath, sectionStart, table, (current, startLine, expected) =>
+      tableEditor.updateTableAlignment(current, startLine, expected, column, alignment)
     );
   }
 

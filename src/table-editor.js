@@ -14,15 +14,29 @@ const MAX_CELL_LENGTH = 4000;
 
 /** Structural actions exposed by the table toolbar. */
 const TABLE_STRUCTURE_ACTIONS = [
-  { id: "row-insert-below", short: "+ Row", label: "Insert row below" },
-  { id: "row-delete", short: "− Row", label: "Delete row" },
-  { id: "row-move-up", short: "↑ Row", label: "Move row up" },
-  { id: "row-move-down", short: "↓ Row", label: "Move row down" },
-  { id: "column-insert-right", short: "+ Col", label: "Insert column right" },
-  { id: "column-delete", short: "− Col", label: "Delete column" },
-  { id: "column-move-left", short: "← Col", label: "Move column left" },
-  { id: "column-move-right", short: "→ Col", label: "Move column right" },
+  { id: "row-insert-below", kind: "structure", short: "+ Row", label: "Insert row below" },
+  { id: "row-delete", kind: "structure", short: "− Row", label: "Delete row" },
+  { id: "row-move-up", kind: "structure", short: "↑ Row", label: "Move row up" },
+  { id: "row-move-down", kind: "structure", short: "↓ Row", label: "Move row down" },
+  { id: "column-insert-right", kind: "structure", short: "+ Col", label: "Insert column right" },
+  { id: "column-delete", kind: "structure", short: "− Col", label: "Delete column" },
+  { id: "column-move-left", kind: "structure", short: "← Col", label: "Move column left" },
+  { id: "column-move-right", kind: "structure", short: "→ Col", label: "Move column right" },
 ];
+
+/** Formatting and column-alignment actions exposed beside the structural ones. */
+const TABLE_FORMAT_ACTIONS = [
+  { id: "cell-bold", kind: "format", format: "bold", short: "B", label: "Bold cell text" },
+  { id: "cell-italic", kind: "format", format: "italic", short: "I", label: "Italic cell text" },
+  { id: "cell-code", kind: "format", format: "code", short: "Code", label: "Inline code" },
+  { id: "cell-strikethrough", kind: "format", format: "strikethrough", short: "S", label: "Strikethrough cell text" },
+  { id: "column-align-left", kind: "align", align: "left", short: "L", label: "Align column left" },
+  { id: "column-align-center", kind: "align", align: "center", short: "C", label: "Align column center" },
+  { id: "column-align-right", kind: "align", align: "right", short: "R", label: "Align column right" },
+  { id: "column-align-default", kind: "align", align: "none", short: "Def", label: "Default column alignment" },
+];
+
+const TABLE_TOOLBAR_ACTIONS = TABLE_STRUCTURE_ACTIONS.concat(TABLE_FORMAT_ACTIONS);
 
 function text(value) {
   return value === null || value === undefined ? "" : String(value);
@@ -303,7 +317,7 @@ function createTableToolbar(tableEl, run) {
   toolbar.setAttribute("aria-label", "Table controls");
   toolbar.setAttribute("contenteditable", "false");
 
-  for (const action of TABLE_STRUCTURE_ACTIONS) {
+  for (const action of TABLE_TOOLBAR_ACTIONS) {
     const button = doc.createElement("button");
     button.type = "button";
     button.className = "qt-table-toolbar-button";
@@ -318,7 +332,7 @@ function createTableToolbar(tableEl, run) {
       });
       button.addEventListener("click", (event) => {
         if (event && event.preventDefault) event.preventDefault();
-        run(action.id);
+        run(action);
       });
     }
     toolbar.appendChild(button);
@@ -328,6 +342,99 @@ function createTableToolbar(tableEl, run) {
   else if (tableEl.parentNode && typeof tableEl.parentNode.insertBefore === "function") tableEl.parentNode.insertBefore(toolbar, tableEl.nextSibling);
   else return null;
   return toolbar;
+}
+
+const CELL_FORMATS = {
+  bold: { marker: "**", character: "*" },
+  italic: { marker: "*", character: "*" },
+  code: { marker: "`", character: "`" },
+  strikethrough: { marker: "~~", character: "~" },
+};
+
+function markerRun(value, character, fromEnd) {
+  let count = 0;
+  if (fromEnd) {
+    for (let i = value.length - 1; i >= 0 && value[i] === character; i -= 1) count += 1;
+  } else {
+    for (let i = 0; i < value.length && value[i] === character; i += 1) count += 1;
+  }
+  return count;
+}
+
+/**
+ * Toggles one whole-cell format without losing the source text. Star markers are
+ * treated as layers so bold+italic (`***text***`) can be toggled back cleanly.
+ */
+function toggleCellFormat(value, format) {
+  const base = text(value).trim();
+  if (!base.replace(/[*_~`]/g, "").trim()) {
+    return { ok: false, reason: "empty", message: "That cell has no text to format." };
+  }
+  const spec = CELL_FORMATS[format];
+  if (!spec) return { ok: false, reason: "format", message: "Unknown table cell format." };
+  const leading = markerRun(base, spec.character, false);
+  const trailing = markerRun(base, spec.character, true);
+  if (leading !== trailing) {
+    return { ok: false, reason: "markers", message: "This cell has unmatched emphasis markers; edit it in source mode." };
+  }
+
+  let next = "";
+  if (format === "bold") {
+    next = leading >= 2 ? base.slice(2, -2) : `**${base}**`;
+  } else if (format === "italic") {
+    if (leading === 1 || leading === 3) next = base.slice(1, -1);
+    else if (leading === 0 || leading === 2) next = `*${base}*`;
+    else return { ok: false, reason: "markers", message: "This cell has complex emphasis; edit it in source mode." };
+  } else if (format === "code") {
+    if (leading === 1) next = base.slice(1, -1);
+    else if (leading === 0) next = `\`${base}\``;
+    else return { ok: false, reason: "markers", message: "This cell uses a multi-backtick code span; edit it in source mode." };
+  } else if (format === "strikethrough") {
+    if (leading >= 2) next = base.slice(2, -2);
+    else if (leading === 0) next = `~~${base}~~`;
+    else return { ok: false, reason: "markers", message: "This cell has unmatched emphasis markers; edit it in source mode." };
+  }
+  return { ok: true, value: next, changed: next !== base };
+}
+
+function hasColumn(table, column) {
+  return Number.isInteger(column) && column >= 0 && column < table.columns;
+}
+
+/** Toggles bold/italic/code/strikethrough on one source cell. */
+function formatTableCell(table, row, column, format) {
+  if (!table || !Array.isArray(table.rows) || !Array.isArray(table.align)) {
+    return { ok: false, reason: "table", message: "The table is no longer available." };
+  }
+  if (!Number.isInteger(row) || row < 0 || row >= table.rows.length) {
+    return { ok: false, reason: "row", message: "That table row is no longer available." };
+  }
+  if (!hasColumn(table, column)) {
+    return { ok: false, reason: "column", message: "That table column is no longer available." };
+  }
+  const source = table.rows[row][column] || "";
+  const toggled = toggleCellFormat(source, format);
+  if (!toggled.ok) return toggled;
+  const rows = table.rows.map((cells) => cells.slice());
+  rows[row][column] = escapeCell(toggled.value);
+  return { ok: true, changed: rows[row][column] !== source, table: { ...table, rows, header: rows[0].slice() } };
+}
+
+/** Sets one column's delimiter alignment: left, center, right or default. */
+function alignTableColumn(table, column, alignment) {
+  if (!table || !Array.isArray(table.align)) {
+    return { ok: false, reason: "table", message: "The table is no longer available." };
+  }
+  if (!hasColumn(table, column)) {
+    return { ok: false, reason: "column", message: "That table column is no longer available." };
+  }
+  if (!["left", "center", "right", "none"].includes(alignment)) {
+    return { ok: false, reason: "alignment", message: "Choose left, center, right or default alignment." };
+  }
+  const align = table.align.slice();
+  const changed = align[column] !== alignment;
+  align[column] = alignment;
+  return { ok: true, changed, table: { ...table, align } };
 }
 
 /** Escapes a committed cell so a typed pipe becomes data, not a new column. */
@@ -460,6 +567,28 @@ function updateTableStructure(markdown, startLine, expected, action, row, column
   return { ...tableBlockUpdate(source, table, change.table), changed: true };
 }
 
+/** Applies one cell format to a source table. */
+function updateTableFormat(markdown, startLine, expected, row, column, format) {
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
+  if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
+  const change = formatTableCell(table, row, column, format);
+  if (!change.ok) return change;
+  return { ...tableBlockUpdate(source, table, change.table), changed: change.changed };
+}
+
+/** Applies one column alignment to a source table. */
+function updateTableAlignment(markdown, startLine, expected, column, alignment) {
+  const source = text(markdown);
+  const lines = source.split(/\r?\n/);
+  const table = tableForUpdate(lines, Number.isInteger(startLine) ? startLine : -1, expected);
+  if (!table) return { ok: false, reason: "not-found", message: "This table could not be matched to the note." };
+  const change = alignTableColumn(table, column, alignment);
+  if (!change.ok) return change;
+  return { ...tableBlockUpdate(source, table, change.table), changed: change.changed };
+}
+
 /**
  * Where a key should move inside the table. Tab/Shift+Tab and Enter/Shift+Enter
  * stay inside the table; Alt+Arrow keys move one cell. A boundary is reported
@@ -551,6 +680,8 @@ function decorateTable(tableEl, options) {
   if (!tableEl || !table || !Array.isArray(table.rows)) return null;
   const commit = typeof opts.commit === "function" ? opts.commit : null;
   const structure = typeof opts.structure === "function" ? opts.structure : null;
+  const format = typeof opts.format === "function" ? opts.format : null;
+  const align = typeof opts.align === "function" ? opts.align : null;
   const onError = typeof opts.onError === "function" ? opts.onError : null;
   const rows = tableRows(tableEl);
   if (!rows.length || rows.length !== table.rows.length) return null;
@@ -609,6 +740,49 @@ function decorateTable(tableEl, options) {
         if (result && result.ok === false) fail(result.message || "The table could not be changed.");
       })
       .catch((error) => fail(error && error.message ? error.message : "The table could not be changed."));
+  };
+
+  const runFormat = (value) => {
+    if (!format) return;
+    if (!active) {
+      fail("Select a table cell before formatting its text.");
+      return Promise.resolve();
+    }
+    const at = active;
+    return Promise.resolve(commitActive())
+      .then((saved) => {
+        if (saved && saved.ok === false) return null;
+        return format(value, at.row, at.column);
+      })
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The table cell could not be formatted.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The table cell could not be formatted."));
+  };
+
+  const runAlign = (value) => {
+    if (!align) return;
+    if (!active) {
+      fail("Select a table cell before choosing its column alignment.");
+      return Promise.resolve();
+    }
+    const at = active;
+    return Promise.resolve(commitActive())
+      .then((saved) => {
+        if (saved && saved.ok === false) return null;
+        return align(value, at.column);
+      })
+      .then((result) => {
+        if (result && result.ok === false) fail(result.message || "The column alignment could not be changed.");
+      })
+      .catch((error) => fail(error && error.message ? error.message : "The column alignment could not be changed."));
+  };
+
+  const runAction = (action) => {
+    if (!action) return;
+    if (action.kind === "structure") return runStructure(action.id);
+    if (action.kind === "format") return runFormat(action.format);
+    if (action.kind === "align") return runAlign(action.align);
   };
 
   const focusCell = (row, column) => {
@@ -675,7 +849,7 @@ function decorateTable(tableEl, options) {
   });
 
   decorating = false;
-  const toolbar = structure ? createTableToolbar(tableEl, runStructure) : null;
+  const toolbar = structure || format || align ? createTableToolbar(tableEl, runAction) : null;
   return { cells, rows: table.rows.length, columns: table.columns, focusCell, toolbar };
 }
 
@@ -683,7 +857,10 @@ module.exports = {
   MAX_CELL_LENGTH,
   MAX_TABLE_COLUMNS,
   MAX_TABLE_ROWS,
+  TABLE_FORMAT_ACTIONS,
   TABLE_STRUCTURE_ACTIONS,
+  TABLE_TOOLBAR_ACTIONS,
+  alignTableColumn,
   decorateTable,
   escapeCell,
   findTable,
@@ -693,8 +870,12 @@ module.exports = {
   parseTables,
   renderTable,
   renderedHeader,
+  formatTableCell,
   splitTableRow,
   structureTable,
+  toggleCellFormat,
+  updateTableAlignment,
+  updateTableFormat,
   updateTableStructure,
   updateTableText,
 };
