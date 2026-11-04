@@ -17,14 +17,16 @@ with plain JavaScript.
   `Canvas: build a board from the active note outline`. Output paths never overwrite an
   existing file.
 
+The second slice — mind-map walking and tree auto-layout — is in
+[canvas-mind-map.md](canvas-mind-map.md).
+
 ## What is not absorbed, and why
 
-Not yet implemented: drawing and ink, mind-map walking and column view, ELK automatic
+Not yet implemented: drawing and ink, the mind-map column view, ELK loop and orthogonal
 layouts, smart groups, kanban two-way sync, query groups, auto-link, presentations,
 portals, minimap, frames, LOD rendering, RTL and localisation, tutorials, and the
 `x-opc` in-canvas data format. Those need either the EPL-2.0 layout engine and a
-TypeScript build (declined: the plugin stays dependency-free) or monkey-patching
-Obsidian's private Canvas internals (a separate architectural decision).
+TypeScript build (declined: the plugin stays dependency-free) or the `x-opc` format,
+which would write a private data model into the user's boards.
 
-The next slice, if approved, is mind-map navigation and a single-root auto-layout built
-on the same pure model.
+The next slice, if approved, is kanban columns on the same pure model.

@@ -19,6 +19,7 @@ const studyWorkspace = require("./study-workspace");
 const timeBlocks = require("./time-blocks");
 const webBrowser = require("./web-browser");
 const canvasMarkdown = require("./canvas-markdown");
+const canvasMap = require("./canvas-map");
 const { WebBrowserView } = require("./web-browser-view");
 const calendarPlanner = require("./calendar-planner");
 const citations = require("./citations");
@@ -420,6 +421,11 @@ class QuestionTrackerPlugin extends Plugin {
     this.addCommand({ id: "open-web-browser", name: "Web browser: open", callback: () => this.openWebBrowser() });
     this.addCommand({ id: "canvas-to-outline", name: "Canvas: export the active canvas to a Markdown outline", callback: () => this.exportCanvasToMarkdown() });
     this.addCommand({ id: "canvas-from-outline", name: "Canvas: build a board from the active note outline", callback: () => this.boardFromActiveNote() });
+    this.addCommand({ id: "canvas-walk-parent", name: "Canvas: mind map, go to the parent card", callback: () => this.walkCanvas("parent") });
+    this.addCommand({ id: "canvas-walk-child", name: "Canvas: mind map, go to the first child card", callback: () => this.walkCanvas("child") });
+    this.addCommand({ id: "canvas-walk-next-sibling", name: "Canvas: mind map, go to the next sibling card", callback: () => this.walkCanvas("next") });
+    this.addCommand({ id: "canvas-walk-prev-sibling", name: "Canvas: mind map, go to the previous sibling card", callback: () => this.walkCanvas("prev") });
+    this.addCommand({ id: "canvas-layout", name: "Canvas: arrange the active board as a mind map", callback: () => this.layoutActiveCanvas() });
     this.addCommand({ id: "open-task-list", name: "Open the task list", callback: () => this.activateTaskList() });
     this.addCommand({ id: "open-reading-library", name: "Reading library: open the bookshelf", callback: () => this.activateStudyWorkspace("readingLibrary") });
     this.addCommand({ id: "new-feynman-cycle", name: "Feynman Learning: start a cycle", callback: () => this.activateStudyWorkspace("feynman") });
@@ -1953,6 +1959,101 @@ class QuestionTrackerPlugin extends Plugin {
     await this.app.vault.create(path, canvasMarkdown.serializeCanvas(converted.canvas));
     new Notice(`Wrote ${path} with ${converted.canvas.nodes.length} cards.`);
     return { ok: true, path, cards: converted.canvas.nodes.length };
+  }
+
+  /** The remembered card for one board, so the walk continues where it stopped. */
+  canvasCursor(file) {
+    const cursor = this.canvasWalk;
+    return cursor && cursor.path === file.path ? cursor.id : "";
+  }
+
+  /** One step of mind-map navigation from the cursor; the board file is never written. */
+  async walkCanvas(direction) {
+    const file = typeof this.app.workspace.getActiveFile === "function" ? this.app.workspace.getActiveFile() : null;
+    if (!file || !/\.canvas$/i.test(file.path)) {
+      new Notice("Open a canvas first.");
+      return { ok: false, reason: "file", message: "Open a canvas first." };
+    }
+    const parsed = canvasMarkdown.parseCanvas(await this.app.vault.read(file));
+    if (!parsed.ok) {
+      new Notice(parsed.message);
+      return parsed;
+    }
+    const resolved = canvasMap.resolveTree(parsed.canvas);
+    if (!resolved.ok) {
+      new Notice(resolved.message);
+      return resolved;
+    }
+    const tree = resolved.tree;
+    const remembered = tree.byId.get(this.canvasCursor(file));
+    if (!remembered) {
+      this.canvasWalk = { path: file.path, id: tree.root.id };
+      const revealed = await this.revealCanvasCard(file, tree.root);
+      const message = 'Mind map: "' + canvasMarkdown.labelOf(tree.root) + '" is the root card.';
+      new Notice(message);
+      return { ok: true, id: tree.root.id, root: true, revealed, message };
+    }
+    const step = canvasMap.neighbour(tree, remembered.id, direction);
+    if (!step.ok) {
+      new Notice(step.message);
+      return step;
+    }
+    this.canvasWalk = { path: file.path, id: step.id };
+    const revealed = await this.revealCanvasCard(file, step.card);
+    const message = 'Mind map: focused "' + canvasMarkdown.labelOf(step.card) + '".';
+    new Notice(message);
+    return { ok: true, id: step.id, card: step.card, revealed, message };
+  }
+
+  /**
+   * Optional reveal. Obsidian has no public "focus this canvas card" API, so an
+   * open canvas view is used only when it already exposes one: feature-detected,
+   * guarded, and never patched. The notice above always names the card.
+   */
+  async revealCanvasCard(file, card) {
+    try {
+      const leaves = this.app.workspace && typeof this.app.workspace.getLeavesOfType === "function" ? this.app.workspace.getLeavesOfType("canvas") : [];
+      for (const leaf of leaves || []) {
+        const view = leaf && leaf.view;
+        if (!view || !view.file || view.file.path !== file.path) continue;
+        const api = view.canvas;
+        if (!api || !api.nodes || typeof api.nodes.get !== "function") continue;
+        const node = api.nodes.get(card.id);
+        if (!node) continue;
+        if (api.selection && typeof api.selection.clear === "function") api.selection.clear();
+        if (api.selection && typeof api.selection.add === "function") api.selection.add(node);
+        if (typeof api.zoomToSelection === "function") api.zoomToSelection();
+        if (typeof api.requestFrame === "function") api.requestFrame();
+        return true;
+      }
+    } catch (error) {
+      /* the notice still names the card */
+    }
+    return false;
+  }
+
+  /** Arrange the open board as a tree; only each card's x and y are written. */
+  async layoutActiveCanvas() {
+    const file = typeof this.app.workspace.getActiveFile === "function" ? this.app.workspace.getActiveFile() : null;
+    if (!file || !/\.canvas$/i.test(file.path)) {
+      new Notice("Open a canvas first.");
+      return { ok: false, reason: "file", message: "Open a canvas first." };
+    }
+    const laid = canvasMap.layoutCanvas(await this.app.vault.read(file));
+    if (!laid.ok) {
+      new Notice(laid.message);
+      return laid;
+    }
+    if (!laid.changed) {
+      const message = "That board is already arranged (" + laid.stats.cards + " cards).";
+      new Notice(message);
+      return { ok: true, path: file.path, changed: false, stats: laid.stats, message };
+    }
+    await this.app.vault.modify(file, laid.text);
+    const loose = laid.stats.orphans ? " and " + laid.stats.orphans + " loose card" + (laid.stats.orphans === 1 ? "" : "s") + " beside it" : "";
+    const message = "Arranged " + laid.stats.placed + " cards" + loose + ".";
+    new Notice(message);
+    return { ok: true, path: file.path, changed: true, stats: laid.stats, message };
   }
 
   webBrowserEnabled() {
