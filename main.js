@@ -48608,6 +48608,33 @@ function cloneDuplicateField(doc, field, copiedWidgetRef, pageRef, name) {
   return fieldRef;
 }
 
+/** Clone one field already copied into this document's context. */
+function cloneMergedField(doc, copiedWidgetRef, pageRef, name) {
+  const context = doc.context;
+  const widget = context.lookup(copiedWidgetRef);
+  const parentRef = widget.get(PDFName.of("Parent"));
+  if (!parentRef) {
+    /* A merged field-widget is already the registered field object. */
+    widget.set(PDFName.of("T"), PDFHexString.fromText(name));
+    widget.set(PDFName.of("P"), pageRef);
+    return copiedWidgetRef;
+  }
+  const parent = context.lookup(parentRef);
+  if (!parent || typeof parent.clone !== "function") throw new Error("the copied field's parent is not a field dictionary");
+  const fieldRef = context.register(parent.clone(context));
+  const dict = context.lookup(fieldRef);
+  dict.set(PDFName.of("T"), PDFHexString.fromText(name));
+  try {
+    dict.delete(PDFName.of("Parent"));
+  } catch (error) {
+    /* a top-level field has no parent to remove */
+  }
+  dict.set(PDFName.of("Kids"), context.obj([copiedWidgetRef]));
+  widget.set(PDFName.of("Parent"), fieldRef);
+  widget.set(PDFName.of("P"), pageRef);
+  return fieldRef;
+}
+
 /**
  * Duplicates one page and keeps a form page genuinely fillable. Every widget
  * on the copied page gets a cloned terminal field, a unique name and a fresh
@@ -48704,7 +48731,14 @@ function addBlankPage(doc, index, size) {
   return { ok: true, pageCount: doc.getPageCount(), index: at };
 }
 
-/** Appends every page of another PDF at `at`, keeping the other file untouched. */
+/**
+ * Appends every page of another PDF at `at`, keeping the other file untouched.
+ * Form pages are copied live: each copied widget's field is cloned into the
+ * target context with a unique name and registered in the target AcroForm. A
+ * source page with a button, signature, XFA or otherwise unsupported field
+ * refuses the whole merge before any page or field is inserted. Extraction and
+ * splitting keep their separate flatten-on-copy path.
+ */
 async function insertPdfPages(doc, bytes, at) {
   const loaded = await loadEditorDocument(bytes);
   if (!loaded.ok) return loaded;
@@ -48714,16 +48748,93 @@ async function insertPdfPages(doc, bytes, at) {
   if (doc.getPageCount() + added > MAX_PAGES) return { ok: false, reason: "pages", message: `A document cannot exceed ${MAX_PAGES} pages here.` };
   const total = doc.getPageCount();
   const position = Math.max(0, Math.min(total, Math.round(Number(at))));
-  const prepared = await prepareForPageCopy(source, "merge");
-  if (!prepared.ok) return prepared;
+
+  let sourceForm;
+  let pages = [];
+  let form;
   try {
-    const copies = await doc.copyPages(prepared.source, prepared.source.getPageIndices());
-    copies.forEach((page, offset) => doc.insertPage(position + offset, page));
-    forgetPageCache(doc);
+    sourceForm = source.getForm();
+    if (typeof sourceForm.hasXFA === "function" && sourceForm.hasXFA()) {
+      return { ok: false, reason: "form", message: "Add-pages cannot safely merge an XFA form. Flatten it first." };
+    }
+    for (let index = 0; index < added; index++) {
+      const found = formWidgetsOnPage(source, source.getPage(index));
+      if (found.unknown.length) {
+        return { ok: false, reason: "form", message: "Add-pages cannot safely merge a widget annotation that is not registered in this PDF's AcroForm. Flatten it first." };
+      }
+      const unsupported = found.widgets.find((entry) => fieldKind(entry.field) === "other");
+      if (unsupported) {
+        const label = str(unsupported.field.getName()) || "unnamed";
+        return { ok: false, reason: "form", message: `Add-pages cannot safely merge the “${label}” button, signature or unsupported field. Flatten it first, or add a PDF without it.` };
+      }
+      pages.push(found);
+    }
+    form = doc.getForm();
+    if (typeof form.hasXFA === "function" && form.hasXFA()) {
+      return { ok: false, reason: "form", message: "Add-pages cannot safely merge live fields into an XFA target. Flatten it first." };
+    }
+  } catch (error) {
+    return { ok: false, reason: "form", message: `Add-pages could not read a form safely: ${pdfError(error)}` };
+  }
+
+  let copies;
+  try {
+    copies = await doc.copyPages(source, source.getPageIndices());
   } catch (error) {
     return { ok: false, reason: "insert", message: `Those pages could not be added: ${pdfError(error)}` };
   }
-  return { ok: true, added, pageCount: doc.getPageCount(), index: position, flattened: prepared.flattened };
+  if (copies.length !== pages.length) {
+    return { ok: false, reason: "form", message: "Add-pages could not match the copied pages to their form fields. Flatten the form first." };
+  }
+
+  const pairs = [];
+  for (let offset = 0; offset < copies.length; offset++) {
+    const copiedWidgets = pageWidgetRefs(doc, copies[offset]);
+    if (copiedWidgets.length !== pages[offset].widgets.length) {
+      return { ok: false, reason: "form", message: "Add-pages could not match the copied widgets to their form fields. Flatten the form first." };
+    }
+    for (let index = 0; index < copiedWidgets.length; index++) {
+      const sourceField = pages[offset].widgets[index].field;
+      const copiedWidget = doc.context.lookup(copiedWidgets[index]);
+      if (fieldWidgetRefs(sourceField).length && !copiedWidget.get(PDFName.of("Parent"))) {
+        return { ok: false, reason: "form", message: "Add-pages could not pair a copied widget with its field. Flatten the form first." };
+      }
+      pairs.push({ field: sourceField, widget: copiedWidgets[index], page: copies[offset].ref });
+    }
+  }
+
+  const taken = form.getFields().map((field) => field.getName()).filter(Boolean);
+  const newFields = [];
+  let inserted = 0;
+  try {
+    for (const pair of pairs) {
+      const name = duplicateFieldName(taken, pair.field);
+      newFields.push(cloneMergedField(doc, pair.widget, pair.page, name));
+    }
+    copies.forEach((page, offset) => doc.insertPage(position + offset, page));
+    inserted = copies.length;
+    for (const ref of newFields) form.acroForm.addField(ref);
+    forgetPageCache(doc);
+  } catch (error) {
+    for (let offset = 0; offset < inserted; offset++) {
+      try {
+        doc.removePage(position);
+        forgetPageCache(doc);
+      } catch (removeError) {
+        /* the page tree is already damaged; report the clone failure below */
+      }
+    }
+    for (const ref of newFields) {
+      try {
+        form.acroForm.removeField(ref);
+      } catch (removeError) {
+        /* a field that was never registered needs no cleanup */
+      }
+    }
+    return { ok: false, reason: "form", message: `Add-pages could not copy this form safely: ${pdfError(error)}` };
+  }
+
+  return { ok: true, added, pageCount: doc.getPageCount(), index: position, flattened: false, liveForm: formFieldCount(doc) > 0, fields: newFields.length };
 }
 
 /* -------------------------------------------------------------- form fields */
@@ -50805,7 +50916,7 @@ class PdfEditorModal extends Modal {
       this.syncFields();
       this.renderPages();
       this.renderFooter();
-      const formNote = result.flattened ? " (form values baked into the pages)" : "";
+      const formNote = result.fields ? ` (${result.fields} live form field${result.fields === 1 ? "" : "s"} copied)` : "";
       this.setStatus(`Added ${result.added} page${result.added === 1 ? "" : "s"}${formNote} from ${file.path}.`);
     });
   }

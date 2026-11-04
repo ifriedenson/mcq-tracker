@@ -1,3 +1,7 @@
+## 1.231.0 - 2026-11-04
+
+- **Live form fields when adding pages**: adding pages from another fillable PDF now clones each incoming field into the target AcroForm with a deterministic unique name, reparents the copied widget and preserves its value and appearance, so the added page stays fillable and independent of the source. Existing target fields are untouched, source bytes are unchanged, repeated merges resolve name collisions, and non-widget annotations survive. A button, signature, XFA or otherwise unsupported source field refuses the whole merge with `reason: "form"` and a message naming Add-pages. Extraction and splitting keep their separate flatten-on-copy behavior. Covered by real-byte engine tests and a real-window Add-pages test.
+
 ## 1.230.0 - 2026-11-04
 
 - **Live duplicate-page**: duplicating a page from a fillable PDF now clones every widget's terminal field, registers it in the AcroForm with a unique `_2`, `_3` … name, reparents the copied widget, and keeps the value and appearance, so the duplicate is genuinely fillable and independent of the source. Repeated duplicates and existing top-level names resolve deterministically, non-widget annotations survive the page copy, and the source form stays untouched. A button, signature, XFA or otherwise unsupported field refuses the whole duplicate with `reason: "form"` and a message naming Duplicate-page; extraction, split and merge keep their separate flatten-on-copy behavior, and Move keeps its live-page semantics. Covered by real-byte engine tests and a real-window duplicate/reorder test.

@@ -714,7 +714,7 @@ class PdfEditorModal extends Modal {
       this.syncFields();
       this.renderPages();
       this.renderFooter();
-      const formNote = result.flattened ? " (form values baked into the pages)" : "";
+      const formNote = result.fields ? ` (${result.fields} live form field${result.fields === 1 ? "" : "s"} copied)` : "";
       this.setStatus(`Added ${result.added} page${result.added === 1 ? "" : "s"}${formNote} from ${file.path}.`);
     });
   }

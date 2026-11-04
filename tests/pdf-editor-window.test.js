@@ -390,6 +390,29 @@ test("pdf editor window: adding another PDF's pages and extracting pages works t
   modal.close();
 });
 
+test("pdf editor window: adding a form PDF keeps its fields live and says so", async () => {
+  const { app, plugin } = await vault();
+  const sourceBytes = await fixture();
+  const source = await PDFDocument.load(sourceBytes);
+  source.getForm().getTextField("student").setText("keep me");
+  const otherFile = app.files.find((file) => file.path === "Notes/Lecture.md");
+  otherFile.path = "Papers/Handout.pdf";
+  otherFile.buffer = await source.save();
+
+  const modal = openEditor(app, plugin, "Papers/Exam.pdf");
+  await modal.loading;
+  await modal.appendFrom(otherFile);
+  assert.equal(modal.pages.length, 8, "four pages were appended");
+  assert.equal(modal.fields.length, 6, "the three source fields were cloned beside the three target fields");
+  assert.deepEqual(modal.fields.map((field) => field.name), ["student", "agree", "grade", "student_2", "agree_2", "grade_2"]);
+  assert.equal(modal.fields.find((field) => field.name === "student_2").page, 4);
+  assert.equal(modal.fields.find((field) => field.name === "grade_2").page, 5);
+  assert.equal(modal.fields.find((field) => field.name === "student_2").value, "keep me");
+  assert.match(statusText(modal), /Added 4 pages \(3 live form fields copied\) from Papers\/Handout\.pdf\./);
+  assert.deepEqual(app.createdBinary || [], [], "the merge writes nothing before Save");
+  modal.close();
+});
+
 test("pdf editor: the command and the reader hand-over reach the window, and refuse a non-PDF", async () => {
   const { app, plugin } = await vault();
   const command = plugin.commands.find((entry) => entry.id === "pdf-edit");

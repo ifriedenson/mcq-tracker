@@ -154,20 +154,97 @@ test("merges another PDF's pages without changing the other file", async () => {
   assert.equal(editor.pageList(reloaded.doc)[4].width, 200);
 });
 
-test("adding pages from a form PDF bakes the values in instead of leaving orphan widgets", async () => {
+test("adding pages from a form PDF creates live, independently fillable fields", async () => {
+  const sourceBytes = await fixture();
+  const source = await PDFDocument.load(sourceBytes);
+  source.getForm().getTextField("student").setText("keep me");
+  source.getForm().getCheckBox("agree").check();
+  source.getForm().getDropdown("grade").select("B");
+  addLinkAnnotation(source, source.getPage(0));
+  const bytes = await source.save();
+
   const target = await PDFDocument.create();
   target.addPage([300, 300]);
-  const source = await authorFixture();
-  const merged = await editor.insertPdfPages(target, await source.save(), 0);
+  const targetField = target.getForm().createTextField("student");
+  targetField.addToPage(target.getPage(0), { x: 20, y: 200, width: 100, height: 20 });
+  targetField.setText("target");
+
+  const merged = await editor.insertPdfPages(target, bytes, 0);
   assert.equal(merged.ok, true, merged.message);
-  assert.equal(merged.flattened, true, "the inserted pages were flattened first");
-  assert.equal(merged.added, 3);
-  assert.equal(target.getPageCount(), 4);
+  assert.equal(merged.flattened, false, "live fields are not flattened");
+  assert.equal(merged.liveForm, true);
+  assert.equal(merged.fields, 3, "three source fields were cloned");
+  assert.equal(merged.added, 4);
+  assert.equal(target.getPageCount(), 5);
+
+  assert.deepEqual(editor.formFields(target).fields.map((field) => field.name), ["student", "student_2", "agree", "grade"]);
+  const fields = editor.formFields(target).fields;
+  assert.equal(fields.find((field) => field.name === "student").page, 4, "the target's own field stays on its page");
+  assert.equal(fields.find((field) => field.name === "student_2").page, 0);
+  assert.equal(fields.find((field) => field.name === "agree").page, 0);
+  assert.equal(fields.find((field) => field.name === "grade").page, 1);
+  assert.equal(fields.find((field) => field.name === "student_2").value, "keep me");
+  assert.equal(fields.find((field) => field.name === "agree").value, true);
+  assert.equal(fields.find((field) => field.name === "grade").value, "B");
+
+  assert.equal(editor.setFieldValue(target, "student_2", "merged copy").ok, true);
+  assert.equal(editor.formFields(target).fields.find((field) => field.name === "student").value, "target", "filling the merged field leaves the target field alone");
+
   const saved = await editor.savePdf(target);
   const reopened = await PDFDocument.load(saved.bytes);
-  assert.equal(reopened.getForm().getFields().length, 0, "the inserted pages bring no orphan fields");
+  const form = reopened.getForm();
+  assert.deepEqual(form.getFields().map((field) => field.getName()), ["student", "student_2", "agree", "grade"]);
+  assert.equal(form.getTextField("student_2").getText(), "merged copy");
+  assert.equal(form.getTextField("student").getText(), "target");
+  assert.equal(form.getCheckBox("agree").isChecked(), true);
+  assert.deepEqual(form.getDropdown("grade").getSelected(), ["B"]);
+  assert.ok(form.getTextField("student_2").acroField.getWidgets()[0].dict.get(PDFName.of("AP")), "the merged widget has an appearance");
   const annots = reopened.getPage(0).node.Annots();
-  assert.ok(!annots || annots.size() === 0, "the inserted page carries no dead widget annotation");
+  const subtypes = annots.asArray().map((ref) => String(reopened.context.lookup(ref).get(PDFName.of("Subtype"))));
+  assert.ok(subtypes.includes("/Widget"), "the merged widget is live on its page");
+  assert.ok(subtypes.includes("/Link"), "the non-widget link annotation survives the merge");
+  assert.doesNotMatch(await pageContent(saved.bytes, 0), /FlatWidget/, "the merged page is not a flattened appearance");
+
+  const sourceAgain = await PDFDocument.load(bytes);
+  assert.equal(sourceAgain.getForm().getTextField("student").getText(), "keep me");
+  assert.equal(sourceAgain.getForm().getCheckBox("agree").isChecked(), true);
+  assert.deepEqual(sourceAgain.getForm().getDropdown("grade").getSelected(), ["B"]);
+});
+
+test("adding the same form PDF twice creates distinct live field names", async () => {
+  const source = await PDFDocument.load(await fixture());
+  source.getForm().getTextField("student").setText("keep me");
+  const bytes = await source.save();
+  const target = await PDFDocument.create();
+  target.addPage([300, 300]);
+  const first = await editor.insertPdfPages(target, bytes, 1);
+  const second = await editor.insertPdfPages(target, bytes, target.getPageCount());
+  assert.equal(first.ok, true, first.message);
+  assert.equal(second.ok, true, second.message);
+  const names = editor.formFields(target).fields.map((field) => field.name);
+  assert.deepEqual(names, ["student", "agree", "grade", "student_2", "agree_2", "grade_2"]);
+  assert.equal(new Set(names).size, 6);
+  assert.equal(editor.formFields(target).fields.find((field) => field.name === "student_2").page, 5);
+});
+
+test("adding pages with an unsupported form field refuses with an add-pages form message", async () => {
+  const source = await PDFDocument.load(await fixture());
+  const button = source.getForm().createButton("submit");
+  button.addToPage("Submit", source.getPage(0), { x: 240, y: 400, width: 80, height: 22 });
+  const bytes = await source.save();
+  const target = await PDFDocument.create();
+  target.addPage([300, 300]);
+  const targetField = target.getForm().createTextField("student");
+  targetField.addToPage(target.getPage(0), { x: 20, y: 200, width: 100, height: 20 });
+  targetField.setText("target");
+
+  const refused = await editor.insertPdfPages(target, bytes, 0);
+  assert.equal(refused.ok, false);
+  assert.equal(refused.reason, "form");
+  assert.match(refused.message, /add-pages/i);
+  assert.match(refused.message, /button|signature|flatten/i);
+  assert.equal(target.getPageCount(), 1, "a refused merge leaves the page count alone");
+  assert.equal(editor.formFields(target).fields.find((field) => field.name === "student").value, "target");
 });
 
 test("reads AcroForm fields and fills them, refusing a value that is not a choice", async () => {
