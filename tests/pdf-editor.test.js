@@ -154,6 +154,22 @@ test("merges another PDF's pages without changing the other file", async () => {
   assert.equal(editor.pageList(reloaded.doc)[4].width, 200);
 });
 
+test("adding pages from a form PDF bakes the values in instead of leaving orphan widgets", async () => {
+  const target = await PDFDocument.create();
+  target.addPage([300, 300]);
+  const source = await authorFixture();
+  const merged = await editor.insertPdfPages(target, await source.save(), 0);
+  assert.equal(merged.ok, true, merged.message);
+  assert.equal(merged.flattened, true, "the inserted pages were flattened first");
+  assert.equal(merged.added, 3);
+  assert.equal(target.getPageCount(), 4);
+  const saved = await editor.savePdf(target);
+  const reopened = await PDFDocument.load(saved.bytes);
+  assert.equal(reopened.getForm().getFields().length, 0, "the inserted pages bring no orphan fields");
+  const annots = reopened.getPage(0).node.Annots();
+  assert.ok(!annots || annots.size() === 0, "the inserted page carries no dead widget annotation");
+});
+
 test("reads AcroForm fields and fills them, refusing a value that is not a choice", async () => {
   const loaded = await editor.loadEditorDocument(await fixture());
   const fields = editor.formFields(loaded.doc);

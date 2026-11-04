@@ -323,14 +323,16 @@ async function insertPdfPages(doc, bytes, at) {
   if (doc.getPageCount() + added > MAX_PAGES) return { ok: false, reason: "pages", message: `A document cannot exceed ${MAX_PAGES} pages here.` };
   const total = doc.getPageCount();
   const position = Math.max(0, Math.min(total, Math.round(Number(at))));
+  const prepared = await prepareForPageCopy(source, "merge");
+  if (!prepared.ok) return prepared;
   try {
-    const copies = await doc.copyPages(source, source.getPageIndices());
+    const copies = await doc.copyPages(prepared.source, prepared.source.getPageIndices());
     copies.forEach((page, offset) => doc.insertPage(position + offset, page));
     forgetPageCache(doc);
   } catch (error) {
     return { ok: false, reason: "insert", message: `Those pages could not be added: ${pdfError(error)}` };
   }
-  return { ok: true, added, pageCount: doc.getPageCount(), index: position };
+  return { ok: true, added, pageCount: doc.getPageCount(), index: position, flattened: prepared.flattened };
 }
 
 /* -------------------------------------------------------------- form fields */

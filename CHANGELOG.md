@@ -1,3 +1,10 @@
+## 1.228.0 - 2026-11-04
+
+- **Merging preserves form values**: adding pages from a fillable PDF now flattens a serialised copy before copying its
+  pages, so the values stay visible and no orphan widgets enter the target. The target document keeps its own live form,
+  the result reports `flattened`, and extract, split and merge share one preparation path. Covered by a new real-byte
+  engine test plus the existing reader merge test.
+
 ## 1.227.0 - 2026-11-04
 
 - **Extraction preserves form values**: extracting selected pages from a fillable PDF now flattens a serialised copy first,
