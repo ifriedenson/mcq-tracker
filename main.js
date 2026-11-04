@@ -50296,7 +50296,7 @@ __defs["pdf-editor"] = function (module, exports, require) {
  *
  * The source PDF is never modified: every write goes to a new copy.
  */
-const { PDFDocument, PDFName, PDFArray, PDFDict, PDFHexString, PDFNumber, PDFRef, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList, StandardFonts, degrees, rgb } = require("../vendor/pdf-lib.js");
+const { PDFDocument, PDFName, PDFArray, PDFDict, PDFHexString, PDFNumber, PDFNull, PDFRef, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList, StandardFonts, degrees, rgb } = require("../vendor/pdf-lib.js");
 const { INK_COLOR_HEX, MARK_STYLES, clamp, normalizeHighlightAreas, normalizeInkStrokes, normalizeTextBoxes } = require("./pdf-ink");
 
 const MAX_BYTES = 80 * 1024 * 1024;
@@ -50329,6 +50329,8 @@ const MIN_LINK_SIZE = 0.002;
 const MAX_OUTLINE = 200;
 const MAX_OUTLINE_TITLE = 120;
 const MAX_OUTLINE_DEPTH = 3;
+const MIN_BOOKMARK_ZOOM = 10;
+const MAX_BOOKMARK_ZOOM = 400;
 const TEXT_POSITIONS = ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
 const SHAPES = ["rectangle", "ellipse", "line"];
 const SHAPE_FILLS = ["none", "yellow", "green", "blue", "red", "purple", "gray"];
@@ -52085,6 +52087,36 @@ function destinationPage(value, pages, context) {
 }
 
 /**
+ * The page and, for a /XYZ destination, the zoom and position it names. `zoom`
+ * is a percentage (0 means the viewer keeps its own zoom) and `top` is how far
+ * down the page the view starts, in percent from the top.
+ */
+function destinationView(value, pages, context) {
+  let target = value;
+  if (target instanceof PDFRef && context) target = context.lookup(target);
+  let array = null;
+  if (target instanceof PDFArray) array = target;
+  else if (target instanceof PDFDict) array = target.lookupMaybe(PDFName.of("D"), PDFArray);
+  if (!array || !array.size()) return null;
+  const first = array.get(0);
+  if (!(first instanceof PDFRef)) return null;
+  const index = pages.findIndex((page) => page.ref === first);
+  if (index < 0) return null;
+  const view = { page: index + 1 };
+  if (array.size() < 2 || pdfNameValue(array.get(1)) !== "XYZ") return view;
+  const height = pages[index].getHeight();
+  const rawNumber = (position) => {
+    const raw = position < array.size() ? array.get(position) : null;
+    return raw && typeof raw.asNumber === "function" ? raw.asNumber() : null;
+  };
+  const zoom = rawNumber(4);
+  const top = rawNumber(3);
+  view.zoom = zoom && zoom > 0 ? Math.round(zoom * 1000) / 10 : 0;
+  view.top = top === null || !Number.isFinite(top) || !(height > 0) ? 0 : Math.round((1 - clamp(top / height, 0, 1)) * 1000) / 10;
+  return view;
+}
+
+/**
  * A link annotation over a normalized area: an http(s) address or a jump to
  * another page of the same file. Nothing is drawn into the page content, and
  * the rectangle follows the page's own /Rotate.
@@ -52265,8 +52297,13 @@ function readOutline(doc) {
       if (entries.length < MAX_OUTLINE) {
         const row = { title: pdfText(item.get(PDFName.of("Title"))), page: 0, level };
         const action = item.lookupMaybe(PDFName.of("A"), PDFDict);
-        if (action) row.page = destinationPage(action.get(PDFName.of("D")), pages, doc.context);
-        if (!row.page) row.page = destinationPage(item.get(PDFName.of("Dest")), pages, doc.context);
+        const view = (action && destinationView(action.get(PDFName.of("D")), pages, doc.context))
+          || destinationView(item.get(PDFName.of("Dest")), pages, doc.context);
+        if (view) {
+          row.page = view.page;
+          if (view.zoom !== undefined) row.zoom = view.zoom;
+          if (view.top !== undefined) row.top = view.top;
+        }
         entries.push(row);
       }
       if (level + 1 < MAX_OUTLINE_DEPTH) visit(item, level + 1);
@@ -52279,12 +52316,29 @@ function readOutline(doc) {
 
 /**
  * Replaces the document outline with a nested list of bookmarks. Each entry
- * points at a whole page with /Fit; the root, parents, siblings and counts are
- * all written as indirect objects, because the tree is cyclic.
+ * points at a whole page with /Fit, or, when `options.zoom` or `options.top`
+ * is given, at that zoom and position on the page with /XYZ. The root,
+ * parents, siblings and counts are all written as indirect objects, because
+ * the tree is cyclic.
  */
-function setOutline(doc, entries) {
+function setOutline(doc, entries, options) {
   if (!Array.isArray(entries)) return { ok: false, reason: "shape", message: "Bookmarks need a list of entries." };
   if (entries.length > MAX_OUTLINE) return { ok: false, reason: "size", message: `Keep the bookmarks to ${MAX_OUTLINE} entries.` };
+  const opts = options && typeof options === "object" ? options : {};
+  const zoomText = str(opts.zoom).trim();
+  const topText = str(opts.top).trim();
+  let view = null;
+  if (zoomText || topText) {
+    const zoom = zoomText ? Number(zoomText) : 0;
+    const top = topText ? Number(topText) : 0;
+    if (zoomText && (!Number.isFinite(zoom) || zoom < MIN_BOOKMARK_ZOOM || zoom > MAX_BOOKMARK_ZOOM)) {
+      return { ok: false, reason: "zoom", message: `Bookmark zoom has to be between ${MIN_BOOKMARK_ZOOM}% and ${MAX_BOOKMARK_ZOOM}%.` };
+    }
+    if (topText && (!Number.isFinite(top) || top < 0 || top > 100)) {
+      return { ok: false, reason: "top", message: "A bookmark starts between 0% and 100% down the page." };
+    }
+    view = { zoom: zoomText ? zoom : 0, top: topText ? top : 0 };
+  }
   const total = doc.getPageCount();
   const rows = [];
   for (let index = 0; index < entries.length; index++) {
@@ -52307,14 +52361,15 @@ function setOutline(doc, entries) {
     rows.push({ title, page, level });
   }
   doc.catalog.delete(PDFName.of("Outlines"));
-  if (!rows.length) return { ok: true, written: 0, depth: 0, entries: [] };
+  if (!rows.length) return { ok: true, written: 0, depth: 0, entries: [], view };
   const context = doc.context;
   const root = context.obj({ Type: "Outlines" });
   const rootRef = context.register(root);
   doc.catalog.set(PDFName.of("Outlines"), rootRef);
   const items = rows.map((row) => {
+    const page = doc.getPage(row.page - 1);
     const dict = context.obj({ Title: PDFHexString.fromText(row.title) });
-    dict.set(PDFName.of("Dest"), context.obj([doc.getPage(row.page - 1).ref, PDFName.of("Fit")]));
+    dict.set(PDFName.of("Dest"), context.obj(view ? bookmarkDestination(page, view) : [page.ref, PDFName.of("Fit")]));
     return { title: row.title, page: row.page, level: row.level, dict, ref: context.register(dict) };
   });
   const stack = [];
@@ -52343,7 +52398,15 @@ function setOutline(doc, entries) {
   linkChildren(rootRef, root, -1);
   root.set(PDFName.of("Count"), PDFNumber.of(items.length));
   const depth = rows.reduce((max, row) => Math.max(max, row.level + 1), 0);
-  return { ok: true, written: items.length, depth, entries: rows.map((row) => ({ title: row.title, page: row.page, level: row.level })) };
+  return { ok: true, written: items.length, depth, entries: rows.map((row) => ({ title: row.title, page: row.page, level: row.level })), view };
+}
+
+/** A /XYZ destination: the page, its left edge, how far down to start and the zoom. */
+function bookmarkDestination(page, view) {
+  const height = page.getHeight();
+  const top = round(height * (1 - clamp(view.top, 0, 100) / 100), 2);
+  const zoom = view.zoom > 0 ? PDFNumber.of(view.zoom / 100) : PDFNull;
+  return [page.ref, PDFName.of("XYZ"), PDFNumber.of(0), PDFNumber.of(top), zoom];
 }
 
 /** `Title | page` lines, two spaces of indent per level. */
@@ -52887,6 +52950,8 @@ class PdfEditorModal extends Modal {
       linkPage: "0",
       linkRemove: "1",
       bookmarks: null,
+      bookmarkZoom: "",
+      bookmarkTop: "",
     };
     this.statusEl = null;
     this.listEl = null;
@@ -53667,7 +53732,15 @@ class PdfEditorModal extends Modal {
       this.content.bookmarks = bookmarkArea.value;
     });
     bookmarkRow.createSpan({ cls: "qt-hint", text: "One per line as Title | page; indent two spaces to nest." });
-    const bookmarkButton = bookmarkRow.createEl("button", { text: "Save bookmarks", cls: "qt-grow" });
+    const bookmarkViewRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentInput(bookmarkViewRow, "Zoom %", "number", "Bookmark zoom percent, empty for the whole page", this.content.bookmarkZoom, (value) => {
+      this.content.bookmarkZoom = value;
+    });
+    this.contentInput(bookmarkViewRow, "Position %", "number", "How far down the page each bookmark starts", this.content.bookmarkTop, (value) => {
+      this.content.bookmarkTop = value;
+    });
+    bookmarkViewRow.createSpan({ cls: "qt-hint", text: "Empty zoom means the whole page." });
+    const bookmarkButton = bookmarkViewRow.createEl("button", { text: "Save bookmarks", cls: "qt-grow" });
     bookmarkButton.addEventListener("click", () => this.bookmarksContent());
 
     host.createEl("h4", { text: "Watermark and document" });
@@ -54045,11 +54118,15 @@ class PdfEditorModal extends Modal {
       this.setStatus(parsed.message);
       return Promise.resolve(parsed);
     }
-    return this.runMutation("set the bookmarks", () => setOutline(this.doc, parsed.entries), (result) => {
+    const view = { zoom: this.content.bookmarkZoom, top: this.content.bookmarkTop };
+    return this.runMutation("set the bookmarks", () => setOutline(this.doc, parsed.entries, view), (result) => {
       this.content.bookmarks = formatBookmarkText(parsed.entries);
       this.renderContent();
+      const at = result.view
+        ? ` at ${result.view.zoom ? `${result.view.zoom}% zoom` : "the viewer's zoom"}${result.view.top ? `, ${result.view.top}% down the page` : ""}`
+        : " at a whole page";
       this.setStatus(result.written
-        ? `Wrote ${result.written} bookmark${result.written === 1 ? "" : "s"} in ${result.depth} level${result.depth === 1 ? "" : "s"}. Nothing is written until you save a copy.`
+        ? `Wrote ${result.written} bookmark${result.written === 1 ? "" : "s"} in ${result.depth} level${result.depth === 1 ? "" : "s"}${at}. Nothing is written until you save a copy.`
         : "The bookmarks are cleared for the copy you save. Nothing is written until you save a copy.");
     });
   }

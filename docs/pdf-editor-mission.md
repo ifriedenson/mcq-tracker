@@ -18,7 +18,7 @@ dispatches. No network request, provider, account or new dependency was added at
 | Content | typed text, vault PNG/JPEG, page numbers, crop, watermark, rectangle/ellipse/rule shapes, A4/Letter/Legal/custom page size | 1.218.0–1.219.0 |
 | Forms | fill text, checkbox, radio, dropdown and option lists; flatten; author a new field; **rename a field**; **delete a field and its widgets** | 1.218.0, **1.244.0** |
 | Navigation | **link annotations**: an `http(s)` address or a jump to another page, written over a chosen area and read back exactly, rotated pages included | **1.242.0** |
-| Navigation | **bookmarks**: the document outline read as title/page/level rows and rewritten as a real outline tree, edited as indented `Title | page` lines | **1.243.0** |
+| Navigation | **bookmarks**: the document outline read as title/page/level rows and rewritten as a real outline tree, edited as indented `Title | page` lines, with an optional zoom and position written as a `/XYZ` destination | **1.243.0**, **1.246.0** |
 | Reading | continuous reader, text selection, marks, ink, text boxes, notes, in-reader annotation sidebar, ask-AI-about-a-passage | 1.215.0–1.226.0 |
 | Safety | every mutation is one undo step in a bounded byte-level history that returns the opened file byte-for-byte; Save always writes a new copy; the source PDF and its `.annotations.md` sidecar are never modified | 1.218.0 |
 
@@ -48,7 +48,8 @@ dispatches. No network request, provider, account or new dependency was added at
   content stream would mean owning layout and font metrics.
 - **Editing or deleting a link.** Links are added and reported; changing an existing one
   means deleting its annotation, which is not shipped.
-- **Bookmark destinations** beyond a whole page (`/Fit`), and hierarchical `parent.child`
-  field names, which are renamed by their own segment only.
+- **Hierarchical `parent.child` field names**, which are renamed by their own segment only.
+  Bookmark destinations beyond a whole page shipped in 1.246.0 as a zoom and a position; any other
+  destination kind is read as a whole page rather than guessed at.
 - **Mobile editing** stays limited by Obsidian's own file handling; the editor is
   desktop-first.

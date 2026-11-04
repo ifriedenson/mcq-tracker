@@ -1344,3 +1344,43 @@ test("removes every link, and refuses a missing link or a linkless file", async 
   assert.equal(editor.readLinks((await editor.loadEditorDocument(saved.bytes)).doc).total, 0);
   assert.equal(editor.removeLinks(opened.doc, { all: true }).reason, "empty", "removing twice has nothing left to do");
 });
+
+test("writes bookmark destinations with a zoom and a position", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  const written = editor.setOutline(opened.doc, [{ title: "Unit 1", page: 2 }, { title: "Cells", page: 3, level: 1 }], { zoom: 150, top: 25 });
+  assert.equal(written.ok, true);
+  assert.deepEqual(written.view, { zoom: 150, top: 25 });
+  const saved = await editor.savePdf(opened.doc);
+  assert.deepEqual(editor.readOutline((await editor.loadEditorDocument(saved.bytes)).doc).entries, [
+    { title: "Unit 1", page: 2, level: 0, zoom: 150, top: 25 },
+    { title: "Cells", page: 3, level: 1, zoom: 150, top: 25 },
+  ]);
+  const raw = await PDFDocument.load(saved.bytes);
+  const root = raw.catalog.lookup(PDFName.of("Outlines"), PDFDict);
+  const first = raw.context.lookup(root.lookup(PDFName.of("First")), PDFDict);
+  const dest = first.lookup(PDFName.of("Dest"));
+  assert.equal(dest.get(1).toString(), "/XYZ", "the destination names a view");
+  assert.equal(dest.get(2).asNumber(), 0);
+  assert.equal(dest.get(3).asNumber(), 375, "25% down a 500 point page");
+  assert.equal(dest.get(4).asNumber(), 1.5, "150% zoom is 1.5");
+
+  const plain = editor.setOutline(opened.doc, [{ title: "Plain", page: 1 }]);
+  assert.equal(plain.view, null);
+  const plainRow = editor.readOutline((await editor.loadEditorDocument((await editor.savePdf(opened.doc)).bytes)).doc).entries[0];
+  assert.equal("zoom" in plainRow, false, "a whole-page bookmark carries no zoom");
+});
+
+test("refuses an unusable bookmark zoom or position", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  assert.equal(editor.setOutline(opened.doc, [{ title: "A", page: 1 }], { zoom: 5 }).reason, "zoom");
+  assert.equal(editor.setOutline(opened.doc, [{ title: "A", page: 1 }], { zoom: 401 }).reason, "zoom");
+  assert.equal(editor.setOutline(opened.doc, [{ title: "A", page: 1 }], { zoom: "wide" }).reason, "zoom");
+  assert.equal(editor.setOutline(opened.doc, [{ title: "A", page: 1 }], { zoom: 100, top: -1 }).reason, "top");
+  assert.equal(editor.setOutline(opened.doc, [{ title: "A", page: 1 }], { zoom: 100, top: 101 }).reason, "top");
+  assert.equal(editor.readOutline(opened.doc).total, 0, "a refused view writes nothing");
+
+  const topOnly = editor.setOutline(opened.doc, [{ title: "A", page: 1 }], { top: 40 });
+  assert.equal(topOnly.ok, true);
+  const rows = editor.readOutline((await editor.loadEditorDocument((await editor.savePdf(opened.doc)).bytes)).doc).entries;
+  assert.deepEqual([rows[0].zoom, rows[0].top], [0, 40], "a position on its own keeps the viewer's zoom");
+});

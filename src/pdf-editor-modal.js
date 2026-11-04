@@ -200,6 +200,8 @@ class PdfEditorModal extends Modal {
       linkPage: "0",
       linkRemove: "1",
       bookmarks: null,
+      bookmarkZoom: "",
+      bookmarkTop: "",
     };
     this.statusEl = null;
     this.listEl = null;
@@ -980,7 +982,15 @@ class PdfEditorModal extends Modal {
       this.content.bookmarks = bookmarkArea.value;
     });
     bookmarkRow.createSpan({ cls: "qt-hint", text: "One per line as Title | page; indent two spaces to nest." });
-    const bookmarkButton = bookmarkRow.createEl("button", { text: "Save bookmarks", cls: "qt-grow" });
+    const bookmarkViewRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentInput(bookmarkViewRow, "Zoom %", "number", "Bookmark zoom percent, empty for the whole page", this.content.bookmarkZoom, (value) => {
+      this.content.bookmarkZoom = value;
+    });
+    this.contentInput(bookmarkViewRow, "Position %", "number", "How far down the page each bookmark starts", this.content.bookmarkTop, (value) => {
+      this.content.bookmarkTop = value;
+    });
+    bookmarkViewRow.createSpan({ cls: "qt-hint", text: "Empty zoom means the whole page." });
+    const bookmarkButton = bookmarkViewRow.createEl("button", { text: "Save bookmarks", cls: "qt-grow" });
     bookmarkButton.addEventListener("click", () => this.bookmarksContent());
 
     host.createEl("h4", { text: "Watermark and document" });
@@ -1358,11 +1368,15 @@ class PdfEditorModal extends Modal {
       this.setStatus(parsed.message);
       return Promise.resolve(parsed);
     }
-    return this.runMutation("set the bookmarks", () => setOutline(this.doc, parsed.entries), (result) => {
+    const view = { zoom: this.content.bookmarkZoom, top: this.content.bookmarkTop };
+    return this.runMutation("set the bookmarks", () => setOutline(this.doc, parsed.entries, view), (result) => {
       this.content.bookmarks = formatBookmarkText(parsed.entries);
       this.renderContent();
+      const at = result.view
+        ? ` at ${result.view.zoom ? `${result.view.zoom}% zoom` : "the viewer's zoom"}${result.view.top ? `, ${result.view.top}% down the page` : ""}`
+        : " at a whole page";
       this.setStatus(result.written
-        ? `Wrote ${result.written} bookmark${result.written === 1 ? "" : "s"} in ${result.depth} level${result.depth === 1 ? "" : "s"}. Nothing is written until you save a copy.`
+        ? `Wrote ${result.written} bookmark${result.written === 1 ? "" : "s"} in ${result.depth} level${result.depth === 1 ? "" : "s"}${at}. Nothing is written until you save a copy.`
         : "The bookmarks are cleared for the copy you save. Nothing is written until you save a copy.");
     });
   }
