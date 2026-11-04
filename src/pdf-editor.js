@@ -37,6 +37,17 @@ const MAX_WATERMARK_TEXT = 200;
 const WATERMARK_ANGLES = [0, 30, 45, 60, 90, 180, 270];
 const MAX_SPLIT_PARTS = 100;
 const TEXT_POSITIONS = ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
+const SHAPES = ["rectangle", "ellipse", "line"];
+const SHAPE_FILLS = ["none", "yellow", "green", "blue", "red", "purple", "gray"];
+const MIN_SHAPE_POINTS = 4;
+const MAX_SHAPE_POINTS = 2000;
+const PAGE_SIZES = [
+  { id: "a4", label: "A4", width: 595.28, height: 841.89 },
+  { id: "letter", label: "Letter", width: 612, height: 792 },
+  { id: "legal", label: "Legal", width: 612, height: 1008 },
+];
+const MIN_PAGE_POINTS = 36;
+const MAX_PAGE_POINTS = 5000;
 const TEXT_FONTS = { helvetica: StandardFonts.Helvetica, times: StandardFonts.TimesRoman, courier: StandardFonts.Courier };
 
 function str(value) {
@@ -200,9 +211,13 @@ function checkIndex(doc, index) {
 function rotatePage(doc, index, by) {
   const check = checkIndex(doc, index);
   if (!check.ok) return check;
+  const requested = by === undefined || by === null || by === "" ? 90 : Number(by);
+  if (!Number.isFinite(requested) || requested % 90 !== 0) {
+    return { ok: false, reason: "rotation", message: "A page rotation has to be a multiple of 90 degrees." };
+  }
   const page = doc.getPage(check.index);
-  const step = Number(by) === 0 ? 90 : Number(by);
-  const next = normalizedRotation(page.getRotation().angle + (Number.isFinite(step) ? step : 90));
+  const step = requested === 0 ? 90 : requested;
+  const next = normalizedRotation(page.getRotation().angle + step);
   try {
     page.setRotation(degrees(next));
   } catch (error) {
@@ -211,12 +226,29 @@ function rotatePage(doc, index, by) {
   return { ok: true, index: check.index, rotation: next };
 }
 
+/**
+ * pdf-lib keeps the page array in a cache that `removePage` does not clear, so
+ * a later read would still show the deleted page. Dropping the cache makes the
+ * page tree - which `getPageCount` already follows - the single source of truth.
+ */
+function forgetPageCache(doc) {
+  try {
+    const cache = doc && doc.pageCache;
+    if (!cache) return;
+    if (typeof cache.invalidate === "function") cache.invalidate();
+    else if ("value" in cache) cache.value = undefined;
+  } catch (error) {
+    /* the page tree stays authoritative even if a future pdf-lib renames the cache */
+  }
+}
+
 function deletePage(doc, index) {
   const check = checkIndex(doc, index);
   if (!check.ok) return check;
   if (doc.getPageCount() <= 1) return { ok: false, reason: "last-page", message: "A PDF needs at least one page. Add a page before deleting this one." };
   try {
     doc.removePage(check.index);
+    forgetPageCache(doc);
   } catch (error) {
     return { ok: false, reason: "delete", message: `That page could not be removed: ${pdfError(error)}` };
   }
@@ -228,12 +260,16 @@ function movePage(doc, from, to) {
   const check = checkIndex(doc, from);
   if (!check.ok) return check;
   const total = doc.getPageCount();
-  const target = Math.max(0, Math.min(total - 1, Math.round(Number(to))));
-  if (!Number.isFinite(target) || target === check.index) return { ok: true, moved: false, pageCount: total };
+  const target = Number(to);
+  if (!Number.isInteger(target) || target < 0 || target >= total) {
+    return { ok: false, reason: "index", message: `Position ${str(to) || "?"} is not in this PDF (1 to ${total}).` };
+  }
+  if (target === check.index) return { ok: true, moved: false, pageCount: total };
   try {
     const page = doc.getPage(check.index);
     doc.removePage(check.index);
     doc.insertPage(target, page);
+    forgetPageCache(doc);
   } catch (error) {
     return { ok: false, reason: "move", message: `That page could not be moved: ${pdfError(error)}` };
   }
@@ -251,6 +287,7 @@ async function duplicatePageAsync(doc, index) {
   try {
     const [copy] = await doc.copyPages(doc, [index]);
     doc.insertPage(index + 1, copy);
+    forgetPageCache(doc);
   } catch (error) {
     return { ok: false, reason: "duplicate", message: `That page could not be duplicated: ${pdfError(error)}` };
   }
@@ -260,11 +297,16 @@ async function duplicatePageAsync(doc, index) {
 function addBlankPage(doc, index, size) {
   if (doc.getPageCount() >= MAX_PAGES) return { ok: false, reason: "pages", message: `A document cannot exceed ${MAX_PAGES} pages here.` };
   const total = doc.getPageCount();
-  const at = Math.max(0, Math.min(total, Math.round(Number(index))));
+  const given = !(index === undefined || index === null || index === "");
+  const at = given ? Number(index) : total;
+  if (!Number.isInteger(at) || at < 0 || at > total) {
+    return { ok: false, reason: "index", message: `A blank page cannot go at position ${str(index) || "?"} in a ${total}-page PDF.` };
+  }
   const width = clamp(Number(size && size.width) || DEFAULT_PAGE[0], 72, 14400);
   const height = clamp(Number(size && size.height) || DEFAULT_PAGE[1], 72, 14400);
   try {
     doc.insertPage(at, [round(width, 2), round(height, 2)]);
+    forgetPageCache(doc);
   } catch (error) {
     return { ok: false, reason: "add", message: `A blank page could not be added: ${pdfError(error)}` };
   }
@@ -284,6 +326,7 @@ async function insertPdfPages(doc, bytes, at) {
   try {
     const copies = await doc.copyPages(source, source.getPageIndices());
     copies.forEach((page, offset) => doc.insertPage(position + offset, page));
+    forgetPageCache(doc);
   } catch (error) {
     return { ok: false, reason: "insert", message: `Those pages could not be added: ${pdfError(error)}` };
   }
@@ -353,6 +396,23 @@ function formFields(doc) {
   for (const field of fields) {
     if (rows.length >= MAX_FORM_FIELDS) break;
     const kind = fieldKind(field);
+    const page = fieldPageIndex(doc, field);
+    let pageSize = null;
+    let rotation = 0;
+    let rects = [];
+    try {
+      if (page >= 0) {
+        const pageObject = doc.getPage(page);
+        pageSize = pageObject.getSize();
+        rotation = normalizedRotation(pageObject.getRotation().angle);
+      }
+      rects = field.acroField.getWidgets()
+        .map((widget) => widget.getRectangle())
+        .filter((rect) => rect && rect.width > 0 && rect.height > 0)
+        .map((rect) => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height }));
+    } catch (error) {
+      rects = [];
+    }
     rows.push({
       name: str(field.getName()),
       kind,
@@ -365,7 +425,12 @@ function formFields(doc) {
           return false;
         }
       })(),
-      page: fieldPageIndex(doc, field),
+      page,
+      rects,
+      rect: rects[0] || null,
+      pageWidth: pageSize ? pageSize.width : 0,
+      pageHeight: pageSize ? pageSize.height : 0,
+      rotation,
     });
   }
   return { ok: true, fields: rows, total: fields.length };
@@ -1063,6 +1128,159 @@ async function addImage(doc, options) {
   return { ok: true, drawn, pages: targets.pages.length };
 }
 
+/**
+ * A rectangle, ellipse or horizontal rule drawn into the page content.
+ * The box comes from a text anchor and is measured in PDF points, so the same
+ * placement applies to every page it targets. A line is a rule across the
+ * box's width, centred in its height. Rotated pages are refused for the same
+ * reason images are: the points are measured against the page, not the view.
+ */
+function addShape(doc, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const shape = str(opts.shape);
+  if (!SHAPES.includes(shape)) {
+    return { ok: false, reason: "shape", message: "Choose a rectangle, an ellipse or a line." };
+  }
+  const width = Number(opts.width);
+  const height = Number(opts.height);
+  if (!(width >= MIN_SHAPE_POINTS) || !(height >= MIN_SHAPE_POINTS)) {
+    return { ok: false, reason: "size", message: `A shape has to be at least ${MIN_SHAPE_POINTS} by ${MIN_SHAPE_POINTS} points.` };
+  }
+  if (!(width <= MAX_SHAPE_POINTS) || !(height <= MAX_SHAPE_POINTS)) {
+    return { ok: false, reason: "size", message: `A shape cannot be larger than ${MAX_SHAPE_POINTS} points a side.` };
+  }
+  const targets = resolvePages(doc, opts);
+  if (!targets.ok) return targets;
+  for (const index of targets.pages) {
+    const page = doc.getPage(index);
+    if (normalizedRotation(page.getRotation().angle)) {
+      return { ok: false, reason: "rotation", message: "A shape needs an unrotated page. Rotate it back first." };
+    }
+    const size = page.getSize();
+    if (width > size.width || height > size.height) {
+      return {
+        ok: false,
+        reason: "size",
+        message: `A ${Math.round(width)} by ${Math.round(height)} point shape does not fit on the ${Math.round(size.width)} by ${Math.round(size.height)} point page.`,
+      };
+    }
+  }
+  const borderWidth = clamp(Number(opts.borderWidth) || 1.5, 0.5, 24);
+  const opacity = clamp(Number(opts.opacity) || 1, 0.05, 1);
+  const fillOpacity = clamp(Number(opts.fillOpacity) || 0.18, 0.02, 1);
+  const color = colorFor(opts.color || "red", "red");
+  const fill = str(opts.fill);
+  const fillColor = SHAPE_FILLS.includes(fill) && fill !== "none" ? colorFor(fill, "yellow") : null;
+  const chosen = TEXT_POSITIONS.includes(str(opts.position)) ? str(opts.position) : "middle-center";
+  /* anchorFor calls the vertical middle "center"; the position list calls it "middle". */
+  const position = chosen.replace(/^middle-/, "center-");
+  let drawn = 0;
+  for (const index of targets.pages) {
+    const page = doc.getPage(index);
+    const size = page.getSize();
+    const anchor = anchorFor(position, width, height, size.width, size.height, 36);
+    const x = anchor.x;
+    const y = Math.max(0, size.height - anchor.y - height);
+    try {
+      if (shape === "rectangle") {
+        page.drawRectangle({
+          x,
+          y,
+          width,
+          height,
+          borderColor: color,
+          borderWidth,
+          borderOpacity: opacity,
+          ...(fillColor ? { color: fillColor, opacity: fillOpacity } : {}),
+        });
+      } else if (shape === "ellipse") {
+        page.drawEllipse({
+          x: x + width / 2,
+          y: y + height / 2,
+          xScale: width / 2,
+          yScale: height / 2,
+          borderColor: color,
+          borderWidth,
+          borderOpacity: opacity,
+          ...(fillColor ? { color: fillColor, opacity: fillOpacity } : {}),
+        });
+      } else {
+        page.drawLine({
+          start: { x, y: y + height / 2 },
+          end: { x: x + width, y: y + height / 2 },
+          thickness: borderWidth,
+          color,
+          opacity,
+        });
+      }
+      drawn += 1;
+    } catch (error) {
+      return { ok: false, reason: "shape", message: `That shape could not be drawn: ${pdfError(error)}` };
+    }
+  }
+  return { ok: true, shape, drawn, pages: targets.pages.length, width, height };
+}
+
+/**
+ * Scales pages to a standard paper size and sets the page box to it.
+ * The content keeps its bottom-left corner, so a page whose ratio differs
+ * leaves the spare room at the top and right rather than clipping it.
+ * Rotated pages and PDFs with form fields are refused: a widget's rectangle
+ * would no longer line up with the content it was placed against.
+ */
+function resizePages(doc, options) {
+  const opts = options && typeof options === "object" ? options : {};
+  const preset = PAGE_SIZES.find((entry) => entry.id === str(opts.size));
+  const width = preset ? preset.width : Number(opts.width);
+  const height = preset ? preset.height : Number(opts.height);
+  if (!(width >= MIN_PAGE_POINTS) || !(height >= MIN_PAGE_POINTS)) {
+    return { ok: false, reason: "size", message: `A page has to be at least ${MIN_PAGE_POINTS} by ${MIN_PAGE_POINTS} points.` };
+  }
+  if (width > MAX_PAGE_POINTS || height > MAX_PAGE_POINTS) {
+    return { ok: false, reason: "size", message: `A page cannot be larger than ${MAX_PAGE_POINTS} points a side.` };
+  }
+  const targets = resolvePages(doc, opts);
+  if (!targets.ok) return targets;
+  for (const index of targets.pages) {
+    if (normalizedRotation(doc.getPage(index).getRotation().angle)) {
+      return { ok: false, reason: "rotation", message: "A page has to be unrotated before it can be resized. Rotate it back first." };
+    }
+  }
+  try {
+    if (doc.getForm().getFields().length) {
+      return { ok: false, reason: "form", message: "A PDF with form fields cannot be resized. Flatten the form first." };
+    }
+  } catch (error) {
+    /* a PDF without a form has nothing to protect */
+  }
+  let resized = 0;
+  let skipped = 0;
+  const scales = [];
+  for (const index of targets.pages) {
+    const page = doc.getPage(index);
+    const size = page.getSize();
+    if (Math.abs(size.width - width) < 0.5 && Math.abs(size.height - height) < 0.5) {
+      skipped += 1;
+      continue;
+    }
+    const scale = Math.min(width / size.width, height / size.height);
+    if (!(scale > 0) || !Number.isFinite(scale)) {
+      return { ok: false, reason: "size", message: "That page could not be measured, so it was not resized." };
+    }
+    const scalesForPage = { page: index, scale };
+    try {
+      page.scale(scale, scale);
+      page.setSize(width, height);
+      page.setCropBox(0, 0, width, height);
+    } catch (error) {
+      return { ok: false, reason: "resize", message: `That page could not be resized: ${pdfError(error)}` };
+    }
+    scales.push(scalesForPage);
+    resized += 1;
+  }
+  return { ok: true, resized, skipped, pages: targets.pages.length, width, height, scales, size: preset ? preset.id : "custom" };
+}
+
 /** Title, author, subject and keywords, written into the copy's info dictionary. */
 function setDocumentProperties(doc, props) {
   const source = props && typeof props === "object" ? props : {};
@@ -1254,7 +1472,10 @@ module.exports = {
   MAX_FIELD_OPTIONS,
   MAX_FORM_FIELDS,
   MAX_PAGES,
+  PAGE_SIZES,
   ROTATIONS,
+  SHAPE_FILLS,
+  SHAPES,
   TEXT_POSITIONS,
   TEXT_FONTS,
   WATERMARK_ANGLES,
@@ -1262,6 +1483,7 @@ module.exports = {
   addFormField,
   addImage,
   addPageNumbers,
+  addShape,
   addText,
   addWatermark,
   cropPages,
@@ -1280,6 +1502,7 @@ module.exports = {
   movePage,
   pageList,
   pdfError,
+  resizePages,
   rotatePage,
   savePdf,
   setDocumentProperties,

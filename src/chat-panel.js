@@ -9,6 +9,7 @@ const { thinkFirstLabel, thinkFirstRemainingMs } = require("./think-first");
 const { AgentEditReviewModal } = require("./agent-edit-review-modal");
 const { AiToolReviewModal } = require("./ai-tool-review-modal");
 const { toolProtocol } = require("./ai-tools");
+const { chatMarkdown } = require("./chat-history");
 
 function toolsForMode(mode, agentShell) {
   if (mode === "tutor") return { edit: false, write: false, patch: false, bash: false };
@@ -18,7 +19,7 @@ function toolsForMode(mode, agentShell) {
 
 class ChatPanel {
   /**
-   * opts: { title, sourcePath, getSessionId, setSessionId, getRole, setRole, buildContext(mode), beforeSend(text), quick: [{label,prompt,run}], onSaveNote(text), saveNoteLabel }
+   * opts: { title, sourcePath, getSessionId, setSessionId, getRole, setRole, buildContext(mode), beforeSend(text), quick: [{label,prompt,run}], onSaveNote(text), saveNoteLabel, onSaveChat(markdown), getApiHistory(), saveApiHistory(history), copyText(text) }
    */
   constructor(view, root, opts) {
     this.view = view;
@@ -30,6 +31,11 @@ class ChatPanel {
     this.pending = "";
     this.error = "";
     this.sig = "";
+    this.streamText = "";
+    this.streamingController = null;
+    this.keepPartial = "";
+    this.lastSent = "";
+    this.cancelled = false;
     this.includeNote = false;
     this.includeSelection = false;
     this.currentNoteContext = "";
@@ -130,24 +136,15 @@ class ChatPanel {
     role.value = this.currentRole();
     role.addEventListener("change", () => this.setRole(role.value));
     const nc = top.createEl("button", { text: "New chat" });
-    nc.addEventListener("click", () => {
-      if (this.busy) return;
-      this.opts.setSessionId("");
-      this.apiHistory().length = 0;
-      this.turns = [];
-      this.pending = "";
-      this.error = "";
-      this.sig = "";
-      this.includeNote = false;
-      this.includeSelection = false;
-      this.currentNoteContext = "";
-      this.paintContext();
-      this.startThinkFirst();
-      this.draw();
-    });
+    nc.addEventListener("click", () => this.newChat());
+    if (this.opts.onSaveChat) {
+      const save = top.createEl("button", { text: "Save chat" });
+      save.addEventListener("click", () => this.saveChat());
+    }
     this.hint = root.createDiv({ cls: "qt-hint" });
     this.updateHint();
     this.renderContextToggles(root);
+    this.renderLibrary(root);
 
     if (this.opts.quick && this.opts.quick.length) {
       const chips = root.createDiv({ cls: "qt-chips" });
@@ -168,31 +165,23 @@ class ChatPanel {
     const row = root.createDiv({ cls: "qt-row" });
     this.input = row.createEl("textarea", {
       cls: "qt-chat-input",
-      attr: { rows: "2", placeholder: "Ask a question... (Ctrl/Cmd+Enter to send)" },
+      attr: { rows: "2", placeholder: "Ask a question... (Enter to send, Shift+Enter for a new line)" },
     });
     this.input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      if (e.key === "Escape" && this.busy) {
         e.preventDefault();
-        this.send(this.input.value);
+        this.stop();
+        return;
       }
+      if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+      e.preventDefault();
+      this.send(this.input.value);
     });
     this.sendBtn = row.createEl("button", { text: "Send", cls: "mod-cta" });
     this.sendBtn.addEventListener("click", () => this.send(this.input.value));
     this.stopBtn = row.createEl("button", { text: "Stop" });
     this.stopBtn.addClass("qt-hidden");
-    this.stopBtn.addEventListener("click", async () => {
-      if (this.view.plugin.backend() === "api") {
-        this.cancelApi();
-        return;
-      }
-      const sid = this.opts.getSessionId();
-      if (!sid) return;
-      try {
-        await this.view.plugin.openCode().abort(sid);
-      } catch (e) {
-        /* ignore */
-      }
-    });
+    this.stopBtn.addEventListener("click", () => this.stop());
     const commandRow = root.createDiv({ cls: "qt-row qt-small-row qt-tutor-commands" });
     const command = commandRow.createEl("select", { cls: "qt-select", attr: { "aria-label": "Insert a tutor command", title: "Insert a tutor command" } });
     command.createEl("option", { value: "", text: "Tutor commands..." });
@@ -299,13 +288,251 @@ class ChatPanel {
     this.status.setText(b ? "Working..." : "");
   }
 
-  /** Stop waiting for a Direct API reply; a late reply is ignored. */
+  /** Stop a Direct API reply mid-stream; the partial reply is kept once. */
   cancelApi() {
+    const partial = this.streamText.trim();
     this.apiCancelToken = (this.apiCancelToken || 0) + 1;
+    if (this.streamingController) {
+      try {
+        this.streamingController.abort();
+      } catch (e) {
+        /* already finished */
+      }
+    }
+    this.streamingController = null;
+    if (partial) {
+      const hist = this.apiHistory();
+      if (this.lastSent && (!hist.length || hist[hist.length - 1].role !== "user")) hist.push({ role: "user", content: this.lastSent });
+      hist.push({ role: "assistant", content: partial });
+      this.persistApiHistory();
+      this.turns = apiTurns(hist);
+    }
+    this.streamText = "";
+    this.keepPartial = "";
     this.pending = "";
-    this.error = "Stopped waiting for the reply. The provider may still finish the request.";
+    this.error = partial ? "" : "Stopped waiting for the reply.";
     this.setBusy(false);
+    if (this.status) this.status.setText(partial ? "Stopped. The partial reply was kept." : "Stopped waiting for the reply.");
     this.draw();
+  }
+
+  /** The Stop button and Esc: cancel the current backend, keeping any partial reply. */
+  async stop() {
+    if (this.view.plugin.backend() === "api") {
+      this.cancelApi();
+      return;
+    }
+    this.cancelled = true;
+    this.keepPartial = this.streamText.trim();
+    this.streamText = "";
+    if (this.streamingController) {
+      try {
+        this.streamingController.abort();
+      } catch (e) {
+        /* already finished */
+      }
+    }
+    this.streamingController = null;
+    const sid = this.opts.getSessionId();
+    if (sid) {
+      try {
+        await this.view.plugin.openCode().abort(sid);
+      } catch (e) {
+        /* the server may already have finished */
+      }
+    }
+    this.setBusy(false);
+    if (this.status) this.status.setText("Stopped.");
+    this.draw();
+  }
+
+  newChat() {
+    if (this.busy) return;
+    if (typeof this.opts.onNewChat === "function") {
+      this.opts.onNewChat();
+      return;
+    }
+    this.opts.setSessionId("");
+    this.apiHistory().length = 0;
+    this.persistApiHistory();
+    this.loadConversation([]);
+  }
+
+  /** Replace the transcript without touching the stored history (the caller owns it). */
+  loadConversation(messages) {
+    this.turns = apiTurns(Array.isArray(messages) ? messages : []);
+    this.pending = "";
+    this.error = "";
+    this.streamText = "";
+    this.keepPartial = "";
+    this.lastSent = "";
+    this.sig = "";
+    this.startThinkFirst();
+    this.draw();
+  }
+
+  /** The in-panel conversation list; only the caller decides where conversations live. */
+  renderLibrary(root) {
+    if (typeof this.opts.getLibrary !== "function") return;
+    this.libraryWrap = root.createDiv({ cls: "qt-chat-library" });
+    this.libraryWrap.createDiv({ cls: "qt-hint", text: "Conversations (newest first)" });
+    this.libraryList = this.libraryWrap.createDiv({ cls: "qt-chat-library-list" });
+    const row = this.libraryWrap.createDiv({ cls: "qt-row qt-small-row" });
+    this.libraryTitle = row.createEl("input", {
+      type: "text",
+      attr: { "aria-label": "Conversation title", placeholder: "Conversation title" },
+    });
+    const rename = row.createEl("button", { text: "Rename" });
+    rename.addEventListener("click", () => this.renameActive());
+    const remove = row.createEl("button", { text: "Delete" });
+    remove.addEventListener("click", () => this.deleteActive());
+    this.refreshLibrary();
+  }
+
+  refreshLibrary() {
+    if (!this.libraryList) return;
+    const rows = this.libraryRows();
+    this.libraryList.empty?.();
+    if (!rows.length) {
+      this.libraryList.createDiv({ cls: "qt-hint", text: "No saved conversations yet." });
+      return;
+    }
+    for (const row of rows) {
+      const item = this.libraryList.createDiv({ cls: `qt-chat-library-row${row.active ? " is-active" : ""}` });
+      const open = item.createEl("button", {
+        cls: "qt-chat-library-open",
+        text: `${row.title}${row.when ? ` — ${row.when}` : ""}`,
+      });
+      open.addEventListener("click", () => this.openLibraryRow(row));
+    }
+  }
+
+  libraryRows() {
+    try {
+      const rows = typeof this.opts.getLibrary === "function" ? this.opts.getLibrary() : [];
+      return Array.isArray(rows) ? rows : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  activeLibraryRow() {
+    return this.libraryRows().find((row) => row.active) || null;
+  }
+
+  openLibraryRow(row) {
+    if (this.busy || !row || row.active) return;
+    if (typeof this.opts.onResumeChat === "function") this.opts.onResumeChat(row.id);
+    this.refreshLibrary();
+  }
+
+  renameActive() {
+    const row = this.activeLibraryRow();
+    const title = str(this.libraryTitle && this.libraryTitle.value).trim();
+    if (!row || !title) {
+      if (this.status) this.status.setText(row ? "Type a title first." : "Open a conversation first.");
+      return;
+    }
+    if (typeof this.opts.onRenameChat === "function") this.opts.onRenameChat(row.id, title);
+    if (this.libraryTitle) this.libraryTitle.value = "";
+    this.refreshLibrary();
+  }
+
+  deleteActive() {
+    const row = this.activeLibraryRow();
+    if (!row) {
+      if (this.status) this.status.setText("Open a conversation first.");
+      return;
+    }
+    if (typeof this.opts.onDeleteChat === "function") this.opts.onDeleteChat(row.id);
+    this.refreshLibrary();
+  }
+
+  /** Copy one reply (or a transcript) through the caller's clipboard, when it has one. */
+  async copyText(text) {
+    const value = str(text).trim();
+    if (!value) return;
+    try {
+      if (typeof this.opts.copyText === "function") {
+        await this.opts.copyText(value);
+      } else {
+        const nav = typeof navigator === "undefined" ? null : navigator;
+        if (!nav || !nav.clipboard || typeof nav.clipboard.writeText !== "function") {
+          throw new Error("Clipboard is not available here.");
+        }
+        await nav.clipboard.writeText(value);
+      }
+      if (this.status) this.status.setText("Copied to the clipboard.");
+    } catch (e) {
+      new Notice("Could not copy to the clipboard. Select the text and copy it instead.", 7000);
+    }
+  }
+
+  persistApiHistory() {
+    if (typeof this.opts.saveApiHistory !== "function") return;
+    try {
+      this.opts.saveApiHistory(this.apiHistory());
+    } catch (e) {
+      /* persistence is best effort; the conversation still works in memory */
+    }
+  }
+
+  transcriptMarkdown() {
+    return chatMarkdown(
+      this.turns.concat(this.pending ? [{ role: "user", texts: [this.pending], tools: [] }] : []),
+      { title: this.opts.title || "Study agent chat" }
+    );
+  }
+
+  async saveChat() {
+    if (typeof this.opts.onSaveChat !== "function") return;
+    const text = this.transcriptMarkdown();
+    if (!text) {
+      if (this.status) this.status.setText("There is nothing to save yet.");
+      return;
+    }
+    try {
+      await this.opts.onSaveChat(text);
+    } catch (e) {
+      new Notice(str(e && e.message ? e.message : e) || "Could not save the chat.", 8000);
+    }
+  }
+
+  /** Ask the same last question again without adding a second user turn. */
+  async regenerate() {
+    if (this.busy || !this.ai.enabled) return;
+    const last = [...this.turns].reverse().find((turn) => turn.role === "user");
+    const text = last ? last.texts.join("\n\n").trim() : "";
+    if (!text) {
+      if (this.status) this.status.setText("There is no question to regenerate yet.");
+      return;
+    }
+    return this.resend(text);
+  }
+
+  async resend(text) {
+    const value = str(text).trim();
+    if (!value || this.busy) return;
+    this.error = "";
+    this.lastSent = value;
+    if (this.view.plugin.backend() === "api") {
+      const hist = this.apiHistory();
+      while (hist.length && hist[hist.length - 1].role !== "user") hist.pop();
+      this.turns = apiTurns(hist);
+      this.persistApiHistory();
+      return this.sendApi(value, "", true);
+    }
+    return this.send(value);
+  }
+
+  /** Retry the last question after a failure, without retyping it. */
+  async retry() {
+    if (this.busy || !this.lastSent) return;
+    const text = this.lastSent;
+    const last = this.turns[this.turns.length - 1];
+    this.error = "";
+    if (last && last.role === "assistant") return this.resend(text);
+    return this.send(text);
   }
 
   /** Quick action: make sure the active note is sent, then ask about it. */
@@ -330,6 +557,10 @@ class ChatPanel {
   async send(text) {
     text = str(text).trim();
     if (!text || this.busy || !this.ai.enabled) return;
+    this.lastSent = text;
+    this.streamText = "";
+    this.keepPartial = "";
+    this.cancelled = false;
     if (this.thinkFirstRemaining() > 0) {
       this.refreshThinkFirst();
       return;
@@ -398,9 +629,25 @@ class ChatPanel {
       // The POST blocks until the reply is done, so poll the transcript meanwhile for live progress.
       const mySid = sid;
       timer = activeWindow.setInterval(() => this.refresh(mySid), 1500);
-      await oc.send(sid, body);
+      this.streamText = "";
+      const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+      this.streamingController = controller;
+      if (typeof oc.stream === "function") {
+        await oc.stream(sid, body, {
+          onDelta: (delta) => {
+            if (this.streamingController !== controller) return;
+            this.streamText += str(delta);
+            this.draw();
+          },
+          signal: controller ? controller.signal : undefined,
+        });
+      } else {
+        await oc.send(sid, body);
+      }
     } catch (e) {
-      this.error = friendlyError(e, plugin.openCode().base());
+      const stopped = this.cancelled || (e && (e.name === "AbortError" || (this.streamingController && this.streamingController.signal && this.streamingController.signal.aborted)));
+      if (stopped) this.keepPartial = this.streamText.trim();
+      else this.error = friendlyError(e, plugin.openCode().base());
     } finally {
       if (timer) activeWindow.clearInterval(timer);
       if (guard && typeof plugin.restoreProtectedState === "function") {
@@ -423,8 +670,12 @@ class ChatPanel {
         }
       }
       this.setBusy(false);
+      this.streamingController = null;
       if (sid) await this.refresh(sid);
       else this.draw();
+      this.streamText = "";
+      this.keepPartial = "";
+      this.draw();
       if (staged.length) {
         new AgentEditReviewModal(this.view.app, plugin, staged).open();
         if (this.status) {
@@ -436,36 +687,70 @@ class ChatPanel {
     }
   }
 
-  async sendApi(text, currentNote) {
+  async sendApi(text, currentNote, resend) {
     this.error = "";
     this.input.value = "";
     this.pending = text;
     const token = (this.apiCancelToken = (this.apiCancelToken || 0) + 1);
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    this.streamingController = controller;
+    this.streamText = "";
     this.setBusy(true);
     this.draw();
     const hist = this.apiHistory();
     const agent = this.ai.mode === "agent";
+    const last = hist[hist.length - 1];
+    const base = hist.concat(resend && last && last.role === "user" ? [] : [{ role: "user", content: text }]);
     let proposals = [];
+    let partial = "";
+    const onDelta = (delta) => {
+      if (token !== this.apiCancelToken) return;
+      const chunk = str(delta);
+      if (!chunk) return;
+      partial += chunk;
+      this.streamText = partial;
+      this.draw();
+    };
     try {
       const system = [this.opts.buildContext(agent ? "agent" : "tutor", currentNote), agent ? toolProtocol() : ""]
         .filter(Boolean)
         .join("\n\n");
-      const reply = await this.view.plugin.aiChat(system, hist.concat([{ role: "user", content: text }]), { feature: "chat" });
+      const reply = await this.view.plugin.aiChat(system, base, {
+        feature: "chat",
+        onDelta,
+        signal: controller ? controller.signal : undefined,
+      });
       if (token !== this.apiCancelToken) return;
-      hist.push({ role: "user", content: text }, { role: "assistant", content: reply });
+      const finalText = str(reply).trim() || partial.trim();
+      if (!finalText) throw new Error("The provider returned an empty reply.");
+      hist.push(...(resend ? [] : [{ role: "user", content: text }]), { role: "assistant", content: finalText });
+      this.persistApiHistory();
       this.pending = "";
+      this.streamText = "";
       if (agent && typeof this.view.plugin.parseByokToolProposals === "function") {
-        const parsed = this.view.plugin.parseByokToolProposals(reply);
+        const parsed = this.view.plugin.parseByokToolProposals(finalText);
         proposals = parsed.proposals;
         if (parsed.errors.length) new Notice(`Some AI actions were ignored: ${parsed.errors.join(" ")}`, 8000);
       }
     } catch (e) {
       if (token !== this.apiCancelToken) return;
-      this.error = friendlyApiError(e);
+      const stopped = e && (e.name === "AbortError" || (controller && controller.signal && controller.signal.aborted));
+      const kept = partial.trim();
+      if (kept) {
+        if (!resend) hist.push({ role: "user", content: text });
+        else if (!hist.length || hist[hist.length - 1].role !== "user") hist.push({ role: "user", content: text });
+        hist.push({ role: "assistant", content: kept });
+        this.persistApiHistory();
+        this.turns = apiTurns(hist);
+      }
       this.pending = "";
-      this.input.value = text; // keep it so you can retry
+      this.streamText = "";
+      this.error = stopped ? "" : friendlyApiError(e);
+      if (stopped && this.status) this.status.setText(kept ? "Stopped. The partial reply was kept." : "Stopped.");
+      if (!stopped && !kept) this.input.value = text;
     } finally {
       if (token === this.apiCancelToken) {
+        this.streamingController = null;
         this.setBusy(false);
         this.turns = apiTurns(hist);
         this.draw();
@@ -495,6 +780,9 @@ class ChatPanel {
     try {
       const msgs = await this.view.plugin.openCode().messages(sid);
       this.turns = partsToTurns(msgs);
+      if (this.keepPartial && !this.turns.some((turn) => turn.role === "assistant" && turn.texts.join("\n").includes(this.keepPartial))) {
+        this.turns.push({ role: "assistant", texts: [this.keepPartial], tools: [] });
+      }
       const last = [...this.turns].reverse().find((t) => t.role === "user");
       if (this.pending && last && last.texts.join("\n").trim() === this.pending) this.pending = "";
       this.draw();
@@ -508,7 +796,7 @@ class ChatPanel {
 
   draw() {
     if (!this.transcript) return;
-    const sig = JSON.stringify([this.turns, this.pending, this.error, this.busy]);
+    const sig = JSON.stringify([this.turns, this.pending, this.error, this.busy, this.streamText]);
     if (sig === this.sig) return;
     this.sig = sig;
     const box = this.transcript;
@@ -517,18 +805,37 @@ class ChatPanel {
       const b = box.createDiv({ cls: `qt-msg is-${t.role}` });
       for (const text of t.texts) this.view.md(text, b.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
       for (const line of t.tools) b.createDiv({ cls: "qt-tool", text: line });
-      if (t.role === "assistant" && t.texts.length && this.opts.onSaveNote && !this.busy) {
-        const sv = b.createEl("button", {
-          text: this.opts.saveNoteLabel || "Add to My Notes",
-          cls: "qt-save-note",
-        });
-        sv.addEventListener("click", () => this.opts.onSaveNote(t.texts.join("\n\n")));
+      if (t.role === "assistant" && t.texts.length && !this.busy) {
+        const actions = b.createDiv({ cls: "qt-msg-actions" });
+        const copy = actions.createEl("button", { text: "Copy" });
+        copy.addEventListener("click", () => this.copyText(t.texts.join("\n\n")));
+        if (this.opts.onSaveNote) {
+          const sv = actions.createEl("button", {
+            text: this.opts.saveNoteLabel || "Add to My Notes",
+            cls: "qt-save-note",
+          });
+          sv.addEventListener("click", () => this.opts.onSaveNote(t.texts.join("\n\n")));
+        }
+        if (t === [...this.turns].reverse().find((turn) => turn.role === "assistant")) {
+          const again = actions.createEl("button", { text: "Regenerate" });
+          again.addEventListener("click", () => this.regenerate());
+        }
       }
     }
     if (this.pending) {
       box.createDiv({ cls: "qt-msg is-user" }).createDiv({ cls: "qt-msg-text", text: this.pending });
     }
-    if (this.error) box.createDiv({ cls: "qt-error", text: this.error });
+    if (this.streamText) {
+      const live = box.createDiv({ cls: "qt-msg is-assistant is-streaming" });
+      this.view.md(this.streamText, live.createDiv({ cls: "qt-msg-text" }), this.opts.sourcePath || "");
+    }
+    if (this.error) {
+      const boxed = box.createDiv({ cls: "qt-error", text: this.error });
+      if (this.lastSent && !this.busy) {
+        const retry = boxed.createEl("button", { text: "Retry" });
+        retry.addEventListener("click", () => this.retry());
+      }
+    }
     box.scrollTop = box.scrollHeight;
   }
 }

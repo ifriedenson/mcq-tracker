@@ -13,42 +13,30 @@ const { readActiveNoteContext } = require("./note-context");
 const { buildGeneralContext } = require("./opencode-client");
 const { insertReplyIntoNote } = require("./agent-note");
 const { renderMarkdownInto } = require("./view-helpers");
+const { MAX_FILES, MAX_FILE_CHARS, excerptBlock, searchText, terms } = require("./agent-retrieval");
+const { chatFileName, normalizeChatHistory } = require("./chat-history");
+const { archiveSession, libraryRows, newChatId, normalizeSessions, removeSession, renameSession, titleFromMessages } = require("./chat-sessions");
 
 const VIEW_TYPE_AGENT = "question-tracker-agent";
 
-function terms(query) {
-  return [...new Set(str(query).toLowerCase().split(/[^\p{L}\p{N}_-]+/u).filter((word) => word.length > 2))].slice(0, 8);
-}
-
-/** Local, read-only vault search. Every hit carries its note path and line. */
+/** Local, read-only vault search. Every hit carries its note path, line range and passage. */
 async function searchVault(app, query, limit) {
-  const words = terms(query);
-  if (!words.length) return [];
-  const files = app.vault.getMarkdownFiles();
-  const hits = [];
+  if (!terms(query).length) return [];
+  const files = app.vault.getMarkdownFiles().slice(0, MAX_FILES);
+  const documents = [];
   for (const file of files) {
-    let text = "";
     try {
-      text = await app.vault.cachedRead(file);
+      const text = await app.vault.cachedRead(file);
+      if (str(text).length <= MAX_FILE_CHARS) documents.push({ path: file.path, text });
     } catch (e) {
       continue;
     }
-    const lines = text.split(/\r?\n/);
-    let best = null;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      const lower = line.toLowerCase();
-      const score = words.reduce((sum, word) => sum + (lower.includes(word) ? 1 : 0), 0);
-      if (score > 0 && (!best || score > best.score)) best = { score, line, index: i };
-    }
-    if (best) hits.push({ path: file.path, line: best.line.slice(0, 300), lineNumber: best.index + 1, score: best.score });
   }
-  return hits.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, Math.max(1, Math.min(20, limit || 8)));
+  return searchText(documents, query, { limit: limit || 8 });
 }
 
 function citationMarkdown(hit) {
-  return `- [[${hit.path}#L${hit.lineNumber}|${hit.path}]] — ${hit.line}`;
+  return `- [[${hit.path}#L${hit.lineNumber}|${hit.path}]] — ${str(hit.line)}`;
 }
 
 class AgentView extends ItemView {
@@ -56,6 +44,7 @@ class AgentView extends ItemView {
     super(leaf);
     this.plugin = plugin;
     this.results = [];
+    this.apiHistory = null;
     this.includeVaultIndex = false;
   }
 
@@ -121,7 +110,8 @@ class AgentView extends ItemView {
         this.plugin.settings.ai.sessionId = id;
         this.plugin.save();
       },
-      getApiHistory: () => (this.apiHistory = this.apiHistory || []),
+      getApiHistory: () => this.getApiHistory(),
+      saveApiHistory: (history) => this.saveApiHistory(history),
       getRole: () => this.plugin.settings.ai.tutorRole,
       setRole: (id) => {
         this.plugin.settings.ai.tutorRole = id;
@@ -132,6 +122,12 @@ class AgentView extends ItemView {
       readNoteContext: () => readActiveNoteContext(this.app),
       onSaveNote: (text) => this.insertReply(text),
       saveNoteLabel: "Insert into active note",
+      onSaveChat: (markdown) => this.saveChat(markdown),
+      getLibrary: () => this.getLibrary(),
+      onResumeChat: (id) => this.resumeChat(id),
+      onRenameChat: (id, title) => this.renameChat(id, title),
+      onDeleteChat: (id) => this.deleteChat(id),
+      onNewChat: () => this.startNewChat(),
       quick: [
         { label: "Ask about this note", run: () => this.chatPanel.askAboutActiveNote() },
         { label: "Summarize my notes", prompt: "Summarize the most important ideas in my notes and cite the notes you use." },
@@ -150,10 +146,199 @@ class AgentView extends ItemView {
       parts.push(`Opt-in vault file index (paths only):\n${index}`);
     }
     if (this.results.length) {
-      parts.push(`Local vault search results for the latest question:\n${this.results.map(citationMarkdown).join("\n")}`);
+      const excerpts = excerptBlock(this.results);
+      if (excerpts) parts.push(`Local vault excerpts for the latest question:\n${excerpts}`);
     }
     if (currentNote) parts.push(currentNote);
     return parts.filter(Boolean).join("\n\n");
+  }
+
+  /** The Direct API transcript, restored from settings so a reload keeps the chat. */
+  getApiHistory() {
+    if (!Array.isArray(this.apiHistory)) {
+      const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+      this.apiHistory = normalizeChatHistory(ai ? ai.studyChat : []);
+    }
+    return this.apiHistory;
+  }
+
+  saveApiHistory(history) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return;
+    const messages = normalizeChatHistory(history);
+    this.apiHistory = messages;
+    ai.studyChat = messages.slice();
+    if (messages.length) {
+      if (!str(ai.studyChatId).trim()) ai.studyChatId = newChatId();
+      if (!str(ai.studyChatTitle).trim()) ai.studyChatTitle = titleFromMessages(messages);
+      ai.studyChatUpdatedAt = Date.now();
+    }
+    this.plugin.save();
+    if (this.chatPanel) this.chatPanel.refreshLibrary();
+  }
+
+  /** The conversation in the panel right now. */
+  activeConversation() {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return { id: "", title: "", updatedAt: 0, messages: [] };
+    return {
+      id: str(ai.studyChatId).trim(),
+      title: str(ai.studyChatTitle).trim(),
+      updatedAt: Number(ai.studyChatUpdatedAt) || 0,
+      messages: normalizeChatHistory(ai.studyChat),
+    };
+  }
+
+  /** Saved conversations and the active one, newest first. */
+  getLibrary() {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return [];
+    return libraryRows(this.activeConversation(), ai.chatSessions, Date.now());
+  }
+
+  /**
+   * Move the active conversation into the archive, keeping its id. Archiving the
+   * same id twice replaces the older copy, so a conversation is never listed
+   * twice and never orphaned.
+   */
+  archiveActive() {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return false;
+    const messages = normalizeChatHistory(ai.studyChat);
+    if (!messages.length) return false;
+    const id = str(ai.studyChatId).trim() || newChatId();
+    ai.studyChatId = id;
+    ai.studyChatTitle = str(ai.studyChatTitle).trim() || titleFromMessages(messages);
+    ai.studyChatUpdatedAt = Number(ai.studyChatUpdatedAt) || Date.now();
+    ai.chatSessions = archiveSession(ai.chatSessions, {
+      id,
+      title: ai.studyChatTitle,
+      updatedAt: ai.studyChatUpdatedAt,
+      messages,
+      sessionId: str(ai.sessionId).trim(),
+      notePath: "",
+    });
+    this.plugin.save();
+    return true;
+  }
+
+  /** Archive the current conversation and open an empty one. */
+  startNewChat() {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai) return false;
+    this.archiveActive();
+    ai.studyChat = [];
+    ai.studyChatId = "";
+    ai.studyChatTitle = "";
+    ai.studyChatUpdatedAt = 0;
+    ai.sessionId = "";
+    this.apiHistory = [];
+    this.plugin.save();
+    if (this.chatPanel) {
+      this.chatPanel.loadConversation([]);
+      this.chatPanel.refreshLibrary();
+    }
+    return true;
+  }
+
+  /** Continue an archived conversation: it moves (not copies) back into the panel. */
+  resumeChat(id) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const key = str(id).trim();
+    if (!ai || !key) return false;
+    if (key === str(ai.studyChatId).trim() && normalizeChatHistory(ai.studyChat).length) return true;
+    this.archiveActive();
+    const record = normalizeSessions(ai.chatSessions).find((session) => session.id === key);
+    if (!record) {
+      this.plugin.save();
+      return false;
+    }
+    ai.chatSessions = removeSession(ai.chatSessions, key);
+    ai.studyChat = record.messages.slice();
+    ai.studyChatId = record.id;
+    ai.studyChatTitle = record.title;
+    ai.studyChatUpdatedAt = record.updatedAt || Date.now();
+    ai.sessionId = record.sessionId || "";
+    this.apiHistory = record.messages.slice();
+    this.plugin.save();
+    if (this.chatPanel) {
+      this.chatPanel.loadConversation(record.messages);
+      this.chatPanel.refreshLibrary();
+    }
+    return true;
+  }
+
+  /** Rename either the active conversation or an archived one. */
+  renameChat(id, title) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const key = str(id).trim();
+    const next = str(title).replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!ai || !key || !next) return false;
+    if (key === str(ai.studyChatId).trim()) {
+      ai.studyChatTitle = next;
+      ai.studyChatUpdatedAt = Date.now();
+    } else {
+      ai.chatSessions = renameSession(ai.chatSessions, key, next);
+    }
+    this.plugin.save();
+    if (this.chatPanel) this.chatPanel.refreshLibrary();
+    return true;
+  }
+
+  /** Delete the active conversation or an archived one, without leaving a copy behind. */
+  deleteChat(id) {
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    const key = str(id).trim();
+    if (!ai || !key) return false;
+    if (key === str(ai.studyChatId).trim()) {
+      ai.studyChat = [];
+      ai.studyChatId = "";
+      ai.studyChatTitle = "";
+      ai.studyChatUpdatedAt = 0;
+      ai.sessionId = "";
+      this.apiHistory = [];
+      if (this.chatPanel) this.chatPanel.loadConversation([]);
+    } else {
+      ai.chatSessions = removeSession(ai.chatSessions, key);
+    }
+    this.plugin.save();
+    if (this.chatPanel) this.chatPanel.refreshLibrary();
+    return true;
+  }
+
+  /** Write the transcript as a Markdown note; never overwrites an existing chat. */
+  async saveChat(markdown) {
+    const text = str(markdown).trim();
+    if (!text) throw new Error("There is nothing to save yet.");
+    const vault = this.app.vault;
+    const folder = "Study agent chats";
+    if (!vault.getAbstractFileByPath(folder) && typeof vault.createFolder === "function") {
+      try {
+        await vault.createFolder(folder);
+      } catch (e) {
+        /* the folder may have been created by another save */
+      }
+    }
+    let path = `${folder}/${chatFileName()}`;
+    let suffix = 2;
+    while (vault.getAbstractFileByPath(path)) {
+      path = `${folder}/${chatFileName().replace(/\.md$/, ` ${suffix}.md`)}`;
+      suffix += 1;
+    }
+    await vault.create(path, text.endsWith("\n") ? text : `${text}\n`);
+    new Notice(`Saved this chat to ${path}.`);
+    return path;
+  }
+
+  /** Ask one passage-scoped question through the existing chat panel and its guards. */
+  async askPassage(prompt) {
+    const text = str(prompt).trim();
+    if (!text) return false;
+    const ai = this.plugin && this.plugin.settings ? this.plugin.settings.ai : null;
+    if (!ai || ai.enabled !== true || !this.chatPanel || this.chatPanel.busy) return false;
+    if (typeof this.chatPanel.thinkFirstRemaining === "function" && this.chatPanel.thinkFirstRemaining() > 0) return false;
+    await this.chatPanel.send(text);
+    return true;
   }
 
   /** Local retrieval before each chat request, so answers can cite real notes. */

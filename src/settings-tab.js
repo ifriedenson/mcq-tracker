@@ -2,6 +2,7 @@
 const { Notice, Platform, PluginSettingTab, SecretComponent, Setting } = require("obsidian");
 const { FILTER_FIELDS, FOLDER_AUTO_MAX } = require("./constants");
 const { API_PRESETS, ApiClient, friendlyApiError } = require("./api-client");
+const { localModelGuide } = require("./local-models");
 const { str } = require("./util");
 const { OPENCODE_REPO, PROVIDERS } = require("./opencode-manager");
 const { friendlyError } = require("./opencode-client");
@@ -898,6 +899,9 @@ class QuestionTrackerSettingTab extends PluginSettingTab {
           });
         });
       const preset = API_PRESETS[api.provider] || API_PRESETS.custom;
+      if (preset.local) {
+        new Setting(containerEl).setName("Offline local model").setDesc(localModelGuide(api.provider).description);
+      }
       if (preset.kind === "openai") {
         new Setting(containerEl)
           .setName("Base URL")

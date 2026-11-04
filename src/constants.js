@@ -98,6 +98,11 @@ const DEFAULT_SETTINGS = {
     context: { stats: false, due: false, exams: false }, // read-only aggregate context sent only when a toggle is on
     verification: "mark", // after AI writes an answer: "mark" mismatches for review, or "drop" them
     sessionId: "",
+    studyChat: [], // active Direct API study-agent messages, bounded by chat-history.js
+    studyChatId: "", // id of the active conversation, so archiving resumes it rather than copying it
+    studyChatTitle: "", // user-visible title of the active conversation
+    studyChatUpdatedAt: 0, // epoch ms, used for the newest-first library order
+    chatSessions: [], // archived conversations, bounded by chat-sessions.js
     autoDeclined: false, // the user said no to the automatic OpenCode download: don't ask again until they press the button
     backend: "api", // desktop choice: "api" (default) or "opencode". Phones always use "api".
     api: { provider: "anthropic", baseUrl: "", model: "claude-sonnet-5-5", models: [], keys: {} },

@@ -4,6 +4,7 @@ const { str } = require("./util");
 const { safeApiBase } = require("./url-safety");
 const { extractRationale } = require("./notes");
 const { roleInstruction, commandReference } = require("./tutor-presets");
+const { chunksFromStream, sseData } = require("./chat-stream");
 
 /* ------------------------------------------------------------ OpenCode (AI) */
 
@@ -176,6 +177,57 @@ class OpenCodeClient {
   send(id, body) {
     // blocks until the assistant has finished (including any tool use)
     return this.req("POST", `/session/${encodeURIComponent(id)}/message`, body);
+  }
+  /**
+   * Send a message and report text deltas from the server's SSE event stream
+   * while the blocking send runs. Streaming is best effort: no fetch, no event
+   * stream, or an event shape this version does not know simply means no
+   * deltas, and the caller still refreshes the finished messages from the
+   * server. The returned text is what the event stream contributed.
+   */
+  async stream(id, body, opts) {
+    const o = opts || {};
+    if (typeof fetch !== "function" || typeof AbortController === "undefined" || typeof o.onDelta !== "function" || typeof sseData !== "function") {
+      return this.send(id, body);
+    }
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    if (o.signal) o.signal.addEventListener("abort", onAbort);
+    let text = "";
+    const events = (async () => {
+      try {
+        const response = await fetch(`${this.base()}/event`, {
+          headers: { ...this.headers(), accept: "text/event-stream" },
+          signal: controller.signal,
+        });
+        if (!response || !response.ok || !response.body || typeof response.body.getReader !== "function") return;
+        for await (const data of sseData(chunksFromStream(response.body))) {
+          let payload = null;
+          try {
+            payload = JSON.parse(data);
+          } catch (error) {
+            continue;
+          }
+          const properties = payload && payload.properties ? payload.properties : {};
+          if (properties.sessionID && properties.sessionID !== id) continue;
+          const part = properties.part && typeof properties.part === "object" ? properties.part : {};
+          const delta = typeof properties.delta === "string" ? properties.delta : "";
+          if (!delta || (part.type && part.type !== "text") || part.ignored || part.synthetic) continue;
+          text += delta;
+          o.onDelta(delta);
+        }
+      } catch (error) {
+        /* streaming is an optimisation; the blocking send below is the truth */
+      }
+    })();
+    try {
+      await this.send(id, body);
+    } finally {
+      controller.abort();
+      if (o.signal) o.signal.removeEventListener("abort", onAbort);
+      await Promise.race([events, new Promise((resolve) => setTimeout(resolve, 50))]);
+    }
+    return text;
   }
   abort(id) {
     return this.req("POST", `/session/${encodeURIComponent(id)}/abort`, {});

@@ -207,13 +207,16 @@ test("burns sidecar annotations into the page content", async () => {
   const annotations = [
     highlight(1),
     { page: 1, type: "pen", color: "red", strokes: [{ tool: "pen", color: "red", width: 0.004, opacity: 0.9, points: [[0.1, 0.1], [0.3, 0.2], [0.5, 0.25]] }] },
+    { page: 1, type: "underline", color: "blue", areas: [{ x: 0.1, y: 0.5, width: 0.4, height: 0.03, color: "blue", style: "underline" }] },
+    { page: 1, type: "strike", color: "red", areas: [{ x: 0.1, y: 0.6, width: 0.4, height: 0.03, color: "red", style: "strike" }] },
+    { page: 1, type: "box", color: "green", areas: [{ x: 0.1, y: 0.7, width: 0.4, height: 0.08, color: "green", style: "box" }] },
     { page: 2, type: "text", color: "blue", boxes: [{ text: "Check this derivation again", x: 0.1, y: 0.6, width: 0.5, height: 0.15, size: 0.02, color: "blue" }] },
     highlight(9),
   ];
   const burned = await editor.flattenAnnotations(loaded.doc, annotations, { pageMap: [1, 2, 3, 4] });
   assert.equal(burned.ok, true);
   assert.equal(burned.pages, 2);
-  assert.ok(burned.drawn >= 3);
+  assert.ok(burned.drawn >= 7, "every mark style is drawn");
   assert.equal(burned.skipped, 1, "an annotation on a page that is gone is skipped, not drawn somewhere else");
 
   const after = await editor.savePdf(loaded.doc);
@@ -233,6 +236,23 @@ test("keeps annotations on their own page after a page is deleted", async () => 
   const orphan = await editor.flattenAnnotations(loaded.doc, [highlight(2)], { pageMap });
   assert.equal(orphan.drawn, 0);
   assert.equal(orphan.skipped, 1);
+});
+
+test("keeps annotations on their own page after pages are reordered", async () => {
+  const loaded = await editor.loadEditorDocument(await fixture());
+  const beforeBytes = (await editor.savePdf(loaded.doc)).bytes;
+  const before = await Promise.all([0, 1, 2, 3].map((index) => pageContent(beforeBytes, index)));
+
+  const burned = await editor.flattenAnnotations(loaded.doc, [highlight(1)], { pageMap: [2, 3, 1, 4] });
+  assert.equal(burned.ok, true);
+  assert.equal(burned.pages, 1, "only the moved original page is touched");
+
+  const afterBytes = (await editor.savePdf(loaded.doc)).bytes;
+  const after = await Promise.all([0, 1, 2, 3].map((index) => pageContent(afterBytes, index)));
+  assert.equal(after[0], before[0], "the page now in slot 1 did not receive the mark");
+  assert.equal(after[1], before[1], "the page now in slot 2 did not receive the mark");
+  assert.notEqual(after[2], before[2], "original page 1 received its mark in its new slot");
+  assert.equal(after[3], before[3], "the last page did not receive the mark");
 });
 
 test("maps normalized page coordinates into PDF points for every rotation", () => {
@@ -491,6 +511,10 @@ test("new text, checkbox and dropdown fields appear on their pages and stay fill
   const checkbox = form.getCheckBox("Agree");
   assert.equal(checkbox.isChecked(), true);
   assert.equal(editor.formFields(reopened).fields.find((row) => row.name === "Agree").page, 2);
+  const positioned = editor.formFields(reopened).fields.find((row) => row.name === "Agree");
+  assert.ok(positioned.rect && positioned.rect.width > 0, "the field carries its widget rectangle for overlays");
+  assert.equal(positioned.pageWidth, 400, "the field carries its page width");
+  assert.equal(positioned.pageHeight, 500, "the field carries its page height");
   const boxRect = checkbox.acroField.getWidgets()[0].getRectangle();
   assert.deepEqual(boxRect, box.rect, "the checkbox reports its stored rectangle");
   assert.ok(Math.abs(boxRect.x - 60) <= 1 && Math.abs(boxRect.width - 18) <= 1);
@@ -634,4 +658,180 @@ test("flattening a form leaves no orphan widget annotations on the pages", async
   const reopenedAnnots = reopened.getPage(0).node.Annots();
   assert.ok(!reopenedAnnots || reopenedAnnots.size() === 0, "the saved copy carries no dead annotation");
   assert.equal(reopened.getForm().getFields().length, 0);
+});
+
+test("draws a rectangle, an ellipse and a rule into the page content", async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  doc.addPage([400, 500]);
+  const rect = editor.addShape(doc, { shape: "rectangle", pages: "all", width: 200, height: 100, color: "red" });
+  assert.equal(rect.ok, true, rect.message);
+  assert.equal(rect.drawn, 2);
+  const ellipse = editor.addShape(doc, { shape: "ellipse", pages: 0, width: 120, height: 60, fill: "yellow" });
+  assert.equal(ellipse.ok, true, ellipse.message);
+  const rule = editor.addShape(doc, { shape: "line", pages: 1, width: 300, height: 20, color: "blue" });
+  assert.equal(rule.ok, true, rule.message);
+  const saved = await editor.savePdf(doc);
+  const first = await pageContent(saved.bytes, 0);
+  assert.match(first, /\b200 100 l\b/, "the rectangle is a four-corner path");
+  assert.match(first, /\bc\b/, "the ellipse is drawn with Bézier curves");
+  const second = await pageContent(saved.bytes, 1);
+  assert.match(second, /\b200 100 l\b/, "the rectangle reached the second page too");
+  assert.match(second, /\b350 \d+ l\b/, "the rule is one straight 300-point segment, centred on the page");
+});
+
+test("refuses shapes that are the wrong kind, too small, too large or off the page", async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  assert.equal(editor.addShape(doc, { shape: "star", pages: 0, width: 100, height: 100 }).reason, "shape");
+  assert.equal(editor.addShape(doc, { shape: "rectangle", pages: 0, width: 2, height: 100 }).reason, "size");
+  assert.equal(editor.addShape(doc, { shape: "rectangle", pages: 0, width: 2001, height: 100 }).reason, "size");
+  assert.equal(editor.addShape(doc, { shape: "rectangle", pages: 0, width: 500, height: 100 }).reason, "size");
+  assert.equal(editor.addShape(doc, { shape: "rectangle", pages: 4, width: 100, height: 100 }).reason, "index");
+  assert.equal(editor.addShape(doc, { shape: "rectangle", pages: 0, width: 200, height: 100 }).drawn, 1);
+  doc.getPage(0).setRotation(degrees(90));
+  assert.equal(editor.addShape(doc, { shape: "rectangle", pages: 0, width: 100, height: 100 }).reason, "rotation");
+});
+
+test("resizes pages to A4, Letter and a custom size, skipping pages already there", async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]);
+  doc.addPage([595.28, 841.89]);
+  const a4 = editor.resizePages(doc, { size: "a4", pages: "all" });
+  assert.equal(a4.ok, true, a4.message);
+  assert.equal(a4.resized, 1);
+  assert.equal(a4.skipped, 1, "the page already at A4 is left alone");
+  assert.equal(a4.size, "a4");
+  assert.equal(a4.scales.length, 1);
+  assert.ok(Math.abs(a4.scales[0].scale - 595.28 / 612) < 1e-9, "the Letter page scales by its width");
+  const letter = editor.resizePages(doc, { size: "letter", pages: 0 });
+  assert.equal(letter.ok, true, letter.message);
+  assert.equal(letter.resized, 1);
+  const custom = editor.resizePages(doc, { width: 300, height: 300, pages: 1 });
+  assert.equal(custom.ok, true, custom.message);
+  assert.equal(custom.size, "custom");
+  const saved = await editor.savePdf(doc);
+  const back = await PDFDocument.load(saved.bytes);
+  assert.deepEqual(back.getPage(0).getSize(), { width: 612, height: 792 });
+  assert.deepEqual(back.getPage(1).getSize(), { width: 300, height: 300 });
+  assert.deepEqual(back.getPage(1).getCropBox(), { x: 0, y: 0, width: 300, height: 300 });
+});
+
+test("refuses a resize on a rotated page, a form PDF or a size that is not a page", async () => {
+  const form = await PDFDocument.load(await fixture());
+  const refused = editor.resizePages(form, { size: "a4" });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.reason, "form", "a live form would no longer line up");
+  const rotated = await PDFDocument.create();
+  rotated.addPage([400, 500]).setRotation(degrees(90));
+  assert.equal(editor.resizePages(rotated, { size: "a4" }).reason, "rotation");
+  const plain = await PDFDocument.create();
+  plain.addPage([400, 500]);
+  assert.equal(editor.resizePages(plain, { width: 10, height: 10 }).reason, "size");
+  assert.equal(editor.resizePages(plain, { width: 6000, height: 6000 }).reason, "size");
+  assert.equal(editor.resizePages(plain, { pages: 2, size: "a4" }).reason, "index");
+});
+
+test("rotates a page through 90, 180 and 270 degrees and refuses any other angle", async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  assert.deepEqual(editor.rotatePage(doc, 0, 90), { ok: true, index: 0, rotation: 90 });
+  assert.equal(editor.pageList(doc)[0].rotation, 90);
+  assert.equal(editor.rotatePage(doc, 0, 90).rotation, 180);
+  assert.equal(editor.rotatePage(doc, 0, 90).rotation, 270);
+  assert.equal(editor.rotatePage(doc, 0, -270).rotation, 0);
+  for (const angle of [45, -45, 1, 91]) {
+    const refused = editor.rotatePage(doc, 0, angle);
+    assert.equal(refused.ok, false, `${angle} degrees is refused`);
+    assert.equal(refused.reason, "rotation");
+    assert.match(refused.message, /multiple of 90/);
+  }
+  assert.equal(editor.pageList(doc)[0].rotation, 0, "a refused rotation changes nothing");
+  const missing = editor.rotatePage(doc, 4, 90);
+  assert.equal(missing.reason, "index");
+  assert.match(missing.message, /not in this PDF/);
+  editor.rotatePage(doc, 0, 270);
+  const saved = await editor.savePdf(doc);
+  const reopened = await PDFDocument.load(saved.bytes);
+  assert.equal(reopened.getPage(0).getRotation().angle, 270, "the rotation survives a save");
+});
+
+test("moves a page to a new position and refuses a target outside the file", async () => {
+  const doc = await PDFDocument.create();
+  for (const size of [[400, 500], [410, 510], [420, 520]]) doc.addPage(size);
+  const widths = () => doc.getPages().map((page) => Math.round(page.getSize().width));
+  assert.deepEqual(editor.movePage(doc, 0, 2), { ok: true, moved: true, pageCount: 3 });
+  assert.deepEqual(widths(), [410, 420, 400], "the page really moved to the end");
+  assert.deepEqual(editor.movePage(doc, 1, 1), { ok: true, moved: false, pageCount: 3 });
+  assert.deepEqual(widths(), [410, 420, 400], "moving onto itself changes nothing");
+  for (const target of [3, -1, 9]) {
+    const refused = editor.movePage(doc, 0, target);
+    assert.equal(refused.ok, false, `${target} is outside the file`);
+    assert.equal(refused.reason, "index");
+    assert.match(refused.message, /not in this PDF/);
+  }
+  assert.equal(editor.movePage(doc, 7, 0).reason, "index", "the source page has to exist");
+  assert.deepEqual(widths(), [410, 420, 400], "refusals leave the order alone");
+  const saved = await editor.savePdf(doc);
+  const reopened = await PDFDocument.load(saved.bytes);
+  assert.deepEqual(
+    reopened.getPages().map((page) => Math.round(page.getSize().width)),
+    [410, 420, 400],
+    "the new order survives a save",
+  );
+});
+
+test("inserts a blank page at a chosen position with its own size and refuses one outside the file", async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  doc.addPage([410, 510]);
+  const first = editor.addBlankPage(doc, 0, { width: 300, height: 320 });
+  assert.equal(first.ok, true, first.message);
+  assert.equal(first.index, 0, "the blank page went in first");
+  assert.equal(first.pageCount, 3);
+  assert.deepEqual(
+    editor.pageList(doc).map((page) => [Math.round(page.width), Math.round(page.height)]),
+    [[300, 320], [400, 500], [410, 510]],
+    "the new page is first and the others kept their order",
+  );
+  const middle = editor.addBlankPage(doc, 2, { width: 200, height: 240 });
+  assert.equal(middle.ok, true, middle.message);
+  assert.equal(middle.index, 2);
+  assert.deepEqual(editor.pageList(doc)[2].width, 200);
+  for (const position of [5, -1, 2.5]) {
+    const refused = editor.addBlankPage(doc, position);
+    assert.equal(refused.ok, false, `${position} is not a position in a 4-page PDF`);
+    assert.equal(refused.reason, "index");
+    assert.match(refused.message, /cannot go at position/);
+  }
+  const appended = editor.addBlankPage(doc);
+  assert.equal(appended.ok, true);
+  assert.equal(appended.index, 4, "no position means the end");
+  const saved = await editor.savePdf(doc);
+  const reopened = await PDFDocument.load(saved.bytes);
+  assert.equal(reopened.getPageCount(), 5);
+  assert.deepEqual(reopened.getPage(0).getSize(), { width: 300, height: 320 });
+  assert.deepEqual(reopened.getPage(2).getSize(), { width: 200, height: 240 });
+  assert.deepEqual(reopened.getPage(4).getSize(), {
+    width: editor.DEFAULT_PAGE[0],
+    height: editor.DEFAULT_PAGE[1],
+  });
+});
+
+test("refuses to delete the last page and refuses a page that is not in the file", async () => {
+  const single = await PDFDocument.create();
+  single.addPage([400, 500]);
+  const refused = editor.deletePage(single, 0);
+  assert.equal(refused.ok, false);
+  assert.equal(refused.reason, "last-page");
+  assert.match(refused.message, /at least one page/i);
+  assert.equal(editor.pageList(single).length, 1, "the page is still there");
+  assert.equal(editor.deletePage(single, 3).reason, "index");
+  const two = await PDFDocument.create();
+  two.addPage([400, 500]);
+  two.addPage([410, 510]);
+  const removed = editor.deletePage(two, 1);
+  assert.equal(removed.ok, true);
+  assert.equal(removed.pageCount, 1);
+  assert.equal(editor.pageList(two)[0].width, 400, "the right page was removed");
 });

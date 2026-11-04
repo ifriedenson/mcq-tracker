@@ -4,6 +4,8 @@ const { readPdfPageText, renderPdfPagesAsPng } = require("./pdf");
 const { annotationLink, annotationsMarkdown, hashBytes, parseAnnotationFile, removeAnnotation, sidecarPathFor, upsertAnnotation } = require("./pdf-annotations");
 const { INK_COLORS, INK_COLOR_HEX, INK_TOOLS, MARK_STYLES, MAX_INK_POINTS, areaAt, boxAt, clamp, drawInkSegment, drawInkStrokes, drawMarks, eraseStrokesAt, normalizeHighlightArea, normalizeHighlightAreas, normalizeInkStroke, normalizeInkStrokes, normalizeTextBox, normalizeTextBoxes, textInArea } = require("./pdf-ink");
 const { renderSidebar, rowPage, selectionBounds, sidebarRows, tagInput } = require("./pdf-annotator-sidebar");
+const { pageTextFromItems } = require("./reading-companion");
+const { formFields, loadEditorDocument } = require("./pdf-editor");
 
 const TOOL_LABELS = { pen: "Pen", highlighter: "Highlighter", text: "Text box", highlight: "Highlight", underline: "Underline", strike: "Strike-through", box: "Box", select: "Select text", eraser: "Eraser" };
 const MARK_TOOLS = ["highlight", "underline", "strike", "box", "select"];
@@ -20,12 +22,71 @@ function clampPage(value, total) {
   return Math.max(1, total > 0 ? Math.min(total, n) : n);
 }
 
+/** Width and height from a PNG IHDR chunk, so the overlay is sized before the image loads. */
+function pngDimensions(bytes) {
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  if (data.length >= 24 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) {
+    const width = ((data[16] << 24) | (data[17] << 16) | (data[18] << 8) | data[19]) >>> 0;
+    const height = ((data[20] << 24) | (data[21] << 16) | (data[22] << 8) | data[23]) >>> 0;
+    if (width > 0 && height > 0) return { width, height };
+  }
+  return { width: 1000, height: 1400 };
+}
+
+/** Maps a PDF widget rectangle into the rendered page's normalized top-left space. */
+function formRectOnPage(field) {
+  const width = Number(field && field.pageWidth) || 0;
+  const height = Number(field && field.pageHeight) || 0;
+  const rect = field && field.rect;
+  if (!rect || width <= 0 || height <= 0) return null;
+  const rotation = ((Math.round(Number(field.rotation) || 0) % 360) + 360) % 360;
+  const points = [
+    [rect.x, rect.y],
+    [rect.x + rect.width, rect.y],
+    [rect.x + rect.width, rect.y + rect.height],
+    [rect.x, rect.y + rect.height],
+  ].map(([x, y]) => {
+    if (rotation === 90) return [height - y, x];
+    if (rotation === 180) return [width - x, y];
+    if (rotation === 270) return [y, width - x];
+    return [x, height - y];
+  });
+  const left = Math.min(...points.map((point) => point[0]));
+  const right = Math.max(...points.map((point) => point[0]));
+  const top = Math.min(...points.map((point) => point[1]));
+  const bottom = Math.max(...points.map((point) => point[1]));
+  const displayWidth = rotation === 90 || rotation === 270 ? height : width;
+  const displayHeight = rotation === 90 || rotation === 270 ? width : height;
+  return {
+    x: clamp(left / displayWidth, 0, 1),
+    y: clamp(top / displayHeight, 0, 1),
+    width: clamp((right - left) / displayWidth, 0, 1),
+    height: clamp((bottom - top) / displayHeight, 0, 1),
+  };
+}
+
+function emptyPageLayer() {
+  return {
+    strokes: [],
+    inkId: "",
+    textBoxes: [],
+    textId: "",
+    highlights: [],
+    markIds: { highlight: "", underline: "", strike: "", box: "" },
+    markTags: { highlight: [], underline: [], strike: [], box: [] },
+    quotes: [],
+    pageQuoteIds: [],
+    editSeq: 0,
+  };
+}
+
 class TextBoxPromptModal extends Modal {
   constructor(app, options, onDone) {
     super(app);
     this.options = options || {};
     this.onDone = onDone || (() => {});
     this.textEl = null;
+    this.copyStatusEl = null;
   }
 
   onOpen() {
@@ -38,6 +99,13 @@ class TextBoxPromptModal extends Modal {
       text: "This text is saved in the PDF's annotation sidecar at the place you clicked.",
     });
     if (this.options.hint) el.createDiv({ cls: "qt-hint qt-pdf-ink-quote-preview", text: `“${this.options.hint}”` });
+    if (this.options.copyText) {
+      const copyRow = el.createDiv({ cls: "qt-row qt-pdf-ink-actions" });
+      copyRow
+        .createEl("button", { text: "Copy selected text", cls: "qt-grow" })
+        .addEventListener("click", () => this.copySelectedText());
+      this.copyStatusEl = el.createDiv({ cls: "qt-hint" });
+    }
     this.textEl = el.createEl("textarea", { cls: "qt-pdf-ink-textarea" });
     this.textEl.rows = 5;
     this.textEl.value = this.options.text || "";
@@ -54,6 +122,23 @@ class TextBoxPromptModal extends Modal {
     const cancel = row.createEl("button", { text: "Cancel", cls: "qt-grow" });
     cancel.addEventListener("click", () => this.close());
     this.textEl.focus();
+  }
+
+  async copySelectedText() {
+    const text = String(this.options.copyText || "");
+    if (!text) return false;
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+        throw new Error("Clipboard unavailable");
+      }
+      await navigator.clipboard.writeText(text);
+      if (this.copyStatusEl) this.copyStatusEl.setText(`Copied ${text.length} character${text.length === 1 ? "" : "s"}.`);
+      return true;
+    } catch (error) {
+      if (this.copyStatusEl) this.copyStatusEl.setText("Could not copy the selected text in this view.");
+      new Notice("Could not copy the selected text. Select it again and use your system copy shortcut.");
+      return false;
+    }
   }
 
   commit() {
@@ -118,6 +203,16 @@ class PdfInkModal extends Modal {
     this.pageWrap = null;
     this.canvas = null;
     this.ctx = null;
+    this.pageWraps = new Map();
+    this.pageCanvases = new Map();
+    this.pageContexts = new Map();
+    this.pageAnnotations = new Map();
+    this.pageTexts = new Map();
+    this.histories = new Map();
+    this.dirtyPages = new Set();
+    this.objectUrls = [];
+    this.formFields = [];
+    this.formLayers = new Map();
   }
 
   onOpen() {
@@ -140,15 +235,81 @@ class PdfInkModal extends Modal {
   onClose() {
     this.loadToken++;
     if (this.dirty) this.save().catch(() => {});
-    if (this.objectUrl) {
+    for (const url of this.objectUrls.concat(this.objectUrl ? [this.objectUrl] : [])) {
       try {
-        URL.revokeObjectURL(this.objectUrl);
+        URL.revokeObjectURL(url);
       } catch (e) {
         /* ignore */
       }
-      this.objectUrl = "";
     }
+    this.objectUrls = [];
+    this.objectUrl = "";
+    this.pageWraps.clear();
+    this.pageCanvases.clear();
+    this.pageContexts.clear();
     this.contentEl.empty();
+  }
+
+  /* ------------------------------------------------------------ page state */
+
+  pageLayer(page) {
+    const n = Math.max(1, Math.round(Number(page) || 1));
+    if (!this.pageAnnotations.has(n)) this.pageAnnotations.set(n, emptyPageLayer());
+    return this.pageAnnotations.get(n);
+  }
+
+  storePageAnnotations() {
+    const layer = this.pageLayer(this.page);
+    layer.strokes = this.strokes;
+    layer.inkId = this.inkId;
+    layer.textBoxes = this.textBoxes;
+    layer.textId = this.textId;
+    layer.highlights = this.highlights;
+    layer.markIds = this.markIds;
+    layer.markTags = this.markTags;
+    layer.quotes = this.quotes;
+    layer.pageQuoteIds = this.pageQuoteIds;
+    layer.editSeq = this.editSeq;
+    this.histories.set(this.page, this.history);
+    return layer;
+  }
+
+  applyPageAnnotations(page) {
+    this.page = clampPage(page, this.total || page);
+    const layer = this.pageLayer(this.page);
+    this.strokes = layer.strokes;
+    this.inkId = layer.inkId;
+    this.textBoxes = layer.textBoxes;
+    this.textId = layer.textId;
+    this.highlights = layer.highlights;
+    this.markIds = layer.markIds;
+    this.markTags = layer.markTags;
+    this.quotes = layer.quotes;
+    this.pageQuoteIds = layer.pageQuoteIds;
+    this.textItems = this.pageTexts.get(this.page) || [];
+    this.history = this.histories.get(this.page) || [];
+    this.editSeq = Number(layer.editSeq) || 0;
+    this.dirty = this.dirtyPages.size > 0;
+    this.highlightStart = null;
+    this.highlightDraft = null;
+    this.drawing = null;
+    this.erasing = false;
+    if (this.pageInputEl) this.pageInputEl.value = String(this.page);
+    if (this.pageTotalEl) this.pageTotalEl.setText(`of ${this.total || "?"}`);
+    return layer;
+  }
+
+  /** Switch the active page without saving or animating the scroll container. */
+  activatePage(page, options) {
+    const opts = options || {};
+    const target = clampPage(page, this.total || page);
+    if (target === Number(this.page) && !opts.force) return this.page;
+    this.storePageAnnotations();
+    this.applyPageAnnotations(target);
+    if (this.plugin.rememberPdfPage) this.plugin.rememberPdfPage(this.pdfPath, this.page);
+    this.redrawAll();
+    if (!opts.silent) this.setStatus(`Page ${this.page} of ${this.total || "?"}.`);
+    return this.page;
   }
 
   setStatus(text) {
@@ -198,7 +359,12 @@ class PdfInkModal extends Modal {
         this.pdfPath = v;
         this.page = 1;
         this.total = 0;
-        await this.loadPage();
+        this.pageAnnotations = new Map();
+        this.pageTexts = new Map();
+        this.histories = new Map();
+        this.dirtyPages = new Set();
+        this.dirty = false;
+        await this.loadDocument();
       });
     });
 
@@ -251,6 +417,8 @@ class PdfInkModal extends Modal {
     copyLink.addEventListener("click", () => this.copyPageLink());
     const exportNotes = actions.createEl("button", { text: "Export notes", cls: "qt-grow" });
     exportNotes.addEventListener("click", () => this.exportNotes());
+    const askPage = actions.createEl("button", { text: "Ask AI about this page", cls: "qt-grow" });
+    askPage.addEventListener("click", () => this.askPage());
     const editPdf = actions.createEl("button", { text: "Edit pages and forms", cls: "qt-grow" });
     editPdf.addEventListener("click", () => this.openEditor());
 
@@ -260,6 +428,11 @@ class PdfInkModal extends Modal {
     this.statusEl = el.createDiv({ cls: "qt-hint" });
     const layout = el.createDiv({ cls: "qt-pdf-ink-layout" });
     this.stageEl = layout.createDiv({ cls: "qt-pdf-ink-stage" });
+    if (this.stageEl.setAttribute) {
+      this.stageEl.setAttribute("aria-label", "Continuous PDF pages");
+      this.stageEl.setAttribute("role", "region");
+    }
+    if (this.stageEl.addEventListener) this.stageEl.addEventListener("scroll", () => this.onStageScroll());
     this.sidebarEl = layout.createDiv({ cls: "qt-pdf-ink-sidebar-host" });
     if (!this.sidebarOpen) this.sidebarEl.addClass("is-collapsed");
     this.renderSidebarPanel();
@@ -267,39 +440,62 @@ class PdfInkModal extends Modal {
   }
 
   async loadPage() {
+    return this.loadDocument();
+  }
+
+  /** Loads every page once and builds the continuous vertical reader. */
+  async loadDocument() {
     if (!this.stageEl) return;
     const token = ++this.loadToken;
     this.busy = true;
-    this.setStatus("Rendering page…");
+    this.setStatus("Rendering all pages…");
     try {
       const file = this.app.vault.getAbstractFileByPath(this.pdfPath);
       if (!file || !(file instanceof TFile)) throw new Error("That PDF is no longer in the vault.");
       const bytes = await this.app.vault.readBinary(file);
       const hash = hashBytes(bytes);
-      const rendered = await renderPdfPagesAsPng(bytes, String(this.page), (message) => this.setStatus(message), 1.6);
+      const rendered = await renderPdfPagesAsPng(bytes, "", (message) => this.setStatus(message), 1.6);
       if (token !== this.loadToken) return;
-      if (!rendered.pages.length) throw new Error("That page could not be rendered.");
-      this.total = Math.max(0, Number(rendered.total) || 0);
+      if (!rendered.pages.length) throw new Error("That PDF could not be rendered.");
+      this.total = Math.max(Number(rendered.total) || 0, rendered.pages.length);
       this.currentHash = hash;
-      this.history = [];
+      this.formFields = [];
+      try {
+        const formDocument = await loadEditorDocument(bytes);
+        if (formDocument.ok) this.formFields = formFields(formDocument.doc).fields;
+      } catch (e) {
+        this.formFields = [];
+      }
+      this.pageAnnotations = new Map();
+      this.pageTexts = new Map();
+      this.histories = new Map();
+      this.dirtyPages = new Set();
+      this.dirty = false;
       await this.loadSidecar();
       if (token !== this.loadToken) return;
-      try {
-        const text = await readPdfPageText(bytes, this.page);
-        this.textItems = token === this.loadToken ? text.items : [];
-      } catch (e) {
-        this.textItems = [];
-      }
-      if (token !== this.loadToken) return;
-      await this.showPage(rendered.pages[0].png);
-      if (token !== this.loadToken) return;
-      this.dirty = false;
-      this.pageInputEl.value = String(this.page);
-      this.pageTotalEl.setText(`of ${this.total || "?"}`);
-      const warning = this.savedHash && this.savedHash !== hash ? " The PDF changed since its annotations were saved; check that the page still matches." : "";
-      this.setStatus(`Page ${this.page} ready. Draw, then Save.${warning}`);
-      if (this.plugin.rememberPdfPage) this.plugin.rememberPdfPage(this.pdfPath, this.page);
+      this.showPages(rendered.pages);
+      this.page = clampPage(this.page, this.total);
+      this.applyPageAnnotations(this.page);
+      this.page = clampPage(this.page, this.total);
+      if (this.pageInputEl) this.pageInputEl.value = String(this.page);
+      if (this.pageTotalEl) this.pageTotalEl.setText(`of ${this.total || "?"}`);
+      this.scrollPageIntoView(this.page);
       await this.refreshAnnotations();
+      if (token !== this.loadToken) return;
+      for (const entry of rendered.pages) {
+        try {
+          const text = await readPdfPageText(bytes, entry.n);
+          this.pageTexts.set(entry.n, text.items || []);
+        } catch (e) {
+          this.pageTexts.set(entry.n, []);
+        }
+        if (token !== this.loadToken) return;
+      }
+      this.applyPageAnnotations(this.page);
+      this.redrawAll();
+      const warning = this.savedHash && this.savedHash !== hash ? " The PDF changed since its annotations were saved; check that the page still matches." : "";
+      this.setStatus(`${this.total} page${this.total === 1 ? "" : "s"} ready. Scroll or jump, then draw and Save.${warning}`);
+      if (this.plugin.rememberPdfPage) this.plugin.rememberPdfPage(this.pdfPath, this.page);
     } catch (e) {
       if (token === this.loadToken) this.setStatus(e && e.message ? e.message : String(e));
     } finally {
@@ -309,18 +505,14 @@ class PdfInkModal extends Modal {
 
   async loadSidecar() {
     this.sidecarPath = sidecarPathFor(this.pdfPath);
-    this.strokes = [];
-    this.inkId = "";
-    this.textBoxes = [];
-    this.textId = "";
-    this.highlights = [];
-    this.markIds = { highlight: "", underline: "", strike: "", box: "" };
-    this.quotes = [];
-    this.pageQuoteIds = [];
-    this.markTags = { highlight: [], underline: [], strike: [], box: [] };
+    this.pageAnnotations = new Map();
+    for (let n = 1; n <= this.total; n++) this.pageAnnotations.set(n, emptyPageLayer());
     this.savedHash = "";
     const existing = this.app.vault.getAbstractFileByPath(this.sidecarPath);
-    if (!existing) return;
+    if (!existing) {
+      this.applyPageAnnotations(this.page);
+      return;
+    }
     let parsed;
     try {
       parsed = parseAnnotationFile(await this.app.vault.cachedRead(existing));
@@ -329,69 +521,124 @@ class PdfInkModal extends Modal {
       return;
     }
     this.savedHash = parsed.pdfHash || "";
-    const ink = (parsed.annotations || []).find((a) => a.page === Number(this.page) && a.type === "pen" && Array.isArray(a.strokes) && a.strokes.length);
-    if (ink) {
-      this.inkId = ink.id;
-      this.strokes = normalizeInkStrokes(ink.strokes);
-    }
-    const textLayer = (parsed.annotations || []).find((a) => a.page === Number(this.page) && a.type === "text" && Array.isArray(a.boxes) && a.boxes.length);
-    if (textLayer) {
-      this.textId = textLayer.id;
-      this.textBoxes = normalizeTextBoxes(textLayer.boxes);
-    }
     for (const annotation of parsed.annotations || []) {
-      if (annotation.page !== Number(this.page)) continue;
-      if (MARK_STYLES.includes(annotation.type) && Array.isArray(annotation.areas) && annotation.areas.length) {
-        this.markIds[annotation.type] = annotation.id;
-        this.markTags[annotation.type] = Array.isArray(annotation.tags) ? annotation.tags.slice() : [];
-        for (const area of normalizeHighlightAreas(annotation.areas)) this.highlights.push({ ...area, style: annotation.type });
-      }
-      if (annotation.type === "quote") {
-        this.quotes.push(annotation);
-        this.pageQuoteIds.push(annotation.id);
+      const page = Math.round(Number(annotation.page));
+      if (!Number.isInteger(page) || page < 1) continue;
+      const layer = this.pageLayer(page);
+      if (annotation.type === "pen" && Array.isArray(annotation.strokes) && annotation.strokes.length) {
+        layer.inkId = annotation.id;
+        layer.strokes = normalizeInkStrokes(annotation.strokes);
+      } else if (annotation.type === "text" && Array.isArray(annotation.boxes) && annotation.boxes.length) {
+        layer.textId = annotation.id;
+        layer.textBoxes = normalizeTextBoxes(annotation.boxes);
+      } else if (MARK_STYLES.includes(annotation.type) && Array.isArray(annotation.areas) && annotation.areas.length) {
+        layer.markIds[annotation.type] = annotation.id;
+        layer.markTags[annotation.type] = Array.isArray(annotation.tags) ? annotation.tags.slice() : [];
+        for (const area of normalizeHighlightAreas(annotation.areas)) layer.highlights.push({ ...area, style: annotation.type });
+      } else if (annotation.type === "quote") {
+        layer.quotes.push(annotation);
+        layer.pageQuoteIds.push(annotation.id);
       }
     }
+    this.applyPageAnnotations(this.page);
+    this.redrawAll();
   }
 
-  async showPage(png) {
+  /** Builds one wrap, image and overlay canvas for every page in the document. */
+  showPages(pages) {
     if (!this.stageEl) return;
     this.stageEl.empty();
-    if (this.objectUrl) {
+    for (const url of this.objectUrls) {
       try {
-        URL.revokeObjectURL(this.objectUrl);
+        URL.revokeObjectURL(url);
       } catch (e) {
         /* ignore */
       }
     }
-    const blob = new Blob([png], { type: "image/png" });
-    this.objectUrl = URL.createObjectURL(blob);
-    this.pageWrap = this.stageEl.createDiv({ cls: "qt-pdf-ink-page-wrap" });
-    const image = this.pageWrap.createEl("img", { cls: "qt-pdf-ink-page" });
-    await new Promise((resolve, reject) => {
-      image.onload = resolve;
-      image.onerror = () => reject(new Error("The rendered page could not be shown."));
-      image.src = this.objectUrl;
-    });
-    const canvas = this.pageWrap.createEl("canvas", { cls: "qt-pdf-ink-canvas" });
-    canvas.width = Math.max(1, Math.round(image.naturalWidth || image.width || 1000));
-    canvas.height = Math.max(1, Math.round(image.naturalHeight || image.height || 1400));
-    this.canvas = canvas;
-    this.ctx = canvas.getContext ? canvas.getContext("2d") : null;
-    this.bindCanvas();
-    this.redraw();
+    this.objectUrls = [];
+    this.pageWraps = new Map();
+    this.pageCanvases = new Map();
+    this.pageContexts = new Map();
+    this.formLayers = new Map();
+    for (const entry of pages || []) {
+      const n = Math.max(1, Math.round(Number(entry.n) || 1));
+      const wrap = this.stageEl.createDiv({ cls: "qt-pdf-ink-page-wrap" });
+      if (wrap.setAttribute) {
+        wrap.setAttribute("data-page", String(n));
+        wrap.setAttribute("aria-label", `Page ${n} of ${this.total || pages.length}`);
+      }
+      this.stageEl.createDiv({ cls: "qt-pdf-ink-page-number", text: `Page ${n}` });
+      const image = wrap.createEl("img", { cls: "qt-pdf-ink-page" });
+      image.alt = `Page ${n}`;
+      let url = "";
+      try {
+        if (typeof Blob !== "undefined" && typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+          url = URL.createObjectURL(new Blob([entry.png], { type: "image/png" }));
+          this.objectUrls.push(url);
+          image.src = url;
+        }
+      } catch (e) {
+        url = "";
+      }
+      const size = pngDimensions(entry.png);
+      this.renderFormOverlay(wrap, n);
+      const canvas = wrap.createEl("canvas", { cls: "qt-pdf-ink-canvas" });
+      canvas.width = size.width;
+      canvas.height = size.height;
+      const ctx = canvas.getContext ? canvas.getContext("2d") : null;
+      this.pageWraps.set(n, wrap);
+      this.pageCanvases.set(n, canvas);
+      this.pageContexts.set(n, ctx);
+      this.bindCanvas(canvas, n);
+    }
+    this.pageWrap = this.pageWraps.get(this.page) || this.pageWraps.values().next().value || null;
+    this.canvas = this.pageCanvases.get(this.page) || this.pageCanvases.values().next().value || null;
+    this.ctx = this.pageContexts.get(this.page) || this.pageContexts.values().next().value || null;
+    this.redrawAll();
   }
 
-  bindCanvas() {
-    const canvas = this.canvas;
+  /** Read-only field boxes sit under the annotation canvas and follow page scrolling. */
+  renderFormOverlay(wrap, page) {
+    const fields = (this.formFields || []).filter((field) => Number(field.page) === Number(page) - 1);
+    if (!fields.length) return null;
+    const layer = wrap.createDiv({ cls: "qt-pdf-ink-form-layer" });
+    for (const field of fields) {
+      const rects = Array.isArray(field.rects) && field.rects.length ? field.rects : [field.rect];
+      for (const source of rects) {
+        const rect = formRectOnPage({ ...field, rect: source });
+        if (!rect) continue;
+        const box = layer.createDiv({ cls: "qt-pdf-ink-form-field" });
+        box.style.left = `${rect.x * 100}%`;
+        box.style.top = `${rect.y * 100}%`;
+        box.style.width = `${rect.width * 100}%`;
+        box.style.height = `${rect.height * 100}%`;
+        box.setAttribute("title", `${field.name}${field.readOnly ? " (read-only)" : ""}`);
+        box.createSpan({ text: field.value ? `${field.name}: ${field.value}` : field.name });
+      }
+    }
+    this.formLayers.set(Number(page), layer);
+    return layer;
+  }
+
+  async showPage(png) {
+    this.showPages([{ n: this.page, png }]);
+  }
+
+  bindCanvas(canvas, pageNumber) {
     if (!canvas || !canvas.addEventListener) return;
+    const page = Math.max(1, Math.round(Number(pageNumber) || this.page));
     const pointAt = (event) => {
       const rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { left: 0, top: 0, width: canvas.width, height: canvas.height };
       const width = Number(rect.width) || canvas.width || 1;
       const height = Number(rect.height) || canvas.height || 1;
       return [clamp((Number(event.clientX) - Number(rect.left || 0)) / width, 0, 1), clamp((Number(event.clientY) - Number(rect.top || 0)) / height, 0, 1)];
     };
+    const activate = () => {
+      if (page !== Number(this.page)) this.activatePage(page, { silent: true });
+    };
     canvas.addEventListener("pointerdown", (event) => {
       if (this.busy) return;
+      activate();
       if (event.preventDefault) event.preventDefault();
       if (canvas.setPointerCapture && event.pointerId !== undefined) {
         try {
@@ -508,22 +755,50 @@ class PdfInkModal extends Modal {
 
   touch() {
     this.editSeq++;
+    this.dirtyPages.add(this.page);
     this.dirty = true;
+    this.storePageAnnotations();
+    this.redrawPage(this.page);
+  }
+
+  pageContext(page) {
+    const n = Math.round(Number(page) || this.page);
+    return {
+      canvas: this.pageCanvases.get(n) || (n === Number(this.page) ? this.canvas : null),
+      ctx: this.pageContexts.get(n) || (n === Number(this.page) ? this.ctx : null),
+    };
+  }
+
+  redrawPage(page) {
+    const { canvas, ctx } = this.pageContext(page);
+    if (!ctx || !canvas) return;
+    const width = canvas.width;
+    const height = canvas.height;
+    const layer = this.pageLayer(page);
+    ctx.clearRect(0, 0, width, height);
+    drawMarks(ctx, layer.highlights, width, height);
+    for (const quote of layer.quotes) drawMarks(ctx, quote.areas, width, height);
+    if (Number(page) === Number(this.page) && this.highlightDraft) drawMarks(ctx, [this.highlightDraft], width, height);
+    drawInkStrokes(ctx, layer.strokes, width, height, false);
+    drawTextBoxes(ctx, layer.textBoxes, width, height);
+    const selected = this.annotationRows.find((row) => row.id === this.selectedId);
+    if (selected && rowPage(selected) === Number(page)) {
+      const bounds = selectionBounds(selected.areas);
+      if (bounds) drawSelectionRing(ctx, bounds, width, height);
+    }
+  }
+
+  redrawAll() {
+    if (!this.pageWraps.size) {
+      this.redrawPage(this.page);
+      return;
+    }
+    for (const page of this.pageWraps.keys()) this.redrawPage(page);
   }
 
   redraw() {
-    if (!this.ctx || !this.canvas) return;
-    const width = this.canvas.width;
-    const height = this.canvas.height;
-    this.ctx.clearRect(0, 0, width, height);
-    drawMarks(this.ctx, this.highlights, width, height);
-    for (const quote of this.quotes) drawMarks(this.ctx, quote.areas, width, height);
-    if (this.highlightDraft) drawMarks(this.ctx, [this.highlightDraft], width, height);
-    drawInkStrokes(this.ctx, this.strokes, width, height, false);
-    drawTextBoxes(this.ctx, this.textBoxes, width, height);
-    const selected = this.annotationRows.find((row) => row.id === this.selectedId);
-    const bounds = selectionBounds(selected && selected.areas);
-    if (bounds) drawSelectionRing(this.ctx, bounds, width, height);
+    this.storePageAnnotations();
+    this.redrawPage(this.page);
   }
 
   snapshot() {
@@ -537,6 +812,7 @@ class PdfInkModal extends Modal {
   pushHistory() {
     this.history.push(this.snapshot());
     if (this.history.length > 50) this.history.shift();
+    this.histories.set(this.page, this.history);
   }
 
   undo() {
@@ -583,7 +859,7 @@ class PdfInkModal extends Modal {
           return;
         }
         const preview = picked.quote.split("\n").join(" ").slice(0, 160);
-        new TextBoxPromptModal(this.app, { title: "Note on this quote", text: "", hint: preview, tags: [] }, (value, tagsText) => {
+        new TextBoxPromptModal(this.app, { title: "Note on this quote", text: "", hint: preview, copyText: picked.quote, tags: [] }, (value, tagsText) => {
           this.saveQuote({ quote: picked.quote, areas: picked.areas, note: value, color: this.color, tags: tagInput(tagsText) });
         }).open();
         this.redraw();
@@ -725,6 +1001,28 @@ class PdfInkModal extends Modal {
     return rows;
   }
 
+  /** Send the current page's text layer to the Study agent. */
+  async askPage() {
+    const quote = pageTextFromItems(this.textItems);
+    if (!quote) {
+      this.setStatus("That page has no selectable text. Use a quote annotation or OCR first.");
+      new Notice("That page has no selectable text to ask about. Use a quote annotation or OCR first.");
+      return false;
+    }
+    const sent = await this.plugin.askPdfPassage(this.pdfPath, { page: this.page, type: "page", quote, note: "", tags: [], id: "" });
+    this.setStatus(sent ? `Asked the Study agent about page ${this.page}.` : "The page question was not sent.");
+    return sent;
+  }
+
+  /** Send one quote or note from the sidebar to the Study agent. */
+  async askAnnotation(id) {
+    const row = this.annotationRows.find((entry) => entry.id === id);
+    if (!row) return false;
+    const sent = await this.plugin.askPdfPassage(this.pdfPath, row);
+    this.setStatus(sent ? `Asked the Study agent about page ${rowPage(row)}.` : "The passage question was not sent.");
+    return sent;
+  }
+
   renderSidebarPanel() {
     if (!this.sidebarEl) return;
     if (this.toggleEl && this.toggleEl.setText) this.toggleEl.setText(`Annotations (${this.annotationRows.length})`);
@@ -765,6 +1063,7 @@ class PdfInkModal extends Modal {
         this.renderSidebarPanel();
       },
       onSaveTags: (id, text) => this.saveSidebarTags(id, text),
+      onAsk: (id) => this.askAnnotation(id),
       onCancelEdit: () => {
         this.editingNoteId = "";
         this.editingTagsId = "";
@@ -839,20 +1138,60 @@ class PdfInkModal extends Modal {
     this.setStatus(left === before ? "Nothing was deleted." : `Deleted the annotation; ${left} left in this PDF.`);
   }
 
-  async goToPage(value) {
-    const target = clampPage(value, this.total);
-    if (target === this.page) {
-      if (this.pageInputEl) this.pageInputEl.value = String(this.page);
-      return;
-    }
-    if (!(await this.leavePage())) return;
-    this.page = target;
-    await this.loadPage();
+  /** A jump is an explicit scroll; the indicator is updated immediately. */
+  async goToPage(value, options) {
+    const opts = options || {};
+    const target = clampPage(value, this.total || value);
+    if (target !== Number(this.page)) this.activatePage(target, { silent: true, force: true });
+    if (this.pageInputEl) this.pageInputEl.value = String(target);
+    if (opts.scroll !== false) this.scrollPageIntoView(target);
+    if (!opts.silent) this.setStatus(`Page ${target} of ${this.total || "?"}.`);
+    if (this.plugin.rememberPdfPage) this.plugin.rememberPdfPage(this.pdfPath, target);
+    return target;
   }
 
   async stepPage(delta) {
     if (!this.total) return;
     await this.goToPage(this.page + delta);
+  }
+
+  /** The page whose top is closest to the reading line, not merely the first visible row. */
+  pageAtScroll(topValue) {
+    if (!this.stageEl || !this.pageWraps.size) return this.page;
+    const top = Number.isFinite(Number(topValue)) ? Number(topValue) : Number(this.stageEl.scrollTop) || 0;
+    const viewport = Number(this.stageEl.clientHeight) || 0;
+    const probe = top + Math.max(1, Math.min(240, viewport * 0.35));
+    let target = 1;
+    for (const [n, wrap] of this.pageWraps) {
+      const offset = Number(wrap.offsetTop) || 0;
+      if (offset <= probe) target = Math.max(target, n);
+    }
+    return target;
+  }
+
+  /** Scroll drives the current-page field; no status line is rewritten on every frame. */
+  onStageScroll(topValue) {
+    const target = this.pageAtScroll(topValue);
+    if (target !== Number(this.page)) this.activatePage(target, { silent: true });
+    return target;
+  }
+
+  scrollPageIntoView(page) {
+    if (!this.stageEl) return false;
+    const wrap = this.pageWraps.get(clampPage(page, this.total || page));
+    if (!wrap) return false;
+    const top = Math.max(0, Number(wrap.offsetTop) || 0);
+    try {
+      if (typeof this.stageEl.scrollTo === "function") this.stageEl.scrollTo({ top, behavior: "auto" });
+      else this.stageEl.scrollTop = top;
+    } catch (e) {
+      try {
+        this.stageEl.scrollTop = top;
+      } catch (ignore) {
+        return false;
+      }
+    }
+    return true;
   }
 
   async leavePage() {
@@ -861,7 +1200,6 @@ class PdfInkModal extends Modal {
     return saved === true;
   }
 
-  /** Hands this PDF to the page and form editor, saving unsaved marks first. */
   async openEditor() {
     if (!this.plugin || typeof this.plugin.openPdfEditor !== "function") return;
     const pdfPath = this.pdfPath;
@@ -879,15 +1217,14 @@ class PdfInkModal extends Modal {
   async save(options) {
     const opts = options || {};
     if (this.busy) return false;
-    const seq = this.editSeq;
-    const page = this.page;
-    const strokes = normalizeInkStrokes(this.strokes);
-    const boxes = normalizeTextBoxes(this.textBoxes);
-    const areas = normalizeHighlightAreas(this.highlights);
-    if (!strokes.length && !this.inkId && !boxes.length && !this.textId && !areas.length) {
+    if (this.dirty && !this.dirtyPages.has(Number(this.page))) this.dirtyPages.add(Number(this.page));
+    this.storePageAnnotations();
+    const pages = [...this.dirtyPages].map(Number).sort((a, b) => a - b);
+    if (!pages.length) {
       this.setStatus("Draw something, add a text box or highlight an area first.");
       return false;
     }
+    const sequences = new Map(pages.map((page) => [page, Number(this.pageLayer(page).editSeq) || 0]));
     this.busy = true;
     this.setStatus("Saving…");
     try {
@@ -900,51 +1237,84 @@ class PdfInkModal extends Modal {
       const oldText = existing ? await this.app.vault.cachedRead(existing) : "";
       const meta = { pdfPath: this.pdfPath, pdfHash: hash };
       let nextText = oldText;
-      let inkId = this.inkId;
-      let textId = this.textId;
-      if (strokes.length) {
-        const result = upsertAnnotation(nextText, { id: inkId || undefined, page, type: "pen", color: this.color, strokes }, meta);
-        nextText = result.text;
-        const savedInk = (result.annotations || []).find((a) => a.page === page && a.type === "pen" && Array.isArray(a.strokes) && a.strokes.length);
-        inkId = savedInk ? savedInk.id : "";
-      } else if (inkId) {
-        nextText = removeAnnotation(nextText, inkId, meta).text;
-        inkId = "";
-      }
-      if (boxes.length) {
-        const result = upsertAnnotation(nextText, { id: textId || undefined, page, type: "text", color: this.color, boxes }, meta);
-        nextText = result.text;
-        const savedText = (result.annotations || []).find((a) => a.page === page && a.type === "text" && Array.isArray(a.boxes) && a.boxes.length);
-        textId = savedText ? savedText.id : "";
-      } else if (textId) {
-        nextText = removeAnnotation(nextText, textId, meta).text;
-        textId = "";
-      }
-      for (const style of MARK_STYLES) {
-        const styleAreas = areas.filter((area) => (area.style || "highlight") === style);
-        if (styleAreas.length) {
-          const result = upsertAnnotation(nextText, { id: this.markIds[style] || undefined, page, type: style, color: this.color, tags: this.markTags[style] || [], areas: styleAreas }, meta);
-          nextText = result.text;
-          const savedMark = (result.annotations || []).find((a) => a.page === page && a.type === style && Array.isArray(a.areas) && a.areas.length);
-          this.markIds[style] = savedMark ? savedMark.id : "";
-        } else if (this.markIds[style]) {
-          nextText = removeAnnotation(nextText, this.markIds[style], meta).text;
-          this.markIds[style] = "";
+      const counts = { strokes: 0, boxes: 0, marks: 0, pages: [] };
+      for (const page of pages) {
+        const layer = this.pageLayer(page);
+        const strokes = normalizeInkStrokes(layer.strokes || []);
+        const boxes = normalizeTextBoxes(layer.textBoxes || []);
+        const areas = normalizeHighlightAreas(layer.highlights || []);
+        const hasMarkIds = MARK_STYLES.some((style) => Boolean(layer.markIds[style]));
+        if (!strokes.length && !layer.inkId && !boxes.length && !layer.textId && !areas.length && !hasMarkIds) {
+          layer.dirty = false;
+          if ((Number(layer.editSeq) || 0) === sequences.get(page)) this.dirtyPages.delete(page);
+          continue;
         }
+        if (strokes.length) {
+          const result = upsertAnnotation(nextText, { id: layer.inkId || undefined, page, type: "pen", color: this.color, strokes }, meta);
+          nextText = result.text;
+          const savedInk = (result.annotations || []).find((a) => a.page === page && a.type === "pen" && Array.isArray(a.strokes) && a.strokes.length);
+          layer.inkId = savedInk ? savedInk.id : "";
+        } else if (layer.inkId) {
+          nextText = removeAnnotation(nextText, layer.inkId, meta).text;
+          layer.inkId = "";
+        }
+        if (boxes.length) {
+          const result = upsertAnnotation(nextText, { id: layer.textId || undefined, page, type: "text", color: this.color, boxes }, meta);
+          nextText = result.text;
+          const savedText = (result.annotations || []).find((a) => a.page === page && a.type === "text" && Array.isArray(a.boxes) && a.boxes.length);
+          layer.textId = savedText ? savedText.id : "";
+        } else if (layer.textId) {
+          nextText = removeAnnotation(nextText, layer.textId, meta).text;
+          layer.textId = "";
+        }
+        for (const style of MARK_STYLES) {
+          const styleAreas = areas.filter((area) => (area.style || "highlight") === style);
+          if (styleAreas.length) {
+            const result = upsertAnnotation(nextText, { id: layer.markIds[style] || undefined, page, type: style, color: this.color, tags: layer.markTags[style] || [], areas: styleAreas }, meta);
+            nextText = result.text;
+            const savedMark = (result.annotations || []).find((a) => a.page === page && a.type === style && Array.isArray(a.areas) && a.areas.length);
+            layer.markIds[style] = savedMark ? savedMark.id : "";
+          } else if (layer.markIds[style]) {
+            nextText = removeAnnotation(nextText, layer.markIds[style], meta).text;
+            layer.markIds[style] = "";
+          }
+        }
+        layer.strokes = strokes;
+        layer.textBoxes = boxes;
+        layer.highlights = areas;
+        layer.dirty = false;
+        counts.strokes += strokes.length;
+        counts.boxes += boxes.length;
+        counts.marks += areas.length;
+        counts.pages.push(page);
       }
-      if (existing) await this.app.vault.modify(existing, nextText);
-      else await this.app.vault.create(path, nextText);
+      if (!counts.pages.length) {
+        this.dirtyPages.clear();
+        this.dirty = false;
+        this.setStatus("Draw something, add a text box or highlight an area first.");
+        return false;
+      }
+      if (nextText !== oldText) {
+        if (existing) await this.app.vault.modify(existing, nextText);
+        else await this.app.vault.create(path, nextText);
+      }
       this.sidecarPath = path;
       this.savedHash = hash;
-      this.inkId = inkId;
-      this.textId = textId;
-
-      this.dirty = this.editSeq !== seq;
+      for (const page of pages) {
+        const layer = this.pageLayer(page);
+        if ((Number(layer.editSeq) || 0) === sequences.get(page)) this.dirtyPages.delete(page);
+        layer.dirty = this.dirtyPages.has(page);
+      }
+      this.dirty = this.dirtyPages.size > 0;
+      this.applyPageAnnotations(this.page);
       const bits = [];
-      if (strokes.length) bits.push(`${strokes.length} stroke${strokes.length === 1 ? "" : "s"}`);
-      if (boxes.length) bits.push(`${boxes.length} text box${boxes.length === 1 ? "" : "es"}`);
-      if (areas.length) bits.push(`${areas.length} mark${areas.length === 1 ? "" : "s"}`);
-      this.setStatus(bits.length ? `Saved ${bits.join(" and ")} on page ${page}.` : `Removed the overlay from page ${page}.`);
+      if (counts.strokes) bits.push(`${counts.strokes} stroke${counts.strokes === 1 ? "" : "s"}`);
+      if (counts.boxes) bits.push(`${counts.boxes} text box${counts.boxes === 1 ? "" : "es"}`);
+      if (counts.marks) bits.push(`${counts.marks} mark${counts.marks === 1 ? "" : "s"}`);
+      const pageText = counts.pages.length === 1
+        ? `page ${counts.pages[0]}`
+        : `pages ${counts.pages.slice(0, -1).join(", ")} and ${counts.pages[counts.pages.length - 1]}`;
+      this.setStatus(bits.length ? `Saved ${bits.join(" and ")} on ${pageText}.` : `Removed the overlay from ${pageText}.`);
       if (opts.close && !this.dirty) this.close();
       return true;
     } catch (e) {

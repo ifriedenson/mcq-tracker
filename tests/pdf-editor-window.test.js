@@ -258,6 +258,8 @@ test("pdf editor window: rotate, move, fill and burn, then save a valid copy and
   await modal.reorder(0, 2);
   assert.deepEqual(modal.originOrder, [2, 3, 1, 4], "the page map follows the move");
   assert.deepEqual(modal.pages.map((page) => page.width), [401, 402, 400, 403], "the cards follow the move");
+  assert.equal(modal.fields.find((field) => field.name === "student").page, 2, "the form field page label follows the move");
+  assert.equal(modal.fields.find((field) => field.name === "grade").page, 0, "the other field page label follows the move");
 
   // fill a discovered text field through its rendered input
   const input = modal.dom.all.find((entry) => entry.meta.tag === "input" && entry.meta.type === "text" && entry.meta.attrs && entry.meta.attrs["aria-label"] === "student");
@@ -895,5 +897,58 @@ test("pdf editor window: a new form field is one undo step, writes nothing befor
   form.getTextField("Full_name").setText("Grace Hopper");
   const filled = await editor.savePdf(reopened);
   assert.equal((await PDFDocument.load(filled.bytes)).getForm().getTextField("Full_name").getText(), "Grace Hopper");
+  modal.close();
+});
+
+test("pdf editor window: insert a blank page at a position, rotate and delete with one undo step each", async () => {
+  const { app, plugin } = await vault();
+  const modal = openEditor(app, plugin, "Papers/Exam.pdf");
+  await modal.loading;
+  /* a click starts the edit; its save and repaint finish on the next task */
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  // two clockwise clicks make a half turn, through the real card buttons
+  await clickLabeled(modal.dom, "Rotate page 1 clockwise");
+  await settle();
+  await clickLabeled(modal.dom, "Rotate page 1 clockwise");
+  await settle();
+  assert.equal(modal.pages[0].rotation, 180, "two clicks make a half turn");
+  assert.equal(modal.doc.getPage(0).getRotation().angle, 180);
+
+  const input = modal.dom.all.find((entry) => entry.meta.tag === "input" && entry.meta.attrs && entry.meta.attrs["aria-label"] === "Insert a blank page at this position");
+  assert.ok(input, "the insert position field is rendered");
+  input.value = "2";
+  await fireOwn(input, "change");
+  await clickMatching(modal.dom, /^Insert blank page$/);
+  await settle();
+  assert.equal(modal.doc.getPageCount(), 5, "the blank page was inserted");
+  assert.deepEqual(modal.originOrder, [1, 0, 2, 3, 4], "the page map follows the insert");
+  assert.deepEqual(modal.pages.map((page) => Math.round(page.width)), [400, Math.round(editor.DEFAULT_PAGE[0]), 401, 402, 403]);
+  assert.equal(modal.pages[1].height, Math.round(editor.DEFAULT_PAGE[1] * 10) / 10, "the blank page has the default size");
+  assert.match(statusText(modal), /Inserted a blank page at position 2/);
+
+  // the blank page is the second card, so its delete button targets it
+  await clickLabeled(modal.dom, "Delete page 2");
+  await settle();
+  assert.equal(modal.doc.getPageCount(), 4);
+  assert.deepEqual(modal.originOrder, [1, 2, 3, 4], "the page map follows the delete");
+  assert.deepEqual(modal.pages.map((page) => Math.round(page.width)), [400, 401, 402, 403], "the cards follow the delete");
+
+  // one undo step per action, each named after what it reverses
+  assert.equal(modal.undoButton.getAttribute("aria-label"), "Undo delete page 2");
+  await clickMatching(modal.dom, /^Undo delete page 2$/);
+  await settle();
+  assert.equal(modal.doc.getPageCount(), 5);
+  await clickMatching(modal.dom, /^Undo insert a blank page$/);
+  await settle();
+  assert.equal(modal.doc.getPageCount(), 4);
+  assert.deepEqual(modal.originOrder, [1, 2, 3, 4], "undo restores the page map");
+  await clickMatching(modal.dom, /^Undo rotate page 1$/);
+  await settle();
+  assert.equal(modal.doc.getPage(0).getRotation().angle, 90, "one undo reverses the second turn");
+  await clickMatching(modal.dom, /^Undo rotate page 1$/);
+  await settle();
+  assert.equal(modal.doc.getPage(0).getRotation().angle, 0, "undo restores the original rotation");
+  assert.deepEqual(app.createdBinary || [], [], "nothing reached the vault");
   modal.close();
 });

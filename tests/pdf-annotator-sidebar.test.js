@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { load } = require("./helpers/load");
-const { T, Plugin: QT } = load();
+const { T, Plugin: QT, obsidian } = load();
 const pdf = T.pdfAnnotations;
 const sidebars = T.pdfAnnotatorSidebar;
 const { makeApp, makeDom } = require("./helpers/fake");
@@ -27,6 +27,8 @@ test("pdf sidebar: rows carry type, page, note, tags and selection", () => {
   assert.equal(rows[0].label, "quote · page 2");
   assert.equal(rows[0].note, "remember ATP");
   assert.equal(rows[0].tagText, "#bio #key-idea", "tag chips are hash-prefixed");
+  assert.equal(rows[0].canAsk, true, "a quote can be asked about");
+  assert.equal(rows[1].canAsk, false, "a mark with no quote or note has nothing to ask about");
   assert.equal(rows[0].selected, false);
 
   const selected = sidebars.sidebarRows(ROWS, { selectedId: "ann-2" });
@@ -77,6 +79,7 @@ test("pdf sidebar: the renderer lists rows, filters and routes every action", as
     onToggle: (open) => calls.push(["toggle", open]),
     onEditNote: (id) => calls.push(["edit-note", id]),
     onEditTags: (id) => calls.push(["edit-tags", id]),
+    onAsk: (id) => calls.push(["ask", id]),
     onDelete: (id) => calls.push(["delete", id]),
   };
   sidebars.renderSidebar(dom.root, { rows: sidebars.sidebarRows(ROWS, {}), total: 3, types: ["highlight", "quote", "underline"] }, handlers);
@@ -90,6 +93,8 @@ test("pdf sidebar: the renderer lists rows, filters and routes every action", as
   assert.deepEqual(calls.pop(), ["edit-note", "ann-1"]);
   await dom.click("Edit tags");
   assert.deepEqual(calls.pop(), ["edit-tags", "ann-1"]);
+  await dom.click("Ask AI");
+  assert.deepEqual(calls.pop(), ["ask", "ann-1"], "the row asks about its own passage");
   await dom.click("Delete");
   assert.deepEqual(calls.pop(), ["delete", "ann-1"]);
   await dom.click("Hide sidebar");
@@ -206,6 +211,26 @@ test("pdf reader: sidebar picks a row, jumps pages, edits and deletes without dr
   await modal.selectAnnotation(quote.id);
   assert.deepEqual(jumps, [3], "the current page is not reloaded");
 
+  const asked = [];
+  const realAsk = plugin.askPdfPassage;
+  plugin.askPdfPassage = async (path, row) => {
+    asked.push({ path, row });
+    return true;
+  };
+  assert.equal(await modal.askAnnotation(quote.id), true, "the sidebar row sends its own passage");
+  assert.equal(asked[0].path, "Papers/Exam.pdf");
+  assert.equal(asked[0].row.id, quote.id);
+  modal.textItems = [
+    { s: "second", x: 0.1, y: 0.3 },
+    { s: "first", x: 0.1, y: 0.2 },
+  ];
+  assert.equal(await modal.askPage(), true, "the page ask sends the text layer");
+  assert.equal(asked[1].row.type, "page");
+  assert.match(asked[1].row.quote, /first\nsecond/);
+  modal.textItems = [];
+  assert.equal(await modal.askPage(), false, "a page with no text layer is refused");
+  plugin.askPdfPassage = realAsk;
+
   modal.sidebarQuery = "underline";
   const filtered = makeDom();
   modal.sidebarEl = filtered.root;
@@ -260,6 +285,39 @@ test("pdf reader: sidebar picks a row, jumps pages, edits and deletes without dr
   assert.equal(modal.handleKey({ key: "a", ctrlKey: true, target: { tagName: "DIV" } }), false);
 });
 
+test("pdf passage: the plugin composes a cited prompt and sends it to the agent", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  plugin.settings.ai.enabled = true;
+  let sent = "";
+  let opened = 0;
+  plugin.activateAgent = async () => {
+    opened++;
+    return {
+      askPassage: async (text) => {
+        sent = text;
+        return true;
+      },
+    };
+  };
+
+  const row = { id: "ann-1", page: 2, type: "quote", quote: "ATP is energy", note: "keep this", tags: ["bio"] };
+  assert.equal(await plugin.askPdfPassage("Papers/Exam.pdf", row, "Why ATP?"), true);
+  assert.equal(opened, 1);
+  assert.match(sent, /\[\[Papers\/Exam\.pdf#page=2&annotation=ann-1\]\]/);
+  assert.match(sent, /> ATP is energy/);
+  assert.match(sent, /Question: Why ATP\?/);
+
+  assert.equal(await plugin.askPdfPassage("Papers/Exam.pdf", { page: 2, type: "highlight", quote: "", note: "" }), false);
+  assert.equal(opened, 1, "an empty annotation never opens the agent");
+  assert.equal(await plugin.askPdfPassage("Notes/Exam.md", row), false, "only PDFs are accepted");
+
+  plugin.settings.ai.enabled = false;
+  assert.equal(await plugin.askPdfPassage("Papers/Exam.pdf", row), false, "AI off refuses the request");
+  assert.equal(opened, 1);
+});
+
 test("pdf reader: the mark prompt sets tags at creation time", async () => {
   const sidecar = pdf.serializeAnnotationFile("Papers/Exam.pdf", "hash", []);
   const app = makeApp([
@@ -296,4 +354,182 @@ test("pdf reader: the mark prompt sets tags at creation time", async () => {
   const digestPath = await plugin.exportPdfAnnotations("Papers/Exam.pdf");
   const digest = app.files.find((entry) => entry.path === digestPath);
   assert.match(digest.text, /#at-create/, "the digest shows creation-time tags");
+});
+
+test("pdf reader: selecting text offers a full copy before saving the quote", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  const modal = new T.pdfInkModal.PdfInkModal(app, plugin, { pdfPath: "Papers/Exam.pdf", page: 1 });
+  modal.textItems = [{ s: "ATP is energy", x: 0.1, y: 0.2, w: 0.4, h: 0.02 }];
+  modal.tool = "select";
+  modal.highlightStart = [0.05, 0.15];
+  modal.lastPoint = [0.75, 0.25];
+
+  const before = obsidian.modals.length;
+  modal.finishHighlight();
+  const prompt = obsidian.modals[before];
+  assert.ok(prompt, "a quote prompt opened");
+  assert.equal(prompt.options.copyText, "ATP is energy", "the whole selection is offered for copying, not the preview");
+  assert.match(prompt.options.hint, /ATP is energy/);
+
+  const dom = makeDom();
+  prompt.contentEl = dom.root;
+  prompt.modalEl = dom.root;
+  prompt.onOpen();
+  const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const copied = [];
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { clipboard: { writeText: async (text) => copied.push(text) } },
+  });
+  try {
+    await dom.click("Copy selected text");
+  } finally {
+    if (original) Object.defineProperty(globalThis, "navigator", original);
+    else delete globalThis.navigator;
+  }
+  assert.deepEqual(copied, ["ATP is energy"], "copy uses the selected text");
+  assert.ok(dom.texts().includes("Copied 13 characters."), "the prompt reports the copy");
+});
+
+/** A tiny PNG header: enough for the reader to size each overlay before decode. */
+function pngPage(width, height) {
+  const bytes = Buffer.alloc(33);
+  bytes[0] = 0x89;
+  bytes[1] = 0x50;
+  bytes[2] = 0x4e;
+  bytes[3] = 0x47;
+  bytes.writeUInt32BE(13, 8);
+  bytes.write("IHDR", 12, "ascii");
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return bytes;
+}
+
+test("pdf reader: continuous page stack scrolls, jumps and keeps each page's overlay", async () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  const modal = new T.pdfInkModal.PdfInkModal(app, plugin, { pdfPath: "Papers/Exam.pdf", page: 1 });
+  modal.total = 3;
+  modal.page = 1;
+  modal.stageEl = makeDom().root;
+  modal.statusEl = makeDom().root;
+  modal.pageInputEl = makeDom().root;
+  modal.pageTotalEl = makeDom().root;
+  modal.pageTexts.set(1, [{ s: "first page", x: 0.1, y: 0.1, w: 0.4, h: 0.02 }]);
+  modal.pageTexts.set(2, [{ s: "second page", x: 0.1, y: 0.2, w: 0.4, h: 0.02 }]);
+  modal.pageTexts.set(3, [{ s: "third page", x: 0.1, y: 0.3, w: 0.4, h: 0.02 }]);
+
+  modal.showPages([
+    { n: 1, png: pngPage(600, 800) },
+    { n: 2, png: pngPage(600, 800) },
+    { n: 3, png: pngPage(600, 800) },
+  ]);
+  assert.deepEqual([...modal.pageWraps.keys()], [1, 2, 3], "all pages are in the one scroll flow");
+  assert.deepEqual([...modal.pageCanvases.keys()], [1, 2, 3], "every page has its own overlay canvas");
+  assert.equal(modal.pageCanvases.get(2).width, 600);
+  assert.equal(modal.pageCanvases.get(2).height, 800);
+
+  const wraps = [...modal.pageWraps.values()];
+  wraps[0].offsetTop = 0;
+  wraps[0].offsetHeight = 600;
+  wraps[1].offsetTop = 620;
+  wraps[1].offsetHeight = 600;
+  wraps[2].offsetTop = 1240;
+  wraps[2].offsetHeight = 600;
+  modal.stageEl.clientHeight = 400;
+
+  const mark = T.pdfInk.normalizeHighlightArea({ x: 0.1, y: 0.2, width: 0.4, height: 0.03, color: "green", style: "highlight", note: "page two mark" });
+  const stroke = T.pdfInk.normalizeInkStroke({ tool: "pen", color: "red", width: 0.003, points: [[0.1, 0.1], [0.3, 0.2]] });
+  modal.pageLayer(2).highlights = [mark];
+  modal.pageLayer(3).strokes = [stroke];
+  modal.redrawAll();
+
+  assert.equal(modal.onStageScroll(650), 2, "a scroll position selects the page at the reading line");
+  assert.equal(modal.page, 2);
+  assert.equal(modal.pageInputEl.value, "2", "the page field follows scrolling");
+  assert.equal(modal.textItems[0].s, "second page", "the text layer follows the scrolled page");
+  assert.equal(modal.highlights[0].note, "page two mark", "page two's overlay is active");
+  assert.equal(modal.strokes.length, 0, "page two does not receive page three's ink");
+
+  modal.activatePage(3, { silent: true });
+  assert.equal(modal.pageInputEl.value, "3");
+  assert.equal(modal.textItems[0].s, "third page");
+  assert.equal(modal.highlights.length, 0, "page three does not receive page two's mark");
+  assert.equal(modal.strokes.length, 1, "page three owns its ink");
+
+  const before = obsidian.modals.length;
+  modal.tool = "select";
+  modal.highlightStart = [0.05, 0.25];
+  modal.lastPoint = [0.9, 0.4];
+  modal.finishHighlight();
+  const prompt = obsidian.modals[before];
+  assert.ok(prompt, "selecting on the scrolled page opens its quote prompt");
+  assert.equal(prompt.options.copyText, "third page", "selection uses the scrolled page's text layer");
+
+  await modal.goToPage(2);
+  assert.equal(modal.page, 2, "a page jump updates the indicator");
+  assert.equal(modal.pageInputEl.value, "2");
+  assert.equal(modal.stageEl.scrollTop, 620, "a page jump scrolls that page into view");
+  assert.equal(modal.textItems[0].s, "second page", "a page jump restores that page's text");
+});
+
+test("pdf reader: Save flushes every dirty page from the scrolled reader", async () => {
+  const app = makeApp([{ path: "Papers/Exam.pdf", noFm: true, text: "" }]);
+  const plugin = new QT(app);
+  await plugin.onload();
+  const modal = new T.pdfInkModal.PdfInkModal(app, plugin, { pdfPath: "Papers/Exam.pdf", page: 1 });
+  modal.total = 2;
+  modal.page = 1;
+  modal.statusEl = makeDom().root;
+  modal.pageInputEl = makeDom().root;
+  modal.pageTotalEl = makeDom().root;
+  modal.pageTexts.set(1, []);
+  modal.pageTexts.set(2, []);
+  const mark = T.pdfInk.normalizeHighlightArea({ x: 0.1, y: 0.2, width: 0.4, height: 0.03, color: "green", style: "highlight", note: "first" });
+  modal.pageLayer(1).highlights = [mark];
+  modal.applyPageAnnotations(1);
+  modal.touch();
+  modal.activatePage(2, { silent: true });
+  assert.equal(modal.dirty, true, "a dirty page keeps the reader dirty after switching to a clean page");
+  modal.strokes = [T.pdfInk.normalizeInkStroke({ tool: "pen", color: "red", width: 0.003, points: [[0.1, 0.1], [0.3, 0.2]] })];
+  modal.touch();
+
+  const saved = await modal.save();
+  assert.equal(saved, true, "save succeeds from the scrolled state");
+  const sidecar = app.files.find((file) => file.path === "Papers/Exam.annotations.md");
+  assert.ok(sidecar, "the sidecar is written");
+  const parsed = pdf.parseAnnotationFile(sidecar.text);
+  assert.deepEqual(parsed.annotations.map((annotation) => annotation.page).sort(), [1, 2], "both pages are saved");
+  assert.deepEqual(parsed.annotations.map((annotation) => annotation.type).sort(), ["highlight", "pen"]);
+  assert.equal(modal.dirty, false, "the saved reader is clean");
+  assert.equal(modal.dirtyPages.size, 0);
+  modal.activatePage(1, { silent: true });
+  assert.equal(modal.highlights[0].note, "first", "page one's mark survives the round trip");
+});
+
+test("pdf reader: form-field overlays attach to their own page in the scroll stack", () => {
+  const app = makeApp([]);
+  const plugin = new QT(app);
+  const modal = new T.pdfInkModal.PdfInkModal(app, plugin, { pdfPath: "Papers/Exam.pdf", page: 1 });
+  modal.total = 2;
+  modal.stageEl = makeDom().root;
+  modal.statusEl = makeDom().root;
+  modal.formFields = [
+    { name: "student", value: "Ada", page: 1, rect: { x: 50, y: 600, width: 100, height: 20 }, pageWidth: 600, pageHeight: 800, rotation: 0 },
+    { name: "grade", value: "A", page: 1, rect: { x: 50, y: 700, width: 100, height: 20 }, pageWidth: 600, pageHeight: 800, rotation: 90 },
+  ];
+  modal.showPages([
+    { n: 1, png: pngPage(600, 800) },
+    { n: 2, png: pngPage(600, 800) },
+  ]);
+  assert.equal(modal.formLayers.has(1), false, "a form field is not attached to page one");
+  assert.ok(modal.formLayers.get(2), "the page-two field layer exists");
+  const layer = modal.formLayers.get(2);
+  assert.equal(layer.__own.children.length, 2, "both fields on the page are overlaid");
+  const boxes = layer.__own.children.map((child) => child.style);
+  assert.match(boxes[0].left, /^8\.333/, "the field's PDF x is normalized to page two");
+  assert.match(boxes[0].top, /^22\.5/, "the field's PDF y is normalized from the top");
+  assert.match(boxes[0].width, /^16\.666/, "the field's width is normalized");
+  assert.match(boxes[1].left, /^10%$/, "a rotated page maps the field into its displayed axis");
 });

@@ -1,4 +1,95 @@
+## 1.226.0 - 2026-11-04
+
+- **Continuous PDF reading**: the reader now builds every page into one vertical scroll stack instead of loading one page at a time.
+  Scrolling updates the page field and page count, **Previous / Next / Page** jump the target page into view, and per-page text,
+  highlights, ink, text boxes, notes, annotation rows and read-only form-field boxes stay on their own page. Saving flushes
+  every dirty page in one sidecar write, and the existing undo/redo and editor page operations are unchanged. Covered by
+  focused real-PDF/overlay tests plus the sidebar save round trip. Reader-level page-operation coverage also reopens the
+  scroll view after reorder, delete/insert, rotate, extract, merge and undo/redo, asserting wrappers, labels, form overlays
+  and annotation layers directly.
+
+## 1.225.0 - 2026-11-04
+
+- **PDF editor audit and fixes**: the full capability set is exercised on real PDF bytes, saved and reopened. Two proven
+  gaps are fixed: **Select text** now offers **Copy selected text** for the complete selection, and moving a page now
+  refreshes each form field's page label. The burn test now covers highlight, underline, strike-through and box marks,
+  and a new reorder test proves a moved page receives its annotation while neighbouring page content stays unchanged.
+  README documents the page-at-a-time reader and the copy path; release notes record the pass/limitation checklist.
+
+## 1.224.0 - 2026-11-04
+
+- **PDF passage tutor**: the reader's annotation sidebar gains **Ask AI** on every quote or note, and the toolbar
+  gains **Ask AI about this page**. `src/reading-companion.js` shapes a cited, untrusted-labelled question from the
+  quote, note, page, type and tags, or rebuilds the page text layer in reading order. The question goes through the
+  existing Study agent chat, so streaming, Stop/Esc, the conversation library, Save chat and Insert into active note
+  work unchanged. AI off, an empty annotation, a page with no text layer and a busy agent all refuse without sending.
+  Covered by `tests/reading-companion.test.js` and the sidebar, plugin and reader tests. No dependency, provider,
+  account or network request was added.
+
+## 1.223.0 - 2026-11-04
+
+- **Offline local tutor**: Direct API gains first-class **Ollama**, **LM Studio**, **llama.cpp server** and **Jan** presets,
+  all loopback-only and keyless, beside the existing "Other OpenAI-compatible" option. The plugin still bundles no model or
+  runtime and adds no dependency, account or network request; once the model is on disk, replies are generated locally.
+  Choosing a local provider shows its address, commands and warnings in Settings, and **Fetch models** and **Test** work as
+  for any provider. `src/local-models.js` holds the Gemma 4 setup text and offline notes, covered by
+  `tests/local-models.test.js`. README documents the Gemma 4 sizes and memory, Ollama's 4096-token default context,
+  `OLLAMA_NO_CLOUD`, the desktop-only localhost limitation and Gemma licensing.
+
+## 1.222.0 - 2026-11-04
+
+- **Streaming replies**: the Study agent renders assistant text as it arrives for both backends. `src/chat-stream.js`
+  reads SSE across chunk boundaries and abort, and `ApiClient.streamChat` sends `stream: true` over `fetch` while
+  `OpenCodeClient.stream` consumes the server's `/event` stream beside the blocking send. A provider that answers with
+  ordinary JSON is delivered as one complete delta through the same callback, and a runtime without `fetch` keeps the
+  old `requestUrl` path, so no reply is lost and no error is shown when streaming is unavailable.
+- **Cancel keeps the partial reply**: **Stop** or **Esc** mid-stream commits the text received so far once, ignores the
+  late reply, and leaves the Direct API history consistent, so **Regenerate** and **Retry** replace the partial answer
+  instead of duplicating the question. Citations, Copy, Save chat and Insert into active note are unchanged.
+- **Conversation library**: `settings.ai.studyChat` gains an id, title and timestamp, and archived conversations live in
+  `settings.ai.chatSessions` through `src/chat-sessions.js` (newest first, one record per id, 20-conversation cap). The
+  panel lists conversations with title and time; opening one resumes its exact history, and rename, delete and New chat
+  keep one copy per conversation. Reopening the view restores the same conversation, and Save chat never overwrites an
+  existing note. No dependency, provider, key or network request was added, and no Obsidian Copilot source is used.
+
 # Changelog
+
+## 1.221.0 - 2026-11-04
+
+- **Answers cite a passage, not a line**: the study agent's local retrieval is now passage-level. `src/agent-retrieval.js`
+  splits notes at headings, blank lines and six-line/700-character caps, ignores stopwords, ranks term coverage before
+  repetition and then phrase, heading and path matches, allows two passages per note and scans at most 400 notes and
+  200,000 characters each. The chat receives the quoted passage with `[[path#L12]] (lines 12-17)` instead of one line.
+- **Chat controls**: **Copy** on every reply, **Regenerate** on the last answer, **Retry** after a failure, Enter to send
+  and Shift+Enter for a new line, and **Save chat** writes the transcript to `Study agent chats/` without overwriting.
+- **Continuity**: the Direct API transcript is kept in `settings.ai.studyChat` (newest 40 messages, 8,000 characters
+  each) and restored when the Study agent reopens; New chat clears it. No dependency, provider or network request was
+  added, and no Obsidian Copilot source is used.
+## 1.220.0 - 2026-11-04
+
+- **Page management is complete**: every page card keeps rotate, move up and down, duplicate and delete, and the
+  page bar adds **Insert at** with **Insert blank page**, so a blank page can go between any two pages. Each
+  action is one undo step and nothing is written until a copy is saved.
+- **Refusals made explicit**: `rotatePage` rejects any angle that is not a multiple of 90 degrees, `movePage`
+  rejects a destination outside the file instead of clamping it, and `addBlankPage` rejects a position outside
+  0 to the page count. Deleting the last page and any page that is not in the file stay refused.
+- **Per-page state follows the document**: the page map, extraction selection, thumbnails and form-field page
+  labels are rebuilt after a reorder, delete, duplicate, insert or merge, so no stored index points at a
+  neighbouring page.
+
+## 1.219.0 — 2026-11-04
+
+- **Shapes in the PDF editor**: `addShape` draws a rectangle, an ellipse or a
+  horizontal rule at one of the nine text anchors in PDF points, with a colour,
+  a border width and an optional 18% fill. Shapes under 4 by 4 points, over
+  2,000 points a side, larger than the page, on a missing page or on a rotated
+  page are refused. New **Shape / Position / Width pt / Height pt / Colour /
+  Fill / Shape page** row and **Add shape** in **Add content**.
+- **Page size**: `resizePages` scales pages to A4, Letter, Legal or a custom
+  width and height and sets the page and crop boxes to the target, skipping a
+  page already that size. Rotated pages and PDFs with live form fields are
+  refused, because a widget would no longer line up with the content. New
+  **Paper** select and **Resize pages** button.
 
 ## 1.218.4 — 2026-11-04
 

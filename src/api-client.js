@@ -4,6 +4,7 @@ const { str } = require("./util");
 const { resolveApiKey } = require("./secret-keys");
 const { safeApiBase } = require("./url-safety");
 const { parseModelList } = require("./model-discovery");
+const { chunksFromStream, fullText, readStream } = require("./chat-stream");
 
 /* ---------------------------------------------- Direct API chat (works on phones) */
 
@@ -13,7 +14,10 @@ const API_PRESETS = {
   openrouter: { label: "OpenRouter", kind: "openai", base: "https://openrouter.ai/api/v1", defaultModel: "" },
   google: { label: "Google Gemini", kind: "openai", base: "https://generativelanguage.googleapis.com/v1beta/openai", defaultModel: "" },
   qwen: { label: "Qwen (DashScope)", kind: "openai", base: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-plus" },
-  ollama: { label: "Ollama (same computer only)", kind: "openai", base: "http://localhost:11434/v1", defaultModel: "", noKey: true },
+  ollama: { label: "Ollama (local, offline)", kind: "openai", base: "http://localhost:11434/v1", defaultModel: "", noKey: true, local: true },
+  lmstudio: { label: "LM Studio (local, offline)", kind: "openai", base: "http://localhost:1234/v1", defaultModel: "", noKey: true, local: true },
+  llamacpp: { label: "llama.cpp server (local, offline)", kind: "openai", base: "http://localhost:9931/v1", defaultModel: "", noKey: true, local: true },
+  jan: { label: "Jan (local, offline)", kind: "openai", base: "http://127.0.0.1:1337/v1", defaultModel: "", noKey: true, local: true },
   custom: { label: "Other OpenAI-compatible", kind: "openai", base: "", defaultModel: "" },
 };
 
@@ -151,6 +155,64 @@ class ApiClient {
     const parsed = parseModelList(data);
     if (!parsed.models.length) throw new Error(parsed.issue || "The provider returned an empty model list.");
     return parsed;
+  }
+
+  /**
+   * Stream a reply through fetch/SSE when the runtime and provider support it.
+   * Returns this.chat() unchanged when fetch is missing, when the provider
+   * ignores `stream` and answers with ordinary JSON, or when the SSE body is
+   * empty. A provider error is raised, never silently retried here.
+   */
+  async streamChat(system, messages, opts) {
+    const o = opts || {};
+    if (typeof fetch !== "function" || typeof AbortController === "undefined" || typeof o.onDelta !== "function") {
+      return this.chat(system, messages, o);
+    }
+    const { preset, base, key, model } = this.cfg();
+    if (!base) throw new Error("Add a base URL in the plugin settings.");
+    if (!model) throw new Error("Add a model name in the plugin settings.");
+    if (!key && !preset.noKey) throw new Error("Add your API key in the plugin settings.");
+    const msgs = messages.slice(-20);
+    while (msgs.length && msgs[0].role !== "user") msgs.shift();
+    const kind = preset.kind === "anthropic" ? "anthropic" : "openai";
+    const url = preset.kind === "anthropic" ? `${base}/v1/messages` : `${base}/chat/completions`;
+    const headers =
+      preset.kind === "anthropic" ? { "x-api-key": key, "anthropic-version": "2023-06-01" } : key ? { Authorization: `Bearer ${key}` } : {};
+    const body =
+      preset.kind === "anthropic"
+        ? { model, max_tokens: o.maxTokens || 1500, system, messages: msgs, stream: true }
+        : { model, max_tokens: o.maxTokens || 1500, messages: [{ role: "system", content: system }, ...msgs], stream: true };
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json", accept: "text/event-stream" },
+      body: JSON.stringify(body),
+      signal: o.signal,
+    });
+    if (!response || !response.ok) {
+      let detail = response ? `HTTP ${response.status}` : "no response";
+      try {
+        const data = response && typeof response.json === "function" ? await response.json() : null;
+        const message = data && data.error ? data.error.message || data.error : "";
+        if (message) detail += `: ${str(typeof message === "string" ? message : JSON.stringify(message)).slice(0, 300)}`;
+      } catch (error) {
+        /* the error body may not be JSON */
+      }
+      throw new Error(detail);
+    }
+    const type = response.headers && typeof response.headers.get === "function" ? str(response.headers.get("content-type")) : "";
+    if (type.includes("text/event-stream") && response.body && typeof response.body.getReader === "function") {
+      const text = await readStream(chunksFromStream(response.body), { kind, onDelta: o.onDelta, signal: o.signal });
+      if (text.trim()) return text;
+      return this.chat(system, messages, o);
+    }
+    if (typeof response.json === "function") {
+      const data = await response.json();
+      const text = fullText(data, kind);
+      if (!text.trim()) throw new Error("The provider returned an empty reply.");
+      o.onDelta(text);
+      return text;
+    }
+    return this.chat(system, messages, o);
   }
 
   async chat(system, messages, opts) {

@@ -6166,19 +6166,50 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
-  display: flex;
-  justify-content: center;
+  display: block;
   margin-top: 8px;
   max-height: 68vh;
   overflow: auto;
   padding: 8px;
+  position: relative;
+  scroll-padding-top: 8px;
 }
 
 .qt-pdf-ink-page-wrap {
-  display: inline-block;
+  display: block;
   line-height: 0;
+  margin: 0 auto 16px;
   max-width: 100%;
   position: relative;
+  width: fit-content;
+}
+
+.qt-pdf-ink-page-number {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
+  margin: 8px 0 2px;
+  text-align: center;
+}
+
+.qt-pdf-ink-form-layer {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+.qt-pdf-ink-form-field {
+  position: absolute;
+  overflow: hidden;
+  border: 1px solid var(--interactive-accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  color: var(--text-normal);
+  font-size: 8px;
+  line-height: 1.2;
+  padding: 1px 2px;
+  white-space: nowrap;
 }
 
 .qt-pdf-ink-page {
@@ -6195,6 +6226,7 @@ body.is-mobile.mcq-practice-mode .workspace-leaf-content[data-type="question-tra
   position: absolute;
   touch-action: none;
   width: 100%;
+  z-index: 2;
 }
 
 @media (max-width: 480px) {
@@ -12021,4 +12053,55 @@ body.is-mobile .qt-screen .qt-local-events-tab {
 .qt-pdf-editor-history-hint {
   flex: 1 1 12em;
   min-width: 8em;
+}
+
+/* ---- chat message actions ---- */
+
+.qt-msg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.qt-msg-actions button {
+  min-height: 30px;
+  font-size: var(--font-ui-smaller);
+}
+
+.qt-error button {
+  margin-top: 4px;
+  min-height: 30px;
+  font-size: var(--font-ui-smaller);
+}
+
+/* Conversation library in the study agent panel */
+.qt-chat-library {
+  margin: 6px 0 2px;
+}
+.qt-chat-library-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 4px 0;
+}
+.qt-chat-library-row button.qt-chat-library-open {
+  width: 100%;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qt-chat-library-row.is-active button.qt-chat-library-open {
+  font-weight: var(--font-semibold, 600);
+}
+.qt-msg.is-streaming .qt-msg-text::after {
+  content: "▍";
+  opacity: 0.5;
+  animation: qt-stream-caret 1s steps(2, start) infinite;
+}
+@keyframes qt-stream-caret {
+  to {
+    visibility: hidden;
+  }
 }

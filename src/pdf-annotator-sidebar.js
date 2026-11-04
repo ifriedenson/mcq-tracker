@@ -44,6 +44,7 @@ function sidebarRows(rows, options) {
       color: str(row.color) || "yellow",
       note: str(row.note).trim(),
       quote: str(row.quote).trim(),
+      canAsk: Boolean(str(row.quote).trim() || str(row.note).trim()),
       tags: Array.isArray(row.tags) ? row.tags.slice() : [],
       tagText: tagText(row.tags),
       label: `${str(row.type) || "note"} · page ${Math.max(1, Math.round(Number(row.page) || 1))}`,
@@ -82,7 +83,7 @@ function nextSelectedId(rows, deletedId) {
 /**
  * Renders the sidebar into `container`. Handlers: onSelect(id), onQuery(text),
  * onType(type), onToggle, onEditNote(id), onSaveNote(id, text), onEditTags(id),
- * onSaveTags(id, text), onCancelEdit, onDelete(id).
+ * onSaveTags(id, text), onCancelEdit, onAsk(id), onDelete(id).
  */
 function renderSidebar(container, model, handlers) {
   const el = container;
@@ -140,6 +141,14 @@ function renderSidebar(container, model, handlers) {
     const actions = item.createDiv({ cls: "qt-pdf-sidebar-actions" });
     actions.createEl("button", { text: "Edit note" }).addEventListener("click", () => h.onEditNote && h.onEditNote(row.id));
     actions.createEl("button", { text: "Edit tags" }).addEventListener("click", () => h.onEditTags && h.onEditTags(row.id));
+    if (row.canAsk) {
+      actions
+        .createEl("button", { text: "Ask AI", cls: "qt-pdf-sidebar-ask" })
+        .addEventListener("click", (event) => {
+          if (event && event.stopPropagation) event.stopPropagation();
+          h.onAsk && h.onAsk(row.id);
+        });
+    }
     actions
       .createEl("button", { text: "Delete", cls: "qt-danger" })
       .addEventListener("click", () => h.onDelete && h.onDelete(row.id));

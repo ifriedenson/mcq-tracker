@@ -32,6 +32,11 @@ const {
   setDocumentProperties,
   setFieldValue,
   splitPdf,
+  addShape,
+  resizePages,
+  PAGE_SIZES,
+  SHAPE_FILLS,
+  SHAPES,
   TEXT_POSITIONS,
 } = require("./pdf-editor");
 const {
@@ -164,6 +169,16 @@ class PdfEditorModal extends Modal {
       fieldSelect: "",
       fieldOptions: "Small, Medium, Large",
       fieldChecked: false,
+      shape: "rectangle",
+      shapePosition: "middle-center",
+      shapeWidth: "240",
+      shapeHeight: "120",
+      shapeColor: "red",
+      shapeFill: "none",
+      shapePage: "all",
+      pageSize: "A4",
+      resizePage: "all",
+      insertAt: "1",
     };
     this.statusEl = null;
     this.listEl = null;
@@ -218,6 +233,17 @@ class PdfEditorModal extends Modal {
     addPages.addEventListener("click", () => this.pickSource());
     const blank = bar.createEl("button", { text: "Add blank page", cls: "qt-grow", attr: { "aria-label": "Append a blank page" } });
     blank.addEventListener("click", () => this.appendBlank());
+    const insertLabel = bar.createEl("label", { cls: "qt-pdf-editor-select" });
+    insertLabel.createSpan({ text: "Insert at" });
+    const insertPosition = insertLabel.createEl("input", { cls: "qt-pdf-editor-input", type: "number" });
+    insertPosition.setAttribute("aria-label", "Insert a blank page at this position");
+    insertPosition.min = "1";
+    insertPosition.value = str(this.content.insertAt);
+    insertPosition.addEventListener("change", () => {
+      this.content.insertAt = insertPosition.value;
+    });
+    const insertBlank = bar.createEl("button", { text: "Insert blank page", cls: "qt-grow", attr: { "aria-label": "Insert a blank page at the chosen position" } });
+    insertBlank.addEventListener("click", () => this.insertBlank());
     const extract = bar.createEl("button", { text: "Extract selected", cls: "qt-grow", attr: { "aria-label": "Save the selected pages as a new PDF" } });
     extract.addEventListener("click", () => this.extractSelected());
     const reset = bar.createEl("button", { text: "Reset changes", cls: "qt-grow", attr: { "aria-label": "Discard every change and reload the original PDF" } });
@@ -563,7 +589,11 @@ class PdfEditorModal extends Modal {
   }
 
   reorder(from, to) {
-    if (to < 0 || to >= this.originOrder.length) return Promise.resolve({ ok: false, reason: "index" });
+    if (!Number.isInteger(to) || to < 0 || to >= this.originOrder.length) {
+      const message = `Position ${str(to) || "?"} is not in this PDF.`;
+      this.setStatus(message);
+      return Promise.resolve({ ok: false, reason: "index", message });
+    }
     return this.runMutation("move a page", () => {
       const result = movePage(this.doc, from, to);
       if (result.ok) {
@@ -573,6 +603,7 @@ class PdfEditorModal extends Modal {
       }
       return result;
     }, () => {
+      this.syncFields();
       this.renderPages();
       this.renderFooter();
       this.setStatus(`Moved page ${from + 1} to position ${to + 1}. Nothing is written until you save a copy.`);
@@ -582,9 +613,13 @@ class PdfEditorModal extends Modal {
   duplicate(index) {
     return this.runMutation(`duplicate page ${index + 1}`, async () => {
       const result = await duplicatePage(this.doc, index);
-      if (result.ok) this.originOrder.splice(index + 1, 0, 0);
+      if (result.ok) {
+        this.originOrder.splice(index + 1, 0, 0);
+        this.selection = new Set();
+      }
       return result;
     }, () => {
+      this.syncFields();
       this.renderPages();
       this.renderFooter();
       this.setStatus(`Page ${index + 1} was duplicated. Nothing is written until you save a copy.`);
@@ -600,6 +635,7 @@ class PdfEditorModal extends Modal {
       }
       return result;
     }, () => {
+      this.syncFields();
       this.renderPages();
       this.renderFooter();
       this.setStatus(`Deleted page ${index + 1}. Nothing is written until you save a copy.`);
@@ -612,10 +648,43 @@ class PdfEditorModal extends Modal {
       if (result.ok) this.originOrder.push(0);
       return result;
     }, () => {
+      this.syncFields();
       this.renderPages();
       this.renderFooter();
       this.setStatus("A blank page was added at the end. Nothing is written until you save a copy.");
     });
+  }
+
+  /** A blank page between two pages: the page map and the selection move with it. */
+  insertBlank() {
+    /* the field reads as a position (1 is before the first page) */
+    const position = Math.round(Number(this.content.insertAt));
+    return this.runMutation("insert a blank page", () => {
+      if (!Number.isInteger(position) || position < 1) {
+        return { ok: false, reason: "index", message: "Type a position from 1 to one past the last page." };
+      }
+      const result = addBlankPage(this.doc, position - 1);
+      if (result.ok) {
+        this.originOrder.splice(result.index, 0, 0);
+        this.selection = new Set();
+      }
+      return result;
+    }, (result) => {
+      this.syncFields();
+      this.renderPages();
+      this.renderFooter();
+      this.setStatus(`Inserted a blank page at position ${result.index + 1}. Nothing is written until you save a copy.`);
+    });
+  }
+
+  /** A reorder or delete changes which page each form field sits on. */
+  syncFields() {
+    try {
+      this.fields = formFields(this.doc).fields;
+    } catch (error) {
+      /* a removed page can leave the form unreadable for a moment; keep the last read */
+    }
+    this.renderFields();
   }
 
   pickSource() {
@@ -636,6 +705,7 @@ class PdfEditorModal extends Modal {
       if (result.ok) for (let i = 0; i < result.added; i++) this.originOrder.push(0);
       return result;
     }, (result) => {
+      this.syncFields();
       this.renderPages();
       this.renderFooter();
       this.setStatus(`Added ${result.added} page${result.added === 1 ? "" : "s"} from ${file.path}.`);
@@ -800,6 +870,37 @@ class PdfEditorModal extends Modal {
     });
     const numberButton = numberRow.createEl("button", { text: "Add page numbers", cls: "qt-grow" });
     numberButton.addEventListener("click", () => this.numberContent());
+
+    const shapeRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentSelect(shapeRow, "Shape", "Shape to add", SHAPES, this.content.shape, (value) => {
+      this.content.shape = value;
+    });
+    this.contentSelect(shapeRow, "Position", "Shape position", TEXT_POSITIONS, this.content.shapePosition, (value) => {
+      this.content.shapePosition = value;
+    });
+    this.contentInput(shapeRow, "Width pt", "number", "Shape width", this.content.shapeWidth, (value) => {
+      this.content.shapeWidth = value;
+    });
+    this.contentInput(shapeRow, "Height pt", "number", "Shape height", this.content.shapeHeight, (value) => {
+      this.content.shapeHeight = value;
+    });
+    this.contentSelect(shapeRow, "Colour", "Shape colour", INK_COLORS, this.content.shapeColor, (value) => {
+      this.content.shapeColor = value;
+    });
+    this.contentSelect(shapeRow, "Fill", "Shape fill", SHAPE_FILLS, this.content.shapeFill, (value) => {
+      this.content.shapeFill = value;
+    });
+    this.pageSelect(shapeRow, "Shape page", "shapePage");
+    const shapeButton = shapeRow.createEl("button", { text: "Add shape", cls: "qt-grow" });
+    shapeButton.addEventListener("click", () => this.shapeContent());
+
+    const paperRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentSelect(paperRow, "Paper", "Page size", PAGE_SIZES.map((entry) => entry.label), this.content.pageSize, (value) => {
+      this.content.pageSize = value;
+    });
+    this.pageSelect(paperRow, "Resize page", "resizePage");
+    const paperButton = paperRow.createEl("button", { text: "Resize pages", cls: "qt-grow" });
+    paperButton.addEventListener("click", () => this.resizeContent());
 
     host.createEl("h4", { text: "Watermark and document" });
     const watermarkRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
@@ -1088,6 +1189,26 @@ class PdfEditorModal extends Modal {
       size: Number(this.content.numberSize) || 9,
       pages: "all",
     }), (value) => `Numbered ${value.pages} page${value.pages === 1 ? "" : "s"}.`);
+  }
+
+  shapeContent() {
+    return this.runContentEdit("add a shape", () => addShape(this.doc, {
+      shape: this.content.shape,
+      position: this.content.shapePosition,
+      width: Number(this.content.shapeWidth),
+      height: Number(this.content.shapeHeight),
+      color: this.content.shapeColor,
+      fill: this.content.shapeFill,
+      pages: this.content.shapePage === "all" ? "all" : Number(this.content.shapePage),
+    }), (value) => `Drew a ${value.shape} on ${value.pages} page${value.pages === 1 ? "" : "s"}.`);
+  }
+
+  resizeContent() {
+    const preset = PAGE_SIZES.find((entry) => entry.label === this.content.pageSize) || PAGE_SIZES[0];
+    return this.runContentEdit("set the page size", () => resizePages(this.doc, {
+      size: preset.id,
+      pages: this.content.resizePage === "all" ? "all" : Number(this.content.resizePage),
+    }), (value) => `Resized ${value.resized} page${value.resized === 1 ? "" : "s"} to ${Math.round(value.width)} by ${Math.round(value.height)} points${value.skipped ? `, ${value.skipped} already that size` : ""}.`);
   }
 
   /** The annotation tool as an ordinary edit: draw the sidecar marks now, undoably. */

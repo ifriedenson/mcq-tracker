@@ -31,6 +31,7 @@ const readingLibrary = require("./reading-library");
 const courseHealth = require("./course-health");
 const feynmanAi = require("./feynman-ai");
 const pdfAnnotationIndex = require("./pdf-annotation-index");
+const readingCompanion = require("./reading-companion");
 const vaultTaskIndex = require("./vault-task-index");
 const taskTags = require("./task-tags");
 const glossary = require("./glossary");
@@ -1435,6 +1436,43 @@ class QuestionTrackerPlugin extends Plugin {
     this.pdfAnnotationRevision = (this.pdfAnnotationRevision || 0) + 1;
     this.refreshViews();
     return next.annotations.length;
+  }
+
+  /**
+   * Send a passage from the PDF reader to the Study agent. The prompt names the
+   * page and annotation link, and the existing chat owns the provider request.
+   */
+  async askPdfPassage(pdfPath, row, question) {
+    const source = String(pdfPath || "").trim();
+    if (!source || !/\.pdf$/i.test(source)) {
+      new Notice("Open a PDF first, then ask about a passage.");
+      return false;
+    }
+    const ai = this.settings && this.settings.ai;
+    if (!ai || ai.enabled !== true) {
+      new Notice("Turn on AI under Settings > MCQ Tracker > OpenCode (AI) to ask about a passage.");
+      return false;
+    }
+    const prompt = readingCompanion.passagePrompt(source, row, question);
+    if (!prompt) {
+      new Notice("That annotation has no quote or note to ask about.");
+      return false;
+    }
+    try {
+      const view = await this.activateAgent();
+      if (!view || typeof view.askPassage !== "function") {
+        new Notice("The Study agent could not open.");
+        return false;
+      }
+      if (!(await view.askPassage(prompt))) {
+        new Notice("The Study agent is busy or not ready. Nothing was sent.");
+        return false;
+      }
+      return true;
+    } catch (e) {
+      new Notice(`Could not ask the Study agent: ${String(e && e.message ? e.message : e)}`);
+      return false;
+    }
   }
 
   /** Writes a Markdown digest beside the PDF, numbered instead of overwriting. */
@@ -7459,7 +7497,11 @@ ${body}
         if (!text) throw new Error("OpenCode returned an empty reply.");
         return text;
       }
-      return new ApiClient(ai, this.app, { model }).chat(system, Array.isArray(messages) ? messages : [], { ...o, maxTokens });
+      const client = new ApiClient(ai, this.app, { model });
+      if (typeof o.onDelta === "function") {
+        return client.streamChat(system, Array.isArray(messages) ? messages : [], { ...o, maxTokens });
+      }
+      return client.chat(system, Array.isArray(messages) ? messages : [], { ...o, maxTokens });
     };
     return aiService.withRetry(call, {
       onRetry: () => {

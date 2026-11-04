@@ -167,8 +167,46 @@ function makeDom() {
           };
         }
         if (k === "isConnected") return true;
-        if (k === "scrollTop") return 0;
+        if (k === "scrollTop") return Number(own.scrollTop) || 0;
+        if (k === "scrollHeight") return Number(own.scrollHeight) || 0;
+        if (k === "clientHeight") return Number(own.clientHeight) || 0;
+        if (k === "offsetTop") return Number(own.offsetTop) || 0;
+        if (k === "offsetHeight") return Number(own.offsetHeight) || 0;
+        if (k === "scrollTo") return (opts) => {
+          own.scrollTop = Number(opts && opts.top) || 0;
+          own.scrollCalls = (own.scrollCalls || []).concat(opts || {});
+        };
+        if (k === "scrollIntoView") return () => { own.scrolledIntoView = true; };
+        if (k === "getBoundingClientRect") return () => ({ left: 0, top: 0, width: Number(own.width) || 200, height: Number(own.height) || 300 });
+        if (k === "getContext") return () => {
+          if (!own.ctx) {
+            const target = {
+              ops: [],
+              fillStyle: "",
+              strokeStyle: "",
+              globalAlpha: 1,
+              lineWidth: 1,
+              lineCap: "round",
+              lineJoin: "round",
+              measureText: () => ({ width: 10 }),
+              fillRect: () => target.ops.push("fillRect"),
+            };
+            // Unknown 2D calls keep the old callable fallback, so a canvas user
+            // never has to know which method the fake happens to list.
+            own.ctx = new Proxy(target, {
+              get(object, name) {
+                if (name in object) return object[name];
+                const fallback = () => make({});
+                object[name] = fallback;
+                return fallback;
+              },
+            });
+          }
+          return own.ctx;
+        };
+        if (k === "empty") return () => { own.children.length = 0; };
         if (k === "addEventListener") return (ev, fn) => own.handlers.push({ ev, fn });
+        if (Object.prototype.hasOwnProperty.call(own, k)) return own[k];
         if (k === "setText") return (text) => { own.meta.text = String(text); };
         if (k === "setAttr") {
           return (name, value) => {
@@ -198,6 +236,9 @@ function makeDom() {
         if (k === "value") own.value = v;
         if (k === "checked") own.checked = v === true;
         if (k === "disabled") own.disabled = v === true;
+        if (k === "scrollTop") own.scrollTop = Number(v) || 0;
+        if (k === "clientHeight" || k === "scrollHeight" || k === "offsetTop" || k === "offsetHeight") own[k] = Number(v) || 0;
+        if (!["value", "checked", "disabled", "scrollTop", "clientHeight", "scrollHeight", "offsetTop", "offsetHeight"].includes(k)) own[k] = v;
         return true;
       },
     });
