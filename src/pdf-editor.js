@@ -717,6 +717,70 @@ function truthy(value) {
   return value === true || text === "true" || text === "on" || text === "yes" || text === "1" || text === "checked";
 }
 
+/** Removes one field and its widget annotations; the rest of the form stays live. */
+function deleteFormField(doc, name) {
+  const key = str(name).trim();
+  if (!key) return { ok: false, reason: "empty", message: "Choose the field to delete." };
+  const field = findField(doc, key);
+  if (!field) return { ok: false, reason: "missing", message: `There is no form field named “${key}”.` };
+  const kind = fieldKind(field);
+  if (kind === "other") {
+    return { ok: false, reason: "unsupported", message: `“${key}” is not a text, checkbox, radio or dropdown field, so it is not removed here.` };
+  }
+  const refs = new Set(fieldWidgetRefs(field).map(String));
+  let widgets = 0;
+  try {
+    for (const page of doc.getPages()) {
+      const annots = page.node.Annots();
+      if (!annots) continue;
+      for (let index = annots.size() - 1; index >= 0; index--) {
+        if (!refs.has(String(annots.get(index)))) continue;
+        annots.remove(index);
+        widgets += 1;
+      }
+    }
+  } catch (error) {
+    return { ok: false, reason: "widgets", message: `“${key}” could not be taken off its page: ${pdfError(error)}` };
+  }
+  try {
+    doc.getForm().removeField(field);
+  } catch (error) {
+    return { ok: false, reason: "form", message: `“${key}” could not be removed from the form: ${pdfError(error)}` };
+  }
+  return { ok: true, name: key, kind, widgets, fields: formFieldCount(doc) };
+}
+
+/**
+ * Renames one flat field name. The value, the widget rectangle and the
+ * appearance stay where they are, so the renamed field is still fillable.
+ */
+function renameFormField(doc, name, next) {
+  const from = str(name).trim();
+  if (!from) return { ok: false, reason: "empty", message: "Choose the field to rename." };
+  const field = findField(doc, from);
+  if (!field) return { ok: false, reason: "missing", message: `There is no form field named “${from}”.` };
+  const to = winAnsiText(next).replace(/\s+/g, " ").trim().slice(0, MAX_FIELD_NAME);
+  if (!to) return { ok: false, reason: "name", message: "Type the new field name." };
+  if (to === from) return { ok: false, reason: "name", message: `“${from}” already has that name.` };
+  let taken = [];
+  try {
+    taken = doc.getForm().getFields().map((item) => str(item.getName()));
+  } catch (error) {
+    taken = [];
+  }
+  if (taken.includes(to)) return { ok: false, reason: "duplicate", message: `A field named “${to}” already exists.` };
+  const kind = fieldKind(field);
+  if (kind === "other") {
+    return { ok: false, reason: "unsupported", message: `“${from}” is not a text, checkbox, radio or dropdown field, so it is not renamed here.` };
+  }
+  try {
+    field.acroField.dict.set(PDFName.of("T"), PDFHexString.fromText(to));
+  } catch (error) {
+    return { ok: false, reason: "name", message: `“${from}” could not be renamed: ${pdfError(error)}` };
+  }
+  return { ok: true, from, to, kind };
+}
+
 /** Writes one field value; every refusal names the field and the reason. */
 function setFieldValue(doc, name, value) {
   const field = findField(doc, name);
@@ -2059,6 +2123,7 @@ module.exports = {
   addText,
   addWatermark,
   cropPages,
+  deleteFormField,
   deletePage,
   displayPoint,
   displayRect,
@@ -2078,6 +2143,7 @@ module.exports = {
   pdfError,
   readLinks,
   readOutline,
+  renameFormField,
   setOutline,
   resizePages,
   rotatePage,

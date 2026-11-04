@@ -1266,3 +1266,52 @@ test("reads a link whose destination is an indirect object", async () => {
   const links = editor.readLinks((await editor.loadEditorDocument(await doc.save())).doc);
   assert.deepEqual(links.links.map((row) => [row.page, row.target, row.to]), [[1, "page", 2]]);
 });
+
+test("renames a form field, keeping its value and its widget", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  assert.equal(editor.setFieldValue(opened.doc, "student", "Ada").ok, true);
+  const annots = opened.doc.getPage(0).node.Annots().size();
+  const renamed = editor.renameFormField(opened.doc, "student", "pupil");
+  assert.equal(renamed.ok, true);
+  assert.deepEqual([renamed.from, renamed.to, renamed.kind], ["student", "pupil", "text"]);
+  assert.equal(opened.doc.getPage(0).node.Annots().size(), annots, "the widget stays on its page");
+  const saved = await editor.savePdf(opened.doc);
+  const reopened = await editor.loadEditorDocument(saved.bytes);
+  const rows = editor.formFields(reopened.doc).fields;
+  assert.equal(rows.some((row) => row.name === "student"), false);
+  const pupil = rows.find((row) => row.name === "pupil");
+  assert.equal(pupil.value, "Ada", "the value follows the name");
+  assert.equal(pupil.page, 0);
+  assert.equal(editor.setFieldValue(reopened.doc, "pupil", "Grace").ok, true, "the renamed field is still fillable");
+});
+
+test("deletes a form field and takes its widget off the page", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  const before = opened.doc.getPage(1).node.Annots().size();
+  const removed = editor.deleteFormField(opened.doc, "grade");
+  assert.equal(removed.ok, true);
+  assert.equal(removed.widgets, 1);
+  assert.equal(removed.fields, 2);
+  assert.equal(opened.doc.getPage(1).node.Annots().size(), before - 1, "the widget annotation is gone");
+  const saved = await editor.savePdf(opened.doc);
+  const reopened = await editor.loadEditorDocument(saved.bytes);
+  assert.deepEqual(editor.formFields(reopened.doc).fields.map((row) => row.name).sort(), ["agree", "student"]);
+  assert.equal(editor.setFieldValue(reopened.doc, "student", "still here").ok, true, "the other fields stay live");
+  assert.equal(editor.deleteFormField(reopened.doc, "grade").reason, "missing");
+});
+
+test("refuses to rename or delete a field that is missing, empty or duplicated", async () => {
+  const opened = await editor.loadEditorDocument(await fixture());
+  assert.equal(editor.deleteFormField(opened.doc, "").reason, "empty");
+  assert.equal(editor.deleteFormField(opened.doc, "nope").reason, "missing");
+  assert.equal(editor.renameFormField(opened.doc, "", "x").reason, "empty");
+  assert.equal(editor.renameFormField(opened.doc, "nope", "x").reason, "missing");
+  assert.equal(editor.renameFormField(opened.doc, "student", "").reason, "name");
+  assert.equal(editor.renameFormField(opened.doc, "student", "student").reason, "name");
+  assert.equal(editor.renameFormField(opened.doc, "student", "agree").reason, "duplicate");
+  assert.equal(editor.formFields(opened.doc).fields.length, 3, "nothing was removed or renamed");
+  const long = "x".repeat(200);
+  const trimmed = editor.renameFormField(opened.doc, "student", long);
+  assert.equal(trimmed.ok, true);
+  assert.equal(trimmed.to.length, editor.MAX_FIELD_NAME);
+});

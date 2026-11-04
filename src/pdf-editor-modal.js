@@ -17,6 +17,7 @@ const {
   addText,
   addWatermark,
   cropPages,
+  deleteFormField,
   deletePage,
   duplicatePage,
   editedPathFor,
@@ -32,6 +33,7 @@ const {
   parseBookmarkText,
   readLinks,
   readOutline,
+  renameFormField,
   rotatePage,
   savePdf,
   setDocumentProperties,
@@ -175,6 +177,8 @@ class PdfEditorModal extends Modal {
       fieldSelect: "",
       fieldOptions: "Small, Medium, Large",
       fieldChecked: false,
+      fieldManage: "",
+      fieldRename: "",
       shape: "rectangle",
       shapePosition: "middle-center",
       shapeWidth: "240",
@@ -1094,6 +1098,46 @@ class PdfEditorModal extends Modal {
     const button = host.createEl("button", { text: "Add field", cls: "qt-grow" });
     button.setAttribute("aria-label", "Add a form field to the copy");
     button.addEventListener("click", () => this.addFieldContent());
+
+    host.createEl("h4", { text: "Change a form field" });
+    host.createEl("p", {
+      cls: "qt-hint",
+      text: "Rename or remove a flat field. Its value and widget stay where they are, so nothing moves on the page.",
+    });
+    const manageRow = host.createDiv({ cls: "qt-row qt-pdf-editor-row" });
+    this.contentInput(manageRow, "Field", "text", "Existing field name", this.content.fieldManage, (value) => {
+      this.content.fieldManage = value;
+    });
+    this.contentInput(manageRow, "New name", "text", "New field name", this.content.fieldRename, (value) => {
+      this.content.fieldRename = value;
+    });
+    const renameButton = manageRow.createEl("button", { text: "Rename field", cls: "qt-grow" });
+    renameButton.addEventListener("click", () => this.renameField());
+    const deleteButton = manageRow.createEl("button", { text: "Delete field", cls: "qt-grow" });
+    deleteButton.addEventListener("click", () => this.deleteField());
+  }
+
+  renameField() {
+    return this.runMutation("rename a form field", () => renameFormField(this.doc, this.content.fieldManage, this.content.fieldRename), (result) => {
+      this.fields = formFields(this.doc).fields;
+      this.content.fieldManage = result.to;
+      this.content.fieldRename = "";
+      this.renderFields();
+      this.renderContent();
+      this.renderFooter();
+      this.setStatus(`Renamed “${result.from}” to “${result.to}”. Nothing is written until you save a copy.`);
+    });
+  }
+
+  deleteField() {
+    return this.runMutation("delete a form field", () => deleteFormField(this.doc, this.content.fieldManage), (result) => {
+      this.fields = formFields(this.doc).fields;
+      this.content.fieldManage = "";
+      this.renderFields();
+      this.renderContent();
+      this.renderFooter();
+      this.setStatus(`Deleted “${result.name}” and ${result.widgets} widget${result.widgets === 1 ? "" : "s"}. Nothing is written until you save a copy.`);
+    });
   }
 
   /** One undo step; nothing reaches the vault before Save. */
