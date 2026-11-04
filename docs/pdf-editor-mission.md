@@ -26,13 +26,20 @@ dispatches. No network request, provider, account or new dependency was added at
 
 - `tests/pdf-editor.test.js` — 90 tests on real bytes: page operations, form fill and
   authoring, flattening, shapes, resizing, links (URL, page jump, rotated page, indirect
-  destination, retargeting, rectangle rewriting, moving to another page, border and highlight styling, launch, remote go-to and named-destination targets, beveled/inset/underline border styles, custom dash patterns and dash phases, launch, named and remote retargets, removal, every refusal), bookmarks (nested
+  destination, retargeting, rectangle rewriting, moving to another page, border and highlight
+  styling, beveled/inset/underline styles, custom dash patterns and phases, launch, named and
+  remote targets with their in-place retargets, removal, every refusal), bookmarks (nested
   write/read, replacing, clearing, the raw tree, the text format, zoom and position views, every
   refusal), and field rename/delete with value and widget preservation.
+- `tests/pdf-editor-record.test.js` — 5 tests that hold this record to the code: every capability
+  it names is exported, every limit it states equals the engine's constant, the empty and damaged
+  refusals behave, both editor files stay free of network calls, dynamic code and `innerHTML`, and
+  every release it lists has its notes.
 - `tests/pdf-editor-window.test.js` drives the real window against the built `main.js` in a
   mocked vault: rotate, move, fill, burn, save, the second-save path, the command, the reader
   hand-over, and the **Add link**, **Move link**, **Move to page**, **Style link** (border style, dash pattern and dash phase included) and **Change link** (with the **Change to** launch file, named destination and remote file and destination) rows.
-- `tests/pdf-editor-history.test.js` covers the undo/redo history and its byte budget.
+- `tests/pdf-editor-history.test.js` covers the undo/redo history and its byte budget. The
+  history keeps the opened file plus the last 20 steps within a 96 MB budget.
 - At 1.244.0: full suite **1,887 pass**, `npm run check` clean across **297 source files**,
   `main.js` current across **298 modules**, `git diff --check` clean.
 - At 1.247.0: full suite **1894 pass**, `main.js` current across **298 modules** at
@@ -53,8 +60,30 @@ dispatches. No network request, provider, account or new dependency was added at
   **4,972,820 bytes**.
 - At 1.255.0: full suite **1927 pass**, `main.js` current across **298 modules** at
   **4,976,540 bytes**.
-- Release notes: `docs/release-notes/1.242.0.md` through `1.255.0.md`, with the earlier
+- At 1.256.0: full suite **1932 pass** (record 5), `main.js` unchanged at
+  **4,976,540 bytes** across **298 modules**.
+- Release notes: `docs/release-notes/1.242.0.md` through `1.256.0.md`, with the earlier
   1.218.0–1.231.0 notes beside them.
+
+## Review (Nov 4, 2026)
+
+The record, this plan, `AGENTS.md` and the 1.242.0–1.255.0 notes were compared
+against `src/pdf-editor.js`, `src/pdf-editor-modal.js`, `src/pdf-editor-history.js`
+and the tests. **Every capability the record claims is in the code**; no feature
+was missing and none was added. The one defect found was in this record: the
+link-test bullet had been garbled by successive edits (“launch” twice, broken
+lines), and it is rewritten above.
+
+Security review of the editor found **no high-confidence vulnerability**: the
+editor files make no network request, hold no credential, use no `eval` or
+`new Function`, never set `innerHTML`/`insertAdjacentHTML`, and render only
+through Obsidian's `createEl`/`setText`. The only write path is
+`editedPathFor` + `vault.createBinary`, which strips leading slashes and every
+`\ / : * ? " < > |` from the base name, keeps the original folder and never
+overwrites an existing path. Parsing untrusted PDFs in-process with pdf-lib is
+the residual risk, shared with the reader, and is recorded here rather than
+claimed away. `tests/pdf-editor-record.test.js` now fails the suite if the
+record or this purity claim drifts from the code.
 
 ## Remaining gates — refused, never approximated
 
